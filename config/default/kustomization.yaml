@@ -18,6 +18,7 @@ resources:
 - ../manager
 - ../webhook
 # - ../certmanager # not needed, because ODH is using OpenShift's serving certificates for WebHooks
+- network-policies.yaml # ODH specific
 
 generatorOptions:
   disableNameSuffixHash: true
@@ -160,7 +161,7 @@ replacements:
   #- manager_prometheus_metrics_patch.yaml
 patches:
 - path: manager_image_patch.yaml
-- path: manager_auth_proxy_patch.yaml
+#- path: manager_auth_proxy_patch.yaml
 - path: isvc_mutatingwebhook_cainjection_patch.yaml
 - path: isvc_validatingwebhook_cainjection_patch.yaml
 - path: trainedmodel_mutatingwebhook_cainjection_patch.yaml
