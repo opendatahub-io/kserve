@@ -94,7 +94,7 @@ func TestAcceleratorInjector(t *testing.T) {
 	}
 
 	for name, scenario := range scenarios {
-		InjectGKEAcceleratorSelector(scenario.original, nil)
+		InjectGKEAcceleratorSelector(scenario.original)
 		// cmd.Diff complains on ResourceList when Nvidia is key. Objects are explicitly compared
 		if diff := cmp.Diff(
 			scenario.expected.Spec.NodeSelector,

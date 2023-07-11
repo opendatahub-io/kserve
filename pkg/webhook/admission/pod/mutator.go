@@ -123,15 +123,17 @@ func (mutator *Mutator) mutate(pod *v1.Pod, configMap *v1.ConfigMap, targetNs *v
 		return err
 	}
 
-	mutators := []func(pod *v1.Pod, targetNs *v1.Namespace) error{
+	mutators := []func(pod *v1.Pod) error{
 		InjectGKEAcceleratorSelector,
-		storageInitializer.InjectStorageInitializer,
+		func(pod *v1.Pod) error {
+			return storageInitializer.InjectStorageInitializer(pod, targetNs)
+		},
 		agentInjector.InjectAgent,
 		metricsAggregator.InjectMetricsAggregator,
 	}
 
 	for _, mutator := range mutators {
-		if err := mutator(pod, targetNs); err != nil {
+		if err := mutator(pod); err != nil {
 			return err
 		}
 	}

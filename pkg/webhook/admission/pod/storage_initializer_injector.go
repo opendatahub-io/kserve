@@ -342,7 +342,7 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *v1.Pod, targ
 	}
 	uidStr := targetNs.Annotations[OpenShiftUidRangeAnnotationKey]
 	if uidStr == "" {
-		return fmt.Errorf("could not find OpenShift internal annotation %s on namespace: %s", OpenShiftUidRangeAnnotationKey, targetNs.Name)
+		return fmt.Errorf("could not find OpenShift internal annotation %s for calculating the process UID (minRange + 1) on namespace: %s", OpenShiftUidRangeAnnotationKey, targetNs.Name)
 	}
 	uidStrParts := strings.Split(uidStr, "/")
 	if uid, err := strconv.ParseInt(uidStrParts[0], 10, 64); err == nil {
@@ -350,7 +350,7 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *v1.Pod, targ
 		uid++
 		initContainer.SecurityContext.RunAsUser = ptr.Int64(uid)
 	} else {
-		return fmt.Errorf("could not parse value %s in annotation %s on namespace: %s", uidStr, OpenShiftUidRangeAnnotationKey, targetNs.Name)
+		return fmt.Errorf("could not parse value %s in annotation %s as an int64 value on namespace: %s", uidStr, OpenShiftUidRangeAnnotationKey, targetNs.Name)
 	}
 
 	// Add init container to the spec
