@@ -22,6 +22,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"knative.dev/pkg/kmp"
+	"knative.dev/pkg/ptr"
 
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/credentials"
@@ -71,6 +72,8 @@ var (
 			},
 		},
 	}
+
+	expectedInitContainerUid = ptr.Int64(1000740001)
 )
 
 func TestStorageInitializerInjector(t *testing.T) {
@@ -191,6 +194,9 @@ func TestStorageInitializerInjector(t *testing.T) {
 									MountPath: constants.DefaultModelLocalMountPath,
 								},
 							},
+							SecurityContext: &v1.SecurityContext{
+								RunAsUser: expectedInitContainerUid,
+							},
 						},
 					},
 					Volumes: []v1.Volume{
@@ -260,6 +266,9 @@ func TestStorageInitializerInjector(t *testing.T) {
 									Name:      "kserve-provision-location",
 									MountPath: constants.DefaultModelLocalMountPath,
 								},
+							},
+							SecurityContext: &v1.SecurityContext{
+								RunAsUser: expectedInitContainerUid,
 							},
 						},
 					},
@@ -340,6 +349,9 @@ func TestStorageInitializerInjector(t *testing.T) {
 									Name:      "kserve-provision-location",
 									MountPath: constants.DefaultModelLocalMountPath,
 								},
+							},
+							SecurityContext: &v1.SecurityContext{
+								RunAsUser: expectedInitContainerUid,
 							},
 						},
 					},
@@ -606,6 +618,9 @@ func TestCredentialInjection(t *testing.T) {
 									MountPath: constants.DefaultModelLocalMountPath,
 								},
 							},
+							SecurityContext: &v1.SecurityContext{
+								RunAsUser: expectedInitContainerUid,
+							},
 							Env: []v1.EnvVar{
 								{
 									Name: s3.AWSAccessKeyId,
@@ -711,6 +726,9 @@ func TestCredentialInjection(t *testing.T) {
 									MountPath: gcs.GCSCredentialVolumeMountPath,
 								},
 							},
+							SecurityContext: &v1.SecurityContext{
+								RunAsUser: expectedInitContainerUid,
+							},
 							Env: []v1.EnvVar{
 								{
 									Name:  gcs.GCSCredentialEnvKey,
@@ -799,6 +817,9 @@ func TestCredentialInjection(t *testing.T) {
 							Name:  "storage-initializer",
 							Image: StorageInitializerContainerImage + ":" + StorageInitializerContainerImageVersion,
 							Args:  []string{"s3://my-bucket/foo/bar", constants.DefaultModelLocalMountPath},
+							SecurityContext: &v1.SecurityContext{
+								RunAsUser: expectedInitContainerUid,
+							},
 							Env: []v1.EnvVar{
 								{
 									Name: credentials.StorageConfigEnvKey,
@@ -894,6 +915,9 @@ func TestCredentialInjection(t *testing.T) {
 							Name:  "storage-initializer",
 							Image: StorageInitializerContainerImage + ":" + StorageInitializerContainerImageVersion,
 							Args:  []string{"s3://my-bucket/foo/bar", constants.DefaultModelLocalMountPath},
+							SecurityContext: &v1.SecurityContext{
+								RunAsUser: expectedInitContainerUid,
+							},
 							Env: []v1.EnvVar{
 								{
 									Name: credentials.StorageConfigEnvKey,
@@ -1016,6 +1040,9 @@ func TestStorageInitializerConfigmap(t *testing.T) {
 									Name:      "kserve-provision-location",
 									MountPath: constants.DefaultModelLocalMountPath,
 								},
+							},
+							SecurityContext: &v1.SecurityContext{
+								RunAsUser: expectedInitContainerUid,
 							},
 						},
 					},
@@ -1394,6 +1421,9 @@ func TestTransformerCollocation(t *testing.T) {
 									MountPath: constants.DefaultModelLocalMountPath,
 								},
 							},
+							SecurityContext: &v1.SecurityContext{
+								RunAsUser: expectedInitContainerUid,
+							},
 						},
 					},
 					Volumes: []v1.Volume{
@@ -1571,6 +1601,9 @@ func TestTransformerCollocation(t *testing.T) {
 									Name:      "kserve-provision-location",
 									MountPath: constants.DefaultModelLocalMountPath,
 								},
+							},
+							SecurityContext: &v1.SecurityContext{
+								RunAsUser: expectedInitContainerUid,
 							},
 						},
 					},
