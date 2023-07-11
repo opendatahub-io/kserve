@@ -342,7 +342,7 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *v1.Pod, targ
 	}
 	uidStr := targetNs.Annotations[OpenShiftUidRangeAnnotationKey]
 	if uidStr == "" {
-		return fmt.Errorf("could not find annotation %s on namespace: %s", OpenShiftUidRangeAnnotationKey, targetNs.Name)
+		return fmt.Errorf("could not find OpenShift internal annotation %s on namespace: %s", OpenShiftUidRangeAnnotationKey, targetNs.Name)
 	}
 	uidStrParts := strings.Split(uidStr, "/")
 	if uid, err := strconv.ParseInt(uidStrParts[0], 10, 64); err == nil {
