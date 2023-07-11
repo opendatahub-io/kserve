@@ -28,7 +28,7 @@ const (
 	NvidiaGPUTaintValue        = "present"
 )
 
-func InjectGKEAcceleratorSelector(pod *v1.Pod) error {
+func InjectGKEAcceleratorSelector(pod *v1.Pod, _ *v1.Namespace) error {
 	gpuEnabled := false
 	for _, container := range pod.Spec.Containers {
 		if _, ok := container.Resources.Limits[constants.NvidiaGPUResourceType]; ok {

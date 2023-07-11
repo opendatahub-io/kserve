@@ -62,7 +62,14 @@ func (mutator *Mutator) Handle(ctx context.Context, req admission.Request) admis
 	// For some reason pod namespace is always empty when coming to pod mutator, need to set from admission request
 	pod.Namespace = req.AdmissionRequest.Namespace
 
-	if err := mutator.mutate(pod, configMap); err != nil {
+	targetNs := &v1.Namespace{}
+	err = mutator.Client.Get(context.TODO(), k8types.NamespacedName{Name: pod.Namespace, Namespace: pod.Namespace}, targetNs)
+	if err != nil {
+		log.Error(err, "Failed to get the target namespace", "name", pod.Namespace)
+		return admission.Errored(http.StatusInternalServerError, err)
+	}
+
+	if err := mutator.mutate(pod, configMap, targetNs); err != nil {
 		log.Error(err, "Failed to mutate pod", "name", pod.Labels[constants.InferenceServicePodLabelKey])
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
@@ -76,7 +83,7 @@ func (mutator *Mutator) Handle(ctx context.Context, req admission.Request) admis
 	return admission.PatchResponseFromRaw(req.AdmissionRequest.Object.Raw, patch)
 }
 
-func (mutator *Mutator) mutate(pod *v1.Pod, configMap *v1.ConfigMap) error {
+func (mutator *Mutator) mutate(pod *v1.Pod, configMap *v1.ConfigMap, targetNs *v1.Namespace) error {
 	credentialBuilder := credentials.NewCredentialBulder(mutator.Client, configMap)
 
 	storageInitializerConfig, err := getStorageInitializerConfigs(configMap)
@@ -116,7 +123,7 @@ func (mutator *Mutator) mutate(pod *v1.Pod, configMap *v1.ConfigMap) error {
 		return err
 	}
 
-	mutators := []func(pod *v1.Pod) error{
+	mutators := []func(pod *v1.Pod, targetNs *v1.Namespace) error{
 		InjectGKEAcceleratorSelector,
 		storageInitializer.InjectStorageInitializer,
 		agentInjector.InjectAgent,
@@ -124,7 +131,7 @@ func (mutator *Mutator) mutate(pod *v1.Pod, configMap *v1.ConfigMap) error {
 	}
 
 	for _, mutator := range mutators {
-		if err := mutator(pod); err != nil {
+		if err := mutator(pod, targetNs); err != nil {
 			return err
 		}
 	}

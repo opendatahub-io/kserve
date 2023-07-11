@@ -19,6 +19,7 @@ package pod
 import (
 	"encoding/json"
 	"fmt"
+
 	"github.com/kserve/kserve/pkg/constants"
 	v1 "k8s.io/api/core/v1"
 )
@@ -75,7 +76,7 @@ func setMetricAggregationEnvVars(pod *v1.Pod) {
 
 // InjectMetricsAggregator looks for the annotations to enable aggregate kserve-container and queue-proxy metrics and
 // if specified, sets port-related EnvVars in queue-proxy and the aggregate prometheus annotation.
-func (ma *MetricsAggregator) InjectMetricsAggregator(pod *v1.Pod) error {
+func (ma *MetricsAggregator) InjectMetricsAggregator(pod *v1.Pod, _ *v1.Namespace) error {
 	//Only set metric configs if the required annotations are set
 	enableMetricAggregation, ok := pod.ObjectMeta.Annotations[constants.EnableMetricAggregation]
 	if !ok {

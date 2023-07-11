@@ -62,6 +62,15 @@ var (
 			v1.ResourceMemory: resource.MustParse(StorageInitializerDefaultMemoryRequest),
 		},
 	}
+
+	targetNS = &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "my-ns",
+			Annotations: map[string]string{
+				OpenShiftUidRangeAnnotationKey: "1000740000/10000",
+			},
+		},
+	}
 )
 
 func TestStorageInitializerInjector(t *testing.T) {
@@ -354,7 +363,7 @@ func TestStorageInitializerInjector(t *testing.T) {
 			}),
 			config: storageInitializerConfig,
 		}
-		if err := injector.InjectStorageInitializer(scenario.original); err != nil {
+		if err := injector.InjectStorageInitializer(scenario.original, targetNS); err != nil {
 			t.Errorf("Test %q unexpected result: %s", name, err)
 		}
 		if diff, _ := kmp.SafeDiff(scenario.expected.Spec, scenario.original.Spec); diff != "" {
@@ -394,7 +403,7 @@ func TestStorageInitializerFailureCases(t *testing.T) {
 			}),
 			config: storageInitializerConfig,
 		}
-		if err := injector.InjectStorageInitializer(scenario.original); err != nil {
+		if err := injector.InjectStorageInitializer(scenario.original, targetNS); err != nil {
 			if !strings.HasPrefix(err.Error(), scenario.expectedErrorPrefix) {
 				t.Errorf("Test %q unexpected failure [%s], expected: %s", name, err.Error(), scenario.expectedErrorPrefix)
 			}
@@ -493,7 +502,7 @@ func TestCustomSpecStorageUriInjection(t *testing.T) {
 			}),
 			config: storageInitializerConfig,
 		}
-		if err := injector.InjectStorageInitializer(scenario.original); err != nil {
+		if err := injector.InjectStorageInitializer(scenario.original, targetNS); err != nil {
 			t.Errorf("Test %q unexpected result: %s", name, err)
 		}
 
@@ -944,7 +953,7 @@ func TestCredentialInjection(t *testing.T) {
 			credentialBuilder: builder,
 			config:            storageInitializerConfig,
 		}
-		if err := injector.InjectStorageInitializer(scenario.original); err != nil {
+		if err := injector.InjectStorageInitializer(scenario.original, targetNS); err != nil {
 			t.Errorf("Test %q unexpected failure [%s]", name, err.Error())
 		}
 		if diff, _ := kmp.SafeDiff(scenario.expected.Spec, scenario.original.Spec); diff != "" {
@@ -1037,7 +1046,7 @@ func TestStorageInitializerConfigmap(t *testing.T) {
 				StorageSpecSecretName: StorageInitializerDefaultStorageSpecSecretName,
 			},
 		}
-		if err := injector.InjectStorageInitializer(scenario.original); err != nil {
+		if err := injector.InjectStorageInitializer(scenario.original, targetNS); err != nil {
 			t.Errorf("Test %q unexpected result: %s", name, err)
 		}
 		if diff, _ := kmp.SafeDiff(scenario.expected.Spec, scenario.original.Spec); diff != "" {
@@ -1272,7 +1281,7 @@ func TestDirectVolumeMountForPvc(t *testing.T) {
 				EnableDirectPvcVolumeMount: true, // enable direct volume mount for PVC
 			},
 		}
-		if err := injector.InjectStorageInitializer(scenario.original); err != nil {
+		if err := injector.InjectStorageInitializer(scenario.original, targetNS); err != nil {
 			t.Errorf("Test %q unexpected result: %s", name, err)
 		}
 		if diff, _ := kmp.SafeDiff(scenario.expected.Spec, scenario.original.Spec); diff != "" {
@@ -1594,7 +1603,7 @@ func TestTransformerCollocation(t *testing.T) {
 			}),
 			config: scenario.storageConfig,
 		}
-		if err := injector.InjectStorageInitializer(scenario.original); err != nil {
+		if err := injector.InjectStorageInitializer(scenario.original, targetNS); err != nil {
 			t.Errorf("Test %q unexpected result: %s", name, err)
 		}
 		if diff, _ := kmp.SafeDiff(scenario.expected.Spec, scenario.original.Spec); diff != "" {

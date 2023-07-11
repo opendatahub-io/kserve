@@ -1112,7 +1112,7 @@ func TestAgentInjector(t *testing.T) {
 			loggerConfig,
 			batcherTestConfig,
 		}
-		injector.InjectAgent(scenario.original)
+		injector.InjectAgent(scenario.original, nil)
 		if diff, _ := kmp.SafeDiff(scenario.expected.Spec, scenario.original.Spec); diff != "" {
 			t.Errorf("Test %q unexpected result (-want +got): %v", name, diff)
 		}

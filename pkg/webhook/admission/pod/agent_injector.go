@@ -116,7 +116,7 @@ func getLoggerConfigs(configMap *v1.ConfigMap) (*LoggerConfig, error) {
 	return loggerConfig, nil
 }
 
-func (ag *AgentInjector) InjectAgent(pod *v1.Pod) error {
+func (ag *AgentInjector) InjectAgent(pod *v1.Pod, _ *v1.Namespace) error {
 	// Only inject the model agent sidecar if the required annotations are set
 	_, injectLogger := pod.ObjectMeta.Annotations[constants.LoggerInternalAnnotationKey]
 	_, injectPuller := pod.ObjectMeta.Annotations[constants.AgentShouldInjectAnnotationKey]

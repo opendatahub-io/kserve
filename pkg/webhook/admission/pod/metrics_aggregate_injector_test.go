@@ -290,7 +290,7 @@ func TestInjectMetricsAggregator(t *testing.T) {
 	}
 
 	for name, scenario := range scenarios {
-		ma.InjectMetricsAggregator(scenario.original)
+		ma.InjectMetricsAggregator(scenario.original, nil)
 		if diff, _ := kmp.SafeDiff(scenario.expected.Spec, scenario.original.Spec); diff != "" {
 			t.Errorf("Test %q unexpected result (-want +got): %v", name, diff)
 		}
