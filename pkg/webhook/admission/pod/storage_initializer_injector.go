@@ -334,23 +334,34 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *v1.Pod, targ
 	/*
 		OpenShift uses istio-cni which causes an issue with init-containers when calling external services
 		like S3 or similar. Setting the `uid` for the `storage-initializer` to the same `uid` as the
-		`uid` of the `istio-proxy` resolves the issue. In OpenShift the `istio-proxy` always gets assigned
-		the first `uid` from the namespaces `uid` range + 1 (The range is defined in an annotation on the namespace).
+		`uid` of the `istio-proxy` resolves the issue.
+
+		With upstream istio the user has the option to set the uid to 1337 described in https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
+		using the annotation IstioSidecarUIDAnnotationKey.
+
+		In OpenShift the `istio-proxy` always gets assigned the first `uid` from the namespaces
+		`uid` range + 1 (The range is defined in an annotation on the namespace).
 	*/
-	if initContainer.SecurityContext == nil {
-		initContainer.SecurityContext = &v1.SecurityContext{}
-	}
-	uidStr := targetNs.Annotations[OpenShiftUidRangeAnnotationKey]
-	if uidStr == "" {
-		return fmt.Errorf("could not find OpenShift internal annotation %s for calculating the process UID (minRange + 1) on namespace: %s", OpenShiftUidRangeAnnotationKey, targetNs.Name)
-	}
-	uidStrParts := strings.Split(uidStr, "/")
-	if uid, err := strconv.ParseInt(uidStrParts[0], 10, 64); err == nil {
-		// Set the uid to the first uid in the namespaces range + 1
-		uid++
-		initContainer.SecurityContext.RunAsUser = ptr.Int64(uid)
+	if value, ok := pod.GetAnnotations()[constants.IstioSidecarUIDAnnotationKey]; ok {
+		if uid, err := strconv.ParseInt(value, 10, 64); err == nil {
+			if initContainer.SecurityContext == nil {
+				initContainer.SecurityContext = &v1.SecurityContext{}
+			}
+			initContainer.SecurityContext.RunAsUser = ptr.Int64(uid)
+		}
 	} else {
-		return fmt.Errorf("could not parse value %s in annotation %s as an int64 value on namespace: %s", uidStr, OpenShiftUidRangeAnnotationKey, targetNs.Name)
+		uidStr := targetNs.Annotations[OpenShiftUidRangeAnnotationKey]
+		if uidStr != "" {
+			uidStrParts := strings.Split(uidStr, "/")
+			if uid, err := strconv.ParseInt(uidStrParts[0], 10, 64); err == nil {
+				// Set the uid to the first uid in the namespaces range + 1
+				uid++
+				if initContainer.SecurityContext == nil {
+					initContainer.SecurityContext = &v1.SecurityContext{}
+				}
+				initContainer.SecurityContext.RunAsUser = ptr.Int64(uid)
+			}
+		}
 	}
 
 	// Add init container to the spec
