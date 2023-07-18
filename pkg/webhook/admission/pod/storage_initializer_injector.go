@@ -19,6 +19,7 @@ package pod
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -27,6 +28,8 @@ import (
 	"github.com/kserve/kserve/pkg/credentials"
 
 	v1 "k8s.io/api/core/v1"
+
+	"knative.dev/pkg/ptr"
 )
 
 const (
@@ -38,6 +41,7 @@ const (
 	PvcURIPrefix                            = "pvc://"
 	PvcSourceMountName                      = "kserve-pvc-source"
 	PvcSourceMountPath                      = "/mnt/pvc"
+	OpenShiftUidRangeAnnotationKey          = "openshift.io/sa.scc.uid-range"
 )
 
 type StorageInitializerConfig struct {
@@ -82,7 +86,7 @@ func getStorageInitializerConfigs(configMap *v1.ConfigMap) (*StorageInitializerC
 // for the serving container in a unified way across storage tech by injecting
 // a provisioning INIT container. This is a work around because KNative does not
 // support INIT containers: https://github.com/knative/serving/issues/4307
-func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *v1.Pod) error {
+func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *v1.Pod, targetNs *v1.Namespace) error {
 	// Only inject if the required annotations are set
 	srcURI, ok := pod.ObjectMeta.Annotations[constants.StorageInitializerSourceUriInternalAnnotationKey]
 	if !ok {
@@ -324,6 +328,39 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *v1.Pod) erro
 			&pod.Spec.Volumes,
 		); err != nil {
 			return err
+		}
+	}
+
+	/*
+		OpenShift uses istio-cni which causes an issue with init-containers when calling external services
+		like S3 or similar. Setting the `uid` for the `storage-initializer` to the same `uid` as the
+		`uid` of the `istio-proxy` resolves the issue.
+
+		With upstream istio the user has the option to set the uid to 1337 described in https://istio.io/latest/docs/setup/additional-setup/cni/#compatibility-with-application-init-containers
+		using the annotation IstioSidecarUIDAnnotationKey.
+
+		In OpenShift the `istio-proxy` always gets assigned the first `uid` from the namespaces
+		`uid` range + 1 (The range is defined in an annotation on the namespace).
+	*/
+	if value, ok := pod.GetAnnotations()[constants.IstioSidecarUIDAnnotationKey]; ok {
+		if uid, err := strconv.ParseInt(value, 10, 64); err == nil {
+			if initContainer.SecurityContext == nil {
+				initContainer.SecurityContext = &v1.SecurityContext{}
+			}
+			initContainer.SecurityContext.RunAsUser = ptr.Int64(uid)
+		}
+	} else {
+		uidStr := targetNs.Annotations[OpenShiftUidRangeAnnotationKey]
+		if uidStr != "" {
+			uidStrParts := strings.Split(uidStr, "/")
+			if uid, err := strconv.ParseInt(uidStrParts[0], 10, 64); err == nil {
+				// Set the uid to the first uid in the namespaces range + 1
+				uid++
+				if initContainer.SecurityContext == nil {
+					initContainer.SecurityContext = &v1.SecurityContext{}
+				}
+				initContainer.SecurityContext.RunAsUser = ptr.Int64(uid)
+			}
 		}
 	}
 
