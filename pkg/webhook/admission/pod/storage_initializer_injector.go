@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/credentials"
+	"github.com/kserve/kserve/pkg/credentials/s3"
 	v1 "k8s.io/api/core/v1"
 	"knative.dev/pkg/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -53,7 +55,7 @@ type StorageInitializerConfig struct {
 	CpuLimit                   string `json:"cpuLimit"`
 	MemoryRequest              string `json:"memoryRequest"`
 	MemoryLimit                string `json:"memoryLimit"`
-	CaBundleSecretName         string `json:"caBundleSecretName"`
+	CaBundleConfigMapName      string `json:"caBundleConfigMapName"`
 	CaBundleVolumeMountPath    string `json:"caBundleVolumeMountPath"`
 	EnableDirectPvcVolumeMount bool   `json:"enableDirectPvcVolumeMount"`
 }
@@ -358,19 +360,49 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *v1.Pod, targ
 		}
 	}
 
-	// Inject CA bundle secret if set
-	caBundleSecretName := mi.config.CaBundleSecretName
-	if caBundleSecretName != "" {
+	// Inject CA bundle configMap if caBundleConfigMapName or constants.DefaultGlobalCaBundleConfigMapName annotation set
+	caBundleConfigMapName := mi.config.CaBundleConfigMapName
+	if ok := needCaBundelMount(caBundleConfigMapName, initContainer); ok {
+		if pod.Namespace != constants.KServeNamespace {
+			caBundleConfigMapName = constants.DefaultGlobalCaBundleConfigMapName
+		}
+
+		for _, envVar := range initContainer.Env {
+			if envVar.Name == s3.AWSCABundleConfigMap {
+				caBundleConfigMapName = envVar.Value
+				break
+			}
+		}
+
+		initContainer.Env = append(initContainer.Env, v1.EnvVar{
+			Name:  constants.GlobalCaBundleConfigMapNametEnvVarKey,
+			Value: caBundleConfigMapName,
+		})
+
 		caBundleVolumeMountPath := mi.config.CaBundleVolumeMountPath
 		if caBundleVolumeMountPath == "" {
 			caBundleVolumeMountPath = constants.DefaultCaBundleVolumeMountPath
 		}
 
+		for _, envVar := range initContainer.Env {
+			if envVar.Name == s3.AWSCABundle {
+				caBundleVolumeMountPath = filepath.Dir(envVar.Value)
+				break
+			}
+		}
+
+		initContainer.Env = append(initContainer.Env, v1.EnvVar{
+			Name:  constants.GlobalCaBundleVolumeMountPathtEnvVarKey,
+			Value: caBundleVolumeMountPath,
+		})
+
 		caBundleVolume := v1.Volume{
 			Name: CaBundleVolumeName,
 			VolumeSource: v1.VolumeSource{
-				Secret: &v1.SecretVolumeSource{
-					SecretName: caBundleSecretName,
+				ConfigMap: &v1.ConfigMapVolumeSource{
+					LocalObjectReference: v1.LocalObjectReference{
+						Name: caBundleConfigMapName,
+					},
 				},
 			},
 		}
@@ -487,4 +519,18 @@ func parsePvcURI(srcURI string) (pvcName string, pvcPath string, err error) {
 	}
 
 	return pvcName, pvcPath, nil
+}
+
+func needCaBundelMount(caBundleConfigMapName string, initContainer *v1.Container) bool {
+	result := false
+	if caBundleConfigMapName != "" {
+		result = true
+	}
+	for _, envVar := range initContainer.Env {
+		if envVar.Name == s3.AWSCABundleConfigMap {
+			result = true
+			break
+		}
+	}
+	return result
 }

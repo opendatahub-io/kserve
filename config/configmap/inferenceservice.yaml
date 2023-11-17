@@ -63,7 +63,13 @@ data:
            "memoryLimit": "1Gi",
            "cpuRequest": "100m",
            "cpuLimit": "1",
+<<<<<<< HEAD
            "enableDirectPvcVolumeMount": false
+=======
+           "caBundleConfigMapName": "",
+           "caBundleVolumeMountPath": "/etc/ssl/custom-certs",
+           "enableDirectPvcVolumeMount": false,
+>>>>>>> d74bae26 (convert Secret to ConfigMap for cabundle)
        }
      storageInitializer: |-
        {
@@ -82,6 +88,15 @@ data:
            # cpuLimit is the limits.cpu to set for the storage initializer init container.
            "cpuLimit": "1",
        
+<<<<<<< HEAD
+=======
+           # caBundleConfigMapName is the ConfigMap will be copied to a user namespace for the storage initializer init container.
+           "caBundleConfigMapName": "",
+
+           # caBundleVolumeMountPath is the mount point for the secret set by caBundleConfigMapName for the storage initializer init container.
+           "caBundleVolumeMountPath": "/etc/ssl/custom-certs",
+
+>>>>>>> d74bae26 (convert Secret to ConfigMap for cabundle)
            # enableDirectPvcVolumeMount controls whether users can mount pvc volumes directly.
            # if pvc volume is provided in storageuri then the pvc volume is directly mounted to /mnt/models in the user container.
            # rather than symlink it to a shared volume. For more info see https://github.com/kserve/kserve/issues/2737
@@ -417,7 +432,7 @@ data:
         "memoryLimit": "1Gi",
         "cpuRequest": "100m",
         "cpuLimit": "1",
-        "caBundleSecretName": "",
+        "caBundleConfigMapName": "",
         "caBundleVolumeMountPath": "/etc/ssl/custom-certs",
         "enableDirectPvcVolumeMount": false
     }
