@@ -2058,7 +2058,7 @@ func TestCaBundleConfigMapVolumeMountInStorageInitializer(t *testing.T) {
 			config:            scenario.storageConfig,
 			client:            c,
 		}
-		if err := injector.InjectStorageInitializer(scenario.original); err != nil {
+		if err := injector.InjectStorageInitializer(scenario.original, targetNS); err != nil {
 			t.Errorf("Test %q unexpected failure [%s]", name, err.Error())
 		}
 		if diff, _ := kmp.SafeDiff(scenario.expected.Spec, scenario.original.Spec); diff != "" {
