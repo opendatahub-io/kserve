@@ -2049,13 +2049,13 @@ func TestCaBundleConfigMapVolumeMountInStorageInitializer(t *testing.T) {
 	}
 
 	builder := credentials.NewCredentialBuilder(c, configMap)
-	
+
 	ns := &v1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "default",
 		},
 	}
-	
+
 	for name, scenario := range scenarios {
 		g.Expect(c.Create(context.TODO(), scenario.sa)).NotTo(gomega.HaveOccurred())
 		g.Expect(c.Create(context.TODO(), scenario.secret)).NotTo(gomega.HaveOccurred())
@@ -2065,7 +2065,7 @@ func TestCaBundleConfigMapVolumeMountInStorageInitializer(t *testing.T) {
 			config:            scenario.storageConfig,
 			client:            c,
 		}
-		if err := injector.InjectStorageInitializer(scenario.original,ns); err != nil {
+		if err := injector.InjectStorageInitializer(scenario.original, ns); err != nil {
 			t.Errorf("Test %q unexpected failure [%s]", name, err.Error())
 		}
 		if diff, _ := kmp.SafeDiff(scenario.expected.Spec, scenario.original.Spec); diff != "" {
