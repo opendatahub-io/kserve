@@ -128,8 +128,14 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.3 // indirect
 )
 
-// The crypto is pulled from go/compute which is pulled by go/storage
-// this replace can be removed when version 1.36.1 of go/storage is released.
-// https://github.com/googleapis/google-cloud-go/tree/main/storage
-// Fixes CVE-2023-48795 - golang.org/x/crypto Authentication Bypass by Capture-replay
-replace golang.org/x/crypto => golang.org/x/crypto v0.17.0
+replace (
+	// The crypto is pulled from go/compute which is pulled by go/storage
+	// this replace can be removed when version 1.36.1 of go/storage is released.
+	// https://github.com/googleapis/google-cloud-go/tree/main/storage
+	// Fixes CVE-2023-48795 - golang.org/x/crypto Authentication Bypass by Capture-replay
+	golang.org/x/crypto => golang.org/x/crypto v0.17.0
+
+	// Fixes github.com/elazarl/goproxy Denial of Service (DoS), the dependency was removed in v0.27.0
+	// Remove below when upgrading to controller-runtime 0.15.x or apimachinery to 0.27.x
+	k8s.io/apimachinery => k8s.io/apimachinery v0.27.0
+)
