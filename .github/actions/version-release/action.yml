@@ -1,0 +1,52 @@
+name: Create Release
+
+on:
+  push:
+    branches:
+      - release/*
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+    
+      # #params env
+      # # Step to update params.env with the new tag
+      # - name: Update params.env
+      #   run: |
+      #     sed -i "s|TAG=.*|TAG=$new_tag|" params.env
+      #     git add params.env
+      #     git commit -m "Update TAG in params.env to $new_tag"   #force commit 
+      #     git push origin main
+
+      # Step to retrieve the latest tag
+      - name: Get latest tag
+        id: latest-tag
+        run: |
+          latest_tag=$(git describe --abbrev=0 --tags)
+          echo "::set-output name=tag::$latest_tag"
+
+      # Step to increment the version number
+      - name: Increment version
+        id: increment-version
+        run: |
+          current_tag=$latest_tag
+          version_number=$(echo $current_tag | cut -c2-)
+          new_version_number=$((version_number + 1))
+          new_tag="v$new_version_number"
+          echo "::set-output name=new_tag::$new_tag"
+
+      # Step to create the new tag
+      - name: Create new tag
+        id: create-tag
+        run: |
+          git tag $new_tag
+          git push origin branchname $new_tag
+
+      # Step to create release information
+      # - name: Create release information
+      #   run: |
+      #     # add release information,
