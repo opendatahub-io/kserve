@@ -3,4 +3,4 @@ accelerate==0.18.0
 deepspeed>=0.7.3
 bitsandbytes-cuda117
 Flask==2.0.1
-gunicorn==20.1.0
+gunicorn==22.0.0
