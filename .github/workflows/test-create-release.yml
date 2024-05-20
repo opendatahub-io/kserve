@@ -1,0 +1,88 @@
+name: TEST - ODH Create Tag and Release with Changelog1
+
+on:
+  pull_request: 
+    paths:
+      - '.github/workflows/scheduled-go-security-scan.yml'
+      - '.github/workflows/go.yml'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Test Tag name for the new release'
+        required: true
+
+permissions:
+  contents: write
+  packages: write
+  pull-requests: write
+
+jobs:
+  create-pr:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_BRANCH: ${{ github.ref }}
+    outputs:
+      pr_number: ${{ steps.cpr.outputs.pull-request-number }}
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Update params.env with new release version
+        run: |     
+          sed -i 's|:v[0-9.]*\b|:${{ github.event.inputs.tag_name }}|gm' config/overlays/odh/params.env
+      
+      - name: Commit changes
+        run: |
+          git config --global user.email "github-actions@github.com"
+          git config --global user.name "GitHub Actions"
+          git add config/overlays/odh/params.env
+          git commit -m "Update image refs for odh release."
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v6
+        id: cpr
+        with:
+          commit-message: update changelog
+          title: '[ODH Release] Update images for ${{ github.event.inputs.tag_name }}'
+          body: Update images for ${{ github.event.inputs.tag_name }}
+          token: ${{ github.token }}
+        
+      - name: Trigger Build
+        if: |
+          github.event_name == 'push' && (
+            contains(github.event.head_commit.modified, '.github/workflows/scheduled-go-security-scan.yml') ||
+            contains(github.event.head_commit.modified, '.github/workflows/go.yml'))
+        run: echo "Triggering build based on modified files"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+
+  wait-checks:
+    runs-on: ubuntu-latest
+    needs: [ create-pr ] 
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Watching PR if Checks finished without errors
+        id: wait-checks
+        run:
+          gh pr checks  ${{ needs.create-pr.outputs.pr_number }}  --watch --fail-fast 
+        env:     
+          # GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.TOKEN }}
+
+
+  merge-pr:
+    needs: [ create-pr, wait-checks ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+  
+      - name: Enable Pull Request Automerge
+        if: ${{ needs.wait-checks.result == 'success' }}
+        run: gh pr merge --merge --auto  ${{ needs.create-pr.outputs.pr_number }} 
+        env:     
+          # GITHUB_TOKEN: ${{ secrets.PAT_TOKEN }}
+           GITHUB_TOKEN: ${{ secrets.TOKEN }}
