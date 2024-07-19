@@ -352,6 +352,16 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 	if err != nil {
 		return ctrl.Result{}, errors.Wrapf(err, "fails to list inferenceservice pods by label")
 	}
+
+	// Update pod's readonly status based on the ISVC annotation
+	for _, pod := range predictorPods.Items {
+		if pod.Annotations == nil {
+			pod.Annotations = make(map[string]string)
+		}
+		isvcReadonlyString := isvc.Annotations[constants.StorageReadonly]
+		pod.Annotations[constants.StorageReadonly] = isvcReadonlyString
+	}
+
 	isvc.Status.PropagateModelStatus(statusSpec, predictorPods, rawDeployment)
 	return ctrl.Result{}, nil
 }
