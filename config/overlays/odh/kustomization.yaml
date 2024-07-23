@@ -23,6 +23,38 @@ replacements:
       name: kserve-controller-manager
     fieldPaths:
     - spec.template.spec.containers.[name=manager].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-storage-initializer
+  targets:
+  - select:
+      kind: ConfigMap
+      name: inferenceservice-config
+    fieldPaths:
+    - data.storageInitializer.image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-agent
+  targets:
+  - select:
+      kind: ConfigMap
+      name: inferenceservice-config
+    fieldPaths:
+    - data.logger
+    - data.batcher
+    - data.agent
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-router
+  targets:
+  - select:
+      kind: ConfigMap
+      name: inferenceservice-config
+    fieldPaths:
+    - data.router
 
 configMapGenerator:
 - envs:
@@ -31,29 +63,6 @@ configMapGenerator:
 
 generatorOptions:
   disableNameSuffixHash: true
-
-vars:
-- fieldref:
-    fieldpath: data.kserve-storage-initializer
-  name: kserve-storage-initializer
-  objref:
-    apiVersion: v1
-    kind: ConfigMap
-    name: kserve-parameters
-- fieldref:
-    fieldpath: data.kserve-agent
-  name: kserve-agent
-  objref:
-    apiVersion: v1
-    kind: ConfigMap
-    name: kserve-parameters
-- fieldref:
-    fieldpath: data.kserve-router
-  name: kserve-router
-  objref:
-    apiVersion: v1
-    kind: ConfigMap
-    name: kserve-parameters
 
 configurations:
   - params.yaml
