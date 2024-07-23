@@ -32,7 +32,7 @@ replacements:
       kind: ConfigMap
       name: inferenceservice-config
     fieldPaths:
-    - data.storageInitializer.image
+    - data.storageInitializer
 - source:
     kind: ConfigMap
     name: kserve-parameters
