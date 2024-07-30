@@ -75,6 +75,3 @@ docker-compose.yml
 
 # Istio installer downloaded by quick install
 istio-*
-
-#Notes on how different versions of the repo
-instructions
