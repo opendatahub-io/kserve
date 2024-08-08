@@ -473,6 +473,74 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		})
 	})
 
+	Context("When creating inference service with storage.kserve.io/readyonly", func() {
+		// Define configmap
+		var configMap = &v1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      constants.InferenceServiceConfigMapName,
+				Namespace: constants.KServeNamespace,
+			},
+			Data: configs,
+		}
+
+		// Define InferenceService
+		serviceName := "readonly-isvc"
+		var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+		var serviceKey = expectedRequest.NamespacedName
+		var storageUri = "s3://test/mnist/export"
+		ctx := context.Background()
+
+		predictor := v1beta1.PredictorSpec{
+			Tensorflow: &v1beta1.TFServingSpec{
+				PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+					StorageURI:     &storageUri,
+					RuntimeVersion: proto.String("1.14.0"),
+					Container: v1.Container{
+						Name:      constants.InferenceServiceContainerName,
+						Resources: defaultResource,
+					},
+				},
+			},
+		}
+		isvc := &v1beta1.InferenceService{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      serviceKey.Name,
+				Namespace: serviceKey.Namespace,
+			},
+			Spec: v1beta1.InferenceServiceSpec{
+				Predictor: predictor,
+			},
+		}
+
+		It("should set the readOnly field in the /mnt/models volumeMount to true"+
+			"when storage.kserve.io/readyonly is unset", func() {
+			// Create config map
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+
+			// Create the inference service
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			// Grab a pod
+			podList := &v1.PodList{}
+			listOpts := []client.ListOption{
+				client.InNamespace(serviceKey.Namespace),
+				client.MatchingLabels{
+					"serving.kserve.io/inferenceservice": serviceKey.Name,
+				},
+			}
+			client.Client.List(k8sClient, ctx, podList, listOpts...)
+			pod := podList.Items[0]
+
+			// Check the readonly value
+			isvcAnnotations := pod.Annotations
+			volumeMnt := pod.Spec.Containers[0].VolumeMounts[0]
+
+			Expect(isvcAnnotations[constants.StorageReadonly]).To(Equal(volumeMnt.ReadOnly))
+		})
+	})
+
 	Context("Inference Service with transformer", func() {
 		It("Should create successfully", func() {
 			serviceName := "svc-with-transformer"
