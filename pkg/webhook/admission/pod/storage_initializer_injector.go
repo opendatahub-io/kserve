@@ -243,23 +243,6 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *v1.Pod) erro
 		// check if using direct volume mount to mount the pvc
 		// if yes, mount the pvc to model local mount path and return
 		if mi.config.EnableDirectPvcVolumeMount {
-			readonly := true
-			isvcReadonlyString, ok := pod.Annotations[constants.StorageReadonly]
-
-			if ok {
-				// Parse the annotation string as a bool
-				isvcReadonlyBool, err := strconv.ParseBool(isvcReadonlyString)
-				if err != nil {
-					return err
-				}
-
-				// If StorageReadonly is set to false, the readOnly field in the volume mount's annotation is also set to false
-				// Otherwise, if it is true or unset, use the default behavior
-				if !isvcReadonlyBool {
-					readonly = false
-				}
-			}
-
 			// add a corresponding pvc volume mount to the userContainer
 			// pvc will be mount to /mnt/models rather than /mnt/pvc
 			// pvcPath will be injected via SubPath, pvcPath must be a root or Dir
@@ -269,7 +252,7 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *v1.Pod) erro
 				MountPath: constants.DefaultModelLocalMountPath,
 				// only path to volume's root ("") or folder is supported
 				SubPath:  pvcPath,
-				ReadOnly: readonly,
+				ReadOnly: true,
 			}
 
 			// Check if PVC source URIs is already mounted
