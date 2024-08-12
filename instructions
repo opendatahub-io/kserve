@@ -1,0 +1,24 @@
+1. Fork ODH/kserve to your personal account, then clone it:
+$ git clone git@github.com:<your GH username>/kserve.git
+
+2. add down, mid (odh) and upstream kserve as remote
+$ git remote add <upstream remote name>  git@github.com:kserve/kserve.git
+$ git remote add <odh remote name> git@github.com:opendatahub-io/kserve.git
+$ git remote add <rhds remote name> git@github.com:red-hat-data-services/kserve.git
+
+At the end you should have something like this
+$ git remote -v
+community	git@github.com:kserve/kserve.git (fetch)
+community	git@github.com:kserve/kserve.git (push)`
+downstream	git@github.com:red-hat-data-services/kserve.git (fetch)
+downstream	git@github.com:red-hat-data-services/kserve.git (push)
+origin	git@github.com:spolti/kserve.git (fetch)
+origin	git@github.com:spolti/kserve.git (push)
+upstream	git@github.com:opendatahub-io/kserve.git (fetch)
+upstream	git@github.com:opendatahub-io/kserve.git (push)
+
+
+3. checkout kserve upstream (following my remote names as example), create the community master branch and start a new branch for the changes from there:
+$ git fetch community
+$ git checkout community/master # change the current branch to upstream/community master
+$ git checkout -b community-master # create the community-master branch

@@ -59,6 +59,11 @@ require (
 	github.com/evanphx/json-patch/v5 v5.7.0 // indirect
 	github.com/go-kit/log v0.2.1 // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
+<<<<<<< Updated upstream
+=======
+	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/go-logr/zapr v1.2.4 // indirect
+>>>>>>> Stashed changes
 	github.com/go-openapi/jsonpointer v0.20.0 // indirect
 	github.com/go-openapi/jsonreference v0.20.2 // indirect
 	github.com/go-openapi/swag v0.22.4 // indirect

@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -1893,6 +1894,8 @@ spec:
     storage: true
     subresources: {}
 ---
+=======
+>>>>>>> Stashed changes
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
