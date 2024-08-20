@@ -1574,7 +1574,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 	})
 
 	Context("When creating inference service with storage.kserve.io/readonly", func() {
-		storageUri := "s3://test/mnist/export"
 		defaultIsvc := func(namespace string, name string, storageUri string) *v1beta1.InferenceService {
 			predictor := v1beta1.PredictorSpec{
 				ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
@@ -1663,20 +1662,19 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		}
 
 		It("should have the readonly annotation set to true in the knative serving pod spec", func() {
-
 			configMap := createInferenceServiceConfigMap()
 			defer k8sClient.Delete(ctx, configMap)
 
-			serviceName := "readonly-unset-isvc"
+			serviceName := "readonly-true-isvc"
 			serviceNamespace := "default"
 			var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
 			var serviceKey = expectedRequest.NamespacedName
 			var storageUri = "s3://test/mnist/export"
 
-			// Define InferenceService
-
 			servingRuntime := createServingRuntime(serviceKey.Namespace, "tf-serving")
 			defer k8sClient.Delete(ctx, servingRuntime)
+
+			// Define InferenceService
 			isvc := defaultIsvc(serviceKey.Namespace, serviceKey.Name, storageUri)
 			isvc.Annotations = map[string]string{}
 			isvc.Annotations[constants.StorageReadonlyAnnotationKey] = "true"
@@ -1690,26 +1688,25 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorServiceKey, actualService) }, timeout).
 				Should(Succeed())
 
-			// TODO, make sure to check if the annotations contains the readonly annotation
-			// should be on actualService.Spec.Template.Annotations[constants.StorageReadonlyAnnotationKey]
-			Expect(actualService.Spec.Template.Annotations).
-				To(ContainElement(isvc.Annotations))
+			// Check readonly value
+			Expect(actualService.Spec.Template.Annotations[constants.StorageReadonlyAnnotationKey]).
+				To(Equal("true"))
 		})
 
 		It("should have the readonly annotation set to false in the knative serving pod spec", func() {
 			configMap := createInferenceServiceConfigMap()
 			defer k8sClient.Delete(ctx, configMap)
 
-			// Define InferenceService
-			serviceName := "readonly-true-isvc"
+			serviceName := "readonly-false-isvc"
 			serviceNamespace := "default"
 			var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
 			var serviceKey = expectedRequest.NamespacedName
+			var storageUri = "s3://test/mnist/export"
 
 			servingRuntime := createServingRuntime(serviceKey.Namespace, "tf-serving")
 			defer k8sClient.Delete(ctx, servingRuntime)
 
-			// Modify base isvc here as needed per testcase
+			// Define InferenceService
 			isvc := defaultIsvc(serviceKey.Namespace, serviceKey.Name, storageUri)
 			isvc.Annotations = map[string]string{}
 			isvc.Annotations[constants.StorageReadonlyAnnotationKey] = "false"
@@ -1723,10 +1720,9 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorServiceKey, actualService) }, timeout).
 				Should(Succeed())
 
-			// TODO, make sure to check if the annotations contains the readonly annotation
-			// should be on actualService.Spec.Template.Annotations[constants.StorageReadonlyAnnotationKey]
-			Expect(actualService.Spec.Template.Annotations).
-				To(ContainElement(isvc.Annotations))
+			// Check readonly value
+			Expect(actualService.Spec.Template.Annotations[constants.StorageReadonlyAnnotationKey]).
+				To(Equal("false"))
 		})
 	})
 
