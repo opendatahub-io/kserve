@@ -316,8 +316,9 @@ async def test_sklearn_v2_grpc():
 
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
+
 # In ODH, this test generates the following response:
-#  Code 500 - 'ColumnTransformer' object has no attribute '_name_to_fitted_passthrough'
+# Code 500 - 'ColumnTransformer' object has no attribute '_name_to_fitted_passthrough'
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")
 @pytest.mark.skip("Not testable in ODH at the moment")
@@ -361,6 +362,7 @@ async def test_sklearn_v2_mixed(rest_v2_client):
     assert response.outputs[0].data == [12.202832815138274]
 
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
+
 
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")

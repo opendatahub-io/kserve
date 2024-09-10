@@ -90,6 +90,7 @@ async def test_triton(rest_v2_client):
     assert np.argmax(res.outputs[0].data) == 3
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
+
 # Not testable in ODH until the following issue is solved:
 #   https://github.com/opendatahub-io/odh-model-controller/issues/59
 @pytest.mark.transformer

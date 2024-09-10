@@ -64,6 +64,7 @@ async def test_tensorflow_kserve(rest_v1_client):
     # Delete the InferenceService
     kserve_client.delete(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
+
 # In ODH, this test generates the following response:
 #  502 Server Error: Bad Gateway for url
 @pytest.mark.predictor
