@@ -14,6 +14,7 @@
 
 import argparse
 
+from fastapi.middleware.cors import CORSMiddleware
 from torchvision import models, transforms
 from typing import Dict, Union
 import torch
@@ -32,6 +33,7 @@ from kserve import (
     logging,
 )
 from kserve.errors import InvalidInput
+from kserve.model_server import app
 from kserve.utils.utils import generate_uuid
 
 
@@ -46,7 +48,7 @@ class AlexNetModel(Model):
         self.load()
 
     def load(self):
-        self.model = models.alexnet(pretrained=True)
+        self.model = models.alexnet(pretrained=True, progress=False)
         self.model.eval()
         # The ready flag is used by model ready endpoint for readiness probes,
         # set to True when model is loaded successfully without exceptions.
@@ -124,4 +126,11 @@ if __name__ == "__main__":
         logging.configure_logging(args.log_config_file)
     model = AlexNetModel(args.model_name)
     model.load()
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     ModelServer().start([model])

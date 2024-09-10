@@ -35,6 +35,7 @@ from kserve.errors import InvalidInput, ModelNotFound
 from kserve.protocol.dataplane import DataPlane
 from kserve.protocol.rest.openai import CompletionRequest, OpenAIModel
 from kserve.model_repository import ModelRepository
+from kserve.ray import RayModel
 from test.test_server import (
     DummyModel,
     dummy_cloud_event,
@@ -65,10 +66,11 @@ class TestDataPlane:
 
             # https://github.com/ray-project/ray/blob/releases/2.8.0/python/ray/serve/deployment.py#L256
             app = DummyServeModel.bind(name=self.MODEL_NAME)
-            handle = serve.run(app, name="TestModel", route_prefix="/")
+            handle = serve.run(app, name=self.MODEL_NAME, route_prefix="/")
 
-            handle.load.remote()
-            dataplane._model_registry.update_handle(self.MODEL_NAME, handle)
+            model = RayModel(self.MODEL_NAME, handle=handle)
+            model.load()
+            dataplane._model_registry.update(model)
             yield dataplane
             serve.delete(name="TestModel")
 
@@ -104,12 +106,14 @@ class TestDataPlane:
         ready_model = DummyModel("ReadyModel")
         ready_model.load()
         dataplane._model_registry.update(ready_model)
-        assert dataplane.model_ready(ready_model.name) is True
+        is_ready = await dataplane.model_ready(ready_model.name)
+        assert is_ready is True
 
         not_ready_model = DummyModel("NotReadyModel")
         # model.load()  # Model not loaded, i.e. not ready
         dataplane._model_registry.update(not_ready_model)
-        assert dataplane.model_ready(not_ready_model.name) is False
+        is_ready = await dataplane.model_ready(not_ready_model.name)
+        assert is_ready is False
 
     async def test_server_metadata(self):
         with open(pathlib.Path(__file__).parent.parent / "pyproject.toml") as toml_file:

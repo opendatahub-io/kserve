@@ -1,4 +1,4 @@
-ARG PYTHON_VERSION=3.9
+ARG PYTHON_VERSION=3.11
 ARG VENV_PATH=/prod_venv
 
 FROM registry.access.redhat.com/ubi8/ubi-minimal:latest as builder
@@ -8,7 +8,7 @@ RUN microdnf install -y --disablerepo=* --enablerepo=ubi-8-baseos-rpms --enabler
 
 # Install Poetry
 ARG POETRY_HOME=/opt/poetry
-ARG POETRY_VERSION=1.7.1
+ARG POETRY_VERSION=1.8.3
 
 RUN python -m venv ${POETRY_HOME} && ${POETRY_HOME}/bin/pip install poetry==${POETRY_VERSION}
 ENV PATH="$PATH:${POETRY_HOME}/bin"
