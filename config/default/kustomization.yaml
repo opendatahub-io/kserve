@@ -204,16 +204,3 @@ patches:
 #   target:
 #     kind: CustomResourceDefinition
 #     name: inferenceservices.serving.kserve.io
-- patch: |-
-    - op: remove
-      path: "/webhooks/0/clientConfig/caBundle"
-    - op: remove
-      path: "/webhooks/1/clientConfig/caBundle"
-  target:
-    kind: MutatingWebhookConfiguration
-- patch: |-
-    - op: remove
-      path: "/webhooks/0/clientConfig/caBundle"
-  target:
-    kind: ValidatingWebhookConfiguration
-
