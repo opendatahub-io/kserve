@@ -12,12 +12,8 @@ data:
         "memoryLimit": "1Gi",
         "cpuRequest": "100m",
         "cpuLimit": "1",
-        "caBundleConfigMapName": "",
-        "caBundleVolumeMountPath": "/etc/ssl/custom-certs",
         "enableDirectPvcVolumeMount": true,
-        "enableModelcar": false,
-        "cpuModelcar": "10m",
-        "memoryModelcar": "15Mi"
+        "enableModelcar": true
     }
   ingress: |-
     {
