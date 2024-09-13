@@ -14,10 +14,10 @@ data:
         "cpuLimit": "1",
         "caBundleConfigMapName": "",
         "caBundleVolumeMountPath": "/etc/ssl/custom-certs",
-        "enableDirectPvcVolumeMount": true,
-        "enableModelcar": false,
         "cpuModelcar": "10m",
         "memoryModelcar": "15Mi"
+        "enableDirectPvcVolumeMount": true,
+        "enableModelcar": true
     }
   ingress: |-
     {
