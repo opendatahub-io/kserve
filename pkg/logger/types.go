@@ -31,4 +31,6 @@ type LogRequest struct {
 	Namespace        string
 	Component        string
 	Endpoint         string
+	CertName         string
+	TlsSkipVerify    bool
 }

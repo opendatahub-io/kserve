@@ -41,10 +41,13 @@ type LoggerHandler struct {
 	component        string
 	endpoint         string
 	next             http.Handler
+	certName         string
+	tlsSkipVerify    bool
 }
 
 func New(logUrl *url.URL, sourceUri *url.URL, logMode v1beta1.LoggerType,
-	inferenceService string, namespace string, endpoint string, component string, next http.Handler) http.Handler {
+	inferenceService string, namespace string, endpoint string, component string, next http.Handler,
+	certName string, tlsSkipVerify bool) http.Handler {
 	logf.SetLogger(zap.New())
 	return &LoggerHandler{
 		log:              logf.Log.WithName("Logger"),
@@ -56,6 +59,8 @@ func New(logUrl *url.URL, sourceUri *url.URL, logMode v1beta1.LoggerType,
 		component:        component,
 		endpoint:         endpoint,
 		next:             next,
+		certName:         certName,
+		tlsSkipVerify:    tlsSkipVerify,
 	}
 }
 
@@ -98,6 +103,8 @@ func (eh *LoggerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Namespace:        eh.namespace,
 			Endpoint:         eh.endpoint,
 			Component:        eh.component,
+			CertName:         eh.certName,
+			TlsSkipVerify:    eh.tlsSkipVerify,
 		}); err != nil {
 			eh.log.Error(err, "Failed to log request")
 		}
@@ -126,6 +133,8 @@ func (eh *LoggerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				Namespace:        eh.namespace,
 				Endpoint:         eh.endpoint,
 				Component:        eh.component,
+				CertName:         eh.certName,
+				TlsSkipVerify:    eh.tlsSkipVerify,
 			}); err != nil {
 				eh.log.Error(err, "Failed to log response")
 			}
