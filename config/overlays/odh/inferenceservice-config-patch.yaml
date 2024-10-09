@@ -23,7 +23,6 @@ data:
         "localGateway" : "istio-system/kserve-local-gateway",
         "localGatewayService" : "kserve-local-gateway.istio-system.svc.cluster.local",
         "ingressDomain"  : "example.com",
-        "ingressClassName" : "istio",
         "domainTemplate": "{{ .Name }}-{{ .Namespace }}.{{ .IngressDomain }}",
         "urlScheme": "https",
         "disableIstioVirtualHost": false, 

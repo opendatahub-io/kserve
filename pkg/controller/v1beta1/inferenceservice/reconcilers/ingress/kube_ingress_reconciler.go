@@ -150,7 +150,7 @@ func generateIngressHost(ingressConfig *v1beta1.IngressConfig,
 }
 
 func createRawIngress(scheme *runtime.Scheme, isvc *v1beta1.InferenceService,
-	ingressConfig *v1beta1.IngressConfig, client client.Client) (*netv1.Ingress, error) {
+	ingressConfig *v1beta1.IngressConfig, client client.Client, port int32) (*netv1.Ingress, error) {
 	if !isvc.Status.IsConditionReady(v1beta1.PredictorReady) {
 		isvc.Status.SetCondition(v1beta1.IngressReady, &apis.Condition{
 			Type:   v1beta1.IngressReady,
@@ -193,11 +193,11 @@ func createRawIngress(scheme *runtime.Scheme, isvc *v1beta1.InferenceService,
 			if err != nil {
 				return nil, fmt.Errorf("failed creating explainer ingress host: %w", err)
 			}
-			rules = append(rules, generateRule(explainerHost, explainerName, "/", constants.CommonDefaultHttpPort))
+			rules = append(rules, generateRule(explainerHost, explainerName, "/", port))
 		}
 		// :predict routes to the transformer when there are both predictor and transformer
-		rules = append(rules, generateRule(host, transformerName, "/", constants.CommonDefaultHttpPort))
-		rules = append(rules, generateRule(transformerHost, predictorName, "/", constants.CommonDefaultHttpPort))
+		rules = append(rules, generateRule(host, transformerName, "/", port))
+		rules = append(rules, generateRule(transformerHost, predictorName, "/", port))
 	case isvc.Spec.Explainer != nil:
 		if !isvc.Status.IsConditionReady(v1beta1.ExplainerReady) {
 			isvc.Status.SetCondition(v1beta1.IngressReady, &apis.Condition{
@@ -222,8 +222,8 @@ func createRawIngress(scheme *runtime.Scheme, isvc *v1beta1.InferenceService,
 			return nil, fmt.Errorf("failed creating explainer ingress host: %w", err)
 		}
 		// :predict routes to the predictor when there is only predictor and explainer
-		rules = append(rules, generateRule(host, predictorName, "/", constants.CommonDefaultHttpPort))
-		rules = append(rules, generateRule(explainerHost, explainerName, "/", constants.CommonDefaultHttpPort))
+		rules = append(rules, generateRule(host, predictorName, "/", port))
+		rules = append(rules, generateRule(explainerHost, explainerName, "/", port))
 	default:
 		err := client.Get(context.TODO(), types.NamespacedName{Name: constants.DefaultPredictorServiceName(isvc.Name), Namespace: isvc.Namespace}, existing)
 		if err == nil {
@@ -233,15 +233,19 @@ func createRawIngress(scheme *runtime.Scheme, isvc *v1beta1.InferenceService,
 		if err != nil {
 			return nil, fmt.Errorf("failed creating top level predictor ingress host: %w", err)
 		}
-		rules = append(rules, generateRule(host, predictorName, "/", constants.CommonDefaultHttpPort))
+		rules = append(rules, generateRule(host, predictorName, "/", port))
 	}
 	// add predictor rule
 	predictorHost, err := generateIngressHost(ingressConfig, isvc, string(constants.Predictor), false, predictorName)
 	if err != nil {
 		return nil, fmt.Errorf("failed creating predictor ingress host: %w", err)
 	}
-	rules = append(rules, generateRule(predictorHost, predictorName, "/", constants.CommonDefaultHttpPort))
+	rules = append(rules, generateRule(predictorHost, predictorName, "/", port))
 
+	//ODH specific change to only have the predictor host be in the ingress
+	//TODO figure out how raw will work for inferencegraphs where likely multiple hosts will be needed
+	var predictorRule []netv1.IngressRule
+	predictorRule = append(predictorRule, generateRule(predictorHost, predictorName, "/", port))
 	ingress := &netv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        isvc.ObjectMeta.Name,
@@ -250,7 +254,8 @@ func createRawIngress(scheme *runtime.Scheme, isvc *v1beta1.InferenceService,
 		},
 		Spec: netv1.IngressSpec{
 			IngressClassName: ingressConfig.IngressClassName,
-			Rules:            rules,
+			//Rules:            rules,
+			Rules: predictorRule,
 		},
 	}
 	if err := controllerutil.SetControllerReference(isvc, ingress, scheme); err != nil {
@@ -266,6 +271,8 @@ func semanticIngressEquals(desired, existing *netv1.Ingress) bool {
 func (r *RawIngressReconciler) Reconcile(isvc *v1beta1.InferenceService) error {
 	var err error
 	isInternal := false
+	hasAuth := false
+	port := constants.CommonDefaultHttpPort
 	// disable ingress creation if service is labelled with cluster local or kserve domain is cluster local
 	if val, ok := isvc.Labels[constants.NetworkVisibility]; ok && val == constants.ClusterLocalVisibility {
 		isInternal = true
@@ -273,13 +280,23 @@ func (r *RawIngressReconciler) Reconcile(isvc *v1beta1.InferenceService) error {
 	if r.ingressConfig.IngressDomain == constants.ClusterLocalDomain {
 		isInternal = true
 	}
+	if val, ok := isvc.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
+		port = constants.OauthProxyPort
+		hasAuth = true
+	}
 	if !isInternal && !r.ingressConfig.DisableIngressCreation {
-		ingress, err := createRawIngress(r.scheme, isvc, r.ingressConfig, r.client)
+		ingress, err := createRawIngress(r.scheme, isvc, r.ingressConfig, r.client, int32(port))
 		if ingress == nil {
 			return nil
 		}
 		if err != nil {
 			return err
+		}
+		if hasAuth {
+			if ingress.Annotations == nil {
+				ingress.Annotations = make(map[string]string)
+			}
+			ingress.Annotations["route.openshift.io/termination"] = "reencrypt"
 		}
 		// reconcile ingress
 		existingIngress := &netv1.Ingress{}

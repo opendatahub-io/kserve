@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/api/resource"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
@@ -130,6 +131,24 @@ func createRawDefaultDeployment(componentMeta metav1.ObjectMeta,
 	podMetadata := componentMeta
 	podMetadata.Labels["app"] = constants.GetRawServiceLabel(componentMeta.Name)
 	setDefaultPodSpec(podSpec)
+	if val, ok := componentMeta.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
+		kserveContainerPort := GetKServeContainerPort(podSpec)
+		if kserveContainerPort == "" {
+			kserveContainerPort = constants.InferenceServiceDefaultHttpPort
+		}
+		oauthProxyContainer := generateOauthProxyContainer(kserveContainerPort, componentMeta.Namespace)
+		podSpec.Containers = append(podSpec.Containers, oauthProxyContainer)
+		tlsSecretVolume := corev1.Volume{
+			Name: tlsVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  componentMeta.Name,
+					DefaultMode: func(i int32) *int32 { return &i }(420), // Directly use a pointer
+				},
+			},
+		}
+		podSpec.Volumes = append(podSpec.Volumes, tlsSecretVolume)
+	}
 	deployment := &appsv1.Deployment{
 		ObjectMeta: componentMeta,
 		Spec: appsv1.DeploymentSpec{
@@ -178,6 +197,90 @@ func createRawWorkerDeployment(componentMeta metav1.ObjectMeta,
 
 	deployment.Spec.Replicas = &replicas
 	return deployment
+}
+
+func GetKServeContainerPort(podSpec *corev1.PodSpec) string {
+	for _, container := range podSpec.Containers {
+		if container.Name == "kserve-container" {
+			if len(container.Ports) > 0 {
+				return strconv.Itoa(int(container.Ports[0].ContainerPort))
+			}
+		}
+	}
+	return ""
+}
+
+func generateOauthProxyContainer(upstreamPort string, namespace string) corev1.Container {
+	args := []string{
+		`--https-address=:8443`,
+		`--provider=openshift`,
+		`--openshift-service-account=kserve-sa`,
+		`--upstream=http://localhost:$upstreamPort`,
+		`--tls-cert=/etc/tls/private/tls.crt`,
+		`--tls-key=/etc/tls/private/tls.key`,
+		`--cookie-secret=SECRET`,
+		`--openshift-delegate-urls={"/": {"namespace": "$isvcNamespace", "resource": "services", "verb": "get"}}`,
+		`--openshift-sar={"namespace": "$isvcNamespace", "resource": "services", "verb": "get"}`,
+		`--skip-auth-regex="(^/metrics|^/apis/v1beta1/healthz)"`,
+	}
+	args[3] = strings.ReplaceAll(args[3], "$upstreamPort", upstreamPort)
+	args[7] = strings.ReplaceAll(args[7], "$isvcNamespace", namespace)
+	args[8] = strings.ReplaceAll(args[8], "$isvcNamespace", namespace)
+	return corev1.Container{
+		Name:  "oauth-proxy",
+		Args:  args,
+		Image: constants.OauthProxyImage,
+		Ports: []corev1.ContainerPort{
+			{
+				ContainerPort: constants.OauthProxyPort,
+				Name:          "https",
+			},
+		},
+		LivenessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Path:   "/oauth/healthz",
+					Port:   intstr.FromInt(constants.OauthProxyPort),
+					Scheme: corev1.URISchemeHTTPS,
+				},
+			},
+			InitialDelaySeconds: 30,
+			TimeoutSeconds:      1,
+			PeriodSeconds:       5,
+			SuccessThreshold:    1,
+			FailureThreshold:    3,
+		},
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Path:   "/oauth/healthz",
+					Port:   intstr.FromInt(constants.OauthProxyPort),
+					Scheme: corev1.URISchemeHTTPS,
+				},
+			},
+			InitialDelaySeconds: 5,
+			TimeoutSeconds:      1,
+			PeriodSeconds:       5,
+			SuccessThreshold:    1,
+			FailureThreshold:    3,
+		},
+		Resources: corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse(constants.OauthProxyResourceCPULimit),
+				corev1.ResourceMemory: resource.MustParse(constants.OauthProxyResourceMemoryLimit),
+			},
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse(constants.OauthProxyResourceCPURequest),
+				corev1.ResourceMemory: resource.MustParse(constants.OauthProxyResourceMemoryRequest),
+			},
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      tlsVolumeName,
+				MountPath: "/etc/tls/private",
+			},
+		},
+	}
 }
 
 // checkDeploymentExist checks if the deployment exists?
@@ -295,6 +398,8 @@ func setDefaultDeploymentSpec(spec *appsv1.DeploymentSpec) {
 		progressDeadlineSeconds := int32(600)
 		spec.ProgressDeadlineSeconds = &progressDeadlineSeconds
 	}
+
+	spec.Template.Spec.ServiceAccountName = constants.KserveServiceAccountName
 }
 
 func addGPUResourceToDeployment(deployment *appsv1.Deployment, targetContainerName string, tensorParallelSize string) {
