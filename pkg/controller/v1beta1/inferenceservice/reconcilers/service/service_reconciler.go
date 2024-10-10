@@ -18,6 +18,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -78,6 +79,9 @@ func createService(componentMeta metav1.ObjectMeta, componentExt *v1beta1.Compon
 				},
 				Protocol: container.Ports[0].Protocol,
 			}
+			if servicePort.Name == "" {
+				servicePort.Name = "http"
+			}
 			servicePorts = append(servicePorts, servicePort)
 
 			for i := 1; i < len(container.Ports); i++ {
@@ -134,6 +138,26 @@ func createService(componentMeta metav1.ObjectMeta, componentExt *v1beta1.Compon
 			// Follow up issue to align with upstream: https://issues.redhat.com/browse/RHOAIENG-5077
 			ClusterIP: corev1.ClusterIPNone,
 		},
+	}
+	if val, ok := componentMeta.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
+		if service.ObjectMeta.Annotations == nil {
+			service.ObjectMeta.Annotations = make(map[string]string)
+		}
+		service.ObjectMeta.Annotations["service.beta.openshift.io/serving-cert-secret-name"] = componentMeta.Name
+		httpsPort := corev1.ServicePort{
+			Name: "https",
+			Port: constants.OauthProxyPort,
+			TargetPort: intstr.IntOrString{
+				Type:   intstr.String,
+				StrVal: "https",
+			},
+			Protocol: corev1.ProtocolTCP,
+		}
+		service.Spec.Ports = append(service.Spec.Ports, httpsPort)
+	}
+
+	for index, port := range service.Spec.Ports {
+		fmt.Println(index, port.Name, port.Port, port.TargetPort)
 	}
 	return service
 }

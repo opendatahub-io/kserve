@@ -38,6 +38,7 @@ var (
 	KnativeServingAPIGroupName       = KnativeServingAPIGroupNamePrefix + ".dev"
 	KServeNamespace                  = getEnvOrDefault("POD_NAMESPACE", "kserve")
 	KServeDefaultVersion             = "v0.5.0"
+	KserveServiceAccountName         = "kserve-sa"
 )
 
 // InferenceService Constants
@@ -122,6 +123,7 @@ const (
 	NetworkVisibility      = "networking.kserve.io/visibility"
 	ClusterLocalVisibility = "cluster-local"
 	ClusterLocalDomain     = "svc.cluster.local"
+	ODHKserveRawAuth       = "networking.kserve.io/odh-auth"
 )
 
 // StorageSpec Constants
@@ -412,6 +414,16 @@ const (
 	SupportedModelPaddle      = "paddle"
 	SupportedModelTriton      = "triton"
 	SupportedModelMLFlow      = "mlflow"
+)
+
+// opendatahub rawDeployment Auth
+const (
+	OauthProxyImage                 = "registry.redhat.io/openshift4/ose-oauth-proxy@sha256:4bef31eb993feb6f1096b51b4876c65a6fb1f4401fee97fa4f4542b6b7c9bc46"
+	OauthProxyPort                  = 8443
+	OauthProxyResourceMemoryLimit   = "256Mi"
+	OauthProxyResourceCPULimit      = "100m"
+	OauthProxyResourceMemoryRequest = "256Mi"
+	OauthProxyResourceCPURequest    = "100m"
 )
 
 type ProtocolVersion int
