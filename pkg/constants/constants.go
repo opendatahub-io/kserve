@@ -136,7 +136,8 @@ const (
 	ClusterLocalDomain     = "svc.cluster.local"
 	IsvcNameHeader         = "KServe-Isvc-Name"
 	IsvcNamespaceHeader    = "KServe-Isvc-Namespace"
-	ODHKserveRawAuth       = "networking.kserve.io/odh-auth"
+	ODHKserveRawAuth       = "security.opendatahub.io/enable-auth"
+	ODHRouteEnabled        = "enable-route"
 )
 
 // StorageSpec Constants
