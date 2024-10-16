@@ -68,7 +68,7 @@ func NewRawKubeReconciler(client client.Client,
 	return &RawKubeReconciler{
 		client:     client,
 		scheme:     scheme,
-		Deployment: deployment.NewDeploymentReconciler(client, scheme, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec),
+		Deployment: deployment.NewDeploymentReconciler(client, clientset, scheme, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec),
 		Service:    service.NewServiceReconciler(client, scheme, componentMeta, componentExt, podSpec, multiNodeEnabled),
 		Scaler:     as,
 		URL:        url,

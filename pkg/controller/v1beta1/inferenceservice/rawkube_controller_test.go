@@ -2397,7 +2397,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 							Annotations: map[string]string{
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 								"serving.kserve.io/deploymentMode":                         "RawDeployment",
-								"service.beta.openshift.io/serving-cert-secret-name":       predictorDeploymentKey.Name,
+								"service.beta.openshift.io/serving-cert-secret-name":       serviceName,
 							},
 						},
 						Spec: v1.PodSpec{
@@ -2443,8 +2443,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 										`--tls-cert=/etc/tls/private/tls.crt`,
 										`--tls-key=/etc/tls/private/tls.key`,
 										`--cookie-secret=SECRET`,
-										`--openshift-delegate-urls={"/": {"namespace": "` + serviceKey.Namespace + `", "resource": "services", "verb": "get"}}`,
-										`--openshift-sar={"namespace": "` + serviceKey.Namespace + `", "resource": "services", "verb": "get"}`,
+										`--openshift-delegate-urls={"/": {"namespace": "` + serviceKey.Namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + serviceName + `", "verb": "get"}}`,
+										`--openshift-sar={"namespace": "` + serviceKey.Namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + serviceName + `", "verb": "get"}`,
 										`--skip-auth-regex="(^/metrics|^/apis/v1beta1/healthz)"`,
 									},
 									Ports: []v1.ContainerPort{
@@ -2508,7 +2508,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									Name: "proxy-tls",
 									VolumeSource: v1.VolumeSource{
 										Secret: &v1.SecretVolumeSource{
-											SecretName:  predictorDeploymentKey.Name,
+											SecretName:  serviceName,
 											DefaultMode: func(i int32) *int32 { return &i }(420),
 										},
 									},

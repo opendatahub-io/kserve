@@ -23,7 +23,9 @@ import (
 	"strconv"
 	"strings"
 
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/apimachinery/pkg/api/resource"
+
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
@@ -31,14 +33,12 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierr "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"knative.dev/pkg/kmp"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -58,6 +58,7 @@ const (
 )
 
 func NewDeploymentReconciler(client kclient.Client,
+	clientset kubernetes.Interface,
 	scheme *runtime.Scheme,
 	componentMeta metav1.ObjectMeta,
 	workerComponentMeta metav1.ObjectMeta,
@@ -66,7 +67,7 @@ func NewDeploymentReconciler(client kclient.Client,
 	return &DeploymentReconciler{
 		client:         client,
 		scheme:         scheme,
-		DeploymentList: createRawDeployment(client, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec),
+		DeploymentList: createRawDeployment(clientset, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec),
 		componentExt:   componentExt,
 	}
 }
@@ -129,27 +130,31 @@ func createRawDeployment(cli kclient.Client, componentMeta metav1.ObjectMeta, wo
 	return deploymentList
 }
 
-func createRawDefaultDeployment(cli kclient.Client, componentMeta metav1.ObjectMeta,
+func createRawDefaultDeployment(clientset kubernetes.Interface, componentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec) *appsv1.Deployment {
 	podMetadata := componentMeta
 	podMetadata.Labels["app"] = constants.GetRawServiceLabel(componentMeta.Name)
 	setDefaultPodSpec(podSpec)
+	isvcname := componentMeta.Name
 	if val, ok := componentMeta.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
+		if val, ok := componentMeta.Labels[constants.InferenceServiceLabel]; ok {
+			isvcname = val
+		}
 		kserveContainerPort := GetKServeContainerPort(podSpec)
 		if kserveContainerPort == "" {
 			kserveContainerPort = constants.InferenceServiceDefaultHttpPort
 		}
-		oauthProxyContainer, err := generateOauthProxyContainer(cli, kserveContainerPort, componentMeta.Namespace)
-		if err != nil {
+		oauthProxyContainer, err := generateOauthProxyContainer(clientset, isvcname, componentMeta.Namespace, kserveContainerPort)
+		if err == nil {
 			podSpec.Containers = append(podSpec.Containers, oauthProxyContainer)
 		}
 		tlsSecretVolume := corev1.Volume{
 			Name: tlsVolumeName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  componentMeta.Name,
-					DefaultMode: func(i int32) *int32 { return &i }(420), // Directly use a pointer
+					SecretName:  isvcname,
+					DefaultMode: func(i int32) *int32 { return &i }(420),
 				},
 			},
 		}
@@ -216,37 +221,35 @@ func GetKServeContainerPort(podSpec *corev1.PodSpec) string {
 	return ""
 }
 
-func generateOauthProxyContainer(cli kclient.Client, upstreamPort string, namespace string) (corev1.Container, error) {
+func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, namespace string, upstreamPort string) (corev1.Container, error) {
 	oauthImage := constants.OauthProxyImage
 	oauthCpuLimit := constants.OauthProxyResourceCPULimit
 	oauthMemoryLimit := constants.OauthProxyResourceMemoryLimit
 	oauthCpuRequest := constants.OauthProxyResourceCPURequest
 	oauthMemoryRequest := constants.OauthProxyResourceMemoryRequest
-	inferenceServiceConfigMap := &corev1.ConfigMap{}
-	err := cli.Get(context.TODO(), client.ObjectKey{
-		Namespace: constants.KServeNamespace,
-		Name:      constants.InferenceServiceConfigMapName,
-	}, inferenceServiceConfigMap)
+	inferenceServiceConfigMap, err := clientset.CoreV1().ConfigMaps(constants.KServeNamespace).Get(context.TODO(), constants.InferenceServiceConfigMapName, metav1.GetOptions{})
+	configDataSuccess := false
 	if err == nil {
 		var oauthData map[string]interface{}
-		if err := json.Unmarshal([]byte(inferenceServiceConfigMap.Data["deploy"]), &oauthData); err != nil {
-			return corev1.Container{}, fmt.Errorf("error retrieving value for key 'oauthProxy' from configmap %s. %w",
-				constants.InferenceServiceConfigMapName, err)
+		if err := json.Unmarshal([]byte(inferenceServiceConfigMap.Data["deploy"]), &oauthData); err == nil {
+			configDataSuccess = true
 		}
-		if str, ok := oauthData["image"].(string); !ok {
-			oauthImage = str
-		}
-		if str, ok := oauthData["cpuLimit"].(string); !ok {
-			oauthCpuLimit = str
-		}
-		if str, ok := oauthData["memoryLimit"].(string); !ok {
-			oauthMemoryLimit = str
-		}
-		if str, ok := oauthData["cpuRequest"].(string); !ok {
-			oauthCpuRequest = str
-		}
-		if str, ok := oauthData["memoryRequest"].(string); !ok {
-			oauthMemoryRequest = str
+		if configDataSuccess {
+			if str, ok := oauthData["image"].(string); ok {
+				oauthImage = str
+			}
+			if str, ok := oauthData["cpuLimit"].(string); ok {
+				oauthCpuLimit = str
+			}
+			if str, ok := oauthData["memoryLimit"].(string); ok {
+				oauthMemoryLimit = str
+			}
+			if str, ok := oauthData["cpuRequest"].(string); ok {
+				oauthCpuRequest = str
+			}
+			if str, ok := oauthData["memoryRequest"].(string); ok {
+				oauthMemoryRequest = str
+			}
 		}
 	}
 
@@ -260,8 +263,8 @@ func generateOauthProxyContainer(cli kclient.Client, upstreamPort string, namesp
 			`--tls-cert=/etc/tls/private/tls.crt`,
 			`--tls-key=/etc/tls/private/tls.key`,
 			`--cookie-secret=SECRET`,
-			`--openshift-delegate-urls={"/": {"namespace": "` + namespace + `", "resource": "services", "verb": "get"}}`,
-			`--openshift-sar={"namespace": "` + namespace + `", "resource": "services", "verb": "get"}`,
+			`--openshift-delegate-urls={"/": {"namespace": "` + namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + isvc + `", "verb": "get"}}`,
+			`--openshift-sar={"namespace": "` + namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + isvc + `", "verb": "get"}`,
 			`--skip-auth-regex="(^/metrics|^/apis/v1beta1/healthz)"`,
 		},
 		Image: oauthImage,
