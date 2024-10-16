@@ -356,10 +356,12 @@ func (r *RawIngressReconciler) Reconcile(isvc *v1beta1.InferenceService) error {
 			return err
 		}
 	}
+	isvc.Status.URL, err = createRawURL(isvc, r.ingressConfig)
 	if val, ok := isvc.Labels[constants.NetworkVisibility]; ok && val == constants.ODHRouteEnabled {
-		isvc.Status.URL, err = getRouteURLIfExists(r.client, isvc)
-	} else {
-		isvc.Status.URL, err = createRawURL(isvc, r.ingressConfig)
+		routeUrl, err := getRouteURLIfExists(r.client, isvc)
+		if err == nil && routeUrl != nil {
+			isvc.Status.URL = routeUrl
+		}
 	}
 	if err != nil {
 		return err
