@@ -53,6 +53,10 @@ type DeploymentReconciler struct {
 	componentExt   *v1beta1.ComponentExtensionSpec
 }
 
+const (
+	tlsVolumeName = "proxy-tls"
+)
+
 func NewDeploymentReconciler(client kclient.Client,
 	scheme *runtime.Scheme,
 	componentMeta metav1.ObjectMeta,
@@ -62,11 +66,11 @@ func NewDeploymentReconciler(client kclient.Client,
 	return &DeploymentReconciler{
 		client:         client,
 		scheme:         scheme,
-		DeploymentList: createRawDeployment(componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec),
+		DeploymentList: createRawDeployment(client, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec),
 		componentExt:   componentExt,
 	}
 }
-func createRawDeployment(componentMeta metav1.ObjectMeta, workerComponentMeta metav1.ObjectMeta,
+func createRawDeployment(cli kclient.Client, componentMeta metav1.ObjectMeta, workerComponentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec) []*appsv1.Deployment {
 	var deploymentList []*appsv1.Deployment
@@ -94,7 +98,7 @@ func createRawDeployment(componentMeta metav1.ObjectMeta, workerComponentMeta me
 		}
 	}
 
-	defaultDeployment := createRawDefaultDeployment(componentMeta, componentExt, podSpec)
+	defaultDeployment := createRawDefaultDeployment(cli, componentMeta, componentExt, podSpec)
 	if multiNodeEnabled {
 		// Use defaut value(1) if tensor-parallel-size is not set (gpu count)
 		tensorParallelSize = constants.DefaultTensorParallelSize
@@ -125,7 +129,7 @@ func createRawDeployment(componentMeta metav1.ObjectMeta, workerComponentMeta me
 	return deploymentList
 }
 
-func createRawDefaultDeployment(componentMeta metav1.ObjectMeta,
+func createRawDefaultDeployment(cli kclient.Client, componentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec) *appsv1.Deployment {
 	podMetadata := componentMeta
@@ -136,8 +140,10 @@ func createRawDefaultDeployment(componentMeta metav1.ObjectMeta,
 		if kserveContainerPort == "" {
 			kserveContainerPort = constants.InferenceServiceDefaultHttpPort
 		}
-		oauthProxyContainer := generateOauthProxyContainer(kserveContainerPort, componentMeta.Namespace)
-		podSpec.Containers = append(podSpec.Containers, oauthProxyContainer)
+		oauthProxyContainer, err := generateOauthProxyContainer(cli, kserveContainerPort, componentMeta.Namespace)
+		if err != nil {
+			podSpec.Containers = append(podSpec.Containers, oauthProxyContainer)
+		}
 		tlsSecretVolume := corev1.Volume{
 			Name: tlsVolumeName,
 			VolumeSource: corev1.VolumeSource{
@@ -210,26 +216,55 @@ func GetKServeContainerPort(podSpec *corev1.PodSpec) string {
 	return ""
 }
 
-func generateOauthProxyContainer(upstreamPort string, namespace string) corev1.Container {
-	args := []string{
-		`--https-address=:8443`,
-		`--provider=openshift`,
-		`--openshift-service-account=kserve-sa`,
-		`--upstream=http://localhost:$upstreamPort`,
-		`--tls-cert=/etc/tls/private/tls.crt`,
-		`--tls-key=/etc/tls/private/tls.key`,
-		`--cookie-secret=SECRET`,
-		`--openshift-delegate-urls={"/": {"namespace": "$isvcNamespace", "resource": "services", "verb": "get"}}`,
-		`--openshift-sar={"namespace": "$isvcNamespace", "resource": "services", "verb": "get"}`,
-		`--skip-auth-regex="(^/metrics|^/apis/v1beta1/healthz)"`,
+func generateOauthProxyContainer(cli kclient.Client, upstreamPort string, namespace string) (corev1.Container, error) {
+	oauthImage := constants.OauthProxyImage
+	oauthCpuLimit := constants.OauthProxyResourceCPULimit
+	oauthMemoryLimit := constants.OauthProxyResourceMemoryLimit
+	oauthCpuRequest := constants.OauthProxyResourceCPURequest
+	oauthMemoryRequest := constants.OauthProxyResourceMemoryRequest
+	inferenceServiceConfigMap := &corev1.ConfigMap{}
+	err := cli.Get(context.TODO(), client.ObjectKey{
+		Namespace: constants.KServeNamespace,
+		Name:      constants.InferenceServiceConfigMapName,
+	}, inferenceServiceConfigMap)
+	if err == nil {
+		var oauthData map[string]interface{}
+		if err := json.Unmarshal([]byte(inferenceServiceConfigMap.Data["deploy"]), &oauthData); err != nil {
+			return corev1.Container{}, fmt.Errorf("error retrieving value for key 'oauthProxy' from configmap %s. %w",
+				constants.InferenceServiceConfigMapName, err)
+		}
+		if str, ok := oauthData["image"].(string); !ok {
+			oauthImage = str
+		}
+		if str, ok := oauthData["cpuLimit"].(string); !ok {
+			oauthCpuLimit = str
+		}
+		if str, ok := oauthData["memoryLimit"].(string); !ok {
+			oauthMemoryLimit = str
+		}
+		if str, ok := oauthData["cpuRequest"].(string); !ok {
+			oauthCpuRequest = str
+		}
+		if str, ok := oauthData["memoryRequest"].(string); !ok {
+			oauthMemoryRequest = str
+		}
 	}
-	args[3] = strings.ReplaceAll(args[3], "$upstreamPort", upstreamPort)
-	args[7] = strings.ReplaceAll(args[7], "$isvcNamespace", namespace)
-	args[8] = strings.ReplaceAll(args[8], "$isvcNamespace", namespace)
+
 	return corev1.Container{
-		Name:  "oauth-proxy",
-		Args:  args,
-		Image: constants.OauthProxyImage,
+		Name: "oauth-proxy",
+		Args: []string{
+			`--https-address=:8443`,
+			`--provider=openshift`,
+			`--openshift-service-account=kserve-sa`,
+			`--upstream=http://localhost:` + upstreamPort,
+			`--tls-cert=/etc/tls/private/tls.crt`,
+			`--tls-key=/etc/tls/private/tls.key`,
+			`--cookie-secret=SECRET`,
+			`--openshift-delegate-urls={"/": {"namespace": "` + namespace + `", "resource": "services", "verb": "get"}}`,
+			`--openshift-sar={"namespace": "` + namespace + `", "resource": "services", "verb": "get"}`,
+			`--skip-auth-regex="(^/metrics|^/apis/v1beta1/healthz)"`,
+		},
+		Image: oauthImage,
 		Ports: []corev1.ContainerPort{
 			{
 				ContainerPort: constants.OauthProxyPort,
@@ -266,12 +301,12 @@ func generateOauthProxyContainer(upstreamPort string, namespace string) corev1.C
 		},
 		Resources: corev1.ResourceRequirements{
 			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse(constants.OauthProxyResourceCPULimit),
-				corev1.ResourceMemory: resource.MustParse(constants.OauthProxyResourceMemoryLimit),
+				corev1.ResourceCPU:    resource.MustParse(oauthCpuLimit),
+				corev1.ResourceMemory: resource.MustParse(oauthMemoryLimit),
 			},
 			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse(constants.OauthProxyResourceCPURequest),
-				corev1.ResourceMemory: resource.MustParse(constants.OauthProxyResourceMemoryRequest),
+				corev1.ResourceCPU:    resource.MustParse(oauthCpuRequest),
+				corev1.ResourceMemory: resource.MustParse(oauthMemoryRequest),
 			},
 		},
 		VolumeMounts: []corev1.VolumeMount{
@@ -280,7 +315,7 @@ func generateOauthProxyContainer(upstreamPort string, namespace string) corev1.C
 				MountPath: "/etc/tls/private",
 			},
 		},
-	}
+	}, nil
 }
 
 // checkDeploymentExist checks if the deployment exists?
