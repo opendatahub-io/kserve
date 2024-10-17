@@ -258,6 +258,7 @@ func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, na
 		Args: []string{
 			`--https-address=:8443`,
 			`--provider=openshift`,
+			`--skip-provider-button`,
 			`--openshift-service-account=kserve-sa`,
 			`--upstream=http://localhost:` + upstreamPort,
 			`--tls-cert=/etc/tls/private/tls.crt`,
