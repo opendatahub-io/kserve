@@ -17,6 +17,7 @@ require (
 	github.com/kelseyhightower/envconfig v1.4.0
 	github.com/onsi/ginkgo/v2 v2.13.0
 	github.com/onsi/gomega v1.30.0
+	github.com/openshift/api v3.9.0+incompatible
 	github.com/pkg/errors v0.9.1
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/pflag v1.0.5
@@ -34,6 +35,7 @@ require (
 	k8s.io/code-generator v0.28.4
 	k8s.io/klog v1.0.0
 	k8s.io/kube-openapi v0.0.0-20231113174909-778a5567bc1e
+	k8s.io/utils v0.0.0-20230726121419-3b25d923346b
 	knative.dev/networking v0.0.0-20231115015815-3af9769712cd
 	knative.dev/pkg v0.0.0-20231115001034-97c7258e3a98
 	knative.dev/serving v0.39.3
@@ -128,7 +130,6 @@ require (
 	k8s.io/component-base v0.28.4 // indirect
 	k8s.io/gengo v0.0.0-20230829151522-9cce18d56c01 // indirect
 	k8s.io/klog/v2 v2.110.1 // indirect
-	k8s.io/utils v0.0.0-20230726121419-3b25d923346b // indirect
 	sigs.k8s.io/json v0.0.0-20221116044647-bc3834ca7abd // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.1 // indirect
 )

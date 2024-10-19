@@ -64,7 +64,7 @@ func NewRawKubeReconciler(client client.Client,
 	return &RawKubeReconciler{
 		client:     client,
 		scheme:     scheme,
-		Deployment: deployment.NewDeploymentReconciler(client, scheme, componentMeta, componentExt, podSpec),
+		Deployment: deployment.NewDeploymentReconciler(client, clientset, scheme, componentMeta, componentExt, podSpec),
 		Service:    service.NewServiceReconciler(client, scheme, componentMeta, componentExt, podSpec),
 		Scaler:     as,
 		URL:        url,
@@ -89,13 +89,14 @@ func createRawURL(clientset kubernetes.Interface, metadata metav1.ObjectMeta) (*
 
 // Reconcile ...
 func (r *RawKubeReconciler) Reconcile() (*appsv1.Deployment, error) {
-	// reconcile Deployment
-	deployment, err := r.Deployment.Reconcile()
+	// reconciling service before deployment because we want to use "service.beta.openshift.io/serving-cert-secret-name"
+	// reconcile Service
+	_, err := r.Service.Reconcile()
 	if err != nil {
 		return nil, err
 	}
-	// reconcile Service
-	_, err = r.Service.Reconcile()
+	// reconcile Deployment
+	deployment, err := r.Deployment.Reconcile()
 	if err != nil {
 		return nil, err
 	}

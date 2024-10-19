@@ -19,10 +19,12 @@ package ingress
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	v1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/utils"
+	routev1 "github.com/openshift/api/route/v1"
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -263,6 +265,56 @@ func semanticIngressEquals(desired, existing *netv1.Ingress) bool {
 	return equality.Semantic.DeepEqual(desired.Spec, existing.Spec)
 }
 
+func getRouteURLIfExists(cli client.Client, isvc *v1beta1.InferenceService) (*apis.URL, error) {
+	foundRoute := false
+	routeReady := false
+	route := &routev1.Route{}
+	err := cli.Get(context.TODO(), types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, route)
+	if err != nil {
+		return nil, err
+	}
+
+	// Check if the route is owned by the InferenceService
+	for _, ownerRef := range route.OwnerReferences {
+		if ownerRef.UID == isvc.UID {
+			foundRoute = true
+		}
+	}
+
+	// Check if the route is admitted
+	for _, ingress := range route.Status.Ingress {
+		for _, condition := range ingress.Conditions {
+			if condition.Type == "Admitted" && condition.Status == "True" {
+				routeReady = true
+			}
+		}
+	}
+
+	if !(foundRoute && routeReady) {
+		return nil, fmt.Errorf("route %s/%s not found or not ready", isvc.Namespace, isvc.Name)
+	}
+
+	// Construct the URL
+	host := route.Spec.Host
+	isSecure := false
+	if isSecure, err = strconv.ParseBool(isvc.Labels[constants.ODHKserveRawAuth]); err != nil {
+		isSecure = false
+	}
+
+	scheme := "http"
+	if isSecure {
+		scheme = "https"
+	}
+
+	// Create the URL as an apis.URL object
+	routeURL := &apis.URL{
+		Scheme: scheme,
+		Host:   host,
+	}
+
+	return routeURL, nil
+}
+
 func (r *RawIngressReconciler) Reconcile(isvc *v1beta1.InferenceService) error {
 	var err error
 	isInternal := false
@@ -305,6 +357,12 @@ func (r *RawIngressReconciler) Reconcile(isvc *v1beta1.InferenceService) error {
 		}
 	}
 	isvc.Status.URL, err = createRawURL(isvc, r.ingressConfig)
+	if val, ok := isvc.Labels[constants.NetworkVisibility]; ok && val == constants.ODHRouteEnabled {
+		routeUrl, err := getRouteURLIfExists(r.client, isvc)
+		if err == nil && routeUrl != nil {
+			isvc.Status.URL = routeUrl
+		}
+	}
 	if err != nil {
 		return err
 	}
