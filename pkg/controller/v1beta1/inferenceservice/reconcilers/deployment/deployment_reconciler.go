@@ -18,6 +18,11 @@ package deployment
 
 import (
 	"context"
+	"encoding/json"
+	"k8s.io/client-go/kubernetes"
+	"strconv"
+
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -44,7 +49,12 @@ type DeploymentReconciler struct {
 	componentExt *v1beta1.ComponentExtensionSpec
 }
 
+const (
+	tlsVolumeName = "proxy-tls"
+)
+
 func NewDeploymentReconciler(client kclient.Client,
+	clientset kubernetes.Interface,
 	scheme *runtime.Scheme,
 	componentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
@@ -52,17 +62,41 @@ func NewDeploymentReconciler(client kclient.Client,
 	return &DeploymentReconciler{
 		client:       client,
 		scheme:       scheme,
-		Deployment:   createRawDeployment(componentMeta, componentExt, podSpec),
+		Deployment:   createRawDeployment(clientset, componentMeta, componentExt, podSpec),
 		componentExt: componentExt,
 	}
 }
 
-func createRawDeployment(componentMeta metav1.ObjectMeta,
+func createRawDeployment(clientset kubernetes.Interface, componentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec, //nolint:unparam
 	podSpec *corev1.PodSpec) *appsv1.Deployment {
 	podMetadata := componentMeta
 	podMetadata.Labels["app"] = constants.GetRawServiceLabel(componentMeta.Name)
 	setDefaultPodSpec(podSpec)
+	isvcname := componentMeta.Name
+	if val, ok := componentMeta.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
+		if val, ok := componentMeta.Labels[constants.InferenceServiceLabel]; ok {
+			isvcname = val
+		}
+		kserveContainerPort := GetKServeContainerPort(podSpec)
+		if kserveContainerPort == "" {
+			kserveContainerPort = constants.InferenceServiceDefaultHttpPort
+		}
+		oauthProxyContainer, err := generateOauthProxyContainer(clientset, isvcname, componentMeta.Namespace, kserveContainerPort)
+		if err == nil {
+			podSpec.Containers = append(podSpec.Containers, oauthProxyContainer)
+		}
+		tlsSecretVolume := corev1.Volume{
+			Name: tlsVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  isvcname,
+					DefaultMode: func(i int32) *int32 { return &i }(420),
+				},
+			},
+		}
+		podSpec.Volumes = append(podSpec.Volumes, tlsSecretVolume)
+	}
 	deployment := &appsv1.Deployment{
 		ObjectMeta: componentMeta,
 		Spec: appsv1.DeploymentSpec{
@@ -82,6 +116,118 @@ func createRawDeployment(componentMeta metav1.ObjectMeta,
 	}
 	setDefaultDeploymentSpec(&deployment.Spec)
 	return deployment
+}
+
+func GetKServeContainerPort(podSpec *corev1.PodSpec) string {
+	for _, container := range podSpec.Containers {
+		if container.Name == "kserve-container" {
+			if len(container.Ports) > 0 {
+				return strconv.Itoa(int(container.Ports[0].ContainerPort))
+			}
+		}
+	}
+	return ""
+}
+
+func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, namespace string, upstreamPort string) (corev1.Container, error) {
+	oauthImage := constants.OauthProxyImage
+	oauthCpuLimit := constants.OauthProxyResourceCPULimit
+	oauthMemoryLimit := constants.OauthProxyResourceMemoryLimit
+	oauthCpuRequest := constants.OauthProxyResourceCPURequest
+	oauthMemoryRequest := constants.OauthProxyResourceMemoryRequest
+	inferenceServiceConfigMap, err := clientset.CoreV1().ConfigMaps(constants.KServeNamespace).Get(context.TODO(), constants.InferenceServiceConfigMapName, metav1.GetOptions{})
+	configDataSuccess := false
+	if err == nil {
+		var oauthData map[string]interface{}
+		if err := json.Unmarshal([]byte(inferenceServiceConfigMap.Data["deploy"]), &oauthData); err == nil {
+			configDataSuccess = true
+		}
+		if configDataSuccess {
+			if str, ok := oauthData["image"].(string); ok {
+				oauthImage = str
+			}
+			if str, ok := oauthData["cpuLimit"].(string); ok {
+				oauthCpuLimit = str
+			}
+			if str, ok := oauthData["memoryLimit"].(string); ok {
+				oauthMemoryLimit = str
+			}
+			if str, ok := oauthData["cpuRequest"].(string); ok {
+				oauthCpuRequest = str
+			}
+			if str, ok := oauthData["memoryRequest"].(string); ok {
+				oauthMemoryRequest = str
+			}
+		}
+	}
+
+	return corev1.Container{
+		Name: "oauth-proxy",
+		Args: []string{
+			`--https-address=:8443`,
+			`--provider=openshift`,
+			`--skip-provider-button`,
+			`--openshift-service-account=kserve-sa`,
+			`--upstream=http://localhost:` + upstreamPort,
+			`--tls-cert=/etc/tls/private/tls.crt`,
+			`--tls-key=/etc/tls/private/tls.key`,
+			`--cookie-secret=SECRET`,
+			`--openshift-delegate-urls={"/": {"namespace": "` + namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + isvc + `", "verb": "get"}}`,
+			`--openshift-sar={"namespace": "` + namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + isvc + `", "verb": "get"}`,
+			`--skip-auth-regex="(^/metrics|^/apis/v1beta1/healthz)"`,
+		},
+		Image: oauthImage,
+		Ports: []corev1.ContainerPort{
+			{
+				ContainerPort: constants.OauthProxyPort,
+				Name:          "https",
+			},
+		},
+		LivenessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Path:   "/oauth/healthz",
+					Port:   intstr.FromInt(constants.OauthProxyPort),
+					Scheme: corev1.URISchemeHTTPS,
+				},
+			},
+			InitialDelaySeconds: 30,
+			TimeoutSeconds:      1,
+			PeriodSeconds:       5,
+			SuccessThreshold:    1,
+			FailureThreshold:    3,
+		},
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Path:   "/oauth/healthz",
+					Port:   intstr.FromInt(constants.OauthProxyPort),
+					Scheme: corev1.URISchemeHTTPS,
+				},
+			},
+			InitialDelaySeconds: 5,
+			TimeoutSeconds:      1,
+			PeriodSeconds:       5,
+			SuccessThreshold:    1,
+			FailureThreshold:    3,
+		},
+		Resources: corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse(oauthCpuLimit),
+				corev1.ResourceMemory: resource.MustParse(oauthMemoryLimit),
+			},
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse(oauthCpuRequest),
+				corev1.ResourceMemory: resource.MustParse(oauthMemoryRequest),
+			},
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{
+				Name:      tlsVolumeName,
+				MountPath: "/etc/tls/private",
+			},
+		},
+	}, nil
 }
 
 // checkDeploymentExist checks if the deployment exists?
@@ -199,6 +345,8 @@ func setDefaultDeploymentSpec(spec *appsv1.DeploymentSpec) {
 		progressDeadlineSeconds := int32(600)
 		spec.ProgressDeadlineSeconds = &progressDeadlineSeconds
 	}
+
+	spec.Template.Spec.ServiceAccountName = constants.KserveServiceAccountName
 }
 
 // Reconcile ...
