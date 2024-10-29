@@ -32,7 +32,6 @@ spec:
                     items:
                       type: string
                     type: array
-                    x-kubernetes-list-type: atomic
                   dataSource:
                     properties:
                       apiGroup:
@@ -92,13 +91,11 @@ spec:
                               items:
                                 type: string
                               type: array
-                              x-kubernetes-list-type: atomic
                           required:
                           - key
                           - operator
                           type: object
                         type: array
-                        x-kubernetes-list-type: atomic
                       matchLabels:
                         additionalProperties:
                           type: string
@@ -120,7 +117,6 @@ spec:
                     items:
                       type: string
                     type: array
-                    x-kubernetes-list-type: atomic
                   awsElasticBlockStore:
                     properties:
                       fsType:
@@ -181,7 +177,6 @@ spec:
                         items:
                           type: string
                         type: array
-                        x-kubernetes-list-type: atomic
                       path:
                         type: string
                       readOnly:
@@ -309,12 +304,10 @@ spec:
                         items:
                           type: string
                         type: array
-                        x-kubernetes-list-type: atomic
                       wwids:
                         items:
                           type: string
                         type: array
-                        x-kubernetes-list-type: atomic
                     type: object
                   flexVolume:
                     properties:
@@ -404,7 +397,6 @@ spec:
                         items:
                           type: string
                         type: array
-                        x-kubernetes-list-type: atomic
                       readOnly:
                         type: boolean
                       secretRef:
@@ -435,7 +427,6 @@ spec:
                     items:
                       type: string
                     type: array
-                    x-kubernetes-list-type: atomic
                   nfs:
                     properties:
                       path:
@@ -466,13 +457,11 @@ spec:
                                         items:
                                           type: string
                                         type: array
-                                        x-kubernetes-list-type: atomic
                                     required:
                                     - key
                                     - operator
                                     type: object
                                   type: array
-                                  x-kubernetes-list-type: atomic
                                 matchFields:
                                   items:
                                     properties:
@@ -484,17 +473,14 @@ spec:
                                         items:
                                           type: string
                                         type: array
-                                        x-kubernetes-list-type: atomic
                                     required:
                                     - key
                                     - operator
                                     type: object
                                   type: array
-                                  x-kubernetes-list-type: atomic
                               type: object
                               x-kubernetes-map-type: atomic
                             type: array
-                            x-kubernetes-list-type: atomic
                         required:
                         - nodeSelectorTerms
                         type: object
@@ -552,7 +538,6 @@ spec:
                         items:
                           type: string
                         type: array
-                        x-kubernetes-list-type: atomic
                       pool:
                         type: string
                       readOnly:
