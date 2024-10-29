@@ -18,7 +18,7 @@ resources:
 - ../manager
 - ../webhook
 # - ../certmanager # not needed, because ODH is using OpenShift's serving certificates for WebHooks
-- ../localmodels
+# - ../localmodels # This is commented out for 2.16
 - network-policies.yaml # ODH specific
 
 generatorOptions:
@@ -206,16 +206,15 @@ patches:
 #   target:
 #     kind: CustomResourceDefinition
 #     name: inferenceservices.serving.kserve.io
-- patch: |-
-    - op: remove
-      path: "/webhooks/0/clientConfig/caBundle"
-    - op: remove
-      path: "/webhooks/1/clientConfig/caBundle"
-  target:
-    kind: MutatingWebhookConfiguration
-- patch: |-
-    - op: remove
-      path: "/webhooks/0/clientConfig/caBundle"
-  target:
-    kind: ValidatingWebhookConfiguration
-
+# - patch: |-
+#     - op: remove
+#       path: "/webhooks/0/clientConfig/caBundle"
+#     - op: remove
+#       path: "/webhooks/1/clientConfig/caBundle"
+#   target:
+#     kind: MutatingWebhookConfiguration
+# - patch: |-
+#     - op: remove
+#       path: "/webhooks/0/clientConfig/caBundle"
+#   target:
+#     kind: ValidatingWebhookConfiguration
