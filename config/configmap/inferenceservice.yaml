@@ -292,7 +292,10 @@ data:
            "memoryLimit": "1Gi",
            "cpuRequest": "100m",
            "cpuLimit": "1",
-           "defaultUrl": "http://default-broker"
+           "defaultUrl": "http://default-broker",
+           "caBundle": "kserve-logger-ca-bundle",
+           "caCertFile": "service-ca.crt",
+           "tlsSkipVerify": false
        }
      logger: |-
        {
@@ -312,7 +315,17 @@ data:
            "cpuLimit": "1",
            
            # defaultUrl specifies the default logger url. If logger is not specified in the resource this url is used.
-           "defaultUrl": "http://default-broker"
+           "defaultUrl": "http://default-broker",
+
+           # caBundle  specifies the name of the ConfigMap in the inference service's namespace containing the CA certificate to be used
+           "caBundle": "kserve-logger-ca-bundle",
+
+           # caCertFile  specifies the entry in caBundle to be used as CA certificate
+           "caCertFile": "service-ca.crt",
+
+           # tlsSkipVerify specifies if the TLS verification should be skipped. Default, if missing, is "false"
+           "tlsSkipVerify": false
+
        }
      
      # ====================================== BATCHER CONFIGURATION ======================================
@@ -528,7 +541,10 @@ data:
         "memoryLimit": "1Gi",
         "cpuRequest": "100m",
         "cpuLimit": "1",
-        "defaultUrl": "http://default-broker"
+        "defaultUrl": "http://default-broker",
+        "caBundle": "kserve-logger-ca-bundle",
+        "caCertFile": "service-ca.crt",
+        "tlsSkipVerify": false
     }
 
   batcher: |-
