@@ -197,7 +197,7 @@ patches:
 - path: svc_webhook_cainjection_patch.yaml
 - path: manager_resources_patch.yaml
 - path: cainjection_conversion_webhook.yaml
-- path: localmodel_manager_image_patch.yaml
+# - path: localmodel_manager_image_patch.yaml
 # Since OpenShift serving-certificates are being used,
 # remove CA bundle placeholders
 # - patch: |-
