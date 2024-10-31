@@ -31,6 +31,8 @@ from kserve.logging import trace_logger as logger
 from ..common.utils import KSERVE_TEST_NAMESPACE, predict_grpc
 from ..common.utils import predict_isvc
 
+pytest.skip("ODH does not support pmml at the moment", allow_module_level=True)
+
 
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")

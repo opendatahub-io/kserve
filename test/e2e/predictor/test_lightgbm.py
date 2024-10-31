@@ -33,6 +33,8 @@ from kserve import (
 
 from ..common.utils import KSERVE_TEST_NAMESPACE, predict_isvc, predict_grpc
 
+pytest.skip("ODH does not support lightgbm at the moment", allow_module_level=True)
+
 
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
@@ -229,6 +231,7 @@ async def test_lightgbm_v2_kserve(rest_v2_client):
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 
+@pytest.mark.skip(reason="Not testable in ODH at the moment")
 @pytest.mark.grpc
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")

@@ -33,6 +33,8 @@ import kserve.protocol.grpc.grpc_predict_v2_pb2 as inference_pb2
 
 from ..common.utils import KSERVE_TEST_NAMESPACE, predict_isvc, predict_grpc
 
+pytest.skip("ODH does not support sklearn at the moment", allow_module_level=True)
+
 
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")

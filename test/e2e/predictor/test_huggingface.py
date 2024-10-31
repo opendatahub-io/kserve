@@ -30,6 +30,8 @@ from kserve.constants import constants
 from ..common.utils import KSERVE_TEST_NAMESPACE, generate, predict_isvc
 from .test_output import huggingface_text_embedding_expected_output
 
+pytest.skip("ODH does not support huggingface at the moment", allow_module_level=True)
+
 
 @pytest.mark.llm
 def test_huggingface_openai_chat_completions():

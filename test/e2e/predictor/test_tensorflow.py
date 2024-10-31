@@ -28,6 +28,8 @@ import pytest
 from ..common.utils import predict_isvc
 from ..common.utils import KSERVE_TEST_NAMESPACE
 
+pytest.skip("ODH does not support tensorflow at the moment", allow_module_level=True)
+
 
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")
