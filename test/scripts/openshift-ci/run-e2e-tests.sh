@@ -52,7 +52,6 @@ if ! command -v mc &>/dev/null; then
   chmod +x $HOME/.local/bin/mc
 fi
 
-#
 echo "Installing KServe Python SDK ..."
 pushd $PROJECT_ROOT >/dev/null
   ./test/scripts/gh-actions/setup-poetry.sh
@@ -78,7 +77,7 @@ kustomize build $PROJECT_ROOT/config/overlays/test |
   sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
   oc apply --server-side=true -f -
 
-Patch the inferenceservice-config ConfigMap, when running RawDeployment tests
+# Patch the inferenceservice-config ConfigMap, when running RawDeployment tests
 if [ "$1" == "raw" ]; then
   export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
   oc patch configmap inferenceservice-config -n kserve --patch-file <(cat config/overlays/test/configmap/inferenceservice-openshift-ci-raw.yaml | envsubst)
