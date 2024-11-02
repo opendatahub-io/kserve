@@ -108,7 +108,7 @@ else
   echo "Bucket 'example-models' already exists."
 fi
 
-if mc ls /tmp/sklearn-model.joblib >/dev/null 2>&1; then
+if [[ $(mc ls storage/example-models/sklearn/model.joblib |wc -l) == "1" ]]; then
   echo "Test model exists"
 else
   echo "Copy test model"

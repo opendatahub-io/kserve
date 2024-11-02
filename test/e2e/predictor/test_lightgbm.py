@@ -33,8 +33,6 @@ from kserve import (
 
 from ..common.utils import KSERVE_TEST_NAMESPACE, predict_isvc, predict_grpc
 
-pytest.skip("ODH does not support lightgbm at the moment", allow_module_level=True)
-
 
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
