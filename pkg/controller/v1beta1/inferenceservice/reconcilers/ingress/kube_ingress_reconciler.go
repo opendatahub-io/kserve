@@ -19,8 +19,6 @@ package ingress
 import (
 	"context"
 	"fmt"
-	"strconv"
-
 	v1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/utils"
@@ -296,13 +294,8 @@ func getRouteURLIfExists(cli client.Client, isvc *v1beta1.InferenceService) (*ap
 
 	// Construct the URL
 	host := route.Spec.Host
-	isSecure := false
-	if isSecure, err = strconv.ParseBool(isvc.Labels[constants.ODHKserveRawAuth]); err != nil {
-		isSecure = false
-	}
-
 	scheme := "http"
-	if isSecure {
+	if route.Spec.TLS != nil && route.Spec.TLS.Termination != "" {
 		scheme = "https"
 	}
 

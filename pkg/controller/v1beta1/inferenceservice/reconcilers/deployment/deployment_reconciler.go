@@ -23,8 +23,8 @@ import (
 	"strconv"
 	"strings"
 
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -71,7 +71,7 @@ func NewDeploymentReconciler(client kclient.Client,
 		componentExt:   componentExt,
 	}
 }
-func createRawDeployment(cli kclient.Client, componentMeta metav1.ObjectMeta, workerComponentMeta metav1.ObjectMeta,
+func createRawDeployment(clientset kubernetes.Interface, componentMeta metav1.ObjectMeta, workerComponentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec) []*appsv1.Deployment {
 	var deploymentList []*appsv1.Deployment
@@ -99,7 +99,7 @@ func createRawDeployment(cli kclient.Client, componentMeta metav1.ObjectMeta, wo
 		}
 	}
 
-	defaultDeployment := createRawDefaultDeployment(cli, componentMeta, componentExt, podSpec)
+	defaultDeployment := createRawDefaultDeployment(clientset, componentMeta, componentExt, podSpec)
 	if multiNodeEnabled {
 		// Use defaut value(1) if tensor-parallel-size is not set (gpu count)
 		tensorParallelSize = constants.DefaultTensorParallelSize
@@ -136,16 +136,25 @@ func createRawDefaultDeployment(clientset kubernetes.Interface, componentMeta me
 	podMetadata := componentMeta
 	podMetadata.Labels["app"] = constants.GetRawServiceLabel(componentMeta.Name)
 	setDefaultPodSpec(podSpec)
-	isvcname := componentMeta.Name
+	var isvcname string
+	if val, ok := componentMeta.Labels[constants.InferenceServiceLabel]; ok {
+		isvcname = val
+	} else {
+		isvcname = componentMeta.Name
+	}
+	var upstreamPort string
 	if val, ok := componentMeta.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
-		if val, ok := componentMeta.Labels[constants.InferenceServiceLabel]; ok {
-			isvcname = val
+		if componentExt != nil && componentExt.Batcher != nil {
+			upstreamPort = constants.InferenceServiceDefaultAgentPortStr
+		} else if componentExt != nil && componentExt.Logger != nil {
+			upstreamPort = constants.InferenceServiceDefaultAgentPortStr
+		} else {
+			upstreamPort = GetKServeContainerPort(podSpec)
+			if upstreamPort == "" {
+				upstreamPort = constants.InferenceServiceDefaultHttpPort
+			}
 		}
-		kserveContainerPort := GetKServeContainerPort(podSpec)
-		if kserveContainerPort == "" {
-			kserveContainerPort = constants.InferenceServiceDefaultHttpPort
-		}
-		oauthProxyContainer, err := generateOauthProxyContainer(clientset, isvcname, componentMeta.Namespace, kserveContainerPort)
+		oauthProxyContainer, err := generateOauthProxyContainer(clientset, isvcname, componentMeta.Namespace, upstreamPort)
 		if err == nil {
 			podSpec.Containers = append(podSpec.Containers, oauthProxyContainer)
 		}
@@ -153,7 +162,7 @@ func createRawDefaultDeployment(clientset kubernetes.Interface, componentMeta me
 			Name: tlsVolumeName,
 			VolumeSource: corev1.VolumeSource{
 				Secret: &corev1.SecretVolumeSource{
-					SecretName:  isvcname,
+					SecretName:  componentMeta.Name + constants.ServingCertSecretSuffix,
 					DefaultMode: func(i int32) *int32 { return &i }(420),
 				},
 			},
@@ -228,13 +237,9 @@ func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, na
 	oauthCpuRequest := constants.OauthProxyResourceCPURequest
 	oauthMemoryRequest := constants.OauthProxyResourceMemoryRequest
 	inferenceServiceConfigMap, err := clientset.CoreV1().ConfigMaps(constants.KServeNamespace).Get(context.TODO(), constants.InferenceServiceConfigMapName, metav1.GetOptions{})
-	configDataSuccess := false
 	if err == nil {
 		var oauthData map[string]interface{}
 		if err := json.Unmarshal([]byte(inferenceServiceConfigMap.Data["deploy"]), &oauthData); err == nil {
-			configDataSuccess = true
-		}
-		if configDataSuccess {
 			if str, ok := oauthData["image"].(string); ok {
 				oauthImage = str
 			}
@@ -259,7 +264,6 @@ func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, na
 			`--https-address=:8443`,
 			`--provider=openshift`,
 			`--skip-provider-button`,
-			`--openshift-service-account=kserve-sa`,
 			`--upstream=http://localhost:` + upstreamPort,
 			`--tls-cert=/etc/tls/private/tls.crt`,
 			`--tls-key=/etc/tls/private/tls.key`,
@@ -437,8 +441,6 @@ func setDefaultDeploymentSpec(spec *appsv1.DeploymentSpec) {
 		progressDeadlineSeconds := int32(600)
 		spec.ProgressDeadlineSeconds = &progressDeadlineSeconds
 	}
-
-	spec.Template.Spec.ServiceAccountName = constants.KserveServiceAccountName
 }
 
 func addGPUResourceToDeployment(deployment *appsv1.Deployment, targetContainerName string, tensorParallelSize string) {
@@ -519,7 +521,7 @@ func (r *DeploymentReconciler) Reconcile() ([]*appsv1.Deployment, error) {
 			}
 
 			// Patch the deployment object with the strategic merge patch
-			opErr = r.client.Patch(context.TODO(), deployment, client.RawPatch(types.StrategicMergePatchType, patchByte))
+			opErr = r.client.Patch(context.TODO(), deployment, kclient.RawPatch(types.StrategicMergePatchType, patchByte))
 		}
 
 		if opErr != nil {

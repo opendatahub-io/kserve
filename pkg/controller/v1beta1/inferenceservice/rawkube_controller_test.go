@@ -1357,7 +1357,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					},
 				},
 			}
-			isvc.DefaultInferenceService(nil, nil)
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil)
 			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
 
 			inferenceService := &v1beta1.InferenceService{}
@@ -2327,7 +2327,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						"serving.kserve.io/deploymentMode": "RawDeployment",
 					},
 					Labels: map[string]string{
-						constants.ODHKserveRawAuth: "true",
+						constants.ODHKserveRawAuth:  "true",
+						constants.NetworkVisibility: constants.ODHRouteEnabled,
 					},
 				},
 				Spec: v1beta1.InferenceServiceSpec{
@@ -2349,7 +2350,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					},
 				},
 			}
-			isvc.DefaultInferenceService(nil, nil)
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil)
 			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
 
 			inferenceService := &v1beta1.InferenceService{}
@@ -2393,11 +2394,12 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.InferenceServicePodLabelKey: serviceName,
 								"serving.kserve.io/inferenceservice":  serviceName,
 								constants.ODHKserveRawAuth:            "true",
+								constants.NetworkVisibility:           constants.ODHRouteEnabled,
 							},
 							Annotations: map[string]string{
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 								"serving.kserve.io/deploymentMode":                         "RawDeployment",
-								"service.beta.openshift.io/serving-cert-secret-name":       serviceName,
+								"service.beta.openshift.io/serving-cert-secret-name":       predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: v1.PodSpec{
@@ -2438,7 +2440,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									Args: []string{
 										`--https-address=:8443`,
 										`--provider=openshift`,
-										`--openshift-service-account=kserve-sa`,
+										`--skip-provider-button`,
 										`--upstream=http://localhost:8080`,
 										`--tls-cert=/etc/tls/private/tls.crt`,
 										`--tls-key=/etc/tls/private/tls.key`,
@@ -2508,14 +2510,12 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									Name: "proxy-tls",
 									VolumeSource: v1.VolumeSource{
 										Secret: &v1.SecretVolumeSource{
-											SecretName:  serviceName,
+											SecretName:  predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 											DefaultMode: func(i int32) *int32 { return &i }(420),
 										},
 									},
 								},
 							},
-							ServiceAccountName:            constants.KserveServiceAccountName,
-							DeprecatedServiceAccount:      constants.KserveServiceAccountName,
 							SchedulerName:                 "default-scheduler",
 							RestartPolicy:                 "Always",
 							TerminationGracePeriodSeconds: &gracePeriod,

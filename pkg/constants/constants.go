@@ -38,7 +38,6 @@ var (
 	KnativeServingAPIGroupName       = KnativeServingAPIGroupNamePrefix + ".dev"
 	KServeNamespace                  = getEnvOrDefault("POD_NAMESPACE", "kserve")
 	KServeDefaultVersion             = "v0.5.0"
-	KserveServiceAccountName         = "kserve-sa"
 )
 
 // InferenceService Constants
@@ -131,13 +130,14 @@ var (
 
 // kserve networking constants
 const (
-	NetworkVisibility      = "networking.kserve.io/visibility"
-	ClusterLocalVisibility = "cluster-local"
-	ClusterLocalDomain     = "svc.cluster.local"
-	IsvcNameHeader         = "KServe-Isvc-Name"
-	IsvcNamespaceHeader    = "KServe-Isvc-Namespace"
-	ODHKserveRawAuth       = "security.opendatahub.io/enable-auth"
-	ODHRouteEnabled        = "enable-route"
+	NetworkVisibility       = "networking.kserve.io/visibility"
+	ClusterLocalVisibility  = "cluster-local"
+	ClusterLocalDomain      = "svc.cluster.local"
+	IsvcNameHeader          = "KServe-Isvc-Name"
+	IsvcNamespaceHeader     = "KServe-Isvc-Namespace"
+	ODHKserveRawAuth        = "security.opendatahub.io/enable-auth"
+	ODHRouteEnabled         = "exposed"
+	ServingCertSecretSuffix = "-serving-cert"
 )
 
 // StorageSpec Constants
@@ -451,7 +451,7 @@ const (
 
 // opendatahub rawDeployment Auth
 const (
-	OauthProxyImage                 = "registry.redhat.io/openshift4/ose-oauth-proxy@sha256:4bef31eb993feb6f1096b51b4876c65a6fb1f4401fee97fa4f4542b6b7c9bc46"
+	OauthProxyImage                 = "registry.redhat.io/openshift4/ose-oauth-proxy@sha256:234af927030921ab8f7333f61f967b4b4dee37a1b3cf85689e9e63240dd62800"
 	OauthProxyPort                  = 8443
 	OauthProxyResourceMemoryLimit   = "256Mi"
 	OauthProxyResourceCPULimit      = "100m"
