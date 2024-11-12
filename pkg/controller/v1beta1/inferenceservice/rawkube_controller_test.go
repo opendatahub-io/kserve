@@ -2532,6 +2532,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								FSGroupChangePolicy: nil,
 								SeccompProfile:      nil,
 							},
+							AutomountServiceAccountToken: proto.Bool(false),
 						},
 					},
 					Strategy: appsv1.DeploymentStrategy{
