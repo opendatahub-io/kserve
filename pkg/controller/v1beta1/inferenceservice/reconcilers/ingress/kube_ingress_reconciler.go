@@ -269,7 +269,11 @@ func getRouteURLIfExists(cli client.Client, isvc *v1beta1.InferenceService) (*ap
 	route := &routev1.Route{}
 	err := cli.Get(context.TODO(), types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, route)
 	if err != nil {
-		return nil, err
+		if apierr.IsNotFound(err) {
+			return nil, nil
+		} else {
+			return nil, err
+		}
 	}
 
 	// Check if the route is owned by the InferenceService
