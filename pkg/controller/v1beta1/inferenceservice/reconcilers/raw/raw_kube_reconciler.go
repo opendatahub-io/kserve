@@ -65,10 +65,14 @@ func NewRawKubeReconciler(client client.Client,
 	if workerPodSpec != nil {
 		multiNodeEnabled = true
 	}
+	depl, err := deployment.NewDeploymentReconciler(client, clientset, scheme, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec)
+	if err != nil {
+		return nil, err
+	}
 	return &RawKubeReconciler{
 		client:     client,
 		scheme:     scheme,
-		Deployment: deployment.NewDeploymentReconciler(client, clientset, scheme, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec),
+		Deployment: depl,
 		Service:    service.NewServiceReconciler(client, scheme, componentMeta, componentExt, podSpec, multiNodeEnabled),
 		Scaler:     as,
 		URL:        url,

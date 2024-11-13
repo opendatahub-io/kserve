@@ -18,6 +18,8 @@ package deployment
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -268,6 +270,11 @@ func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, na
 		oauthMemoryRequest = str
 	}
 
+	cookieSecret, err := generateCookieSecret()
+	if err != nil {
+		return corev1.Container{}, err
+	}
+
 	return corev1.Container{
 		Name: "oauth-proxy",
 		Args: []string{
@@ -277,7 +284,7 @@ func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, na
 			`--upstream=http://localhost:` + upstreamPort,
 			`--tls-cert=/etc/tls/private/tls.crt`,
 			`--tls-key=/etc/tls/private/tls.key`,
-			`--cookie-secret=SECRET`,
+			`--cookie-secret=` + cookieSecret,
 			`--openshift-delegate-urls={"/": {"namespace": "` + namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + isvc + `", "verb": "get"}}`,
 			`--openshift-sar={"namespace": "` + namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + isvc + `", "verb": "get"}`,
 			`--skip-auth-regex="(^/metrics|^/apis/v1beta1/healthz)"`,
@@ -334,6 +341,15 @@ func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, na
 			},
 		},
 	}, nil
+}
+
+func generateCookieSecret() (string, error) {
+	secret := make([]byte, 32)
+	_, err := rand.Read(secret)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(secret), nil
 }
 
 // checkDeploymentExist checks if the deployment exists?
