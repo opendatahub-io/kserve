@@ -269,11 +269,7 @@ func getRouteURLIfExists(cli client.Client, isvc *v1beta1.InferenceService) (*ap
 	route := &routev1.Route{}
 	err := cli.Get(context.TODO(), types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, route)
 	if err != nil {
-		if apierr.IsNotFound(err) {
-			return nil, nil
-		} else {
-			return nil, err
-		}
+		return nil, err
 	}
 
 	// Check if the route is owned by the InferenceService
@@ -356,7 +352,10 @@ func (r *RawIngressReconciler) Reconcile(isvc *v1beta1.InferenceService) error {
 	isvc.Status.URL, err = createRawURL(isvc, r.ingressConfig)
 	if val, ok := isvc.Labels[constants.NetworkVisibility]; ok && val == constants.ODHRouteEnabled {
 		routeUrl, err := getRouteURLIfExists(r.client, isvc)
-		if err == nil && routeUrl != nil {
+		if err != nil {
+			return err
+		}
+		if routeUrl != nil {
 			isvc.Status.URL = routeUrl
 		}
 	}

@@ -22,7 +22,7 @@ from urllib.parse import urlparse
 
 import portforward
 import requests
-from kubernetes import client as k8s_client
+from kubernetes import client as k8s_client, config
 from orjson import orjson
 
 from kserve import KServeClient, InferResponse, InferRequest
@@ -30,6 +30,8 @@ from kserve import constants
 from kserve.inference_client import InferenceGRPCClient, InferenceRESTClient
 from kserve.protocol.grpc import grpc_predict_v2_pb2 as pb
 from kserve.logging import trace_logger as logger
+from openshift.dynamic import DynamicClient
+
 
 KSERVE_NAMESPACE = "kserve"
 KSERVE_TEST_NAMESPACE = "kserve-ci-e2e-test"
@@ -302,6 +304,24 @@ def get_isvc_endpoint(isvc):
         cluster_ip = get_cluster_ip()
     return scheme, cluster_ip, host, path
 
+def isvc_route_ready(isvc):
+    # Load Kubernetes config and initialize OpenShift client
+    k8s_client_config = config.load_kube_config(os.environ.get("KUBECONFIG", "~/.kube/config"))
+    dyn_client = DynamicClient(k8s_client.ApiClient(k8s_client_config))
+
+    # Define the namespace and route name
+    namespace = isvc['metadata']['namespace']
+    route_name = isvc['metadata']['name']
+    
+    # Access the OpenShift routes API
+    route_resource = dyn_client.resources.get(api_version='route.openshift.io/v1', kind='Route')
+    
+    try:
+        # Attempt to get the route by name
+        route = route_resource.get(name=route_name, namespace=namespace)
+        return True  # Route exists
+    except k8s_client.exceptions.ApiException as e:
+        return False
 
 def generate(
     service_name,

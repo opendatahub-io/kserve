@@ -35,6 +35,7 @@ import pytest
 
 from ..common.utils import KSERVE_TEST_NAMESPACE, predict_grpc
 from ..common.utils import predict_isvc
+from ..common.utils import isvc_route_ready
 
 api_version = constants.KSERVE_V1BETA1
 
@@ -119,6 +120,49 @@ async def test_raw_deployment_runtime_kserve(rest_v1_client):
     assert res["predictions"] == [1, 1]
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
+@pytest.mark.raw
+@pytest.mark.asyncio(scope="session")
+async def test_raw_deployment_runtime_kserve_route_auth(rest_v1_client):
+    service_name = "raw-sklearn-runtime"
+    annotations = dict()
+    labels = dict()
+    annotations["serving.kserve.io/deploymentMode"] = "RawDeployment"
+    labels["networking.kserve.io/visibility"] = "exposed"
+    predictor = V1beta1PredictorSpec(
+        min_replicas=1,
+        model=V1beta1ModelSpec(
+            model_format=V1beta1ModelFormat(
+                name="sklearn",
+            ),
+            storage_uri="gs://kfserving-examples/models/sklearn/1.0/model",
+            resources=V1ResourceRequirements(
+                requests={"cpu": "50m", "memory": "128Mi"},
+                limits={"cpu": "100m", "memory": "256Mi"},
+            ),
+        ),
+    )
+
+    isvc = V1beta1InferenceService(
+        api_version=constants.KSERVE_V1BETA1,
+        kind=constants.KSERVE_KIND,
+        metadata=client.V1ObjectMeta(
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            annotations=annotations,
+            labels = labels
+        ),
+        spec=V1beta1InferenceServiceSpec(predictor=predictor),
+    )
+
+    kserve_client = KServeClient(
+        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+    )
+    kserve_client.create(isvc)
+    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    assert isvc_route_ready(isvc)
+    res = await predict_isvc(rest_v1_client, service_name, "./data/iris_input.json")
+    assert res["predictions"] == [1, 1]
+    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 @pytest.mark.grpc
 @pytest.mark.raw

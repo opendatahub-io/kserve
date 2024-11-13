@@ -63,17 +63,21 @@ func NewDeploymentReconciler(client kclient.Client,
 	componentMeta metav1.ObjectMeta,
 	workerComponentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
-	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec) *DeploymentReconciler {
+	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec) (*DeploymentReconciler, error) {
+	deploymentList, err := createRawDeployment(clientset, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec)
+	if err != nil {
+		return nil, err
+	}
 	return &DeploymentReconciler{
 		client:         client,
 		scheme:         scheme,
-		DeploymentList: createRawDeployment(clientset, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec),
+		DeploymentList: deploymentList,
 		componentExt:   componentExt,
-	}
+	}, nil
 }
 func createRawDeployment(clientset kubernetes.Interface, componentMeta metav1.ObjectMeta, workerComponentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
-	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec) []*appsv1.Deployment {
+	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec) ([]*appsv1.Deployment, error) {
 	var deploymentList []*appsv1.Deployment
 	var workerNodeReplicas int32
 	var tensorParallelSize string
@@ -99,7 +103,10 @@ func createRawDeployment(clientset kubernetes.Interface, componentMeta metav1.Ob
 		}
 	}
 
-	defaultDeployment := createRawDefaultDeployment(clientset, componentMeta, componentExt, podSpec)
+	defaultDeployment, err := createRawDefaultDeployment(clientset, componentMeta, componentExt, podSpec)
+	if err != nil {
+		return nil, err
+	}
 	if multiNodeEnabled {
 		// Use defaut value(1) if tensor-parallel-size is not set (gpu count)
 		tensorParallelSize = constants.DefaultTensorParallelSize
@@ -127,12 +134,12 @@ func createRawDeployment(clientset kubernetes.Interface, componentMeta metav1.Ob
 		deploymentList = append(deploymentList, workerDeployment)
 	}
 
-	return deploymentList
+	return deploymentList, nil
 }
 
 func createRawDefaultDeployment(clientset kubernetes.Interface, componentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
-	podSpec *corev1.PodSpec) *appsv1.Deployment {
+	podSpec *corev1.PodSpec) (*appsv1.Deployment, error) {
 	podMetadata := componentMeta
 	podMetadata.Labels["app"] = constants.GetRawServiceLabel(componentMeta.Name)
 	setDefaultPodSpec(podSpec)
@@ -155,9 +162,10 @@ func createRawDefaultDeployment(clientset kubernetes.Interface, componentMeta me
 			}
 		}
 		oauthProxyContainer, err := generateOauthProxyContainer(clientset, isvcname, componentMeta.Namespace, upstreamPort)
-		if err == nil {
-			podSpec.Containers = append(podSpec.Containers, oauthProxyContainer)
+		if err != nil {
+			return nil, err
 		}
+		podSpec.Containers = append(podSpec.Containers, oauthProxyContainer)
 		tlsSecretVolume := corev1.Volume{
 			Name: tlsVolumeName,
 			VolumeSource: corev1.VolumeSource{
@@ -187,7 +195,7 @@ func createRawDefaultDeployment(clientset kubernetes.Interface, componentMeta me
 		deployment.Spec.Strategy = *componentExt.DeploymentStrategy
 	}
 	setDefaultDeploymentSpec(&deployment.Spec)
-	return deployment
+	return deployment, nil
 }
 func createRawWorkerDeployment(componentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
@@ -231,31 +239,33 @@ func GetKServeContainerPort(podSpec *corev1.PodSpec) string {
 }
 
 func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, namespace string, upstreamPort string) (corev1.Container, error) {
-	oauthImage := constants.OauthProxyImage
-	oauthCpuLimit := constants.OauthProxyResourceCPULimit
-	oauthMemoryLimit := constants.OauthProxyResourceMemoryLimit
-	oauthCpuRequest := constants.OauthProxyResourceCPURequest
-	oauthMemoryRequest := constants.OauthProxyResourceMemoryRequest
+	var oauthImage string
+	var oauthCpuLimit string
+	var oauthCpuRequest string
+	var oauthMemoryLimit string
+	var oauthMemoryRequest string
 	inferenceServiceConfigMap, err := clientset.CoreV1().ConfigMaps(constants.KServeNamespace).Get(context.TODO(), constants.InferenceServiceConfigMapName, metav1.GetOptions{})
-	if err == nil {
-		var oauthData map[string]interface{}
-		if err := json.Unmarshal([]byte(inferenceServiceConfigMap.Data["deploy"]), &oauthData); err == nil {
-			if str, ok := oauthData["image"].(string); ok {
-				oauthImage = str
-			}
-			if str, ok := oauthData["cpuLimit"].(string); ok {
-				oauthCpuLimit = str
-			}
-			if str, ok := oauthData["memoryLimit"].(string); ok {
-				oauthMemoryLimit = str
-			}
-			if str, ok := oauthData["cpuRequest"].(string); ok {
-				oauthCpuRequest = str
-			}
-			if str, ok := oauthData["memoryRequest"].(string); ok {
-				oauthMemoryRequest = str
-			}
-		}
+	if err != nil {
+		return corev1.Container{}, err
+	}
+	var oauthData map[string]interface{}
+	if err := json.Unmarshal([]byte(inferenceServiceConfigMap.Data["deploy"]), &oauthData); err != nil {
+		return corev1.Container{}, err
+	}
+	if str, ok := oauthData["image"].(string); ok {
+		oauthImage = str
+	}
+	if str, ok := oauthData["cpuLimit"].(string); ok {
+		oauthCpuLimit = str
+	}
+	if str, ok := oauthData["memoryLimit"].(string); ok {
+		oauthMemoryLimit = str
+	}
+	if str, ok := oauthData["cpuRequest"].(string); ok {
+		oauthCpuRequest = str
+	}
+	if str, ok := oauthData["memoryRequest"].(string); ok {
+		oauthMemoryRequest = str
 	}
 
 	return corev1.Container{
