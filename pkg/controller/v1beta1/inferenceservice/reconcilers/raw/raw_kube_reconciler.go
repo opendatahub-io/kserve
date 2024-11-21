@@ -18,6 +18,7 @@ package raw
 
 import (
 	"fmt"
+	"github.com/kserve/kserve/pkg/constants"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -90,6 +91,11 @@ func createRawURL(clientset kubernetes.Interface, metadata metav1.ObjectMeta) (*
 	url.Host, err = ingress.GenerateDomainName(metadata.Name, metadata, ingressConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed creating host name: %w", err)
+	}
+
+	if val, ok := metadata.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
+		url.Scheme = "https"
+		url.Host += ":8443"
 	}
 
 	return url, nil

@@ -393,7 +393,7 @@ func TestCreateDefaultDeployment(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := createRawDeployment(clientset, tt.args.objectMeta, tt.args.workerObjectMeta, tt.args.componentExt, tt.args.podSpec, tt.args.workerPodSpec)
+			got, _ := createRawDeployment(clientset, tt.args.objectMeta, tt.args.workerObjectMeta, tt.args.componentExt, tt.args.podSpec, tt.args.workerPodSpec)
 			for i, deploy := range got {
 				if diff := cmp.Diff(tt.expected[i], deploy, cmpopts.IgnoreFields(appsv1.Deployment{}, "Spec.Template.Spec.SecurityContext"),
 					cmpopts.IgnoreFields(appsv1.Deployment{}, "Spec.Template.Spec.RestartPolicy"),
@@ -461,7 +461,7 @@ func TestCreateDefaultDeployment(t *testing.T) {
 			ttExpected := getDefaultExpectedDeployment()
 
 			// update objectMeta using modify func
-			got := createRawDeployment(clientset, ttArgs.objectMeta, ttArgs.workerObjectMeta, ttArgs.componentExt, tt.modifyArgs(ttArgs).podSpec, tt.modifyArgs(ttArgs).workerPodSpec)
+			got, _ := createRawDeployment(clientset, ttArgs.objectMeta, ttArgs.workerObjectMeta, ttArgs.componentExt, tt.modifyArgs(ttArgs).podSpec, tt.modifyArgs(ttArgs).workerPodSpec)
 
 			// update expected value using modifyExpected func
 			expected := tt.modifyExpected(ttExpected)
@@ -764,7 +764,7 @@ func TestCreateDefaultDeployment(t *testing.T) {
 			ttExpected := getDefaultExpectedDeployment()
 
 			// update objectMeta using modify func
-			got := createRawDeployment(clientset, tt.modifyObjectMetaArgs(ttArgs).objectMeta, tt.modifyWorkerObjectMetaArgs(ttArgs).workerObjectMeta, ttArgs.componentExt, tt.modifyPodSpecArgs(ttArgs).podSpec, tt.modifyWorkerPodSpecArgs(ttArgs).workerPodSpec)
+			got, _ := createRawDeployment(clientset, tt.modifyObjectMetaArgs(ttArgs).objectMeta, tt.modifyWorkerObjectMetaArgs(ttArgs).workerObjectMeta, ttArgs.componentExt, tt.modifyPodSpecArgs(ttArgs).podSpec, tt.modifyWorkerPodSpecArgs(ttArgs).workerPodSpec)
 
 			// update expected value using modifyExpected func
 			expected := tt.modifyExpected(ttExpected)

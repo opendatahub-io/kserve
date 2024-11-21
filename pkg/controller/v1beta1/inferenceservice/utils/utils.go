@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	appsv1 "k8s.io/api/apps/v1"
 	"regexp"
 	"sort"
 	"strings"
@@ -440,4 +441,20 @@ func MergeServingRuntimeAndInferenceServiceSpecs(srContainers []v1.Container, is
 		return 0, nil, nil, errors.New(errMsg)
 	}
 	return containerIndexInSR, mergedContainer, mergedPodSpec, nil
+}
+
+func RemoveCookieSecretArg(deployment appsv1.Deployment) *appsv1.Deployment {
+	dep := deployment.DeepCopy()
+	for i, container := range dep.Spec.Template.Spec.Containers {
+		if container.Name == "oauth-proxy" {
+			var newArgs []string
+			for _, arg := range container.Args {
+				if !strings.Contains(arg, "cookie-secret") {
+					newArgs = append(newArgs, arg)
+				}
+			}
+			dep.Spec.Template.Spec.Containers[i].Args = newArgs
+		}
+	}
+	return dep
 }

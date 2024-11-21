@@ -451,7 +451,12 @@ const (
 
 // opendatahub rawDeployment Auth
 const (
-	OauthProxyPort = 8443
+	OauthProxyPort                  = 8443
+	OauthProxyResourceMemoryLimit   = "128Mi"
+	OauthProxyResourceCPULimit      = "200m"
+	OauthProxyResourceMemoryRequest = "64Mi"
+	OauthProxyResourceCPURequest    = "100m"
+	OauthProxyImage                 = "registry.redhat.io/openshift4/ose-oauth-proxy@sha256:234af927030921ab8f7333f61f967b4b4dee37a1b3cf85689e9e63240dd62800"
 )
 
 type ProtocolVersion int

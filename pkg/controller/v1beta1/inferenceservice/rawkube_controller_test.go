@@ -19,6 +19,7 @@ package inferenceservice
 import (
 	"context"
 	"fmt"
+	routev1 "github.com/openshift/api/route/v1"
 	"time"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -40,6 +41,7 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	v1 "k8s.io/api/core/v1"
 
+	v1beta1utils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
 	netv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -2243,28 +2245,9 @@ var _ = Describe("v1beta1 inference service controller", func() {
 	})
 	Context("When creating an inferenceservice with raw kube predictor and ODH auth enabled", func() {
 		configs := map[string]string{
-			"explainers": `{
-				"alibi": {
-					"image": "kserve/alibi-explainer",
-					"defaultImageVersion": "latest"
-				}
-			}`,
-			"ingress": `{
-				"ingressGateway": "knative-serving/knative-ingress-gateway",
-				"ingressService": "test-destination",
-				"localGateway": "knative-serving/knative-local-gateway",
-				"localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"
-			}`,
-			"storageInitializer": `{
-				"image" : "kserve/storage-initializer:latest",
-				"memoryRequest": "100Mi",
-				"memoryLimit": "1Gi",
-				"cpuRequest": "100m",
-				"cpuLimit": "1",
-				"CaBundleConfigMapName": "",
-				"caBundleVolumeMountPath": "/etc/ssl/custom-certs",
-				"enableDirectPvcVolumeMount": false
-			}`,
+			"oauthProxy":         `{"image": "registry.redhat.io/openshift4/ose-oauth-proxy@sha256:234af927030921ab8f7333f61f967b4b4dee37a1b3cf85689e9e63240dd62800", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+			"ingress":            `{"ingressGateway": "knative-serving/knative-ingress-gateway", "ingressService": "test-destination", "localGateway": "knative-serving/knative-local-gateway", "localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"}`,
+			"storageInitializer": `{"image": "kserve/storage-initializer:latest", "memoryRequest": "100Mi", "memoryLimit": "1Gi", "cpuRequest": "100m", "cpuLimit": "1", "CaBundleConfigMapName": "", "caBundleVolumeMountPath": "/etc/ssl/custom-certs", "enableDirectPvcVolumeMount": false}`,
 		}
 
 		It("Should have ingress/service/deployment/hpa created", func() {
@@ -2444,7 +2427,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 										`--upstream=http://localhost:8080`,
 										`--tls-cert=/etc/tls/private/tls.crt`,
 										`--tls-key=/etc/tls/private/tls.key`,
-										`--cookie-secret=SECRET`,
+										// omit cookie secret arg in unit test as it is generated randomly
+										//`--cookie-secret=SECRET`,
 										`--openshift-delegate-urls={"/": {"namespace": "` + serviceKey.Namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + serviceName + `", "verb": "get"}}`,
 										`--openshift-sar={"namespace": "` + serviceKey.Namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + serviceName + `", "verb": "get"}`,
 										`--skip-auth-regex="(^/metrics|^/apis/v1beta1/healthz)"`,
@@ -2546,7 +2530,10 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: &progressDeadlineSeconds,
 				},
 			}
-			Expect(actualDeployment.Spec).To(gomega.Equal(expectedDeployment.Spec))
+			// remove the cookie-secret arg from the generated deployment for comparison
+			cleanedDep := actualDeployment.DeepCopy()
+			actualDep := v1beta1utils.RemoveCookieSecretArg(*cleanedDep)
+			Expect(actualDep.Spec).To(gomega.Equal(expectedDeployment.Spec))
 
 			//check service
 			actualService := &v1.Service{}
@@ -2583,6 +2570,56 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			actualService.Spec.InternalTrafficPolicy = nil
 			Expect(actualService.Spec).To(gomega.Equal(expectedService.Spec))
 
+			route := &routev1.Route{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Labels: map[string]string{
+						"inferenceservice-name": serviceName,
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion:         "serving.kserve.io/v1beta1",
+							Kind:               "InferenceService",
+							Name:               serviceKey.Name,
+							UID:                isvc.GetUID(),
+							Controller:         proto.Bool(true),
+							BlockOwnerDeletion: proto.Bool(true),
+						},
+					},
+				},
+				Spec: routev1.RouteSpec{
+					Host: "raw-auth-default.example.com",
+					To: routev1.RouteTargetReference{
+						Kind:   "Service",
+						Name:   predictorServiceKey.Name,
+						Weight: proto.Int32(100),
+					},
+					Port: &routev1.RoutePort{
+						TargetPort: intstr.FromInt(8443),
+					},
+					TLS: &routev1.TLSConfig{
+						Termination:                   routev1.TLSTerminationReencrypt,
+						InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
+					},
+					WildcardPolicy: routev1.WildcardPolicyNone,
+				},
+				Status: routev1.RouteStatus{
+					Ingress: []routev1.RouteIngress{
+						{
+							Host: "raw-auth-default.example.com",
+							Conditions: []routev1.RouteIngressCondition{
+								{
+									Type:   routev1.RouteAdmitted,
+									Status: v1.ConditionTrue,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(context.TODO(), route)).Should(Succeed())
+
 			//check isvc status
 			updatedDeployment := actualDeployment.DeepCopy()
 			updatedDeployment.Status.Conditions = []appsv1.DeploymentCondition{
@@ -2612,21 +2649,21 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					},
 				},
 				URL: &apis.URL{
-					Scheme: "http",
+					Scheme: "https",
 					Host:   "raw-auth-default.example.com",
 				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
 						Scheme: "http",
-						Host:   fmt.Sprintf("%s-predictor.%s.svc.cluster.local", serviceKey.Name, serviceKey.Namespace),
+						Host:   fmt.Sprintf("%s-predictor.%s.svc.cluster.local:8443", serviceKey.Name, serviceKey.Namespace),
 					},
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
 						LatestCreatedRevision: "",
 						URL: &apis.URL{
-							Scheme: "http",
-							Host:   "raw-auth-predictor-default.example.com",
+							Scheme: "https",
+							Host:   "raw-auth-predictor-default.example.com:8443",
 						},
 					},
 				},

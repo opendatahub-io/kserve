@@ -31,6 +31,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	v1beta1utils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
 	"github.com/kserve/kserve/pkg/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -57,6 +58,7 @@ type DeploymentReconciler struct {
 
 const (
 	tlsVolumeName = "proxy-tls"
+	oauthProxy    = "oauthProxy"
 )
 
 func NewDeploymentReconciler(client kclient.Client,
@@ -135,7 +137,6 @@ func createRawDeployment(clientset kubernetes.Interface, componentMeta metav1.Ob
 		addGPUResourceToDeployment(workerDeployment, constants.WorkerContainerName, tensorParallelSize)
 		deploymentList = append(deploymentList, workerDeployment)
 	}
-
 	return deploymentList, nil
 }
 
@@ -146,12 +147,12 @@ func createRawDefaultDeployment(clientset kubernetes.Interface, componentMeta me
 	podMetadata.Labels["app"] = constants.GetRawServiceLabel(componentMeta.Name)
 	setDefaultPodSpec(podSpec)
 	var isvcname string
+	var upstreamPort string
 	if val, ok := componentMeta.Labels[constants.InferenceServiceLabel]; ok {
 		isvcname = val
 	} else {
 		isvcname = componentMeta.Name
 	}
-	var upstreamPort string
 	if val, ok := componentMeta.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
 		if componentExt != nil && componentExt.Batcher != nil {
 			upstreamPort = constants.InferenceServiceDefaultAgentPortStr
@@ -241,34 +242,21 @@ func GetKServeContainerPort(podSpec *corev1.PodSpec) string {
 }
 
 func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, namespace string, upstreamPort string) (corev1.Container, error) {
-	var oauthImage string
-	var oauthCpuLimit string
-	var oauthCpuRequest string
-	var oauthMemoryLimit string
-	var oauthMemoryRequest string
-	inferenceServiceConfigMap, err := clientset.CoreV1().ConfigMaps(constants.KServeNamespace).Get(context.TODO(), constants.InferenceServiceConfigMapName, metav1.GetOptions{})
+
+	configMap, err := clientset.CoreV1().ConfigMaps(constants.KServeNamespace).Get(context.TODO(), constants.InferenceServiceConfigMapName, metav1.GetOptions{})
 	if err != nil {
 		return corev1.Container{}, err
 	}
-	var oauthData map[string]interface{}
-	if err := json.Unmarshal([]byte(inferenceServiceConfigMap.Data["deploy"]), &oauthData); err != nil {
+	oauthProxyJSON := strings.TrimSpace(configMap.Data["oauthProxy"])
+	oauthProxyConfig := v1beta1.OauthConfig{}
+	if err := json.Unmarshal([]byte(oauthProxyJSON), &oauthProxyConfig); err != nil {
 		return corev1.Container{}, err
 	}
-	if str, ok := oauthData["image"].(string); ok {
-		oauthImage = str
-	}
-	if str, ok := oauthData["cpuLimit"].(string); ok {
-		oauthCpuLimit = str
-	}
-	if str, ok := oauthData["memoryLimit"].(string); ok {
-		oauthMemoryLimit = str
-	}
-	if str, ok := oauthData["cpuRequest"].(string); ok {
-		oauthCpuRequest = str
-	}
-	if str, ok := oauthData["memoryRequest"].(string); ok {
-		oauthMemoryRequest = str
-	}
+	oauthImage := oauthProxyConfig.Image
+	oauthMemoryRequest := oauthProxyConfig.MemoryRequest
+	oauthMemoryLimit := oauthProxyConfig.MemoryLimit
+	oauthCpuRequest := oauthProxyConfig.CpuRequest
+	oauthCpuLimit := oauthProxyConfig.CpuLimit
 
 	cookieSecret, err := generateCookieSecret()
 	if err != nil {
@@ -375,7 +363,9 @@ func (r *DeploymentReconciler) checkDeploymentExist(client kclient.Client, deplo
 		log.Error(err, "Failed to perform dry-run update of deployment", "Deployment", deployment.Name)
 		return constants.CheckResultUnknown, nil, err
 	}
-	if diff, err := kmp.SafeDiff(deployment.Spec, existingDeployment.Spec, ignoreFields); err != nil {
+	processedExistingDep := v1beta1utils.RemoveCookieSecretArg(*existingDeployment)
+	processedNewDep := v1beta1utils.RemoveCookieSecretArg(*deployment)
+	if diff, err := kmp.SafeDiff(processedNewDep.Spec, processedExistingDep.Spec, ignoreFields); err != nil {
 		return constants.CheckResultUnknown, nil, err
 	} else if diff != "" {
 		log.Info("Deployment Updated", "Diff", diff)

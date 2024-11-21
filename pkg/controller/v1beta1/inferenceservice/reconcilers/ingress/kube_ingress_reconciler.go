@@ -36,6 +36,7 @@ import (
 	"knative.dev/pkg/network"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"strconv"
 )
 
 // RawIngressReconciler reconciles the kubernetes ingress
@@ -56,7 +57,7 @@ func NewRawIngressReconciler(client client.Client,
 }
 
 func createRawURL(isvc *v1beta1.InferenceService,
-	ingressConfig *v1beta1.IngressConfig) (*knapis.URL, error) {
+	ingressConfig *v1beta1.IngressConfig, authEnabled bool) (*knapis.URL, error) {
 	var err error
 	url := &knapis.URL{}
 	url.Scheme = ingressConfig.UrlScheme
@@ -64,7 +65,9 @@ func createRawURL(isvc *v1beta1.InferenceService,
 	if err != nil {
 		return nil, err
 	}
-
+	if authEnabled {
+		url.Host += ":" + strconv.Itoa(constants.OauthProxyPort)
+	}
 	return url, nil
 }
 
@@ -349,7 +352,11 @@ func (r *RawIngressReconciler) Reconcile(isvc *v1beta1.InferenceService) error {
 			return err
 		}
 	}
-	isvc.Status.URL, err = createRawURL(isvc, r.ingressConfig)
+	authEnabled := false
+	if val, ok := isvc.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
+		authEnabled = true
+	}
+	isvc.Status.URL, err = createRawURL(isvc, r.ingressConfig, authEnabled)
 	if val, ok := isvc.Labels[constants.NetworkVisibility]; ok && val == constants.ODHRouteEnabled {
 		routeUrl, err := getRouteURLIfExists(r.client, isvc)
 		if err != nil {
@@ -362,9 +369,13 @@ func (r *RawIngressReconciler) Reconcile(isvc *v1beta1.InferenceService) error {
 	if err != nil {
 		return err
 	}
+	internalHost := getRawServiceHost(isvc, r.client)
+	if authEnabled {
+		internalHost += ":8443"
+	}
 	isvc.Status.Address = &duckv1.Addressable{
 		URL: &apis.URL{
-			Host:   getRawServiceHost(isvc, r.client),
+			Host:   internalHost,
 			Scheme: r.ingressConfig.UrlScheme,
 			Path:   "",
 		},
