@@ -18,6 +18,7 @@ package raw
 
 import (
 	"fmt"
+
 	"github.com/kserve/kserve/pkg/constants"
 
 	appsv1 "k8s.io/api/apps/v1"

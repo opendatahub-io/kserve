@@ -154,6 +154,7 @@ func createRawDefaultDeployment(clientset kubernetes.Interface, componentMeta me
 		isvcname = componentMeta.Name
 	}
 	if val, ok := componentMeta.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
+		//nolint:gocritic
 		if componentExt != nil && componentExt.Batcher != nil {
 			upstreamPort = constants.InferenceServiceDefaultAgentPortStr
 		} else if componentExt != nil && componentExt.Logger != nil {
@@ -240,9 +241,7 @@ func GetKServeContainerPort(podSpec *corev1.PodSpec) string {
 	}
 	return ""
 }
-
 func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, namespace string, upstreamPort string) (corev1.Container, error) {
-
 	configMap, err := clientset.CoreV1().ConfigMaps(constants.KServeNamespace).Get(context.TODO(), constants.InferenceServiceConfigMapName, metav1.GetOptions{})
 	if err != nil {
 		return corev1.Container{}, err

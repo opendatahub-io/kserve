@@ -19,7 +19,7 @@ package inferenceservice
 import (
 	"context"
 	"fmt"
-	routev1 "github.com/openshift/api/route/v1"
+
 	"time"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -42,6 +42,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 
 	v1beta1utils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
+	routev1 "github.com/openshift/api/route/v1"
 	netv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

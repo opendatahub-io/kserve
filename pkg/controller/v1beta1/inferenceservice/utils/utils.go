@@ -22,10 +22,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
-	appsv1 "k8s.io/api/apps/v1"
 	"regexp"
 	"sort"
 	"strings"
+
+	appsv1 "k8s.io/api/apps/v1"
 
 	"github.com/pkg/errors"
 	goerrors "github.com/pkg/errors"
