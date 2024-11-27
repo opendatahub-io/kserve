@@ -16,7 +16,6 @@ limitations under the License.
 package deployment
 
 import (
-	"k8s.io/client-go/kubernetes"
 	"strings"
 	"testing"
 
@@ -31,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
 )
 
