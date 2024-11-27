@@ -2663,8 +2663,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					v1beta1.PredictorComponent: {
 						LatestCreatedRevision: "",
 						URL: &apis.URL{
-							Scheme: "https",
-							Host:   "raw-auth-predictor-default.example.com:8443",
+							Scheme: "http",
+							Host:   "raw-auth-predictor-default.example.com",
 						},
 					},
 				},

@@ -154,12 +154,12 @@ func createRawDefaultDeployment(clientset kubernetes.Interface, componentMeta me
 		isvcname = componentMeta.Name
 	}
 	if val, ok := componentMeta.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
-		//nolint:gocritic
-		if componentExt != nil && componentExt.Batcher != nil {
+		switch {
+		case componentExt != nil && componentExt.Batcher != nil:
 			upstreamPort = constants.InferenceServiceDefaultAgentPortStr
-		} else if componentExt != nil && componentExt.Logger != nil {
+		case componentExt != nil && componentExt.Logger != nil:
 			upstreamPort = constants.InferenceServiceDefaultAgentPortStr
-		} else {
+		default:
 			upstreamPort = GetKServeContainerPort(podSpec)
 			if upstreamPort == "" {
 				upstreamPort = constants.InferenceServiceDefaultHttpPort
@@ -250,6 +250,10 @@ func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, na
 	oauthProxyConfig := v1beta1.OauthConfig{}
 	if err := json.Unmarshal([]byte(oauthProxyJSON), &oauthProxyConfig); err != nil {
 		return corev1.Container{}, err
+	}
+	if oauthProxyConfig.Image == "" || oauthProxyConfig.MemoryRequest == "" || oauthProxyConfig.MemoryLimit == "" ||
+		oauthProxyConfig.CpuRequest == "" || oauthProxyConfig.CpuLimit == "" {
+		return corev1.Container{}, fmt.Errorf("one or more oauthProxyConfig fields are empty")
 	}
 	oauthImage := oauthProxyConfig.Image
 	oauthMemoryRequest := oauthProxyConfig.MemoryRequest
