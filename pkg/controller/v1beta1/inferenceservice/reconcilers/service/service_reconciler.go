@@ -110,7 +110,7 @@ func createDefaultSvc(componentMeta metav1.ObjectMeta, componentExt *v1beta1.Com
 				},
 				Protocol: container.Ports[0].Protocol,
 			}
-			if servicePort.Name == "" {
+			if len(servicePort.Name) == 0 {
 				servicePort.Name = "http"
 			}
 			servicePorts = append(servicePorts, servicePort)

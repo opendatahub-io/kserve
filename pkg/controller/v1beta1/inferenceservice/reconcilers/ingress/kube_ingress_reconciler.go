@@ -267,6 +267,7 @@ func semanticIngressEquals(desired, existing *netv1.Ingress) bool {
 	return equality.Semantic.DeepEqual(desired.Spec, existing.Spec)
 }
 
+// Check for route created by odh-model-controller. If the route is found, use it as the isvc URL
 func getRouteURLIfExists(cli client.Client, isvc *v1beta1.InferenceService) (*apis.URL, error) {
 	foundRoute := false
 	routeReady := false
@@ -372,7 +373,7 @@ func (r *RawIngressReconciler) Reconcile(isvc *v1beta1.InferenceService) error {
 	}
 	internalHost := getRawServiceHost(isvc, r.client)
 	if authEnabled {
-		internalHost += ":8443"
+		internalHost += ":" + strconv.Itoa(constants.OauthProxyPort)
 	}
 	isvc.Status.Address = &duckv1.Addressable{
 		URL: &apis.URL{

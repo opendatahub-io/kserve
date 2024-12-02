@@ -1375,7 +1375,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			actualIngress := &netv1.Ingress{}
 			predictorIngressKey := types.NamespacedName{Name: serviceKey.Name,
 				Namespace: serviceKey.Namespace}
-			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorIngressKey, actualIngress) }, timeout).
+			Consistently(func() error { return k8sClient.Get(context.TODO(), predictorIngressKey, actualIngress) }, timeout).
 				ShouldNot(Succeed())
 		})
 	})
@@ -2432,7 +2432,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 										//`--cookie-secret=SECRET`,
 										`--openshift-delegate-urls={"/": {"namespace": "` + serviceKey.Namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + serviceName + `", "verb": "get"}}`,
 										`--openshift-sar={"namespace": "` + serviceKey.Namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + serviceName + `", "verb": "get"}`,
-										`--skip-auth-regex="(^/metrics|^/apis/v1beta1/healthz)"`,
 									},
 									Ports: []v1.ContainerPort{
 										{

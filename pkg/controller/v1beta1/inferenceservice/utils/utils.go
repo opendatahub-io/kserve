@@ -444,6 +444,8 @@ func MergeServingRuntimeAndInferenceServiceSpecs(srContainers []v1.Container, is
 	return containerIndexInSR, mergedContainer, mergedPodSpec, nil
 }
 
+// Since the "cookie-secret" arg in the oauth proxy container is generated randomly,
+// we exclude that arg while comparing existing and desired deployment specs
 func RemoveCookieSecretArg(deployment appsv1.Deployment) *appsv1.Deployment {
 	dep := deployment.DeepCopy()
 	for i, container := range dep.Spec.Template.Spec.Containers {

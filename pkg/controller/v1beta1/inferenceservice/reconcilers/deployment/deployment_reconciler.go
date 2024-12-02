@@ -109,7 +109,10 @@ func createRawDeployment(clientset kubernetes.Interface, componentMeta metav1.Ob
 
 	defaultDeployment, err := createRawDefaultDeployment(clientset, componentMeta, componentExt, podSpec)
 	if err != nil {
-		return nil, err
+		// the calling function will ignore the deploymentlist if an error is also returned
+		// This is required for the deployment_reconciler_tests
+		deploymentList = append(deploymentList, defaultDeployment)
+		return deploymentList, err
 	}
 	if multiNodeEnabled {
 		// Use defaut value(1) if tensor-parallel-size is not set (gpu count)
@@ -146,6 +149,26 @@ func createRawDefaultDeployment(clientset kubernetes.Interface, componentMeta me
 	podMetadata := componentMeta
 	podMetadata.Labels["app"] = constants.GetRawServiceLabel(componentMeta.Name)
 	setDefaultPodSpec(podSpec)
+
+	deployment := &appsv1.Deployment{
+		ObjectMeta: componentMeta,
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{
+					"app": constants.GetRawServiceLabel(componentMeta.Name),
+				},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: podMetadata,
+				Spec:       *podSpec,
+			},
+		},
+	}
+	if componentExt.DeploymentStrategy != nil {
+		deployment.Spec.Strategy = *componentExt.DeploymentStrategy
+	}
+	setDefaultDeploymentSpec(&deployment.Spec)
+
 	var isvcname string
 	var upstreamPort string
 	if val, ok := componentMeta.Labels[constants.InferenceServiceLabel]; ok {
@@ -167,9 +190,12 @@ func createRawDefaultDeployment(clientset kubernetes.Interface, componentMeta me
 		}
 		oauthProxyContainer, err := generateOauthProxyContainer(clientset, isvcname, componentMeta.Namespace, upstreamPort)
 		if err != nil {
-			return nil, err
+			// return the deployment without the oauth proxy container if there was an error
+			// This is required for the deployment_reconciler_tests
+			return deployment, err
 		}
-		podSpec.Containers = append(podSpec.Containers, oauthProxyContainer)
+		updatedPodSpec := podSpec.DeepCopy()
+		updatedPodSpec.Containers = append(updatedPodSpec.Containers, *oauthProxyContainer)
 		tlsSecretVolume := corev1.Volume{
 			Name: tlsVolumeName,
 			VolumeSource: corev1.VolumeSource{
@@ -179,26 +205,9 @@ func createRawDefaultDeployment(clientset kubernetes.Interface, componentMeta me
 				},
 			},
 		}
-		podSpec.Volumes = append(podSpec.Volumes, tlsSecretVolume)
+		updatedPodSpec.Volumes = append(updatedPodSpec.Volumes, tlsSecretVolume)
+		deployment.Spec.Template.Spec = *updatedPodSpec
 	}
-	deployment := &appsv1.Deployment{
-		ObjectMeta: componentMeta,
-		Spec: appsv1.DeploymentSpec{
-			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"app": constants.GetRawServiceLabel(componentMeta.Name),
-				},
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: podMetadata,
-				Spec:       *podSpec,
-			},
-		},
-	}
-	if componentExt.DeploymentStrategy != nil {
-		deployment.Spec.Strategy = *componentExt.DeploymentStrategy
-	}
-	setDefaultDeploymentSpec(&deployment.Spec)
 	return deployment, nil
 }
 func createRawWorkerDeployment(componentMeta metav1.ObjectMeta,
@@ -241,19 +250,19 @@ func GetKServeContainerPort(podSpec *corev1.PodSpec) string {
 	}
 	return ""
 }
-func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, namespace string, upstreamPort string) (corev1.Container, error) {
-	configMap, err := clientset.CoreV1().ConfigMaps(constants.KServeNamespace).Get(context.TODO(), constants.InferenceServiceConfigMapName, metav1.GetOptions{})
+func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, namespace string, upstreamPort string) (*corev1.Container, error) {
+	isvcConfigMap, err := clientset.CoreV1().ConfigMaps(constants.KServeNamespace).Get(context.TODO(), constants.InferenceServiceConfigMapName, metav1.GetOptions{})
 	if err != nil {
-		return corev1.Container{}, err
+		return nil, err
 	}
-	oauthProxyJSON := strings.TrimSpace(configMap.Data["oauthProxy"])
+	oauthProxyJSON := strings.TrimSpace(isvcConfigMap.Data["oauthProxy"])
 	oauthProxyConfig := v1beta1.OauthConfig{}
 	if err := json.Unmarshal([]byte(oauthProxyJSON), &oauthProxyConfig); err != nil {
-		return corev1.Container{}, err
+		return nil, err
 	}
 	if oauthProxyConfig.Image == "" || oauthProxyConfig.MemoryRequest == "" || oauthProxyConfig.MemoryLimit == "" ||
 		oauthProxyConfig.CpuRequest == "" || oauthProxyConfig.CpuLimit == "" {
-		return corev1.Container{}, fmt.Errorf("one or more oauthProxyConfig fields are empty")
+		return nil, fmt.Errorf("one or more oauthProxyConfig fields are empty")
 	}
 	oauthImage := oauthProxyConfig.Image
 	oauthMemoryRequest := oauthProxyConfig.MemoryRequest
@@ -263,13 +272,13 @@ func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, na
 
 	cookieSecret, err := generateCookieSecret()
 	if err != nil {
-		return corev1.Container{}, err
+		return nil, err
 	}
 
-	return corev1.Container{
+	return &corev1.Container{
 		Name: "oauth-proxy",
 		Args: []string{
-			`--https-address=:8443`,
+			`--https-address=:` + strconv.Itoa(constants.OauthProxyPort),
 			`--provider=openshift`,
 			`--skip-provider-button`,
 			`--upstream=http://localhost:` + upstreamPort,
@@ -278,7 +287,6 @@ func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, na
 			`--cookie-secret=` + cookieSecret,
 			`--openshift-delegate-urls={"/": {"namespace": "` + namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + isvc + `", "verb": "get"}}`,
 			`--openshift-sar={"namespace": "` + namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + isvc + `", "verb": "get"}`,
-			`--skip-auth-regex="(^/metrics|^/apis/v1beta1/healthz)"`,
 		},
 		Image: oauthImage,
 		Ports: []corev1.ContainerPort{
