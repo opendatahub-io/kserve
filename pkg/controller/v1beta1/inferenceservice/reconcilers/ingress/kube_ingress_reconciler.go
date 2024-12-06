@@ -57,22 +57,21 @@ func NewRawIngressReconciler(client client.Client,
 	}, nil
 }
 
-func createRawURL(isvc *v1beta1.InferenceService,
-	ingressConfig *v1beta1.IngressConfig, authEnabled bool) (*knapis.URL, error) {
-	var err error
-	url := &knapis.URL{}
-	url.Scheme = ingressConfig.UrlScheme
-	url.Host, err = GenerateDomainName(isvc.Name, isvc.ObjectMeta, ingressConfig)
-	if err != nil {
-		return nil, err
-	}
-	if authEnabled {
-		url.Host += ":" + strconv.Itoa(constants.OauthProxyPort)
-	}
-	return url, nil
-}
+func createRawURL(client client.Client, isvc *v1beta1.InferenceService, authEnabled bool) (*knapis.URL, error) {
+	// upstream implementation
+	// var err error
+	// url := &knapis.URL{}
+	// url.Scheme = ingressConfig.UrlScheme
+	// url.Host, err = GenerateDomainName(isvc.Name, isvc.ObjectMeta, ingressConfig)
+	// if err != nil {
+	//	return nil, err
+	// }
+	// if authEnabled {
+	//	url.Host += ":" + strconv.Itoa(constants.OauthProxyPort)
+	// }
+	// return url, nil
 
-func createRawURLODH(client client.Client, isvc *v1beta1.InferenceService, authEnabled bool) (*knapis.URL, error) {
+	// ODH changes
 	url := &knapis.URL{}
 	if val, ok := isvc.Labels[constants.NetworkVisibility]; ok && val == constants.ODHRouteEnabled {
 		var err error
@@ -333,7 +332,7 @@ func (r *RawIngressReconciler) Reconcile(isvc *v1beta1.InferenceService) error {
 	if val, ok := isvc.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
 		authEnabled = true
 	}
-	isvc.Status.URL, err = createRawURLODH(r.client, isvc, authEnabled)
+	isvc.Status.URL, err = createRawURL(r.client, isvc, authEnabled)
 	if err != nil {
 		return err
 	}
