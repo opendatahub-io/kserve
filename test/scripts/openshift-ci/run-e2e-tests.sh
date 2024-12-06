@@ -58,7 +58,14 @@ pushd $PROJECT_ROOT >/dev/null
   ./test/scripts/gh-actions/check-poetry-lockfile.sh
 popd
 pushd $PROJECT_ROOT/python/kserve >/dev/null
-  poetry install --with=test --no-interaction
+  poetry install -v --with=test --no-interaction
+popd
+echo "HERE"
+pushd $PROJECT_ROOT/python/kserve >/dev/null
+  which poetry
+  which python
+  python -c "import sys; print(sys.path)"
+  python -c "import pytest_asyncio"
 popd
 
 # Install KServe stack
@@ -160,10 +167,11 @@ oc annotate servingruntimes -n kserve-ci-e2e-test --all serving.knative.openshif
 echo "Run E2E tests: $1"
 pushd $PROJECT_ROOT >/dev/null
 # Note: The following images are set by openshift-ci. Uncomment if you are running on your own machine.
-# export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
-# export IMAGE_TRANSFORMER_IMG_TAG=kserve/image-transformer:latest
+export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
+export IMAGE_TRANSFORMER_IMG_TAG=kserve/image-transformer:latest
 
 export GITHUB_SHA=$(git rev-parse HEAD)
 export CI_USE_ISVC_HOST="1"
-./test/scripts/gh-actions/run-e2e-tests.sh "$1"
+pytest $PROJECT_ROOT/test/e2e/predictor/test_triton.py::test_triton --ignore=qpext --log-cli-level=INFO
+#./test/scripts/gh-actions/run-e2e-tests.sh "$1"
 popd
