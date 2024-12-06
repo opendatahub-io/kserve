@@ -21,7 +21,7 @@ To create an OCI container image, the model needs to be downloaded and copied in
 the container. Once the OCI image is built and published in a registry, it can be
 deployed on the cluster.
 
-The ODH projects provides configurations for the vLLM model server, which
+The ODH project provides configurations for the vLLM model server, which
 supports running the Granite model. Thus, this guide will use this model server
 to demonstrate how to deploy the Granite model stored in an OCI image.
 
@@ -33,7 +33,7 @@ The process is as follows:
 * Use huggingface CLI to download the model
 * Create the final OCI using the downloaded model
 
-It is possible to run this process as part of a multi-stage container build. Create a file named
+This process is implemented in the following multi-stage container build. Create a file named
 `Containerfile` with the following contents:
 ```Dockerfile
 ##### Stage 1: Download the model
@@ -47,16 +47,16 @@ ARG repo_id
 RUN mkdir models && huggingface-cli download --quiet --max-workers 2 --local-dir ./models $repo_id
 
 ##### Stage 2: Build the final OCI model container
-FROM registry.access.redhat.com/ubi8/ubi-micro:latest as model
+FROM registry.access.redhat.com/ubi9/ubi-micro:latest as model
 
 # Copy from the download stage
-COPY --from=downloader --chown=0:0 /opt/app-root/src/models /models
+COPY --from=downloader --chown=1001:0 /opt/app-root/src/models /models
 
 # Set proper privileges for KServe
 RUN chmod -R a=rX /models
 
 # Use non-root user as default
-USER 65534
+USER 1001
 ```
 
 > [!TIP]
@@ -68,7 +68,7 @@ Notice that model files are copied into `/models` inside the final container. KS
 expects this path to exist in the OCI image and also expects the model files to
 be inside it.
 
-Also, notice that `ubi8-micro` is used as a base container of the final image.
+Also, notice that `ubi9-micro` is used as a base container of the final image.
 Empty images, like `scratch` cannot be used, because KServe needs to configure the model image
 with a command to keep it alive and ensure the model files remain available in
 the pod. Thus, it is required to use a base image that provides a shell.
@@ -187,34 +187,35 @@ curl https://sample-isvc-using-oci-oci-model-example.apps.rosa.ehernand-test.v16
       -H "Content-Type: application/json" \
       -d '{
           "model": "sample-isvc-using-oci",
-          "prompt": "¿Qué es el modelo IBM granite-3?.",
+          "prompt": "What is the IBM granite-3 model?",
           "max_tokens": 200,
           "temperature": 0.8
       }' | jq
 
 # Response:
 {
-  "id": "cmpl-dde608075fa64960a5904896fa0202ca",
+  "id": "cmpl-639e7e1911e942eeb34bc9db9ff9c9fc",
   "object": "text_completion",
-  "created": 1733433715,
+  "created": 1733527176,
   "model": "sample-isvc-using-oci",
   "choices": [
     {
       "index": 0,
-      "text": "\nAnswer:\nIBM Granite es un modelo de lenguaje grande que ha sido entrenado por IBM Research en 13 tiempos del mundo. Granite es capaz de generar texto en muchas categorías, in
-      cluyendo la creación de narrativas, la generación de código, la atención médica y la asistencia legal. La inteligencia artificial de Granite se basa en un descubrimiento de 2022 llamado modela
-      do multitarea, que permite al modelo generar texto en múltiples categorías simultáneamente. IBM Granite es un modelo de lenguaje grande que ha sido entrenado en una amplia variedad de datos, l
-      o que le permite generar texto en muchas categorías y responder a una amplia gama de preguntas.",
+      "text": "\n\nThe IBM Granite-3 is a high-performance computing system designed for complex data analytics, artificial intelligence, and machine learning applications. It is built on IBM's 
+        Power10 processor-based architecture and features:\n\n1. **Power10 Processor-based Architecture**: The IBM Granite-3 is powered by IBM's latest Power10 processor, which provides high performance
+        , energy efficiency, and advanced security features.\n\n2. **High-Performance Memory**: The system features high-speed memory, enabling fast data access and processing, which is crucial for comp
+        lex data analytics and AI applications.\n\n3. **Large Memory Capacity**: The IBM Granite-3 supports large memory capacities, allowing for the processing of vast amounts of data.\n\n4. **High-Spe
+        ed Interconnect**: The system features a high-speed interconnect, enabling quick data transfer between system components.\n\n5. **Advanced Security Features",
       "logprobs": null,
-      "finish_reason": "stop",
+      "finish_reason": "length",
       "stop_reason": null,
       "prompt_logprobs": null
     }
   ],
   "usage": {
-    "prompt_tokens": 12,
+    "prompt_tokens": 10,
     "total_tokens": 210,
-    "completion_tokens": 198
+    "completion_tokens": 200
   }
 }
 ```
@@ -224,7 +225,7 @@ curl https://sample-isvc-using-oci-oci-model-example.apps.rosa.ehernand-test.v16
 The MobileNet v2-7 model is available at the [onnx/models](https://github.com/onnx/models/tree/main/validated/vision/classification/mobilenet)
 GitHub repository. This model is in ONNX format.
 
-The ODH projects provides configurations for the OpenVINO model server, which
+The ODH project provides configurations for the OpenVINO model server, which
 supports models in ONNX format. Thus, this guide will use this model server
 to demonstrate how deploy the MobileNet v2-7 model stored in an OCI image.
 
@@ -260,16 +261,16 @@ curl -L $DOWNLOAD_URL -O --output-dir models/1/
 
 Create a file named `Containerfile` with the following contents:
 ```Dockerfile
-FROM registry.access.redhat.com/ubi8/ubi-micro:latest
+FROM registry.access.redhat.com/ubi9/ubi-micro:latest
 
 # Copy the downloaded model
-COPY --chown=0:0 models /models
+COPY --chown=1001:0 models /models
 
 # Set proper privileges for KServe
 RUN chmod -R a=rX /models
 
 # Use non-root user as default
-USER 65534 
+USER 1001
 ```
 
 Similarly to the Granite example, notice that model files are copied into `/models`,
