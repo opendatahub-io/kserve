@@ -58,15 +58,14 @@ pushd $PROJECT_ROOT >/dev/null
   ./test/scripts/gh-actions/check-poetry-lockfile.sh
 popd
 pushd $PROJECT_ROOT/python/kserve >/dev/null
-  poetry shell
   poetry install -v --with=test --no-interaction
 popd
 echo "HERE"
 pushd $PROJECT_ROOT/python/kserve >/dev/null
   which poetry
   which python
-  python -c "import sys; print(sys.path)"
-  python -c "import pytest_asyncio"
+  poetry run python -c "import sys; print(sys.path)"
+  poetry run python -c "import pytest_asyncio"
 popd
 
 # Install KServe stack
@@ -173,6 +172,6 @@ export IMAGE_TRANSFORMER_IMG_TAG=kserve/image-transformer:latest
 
 export GITHUB_SHA=$(git rev-parse HEAD)
 export CI_USE_ISVC_HOST="1"
-pytest $PROJECT_ROOT/test/e2e/predictor/test_triton.py::test_triton --ignore=qpext --log-cli-level=DEBUG
+poetry run pytest $PROJECT_ROOT/test/e2e/predictor/test_triton.py::test_triton --ignore=qpext --log-cli-level=DEBUG
 #./test/scripts/gh-actions/run-e2e-tests.sh "$1"
 popd
