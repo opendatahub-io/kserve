@@ -417,7 +417,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				URL: &apis.URL{
 					Scheme: "http",
-					Host:   "raw-foo-default.example.com",
+					Host:   fmt.Sprintf("%s-predictor.%s.svc.cluster.local", serviceKey.Name, serviceKey.Namespace),
 				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
@@ -832,7 +832,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				URL: &apis.URL{
 					Scheme: "http",
-					Host:   "raw-foo-customized-default.example.com",
+					Host:   fmt.Sprintf("%s-predictor.%s.svc.cluster.local", serviceKey.Name, serviceKey.Namespace),
 				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
@@ -1238,7 +1238,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				URL: &apis.URL{
 					Scheme: "http",
-					Host:   "raw-foo-2-default.example.com",
+					Host:   fmt.Sprintf("%s-predictor.%s.svc.cluster.local", serviceKey.Name, serviceKey.Namespace),
 				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
@@ -1715,7 +1715,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				URL: &apis.URL{
 					Scheme: "http",
-					Host:   fmt.Sprintf("%s-default.example.com", serviceName),
+					Host:   fmt.Sprintf("%s-predictor.%s.svc.cluster.local", serviceKey.Name, serviceKey.Namespace),
 				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
@@ -2148,7 +2148,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				URL: &apis.URL{
 					Scheme: "http",
-					Host:   fmt.Sprintf("%s.%s.%s", serviceName, serviceKey.Namespace, domain),
+					Host:   fmt.Sprintf("%s-predictor.%s.svc.cluster.local", serviceKey.Name, serviceKey.Namespace),
 				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
@@ -2425,6 +2425,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 										`--https-address=:8443`,
 										`--provider=openshift`,
 										`--skip-provider-button`,
+										`--openshift-service-account=default`,
 										`--upstream=http://localhost:8080`,
 										`--tls-cert=/etc/tls/private/tls.crt`,
 										`--tls-key=/etc/tls/private/tls.key`,

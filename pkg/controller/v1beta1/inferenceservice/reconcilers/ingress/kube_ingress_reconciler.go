@@ -23,8 +23,8 @@ import (
 
 	v1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	v1beta1utils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
 	"github.com/kserve/kserve/pkg/utils"
-	routev1 "github.com/openshift/api/route/v1"
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -68,6 +68,27 @@ func createRawURL(isvc *v1beta1.InferenceService,
 	}
 	if authEnabled {
 		url.Host += ":" + strconv.Itoa(constants.OauthProxyPort)
+	}
+	return url, nil
+}
+
+func createRawURLODH(client client.Client, isvc *v1beta1.InferenceService, authEnabled bool) (*knapis.URL, error) {
+	url := &knapis.URL{}
+	if val, ok := isvc.Labels[constants.NetworkVisibility]; ok && val == constants.ODHRouteEnabled {
+		var err error
+		url, err = v1beta1utils.GetRouteURLIfExists(client, isvc.ObjectMeta, isvc.Name)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		url = &apis.URL{
+			Host:   getRawServiceHost(isvc, client),
+			Scheme: "http",
+			Path:   "",
+		}
+		if authEnabled {
+			url.Host += ":" + strconv.Itoa(constants.OauthProxyPort)
+		}
 	}
 	return url, nil
 }
@@ -267,52 +288,6 @@ func semanticIngressEquals(desired, existing *netv1.Ingress) bool {
 	return equality.Semantic.DeepEqual(desired.Spec, existing.Spec)
 }
 
-// Check for route created by odh-model-controller. If the route is found, use it as the isvc URL
-func getRouteURLIfExists(cli client.Client, isvc *v1beta1.InferenceService) (*apis.URL, error) {
-	foundRoute := false
-	routeReady := false
-	route := &routev1.Route{}
-	err := cli.Get(context.TODO(), types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, route)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check if the route is owned by the InferenceService
-	for _, ownerRef := range route.OwnerReferences {
-		if ownerRef.UID == isvc.UID {
-			foundRoute = true
-		}
-	}
-
-	// Check if the route is admitted
-	for _, ingress := range route.Status.Ingress {
-		for _, condition := range ingress.Conditions {
-			if condition.Type == "Admitted" && condition.Status == "True" {
-				routeReady = true
-			}
-		}
-	}
-
-	if !(foundRoute && routeReady) {
-		return nil, fmt.Errorf("route %s/%s not found or not ready", isvc.Namespace, isvc.Name)
-	}
-
-	// Construct the URL
-	host := route.Spec.Host
-	scheme := "http"
-	if route.Spec.TLS != nil && route.Spec.TLS.Termination != "" {
-		scheme = "https"
-	}
-
-	// Create the URL as an apis.URL object
-	routeURL := &apis.URL{
-		Scheme: scheme,
-		Host:   host,
-	}
-
-	return routeURL, nil
-}
-
 func (r *RawIngressReconciler) Reconcile(isvc *v1beta1.InferenceService) error {
 	var err error
 	isInternal := false
@@ -358,16 +333,7 @@ func (r *RawIngressReconciler) Reconcile(isvc *v1beta1.InferenceService) error {
 	if val, ok := isvc.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
 		authEnabled = true
 	}
-	isvc.Status.URL, err = createRawURL(isvc, r.ingressConfig, authEnabled)
-	if val, ok := isvc.Labels[constants.NetworkVisibility]; ok && val == constants.ODHRouteEnabled {
-		routeUrl, err := getRouteURLIfExists(r.client, isvc)
-		if err != nil {
-			return err
-		}
-		if routeUrl != nil {
-			isvc.Status.URL = routeUrl
-		}
-	}
+	isvc.Status.URL, err = createRawURLODH(r.client, isvc, authEnabled)
 	if err != nil {
 		return err
 	}

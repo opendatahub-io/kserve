@@ -31,7 +31,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
-	testclient "k8s.io/client-go/kubernetes/fake"
 )
 
 func TestCreateDefaultDeployment(t *testing.T) {
@@ -44,7 +43,6 @@ func TestCreateDefaultDeployment(t *testing.T) {
 		podSpec          *corev1.PodSpec
 		workerPodSpec    *corev1.PodSpec
 	}
-	clientset := testclient.NewClientset()
 	testInput := map[string]args{
 		"defaultDeployment": {
 			objectMeta: metav1.ObjectMeta{
@@ -393,7 +391,10 @@ func TestCreateDefaultDeployment(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := createRawDeployment(clientset, tt.args.objectMeta, tt.args.workerObjectMeta, tt.args.componentExt, tt.args.podSpec, tt.args.workerPodSpec)
+			got, err := createRawDeployment(tt.args.objectMeta, tt.args.workerObjectMeta, tt.args.componentExt, tt.args.podSpec, tt.args.workerPodSpec)
+			if err != nil {
+				t.Error(err)
+			}
 			if len(got) == 0 {
 				t.Errorf("Got empty deployment")
 			}
@@ -465,7 +466,10 @@ func TestCreateDefaultDeployment(t *testing.T) {
 			ttExpected := getDefaultExpectedDeployment()
 
 			// update objectMeta using modify func
-			got, _ := createRawDeployment(clientset, ttArgs.objectMeta, ttArgs.workerObjectMeta, ttArgs.componentExt, tt.modifyArgs(ttArgs).podSpec, tt.modifyArgs(ttArgs).workerPodSpec)
+			got, err := createRawDeployment(ttArgs.objectMeta, ttArgs.workerObjectMeta, ttArgs.componentExt, tt.modifyArgs(ttArgs).podSpec, tt.modifyArgs(ttArgs).workerPodSpec)
+			if err != nil {
+				t.Error(err)
+			}
 			if len(got) == 0 {
 				t.Errorf("Got empty deployment")
 			}
@@ -771,7 +775,10 @@ func TestCreateDefaultDeployment(t *testing.T) {
 			ttExpected := getDefaultExpectedDeployment()
 
 			// update objectMeta using modify func
-			got, _ := createRawDeployment(clientset, tt.modifyObjectMetaArgs(ttArgs).objectMeta, tt.modifyWorkerObjectMetaArgs(ttArgs).workerObjectMeta, ttArgs.componentExt, tt.modifyPodSpecArgs(ttArgs).podSpec, tt.modifyWorkerPodSpecArgs(ttArgs).workerPodSpec)
+			got, err := createRawDeployment(tt.modifyObjectMetaArgs(ttArgs).objectMeta, tt.modifyWorkerObjectMetaArgs(ttArgs).workerObjectMeta, ttArgs.componentExt, tt.modifyPodSpecArgs(ttArgs).podSpec, tt.modifyWorkerPodSpecArgs(ttArgs).workerPodSpec)
+			if err != nil {
+				t.Error(err)
+			}
 			if len(got) == 0 {
 				t.Errorf("Got empty deployment")
 			}

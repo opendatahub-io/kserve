@@ -11,7 +11,7 @@ data:
       "memoryRequest": "64Mi",
       "memoryLimit": "128Mi",
       "cpuRequest": "100m",
-      "cpuLimit": "200m",
+      "cpuLimit": "200m"
     }
   storageInitializer: |-
     {

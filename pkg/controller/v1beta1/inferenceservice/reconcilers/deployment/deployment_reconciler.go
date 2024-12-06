@@ -68,7 +68,7 @@ func NewDeploymentReconciler(client kclient.Client,
 	workerComponentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec) (*DeploymentReconciler, error) {
-	deploymentList, err := createRawDeployment(clientset, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec)
+	deploymentList, err := createRawDeploymentODH(clientset, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +79,26 @@ func NewDeploymentReconciler(client kclient.Client,
 		componentExt:   componentExt,
 	}, nil
 }
-func createRawDeployment(clientset kubernetes.Interface, componentMeta metav1.ObjectMeta, workerComponentMeta metav1.ObjectMeta,
+
+func createRawDeploymentODH(clientset kubernetes.Interface, componentMeta metav1.ObjectMeta, workerComponentMeta metav1.ObjectMeta,
+	componentExt *v1beta1.ComponentExtensionSpec,
+	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec) ([]*appsv1.Deployment, error) {
+	deploymentList, err := createRawDeployment(componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec)
+	if err != nil {
+		return nil, err
+	}
+	if val, ok := componentMeta.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
+		for _, deployment := range deploymentList {
+			err := addOauthContainerToDeployment(clientset, deployment, componentMeta, componentExt, podSpec)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	return deploymentList, nil
+}
+
+func createRawDeployment(componentMeta metav1.ObjectMeta, workerComponentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec) ([]*appsv1.Deployment, error) {
 	var deploymentList []*appsv1.Deployment
@@ -107,12 +126,9 @@ func createRawDeployment(clientset kubernetes.Interface, componentMeta metav1.Ob
 		}
 	}
 
-	defaultDeployment, err := createRawDefaultDeployment(clientset, componentMeta, componentExt, podSpec)
+	defaultDeployment, err := createRawDefaultDeployment(componentMeta, componentExt, podSpec)
 	if err != nil {
-		// the calling function will ignore the deploymentlist if an error is also returned
-		// This is required for the deployment_reconciler_tests
-		deploymentList = append(deploymentList, defaultDeployment)
-		return deploymentList, err
+		return nil, err
 	}
 	if multiNodeEnabled {
 		// Use defaut value(1) if tensor-parallel-size is not set (gpu count)
@@ -143,7 +159,7 @@ func createRawDeployment(clientset kubernetes.Interface, componentMeta metav1.Ob
 	return deploymentList, nil
 }
 
-func createRawDefaultDeployment(clientset kubernetes.Interface, componentMeta metav1.ObjectMeta,
+func createRawDefaultDeployment(componentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec) (*appsv1.Deployment, error) {
 	podMetadata := componentMeta
@@ -168,9 +184,14 @@ func createRawDefaultDeployment(clientset kubernetes.Interface, componentMeta me
 		deployment.Spec.Strategy = *componentExt.DeploymentStrategy
 	}
 	setDefaultDeploymentSpec(&deployment.Spec)
+	return deployment, nil
+}
 
+func addOauthContainerToDeployment(clientset kubernetes.Interface, deployment *appsv1.Deployment, componentMeta metav1.ObjectMeta, componentExt *v1beta1.ComponentExtensionSpec,
+	podSpec *corev1.PodSpec) error {
 	var isvcname string
 	var upstreamPort string
+	var sa string
 	if val, ok := componentMeta.Labels[constants.InferenceServiceLabel]; ok {
 		isvcname = val
 	} else {
@@ -188,13 +209,19 @@ func createRawDefaultDeployment(clientset kubernetes.Interface, componentMeta me
 				upstreamPort = constants.InferenceServiceDefaultHttpPort
 			}
 		}
-		oauthProxyContainer, err := generateOauthProxyContainer(clientset, isvcname, componentMeta.Namespace, upstreamPort)
+		if podSpec.ServiceAccountName == "" {
+			sa = constants.DefaultServiceAccount
+		} else {
+			sa = podSpec.ServiceAccountName
+		}
+		oauthProxyContainer, err := generateOauthProxyContainer(clientset, isvcname, componentMeta.Namespace, upstreamPort, sa)
 		if err != nil {
 			// return the deployment without the oauth proxy container if there was an error
 			// This is required for the deployment_reconciler_tests
-			return deployment, err
+			return err
 		}
-		updatedPodSpec := podSpec.DeepCopy()
+		updatedPodSpec := deployment.Spec.Template.Spec.DeepCopy()
+		//	updatedPodSpec := podSpec.DeepCopy()
 		updatedPodSpec.Containers = append(updatedPodSpec.Containers, *oauthProxyContainer)
 		tlsSecretVolume := corev1.Volume{
 			Name: tlsVolumeName,
@@ -208,8 +235,9 @@ func createRawDefaultDeployment(clientset kubernetes.Interface, componentMeta me
 		updatedPodSpec.Volumes = append(updatedPodSpec.Volumes, tlsSecretVolume)
 		deployment.Spec.Template.Spec = *updatedPodSpec
 	}
-	return deployment, nil
+	return nil
 }
+
 func createRawWorkerDeployment(componentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, predictorName string, replicas int32) *appsv1.Deployment {
@@ -250,7 +278,7 @@ func GetKServeContainerPort(podSpec *corev1.PodSpec) string {
 	}
 	return ""
 }
-func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, namespace string, upstreamPort string) (*corev1.Container, error) {
+func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, namespace string, upstreamPort string, sa string) (*corev1.Container, error) {
 	isvcConfigMap, err := clientset.CoreV1().ConfigMaps(constants.KServeNamespace).Get(context.TODO(), constants.InferenceServiceConfigMapName, metav1.GetOptions{})
 	if err != nil {
 		return nil, err
@@ -281,6 +309,7 @@ func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, na
 			`--https-address=:` + strconv.Itoa(constants.OauthProxyPort),
 			`--provider=openshift`,
 			`--skip-provider-button`,
+			`--openshift-service-account=` + sa,
 			`--upstream=http://localhost:` + upstreamPort,
 			`--tls-cert=/etc/tls/private/tls.crt`,
 			`--tls-key=/etc/tls/private/tls.key`,

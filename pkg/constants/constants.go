@@ -457,6 +457,7 @@ const (
 	OauthProxyResourceMemoryRequest = "64Mi"
 	OauthProxyResourceCPURequest    = "100m"
 	OauthProxyImage                 = "registry.redhat.io/openshift4/ose-oauth-proxy@sha256:234af927030921ab8f7333f61f967b4b4dee37a1b3cf85689e9e63240dd62800"
+	DefaultServiceAccount           = "default"
 )
 
 type ProtocolVersion int
