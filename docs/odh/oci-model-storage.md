@@ -108,7 +108,7 @@ configuring vLLM model server. The ODH project provides templates with
 configurations for some model servers, which you can list with the following
 command:
 ```shell
-oc get template -n opendatahub
+oc get templates -n opendatahub
 
 NAME                                 DESCRIPTION                                                                        PARAMETERS    OBJECTS
 caikit-standalone-serving-template   Caikit is an AI toolkit that enables users to manage models through a set of...    0 (all set)   1
