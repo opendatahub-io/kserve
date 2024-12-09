@@ -165,7 +165,7 @@ kustomize build $PROJECT_ROOT/config/overlays/test/clusterresources |
 oc annotate servingruntimes -n kserve-ci-e2e-test --all serving.knative.openshift.io/enablePassthrough=true
 
 echo "Run E2E tests: $1"
-pushd $PROJECT_ROOT >/dev/null
+pushd $PROJECT_ROOT/python/kserve >/dev/null
 # Note: The following images are set by openshift-ci. Uncomment if you are running on your own machine.
 export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
 export IMAGE_TRANSFORMER_IMG_TAG=kserve/image-transformer:latest
