@@ -44,7 +44,8 @@ RUN pip install "huggingface_hub[cli]"
 
 # Download the model
 ARG repo_id
-RUN mkdir models && huggingface-cli download --quiet --max-workers 2 --local-dir ./models $repo_id
+ARG token
+RUN mkdir models && huggingface-cli download --quiet --max-workers 2 --token "${token}" --local-dir ./models $repo_id
 
 ##### Stage 2: Build the final OCI model container
 FROM registry.access.redhat.com/ubi9/ubi-micro:latest as model
@@ -93,6 +94,11 @@ It is important to use the `--squash` flag to prevent the final image having
 the double size of the model.
 
 > [!TIP]
+> If you have access to gated repositories, you can provide the optional argument
+> `--build-arg token="{your_access_token}"` to containerize models from your
+> accessible gated repositories.
+
+> [!TIP]
 > When uploading your container image, if your repository is private, ensure you
 > are authenticated to the registry.
 
@@ -105,23 +111,16 @@ oc new-project oci-model-example
 
 In the newly created namespace, you need to create a `ServingRuntime` resource
 configuring vLLM model server. The ODH project provides templates with
-configurations for some model servers, which you can list with the following
-command:
+configurations for some model servers. The template that is applicable for
+KServe and holds the vLLM configuration is the one named as `vllm-runtime-template`:
 ```shell
-oc get templates -n opendatahub
+oc get templates -n opendatahub vllm-runtime-template
 
 NAME                                 DESCRIPTION                                                                        PARAMETERS    OBJECTS
-caikit-standalone-serving-template   Caikit is an AI toolkit that enables users to manage models through a set of...    0 (all set)   1
-caikit-tgis-serving-template         Caikit is an AI toolkit that enables users to manage models through a set of...    0 (all set)   1
-kserve-ovms                          OpenVino Model Serving Definition                                                  0 (all set)   1
-ovms                                 OpenVino Model Serving Definition                                                  0 (all set)   1
-tgis-grpc-serving-template           Text Generation Inference Server (TGIS) is a high performance inference engin...   0 (all set)   1
 vllm-runtime-template                vLLM is a high-throughput and memory-efficient inference and serving engine f...   0 (all set)   1
 ```
 
-The template that is applicable for KServe and holds the vLLM configuration
-is the one named as `vllm-runtime-template`. To create an instance of it, run the
-following command:
+To create an instance of it, run the following command:
 ```shell
 oc process -n opendatahub -o yaml vllm-runtime-template | oc apply -f -
 ```
@@ -163,6 +162,10 @@ spec:
 > [!IMPORTANT]
 > The resulting `ServingRuntime` and `InferenceService` configurations won't set
 > any CPU and memory limits.
+
+> [!NOTE]
+> The additional `--dtype=half` argument is not required if your GPU has compute
+> capability greater than 8.
 
 Once the `InferenceService` resource is created, KServe will deploy the model
 stored in the OCI image referred by the `storageUri` field. Check the status
@@ -223,7 +226,8 @@ curl https://sample-isvc-using-oci-oci-model-example.apps.rosa.ehernand-test.v16
 ## Creating and deploying an OCI image of MobileNet v2-7 model
 
 The MobileNet v2-7 model is available at the [onnx/models](https://github.com/onnx/models/tree/main/validated/vision/classification/mobilenet)
-GitHub repository. This model is in ONNX format.
+GitHub repository. This model is in ONNX format and in this example you will
+download it.
 
 The ODH project provides configurations for the OpenVINO model server, which
 supports models in ONNX format. Thus, this guide will use this model server
