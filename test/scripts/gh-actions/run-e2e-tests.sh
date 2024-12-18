@@ -30,5 +30,7 @@ fi
 PARALLELISM="${2:-1}"
 source python/kserve/.venv/bin/activate
 pushd test/e2e >/dev/null
-  pytest -m "$1" --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal
+  pytest --collect-only
+  pytest -v --full-trace --setup-show -m "$1" --ignore=qpext --log-cli-level=DEBUG -n $PARALLELISM --dist worksteal
 popd
+echo "Done!"
