@@ -167,5 +167,6 @@ pushd $PROJECT_ROOT >/dev/null
   export GITHUB_SHA=$(git rev-parse HEAD)
   export CI_USE_ISVC_HOST="1"
   #pytest $PROJECT_ROOT/test/e2e/predictor/test_triton.py::test_triton --ignore=qpext --log-cli-level=INFO
+  oc get pods -n openshift-serverless -o json
   ./test/scripts/gh-actions/run-e2e-tests.sh "$1"
 popd
