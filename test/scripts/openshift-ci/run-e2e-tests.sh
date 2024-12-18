@@ -61,12 +61,6 @@ pushd $PROJECT_ROOT/python/kserve >/dev/null
   poetry install -v --with=test --no-interaction
 popd
 echo "HERE"
-pushd $PROJECT_ROOT/python/kserve >/dev/null
-  which poetry
-  which python
-  python -c "import sys; print(sys.path)"
-  python -c "import pytest_asyncio"
-popd
 
 # Install KServe stack
 if [ "$1" != "raw" ]; then
