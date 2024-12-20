@@ -33,6 +33,8 @@ echo "KSERVE_AGENT_IMAGE=$KSERVE_AGENT_IMAGE"
 echo "KSERVE_ROUTER_IMAGE=$KSERVE_ROUTER_IMAGE"
 echo "STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_IMAGE"
 
+sleep 4h
+
 # Create directory for installing tooling
 # It is assumed that $HOME/.local/bin is in the $PATH
 mkdir -p $HOME/.local/bin
