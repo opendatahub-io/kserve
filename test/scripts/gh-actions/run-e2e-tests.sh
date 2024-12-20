@@ -35,8 +35,6 @@ source python/kserve/.venv/bin/activate
 pushd test/e2e >/dev/null
   echo "**** collect ****"
   pytest --collect-only
-  echo "**** plugins ****"
-  pytest --trace-config
   echo "***** TEST ****"
   pytest $PROJECT_ROOT/test/e2e -vvv -s --full-trace --cache-clear --setup-show -m "$1" --ignore=qpext --log-cli-level=DEBUG -n $PARALLELISM --dist no
   sleep 30m
