@@ -28,9 +28,12 @@ else
 fi
 
 PARALLELISM="${2:-1}"
+MY_PATH=$(dirname "$0")
+PROJECT_ROOT=$MY_PATH/../../../
+echo $PROJECT_ROOT
 source python/kserve/.venv/bin/activate
 pushd test/e2e >/dev/null
   pytest --collect-only
-  pytest -v -s --full-trace --setup-show -m "$1" --ignore=qpext --log-cli-level=DEBUG -n $PARALLELISM --dist no
+  pytest $PROJECT_ROOT/test/e2e -v -s --full-trace --setup-show -m "$1" --ignore=qpext --log-cli-level=DEBUG -n $PARALLELISM --dist no
 popd
 echo "Done!"
