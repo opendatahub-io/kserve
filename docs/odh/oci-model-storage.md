@@ -27,8 +27,9 @@ to demonstrate how to deploy the Granite model stored in an OCI image.
 
 ### Storing the Granite model in an OCI image
 
-To download the Granite model, the [`huggingface-cli download` command](https://huggingface.co/docs/huggingface_hub/guides/cli#huggingface-cli-download) can be used.
-The process is as follows:
+To download the Granite model, the [`huggingface-cli download` command](https://huggingface.co/docs/huggingface_hub/guides/cli#huggingface-cli-download) will be
+used on the OCI container build process to download the model and build the final
+container image. The process is as follows:
 * Install the huggingface CLI
 * Use huggingface CLI to download the model
 * Create the final OCI using the downloaded model
