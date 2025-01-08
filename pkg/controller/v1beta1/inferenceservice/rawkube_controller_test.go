@@ -2652,7 +2652,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
-						Scheme: "http",
+						Scheme: "https",
 						Host:   fmt.Sprintf("%s-predictor.%s.svc.cluster.local:8443", serviceKey.Name, serviceKey.Namespace),
 					},
 				},
