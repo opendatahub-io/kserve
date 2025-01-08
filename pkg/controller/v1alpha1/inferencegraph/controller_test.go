@@ -21,9 +21,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	"github.com/kserve/kserve/pkg/constants"
-	"github.com/kserve/kserve/pkg/utils"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"google.golang.org/protobuf/proto"
@@ -36,6 +33,10 @@ import (
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 var _ = Describe("Inference Graph controller test", func() {
@@ -132,6 +133,7 @@ var _ = Describe("Inference Graph controller test", func() {
 							ObjectMeta: metav1.ObjectMeta{
 								Labels: map[string]string{
 									"serving.kserve.io/inferencegraph": graphName,
+									constants.KServeWorkloadKind:       "InferenceGraph",
 								},
 								Annotations: map[string]string{
 									"autoscaling.knative.dev/min-scale": "1",
@@ -290,6 +292,7 @@ var _ = Describe("Inference Graph controller test", func() {
 							ObjectMeta: metav1.ObjectMeta{
 								Labels: map[string]string{
 									"serving.kserve.io/inferencegraph": graphName,
+									constants.KServeWorkloadKind:       "InferenceGraph",
 								},
 								Annotations: map[string]string{
 									"autoscaling.knative.dev/min-scale": "1",
@@ -462,6 +465,7 @@ var _ = Describe("Inference Graph controller test", func() {
 							ObjectMeta: metav1.ObjectMeta{
 								Labels: map[string]string{
 									"serving.kserve.io/inferencegraph": graphName,
+									constants.KServeWorkloadKind:       "InferenceGraph",
 								},
 								Annotations: map[string]string{
 									"autoscaling.knative.dev/min-scale": "1",
