@@ -80,19 +80,14 @@ func createRawURL(client client.Client, isvc *v1beta1.InferenceService, authEnab
 			return nil, err
 		}
 	} else {
-		var scheme string
-		if authEnabled {
-			scheme = "https"
-		} else {
-			scheme = "http"
-		}
 		url = &apis.URL{
 			Host:   getRawServiceHost(isvc, client),
-			Scheme: scheme,
+			Scheme: "http",
 			Path:   "",
 		}
 		if authEnabled {
 			url.Host += ":" + strconv.Itoa(constants.OauthProxyPort)
+			url.Scheme = "https"
 		}
 	}
 	return url, nil
@@ -343,19 +338,18 @@ func (r *RawIngressReconciler) Reconcile(isvc *v1beta1.InferenceService) error {
 		return err
 	}
 	internalHost := getRawServiceHost(isvc, r.client)
-	var scheme string
+	url := &apis.URL{
+		Host:   internalHost,
+		Scheme: "http",
+		Path:   "",
+	}
 	if authEnabled {
 		internalHost += ":" + strconv.Itoa(constants.OauthProxyPort)
-		scheme = "https"
-	} else {
-		scheme = "http"
+		url.Host = internalHost
+		url.Scheme = "https"
 	}
 	isvc.Status.Address = &duckv1.Addressable{
-		URL: &apis.URL{
-			Host:   internalHost,
-			Scheme: scheme,
-			Path:   "",
-		},
+		URL: url,
 	}
 	isvc.Status.SetCondition(v1beta1.IngressReady, &apis.Condition{
 		Type:   v1beta1.IngressReady,
