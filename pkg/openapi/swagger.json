@@ -3074,6 +3074,27 @@
           "description": "Explainer configurations",
           "default": {},
           "$ref": "#/definitions/v1beta1.ExplainersConfig"
+        },
+        "resource": {
+          "description": "Resource configurations",
+          "default": {},
+          "$ref": "#/definitions/v1beta1.ResourceConfig"
+        },
+        "serviceAnnotationDisallowedList": {
+          "description": "ServiceAnnotationDisallowedList is a list of annotations that are not allowed to be propagated to Knative revisions",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "serviceLabelDisallowedList": {
+          "description": "ServiceLabelDisallowedList is a list of labels that are not allowed to be propagated to Knative revisions",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "default": ""
+          }
         }
       }
     },
@@ -3096,6 +3117,9 @@
         "domainTemplate": {
           "type": "string"
         },
+        "enableGatewayApi": {
+          "type": "boolean"
+        },
         "ingressClassName": {
           "type": "string"
         },
@@ -3106,6 +3130,9 @@
           "type": "string"
         },
         "knativeLocalGatewayService": {
+          "type": "string"
+        },
+        "kserveIngressGateway": {
           "type": "string"
         },
         "localGateway": {
@@ -3312,6 +3339,9 @@
       "properties": {
         "defaultJobImage": {
           "type": "string"
+        },
+        "disableVolumeManagement": {
+          "type": "boolean"
         },
         "enabled": {
           "type": "boolean",
@@ -4981,6 +5011,23 @@
         "xgboost": {
           "description": "Spec for XGBoost model server",
           "$ref": "#/definitions/v1beta1.XGBoostSpec"
+        }
+      }
+    },
+    "v1beta1.ResourceConfig": {
+      "type": "object",
+      "properties": {
+        "cpuLimit": {
+          "type": "string"
+        },
+        "cpuRequest": {
+          "type": "string"
+        },
+        "memoryLimit": {
+          "type": "string"
+        },
+        "memoryRequest": {
+          "type": "string"
         }
       }
     },

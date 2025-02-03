@@ -22,11 +22,9 @@ import (
 	"regexp"
 	"strings"
 
-	"knative.dev/serving/pkg/apis/autoscaling"
-
-	"knative.dev/pkg/network"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"knative.dev/pkg/network"
+	"knative.dev/serving/pkg/apis/autoscaling"
 )
 
 // KServe Constants
@@ -53,6 +51,8 @@ var (
 const (
 	RouterHeadersPropagateEnvVar = "PROPAGATE_HEADERS"
 	InferenceGraphLabel          = "serving.kserve.io/inferencegraph"
+	RouterReadinessEndpoint      = "/readyz"
+	RouterPort                   = 8080
 )
 
 // TrainedModel Constants
@@ -140,6 +140,8 @@ const (
 	ODHKserveRawAuth        = "security.opendatahub.io/enable-auth"
 	ODHRouteEnabled         = "exposed"
 	ServingCertSecretSuffix = "-serving-cert"
+	HostHeader              = "Host"
+	GatewayName             = "kserve-ingress-gateway"
 )
 
 // StorageSpec Constants
@@ -495,6 +497,9 @@ const (
 const (
 	IstioVirtualServiceKind = "VirtualService"
 	KnativeServiceKind      = "Service"
+	HTTPRouteKind           = "HTTPRoute"
+	GatewayKind             = "Gateway"
+	ServiceKind             = "Service"
 )
 
 // Model Parallel Options
@@ -642,6 +647,11 @@ func ExplainPrefix() string {
 	return "^/v1/models/[\\w-]+:explain$"
 }
 
+// FallbackPrefix returns the regex pattern to match any path
+func FallbackPrefix() string {
+	return "^/.*$"
+}
+
 func PathBasedExplainPrefix() string {
 	return "(/v1/models/[\\w-]+:explain)$"
 }
@@ -719,4 +729,25 @@ func GetProtocolVersionString(protocol ProtocolVersion) InferenceServiceProtocol
 	default:
 		return ProtocolUnknown
 	}
+}
+
+func GetRouterReadinessProbe() *corev1.Probe {
+	probe := &corev1.Probe{
+		ProbeHandler: corev1.ProbeHandler{
+			HTTPGet: &corev1.HTTPGetAction{
+				Path: RouterReadinessEndpoint,
+				Port: intstr.IntOrString{
+					Type:   intstr.Int,
+					IntVal: RouterPort,
+				},
+				Scheme: corev1.URISchemeHTTP,
+			},
+		},
+		InitialDelaySeconds: 5,
+		TimeoutSeconds:      2,
+		PeriodSeconds:       5,
+		SuccessThreshold:    1,
+		FailureThreshold:    3,
+	}
+	return probe
 }

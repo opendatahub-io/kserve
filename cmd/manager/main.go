@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -51,7 +52,6 @@ import (
 	v1beta1controller "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice"
 	"github.com/kserve/kserve/pkg/webhook/admission/pod"
 	"github.com/kserve/kserve/pkg/webhook/admission/servingruntime"
-	routev1 "github.com/openshift/api/route/v1"
 )
 
 var (
@@ -189,6 +189,13 @@ func main() {
 			}
 		}
 	}
+
+	setupLog.Info("Setting up gateway api scheme")
+	if err := gatewayapiv1.Install(mgr.GetScheme()); err != nil {
+		setupLog.Error(err, "unable to add Gateway APIs to scheme")
+		os.Exit(1)
+	}
+
 	if err = routev1.AddToScheme(mgr.GetScheme()); err != nil {
 		setupLog.Error(err, "unable to add routev1 APIs to scheme")
 		os.Exit(1)
