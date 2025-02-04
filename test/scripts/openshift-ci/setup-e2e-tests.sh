@@ -97,6 +97,19 @@ oc wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n 
 
 if [ "$1" != "raw" ]; then
   echo "Installing odh-model-controller"
+  # authorino
+  curl -sL https://raw.githubusercontent.com/Kuadrant/authorino-operator/main/utils/install.sh |
+    bash -s -- -v 0.16.0
+
+  # kserve-local-gateway
+  curl https://raw.githubusercontent.com/opendatahub-io/opendatahub-operator/bde4b4e8478b5d03195e2777b9d550922e3cdcbc/components/kserve/resources/servicemesh/routing/istio-kserve-local-gateway.tmpl.yaml |
+    sed "s/{{ .ControlPlane.Namespace }}/istio-system/g" |
+    oc create -f -
+  
+  curl https://raw.githubusercontent.com/opendatahub-io/opendatahub-operator/bde4b4e8478b5d03195e2777b9d550922e3cdcbc/components/kserve/resources/servicemesh/routing/kserve-local-gateway-svc.tmpl.yaml |
+    sed "s/{{ .ControlPlane.Namespace }}/istio-system/g" |
+    oc create -f -
+
   oc apply -k $PROJECT_ROOT/test/scripts/openshift-ci
 fi
 
