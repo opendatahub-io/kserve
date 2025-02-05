@@ -29,8 +29,8 @@ popd
 echo "Run E2E tests: $1"
 pushd $PROJECT_ROOT >/dev/null
 # Note: The following images are set by openshift-ci. Uncomment if you are running on your own machine.
-export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
-export IMAGE_TRANSFORMER_IMG_TAG=kserve/image-transformer:latest
+#export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
+#export IMAGE_TRANSFORMER_IMG_TAG=kserve/image-transformer:latest
 
 export GITHUB_SHA=$(git rev-parse HEAD)
 export CI_USE_ISVC_HOST="1"
