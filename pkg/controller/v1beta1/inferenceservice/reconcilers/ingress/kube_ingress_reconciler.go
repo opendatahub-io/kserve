@@ -35,7 +35,6 @@ import (
 	"knative.dev/pkg/apis"
 	knapis "knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
-	"knative.dev/pkg/network"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
@@ -60,17 +59,7 @@ func NewRawIngressReconciler(client client.Client,
 	}, nil
 }
 
-func createRawURL(client client.Client, isvc *v1beta1.InferenceService, authEnabled bool) (*knapis.URL, error) {
-	// upstream implementation
-	//var err error
-	//url := &knapis.URL{}
-	//url.Scheme = ingressConfig.UrlScheme
-	//url.Host, err = GenerateDomainName(isvc.Name, isvc.ObjectMeta, ingressConfig)
-	//if err != nil {
-	//	return nil, err
-	//}
-
-	// ODH changes
+func createRawURLODH(client client.Client, isvc *v1beta1.InferenceService, authEnabled bool) (*knapis.URL, error) {
 	url := &knapis.URL{}
 	if val, ok := isvc.Labels[constants.NetworkVisibility]; ok && val == constants.ODHRouteEnabled {
 		var err error
@@ -90,29 +79,6 @@ func createRawURL(client client.Client, isvc *v1beta1.InferenceService, authEnab
 		}
 	}
 	return url, nil
-}
-
-func getRawServiceHost(isvc *v1beta1.InferenceService, client client.Client) string {
-	existingService := &corev1.Service{}
-	if isvc.Spec.Transformer != nil {
-		transformerName := constants.TransformerServiceName(isvc.Name)
-
-		// Check if existing transformer service name has default suffix
-		err := client.Get(context.TODO(), types.NamespacedName{Name: constants.DefaultTransformerServiceName(isvc.Name), Namespace: isvc.Namespace}, existingService)
-		if err == nil {
-			transformerName = constants.DefaultTransformerServiceName(isvc.Name)
-		}
-		return network.GetServiceHostname(transformerName, isvc.Namespace)
-	}
-
-	predictorName := constants.PredictorServiceName(isvc.Name)
-
-	// Check if existing predictor service name has default suffix
-	err := client.Get(context.TODO(), types.NamespacedName{Name: constants.DefaultPredictorServiceName(isvc.Name), Namespace: isvc.Namespace}, existingService)
-	if err == nil {
-		predictorName = constants.DefaultPredictorServiceName(isvc.Name)
-	}
-	return network.GetServiceHostname(predictorName, isvc.Namespace)
 }
 
 func generateRule(ingressHost string, componentName string, path string, port int32) netv1.IngressRule { //nolint:unparam
@@ -332,23 +298,23 @@ func (r *RawIngressReconciler) Reconcile(isvc *v1beta1.InferenceService) error {
 		}
 	}
 	// upstream
-	//isvc.Status.URL, err = createRawURL(isvc, r.ingressConfig)
+	// isvc.Status.URL, err = createRawURL(isvc, r.ingressConfig)
 	authEnabled := false
 	if val, ok := isvc.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
 		authEnabled = true
 	}
-	isvc.Status.URL, err = createRawURL(r.client, isvc, authEnabled)
+	isvc.Status.URL, err = createRawURLODH(r.client, isvc, authEnabled)
 	if err != nil {
 		return err
 	}
 	// upstream
-	//isvc.Status.Address = &duckv1.Addressable{
-	//	URL: &apis.URL{
-	//		Host:   getRawServiceHost(isvc, r.client),
+	// isvc.Status.Address = &duckv1.Addressable{
+	// 	URL: &apis.URL{
+	// 		Host:   getRawServiceHost(isvc, r.client),
 	//		Scheme: r.ingressConfig.UrlScheme,
 	//		Path:   "",
 	//	},
-	//}
+	// }
 	internalHost := getRawServiceHost(isvc, r.client)
 	url := &apis.URL{
 		Host:   internalHost,
