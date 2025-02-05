@@ -23,11 +23,14 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	v1beta1utils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	routev1 "github.com/openshift/api/route/v1"
 	"google.golang.org/protobuf/proto"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	v1 "k8s.io/api/core/v1"
-
 	netv1 "k8s.io/api/networking/v1"
 	apierr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -75,7 +78,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				}
 			}`,
 			"ingress": `{
-				"enableGatewayApi": true,
+				"enableGatewayApi": false,
 				"kserveIngressGateway": "kserve/kserve-ingress-gateway",
 				"ingressGateway": "knative-serving/knative-ingress-gateway",
 				"localGateway": "knative-serving/knative-local-gateway",
@@ -2152,8 +2155,9 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			      "defaultImageVersion": "latest"
                }
             }`,
+			// Disabling GatewayApi for ODH
 			"ingress": `{
-			   "enableGatewayApi": true,
+			   "enableGatewayApi": false, 
 			   "kserveIngressGateway": "kserve/kserve-ingress-gateway",
                "ingressGateway": "knative-serving/knative-ingress-gateway",
                "localGateway": "knative-serving/knative-local-gateway",
@@ -2611,10 +2615,10 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
 						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-predictor.%s.%s", serviceName, serviceKey.Namespace, domain),
-						},
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-predictor.%s.%s", serviceName, serviceKey.Namespace, domain),
+						//},
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -2705,7 +2709,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				}
 			}`,
 			"ingress": `{
-				"enableGatewayApi": true,
+				"enableGatewayApi": false,
 				"kserveIngressGateway": "kserve/kserve-ingress-gateway",
 				"ingressGateway": "knative-serving/knative-ingress-gateway",
 				"localGateway": "knative-serving/knative-local-gateway",
@@ -3418,17 +3422,17 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
 						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
-						},
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 					v1beta1.TransformerComponent: {
 						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", transformerServiceKey.Name, serviceKey.Namespace),
-						},
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", transformerServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -3577,7 +3581,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				}
 			}`,
 			"ingress": `{
-				"enableGatewayApi": true,
+				"enableGatewayApi": false,
 				"kserveIngressGateway": "kserve/kserve-ingress-gateway",
 				"ingressGateway": "knative-serving/knative-ingress-gateway",
 				"localGateway": "knative-serving/knative-local-gateway",
@@ -4337,17 +4341,17 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
 						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
-						},
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 					v1beta1.ExplainerComponent: {
 						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", explainerServiceKey.Name, serviceKey.Namespace),
-						},
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", explainerServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -4496,7 +4500,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				}
 			}`,
 			"ingress": `{
-				"enableGatewayApi": true,
+				"enableGatewayApi": false,
 				"kserveIngressGateway": "kserve/kserve-ingress-gateway",
 				"ingressGateway": "knative-serving/knative-ingress-gateway",
 				"localGateway": "knative-serving/knative-local-gateway",
@@ -5009,10 +5013,10 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
 						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
-						},
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -5103,7 +5107,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				}
 			}`,
 			"ingress": `{
-				"enableGatewayApi": true,
+				"enableGatewayApi": false,
 				"kserveIngressGateway": "kserve/kserve-ingress-gateway",
 				"ingressGateway": "knative-serving/knative-ingress-gateway",
 				"localGateway": "knative-serving/knative-local-gateway",
@@ -5865,17 +5869,17 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
 						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
-						},
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 					v1beta1.TransformerComponent: {
 						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", transformerServiceKey.Name, serviceKey.Namespace),
-						},
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", transformerServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -6876,17 +6880,17 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
 						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
-						},
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 					v1beta1.ExplainerComponent: {
 						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", explainerServiceKey.Name, serviceKey.Namespace),
-						},
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", explainerServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{

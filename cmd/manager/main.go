@@ -52,6 +52,7 @@ import (
 	v1beta1controller "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice"
 	"github.com/kserve/kserve/pkg/webhook/admission/pod"
 	"github.com/kserve/kserve/pkg/webhook/admission/servingruntime"
+	routev1 "github.com/openshift/api/route/v1"
 )
 
 var (
