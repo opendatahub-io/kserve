@@ -15,8 +15,6 @@ permissions:
 jobs:
   fetch-tag:
     runs-on: ubuntu-latest
-    outputs:
-      old_tag: ${{ steps.get_tag.outputs.old_tag_name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -27,11 +25,9 @@ jobs:
       - name: Get latest tag
         id: get_tag
         run: |
-          echo "old_tag_name=$(git for-each-ref --sort=creatordate --format '%(refname)' refs/tags | awk -F'/' '{print $3}' | tail -n1)" >> $GITHUB_OUTPUT
       - name: print tag
         id: print_tag
         run: | 
-          echo "Old Tag=${{ steps.get_tag.outputs.old_tag_name }}"
           echo "NEW_TAG=${{ github.event.inputs.tag_name }}" >> $GITHUB_ENV
           echo "$(basename ${{ github.ref }})"
 
