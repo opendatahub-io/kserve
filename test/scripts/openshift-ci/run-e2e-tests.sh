@@ -21,10 +21,13 @@
 MY_PATH=$(dirname "$0")
 PROJECT_ROOT=$MY_PATH/../../../
 
-echo "Installing on cluster"
-pushd $PROJECT_ROOT >/dev/null
-./test/scripts/openshift-ci/setup-e2e-tests.sh "$1"
-popd
+SETUP_E2E=true
+if $SETUP_E2E; then
+  echo "Installing on cluster"
+  pushd $PROJECT_ROOT >/dev/null
+  ./test/scripts/openshift-ci/setup-e2e-tests.sh "$1"
+  popd
+fi
 
 echo "Run E2E tests: $1"
 pushd $PROJECT_ROOT >/dev/null
