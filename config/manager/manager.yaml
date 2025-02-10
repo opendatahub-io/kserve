@@ -12,9 +12,6 @@ spec:
     matchLabels:
       control-plane: kserve-controller-manager
       controller-tools.k8s.io: "1.0"
-  strategy:
-    type: Recreate
-    rollingUpdate: nil
   template:
     metadata:
       labels:
