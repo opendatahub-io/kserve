@@ -17,17 +17,20 @@ limitations under the License.
 package v1beta1
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
-	"github.com/kserve/kserve/pkg/constants"
 	"github.com/onsi/gomega"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	fakeclientset "k8s.io/client-go/kubernetes/fake"
+
+	"github.com/kserve/kserve/pkg/constants"
 )
 
 var (
+	KserveIngressGateway       = "kserve/kserve-ingress-gateway"
 	KnativeIngressGateway      = "knative-serving/knative-ingress-gateway"
 	KnativeLocalGatewayService = "test-destination"
 	KnativeLocalGateway        = "knative-serving/knative-local-gateway"
@@ -37,6 +40,7 @@ var (
 	AdditionalDomain           = "additional-example.com"
 	AdditionalDomainExtra      = "additional-example-extra.com"
 	IngressConfigData          = fmt.Sprintf(`{
+	    "kserveIngressGateway" : "%s",
 		"ingressGateway" : "%s",
 		"knativeLocalGatewayService" : "%s",
 		"localGateway" : "%s",
@@ -44,33 +48,48 @@ var (
 		"ingressDomain": "%s",
 		"urlScheme": "https",
         "additionalIngressDomains": ["%s","%s"]
-	}`, KnativeIngressGateway, KnativeLocalGatewayService, KnativeLocalGateway, LocalGatewayService, IngressDomain,
+	}`, KserveIngressGateway, KnativeIngressGateway, KnativeLocalGatewayService, KnativeLocalGateway, LocalGatewayService, IngressDomain,
 		AdditionalDomain, AdditionalDomainExtra)
 	ServiceConfigData = fmt.Sprintf(`{
 		"serviceClusterIPNone" : %t
 	}`, true)
+
+	ISCVWithData = fmt.Sprintf(`{
+		"serviceAnnotationDisallowedList": ["%s","%s"],
+		"serviceLabelDisallowedList": ["%s","%s"]
+	}`, "my.custom.annotation/1", "my.custom.annotation/2",
+		"my.custom.label.1", "my.custom.label.2")
+
+	ISCVNoData = fmt.Sprintf(`{
+		"serviceAnnotationDisallowedList": %s,
+		"serviceLabelDisallowedList": %s
+	}`, []string{}, []string{})
 )
 
 func TestNewInferenceServiceConfig(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	clientset := fakeclientset.NewSimpleClientset(&v1.ConfigMap{
+	clientset := fakeclientset.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 	})
-	isvcConfig, err := NewInferenceServicesConfig(clientset)
-	g.Expect(err).Should(gomega.BeNil())
+	isvcConfigMap, err := GetInferenceServiceConfigMap(context.Background(), clientset)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
+	isvcConfig, err := NewInferenceServicesConfig(isvcConfigMap)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
 	g.Expect(isvcConfig).ShouldNot(gomega.BeNil())
 }
 
 func TestNewIngressConfig(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	clientset := fakeclientset.NewSimpleClientset(&v1.ConfigMap{
+	clientset := fakeclientset.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 		Data: map[string]string{
 			IngressConfigKeyName: IngressConfigData,
 		},
 	})
-	ingressCfg, err := NewIngressConfig(clientset)
-	g.Expect(err).Should(gomega.BeNil())
+	configMap, err := GetInferenceServiceConfigMap(context.Background(), clientset)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
+	ingressCfg, err := NewIngressConfig(configMap)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
 	g.Expect(ingressCfg).ShouldNot(gomega.BeNil())
 
 	g.Expect(ingressCfg.IngressGateway).To(gomega.Equal(KnativeIngressGateway))
@@ -84,68 +103,174 @@ func TestNewIngressConfig(t *testing.T) {
 
 func TestNewIngressConfigDefaultKnativeService(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	clientset := fakeclientset.NewSimpleClientset(&v1.ConfigMap{
+	clientset := fakeclientset.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 		Data: map[string]string{
 			IngressConfigKeyName: fmt.Sprintf(`{
+				"kserveIngressGateway" : "%s",
 				"ingressGateway" : "%s",
 				"localGateway" : "%s",
 				"localGatewayService" : "%s",
 				"ingressDomain": "%s",
 				"urlScheme": "https",
         		"additionalIngressDomains": ["%s","%s"]
-			}`, KnativeIngressGateway, KnativeLocalGateway, LocalGatewayService, IngressDomain,
+			}`, KserveIngressGateway, KnativeIngressGateway, KnativeLocalGateway, LocalGatewayService, IngressDomain,
 				AdditionalDomain, AdditionalDomainExtra),
 		},
 	})
-	ingressCfg, err := NewIngressConfig(clientset)
-	g.Expect(err).Should(gomega.BeNil())
+	configMap, err := GetInferenceServiceConfigMap(context.Background(), clientset)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
+	ingressCfg, err := NewIngressConfig(configMap)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
 	g.Expect(ingressCfg).ShouldNot(gomega.BeNil())
 	g.Expect(ingressCfg.KnativeLocalGatewayService).To(gomega.Equal(LocalGatewayService))
 }
 
 func TestNewDeployConfig(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	clientset := fakeclientset.NewSimpleClientset(&v1.ConfigMap{
+	clientset := fakeclientset.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 	})
-	deployConfig, err := NewDeployConfig(clientset)
-	g.Expect(err).Should(gomega.BeNil())
+	isvcConfigMap, err := GetInferenceServiceConfigMap(context.Background(), clientset)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
+	deployConfig, err := NewDeployConfig(isvcConfigMap)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
 	g.Expect(deployConfig).ShouldNot(gomega.BeNil())
 }
 
 func TestNewServiceConfig(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 	// nothing declared
-	empty := fakeclientset.NewSimpleClientset(&v1.ConfigMap{
+	empty := fakeclientset.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 	})
-	emp, err := NewServiceConfig(empty)
-	g.Expect(err).Should(gomega.BeNil())
+	isvcConfigMap, err := GetInferenceServiceConfigMap(context.Background(), empty)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
+	emp, err := NewServiceConfig(isvcConfigMap)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
 	g.Expect(emp).ShouldNot(gomega.BeNil())
 
 	// with value
-	withTrue := fakeclientset.NewSimpleClientset(&v1.ConfigMap{
+	withTrue := fakeclientset.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 		Data: map[string]string{
 			ServiceConfigName: ServiceConfigData,
 		},
 	})
-	wt, err := NewServiceConfig(withTrue)
-	g.Expect(err).Should(gomega.BeNil())
+	isvcConfigMap, err = GetInferenceServiceConfigMap(context.Background(), withTrue)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
+	wt, err := NewServiceConfig(isvcConfigMap)
+
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
 	g.Expect(wt).ShouldNot(gomega.BeNil())
 	g.Expect(wt.ServiceClusterIPNone).Should(gomega.BeTrue())
 
 	// no value, should be nil
-	noValue := fakeclientset.NewSimpleClientset(&v1.ConfigMap{
+	noValue := fakeclientset.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 		Data: map[string]string{
 			ServiceConfigName: `{}`,
 		},
 	})
-	nv, err := NewServiceConfig(noValue)
-	g.Expect(err).Should(gomega.BeNil())
+	isvcConfigMap, err = GetInferenceServiceConfigMap(context.Background(), noValue)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
+	nv, err := NewServiceConfig(isvcConfigMap)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
 	g.Expect(nv).ShouldNot(gomega.BeNil())
 	g.Expect(nv.ServiceClusterIPNone).Should(gomega.BeFalse())
+}
 
+func TestInferenceServiceDisallowedLists(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+	clientset := fakeclientset.NewSimpleClientset(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+		Data: map[string]string{
+			InferenceServiceConfigKeyName: ISCVWithData,
+		},
+	})
+	isvcConfigMap, err := GetInferenceServiceConfigMap(context.Background(), clientset)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
+	isvcConfigWithData, err := NewInferenceServicesConfig(isvcConfigMap)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
+	g.Expect(isvcConfigWithData).ShouldNot(gomega.BeNil())
+
+	//nolint:gocritic
+	annotations := append(constants.ServiceAnnotationDisallowedList, []string{"my.custom.annotation/1", "my.custom.annotation/2"}...)
+	g.Expect(isvcConfigWithData.ServiceAnnotationDisallowedList).To(gomega.Equal(annotations))
+	//nolint:gocritic
+	labels := append(constants.RevisionTemplateLabelDisallowedList, []string{"my.custom.label.1", "my.custom.label.2"}...)
+	g.Expect(isvcConfigWithData.ServiceLabelDisallowedList).To(gomega.Equal(labels))
+
+	// with no data
+	clientsetWithoutData := fakeclientset.NewSimpleClientset(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+		Data: map[string]string{
+			InferenceServiceConfigKeyName: ISCVNoData,
+		},
+	})
+	isvcConfigMap, err = GetInferenceServiceConfigMap(context.Background(), clientsetWithoutData)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
+	isvcConfigWithoutData, err := NewInferenceServicesConfig(isvcConfigMap)
+	g.Expect(err).ShouldNot(gomega.HaveOccurred())
+	g.Expect(isvcConfigWithoutData).ShouldNot(gomega.BeNil())
+	g.Expect(isvcConfigWithoutData.ServiceAnnotationDisallowedList).To(gomega.Equal(constants.ServiceAnnotationDisallowedList))
+	g.Expect(isvcConfigWithoutData.ServiceLabelDisallowedList).To(gomega.Equal(constants.RevisionTemplateLabelDisallowedList))
+}
+
+func TestValidateIngressGateway(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+
+	tests := []struct {
+		name          string
+		ingressConfig *IngressConfig
+		expectedError string
+	}{
+		{
+			name: "valid ingress gateway",
+			ingressConfig: &IngressConfig{
+				KserveIngressGateway: "kserve/kserve-ingress-gateway",
+			},
+			expectedError: "",
+		},
+		{
+			name: "missing kserveIngressGateway",
+			ingressConfig: &IngressConfig{
+				KserveIngressGateway: "",
+			},
+			expectedError: ErrKserveIngressGatewayRequired,
+		},
+		{
+			name: "invalid format for kserveIngressGateway",
+			ingressConfig: &IngressConfig{
+				KserveIngressGateway: "invalid-format",
+			},
+			expectedError: ErrInvalidKserveIngressGatewayFormat,
+		},
+		{
+			name: "invalid namespace in kserveIngressGateway",
+			ingressConfig: &IngressConfig{
+				KserveIngressGateway: "invalid_namespace/kserve-ingress-gateway",
+			},
+			expectedError: ErrInvalidKserveIngressGatewayNamespace,
+		},
+		{
+			name: "invalid name in kserveIngressGateway",
+			ingressConfig: &IngressConfig{
+				KserveIngressGateway: "kserve/invalid_name",
+			},
+			expectedError: ErrInvalidKserveIngressGatewayName,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateIngressGateway(tt.ingressConfig)
+			if tt.expectedError == "" {
+				g.Expect(err).ShouldNot(gomega.HaveOccurred())
+			} else {
+				g.Expect(err).Should(gomega.HaveOccurred())
+				g.Expect(err.Error()).Should(gomega.ContainSubstring(tt.expectedError))
+			}
+		})
+	}
 }

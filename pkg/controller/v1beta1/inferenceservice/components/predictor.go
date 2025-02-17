@@ -24,7 +24,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -41,7 +41,6 @@ import (
 	modelconfig "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/modelconfig"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/raw"
 	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
-	"github.com/kserve/kserve/pkg/credentials"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
@@ -53,13 +52,13 @@ type Predictor struct {
 	clientset              kubernetes.Interface
 	scheme                 *runtime.Scheme
 	inferenceServiceConfig *v1beta1.InferenceServicesConfig
-	credentialBuilder      *credentials.CredentialBuilder //nolint: unused
 	deploymentMode         constants.DeploymentModeType
 	Log                    logr.Logger
 }
 
 func NewPredictor(client client.Client, clientset kubernetes.Interface, scheme *runtime.Scheme,
-	inferenceServiceConfig *v1beta1.InferenceServicesConfig, deploymentMode constants.DeploymentModeType) Component {
+	inferenceServiceConfig *v1beta1.InferenceServicesConfig, deploymentMode constants.DeploymentModeType,
+) Component {
 	return &Predictor{
 		client:                 client,
 		clientset:              clientset,
@@ -71,10 +70,10 @@ func NewPredictor(client client.Client, clientset kubernetes.Interface, scheme *
 }
 
 // Reconcile observes the predictor and attempts to drive the status towards the desired state.
-func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, error) {
-	var container *v1.Container
-	var podSpec v1.PodSpec
-	var workerPodSpec *v1.PodSpec
+func (p *Predictor) Reconcile(ctx context.Context, isvc *v1beta1.InferenceService) (ctrl.Result, error) {
+	var container *corev1.Container
+	var podSpec corev1.PodSpec
+	var workerPodSpec *corev1.PodSpec
 	var workerObjectMeta metav1.ObjectMeta
 	var sRuntime v1alpha1.ServingRuntimeSpec
 	var sRuntimeLabels map[string]string
@@ -90,8 +89,11 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 	}
 
 	annotations := utils.Filter(isvc.Annotations, func(key string) bool {
-		return !utils.Includes(constants.ServiceAnnotationDisallowedList, key)
+		return !utils.Includes(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, key)
 	})
+
+	p.Log.V(1).Info("Predictor custom annotations", "annotations", p.inferenceServiceConfig.ServiceAnnotationDisallowedList)
+	p.Log.V(1).Info("Predictor custom labels", "labels", p.inferenceServiceConfig.ServiceLabelDisallowedList)
 
 	addLoggerAnnotations(isvc.Spec.Predictor.Logger, annotations)
 	addBatcherAnnotations(isvc.Spec.Predictor.Batcher, annotations)
@@ -102,7 +104,7 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 
 	// Reconcile modelConfig
 	configMapReconciler := modelconfig.NewModelConfigReconciler(p.client, p.clientset, p.scheme)
-	if err := configMapReconciler.Reconcile(isvc); err != nil {
+	if err := configMapReconciler.Reconcile(ctx, isvc); err != nil {
 		return ctrl.Result{}, err
 	}
 
@@ -115,7 +117,7 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 			return ctrl.Result{}, errors.New("must provide only one of storageUri and storage.path")
 		}
 		annotations[constants.StorageInitializerSourceUriInternalAnnotationKey] = *sourceURI
-		err := isvcutils.ValidateStorageURI(sourceURI, p.client)
+		err := isvcutils.ValidateStorageURI(ctx, sourceURI, p.client)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("StorageURI not supported: %w", err)
 		}
@@ -128,7 +130,7 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 		if isvc.Spec.Predictor.Model.Runtime != nil {
 			// set runtime defaults
 			isvc.SetRuntimeDefaults()
-			r, err := isvcutils.GetServingRuntime(p.client, *isvc.Spec.Predictor.Model.Runtime, isvc.Namespace)
+			r, err := isvcutils.GetServingRuntime(ctx, p.client, *isvc.Spec.Predictor.Model.Runtime, isvc.Namespace)
 			if err != nil {
 				isvc.Status.UpdateModelTransitionStatus(v1beta1.InvalidSpec, &v1beta1.FailureInfo{
 					Reason:  v1beta1.RuntimeNotRecognized,
@@ -165,7 +167,7 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 
 			sRuntime = *r
 		} else {
-			runtimes, err := isvc.Spec.Predictor.Model.GetSupportingRuntimes(p.client, isvc.Namespace, false, multiNodeEnabled)
+			runtimes, err := isvc.Spec.Predictor.Model.GetSupportingRuntimes(ctx, p.client, isvc.Namespace, false, multiNodeEnabled)
 			if err != nil {
 				return ctrl.Result{}, err
 			}
@@ -201,7 +203,7 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 			return ctrl.Result{}, errors.New("no container configuration found in selected serving runtime")
 		}
 		var kserveContainerIdx int
-		var mergedPodSpec *v1.PodSpec
+		var mergedPodSpec *corev1.PodSpec
 		kserveContainerIdx, container, mergedPodSpec, err = isvcutils.MergeServingRuntimeAndInferenceServiceSpecs(sRuntime.Containers, isvc.Spec.Predictor.Model.Container, isvc, constants.InferenceServiceContainerName, sRuntime.ServingRuntimePodSpec, isvc.Spec.Predictor.PodSpec)
 		if err != nil {
 			return ctrl.Result{}, err
@@ -220,7 +222,7 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 		isvcutils.UpdateImageTag(container, isvc.Spec.Predictor.Model.RuntimeVersion, isvc.Spec.Predictor.Model.Runtime)
 
 		podSpec = *mergedPodSpec
-		podSpec.Containers = []v1.Container{
+		podSpec.Containers = []corev1.Container{
 			*container,
 		}
 		podSpec.Containers = append(podSpec.Containers, sRuntime.Containers[:kserveContainerIdx]...)
@@ -229,14 +231,14 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 		// Label filter will be handled in ksvc_reconciler
 		sRuntimeLabels = sRuntime.ServingRuntimePodSpec.Labels
 		sRuntimeAnnotations = utils.Filter(sRuntime.ServingRuntimePodSpec.Annotations, func(key string) bool {
-			return !utils.Includes(constants.ServiceAnnotationDisallowedList, key)
+			return !utils.Includes(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, key)
 		})
 	} else {
 		container = predictor.GetContainer(isvc.ObjectMeta, isvc.Spec.Predictor.GetExtensions(), p.inferenceServiceConfig)
 
-		podSpec = v1.PodSpec(isvc.Spec.Predictor.PodSpec)
+		podSpec = corev1.PodSpec(isvc.Spec.Predictor.PodSpec)
 		if len(podSpec.Containers) == 0 {
-			podSpec.Containers = []v1.Container{
+			podSpec.Containers = []corev1.Container{
 				*container,
 			}
 		} else {
@@ -246,14 +248,14 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 
 	predictorName := constants.PredictorServiceName(isvc.Name)
 	if p.deploymentMode == constants.RawDeployment {
-		existing := &v1.Service{}
-		err := p.client.Get(context.TODO(), types.NamespacedName{Name: constants.DefaultPredictorServiceName(isvc.Name), Namespace: isvc.Namespace}, existing)
+		existing := &corev1.Service{}
+		err := p.client.Get(ctx, types.NamespacedName{Name: constants.DefaultPredictorServiceName(isvc.Name), Namespace: isvc.Namespace}, existing)
 		if err == nil {
 			predictorName = constants.DefaultPredictorServiceName(isvc.Name)
 		}
 	} else {
 		existing := &knservingv1.Service{}
-		err := p.client.Get(context.TODO(), types.NamespacedName{Name: constants.DefaultPredictorServiceName(isvc.Name), Namespace: isvc.Namespace}, existing)
+		err := p.client.Get(ctx, types.NamespacedName{Name: constants.DefaultPredictorServiceName(isvc.Name), Namespace: isvc.Namespace}, existing)
 		if err == nil {
 			predictorName = constants.DefaultPredictorServiceName(isvc.Name)
 		}
@@ -263,7 +265,7 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 	// Label filter will be handled in ksvc_reconciler
 	predictorLabels := isvc.Spec.Predictor.Labels
 	predictorAnnotations := utils.Filter(isvc.Spec.Predictor.Annotations, func(key string) bool {
-		return !utils.Includes(constants.ServiceAnnotationDisallowedList, key)
+		return !utils.Includes(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, key)
 	})
 
 	// Labels and annotations priority: predictor component > isvc > ServingRuntimePodSpec
@@ -337,7 +339,7 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 		rawDeployment = true
 		podLabelKey = constants.RawDeploymentAppLabel
 		// This is main RawKubeReconciler to create objects (deployment, svc, scaler)
-		r, err := raw.NewRawKubeReconciler(p.client, p.clientset, p.scheme, objectMeta, workerObjectMeta, &isvc.Spec.Predictor.ComponentExtensionSpec,
+		r, err := raw.NewRawKubeReconciler(ctx, p.client, p.clientset, p.scheme, objectMeta, workerObjectMeta, &isvc.Spec.Predictor.ComponentExtensionSpec,
 			&podSpec, workerPodSpec)
 		if err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "fails to create NewRawKubeReconciler for predictor")
@@ -360,7 +362,7 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 			return ctrl.Result{}, errors.Wrapf(err, "fails to set autoscaler owner references for predictor")
 		}
 
-		deploymentList, err := r.Reconcile()
+		deploymentList, err := r.Reconcile(ctx)
 		if err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile predictor")
 		}
@@ -368,13 +370,13 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 	} else {
 		podLabelKey = constants.RevisionLabel
 		r := knative.NewKsvcReconciler(p.client, p.scheme, objectMeta, &isvc.Spec.Predictor.ComponentExtensionSpec,
-			&podSpec, isvc.Status.Components[v1beta1.PredictorComponent])
+			&podSpec, isvc.Status.Components[v1beta1.PredictorComponent], p.inferenceServiceConfig.ServiceLabelDisallowedList)
 		if err := controllerutil.SetControllerReference(isvc, r.Service, p.scheme); err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "fails to set owner reference for predictor")
 		}
 
 		var err error
-		kstatus, err = r.Reconcile()
+		kstatus, err = r.Reconcile(ctx)
 		if err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile predictor")
 		}
@@ -387,7 +389,7 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 	} else {
 		podLabelValue = statusSpec.LatestCreatedRevision
 	}
-	predictorPods, err := isvcutils.ListPodsByLabel(p.client, isvc.ObjectMeta.Namespace, podLabelKey, podLabelValue)
+	predictorPods, err := isvcutils.ListPodsByLabel(ctx, p.client, isvc.ObjectMeta.Namespace, podLabelKey, podLabelValue)
 	if err != nil {
 		return ctrl.Result{}, errors.Wrapf(err, "fails to list inferenceservice pods by label")
 	}
@@ -398,10 +400,10 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 	}
 }
 
-func multiNodeProcess(sRuntime v1alpha1.ServingRuntimeSpec, isvc *v1beta1.InferenceService, podSpec *v1.PodSpec, annotations map[string]string, isvcGeneration string) (*v1.PodSpec, error) {
+func multiNodeProcess(sRuntime v1alpha1.ServingRuntimeSpec, isvc *v1beta1.InferenceService, podSpec *corev1.PodSpec, annotations map[string]string, isvcGeneration string) (*corev1.PodSpec, error) {
 	if sRuntime.WorkerSpec == nil {
 		errMsg := "you cannot set WorkerSpec in the InferenceService if the ServingRuntime does not have a WorkerSpec"
-		isvc.Status.PropagateRawStatusWithMessages(v1beta1.PredictorComponent, v1beta1.InvalidWorkerSpecNotSet, errMsg, v1.ConditionFalse)
+		isvc.Status.PropagateRawStatusWithMessages(v1beta1.PredictorComponent, v1beta1.InvalidWorkerSpecNotSet, errMsg, corev1.ConditionFalse)
 		return nil, errors.New(errMsg)
 	}
 	// Check if workerSpec in ServingRuntime does not have worker containers information, it should return errors
@@ -414,11 +416,11 @@ func multiNodeProcess(sRuntime v1alpha1.ServingRuntimeSpec, isvc *v1beta1.Infere
 		return nil, errors.New(errMsg)
 	}
 
-	var workerContainer *v1.Container
-	var mergedWorkerPodSpec *v1.PodSpec
+	var workerContainer *corev1.Container
+	var mergedWorkerPodSpec *corev1.PodSpec
 	var err error
 
-	targetisvcContainer := v1.Container{}
+	targetisvcContainer := corev1.Container{}
 	if isvc.Spec.Predictor.WorkerSpec.Containers != nil {
 		targetisvcContainer = isvc.Spec.Predictor.WorkerSpec.Containers[0]
 	}
@@ -437,7 +439,7 @@ func multiNodeProcess(sRuntime v1alpha1.ServingRuntimeSpec, isvc *v1beta1.Infere
 		sRuntime.WorkerSpec.TensorParallelSize = isvc.Spec.Predictor.WorkerSpec.TensorParallelSize
 	}
 
-	mergedWorkerPodSpec.Containers = []v1.Container{
+	mergedWorkerPodSpec.Containers = []corev1.Container{
 		*workerContainer,
 	}
 

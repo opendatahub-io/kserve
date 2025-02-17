@@ -18,18 +18,14 @@ package inferencegraph
 
 import (
 	"context"
-	"fmt"
 	"time"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	"github.com/kserve/kserve/pkg/constants"
-	"github.com/kserve/kserve/pkg/utils"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	osv1 "github.com/openshift/api/route/v1"
 	"google.golang.org/protobuf/proto"
 	appsv1 "k8s.io/api/apps/v1"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -37,10 +33,13 @@ import (
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 var _ = Describe("Inference Graph controller test", func() {
-
 	// Define utility constants for object names and testing timeouts/durations and intervals.
 	const (
 		timeout  = time.Second * 10
@@ -48,9 +47,8 @@ var _ = Describe("Inference Graph controller test", func() {
 		domain   = "example.com"
 	)
 
-	var (
-		configs = map[string]string{
-			"router": `{
+	configs := map[string]string{
+		"router": `{
 					  "image": "kserve/router:v0.10.0",
 					  "memoryRequest": "100Mi",
 					  "memoryLimit": "500Mi",
@@ -63,13 +61,14 @@ var _ = Describe("Inference Graph controller test", func() {
 						]
 					  }
 				}`,
-		}
-	)
+	}
+
+	expectedReadinessProbe := constants.GetRouterReadinessProbe()
 
 	Context("When creating an inferencegraph with headers in global config", func() {
 		It("Should create a knative service with headers as env var of podspec", func() {
 			By("By creating a new InferenceGraph")
-			var configMap = &v1.ConfigMap{
+			configMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      constants.InferenceServiceConfigMapName,
 					Namespace: constants.KServeNamespace,
@@ -79,8 +78,8 @@ var _ = Describe("Inference Graph controller test", func() {
 			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
 			defer k8sClient.Delete(context.TODO(), configMap)
 			graphName := "singlenode1"
-			var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
-			var serviceKey = expectedRequest.NamespacedName
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
 			ctx := context.Background()
 			ig := &v1alpha1.InferenceGraph{
 				ObjectMeta: metav1.ObjectMeta{
@@ -110,10 +109,7 @@ var _ = Describe("Inference Graph controller test", func() {
 			inferenceGraphSubmitted := &v1alpha1.InferenceGraph{}
 			Eventually(func() bool {
 				err := k8sClient.Get(ctx, serviceKey, inferenceGraphSubmitted)
-				if err != nil {
-					return false
-				}
-				return true
+				return err == nil
 			}, timeout, interval).Should(BeTrue())
 
 			actualKnServiceCreated := &knservingv1.Service{}
@@ -143,11 +139,11 @@ var _ = Describe("Inference Graph controller test", func() {
 							Spec: knservingv1.RevisionSpec{
 								ContainerConcurrency: nil,
 								TimeoutSeconds:       nil,
-								PodSpec: v1.PodSpec{
-									Containers: []v1.Container{
+								PodSpec: corev1.PodSpec{
+									Containers: []corev1.Container{
 										{
 											Image: "kserve/router:v0.10.0",
-											Env: []v1.EnvVar{
+											Env: []corev1.EnvVar{
 												{
 													Name:  "SSL_CERT_FILE",
 													Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
@@ -161,26 +157,27 @@ var _ = Describe("Inference Graph controller test", func() {
 												"--graph-json",
 												"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.exmaple.com\"}]}},\"resources\":{}}",
 											},
-											Resources: v1.ResourceRequirements{
-												Limits: v1.ResourceList{
-													v1.ResourceCPU:    resource.MustParse("100m"),
-													v1.ResourceMemory: resource.MustParse("500Mi"),
+											Resources: corev1.ResourceRequirements{
+												Limits: corev1.ResourceList{
+													corev1.ResourceCPU:    resource.MustParse("100m"),
+													corev1.ResourceMemory: resource.MustParse("500Mi"),
 												},
-												Requests: v1.ResourceList{
-													v1.ResourceCPU:    resource.MustParse("100m"),
-													v1.ResourceMemory: resource.MustParse("100Mi"),
+												Requests: corev1.ResourceList{
+													corev1.ResourceCPU:    resource.MustParse("100m"),
+													corev1.ResourceMemory: resource.MustParse("100Mi"),
 												},
 											},
-											SecurityContext: &v1.SecurityContext{
+											ReadinessProbe: expectedReadinessProbe,
+											SecurityContext: &corev1.SecurityContext{
 												Privileged:               proto.Bool(false),
 												RunAsNonRoot:             proto.Bool(true),
 												ReadOnlyRootFilesystem:   proto.Bool(true),
 												AllowPrivilegeEscalation: proto.Bool(false),
-												Capabilities: &v1.Capabilities{
-													Drop: []v1.Capability{v1.Capability("ALL")},
+												Capabilities: &corev1.Capabilities{
+													Drop: []corev1.Capability{corev1.Capability("ALL")},
 												},
 											},
-											VolumeMounts: []v1.VolumeMount{
+											VolumeMounts: []corev1.VolumeMount{
 												{
 													Name:      "openshift-service-ca-bundle",
 													MountPath: "/etc/odh/openshift-service-ca-bundle",
@@ -189,7 +186,7 @@ var _ = Describe("Inference Graph controller test", func() {
 										},
 									},
 									AutomountServiceAccountToken: proto.Bool(false),
-									Volumes: []v1.Volume{
+									Volumes: []corev1.Volume{
 										{
 											Name: "openshift-service-ca-bundle",
 											VolumeSource: v1.VolumeSource{
@@ -213,14 +210,14 @@ var _ = Describe("Inference Graph controller test", func() {
 			// Do a dry-run update. This will populate our local knative service object with any default values
 			// that are present on the remote version.
 			err := k8sClient.Update(context.TODO(), expectedKnService, client.DryRunAll)
-			Expect(err).Should(BeNil())
+			Expect(err).ShouldNot(HaveOccurred())
 			Expect(kmp.SafeDiff(actualKnServiceCreated.Spec, expectedKnService.Spec)).To(Equal(""))
 		})
 	})
 
 	Context("When creating an IG with resource requirements in the spec", func() {
 		It("Should propagate to underlying pod", func() {
-			var configMap = &v1.ConfigMap{
+			configMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      constants.InferenceServiceConfigMapName,
 					Namespace: constants.KServeNamespace,
@@ -230,8 +227,8 @@ var _ = Describe("Inference Graph controller test", func() {
 			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
 			defer k8sClient.Delete(context.TODO(), configMap)
 			graphName := "singlenode2"
-			var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
-			var serviceKey = expectedRequest.NamespacedName
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
 			ctx := context.Background()
 			ig := &v1alpha1.InferenceGraph{
 				ObjectMeta: metav1.ObjectMeta{
@@ -242,14 +239,14 @@ var _ = Describe("Inference Graph controller test", func() {
 					},
 				},
 				Spec: v1alpha1.InferenceGraphSpec{
-					Resources: v1.ResourceRequirements{
-						Limits: v1.ResourceList{
-							v1.ResourceCPU:    resource.MustParse("123m"),
-							v1.ResourceMemory: resource.MustParse("123Mi"),
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("123m"),
+							corev1.ResourceMemory: resource.MustParse("123Mi"),
 						},
-						Requests: v1.ResourceList{
-							v1.ResourceCPU:    resource.MustParse("123m"),
-							v1.ResourceMemory: resource.MustParse("123Mi"),
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("123m"),
+							corev1.ResourceMemory: resource.MustParse("123Mi"),
 						},
 					},
 					Nodes: map[string]v1alpha1.InferenceRouter{
@@ -301,11 +298,11 @@ var _ = Describe("Inference Graph controller test", func() {
 							Spec: knservingv1.RevisionSpec{
 								ContainerConcurrency: nil,
 								TimeoutSeconds:       nil,
-								PodSpec: v1.PodSpec{
-									Containers: []v1.Container{
+								PodSpec: corev1.PodSpec{
+									Containers: []corev1.Container{
 										{
 											Image: "kserve/router:v0.10.0",
-											Env: []v1.EnvVar{
+											Env: []corev1.EnvVar{
 												{
 													Name:  "SSL_CERT_FILE",
 													Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
@@ -319,26 +316,27 @@ var _ = Describe("Inference Graph controller test", func() {
 												"--graph-json",
 												"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.exmaple.com\"}]}},\"resources\":{\"limits\":{\"cpu\":\"123m\",\"memory\":\"123Mi\"},\"requests\":{\"cpu\":\"123m\",\"memory\":\"123Mi\"}}}",
 											},
-											Resources: v1.ResourceRequirements{
-												Limits: v1.ResourceList{
-													v1.ResourceCPU:    resource.MustParse("123m"),
-													v1.ResourceMemory: resource.MustParse("123Mi"),
+											Resources: corev1.ResourceRequirements{
+												Limits: corev1.ResourceList{
+													corev1.ResourceCPU:    resource.MustParse("123m"),
+													corev1.ResourceMemory: resource.MustParse("123Mi"),
 												},
-												Requests: v1.ResourceList{
-													v1.ResourceCPU:    resource.MustParse("123m"),
-													v1.ResourceMemory: resource.MustParse("123Mi"),
+												Requests: corev1.ResourceList{
+													corev1.ResourceCPU:    resource.MustParse("123m"),
+													corev1.ResourceMemory: resource.MustParse("123Mi"),
 												},
 											},
-											SecurityContext: &v1.SecurityContext{
+											ReadinessProbe: expectedReadinessProbe,
+											SecurityContext: &corev1.SecurityContext{
 												Privileged:               proto.Bool(false),
 												RunAsNonRoot:             proto.Bool(true),
 												ReadOnlyRootFilesystem:   proto.Bool(true),
 												AllowPrivilegeEscalation: proto.Bool(false),
-												Capabilities: &v1.Capabilities{
-													Drop: []v1.Capability{v1.Capability("ALL")},
+												Capabilities: &corev1.Capabilities{
+													Drop: []corev1.Capability{corev1.Capability("ALL")},
 												},
 											},
-											VolumeMounts: []v1.VolumeMount{
+											VolumeMounts: []corev1.VolumeMount{
 												{
 													Name:      "openshift-service-ca-bundle",
 													MountPath: "/etc/odh/openshift-service-ca-bundle",
@@ -347,7 +345,7 @@ var _ = Describe("Inference Graph controller test", func() {
 										},
 									},
 									AutomountServiceAccountToken: proto.Bool(false),
-									Volumes: []v1.Volume{
+									Volumes: []corev1.Volume{
 										{
 											Name: "openshift-service-ca-bundle",
 											VolumeSource: v1.VolumeSource{
@@ -371,14 +369,14 @@ var _ = Describe("Inference Graph controller test", func() {
 			// Do a dry-run update. This will populate our local knative service object with any default values
 			// that are present on the remote version.
 			err := k8sClient.Update(context.TODO(), expectedKnService, client.DryRunAll)
-			Expect(err).Should(BeNil())
+			Expect(err).ShouldNot(HaveOccurred())
 			Expect(kmp.SafeDiff(actualKnServiceCreated.Spec, expectedKnService.Spec)).To(Equal(""))
 		})
 	})
 
 	Context("When creating an IG with podaffinity in the spec", func() {
 		It("Should propagate to underlying pod", func() {
-			var configMap = &v1.ConfigMap{
+			configMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      constants.InferenceServiceConfigMapName,
 					Namespace: constants.KServeNamespace,
@@ -388,8 +386,8 @@ var _ = Describe("Inference Graph controller test", func() {
 			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
 			defer k8sClient.Delete(context.TODO(), configMap)
 			graphName := "singlenode3"
-			var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
-			var serviceKey = expectedRequest.NamespacedName
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
 			ctx := context.Background()
 			ig := &v1alpha1.InferenceGraph{
 				ObjectMeta: metav1.ObjectMeta{
@@ -401,12 +399,12 @@ var _ = Describe("Inference Graph controller test", func() {
 				},
 
 				Spec: v1alpha1.InferenceGraphSpec{
-					Affinity: &v1.Affinity{
-						PodAffinity: &v1.PodAffinity{
-							PreferredDuringSchedulingIgnoredDuringExecution: []v1.WeightedPodAffinityTerm{
+					Affinity: &corev1.Affinity{
+						PodAffinity: &corev1.PodAffinity{
+							PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
 								{
 									Weight: 100,
-									PodAffinityTerm: v1.PodAffinityTerm{
+									PodAffinityTerm: corev1.PodAffinityTerm{
 										LabelSelector: &metav1.LabelSelector{
 											MatchExpressions: []metav1.LabelSelectorRequirement{
 												{
@@ -473,11 +471,11 @@ var _ = Describe("Inference Graph controller test", func() {
 							Spec: knservingv1.RevisionSpec{
 								ContainerConcurrency: nil,
 								TimeoutSeconds:       nil,
-								PodSpec: v1.PodSpec{
-									Containers: []v1.Container{
+								PodSpec: corev1.PodSpec{
+									Containers: []corev1.Container{
 										{
 											Image: "kserve/router:v0.10.0",
-											Env: []v1.EnvVar{
+											Env: []corev1.EnvVar{
 												{
 													Name:  "SSL_CERT_FILE",
 													Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
@@ -491,26 +489,27 @@ var _ = Describe("Inference Graph controller test", func() {
 												"--graph-json",
 												"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.exmaple.com\"}]}},\"resources\":{},\"affinity\":{\"podAffinity\":{\"preferredDuringSchedulingIgnoredDuringExecution\":[{\"weight\":100,\"podAffinityTerm\":{\"labelSelector\":{\"matchExpressions\":[{\"key\":\"serving.kserve.io/inferencegraph\",\"operator\":\"In\",\"values\":[\"singlenode3\"]}]},\"topologyKey\":\"topology.kubernetes.io/zone\"}}]}}}",
 											},
-											Resources: v1.ResourceRequirements{
-												Limits: v1.ResourceList{
-													v1.ResourceCPU:    resource.MustParse("100m"),
-													v1.ResourceMemory: resource.MustParse("500Mi"),
+											Resources: corev1.ResourceRequirements{
+												Limits: corev1.ResourceList{
+													corev1.ResourceCPU:    resource.MustParse("100m"),
+													corev1.ResourceMemory: resource.MustParse("500Mi"),
 												},
-												Requests: v1.ResourceList{
-													v1.ResourceCPU:    resource.MustParse("100m"),
-													v1.ResourceMemory: resource.MustParse("100Mi"),
+												Requests: corev1.ResourceList{
+													corev1.ResourceCPU:    resource.MustParse("100m"),
+													corev1.ResourceMemory: resource.MustParse("100Mi"),
 												},
 											},
-											SecurityContext: &v1.SecurityContext{
+											SecurityContext: &corev1.SecurityContext{
 												Privileged:               proto.Bool(false),
 												RunAsNonRoot:             proto.Bool(true),
 												ReadOnlyRootFilesystem:   proto.Bool(true),
 												AllowPrivilegeEscalation: proto.Bool(false),
-												Capabilities: &v1.Capabilities{
-													Drop: []v1.Capability{v1.Capability("ALL")},
+												Capabilities: &corev1.Capabilities{
+													Drop: []corev1.Capability{corev1.Capability("ALL")},
 												},
 											},
-											VolumeMounts: []v1.VolumeMount{
+											ReadinessProbe: expectedReadinessProbe,
+											VolumeMounts: []corev1.VolumeMount{
 												{
 													Name:      "openshift-service-ca-bundle",
 													MountPath: "/etc/odh/openshift-service-ca-bundle",
@@ -518,12 +517,12 @@ var _ = Describe("Inference Graph controller test", func() {
 											},
 										},
 									},
-									Affinity: &v1.Affinity{
-										PodAffinity: &v1.PodAffinity{
-											PreferredDuringSchedulingIgnoredDuringExecution: []v1.WeightedPodAffinityTerm{
+									Affinity: &corev1.Affinity{
+										PodAffinity: &corev1.PodAffinity{
+											PreferredDuringSchedulingIgnoredDuringExecution: []corev1.WeightedPodAffinityTerm{
 												{
 													Weight: 100,
-													PodAffinityTerm: v1.PodAffinityTerm{
+													PodAffinityTerm: corev1.PodAffinityTerm{
 														LabelSelector: &metav1.LabelSelector{
 															MatchExpressions: []metav1.LabelSelectorRequirement{
 																{
@@ -542,12 +541,12 @@ var _ = Describe("Inference Graph controller test", func() {
 										},
 									},
 									AutomountServiceAccountToken: proto.Bool(false),
-									Volumes: []v1.Volume{
+									Volumes: []corev1.Volume{
 										{
 											Name: "openshift-service-ca-bundle",
-											VolumeSource: v1.VolumeSource{
-												ConfigMap: &v1.ConfigMapVolumeSource{
-													LocalObjectReference: v1.LocalObjectReference{
+											VolumeSource: corev1.VolumeSource{
+												ConfigMap: &corev1.ConfigMapVolumeSource{
+													LocalObjectReference: corev1.LocalObjectReference{
 														Name: constants.OpenShiftServiceCaConfigMapName,
 													},
 												},
@@ -566,7 +565,7 @@ var _ = Describe("Inference Graph controller test", func() {
 			// Do a dry-run update. This will populate our local knative service object with any default values
 			// that are present on the remote version.
 			err := k8sClient.Update(context.TODO(), expectedKnService, client.DryRunAll)
-			Expect(err).Should(BeNil())
+			Expect(err).ShouldNot(HaveOccurred())
 			Expect(kmp.SafeDiff(actualKnServiceCreated.Spec, expectedKnService.Spec)).To(Equal(""))
 		})
 	})
@@ -574,7 +573,7 @@ var _ = Describe("Inference Graph controller test", func() {
 	Context("When creating an inferencegraph in Raw deployment mode with annotations", func() {
 		It("Should create a raw k8s resources with podspec", func() {
 			By("By creating a new InferenceGraph")
-			var configMap = &v1.ConfigMap{
+			configMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      constants.InferenceServiceConfigMapName,
 					Namespace: constants.KServeNamespace,
@@ -584,8 +583,8 @@ var _ = Describe("Inference Graph controller test", func() {
 			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
 			defer k8sClient.Delete(context.TODO(), configMap)
 			graphName := "igraw1"
-			var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
-			var serviceKey = expectedRequest.NamespacedName
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
 			ctx := context.Background()
 			ig := &v1alpha1.InferenceGraph{
 				ObjectMeta: metav1.ObjectMeta{
@@ -627,12 +626,11 @@ var _ = Describe("Inference Graph controller test", func() {
 				if err := k8sClient.Get(ctx, serviceKey, actualK8sDeploymentCreated); err != nil {
 					return false
 				}
-				fmt.Println(actualK8sDeploymentCreated)
 				By("K8s Deployment retrieved")
 				return true
 			}, timeout, interval).Should(BeTrue())
 
-			actualK8sServiceCreated := &v1.Service{}
+			actualK8sServiceCreated := &corev1.Service{}
 			Eventually(func() bool {
 				if err := k8sClient.Get(ctx, serviceKey, actualK8sServiceCreated); err != nil {
 					return false
@@ -641,7 +639,7 @@ var _ = Describe("Inference Graph controller test", func() {
 				return true
 			}, timeout, interval).Should(BeTrue())
 
-			//No KNative Service should get created in Raw deployment mode
+			// No KNative Service should get created in Raw deployment mode
 			actualKnServiceCreated := &knservingv1.Service{}
 			Eventually(func() bool {
 				if err := k8sClient.Get(context.TODO(), serviceKey, actualKnServiceCreated); err != nil {
@@ -652,7 +650,7 @@ var _ = Describe("Inference Graph controller test", func() {
 			}, timeout).
 				Should(BeFalse())
 
-			//No Knative Route should get created in Raw deployment mode
+			// No Knative Route should get created in Raw deployment mode
 			actualKnRouteCreated := &knservingv1.Route{}
 			Eventually(func() bool {
 				if err := k8sClient.Get(context.TODO(), serviceKey, actualKnRouteCreated); err != nil {
@@ -662,7 +660,7 @@ var _ = Describe("Inference Graph controller test", func() {
 			}, timeout).
 				Should(BeFalse())
 
-			var result = int32(1)
+			result := int32(1)
 			Expect(actualK8sDeploymentCreated.Name).To(Equal(graphName))
 			Expect(actualK8sDeploymentCreated.Spec.Replicas).To(Equal(&result))
 			Expect(actualK8sDeploymentCreated.Spec.Template.Spec.Containers).To(Not(BeNil()))
@@ -698,12 +696,12 @@ var _ = Describe("Inference Graph controller test", func() {
 		It("Should fail if Knative Serving is not installed", func() {
 			// Simulate Knative Serving is absent by setting to false the relevant item in utils.gvResourcesCache variable
 			servingResources, getServingResourcesErr := utils.GetAvailableResourcesForApi(cfg, knservingv1.SchemeGroupVersion.String())
-			Expect(getServingResourcesErr).To(BeNil())
+			Expect(getServingResourcesErr).ToNot(HaveOccurred())
 			defer utils.SetAvailableResourcesForApi(knservingv1.SchemeGroupVersion.String(), servingResources)
 			utils.SetAvailableResourcesForApi(knservingv1.SchemeGroupVersion.String(), nil)
 
 			By("By creating a new InferenceGraph")
-			var configMap = &v1.ConfigMap{
+			configMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      constants.InferenceServiceConfigMapName,
 					Namespace: constants.KServeNamespace,
@@ -714,8 +712,8 @@ var _ = Describe("Inference Graph controller test", func() {
 			defer k8sClient.Delete(context.TODO(), configMap)
 
 			graphName := "singlenode1"
-			var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
-			var serviceKey = expectedRequest.NamespacedName
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
 			ctx := context.Background()
 			ig := &v1alpha1.InferenceGraph{
 				ObjectMeta: metav1.ObjectMeta{
@@ -744,7 +742,7 @@ var _ = Describe("Inference Graph controller test", func() {
 			defer k8sClient.Delete(ctx, ig)
 
 			Eventually(func() bool {
-				events := &v1.EventList{}
+				events := &corev1.EventList{}
 				err := k8sClient.List(ctx, events, client.InNamespace(serviceKey.Namespace))
 				if err != nil {
 					return false
