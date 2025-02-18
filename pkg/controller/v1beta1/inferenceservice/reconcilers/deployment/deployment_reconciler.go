@@ -21,6 +21,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -86,7 +87,8 @@ func NewDeploymentReconciler(client kclient.Client,
 
 func createRawDeploymentODH(clientset kubernetes.Interface, componentMeta metav1.ObjectMeta, workerComponentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
-	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec) ([]*appsv1.Deployment, error) {
+	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec,
+) ([]*appsv1.Deployment, error) {
 	deploymentList, err := createRawDeployment(componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec)
 	if err != nil {
 		return nil, err
@@ -198,7 +200,8 @@ func createRawDefaultDeployment(componentMeta metav1.ObjectMeta,
 }
 
 func addOauthContainerToDeployment(clientset kubernetes.Interface, deployment *appsv1.Deployment, componentMeta metav1.ObjectMeta, componentExt *v1beta1.ComponentExtensionSpec,
-	podSpec *corev1.PodSpec) error {
+	podSpec *corev1.PodSpec,
+) error {
 	var isvcname string
 	var upstreamPort string
 	var sa string
@@ -318,7 +321,7 @@ func generateOauthProxyContainer(clientset kubernetes.Interface, isvc string, na
 	}
 	if oauthProxyConfig.Image == "" || oauthProxyConfig.MemoryRequest == "" || oauthProxyConfig.MemoryLimit == "" ||
 		oauthProxyConfig.CpuRequest == "" || oauthProxyConfig.CpuLimit == "" {
-		return nil, fmt.Errorf("one or more oauthProxyConfig fields are empty")
+		return nil, errors.New("one or more oauthProxyConfig fields are empty")
 	}
 	oauthImage := oauthProxyConfig.Image
 	oauthMemoryRequest := oauthProxyConfig.MemoryRequest

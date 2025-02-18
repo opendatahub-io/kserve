@@ -344,7 +344,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			// check http route
 			// not needed for ODH
-			//actualTopLevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			// actualTopLevelHttpRoute := &gatewayapiv1.HTTPRoute{}
 			//Eventually(func() error {
 			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
 			//		Name:      serviceKey.Name,
@@ -415,7 +415,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			//}
 			//Expect(actualTopLevelHttpRoute.Spec).To(BeComparableTo(expectedTopLevelHttpRoute.Spec))
 
-			//actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
+			// actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
 			//Eventually(func() error {
 			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
 			//		Name:      predictorServiceKey.Name,
@@ -487,7 +487,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			//Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
 
 			//// Mark the Ingress as accepted to make isvc ready
-			//httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
+			// httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
 			//	RouteStatus: gatewayapiv1.RouteStatus{
 			//		Parents: []gatewayapiv1.RouteParentStatus{
 			//			{
@@ -547,10 +547,10 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
 						LatestCreatedRevision: "",
-						//URL: &apis.URL{
+						// URL: &apis.URL{
 						//	Scheme: "http",
 						//	Host:   "raw-foo-predictor-default.example.com",
-						//},
+						// },
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -883,7 +883,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			// Not needed in ODH
 			// check http route
-			//actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			// actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
 			//Eventually(func() error {
 			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
 			//		Name:      serviceKey.Name,
@@ -1088,10 +1088,10 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
 						LatestCreatedRevision: "",
-						//URL: &apis.URL{
+						// URL: &apis.URL{
 						//	Scheme: "http",
 						//	Host:   "raw-foo-customized-predictor-default.example.com",
-						//},
+						// },
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -1414,7 +1414,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			// not needed for ODH
 			// check http Route
-			//actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			// actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
 			//Eventually(func() error {
 			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
 			//		Name:      serviceKey.Name,
@@ -1486,7 +1486,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			//}
 			//Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
 
-			//actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
+			// actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
 			//Eventually(func() error {
 			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
 			//		Name:      predictorServiceKey.Name,
@@ -1559,7 +1559,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			//Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
 
 			// Mark the Ingress as accepted to make isvc ready
-			//httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
+			// httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
 			//	RouteStatus: gatewayapiv1.RouteStatus{
 			//		Parents: []gatewayapiv1.RouteParentStatus{
 			//			{
@@ -1619,10 +1619,10 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
 						LatestCreatedRevision: "",
-						//URL: &apis.URL{
+						// URL: &apis.URL{
 						//	Scheme: "http",
 						//	Host:   "raw-foo-2-predictor-default.example.com",
-						//},
+						// },
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -1674,7 +1674,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		It("Should have no ingress created if labeled as cluster-local", func() {
 			By("By creating a new InferenceService")
 			// Create configmap
-			var configMap = &corev1.ConfigMap{
+			configMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      constants.InferenceServiceConfigMapName,
 					Namespace: constants.KServeNamespace,
@@ -1719,9 +1719,9 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			k8sClient.Create(context.TODO(), servingRuntime)
 			defer k8sClient.Delete(context.TODO(), servingRuntime)
 			serviceName := "raw-cluster-local"
-			var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
-			var serviceKey = expectedRequest.NamespacedName
-			var storageUri = "s3://test/mnist/export"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+			storageUri := "s3://test/mnist/export"
 			ctx := context.Background()
 			isvc := &v1beta1.InferenceService{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1769,8 +1769,10 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				return true
 			}, timeout, interval).Should(BeTrue())
 			actualIngress := &netv1.Ingress{}
-			predictorIngressKey := types.NamespacedName{Name: serviceKey.Name,
-				Namespace: serviceKey.Namespace}
+			predictorIngressKey := types.NamespacedName{
+				Name:      serviceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
 			Consistently(func() error { return k8sClient.Get(context.TODO(), predictorIngressKey, actualIngress) }, timeout).
 				ShouldNot(Succeed())
 		})
@@ -2089,10 +2091,10 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
 						LatestCreatedRevision: "",
-						//URL: &apis.URL{
+						// URL: &apis.URL{
 						//	Scheme: "http",
 						//	Host:   fmt.Sprintf("%s-predictor-default.example.com", serviceName),
-						//},
+						// },
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -2444,7 +2446,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			Expect(k8sClient.Status().Update(context.TODO(), updatedDeployment)).NotTo(HaveOccurred())
 
 			// check http route
-			//actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			// actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
 			//Eventually(func() error {
 			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
 			//		Name:      serviceKey.Name,
@@ -2648,11 +2650,11 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
-						//LatestCreatedRevision: "",
-						//URL: &apis.URL{
+						// LatestCreatedRevision: "",
+						// URL: &apis.URL{
 						//	Scheme: "http",
 						//	Host:   fmt.Sprintf("%s-predictor.%s.%s", serviceName, serviceKey.Namespace, domain),
-						//},
+						// },
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -3187,7 +3189,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			// Not needed in ODH
 			//// check http route
-			//actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			// actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
 			//Eventually(func() error {
 			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
 			//		Name:      serviceKey.Name,
@@ -3470,18 +3472,18 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
-						//LatestCreatedRevision: "",
-						//URL: &apis.URL{
+						// LatestCreatedRevision: "",
+						// URL: &apis.URL{
 						//	Scheme: "http",
 						//	Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
-						//},
+						// },
 					},
 					v1beta1.TransformerComponent: {
-						//LatestCreatedRevision: "",
-						//URL: &apis.URL{
+						// LatestCreatedRevision: "",
+						// URL: &apis.URL{
 						//	Scheme: "http",
 						//	Host:   fmt.Sprintf("%s-%s.example.com", transformerServiceKey.Name, serviceKey.Namespace),
-						//},
+						// },
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -4082,7 +4084,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			// Not needed in ODH
 			// check http route
-			//actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			// actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
 			//Eventually(func() error {
 			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
 			//		Name:      serviceKey.Name,
@@ -4408,18 +4410,18 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
-						//LatestCreatedRevision: "",
-						//URL: &apis.URL{
+						// LatestCreatedRevision: "",
+						// URL: &apis.URL{
 						//	Scheme: "http",
 						//	Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
-						//},
+						// },
 					},
 					v1beta1.ExplainerComponent: {
-						//LatestCreatedRevision: "",
-						//URL: &apis.URL{
+						// LatestCreatedRevision: "",
+						// URL: &apis.URL{
 						//	Scheme: "http",
 						//	Host:   fmt.Sprintf("%s-%s.example.com", explainerServiceKey.Name, serviceKey.Namespace),
-						//},
+						// },
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -4842,7 +4844,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			// Not needed in ODH
 			// check http route
-			//actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			// actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
 			//Eventually(func() error {
 			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
 			//		Name:      serviceKey.Name,
@@ -5091,11 +5093,11 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
-						//LatestCreatedRevision: "",
-						//URL: &apis.URL{
+						// LatestCreatedRevision: "",
+						// URL: &apis.URL{
 						//	Scheme: "http",
 						//	Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
-						//},
+						// },
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -5636,7 +5638,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			// Not needed in ODH
 			// check http route
-			//actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			// actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
 			//Eventually(func() error {
 			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
 			//		Name:      serviceKey.Name,
@@ -5964,18 +5966,18 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
-						//LatestCreatedRevision: "",
-						//URL: &apis.URL{
+						// LatestCreatedRevision: "",
+						// URL: &apis.URL{
 						//	Scheme: "http",
 						//	Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
-						//},
+						// },
 					},
 					v1beta1.TransformerComponent: {
-						//LatestCreatedRevision: "",
-						//URL: &apis.URL{
+						// LatestCreatedRevision: "",
+						// URL: &apis.URL{
 						//	Scheme: "http",
 						//	Host:   fmt.Sprintf("%s-%s.example.com", transformerServiceKey.Name, serviceKey.Namespace),
-						//},
+						// },
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -6578,7 +6580,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			// Not needed in ODH
 			// check http route
-			//actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			// actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
 			//Eventually(func() error {
 			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
 			//		Name:      serviceKey.Name,
@@ -6994,18 +6996,18 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
-						//LatestCreatedRevision: "",
-						//URL: &apis.URL{
+						// LatestCreatedRevision: "",
+						// URL: &apis.URL{
 						//	Scheme: "http",
 						//	Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
-						//},
+						// },
 					},
 					v1beta1.ExplainerComponent: {
-						//LatestCreatedRevision: "",
-						//URL: &apis.URL{
+						// LatestCreatedRevision: "",
+						// URL: &apis.URL{
 						//	Scheme: "http",
 						//	Host:   fmt.Sprintf("%s-%s.example.com", explainerServiceKey.Name, serviceKey.Namespace),
-						//},
+						// },
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -7422,7 +7424,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			// ODH doesn't create ingress
 			// check ingress
-			//pathType := netv1.PathTypePrefix
+			// pathType := netv1.PathTypePrefix
 			//actualIngress := &netv1.Ingress{}
 			//predictorIngressKey := types.NamespacedName{
 			//	Name:      serviceKey.Name,
@@ -7510,10 +7512,10 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
 						LatestCreatedRevision: "",
-						//URL: &apis.URL{
+						// URL: &apis.URL{
 						//	Scheme: "http",
 						//	Host:   fmt.Sprintf("%s-predictor.%s.%s", serviceName, serviceKey.Namespace, domain),
-						//},
+						// },
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -7608,7 +7610,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		It("Should have ingress/service/deployment/hpa created", func() {
 			By("By creating a new InferenceService")
 			// Create configmap
-			var configMap = &corev1.ConfigMap{
+			configMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      constants.InferenceServiceConfigMapName,
 					Namespace: constants.KServeNamespace,
@@ -7653,9 +7655,9 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			k8sClient.Create(context.TODO(), servingRuntime)
 			defer k8sClient.Delete(context.TODO(), servingRuntime)
 			serviceName := "raw-auth"
-			var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
-			var serviceKey = expectedRequest.NamespacedName
-			var storageUri = "s3://test/mnist/export"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+			storageUri := "s3://test/mnist/export"
 			ctx := context.Background()
 			isvc := &v1beta1.InferenceService{
 				ObjectMeta: metav1.ObjectMeta{
@@ -7702,8 +7704,10 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}, timeout, interval).Should(BeTrue())
 
 			actualDeployment := &appsv1.Deployment{}
-			predictorDeploymentKey := types.NamespacedName{Name: constants.PredictorServiceName(serviceKey.Name),
-				Namespace: serviceKey.Namespace}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
 			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment) }, timeout).
 				Should(Succeed())
 			var replicas int32 = 1
@@ -7784,7 +7788,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 										`--tls-cert=/etc/tls/private/tls.crt`,
 										`--tls-key=/etc/tls/private/tls.key`,
 										// omit cookie secret arg in unit test as it is generated randomly
-										//`--cookie-secret=SECRET`,
+										// `--cookie-secret=SECRET`,
 										`--openshift-delegate-urls={"/": {"namespace": "` + serviceKey.Namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + serviceName + `", "verb": "get"}}`,
 										`--openshift-sar={"namespace": "` + serviceKey.Namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + serviceName + `", "verb": "get"}`,
 									},
@@ -7890,10 +7894,12 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			actualDep := v1beta1utils.RemoveCookieSecretArg(*cleanedDep)
 			Expect(actualDep.Spec).To(Equal(expectedDeployment.Spec))
 
-			//check service
+			// check service
 			actualService := &corev1.Service{}
-			predictorServiceKey := types.NamespacedName{Name: constants.PredictorServiceName(serviceKey.Name),
-				Namespace: serviceKey.Namespace}
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
 			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorServiceKey, actualService) }, timeout).
 				Should(Succeed())
 
@@ -7914,7 +7920,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					Type:            "ClusterIP",
 					SessionAffinity: "None",
 					Selector: map[string]string{
-						"app": fmt.Sprintf("isvc.%s", constants.PredictorServiceName(serviceName)),
+						"app": "isvc." + constants.PredictorServiceName(serviceName),
 					},
 				},
 			}
@@ -7976,7 +7982,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}
 			Expect(k8sClient.Status().Update(ctx, route)).Should(Succeed())
 
-			//check isvc status
+			// check isvc status
 			updatedDeployment := actualDeployment.DeepCopy()
 			updatedDeployment.Status.Conditions = []appsv1.DeploymentCondition{
 				{
@@ -8017,10 +8023,10 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
 						LatestCreatedRevision: "",
-						//URL: &apis.URL{
+						// URL: &apis.URL{
 						//	Scheme: "http",
 						//	Host:   "raw-auth-predictor-default.example.com",
-						//},
+						// },
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -8036,7 +8042,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}),
 					cmpopts.IgnoreFields(v1beta1.InferenceServiceStatus{}, "DeploymentMode"))
 			}, timeout).Should(BeEmpty())
-
 		})
 	})
 	Context("When creating inference service with raw kube predictor with workerSpec", func() {

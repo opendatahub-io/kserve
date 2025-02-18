@@ -964,7 +964,7 @@ func TestGetServingRuntime(t *testing.T) {
 		},
 	}
 
-	//clusterRuntimes := &v1alpha1.ClusterServingRuntimeList{
+	// clusterRuntimes := &v1alpha1.ClusterServingRuntimeList{
 	//	Items: []v1alpha1.ClusterServingRuntime{
 	//		{
 	//			ObjectMeta: metav1.ObjectMeta{
@@ -983,7 +983,7 @@ func TestGetServingRuntime(t *testing.T) {
 			runtimeName: tfRuntime,
 			expected:    servingRuntimeSpecs[tfRuntime],
 		},
-		//"ClusterServingRuntime": {
+		// "ClusterServingRuntime": {
 		//	runtimeName: sklearnRuntime,
 		//	expected:    servingRuntimeSpecs[sklearnRuntime],
 		//},

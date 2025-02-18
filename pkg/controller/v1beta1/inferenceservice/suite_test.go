@@ -34,11 +34,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	routev1 "github.com/openshift/api/route/v1"
+
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	pkgtest "github.com/kserve/kserve/pkg/testing"
-	routev1 "github.com/openshift/api/route/v1"
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
