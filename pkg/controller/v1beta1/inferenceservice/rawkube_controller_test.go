@@ -229,6 +229,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"serving.kserve.io/autoscalerClass":                        "hpa",
 								"serving.kserve.io/metrics":                                "cpu",
 								"serving.kserve.io/targetUtilizationPercentage":            "75",
+								"service.beta.openshift.io/serving-cert-secret-name":       predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: v1.PodSpec{
@@ -243,6 +244,12 @@ var _ = Describe("v1beta1 inference service controller", func() {
 										"--rest_api_port=" + v1beta1.TensorflowServingRestPort,
 										"--model_base_path=" + constants.DefaultModelLocalMountPath,
 										"--rest_api_timeout_in_ms=60000",
+									},
+									VolumeMounts: []v1.VolumeMount{
+										{
+											Name:      "proxy-tls",
+											MountPath: "/etc/tls/private",
+										},
 									},
 									Resources: defaultResource,
 									ReadinessProbe: &v1.Probe{
@@ -262,6 +269,17 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									TerminationMessagePath:   "/dev/termination-log",
 									TerminationMessagePolicy: "File",
 									ImagePullPolicy:          "IfNotPresent",
+								},
+							},
+							Volumes: []v1.Volume{
+								{
+									Name: "proxy-tls",
+									VolumeSource: v1.VolumeSource{
+										Secret: &v1.SecretVolumeSource{
+											SecretName:  predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
+											DefaultMode: func(i int32) *int32 { return &i }(420),
+										},
+									},
 								},
 							},
 							SchedulerName:                 "default-scheduler",
@@ -648,6 +666,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"serving.kserve.io/autoscalerClass":                        "hpa",
 								"serving.kserve.io/metrics":                                "cpu",
 								"serving.kserve.io/targetUtilizationPercentage":            "75",
+								"service.beta.openshift.io/serving-cert-secret-name":       "raw-foo-customized-predictor-serving-cert",
 							},
 						},
 						Spec: v1.PodSpec{
@@ -662,6 +681,12 @@ var _ = Describe("v1beta1 inference service controller", func() {
 										"--rest_api_port=" + v1beta1.TensorflowServingRestPort,
 										"--model_base_path=" + constants.DefaultModelLocalMountPath,
 										"--rest_api_timeout_in_ms=60000",
+									},
+									VolumeMounts: []v1.VolumeMount{
+										{
+											Name:      "proxy-tls",
+											MountPath: "/etc/tls/private",
+										},
 									},
 									Resources: defaultResource,
 									ReadinessProbe: &v1.Probe{
@@ -681,6 +706,17 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									TerminationMessagePath:   "/dev/termination-log",
 									TerminationMessagePolicy: "File",
 									ImagePullPolicy:          "IfNotPresent",
+								},
+							},
+							Volumes: []v1.Volume{
+								{
+									Name: "proxy-tls",
+									VolumeSource: v1.VolumeSource{
+										Secret: &v1.SecretVolumeSource{
+											SecretName:  predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
+											DefaultMode: func(i int32) *int32 { return &i }(420),
+										},
+									},
 								},
 							},
 							SchedulerName:                 "default-scheduler",
@@ -1052,6 +1088,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 								"serving.kserve.io/deploymentMode":                         "RawDeployment",
 								"serving.kserve.io/autoscalerClass":                        "external",
+								"service.beta.openshift.io/serving-cert-secret-name":       predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: v1.PodSpec{
@@ -1066,6 +1103,12 @@ var _ = Describe("v1beta1 inference service controller", func() {
 										"--rest_api_port=" + v1beta1.TensorflowServingRestPort,
 										"--model_base_path=" + constants.DefaultModelLocalMountPath,
 										"--rest_api_timeout_in_ms=60000",
+									},
+									VolumeMounts: []v1.VolumeMount{
+										{
+											Name:      "proxy-tls",
+											MountPath: "/etc/tls/private",
+										},
 									},
 									Resources: defaultResource,
 									ReadinessProbe: &v1.Probe{
@@ -1085,6 +1128,17 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									TerminationMessagePath:   "/dev/termination-log",
 									TerminationMessagePolicy: "File",
 									ImagePullPolicy:          "IfNotPresent",
+								},
+							},
+							Volumes: []v1.Volume{
+								{
+									Name: "proxy-tls",
+									VolumeSource: v1.VolumeSource{
+										Secret: &v1.SecretVolumeSource{
+											SecretName:  predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
+											DefaultMode: func(i int32) *int32 { return &i }(420),
+										},
+									},
 								},
 							},
 							SchedulerName:                 "default-scheduler",
@@ -1530,6 +1584,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"serving.kserve.io/autoscalerClass":                        "hpa",
 								"serving.kserve.io/metrics":                                "cpu",
 								"serving.kserve.io/targetUtilizationPercentage":            "75",
+								"service.beta.openshift.io/serving-cert-secret-name":       predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: v1.PodSpec{
@@ -1544,6 +1599,12 @@ var _ = Describe("v1beta1 inference service controller", func() {
 										"--rest_api_port=" + v1beta1.TensorflowServingRestPort,
 										"--model_base_path=" + constants.DefaultModelLocalMountPath,
 										"--rest_api_timeout_in_ms=60000",
+									},
+									VolumeMounts: []v1.VolumeMount{
+										{
+											Name:      "proxy-tls",
+											MountPath: "/etc/tls/private",
+										},
 									},
 									Resources: defaultResource,
 									ReadinessProbe: &v1.Probe{
@@ -1563,6 +1624,17 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									TerminationMessagePath:   "/dev/termination-log",
 									TerminationMessagePolicy: "File",
 									ImagePullPolicy:          "IfNotPresent",
+								},
+							},
+							Volumes: []v1.Volume{
+								{
+									Name: "proxy-tls",
+									VolumeSource: v1.VolumeSource{
+										Secret: &v1.SecretVolumeSource{
+											SecretName:  predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
+											DefaultMode: func(i int32) *int32 { return &i }(420),
+										},
+									},
 								},
 							},
 							SchedulerName:                 "default-scheduler",
@@ -1964,6 +2036,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"serving.kserve.io/autoscalerClass":                        "hpa",
 								"serving.kserve.io/metrics":                                "cpu",
 								"serving.kserve.io/targetUtilizationPercentage":            "75",
+								"service.beta.openshift.io/serving-cert-secret-name":       predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: v1.PodSpec{
@@ -1978,6 +2051,12 @@ var _ = Describe("v1beta1 inference service controller", func() {
 										"--rest_api_port=" + v1beta1.TensorflowServingRestPort,
 										"--model_base_path=" + constants.DefaultModelLocalMountPath,
 										"--rest_api_timeout_in_ms=60000",
+									},
+									VolumeMounts: []v1.VolumeMount{
+										{
+											Name:      "proxy-tls",
+											MountPath: "/etc/tls/private",
+										},
 									},
 									Resources: defaultResource,
 									ReadinessProbe: &v1.Probe{
@@ -1997,6 +2076,17 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									TerminationMessagePath:   "/dev/termination-log",
 									TerminationMessagePolicy: "File",
 									ImagePullPolicy:          "IfNotPresent",
+								},
+							},
+							Volumes: []v1.Volume{
+								{
+									Name: "proxy-tls",
+									VolumeSource: v1.VolumeSource{
+										Secret: &v1.SecretVolumeSource{
+											SecretName:  predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
+											DefaultMode: func(i int32) *int32 { return &i }(420),
+										},
+									},
 								},
 							},
 							SchedulerName:                 "default-scheduler",
@@ -2403,6 +2493,12 @@ var _ = Describe("v1beta1 inference service controller", func() {
 										"--rest_api_port=" + v1beta1.TensorflowServingRestPort,
 										"--model_base_path=" + constants.DefaultModelLocalMountPath,
 										"--rest_api_timeout_in_ms=60000",
+									},
+									VolumeMounts: []v1.VolumeMount{
+										{
+											Name:      "proxy-tls",
+											MountPath: "/etc/tls/private",
+										},
 									},
 									Resources: defaultResource,
 									ReadinessProbe: &v1.Probe{

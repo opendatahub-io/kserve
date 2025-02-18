@@ -87,13 +87,18 @@ func createRawDeploymentODH(clientset kubernetes.Interface, componentMeta metav1
 	if err != nil {
 		return nil, err
 	}
-	if val, ok := componentMeta.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
-		for _, deployment := range deploymentList {
+	for _, deployment := range deploymentList {
+		enableAuth := false
+		if enableAuth, err = strconv.ParseBool(componentMeta.Labels[constants.ODHKserveRawAuth]); err != nil {
+			enableAuth = false
+		}
+		if enableAuth {
 			err := addOauthContainerToDeployment(clientset, deployment, componentMeta, componentExt, podSpec)
 			if err != nil {
 				return nil, err
 			}
 		}
+		mountServingSecretVolumeToDeployment(deployment, componentMeta)
 	}
 	return deploymentList, nil
 }
@@ -187,6 +192,32 @@ func createRawDefaultDeployment(componentMeta metav1.ObjectMeta,
 	return deployment, nil
 }
 
+func mountServingSecretVolumeToDeployment(deployment *appsv1.Deployment, componentMeta metav1.ObjectMeta) {
+	updatedPodSpec := deployment.Spec.Template.Spec.DeepCopy()
+	tlsSecretVolume := corev1.Volume{
+		Name: tlsVolumeName,
+		VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{
+				SecretName:  componentMeta.Name + constants.ServingCertSecretSuffix,
+				DefaultMode: func(i int32) *int32 { return &i }(420),
+			},
+		},
+	}
+
+	updatedPodSpec.Volumes = append(updatedPodSpec.Volumes, tlsSecretVolume)
+
+	for i, container := range updatedPodSpec.Containers {
+		if container.Name == "kserve-container" {
+			updatedPodSpec.Containers[i].VolumeMounts = append(updatedPodSpec.Containers[i].VolumeMounts, corev1.VolumeMount{
+				Name:      tlsVolumeName,
+				MountPath: "/etc/tls/private",
+			})
+		}
+	}
+
+	deployment.Spec.Template.Spec = *updatedPodSpec
+}
+
 func addOauthContainerToDeployment(clientset kubernetes.Interface, deployment *appsv1.Deployment, componentMeta metav1.ObjectMeta, componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec) error {
 	var isvcname string
@@ -223,16 +254,6 @@ func addOauthContainerToDeployment(clientset kubernetes.Interface, deployment *a
 		updatedPodSpec := deployment.Spec.Template.Spec.DeepCopy()
 		//	updatedPodSpec := podSpec.DeepCopy()
 		updatedPodSpec.Containers = append(updatedPodSpec.Containers, *oauthProxyContainer)
-		tlsSecretVolume := corev1.Volume{
-			Name: tlsVolumeName,
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName:  componentMeta.Name + constants.ServingCertSecretSuffix,
-					DefaultMode: func(i int32) *int32 { return &i }(420),
-				},
-			},
-		}
-		updatedPodSpec.Volumes = append(updatedPodSpec.Volumes, tlsSecretVolume)
 		deployment.Spec.Template.Spec = *updatedPodSpec
 	}
 	return nil
