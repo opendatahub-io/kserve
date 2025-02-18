@@ -2039,7 +2039,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Host:   constants.InferenceServiceHostName(constants.PredictorServiceName(serviceKey.Name), serviceKey.Namespace, domain),
 			}))
 			Expect(actualIsvc.Status.Address.URL).To(Equal(&apis.URL{
-				Scheme: "https",
+				// https://github.com/kserve/kserve/blame/master/pkg/controller/v1beta1/inferenceservice/reconcilers/ingress/ingress_reconciler.go#L152
+				Scheme: "http",
 				Host:   network.GetServiceHostname(fmt.Sprintf("%s-%s", serviceKey.Name, string(constants.Predictor)), serviceKey.Namespace),
 			}))
 		})

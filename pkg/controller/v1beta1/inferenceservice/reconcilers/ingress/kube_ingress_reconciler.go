@@ -105,11 +105,11 @@ func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Infe
 	if val, ok := isvc.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
 		authEnabled = true
 	}
-	isvc.Status.URL, err = createRawURLODH(r.client, isvc, authEnabled)
+	isvc.Status.URL, err = createRawURLODH(ctx, r.client, isvc, authEnabled)
 	if err != nil {
 		return err
 	}
-	internalHost := getRawServiceHost(isvc, r.client)
+	internalHost := getRawServiceHost(ctx, isvc, r.client)
 	url := &apis.URL{
 		Host:   internalHost,
 		Scheme: "http",
@@ -130,8 +130,8 @@ func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Infe
 	return nil
 }
 
-func createRawURLODH(client client.Client, isvc *v1beta1.InferenceService, authEnabled bool) (*knapis.URL, error) {
-	url := &knapis.URL{}
+func createRawURLODH(ctx context.Context, client client.Client, isvc *v1beta1.InferenceService, authEnabled bool) (*apis.URL, error) {
+	url := &apis.URL{}
 	if val, ok := isvc.Labels[constants.NetworkVisibility]; ok && val == constants.ODHRouteEnabled {
 		var err error
 		url, err = v1beta1utils.GetRouteURLIfExists(client, isvc.ObjectMeta, isvc.Name)
@@ -140,7 +140,7 @@ func createRawURLODH(client client.Client, isvc *v1beta1.InferenceService, authE
 		}
 	} else {
 		url = &apis.URL{
-			Host:   getRawServiceHostODH(isvc, client),
+			Host:   getRawServiceHost(ctx, isvc, client),
 			Scheme: "http",
 			Path:   "",
 		}
@@ -150,29 +150,6 @@ func createRawURLODH(client client.Client, isvc *v1beta1.InferenceService, authE
 		}
 	}
 	return url, nil
-}
-
-func getRawServiceHostODH(isvc *v1beta1.InferenceService, client client.Client) string {
-	existingService := &corev1.Service{}
-	if isvc.Spec.Transformer != nil {
-		transformerName := constants.TransformerServiceName(isvc.Name)
-
-		// Check if existing transformer service name has default suffix
-		err := client.Get(context.TODO(), types.NamespacedName{Name: constants.DefaultTransformerServiceName(isvc.Name), Namespace: isvc.Namespace}, existingService)
-		if err == nil {
-			transformerName = constants.DefaultTransformerServiceName(isvc.Name)
-		}
-		return network.GetServiceHostname(transformerName, isvc.Namespace)
-	}
-
-	predictorName := constants.PredictorServiceName(isvc.Name)
-
-	// Check if existing predictor service name has default suffix
-	err := client.Get(context.TODO(), types.NamespacedName{Name: constants.DefaultPredictorServiceName(isvc.Name), Namespace: isvc.Namespace}, existingService)
-	if err == nil {
-		predictorName = constants.DefaultPredictorServiceName(isvc.Name)
-	}
-	return network.GetServiceHostname(predictorName, isvc.Namespace)
 }
 
 func generateRule(ingressHost string, componentName string, path string, port int32) netv1.IngressRule { //nolint:unparam

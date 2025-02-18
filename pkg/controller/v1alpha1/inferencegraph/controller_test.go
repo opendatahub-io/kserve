@@ -189,9 +189,9 @@ var _ = Describe("Inference Graph controller test", func() {
 									Volumes: []corev1.Volume{
 										{
 											Name: "openshift-service-ca-bundle",
-											VolumeSource: v1.VolumeSource{
-												ConfigMap: &v1.ConfigMapVolumeSource{
-													LocalObjectReference: v1.LocalObjectReference{
+											VolumeSource: corev1.VolumeSource{
+												ConfigMap: &corev1.ConfigMapVolumeSource{
+													LocalObjectReference: corev1.LocalObjectReference{
 														Name: constants.OpenShiftServiceCaConfigMapName,
 													},
 												},
@@ -348,9 +348,9 @@ var _ = Describe("Inference Graph controller test", func() {
 									Volumes: []corev1.Volume{
 										{
 											Name: "openshift-service-ca-bundle",
-											VolumeSource: v1.VolumeSource{
-												ConfigMap: &v1.ConfigMapVolumeSource{
-													LocalObjectReference: v1.LocalObjectReference{
+											VolumeSource: corev1.VolumeSource{
+												ConfigMap: &corev1.ConfigMapVolumeSource{
+													LocalObjectReference: corev1.LocalObjectReference{
 														Name: constants.OpenShiftServiceCaConfigMapName,
 													},
 												},

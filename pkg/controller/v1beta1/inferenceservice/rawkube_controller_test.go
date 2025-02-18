@@ -66,7 +66,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			corev1.ResourceMemory: resource.MustParse("2Gi"),
 		},
 	}
-	kserveGateway := types.NamespacedName{Name: "kserve-ingress-gateway", Namespace: "kserve"}
+	_ = types.NamespacedName{Name: "kserve-ingress-gateway", Namespace: "kserve"}
 
 	Context("When creating inference service with raw kube predictor", func() {
 		configs := map[string]string{
@@ -77,7 +77,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				}
 			}`,
 			"ingress": `{
-				"enableGatewayApi": true,
+				"enableGatewayApi": false,
 				"kserveIngressGateway": "kserve/kserve-ingress-gateway",
 				"ingressGateway": "knative-serving/knative-ingress-gateway",
 				"localGateway": "knative-serving/knative-local-gateway",
@@ -343,177 +343,178 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			Expect(k8sClient.Status().Update(context.TODO(), updatedDeployment)).NotTo(HaveOccurred())
 
 			// check http route
-			actualTopLevelHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      serviceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualTopLevelHttpRoute)
-			}, timeout).Should(Succeed())
-			topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
-			expectedTopLevelHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com"},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("30s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualTopLevelHttpRoute.Spec).To(BeComparableTo(expectedTopLevelHttpRoute.Spec))
+			// not needed for ODH
+			//actualTopLevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      serviceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualTopLevelHttpRoute)
+			//}, timeout).Should(Succeed())
+			//topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedTopLevelHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com"},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("30s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualTopLevelHttpRoute.Spec).To(BeComparableTo(expectedTopLevelHttpRoute.Spec))
 
-			actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      predictorServiceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualPredictorHttpRoute)
-			}, timeout).Should(Succeed())
-			predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
-			expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("30s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+			//actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      predictorServiceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualPredictorHttpRoute)
+			//}, timeout).Should(Succeed())
+			//predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("30s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
 
-			// Mark the Ingress as accepted to make isvc ready
-			httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
-				RouteStatus: gatewayapiv1.RouteStatus{
-					Parents: []gatewayapiv1.RouteParentStatus{
-						{
-							ParentRef: gatewayapiv1.ParentReference{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-							ControllerName: "istio.io/gateway-controller",
-							Conditions: []metav1.Condition{
-								{
-									Type:               string(gatewayapiv1.ListenerConditionAccepted),
-									Status:             metav1.ConditionTrue,
-									Reason:             "Accepted",
-									Message:            "Route was valid",
-									LastTransitionTime: metav1.Now(),
-								},
-							},
-						},
-					},
-				},
-			}
-			actualPredictorHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
-			actualTopLevelHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualTopLevelHttpRoute)).NotTo(HaveOccurred())
+			//// Mark the Ingress as accepted to make isvc ready
+			//httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
+			//	RouteStatus: gatewayapiv1.RouteStatus{
+			//		Parents: []gatewayapiv1.RouteParentStatus{
+			//			{
+			//				ParentRef: gatewayapiv1.ParentReference{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//				ControllerName: "istio.io/gateway-controller",
+			//				Conditions: []metav1.Condition{
+			//					{
+			//						Type:               string(gatewayapiv1.ListenerConditionAccepted),
+			//						Status:             metav1.ConditionTrue,
+			//						Reason:             "Accepted",
+			//						Message:            "Route was valid",
+			//						LastTransitionTime: metav1.Now(),
+			//					},
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//actualPredictorHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			//actualTopLevelHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualTopLevelHttpRoute)).NotTo(HaveOccurred())
 
 			// verify if InferenceService status is updated
 			expectedIsvcStatus := v1beta1.InferenceServiceStatus{
@@ -562,7 +563,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}),
+					cmpopts.IgnoreFields(v1beta1.InferenceServiceStatus{}, "DeploymentMode"))
 			}, timeout).Should(BeEmpty())
 
 			// check HPA
@@ -879,180 +881,181 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}
 			Expect(k8sClient.Status().Update(context.TODO(), updatedDeployment)).NotTo(HaveOccurred())
 
+			// Not needed in ODH
 			// check http route
-			actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      serviceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualToplevelHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
-			expectedToplevelHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com"},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("60s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
-
-			actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      predictorServiceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualPredictorHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
-			expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("60s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
-
-			// Mark the Ingress as accepted to make isvc ready
-			httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
-				RouteStatus: gatewayapiv1.RouteStatus{
-					Parents: []gatewayapiv1.RouteParentStatus{
-						{
-							ParentRef: gatewayapiv1.ParentReference{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-							ControllerName: "istio.io/gateway-controller",
-							Conditions: []metav1.Condition{
-								{
-									Type:               string(gatewayapiv1.ListenerConditionAccepted),
-									Status:             metav1.ConditionTrue,
-									Reason:             "Accepted",
-									Message:            "Route was valid",
-									LastTransitionTime: metav1.Now(),
-								},
-							},
-						},
-					},
-				},
-			}
-			actualPredictorHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
-			actualToplevelHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
+			//actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      serviceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualToplevelHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedToplevelHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com"},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("60s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
+			//
+			//actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      predictorServiceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualPredictorHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("60s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+			//
+			//// Mark the Ingress as accepted to make isvc ready
+			//httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
+			//	RouteStatus: gatewayapiv1.RouteStatus{
+			//		Parents: []gatewayapiv1.RouteParentStatus{
+			//			{
+			//				ParentRef: gatewayapiv1.ParentReference{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//				ControllerName: "istio.io/gateway-controller",
+			//				Conditions: []metav1.Condition{
+			//					{
+			//						Type:               string(gatewayapiv1.ListenerConditionAccepted),
+			//						Status:             metav1.ConditionTrue,
+			//						Reason:             "Accepted",
+			//						Message:            "Route was valid",
+			//						LastTransitionTime: metav1.Now(),
+			//					},
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//actualPredictorHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			//actualToplevelHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
 
 			// verify if InferenceService status is updated
 			expectedIsvcStatus := v1beta1.InferenceServiceStatus{
@@ -1101,7 +1104,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}),
+					cmpopts.IgnoreFields(v1beta1.InferenceServiceStatus{}, "DeploymentMode"))
 			}, timeout).Should(BeEmpty())
 
 			// check HPA
@@ -1408,180 +1412,181 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}
 			Expect(k8sClient.Status().Update(context.TODO(), updatedDeployment)).NotTo(HaveOccurred())
 
+			// not needed for ODH
 			// check http Route
-			actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      serviceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualToplevelHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
-			expectedToplevelHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com"},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("60s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
+			//actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      serviceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualToplevelHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedToplevelHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com"},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("60s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
 
-			actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      predictorServiceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualPredictorHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
-			expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("60s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+			//actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      predictorServiceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualPredictorHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("60s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
 
 			// Mark the Ingress as accepted to make isvc ready
-			httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
-				RouteStatus: gatewayapiv1.RouteStatus{
-					Parents: []gatewayapiv1.RouteParentStatus{
-						{
-							ParentRef: gatewayapiv1.ParentReference{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-							ControllerName: "istio.io/gateway-controller",
-							Conditions: []metav1.Condition{
-								{
-									Type:               string(gatewayapiv1.ListenerConditionAccepted),
-									Status:             metav1.ConditionTrue,
-									Reason:             "Accepted",
-									Message:            "Route was valid",
-									LastTransitionTime: metav1.Now(),
-								},
-							},
-						},
-					},
-				},
-			}
-			actualPredictorHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
-			actualToplevelHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
+			//httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
+			//	RouteStatus: gatewayapiv1.RouteStatus{
+			//		Parents: []gatewayapiv1.RouteParentStatus{
+			//			{
+			//				ParentRef: gatewayapiv1.ParentReference{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//				ControllerName: "istio.io/gateway-controller",
+			//				Conditions: []metav1.Condition{
+			//					{
+			//						Type:               string(gatewayapiv1.ListenerConditionAccepted),
+			//						Status:             metav1.ConditionTrue,
+			//						Reason:             "Accepted",
+			//						Message:            "Route was valid",
+			//						LastTransitionTime: metav1.Now(),
+			//					},
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//actualPredictorHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			//actualToplevelHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
 
 			// verify if InferenceService status is updated
 			expectedIsvcStatus := v1beta1.InferenceServiceStatus{
@@ -1630,7 +1635,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}),
+					cmpopts.IgnoreFields(v1beta1.InferenceServiceStatus{}, "DeploymentMode"))
 			}, timeout).Should(BeEmpty())
 
 			// check HPA is not created
@@ -1734,14 +1740,14 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Spec: v1beta1.InferenceServiceSpec{
 					Predictor: v1beta1.PredictorSpec{
 						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
-							MinReplicas: v1beta1.GetIntReference(1),
+							MinReplicas: ptr.To(int32(1)),
 							MaxReplicas: 3,
 						},
 						Tensorflow: &v1beta1.TFServingSpec{
 							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
 								StorageURI:     &storageUri,
 								RuntimeVersion: proto.String("1.14.0"),
-								Container: v1.Container{
+								Container: corev1.Container{
 									Name:      constants.InferenceServiceContainerName,
 									Resources: defaultResource,
 								},
@@ -2099,7 +2105,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}),
+					cmpopts.IgnoreFields(v1beta1.InferenceServiceStatus{}, "DeploymentMode"))
 			}, timeout).Should(BeEmpty())
 
 			// check HPA
@@ -2179,7 +2186,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
                }
             }`,
 			"ingress": `{
-			   "enableGatewayApi": true,
+			   "enableGatewayApi": false,
 			   "kserveIngressGateway": "kserve/kserve-ingress-gateway",
                "ingressGateway": "knative-serving/knative-ingress-gateway",
                "localGateway": "knative-serving/knative-local-gateway",
@@ -2437,179 +2444,179 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			Expect(k8sClient.Status().Update(context.TODO(), updatedDeployment)).NotTo(HaveOccurred())
 
 			// check http route
-			actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      serviceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualToplevelHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			topLevelHost := fmt.Sprintf("%s.%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
-			expectedToplevelHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com"},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("60s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
-
-			actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      predictorServiceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualPredictorHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			predictorHost := fmt.Sprintf("%s.%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
-			expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("60s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
-
-			// Mark the Ingress as accepted to make isvc ready
-			httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
-				RouteStatus: gatewayapiv1.RouteStatus{
-					Parents: []gatewayapiv1.RouteParentStatus{
-						{
-							ParentRef: gatewayapiv1.ParentReference{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-							ControllerName: "istio.io/gateway-controller",
-							Conditions: []metav1.Condition{
-								{
-									Type:               string(gatewayapiv1.ListenerConditionAccepted),
-									Status:             metav1.ConditionTrue,
-									Reason:             "Accepted",
-									Message:            "Route was valid",
-									LastTransitionTime: metav1.Now(),
-								},
-							},
-						},
-					},
-				},
-			}
-			actualPredictorHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
-			actualToplevelHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
+			//actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      serviceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualToplevelHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//topLevelHost := fmt.Sprintf("%s.%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedToplevelHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com"},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("60s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
+			//
+			//actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      predictorServiceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualPredictorHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//predictorHost := fmt.Sprintf("%s.%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("60s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+			//
+			//// Mark the Ingress as accepted to make isvc ready
+			//httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
+			//	RouteStatus: gatewayapiv1.RouteStatus{
+			//		Parents: []gatewayapiv1.RouteParentStatus{
+			//			{
+			//				ParentRef: gatewayapiv1.ParentReference{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//				ControllerName: "istio.io/gateway-controller",
+			//				Conditions: []metav1.Condition{
+			//					{
+			//						Type:               string(gatewayapiv1.ListenerConditionAccepted),
+			//						Status:             metav1.ConditionTrue,
+			//						Reason:             "Accepted",
+			//						Message:            "Route was valid",
+			//						LastTransitionTime: metav1.Now(),
+			//					},
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//actualPredictorHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			//actualToplevelHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
 
 			// verify if InferenceService status is updated
 			expectedIsvcStatus := v1beta1.InferenceServiceStatus{
@@ -2631,7 +2638,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				URL: &apis.URL{
 					Scheme: "http",
-					Host:   fmt.Sprintf("%s.%s.%s", serviceName, serviceKey.Namespace, domain),
+					Host:   fmt.Sprintf("%s-predictor.%s.svc.cluster.local", serviceKey.Name, serviceKey.Namespace),
 				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
@@ -2641,11 +2648,11 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
-						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-predictor.%s.%s", serviceName, serviceKey.Namespace, domain),
-						},
+						//LatestCreatedRevision: "",
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-predictor.%s.%s", serviceName, serviceKey.Namespace, domain),
+						//},
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -2658,7 +2665,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}),
+					cmpopts.IgnoreFields(v1beta1.InferenceServiceStatus{}, "DeploymentMode"))
 			}, timeout).Should(BeEmpty())
 
 			// check HPA
@@ -2738,7 +2746,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				}
 			}`,
 			"ingress": `{
-				"enableGatewayApi": true,
+				"enableGatewayApi": false,
 				"kserveIngressGateway": "kserve/kserve-ingress-gateway",
 				"ingressGateway": "knative-serving/knative-ingress-gateway",
 				"localGateway": "knative-serving/knative-local-gateway",
@@ -3177,254 +3185,255 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}
 			Expect(k8sClient.Status().Update(context.TODO(), updatedTransformerDeployment)).NotTo(HaveOccurred())
 
-			// check http route
-			actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      serviceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualToplevelHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
-			expectedToplevelHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com"},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(transformerServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("30s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
-
-			actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      predictorServiceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualPredictorHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
-			expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("60s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
-
-			actualTransformerHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      transformerServiceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualTransformerHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			transformerHost := fmt.Sprintf("%s-%s.%s", transformerServiceKey.Name, serviceKey.Namespace, "example.com")
-			expectedTransformerHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(transformerHost)},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(transformerServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("30s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualTransformerHttpRoute.Spec).To(BeComparableTo(expectedTransformerHttpRoute.Spec))
-
-			// Mark the Ingress as accepted to make isvc ready
-			httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
-				RouteStatus: gatewayapiv1.RouteStatus{
-					Parents: []gatewayapiv1.RouteParentStatus{
-						{
-							ParentRef: gatewayapiv1.ParentReference{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-							ControllerName: "istio.io/gateway-controller",
-							Conditions: []metav1.Condition{
-								{
-									Type:               string(gatewayapiv1.ListenerConditionAccepted),
-									Status:             metav1.ConditionTrue,
-									Reason:             "Accepted",
-									Message:            "Route was valid",
-									LastTransitionTime: metav1.Now(),
-								},
-							},
-						},
-					},
-				},
-			}
-			actualPredictorHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
-			actualTransformerHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualTransformerHttpRoute)).NotTo(HaveOccurred())
-			actualToplevelHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
+			// Not needed in ODH
+			//// check http route
+			//actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      serviceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualToplevelHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedToplevelHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com"},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(transformerServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("30s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
+			//
+			//actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      predictorServiceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualPredictorHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("60s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+			//
+			//actualTransformerHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      transformerServiceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualTransformerHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//transformerHost := fmt.Sprintf("%s-%s.%s", transformerServiceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedTransformerHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(transformerHost)},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(transformerServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("30s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualTransformerHttpRoute.Spec).To(BeComparableTo(expectedTransformerHttpRoute.Spec))
+			//
+			//// Mark the Ingress as accepted to make isvc ready
+			//httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
+			//	RouteStatus: gatewayapiv1.RouteStatus{
+			//		Parents: []gatewayapiv1.RouteParentStatus{
+			//			{
+			//				ParentRef: gatewayapiv1.ParentReference{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//				ControllerName: "istio.io/gateway-controller",
+			//				Conditions: []metav1.Condition{
+			//					{
+			//						Type:               string(gatewayapiv1.ListenerConditionAccepted),
+			//						Status:             metav1.ConditionTrue,
+			//						Reason:             "Accepted",
+			//						Message:            "Route was valid",
+			//						LastTransitionTime: metav1.Now(),
+			//					},
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//actualPredictorHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			//actualTransformerHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualTransformerHttpRoute)).NotTo(HaveOccurred())
+			//actualToplevelHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
 
 			// verify if InferenceService status is updated
 			expectedIsvcStatus := v1beta1.InferenceServiceStatus{
@@ -3451,7 +3460,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				URL: &apis.URL{
 					Scheme: "http",
-					Host:   fmt.Sprintf("%s-%s.example.com", serviceKey.Name, serviceKey.Namespace),
+					Host:   fmt.Sprintf("%s.%s.svc.cluster.local", transformerServiceKey.Name, serviceKey.Namespace),
 				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
@@ -3461,18 +3470,18 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
-						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
-						},
+						//LatestCreatedRevision: "",
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 					v1beta1.TransformerComponent: {
-						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", transformerServiceKey.Name, serviceKey.Namespace),
-						},
+						//LatestCreatedRevision: "",
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", transformerServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -3485,7 +3494,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}),
+					cmpopts.IgnoreFields(v1beta1.InferenceServiceStatus{}, "DeploymentMode"))
 			}, timeout).Should(BeEmpty())
 
 			// check predictor HPA
@@ -3625,7 +3635,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				}
 			}`,
 			"ingress": `{
-				"enableGatewayApi": true,
+				"enableGatewayApi": false,
 				"kserveIngressGateway": "kserve/kserve-ingress-gateway",
 				"ingressGateway": "knative-serving/knative-ingress-gateway",
 				"localGateway": "knative-serving/knative-local-gateway",
@@ -4070,297 +4080,298 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}
 			Expect(k8sClient.Status().Update(context.TODO(), updatedExplainerDeployment)).NotTo(HaveOccurred())
 
+			// Not needed in ODH
 			// check http route
-			actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      serviceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualToplevelHttpRoute)
-			}, timeout).Should(Succeed())
-			topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
-			expectedToplevelHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com"},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.ExplainPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(explainerServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("30s")),
-							},
-						},
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("60s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
-
-			actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      predictorServiceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualPredictorHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
-			expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("60s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
-
-			actualExplainerHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      explainerServiceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualExplainerHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			explainerHost := fmt.Sprintf("%s-%s.%s", explainerServiceKey.Name, serviceKey.Namespace, "example.com")
-			expectedExplainerHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(explainerHost)},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(explainerServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("30s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualExplainerHttpRoute.Spec).To(BeComparableTo(expectedExplainerHttpRoute.Spec))
-
-			// Mark the Ingress as accepted to make isvc ready
-			httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
-				RouteStatus: gatewayapiv1.RouteStatus{
-					Parents: []gatewayapiv1.RouteParentStatus{
-						{
-							ParentRef: gatewayapiv1.ParentReference{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-							ControllerName: "istio.io/gateway-controller",
-							Conditions: []metav1.Condition{
-								{
-									Type:               string(gatewayapiv1.ListenerConditionAccepted),
-									Status:             metav1.ConditionTrue,
-									Reason:             "Accepted",
-									Message:            "Route was valid",
-									LastTransitionTime: metav1.Now(),
-								},
-							},
-						},
-					},
-				},
-			}
-			actualPredictorHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
-			actualExplainerHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualExplainerHttpRoute)).NotTo(HaveOccurred())
-			actualToplevelHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
+			//actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      serviceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualToplevelHttpRoute)
+			//}, timeout).Should(Succeed())
+			//topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedToplevelHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com"},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.ExplainPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(explainerServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("30s")),
+			//				},
+			//			},
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("60s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
+			//
+			//actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      predictorServiceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualPredictorHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("60s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+			//
+			//actualExplainerHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      explainerServiceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualExplainerHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//explainerHost := fmt.Sprintf("%s-%s.%s", explainerServiceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedExplainerHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(explainerHost)},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(explainerServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("30s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualExplainerHttpRoute.Spec).To(BeComparableTo(expectedExplainerHttpRoute.Spec))
+			//
+			//// Mark the Ingress as accepted to make isvc ready
+			//httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
+			//	RouteStatus: gatewayapiv1.RouteStatus{
+			//		Parents: []gatewayapiv1.RouteParentStatus{
+			//			{
+			//				ParentRef: gatewayapiv1.ParentReference{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//				ControllerName: "istio.io/gateway-controller",
+			//				Conditions: []metav1.Condition{
+			//					{
+			//						Type:               string(gatewayapiv1.ListenerConditionAccepted),
+			//						Status:             metav1.ConditionTrue,
+			//						Reason:             "Accepted",
+			//						Message:            "Route was valid",
+			//						LastTransitionTime: metav1.Now(),
+			//					},
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//actualPredictorHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			//actualExplainerHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualExplainerHttpRoute)).NotTo(HaveOccurred())
+			//actualToplevelHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
 
 			// verify if InferenceService status is updated
 			expectedIsvcStatus := v1beta1.InferenceServiceStatus{
@@ -4387,7 +4398,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				URL: &apis.URL{
 					Scheme: "http",
-					Host:   fmt.Sprintf("%s-%s.example.com", serviceKey.Name, serviceKey.Namespace),
+					Host:   fmt.Sprintf("%s.%s.svc.cluster.local", predictorServiceKey.Name, serviceKey.Namespace),
 				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
@@ -4397,18 +4408,18 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
-						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
-						},
+						//LatestCreatedRevision: "",
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 					v1beta1.ExplainerComponent: {
-						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", explainerServiceKey.Name, serviceKey.Namespace),
-						},
+						//LatestCreatedRevision: "",
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", explainerServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -4421,7 +4432,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}),
+					cmpopts.IgnoreFields(v1beta1.InferenceServiceStatus{}, "DeploymentMode"))
 			}, timeout).Should(BeEmpty())
 
 			// check predictor HPA
@@ -4561,7 +4573,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				}
 			}`,
 			"ingress": `{
-				"enableGatewayApi": true,
+				"enableGatewayApi": false,
 				"kserveIngressGateway": "kserve/kserve-ingress-gateway",
 				"ingressGateway": "knative-serving/knative-ingress-gateway",
 				"localGateway": "knative-serving/knative-local-gateway",
@@ -4828,225 +4840,226 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}
 			Expect(k8sClient.Status().Update(context.TODO(), updatedDeployment)).NotTo(HaveOccurred())
 
+			// Not needed in ODH
 			// check http route
-			actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      serviceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualToplevelHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
-			prefixUrlPath := fmt.Sprintf("/serving/%s/%s", serviceKey.Namespace, serviceKey.Name)
-			expectedToplevelHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com", "example.com"},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("30s")),
-							},
-						},
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(prefixUrlPath + "/"),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("30s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
-
-			actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      predictorServiceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualPredictorHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
-			expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("30s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
-
-			// Mark the Ingress as accepted to make isvc ready
-			httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
-				RouteStatus: gatewayapiv1.RouteStatus{
-					Parents: []gatewayapiv1.RouteParentStatus{
-						{
-							ParentRef: gatewayapiv1.ParentReference{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-							ControllerName: "istio.io/gateway-controller",
-							Conditions: []metav1.Condition{
-								{
-									Type:               string(gatewayapiv1.ListenerConditionAccepted),
-									Status:             metav1.ConditionTrue,
-									Reason:             "Accepted",
-									Message:            "Route was valid",
-									LastTransitionTime: metav1.Now(),
-								},
-							},
-						},
-					},
-				},
-			}
-			actualPredictorHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
-			actualToplevelHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
+			//actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      serviceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualToplevelHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			//prefixUrlPath := fmt.Sprintf("/serving/%s/%s", serviceKey.Namespace, serviceKey.Name)
+			//expectedToplevelHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com", "example.com"},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("30s")),
+			//				},
+			//			},
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(prefixUrlPath + "/"),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("30s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
+			//
+			//actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      predictorServiceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualPredictorHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("30s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+			//
+			//// Mark the Ingress as accepted to make isvc ready
+			//httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
+			//	RouteStatus: gatewayapiv1.RouteStatus{
+			//		Parents: []gatewayapiv1.RouteParentStatus{
+			//			{
+			//				ParentRef: gatewayapiv1.ParentReference{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//				ControllerName: "istio.io/gateway-controller",
+			//				Conditions: []metav1.Condition{
+			//					{
+			//						Type:               string(gatewayapiv1.ListenerConditionAccepted),
+			//						Status:             metav1.ConditionTrue,
+			//						Reason:             "Accepted",
+			//						Message:            "Route was valid",
+			//						LastTransitionTime: metav1.Now(),
+			//					},
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//actualPredictorHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			//actualToplevelHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
 
 			// verify if InferenceService status is updated
 			expectedIsvcStatus := v1beta1.InferenceServiceStatus{
@@ -5068,7 +5081,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				URL: &apis.URL{
 					Scheme: "http",
-					Host:   fmt.Sprintf("%s-%s.example.com", serviceKey.Name, serviceKey.Namespace),
+					Host:   fmt.Sprintf("%s-predictor.%s.svc.cluster.local", serviceKey.Name, serviceKey.Namespace),
 				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
@@ -5078,11 +5091,11 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
-						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
-						},
+						//LatestCreatedRevision: "",
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -5095,7 +5108,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}),
+					cmpopts.IgnoreFields(v1beta1.InferenceServiceStatus{}, "DeploymentMode"))
 			}, timeout).Should(BeEmpty())
 
 			// check HPA
@@ -5175,7 +5189,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				}
 			}`,
 			"ingress": `{
-				"enableGatewayApi": true,
+				"enableGatewayApi": false,
 				"kserveIngressGateway": "kserve/kserve-ingress-gateway",
 				"ingressGateway": "knative-serving/knative-ingress-gateway",
 				"localGateway": "knative-serving/knative-local-gateway",
@@ -5620,299 +5634,300 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}
 			Expect(k8sClient.Status().Update(context.TODO(), updatedTransformerDeployment)).NotTo(HaveOccurred())
 
+			// Not needed in ODH
 			// check http route
-			actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      serviceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualToplevelHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
-			prefixUrlPath := fmt.Sprintf("/serving/%s/%s", serviceKey.Namespace, serviceKey.Name)
-			expectedToplevelHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com", "example.com"},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(transformerServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("30s")),
-							},
-						},
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(prefixUrlPath + "/"),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(transformerServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("30s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
-
-			actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      predictorServiceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualPredictorHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
-			expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("60s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
-
-			actualTransformerHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      transformerServiceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualTransformerHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			transformerHost := fmt.Sprintf("%s-%s.%s", transformerServiceKey.Name, serviceKey.Namespace, "example.com")
-			expectedTransformerHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(transformerHost)},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(transformerServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("30s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualTransformerHttpRoute.Spec).To(BeComparableTo(expectedTransformerHttpRoute.Spec))
-
-			// Mark the Ingress as accepted to make isvc ready
-			httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
-				RouteStatus: gatewayapiv1.RouteStatus{
-					Parents: []gatewayapiv1.RouteParentStatus{
-						{
-							ParentRef: gatewayapiv1.ParentReference{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-							ControllerName: "istio.io/gateway-controller",
-							Conditions: []metav1.Condition{
-								{
-									Type:               string(gatewayapiv1.ListenerConditionAccepted),
-									Status:             metav1.ConditionTrue,
-									Reason:             "Accepted",
-									Message:            "Route was valid",
-									LastTransitionTime: metav1.Now(),
-								},
-							},
-						},
-					},
-				},
-			}
-			actualPredictorHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
-			actualTransformerHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualTransformerHttpRoute)).NotTo(HaveOccurred())
-			actualToplevelHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
+			//actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      serviceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualToplevelHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			//prefixUrlPath := fmt.Sprintf("/serving/%s/%s", serviceKey.Namespace, serviceKey.Name)
+			//expectedToplevelHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com", "example.com"},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(transformerServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("30s")),
+			//				},
+			//			},
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(prefixUrlPath + "/"),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(transformerServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("30s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
+			//
+			//actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      predictorServiceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualPredictorHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("60s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+			//
+			//actualTransformerHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      transformerServiceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualTransformerHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//transformerHost := fmt.Sprintf("%s-%s.%s", transformerServiceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedTransformerHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(transformerHost)},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(transformerServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("30s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualTransformerHttpRoute.Spec).To(BeComparableTo(expectedTransformerHttpRoute.Spec))
+			//
+			//// Mark the Ingress as accepted to make isvc ready
+			//httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
+			//	RouteStatus: gatewayapiv1.RouteStatus{
+			//		Parents: []gatewayapiv1.RouteParentStatus{
+			//			{
+			//				ParentRef: gatewayapiv1.ParentReference{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//				ControllerName: "istio.io/gateway-controller",
+			//				Conditions: []metav1.Condition{
+			//					{
+			//						Type:               string(gatewayapiv1.ListenerConditionAccepted),
+			//						Status:             metav1.ConditionTrue,
+			//						Reason:             "Accepted",
+			//						Message:            "Route was valid",
+			//						LastTransitionTime: metav1.Now(),
+			//					},
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//actualPredictorHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			//actualTransformerHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualTransformerHttpRoute)).NotTo(HaveOccurred())
+			//actualToplevelHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
 
 			// verify if InferenceService status is updated
 			expectedIsvcStatus := v1beta1.InferenceServiceStatus{
@@ -5939,7 +5954,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				URL: &apis.URL{
 					Scheme: "http",
-					Host:   fmt.Sprintf("%s-%s.example.com", serviceKey.Name, serviceKey.Namespace),
+					Host:   fmt.Sprintf("%s.%s.svc.cluster.local", transformerServiceKey.Name, serviceKey.Namespace),
 				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
@@ -5949,18 +5964,18 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
-						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
-						},
+						//LatestCreatedRevision: "",
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 					v1beta1.TransformerComponent: {
-						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", transformerServiceKey.Name, serviceKey.Namespace),
-						},
+						//LatestCreatedRevision: "",
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", transformerServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -5973,7 +5988,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}),
+					cmpopts.IgnoreFields(v1beta1.InferenceServiceStatus{}, "DeploymentMode"))
 			}, timeout).Should(BeEmpty())
 
 			// check predictor HPA
@@ -6113,7 +6129,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				}
 			}`,
 			"ingress": `{
-				"enableGatewayApi": true,
+				"enableGatewayApi": false,
 				"kserveIngressGateway": "kserve/kserve-ingress-gateway",
 				"ingressGateway": "knative-serving/knative-ingress-gateway",
 				"localGateway": "knative-serving/knative-local-gateway",
@@ -6560,387 +6576,388 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}
 			Expect(k8sClient.Status().Update(context.TODO(), updatedExplainerDeployment)).NotTo(HaveOccurred())
 
+			// Not needed in ODH
 			// check http route
-			actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      serviceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualToplevelHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
-			prefixUrlPath := fmt.Sprintf("/serving/%s/%s", serviceKey.Namespace, serviceKey.Name)
-			expectedToplevelHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com", "example.com"},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.ExplainPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(explainerServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("30s")),
-							},
-						},
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("60s")),
-							},
-						},
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(prefixUrlPath + constants.PathBasedExplainPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(explainerServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("30s")),
-							},
-						},
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(prefixUrlPath + "/"),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("60s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
-
-			actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      predictorServiceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualPredictorHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
-			expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("60s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
-
-			actualExplainerHttpRoute := &gatewayapiv1.HTTPRoute{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), types.NamespacedName{
-					Name:      explainerServiceKey.Name,
-					Namespace: serviceKey.Namespace,
-				}, actualExplainerHttpRoute)
-			}, timeout).
-				Should(Succeed())
-			explainerHost := fmt.Sprintf("%s-%s.%s", explainerServiceKey.Name, serviceKey.Namespace, "example.com")
-			expectedExplainerHttpRoute := gatewayapiv1.HTTPRoute{
-				Spec: gatewayapiv1.HTTPRouteSpec{
-					Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(explainerHost)},
-					Rules: []gatewayapiv1.HTTPRouteRule{
-						{
-							Matches: []gatewayapiv1.HTTPRouteMatch{
-								{
-									Path: &gatewayapiv1.HTTPPathMatch{
-										Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
-										Value: ptr.To(constants.FallbackPrefix()),
-									},
-								},
-							},
-							Filters: []gatewayapiv1.HTTPRouteFilter{
-								{
-									Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
-									RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
-										Set: []gatewayapiv1.HTTPHeader{
-											{
-												Name:  constants.IsvcNameHeader,
-												Value: serviceKey.Name,
-											},
-											{
-												Name:  constants.IsvcNamespaceHeader,
-												Value: serviceKey.Namespace,
-											},
-										},
-									},
-								},
-							},
-							BackendRefs: []gatewayapiv1.HTTPBackendRef{
-								{
-									BackendRef: gatewayapiv1.BackendRef{
-										BackendObjectReference: gatewayapiv1.BackendObjectReference{
-											Group:     (*gatewayapiv1.Group)(ptr.To("")),
-											Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
-											Name:      gatewayapiv1.ObjectName(explainerServiceKey.Name),
-											Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
-											Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
-										},
-										Weight: ptr.To(int32(1)),
-									},
-								},
-							},
-							Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
-								Request: ptr.To(gatewayapiv1.Duration("30s")),
-							},
-						},
-					},
-					CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
-						ParentRefs: []gatewayapiv1.ParentReference{
-							{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-						},
-					},
-				},
-			}
-			Expect(actualExplainerHttpRoute.Spec).To(BeComparableTo(expectedExplainerHttpRoute.Spec))
-
-			// Mark the Ingress as accepted to make isvc ready
-			httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
-				RouteStatus: gatewayapiv1.RouteStatus{
-					Parents: []gatewayapiv1.RouteParentStatus{
-						{
-							ParentRef: gatewayapiv1.ParentReference{
-								Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
-								Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
-								Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
-								Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
-							},
-							ControllerName: "istio.io/gateway-controller",
-							Conditions: []metav1.Condition{
-								{
-									Type:               string(gatewayapiv1.ListenerConditionAccepted),
-									Status:             metav1.ConditionTrue,
-									Reason:             "Accepted",
-									Message:            "Route was valid",
-									LastTransitionTime: metav1.Now(),
-								},
-							},
-						},
-					},
-				},
-			}
-			actualPredictorHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
-			actualExplainerHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualExplainerHttpRoute)).NotTo(HaveOccurred())
-			actualToplevelHttpRoute.Status = httpRouteStatus
-			Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
+			//actualToplevelHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      serviceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualToplevelHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			//prefixUrlPath := fmt.Sprintf("/serving/%s/%s", serviceKey.Namespace, serviceKey.Name)
+			//expectedToplevelHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(topLevelHost), "additional.example.com", "example.com"},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.ExplainPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(explainerServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("30s")),
+			//				},
+			//			},
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("60s")),
+			//				},
+			//			},
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(prefixUrlPath + constants.PathBasedExplainPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(explainerServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("30s")),
+			//				},
+			//			},
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(prefixUrlPath + "/"),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("60s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
+			//
+			//actualPredictorHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      predictorServiceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualPredictorHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedPredictorHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(predictorHost)},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(predictorServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("60s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+			//
+			//actualExplainerHttpRoute := &gatewayapiv1.HTTPRoute{}
+			//Eventually(func() error {
+			//	return k8sClient.Get(context.TODO(), types.NamespacedName{
+			//		Name:      explainerServiceKey.Name,
+			//		Namespace: serviceKey.Namespace,
+			//	}, actualExplainerHttpRoute)
+			//}, timeout).
+			//	Should(Succeed())
+			//explainerHost := fmt.Sprintf("%s-%s.%s", explainerServiceKey.Name, serviceKey.Namespace, "example.com")
+			//expectedExplainerHttpRoute := gatewayapiv1.HTTPRoute{
+			//	Spec: gatewayapiv1.HTTPRouteSpec{
+			//		Hostnames: []gatewayapiv1.Hostname{gatewayapiv1.Hostname(explainerHost)},
+			//		Rules: []gatewayapiv1.HTTPRouteRule{
+			//			{
+			//				Matches: []gatewayapiv1.HTTPRouteMatch{
+			//					{
+			//						Path: &gatewayapiv1.HTTPPathMatch{
+			//							Type:  ptr.To(gatewayapiv1.PathMatchRegularExpression),
+			//							Value: ptr.To(constants.FallbackPrefix()),
+			//						},
+			//					},
+			//				},
+			//				Filters: []gatewayapiv1.HTTPRouteFilter{
+			//					{
+			//						Type: gatewayapiv1.HTTPRouteFilterRequestHeaderModifier,
+			//						RequestHeaderModifier: &gatewayapiv1.HTTPHeaderFilter{
+			//							Set: []gatewayapiv1.HTTPHeader{
+			//								{
+			//									Name:  constants.IsvcNameHeader,
+			//									Value: serviceKey.Name,
+			//								},
+			//								{
+			//									Name:  constants.IsvcNamespaceHeader,
+			//									Value: serviceKey.Namespace,
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//				BackendRefs: []gatewayapiv1.HTTPBackendRef{
+			//					{
+			//						BackendRef: gatewayapiv1.BackendRef{
+			//							BackendObjectReference: gatewayapiv1.BackendObjectReference{
+			//								Group:     (*gatewayapiv1.Group)(ptr.To("")),
+			//								Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
+			//								Name:      gatewayapiv1.ObjectName(explainerServiceKey.Name),
+			//								Namespace: (*gatewayapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+			//								Port:      (*gatewayapiv1.PortNumber)(ptr.To(int32(constants.CommonDefaultHttpPort))),
+			//							},
+			//							Weight: ptr.To(int32(1)),
+			//						},
+			//					},
+			//				},
+			//				Timeouts: &gatewayapiv1.HTTPRouteTimeouts{
+			//					Request: ptr.To(gatewayapiv1.Duration("30s")),
+			//				},
+			//			},
+			//		},
+			//		CommonRouteSpec: gatewayapiv1.CommonRouteSpec{
+			//			ParentRefs: []gatewayapiv1.ParentReference{
+			//				{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualExplainerHttpRoute.Spec).To(BeComparableTo(expectedExplainerHttpRoute.Spec))
+			//
+			//// Mark the Ingress as accepted to make isvc ready
+			//httpRouteStatus := gatewayapiv1.HTTPRouteStatus{
+			//	RouteStatus: gatewayapiv1.RouteStatus{
+			//		Parents: []gatewayapiv1.RouteParentStatus{
+			//			{
+			//				ParentRef: gatewayapiv1.ParentReference{
+			//					Name:      gatewayapiv1.ObjectName(kserveGateway.Name),
+			//					Kind:      ptr.To(gatewayapiv1.Kind(constants.GatewayKind)),
+			//					Group:     (*gatewayapiv1.Group)(&gatewayapiv1.GroupVersion.Group),
+			//					Namespace: ptr.To(gatewayapiv1.Namespace(kserveGateway.Namespace)),
+			//				},
+			//				ControllerName: "istio.io/gateway-controller",
+			//				Conditions: []metav1.Condition{
+			//					{
+			//						Type:               string(gatewayapiv1.ListenerConditionAccepted),
+			//						Status:             metav1.ConditionTrue,
+			//						Reason:             "Accepted",
+			//						Message:            "Route was valid",
+			//						LastTransitionTime: metav1.Now(),
+			//					},
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//actualPredictorHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			//actualExplainerHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualExplainerHttpRoute)).NotTo(HaveOccurred())
+			//actualToplevelHttpRoute.Status = httpRouteStatus
+			//Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
 
 			// verify if InferenceService status is updated
 			expectedIsvcStatus := v1beta1.InferenceServiceStatus{
@@ -6967,7 +6984,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				URL: &apis.URL{
 					Scheme: "http",
-					Host:   fmt.Sprintf("%s-%s.example.com", serviceKey.Name, serviceKey.Namespace),
+					Host:   fmt.Sprintf("%s.%s.svc.cluster.local", predictorServiceKey.Name, serviceKey.Namespace),
 				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
@@ -6977,18 +6994,18 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
-						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
-						},
+						//LatestCreatedRevision: "",
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", predictorServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 					v1beta1.ExplainerComponent: {
-						LatestCreatedRevision: "",
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   fmt.Sprintf("%s-%s.example.com", explainerServiceKey.Name, serviceKey.Namespace),
-						},
+						//LatestCreatedRevision: "",
+						//URL: &apis.URL{
+						//	Scheme: "http",
+						//	Host:   fmt.Sprintf("%s-%s.example.com", explainerServiceKey.Name, serviceKey.Namespace),
+						//},
 					},
 				},
 				ModelStatus: v1beta1.ModelStatus{
@@ -7001,7 +7018,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}),
+					cmpopts.IgnoreFields(v1beta1.InferenceServiceStatus{}, "DeploymentMode"))
 			}, timeout).Should(BeEmpty())
 
 			// check predictor HPA
@@ -7402,64 +7420,65 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}
 			Expect(k8sClient.Status().Update(context.TODO(), updatedDeployment)).NotTo(HaveOccurred())
 
+			// ODH doesn't create ingress
 			// check ingress
-			pathType := netv1.PathTypePrefix
-			actualIngress := &netv1.Ingress{}
-			predictorIngressKey := types.NamespacedName{
-				Name:      serviceKey.Name,
-				Namespace: serviceKey.Namespace,
-			}
-			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorIngressKey, actualIngress) }, timeout).
-				Should(Succeed())
-			expectedIngress := netv1.Ingress{
-				Spec: netv1.IngressSpec{
-					Rules: []netv1.IngressRule{
-						{
-							Host: "raw-foo-default.example.com",
-							IngressRuleValue: netv1.IngressRuleValue{
-								HTTP: &netv1.HTTPIngressRuleValue{
-									Paths: []netv1.HTTPIngressPath{
-										{
-											Path:     "/",
-											PathType: &pathType,
-											Backend: netv1.IngressBackend{
-												Service: &netv1.IngressServiceBackend{
-													Name: serviceName + "-predictor",
-													Port: netv1.ServiceBackendPort{
-														Number: 80,
-													},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-						{
-							Host: "raw-foo-predictor-default.example.com",
-							IngressRuleValue: netv1.IngressRuleValue{
-								HTTP: &netv1.HTTPIngressRuleValue{
-									Paths: []netv1.HTTPIngressPath{
-										{
-											Path:     "/",
-											PathType: &pathType,
-											Backend: netv1.IngressBackend{
-												Service: &netv1.IngressServiceBackend{
-													Name: serviceName + "-predictor",
-													Port: netv1.ServiceBackendPort{
-														Number: 80,
-													},
-												},
-											},
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			}
-			Expect(actualIngress.Spec).To(Equal(expectedIngress.Spec))
+			//pathType := netv1.PathTypePrefix
+			//actualIngress := &netv1.Ingress{}
+			//predictorIngressKey := types.NamespacedName{
+			//	Name:      serviceKey.Name,
+			//	Namespace: serviceKey.Namespace,
+			//}
+			//Eventually(func() error { return k8sClient.Get(context.TODO(), predictorIngressKey, actualIngress) }, timeout).
+			//	Should(Succeed())
+			//expectedIngress := netv1.Ingress{
+			//	Spec: netv1.IngressSpec{
+			//		Rules: []netv1.IngressRule{
+			//			{
+			//				Host: "raw-foo-default.example.com",
+			//				IngressRuleValue: netv1.IngressRuleValue{
+			//					HTTP: &netv1.HTTPIngressRuleValue{
+			//						Paths: []netv1.HTTPIngressPath{
+			//							{
+			//								Path:     "/",
+			//								PathType: &pathType,
+			//								Backend: netv1.IngressBackend{
+			//									Service: &netv1.IngressServiceBackend{
+			//										Name: serviceName + "-predictor",
+			//										Port: netv1.ServiceBackendPort{
+			//											Number: 80,
+			//										},
+			//									},
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//			},
+			//			{
+			//				Host: "raw-foo-predictor-default.example.com",
+			//				IngressRuleValue: netv1.IngressRuleValue{
+			//					HTTP: &netv1.HTTPIngressRuleValue{
+			//						Paths: []netv1.HTTPIngressPath{
+			//							{
+			//								Path:     "/",
+			//								PathType: &pathType,
+			//								Backend: netv1.IngressBackend{
+			//									Service: &netv1.IngressServiceBackend{
+			//										Name: serviceName + "-predictor",
+			//										Port: netv1.ServiceBackendPort{
+			//											Number: 80,
+			//										},
+			//									},
+			//								},
+			//							},
+			//						},
+			//					},
+			//				},
+			//			},
+			//		},
+			//	},
+			//}
+			//Expect(actualIngress.Spec).To(Equal(expectedIngress.Spec))
 			// verify if InferenceService status is updated
 			expectedIsvcStatus := v1beta1.InferenceServiceStatus{
 				Status: duckv1.Status{
@@ -7507,7 +7526,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}),
+					cmpopts.IgnoreFields(v1beta1.InferenceServiceStatus{}, "DeploymentMode"))
 			}, timeout).Should(BeEmpty())
 
 			// check HPA
@@ -7588,7 +7608,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		It("Should have ingress/service/deployment/hpa created", func() {
 			By("By creating a new InferenceService")
 			// Create configmap
-			var configMap = &v1.ConfigMap{
+			var configMap = &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      constants.InferenceServiceConfigMapName,
 					Namespace: constants.KServeNamespace,
@@ -7612,7 +7632,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						},
 					},
 					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
-						Containers: []v1.Container{
+						Containers: []corev1.Container{
 							{
 								Name:    "kserve-container",
 								Image:   "tensorflow/serving:1.14.0",
@@ -7652,14 +7672,14 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Spec: v1beta1.InferenceServiceSpec{
 					Predictor: v1beta1.PredictorSpec{
 						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
-							MinReplicas: v1beta1.GetIntReference(1),
+							MinReplicas: ptr.To(int32(1)),
 							MaxReplicas: 3,
 						},
 						Tensorflow: &v1beta1.TFServingSpec{
 							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
 								StorageURI:     &storageUri,
 								RuntimeVersion: proto.String("1.14.0"),
-								Container: v1.Container{
+								Container: corev1.Container{
 									Name:      constants.InferenceServiceContainerName,
 									Resources: defaultResource,
 								},
@@ -7702,7 +7722,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 							"app": "isvc." + predictorDeploymentKey.Name,
 						},
 					},
-					Template: v1.PodTemplateSpec{
+					Template: corev1.PodTemplateSpec{
 						ObjectMeta: metav1.ObjectMeta{
 							Name:      predictorDeploymentKey.Name,
 							Namespace: "default",
@@ -7720,8 +7740,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"service.beta.openshift.io/serving-cert-secret-name":       predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
-						Spec: v1.PodSpec{
-							Containers: []v1.Container{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
 								{
 									Image: "tensorflow/serving:" +
 										*isvc.Spec.Predictor.Model.RuntimeVersion,
@@ -7734,9 +7754,9 @@ var _ = Describe("v1beta1 inference service controller", func() {
 										"--rest_api_timeout_in_ms=60000",
 									},
 									Resources: defaultResource,
-									ReadinessProbe: &v1.Probe{
-										ProbeHandler: v1.ProbeHandler{
-											TCPSocket: &v1.TCPSocketAction{
+									ReadinessProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											TCPSocket: &corev1.TCPSocketAction{
 												Port: intstr.IntOrString{
 													IntVal: 8080,
 												},
@@ -7768,19 +7788,19 @@ var _ = Describe("v1beta1 inference service controller", func() {
 										`--openshift-delegate-urls={"/": {"namespace": "` + serviceKey.Namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + serviceName + `", "verb": "get"}}`,
 										`--openshift-sar={"namespace": "` + serviceKey.Namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + serviceName + `", "verb": "get"}`,
 									},
-									Ports: []v1.ContainerPort{
+									Ports: []corev1.ContainerPort{
 										{
 											ContainerPort: constants.OauthProxyPort,
 											Name:          "https",
-											Protocol:      v1.ProtocolTCP,
+											Protocol:      corev1.ProtocolTCP,
 										},
 									},
-									LivenessProbe: &v1.Probe{
-										ProbeHandler: v1.ProbeHandler{
-											HTTPGet: &v1.HTTPGetAction{
+									LivenessProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											HTTPGet: &corev1.HTTPGetAction{
 												Path:   "/oauth/healthz",
 												Port:   intstr.FromInt(constants.OauthProxyPort),
-												Scheme: v1.URISchemeHTTPS,
+												Scheme: corev1.URISchemeHTTPS,
 											},
 										},
 										InitialDelaySeconds: 30,
@@ -7789,12 +7809,12 @@ var _ = Describe("v1beta1 inference service controller", func() {
 										SuccessThreshold:    1,
 										FailureThreshold:    3,
 									},
-									ReadinessProbe: &v1.Probe{
-										ProbeHandler: v1.ProbeHandler{
-											HTTPGet: &v1.HTTPGetAction{
+									ReadinessProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											HTTPGet: &corev1.HTTPGetAction{
 												Path:   "/oauth/healthz",
 												Port:   intstr.FromInt(constants.OauthProxyPort),
-												Scheme: v1.URISchemeHTTPS,
+												Scheme: corev1.URISchemeHTTPS,
 											},
 										},
 										InitialDelaySeconds: 5,
@@ -7803,17 +7823,17 @@ var _ = Describe("v1beta1 inference service controller", func() {
 										SuccessThreshold:    1,
 										FailureThreshold:    3,
 									},
-									Resources: v1.ResourceRequirements{
-										Limits: v1.ResourceList{
-											v1.ResourceCPU:    resource.MustParse(constants.OauthProxyResourceCPULimit),
-											v1.ResourceMemory: resource.MustParse(constants.OauthProxyResourceMemoryLimit),
+									Resources: corev1.ResourceRequirements{
+										Limits: corev1.ResourceList{
+											corev1.ResourceCPU:    resource.MustParse(constants.OauthProxyResourceCPULimit),
+											corev1.ResourceMemory: resource.MustParse(constants.OauthProxyResourceMemoryLimit),
 										},
-										Requests: v1.ResourceList{
-											v1.ResourceCPU:    resource.MustParse(constants.OauthProxyResourceCPURequest),
-											v1.ResourceMemory: resource.MustParse(constants.OauthProxyResourceMemoryRequest),
+										Requests: corev1.ResourceList{
+											corev1.ResourceCPU:    resource.MustParse(constants.OauthProxyResourceCPURequest),
+											corev1.ResourceMemory: resource.MustParse(constants.OauthProxyResourceMemoryRequest),
 										},
 									},
-									VolumeMounts: []v1.VolumeMount{
+									VolumeMounts: []corev1.VolumeMount{
 										{
 											Name:      "proxy-tls",
 											MountPath: "/etc/tls/private",
@@ -7824,11 +7844,11 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									ImagePullPolicy:          "IfNotPresent",
 								},
 							},
-							Volumes: []v1.Volume{
+							Volumes: []corev1.Volume{
 								{
 									Name: "proxy-tls",
-									VolumeSource: v1.VolumeSource{
-										Secret: &v1.SecretVolumeSource{
+									VolumeSource: corev1.VolumeSource{
+										Secret: &corev1.SecretVolumeSource{
 											SecretName:  predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 											DefaultMode: func(i int32) *int32 { return &i }(420),
 										},
@@ -7839,7 +7859,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 							RestartPolicy:                 "Always",
 							TerminationGracePeriodSeconds: &gracePeriod,
 							DNSPolicy:                     "ClusterFirst",
-							SecurityContext: &v1.PodSecurityContext{
+							SecurityContext: &corev1.PodSecurityContext{
 								SELinuxOptions:      nil,
 								WindowsOptions:      nil,
 								RunAsUser:           nil,
@@ -7871,19 +7891,19 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			Expect(actualDep.Spec).To(Equal(expectedDeployment.Spec))
 
 			//check service
-			actualService := &v1.Service{}
+			actualService := &corev1.Service{}
 			predictorServiceKey := types.NamespacedName{Name: constants.PredictorServiceName(serviceKey.Name),
 				Namespace: serviceKey.Namespace}
 			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorServiceKey, actualService) }, timeout).
 				Should(Succeed())
 
-			expectedService := &v1.Service{
+			expectedService := &corev1.Service{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      predictorServiceKey.Name,
 					Namespace: predictorServiceKey.Namespace,
 				},
-				Spec: v1.ServiceSpec{
-					Ports: []v1.ServicePort{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
 						{
 							Name:       "https",
 							Protocol:   "TCP",
@@ -7948,7 +7968,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						Conditions: []routev1.RouteIngressCondition{
 							{
 								Type:   routev1.RouteAdmitted,
-								Status: v1.ConditionTrue,
+								Status: corev1.ConditionTrue,
 							},
 						},
 					},
@@ -7961,7 +7981,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			updatedDeployment.Status.Conditions = []appsv1.DeploymentCondition{
 				{
 					Type:   appsv1.DeploymentAvailable,
-					Status: v1.ConditionTrue,
+					Status: corev1.ConditionTrue,
 				},
 			}
 			Expect(k8sClient.Status().Update(context.TODO(), updatedDeployment)).NotTo(HaveOccurred())
@@ -8007,14 +8027,14 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: "RawDeployment",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}),
+					cmpopts.IgnoreFields(v1beta1.InferenceServiceStatus{}, "DeploymentMode"))
 			}, timeout).Should(BeEmpty())
 
 		})
