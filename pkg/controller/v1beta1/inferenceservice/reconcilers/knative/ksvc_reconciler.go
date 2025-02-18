@@ -19,10 +19,8 @@ package knative
 import (
 	"context"
 	"fmt"
+	"strconv"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/kserve/kserve/pkg/constants"
-	"github.com/kserve/kserve/pkg/utils"
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
@@ -38,6 +36,10 @@ import (
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 var log = logf.Log.WithName("KsvcReconciler")
@@ -61,11 +63,13 @@ func NewKsvcReconciler(client client.Client,
 	componentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec,
-	componentStatus v1beta1.ComponentStatusSpec) *KsvcReconciler {
+	componentStatus v1beta1.ComponentStatusSpec,
+	disallowedLabelList []string,
+) *KsvcReconciler {
 	return &KsvcReconciler{
 		client:          client,
 		scheme:          scheme,
-		Service:         createKnativeService(componentMeta, componentExt, podSpec, componentStatus),
+		Service:         createKnativeService(componentMeta, componentExt, podSpec, componentStatus, disallowedLabelList),
 		componentExt:    componentExt,
 		componentStatus: componentStatus,
 	}
@@ -74,17 +78,19 @@ func NewKsvcReconciler(client client.Client,
 func createKnativeService(componentMeta metav1.ObjectMeta,
 	componentExtension *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec,
-	componentStatus v1beta1.ComponentStatusSpec) *knservingv1.Service {
+	componentStatus v1beta1.ComponentStatusSpec,
+	disallowedLabelList []string,
+) *knservingv1.Service {
 	annotations := componentMeta.GetAnnotations()
 
 	if componentExtension.MinReplicas == nil {
-		annotations[constants.MinScaleAnnotationKey] = fmt.Sprint(constants.DefaultMinReplicas)
+		annotations[constants.MinScaleAnnotationKey] = strconv.Itoa(int(constants.DefaultMinReplicas))
 	} else {
-		annotations[constants.MinScaleAnnotationKey] = fmt.Sprint(*componentExtension.MinReplicas)
+		annotations[constants.MinScaleAnnotationKey] = strconv.Itoa(int(*componentExtension.MinReplicas))
 	}
 
 	if componentExtension.MaxReplicas != 0 {
-		annotations[constants.MaxScaleAnnotationKey] = fmt.Sprint(componentExtension.MaxReplicas)
+		annotations[constants.MaxScaleAnnotationKey] = strconv.Itoa(int(componentExtension.MaxReplicas))
 	}
 
 	// User can pass down scaling class annotation to overwrite the default scaling KPA
@@ -93,7 +99,7 @@ func createKnativeService(componentMeta metav1.ObjectMeta,
 	}
 
 	if componentExtension.ScaleTarget != nil {
-		annotations[autoscaling.TargetAnnotationKey] = fmt.Sprint(*componentExtension.ScaleTarget)
+		annotations[autoscaling.TargetAnnotationKey] = strconv.Itoa(int(*componentExtension.ScaleTarget))
 	}
 
 	if componentExtension.ScaleMetric != nil {
@@ -113,7 +119,11 @@ func createKnativeService(componentMeta metav1.ObjectMeta,
 	lastRolledoutRevision := componentStatus.LatestRolledoutRevision
 
 	// Log component status and canary traffic percent
-	log.Info("revision status:", "LatestRolledoutRevision", componentStatus.LatestRolledoutRevision, "LatestReadyRevision", componentStatus.LatestReadyRevision, "LatestCreatedRevision", componentStatus.LatestCreatedRevision, "PreviousRolledoutRevision", componentStatus.PreviousRolledoutRevision, "CanaryTrafficPercent", componentExtension.CanaryTrafficPercent)
+	log.Info("revision status:", "LatestRolledoutRevision", componentStatus.LatestRolledoutRevision,
+		"LatestReadyRevision", componentStatus.LatestReadyRevision,
+		"LatestCreatedRevision", componentStatus.LatestCreatedRevision,
+		"PreviousRolledoutRevision", componentStatus.PreviousRolledoutRevision,
+		"CanaryTrafficPercent", componentExtension.CanaryTrafficPercent)
 
 	trafficTargets := []knservingv1.TrafficTarget{}
 	// Split traffic when canary traffic percent is specified
@@ -138,7 +148,7 @@ func createKnativeService(componentMeta metav1.ObjectMeta,
 			trafficTargets = append(trafficTargets, canaryTarget)
 		}
 	} else {
-		// blue green rollout
+		// blue-green rollout
 		latestTarget := knservingv1.TrafficTarget{
 			LatestRevision: proto.Bool(true),
 			Percent:        proto.Int64(100),
@@ -148,8 +158,9 @@ func createKnativeService(componentMeta metav1.ObjectMeta,
 		}
 		trafficTargets = append(trafficTargets, latestTarget)
 	}
+
 	labels := utils.Filter(componentMeta.Labels, func(key string) bool {
-		return !utils.Includes(constants.RevisionTemplateLabelDisallowedList, key)
+		return !utils.Includes(disallowedLabelList, key)
 	})
 
 	service := &knservingv1.Service{
@@ -218,13 +229,13 @@ func reconcileKsvc(desired *knservingv1.Service, existing *knservingv1.Service) 
 	return nil
 }
 
-func (r *KsvcReconciler) Reconcile() (*knservingv1.ServiceStatus, error) {
+func (r *KsvcReconciler) Reconcile(ctx context.Context) (*knservingv1.ServiceStatus, error) {
 	desired := r.Service
 	existing := &knservingv1.Service{}
 
 	err := retry.RetryOnConflict(retry.DefaultBackoff, func() error {
 		log.Info("Updating knative service", "namespace", desired.Namespace, "name", desired.Name)
-		if err := r.client.Get(context.TODO(), types.NamespacedName{Name: desired.Name, Namespace: desired.Namespace}, existing); err != nil {
+		if err := r.client.Get(ctx, types.NamespacedName{Name: desired.Name, Namespace: desired.Namespace}, existing); err != nil {
 			return err
 		}
 
@@ -237,7 +248,7 @@ func (r *KsvcReconciler) Reconcile() (*knservingv1.ServiceStatus, error) {
 		// Do a dry-run update to avoid diffs generated by default values introduced by knative's defaulter webhook.
 		// This will populate our local knative service object with any default values
 		// that are present on the remote version.
-		if err := r.client.Update(context.TODO(), desired, client.DryRunAll); err != nil {
+		if err := r.client.Update(ctx, desired, client.DryRunAll); err != nil {
 			// log only if it is not resource conflict error to avoid spamming
 			if !apierr.IsConflict(err) {
 				log.Error(err, "Failed to perform dry-run update of knative service", "service", desired.Name)
@@ -247,13 +258,13 @@ func (r *KsvcReconciler) Reconcile() (*knservingv1.ServiceStatus, error) {
 		if err := reconcileKsvc(desired, existing); err != nil {
 			return err
 		}
-		return r.client.Update(context.TODO(), existing)
+		return r.client.Update(ctx, existing)
 	})
 	if err != nil {
 		// Create service if it does not exist
 		if apierr.IsNotFound(err) {
 			log.Info("Creating knative service", "namespace", desired.Namespace, "name", desired.Name)
-			return &desired.Status, r.client.Create(context.TODO(), desired)
+			return &desired.Status, r.client.Create(ctx, desired)
 		}
 		return &existing.Status, errors.Wrapf(err, "fails to reconcile knative service")
 	}

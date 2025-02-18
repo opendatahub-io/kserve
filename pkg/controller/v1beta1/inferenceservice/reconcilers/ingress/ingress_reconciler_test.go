@@ -70,6 +70,11 @@ func TestCreateVirtualService(t *testing.T) {
 			Gateways: []string{constants.KnativeIngressGateway},
 		},
 	}
+	defaultInferenceServiceConfig := &v1beta1.InferenceServicesConfig{
+		Explainers:                      v1beta1.ExplainersConfig{},
+		ServiceAnnotationDisallowedList: constants.ServiceAnnotationDisallowedList,
+		ServiceLabelDisallowedList:      constants.RevisionTemplateLabelDisallowedList,
+	}
 	cases := []struct {
 		name            string
 		isvc            *v1beta1.InferenceService
@@ -78,150 +83,155 @@ func TestCreateVirtualService(t *testing.T) {
 		useDefault      bool
 		componentStatus *v1beta1.InferenceServiceStatus
 		expectedService *istioclientv1beta1.VirtualService
-	}{{
-		name:            "nil status should not be ready",
-		componentStatus: nil,
-		expectedService: nil,
-	}, {
-		name: "predictor missing url",
-		ingressConfig: &v1beta1.IngressConfig{
-			IngressGateway:             constants.KnativeIngressGateway,
-			KnativeLocalGatewayService: knativeLocalGatewayService,
-			LocalGateway:               constants.KnativeLocalGateway,
-			LocalGatewayServiceName:    "knative-local-gateway.istio-system.svc.cluster.local",
+	}{
+		{
+			name:            "nil status should not be ready",
+			componentStatus: nil,
+			expectedService: nil,
 		},
-		useDefault: false,
-		componentStatus: &v1beta1.InferenceServiceStatus{
-			Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
-				v1beta1.PredictorComponent: {},
+		{
+			name: "predictor missing url",
+			ingressConfig: &v1beta1.IngressConfig{
+				IngressGateway:             constants.KnativeIngressGateway,
+				KnativeLocalGatewayService: knativeLocalGatewayService,
+				LocalGateway:               constants.KnativeLocalGateway,
+				LocalGatewayServiceName:    "knative-local-gateway.istio-system.svc.cluster.local",
 			},
-		},
-		expectedService: nil,
-	}, {
-		name: "found predictor status",
-		ingressConfig: &v1beta1.IngressConfig{
-			IngressGateway:             constants.KnativeIngressGateway,
-			KnativeLocalGatewayService: knativeLocalGatewayService,
-			LocalGateway:               constants.KnativeLocalGateway,
-			LocalGatewayServiceName:    "knative-local-gateway.istio-system.svc.cluster.local",
-		},
-		useDefault: false,
-		componentStatus: &v1beta1.InferenceServiceStatus{
-			Status: duckv1.Status{
-				Conditions: duckv1.Conditions{
-					{
-						Type:   v1beta1.PredictorReady,
-						Status: corev1.ConditionTrue,
-					},
+			useDefault: false,
+			componentStatus: &v1beta1.InferenceServiceStatus{
+				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
+					v1beta1.PredictorComponent: {},
 				},
 			},
-			Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
-				v1beta1.PredictorComponent: {
-					URL: &apis.URL{
-						Scheme: "http",
-						Host:   predictorHostname,
-					},
-					Address: &duckv1.Addressable{
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
+			expectedService: nil,
+		},
+		{
+			name: "found predictor status",
+			ingressConfig: &v1beta1.IngressConfig{
+				IngressGateway:             constants.KnativeIngressGateway,
+				KnativeLocalGatewayService: knativeLocalGatewayService,
+				LocalGateway:               constants.KnativeLocalGateway,
+				LocalGatewayServiceName:    "knative-local-gateway.istio-system.svc.cluster.local",
+			},
+			useDefault: false,
+			componentStatus: &v1beta1.InferenceServiceStatus{
+				Status: duckv1.Status{
+					Conditions: duckv1.Conditions{
+						{
+							Type:   v1beta1.PredictorReady,
+							Status: corev1.ConditionTrue,
 						},
 					},
 				},
-			},
-		},
-		expectedService: &istioclientv1beta1.VirtualService{
-			ObjectMeta: metav1.ObjectMeta{Name: serviceName, Namespace: namespace, Annotations: annotations, Labels: labels},
-			Spec: istiov1beta1.VirtualService{
-				Hosts:    []string{serviceInternalHostName, serviceHostName},
-				Gateways: []string{constants.KnativeLocalGateway, constants.IstioMeshGateway, constants.KnativeIngressGateway},
-				Http: []*istiov1beta1.HTTPRoute{
-					{
-						Match: predictorRouteMatch,
-						Route: []*istiov1beta1.HTTPRouteDestination{
-							{
-								Destination: &istiov1beta1.Destination{Host: knativeLocalGatewayService, Port: &istiov1beta1.PortSelector{Number: constants.CommonDefaultHttpPort}},
-								Weight:      100,
+				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
+					v1beta1.PredictorComponent: {
+						URL: &apis.URL{
+							Scheme: "http",
+							Host:   predictorHostname,
+						},
+						Address: &duckv1.Addressable{
+							URL: &apis.URL{
+								Scheme: "http",
+								Host:   network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
 							},
 						},
-						Headers: &istiov1beta1.Headers{
-							Request: &istiov1beta1.Headers_HeaderOperations{Set: map[string]string{
-								"Host":                  network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
-								"KServe-Isvc-Name":      serviceName,
-								"KServe-Isvc-Namespace": namespace,
-							}},
-						},
 					},
 				},
 			},
-		},
-	}, {
-		name: "local cluster predictor",
-		ingressConfig: &v1beta1.IngressConfig{
-			IngressGateway:             constants.KnativeIngressGateway,
-			KnativeLocalGatewayService: knativeLocalGatewayService,
-			LocalGateway:               constants.KnativeLocalGateway,
-			LocalGatewayServiceName:    "knative-local-gateway.istio-system.svc.cluster.local",
-		},
-		useDefault: false,
-		componentStatus: &v1beta1.InferenceServiceStatus{
-			Status: duckv1.Status{
-				Conditions: duckv1.Conditions{
-					{
-						Type:   v1beta1.PredictorReady,
-						Status: corev1.ConditionTrue,
-					},
-				},
-			},
-			Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
-				v1beta1.PredictorComponent: {
-					URL: &apis.URL{
-						Scheme: "http",
-						Host:   network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
-					},
-					Address: &duckv1.Addressable{
-						URL: &apis.URL{
-							Scheme: "http",
-							Host:   network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
-						},
-					},
-				},
-			},
-		},
-		expectedService: &istioclientv1beta1.VirtualService{
-			ObjectMeta: metav1.ObjectMeta{Name: serviceName, Namespace: namespace, Annotations: annotations, Labels: labels},
-			Spec: istiov1beta1.VirtualService{
-				Hosts:    []string{serviceInternalHostName},
-				Gateways: []string{constants.KnativeLocalGateway, constants.IstioMeshGateway},
-				Http: []*istiov1beta1.HTTPRoute{
-					{
-						Match: []*istiov1beta1.HTTPMatchRequest{
-							{
-								Authority: &istiov1beta1.StringMatch{
-									MatchType: &istiov1beta1.StringMatch_Regex{
-										Regex: constants.HostRegExp(network.GetServiceHostname(serviceName, namespace)),
-									},
+			expectedService: &istioclientv1beta1.VirtualService{
+				ObjectMeta: metav1.ObjectMeta{Name: serviceName, Namespace: namespace, Annotations: annotations, Labels: labels},
+				Spec: istiov1beta1.VirtualService{
+					Hosts:    []string{serviceInternalHostName, serviceHostName},
+					Gateways: []string{constants.KnativeLocalGateway, constants.IstioMeshGateway, constants.KnativeIngressGateway},
+					Http: []*istiov1beta1.HTTPRoute{
+						{
+							Match: predictorRouteMatch,
+							Route: []*istiov1beta1.HTTPRouteDestination{
+								{
+									Destination: &istiov1beta1.Destination{Host: knativeLocalGatewayService, Port: &istiov1beta1.PortSelector{Number: constants.CommonDefaultHttpPort}},
+									Weight:      100,
 								},
-								Gateways: []string{constants.KnativeLocalGateway, constants.IstioMeshGateway},
 							},
-						},
-						Route: []*istiov1beta1.HTTPRouteDestination{
-							{
-								Destination: &istiov1beta1.Destination{Host: knativeLocalGatewayService, Port: &istiov1beta1.PortSelector{Number: constants.CommonDefaultHttpPort}},
-								Weight:      100,
+							Headers: &istiov1beta1.Headers{
+								Request: &istiov1beta1.Headers_HeaderOperations{Set: map[string]string{
+									"Host":                  network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
+									"KServe-Isvc-Name":      serviceName,
+									"KServe-Isvc-Namespace": namespace,
+								}},
 							},
-						},
-						Headers: &istiov1beta1.Headers{
-							Request: &istiov1beta1.Headers_HeaderOperations{Set: map[string]string{
-								"Host":                  network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
-								"KServe-Isvc-Name":      serviceName,
-								"KServe-Isvc-Namespace": namespace}},
 						},
 					},
 				},
 			},
 		},
-	},
+		{
+			name: "local cluster predictor",
+			ingressConfig: &v1beta1.IngressConfig{
+				IngressGateway:             constants.KnativeIngressGateway,
+				KnativeLocalGatewayService: knativeLocalGatewayService,
+				LocalGateway:               constants.KnativeLocalGateway,
+				LocalGatewayServiceName:    "knative-local-gateway.istio-system.svc.cluster.local",
+			},
+			useDefault: false,
+			componentStatus: &v1beta1.InferenceServiceStatus{
+				Status: duckv1.Status{
+					Conditions: duckv1.Conditions{
+						{
+							Type:   v1beta1.PredictorReady,
+							Status: corev1.ConditionTrue,
+						},
+					},
+				},
+				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
+					v1beta1.PredictorComponent: {
+						URL: &apis.URL{
+							Scheme: "http",
+							Host:   network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
+						},
+						Address: &duckv1.Addressable{
+							URL: &apis.URL{
+								Scheme: "http",
+								Host:   network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
+							},
+						},
+					},
+				},
+			},
+			expectedService: &istioclientv1beta1.VirtualService{
+				ObjectMeta: metav1.ObjectMeta{Name: serviceName, Namespace: namespace, Annotations: annotations, Labels: labels},
+				Spec: istiov1beta1.VirtualService{
+					Hosts:    []string{serviceInternalHostName},
+					Gateways: []string{constants.KnativeLocalGateway, constants.IstioMeshGateway},
+					Http: []*istiov1beta1.HTTPRoute{
+						{
+							Match: []*istiov1beta1.HTTPMatchRequest{
+								{
+									Authority: &istiov1beta1.StringMatch{
+										MatchType: &istiov1beta1.StringMatch_Regex{
+											Regex: constants.HostRegExp(network.GetServiceHostname(serviceName, namespace)),
+										},
+									},
+									Gateways: []string{constants.KnativeLocalGateway, constants.IstioMeshGateway},
+								},
+							},
+							Route: []*istiov1beta1.HTTPRouteDestination{
+								{
+									Destination: &istiov1beta1.Destination{Host: knativeLocalGatewayService, Port: &istiov1beta1.PortSelector{Number: constants.CommonDefaultHttpPort}},
+									Weight:      100,
+								},
+							},
+							Headers: &istiov1beta1.Headers{
+								Request: &istiov1beta1.Headers_HeaderOperations{Set: map[string]string{
+									"Host":                  network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
+									"KServe-Isvc-Name":      serviceName,
+									"KServe-Isvc-Namespace": namespace,
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
 		{
 			name: "nil transformer status fails with status unknown",
 			ingressConfig: &v1beta1.IngressConfig{
@@ -249,7 +259,8 @@ func TestCreateVirtualService(t *testing.T) {
 				},
 			},
 			expectedService: nil,
-		}, {
+		},
+		{
 			name: "found transformer and predictor status",
 			ingressConfig: &v1beta1.IngressConfig{
 				IngressGateway:             constants.KnativeIngressGateway,
@@ -323,7 +334,8 @@ func TestCreateVirtualService(t *testing.T) {
 					},
 				},
 			},
-		}, {
+		},
+		{
 			name: "found transformer and predictor status",
 			ingressConfig: &v1beta1.IngressConfig{
 				IngressGateway:             constants.KnativeIngressGateway,
@@ -397,7 +409,8 @@ func TestCreateVirtualService(t *testing.T) {
 					},
 				},
 			},
-		}, {
+		},
+		{
 			name: "nil explainer status fails with status unknown",
 			ingressConfig: &v1beta1.IngressConfig{
 				IngressGateway:             constants.KnativeIngressGateway,
@@ -424,7 +437,8 @@ func TestCreateVirtualService(t *testing.T) {
 				},
 			},
 			expectedService: nil,
-		}, {
+		},
+		{
 			name: "found explainer and predictor status",
 			ingressConfig: &v1beta1.IngressConfig{
 				IngressGateway:             constants.KnativeIngressGateway,
@@ -515,10 +529,12 @@ func TestCreateVirtualService(t *testing.T) {
 								},
 							},
 							Headers: &istiov1beta1.Headers{
-								Request: &istiov1beta1.Headers_HeaderOperations{Set: map[string]string{
-									"Host":                  network.GetServiceHostname(constants.ExplainerServiceName(serviceName), namespace),
-									"KServe-Isvc-Name":      serviceName,
-									"KServe-Isvc-Namespace": namespace},
+								Request: &istiov1beta1.Headers_HeaderOperations{
+									Set: map[string]string{
+										"Host":                  network.GetServiceHostname(constants.ExplainerServiceName(serviceName), namespace),
+										"KServe-Isvc-Name":      serviceName,
+										"KServe-Isvc-Namespace": namespace,
+									},
 								},
 							},
 						},
@@ -531,17 +547,20 @@ func TestCreateVirtualService(t *testing.T) {
 								},
 							},
 							Headers: &istiov1beta1.Headers{
-								Request: &istiov1beta1.Headers_HeaderOperations{Set: map[string]string{
-									"Host":                  network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
-									"KServe-Isvc-Name":      serviceName,
-									"KServe-Isvc-Namespace": namespace},
+								Request: &istiov1beta1.Headers_HeaderOperations{
+									Set: map[string]string{
+										"Host":                  network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
+										"KServe-Isvc-Name":      serviceName,
+										"KServe-Isvc-Namespace": namespace,
+									},
 								},
 							},
 						},
 					},
 				},
 			},
-		}, {
+		},
+		{
 			name: "found predictor status with path template",
 			ingressConfig: &v1beta1.IngressConfig{
 				IngressGateway:             constants.KnativeIngressGateway,
@@ -613,7 +632,8 @@ func TestCreateVirtualService(t *testing.T) {
 								Request: &istiov1beta1.Headers_HeaderOperations{Set: map[string]string{
 									"Host":                  network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
 									"KServe-Isvc-Name":      serviceName,
-									"KServe-Isvc-Namespace": namespace}},
+									"KServe-Isvc-Namespace": namespace,
+								}},
 							},
 						},
 						{
@@ -664,7 +684,8 @@ func TestCreateVirtualService(t *testing.T) {
 					},
 				},
 			},
-		}, {
+		},
+		{
 			name: "found predictor status with the additional ingress domains",
 			ingressConfig: &v1beta1.IngressConfig{
 				IngressGateway:             constants.KnativeIngressGateway,
@@ -706,8 +727,10 @@ func TestCreateVirtualService(t *testing.T) {
 			expectedService: &istioclientv1beta1.VirtualService{
 				ObjectMeta: metav1.ObjectMeta{Name: serviceName, Namespace: namespace, Annotations: annotations, Labels: labels},
 				Spec: istiov1beta1.VirtualService{
-					Hosts: []string{serviceInternalHostName, serviceHostName, "my-domain.com",
-						"my-model.test.my-additional-domain.com", "my-model.test.my-second-additional-domain.com"},
+					Hosts: []string{
+						serviceInternalHostName, serviceHostName, "my-domain.com",
+						"my-model.test.my-additional-domain.com", "my-model.test.my-second-additional-domain.com",
+					},
 					Gateways: []string{constants.KnativeLocalGateway, constants.IstioMeshGateway, constants.KnativeIngressGateway},
 					Http: []*istiov1beta1.HTTPRoute{
 						{
@@ -755,7 +778,8 @@ func TestCreateVirtualService(t *testing.T) {
 								Request: &istiov1beta1.Headers_HeaderOperations{Set: map[string]string{
 									"Host":                  network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
 									"KServe-Isvc-Name":      serviceName,
-									"KServe-Isvc-Namespace": namespace}},
+									"KServe-Isvc-Namespace": namespace,
+								}},
 							},
 						},
 						{
@@ -806,7 +830,8 @@ func TestCreateVirtualService(t *testing.T) {
 					},
 				},
 			},
-		}, {
+		},
+		{
 			name: "found predictor status with the additional ingress domains with duplication",
 			ingressConfig: &v1beta1.IngressConfig{
 				IngressGateway:             constants.KnativeIngressGateway,
@@ -848,8 +873,10 @@ func TestCreateVirtualService(t *testing.T) {
 			expectedService: &istioclientv1beta1.VirtualService{
 				ObjectMeta: metav1.ObjectMeta{Name: serviceName, Namespace: namespace, Annotations: annotations, Labels: labels},
 				Spec: istiov1beta1.VirtualService{
-					Hosts: []string{serviceInternalHostName, serviceHostName, "my-domain.com",
-						"my-model.test.my-additional-domain.com", "my-model.test.my-second-additional-domain.com"},
+					Hosts: []string{
+						serviceInternalHostName, serviceHostName, "my-domain.com",
+						"my-model.test.my-additional-domain.com", "my-model.test.my-second-additional-domain.com",
+					},
 					Gateways: []string{constants.KnativeLocalGateway, constants.IstioMeshGateway, constants.KnativeIngressGateway},
 					Http: []*istiov1beta1.HTTPRoute{
 						{
@@ -889,8 +916,10 @@ func TestCreateVirtualService(t *testing.T) {
 							},
 							Route: []*istiov1beta1.HTTPRouteDestination{
 								{
-									Destination: &istiov1beta1.Destination{Host: knativeLocalGatewayService,
-										Port: &istiov1beta1.PortSelector{Number: constants.CommonDefaultHttpPort}},
+									Destination: &istiov1beta1.Destination{
+										Host: knativeLocalGatewayService,
+										Port: &istiov1beta1.PortSelector{Number: constants.CommonDefaultHttpPort},
+									},
 									Weight: 100,
 								},
 							},
@@ -898,7 +927,8 @@ func TestCreateVirtualService(t *testing.T) {
 								Request: &istiov1beta1.Headers_HeaderOperations{Set: map[string]string{
 									"Host":                  network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
 									"KServe-Isvc-Name":      serviceName,
-									"KServe-Isvc-Namespace": namespace}},
+									"KServe-Isvc-Namespace": namespace,
+								}},
 							},
 						},
 						{
@@ -949,7 +979,8 @@ func TestCreateVirtualService(t *testing.T) {
 					},
 				},
 			},
-		}, {
+		},
+		{
 			name: "found predictor and explainer status with path template",
 			ingressConfig: &v1beta1.IngressConfig{
 				IngressGateway:             constants.KnativeIngressGateway,
@@ -1038,16 +1069,18 @@ func TestCreateVirtualService(t *testing.T) {
 								},
 							},
 							Route: []*istiov1beta1.HTTPRouteDestination{
-								{Destination: &istiov1beta1.Destination{Host: knativeLocalGatewayService, Port: &istiov1beta1.PortSelector{Number: constants.CommonDefaultHttpPort}},
-									Weight: 100,
+								{
+									Destination: &istiov1beta1.Destination{Host: knativeLocalGatewayService, Port: &istiov1beta1.PortSelector{Number: constants.CommonDefaultHttpPort}},
+									Weight:      100,
 								},
 							},
 							Headers: &istiov1beta1.Headers{
-								Request: &istiov1beta1.Headers_HeaderOperations{Set: map[string]string{
-									"Host":                        network.GetServiceHostname(constants.ExplainerServiceName(serviceName), namespace),
-									constants.IsvcNameHeader:      serviceName,
-									constants.IsvcNamespaceHeader: namespace,
-								},
+								Request: &istiov1beta1.Headers_HeaderOperations{
+									Set: map[string]string{
+										"Host":                        network.GetServiceHostname(constants.ExplainerServiceName(serviceName), namespace),
+										constants.IsvcNameHeader:      serviceName,
+										constants.IsvcNamespaceHeader: namespace,
+									},
 								},
 							},
 						},
@@ -1071,15 +1104,17 @@ func TestCreateVirtualService(t *testing.T) {
 								},
 							},
 							Route: []*istiov1beta1.HTTPRouteDestination{
-								{Destination: &istiov1beta1.Destination{Host: knativeLocalGatewayService, Port: &istiov1beta1.PortSelector{Number: constants.CommonDefaultHttpPort}},
-									Weight: 100,
+								{
+									Destination: &istiov1beta1.Destination{Host: knativeLocalGatewayService, Port: &istiov1beta1.PortSelector{Number: constants.CommonDefaultHttpPort}},
+									Weight:      100,
 								},
 							},
 							Headers: &istiov1beta1.Headers{
 								Request: &istiov1beta1.Headers_HeaderOperations{Set: map[string]string{
 									"Host":                        network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
 									constants.IsvcNameHeader:      serviceName,
-									constants.IsvcNamespaceHeader: namespace}},
+									constants.IsvcNamespaceHeader: namespace,
+								}},
 							},
 						},
 						{
@@ -1165,7 +1200,8 @@ func TestCreateVirtualService(t *testing.T) {
 					},
 				},
 			},
-		}, {
+		},
+		{
 			name: "found predictor status with default suffix",
 			ingressConfig: &v1beta1.IngressConfig{
 				IngressGateway:             constants.KnativeIngressGateway,
@@ -1216,13 +1252,15 @@ func TestCreateVirtualService(t *testing.T) {
 								Request: &istiov1beta1.Headers_HeaderOperations{Set: map[string]string{
 									"Host":                  network.GetServiceHostname(constants.DefaultPredictorServiceName(serviceName), namespace),
 									"KServe-Isvc-Name":      serviceName,
-									"KServe-Isvc-Namespace": namespace}},
+									"KServe-Isvc-Namespace": namespace,
+								}},
 							},
 						},
 					},
 				},
 			},
-		}, {
+		},
+		{
 			name: "found transformer and predictor status with default suffix",
 			ingressConfig: &v1beta1.IngressConfig{
 				IngressGateway:             constants.KnativeIngressGateway,
@@ -1296,7 +1334,8 @@ func TestCreateVirtualService(t *testing.T) {
 					},
 				},
 			},
-		}, {
+		},
+		{
 			name: "transformer is not ready",
 			ingressConfig: &v1beta1.IngressConfig{
 				IngressGateway:             constants.KnativeIngressGateway,
@@ -1346,7 +1385,8 @@ func TestCreateVirtualService(t *testing.T) {
 				},
 			},
 			expectedService: nil,
-		}, {
+		},
+		{
 			name: "nil explainer status fails with status unknown",
 			ingressConfig: &v1beta1.IngressConfig{
 				IngressGateway:             constants.KnativeIngressGateway,
@@ -1373,7 +1413,8 @@ func TestCreateVirtualService(t *testing.T) {
 				},
 			},
 			expectedService: nil,
-		}, {
+		},
+		{
 			name: "explainer is not ready",
 			ingressConfig: &v1beta1.IngressConfig{
 				IngressGateway:             constants.KnativeIngressGateway,
@@ -1423,7 +1464,8 @@ func TestCreateVirtualService(t *testing.T) {
 				},
 			},
 			expectedService: nil,
-		}, {
+		},
+		{
 			name: "isvc labelled with cluster local visibility",
 			isvc: &v1beta1.InferenceService{
 				ObjectMeta: metav1.ObjectMeta{
@@ -1498,7 +1540,8 @@ func TestCreateVirtualService(t *testing.T) {
 								Request: &istiov1beta1.Headers_HeaderOperations{Set: map[string]string{
 									"Host":                  network.GetServiceHostname(constants.PredictorServiceName(serviceName), namespace),
 									"KServe-Isvc-Name":      serviceName,
-									"KServe-Isvc-Namespace": namespace}},
+									"KServe-Isvc-Namespace": namespace,
+								}},
 							},
 						},
 					},
@@ -1537,7 +1580,7 @@ func TestCreateVirtualService(t *testing.T) {
 				testIsvc.Spec.Explainer = &v1beta1.ExplainerSpec{}
 			}
 
-			actualService := createIngress(testIsvc, tc.useDefault, tc.ingressConfig, tc.domainList)
+			actualService := createIngress(testIsvc, tc.useDefault, tc.ingressConfig, tc.domainList, defaultInferenceServiceConfig)
 			if diff := cmp.Diff(tc.expectedService.DeepCopy(), actualService.DeepCopy(), protocmp.Transform()); diff != "" {
 				t.Errorf("Test %q unexpected status (-want +got): %v", tc.name, diff)
 			}
@@ -1546,7 +1589,6 @@ func TestCreateVirtualService(t *testing.T) {
 }
 
 func TestGetServiceHost(t *testing.T) {
-
 	testCases := []struct {
 		name             string
 		isvc             *v1beta1.InferenceService
@@ -1703,7 +1745,7 @@ func TestGetServiceUrl(t *testing.T) {
 					Address: nil,
 					URL:     nil,
 					Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
-						v1beta1.PredictorComponent: v1beta1.ComponentStatusSpec{},
+						v1beta1.PredictorComponent: {},
 					},
 					ModelStatus: v1beta1.ModelStatus{},
 				},
@@ -1732,7 +1774,7 @@ func TestGetServiceUrl(t *testing.T) {
 					Address: nil,
 					URL:     nil,
 					Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
-						v1beta1.PredictorComponent: v1beta1.ComponentStatusSpec{
+						v1beta1.PredictorComponent: {
 							URL: (*apis.URL)(defaultPredictorUrl),
 						},
 					},
@@ -1763,10 +1805,10 @@ func TestGetServiceUrl(t *testing.T) {
 					Address: nil,
 					URL:     nil,
 					Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
-						v1beta1.PredictorComponent: v1beta1.ComponentStatusSpec{
+						v1beta1.PredictorComponent: {
 							URL: (*apis.URL)(defaultPredictorUrl),
 						},
-						v1beta1.TransformerComponent: v1beta1.ComponentStatusSpec{
+						v1beta1.TransformerComponent: {
 							URL: (*apis.URL)(defaultTransformerUrl),
 						},
 					},
@@ -1819,7 +1861,7 @@ func TestGetServiceUrl(t *testing.T) {
 					Address: nil,
 					URL:     nil,
 					Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
-						v1beta1.PredictorComponent: v1beta1.ComponentStatusSpec{
+						v1beta1.PredictorComponent: {
 							URL: (*apis.URL)(defaultPredictorUrl),
 						},
 					},
@@ -1850,10 +1892,10 @@ func TestGetServiceUrl(t *testing.T) {
 					Address: nil,
 					URL:     nil,
 					Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
-						v1beta1.PredictorComponent: v1beta1.ComponentStatusSpec{
+						v1beta1.PredictorComponent: {
 							URL: (*apis.URL)(defaultPredictorUrl),
 						},
-						v1beta1.TransformerComponent: v1beta1.ComponentStatusSpec{
+						v1beta1.TransformerComponent: {
 							URL: nil,
 						},
 					},
@@ -1884,10 +1926,10 @@ func TestGetServiceUrl(t *testing.T) {
 					Address: nil,
 					URL:     nil,
 					Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
-						v1beta1.PredictorComponent: v1beta1.ComponentStatusSpec{
+						v1beta1.PredictorComponent: {
 							URL: (*apis.URL)(predictorUrl),
 						},
-						v1beta1.TransformerComponent: v1beta1.ComponentStatusSpec{
+						v1beta1.TransformerComponent: {
 							URL: (*apis.URL)(transformerUrl),
 						},
 					},
@@ -1917,7 +1959,7 @@ func TestGetServiceUrl(t *testing.T) {
 					Address: nil,
 					URL:     nil,
 					Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
-						v1beta1.PredictorComponent: v1beta1.ComponentStatusSpec{
+						v1beta1.PredictorComponent: {
 							URL: (*apis.URL)(predictorUrl),
 						},
 					},
@@ -1947,7 +1989,7 @@ func TestGetServiceUrl(t *testing.T) {
 					Address: nil,
 					URL:     nil,
 					Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
-						v1beta1.PredictorComponent: v1beta1.ComponentStatusSpec{
+						v1beta1.PredictorComponent: {
 							URL: (*apis.URL)(predictorUrl),
 						},
 					},
@@ -1978,10 +2020,10 @@ func TestGetServiceUrl(t *testing.T) {
 					Address: nil,
 					URL:     nil,
 					Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
-						v1beta1.PredictorComponent: v1beta1.ComponentStatusSpec{
+						v1beta1.PredictorComponent: {
 							URL: (*apis.URL)(predictorUrl),
 						},
-						v1beta1.TransformerComponent: v1beta1.ComponentStatusSpec{
+						v1beta1.TransformerComponent: {
 							URL: (*apis.URL)(transformerUrl),
 						},
 					},
@@ -2053,7 +2095,7 @@ func TestGetServiceUrlPathBased(t *testing.T) {
 					Address: nil,
 					URL:     nil,
 					Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
-						v1beta1.PredictorComponent: v1beta1.ComponentStatusSpec{},
+						v1beta1.PredictorComponent: {},
 					},
 					ModelStatus: v1beta1.ModelStatus{},
 				},
@@ -2078,7 +2120,7 @@ func TestGetServiceUrlPathBased(t *testing.T) {
 					Address: nil,
 					URL:     nil,
 					Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
-						v1beta1.PredictorComponent: v1beta1.ComponentStatusSpec{
+						v1beta1.PredictorComponent: {
 							URL: (*apis.URL)(predictorUrl),
 						},
 					},
@@ -2141,7 +2183,7 @@ func TestGetHostPrefix(t *testing.T) {
 			},
 			disableVirtualHost: true,
 			useDefault:         false,
-			matcher:            gomega.Equal(fmt.Sprintf("%s-predictor", serviceName)),
+			matcher:            gomega.Equal(serviceName + "-predictor"),
 		},
 		"istio is disabled and useDefault is false with transformer": {
 			isvc: &v1beta1.InferenceService{
@@ -2169,7 +2211,7 @@ func TestGetHostPrefix(t *testing.T) {
 			},
 			disableVirtualHost: true,
 			useDefault:         false,
-			matcher:            gomega.Equal(fmt.Sprintf("%s-transformer", serviceName)),
+			matcher:            gomega.Equal(serviceName + "-transformer"),
 		},
 		"istio is disabled and useDefault is true": {
 			isvc: &v1beta1.InferenceService{
@@ -2187,7 +2229,7 @@ func TestGetHostPrefix(t *testing.T) {
 			},
 			disableVirtualHost: true,
 			useDefault:         true,
-			matcher:            gomega.Equal(fmt.Sprintf("%s-predictor-default", serviceName)),
+			matcher:            gomega.Equal(serviceName + "-predictor-default"),
 		},
 		"istio is disabled and useDefault is true with transformer": {
 			isvc: &v1beta1.InferenceService{
@@ -2215,7 +2257,7 @@ func TestGetHostPrefix(t *testing.T) {
 			},
 			disableVirtualHost: true,
 			useDefault:         true,
-			matcher:            gomega.Equal(fmt.Sprintf("%s-transformer-default", serviceName)),
+			matcher:            gomega.Equal(serviceName + "-transformer-default"),
 		},
 	}
 

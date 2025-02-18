@@ -2,7 +2,6 @@ package inferencegraph
 
 import (
 	"context"
-	"fmt"
 	"reflect"
 
 	v1 "github.com/openshift/api/route/v1"
@@ -60,7 +59,7 @@ func (r *OpenShiftRouteReconciler) buildOpenShiftRoute(inferenceGraph *v1alpha1.
 	route := v1.Route{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      fmt.Sprintf("%s-route", inferenceGraph.Name),
+			Name:      inferenceGraph.Name + "-route",
 			Namespace: inferenceGraph.Namespace,
 		},
 		Spec: v1.RouteSpec{

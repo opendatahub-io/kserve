@@ -24,7 +24,7 @@ import (
 	"strings"
 
 	"google.golang.org/protobuf/proto"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -33,20 +33,15 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
+	"k8s.io/client-go/kubernetes/scheme"
+
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/utils"
-	"k8s.io/client-go/kubernetes/scheme"
 )
 
-var (
-	defaultResource = v1.ResourceList{
-		v1.ResourceCPU:    resource.MustParse("1"),
-		v1.ResourceMemory: resource.MustParse("2Gi"),
-	}
-	// logger for the mutating webhook.
-	mutatorLogger = logf.Log.WithName("inferenceservice-v1beta1-mutating-webhook")
-)
+// logger for the mutating webhook.
+var mutatorLogger = logf.Log.WithName("inferenceservice-v1beta1-mutating-webhook")
 
 // +kubebuilder:object:generate=false
 // +k8s:openapi-gen=false
@@ -55,30 +50,48 @@ var (
 //
 // NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
 // as it is used only for temporary operations and does not need to be deeply copied.
-type InferenceServiceDefaulter struct {
-}
+type InferenceServiceDefaulter struct{}
 
 // +kubebuilder:webhook:path=/mutate-inferenceservices,mutating=true,failurePolicy=fail,groups=serving.kserve.io,resources=inferenceservices,verbs=create;update,versions=v1beta1,name=inferenceservice.kserve-webhook-server.defaulter
 var _ webhook.CustomDefaulter = &InferenceServiceDefaulter{}
 
-func setResourceRequirementDefaults(requirements *v1.ResourceRequirements) {
-	if requirements.Requests == nil {
-		requirements.Requests = v1.ResourceList{}
+func setResourceRequirementDefaults(config *InferenceServicesConfig, requirements *corev1.ResourceRequirements) {
+	defaultResourceRequests := corev1.ResourceList{}
+	defaultResourceLimits := corev1.ResourceList{}
+
+	if config != nil {
+		if config.Resource.CPURequest != "" {
+			defaultResourceRequests[corev1.ResourceCPU] = resource.MustParse(config.Resource.CPURequest)
+		}
+		if config.Resource.MemoryRequest != "" {
+			defaultResourceRequests[corev1.ResourceMemory] = resource.MustParse(config.Resource.MemoryRequest)
+		}
+		if config.Resource.CPULimit != "" {
+			defaultResourceLimits[corev1.ResourceCPU] = resource.MustParse(config.Resource.CPULimit)
+		}
+		if config.Resource.MemoryLimit != "" {
+			defaultResourceLimits[corev1.ResourceMemory] = resource.MustParse(config.Resource.MemoryLimit)
+		}
 	}
-	for k, v := range defaultResource {
+	if requirements.Requests == nil {
+		requirements.Requests = corev1.ResourceList{}
+	}
+	for k, v := range defaultResourceRequests {
 		if _, ok := requirements.Requests[k]; !ok {
 			requirements.Requests[k] = v
 		}
 	}
 
 	if requirements.Limits == nil {
-		requirements.Limits = v1.ResourceList{}
+		requirements.Limits = corev1.ResourceList{}
 	}
-	for k, v := range defaultResource {
+	for k, v := range defaultResourceLimits {
 		if _, ok := requirements.Limits[k]; !ok {
 			requirements.Limits[k] = v
 		}
 	}
+
+	logf.Log.Info("Setting default resource requirements ", "requests", requirements.Requests, "limits", requirements.Limits)
 }
 
 func (d *InferenceServiceDefaulter) Default(ctx context.Context, obj runtime.Object) error {
@@ -98,20 +111,24 @@ func (d *InferenceServiceDefaulter) Default(ctx context.Context, obj runtime.Obj
 		mutatorLogger.Error(err, "unable to create clientSet")
 		return err
 	}
-	// Todo: call api server only once to get all configs
-	configMap, err := NewInferenceServicesConfig(clientSet)
+	configMap, err := GetInferenceServiceConfigMap(ctx, clientSet)
+	if err != nil {
+		mutatorLogger.Error(err, "unable to get configmap", "name", constants.InferenceServiceConfigMapName, "namespace", constants.KServeNamespace)
+		return err
+	}
+	isvcConfig, err := NewInferenceServicesConfig(configMap)
 	if err != nil {
 		return err
 	}
-	deployConfig, err := NewDeployConfig(clientSet)
+	deployConfig, err := NewDeployConfig(configMap)
 	if err != nil {
 		return err
 	}
-	localModelConfig, err := NewLocalModelConfig(clientSet)
+	localModelConfig, err := NewLocalModelConfig(configMap)
 	if err != nil {
 		return err
 	}
-	securityConfig, err := NewSecurityConfig(clientSet)
+	securityConfig, err := NewSecurityConfig(configMap)
 	if err != nil {
 		return err
 	}
@@ -132,7 +149,7 @@ func (d *InferenceServiceDefaulter) Default(ctx context.Context, obj runtime.Obj
 	}
 
 	// Pass a list of LocalModelCache resources to set the local model label if there is a match
-	isvc.DefaultInferenceService(configMap, deployConfig, securityConfig, models)
+	isvc.DefaultInferenceService(isvcConfig, deployConfig, securityConfig, models)
 	return nil
 }
 
@@ -363,18 +380,18 @@ func (isvc *InferenceService) SetMlServerDefaults() {
 	// set environment variables based on storage uri
 	if isvc.Spec.Predictor.Model.StorageURI == nil && isvc.Spec.Predictor.Model.Storage == nil {
 		isvc.Spec.Predictor.Model.Env = utils.AppendEnvVarIfNotExists(isvc.Spec.Predictor.Model.Env,
-			v1.EnvVar{
+			corev1.EnvVar{
 				Name:  constants.MLServerLoadModelsStartupEnv,
 				Value: strconv.FormatBool(false),
 			},
 		)
 	} else {
 		isvc.Spec.Predictor.Model.Env = utils.AppendEnvVarIfNotExists(isvc.Spec.Predictor.Model.Env,
-			v1.EnvVar{
+			corev1.EnvVar{
 				Name:  constants.MLServerModelNameEnv,
 				Value: isvc.Name,
 			},
-			v1.EnvVar{
+			corev1.EnvVar{
 				Name:  constants.MLServerModelURIEnv,
 				Value: constants.DefaultModelLocalMountPath,
 			},
@@ -415,7 +432,7 @@ func (isvc *InferenceService) SetTorchServeDefaults() {
 
 	// set torchserve env variable "PROTOCOL_VERSION" based on ProtocolVersion
 	isvc.Spec.Predictor.Model.Env = append(isvc.Spec.Predictor.Model.Env,
-		v1.EnvVar{
+		corev1.EnvVar{
 			Name:  constants.ProtocolVersionENV,
 			Value: string(*isvc.Spec.Predictor.Model.ProtocolVersion),
 		})
@@ -468,7 +485,11 @@ func (isvc *InferenceService) setLocalModelLabel(models *v1alpha1.LocalModelCach
 	}
 	isvc.Labels[constants.LocalModelLabel] = localModel.Name
 	isvc.Annotations[constants.LocalModelSourceUriAnnotationKey] = localModel.Spec.SourceModelUri
-	// TODO: node group needs to be retrieved from isvc node group annotation when we support multiple node groups
-	isvc.Annotations[constants.LocalModelPVCNameAnnotationKey] = localModel.Name + "-" + localModel.Spec.NodeGroups[0]
+	// Get node group from annotation when possible, otherwise fallback to use the first node group from localmodelcache
+	if nodeGroup, ok := isvc.Annotations[constants.NodeGroupAnnotationKey]; ok {
+		isvc.Annotations[constants.LocalModelPVCNameAnnotationKey] = localModel.Name + "-" + nodeGroup
+	} else {
+		isvc.Annotations[constants.LocalModelPVCNameAnnotationKey] = localModel.Name + "-" + localModel.Spec.NodeGroups[0]
+	}
 	mutatorLogger.Info("LocalModelCache found", "model", localModel.Name, "namespace", isvc.Namespace, "isvc", isvc.Name)
 }

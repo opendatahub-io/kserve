@@ -19,10 +19,10 @@ limitations under the License.
 package v1alpha1
 
 import (
-	v1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/cache"
+	servingv1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
 )
 
 // ClusterStorageContainerLister helps list ClusterStorageContainers.
@@ -30,7 +30,7 @@ import (
 type ClusterStorageContainerLister interface {
 	// List lists all ClusterStorageContainers in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.ClusterStorageContainer, err error)
+	List(selector labels.Selector) (ret []*servingv1alpha1.ClusterStorageContainer, err error)
 	// ClusterStorageContainers returns an object that can list and get ClusterStorageContainers.
 	ClusterStorageContainers(namespace string) ClusterStorageContainerNamespaceLister
 	ClusterStorageContainerListerExpansion
@@ -38,25 +38,17 @@ type ClusterStorageContainerLister interface {
 
 // clusterStorageContainerLister implements the ClusterStorageContainerLister interface.
 type clusterStorageContainerLister struct {
-	indexer cache.Indexer
+	listers.ResourceIndexer[*servingv1alpha1.ClusterStorageContainer]
 }
 
 // NewClusterStorageContainerLister returns a new ClusterStorageContainerLister.
 func NewClusterStorageContainerLister(indexer cache.Indexer) ClusterStorageContainerLister {
-	return &clusterStorageContainerLister{indexer: indexer}
-}
-
-// List lists all ClusterStorageContainers in the indexer.
-func (s *clusterStorageContainerLister) List(selector labels.Selector) (ret []*v1alpha1.ClusterStorageContainer, err error) {
-	err = cache.ListAll(s.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.ClusterStorageContainer))
-	})
-	return ret, err
+	return &clusterStorageContainerLister{listers.New[*servingv1alpha1.ClusterStorageContainer](indexer, servingv1alpha1.Resource("clusterstoragecontainer"))}
 }
 
 // ClusterStorageContainers returns an object that can list and get ClusterStorageContainers.
 func (s *clusterStorageContainerLister) ClusterStorageContainers(namespace string) ClusterStorageContainerNamespaceLister {
-	return clusterStorageContainerNamespaceLister{indexer: s.indexer, namespace: namespace}
+	return clusterStorageContainerNamespaceLister{listers.NewNamespaced[*servingv1alpha1.ClusterStorageContainer](s.ResourceIndexer, namespace)}
 }
 
 // ClusterStorageContainerNamespaceLister helps list and get ClusterStorageContainers.
@@ -64,36 +56,15 @@ func (s *clusterStorageContainerLister) ClusterStorageContainers(namespace strin
 type ClusterStorageContainerNamespaceLister interface {
 	// List lists all ClusterStorageContainers in the indexer for a given namespace.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1alpha1.ClusterStorageContainer, err error)
+	List(selector labels.Selector) (ret []*servingv1alpha1.ClusterStorageContainer, err error)
 	// Get retrieves the ClusterStorageContainer from the indexer for a given namespace and name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1alpha1.ClusterStorageContainer, error)
+	Get(name string) (*servingv1alpha1.ClusterStorageContainer, error)
 	ClusterStorageContainerNamespaceListerExpansion
 }
 
 // clusterStorageContainerNamespaceLister implements the ClusterStorageContainerNamespaceLister
 // interface.
 type clusterStorageContainerNamespaceLister struct {
-	indexer   cache.Indexer
-	namespace string
-}
-
-// List lists all ClusterStorageContainers in the indexer for a given namespace.
-func (s clusterStorageContainerNamespaceLister) List(selector labels.Selector) (ret []*v1alpha1.ClusterStorageContainer, err error) {
-	err = cache.ListAllByNamespace(s.indexer, s.namespace, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1alpha1.ClusterStorageContainer))
-	})
-	return ret, err
-}
-
-// Get retrieves the ClusterStorageContainer from the indexer for a given namespace and name.
-func (s clusterStorageContainerNamespaceLister) Get(name string) (*v1alpha1.ClusterStorageContainer, error) {
-	obj, exists, err := s.indexer.GetByKey(s.namespace + "/" + name)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.NewNotFound(v1alpha1.Resource("clusterstoragecontainer"), name)
-	}
-	return obj.(*v1alpha1.ClusterStorageContainer), nil
+	listers.ResourceIndexer[*servingv1alpha1.ClusterStorageContainer]
 }
