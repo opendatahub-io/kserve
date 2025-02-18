@@ -169,11 +169,13 @@ func createDefaultSvc(componentMeta metav1.ObjectMeta, componentExt *v1beta1.Com
 		},
 	}
 
+	if service.ObjectMeta.Annotations == nil {
+		service.ObjectMeta.Annotations = make(map[string]string)
+	}
+	service.ObjectMeta.Annotations["service.beta.openshift.io/serving-cert-secret-name"] = componentMeta.Name + constants.ServingCertSecretSuffix
+
 	if val, ok := componentMeta.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
-		if service.ObjectMeta.Annotations == nil {
-			service.ObjectMeta.Annotations = make(map[string]string)
-		}
-		service.ObjectMeta.Annotations["service.beta.openshift.io/serving-cert-secret-name"] = componentMeta.Name + constants.ServingCertSecretSuffix
+
 		httpsPort := corev1.ServicePort{
 			Name: "https",
 			Port: constants.OauthProxyPort,

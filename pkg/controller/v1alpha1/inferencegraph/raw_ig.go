@@ -158,6 +158,7 @@ func handleInferenceGraphRawDeployment(cl client.Client, clientset kubernetes.In
 	}
 	// set Service Controller
 	for _, svc := range reconciler.Service.ServiceList {
+		svc.ObjectMeta.Annotations["service.beta.openshift.io/serving-cert-secret-name"] = graph.Name + constants.ServingCertSecretSuffix
 		if err := controllerutil.SetControllerReference(graph, svc, scheme); err != nil {
 			return nil, reconciler.URL, errors.Wrapf(err, "fails to set service owner reference for inference graph")
 		}
