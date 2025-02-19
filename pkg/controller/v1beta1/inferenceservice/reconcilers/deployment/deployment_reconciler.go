@@ -29,10 +29,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/kserve/kserve/pkg/constants"
-	v1beta1utils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
-	"github.com/kserve/kserve/pkg/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierr "k8s.io/apimachinery/pkg/api/errors"
@@ -44,6 +40,11 @@ import (
 	"knative.dev/pkg/kmp"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/kserve/kserve/pkg/constants"
+	v1beta1utils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 var log = logf.Log.WithName("DeploymentReconciler")
@@ -192,7 +193,7 @@ func addOauthContainerToDeployment(clientset kubernetes.Interface, deployment *a
 	var isvcname string
 	var upstreamPort string
 	var sa string
-	if val, ok := componentMeta.Labels[constants.InferenceServiceLabel]; ok {
+	if val, ok := componentMeta.Labels[constants.InferenceServicePodLabelKey]; ok {
 		isvcname = val
 	} else {
 		isvcname = componentMeta.Name
@@ -449,7 +450,7 @@ func setDefaultPodSpec(podSpec *corev1.PodSpec) {
 			container.TerminationMessagePolicy = corev1.TerminationMessageReadFile
 		}
 		if container.ImagePullPolicy == "" {
-			container.ImagePullPolicy = corev1.PullIfNotPresent
+			container.ImagePullPolicy = corev1.PullAlways
 		}
 		// generate default readiness probe for model server container and for transformer container in case of collocation
 		if container.Name == constants.InferenceServiceContainerName || container.Name == constants.TransformerContainerName {

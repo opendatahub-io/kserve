@@ -51,9 +51,16 @@ rules:
   - ""
   resources:
   - secrets
-  - serviceaccounts
   verbs:
   - get
+- apiGroups:
+  - ""
+  resources:
+  - serviceaccounts
+  verbs:
+  - create
+  - get
+  - patch
 - apiGroups:
   - admissionregistration.k8s.io
   resources:
@@ -124,6 +131,30 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - clusterrolebindings
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - route.openshift.io
+  resources:
+  - routes
+  verbs:
+  - create
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - route.openshift.io
+  resources:
+  - routes/status
+  verbs:
+  - get
 - apiGroups:
   - serving.knative.dev
   resources:

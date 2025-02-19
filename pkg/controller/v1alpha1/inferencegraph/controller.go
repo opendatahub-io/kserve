@@ -16,6 +16,8 @@ limitations under the License.
 
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferencegraphs;inferencegraphs/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferencegraphs/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;patch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=create;patch
 // +kubebuilder:rbac:groups=serving.knative.dev,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=serving.knative.dev,resources=services/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=serving.knative.dev,resources=services/status,verbs=get;update;patch
@@ -71,8 +73,9 @@ type InferenceGraphReconciler struct {
 type InferenceGraphState string
 
 const (
-	InferenceGraphNotReadyState InferenceGraphState = "InferenceGraphNotReady"
-	InferenceGraphReadyState    InferenceGraphState = "InferenceGraphReady"
+	InferenceGraphControllerName string              = "inferencegraph-controller"
+	InferenceGraphNotReadyState  InferenceGraphState = "InferenceGraphNotReady"
+	InferenceGraphReadyState     InferenceGraphState = "InferenceGraphReady"
 )
 
 type RouterConfig struct {
@@ -176,6 +179,12 @@ func (r *InferenceGraphReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	deploymentMode := isvcutils.GetDeploymentMode(graph.Status.DeploymentMode, graph.ObjectMeta.Annotations, deployConfig)
 	r.Log.Info("Inference graph deployment ", "deployment mode ", deploymentMode)
 	if deploymentMode == constants.RawDeployment {
+		// If the inference graph has auth enabled, create the supporting resources
+		err = handleInferenceGraphRawAuthResources(ctx, r.Clientset, graph)
+		if err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile resources for auth verification")
+		}
+
 		// Create inference graph resources such as deployment, service, hpa in raw deployment mode
 		deployment, url, err := handleInferenceGraphRawDeployment(r.Client, r.Clientset, r.Scheme, graph, routerConfig)
 

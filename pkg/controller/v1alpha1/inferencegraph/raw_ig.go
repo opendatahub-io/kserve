@@ -17,15 +17,21 @@ limitations under the License.
 package inferencegraph
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	v15 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	v12 "k8s.io/client-go/applyconfigurations/core/v1"
+	v13 "k8s.io/client-go/applyconfigurations/meta/v1"
+	v14 "k8s.io/client-go/applyconfigurations/rbac/v1"
 	"k8s.io/client-go/kubernetes"
 	"knative.dev/pkg/apis"
 	knapis "knative.dev/pkg/apis"
@@ -88,6 +94,28 @@ func createInferenceGraphPodSpec(graph *v1alpha1api.InferenceGraph, config *Rout
 				Value: strings.Join(value, ","),
 			},
 		}
+	}
+
+	// If auth is enabled for the InferenceGraph:
+	// * Add --enable-auth argument, to properly secure kserve-router
+	// * Add the --inferencegraph-name argument, so that the router is aware of its name
+	// * Enable auto-mount of the ServiceAccount, because it is required for validating tokens
+	// * Set a non-default ServiceAccount with enough privileges to verify auth
+	if graph.GetAnnotations()[constants.ODHKserveRawAuth] == "true" {
+		podSpec.Containers[0].Args = append(podSpec.Containers[0].Args, "--enable-auth")
+
+		podSpec.Containers[0].Args = append(podSpec.Containers[0].Args, "--inferencegraph-name")
+		podSpec.Containers[0].Args = append(podSpec.Containers[0].Args, graph.GetName())
+
+		podSpec.AutomountServiceAccountToken = proto.Bool(true)
+
+		// In ODH, when auth is enabled, it is required to have the InferenceGraph running
+		// with a ServiceAccount that can query the Kubernetes API to validate tokens
+		// and privileges.
+		// In KServe v0.14 there is no way for users to set the ServiceAccount for an
+		// InferenceGraph. In ODH this is used at our advantage to set a non-default SA
+		// and bind needed privileges for the auth verification.
+		podSpec.ServiceAccountName = fmt.Sprintf("%s-auth-verifier", graph.GetName())
 	}
 
 	return podSpec
@@ -178,6 +206,50 @@ func handleInferenceGraphRawDeployment(cl client.Client, clientset kubernetes.In
 	}
 
 	return deployment[0], reconciler.URL, nil
+}
+
+func handleInferenceGraphRawAuthResources(ctx context.Context, clientset kubernetes.Interface, graph *v1alpha1api.InferenceGraph) error {
+	if graph.GetAnnotations()[constants.ODHKserveRawAuth] != "true" {
+		return nil
+	}
+
+	ownerReference := v13.OwnerReference().
+		WithKind(graph.Kind).
+		WithAPIVersion(graph.APIVersion).
+		WithName(graph.GetName()).
+		WithUID(graph.UID).
+		WithBlockOwnerDeletion(true).
+		WithController(true)
+
+	// Create a Service Account that can be used to check auth
+	saName := fmt.Sprintf("%s-auth-verifier", graph.GetName())
+	saAuthVerifier := v12.ServiceAccount(saName, graph.GetNamespace()).
+		WithOwnerReferences(ownerReference)
+	_, err := clientset.CoreV1().ServiceAccounts(graph.GetNamespace()).Apply(ctx, saAuthVerifier, metav1.ApplyOptions{FieldManager: InferenceGraphControllerName})
+	if err != nil {
+		return errors.Wrapf(err, "fails to apply auth-verifier service account for inference graph")
+	}
+
+	// Bind the required privileges to the Service Account
+	clusterRoleAuxiliary := v15.ClusterRole{}
+	rbSubject := v14.Subject().
+		WithKind("ServiceAccount").
+		WithNamespace(graph.GetNamespace()).
+		WithName(saName)
+	rbRoleRef := v14.RoleRef().
+		WithKind("ClusterRole").
+		WithName("system:auth-delegator").
+		WithAPIGroup(clusterRoleAuxiliary.GroupVersionKind().Group)
+	rbAuthVerifier := v14.ClusterRoleBinding(fmt.Sprintf("%s-%s-auth-binding", graph.GetName(), graph.GetNamespace())).
+		WithOwnerReferences(ownerReference).
+		WithSubjects(rbSubject).
+		WithRoleRef(rbRoleRef)
+	_, err = clientset.RbacV1().ClusterRoleBindings().Apply(ctx, rbAuthVerifier, metav1.ApplyOptions{FieldManager: InferenceGraphControllerName})
+	if err != nil {
+		return errors.Wrapf(err, "fails to apply auth-verifier role binding for inference graph")
+	}
+
+	return nil
 }
 
 /*
