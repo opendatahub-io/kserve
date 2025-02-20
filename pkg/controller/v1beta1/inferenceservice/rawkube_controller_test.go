@@ -229,7 +229,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"serving.kserve.io/autoscalerClass":                        "hpa",
 								"serving.kserve.io/metrics":                                "cpu",
 								"serving.kserve.io/targetUtilizationPercentage":            "75",
-								"service.beta.openshift.io/serving-cert-secret-name":       predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: v1.PodSpec{
@@ -666,7 +666,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"serving.kserve.io/autoscalerClass":                        "hpa",
 								"serving.kserve.io/metrics":                                "cpu",
 								"serving.kserve.io/targetUtilizationPercentage":            "75",
-								"service.beta.openshift.io/serving-cert-secret-name":       "raw-foo-customized-predictor-serving-cert",
+								constants.OpenshiftServingCertAnnotation:                   "raw-foo-customized-predictor-serving-cert",
 							},
 						},
 						Spec: v1.PodSpec{
@@ -1088,7 +1088,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 								"serving.kserve.io/deploymentMode":                         "RawDeployment",
 								"serving.kserve.io/autoscalerClass":                        "external",
-								"service.beta.openshift.io/serving-cert-secret-name":       predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: v1.PodSpec{
@@ -1584,7 +1584,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"serving.kserve.io/autoscalerClass":                        "hpa",
 								"serving.kserve.io/metrics":                                "cpu",
 								"serving.kserve.io/targetUtilizationPercentage":            "75",
-								"service.beta.openshift.io/serving-cert-secret-name":       predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: v1.PodSpec{
@@ -2036,7 +2036,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"serving.kserve.io/autoscalerClass":                        "hpa",
 								"serving.kserve.io/metrics":                                "cpu",
 								"serving.kserve.io/targetUtilizationPercentage":            "75",
-								"service.beta.openshift.io/serving-cert-secret-name":       predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: v1.PodSpec{
@@ -2478,7 +2478,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 							Annotations: map[string]string{
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 								"serving.kserve.io/deploymentMode":                         "RawDeployment",
-								"service.beta.openshift.io/serving-cert-secret-name":       predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: v1.PodSpec{
