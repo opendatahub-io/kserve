@@ -1,5 +1,6 @@
 approvers:
   - andresllh
+  - brettmthompson
   - danielezonca
   - hdefazio
   - israel-hdez
@@ -12,6 +13,7 @@ approvers:
   - VedantMahabaleshwarkar
 reviewers:
   - andresllh
+  - brettmthompson
   - hdefazio
   - israel-hdez
   - Jooho
