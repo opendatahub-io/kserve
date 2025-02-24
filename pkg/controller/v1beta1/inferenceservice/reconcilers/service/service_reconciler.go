@@ -168,7 +168,8 @@ func createDefaultSvc(componentMeta metav1.ObjectMeta, componentExt *v1beta1.Com
 			Ports: servicePorts,
 		},
 	}
-	if val, ok := componentMeta.Labels[constants.ODHKserveRawAuth]; ok && val == "true" {
+
+	if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && val == "true" {
 		if service.ObjectMeta.Annotations == nil {
 			service.ObjectMeta.Annotations = make(map[string]string)
 		}
