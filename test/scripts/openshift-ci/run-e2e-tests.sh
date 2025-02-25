@@ -24,12 +24,26 @@ set -o pipefail
 
 MY_PATH=$(dirname "$0")
 PROJECT_ROOT=$MY_PATH/../../../
+export DOCKER_REPO=kserve
+export SUCCESS_200_ISVC_IMG=success-200-isvc
+export ERROR_404_ISVC_IMG=error-404-isvc
+export DOCKER_IMAGES_PATH=/tmp/docker-images
 
-SETUP_E2E=true
+BUILD_IMAGES="${3:-false}"
+if $BUILD_IMAGES; then
+  export BUILDER=podman
+  export BUILDER_TYPE=local
+  echo "Building images"
+  pushd $PROJECT_ROOT >/dev/null
+  ./test/scripts/gh-actions/build-graph-tests-images.sh | tee 2>&1 ./test/scripts/openshift-ci/build-graph-tests-images.log
+  popd
+fi
+
+SETUP_E2E="${2:-true}"
 if $SETUP_E2E; then
   echo "Installing on cluster"
   pushd $PROJECT_ROOT >/dev/null
-  ./test/scripts/openshift-ci/setup-e2e-tests.sh "$1"
+  ./test/scripts/openshift-ci/setup-e2e-tests.sh "$1" | tee 2>&1 ./test/scripts/openshift-ci/setup-e2e-tests-$1.log
   popd
 fi
 
@@ -41,5 +55,5 @@ pushd $PROJECT_ROOT >/dev/null
 
 export GITHUB_SHA=$(git rev-parse HEAD)
 export CI_USE_ISVC_HOST="1"
-./test/scripts/gh-actions/run-e2e-tests.sh "$1"
+./test/scripts/gh-actions/run-e2e-tests.sh "$1" | tee 2>&1 ./test/scripts/openshift-ci/run-e2e-tests-$1.log
 popd

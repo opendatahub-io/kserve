@@ -25,8 +25,8 @@ from httpx import HTTPStatusError
 
 from ..common.utils import KSERVE_TEST_NAMESPACE, predict_ig
 
-SUCCESS_ISVC_IMAGE = "kserve/success-200-isvc:" + os.environ.get("GITHUB_SHA")
-ERROR_ISVC_IMAGE = "kserve/error-404-isvc:" + os.environ.get("GITHUB_SHA")
+SUCCESS_ISVC_IMAGE = "quay.io/rh-ee-allausas/kserve/success-200-isvc:" + os.environ.get("GITHUB_SHA")
+ERROR_ISVC_IMAGE = "quay.io/rh-ee-allausas/kserve/error-404-isvc:" + os.environ.get("GITHUB_SHA")
 IG_TEST_RESOURCES_BASE_LOCATION = "graph/test-resources"
 
 
