@@ -18,6 +18,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	goerrors "errors"
 	"fmt"
@@ -31,7 +33,6 @@ import (
 
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/pkg/errors"
-
 	"github.com/tidwall/gjson"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -72,8 +73,8 @@ func callService(serviceUrl string, input []byte, headers http.Header) ([]byte, 
 	if val := req.Header.Get("Content-Type"); val == "" {
 		req.Header.Add("Content-Type", "application/json")
 	}
-	resp, err := http.DefaultClient.Do(req)
 
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		log.Error(err, "An error has occurred while calling service", "service", serviceUrl)
 		return nil, 500, err
@@ -338,11 +339,32 @@ func compilePatterns(patterns []string) ([]*regexp.Regexp, error) {
 var (
 	jsonGraph              = flag.String("graph-json", "", "serialized json graph def")
 	compiledHeaderPatterns []*regexp.Regexp
+	tlsConfig              *tls.Config
+	httpClient             *http.Client
 )
 
 func main() {
 	flag.Parse()
 	logf.SetLogger(zap.New())
+
+	tlsConfig = &tls.Config{
+		InsecureSkipVerify: false,
+	}
+	httpClient = &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
+		Timeout: 60 * time.Second,
+	}
+	certPool := x509.NewCertPool()
+	caCert, err := os.ReadFile("/etc/tls/private/tls.crt")
+	if err != nil {
+		log.Error(err, "Failed to read CA certificate")
+		os.Exit(1)
+	}
+	certPool.AppendCertsFromPEM(caCert)
+	tlsConfig.RootCAs = certPool
+
 	if headersToPropagateEnvVar, ok := os.LookupEnv(constants.RouterHeadersPropagateEnvVar); ok {
 		var err error
 		log.Info("The headers that will match these patterns will be propagated by the router to all the steps",
@@ -353,7 +375,7 @@ func main() {
 		}
 	}
 	inferenceGraph = &v1alpha1.InferenceGraphSpec{}
-	err := json.Unmarshal([]byte(*jsonGraph), inferenceGraph)
+	err = json.Unmarshal([]byte(*jsonGraph), inferenceGraph)
 	if err != nil {
 		log.Error(err, "failed to unmarshall inference graph json")
 		os.Exit(1)
@@ -368,8 +390,8 @@ func main() {
 		WriteTimeout: time.Minute,                    // set the maximum duration before timing out writes of the response
 		IdleTimeout:  3 * time.Minute,                // set the maximum amount of time to wait for the next request when keep-alives are enabled
 	}
-	err = server.ListenAndServe()
 
+	err = server.ListenAndServeTLS("/etc/tls/private/tls.crt", "/etc/tls/private/tls.key")
 	if err != nil {
 		log.Error(err, "failed to listen on 8080")
 		os.Exit(1)
