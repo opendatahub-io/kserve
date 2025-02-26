@@ -29,8 +29,8 @@ export SUCCESS_200_ISVC_IMG=success-200-isvc
 export ERROR_404_ISVC_IMG=error-404-isvc
 export DOCKER_IMAGES_PATH=/tmp/docker-images
 
-BUILD_IMAGES="${3:-false}"
 if $BUILD_IMAGES; then
+: "${BUILD_IMAGES:=false}"
   export BUILDER=podman
   export BUILDER_TYPE=local
   echo "Building images"
@@ -39,8 +39,10 @@ if $BUILD_IMAGES; then
   popd
 fi
 
-SETUP_E2E="${2:-true}"
 if $SETUP_E2E; then
+: "${SETUP_E2E:=true}"
+
+if [ "$SETUP_E2E" = "true" ]; then
   echo "Installing on cluster"
   pushd $PROJECT_ROOT >/dev/null
   ./test/scripts/openshift-ci/setup-e2e-tests.sh "$1" | tee 2>&1 ./test/scripts/openshift-ci/setup-e2e-tests-$1.log
