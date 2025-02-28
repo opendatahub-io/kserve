@@ -31,5 +31,7 @@ PARALLELISM="${2:-1}"
 source python/kserve/.venv/bin/activate
 pushd test/e2e >/dev/null
   # pytest -m "$1" --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal
-  pytest graph/test_inference_graph.py::test_inference_graph --ignore=qpext --log-cli-level=DEBUG -n $PARALLELISM --dist worksteal
+  # pytest graph/test_inference_graph.py::test_inference_graph --ignore=qpext --log-cli-level=DEBUG -n $PARALLELISM --dist worksteal
+  pytest graph/test_inference_graph.py::test_ig_scenario1 --ignore=qpext --log-cli-level=DEBUG -n $PARALLELISM --dist worksteal
+  # pytest -m "$1" --ignore=qpext --log-cli-level=INFO -n 4 --dist worksteal
 popd

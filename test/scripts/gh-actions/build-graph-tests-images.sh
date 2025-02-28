@@ -28,9 +28,14 @@ export DOCKER_IMAGES_PATH=/tmp/docker-images
 SUCCESS_200_ISVC_IMG_TAG=${DOCKER_REPO}/${SUCCESS_200_ISVC_IMG}:${GITHUB_SHA}
 ERROR_404_ISVC_IMG_TAG=${DOCKER_REPO}/${ERROR_404_ISVC_IMG}:${GITHUB_SHA}
 
-if [ -z $BUILDER ]; then
+
+: "${BUILDER:=docker}"
+if [ $BUILDER == "docker" ]; then
   BUILDER=docker
   BUILDER_TYPE=docker
+  else 
+  BUILDER=podman
+  BUILDER_TYPE=local
 fi
 
 if [ ! -d "${DOCKER_IMAGES_PATH}/${SUCCESS_200_ISVC_IMG}-${GITHUB_SHA}" ]; then
