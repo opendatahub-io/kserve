@@ -688,7 +688,7 @@ func (mi *StorageInitializerInjector) createModelContainer(image string, modelPa
 			"sh",
 			"-c",
 			// $$$$ gets escaped by YAML to $$, which is the current PID
-			fmt.Sprintf("ln -s /proc/$$$$/root/models %s && sleep infinity", modelPath),
+			fmt.Sprintf("ln -sf /proc/$$$$/root/models %s && sleep infinity", modelPath),
 		},
 		Resources: v1.ResourceRequirements{
 			Limits: map[v1.ResourceName]resource.Quantity{
