@@ -38,8 +38,12 @@ import (
 	"knative.dev/pkg/apis"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/yaml"
 
@@ -330,8 +334,43 @@ func inferenceServiceStatusEqual(s1, s2 v1beta1api.InferenceServiceStatus, deplo
 	return equality.Semantic.DeepEqual(s1, s2)
 }
 
+func (r *InferenceServiceReconciler) servingRuntimeFunc(ctx context.Context, obj client.Object) []reconcile.Request {
+	runtimeObj, ok := obj.(*v1alpha1api.ServingRuntime)
+	if !ok {
+		return nil
+	}
+
+	var isvcList v1beta1api.InferenceServiceList
+	if err := r.Client.List(ctx, &isvcList,
+		client.MatchingFields{"spec.predictor.model.runtime": runtimeObj.Name},
+		client.InNamespace(runtimeObj.Namespace),
+	); err != nil {
+		r.Log.Error(err, "unable to list InferenceServices", "runtime", runtimeObj.Name)
+		return nil
+	}
+
+	var requests []reconcile.Request
+	for _, isvc := range isvcList.Items {
+		annotations := isvc.GetAnnotations()
+		if annotations == nil {
+			annotations = map[string]string{}
+		}
+		if autoUpdate, found := annotations["serving.kserve.io/auto-update"]; found && autoUpdate == "false" {
+			continue
+		}
+		requests = append(requests, reconcile.Request{
+			NamespacedName: types.NamespacedName{
+				Namespace: isvc.Namespace,
+				Name:      isvc.Name,
+			},
+		})
+	}
+	return requests
+}
+
 func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, deployConfig *v1beta1api.DeployConfig, ingressConfig *v1beta1api.IngressConfig) error {
 	r.ClientConfig = mgr.GetConfig()
+	ctx := context.Background()
 
 	ksvcFound, err := utils.IsCrdAvailable(r.ClientConfig, knservingv1.SchemeGroupVersion.String(), constants.KnativeServiceKind)
 	if err != nil {
@@ -341,6 +380,42 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, deployCo
 	vsFound, err := utils.IsCrdAvailable(r.ClientConfig, istioclientv1beta1.SchemeGroupVersion.String(), constants.IstioVirtualServiceKind)
 	if err != nil {
 		return err
+	}
+
+	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1beta1api.InferenceService{}, "spec.predictor.model.runtime", func(rawObj client.Object) []string {
+		isvc, ok := rawObj.(*v1beta1api.InferenceService)
+		if !ok {
+			return nil
+		}
+		if isvc.Spec.Predictor.Model == nil || isvc.Spec.Predictor.Model.Runtime == nil {
+			return nil
+		}
+		if *isvc.Spec.Predictor.Model.Runtime != "" {
+			return []string{*isvc.Spec.Predictor.Model.Runtime}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	servingRuntimesPredicate := predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldServingRuntime := e.ObjectOld.(*v1alpha1api.ServingRuntime)
+			newServingRuntime := e.ObjectNew.(*v1alpha1api.ServingRuntime)
+			// Compare the images of all containers.
+			oldImages := []string{}
+			newImages := []string{}
+			for _, container := range oldServingRuntime.Spec.Containers {
+				oldImages = append(oldImages, container.Image)
+			}
+			for _, container := range newServingRuntime.Spec.Containers {
+				newImages = append(newImages, container.Image)
+			}
+			return !reflect.DeepEqual(oldImages, newImages)
+		},
+		CreateFunc:  func(e event.CreateEvent) bool { return false },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return false },
+		GenericFunc: func(e event.GenericEvent) bool { return false },
 	}
 
 	ctrlBuilder := ctrl.NewControllerManagedBy(mgr).
@@ -359,7 +434,7 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, deployCo
 		r.Log.Info("The InferenceService controller won't watch networking.istio.io/v1beta1/VirtualService resources because the CRD is not available.")
 	}
 
-	return ctrlBuilder.Complete(r)
+	return ctrlBuilder.Watches(&v1alpha1api.ServingRuntime{}, handler.EnqueueRequestsFromMapFunc(r.servingRuntimeFunc), builder.WithPredicates(servingRuntimesPredicate)).Complete(r)
 }
 
 func (r *InferenceServiceReconciler) deleteExternalResources(isvc *v1beta1api.InferenceService) error {
