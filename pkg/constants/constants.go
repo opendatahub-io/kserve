@@ -100,6 +100,7 @@ var (
 	PrometheusPortAnnotationKey                 = "prometheus.io/port"
 	PrometheusPathAnnotationKey                 = "prometheus.io/path"
 	StorageReadonlyAnnotationKey                = "storage.kserve.io/readonly"
+	AutoUpdateAnnotationKey                     = KServeAPIGroupName + "/auto-update"
 	DefaultPrometheusPath                       = "/metrics"
 	QueueProxyAggregatePrometheusMetricsPort    = 9088
 	DefaultPodPrometheusPort                    = "9091"

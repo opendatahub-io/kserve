@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -336,34 +337,39 @@ func inferenceServiceStatusEqual(s1, s2 v1beta1api.InferenceServiceStatus, deplo
 
 func (r *InferenceServiceReconciler) servingRuntimeFunc(ctx context.Context, obj client.Object) []reconcile.Request {
 	runtimeObj, ok := obj.(*v1alpha1api.ServingRuntime)
-	if !ok {
+	if !ok || runtimeObj == nil || runtimeObj.Spec.SupportedModelFormats == nil {
 		return nil
 	}
 
 	var isvcList v1beta1api.InferenceServiceList
-	if err := r.Client.List(ctx, &isvcList,
-		client.MatchingFields{"spec.predictor.model.runtime": runtimeObj.Name},
-		client.InNamespace(runtimeObj.Namespace),
-	); err != nil {
+	// List all InferenceServices in the same namespace.
+	if err := r.Client.List(ctx, &isvcList, client.InNamespace(runtimeObj.Namespace)); err != nil {
 		r.Log.Error(err, "unable to list InferenceServices", "runtime", runtimeObj.Name)
 		return nil
 	}
 
 	var requests []reconcile.Request
+	supportedModelFormatNames := []string{}
+	for _, supportedModelFormat := range runtimeObj.Spec.SupportedModelFormats {
+		supportedModelFormatNames = append(supportedModelFormatNames, supportedModelFormat.Name)
+	}
 	for _, isvc := range isvcList.Items {
+		// Filter out if auto-update is explicitly disabled.
 		annotations := isvc.GetAnnotations()
-		if annotations == nil {
-			annotations = map[string]string{}
+		if annotations != nil {
+			if autoUpdate, found := annotations[constants.AutoUpdateAnnotationKey]; found && autoUpdate == "false" {
+				r.Log.Info("Auto-update is disabled for InferenceService", "InferenceService", isvc.Name)
+				continue
+			}
 		}
-		if autoUpdate, found := annotations["serving.kserve.io/auto-update"]; found && autoUpdate == "false" {
-			continue
+		if slices.Contains(supportedModelFormatNames, isvc.Spec.Predictor.Model.ModelFormat.Name) {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: isvc.Namespace,
+					Name:      isvc.Name,
+				},
+			})
 		}
-		requests = append(requests, reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: isvc.Namespace,
-				Name:      isvc.Name,
-			},
-		})
 	}
 	return requests
 }
