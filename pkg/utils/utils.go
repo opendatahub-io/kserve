@@ -329,7 +329,7 @@ func CheckEnvsToRemove(desired, current []v1.EnvVar) ([]v1.EnvVar, []v1.EnvVar) 
 			}
 		}
 		if !found {
-			// replace the value of the found env to "delete"
+			// replace the value of the found env to a placeholder to mark it for deletion
 			currentEnv.Value = PLACEHOLDER_FOR_DELETION
 			envsToRemove = append(envsToRemove, currentEnv)
 		}

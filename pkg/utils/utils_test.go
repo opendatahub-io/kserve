@@ -704,8 +704,8 @@ func TestCheckEnvsToRemove(t *testing.T) {
 	}
 
 	needsToBeRemoved := []v1.EnvVar{
-		{Name: "env1", Value: "delete"},
-		{Name: "env3", Value: "delete"},
+		{Name: "env1", Value: "env_marked_for_deletion"},
+		{Name: "env3", Value: "env_marked_for_deletion"},
 	}
 	removed, keep := CheckEnvsToRemove(desired, current)
 	assert.Equal(t, needsToBeRemoved, removed)
@@ -717,8 +717,8 @@ func TestCheckEnvsToRemove(t *testing.T) {
 		{Name: "env2", Value: "value2"},
 		// the original value is "delete", so, it should be in the needs to  be removed list
 		{Name: "env4", Value: "delete"},
-		{Name: "env1", Value: "delete"},
-		{Name: "env3", Value: "delete"},
+		{Name: "env1", Value: "env_marked_for_deletion"},
+		{Name: "env3", Value: "env_marked_for_deletion"},
 	}
 	assert.Equal(t, expected, finalList)
 }
