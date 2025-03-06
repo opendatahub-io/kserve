@@ -2994,7 +2994,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				serviceKey := types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
 				predictorDeploymentName := constants.PredictorServiceName(isvcName)
 				storageUri := "s3://test/mnist/export"
-				servingRuntimeName := "tf-serving-auto-update-missing"
+				servingRuntimeName := "pytorch-serving-auto-update-missing"
 				servingRuntime := &v1alpha1.ServingRuntime{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      servingRuntimeName,
@@ -3003,7 +3003,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					Spec: v1alpha1.ServingRuntimeSpec{
 						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
 							{
-								Name:       "tensorflow",
+								Name:       "pytorch",
 								Version:    proto.String("1"),
 								AutoSelect: proto.Bool(true),
 							},
@@ -3022,8 +3022,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 							Containers: []v1.Container{
 								{
 									Name:    constants.InferenceServiceContainerName,
-									Image:   "tensorflow/serving:1.14.0",
-									Command: []string{"/usr/bin/tensorflow_model_server"},
+									Image:   "pytorch/serving:1.14.0",
+									Command: []string{"/usr/bin/pytorch_model_server"},
 									Args: []string{
 										"--port=9000",
 										"--rest_api_port=8080",
@@ -3057,7 +3057,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					},
 					Spec: v1beta1.InferenceServiceSpec{
 						Predictor: v1beta1.PredictorSpec{
-							Tensorflow: &v1beta1.TFServingSpec{
+							PyTorch: &v1beta1.TorchServeSpec{
 								PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
 									StorageURI:     &storageUri,
 									RuntimeVersion: proto.String("1.14.0"),
@@ -3091,7 +3091,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				// Update the ServingRuntime image to a new version.
 				servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
 				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
-				servingRuntimeToUpdate.Spec.ServingRuntimePodSpec.Containers[0].Image = "tensorflow/serving:1.1.0"
+				servingRuntimeToUpdate.Spec.ServingRuntimePodSpec.Containers[0].Image = "pytorch/serving:1.1.0"
 				Eventually(func() error {
 					return k8sClient.Update(ctx, servingRuntimeToUpdate)
 				}, timeout, interval).Should(Succeed())
@@ -3104,7 +3104,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						return "", err
 					}
 					return servingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Containers[0].Image, nil
-				}, timeout, interval).Should(Equal("tensorflow/serving:1.1.0"))
+				}, timeout, interval).Should(Equal("pytorch/serving:1.1.0"))
 				deploymentAfterUpdate := &appsv1.Deployment{}
 				Eventually(func() (string, error) {
 					err := k8sClient.Get(ctx, types.NamespacedName{Name: predictorDeploymentName, Namespace: isvcNamespace}, deploymentAfterUpdate)
@@ -3112,7 +3112,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						return "", err
 					}
 					return deploymentAfterUpdate.Spec.Template.Spec.Containers[0].Image, nil
-				}, timeout, interval).Should(Equal("tensorflow/serving:1.1.0"))
+				}, timeout, interval).Should(Equal("pytorch/serving:1.1.0"))
 				defer k8sClient.Delete(ctx, servingRuntime)
 			})
 
@@ -3121,7 +3121,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				serviceKey := types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
 				predictorDeploymentName := constants.PredictorServiceName(isvcName)
 				storageUri := "s3://test/mnist/export"
-				servingRuntimeName := "tf-serving-auto-update-true"
+				servingRuntimeName := "pytorch-serving-auto-update-true"
 				servingRuntime := &v1alpha1.ServingRuntime{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      servingRuntimeName,
@@ -3130,7 +3130,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					Spec: v1alpha1.ServingRuntimeSpec{
 						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
 							{
-								Name:       "tensorflow",
+								Name:       "pytorch",
 								Version:    proto.String("1"),
 								AutoSelect: proto.Bool(true),
 							},
@@ -3149,8 +3149,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 							Containers: []v1.Container{
 								{
 									Name:    constants.InferenceServiceContainerName,
-									Image:   "tensorflow/serving:1.14.0",
-									Command: []string{"/usr/bin/tensorflow_model_server"},
+									Image:   "pytorch/serving:1.14.0",
+									Command: []string{"/usr/bin/pytorch_model_server"},
 									Args: []string{
 										"--port=9000",
 										"--rest_api_port=8080",
@@ -3185,7 +3185,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					},
 					Spec: v1beta1.InferenceServiceSpec{
 						Predictor: v1beta1.PredictorSpec{
-							Tensorflow: &v1beta1.TFServingSpec{
+							PyTorch: &v1beta1.TorchServeSpec{
 								PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
 									StorageURI:     &storageUri,
 									RuntimeVersion: proto.String("1.14.0"),
@@ -3219,7 +3219,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				// Update the ServingRuntime image to a new version.
 				servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
 				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
-				servingRuntimeToUpdate.Spec.ServingRuntimePodSpec.Containers[0].Image = "tensorflow/serving:1.1.0"
+				servingRuntimeToUpdate.Spec.ServingRuntimePodSpec.Containers[0].Image = "pytorch/serving:1.1.0"
 				Eventually(func() error {
 					return k8sClient.Update(ctx, servingRuntimeToUpdate)
 				}, timeout, interval).Should(Succeed())
@@ -3232,7 +3232,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						return "", err
 					}
 					return servingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Containers[0].Image, nil
-				}, timeout, interval).Should(Equal("tensorflow/serving:1.1.0"))
+				}, timeout, interval).Should(Equal("pytorch/serving:1.1.0"))
 				deploymentAfterUpdate := &appsv1.Deployment{}
 				Eventually(func() (string, error) {
 					err := k8sClient.Get(ctx, types.NamespacedName{Name: predictorDeploymentName, Namespace: isvcNamespace}, deploymentAfterUpdate)
@@ -3240,7 +3240,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						return "", err
 					}
 					return deploymentAfterUpdate.Spec.Template.Spec.Containers[0].Image, nil
-				}, timeout, interval).Should(Equal("tensorflow/serving:1.1.0"))
+				}, timeout, interval).Should(Equal("pytorch/serving:1.1.0"))
 				defer k8sClient.Delete(ctx, servingRuntime)
 			})
 
@@ -3249,7 +3249,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				serviceKey := types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
 				predictorDeploymentName := constants.PredictorServiceName(isvcName)
 				storageUri := "s3://test/mnist/export"
-				servingRuntimeName := "tf-serving-auto-update-false"
+				servingRuntimeName := "pytorch-serving-auto-update-false"
 				servingRuntime := &v1alpha1.ServingRuntime{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      servingRuntimeName,
@@ -3258,7 +3258,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					Spec: v1alpha1.ServingRuntimeSpec{
 						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
 							{
-								Name:       "tensorflow",
+								Name:       "pytorch",
 								Version:    proto.String("1"),
 								AutoSelect: proto.Bool(true),
 							},
@@ -3277,8 +3277,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 							Containers: []v1.Container{
 								{
 									Name:    constants.InferenceServiceContainerName,
-									Image:   "tensorflow/serving:1.14.0",
-									Command: []string{"/usr/bin/tensorflow_model_server"},
+									Image:   "pytorch/serving:1.14.0",
+									Command: []string{"/usr/bin/pytorch_model_server"},
 									Args: []string{
 										"--port=9000",
 										"--rest_api_port=8080",
@@ -3313,7 +3313,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					},
 					Spec: v1beta1.InferenceServiceSpec{
 						Predictor: v1beta1.PredictorSpec{
-							Tensorflow: &v1beta1.TFServingSpec{
+							PyTorch: &v1beta1.TorchServeSpec{
 								PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
 									StorageURI:     &storageUri,
 									RuntimeVersion: proto.String("1.14.0"),
@@ -3347,7 +3347,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				// Update the ServingRuntime image to a new version.
 				servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
 				Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
-				servingRuntimeToUpdate.Spec.ServingRuntimePodSpec.Containers[0].Image = "tensorflow/serving:1.1.0"
+				servingRuntimeToUpdate.Spec.ServingRuntimePodSpec.Containers[0].Image = "pytorch/serving:1.1.0"
 				Eventually(func() error {
 					return k8sClient.Update(ctx, servingRuntimeToUpdate)
 				}, timeout, interval).Should(Succeed())
@@ -3360,7 +3360,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						return "", err
 					}
 					return servingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Containers[0].Image, nil
-				}, timeout, interval).Should(Equal("tensorflow/serving:1.1.0"))
+				}, timeout, interval).Should(Equal("pytorch/serving:1.1.0"))
 				deploymentAfterUpdate := &appsv1.Deployment{}
 				Eventually(func() (string, error) {
 					err := k8sClient.Get(ctx, types.NamespacedName{Name: predictorDeploymentName, Namespace: isvcNamespace}, deploymentAfterUpdate)
@@ -3368,7 +3368,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						return "", err
 					}
 					return deploymentAfterUpdate.Spec.Template.Spec.Containers[0].Image, nil
-				}, timeout, interval).Should(Equal("tensorflow/serving:1.14.0"))
+				}, timeout, interval).Should(Equal("pytorch/serving:1.14.0"))
 				defer k8sClient.Delete(ctx, servingRuntime)
 			})
 
