@@ -1426,7 +1426,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}, timeout, interval).Should(Succeed())
 			isvcName := "isvc-enable-auto-update-missing"
 			serviceKey := types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
-			predictorDeploymentName := constants.PredictorServiceName(isvcName)
 			storageUri := "s3://test/mnist/export"
 			servingRuntimeName := "pytorch-serving-auto-update-missing"
 			servingRuntime := &v1alpha1.ServingRuntime{
@@ -1514,7 +1513,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			log.Println("Right Before ConfigMap", createdConfigMap)
 			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil)
 			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
-
 			inferenceService := &v1beta1.InferenceService{}
 
 			Eventually(func() bool {
@@ -1523,38 +1521,32 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}, timeout, interval).Should(BeTrue())
 			defer k8sClient.Delete(ctx, isvc)
 
-			actualDeployment := &appsv1.Deployment{}
-			predictorDeploymentKey := types.NamespacedName{Name: constants.PredictorServiceName(serviceKey.Name),
-				Namespace: isvcNamespace}
-			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment) }, timeout).
-				Should(Succeed())
-				// Set auto-update to "false" so that the deployment should not change.
-
-			// Update the ServingRuntime image to a new version.
+			// Update the ServingRuntime spec
 			servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
-			servingRuntimeToUpdate.Spec.ServingRuntimePodSpec.Containers[0].Image = "pytorch/serving:1.1.0"
+			servingRuntimeToUpdate.Spec.ServingRuntimePodSpec.Labels["key1"] = "updatedServingRuntime"
 			Eventually(func() error {
 				return k8sClient.Update(ctx, servingRuntimeToUpdate)
 			}, timeout, interval).Should(Succeed())
 
-			// Wait until the ServingRuntime reflects the updated image.
+			// Wait until the ServingRuntime reflects the updated spec.
 			servingRuntimeAfterUpdate := &v1alpha1.ServingRuntime{}
 			Eventually(func() (string, error) {
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeAfterUpdate)
 				if err != nil {
 					return "", err
 				}
-				return servingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Containers[0].Image, nil
-			}, timeout, interval).Should(Equal("pytorch/serving:1.1.0"))
+				return servingRuntimeAfterUpdate.Spec.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
 			deploymentAfterUpdate := &appsv1.Deployment{}
+			deploymentName := constants.PredictorServiceName(serviceKey.Name)
 			Eventually(func() (string, error) {
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: predictorDeploymentName, Namespace: isvcNamespace}, deploymentAfterUpdate)
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate)
 				if err != nil {
 					return "", err
 				}
-				return deploymentAfterUpdate.Spec.Template.Spec.Containers[0].Image, nil
-			}, timeout, interval).Should(Equal("pytorch/serving:1.1.0"))
+				return deploymentAfterUpdate.Spec.Template.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
 			defer k8sClient.Delete(ctx, servingRuntime)
 		})
 
@@ -1576,7 +1568,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}, timeout, interval).Should(Succeed())
 			isvcName := "isvc-enable-auto-update-true"
 			serviceKey := types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
-			predictorDeploymentName := constants.PredictorServiceName(isvcName)
 			storageUri := "s3://test/mnist/export"
 			servingRuntimeName := "pytorch-serving-auto-update-true"
 			servingRuntime := &v1alpha1.ServingRuntime{
@@ -1666,38 +1657,33 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}, timeout, interval).Should(BeTrue())
 			defer k8sClient.Delete(ctx, isvc)
 
-			actualDeployment := &appsv1.Deployment{}
-			predictorDeploymentKey := types.NamespacedName{Name: constants.PredictorServiceName(serviceKey.Name),
-				Namespace: isvcNamespace}
-			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment) }, timeout).
-				Should(Succeed())
-				// Set auto-update to "false" so that the deployment should not change.
-
-			// Update the ServingRuntime image to a new version.
+			// Update the ServingRuntime spec
 			servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
-			servingRuntimeToUpdate.Spec.ServingRuntimePodSpec.Containers[0].Image = "pytorch/serving:1.1.0"
+			servingRuntimeToUpdate.Spec.ServingRuntimePodSpec.Labels["key1"] = "updatedServingRuntime"
 			Eventually(func() error {
 				return k8sClient.Update(ctx, servingRuntimeToUpdate)
 			}, timeout, interval).Should(Succeed())
 
-			// Wait until the ServingRuntime reflects the updated image.
+			// Wait until the ServingRuntime reflects the updated spec.
 			servingRuntimeAfterUpdate := &v1alpha1.ServingRuntime{}
 			Eventually(func() (string, error) {
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeAfterUpdate)
 				if err != nil {
 					return "", err
 				}
-				return servingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Containers[0].Image, nil
-			}, timeout, interval).Should(Equal("pytorch/serving:1.1.0"))
+				return servingRuntimeAfterUpdate.Spec.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
+			// Wait until the Deployment reflects the update
 			deploymentAfterUpdate := &appsv1.Deployment{}
+			deploymentName := constants.PredictorServiceName(serviceKey.Name)
 			Eventually(func() (string, error) {
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: predictorDeploymentName, Namespace: isvcNamespace}, deploymentAfterUpdate)
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate)
 				if err != nil {
 					return "", err
 				}
-				return deploymentAfterUpdate.Spec.Template.Spec.Containers[0].Image, nil
-			}, timeout, interval).Should(Equal("pytorch/serving:1.1.0"))
+				return deploymentAfterUpdate.Spec.Template.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
 			defer k8sClient.Delete(ctx, servingRuntime)
 		})
 
@@ -1719,7 +1705,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}, timeout, interval).Should(Succeed())
 			isvcName := "isvc-enable-auto-update-false"
 			serviceKey := types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
-			predictorDeploymentName := constants.PredictorServiceName(isvcName)
 			storageUri := "s3://test/mnist/export"
 			servingRuntimeName := "pytorch-serving-auto-update-false"
 			servingRuntime := &v1alpha1.ServingRuntime{
@@ -1809,38 +1794,28 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}, timeout, interval).Should(BeTrue())
 			defer k8sClient.Delete(ctx, isvc)
 
-			actualDeployment := &appsv1.Deployment{}
-			predictorDeploymentKey := types.NamespacedName{Name: constants.PredictorServiceName(serviceKey.Name),
-				Namespace: isvcNamespace}
-			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment) }, timeout).
-				Should(Succeed())
-				// Set auto-update to "false" so that the deployment should not change.
-
-			// Update the ServingRuntime image to a new version.
+			// Update the ServingRuntime spec
 			servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
-			servingRuntimeToUpdate.Spec.ServingRuntimePodSpec.Containers[0].Image = "pytorch/serving:1.1.0"
+			servingRuntimeToUpdate.Spec.ServingRuntimePodSpec.Labels["key1"] = "updatedServingRuntime"
 			Eventually(func() error {
 				return k8sClient.Update(ctx, servingRuntimeToUpdate)
 			}, timeout, interval).Should(Succeed())
 
-			// Wait until the ServingRuntime reflects the updated image.
+			// Wait until the ServingRuntime reflects the updated spec.
 			servingRuntimeAfterUpdate := &v1alpha1.ServingRuntime{}
 			Eventually(func() (string, error) {
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeAfterUpdate)
 				if err != nil {
 					return "", err
 				}
-				return servingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Containers[0].Image, nil
-			}, timeout, interval).Should(Equal("pytorch/serving:1.1.0"))
+				return servingRuntimeAfterUpdate.Spec.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
+			// Make sure deployment doesn't update
 			deploymentAfterUpdate := &appsv1.Deployment{}
-			Eventually(func() (string, error) {
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: predictorDeploymentName, Namespace: isvcNamespace}, deploymentAfterUpdate)
-				if err != nil {
-					return "", err
-				}
-				return deploymentAfterUpdate.Spec.Template.Spec.Containers[0].Image, nil
-			}, timeout, interval).Should(Equal("pytorch/serving:1.14.0"))
+			deploymentName := constants.PredictorServiceName(serviceKey.Name)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate)).Should(Succeed())
+			Expect(deploymentAfterUpdate.Spec.Template.Labels["key1"]).Should(Equal("val1FromSR"))
 			defer k8sClient.Delete(ctx, servingRuntime)
 		})
 	})
