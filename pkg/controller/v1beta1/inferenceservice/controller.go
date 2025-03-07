@@ -408,16 +408,7 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, deployCo
 		UpdateFunc: func(e event.UpdateEvent) bool {
 			oldServingRuntime := e.ObjectOld.(*v1alpha1api.ServingRuntime)
 			newServingRuntime := e.ObjectNew.(*v1alpha1api.ServingRuntime)
-			// Compare the images of all containers.
-			oldImages := []string{}
-			newImages := []string{}
-			for _, container := range oldServingRuntime.Spec.Containers {
-				oldImages = append(oldImages, container.Image)
-			}
-			for _, container := range newServingRuntime.Spec.Containers {
-				newImages = append(newImages, container.Image)
-			}
-			return !reflect.DeepEqual(oldImages, newImages)
+			return !reflect.DeepEqual(oldServingRuntime.Spec, newServingRuntime.Spec)
 		},
 		CreateFunc:  func(e event.CreateEvent) bool { return false },
 		DeleteFunc:  func(e event.DeleteEvent) bool { return false },
