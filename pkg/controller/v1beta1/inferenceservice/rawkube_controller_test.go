@@ -1811,11 +1811,16 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				}
 				return servingRuntimeAfterUpdate.Spec.Labels["key1"], nil
 			}, timeout, interval).Should(Equal("updatedServingRuntime"))
-			// Make sure deployment doesn't update
+			// Check to make sure deployement didn't update
 			deploymentAfterUpdate := &appsv1.Deployment{}
 			deploymentName := constants.PredictorServiceName(serviceKey.Name)
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate)).Should(Succeed())
-			Expect(deploymentAfterUpdate.Spec.Template.Labels["key1"]).Should(Equal("val1FromSR"))
+			Eventually(func() (string, error) {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate)
+				if err != nil {
+					return "", err
+				}
+				return deploymentAfterUpdate.Spec.Template.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("val1FromSR"))
 			defer k8sClient.Delete(ctx, servingRuntime)
 		})
 	})
