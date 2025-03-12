@@ -193,7 +193,7 @@ func (r *InferenceGraphReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	} else {
 		// The object is being deleted
 		if utils.Includes(graph.ObjectMeta.Finalizers, constants.InferenceGraphFinalizerName) {
-			// our finalizer is present, so lets handle any external dependency
+			// our finalizer is present, so lets cleanup resources
 			if err = r.onDeleteCleanup(ctx, graph); err != nil {
 				// if fail to delete the external dependency here, return with error
 				// so that it can be retried
