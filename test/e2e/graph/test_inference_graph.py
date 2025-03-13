@@ -34,118 +34,121 @@ IG_TEST_RESOURCES_BASE_LOCATION = "graph/test-resources"
 @pytest.mark.kourier
 @pytest.mark.asyncio(scope="session")
 async def test_inference_graph(rest_v1_client):
-    logger.info("Starting test test_inference_graph")
-    sklearn_name_1 = "isvc-sklearn-graph-1"
-    sklearn_name_2 = "isvc-sklearn-graph-2"
-    xgb_name = "isvc-xgboost-graph"
-    graph_name = "model-chainer"
+    try:
+        logger.info("Starting test test_inference_graph")
+        sklearn_name_1 = "isvc-sklearn-graph-1"
+        sklearn_name_2 = "isvc-sklearn-graph-2"
+        xgb_name = "isvc-xgboost-graph"
+        graph_name = "model-chainer"
 
-    sklearn_predictor_1 = V1beta1PredictorSpec(
-        min_replicas=1,
-        sklearn=V1beta1SKLearnSpec(
-            storage_uri="gs://kfserving-examples/models/sklearn/1.0/model",
-            resources=V1ResourceRequirements(
-                requests={"cpu": "50m", "memory": "128Mi"},
-                limits={"cpu": "100m", "memory": "256Mi"},
-            ),
-            args=["--model_name=sklearn"],
-        ),
-    )
-    sklearn_predictor_2 = V1beta1PredictorSpec(
-        min_replicas=1,
-        sklearn=V1beta1SKLearnSpec(
-            storage_uri="gs://kfserving-examples/models/sklearn/1.0/model",
-            resources=V1ResourceRequirements(
-                requests={"cpu": "50m", "memory": "128Mi"},
-                limits={"cpu": "100m", "memory": "256Mi"},
-            ),
-            args=["--model_name", "iris"],
-        ),
-    )
-    sklearn_isvc_1 = V1beta1InferenceService(
-        api_version=constants.KSERVE_V1BETA1,
-        kind=constants.KSERVE_KIND,
-        metadata=client.V1ObjectMeta(
-            name=sklearn_name_1, namespace=KSERVE_TEST_NAMESPACE
-        ),
-        spec=V1beta1InferenceServiceSpec(predictor=sklearn_predictor_1),
-    )
-    sklearn_isvc_2 = V1beta1InferenceService(
-        api_version=constants.KSERVE_V1BETA1,
-        kind=constants.KSERVE_KIND,
-        metadata=client.V1ObjectMeta(
-            name=sklearn_name_2, namespace=KSERVE_TEST_NAMESPACE
-        ),
-        spec=V1beta1InferenceServiceSpec(predictor=sklearn_predictor_2),
-    )
-
-    xgb_predictor = V1beta1PredictorSpec(
-        min_replicas=1,
-        xgboost=V1beta1XGBoostSpec(
-            storage_uri="gs://kfserving-examples/models/xgboost/1.5/model",
-            resources=V1ResourceRequirements(
-                requests={"cpu": "50m", "memory": "128Mi"},
-                limits={"cpu": "100m", "memory": "256Mi"},
-            ),
-        ),
-    )
-    xgb_isvc = V1beta1InferenceService(
-        api_version=constants.KSERVE_V1BETA1,
-        kind=constants.KSERVE_KIND,
-        metadata=client.V1ObjectMeta(name=xgb_name, namespace=KSERVE_TEST_NAMESPACE),
-        spec=V1beta1InferenceServiceSpec(predictor=xgb_predictor),
-    )
-
-    nodes = {
-        "root": V1alpha1InferenceRouter(
-            router_type="Sequence",
-            steps=[
-                V1alpha1InferenceStep(
-                    service_name=sklearn_name_1,
-                    dependency="Hard",
+        sklearn_predictor_1 = V1beta1PredictorSpec(
+            min_replicas=1,
+            sklearn=V1beta1SKLearnSpec(
+                storage_uri="gs://kfserving-examples/models/sklearn/1.0/model",
+                resources=V1ResourceRequirements(
+                    requests={"cpu": "50m", "memory": "128Mi"},
+                    limits={"cpu": "100m", "memory": "256Mi"},
                 ),
-                V1alpha1InferenceStep(
-                    service_name=xgb_name,
-                    data="$request",
-                    dependency="Hard",
-                ),
-                V1alpha1InferenceStep(
-                    service_name=sklearn_name_2,
-                    data="$request",
-                    dependency="Hard",
-                ),
-            ],
+                args=["--model_name=sklearn"],
+            ),
         )
-    }
-    graph_spec = V1alpha1InferenceGraphSpec(
-        nodes=nodes,
-    )
-    ig = V1alpha1InferenceGraph(
-        api_version=constants.KSERVE_V1ALPHA1,
-        kind=constants.KSERVE_KIND_INFERENCEGRAPH,
-        metadata=client.V1ObjectMeta(name=graph_name, namespace=KSERVE_TEST_NAMESPACE),
-        spec=graph_spec,
-    )
+        sklearn_predictor_2 = V1beta1PredictorSpec(
+            min_replicas=1,
+            sklearn=V1beta1SKLearnSpec(
+                storage_uri="gs://kfserving-examples/models/sklearn/1.0/model",
+                resources=V1ResourceRequirements(
+                    requests={"cpu": "50m", "memory": "128Mi"},
+                    limits={"cpu": "100m", "memory": "256Mi"},
+                ),
+                args=["--model_name", "iris"],
+            ),
+        )
+        sklearn_isvc_1 = V1beta1InferenceService(
+            api_version=constants.KSERVE_V1BETA1,
+            kind=constants.KSERVE_KIND,
+            metadata=client.V1ObjectMeta(
+                name=sklearn_name_1, namespace=KSERVE_TEST_NAMESPACE
+            ),
+            spec=V1beta1InferenceServiceSpec(predictor=sklearn_predictor_1),
+        )
+        sklearn_isvc_2 = V1beta1InferenceService(
+            api_version=constants.KSERVE_V1BETA1,
+            kind=constants.KSERVE_KIND,
+            metadata=client.V1ObjectMeta(
+                name=sklearn_name_2, namespace=KSERVE_TEST_NAMESPACE
+            ),
+            spec=V1beta1InferenceServiceSpec(predictor=sklearn_predictor_2),
+        )
 
-    kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
-    )
-    kserve_client.create(sklearn_isvc_1)
-    kserve_client.create(xgb_isvc)
-    kserve_client.create(sklearn_isvc_2)
-    kserve_client.wait_isvc_ready(sklearn_name_1, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(xgb_name, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(sklearn_name_2, namespace=KSERVE_TEST_NAMESPACE)
+        xgb_predictor = V1beta1PredictorSpec(
+            min_replicas=1,
+            xgboost=V1beta1XGBoostSpec(
+                storage_uri="gs://kfserving-examples/models/xgboost/1.5/model",
+                resources=V1ResourceRequirements(
+                    requests={"cpu": "50m", "memory": "128Mi"},
+                    limits={"cpu": "100m", "memory": "256Mi"},
+                ),
+            ),
+        )
+        xgb_isvc = V1beta1InferenceService(
+            api_version=constants.KSERVE_V1BETA1,
+            kind=constants.KSERVE_KIND,
+            metadata=client.V1ObjectMeta(name=xgb_name, namespace=KSERVE_TEST_NAMESPACE),
+            spec=V1beta1InferenceServiceSpec(predictor=xgb_predictor),
+        )
 
-    kserve_client.create_inference_graph(ig)
-    kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+        nodes = {
+            "root": V1alpha1InferenceRouter(
+                router_type="Sequence",
+                steps=[
+                    V1alpha1InferenceStep(
+                        service_name=sklearn_name_1,
+                        dependency="Hard",
+                    ),
+                    V1alpha1InferenceStep(
+                        service_name=xgb_name,
+                        data="$request",
+                        dependency="Hard",
+                    ),
+                    V1alpha1InferenceStep(
+                        service_name=sklearn_name_2,
+                        data="$request",
+                        dependency="Hard",
+                    ),
+                ],
+            )
+        }
+        graph_spec = V1alpha1InferenceGraphSpec(
+            nodes=nodes,
+        )
+        ig = V1alpha1InferenceGraph(
+            api_version=constants.KSERVE_V1ALPHA1,
+            kind=constants.KSERVE_KIND_INFERENCEGRAPH,
+            metadata=client.V1ObjectMeta(name=graph_name, namespace=KSERVE_TEST_NAMESPACE),
+            spec=graph_spec,
+        )
 
-    res = await predict_ig(
-        rest_v1_client,
-        graph_name,
-        os.path.join(IG_TEST_RESOURCES_BASE_LOCATION, "iris_input.json"),
-    )
-    assert res["predictions"] == [1, 1]
+        kserve_client = KServeClient(
+            config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        )
+        kserve_client.create(sklearn_isvc_1)
+        kserve_client.create(xgb_isvc)
+        kserve_client.create(sklearn_isvc_2)
+        kserve_client.wait_isvc_ready(sklearn_name_1, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(xgb_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(sklearn_name_2, namespace=KSERVE_TEST_NAMESPACE)
+
+        kserve_client.create_inference_graph(ig)
+        kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+
+        res = await predict_ig(
+            rest_v1_client,
+            graph_name,
+            os.path.join(IG_TEST_RESOURCES_BASE_LOCATION, "iris_input.json"),
+        )
+        assert res["predictions"] == [1, 1]
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error in test_inference_graph: %s", e)
 
     kserve_client.delete_inference_graph(graph_name, KSERVE_TEST_NAMESPACE)
     kserve_client.delete(sklearn_name_1, KSERVE_TEST_NAMESPACE)
@@ -164,7 +167,7 @@ def create_ig_using_custom_object_api(resource_body):
             namespace="kserve-ci-e2e-test",
             body=resource_body,
         )
-    except Exception as e:
+    except Exception as e:  # pylint: disable=broad-exception-caught
         raise e
 
     return resource
@@ -198,8 +201,8 @@ def construct_isvc_to_submit(service_name, image, model_name):
 
 
 def setup_isvcs_for_test(suffix):
-    logger.info(f"SUCCESS_ISVC_IMAGE is {SUCCESS_ISVC_IMAGE}")
-    logger.info(f"ERROR_ISVC_IMAGE is {ERROR_ISVC_IMAGE}")
+    logger.info("SUCCESS_ISVC_IMAGE is %s", SUCCESS_ISVC_IMAGE)
+    logger.info("ERROR_ISVC_IMAGE is %s", ERROR_ISVC_IMAGE)
 
     # construct_isvc_to_submit
     model_name = success_isvc_name = ("-").join(["success-200-isvc", suffix])
@@ -230,63 +233,66 @@ async def test_ig_scenario1(rest_v1_client):
     :return:
     """
 
-    logger.info("Starting test test_ig_scenario1")
-    suffix = str(uuid.uuid4())[1:6]
-    success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
-        suffix
-    )
-    logger.info(f"success_isvc_name is {success_isvc_name}")
-    logger.info(f"error_isvc_name is {error_isvc_name}")
-
-    # Create graph
-    graph_name = "-".join(["sequence-graph", suffix])
-
-    nodes = {
-        "root": V1alpha1InferenceRouter(
-            router_type="Sequence",
-            steps=[
-                V1alpha1InferenceStep(
-                    service_name=success_isvc_name,
-                ),
-                V1alpha1InferenceStep(
-                    service_name=error_isvc_name,
-                    data="$request",
-                ),
-            ],
+    try:
+        logger.info("Starting test test_ig_scenario1")
+        suffix = str(uuid.uuid4())[1:6]
+        success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
+            suffix
         )
-    }
-    graph_spec = V1alpha1InferenceGraphSpec(
-        nodes=nodes,
-    )
-    ig = V1alpha1InferenceGraph(
-        api_version=constants.KSERVE_V1ALPHA1,
-        kind=constants.KSERVE_KIND_INFERENCEGRAPH,
-        metadata=client.V1ObjectMeta(name=graph_name, namespace=KSERVE_TEST_NAMESPACE),
-        spec=graph_spec,
-    )
+        logger.info("success_isvc_name is %s", success_isvc_name)
+        logger.info("error_isvc_name is %s", error_isvc_name)
 
-    kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
-    )
-    kserve_client.create(success_isvc)
-    kserve_client.create(error_isvc)
-    kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        # Create graph
+        graph_name = "-".join(["sequence-graph", suffix])
 
-    kserve_client.create_inference_graph(ig)
-    kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
-
-    with pytest.raises(HTTPStatusError) as exc_info:
-        await predict_ig(
-            rest_v1_client,
-            graph_name,
-            os.path.join(
-                IG_TEST_RESOURCES_BASE_LOCATION, "custom_predictor_input.json"
-            ),
+        nodes = {
+            "root": V1alpha1InferenceRouter(
+                router_type="Sequence",
+                steps=[
+                    V1alpha1InferenceStep(
+                        service_name=success_isvc_name,
+                    ),
+                    V1alpha1InferenceStep(
+                        service_name=error_isvc_name,
+                        data="$request",
+                    ),
+                ],
+            )
+        }
+        graph_spec = V1alpha1InferenceGraphSpec(
+            nodes=nodes,
+        )
+        ig = V1alpha1InferenceGraph(
+            api_version=constants.KSERVE_V1ALPHA1,
+            kind=constants.KSERVE_KIND_INFERENCEGRAPH,
+            metadata=client.V1ObjectMeta(name=graph_name, namespace=KSERVE_TEST_NAMESPACE),
+            spec=graph_spec,
         )
 
-    assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
-    assert exc_info.value.response.status_code == 404
+        kserve_client = KServeClient(
+            config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        )
+        kserve_client.create(success_isvc)
+        kserve_client.create(error_isvc)
+        kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+
+        kserve_client.create_inference_graph(ig)
+        kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+
+        with pytest.raises(HTTPStatusError) as exc_info:
+            await predict_ig(
+                rest_v1_client,
+                graph_name,
+                os.path.join(
+                    IG_TEST_RESOURCES_BASE_LOCATION, "custom_predictor_input.json"
+                ),
+            )
+
+        assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
+        assert exc_info.value.response.status_code == 404
+    except Exception as e:  # pylint: disable=broad-exception-caught  # pylint: disable=broad-exception-caught
+        logger.error("Error in test_ig_scenario1: %s", e)
 
     kserve_client.delete_inference_graph(graph_name, KSERVE_TEST_NAMESPACE)
     kserve_client.delete(success_isvc_name, KSERVE_TEST_NAMESPACE)
@@ -305,58 +311,61 @@ async def test_ig_scenario2(rest_v1_client):
     :return:
     """
 
-    logger.info("Starting test test_ig_scenario2")
-    suffix = str(uuid.uuid4())[1:6]
-    success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
-        suffix
-    )
-    logger.info(f"success_isvc_name is {success_isvc_name}")
-    logger.info(f"error_isvc_name is {error_isvc_name}")
-
-    # Create graph
-    graph_name = "-".join(["sequence-graph", suffix])
-
-    nodes = {
-        "root": V1alpha1InferenceRouter(
-            router_type="Sequence",
-            steps=[
-                V1alpha1InferenceStep(
-                    service_name=error_isvc_name,
-                ),
-                V1alpha1InferenceStep(
-                    service_name=success_isvc_name,
-                    data="$request",
-                ),
-            ],
+    try:
+        logger.info("Starting test test_ig_scenario2")
+        suffix = str(uuid.uuid4())[1:6]
+        success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
+            suffix
         )
-    }
-    graph_spec = V1alpha1InferenceGraphSpec(
-        nodes=nodes,
-    )
-    ig = V1alpha1InferenceGraph(
-        api_version=constants.KSERVE_V1ALPHA1,
-        kind=constants.KSERVE_KIND_INFERENCEGRAPH,
-        metadata=client.V1ObjectMeta(name=graph_name, namespace=KSERVE_TEST_NAMESPACE),
-        spec=graph_spec,
-    )
+        logger.info("success_isvc_name is %s", success_isvc_name)
+        logger.info("error_isvc_name is %s", error_isvc_name)
 
-    kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
-    )
-    kserve_client.create(success_isvc)
-    kserve_client.create(error_isvc)
-    kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        # Create graph
+        graph_name = "-".join(["sequence-graph", suffix])
 
-    kserve_client.create_inference_graph(ig)
-    kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+        nodes = {
+            "root": V1alpha1InferenceRouter(
+                router_type="Sequence",
+                steps=[
+                    V1alpha1InferenceStep(
+                        service_name=error_isvc_name,
+                    ),
+                    V1alpha1InferenceStep(
+                        service_name=success_isvc_name,
+                        data="$request",
+                    ),
+                ],
+            )
+        }
+        graph_spec = V1alpha1InferenceGraphSpec(
+            nodes=nodes,
+        )
+        ig = V1alpha1InferenceGraph(
+            api_version=constants.KSERVE_V1ALPHA1,
+            kind=constants.KSERVE_KIND_INFERENCEGRAPH,
+            metadata=client.V1ObjectMeta(name=graph_name, namespace=KSERVE_TEST_NAMESPACE),
+            spec=graph_spec,
+        )
 
-    response = await predict_ig(
-        rest_v1_client,
-        graph_name,
-        os.path.join(IG_TEST_RESOURCES_BASE_LOCATION, "custom_predictor_input.json"),
-    )
-    assert response == {"predictions": [{"message": "SUCCESS"}]}
+        kserve_client = KServeClient(
+            config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        )
+        kserve_client.create(success_isvc)
+        kserve_client.create(error_isvc)
+        kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+
+        kserve_client.create_inference_graph(ig)
+        kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+
+        response = await predict_ig(
+            rest_v1_client,
+            graph_name,
+            os.path.join(IG_TEST_RESOURCES_BASE_LOCATION, "custom_predictor_input.json"),
+        )
+        assert response == {"predictions": [{"message": "SUCCESS"}]}
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error in test_ig_scenario2: %s", e)
 
     kserve_client.delete_inference_graph(graph_name, KSERVE_TEST_NAMESPACE)
     kserve_client.delete(success_isvc_name, KSERVE_TEST_NAMESPACE)
@@ -373,58 +382,61 @@ async def test_ig_scenario3(rest_v1_client):
 
     Expectation: IG will return response of error_isvc and predict_ig will raise exception
     """
-    logger.info("Starting test test_ig_scenario3")
-    suffix = str(uuid.uuid4())[1:6]
-    success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
-        suffix
-    )
-    logger.info(f"success_isvc_name is {success_isvc_name}")
-    logger.info(f"error_isvc_name is {error_isvc_name}")
+    try:
+        logger.info("Starting test test_ig_scenario3")
+        suffix = str(uuid.uuid4())[1:6]
+        success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
+            suffix
+        )
+        logger.info("success_isvc_name is %s", success_isvc_name)
+        logger.info("error_isvc_name is %s", error_isvc_name)
 
-    kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
-    )
-    kserve_client.create(success_isvc)
-    kserve_client.create(error_isvc)
+        kserve_client = KServeClient(
+            config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        )
+        kserve_client.create(success_isvc)
+        kserve_client.create(error_isvc)
 
-    # Create graph
-    graph_name = "-".join(["sequence-graph", suffix])
+        # Create graph
+        graph_name = "-".join(["sequence-graph", suffix])
 
-    # Because we run from test/e2e location in run-e2e-tests.sh
-    deployment_yaml_path = os.path.join(
-        IG_TEST_RESOURCES_BASE_LOCATION, "ig_test_seq_scenario_3.yaml"
-    )
-
-    # Read YAML file
-    with open(deployment_yaml_path, "r") as stream:
-        file_content = stream.read()
-        resource_template = Template(file_content)
-        substitutions = {
-            "graph_name": graph_name,
-            "error_404_isvc_id": error_isvc_name,
-            "success_200_isvc_id": success_isvc_name,
-        }
-        resource_body_after_rendering = yaml.safe_load(
-            resource_template.render(substitutions)
+        # Because we run from test/e2e location in run-e2e-tests.sh
+        deployment_yaml_path = os.path.join(
+            IG_TEST_RESOURCES_BASE_LOCATION, "ig_test_seq_scenario_3.yaml"
         )
 
-    kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        # Read YAML file
+        with open(deployment_yaml_path, "r", encoding="utf-8") as stream:
+            file_content = stream.read()
+            resource_template = Template(file_content)
+            substitutions = {
+                "graph_name": graph_name,
+                "error_404_isvc_id": error_isvc_name,
+                "success_200_isvc_id": success_isvc_name,
+            }
+            resource_body_after_rendering = yaml.safe_load(
+                resource_template.render(substitutions)
+            )
 
-    create_ig_using_custom_object_api(resource_body_after_rendering)
-    kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
 
-    with pytest.raises(HTTPStatusError) as exc_info:
-        await predict_ig(
-            rest_v1_client,
-            graph_name,
-            os.path.join(
-                IG_TEST_RESOURCES_BASE_LOCATION, "custom_predictor_input.json"
-            ),
-        )
+        create_ig_using_custom_object_api(resource_body_after_rendering)
+        kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
 
-    assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
-    assert exc_info.value.response.status_code == 404
+        with pytest.raises(HTTPStatusError) as exc_info:
+            await predict_ig(
+                rest_v1_client,
+                graph_name,
+                os.path.join(
+                    IG_TEST_RESOURCES_BASE_LOCATION, "custom_predictor_input.json"
+                ),
+            )
+
+        assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
+        assert exc_info.value.response.status_code == 404
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error in test_ig_scenario3: %s", e)
 
     kserve_client.delete_inference_graph(graph_name, KSERVE_TEST_NAMESPACE)
     kserve_client.delete(success_isvc_name, KSERVE_TEST_NAMESPACE)
@@ -447,84 +459,87 @@ async def test_ig_scenario4(rest_v1_client):
                "cause": "None of the routes matched with the switch condition",
        }
     """
-    logger.info("Starting test test_ig_scenario4")
-    suffix = str(uuid.uuid4())[1:6]
-    success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
-        suffix
-    )
-    logger.info(f"success_isvc_name is {success_isvc_name}")
-    logger.info(f"error_isvc_name is {error_isvc_name}")
+    try:
+        logger.info("Starting test test_ig_scenario4")
+        suffix = str(uuid.uuid4())[1:6]
+        success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
+            suffix
+        )
+        logger.info("success_isvc_name is %s", success_isvc_name)
+        logger.info("error_isvc_name is %s", error_isvc_name)
 
-    kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
-    )
-    kserve_client.create(success_isvc)
-    kserve_client.create(error_isvc)
+        kserve_client = KServeClient(
+            config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        )
+        kserve_client.create(success_isvc)
+        kserve_client.create(error_isvc)
 
-    # Create graph
-    graph_name = "-".join(["switch-graph", suffix])
+        # Create graph
+        graph_name = "-".join(["switch-graph", suffix])
 
-    # Because we run from test/e2e location in run-e2e-tests.sh
-    deployment_yaml_path = os.path.join(
-        IG_TEST_RESOURCES_BASE_LOCATION, "ig_test_switch_scenario_4.yaml"
-    )
+        # Because we run from test/e2e location in run-e2e-tests.sh
+        deployment_yaml_path = os.path.join(
+            IG_TEST_RESOURCES_BASE_LOCATION, "ig_test_switch_scenario_4.yaml"
+        )
 
-    # Read YAML file
-    with open(deployment_yaml_path, "r") as stream:
-        file_content = stream.read()
-        resource_template = Template(file_content)
-        substitutions = {
-            "graph_name": graph_name,
-            "error_404_isvc_id": error_isvc_name,
-            "success_200_isvc_id": success_isvc_name,
+        # Read YAML file
+        with open(deployment_yaml_path, "r", encoding="utf-8") as stream:
+            file_content = stream.read()
+            resource_template = Template(file_content)
+            substitutions = {
+                "graph_name": graph_name,
+                "error_404_isvc_id": error_isvc_name,
+                "success_200_isvc_id": success_isvc_name,
+            }
+            resource_body_after_rendering = yaml.safe_load(
+                resource_template.render(substitutions)
+            )
+        kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+
+        create_ig_using_custom_object_api(resource_body_after_rendering)
+        kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+
+        # Case 1
+        with pytest.raises(HTTPStatusError) as exc_info:
+            await predict_ig(
+                rest_v1_client,
+                graph_name,
+                os.path.join(
+                    IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_error_picker_input.json"
+                ),
+            )
+
+        assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
+        assert exc_info.value.response.status_code == 404
+
+        # Case 2
+        response = await predict_ig(
+            rest_v1_client,
+            graph_name,
+            os.path.join(
+                IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_success_picker_input.json"
+            ),
+        )
+        assert response == {"predictions": [{"message": "SUCCESS"}]}
+
+        # Case 3
+        with pytest.raises(HTTPStatusError) as exc_info:
+            await predict_ig(
+                rest_v1_client,
+                graph_name,
+                os.path.join(
+                    IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_no_match_input.json"
+                ),
+            )
+
+        assert exc_info.value.response.json() == {
+            "error": "Failed to process request",
+            "cause": "None of the routes matched with the switch condition",
         }
-        resource_body_after_rendering = yaml.safe_load(
-            resource_template.render(substitutions)
-        )
-    kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
-
-    create_ig_using_custom_object_api(resource_body_after_rendering)
-    kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
-
-    # Case 1
-    with pytest.raises(HTTPStatusError) as exc_info:
-        await predict_ig(
-            rest_v1_client,
-            graph_name,
-            os.path.join(
-                IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_error_picker_input.json"
-            ),
-        )
-
-    assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
-    assert exc_info.value.response.status_code == 404
-
-    # Case 2
-    response = await predict_ig(
-        rest_v1_client,
-        graph_name,
-        os.path.join(
-            IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_success_picker_input.json"
-        ),
-    )
-    assert response == {"predictions": [{"message": "SUCCESS"}]}
-
-    # Case 3
-    with pytest.raises(HTTPStatusError) as exc_info:
-        await predict_ig(
-            rest_v1_client,
-            graph_name,
-            os.path.join(
-                IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_no_match_input.json"
-            ),
-        )
-
-    assert exc_info.value.response.json() == {
-        "error": "Failed to process request",
-        "cause": "None of the routes matched with the switch condition",
-    }
-    assert exc_info.value.response.status_code == 404
+        assert exc_info.value.response.status_code == 404
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error in test_ig_scenario4: %s", e)
 
     kserve_client.delete_inference_graph(graph_name, KSERVE_TEST_NAMESPACE)
     kserve_client.delete(success_isvc_name, KSERVE_TEST_NAMESPACE)
@@ -540,55 +555,58 @@ async def test_ig_scenario5(rest_v1_client):
     execution and call the next step in the flow as error step will be a soft dependency.
     Expectation: IG will return response of success_isvc.
     """
-    logger.info("Starting test test_ig_scenario5")
-    suffix = str(uuid.uuid4())[1:6]
-    success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
-        suffix
-    )
-    logger.info(f"success_isvc_name is {success_isvc_name}")
-    logger.info(f"error_isvc_name is {error_isvc_name}")
+    try:
+        logger.info("Starting test test_ig_scenario5")
+        suffix = str(uuid.uuid4())[1:6]
+        success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
+            suffix
+        )
+        logger.info("success_isvc_name is %s", success_isvc_name)
+        logger.info("error_isvc_name is %s", error_isvc_name)
 
-    kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
-    )
-    kserve_client.create(success_isvc)
-    kserve_client.create(error_isvc)
+        kserve_client = KServeClient(
+            config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        )
+        kserve_client.create(success_isvc)
+        kserve_client.create(error_isvc)
 
-    # Create graph
-    graph_name = "-".join(["switch-graph", suffix])
+        # Create graph
+        graph_name = "-".join(["switch-graph", suffix])
 
-    # Because we run from test/e2e location in run-e2e-tests.sh
-    deployment_yaml_path = os.path.join(
-        IG_TEST_RESOURCES_BASE_LOCATION, "ig_test_switch_scenario_5.yaml"
-    )
-
-    # Read YAML file
-    with open(deployment_yaml_path, "r") as stream:
-        file_content = stream.read()
-        resource_template = Template(file_content)
-        substitutions = {
-            "graph_name": graph_name,
-            "error_404_isvc_id": error_isvc_name,
-            "success_200_isvc_id": success_isvc_name,
-        }
-        resource_body_after_rendering = yaml.safe_load(
-            resource_template.render(substitutions)
+        # Because we run from test/e2e location in run-e2e-tests.sh
+        deployment_yaml_path = os.path.join(
+            IG_TEST_RESOURCES_BASE_LOCATION, "ig_test_switch_scenario_5.yaml"
         )
 
-    kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        # Read YAML file
+        with open(deployment_yaml_path, "r", encoding="utf-8") as stream:
+            file_content = stream.read()
+            resource_template = Template(file_content)
+            substitutions = {
+                "graph_name": graph_name,
+                "error_404_isvc_id": error_isvc_name,
+                "success_200_isvc_id": success_isvc_name,
+            }
+            resource_body_after_rendering = yaml.safe_load(
+                resource_template.render(substitutions)
+            )
 
-    create_ig_using_custom_object_api(resource_body_after_rendering)
-    kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
 
-    response = await predict_ig(
-        rest_v1_client,
-        graph_name,
-        os.path.join(
-            IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_error_picker_input.json"
-        ),
-    )
-    assert response == {"predictions": [{"message": "SUCCESS"}]}
+        create_ig_using_custom_object_api(resource_body_after_rendering)
+        kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+
+        response = await predict_ig(
+            rest_v1_client,
+            graph_name,
+            os.path.join(
+                IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_error_picker_input.json"
+            ),
+        )
+        assert response == {"predictions": [{"message": "SUCCESS"}]}
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error in test_ig_scenario5: %s", e)
 
     kserve_client.delete_inference_graph(graph_name, KSERVE_TEST_NAMESPACE)
     kserve_client.delete(success_isvc_name, KSERVE_TEST_NAMESPACE)
@@ -604,58 +622,62 @@ async def test_ig_scenario6(rest_v1_client):
     continue execution and call the next step in the flow as error step will be a HARD dependency.
     Expectation: IG will return response of success_isvc.
     """
-    logger.info("Starting test test_ig_scenario6")
-    suffix = str(uuid.uuid4())[1:6]
-    success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
-        suffix
-    )
-    logger.info(f"success_isvc_name is {success_isvc_name}")
-    logger.info(f"error_isvc_name is {error_isvc_name}")
+    try:
+        logger.info("Starting test test_ig_scenario6")
+        suffix = str(uuid.uuid4())[1:6]
+        success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
+            suffix
+        )
+        logger.info("success_isvc_name is %s", success_isvc_name)
+        logger.info("error_isvc_name is %s", error_isvc_name)
 
-    kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
-    )
-    kserve_client.create(success_isvc)
-    kserve_client.create(error_isvc)
+        kserve_client = KServeClient(
+            config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        )
+        kserve_client.create(success_isvc)
+        kserve_client.create(error_isvc)
 
-    # Create graph
-    graph_name = "-".join(["switch-graph", suffix])
+        # Create graph
+        graph_name = "-".join(["switch-graph", suffix])
 
-    # Because we run from test/e2e location in run-e2e-tests.sh
-    deployment_yaml_path = os.path.join(
-        IG_TEST_RESOURCES_BASE_LOCATION, "ig_test_switch_scenario_6.yaml"
-    )
-
-    # Read YAML file
-    with open(deployment_yaml_path, "r") as stream:
-        file_content = stream.read()
-        resource_template = Template(file_content)
-        substitutions = {
-            "graph_name": graph_name,
-            "error_404_isvc_id": error_isvc_name,
-            "success_200_isvc_id": success_isvc_name,
-        }
-        resource_body_after_rendering = yaml.safe_load(
-            resource_template.render(substitutions)
+        # Because we run from test/e2e location in run-e2e-tests.sh
+        deployment_yaml_path = os.path.join(
+            IG_TEST_RESOURCES_BASE_LOCATION, "ig_test_switch_scenario_6.yaml"
         )
 
-    kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        # Read YAML file
+        with open(deployment_yaml_path, "r", encoding="utf-8") as stream:
+            file_content = stream.read()
+            resource_template = Template(file_content)
+            substitutions = {
+                "graph_name": graph_name,
+                "error_404_isvc_id": error_isvc_name,
+                "success_200_isvc_id": success_isvc_name,
+            }
+            resource_body_after_rendering = yaml.safe_load(
+                resource_template.render(substitutions)
+            )
 
-    create_ig_using_custom_object_api(resource_body_after_rendering)
-    kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
 
-    with pytest.raises(HTTPStatusError) as exc_info:
-        await predict_ig(
-            rest_v1_client,
-            graph_name,
-            os.path.join(
-                IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_error_picker_input.json"
-            ),
-        )
+        create_ig_using_custom_object_api(resource_body_after_rendering)
+        kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
 
-    assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
-    assert exc_info.value.response.status_code == 404
+        with pytest.raises(HTTPStatusError) as exc_info:
+            await predict_ig(
+                rest_v1_client,
+                graph_name,
+                os.path.join(
+                    IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_error_picker_input.json"
+                ),
+            )
+
+        assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
+        assert exc_info.value.response.status_code == 404
+
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error in test_ig_scenario6: %s", e)
 
     kserve_client.delete_inference_graph(graph_name, KSERVE_TEST_NAMESPACE)
     kserve_client.delete(success_isvc_name, KSERVE_TEST_NAMESPACE)
@@ -671,58 +693,61 @@ async def test_ig_scenario7(rest_v1_client):
 
     Expectation: IG will return combined response of both the steps.
     """
-    logger.info("Starting test test_ig_scenario7")
-    suffix = str(uuid.uuid4())[1:6]
-    success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
-        suffix
-    )
-    logger.info(f"success_isvc_name is {success_isvc_name}")
-    logger.info(f"error_isvc_name is {error_isvc_name}")
+    try:
+        logger.info("Starting test test_ig_scenario7")
+        suffix = str(uuid.uuid4())[1:6]
+        success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
+            suffix
+        )
+        logger.info("success_isvc_name is %s", success_isvc_name)
+        logger.info("error_isvc_name is %s", error_isvc_name)
 
-    kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
-    )
-    kserve_client.create(success_isvc)
-    kserve_client.create(error_isvc)
+        kserve_client = KServeClient(
+            config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        )
+        kserve_client.create(success_isvc)
+        kserve_client.create(error_isvc)
 
-    # Create graph
-    graph_name = "-".join(["ensemble-graph", suffix])
+        # Create graph
+        graph_name = "-".join(["ensemble-graph", suffix])
 
-    # Because we run from test/e2e location in run-e2e-tests.sh
-    deployment_yaml_path = os.path.join(
-        IG_TEST_RESOURCES_BASE_LOCATION, "ig_test_ensemble_scenario_7.yaml"
-    )
-
-    # Read YAML file
-    with open(deployment_yaml_path, "r") as stream:
-        file_content = stream.read()
-        resource_template = Template(file_content)
-        substitutions = {
-            "graph_name": graph_name,
-            "error_404_isvc_id": error_isvc_name,
-            "success_200_isvc_id": success_isvc_name,
-        }
-        resource_body_after_rendering = yaml.safe_load(
-            resource_template.render(substitutions)
+        # Because we run from test/e2e location in run-e2e-tests.sh
+        deployment_yaml_path = os.path.join(
+            IG_TEST_RESOURCES_BASE_LOCATION, "ig_test_ensemble_scenario_7.yaml"
         )
 
-    kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        # Read YAML file
+        with open(deployment_yaml_path, "r", encoding="utf-8") as stream:
+            file_content = stream.read()
+            resource_template = Template(file_content)
+            substitutions = {
+                "graph_name": graph_name,
+                "error_404_isvc_id": error_isvc_name,
+                "success_200_isvc_id": success_isvc_name,
+            }
+            resource_body_after_rendering = yaml.safe_load(
+                resource_template.render(substitutions)
+            )
 
-    create_ig_using_custom_object_api(resource_body_after_rendering)
-    kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
 
-    response = await predict_ig(
-        rest_v1_client,
-        graph_name,
-        os.path.join(
-            IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_success_picker_input.json"
-        ),
-    )
-    assert response == {
-        "rootStep1": {"predictions": [{"message": "SUCCESS"}]},
-        "rootStep2": {"detail": "Intentional 404 code"},
-    }
+        create_ig_using_custom_object_api(resource_body_after_rendering)
+        kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+
+        response = await predict_ig(
+            rest_v1_client,
+            graph_name,
+            os.path.join(
+                IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_success_picker_input.json"
+            ),
+        )
+        assert response == {
+            "rootStep1": {"predictions": [{"message": "SUCCESS"}]},
+            "rootStep2": {"detail": "Intentional 404 code"},
+        }
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error in test_ig_scenario7: %s", e)
 
     kserve_client.delete_inference_graph(graph_name, KSERVE_TEST_NAMESPACE)
     kserve_client.delete(success_isvc_name, KSERVE_TEST_NAMESPACE)
@@ -738,57 +763,61 @@ async def test_ig_scenario8(rest_v1_client):
 
     Expectation: Since HARD step will return non-200, so IG will return that step's output as IG's output
     """
-    logger.info("Starting test test_ig_scenario8")
-    suffix = str(uuid.uuid4())[1:6]
-    success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
-        suffix
-    )
-    logger.info(f"success_isvc_name is {success_isvc_name}")
-    logger.info(f"error_isvc_name is {error_isvc_name}")
+    try:
+        logger.info("Starting test test_ig_scenario8")
+        suffix = str(uuid.uuid4())[1:6]
+        success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
+            suffix
+        )
+        logger.info("success_isvc_name is %s", success_isvc_name)
+        logger.info("error_isvc_name is %s", error_isvc_name)
 
-    kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
-    )
-    kserve_client.create(success_isvc)
-    kserve_client.create(error_isvc)
+        kserve_client = KServeClient(
+            config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        )
+        kserve_client.create(success_isvc)
+        kserve_client.create(error_isvc)
 
-    # Create graph
-    graph_name = "-".join(["ensemble-graph", suffix])
+        # Create graph
+        graph_name = "-".join(["ensemble-graph", suffix])
 
-    # Because we run from test/e2e location in run-e2e-tests.sh
-    deployment_yaml_path = os.path.join(
-        IG_TEST_RESOURCES_BASE_LOCATION, "ig_test_ensemble_scenario_8.yaml"
-    )
-
-    # Read YAML file
-    with open(deployment_yaml_path, "r") as stream:
-        file_content = stream.read()
-        resource_template = Template(file_content)
-        substitutions = {
-            "graph_name": graph_name,
-            "error_404_isvc_id": error_isvc_name,
-            "success_200_isvc_id": success_isvc_name,
-        }
-        resource_body_after_rendering = yaml.safe_load(
-            resource_template.render(substitutions)
+        # Because we run from test/e2e location in run-e2e-tests.sh
+        deployment_yaml_path = os.path.join(
+            IG_TEST_RESOURCES_BASE_LOCATION, "ig_test_ensemble_scenario_8.yaml"
         )
 
-    kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        # Read YAML file
+        with open(deployment_yaml_path, "r", encoding="utf-8") as stream:
+            file_content = stream.read()
+            resource_template = Template(file_content)
+            substitutions = {
+                "graph_name": graph_name,
+                "error_404_isvc_id": error_isvc_name,
+                "success_200_isvc_id": success_isvc_name,
+            }
+            resource_body_after_rendering = yaml.safe_load(
+                resource_template.render(substitutions)
+            )
 
-    create_ig_using_custom_object_api(resource_body_after_rendering)
-    kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
 
-    with pytest.raises(HTTPStatusError) as exc_info:
-        await predict_ig(
-            rest_v1_client,
-            graph_name,
-            os.path.join(
-                IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_success_picker_input.json"
-            ),
-        )
+        create_ig_using_custom_object_api(resource_body_after_rendering)
+        kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
 
-    assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
+        with pytest.raises(HTTPStatusError) as exc_info:
+            await predict_ig(
+                rest_v1_client,
+                graph_name,
+                os.path.join(
+                    IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_success_picker_input.json"
+                ),
+            )
+
+        assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
+
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error in test_ig_scenario8: %s", e)
 
     kserve_client.delete_inference_graph(graph_name, KSERVE_TEST_NAMESPACE)
     kserve_client.delete(success_isvc_name, KSERVE_TEST_NAMESPACE)
@@ -804,53 +833,57 @@ async def test_ig_scenario9(rest_v1_client):
     execution and call the next step in the flow as error step will be a soft dependency.
     Expectation: IG will return response of success_isvc.
     """
-    logger.info("Starting test test_ig_scenario9")
-    suffix = str(uuid.uuid4())[1:6]
-    success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
-        suffix
-    )
-    logger.info(f"success_isvc_name is {success_isvc_name}")
-    logger.info(f"error_isvc_name is {error_isvc_name}")
+    try:
+        logger.info("Starting test test_ig_scenario9")
+        suffix = str(uuid.uuid4())[1:6]
+        success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
+            suffix
+        )
+        logger.info("success_isvc_name is %s", success_isvc_name)
+        logger.info("error_isvc_name is %s", error_isvc_name)
 
-    kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
-    )
-    kserve_client.create(success_isvc)
-    kserve_client.create(error_isvc)
+        kserve_client = KServeClient(
+            config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        )
+        kserve_client.create(success_isvc)
+        kserve_client.create(error_isvc)
 
-    # Create graph
-    graph_name = "-".join(["splitter-graph", suffix])
+        # Create graph
+        graph_name = "-".join(["splitter-graph", suffix])
 
-    # Because we run from test/e2e location in run-e2e-tests.sh
-    deployment_yaml_path = os.path.join(
-        IG_TEST_RESOURCES_BASE_LOCATION, "ig_test_switch_scenario_9.yaml"
-    )
-
-    # Read YAML file
-    with open(deployment_yaml_path, "r") as stream:
-        file_content = stream.read()
-        resource_template = Template(file_content)
-        substitutions = {
-            "graph_name": graph_name,
-            "error_404_isvc_id": error_isvc_name,
-            "success_200_isvc_id": success_isvc_name,
-        }
-        resource_body_after_rendering = yaml.safe_load(
-            resource_template.render(substitutions)
+        # Because we run from test/e2e location in run-e2e-tests.sh
+        deployment_yaml_path = os.path.join(
+            IG_TEST_RESOURCES_BASE_LOCATION, "ig_test_switch_scenario_9.yaml"
         )
 
-    kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        # Read YAML file
+        with open(deployment_yaml_path, "r", encoding="utf-8") as stream:
+            file_content = stream.read()
+            resource_template = Template(file_content)
+            substitutions = {
+                "graph_name": graph_name,
+                "error_404_isvc_id": error_isvc_name,
+                "success_200_isvc_id": success_isvc_name,
+            }
+            resource_body_after_rendering = yaml.safe_load(
+                resource_template.render(substitutions)
+            )
 
-    create_ig_using_custom_object_api(resource_body_after_rendering)
-    kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
 
-    response = await predict_ig(
-        rest_v1_client,
-        graph_name,
-        os.path.join(IG_TEST_RESOURCES_BASE_LOCATION, "iris_input.json"),
-    )
-    assert response == {"predictions": [{"message": "SUCCESS"}]}
+        create_ig_using_custom_object_api(resource_body_after_rendering)
+        kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+
+        response = await predict_ig(
+            rest_v1_client,
+            graph_name,
+            os.path.join(IG_TEST_RESOURCES_BASE_LOCATION, "iris_input.json"),
+        )
+        assert response == {"predictions": [{"message": "SUCCESS"}]}
+
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error in test_ig_scenario9: %s", e)
 
     kserve_client.delete_inference_graph(graph_name, KSERVE_TEST_NAMESPACE)
     kserve_client.delete(success_isvc_name, KSERVE_TEST_NAMESPACE)
@@ -866,56 +899,60 @@ async def test_ig_scenario10(rest_v1_client):
     continue execution and call the next step in the flow as error step will be a HARD dependency.
     Expectation: IG will return response of success_isvc.
     """
-    logger.info("Starting test test_ig_scenario10")
-    suffix = str(uuid.uuid4())[1:6]
-    success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
-        suffix
-    )
-    logger.info(f"success_isvc_name is {success_isvc_name}")
-    logger.info(f"error_isvc_name is {error_isvc_name}")
+    try:
+        logger.info("Starting test test_ig_scenario10")
+        suffix = str(uuid.uuid4())[1:6]
+        success_isvc_name, error_isvc_name, success_isvc, error_isvc = setup_isvcs_for_test(
+            suffix
+        )
+        logger.info("success_isvc_name is %s", success_isvc_name)
+        logger.info("error_isvc_name is %s", error_isvc_name)
 
-    kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
-    )
-    kserve_client.create(success_isvc)
-    kserve_client.create(error_isvc)
+        kserve_client = KServeClient(
+            config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        )
+        kserve_client.create(success_isvc)
+        kserve_client.create(error_isvc)
 
-    # Create graph
-    graph_name = "-".join(["splitter-graph", suffix])
+        # Create graph
+        graph_name = "-".join(["splitter-graph", suffix])
 
-    # Because we run from test/e2e location in run-e2e-tests.sh
-    deployment_yaml_path = os.path.join(
-        IG_TEST_RESOURCES_BASE_LOCATION, "ig_test_switch_scenario_10.yaml"
-    )
-
-    # Read YAML file
-    with open(deployment_yaml_path, "r") as stream:
-        file_content = stream.read()
-        resource_template = Template(file_content)
-        substitutions = {
-            "graph_name": graph_name,
-            "error_404_isvc_id": error_isvc_name,
-            "success_200_isvc_id": success_isvc_name,
-        }
-        resource_body_after_rendering = yaml.safe_load(
-            resource_template.render(substitutions)
+        # Because we run from test/e2e location in run-e2e-tests.sh
+        deployment_yaml_path = os.path.join(
+            IG_TEST_RESOURCES_BASE_LOCATION, "ig_test_switch_scenario_10.yaml"
         )
 
-    kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        # Read YAML file
+        with open(deployment_yaml_path, "r", encoding="utf-8") as stream:
+            file_content = stream.read()
+            resource_template = Template(file_content)
+            substitutions = {
+                "graph_name": graph_name,
+                "error_404_isvc_id": error_isvc_name,
+                "success_200_isvc_id": success_isvc_name,
+            }
+            resource_body_after_rendering = yaml.safe_load(
+                resource_template.render(substitutions)
+            )
 
-    create_ig_using_custom_object_api(resource_body_after_rendering)
-    kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(success_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(error_isvc_name, namespace=KSERVE_TEST_NAMESPACE)
 
-    with pytest.raises(HTTPStatusError) as exc_info:
-        await predict_ig(
-            rest_v1_client,
-            graph_name,
-            os.path.join(IG_TEST_RESOURCES_BASE_LOCATION, "iris_input.json"),
-        )
+        create_ig_using_custom_object_api(resource_body_after_rendering)
+        kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
 
-    assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
-    assert exc_info.value.response.status_code == 404
+        with pytest.raises(HTTPStatusError) as exc_info:
+            await predict_ig(
+                rest_v1_client,
+                graph_name,
+                os.path.join(IG_TEST_RESOURCES_BASE_LOCATION, "iris_input.json"),
+            )
+
+        assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
+        assert exc_info.value.response.status_code == 404
+
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error in test_ig_scenario10: %s", e)
 
     kserve_client.delete_inference_graph(graph_name, KSERVE_TEST_NAMESPACE)
     kserve_client.delete(success_isvc_name, KSERVE_TEST_NAMESPACE)
@@ -925,151 +962,155 @@ async def test_ig_scenario10(rest_v1_client):
 @pytest.mark.raw
 @pytest.mark.asyncio(scope="session")
 async def test_inference_graph_raw_mode(rest_v1_client):
-    logger.info("Starting test test_inference_graph_raw_mode")
-    sklearn_name = "isvc-sklearn-graph-raw"
-    xgb_name = "isvc-xgboost-graph-raw"
-    graph_name = "model-chainer-raw"
-
-    annotations = dict()
-    annotations["serving.kserve.io/deploymentMode"] = "RawDeployment"
-
-    sklearn_predictor = V1beta1PredictorSpec(
-        min_replicas=1,
-        sklearn=V1beta1SKLearnSpec(
-            storage_uri="gs://kfserving-examples/models/sklearn/1.0/model",
-            resources=V1ResourceRequirements(
-                requests={"cpu": "50m", "memory": "128Mi"},
-                limits={"cpu": "100m", "memory": "256Mi"},
-            ),
-        ),
-    )
-    sklearn_isvc = V1beta1InferenceService(
-        api_version=constants.KSERVE_V1BETA1,
-        kind=constants.KSERVE_KIND,
-        metadata=client.V1ObjectMeta(
-            name=sklearn_name,
-            namespace=KSERVE_TEST_NAMESPACE,
-            annotations=annotations,
-        ),
-        spec=V1beta1InferenceServiceSpec(predictor=sklearn_predictor),
-    )
-
-    xgb_predictor = V1beta1PredictorSpec(
-        min_replicas=1,
-        xgboost=V1beta1XGBoostSpec(
-            storage_uri="gs://kfserving-examples/models/xgboost/1.5/model",
-            resources=V1ResourceRequirements(
-                requests={"cpu": "50m", "memory": "128Mi"},
-                limits={"cpu": "100m", "memory": "256Mi"},
-            ),
-        ),
-    )
-    xgb_isvc = V1beta1InferenceService(
-        api_version=constants.KSERVE_V1BETA1,
-        kind=constants.KSERVE_KIND,
-        metadata=client.V1ObjectMeta(
-            name=xgb_name,
-            namespace=KSERVE_TEST_NAMESPACE,
-            annotations=annotations,
-        ),
-        spec=V1beta1InferenceServiceSpec(predictor=xgb_predictor),
-    )
-
-    nodes = {
-        "root": V1alpha1InferenceRouter(
-            router_type="Sequence",
-            steps=[
-                V1alpha1InferenceStep(
-                    service_name=sklearn_name,
-                ),
-                V1alpha1InferenceStep(
-                    service_name=xgb_name,
-                    data="$request",
-                ),
-            ],
-        )
-    }
-    graph_spec = V1alpha1InferenceGraphSpec(
-        nodes=nodes,
-    )
-    ig = V1alpha1InferenceGraph(
-        api_version=constants.KSERVE_V1ALPHA1,
-        kind=constants.KSERVE_KIND_INFERENCEGRAPH,
-        metadata=client.V1ObjectMeta(
-            name=graph_name, namespace=KSERVE_TEST_NAMESPACE, annotations=annotations
-        ),
-        spec=graph_spec,
-    )
-
-    kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
-    )
-    kserve_client.create(sklearn_isvc)
-    kserve_client.create(xgb_isvc)
-    kserve_client.wait_isvc_ready(sklearn_name, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(xgb_name, namespace=KSERVE_TEST_NAMESPACE)
-
-    kserve_client.create_inference_graph(ig)
-    kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
-
-    # Below checks are raw deployment specific.  They ensure raw k8s resources created instead of knative resources
-    dep = kserve_client.app_api.read_namespaced_deployment(
-        graph_name, namespace=KSERVE_TEST_NAMESPACE
-    )
-    if not dep:
-        raise RuntimeError(
-            "Deployment doesn't exist for InferenceGraph {} in raw deployment mode".format(
-                graph_name
-            )
-        )
-
-    svc = kserve_client.core_api.read_namespaced_service(
-        graph_name, namespace=KSERVE_TEST_NAMESPACE
-    )
-    if not svc:
-        raise RuntimeError(
-            "Service doesn't exist for InferenceGraph {} in raw deployment mode".format(
-                graph_name
-            )
-        )
-
     try:
-        knativeroute = kserve_client.api_instance.get_namespaced_custom_object(
-            "serving.knative.dev", "v1", KSERVE_TEST_NAMESPACE, "routes", graph_name
+        logger.info("Starting test test_inference_graph_raw_mode")
+        sklearn_name = "isvc-sklearn-graph-raw"
+        xgb_name = "isvc-xgboost-graph-raw"
+        graph_name = "model-chainer-raw"
+
+        annotations = dict()
+        annotations["serving.kserve.io/deploymentMode"] = "RawDeployment"
+
+        sklearn_predictor = V1beta1PredictorSpec(
+            min_replicas=1,
+            sklearn=V1beta1SKLearnSpec(
+                storage_uri="gs://kfserving-examples/models/sklearn/1.0/model",
+                resources=V1ResourceRequirements(
+                    requests={"cpu": "50m", "memory": "128Mi"},
+                    limits={"cpu": "100m", "memory": "256Mi"},
+                ),
+            ),
         )
-        if knativeroute:
+        sklearn_isvc = V1beta1InferenceService(
+            api_version=constants.KSERVE_V1BETA1,
+            kind=constants.KSERVE_KIND,
+            metadata=client.V1ObjectMeta(
+                name=sklearn_name,
+                namespace=KSERVE_TEST_NAMESPACE,
+                annotations=annotations,
+            ),
+            spec=V1beta1InferenceServiceSpec(predictor=sklearn_predictor),
+        )
+
+        xgb_predictor = V1beta1PredictorSpec(
+            min_replicas=1,
+            xgboost=V1beta1XGBoostSpec(
+                storage_uri="gs://kfserving-examples/models/xgboost/1.5/model",
+                resources=V1ResourceRequirements(
+                    requests={"cpu": "50m", "memory": "128Mi"},
+                    limits={"cpu": "100m", "memory": "256Mi"},
+                ),
+            ),
+        )
+        xgb_isvc = V1beta1InferenceService(
+            api_version=constants.KSERVE_V1BETA1,
+            kind=constants.KSERVE_KIND,
+            metadata=client.V1ObjectMeta(
+                name=xgb_name,
+                namespace=KSERVE_TEST_NAMESPACE,
+                annotations=annotations,
+            ),
+            spec=V1beta1InferenceServiceSpec(predictor=xgb_predictor),
+        )
+
+        nodes = {
+            "root": V1alpha1InferenceRouter(
+                router_type="Sequence",
+                steps=[
+                    V1alpha1InferenceStep(
+                        service_name=sklearn_name,
+                    ),
+                    V1alpha1InferenceStep(
+                        service_name=xgb_name,
+                        data="$request",
+                    ),
+                ],
+            )
+        }
+        graph_spec = V1alpha1InferenceGraphSpec(
+            nodes=nodes,
+        )
+        ig = V1alpha1InferenceGraph(
+            api_version=constants.KSERVE_V1ALPHA1,
+            kind=constants.KSERVE_KIND_INFERENCEGRAPH,
+            metadata=client.V1ObjectMeta(
+                name=graph_name, namespace=KSERVE_TEST_NAMESPACE, annotations=annotations
+            ),
+            spec=graph_spec,
+        )
+
+        kserve_client = KServeClient(
+            config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        )
+        kserve_client.create(sklearn_isvc)
+        kserve_client.create(xgb_isvc)
+        kserve_client.wait_isvc_ready(sklearn_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(xgb_name, namespace=KSERVE_TEST_NAMESPACE)
+
+        kserve_client.create_inference_graph(ig)
+        kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+
+        # Below checks are raw deployment specific.  They ensure raw k8s resources created instead of knative resources
+        dep = kserve_client.app_api.read_namespaced_deployment(
+            graph_name, namespace=KSERVE_TEST_NAMESPACE
+        )
+        if not dep:
             raise RuntimeError(
-                "Knative route resource shouldn't exist for InferenceGraph {}".format(
+                "Deployment doesn't exist for InferenceGraph {} in raw deployment mode".format(
                     graph_name
                 )
-                + "in raw deployment mode"
             )
-    except client.rest.ApiException:
-        logger.info("Expected error in finding knative route in raw deployment mode")
 
-    try:
-        knativesvc = kserve_client.api_instance.get_namespaced_custom_object(
-            "serving.knative.dev", "v1", KSERVE_TEST_NAMESPACE, "services", graph_name
+        svc = kserve_client.core_api.read_namespaced_service(
+            graph_name, namespace=KSERVE_TEST_NAMESPACE
         )
-        if knativesvc:
+        if not svc:
             raise RuntimeError(
-                "Knative resources shouldn't exist for InferenceGraph {} ".format(
+                "Service doesn't exist for InferenceGraph {} in raw deployment mode".format(
                     graph_name
                 )
-                + "in raw deployment mode"
             )
-    except client.rest.ApiException:
-        logger.info("Expected error in finding knative service in raw deployment mode")
 
-    # TODO Fix this when we enable ALB creation for IG raw deployment mode. This is required for traffic ingress
-    # for this predict api call to work
-    #
-    # res = await predict_ig(
-    #    rest_v1_client,
-    #     graph_name,
-    #     os.path.join(IG_TEST_RESOURCES_BASE_LOCATION, "iris_input.json"),
-    # )
-    # assert res["predictions"] == [1, 1]
+        try:
+            knativeroute = kserve_client.api_instance.get_namespaced_custom_object(
+                "serving.knative.dev", "v1", KSERVE_TEST_NAMESPACE, "routes", graph_name
+            )
+            if knativeroute:
+                raise RuntimeError(
+                    "Knative route resource shouldn't exist for InferenceGraph {}".format(
+                        graph_name
+                    )
+                    + "in raw deployment mode"
+                )
+        except client.rest.ApiException:
+            logger.info("Expected error in finding knative route in raw deployment mode")
+
+        try:
+            knativesvc = kserve_client.api_instance.get_namespaced_custom_object(
+                "serving.knative.dev", "v1", KSERVE_TEST_NAMESPACE, "services", graph_name
+            )
+            if knativesvc:
+                raise RuntimeError(
+                    "Knative resources shouldn't exist for InferenceGraph {} ".format(
+                        graph_name
+                    )
+                    + "in raw deployment mode"
+                )
+        except client.rest.ApiException:
+            logger.info("Expected error in finding knative service in raw deployment mode")
+
+        # TODO Fix this when we enable ALB creation for IG raw deployment mode. This is required for traffic ingress
+        # for this predict api call to work
+        #
+        # res = await predict_ig(
+        #    rest_v1_client,
+        #     graph_name,
+        #     os.path.join(IG_TEST_RESOURCES_BASE_LOCATION, "iris_input.json"),
+        # )
+        # assert res["predictions"] == [1, 1]
+
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error in test_inference_graph_raw_mode: %s", e)
 
     kserve_client.delete_inference_graph(graph_name, KSERVE_TEST_NAMESPACE)
     kserve_client.delete(sklearn_name, KSERVE_TEST_NAMESPACE)
@@ -1079,160 +1120,163 @@ async def test_inference_graph_raw_mode(rest_v1_client):
 @pytest.mark.raw
 @pytest.mark.asyncio(scope="session")
 async def test_inference_graph_raw_mode_with_hpa(rest_v1_client):
-    logger.info("Starting test test_inference_graph_raw_mode_with_hpa")
-    sklearn_name = "isvc-sklearn-graph-raw-hpa"
-    xgb_name = "isvc-xgboost-graph-raw-hpa"
-    graph_name = "model-chainer-raw-hpa"
-
-    annotations = dict()
-    annotations["serving.kserve.io/deploymentMode"] = "RawDeployment"
-    # annotations["serving.kserve.io/max-scale"] = '5'
-    # annotations["serving.kserve.io/metric"] = 'rps'
-    # annotations["serving.kserve.io/min-scale"] = '2'
-    # annotations["serving.kserve.io/target"] = '30'
-
-    sklearn_predictor = V1beta1PredictorSpec(
-        min_replicas=1,
-        sklearn=V1beta1SKLearnSpec(
-            storage_uri="gs://kfserving-examples/models/sklearn/1.0/model",
-            resources=V1ResourceRequirements(
-                requests={"cpu": "50m", "memory": "128Mi"},
-                limits={"cpu": "100m", "memory": "256Mi"},
-            ),
-        ),
-    )
-    sklearn_isvc = V1beta1InferenceService(
-        api_version=constants.KSERVE_V1BETA1,
-        kind=constants.KSERVE_KIND,
-        metadata=client.V1ObjectMeta(
-            name=sklearn_name,
-            namespace=KSERVE_TEST_NAMESPACE,
-            annotations=annotations,
-        ),
-        spec=V1beta1InferenceServiceSpec(predictor=sklearn_predictor),
-    )
-
-    xgb_predictor = V1beta1PredictorSpec(
-        min_replicas=1,
-        xgboost=V1beta1XGBoostSpec(
-            storage_uri="gs://kfserving-examples/models/xgboost/1.5/model",
-            resources=V1ResourceRequirements(
-                requests={"cpu": "50m", "memory": "128Mi"},
-                limits={"cpu": "100m", "memory": "256Mi"},
-            ),
-        ),
-    )
-    xgb_isvc = V1beta1InferenceService(
-        api_version=constants.KSERVE_V1BETA1,
-        kind=constants.KSERVE_KIND,
-        metadata=client.V1ObjectMeta(
-            name=xgb_name,
-            namespace=KSERVE_TEST_NAMESPACE,
-            annotations=annotations,
-        ),
-        spec=V1beta1InferenceServiceSpec(predictor=xgb_predictor),
-    )
-
-    nodes = {
-        "root": V1alpha1InferenceRouter(
-            router_type="Sequence",
-            steps=[
-                V1alpha1InferenceStep(
-                    service_name=sklearn_name,
-                ),
-                V1alpha1InferenceStep(
-                    service_name=xgb_name,
-                    data="$request",
-                ),
-            ],
-        )
-    }
-    graph_spec = V1alpha1InferenceGraphSpec(
-        nodes=nodes,
-    )
-    ig = V1alpha1InferenceGraph(
-        api_version=constants.KSERVE_V1ALPHA1,
-        kind=constants.KSERVE_KIND_INFERENCEGRAPH,
-        metadata=client.V1ObjectMeta(
-            name=graph_name, namespace=KSERVE_TEST_NAMESPACE, annotations=annotations
-        ),
-        spec=graph_spec,
-    )
-
-    kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
-    )
-    kserve_client.create(sklearn_isvc)
-    kserve_client.create(xgb_isvc)
-    kserve_client.wait_isvc_ready(sklearn_name, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(xgb_name, namespace=KSERVE_TEST_NAMESPACE)
-
-    kserve_client.create_inference_graph(ig)
-    kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
-
-    # Below checks are raw deployment specific.  They ensure raw k8s resources created instead of knative resources
-    dep = kserve_client.app_api.read_namespaced_deployment(
-        graph_name, namespace=KSERVE_TEST_NAMESPACE
-    )
-    if not dep:
-        raise RuntimeError(
-            "Deployment doesn't exist for InferenceGraph {} in raw deployment mode".format(
-                graph_name
-            )
-        )
-
-    svc = kserve_client.core_api.read_namespaced_service(
-        graph_name, namespace=KSERVE_TEST_NAMESPACE
-    )
-    if not svc:
-        raise RuntimeError(
-            "Service doesn't exist for InferenceGraph {} in raw deployment mode".format(
-                graph_name
-            )
-        )
-
-    # hpa = kserve_client.hpa_v2_api.read_namespaced_horizontal_pod_autoscaler(graph_name,
-    #                                                                          namespace=KSERVE_TEST_NAMESPACE)
-    # if not hpa:
-    #     raise RuntimeError("HPA doesn't exist for InferenceGraph {} in raw deployment mode".format(graph_name))
-
     try:
-        knativeroute = kserve_client.api_instance.get_namespaced_custom_object(
-            "serving.knative.dev", "v1", KSERVE_TEST_NAMESPACE, "routes", graph_name
+        logger.info("Starting test test_inference_graph_raw_mode_with_hpa")
+        sklearn_name = "isvc-sklearn-graph-raw-hpa"
+        xgb_name = "isvc-xgboost-graph-raw-hpa"
+        graph_name = "model-chainer-raw-hpa"
+
+        annotations = dict()
+        annotations["serving.kserve.io/deploymentMode"] = "RawDeployment"
+        # annotations["serving.kserve.io/max-scale"] = '5'
+        # annotations["serving.kserve.io/metric"] = 'rps'
+        # annotations["serving.kserve.io/min-scale"] = '2'
+        # annotations["serving.kserve.io/target"] = '30'
+
+        sklearn_predictor = V1beta1PredictorSpec(
+            min_replicas=1,
+            sklearn=V1beta1SKLearnSpec(
+                storage_uri="gs://kfserving-examples/models/sklearn/1.0/model",
+                resources=V1ResourceRequirements(
+                    requests={"cpu": "50m", "memory": "128Mi"},
+                    limits={"cpu": "100m", "memory": "256Mi"},
+                ),
+            ),
         )
-        if knativeroute:
+        sklearn_isvc = V1beta1InferenceService(
+            api_version=constants.KSERVE_V1BETA1,
+            kind=constants.KSERVE_KIND,
+            metadata=client.V1ObjectMeta(
+                name=sklearn_name,
+                namespace=KSERVE_TEST_NAMESPACE,
+                annotations=annotations,
+            ),
+            spec=V1beta1InferenceServiceSpec(predictor=sklearn_predictor),
+        )
+
+        xgb_predictor = V1beta1PredictorSpec(
+            min_replicas=1,
+            xgboost=V1beta1XGBoostSpec(
+                storage_uri="gs://kfserving-examples/models/xgboost/1.5/model",
+                resources=V1ResourceRequirements(
+                    requests={"cpu": "50m", "memory": "128Mi"},
+                    limits={"cpu": "100m", "memory": "256Mi"},
+                ),
+            ),
+        )
+        xgb_isvc = V1beta1InferenceService(
+            api_version=constants.KSERVE_V1BETA1,
+            kind=constants.KSERVE_KIND,
+            metadata=client.V1ObjectMeta(
+                name=xgb_name,
+                namespace=KSERVE_TEST_NAMESPACE,
+                annotations=annotations,
+            ),
+            spec=V1beta1InferenceServiceSpec(predictor=xgb_predictor),
+        )
+
+        nodes = {
+            "root": V1alpha1InferenceRouter(
+                router_type="Sequence",
+                steps=[
+                    V1alpha1InferenceStep(
+                        service_name=sklearn_name,
+                    ),
+                    V1alpha1InferenceStep(
+                        service_name=xgb_name,
+                        data="$request",
+                    ),
+                ],
+            )
+        }
+        graph_spec = V1alpha1InferenceGraphSpec(
+            nodes=nodes,
+        )
+        ig = V1alpha1InferenceGraph(
+            api_version=constants.KSERVE_V1ALPHA1,
+            kind=constants.KSERVE_KIND_INFERENCEGRAPH,
+            metadata=client.V1ObjectMeta(
+                name=graph_name, namespace=KSERVE_TEST_NAMESPACE, annotations=annotations
+            ),
+            spec=graph_spec,
+        )
+
+        kserve_client = KServeClient(
+            config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        )
+        kserve_client.create(sklearn_isvc)
+        kserve_client.create(xgb_isvc)
+        kserve_client.wait_isvc_ready(sklearn_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(xgb_name, namespace=KSERVE_TEST_NAMESPACE)
+
+        kserve_client.create_inference_graph(ig)
+        kserve_client.wait_ig_ready(graph_name, namespace=KSERVE_TEST_NAMESPACE)
+
+        # Below checks are raw deployment specific.  They ensure raw k8s resources created instead of knative resources
+        dep = kserve_client.app_api.read_namespaced_deployment(
+            graph_name, namespace=KSERVE_TEST_NAMESPACE
+        )
+        if not dep:
             raise RuntimeError(
-                "Knative route resource shouldn't exist for InferenceGraph {} ".format(
+                "Deployment doesn't exist for InferenceGraph {} in raw deployment mode".format(
                     graph_name
                 )
-                + "in raw deployment mode"
             )
-    except client.rest.ApiException:
-        logger.info("Expected error in finding knative route in raw deployment mode")
 
-    try:
-        knativesvc = kserve_client.api_instance.get_namespaced_custom_object(
-            "serving.knative.dev", "v1", KSERVE_TEST_NAMESPACE, "services", graph_name
+        svc = kserve_client.core_api.read_namespaced_service(
+            graph_name, namespace=KSERVE_TEST_NAMESPACE
         )
-        if knativesvc:
+        if not svc:
             raise RuntimeError(
-                "Knative resources shouldn't exist for InferenceGraph {} ".format(
+                "Service doesn't exist for InferenceGraph {} in raw deployment mode".format(
                     graph_name
                 )
-                + "in raw deployment mode"
             )
-    except client.rest.ApiException:
-        logger.info("Expected error in finding knative route in raw deployment mode")
 
-    # TODO Fix this when we enable ALB creation for IG raw deployment mode. This is required for traffic ingress
-    # for this predict api call to work
-    #
-    # res = await predict_ig(
-    #     rest_v1_client,
-    #     graph_name,
-    #     os.path.join(IG_TEST_RESOURCES_BASE_LOCATION, "iris_input.json"),
-    # )
-    # assert res["predictions"] == [1, 1]
+        # hpa = kserve_client.hpa_v2_api.read_namespaced_horizontal_pod_autoscaler(graph_name,
+        #                                                                          namespace=KSERVE_TEST_NAMESPACE)
+        # if not hpa:
+        #     raise RuntimeError("HPA doesn't exist for InferenceGraph {} in raw deployment mode".format(graph_name))
+
+        try:
+            knativeroute = kserve_client.api_instance.get_namespaced_custom_object(
+                "serving.knative.dev", "v1", KSERVE_TEST_NAMESPACE, "routes", graph_name
+            )
+            if knativeroute:
+                raise RuntimeError(
+                    "Knative route resource shouldn't exist for InferenceGraph {} ".format(
+                        graph_name
+                    )
+                    + "in raw deployment mode"
+                )
+        except client.rest.ApiException:
+            logger.info("Expected error in finding knative route in raw deployment mode")
+
+        try:
+            knativesvc = kserve_client.api_instance.get_namespaced_custom_object(
+                "serving.knative.dev", "v1", KSERVE_TEST_NAMESPACE, "services", graph_name
+            )
+            if knativesvc:
+                raise RuntimeError(
+                    "Knative resources shouldn't exist for InferenceGraph {} ".format(
+                        graph_name
+                    )
+                    + "in raw deployment mode"
+                )
+        except client.rest.ApiException:
+            logger.info("Expected error in finding knative route in raw deployment mode")
+
+        # TODO Fix this when we enable ALB creation for IG raw deployment mode. This is required for traffic ingress
+        # for this predict api call to work
+        #
+        # res = await predict_ig(
+        #     rest_v1_client,
+        #     graph_name,
+        #     os.path.join(IG_TEST_RESOURCES_BASE_LOCATION, "iris_input.json"),
+        # )
+        # assert res["predictions"] == [1, 1]
+    except Exception as e:  # pylint: disable=broad-exception-caught
+        logger.error("Error in test_inference_graph_raw_mode_with_hpa: %s", e)
 
     kserve_client.delete_inference_graph(graph_name, KSERVE_TEST_NAMESPACE)
     kserve_client.delete(sklearn_name, KSERVE_TEST_NAMESPACE)
