@@ -2622,7 +2622,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									Args: []string{
 										`--https-address=:8443`,
 										`--provider=openshift`,
-										`--skip-provider-button`,
+										`--skip-provider-button=false`,
 										`--openshift-service-account=default`,
 										`--upstream=http://localhost:8080`,
 										`--tls-cert=/etc/tls/private/tls.crt`,
