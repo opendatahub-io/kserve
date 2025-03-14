@@ -604,8 +604,8 @@ func main() {
 		WriteTimeout: time.Minute,       // set the maximum duration before timing out writes of the response
 		IdleTimeout:  3 * time.Minute,   // set the maximum amount of time to wait for the next request when keep-alives are enabled
 	}
-	err = server.ListenAndServe()
 
+	err = server.ListenAndServeTLS("/etc/tls/private/tls.crt", "/etc/tls/private/tls.key")
 	if err != nil {
 		log.Error(err, "failed to listen on 8080")
 		os.Exit(1)
