@@ -77,6 +77,162 @@ var _ = Describe("Inference Graph controller test", func() {
 		}
 	)
 
+	Context("When creating an IG with minReplicas:0 and maxReplicas:4", func() {
+		It("Should create a knative service with initial-scale:0, min-scale:0, max-scale:3 annotations", func() {
+			By("By creating a new InferenceGraph")
+			var configMap = &v1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			graphName := "minreplicas0"
+			var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
+			var serviceKey = expectedRequest.NamespacedName
+			ctx := context.Background()
+			minScale := 0
+			minScalePtr := &minScale
+			ig := &v1alpha1.InferenceGraph{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode": string(constants.Serverless),
+					},
+				},
+				Spec: v1alpha1.InferenceGraphSpec{
+					MinReplicas: minScalePtr,
+					MaxReplicas: 3,
+					Nodes: map[string]v1alpha1.InferenceRouter{
+						v1alpha1.GraphRootNodeName: {
+							RouterType: v1alpha1.Sequence,
+							Steps: []v1alpha1.InferenceStep{
+								{
+									InferenceTarget: v1alpha1.InferenceTarget{
+										ServiceURL: "http://someservice.exmaple.com",
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, ig)).Should(Succeed())
+			defer k8sClient.Delete(ctx, ig)
+			inferenceGraphSubmitted := &v1alpha1.InferenceGraph{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceGraphSubmitted)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			actualKnServiceCreated := &knservingv1.Service{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), serviceKey, actualKnServiceCreated)
+			}, timeout).
+				Should(Succeed())
+
+			expectedKnService := &knservingv1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+				},
+				Spec: knservingv1.ServiceSpec{
+					ConfigurationSpec: knservingv1.ConfigurationSpec{
+						Template: knservingv1.RevisionTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Labels: map[string]string{
+									"serving.kserve.io/inferencegraph": graphName,
+								},
+								Annotations: map[string]string{
+									"autoscaling.knative.dev/initial-scale": "0",
+									"autoscaling.knative.dev/min-scale":     "0",
+									"autoscaling.knative.dev/max-scale":     "3",
+									"autoscaling.knative.dev/class":         "kpa.autoscaling.knative.dev",
+									"serving.kserve.io/deploymentMode":      "Serverless",
+								},
+							},
+							Spec: knservingv1.RevisionSpec{
+								ContainerConcurrency: nil,
+								TimeoutSeconds:       nil,
+								PodSpec: v1.PodSpec{
+									Containers: []v1.Container{
+										{
+											Image: "kserve/router:v0.10.0",
+											Env: []v1.EnvVar{
+												{
+													Name:  "SSL_CERT_FILE",
+													Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+												},
+												{
+													Name:  "PROPAGATE_HEADERS",
+													Value: "Authorization,Intuit_tid",
+												},
+											},
+											Args: []string{
+												"--graph-json",
+												"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.exmaple.com\"}]}},\"resources\":{},\"minReplicas\":0,\"maxReplicas\":3}",
+											},
+											Resources: v1.ResourceRequirements{
+												Limits: v1.ResourceList{
+													v1.ResourceCPU:    resource.MustParse("100m"),
+													v1.ResourceMemory: resource.MustParse("500Mi"),
+												},
+												Requests: v1.ResourceList{
+													v1.ResourceCPU:    resource.MustParse("100m"),
+													v1.ResourceMemory: resource.MustParse("100Mi"),
+												},
+											},
+											SecurityContext: &v1.SecurityContext{
+												Privileged:               proto.Bool(false),
+												RunAsNonRoot:             proto.Bool(true),
+												ReadOnlyRootFilesystem:   proto.Bool(true),
+												AllowPrivilegeEscalation: proto.Bool(false),
+												Capabilities: &v1.Capabilities{
+													Drop: []v1.Capability{v1.Capability("ALL")},
+												},
+											},
+											VolumeMounts: []v1.VolumeMount{
+												{
+													Name:      "openshift-service-ca-bundle",
+													MountPath: "/etc/odh/openshift-service-ca-bundle",
+												},
+											},
+										},
+									},
+									AutomountServiceAccountToken: proto.Bool(false),
+									Volumes: []v1.Volume{
+										{
+											Name: "openshift-service-ca-bundle",
+											VolumeSource: v1.VolumeSource{
+												ConfigMap: &v1.ConfigMapVolumeSource{
+													LocalObjectReference: v1.LocalObjectReference{
+														Name: constants.OpenShiftServiceCaConfigMapName,
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			// Set ResourceVersion which is required for update operation.
+			expectedKnService.ResourceVersion = actualKnServiceCreated.ResourceVersion
+
+			// Do a dry-run update. This will populate our local knative service object with any default values
+			// that are present on the remote version.
+			err := k8sClient.Update(context.TODO(), expectedKnService, client.DryRunAll)
+			Expect(err).Should(BeNil())
+
+			Expect(kmp.SafeDiff(actualKnServiceCreated.Spec, expectedKnService.Spec)).To(Equal(""))
+		})
+	})
+
 	Context("When creating an inferencegraph with headers in global config", func() {
 		It("Should create a knative service with headers as env var of podspec", func() {
 			By("By creating a new InferenceGraph")
