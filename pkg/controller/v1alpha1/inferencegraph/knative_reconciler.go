@@ -154,7 +154,24 @@ func createKnativeService(componentMeta metav1.ObjectMeta, graph *v1alpha1api.In
 	}
 
 	if _, ok := annotations[autoscaling.MinScaleAnnotationKey]; !ok {
-		annotations[autoscaling.MinScaleAnnotationKey] = fmt.Sprint(constants.DefaultMinReplicas)
+		if graph.Spec.MinReplicas == nil {
+			annotations[autoscaling.MinScaleAnnotationKey] = fmt.Sprint(constants.DefaultMinReplicas)
+		} else {
+			annotations[autoscaling.MinScaleAnnotationKey] = fmt.Sprint(*graph.Spec.MinReplicas)
+		}
+	}
+
+	// The larger of min-scale and initial-scale is chosen as the initial target scale for a knative Revision.
+	// When min-scale is 0, set initial-scale to 0 so the created knative revision has an initial target scale of 0.
+	// Configuring scaling for knative: https://knative.dev/docs/serving/autoscaling/scale-bounds/#initial-scale
+	if annotations[autoscaling.MinScaleAnnotationKey] == "0" {
+		annotations[autoscaling.InitialScaleAnnotationKey] = "0"
+	}
+
+	if _, ok := annotations[autoscaling.MaxScaleAnnotationKey]; !ok {
+		if graph.Spec.MaxReplicas != 0 {
+			annotations[autoscaling.MaxScaleAnnotationKey] = fmt.Sprint(graph.Spec.MaxReplicas)
+		}
 	}
 
 	// ksvc metadata.annotations
