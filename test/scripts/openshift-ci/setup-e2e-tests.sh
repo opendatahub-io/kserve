@@ -27,7 +27,7 @@ set -o pipefail
 : "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
 : "${KSERVE_ROUTER_IMAGE:=quay.io/opendatahub/kserve-router:latest}"
 : "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
-: "${ODH_MODEL_CONTROLLER_IMAGE:=quay.io/opendatahub/odh-model-controller:latest}"
+: "${ODH_MODEL_CONTROLLER_IMAGE:=quay.io/opendatahub/odh-model-controller:fast}"
 
 echo "SKLEARN_IMAGE=$SKLEARN_IMAGE"
 echo "KSERVE_CONTROLLER_IMAGE=$KSERVE_CONTROLLER_IMAGE"
