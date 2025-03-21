@@ -24,17 +24,15 @@ set -o pipefail
 
 MY_PATH=$(dirname "$0")
 PROJECT_ROOT=$MY_PATH/../../../
-# export GITHUB_SHA=$(git rev-parse HEAD)
-export GITHUB_SHA=master
 export CI_USE_ISVC_HOST="1"
-: "${BUILD_IMAGES:=true}"
+export GITHUB_SHA=$(git rev-parse HEAD)
+: "${BUILD_GRAPH_IMAGES:=true}"
 : "${RUNNING_LOCAL:=false}"
 if $RUNNING_LOCAL; then
-  export SUCCESS_200_ISVC_IMG=success-200-isvc
-  export ERROR_404_ISVC_IMG=error-404-isvc
   export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
   export IMAGE_TRANSFORMER_IMG_TAG=kserve/image-transformer:latest
-  if [ "$1" = "graph" ] && [ "$BUILD_IMAGES" = "true" ]; then
+  export GITHUB_SHA=master
+  if [ "$1" = "graph" ] && [ "$BUILD_GRAPH_IMAGES" = "true" ]; then
     pushd $PROJECT_ROOT >/dev/null
     ./test/scripts/gh-actions/build-graph-tests-images.sh | tee 2>&1 ./test/scripts/openshift-ci/build-graph-tests-images.log
     popd
