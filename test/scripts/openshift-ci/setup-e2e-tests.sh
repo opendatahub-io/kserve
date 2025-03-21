@@ -22,7 +22,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-: "${SKLEARN_IMAGE:=quay.io/hdefazio/sklearnserver:latest}"
+: "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
 : "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:latest}"
 : "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
 : "${KSERVE_ROUTER_IMAGE:=quay.io/opendatahub/kserve-router:latest}"

@@ -53,8 +53,10 @@ echo "Building error_404_isvc image"
 $BUILDER buildx build -t "${ERROR_404_ISVC_IMG_TAG}" -f error_404_isvc.Dockerfile \
   -o type=${BUILDER_TYPE} .
 echo "Done building error_404_isvc image"
-$BUILDER push ${SUCCESS_200_ISVC_IMG_TAG}
-$BUILDER push ${ERROR_404_ISVC_IMG_TAG}
+if $RUNNING_LOCAL; then
+  $BUILDER push ${SUCCESS_200_ISVC_IMG_TAG}
+  $BUILDER push ${ERROR_404_ISVC_IMG_TAG}
+fi 
 popd
 echo "Done building images"
 
