@@ -177,8 +177,7 @@ func createDefaultSvc(resourceType constants.ResourceType, componentMeta metav1.
 	service.ObjectMeta.Annotations[constants.OpenshiftServingCertAnnotation] = componentMeta.Name + constants.ServingCertSecretSuffix
 
 	if resourceType == constants.InferenceGraphResource {
-		port443 := int32(443)
-		servicePorts[0].Port = port443
+		servicePorts[0].Port = int32(443)
 	} else {
 		if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
 			httpsPort := corev1.ServicePort{
