@@ -85,6 +85,13 @@ func createKnativeService(componentMeta metav1.ObjectMeta,
 		annotations[constants.MinScaleAnnotationKey] = fmt.Sprint(*componentExtension.MinReplicas)
 	}
 
+	// The larger of min-scale and initial-scale is chosen as the initial target scale for a knative Revision.
+	// When min-scale is 0, set initial-scale to 0 so the created knative revision has an initial target scale of 0.
+	// Configuring scaling for knative: https://knative.dev/docs/serving/autoscaling/scale-bounds/#initial-scale
+	if annotations[constants.MinScaleAnnotationKey] == "0" {
+		annotations[constants.InitialScaleAnnotationKey] = "0"
+	}
+
 	if componentExtension.MaxReplicas != 0 {
 		annotations[constants.MaxScaleAnnotationKey] = fmt.Sprint(componentExtension.MaxReplicas)
 	}

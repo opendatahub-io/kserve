@@ -91,6 +91,7 @@ var (
 	AutoscalerClass                             = KServeAPIGroupName + "/autoscalerClass"
 	AutoscalerMetrics                           = KServeAPIGroupName + "/metrics"
 	TargetUtilizationPercentage                 = KServeAPIGroupName + "/targetUtilizationPercentage"
+	InitialScaleAnnotationKey                   = KnativeAutoscalingAPIGroupName + "/initial-scale"
 	MinScaleAnnotationKey                       = KnativeAutoscalingAPIGroupName + "/min-scale"
 	MaxScaleAnnotationKey                       = KnativeAutoscalingAPIGroupName + "/max-scale"
 	RollOutDurationAnnotationKey                = KnativeServingAPIGroupName + "/rollout-duration"
@@ -372,6 +373,7 @@ const (
 
 var (
 	ServiceAnnotationDisallowedList = []string{
+		autoscaling.InitialScaleAnnotationKey,
 		autoscaling.MinScaleAnnotationKey,
 		autoscaling.MaxScaleAnnotationKey,
 		StorageInitializerSourceUriInternalAnnotationKey,
