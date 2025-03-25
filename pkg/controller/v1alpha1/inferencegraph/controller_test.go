@@ -30,12 +30,16 @@ import (
 	"google.golang.org/protobuf/proto"
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes/scheme"
 	"knative.dev/pkg/kmp"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
@@ -62,6 +66,13 @@ var _ = Describe("Inference Graph controller test", func() {
 						  "Intuit_tid"
 						]
 					  }
+				}`,
+			"oauthProxy": `{
+					"image": "registry.redhat.io/openshift4/ose-oauth-proxy@sha256:8507daed246d4d367704f7d7193233724acf1072572e1226ca063c066b858ecf",
+					"memoryRequest": "64Mi",
+					"memoryLimit": "128Mi",
+					"cpuRequest": "100m",
+					"cpuLimit": "200m"
 				}`,
 		}
 	)
@@ -692,6 +703,149 @@ var _ = Describe("Inference Graph controller test", func() {
 				return inferenceGraphSubmitted.Status.URL.Host
 			}, timeout, interval).Should(Equal(osRoute.Status.Ingress[0].Host))
 		})
+
+		It("Should not create ingress when cluster-local visibility is configured", func() {
+			By("By creating a new InferenceGraph")
+			var configMap = &v1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer func() { _ = k8sClient.Delete(context.TODO(), configMap) }()
+			graphName := "igraw-private"
+			var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
+			var serviceKey = expectedRequest.NamespacedName
+			ctx := context.Background()
+			ig := &v1alpha1.InferenceGraph{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode": string(constants.RawDeployment),
+					},
+					Labels: map[string]string{
+						constants.NetworkVisibility: constants.ClusterLocalVisibility,
+					},
+				},
+				Spec: v1alpha1.InferenceGraphSpec{
+					Nodes: map[string]v1alpha1.InferenceRouter{
+						v1alpha1.GraphRootNodeName: {
+							RouterType: v1alpha1.Sequence,
+							Steps: []v1alpha1.InferenceStep{
+								{
+									InferenceTarget: v1alpha1.InferenceTarget{
+										ServiceURL: "http://someservice.exmaple.com",
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, ig)).Should(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, ig) }()
+
+			// The OpenShift route must not be created
+			actualK8sDeploymentCreated := &appsv1.Deployment{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, serviceKey, actualK8sDeploymentCreated)
+			}, timeout, interval).Should(Succeed())
+			actualK8sDeploymentCreated.Status.Conditions = []appsv1.DeploymentCondition{
+				{Type: appsv1.DeploymentAvailable},
+			}
+			Expect(k8sClient.Status().Update(ctx, actualK8sDeploymentCreated)).Should(Succeed())
+			osRoute := osv1.Route{}
+			Consistently(func() error {
+				osRouteKey := types.NamespacedName{Name: ig.GetName() + "-route", Namespace: ig.GetNamespace()}
+				return k8sClient.Get(ctx, osRouteKey, &osRoute)
+			}, timeout, interval).Should(WithTransform(errors.IsNotFound, BeTrue()))
+
+			// The InferenceGraph should have a cluster-internal hostname
+			Eventually(func() string {
+				_ = k8sClient.Get(ctx, serviceKey, ig)
+				return ig.Status.URL.Host
+			}, timeout, interval).Should(Equal(fmt.Sprintf("%s.%s.svc.cluster.local", graphName, "default")))
+		})
+
+		It("Should reconfigure InferenceGraph as private when cluster-local visibility is configured", func() {
+			By("By creating a new InferenceGraph")
+			var configMap = &v1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer func() { _ = k8sClient.Delete(context.TODO(), configMap) }()
+			graphName := "igraw-exposed-to-private"
+			var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
+			var serviceKey = expectedRequest.NamespacedName
+			ctx := context.Background()
+			ig := &v1alpha1.InferenceGraph{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode": string(constants.RawDeployment),
+					},
+				},
+				Spec: v1alpha1.InferenceGraphSpec{
+					Nodes: map[string]v1alpha1.InferenceRouter{
+						v1alpha1.GraphRootNodeName: {
+							RouterType: v1alpha1.Sequence,
+							Steps: []v1alpha1.InferenceStep{
+								{
+									InferenceTarget: v1alpha1.InferenceTarget{
+										ServiceURL: "http://someservice.exmaple.com",
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, ig)).Should(Succeed())
+			defer func() { _ = k8sClient.Delete(ctx, ig) }()
+
+			// Wait the OpenShift route to be created
+			actualK8sDeploymentCreated := &appsv1.Deployment{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, serviceKey, actualK8sDeploymentCreated)
+			}, timeout, interval).Should(Succeed())
+			actualK8sDeploymentCreated.Status.Conditions = []appsv1.DeploymentCondition{
+				{Type: appsv1.DeploymentAvailable},
+			}
+			Expect(k8sClient.Status().Update(ctx, actualK8sDeploymentCreated)).Should(Succeed())
+			osRoute := osv1.Route{}
+			Eventually(func() error {
+				osRouteKey := types.NamespacedName{Name: ig.GetName() + "-route", Namespace: ig.GetNamespace()}
+				return k8sClient.Get(ctx, osRouteKey, &osRoute)
+			}, timeout, interval).Should(Succeed())
+
+			// Reconfigure as private
+			Expect(k8sClient.Get(ctx, serviceKey, ig)).Should(Succeed())
+			if ig.Labels == nil {
+				ig.Labels = map[string]string{}
+			}
+			ig.Labels[constants.NetworkVisibility] = constants.ClusterLocalVisibility
+			Expect(k8sClient.Update(ctx, ig)).Should(Succeed())
+
+			// The OpenShift route should be deleted
+			Eventually(func() error {
+				osRouteKey := types.NamespacedName{Name: ig.GetName() + "-route", Namespace: ig.GetNamespace()}
+				return k8sClient.Get(ctx, osRouteKey, &osRoute)
+			}).Should(WithTransform(errors.IsNotFound, BeTrue()))
+
+			// The InferenceGraph should have a cluster-internal hostname
+			Eventually(func() string {
+				_ = k8sClient.Get(ctx, serviceKey, ig)
+				return ig.Status.URL.Host
+			}, timeout, interval).Should(Equal(fmt.Sprintf("%s.%s.svc.cluster.local", graphName, "default")))
+		})
 	})
 
 	Context("When creating an InferenceGraph in Serverless mode", func() {
@@ -760,6 +914,132 @@ var _ = Describe("Inference Graph controller test", func() {
 
 				return false
 			}, timeout, interval).Should(BeTrue())
+		})
+	})
+
+	Context("When creating an IG in Raw deployment mode with auth", func() {
+		var configMap *v1.ConfigMap
+		var inferenceGraph *v1alpha1.InferenceGraph
+
+		BeforeEach(func() {
+			configMap = &v1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+
+			graphName := "igrawauth1"
+			ctx := context.Background()
+			inferenceGraph = &v1alpha1.InferenceGraph{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      graphName,
+					Namespace: "default",
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode": string(constants.RawDeployment),
+						constants.ODHKserveRawAuth:         "true",
+					},
+				},
+				Spec: v1alpha1.InferenceGraphSpec{
+					Nodes: map[string]v1alpha1.InferenceRouter{
+						v1alpha1.GraphRootNodeName: {
+							RouterType: v1alpha1.Sequence,
+							Steps: []v1alpha1.InferenceStep{
+								{
+									InferenceTarget: v1alpha1.InferenceTarget{
+										ServiceURL: "http://someservice.exmaple.com",
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, inferenceGraph)).Should(Succeed())
+		})
+		AfterEach(func() {
+			_ = k8sClient.Delete(ctx, inferenceGraph)
+			igKey := types.NamespacedName{Namespace: inferenceGraph.GetNamespace(), Name: inferenceGraph.GetName()}
+			Eventually(func() error { return k8sClient.Get(ctx, igKey, inferenceGraph) }, timeout, interval).ShouldNot(Succeed())
+
+			_ = k8sClient.Delete(ctx, configMap)
+			cmKey := types.NamespacedName{Namespace: configMap.GetNamespace(), Name: configMap.GetName()}
+			Eventually(func() error { return k8sClient.Get(ctx, cmKey, configMap) }, timeout, interval).ShouldNot(Succeed())
+		})
+
+		It("Should create or update a ClusterRoleBinding giving privileges to validate auth", func() {
+			Eventually(func(g Gomega) {
+				crbKey := types.NamespacedName{Name: constants.InferenceGraphAuthCRBName}
+				clusterRoleBinding := rbacv1.ClusterRoleBinding{}
+				g.Expect(k8sClient.Get(ctx, crbKey, &clusterRoleBinding)).To(Succeed())
+
+				crGVK, err := apiutil.GVKForObject(&rbacv1.ClusterRole{}, scheme.Scheme)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(clusterRoleBinding.RoleRef).To(Equal(rbacv1.RoleRef{
+					APIGroup: crGVK.Group,
+					Kind:     crGVK.Kind,
+					Name:     "system:auth-delegator",
+				}))
+				g.Expect(clusterRoleBinding.Subjects).To(ContainElement(rbacv1.Subject{
+					Kind:      "ServiceAccount",
+					APIGroup:  "",
+					Name:      getServiceAccountNameForGraph(inferenceGraph),
+					Namespace: inferenceGraph.GetNamespace(),
+				}))
+			}, timeout, interval).Should(Succeed())
+		})
+
+		It("Should create a ServiceAccount for querying the Kubernetes API to check tokens", func() {
+			Eventually(func(g Gomega) {
+				saKey := types.NamespacedName{Namespace: inferenceGraph.GetNamespace(), Name: getServiceAccountNameForGraph(inferenceGraph)}
+				serviceAccount := v1.ServiceAccount{}
+				g.Expect(k8sClient.Get(ctx, saKey, &serviceAccount)).To(Succeed())
+				g.Expect(serviceAccount.OwnerReferences).ToNot(BeEmpty())
+			}, timeout, interval).Should(Succeed())
+		})
+
+		It("Should configure the InferenceGraph deployment with auth enabled", func() {
+			Eventually(func(g Gomega) {
+				igDeployment := appsv1.Deployment{}
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: inferenceGraph.GetNamespace(), Name: inferenceGraph.GetName()}, &igDeployment)).To(Succeed())
+				g.Expect(igDeployment.Spec.Template.Spec.AutomountServiceAccountToken).To(Equal(proto.Bool(true)))
+				g.Expect(igDeployment.Spec.Template.Spec.ServiceAccountName).To(Equal(getServiceAccountNameForGraph(inferenceGraph)))
+				// g.Expect(igDeployment.Spec.Template.Spec.Containers).To(HaveLen(1)) // TODO: Restore in RHOAIENG-21300
+				g.Expect(igDeployment.Spec.Template.Spec.Containers[0].Args).To(ContainElements("--enable-auth", "--inferencegraph-name", inferenceGraph.GetName()))
+			}, timeout, interval).Should(Succeed())
+		})
+
+		It("Should delete the ServiceAccount when the InferenceGraph is deleted", func() {
+			serviceAccount := v1.ServiceAccount{}
+			saKey := types.NamespacedName{Namespace: inferenceGraph.GetNamespace(), Name: getServiceAccountNameForGraph(inferenceGraph)}
+
+			Eventually(func() error {
+				return k8sClient.Get(ctx, saKey, &serviceAccount)
+			}, timeout, interval).Should(Succeed())
+
+			Expect(k8sClient.Delete(ctx, inferenceGraph)).To(Succeed())
+			Eventually(func() error {
+				return k8sClient.Get(ctx, saKey, &serviceAccount)
+			}, timeout, interval).Should(WithTransform(errors.IsNotFound, BeTrue()))
+		})
+
+		It("Should remove the ServiceAccount as subject of the ClusterRoleBinding when the InferenceGraph is deleted", func() {
+			crbKey := types.NamespacedName{Name: constants.InferenceGraphAuthCRBName}
+
+			Eventually(func() []rbacv1.Subject {
+				clusterRoleBinding := rbacv1.ClusterRoleBinding{}
+				_ = k8sClient.Get(ctx, crbKey, &clusterRoleBinding)
+				return clusterRoleBinding.Subjects
+			}, timeout, interval).Should(ContainElement(HaveField("Name", getServiceAccountNameForGraph(inferenceGraph))))
+
+			Expect(k8sClient.Delete(ctx, inferenceGraph)).To(Succeed())
+			Eventually(func() []rbacv1.Subject {
+				clusterRoleBinding := rbacv1.ClusterRoleBinding{}
+				_ = k8sClient.Get(ctx, crbKey, &clusterRoleBinding)
+				return clusterRoleBinding.Subjects
+			}, timeout, interval).ShouldNot(ContainElement(HaveField("Name", getServiceAccountNameForGraph(inferenceGraph))))
 		})
 	})
 })
