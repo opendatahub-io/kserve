@@ -58,9 +58,10 @@ import (
 var _ = Describe("v1beta1 inference service controller", func() {
 	// Define utility constants for object names and testing timeouts/durations and intervals.
 	const (
-		timeout  = time.Second * 10
-		interval = time.Millisecond * 250
-		domain   = "example.com"
+		consistentlyTimeout = time.Second * 5
+		timeout             = time.Second * 10
+		interval            = time.Millisecond * 250
+		domain              = "example.com"
 	)
 	var (
 		defaultResource = v1.ResourceRequirements{
@@ -1695,6 +1696,12 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}, timeout, interval).Should(BeTrue())
 			defer k8sClient.Delete(ctx, isvc)
 
+			originalDeployment := &appsv1.Deployment{}
+			deploymentName := constants.PredictorServiceName(serviceKey.Name)
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, originalDeployment)
+			}, timeout, interval).Should(Succeed())
+
 			// Update the ServingRuntime spec
 			servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
@@ -1710,10 +1717,9 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err != nil {
 					return "", err
 				}
-				return servingRuntimeAfterUpdate.Spec.Labels["key1"], nil
+				return servingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Labels["key1"], nil
 			}, timeout, interval).Should(Equal("updatedServingRuntime"))
 			deploymentAfterUpdate := &appsv1.Deployment{}
-			deploymentName := constants.PredictorServiceName(serviceKey.Name)
 			Eventually(func() (string, error) {
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate)
 				if err != nil {
@@ -1830,6 +1836,12 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}, timeout, interval).Should(BeTrue())
 			defer k8sClient.Delete(ctx, isvc)
 
+			originalDeployment := &appsv1.Deployment{}
+			deploymentName := constants.PredictorServiceName(serviceKey.Name)
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, originalDeployment)
+			}, timeout, interval).Should(Succeed())
+
 			// Update the ServingRuntime spec
 			servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
@@ -1845,11 +1857,10 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err != nil {
 					return "", err
 				}
-				return servingRuntimeAfterUpdate.Spec.Labels["key1"], nil
+				return servingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Labels["key1"], nil
 			}, timeout, interval).Should(Equal("updatedServingRuntime"))
 			// Wait until the Deployment reflects the update
 			deploymentAfterUpdate := &appsv1.Deployment{}
-			deploymentName := constants.PredictorServiceName(serviceKey.Name)
 			Eventually(func() (string, error) {
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate)
 				if err != nil {
@@ -1967,6 +1978,12 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}, timeout, interval).Should(BeTrue())
 			defer k8sClient.Delete(ctx, isvc)
 
+			originalDeployment := &appsv1.Deployment{}
+			deploymentName := constants.PredictorServiceName(serviceKey.Name)
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, originalDeployment)
+			}, timeout, interval).Should(Succeed())
+
 			// Update the ServingRuntime spec
 			servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
@@ -1982,18 +1999,17 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err != nil {
 					return "", err
 				}
-				return servingRuntimeAfterUpdate.Spec.Labels["key1"], nil
+				return servingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Labels["key1"], nil
 			}, timeout, interval).Should(Equal("updatedServingRuntime"))
-			// Check to make sure deployement didn't update
+			// Check to make sure deployment didn't update
 			deploymentAfterUpdate := &appsv1.Deployment{}
-			deploymentName := constants.PredictorServiceName(serviceKey.Name)
-			Eventually(func() (string, error) {
+			Consistently(func() (string, error) {
 				err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate)
 				if err != nil {
 					return "", err
 				}
 				return deploymentAfterUpdate.Spec.Template.Labels["key1"], nil
-			}, timeout, interval).Should(Equal("val1FromSR"))
+			}, consistentlyTimeout, interval).Should(Equal("val1FromSR"))
 		})
 		It("InferenceService should reconcile only if the matching serving runtime was updated even if multiple exist", func() {
 			// Create configmap
