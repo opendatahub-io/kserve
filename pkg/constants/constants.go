@@ -377,6 +377,7 @@ var (
 		StorageInitializerSourceUriInternalAnnotationKey,
 		"kubectl.kubernetes.io/last-applied-configuration",
 		"security.opendatahub.io/enable-auth",
+		"networking.knative.io/visibility",
 	}
 
 	RevisionTemplateLabelDisallowedList = []string{
