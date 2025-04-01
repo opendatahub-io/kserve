@@ -371,6 +371,9 @@ const (
 )
 
 var (
+	// ServiceAnnotationDisallowedList is a list of annotations that are not allowed to be propagated to Knative
+	// revisions, which prevents the reconciliation loop to be triggered if the annotations is
+	// configured here are used.
 	ServiceAnnotationDisallowedList = []string{
 		autoscaling.MinScaleAnnotationKey,
 		autoscaling.MaxScaleAnnotationKey,
@@ -379,7 +382,8 @@ var (
 		"security.opendatahub.io/enable-auth",
 		"networking.knative.io/visibility",
 	}
-
+	// RevisionTemplateLabelDisallowedList is a list of labels that are not allowed to be propagated to Knative
+	// revisions, which prevents the reconciliation loop to be triggered if the labels is configured here are used.
 	RevisionTemplateLabelDisallowedList = []string{
 		VisibilityLabel,
 	}
