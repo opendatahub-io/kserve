@@ -21,6 +21,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -28,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -37,6 +39,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
+	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmp"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -94,9 +97,12 @@ func createRawDeploymentODH(clientset kubernetes.Interface, resourceType constan
 	headDeployment := deploymentList[0]
 	if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
 		enableAuth = true
-		err := addOauthContainerToDeployment(clientset, headDeployment, componentMeta, componentExt, podSpec)
-		if err != nil {
-			return nil, err
+
+		if resourceType != constants.InferenceGraphResource { // InferenceGraphs don't use oauth-proxy
+			err := addOauthContainerToDeployment(clientset, headDeployment, componentMeta, componentExt, podSpec)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 	if (resourceType == constants.InferenceServiceResource && enableAuth) || resourceType == constants.InferenceGraphResource {
@@ -191,6 +197,10 @@ func createRawDefaultDeployment(componentMeta metav1.ObjectMeta,
 		deployment.Spec.Strategy = *componentExt.DeploymentStrategy
 	}
 	setDefaultDeploymentSpec(&deployment.Spec)
+	if componentExt.MinReplicas != nil && deployment.Annotations[constants.AutoscalerClass] == string(constants.AutoscalerClassExternal) {
+		deployment.Spec.Replicas = ptr.To(int32(*componentExt.MinReplicas))
+	}
+
 	return deployment, nil
 }
 
@@ -290,6 +300,14 @@ func createRawWorkerDeployment(componentMeta metav1.ObjectMeta,
 		deployment.Spec.Strategy = *componentExt.DeploymentStrategy
 	}
 	setDefaultDeploymentSpec(&deployment.Spec)
+
+	// For multinode, it needs to keep original pods until new pods are ready with rollingUpdate strategy
+	if deployment.Spec.Strategy.Type == appsv1.RollingUpdateDeploymentStrategyType {
+		deployment.Spec.Strategy.RollingUpdate = &appsv1.RollingUpdateDeployment{
+			MaxUnavailable: &intstr.IntOrString{Type: intstr.String, StrVal: "0%"},
+			MaxSurge:       &intstr.IntOrString{Type: intstr.String, StrVal: "100%"},
+		}
+	}
 
 	deployment.Spec.Replicas = &replicas
 	return deployment
@@ -432,7 +450,14 @@ func (r *DeploymentReconciler) checkDeploymentExist(client kclient.Client, deplo
 	}
 	// existed, check equivalence
 	// for HPA scaling, we should ignore Replicas of Deployment
-	ignoreFields := cmpopts.IgnoreFields(appsv1.DeploymentSpec{}, "Replicas")
+	// for external scaler, we should not ignore Replicas.
+	var ignoreFields cmp.Option = nil // Initialize to nil by default
+
+	// Set ignoreFields if the condition is met
+	if existingDeployment.Annotations[constants.AutoscalerClass] != string(constants.AutoscalerClassExternal) {
+		ignoreFields = cmpopts.IgnoreFields(appsv1.DeploymentSpec{}, "Replicas")
+	}
+
 	// Do a dry-run update. This will populate our local deployment object with any default values
 	// that are present on the remote version.
 	if err := client.Update(context.TODO(), deployment, kclient.DryRunAll); err != nil {
@@ -598,11 +623,6 @@ func (r *DeploymentReconciler) Reconcile() ([]*appsv1.Deployment, error) {
 			// get the current deployment
 			_ = r.client.Get(context.TODO(), types.NamespacedName{Name: deployment.Name, Namespace: deployment.Namespace}, originalDeployment)
 			// we need to remove the Replicas field from the deployment spec
-			originalDeployment.Spec.Replicas = nil
-			curJson, err := json.Marshal(originalDeployment)
-			if err != nil {
-				return nil, err
-			}
 
 			// Check if there are any envs to remove
 			// If there, its value will be set to "delete" so we can update the patchBytes with
@@ -629,9 +649,33 @@ func (r *DeploymentReconciler) Reconcile() ([]*appsv1.Deployment, error) {
 				deployment.Spec.Template.Spec.Containers[i].Env = envs
 			}
 
+			originalDeployment.Spec.Replicas = nil
+			curJson, err := json.Marshal(originalDeployment)
+			if err != nil {
+				return nil, err
+			}
 			// To avoid the conflict between HPA and Deployment,
 			// we need to remove the Replicas field from the deployment spec
-			deployment.Spec.Replicas = nil
+			// For external autoscaler, it should not remove replicas
+			if deployment.Annotations[constants.AutoscalerClass] != string(constants.AutoscalerClassExternal) {
+				deployment.Spec.Replicas = nil
+			}
+
+			imagePullSecretsDesired := deployment.Spec.Template.Spec.ImagePullSecrets
+			originalDeploymentPullSecrets := originalDeployment.Spec.Template.Spec.ImagePullSecrets
+			imagePullSecretsToRemove := []string{}
+			for _, secret := range originalDeploymentPullSecrets {
+				found := false
+				for _, desiredSecret := range imagePullSecretsDesired {
+					if secret.Name == desiredSecret.Name {
+						found = true
+						break
+					}
+				}
+				if !found {
+					imagePullSecretsToRemove = append(imagePullSecretsToRemove, secret.Name)
+				}
+			}
 
 			modJson, err := json.Marshal(deployment)
 			if err != nil {
@@ -644,10 +688,60 @@ func (r *DeploymentReconciler) Reconcile() ([]*appsv1.Deployment, error) {
 				return nil, err
 			}
 
-			// override the envs that needs to be removed with  "$patch": "delete"
+			// Patch the deployment object with the strategic merge patch
 			patchByte = []byte(strings.ReplaceAll(string(patchByte), "\"value\":\""+utils.PLACEHOLDER_FOR_DELETION+"\"", "\"$patch\":\"delete\""))
 
-			// Patch the deployment object with the strategic merge patch
+			// The strategic merge patch does not remove items from list just by removing it from the patch,
+			// to delete lists items using strategic merge patch, the $patch delete pattern is used.
+			// Example:
+			// imagePullSecrets:
+			//   - "name": "pull-secret-1",
+			//     "$patch": "delete"
+			if len(imagePullSecretsToRemove) > 0 {
+				patchJson := map[string]interface{}{}
+				err = json.Unmarshal(patchByte, &patchJson)
+				if err != nil {
+					return nil, err
+				}
+				spec, ok := patchJson["spec"].(map[string]interface{})
+				if !ok {
+					return nil, errors.New("spec not found")
+				}
+				template, ok := spec["template"].(map[string]interface{})
+				if !ok {
+					return nil, errors.New("template not found")
+				}
+				specTemplate, ok := template["spec"].(map[string]interface{})
+				if !ok {
+					return nil, errors.New("template.spec not found")
+				}
+
+				// Ensure imagePullSecrets is a slice, defaulting to an empty slice if nil.
+				ipsField, exists := specTemplate["imagePullSecrets"]
+				var imagePullSecrets []interface{}
+				if exists && ipsField != nil {
+					var ok bool
+					imagePullSecrets, ok = ipsField.([]interface{})
+					if !ok {
+						return nil, errors.New("imagePullSecrets is not the expected type")
+					}
+				} else {
+					imagePullSecrets = []interface{}{}
+				}
+
+				for _, secret := range imagePullSecretsToRemove {
+					for _, secretMap := range imagePullSecrets {
+						if secretMap.(map[string]interface{})["name"] == secret {
+							secretMap.(map[string]interface{})["$patch"] = "delete"
+						}
+					}
+				}
+				patchJson["spec"].(map[string]interface{})["template"].(map[string]interface{})["spec"].(map[string]interface{})["imagePullSecrets"] = imagePullSecrets
+				patchByte, err = json.Marshal(patchJson)
+				if err != nil {
+					return nil, err
+				}
+			}
 			opErr = r.client.Patch(context.TODO(), deployment, kclient.RawPatch(types.StrategicMergePatchType, patchByte))
 		}
 

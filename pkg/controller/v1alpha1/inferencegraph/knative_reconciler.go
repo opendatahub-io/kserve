@@ -214,6 +214,7 @@ func createKnativeService(client client.Client, componentMeta metav1.ObjectMeta,
 											Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
 										},
 									},
+									ReadinessProbe: constants.GetRouterReadinessProbe(),
 								},
 							},
 							Volumes: []v1.Volume{
