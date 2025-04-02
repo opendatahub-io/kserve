@@ -19,6 +19,7 @@ package knative
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
@@ -32,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
+	operatorv1beta1 "knative.dev/operator/pkg/apis/operator/v1beta1"
 	"knative.dev/pkg/kmp"
 	"knative.dev/serving/pkg/apis/autoscaling"
 	knserving "knative.dev/serving/pkg/apis/serving"
@@ -62,51 +64,31 @@ func NewKsvcReconciler(client client.Client,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec,
 	componentStatus v1beta1.ComponentStatusSpec,
-	disallowedLabelList []string) *KsvcReconciler {
+	disallowedLabelList []string) (*KsvcReconciler, error) {
+	ksvc, err := createKnativeService(client, componentMeta, componentExt, podSpec, componentStatus, disallowedLabelList)
+	if err != nil {
+		return nil, errors.Wrapf(err, fmt.Sprintf("fails to create knative service for inference service %s", componentMeta.Name))
+	}
 	return &KsvcReconciler{
 		client:          client,
 		scheme:          scheme,
-		Service:         createKnativeService(componentMeta, componentExt, podSpec, componentStatus, disallowedLabelList),
+		Service:         ksvc,
 		componentExt:    componentExt,
 		componentStatus: componentStatus,
-	}
+	}, nil
 }
 
-func createKnativeService(componentMeta metav1.ObjectMeta,
+func createKnativeService(client client.Client,
+	componentMeta metav1.ObjectMeta,
 	componentExtension *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec,
 	componentStatus v1beta1.ComponentStatusSpec,
-	disallowedLabelList []string) *knservingv1.Service {
+	disallowedLabelList []string) (*knservingv1.Service, error) {
 	annotations := componentMeta.GetAnnotations()
 
-	if componentExtension.MinReplicas == nil {
-		annotations[constants.MinScaleAnnotationKey] = fmt.Sprint(constants.DefaultMinReplicas)
-	} else {
-		annotations[constants.MinScaleAnnotationKey] = fmt.Sprint(*componentExtension.MinReplicas)
-	}
-
-	// The larger of min-scale and initial-scale is chosen as the initial target scale for a knative Revision.
-	// When min-scale is 0, set initial-scale to 0 so the created knative revision has an initial target scale of 0.
-	// Configuring scaling for knative: https://knative.dev/docs/serving/autoscaling/scale-bounds/#initial-scale
-	if annotations[constants.MinScaleAnnotationKey] == "0" {
-		annotations[constants.InitialScaleAnnotationKey] = "0"
-	}
-
-	if componentExtension.MaxReplicas != 0 {
-		annotations[constants.MaxScaleAnnotationKey] = fmt.Sprint(componentExtension.MaxReplicas)
-	}
-
-	// User can pass down scaling class annotation to overwrite the default scaling KPA
-	if _, ok := annotations[autoscaling.ClassAnnotationKey]; !ok {
-		annotations[autoscaling.ClassAnnotationKey] = autoscaling.KPA
-	}
-
-	if componentExtension.ScaleTarget != nil {
-		annotations[autoscaling.TargetAnnotationKey] = fmt.Sprint(*componentExtension.ScaleTarget)
-	}
-
-	if componentExtension.ScaleMetric != nil {
-		annotations[autoscaling.MetricAnnotationKey] = fmt.Sprint(*componentExtension.ScaleMetric)
+	err := setAutoScalingAnnotations(client, annotations, componentExtension)
+	if err != nil {
+		return nil, errors.Wrapf(err, "fails to set autoscaling annotations for knative service")
 	}
 
 	// ksvc metadata.annotations
@@ -197,7 +179,7 @@ func createKnativeService(componentMeta metav1.ObjectMeta,
 			},
 		},
 	}
-	return service
+	return service, nil
 }
 
 func reconcileKsvc(desired *knservingv1.Service, existing *knservingv1.Service) error {
@@ -285,4 +267,190 @@ func semanticEquals(desiredService, service *knservingv1.Service) bool {
 	return equality.Semantic.DeepEqual(desiredService.Spec.ConfigurationSpec, service.Spec.ConfigurationSpec) &&
 		equality.Semantic.DeepEqual(desiredService.ObjectMeta.Labels, service.ObjectMeta.Labels) &&
 		equality.Semantic.DeepEqual(desiredService.Spec.RouteSpec, service.Spec.RouteSpec)
+}
+
+// setAutoScalingAnnotations checks the knative autoscaler configuration defined in the kantive serving autoscaler
+// configmap and compares the values to the autoscaling configuration requested for the inference service.
+// It then sets the necessary annotations for the desired autoscaling configuration.
+func setAutoScalingAnnotations(client client.Client,
+	annotations map[string]string,
+	componentExtension *v1beta1.ComponentExtensionSpec) error {
+
+	// User can pass down scaling class annotation to overwrite the default scaling KPA
+	if _, ok := annotations[autoscaling.ClassAnnotationKey]; !ok {
+		annotations[autoscaling.ClassAnnotationKey] = autoscaling.KPA
+	}
+
+	if componentExtension.ScaleTarget != nil {
+		annotations[autoscaling.TargetAnnotationKey] = fmt.Sprint(*componentExtension.ScaleTarget)
+	}
+
+	if componentExtension.ScaleMetric != nil {
+		annotations[autoscaling.MetricAnnotationKey] = fmt.Sprint(*componentExtension.ScaleMetric)
+	}
+
+	// If a minReplicas value is not set for the inference service, then use the default min-scale value of 1.
+	var revisionMinScale int
+	if componentExtension.MinReplicas == nil {
+		annotations[autoscaling.MinScaleAnnotationKey] = fmt.Sprint(constants.DefaultMinReplicas)
+		revisionMinScale = constants.DefaultMinReplicas
+	} else {
+		annotations[autoscaling.MinScaleAnnotationKey] = fmt.Sprint(*componentExtension.MinReplicas)
+		revisionMinScale = *componentExtension.MinReplicas
+	}
+
+	if componentExtension.MaxReplicas != 0 {
+		annotations[autoscaling.MaxScaleAnnotationKey] = fmt.Sprint(componentExtension.MaxReplicas)
+	}
+
+	// Retrive the allow-zero-initial-scale and initial-scale values from the knative autoscaler configuration.
+	allowZeroInitialScale, globalInitialScale, err := GetAutoscalerConfiguration(client)
+	if err != nil {
+		return errors.Wrapf(err, "failed to retrieve the knative autoscaler configuration")
+	}
+
+	initialScaleInt, err := strconv.Atoi(globalInitialScale)
+	if err != nil {
+		return errors.Wrapf(err, fmt.Sprintf("failed to convert configured knative autoscaler global initial-scale value (%s) to an integer", globalInitialScale))
+	}
+
+	// Provide transparency to users while aligning with knative serving's expected behavior, log a warning when the
+	// knative autoscaler global initial-scale value exceeds the requested minScale value for the inference service.
+	if initialScaleInt > revisionMinScale {
+		log.Info("WARNING: knative autoscaler is globally configured with an initial-scale value that is greater than the requested min-scale for the inference service",
+			"initial-scale", initialScaleInt,
+			"min-scale", revisionMinScale)
+	}
+
+	// knative will choose the larger of min-scale and initial-scale as the initial target scale for a knative revision.
+	// When min-scale is 0, if allow-zero-initial scale is true, set initial-scale to 0 for the created knative revision.
+	// This will prevent any pods from being created to initialize a knative revision when an inference service has minReplicas set to 0.
+	// Configuring scaling for knative: https://knative.dev/docs/serving/autoscaling/scale-bounds/#initial-scale
+	if revisionMinScale == 0 {
+		if allowZeroInitialScale == "true" {
+			log.Info("kserve will override the global knative autoscaler configuration for initial-scale on a per revision basis with 0 when an inference service is requested with min-scale 0",
+				"allow-zero-initial-scale", allowZeroInitialScale,
+				"initial-scale", globalInitialScale)
+			annotations[constants.InitialScaleAnnotationKey] = "0"
+		} else {
+			log.Info("WARNING: The current knative autoscaler global configuration does not allow zero initial scale.",
+				"allow-zero-initial-scale", allowZeroInitialScale,
+				"initial-scale", globalInitialScale)
+		}
+	}
+
+	return nil
+}
+
+// GetAutoscalerConfiguration reads the global knative serving configuration and retrieves values related to the autoscaler.
+// It will attempt to read these values from the knative autoscaler configmap, but if this configmap is not found
+// it will read the values from the knative serving operator itself.
+func GetAutoscalerConfiguration(client client.Client) (string, string, error) {
+	// Set allow-zero-intial-scale and intitial-scale to their default values to start.
+	// If autoscaling values are not set in the configuration, then the defaults are used.
+	allowZeroInitialScale := "false"
+	globalInitialScale := "1"
+
+	// Retrieve the knative-installation-info configmap. If knative is installed via default installation
+	// this configmap is required so kserve can read the knative config.
+	knativeOperatorName, knativeOperatorNamespace, autoscalerConfigName, autoscalerConfigNamespace, err := GetKnativeInstallationInfo(client)
+	if err != nil {
+		return allowZeroInitialScale, globalInitialScale, errors.Wrapf(err, "fails to get knative installation info")
+	}
+
+	// The config-autoscaler configmap takes precedence for the knative autoscaling configuration
+	// If it exits, use the configuration defined there.
+	autoscalerConfig := &corev1.ConfigMap{}
+	err = client.Get(context.TODO(), types.NamespacedName{Name: autoscalerConfigName, Namespace: autoscalerConfigNamespace}, autoscalerConfig)
+	if err != nil {
+		if !apierr.IsNotFound(err) {
+			return allowZeroInitialScale, globalInitialScale, errors.Wrapf(
+				err,
+				fmt.Sprintf(
+					"fails to retrieve the %s configmap from the %s namespace during knative service creation.",
+					autoscalerConfigName,
+					autoscalerConfigNamespace,
+				),
+			)
+		}
+	} else {
+		if autoscalerConfig.Data != nil {
+			if configuredAllowZeroInitialScale, ok := autoscalerConfig.Data[constants.AutoscalerAllowZeroScaleKey]; ok {
+				allowZeroInitialScale = configuredAllowZeroInitialScale
+			}
+			if configuredInitialScale, ok := autoscalerConfig.Data[constants.AutoscalerInitialScaleKey]; ok {
+				globalInitialScale = configuredInitialScale
+			}
+		}
+		return allowZeroInitialScale, globalInitialScale, nil
+	}
+
+	// If the config-autoscaler configmap does not exists, then knative fallsback to the configuration defined
+	// by the knative-serving knativeserving resource. If it exists, use the configuration defined there.
+	kserving := &operatorv1beta1.KnativeServing{}
+	err = client.Get(context.TODO(), types.NamespacedName{Name: knativeOperatorName, Namespace: knativeOperatorNamespace}, kserving)
+	if err != nil {
+		return allowZeroInitialScale, globalInitialScale, errors.Wrapf(
+			err,
+			fmt.Sprintf(
+				"fails to retrieve the %s operator from the %s namespace during knative service creation.",
+				knativeOperatorName,
+				knativeOperatorNamespace,
+			),
+		)
+	}
+	if kserving.Spec.Config != nil {
+		if kservingAutoscalerConfig, ok := kserving.Spec.Config[constants.AutoscalerKey]; ok {
+			if configuredAllowZeroInitialScale, ok := kservingAutoscalerConfig[constants.AutoscalerAllowZeroScaleKey]; ok {
+				allowZeroInitialScale = configuredAllowZeroInitialScale
+			}
+			if configuredInitialScale, ok := kservingAutoscalerConfig[constants.AutoscalerInitialScaleKey]; ok {
+				globalInitialScale = configuredInitialScale
+			}
+		}
+	}
+	return allowZeroInitialScale, globalInitialScale, nil
+}
+
+// GetKnativeInstallationInfo handles scenarios in which knative is installed through a non default installation.
+// If knative is not installed via default installation, i.e. not in the knative-serving namespace,
+// it is required that a knative-installation-info configmap is created in the namespace in which the kserve-controller-manager
+// pod is running. The values defined in this configmap will be used by kserve to read the knative configuration.
+func GetKnativeInstallationInfo(client client.Client) (string, string, string, string, error) {
+	knativeOperatorName := constants.DefaultKnativeOperatorName
+	knativeOperatorNamespace := constants.DefaultKnativeOperatorNamespace
+	autoscalerConfigName := constants.DefaultAutoscalerConfigName
+	autoscalerConfigNamespace := constants.DefaultAutoscalerConfigNamespace
+
+	knativeInstallConfig := &corev1.ConfigMap{}
+	err := client.Get(context.TODO(), types.NamespacedName{Name: constants.KnativeInstallationInfoConfig, Namespace: constants.KServeNamespace}, knativeInstallConfig)
+	if err != nil {
+		if !apierr.IsNotFound(err) {
+			return knativeOperatorName, knativeOperatorNamespace, autoscalerConfigName, autoscalerConfigNamespace, errors.Wrapf(
+				err,
+				fmt.Sprintf(
+					"fails to retrieve the %s configmap from the %s namespace during knative service creation.",
+					constants.KnativeInstallationInfoConfig,
+					constants.KServeNamespace,
+				),
+			)
+		}
+	} else {
+		if knativeInstallConfig.Data != nil {
+			if configuredKnativeOperatorName, ok := knativeInstallConfig.Data[constants.KnativeOperatorNameKey]; ok {
+				knativeOperatorName = configuredKnativeOperatorName
+			}
+			if configuredKnativeOperatorNamespace, ok := knativeInstallConfig.Data[constants.KnativeOperatorNamespaceKey]; ok {
+				knativeOperatorNamespace = configuredKnativeOperatorNamespace
+			}
+			if configuredAutoscalerConfigName, ok := knativeInstallConfig.Data[constants.AutoscalerConfigNameKey]; ok {
+				autoscalerConfigName = configuredAutoscalerConfigName
+			}
+			if configuredAutoscalerConfigNamespace, ok := knativeInstallConfig.Data[constants.AutoscalerConfigNamespaceKey]; ok {
+				autoscalerConfigNamespace = configuredAutoscalerConfigNamespace
+			}
+		}
+	}
+
+	return knativeOperatorName, knativeOperatorNamespace, autoscalerConfigName, autoscalerConfigNamespace, nil
 }
