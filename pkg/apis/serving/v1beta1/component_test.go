@@ -21,6 +21,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/kserve/kserve/pkg/constants"
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	"google.golang.org/protobuf/proto"
@@ -65,21 +66,21 @@ func TestComponentExtensionSpec_validateStorageSpec(t *testing.T) {
 		storageUri *string
 		matcher    types.GomegaMatcher
 	}{
-		"ValidStoragespec": {
+		"ValidStorageSpec": {
 			spec: &StorageSpec{
 				Parameters: &map[string]string{
 					"type": "s3",
 				},
 			},
 			storageUri: nil,
-			matcher:    gomega.BeNil(),
+			matcher:    gomega.MatchError(fmt.Errorf(UnsupportedStorageURIFormatError, strings.Join(constants.SupportedStorageURIPrefixList, ", "), "empty")),
 		},
-		"ValidStoragespecWithoutParameters": {
+		"ValidStorageSpecWithoutParameters": {
 			spec:       &StorageSpec{},
 			storageUri: nil,
-			matcher:    gomega.BeNil(),
+			matcher:    gomega.MatchError(fmt.Errorf(UnsupportedStorageURIFormatError, strings.Join(constants.SupportedStorageURIPrefixList, ", "), "empty")),
 		},
-		"ValidStoragespecWithStorageURI": {
+		"ValidStorageSpecWithStorageURI": {
 			spec: &StorageSpec{
 				Parameters: &map[string]string{
 					"type": "s3",
@@ -94,17 +95,35 @@ func TestComponentExtensionSpec_validateStorageSpec(t *testing.T) {
 					"type": "gs",
 				},
 			},
-			storageUri: proto.String("gs://test/model"),
-			matcher:    gomega.MatchError(fmt.Errorf(UnsupportedStorageURIFormatError, strings.Join(SupportedStorageSpecURIPrefixList, ", "), "gs://test/model")),
+			storageUri: proto.String("gsi://test/model"),
+			matcher:    gomega.MatchError(fmt.Errorf(UnsupportedStorageURIFormatError, strings.Join(constants.SupportedStorageURIPrefixList, ", "), "gsi://test/model")),
 		},
-		"InvalidStoragespec": {
+		"InvalidStorageSpec": {
 			spec: &StorageSpec{
 				Parameters: &map[string]string{
-					"type": "gs",
+					"type": "gss",
 				},
 			},
 			storageUri: nil,
-			matcher:    gomega.MatchError(fmt.Errorf(UnsupportedStorageSpecFormatError, strings.Join(SupportedStorageSpecURIPrefixList, ", "), "gs")),
+			matcher:    gomega.MatchError(fmt.Errorf(UnsupportedStorageSpecFormatError, strings.Join(constants.SupportedStorageURIPrefixList, ", "), "gss")),
+		},
+		"ValidStorageSpecHFWithStorageURI": {
+			spec: &StorageSpec{
+				Parameters: &map[string]string{
+					"type": "hf",
+				},
+			},
+			storageUri: proto.String("hf://test/model"),
+			matcher:    gomega.BeNil(),
+		},
+		"ValidStorageSpecHFWithNoStorageURI": {
+			spec: &StorageSpec{
+				Parameters: &map[string]string{
+					"type": "hf",
+				},
+			},
+			storageUri: nil,
+			matcher:    gomega.MatchError(fmt.Errorf(UnsupportedStorageURIFormatError, strings.Join(constants.SupportedStorageURIPrefixList, ", "), "empty")),
 		},
 	}
 	for name, scenario := range scenarios {
