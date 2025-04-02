@@ -275,7 +275,6 @@ func semanticEquals(desiredService, service *knservingv1.Service) bool {
 func setAutoScalingAnnotations(client client.Client,
 	annotations map[string]string,
 	componentExtension *v1beta1.ComponentExtensionSpec) error {
-
 	// User can pass down scaling class annotation to overwrite the default scaling KPA
 	if _, ok := annotations[autoscaling.ClassAnnotationKey]; !ok {
 		annotations[autoscaling.ClassAnnotationKey] = autoscaling.KPA
@@ -303,7 +302,7 @@ func setAutoScalingAnnotations(client client.Client,
 		annotations[autoscaling.MaxScaleAnnotationKey] = fmt.Sprint(componentExtension.MaxReplicas)
 	}
 
-	// Retrive the allow-zero-initial-scale and initial-scale values from the knative autoscaler configuration.
+	// Retrieve the allow-zero-initial-scale and initial-scale values from the knative autoscaler configuration.
 	allowZeroInitialScale, globalInitialScale, err := GetAutoscalerConfiguration(client)
 	if err != nil {
 		return errors.Wrapf(err, "failed to retrieve the knative autoscaler configuration")
@@ -346,7 +345,7 @@ func setAutoScalingAnnotations(client client.Client,
 // It will attempt to read these values from the knative autoscaler configmap, but if this configmap is not found
 // it will read the values from the knative serving operator itself.
 func GetAutoscalerConfiguration(client client.Client) (string, string, error) {
-	// Set allow-zero-intial-scale and intitial-scale to their default values to start.
+	// Set allow-zero-initial-scale and intitial-scale to their default values to start.
 	// If autoscaling values are not set in the configuration, then the defaults are used.
 	allowZeroInitialScale := "false"
 	globalInitialScale := "1"

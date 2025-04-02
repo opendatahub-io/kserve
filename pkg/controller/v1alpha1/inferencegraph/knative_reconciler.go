@@ -279,7 +279,6 @@ func constructResourceRequirements(graph v1alpha1api.InferenceGraph, config Rout
 // It then sets the necessary annotations for the desired autoscaling configuration.
 func setAutoScalingAnnotations(client client.Client,
 	annotations map[string]string) error {
-
 	// User can pass down scaling class annotation to overwrite the default scaling KPA
 	if _, ok := annotations[autoscaling.ClassAnnotationKey]; !ok {
 		annotations[autoscaling.ClassAnnotationKey] = autoscaling.KPA
@@ -300,7 +299,7 @@ func setAutoScalingAnnotations(client client.Client,
 		revisionMinScale = minScaleInt
 	}
 
-	// Retrive the allow-zero-initial-scale and initial-scale values from the knative autoscaler configuration.
+	// Retrieve the allow-zero-initial-scale and initial-scale values from the knative autoscaler configuration.
 	allowZeroInitialScale, globalInitialScale, err := knutils.GetAutoscalerConfiguration(client)
 	if err != nil {
 		return errors.Wrapf(err, "failed to retrieve the knative autoscaler configuration")
