@@ -415,6 +415,7 @@ func compilePatterns(patterns []string) ([]*regexp.Regexp, error) {
 }
 
 var (
+	enableTlsFlag          = flag.Bool("enable-tls", false, "enable TLS for the router")
 	enableAuthFlag         = flag.Bool("enable-auth", false, "protect the inference graph with authorization")
 	graphName              = flag.String("inferencegraph-name", "", "the name of the associated inference graph Kubernetes resource")
 	jsonGraph              = flag.String("graph-json", "", "serialized json graph def")
@@ -605,7 +606,11 @@ func main() {
 		IdleTimeout:  3 * time.Minute,   // set the maximum amount of time to wait for the next request when keep-alives are enabled
 	}
 
-	err = server.ListenAndServeTLS("/etc/tls/private/tls.crt", "/etc/tls/private/tls.key")
+	if *enableTlsFlag {
+		err = server.ListenAndServeTLS("/etc/tls/private/tls.crt", "/etc/tls/private/tls.key")
+	} else {
+		err = server.ListenAndServe()
+	}
 	if err != nil {
 		log.Error(err, "failed to listen on 8080")
 		os.Exit(1)
