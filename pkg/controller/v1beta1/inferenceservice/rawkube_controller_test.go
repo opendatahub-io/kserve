@@ -9143,6 +9143,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								FSGroupChangePolicy: nil,
 								SeccompProfile:      nil,
 							},
+							// ODH override. See : https://issues.redhat.com/browse/RHOAIENG-19904
 							AutomountServiceAccountToken: proto.Bool(true),
 						},
 					},

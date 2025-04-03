@@ -270,6 +270,7 @@ func addOauthContainerToDeployment(clientset kubernetes.Interface, deployment *a
 		}
 		updatedPodSpec := deployment.Spec.Template.Spec.DeepCopy()
 		//	updatedPodSpec := podSpec.DeepCopy()
+		// ODH override. See : https://issues.redhat.com/browse/RHOAIENG-19904
 		updatedPodSpec.AutomountServiceAccountToken = proto.Bool(true)
 		updatedPodSpec.Containers = append(updatedPodSpec.Containers, *oauthProxyContainer)
 		deployment.Spec.Template.Spec = *updatedPodSpec
