@@ -475,9 +475,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		})
 		It("Should not propagate the networking.knative.dev/visibility annotation", func() {
 			By("By including the annotation in the serviceAnnotationDisallowedList ")
-			// The inferenceService key is required in the inferenceservice-config configmap
-			// in order for the serviceAnnotationDisallowedList to be used.
-			configs["inferenceService"] = "{}"
+			// Add the annotation to the inferenceservice-config inferenceService serviceAnnotationDisallowedList
+			configs["inferenceService"] = "{\"serviceAnnotationDisallowedList\": [\"networking.knative.dev/visibility\"]}"
 			defer delete(configs, "inferenceService")
 
 			// Create configmap
