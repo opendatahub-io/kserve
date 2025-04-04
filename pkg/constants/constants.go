@@ -381,7 +381,6 @@ var (
 		StorageInitializerSourceUriInternalAnnotationKey,
 		"kubectl.kubernetes.io/last-applied-configuration",
 		"security.opendatahub.io/enable-auth",
-		VisibilityAnnotation,
 	}
 	// RevisionTemplateLabelDisallowedList is a list of labels that are not allowed to be propagated to Knative
 	// revisions, which prevents the reconciliation loop to be triggered if the labels is configured here are used.
