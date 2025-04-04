@@ -33,30 +33,35 @@ if [ -z "${QUAY_REPO}" ]; then
   ERROR_404_ISVC_IMG_TAG=${DOCKER_REPO}/${ERROR_404_ISVC_IMG}:${GITHUB_SHA}
 fi
 
-
 : "${BUILDER:=docker}"
-if [ $BUILDER == "docker" ]; then
-  BUILDER=docker
-  BUILDER_TYPE=docker
-  # docker buildx create --name mybuilder --driver docker-container --use
-  else 
-  BUILDER=podman
-  BUILDER_TYPE=local
-fi
-
 pushd python >/dev/null
-echo "Building success_200_isvc image"
-$BUILDER buildx build -t "${SUCCESS_200_ISVC_IMG_TAG}" -f success_200_isvc.Dockerfile \
-  -o type=${BUILDER_TYPE} .
-echo "Done building success_200_isvc image"
-echo "Building error_404_isvc image"
-$BUILDER buildx build -t "${ERROR_404_ISVC_IMG_TAG}" -f error_404_isvc.Dockerfile \
-  -o type=${BUILDER_TYPE} .
-echo "Done building error_404_isvc image"
-if $RUNNING_LOCAL; then
-  $BUILDER push ${SUCCESS_200_ISVC_IMG_TAG}
-  $BUILDER push ${ERROR_404_ISVC_IMG_TAG}
-fi 
+if [ $BUILDER == "docker" ]; then
+    if [ -d $DOCKER_IMAGES_PATH ]; then 
+      rm -rf $DOCKER_IMAGES_PATH
+    fi
+    mkdir -p $DOCKER_IMAGES_PATH
+    echo "Building success_200_isvc image"
+    docker buildx build -t "${SUCCESS_200_ISVC_IMG_TAG}" -f success_200_isvc.Dockerfile \
+      -o type=docker,dest="${DOCKER_IMAGES_PATH}/${SUCCESS_200_ISVC_IMG}-${GITHUB_SHA}",compression-level=0 .
+    echo "Done building success_200_isvc image"
+    echo "Building error_404_isvc image"
+    docker buildx build -t "${ERROR_404_ISVC_IMG_TAG}" -f error_404_isvc.Dockerfile \
+      -o type=docker,dest="${DOCKER_IMAGES_PATH}/${ERROR_404_ISVC_IMG}-${GITHUB_SHA}",compression-level=0 .
+    echo "Done building error_404_isvc image"
+    # docker buildx create --name mybuilder --driver docker-container --use`
+  else 
+    echo "Building success_200_isvc image"
+    podman buildx build -t "${SUCCESS_200_ISVC_IMG_TAG}" -f success_200_isvc.Dockerfile \
+      -o type=${BUILDER_TYPE} .
+    echo "Done building success_200_isvc image"
+    echo "Building error_404_isvc image"
+    podman buildx build -t "${ERROR_404_ISVC_IMG_TAG}" -f error_404_isvc.Dockerfile \
+      -o type=${BUILDER_TYPE} .
+    echo "Done building error_404_isvc image"
+    if $RUNNING_LOCAL; then
+      podman push ${SUCCESS_200_ISVC_IMG_TAG}
+      podman push ${ERROR_404_ISVC_IMG_TAG}   BUILDER_TYPE=local
+    fi 
+fi
 popd
 echo "Done building images"
-
