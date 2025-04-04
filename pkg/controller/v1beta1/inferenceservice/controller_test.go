@@ -473,7 +473,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				return false
 			}, timeout, interval).Should(BeTrue())
 		})
-		It("Should not propagate the networking.knative.io/visibility annotation", func() {
+		It("Should not propagate the networking.knative.dev/visibility annotation", func() {
 			By("By including the annotation in the serviceAnnotationDisallowedList ")
 			// The inferenceService key is required in the inferenceservice-config configmap
 			// in order for the serviceAnnotationDisallowedList to be used.
@@ -535,7 +535,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					Name:      serviceKey.Name,
 					Namespace: serviceKey.Namespace,
 					Annotations: map[string]string{
-						"networking.knative.io/visibility": "test",
+						constants.VisibilityAnnotation: "test",
 					},
 				},
 				Spec: v1beta1.InferenceServiceSpec{
@@ -566,8 +566,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorServiceKey, actualService) }, timeout).
 				Should(Succeed())
 
-			Expect("networking.knative.io/visibility").ShouldNot(BeKeyOf(actualService.Annotations))
-			Expect("networking.knative.io/visibility").ShouldNot(BeKeyOf(actualService.Spec.Template.Annotations))
+			Expect(constants.VisibilityAnnotation).ShouldNot(BeKeyOf(actualService.Annotations))
+			Expect(constants.VisibilityAnnotation).ShouldNot(BeKeyOf(actualService.Spec.Template.Annotations))
 		})
 	})
 

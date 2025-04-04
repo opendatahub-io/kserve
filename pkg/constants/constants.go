@@ -262,6 +262,7 @@ const (
 	KnativeLocalGateway   = "knative-serving/knative-local-gateway"
 	KnativeIngressGateway = "knative-serving/knative-ingress-gateway"
 	VisibilityLabel       = "networking.knative.dev/visibility"
+	VisibilityAnnotation  = "networking.knative.dev/visibility"
 )
 
 var (
@@ -380,7 +381,7 @@ var (
 		StorageInitializerSourceUriInternalAnnotationKey,
 		"kubectl.kubernetes.io/last-applied-configuration",
 		"security.opendatahub.io/enable-auth",
-		"networking.knative.io/visibility",
+		VisibilityAnnotation,
 	}
 	// RevisionTemplateLabelDisallowedList is a list of labels that are not allowed to be propagated to Knative
 	// revisions, which prevents the reconciliation loop to be triggered if the labels is configured here are used.
