@@ -113,8 +113,8 @@ var _ = BeforeSuite(func() {
 	Expect(k8sClient.Create(context.Background(), kfservingNamespaceObj)).Should(Succeed())
 	Expect(k8sClient.Create(context.Background(), knativeServingNamespace)).Should(Succeed())
 
-	// Create knative operator and autoscaler configmap
-	knativeOperator := &operatorv1beta1.KnativeServing{
+	// Create knativeserving custom resource
+	knativeCr := &operatorv1beta1.KnativeServing{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      constants.DefaultKnServingName,
 			Namespace: constants.DefaultKnServingNamespace,
@@ -129,7 +129,7 @@ var _ = BeforeSuite(func() {
 			},
 		},
 	}
-	Expect(k8sClient.Create(context.Background(), knativeOperator)).Should(Succeed())
+	Expect(k8sClient.Create(context.Background(), knativeCr)).Should(Succeed())
 
 	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,

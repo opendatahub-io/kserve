@@ -81,130 +81,236 @@ var _ = Describe("Inference Graph controller test", func() {
 
 	var expectedReadinessProbe = constants.GetRouterReadinessProbe()
 
-	Context("When creating an InferenceGraph", func() {
-		It("Should create a knative service with initial-scale:0 and min-scale:0 annotations", func() {
-			By("When knative is configured to allow zero initial scale and the min-scale:0 annotation is added to the inference graph")
-			var configMap = &v1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      constants.InferenceServiceConfigMapName,
-					Namespace: constants.KServeNamespace,
-				},
-				Data: configs,
-			}
-			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
-			defer k8sClient.Delete(context.TODO(), configMap)
-			graphName := "initialscale1"
-			var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
-			var serviceKey = expectedRequest.NamespacedName
-			ctx := context.Background()
-			minScale := 2
-			minScalePtr := &minScale
-			ig := &v1alpha1.InferenceGraph{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      serviceKey.Name,
-					Namespace: serviceKey.Namespace,
-					Annotations: map[string]string{
-						constants.MinScaleAnnotationKey: "0",
+	Context("with knative configured to allow zero initial scale", func() {
+		When("an InferenceGraph with min-scale:0 annotation is created", func() {
+			It("should create a knative service with initial-scale:0 and min-scale:0 annotations", func() {
+				var configMap = &v1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      constants.InferenceServiceConfigMapName,
+						Namespace: constants.KServeNamespace,
 					},
-				},
-				Spec: v1alpha1.InferenceGraphSpec{
-					MinReplicas: minScalePtr,
-					MaxReplicas: 3,
-					Nodes: map[string]v1alpha1.InferenceRouter{
-						v1alpha1.GraphRootNodeName: {
-							RouterType: v1alpha1.Sequence,
-							Steps: []v1alpha1.InferenceStep{
-								{
-									InferenceTarget: v1alpha1.InferenceTarget{
-										ServiceURL: "http://someservice.exmaple.com",
+					Data: configs,
+				}
+				Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(context.TODO(), configMap)
+				graphName := "initialscale1"
+				var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
+				var serviceKey = expectedRequest.NamespacedName
+				ctx := context.Background()
+				minScale := 1
+				minScalePtr := &minScale
+				ig := &v1alpha1.InferenceGraph{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      serviceKey.Name,
+						Namespace: serviceKey.Namespace,
+						Annotations: map[string]string{
+							constants.MinScaleAnnotationKey: "0",
+						},
+					},
+					Spec: v1alpha1.InferenceGraphSpec{
+						MinReplicas: minScalePtr,
+						MaxReplicas: 1,
+						Nodes: map[string]v1alpha1.InferenceRouter{
+							v1alpha1.GraphRootNodeName: {
+								RouterType: v1alpha1.Sequence,
+								Steps: []v1alpha1.InferenceStep{
+									{
+										InferenceTarget: v1alpha1.InferenceTarget{
+											ServiceURL: "http://someservice.exmaple.com",
+										},
 									},
 								},
 							},
 						},
 					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, ig)).Should(Succeed())
-			defer k8sClient.Delete(ctx, ig)
+				}
+				Expect(k8sClient.Create(ctx, ig)).Should(Succeed())
+				defer k8sClient.Delete(ctx, ig)
 
-			actualKnServiceCreated := &knservingv1.Service{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), serviceKey, actualKnServiceCreated)
-			}, timeout).
-				Should(Succeed())
+				actualKnServiceCreated := &knservingv1.Service{}
+				Eventually(func() error {
+					return k8sClient.Get(context.TODO(), serviceKey, actualKnServiceCreated)
+				}, timeout).
+					Should(Succeed())
 
-			Expect(actualKnServiceCreated.Spec.Template.Annotations[constants.InitialScaleAnnotationKey]).To(Equal("0"))
-			Expect(actualKnServiceCreated.Spec.Template.Annotations[constants.MinScaleAnnotationKey]).To(Equal("0"))
-			Expect(constants.MaxScaleAnnotationKey).ShouldNot(BeKeyOf(actualKnServiceCreated.Spec.Template.Annotations))
+				Expect(actualKnServiceCreated.Spec.Template.Annotations[constants.InitialScaleAnnotationKey]).To(Equal("0"))
+				Expect(actualKnServiceCreated.Spec.Template.Annotations[constants.MinScaleAnnotationKey]).To(Equal("0"))
+			})
 		})
-		It("Should create a knative service with min-scale:0 annotation and no initial-scale:0 annotation", func() {
-			By("When knative is configured to not allow zero initial scale and the min-scale:0 annotation is added to the inference graph")
+		When("an InferenceGraph without min-scale annotation is created", func() {
+			It("should create a knative service with no initial-scale annotation and min-scale annotation equal to the default min replicas value", func() {
+				var configMap = &v1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      constants.InferenceServiceConfigMapName,
+						Namespace: constants.KServeNamespace,
+					},
+					Data: configs,
+				}
+				Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(context.TODO(), configMap)
+				graphName := "initialscale2"
+				var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
+				var serviceKey = expectedRequest.NamespacedName
+				ctx := context.Background()
+				minScale := 1
+				minScalePtr := &minScale
+				ig := &v1alpha1.InferenceGraph{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      serviceKey.Name,
+						Namespace: serviceKey.Namespace,
+					},
+					Spec: v1alpha1.InferenceGraphSpec{
+						MinReplicas: minScalePtr,
+						MaxReplicas: 1,
+						Nodes: map[string]v1alpha1.InferenceRouter{
+							v1alpha1.GraphRootNodeName: {
+								RouterType: v1alpha1.Sequence,
+								Steps: []v1alpha1.InferenceStep{
+									{
+										InferenceTarget: v1alpha1.InferenceTarget{
+											ServiceURL: "http://someservice.exmaple.com",
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, ig)).Should(Succeed())
+				defer k8sClient.Delete(ctx, ig)
+
+				actualKnServiceCreated := &knservingv1.Service{}
+				Eventually(func() error {
+					return k8sClient.Get(context.TODO(), serviceKey, actualKnServiceCreated)
+				}, timeout).
+					Should(Succeed())
+
+				Expect(actualKnServiceCreated.Spec.Template.Annotations[constants.MinScaleAnnotationKey]).To(Equal(fmt.Sprint(constants.DefaultMinReplicas)))
+				Expect(constants.InitialScaleAnnotationKey).ShouldNot(BeKeyOf(actualKnServiceCreated.Spec.Template.Annotations))
+			})
+		})
+	})
+	Context("with knative configured to not allow zero initial scale", func() {
+		BeforeEach(func() {
 			// Update the existing knativeserving custom resource to set allow-zero-intial-scale to false
 			knativeService := &operatorv1beta1.KnativeServing{}
 			Expect(k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.DefaultKnServingName, Namespace: constants.DefaultKnServingNamespace}, knativeService)).ToNot(HaveOccurred())
 			knativeService.Spec.CommonSpec.Config["autoscaler"]["allow-zero-initial-scale"] = "false"
 			Expect(k8sClient.Update(context.TODO(), knativeService)).ToNot(HaveOccurred())
-
+		})
+		AfterEach(func() {
 			// Restore the original knativeserving custom resource configuration
-			defer func() {
-				knativeServiceRestored := &operatorv1beta1.KnativeServing{}
-				Expect(k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.DefaultKnServingName, Namespace: constants.DefaultKnServingNamespace}, knativeServiceRestored)).ToNot(HaveOccurred())
-				knativeServiceRestored.Spec.CommonSpec.Config["autoscaler"]["allow-zero-initial-scale"] = "true"
-				Expect(k8sClient.Update(context.TODO(), knativeServiceRestored)).ToNot(HaveOccurred())
-			}()
-
-			var configMap = &v1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      constants.InferenceServiceConfigMapName,
-					Namespace: constants.KServeNamespace,
-				},
-				Data: configs,
-			}
-			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
-			defer k8sClient.Delete(context.TODO(), configMap)
-			graphName := "initialscale2"
-			var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
-			var serviceKey = expectedRequest.NamespacedName
-			ctx := context.Background()
-			minScale := 2
-			minScalePtr := &minScale
-			ig := &v1alpha1.InferenceGraph{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      serviceKey.Name,
-					Namespace: serviceKey.Namespace,
-					Annotations: map[string]string{
-						constants.MinScaleAnnotationKey: "0",
+			knativeServiceRestored := &operatorv1beta1.KnativeServing{}
+			Expect(k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.DefaultKnServingName, Namespace: constants.DefaultKnServingNamespace}, knativeServiceRestored)).ToNot(HaveOccurred())
+			knativeServiceRestored.Spec.CommonSpec.Config["autoscaler"]["allow-zero-initial-scale"] = "true"
+			Expect(k8sClient.Update(context.TODO(), knativeServiceRestored)).ToNot(HaveOccurred())
+		})
+		When("an InferenceGraph with min-scale:0 annotation is created", func() {
+			It("should create a knative service with min-scale:0 annotation and no initial-scale annotation", func() {
+				var configMap = &v1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      constants.InferenceServiceConfigMapName,
+						Namespace: constants.KServeNamespace,
 					},
-				},
-				Spec: v1alpha1.InferenceGraphSpec{
-					MinReplicas: minScalePtr,
-					MaxReplicas: 3,
-					Nodes: map[string]v1alpha1.InferenceRouter{
-						v1alpha1.GraphRootNodeName: {
-							RouterType: v1alpha1.Sequence,
-							Steps: []v1alpha1.InferenceStep{
-								{
-									InferenceTarget: v1alpha1.InferenceTarget{
-										ServiceURL: "http://someservice.exmaple.com",
+					Data: configs,
+				}
+				Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(context.TODO(), configMap)
+				graphName := "initialscale3"
+				var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
+				var serviceKey = expectedRequest.NamespacedName
+				ctx := context.Background()
+				minScale := 1
+				minScalePtr := &minScale
+				ig := &v1alpha1.InferenceGraph{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      serviceKey.Name,
+						Namespace: serviceKey.Namespace,
+						Annotations: map[string]string{
+							constants.MinScaleAnnotationKey: "0",
+						},
+					},
+					Spec: v1alpha1.InferenceGraphSpec{
+						MinReplicas: minScalePtr,
+						MaxReplicas: 1,
+						Nodes: map[string]v1alpha1.InferenceRouter{
+							v1alpha1.GraphRootNodeName: {
+								RouterType: v1alpha1.Sequence,
+								Steps: []v1alpha1.InferenceStep{
+									{
+										InferenceTarget: v1alpha1.InferenceTarget{
+											ServiceURL: "http://someservice.exmaple.com",
+										},
 									},
 								},
 							},
 						},
 					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, ig)).Should(Succeed())
-			defer k8sClient.Delete(ctx, ig)
+				}
+				Expect(k8sClient.Create(ctx, ig)).Should(Succeed())
+				defer k8sClient.Delete(ctx, ig)
 
-			actualKnServiceCreated := &knservingv1.Service{}
-			Eventually(func() error {
-				return k8sClient.Get(context.TODO(), serviceKey, actualKnServiceCreated)
-			}, timeout).
-				Should(Succeed())
+				actualKnServiceCreated := &knservingv1.Service{}
+				Eventually(func() error {
+					return k8sClient.Get(context.TODO(), serviceKey, actualKnServiceCreated)
+				}, timeout).
+					Should(Succeed())
 
-			Expect(actualKnServiceCreated.Spec.Template.Annotations[constants.MinScaleAnnotationKey]).To(Equal("0"))
-			Expect(constants.InitialScaleAnnotationKey).ShouldNot(BeKeyOf(actualKnServiceCreated.Spec.Template.Annotations))
-			Expect(constants.MaxScaleAnnotationKey).ShouldNot(BeKeyOf(actualKnServiceCreated.Spec.Template.Annotations))
+				Expect(actualKnServiceCreated.Spec.Template.Annotations[constants.MinScaleAnnotationKey]).To(Equal("0"))
+				Expect(constants.InitialScaleAnnotationKey).ShouldNot(BeKeyOf(actualKnServiceCreated.Spec.Template.Annotations))
+			})
+		})
+		When("an InferenceGraph without min-scale annotation is created", func() {
+			It("should create a knative service with no initial-scale annotation and min-scale annotation equal to the default minReplicas value", func() {
+				var configMap = &v1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      constants.InferenceServiceConfigMapName,
+						Namespace: constants.KServeNamespace,
+					},
+					Data: configs,
+				}
+				Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(context.TODO(), configMap)
+				graphName := "initialscale4"
+				var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: "default"}}
+				var serviceKey = expectedRequest.NamespacedName
+				ctx := context.Background()
+				minScale := 1
+				minScalePtr := &minScale
+				ig := &v1alpha1.InferenceGraph{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      serviceKey.Name,
+						Namespace: serviceKey.Namespace,
+					},
+					Spec: v1alpha1.InferenceGraphSpec{
+						MinReplicas: minScalePtr,
+						MaxReplicas: 1,
+						Nodes: map[string]v1alpha1.InferenceRouter{
+							v1alpha1.GraphRootNodeName: {
+								RouterType: v1alpha1.Sequence,
+								Steps: []v1alpha1.InferenceStep{
+									{
+										InferenceTarget: v1alpha1.InferenceTarget{
+											ServiceURL: "http://someservice.exmaple.com",
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+				Expect(k8sClient.Create(ctx, ig)).Should(Succeed())
+				defer k8sClient.Delete(ctx, ig)
+
+				actualKnServiceCreated := &knservingv1.Service{}
+				Eventually(func() error {
+					return k8sClient.Get(context.TODO(), serviceKey, actualKnServiceCreated)
+				}, timeout).
+					Should(Succeed())
+
+				Expect(actualKnServiceCreated.Spec.Template.Annotations[constants.MinScaleAnnotationKey]).To(Equal(fmt.Sprint(constants.DefaultMinReplicas)))
+				Expect(constants.InitialScaleAnnotationKey).ShouldNot(BeKeyOf(actualKnServiceCreated.Spec.Template.Annotations))
+			})
 		})
 	})
 

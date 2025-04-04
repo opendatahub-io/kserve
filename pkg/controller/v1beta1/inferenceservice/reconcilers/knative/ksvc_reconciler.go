@@ -316,7 +316,7 @@ func setAutoScalingAnnotations(client client.Client,
 	// Provide transparency to users while aligning with knative serving's expected behavior, log a warning when the
 	// knative autoscaler global initial-scale value exceeds the requested minScale value for the inference service.
 	if initialScaleInt > revisionMinScale {
-		log.Info("WARNING: knative autoscaler is globally configured with an initial-scale value that is greater than the requested min-scale for the inference service",
+		log.Info("knative autoscaler is globally configured with an initial-scale value that is greater than the requested min-scale for the inference service",
 			"initial-scale", initialScaleInt,
 			"min-scale", revisionMinScale)
 	}
@@ -332,7 +332,7 @@ func setAutoScalingAnnotations(client client.Client,
 				"initial-scale", globalInitialScale)
 			annotations[constants.InitialScaleAnnotationKey] = "0"
 		} else {
-			log.Info("WARNING: The current knative autoscaler global configuration does not allow zero initial scale.",
+			log.Info("The current knative autoscaler global configuration does not allow zero initial scale.",
 				"allow-zero-initial-scale", allowZeroInitialScale,
 				"initial-scale", globalInitialScale)
 		}
