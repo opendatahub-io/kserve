@@ -274,8 +274,8 @@ func constructResourceRequirements(graph v1alpha1api.InferenceGraph, config Rout
 	return specResources
 }
 
-// setAutoScalingAnnotations checks the autoscaler configuration defined in the knative serving autoscaler
-// configmap and compares the values to the autoscaling configuration requested for the inference graph.
+// setAutoScalingAnnotations checks the knative autoscaler configuration defined in the kantiveserving custom resource
+// and compares the values to the autoscaling configuration requested for the inference service.
 // It then sets the necessary annotations for the desired autoscaling configuration.
 func setAutoScalingAnnotations(client client.Client,
 	annotations map[string]string) error {

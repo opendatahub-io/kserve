@@ -41,6 +41,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
+	operatorv1beta1 "knative.dev/operator/pkg/apis/operator/v1beta1"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	"knative.dev/pkg/network"
@@ -215,6 +216,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Namespace: serviceKey.Namespace}
 			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorServiceKey, actualService) }, timeout).
 				Should(Succeed())
+
+			Expect(constants.InitialScaleAnnotationKey).ShouldNot(BeKeyOf(actualService.Spec.Template.Annotations))
 
 			expectedService := &knservingv1.Service{
 				ObjectMeta: metav1.ObjectMeta{
@@ -398,7 +401,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			Expect(updatedVirtualService.Labels).To(Equal(labels))
 		})
 		It("Should create a knative service with initial-scale:0 and min-scale:0 annotations", func() {
-			By("Using the knative sering operator autoscaler configuration if the autoscaler configmap is not found")
+			By("When knative is configured to allow zero initial scale and the inference service is requested with 0 min replicas and 0 max replicas")
 			// Create configmap
 			var configMap = &v1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
@@ -451,23 +454,23 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			Expect(actualService.Spec.Template.Annotations[constants.InitialScaleAnnotationKey]).To(Equal("0"))
 			Expect(actualService.Spec.Template.Annotations[constants.MinScaleAnnotationKey]).To(Equal("0"))
-			_, ok := actualService.Spec.Template.Annotations[constants.MaxScaleAnnotationKey]
-			Expect(ok).To(Equal(false))
+			Expect(constants.MaxScaleAnnotationKey).ShouldNot(BeKeyOf(actualService.Spec.Template.Annotations))
 		})
 		It("Should create a knative service with min-scale:0 and max-scale:1 annotations", func() {
-			By("Configuring knative to disallow zero initial scale and requesting 0 min replicas and 1 max replicas for the inference service")
-			// Create the config-autoscaler configmap with allow-zero-initial-scale set to false
-			var autoscalerConfigMap = &v1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      constants.DefaultAutoscalerConfigName,
-					Namespace: constants.DefaultAutoscalerConfigNamespace,
-				},
-				Data: map[string]string{
-					"allow-zero-initial-scale": "false",
-				},
-			}
-			Expect(k8sClient.Create(context.TODO(), autoscalerConfigMap)).NotTo(HaveOccurred())
-			defer k8sClient.Delete(context.TODO(), autoscalerConfigMap)
+			By("When knative is configured to not allow zero initial scale and the inference service is requested with 0 min replicas and 1 max replicas")
+			// Update the existing knativeserving custom resource to set allow-zero-intial-scale to false
+			knativeService := &operatorv1beta1.KnativeServing{}
+			Expect(k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.DefaultKnServingName, Namespace: constants.DefaultKnServingNamespace}, knativeService)).ToNot(HaveOccurred())
+			knativeService.Spec.CommonSpec.Config["autoscaler"]["allow-zero-initial-scale"] = "false"
+			Expect(k8sClient.Update(context.TODO(), knativeService)).ToNot(HaveOccurred())
+
+			// Restore the original knativeserving custom resource configuration
+			defer func() {
+				knativeServiceRestored := &operatorv1beta1.KnativeServing{}
+				Expect(k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.DefaultKnServingName, Namespace: constants.DefaultKnServingNamespace}, knativeServiceRestored)).ToNot(HaveOccurred())
+				knativeServiceRestored.Spec.CommonSpec.Config["autoscaler"]["allow-zero-initial-scale"] = "true"
+				Expect(k8sClient.Update(context.TODO(), knativeServiceRestored)).ToNot(HaveOccurred())
+			}()
 
 			// Create configmap
 			var configMap = &v1.ConfigMap{
@@ -521,170 +524,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			Expect(actualService.Spec.Template.Annotations[constants.MinScaleAnnotationKey]).To(Equal("0"))
 			Expect(actualService.Spec.Template.Annotations[constants.MaxScaleAnnotationKey]).To(Equal("1"))
-			_, ok := actualService.Spec.Template.Annotations[constants.InitialScaleAnnotationKey]
-			Expect(ok).To(Equal(false))
-		})
-		It("Should create a knative service with initial-scale:0, min-scale:0, max-scale:1 annotations", func() {
-			By("Configuring knative to allow zero initial scale and requesting 0 min replicas and 1 max replicas for the inference service")
-			// Create the config-autoscaler configmap with allow-zero-initial-scale set to false
-			var autoscalerConfigMap = &v1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      constants.DefaultAutoscalerConfigName,
-					Namespace: constants.DefaultAutoscalerConfigNamespace,
-				},
-				Data: map[string]string{
-					"allow-zero-initial-scale": "true",
-				},
-			}
-			Expect(k8sClient.Create(context.TODO(), autoscalerConfigMap)).NotTo(HaveOccurred())
-			defer k8sClient.Delete(context.TODO(), autoscalerConfigMap)
-
-			// Create configmap
-			var configMap = &v1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      constants.InferenceServiceConfigMapName,
-					Namespace: constants.KServeNamespace,
-				},
-				Data: configs,
-			}
-			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
-			defer k8sClient.Delete(context.TODO(), configMap)
-
-			// Create InferenceService
-			serviceName := "initialscale3"
-			var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
-			var serviceKey = expectedRequest.NamespacedName
-			var storageUri = "s3://test/mnist/export"
-			ctx := context.Background()
-			isvc := &v1beta1.InferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      serviceKey.Name,
-					Namespace: serviceKey.Namespace,
-				},
-				Spec: v1beta1.InferenceServiceSpec{
-					Predictor: v1beta1.PredictorSpec{
-						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
-							MinReplicas: v1beta1.GetIntReference(0),
-							MaxReplicas: 1,
-						},
-						Tensorflow: &v1beta1.TFServingSpec{
-							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
-								StorageURI:     &storageUri,
-								RuntimeVersion: proto.String("1.14.0"),
-								Container: v1.Container{
-									Name:      constants.InferenceServiceContainerName,
-									Resources: defaultResource,
-								},
-							},
-						},
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
-			defer k8sClient.Delete(ctx, isvc)
-
-			actualService := &knservingv1.Service{}
-			predictorServiceKey := types.NamespacedName{Name: constants.PredictorServiceName(serviceKey.Name),
-				Namespace: serviceKey.Namespace}
-			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorServiceKey, actualService) }, timeout).
-				Should(Succeed())
-
-			Expect(actualService.Spec.Template.Annotations[constants.InitialScaleAnnotationKey]).To(Equal("0"))
-			Expect(actualService.Spec.Template.Annotations[constants.MinScaleAnnotationKey]).To(Equal("0"))
-			Expect(actualService.Spec.Template.Annotations[constants.MaxScaleAnnotationKey]).To(Equal("1"))
-		})
-		It("Should create a knative service when knative serving is not installed with the defualt resource name/namespace", func() {
-			By(fmt.Sprintf("Reading the data in the %s configmap to retrieve the knative autoscaler configuration", constants.KnativeInstallationInfoConfig))
-			// Create the knative installation info configmap with non default values
-			var knInstallInfoConfigmap = &v1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      constants.KnativeInstallationInfoConfig,
-					Namespace: constants.KServeNamespace,
-				},
-				Data: map[string]string{
-					constants.AutoscalerConfigNameKey:      "test-autoscaler",
-					constants.AutoscalerConfigNamespaceKey: "knative-testing",
-				},
-			}
-			Expect(k8sClient.Create(context.TODO(), knInstallInfoConfigmap)).NotTo(HaveOccurred())
-			defer k8sClient.Delete(context.TODO(), knInstallInfoConfigmap)
-
-			// Create knative-testing namespace
-			knativeTestingNamespace := &v1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "knative-testing",
-				},
-			}
-			Expect(k8sClient.Create(context.Background(), knativeTestingNamespace)).Should(Succeed())
-			defer k8sClient.Delete(context.TODO(), knativeTestingNamespace)
-
-			// Create the config-autoscaler configmap with non default values and allow-zero-initial-scale set to false
-			var autoscalerConfigMap = &v1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-autoscaler",
-					Namespace: "knative-testing",
-				},
-				Data: map[string]string{
-					"allow-zero-initial-scale": "false",
-				},
-			}
-			Expect(k8sClient.Create(context.TODO(), autoscalerConfigMap)).NotTo(HaveOccurred())
-			defer k8sClient.Delete(context.TODO(), autoscalerConfigMap)
-
-			// Create configmap
-			var configMap = &v1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      constants.InferenceServiceConfigMapName,
-					Namespace: constants.KServeNamespace,
-				},
-				Data: configs,
-			}
-			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
-			defer k8sClient.Delete(context.TODO(), configMap)
-
-			// Create InferenceService
-			serviceName := "initialscale4"
-			var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
-			var serviceKey = expectedRequest.NamespacedName
-			var storageUri = "s3://test/mnist/export"
-			ctx := context.Background()
-			isvc := &v1beta1.InferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      serviceKey.Name,
-					Namespace: serviceKey.Namespace,
-				},
-				Spec: v1beta1.InferenceServiceSpec{
-					Predictor: v1beta1.PredictorSpec{
-						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
-							MinReplicas: v1beta1.GetIntReference(0),
-							MaxReplicas: 1,
-						},
-						Tensorflow: &v1beta1.TFServingSpec{
-							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
-								StorageURI:     &storageUri,
-								RuntimeVersion: proto.String("1.14.0"),
-								Container: v1.Container{
-									Name:      constants.InferenceServiceContainerName,
-									Resources: defaultResource,
-								},
-							},
-						},
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
-			defer k8sClient.Delete(ctx, isvc)
-
-			actualService := &knservingv1.Service{}
-			predictorServiceKey := types.NamespacedName{Name: constants.PredictorServiceName(serviceKey.Name),
-				Namespace: serviceKey.Namespace}
-			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorServiceKey, actualService) }, timeout).
-				Should(Succeed())
-
-			Expect(actualService.Spec.Template.Annotations[constants.MinScaleAnnotationKey]).To(Equal("0"))
-			Expect(actualService.Spec.Template.Annotations[constants.MaxScaleAnnotationKey]).To(Equal("1"))
-			_, ok := actualService.Spec.Template.Annotations[constants.InitialScaleAnnotationKey]
-			Expect(ok).To(Equal(false))
+			Expect(constants.InitialScaleAnnotationKey).ShouldNot(BeKeyOf(actualService.Spec.Template.Annotations))
 		})
 		It("Should fail if Knative Serving is not installed", func() {
 			// Simulate Knative Serving is absent by setting to false the relevant item in utils.gvResourcesCache variable

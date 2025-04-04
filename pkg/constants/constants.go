@@ -264,22 +264,14 @@ type InferenceServiceProtocol string
 
 // Knative constants
 const (
-	AutoscalerKey                    = "autoscaler"
-	AutoscalerInitialScaleKey        = "initial-scale"
-	AutoscalerAllowZeroScaleKey      = "allow-zero-initial-scale"
-	DefaultAutoscalerConfigName      = "config-autoscaler"
-	DefaultAutoscalerConfigNamespace = "knative-serving"
-	DefaultKnativeOperatorName       = "knative-serving"
-	DefaultKnativeOperatorNamespace  = "knative-serving"
-	KnativeLocalGateway              = "knative-serving/knative-local-gateway"
-	KnativeIngressGateway            = "knative-serving/knative-ingress-gateway"
-	VisibilityLabel                  = "networking.knative.dev/visibility"
-
-	KnativeInstallationInfoConfig = "knative-installation-info"
-	KnativeOperatorNameKey        = "knative-operator-name"
-	KnativeOperatorNamespaceKey   = "knative-operator-namespace"
-	AutoscalerConfigNameKey       = "config-autoscaler-name"
-	AutoscalerConfigNamespaceKey  = "config-autoscaler-namespace"
+	AutoscalerKey               = "autoscaler"
+	AutoscalerInitialScaleKey   = "initial-scale"
+	AutoscalerAllowZeroScaleKey = "allow-zero-initial-scale"
+	DefaultKnServingName        = "knative-serving"
+	DefaultKnServingNamespace   = "knative-serving"
+	KnativeLocalGateway         = "knative-serving/knative-local-gateway"
+	KnativeIngressGateway       = "knative-serving/knative-ingress-gateway"
+	VisibilityLabel             = "networking.knative.dev/visibility"
 )
 
 var (

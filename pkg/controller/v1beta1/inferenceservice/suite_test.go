@@ -107,7 +107,7 @@ var _ = BeforeSuite(func() {
 	}
 	knativeServingNamespace := &v1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: constants.DefaultKnativeOperatorNamespace,
+			Name: constants.DefaultKnServingNamespace,
 		},
 	}
 	Expect(k8sClient.Create(context.Background(), kfservingNamespaceObj)).Should(Succeed())
@@ -116,8 +116,8 @@ var _ = BeforeSuite(func() {
 	// Create knative operator and autoscaler configmap
 	knativeOperator := &operatorv1beta1.KnativeServing{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      constants.DefaultKnativeOperatorName,
-			Namespace: constants.DefaultKnativeOperatorNamespace,
+			Name:      constants.DefaultKnServingName,
+			Namespace: constants.DefaultKnServingNamespace,
 		},
 		Spec: operatorv1beta1.KnativeServingSpec{
 			CommonSpec: base.CommonSpec{

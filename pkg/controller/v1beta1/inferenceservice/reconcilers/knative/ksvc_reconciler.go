@@ -269,8 +269,8 @@ func semanticEquals(desiredService, service *knservingv1.Service) bool {
 		equality.Semantic.DeepEqual(desiredService.Spec.RouteSpec, service.Spec.RouteSpec)
 }
 
-// setAutoScalingAnnotations checks the knative autoscaler configuration defined in the kantive serving autoscaler
-// configmap and compares the values to the autoscaling configuration requested for the inference service.
+// setAutoScalingAnnotations checks the knative autoscaler configuration defined in the kantiveserving custom resource
+// and compares the values to the autoscaling configuration requested for the inference service.
 // It then sets the necessary annotations for the desired autoscaling configuration.
 func setAutoScalingAnnotations(client client.Client,
 	annotations map[string]string,
@@ -342,62 +342,28 @@ func setAutoScalingAnnotations(client client.Client,
 }
 
 // GetAutoscalerConfiguration reads the global knative serving configuration and retrieves values related to the autoscaler.
-// It will attempt to read these values from the knative autoscaler configmap, but if this configmap is not found
-// it will read the values from the knative serving operator itself.
+// This configuration is defined in the kantiveserving custom resource.
 func GetAutoscalerConfiguration(client client.Client) (string, string, error) {
 	// Set allow-zero-initial-scale and intitial-scale to their default values to start.
 	// If autoscaling values are not set in the configuration, then the defaults are used.
 	allowZeroInitialScale := "false"
 	globalInitialScale := "1"
 
-	// Retrieve the knative-installation-info configmap. If knative is installed via default installation
-	// this configmap is required so kserve can read the knative config.
-	knativeOperatorName, knativeOperatorNamespace, autoscalerConfigName, autoscalerConfigNamespace, err := GetKnativeInstallationInfo(client)
-	if err != nil {
-		return allowZeroInitialScale, globalInitialScale, errors.Wrapf(err, "fails to get knative installation info")
-	}
-
-	// The config-autoscaler configmap takes precedence for the knative autoscaling configuration
-	// If it exits, use the configuration defined there.
-	autoscalerConfig := &corev1.ConfigMap{}
-	err = client.Get(context.TODO(), types.NamespacedName{Name: autoscalerConfigName, Namespace: autoscalerConfigNamespace}, autoscalerConfig)
-	if err != nil {
-		if !apierr.IsNotFound(err) {
-			return allowZeroInitialScale, globalInitialScale, errors.Wrapf(
-				err,
-				fmt.Sprintf(
-					"fails to retrieve the %s configmap from the %s namespace during knative service creation.",
-					autoscalerConfigName,
-					autoscalerConfigNamespace,
-				),
-			)
-		}
-	} else {
-		if autoscalerConfig.Data != nil {
-			if configuredAllowZeroInitialScale, ok := autoscalerConfig.Data[constants.AutoscalerAllowZeroScaleKey]; ok {
-				allowZeroInitialScale = configuredAllowZeroInitialScale
-			}
-			if configuredInitialScale, ok := autoscalerConfig.Data[constants.AutoscalerInitialScaleKey]; ok {
-				globalInitialScale = configuredInitialScale
-			}
-		}
-		return allowZeroInitialScale, globalInitialScale, nil
-	}
-
-	// If the config-autoscaler configmap does not exists, then knative fallsback to the configuration defined
-	// by the knative-serving knativeserving resource. If it exists, use the configuration defined there.
-	kserving := &operatorv1beta1.KnativeServing{}
-	err = client.Get(context.TODO(), types.NamespacedName{Name: knativeOperatorName, Namespace: knativeOperatorNamespace}, kserving)
+	// List all knativeserving custom resources to handle scenarios where the custom resource is not created in the default knative-serving namespace.
+	kservingList := &operatorv1beta1.KnativeServingList{}
+	err := client.List(context.TODO(), kservingList)
 	if err != nil {
 		return allowZeroInitialScale, globalInitialScale, errors.Wrapf(
 			err,
-			fmt.Sprintf(
-				"fails to retrieve the %s operator from the %s namespace during knative service creation.",
-				knativeOperatorName,
-				knativeOperatorNamespace,
-			),
+			"fails to retrieve the knativeserving custom resource.",
 		)
+	} else if kservingList.Items == nil {
+		return allowZeroInitialScale, globalInitialScale, errors.New("no knativeserving resources found in cluster.")
 	}
+
+	// Always use the first knativeserving resource returned.
+	// We are operating under the assumption that there should be a single knativeserving custom resource created on the cluster.
+	kserving := kservingList.Items[0]
 	if kserving.Spec.Config != nil {
 		if kservingAutoscalerConfig, ok := kserving.Spec.Config[constants.AutoscalerKey]; ok {
 			if configuredAllowZeroInitialScale, ok := kservingAutoscalerConfig[constants.AutoscalerAllowZeroScaleKey]; ok {
@@ -409,47 +375,4 @@ func GetAutoscalerConfiguration(client client.Client) (string, string, error) {
 		}
 	}
 	return allowZeroInitialScale, globalInitialScale, nil
-}
-
-// GetKnativeInstallationInfo handles scenarios in which knative is installed through a non default installation.
-// If knative is not installed via default installation, i.e. not in the knative-serving namespace,
-// it is required that a knative-installation-info configmap is created in the namespace in which the kserve-controller-manager
-// pod is running. The values defined in this configmap will be used by kserve to read the knative configuration.
-func GetKnativeInstallationInfo(client client.Client) (string, string, string, string, error) {
-	knativeOperatorName := constants.DefaultKnativeOperatorName
-	knativeOperatorNamespace := constants.DefaultKnativeOperatorNamespace
-	autoscalerConfigName := constants.DefaultAutoscalerConfigName
-	autoscalerConfigNamespace := constants.DefaultAutoscalerConfigNamespace
-
-	knativeInstallConfig := &corev1.ConfigMap{}
-	err := client.Get(context.TODO(), types.NamespacedName{Name: constants.KnativeInstallationInfoConfig, Namespace: constants.KServeNamespace}, knativeInstallConfig)
-	if err != nil {
-		if !apierr.IsNotFound(err) {
-			return knativeOperatorName, knativeOperatorNamespace, autoscalerConfigName, autoscalerConfigNamespace, errors.Wrapf(
-				err,
-				fmt.Sprintf(
-					"fails to retrieve the %s configmap from the %s namespace during knative service creation.",
-					constants.KnativeInstallationInfoConfig,
-					constants.KServeNamespace,
-				),
-			)
-		}
-	} else {
-		if knativeInstallConfig.Data != nil {
-			if configuredKnativeOperatorName, ok := knativeInstallConfig.Data[constants.KnativeOperatorNameKey]; ok {
-				knativeOperatorName = configuredKnativeOperatorName
-			}
-			if configuredKnativeOperatorNamespace, ok := knativeInstallConfig.Data[constants.KnativeOperatorNamespaceKey]; ok {
-				knativeOperatorNamespace = configuredKnativeOperatorNamespace
-			}
-			if configuredAutoscalerConfigName, ok := knativeInstallConfig.Data[constants.AutoscalerConfigNameKey]; ok {
-				autoscalerConfigName = configuredAutoscalerConfigName
-			}
-			if configuredAutoscalerConfigNamespace, ok := knativeInstallConfig.Data[constants.AutoscalerConfigNamespaceKey]; ok {
-				autoscalerConfigNamespace = configuredAutoscalerConfigNamespace
-			}
-		}
-	}
-
-	return knativeOperatorName, knativeOperatorNamespace, autoscalerConfigName, autoscalerConfigNamespace, nil
 }

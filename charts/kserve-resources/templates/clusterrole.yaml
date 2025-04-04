@@ -234,3 +234,11 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - "operator.knative.dev"
+  resources:
+  - knativeservings
+  verbs:
+  - get
+  - list
+  - watch
