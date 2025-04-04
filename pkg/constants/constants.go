@@ -93,6 +93,7 @@ var (
 	AutoscalerClass                             = KServeAPIGroupName + "/autoscalerClass"
 	AutoscalerMetrics                           = KServeAPIGroupName + "/metrics"
 	TargetUtilizationPercentage                 = KServeAPIGroupName + "/targetUtilizationPercentage"
+	InitialScaleAnnotationKey                   = KnativeAutoscalingAPIGroupName + "/initial-scale"
 	MinScaleAnnotationKey                       = KnativeAutoscalingAPIGroupName + "/min-scale"
 	MaxScaleAnnotationKey                       = KnativeAutoscalingAPIGroupName + "/max-scale"
 	RollOutDurationAnnotationKey                = KnativeServingAPIGroupName + "/rollout-duration"
@@ -263,9 +264,14 @@ type InferenceServiceProtocol string
 
 // Knative constants
 const (
-	KnativeLocalGateway   = "knative-serving/knative-local-gateway"
-	KnativeIngressGateway = "knative-serving/knative-ingress-gateway"
-	VisibilityLabel       = "networking.knative.dev/visibility"
+	AutoscalerKey               = "autoscaler"
+	AutoscalerInitialScaleKey   = "initial-scale"
+	AutoscalerAllowZeroScaleKey = "allow-zero-initial-scale"
+	DefaultKnServingName        = "knative-serving"
+	DefaultKnServingNamespace   = "knative-serving"
+	KnativeLocalGateway         = "knative-serving/knative-local-gateway"
+	KnativeIngressGateway       = "knative-serving/knative-ingress-gateway"
+	VisibilityLabel             = "networking.knative.dev/visibility"
 )
 
 var (
@@ -376,6 +382,7 @@ const (
 
 var (
 	ServiceAnnotationDisallowedList = []string{
+		autoscaling.InitialScaleAnnotationKey,
 		autoscaling.MinScaleAnnotationKey,
 		autoscaling.MaxScaleAnnotationKey,
 		StorageInitializerSourceUriInternalAnnotationKey,
