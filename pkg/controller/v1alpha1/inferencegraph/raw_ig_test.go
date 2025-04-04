@@ -61,6 +61,8 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 		},
 	}
 
+	expectedReadinessProbe := constants.GetRouterReadinessProbe()
+
 	testIGSpecs := map[string]*InferenceGraph{
 		"basic": {
 			ObjectMeta: metav1.ObjectMeta{
@@ -150,6 +152,7 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 					Image: "kserve/router:v0.10.0",
 					Name:  "basic-ig",
 					Args: []string{
+						"--enable-tls",
 						"--graph-json",
 						"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.exmaple.com\"}]}},\"resources\":{}}",
 					},
@@ -163,6 +166,7 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							v1.ResourceMemory: resource.MustParse("100Mi"),
 						},
 					},
+					ReadinessProbe: expectedReadinessProbe,
 					SecurityContext: &v1.SecurityContext{
 						Privileged:               proto.Bool(false),
 						RunAsNonRoot:             proto.Bool(true),
@@ -183,6 +187,7 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 					Image: "kserve/router:v0.10.0",
 					Name:  "basic-ig",
 					Args: []string{
+						"--enable-tls",
 						"--graph-json",
 						"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.exmaple.com\"}]}},\"resources\":{}}",
 					},
@@ -202,6 +207,7 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							v1.ResourceMemory: resource.MustParse("100Mi"),
 						},
 					},
+					ReadinessProbe: expectedReadinessProbe,
 					SecurityContext: &v1.SecurityContext{
 						Privileged:               proto.Bool(false),
 						RunAsNonRoot:             proto.Bool(true),
@@ -222,6 +228,7 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 					Image: "kserve/router:v0.10.0",
 					Name:  "resource-ig",
 					Args: []string{
+						"--enable-tls",
 						"--graph-json",
 						"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.exmaple.com\"}]}},\"resources\":{\"limits\":{\"cpu\":\"100m\",\"memory\":\"500Mi\"},\"requests\":{\"cpu\":\"100m\",\"memory\":\"100Mi\"}}}",
 					},
@@ -235,6 +242,7 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							v1.ResourceMemory: resource.MustParse("100Mi"),
 						},
 					},
+					ReadinessProbe: expectedReadinessProbe,
 					SecurityContext: &v1.SecurityContext{
 						Privileged:               proto.Bool(false),
 						RunAsNonRoot:             proto.Bool(true),

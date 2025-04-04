@@ -21,9 +21,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	"github.com/kserve/kserve/pkg/constants"
-	"github.com/kserve/kserve/pkg/utils"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	osv1 "github.com/openshift/api/route/v1"
@@ -41,6 +38,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 var _ = Describe("Inference Graph controller test", func() {
@@ -76,6 +77,8 @@ var _ = Describe("Inference Graph controller test", func() {
 				}`,
 		}
 	)
+
+	var expectedReadinessProbe = constants.GetRouterReadinessProbe()
 
 	Context("When creating an inferencegraph with headers in global config", func() {
 		It("Should create a knative service with headers as env var of podspec", func() {
@@ -182,6 +185,7 @@ var _ = Describe("Inference Graph controller test", func() {
 													v1.ResourceMemory: resource.MustParse("100Mi"),
 												},
 											},
+											ReadinessProbe: expectedReadinessProbe,
 											SecurityContext: &v1.SecurityContext{
 												Privileged:               proto.Bool(false),
 												RunAsNonRoot:             proto.Bool(true),
@@ -340,6 +344,7 @@ var _ = Describe("Inference Graph controller test", func() {
 													v1.ResourceMemory: resource.MustParse("123Mi"),
 												},
 											},
+											ReadinessProbe: expectedReadinessProbe,
 											SecurityContext: &v1.SecurityContext{
 												Privileged:               proto.Bool(false),
 												RunAsNonRoot:             proto.Bool(true),
@@ -527,6 +532,7 @@ var _ = Describe("Inference Graph controller test", func() {
 													MountPath: "/etc/odh/openshift-service-ca-bundle",
 												},
 											},
+											ReadinessProbe: expectedReadinessProbe,
 										},
 									},
 									Affinity: &v1.Affinity{
@@ -652,6 +658,10 @@ var _ = Describe("Inference Graph controller test", func() {
 				return true
 			}, timeout, interval).Should(BeTrue())
 
+			// ODH Svc checks
+			Expect(actualK8sServiceCreated.Spec.Ports[0].Port).To(Equal(int32(443)))
+			Expect(actualK8sServiceCreated.Spec.Ports[0].TargetPort.IntVal).To(Equal(int32(8080)))
+
 			//No KNative Service should get created in Raw deployment mode
 			actualKnServiceCreated := &knservingv1.Service{}
 			Eventually(func() bool {
@@ -702,6 +712,7 @@ var _ = Describe("Inference Graph controller test", func() {
 				k8sClient.Get(ctx, serviceKey, inferenceGraphSubmitted)
 				return inferenceGraphSubmitted.Status.URL.Host
 			}, timeout, interval).Should(Equal(osRoute.Status.Ingress[0].Host))
+			Expect(inferenceGraphSubmitted.Status.URL.Scheme).To(Equal("https"))
 		})
 
 		It("Should not create ingress when cluster-local visibility is configured", func() {
@@ -768,6 +779,7 @@ var _ = Describe("Inference Graph controller test", func() {
 				_ = k8sClient.Get(ctx, serviceKey, ig)
 				return ig.Status.URL.Host
 			}, timeout, interval).Should(Equal(fmt.Sprintf("%s.%s.svc.cluster.local", graphName, "default")))
+			Expect(ig.Status.URL.Scheme).To(Equal("https"))
 		})
 
 		It("Should reconfigure InferenceGraph as private when cluster-local visibility is configured", func() {
@@ -1006,7 +1018,7 @@ var _ = Describe("Inference Graph controller test", func() {
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Namespace: inferenceGraph.GetNamespace(), Name: inferenceGraph.GetName()}, &igDeployment)).To(Succeed())
 				g.Expect(igDeployment.Spec.Template.Spec.AutomountServiceAccountToken).To(Equal(proto.Bool(true)))
 				g.Expect(igDeployment.Spec.Template.Spec.ServiceAccountName).To(Equal(getServiceAccountNameForGraph(inferenceGraph)))
-				// g.Expect(igDeployment.Spec.Template.Spec.Containers).To(HaveLen(1)) // TODO: Restore in RHOAIENG-21300
+				g.Expect(igDeployment.Spec.Template.Spec.Containers).To(HaveLen(1))
 				g.Expect(igDeployment.Spec.Template.Spec.Containers[0].Args).To(ContainElements("--enable-auth", "--inferencegraph-name", inferenceGraph.GetName()))
 			}, timeout, interval).Should(Succeed())
 		})
