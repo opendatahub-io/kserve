@@ -262,7 +262,6 @@ const (
 	KnativeLocalGateway   = "knative-serving/knative-local-gateway"
 	KnativeIngressGateway = "knative-serving/knative-ingress-gateway"
 	VisibilityLabel       = "networking.knative.dev/visibility"
-	VisibilityAnnotation  = "networking.knative.dev/visibility"
 )
 
 var (

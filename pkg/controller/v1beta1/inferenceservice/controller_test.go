@@ -95,7 +95,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		When("the annotation is a member of the serviceAnnotationDisallowedList in the inferenceservice-config configmap", func() {
 			It("should not be propagated to any knative revisions", func() {
 				// Add the annotation to the inferenceservice-config inferenceService serviceAnnotationDisallowedList
-				configs["inferenceService"] = fmt.Sprintf("{\"serviceAnnotationDisallowedList\": [\"%s\"]}", constants.VisibilityAnnotation)
+				sampleAnnotation := "test.dev/testing"
+				configs["inferenceService"] = fmt.Sprintf("{\"serviceAnnotationDisallowedList\": [\"%s\"]}", sampleAnnotation)
 				defer delete(configs, "inferenceService")
 
 				// Create configmap
@@ -120,7 +121,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						Name:      serviceKey.Name,
 						Namespace: serviceKey.Namespace,
 						Annotations: map[string]string{
-							constants.VisibilityAnnotation: "test",
+							sampleAnnotation: "test",
 						},
 					},
 					Spec: v1beta1.InferenceServiceSpec{
@@ -151,8 +152,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Eventually(func() error { return k8sClient.Get(context.TODO(), predictorServiceKey, actualService) }, timeout).
 					Should(Succeed())
 
-				Expect(constants.VisibilityAnnotation).ShouldNot(BeKeyOf(actualService.Annotations))
-				Expect(constants.VisibilityAnnotation).ShouldNot(BeKeyOf(actualService.Spec.Template.Annotations))
+				Expect(sampleAnnotation).ShouldNot(BeKeyOf(actualService.Annotations))
+				Expect(sampleAnnotation).ShouldNot(BeKeyOf(actualService.Spec.Template.Annotations))
 			})
 		})
 	})
