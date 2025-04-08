@@ -357,7 +357,7 @@ func GetAutoscalerConfiguration(client client.Client) (string, string, error) {
 			err,
 			"fails to retrieve the knativeserving custom resource.",
 		)
-	} else if kservingList.Items == nil {
+	} else if len(kservingList.Items) == 0 {
 		return allowZeroInitialScale, globalInitialScale, errors.New("no knativeserving resources found in cluster.")
 	}
 

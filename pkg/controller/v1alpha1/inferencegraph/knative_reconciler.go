@@ -284,20 +284,21 @@ func setAutoScalingAnnotations(client client.Client,
 		annotations[autoscaling.ClassAnnotationKey] = autoscaling.KPA
 	}
 
-	// If a minReplicas value is not set for the inference graph, then use the default min-scale value of 1.
+	// If a min-scale annotation is not set for the inference graph, then use the default min-scale value of 1.
 	var revisionMinScale int
 	if _, ok := annotations[autoscaling.MinScaleAnnotationKey]; !ok {
 		annotations[autoscaling.MinScaleAnnotationKey] = fmt.Sprint(constants.DefaultMinReplicas)
 		revisionMinScale = constants.DefaultMinReplicas
 	} else {
-		log.Info("inference graph contains min-scale annotation. This value will be used instead of the configured minReplicas",
-			"min-scale", annotations[autoscaling.MinScaleAnnotationKey])
 		minScaleInt, err := strconv.Atoi(annotations[autoscaling.MinScaleAnnotationKey])
 		if err != nil {
 			return errors.Wrapf(err, "fails to convert existing min-scale annotation to an integer")
 		}
 		revisionMinScale = minScaleInt
 	}
+
+	log.Info("inference graph min scale is set using annotations, it is not based on the requested min replicas value.",
+		"min-scale", annotations[autoscaling.MinScaleAnnotationKey])
 
 	// Retrieve the allow-zero-initial-scale and initial-scale values from the knative autoscaler configuration.
 	allowZeroInitialScale, globalInitialScale, err := knutils.GetAutoscalerConfiguration(client)
