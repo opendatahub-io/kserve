@@ -269,7 +269,7 @@ func semanticEquals(desiredService, service *knservingv1.Service) bool {
 		equality.Semantic.DeepEqual(desiredService.Spec.RouteSpec, service.Spec.RouteSpec)
 }
 
-// setAutoScalingAnnotations checks the knative autoscaler configuration defined in the kantiveserving custom resource
+// setAutoScalingAnnotations checks the knative autoscaler configuration defined in the knativeserving custom resource
 // and compares the values to the autoscaling configuration requested for the inference service.
 // It then sets the necessary annotations for the desired autoscaling configuration.
 func setAutoScalingAnnotations(client client.Client,
@@ -342,7 +342,7 @@ func setAutoScalingAnnotations(client client.Client,
 }
 
 // GetAutoscalerConfiguration reads the global knative serving configuration and retrieves values related to the autoscaler.
-// This configuration is defined in the kantiveserving custom resource.
+// This configuration is defined in the knativeserving custom resource.
 func GetAutoscalerConfiguration(client client.Client) (string, string, error) {
 	// Set allow-zero-initial-scale and intitial-scale to their default values to start.
 	// If autoscaling values are not set in the configuration, then the defaults are used.
