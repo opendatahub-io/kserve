@@ -24,6 +24,20 @@ set -o pipefail
 
 MY_PATH=$(dirname "$0")
 PROJECT_ROOT=$MY_PATH/../../../
+export CI_USE_ISVC_HOST="1"
+export GITHUB_SHA=stable # Need to use stable as this is what the CI tags the images to for success-200 and error-404
+: "${BUILD_GRAPH_IMAGES:=true}"
+: "${RUNNING_LOCAL:=false}"
+if $RUNNING_LOCAL; then
+  export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
+  export IMAGE_TRANSFORMER_IMG_TAG=kserve/image-transformer:latest
+  export GITHUB_SHA=master
+  if [ "$1" = "graph" ] && [ "$BUILD_GRAPH_IMAGES" = "true" ]; then
+    pushd $PROJECT_ROOT >/dev/null
+    ./test/scripts/gh-actions/build-graph-tests-images.sh | tee 2>&1 ./test/scripts/openshift-ci/build-graph-tests-images.log
+    popd
+  fi
+fi
 
 : "${SETUP_E2E:=true}"
 
