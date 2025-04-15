@@ -201,7 +201,10 @@ async def test_sklearn_scale_raw(rest_v1_client, network_layer):
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE, annotations=annotations, labels=labels
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            annotations=annotations,
+            labels=labels,
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -256,8 +259,10 @@ async def test_sklearn_rolling_update():
             name=service_name,
             namespace=KSERVE_TEST_NAMESPACE,
             annotations=annotations,
-            labels={"serving.kserve.io/test": "rolling-update",
-                    "networking.kserve.io/visibility": "exposed"},
+            labels={
+                "serving.kserve.io/test": "rolling-update",
+                "networking.kserve.io/visibility": "exposed",
+            },
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )

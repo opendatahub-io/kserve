@@ -114,7 +114,10 @@ def before(msg_dumper):
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=msg_dumper, namespace=KSERVE_TEST_NAMESPACE, annotations=annotations, labels=labels
+            name=msg_dumper,
+            namespace=KSERVE_TEST_NAMESPACE,
+            annotations=annotations,
+            labels=labels,
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -128,7 +131,10 @@ async def base_test(msg_dumper, service_name, predictor, rest_v1_client, network
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE, annotations=annotations, labels=labels
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            annotations=annotations,
+            labels=labels,
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
