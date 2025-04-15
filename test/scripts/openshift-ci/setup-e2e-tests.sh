@@ -27,12 +27,17 @@ set -o pipefail
 : "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
 : "${KSERVE_ROUTER_IMAGE:=quay.io/opendatahub/kserve-router:latest}"
 : "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
+: "${ODH_MODEL_CONTROLLER_IMAGE:=quay.io/opendatahub/odh-model-controller:fast}"
+: "${ERROR_404_ISVC_IMAGE:=error-404-isvc:latest}"
+: "${SUCCESS_200_ISVC_IMAGE:=success-200-isvc:latest}"
 
 echo "SKLEARN_IMAGE=$SKLEARN_IMAGE"
 echo "KSERVE_CONTROLLER_IMAGE=$KSERVE_CONTROLLER_IMAGE"
 echo "KSERVE_AGENT_IMAGE=$KSERVE_AGENT_IMAGE"
 echo "KSERVE_ROUTER_IMAGE=$KSERVE_ROUTER_IMAGE"
 echo "STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_IMAGE"
+echo "ERROR_404_ISVC_IMAGE=$ERROR_404_ISVC_IMAGE"
+echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
 
 # Create directory for installing tooling
 # It is assumed that $HOME/.local/bin is in the $PATH
@@ -112,7 +117,9 @@ if [ "$1" != "raw" ]; then
     sed "s/{{ .ControlPlane.Namespace }}/istio-system/g" |
     oc create -f -
 
-  oc apply -k $PROJECT_ROOT/test/scripts/openshift-ci
+  kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
+    sed "s|quay.io/opendatahub/odh-model-controller:fast|${ODH_MODEL_CONTROLLER_IMAGE}|" |
+    oc apply -n kserve -f -
   oc wait --for=condition=ready pod -l app=odh-model-controller -n kserve --timeout=300s
 fi
 
