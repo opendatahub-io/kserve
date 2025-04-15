@@ -23,6 +23,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	knutils "github.com/kserve/kserve/pkg/controller/v1alpha1/utils"
 	"github.com/kserve/kserve/pkg/utils"
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
@@ -33,7 +34,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
-	operatorv1beta1 "knative.dev/operator/pkg/apis/operator/v1beta1"
 	"knative.dev/pkg/kmp"
 	"knative.dev/serving/pkg/apis/autoscaling"
 	knserving "knative.dev/serving/pkg/apis/serving"
@@ -303,7 +303,7 @@ func setAutoScalingAnnotations(client client.Client,
 	}
 
 	// Retrieve the allow-zero-initial-scale and initial-scale values from the knative autoscaler configuration.
-	allowZeroInitialScale, globalInitialScale, err := GetAutoscalerConfiguration(client)
+	allowZeroInitialScale, globalInitialScale, err := knutils.GetAutoscalerConfiguration(client)
 	if err != nil {
 		return errors.Wrapf(err, "failed to retrieve the knative autoscaler configuration")
 	}
@@ -339,40 +339,4 @@ func setAutoScalingAnnotations(client client.Client,
 	}
 
 	return nil
-}
-
-// GetAutoscalerConfiguration reads the global knative serving configuration and retrieves values related to the autoscaler.
-// This configuration is defined in the knativeserving custom resource.
-func GetAutoscalerConfiguration(client client.Client) (string, string, error) {
-	// Set allow-zero-initial-scale and intitial-scale to their default values to start.
-	// If autoscaling values are not set in the configuration, then the defaults are used.
-	allowZeroInitialScale := "false"
-	globalInitialScale := "1"
-
-	// List all knativeserving custom resources to handle scenarios where the custom resource is not created in the default knative-serving namespace.
-	kservingList := &operatorv1beta1.KnativeServingList{}
-	err := client.List(context.TODO(), kservingList)
-	if err != nil {
-		return allowZeroInitialScale, globalInitialScale, errors.Wrapf(
-			err,
-			"fails to retrieve the knativeserving custom resource.",
-		)
-	} else if len(kservingList.Items) == 0 {
-		return allowZeroInitialScale, globalInitialScale, errors.New("no knativeserving resources found in cluster.")
-	}
-
-	// Always use the first knativeserving resource returned.
-	// We are operating under the assumption that there should be a single knativeserving custom resource created on the cluster.
-	kserving := kservingList.Items[0]
-	if kserving.Spec.Config != nil {
-		if kservingAutoscalerConfig, ok := kserving.Spec.Config[constants.AutoscalerKey]; ok {
-			if configuredAllowZeroInitialScale, ok := kservingAutoscalerConfig[constants.AutoscalerAllowZeroScaleKey]; ok {
-				allowZeroInitialScale = configuredAllowZeroInitialScale
-			}
-			if configuredInitialScale, ok := kservingAutoscalerConfig[constants.AutoscalerInitialScaleKey]; ok {
-				globalInitialScale = configuredInitialScale
-			}
-		}
-	}
-	return allowZeroInitialScale, globalInitialScale, nil
 }

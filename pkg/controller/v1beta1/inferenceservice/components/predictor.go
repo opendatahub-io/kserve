@@ -398,7 +398,7 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 		r, err := knative.NewKsvcReconciler(p.client, p.scheme, objectMeta, &isvc.Spec.Predictor.ComponentExtensionSpec,
 			&podSpec, isvc.Status.Components[v1beta1.PredictorComponent], p.inferenceServiceConfig.ServiceLabelDisallowedList)
 		if err != nil {
-			return ctrl.Result{}, errors.Wrapf(err, "fails to create new knative service reconciler")
+			return ctrl.Result{}, errors.Wrapf(err, "fails to create new knative service reconciler for predictor")
 		}
 
 		if err := controllerutil.SetControllerReference(isvc, r.Service, p.scheme); err != nil {

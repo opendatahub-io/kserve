@@ -98,7 +98,6 @@ var _ = Describe("Inference Graph controller test", func() {
 				var serviceKey = expectedRequest.NamespacedName
 				ctx := context.Background()
 				minScale := 1
-				minScalePtr := &minScale
 				ig := &v1alpha1.InferenceGraph{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      serviceKey.Name,
@@ -108,8 +107,7 @@ var _ = Describe("Inference Graph controller test", func() {
 						},
 					},
 					Spec: v1alpha1.InferenceGraphSpec{
-						MinReplicas: minScalePtr,
-						MaxReplicas: 1,
+						MinReplicas: &minScale,
 						Nodes: map[string]v1alpha1.InferenceRouter{
 							v1alpha1.GraphRootNodeName: {
 								RouterType: v1alpha1.Sequence,
@@ -153,15 +151,13 @@ var _ = Describe("Inference Graph controller test", func() {
 				var serviceKey = expectedRequest.NamespacedName
 				ctx := context.Background()
 				minScale := 1
-				minScalePtr := &minScale
 				ig := &v1alpha1.InferenceGraph{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      serviceKey.Name,
 						Namespace: serviceKey.Namespace,
 					},
 					Spec: v1alpha1.InferenceGraphSpec{
-						MinReplicas: minScalePtr,
-						MaxReplicas: 1,
+						MinReplicas: &minScale,
 						Nodes: map[string]v1alpha1.InferenceRouter{
 							v1alpha1.GraphRootNodeName: {
 								RouterType: v1alpha1.Sequence,
@@ -196,14 +192,18 @@ var _ = Describe("Inference Graph controller test", func() {
 			knativeService := &operatorv1beta1.KnativeServing{}
 			Expect(k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.DefaultKnServingName, Namespace: constants.DefaultKnServingNamespace}, knativeService)).ToNot(HaveOccurred())
 			knativeService.Spec.CommonSpec.Config["autoscaler"]["allow-zero-initial-scale"] = "false"
-			Expect(k8sClient.Update(context.TODO(), knativeService)).ToNot(HaveOccurred())
+			Eventually(func() error {
+				return k8sClient.Update(context.TODO(), knativeService)
+			}, timeout).Should(Succeed())
 		})
 		AfterEach(func() {
 			// Restore the original knativeserving custom resource configuration
 			knativeServiceRestored := &operatorv1beta1.KnativeServing{}
 			Expect(k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.DefaultKnServingName, Namespace: constants.DefaultKnServingNamespace}, knativeServiceRestored)).ToNot(HaveOccurred())
 			knativeServiceRestored.Spec.CommonSpec.Config["autoscaler"]["allow-zero-initial-scale"] = "true"
-			Expect(k8sClient.Update(context.TODO(), knativeServiceRestored)).ToNot(HaveOccurred())
+			Eventually(func() error {
+				return k8sClient.Update(context.TODO(), knativeServiceRestored)
+			}, timeout).Should(Succeed())
 		})
 		When("an InferenceGraph with min-scale:0 annotation is created", func() {
 			It("should create a knative service with min-scale:0 annotation and no initial-scale annotation", func() {
@@ -221,7 +221,6 @@ var _ = Describe("Inference Graph controller test", func() {
 				var serviceKey = expectedRequest.NamespacedName
 				ctx := context.Background()
 				minScale := 1
-				minScalePtr := &minScale
 				ig := &v1alpha1.InferenceGraph{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      serviceKey.Name,
@@ -231,8 +230,7 @@ var _ = Describe("Inference Graph controller test", func() {
 						},
 					},
 					Spec: v1alpha1.InferenceGraphSpec{
-						MinReplicas: minScalePtr,
-						MaxReplicas: 1,
+						MinReplicas: &minScale,
 						Nodes: map[string]v1alpha1.InferenceRouter{
 							v1alpha1.GraphRootNodeName: {
 								RouterType: v1alpha1.Sequence,
@@ -276,15 +274,13 @@ var _ = Describe("Inference Graph controller test", func() {
 				var serviceKey = expectedRequest.NamespacedName
 				ctx := context.Background()
 				minScale := 1
-				minScalePtr := &minScale
 				ig := &v1alpha1.InferenceGraph{
 					ObjectMeta: metav1.ObjectMeta{
 						Name:      serviceKey.Name,
 						Namespace: serviceKey.Namespace,
 					},
 					Spec: v1alpha1.InferenceGraphSpec{
-						MinReplicas: minScalePtr,
-						MaxReplicas: 1,
+						MinReplicas: &minScale,
 						Nodes: map[string]v1alpha1.InferenceRouter{
 							v1alpha1.GraphRootNodeName: {
 								RouterType: v1alpha1.Sequence,

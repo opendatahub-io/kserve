@@ -191,7 +191,7 @@ func (e *Explainer) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 		r, err := knative.NewKsvcReconciler(e.client, e.scheme, objectMeta, &isvc.Spec.Explainer.ComponentExtensionSpec,
 			&podSpec, isvc.Status.Components[v1beta1.ExplainerComponent], e.inferenceServiceConfig.ServiceLabelDisallowedList)
 		if err != nil {
-			return ctrl.Result{}, errors.Wrapf(err, "fails to create new knative service reconciler")
+			return ctrl.Result{}, errors.Wrapf(err, "fails to create new knative service reconciler for explainer")
 		}
 
 		if err := controllerutil.SetControllerReference(isvc, r.Service, e.scheme); err != nil {

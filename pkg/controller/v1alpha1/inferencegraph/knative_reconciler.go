@@ -26,7 +26,7 @@ import (
 
 	v1alpha1api "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
-	knutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/knative"
+	knutils "github.com/kserve/kserve/pkg/controller/v1alpha1/utils"
 	"github.com/kserve/kserve/pkg/utils"
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
@@ -296,9 +296,6 @@ func setAutoScalingAnnotations(client client.Client,
 		}
 		revisionMinScale = minScaleInt
 	}
-
-	log.Info("inference graph min scale is set using annotations, it is not based on the requested min replicas value.",
-		"min-scale", annotations[autoscaling.MinScaleAnnotationKey])
 
 	// Retrieve the allow-zero-initial-scale and initial-scale values from the knative autoscaler configuration.
 	allowZeroInitialScale, globalInitialScale, err := knutils.GetAutoscalerConfiguration(client)
