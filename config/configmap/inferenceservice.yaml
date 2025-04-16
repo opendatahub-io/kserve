@@ -687,7 +687,7 @@ data:
         "serviceClusterIPNone": true
     }
     
-  inferenceservice: |-
+  inferenceService: |-
     {
       "resource": {
           "cpuLimit": "1",
