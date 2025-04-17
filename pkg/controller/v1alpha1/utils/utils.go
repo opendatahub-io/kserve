@@ -34,37 +34,35 @@ func GetAutoscalerConfiguration(client client.Client) (string, string, error) {
 	globalInitialScale := "1"
 
 	// List all knativeserving custom resources to handle scenarios where the custom resource is not created in the default knative-serving namespace.
-	kservingList := &operatorv1beta1.KnativeServingList{}
-	err := client.List(context.TODO(), kservingList)
+	knservingList := &operatorv1beta1.KnativeServingList{}
+	err := client.List(context.TODO(), knservingList)
 	if err != nil {
 		return allowZeroInitialScale, globalInitialScale, errors.Wrapf(
 			err,
 			"fails to retrieve the knativeserving custom resource.",
 		)
-	} else if len(kservingList.Items) == 0 {
+	} else if len(knservingList.Items) == 0 {
 		return allowZeroInitialScale, globalInitialScale, errors.New("no knativeserving resources found in cluster.")
 	}
 
 	// Always use the first knativeserving resource returned.
 	// We are operating under the assumption that there should be a single knativeserving custom resource created on the cluster.
-	kserving := kservingList.Items[0]
-	if kserving.Spec.Config != nil {
-		// Check for both the autoscaler key with and without the 'config-' prefix. Both are supported by knative.
-		if kservingAutoscalerConfig, ok := kserving.Spec.Config[constants.AutoscalerKey]; ok {
-			if configuredAllowZeroInitialScale, ok := kservingAutoscalerConfig[constants.AutoscalerAllowZeroScaleKey]; ok {
-				allowZeroInitialScale = configuredAllowZeroInitialScale
-			}
-			if configuredInitialScale, ok := kservingAutoscalerConfig[constants.AutoscalerInitialScaleKey]; ok {
-				globalInitialScale = configuredInitialScale
-			}
-		} else if kservingAutoscalerConfig, ok := kserving.Spec.Config["config-"+constants.AutoscalerKey]; ok {
-			if configuredAllowZeroInitialScale, ok := kservingAutoscalerConfig[constants.AutoscalerAllowZeroScaleKey]; ok {
-				allowZeroInitialScale = configuredAllowZeroInitialScale
-			}
-			if configuredInitialScale, ok := kservingAutoscalerConfig[constants.AutoscalerInitialScaleKey]; ok {
-				globalInitialScale = configuredInitialScale
-			}
-		}
+	knserving := knservingList.Items[0]
+
+	// Check for both the autoscaler key with and without the 'config-' prefix. Both are supported by knative.
+	var knservingAutoscalerConfig map[string]string
+	if _, ok := knserving.Spec.Config[constants.AutoscalerKey]; ok {
+		knservingAutoscalerConfig = knserving.Spec.Config[constants.AutoscalerKey]
+	} else if _, ok := knserving.Spec.Config["config-"+constants.AutoscalerKey]; ok {
+		knservingAutoscalerConfig = knserving.Spec.Config["config-"+constants.AutoscalerKey]
 	}
+
+	if configuredAllowZeroInitialScale, ok := knservingAutoscalerConfig[constants.AutoscalerAllowZeroScaleKey]; ok {
+		allowZeroInitialScale = configuredAllowZeroInitialScale
+	}
+	if configuredInitialScale, ok := knservingAutoscalerConfig[constants.AutoscalerInitialScaleKey]; ok {
+		globalInitialScale = configuredInitialScale
+	}
+
 	return allowZeroInitialScale, globalInitialScale, nil
 }
