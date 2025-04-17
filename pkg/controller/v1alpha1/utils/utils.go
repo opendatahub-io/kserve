@@ -49,7 +49,15 @@ func GetAutoscalerConfiguration(client client.Client) (string, string, error) {
 	// We are operating under the assumption that there should be a single knativeserving custom resource created on the cluster.
 	kserving := kservingList.Items[0]
 	if kserving.Spec.Config != nil {
+		// Check for both the autoscaler key with and without the 'config-' prefix. Both are supported by knative.
 		if kservingAutoscalerConfig, ok := kserving.Spec.Config[constants.AutoscalerKey]; ok {
+			if configuredAllowZeroInitialScale, ok := kservingAutoscalerConfig[constants.AutoscalerAllowZeroScaleKey]; ok {
+				allowZeroInitialScale = configuredAllowZeroInitialScale
+			}
+			if configuredInitialScale, ok := kservingAutoscalerConfig[constants.AutoscalerInitialScaleKey]; ok {
+				globalInitialScale = configuredInitialScale
+			}
+		} else if kservingAutoscalerConfig, ok := kserving.Spec.Config["config-"+constants.AutoscalerKey]; ok {
 			if configuredAllowZeroInitialScale, ok := kservingAutoscalerConfig[constants.AutoscalerAllowZeroScaleKey]; ok {
 				allowZeroInitialScale = configuredAllowZeroInitialScale
 			}
