@@ -1,4 +1,4 @@
-FROM golang:1.22-bookworm
+FROM golang:1.24-bookworm
 
 # Install bash just to be sure
 RUN apt-get update && apt-get install -y bash sudo

@@ -48,7 +48,7 @@ dev:
     workingDir: /app
     labelSelector:
       control-plane: kserve-controller-manager
-    devImage: quay.io/vedantm/golang:1.22-odh-kserve-dev
+    devImage: quay.io/vedantm/golang:1.24-odh-kserve-dev
     sync:
       - path: ../:/app
     terminal:
