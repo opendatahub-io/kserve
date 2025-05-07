@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"knative.dev/pkg/apis"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -409,7 +410,46 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 		if err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile predictor")
 		}
-		isvc.Status.PropagateStatus(v1beta1.PredictorComponent, kstatus)
+		if !isvc.GetForceStopRuntime() {
+			isvc.Status.PropagateStatus(v1beta1.PredictorComponent, kstatus)
+		}
+		if isvc.GetForceStopRuntime() {
+			// Exit early if we have already set the status to stopped
+			existing_stopped_condition := isvc.Status.GetCondition(v1beta1.Stopped)
+			if existing_stopped_condition != nil && existing_stopped_condition.Status == v1.ConditionTrue {
+				return ctrl.Result{}, nil
+			}
+
+			deployMode := isvc.Status.DeploymentMode
+
+			// Clear all statuses
+			isvc.Status = v1beta1.InferenceServiceStatus{}
+
+			// Preserve the deployment mode value
+			isvc.Status.DeploymentMode = deployMode
+
+			// Set the ready condition
+			predictor_ready_condition := &apis.Condition{
+				Type:   v1beta1.PredictorReady,
+				Status: v1.ConditionFalse,
+			}
+			isvc.Status.SetCondition(v1beta1.PredictorReady, predictor_ready_condition)
+
+			// Add the stopped condition
+			stopped_condition := &apis.Condition{
+				Type:   v1beta1.Stopped,
+				Status: v1.ConditionTrue,
+			}
+			isvc.Status.SetCondition(v1beta1.Stopped, stopped_condition)
+
+			return ctrl.Result{}, nil
+		} else {
+			resume_condition := &apis.Condition{
+				Type:   v1beta1.Stopped,
+				Status: v1.ConditionFalse,
+			}
+			isvc.Status.SetCondition(v1beta1.Stopped, resume_condition)
+		}
 	}
 
 	statusSpec := isvc.Status.Components[v1beta1.PredictorComponent]

@@ -238,8 +238,10 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		if isvc.Spec.Explainer != nil {
 			componentList = append(componentList, v1beta1api.ExplainerComponent)
 		}
-		isvc.Status.PropagateCrossComponentStatus(componentList, v1beta1api.RoutesReady)
-		isvc.Status.PropagateCrossComponentStatus(componentList, v1beta1api.LatestDeploymentReady)
+		if !isvc.GetForceStopRuntime() {
+			isvc.Status.PropagateCrossComponentStatus(componentList, v1beta1api.RoutesReady)
+			isvc.Status.PropagateCrossComponentStatus(componentList, v1beta1api.LatestDeploymentReady)
+		}
 	}
 	// Reconcile ingress
 	ingressConfig, err := v1beta1api.NewIngressConfig(r.Clientset)
