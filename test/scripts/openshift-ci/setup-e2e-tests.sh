@@ -27,12 +27,17 @@ set -o pipefail
 : "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
 : "${KSERVE_ROUTER_IMAGE:=quay.io/opendatahub/kserve-router:latest}"
 : "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
+: "${ODH_MODEL_CONTROLLER_IMAGE:=quay.io/opendatahub/odh-model-controller:fast}"
+: "${ERROR_404_ISVC_IMAGE:=error-404-isvc:latest}"
+: "${SUCCESS_200_ISVC_IMAGE:=success-200-isvc:latest}"
 
 echo "SKLEARN_IMAGE=$SKLEARN_IMAGE"
 echo "KSERVE_CONTROLLER_IMAGE=$KSERVE_CONTROLLER_IMAGE"
 echo "KSERVE_AGENT_IMAGE=$KSERVE_AGENT_IMAGE"
 echo "KSERVE_ROUTER_IMAGE=$KSERVE_ROUTER_IMAGE"
 echo "STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_IMAGE"
+echo "ERROR_404_ISVC_IMAGE=$ERROR_404_ISVC_IMAGE"
+echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
 
 # Create directory for installing tooling
 # It is assumed that $HOME/.local/bin is in the $PATH
@@ -91,30 +96,29 @@ if [ "$1" == "raw" ]; then
   oc patch DataScienceCluster test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
 else
   export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
-  oc patch configmap inferenceservice-config -n kserve --patch-file <(cat config/overlays/test/configmap/inferenceservice-openshift-ci-serverless.yaml | envsubst)
+  if [ "$1" == "graph" ]; then
+    oc patch configmap inferenceservice-config -n kserve --patch-file <(cat config/overlays/test/configmap/inferenceservice-openshift-ci-serverless.yaml | envsubst)
+  else 
+    oc patch configmap inferenceservice-config -n kserve --patch-file <(cat config/overlays/test/configmap/inferenceservice-openshift-ci-serverless-predictor.yaml | envsubst)
+  fi
 fi
 
 # Wait until KServe starts
 oc wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n kserve --timeout=300s
 
 if [ "$1" != "raw" ]; then
-  echo "Installing odh-model-controller"
+  echo "Installing authorino and kserve gateways"
   # authorino
   curl -sL https://raw.githubusercontent.com/Kuadrant/authorino-operator/main/utils/install.sh | sed "s|kubectl|oc|" | 
     bash -s -- -v 0.16.0
 
-  # kserve-local-gateway
-  curl https://raw.githubusercontent.com/opendatahub-io/opendatahub-operator/bde4b4e8478b5d03195e2777b9d550922e3cdcbc/components/kserve/resources/servicemesh/routing/istio-kserve-local-gateway.tmpl.yaml |
-    sed "s/{{ .ControlPlane.Namespace }}/istio-system/g" |
-    oc create -f -
-  
-  curl https://raw.githubusercontent.com/opendatahub-io/opendatahub-operator/bde4b4e8478b5d03195e2777b9d550922e3cdcbc/components/kserve/resources/servicemesh/routing/kserve-local-gateway-svc.tmpl.yaml |
-    sed "s/{{ .ControlPlane.Namespace }}/istio-system/g" |
-    oc create -f -
-
-  oc apply -k $PROJECT_ROOT/test/scripts/openshift-ci
-  oc wait --for=condition=ready pod -l app=odh-model-controller -n kserve --timeout=300s
 fi
+
+echo "Installing ODH Model Controller"
+kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
+    sed "s|quay.io/opendatahub/odh-model-controller:fast|${ODH_MODEL_CONTROLLER_IMAGE}|" |
+    oc apply -n kserve -f -
+  oc wait --for=condition=ready pod -l app=odh-model-controller -n kserve --timeout=300s
 
 echo "Add testing models to minio storage ..." # Reference: config/overlays/test/minio/minio-init-job.yaml
 oc expose service minio-service -n kserve && sleep 5
@@ -168,10 +172,10 @@ kustomize build $PROJECT_ROOT/config/overlays/test/clusterresources |
   oc apply -n kserve-ci-e2e-test -f -
 
 # Add the enablePassthrough annotation to the ServingRuntimes, to let Knative to
-# generate passthrough routes. If RawDeployment test are being run, this annotation would have
-# no effect, because of missing Knative
-oc annotate servingruntimes -n kserve-ci-e2e-test --all serving.knative.openshift.io/enablePassthrough=true
-
+# generate passthrough routes.
+if [ "$1" != "raw" ]; then
+  oc annotate servingruntimes -n kserve-ci-e2e-test --all serving.knative.openshift.io/enablePassthrough=true
+fi
 
 # Allow all traffic to the kserve namespace. Without this networkpolicy, webhook will return 500
 # error msg: 'http: server gave HTTP response to HTTPS client"}]},"code":500}'
