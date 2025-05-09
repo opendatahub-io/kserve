@@ -341,12 +341,9 @@ func (ss *InferenceServiceStatus) PropagateRawStatus(
 	}
 
 	condition := getDeploymentCondition(deploymentList, appsv1.DeploymentAvailable)
-	// currently the component url is disabled as this url generated based on ingressConfig. This is incompatible with
-	// rawdeployment changes as the url depends on the route creation, if a route is requested.
-	// TODO: add back component url deterministicly
-	// if condition != nil && condition.Status == v1.ConditionTrue {
-	//	 statusSpec.URL = url
-	//}
+	if condition != nil && condition.Status == corev1.ConditionTrue {
+		statusSpec.URL = url
+	}
 	readyCondition := readyConditionsMap[component]
 	ss.SetCondition(readyCondition, condition)
 	ss.Components[component] = statusSpec

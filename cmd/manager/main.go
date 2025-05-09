@@ -55,6 +55,7 @@ import (
 	"github.com/kserve/kserve/pkg/webhook/admission/localmodelcache"
 	"github.com/kserve/kserve/pkg/webhook/admission/pod"
 	"github.com/kserve/kserve/pkg/webhook/admission/servingruntime"
+	configv1 "github.com/openshift/api/config/v1"
 )
 
 var setupLog = ctrl.Log.WithName("setup")
@@ -212,6 +213,11 @@ func main() {
 	}
 	if err = routev1.AddToScheme(mgr.GetScheme()); err != nil {
 		setupLog.Error(err, "unable to add routev1 APIs to scheme")
+		os.Exit(1)
+	}
+
+	if err = configv1.AddToScheme(mgr.GetScheme()); err != nil {
+		setupLog.Error(err, "unable to add configv1 APIs to scheme")
 		os.Exit(1)
 	}
 
