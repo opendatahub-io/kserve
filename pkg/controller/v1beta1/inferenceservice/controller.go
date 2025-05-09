@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/openshift"
 	"github.com/pkg/errors"
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -84,7 +85,8 @@ import (
 // +kubebuilder:rbac:groups=core,resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
-// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=config.openshift.io,resources=ingress,verbs=get;list
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=operator.knative.dev,resources=knativeservings,verbs=get;list;watch
 // +kubebuilder:rbac:groups=keda.sh,resources=scaledobjects,verbs=get;list;watch;create;update;patch;delete
@@ -280,11 +282,17 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			if err := reconciler.Reconcile(ctx, isvc); err != nil {
 				return reconcile.Result{}, errors.Wrapf(err, "fails to reconcile ingress")
 			}
+		} else if ingressConfig.DisableIngressCreation {
+			reconciler := openshift.NewRouteReconciler(r.Client, r.Scheme, ingressConfig, isvcConfig)
+			if err := reconciler.Reconcile(ctx, isvc); err != nil {
+				return reconcile.Result{}, errors.Wrapf(err, "fails to reconcile route")
+			}
 		} else {
 			reconciler, err := ingress.NewRawIngressReconciler(r.Client, r.Scheme, ingressConfig, isvcConfig)
 			if err != nil {
 				return reconcile.Result{}, errors.Wrapf(err, "fails to reconcile ingress")
 			}
+			r.Log.Info("Reconciling ingress for inference service", "isvc", isvc.Name)
 			if err := reconciler.Reconcile(ctx, isvc); err != nil {
 				return reconcile.Result{}, errors.Wrapf(err, "fails to reconcile ingress")
 			}

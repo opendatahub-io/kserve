@@ -87,6 +87,13 @@ rules:
   - update
   - watch
 - apiGroups:
+  - config.openshift.io
+  resources:
+  - ingress
+  verbs:
+  - get
+  - list
+- apiGroups:
   - gateway.networking.k8s.io
   resources:
   - httproutes

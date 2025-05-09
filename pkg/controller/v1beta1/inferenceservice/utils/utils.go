@@ -26,6 +26,7 @@ import (
 	"sort"
 	"strings"
 
+	configv1 "github.com/openshift/api/config/v1"
 	routev1 "github.com/openshift/api/route/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -519,6 +520,21 @@ func GetRouteURLIfExists(ctx context.Context, cli client.Client, metadata metav1
 	}
 
 	return routeURL, nil
+}
+
+func GetOpenShiftDomain(ctx context.Context, c client.Client) (string, error) {
+	ingress := &configv1.Ingress{}
+	if err := c.Get(ctx, types.NamespacedName{
+		Name: "cluster",
+	}, ingress); err != nil {
+		return "", fmt.Errorf("failed to get OpenShift ingress config: %w", err)
+	}
+
+	if ingress.Spec.Domain == "" {
+		return "", fmt.Errorf("OpenShift ingress domain is not configured")
+	}
+
+	return ingress.Spec.Domain, nil
 }
 
 func FilterList(slice []string, element string) []string {

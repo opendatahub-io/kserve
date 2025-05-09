@@ -19,14 +19,15 @@ package raw
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	autoscaler "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/autoscaler"
 	deployment "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/deployment"
-	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/ingress"
 	service "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/service"
 
+	v1beta1utils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -72,7 +73,7 @@ func NewRawKubeReconciler(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
-	url, err := createRawURL(ingressConfig, componentMeta)
+	url, err := createRawURL(ctx, client, ingressConfig, componentMeta)
 	if err != nil {
 		return nil, err
 	}
@@ -103,13 +104,35 @@ func NewRawKubeReconciler(ctx context.Context,
 	}, nil
 }
 
-func createRawURL(ingressConfig *v1beta1.IngressConfig, metadata metav1.ObjectMeta) (*knapis.URL, error) {
+func createRawURL(ctx context.Context, c client.Client, ingressConfig *v1beta1.IngressConfig, metadata metav1.ObjectMeta) (*knapis.URL, error) {
+	// ODH Overrides
 	url := &knapis.URL{}
 	url.Scheme = "http"
-	var err error
-	if url.Host, err = ingress.GenerateDomainName(metadata.Name, metadata, ingressConfig); err != nil {
-		return nil, fmt.Errorf("failed creating host name: %w", err)
+
+	// Check if auth is enabled
+	if val, ok := metadata.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
+		url.Scheme = "https"
 	}
+
+	// Check network visibility
+	visibility, ok := metadata.Labels[constants.NetworkVisibility]
+	if !ok || visibility != constants.ODHRouteEnabled {
+		// Use internal URL
+		url.Host = fmt.Sprintf("%s.%s.svc.cluster.local", metadata.Name, metadata.Namespace)
+		if url.Scheme == "https" {
+			url.Host = fmt.Sprintf("%s:8443", url.Host)
+		}
+		return url, nil
+	}
+
+	// Get OpenShift domain for external URL
+	domain, err := v1beta1utils.GetOpenShiftDomain(ctx, c)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get OpenShift domain: %w", err)
+	}
+
+	// Use external URL format
+	url.Host = fmt.Sprintf("%s-%s.%s", metadata.Name, metadata.Namespace, domain)
 	return url, nil
 }
 
