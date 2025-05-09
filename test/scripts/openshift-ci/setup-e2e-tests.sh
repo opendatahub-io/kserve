@@ -107,16 +107,18 @@ fi
 oc wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n kserve --timeout=300s
 
 if [ "$1" != "raw" ]; then
-  echo "Installing odh-model-controller"
+  echo "Installing authorino and kserve gateways"
   # authorino
   curl -sL https://raw.githubusercontent.com/Kuadrant/authorino-operator/main/utils/install.sh | sed "s|kubectl|oc|" | 
     bash -s -- -v 0.16.0
 
 fi
 
-  oc apply -k $PROJECT_ROOT/test/scripts/openshift-ci
+echo "Installing ODH Model Controller"
+kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
+    sed "s|quay.io/opendatahub/odh-model-controller:fast|${ODH_MODEL_CONTROLLER_IMAGE}|" |
+    oc apply -n kserve -f -
   oc wait --for=condition=ready pod -l app=odh-model-controller -n kserve --timeout=300s
-fi
 
 echo "Add testing models to minio storage ..." # Reference: config/overlays/test/minio/minio-init-job.yaml
 oc expose service minio-service -n kserve && sleep 5
@@ -170,10 +172,10 @@ kustomize build $PROJECT_ROOT/config/overlays/test/clusterresources |
   oc apply -n kserve-ci-e2e-test -f -
 
 # Add the enablePassthrough annotation to the ServingRuntimes, to let Knative to
-# generate passthrough routes. If RawDeployment test are being run, this annotation would have
-# no effect, because of missing Knative
-oc annotate servingruntimes -n kserve-ci-e2e-test --all serving.knative.openshift.io/enablePassthrough=true
-
+# generate passthrough routes.
+if [ "$1" != "raw" ]; then
+  oc annotate servingruntimes -n kserve-ci-e2e-test --all serving.knative.openshift.io/enablePassthrough=true
+fi
 
 # Allow all traffic to the kserve namespace. Without this networkpolicy, webhook will return 500
 # error msg: 'http: server gave HTTP response to HTTPS client"}]},"code":500}'
