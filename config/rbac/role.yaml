@@ -89,7 +89,7 @@ rules:
 - apiGroups:
   - config.openshift.io
   resources:
-  - ingress
+  - ingresses
   verbs:
   - get
   - list

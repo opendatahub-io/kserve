@@ -86,7 +86,7 @@ import (
 // +kubebuilder:rbac:groups=core,resources=events,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 // +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=config.openshift.io,resources=ingress,verbs=get;list
+// +kubebuilder:rbac:groups=config.openshift.io,resources=ingresses,verbs=get;list
 // +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=operator.knative.dev,resources=knativeservings,verbs=get;list;watch
 // +kubebuilder:rbac:groups=keda.sh,resources=scaledobjects,verbs=get;list;watch;create;update;patch;delete
