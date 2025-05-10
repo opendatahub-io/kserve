@@ -1,4 +1,4 @@
-FROM python:3.7
+FROM python:3.13
 
 COPY . .
 RUN pip install --no-cache-dir --upgrade pip && pip install --no-cache-dir kserve
