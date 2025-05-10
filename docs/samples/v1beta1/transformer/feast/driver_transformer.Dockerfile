@@ -1,4 +1,4 @@
-FROM python:3.9-slim
+FROM python:3.13-slim
 
 COPY driver_transformer driver_transformer
 WORKDIR driver_transformer

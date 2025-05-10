@@ -33,7 +33,7 @@ packages = [
 exclude = ["kserve/storage/test"]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.13"
+python = ">=3.13,<3.14"
 uvicorn = { version = "^0.30.6", extras = ["standard"] }
 fastapi = ">=0.115.3"
 cloudevents = "^1.6.2"
