@@ -1,4 +1,4 @@
-FROM registry.baidubce.com/paddlepaddle/serving:0.5.0-devel
+FROM registry.baidubce.com/paddlepaddle/serving:0.9.0-devel
 
 RUN git clone https://github.com/PaddlePaddle/Serving.git
 
