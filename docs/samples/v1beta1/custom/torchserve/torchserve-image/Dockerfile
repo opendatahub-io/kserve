@@ -16,7 +16,7 @@
 #           https://docs.docker.com/develop/develop-images/build_enhancements/
 
 
-ARG BASE_IMAGE=ubuntu:18.04
+ARG BASE_IMAGE=ubuntu:24.04
 
 FROM ${BASE_IMAGE} AS compile-image
 
