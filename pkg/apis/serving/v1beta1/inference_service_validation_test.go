@@ -1208,7 +1208,7 @@ func TestValidateMultiNodeVariables(t *testing.T) {
 					Name:      "foo-4-3",
 					Namespace: "default",
 					Annotations: map[string]string{
-						constants.AutoscalerClass: string(constants.AutoscalerClassNone),
+						constants.AutoscalerClass: string(constants.AutoscalerClassExternal),
 					},
 				},
 				Spec: InferenceServiceSpec{
