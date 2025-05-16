@@ -220,6 +220,30 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							Drop: []corev1.Capability{corev1.Capability("ALL")},
 						},
 					},
+					VolumeMounts: []v1.VolumeMount{
+						{
+							Name:      "openshift-service-ca-bundle",
+							MountPath: "/etc/odh/openshift-service-ca-bundle",
+						},
+					},
+					Env: []v1.EnvVar{
+						{
+							Name:  "SSL_CERT_FILE",
+							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+						},
+					},
+				},
+			},
+			Volumes: []v1.Volume{
+				{
+					Name: "openshift-service-ca-bundle",
+					VolumeSource: v1.VolumeSource{
+						ConfigMap: &v1.ConfigMapVolumeSource{
+							LocalObjectReference: v1.LocalObjectReference{
+								Name: constants.OpenShiftServiceCaConfigMapName,
+							},
+						},
+					},
 				},
 			},
 			AutomountServiceAccountToken: proto.Bool(false),
@@ -237,6 +261,10 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 						"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.exmaple.com\"}]}},\"resources\":{}}",
 					},
 					Env: []corev1.EnvVar{
+						{
+							Name:  "SSL_CERT_FILE",
+							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+						},
 						{
 							Name:  "PROPAGATE_HEADERS",
 							Value: "Authorization,Intuit_tid",
@@ -260,6 +288,24 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 						AllowPrivilegeEscalation: proto.Bool(false),
 						Capabilities: &corev1.Capabilities{
 							Drop: []corev1.Capability{corev1.Capability("ALL")},
+						},
+					},
+					VolumeMounts: []v1.VolumeMount{
+						{
+							Name:      "openshift-service-ca-bundle",
+							MountPath: "/etc/odh/openshift-service-ca-bundle",
+						},
+					},
+				},
+			},
+			Volumes: []v1.Volume{
+				{
+					Name: "openshift-service-ca-bundle",
+					VolumeSource: v1.VolumeSource{
+						ConfigMap: &v1.ConfigMapVolumeSource{
+							LocalObjectReference: v1.LocalObjectReference{
+								Name: constants.OpenShiftServiceCaConfigMapName,
+							},
 						},
 					},
 				},
@@ -296,6 +342,30 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 						AllowPrivilegeEscalation: proto.Bool(false),
 						Capabilities: &corev1.Capabilities{
 							Drop: []corev1.Capability{corev1.Capability("ALL")},
+						},
+					},
+					VolumeMounts: []v1.VolumeMount{
+						{
+							Name:      "openshift-service-ca-bundle",
+							MountPath: "/etc/odh/openshift-service-ca-bundle",
+						},
+					},
+					Env: []v1.EnvVar{
+						{
+							Name:  "SSL_CERT_FILE",
+							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+						},
+					},
+				},
+			},
+			Volumes: []v1.Volume{
+				{
+					Name: "openshift-service-ca-bundle",
+					VolumeSource: v1.VolumeSource{
+						ConfigMap: &v1.ConfigMapVolumeSource{
+							LocalObjectReference: v1.LocalObjectReference{
+								Name: constants.OpenShiftServiceCaConfigMapName,
+							},
 						},
 					},
 				},
