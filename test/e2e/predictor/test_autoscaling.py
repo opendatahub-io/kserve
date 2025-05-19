@@ -356,7 +356,10 @@ async def test_sklearn_keda_scale_new_spec_resource(rest_v1_client, network_laye
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE, annotations=annotations, labels=labels
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            annotations=annotations,
+            labels=labels,
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -435,7 +438,10 @@ async def test_sklearn_keda_scale_new_spec_external(rest_v1_client, network_laye
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE, annotations=annotations, labels=labels
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            annotations=annotations,
+            labels=labels,
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -516,7 +522,10 @@ async def test_scaling_sklearn_with_keda_otel_add_on(rest_v1_client, network_lay
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE, annotations=annotations, labels=labels
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            annotations=annotations,
+            labels=labels,
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
