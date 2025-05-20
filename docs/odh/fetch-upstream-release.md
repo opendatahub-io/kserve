@@ -282,7 +282,7 @@ reharsals are run by commenting with the following slash command in your pull
 request:
 
 ```
-/pj-rehearse pull-ci-opendatahub-io-kserve-release-v0.15-e2e-path-based-routing pull-ci-opendatahub-io-kserve-release-v0.15-e2e-predictor
+/pj-rehearse pull-ci-opendatahub-io-kserve-release-v0.15-e2e-path-based-routing pull-ci-opendatahub-io-kserve-release-v0.15-e2e-predictor pull-ci-opendatahub-io-kserve-release-v0.15-e2e-graph
 ```
 
 The `openshift-ci-robot` would comment on your pull request with the current
