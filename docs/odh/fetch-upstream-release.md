@@ -10,7 +10,7 @@ This guide outlines the process to fetch a stable upstream release to ODH fork.
 
 # Prerequisites
 
-As you will be are creating a _new_ branch, the configured branch protections
+As you will be creating a _new_ branch, the configured branch protections
 may not apply to it. Despite this, you must still adhere to [GitHub
 flow](https://docs.github.com/en/get-started/using-github/github-flow).
 
@@ -56,7 +56,7 @@ GH_USER={your-github-user}
 # If you prefer the remote configured with SSH
 $ git clone git@github.com:${GH_USER}/kserve.git 
 
-# If you prefer the remote configured with SSH
+# If you prefer the remote configured with HTTPS
 $ git clone https://github.com/${GH_USER}/kserve.git 
 
 # If you have GitHub CLI
@@ -72,7 +72,7 @@ repository as a remote:
 # If you prefer the remote configured with SSH
 $ git remote add odh git@github.com:opendatahub-io/kserve.git
 
-# If you prefer the remote configured with SSH
+# If you prefer the remote configured with HTTPS
 $ git remote add odh https://github.com/opendatahub-io/kserve.git
 ```
 
@@ -84,7 +84,7 @@ Add [kserve/kserve](https://github.com/kserve/kserve) repository as a remote:
 # If you prefer the remote configured with SSH
 $ git remote add kserve git@github.com:kserve/kserve.git
 
-# If you prefer the remote configured with SSH
+# If you prefer the remote configured with HTTPS
 $ git remote add kserve https://github.com/kserve/kserve.git
 ```
 
