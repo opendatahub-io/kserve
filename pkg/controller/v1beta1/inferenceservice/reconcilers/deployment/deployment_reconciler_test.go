@@ -994,6 +994,9 @@ func TestCheckDeploymentExist(t *testing.T) {
 			r := &DeploymentReconciler{
 				client: mockClient,
 			}
+
+			fmt.Printf("test: %+v\n", mockClient)
+
 			ctx := context.TODO()
 			gotResult, gotExisting, err := r.checkDeploymentExist(ctx, mockClient, tt.args.deployment)
 			if (err != nil) != tt.wantErr {
@@ -1153,6 +1156,22 @@ type mockClientForCheckDeploymentExist struct {
 	kclient.Client
 	getDeployment *appsv1.Deployment
 	getErr        error
+}
+
+func (m *mockClientForCheckDeploymentExist) Get(ctx context.Context, key kclient.ObjectKey, obj kclient.Object, opts ...kclient.GetOption) error {
+	if m.getErr != nil {
+		return m.getErr
+	}
+	if m.getDeployment != nil {
+		d := obj.(*appsv1.Deployment)
+		*d = *m.getDeployment.DeepCopy()
+	}
+	return nil
+}
+
+func (m *mockClientForCheckDeploymentExist) Update(ctx context.Context, obj kclient.Object, opts ...kclient.UpdateOption) error {
+	// Simulate dry-run update always succeeds
+	return nil
 }
 
 func intStrPtr(s string) *intstr.IntOrString {

@@ -1049,8 +1049,7 @@ var _ = Describe("Inference Graph controller test", func() {
 					return false
 				}
 				return true
-			}, timeout).
-				Should(BeFalse())
+			}, timeout).Should(BeFalse())
 
 			// No Knative Route should get created in Raw deployment mode
 			actualKnRouteCreated := &knservingv1.Route{}
@@ -1059,8 +1058,7 @@ var _ = Describe("Inference Graph controller test", func() {
 					return false
 				}
 				return true
-			}, timeout).
-				Should(BeFalse())
+			}, timeout).Should(BeFalse())
 
 			result := int32(1)
 			Expect(actualK8sDeploymentCreated.Name).To(Equal(graphName))
@@ -1074,6 +1072,7 @@ var _ = Describe("Inference Graph controller test", func() {
 				{Type: appsv1.DeploymentAvailable},
 			}
 			Expect(k8sClient.Status().Update(ctx, actualK8sDeploymentCreated)).Should(Succeed())
+
 			osRoute := osv1.Route{}
 			Eventually(func() error {
 				osRouteKey := types.NamespacedName{Name: inferenceGraphSubmitted.GetName() + "-route", Namespace: inferenceGraphSubmitted.GetNamespace()}

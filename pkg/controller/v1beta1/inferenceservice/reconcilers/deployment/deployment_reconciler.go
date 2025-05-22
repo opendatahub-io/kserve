@@ -495,7 +495,7 @@ func (r *DeploymentReconciler) checkDeploymentExist(ctx context.Context, client 
 		return constants.CheckResultUnknown, nil, err
 	} else if len(diff) > 0 {
 		log.Info("Deployment Updated", "Diff", diff)
-		return constants.CheckResultUpdate, processedNewDep, nil
+		return constants.CheckResultUpdate, existingDeployment, nil
 	}
 	return constants.CheckResultExisted, existingDeployment, nil
 }
@@ -645,7 +645,6 @@ func addGPUResourceToDeployment(deployment *appsv1.Deployment, targetContainerNa
 func (r *DeploymentReconciler) Reconcile(ctx context.Context) ([]*appsv1.Deployment, error) {
 	for _, desiredDep := range r.DeploymentList {
 		// Reconcile Deployment
-
 		checkResult, existingDep, err := r.checkDeploymentExist(ctx, r.client, desiredDep)
 		if err != nil {
 			return nil, err
