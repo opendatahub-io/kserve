@@ -28,7 +28,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/tidwall/gjson v1.18.0
 	go.uber.org/zap v1.27.0
-	golang.org/x/net v0.37.0
+	golang.org/x/net v0.38.0
 	gomodules.xyz/jsonpatch/v2 v2.5.0
 	google.golang.org/api v0.226.0
 	google.golang.org/protobuf v1.36.5
