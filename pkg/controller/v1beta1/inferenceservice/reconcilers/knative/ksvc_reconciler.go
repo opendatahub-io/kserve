@@ -100,7 +100,6 @@ func createKnativeService(ctx context.Context,
 		componentExtension.MaxReplicas,
 		log,
 	)
-
 	if err != nil {
 		return nil, errors.Wrapf(err, "fails to set autoscaling annotations for knative service")
 	}

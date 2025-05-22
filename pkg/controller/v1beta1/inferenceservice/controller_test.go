@@ -494,7 +494,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Expect(actualService.Spec.Template.Annotations[autoscaling.InitialScaleAnnotationKey]).To(Equal("0"))
 				Expect(actualService.Spec.Template.Annotations[autoscaling.MinScaleAnnotationKey]).To(Equal("2"))
 				Expect(actualService.Spec.Template.Annotations[autoscaling.MaxScaleAnnotationKey]).To(Equal("0"))
-
 			})
 		})
 	})
