@@ -994,7 +994,7 @@ func TestCheckDeploymentExist(t *testing.T) {
 			r := &DeploymentReconciler{
 				client: mockClient,
 			}
-			ctx := t.Context()
+			ctx := context.TODO()
 			gotResult, gotExisting, err := r.checkDeploymentExist(ctx, mockClient, tt.args.deployment)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("checkDeploymentExist() error = %v, wantErr %v", err, tt.wantErr)

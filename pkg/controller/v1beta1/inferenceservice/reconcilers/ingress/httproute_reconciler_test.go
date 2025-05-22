@@ -2132,11 +2132,11 @@ func TestRawHTTPRouteReconciler_reconcilePredictorHTTPRoute(t *testing.T) {
 			isvcConfig:    isvcConfig,
 		}
 
-		err := reconciler.reconcilePredictorHTTPRoute(t.Context(), isvc)
+		err := reconciler.reconcilePredictorHTTPRoute(context.TODO(), isvc)
 		g.Expect(err).ToNot(HaveOccurred())
 
 		route := &gatewayapiv1.HTTPRoute{}
-		err = client.Get(t.Context(), types.NamespacedName{
+		err = client.Get(context.TODO(), types.NamespacedName{
 			Name:      "foo-predictor",
 			Namespace: "default",
 		}, route)
@@ -2165,11 +2165,11 @@ func TestRawHTTPRouteReconciler_reconcilePredictorHTTPRoute(t *testing.T) {
 			isvcConfig:    isvcConfig,
 		}
 
-		err := reconciler.reconcilePredictorHTTPRoute(t.Context(), isvc)
+		err := reconciler.reconcilePredictorHTTPRoute(context.TODO(), isvc)
 		g.Expect(err).ToNot(HaveOccurred())
 
 		route := &gatewayapiv1.HTTPRoute{}
-		err = client.Get(t.Context(), types.NamespacedName{
+		err = client.Get(context.TODO(), types.NamespacedName{
 			Name:      "foo-predictor",
 			Namespace: "default",
 		}, route)
@@ -2203,7 +2203,7 @@ func TestRawHTTPRouteReconciler_reconcilePredictorHTTPRoute(t *testing.T) {
 				Hostnames: []gatewayapiv1.Hostname{"old-host.example.com"},
 			},
 		}
-		_ = client.Create(t.Context(), existing)
+		_ = client.Create(context.TODO(), existing)
 
 		reconciler := &RawHTTPRouteReconciler{
 			client:        client,
@@ -2212,11 +2212,11 @@ func TestRawHTTPRouteReconciler_reconcilePredictorHTTPRoute(t *testing.T) {
 			isvcConfig:    isvcConfig,
 		}
 
-		err := reconciler.reconcilePredictorHTTPRoute(t.Context(), isvc)
+		err := reconciler.reconcilePredictorHTTPRoute(context.TODO(), isvc)
 		g.Expect(err).ToNot(HaveOccurred())
 
 		route := &gatewayapiv1.HTTPRoute{}
-		err = client.Get(t.Context(), types.NamespacedName{
+		err = client.Get(context.TODO(), types.NamespacedName{
 			Name:      "foo-predictor",
 			Namespace: "default",
 		}, route)
@@ -2263,7 +2263,7 @@ func TestRawHTTPRouteReconciler_reconcileTransformerHTTPRoute(t *testing.T) {
 		}
 		client := fake.NewClientBuilder().WithScheme(s).Build()
 		// Create a dummy transformer service so the reconciler finds it
-		client.Create(t.Context(), &corev1.Service{
+		client.Create(context.TODO(), &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test-isvc-transformer",
 				Namespace: "default",
@@ -2275,11 +2275,11 @@ func TestRawHTTPRouteReconciler_reconcileTransformerHTTPRoute(t *testing.T) {
 			ingressConfig: ingressConfig,
 			isvcConfig:    isvcConfig,
 		}
-		err := reconciler.reconcileTransformerHTTPRoute(t.Context(), isvc)
+		err := reconciler.reconcileTransformerHTTPRoute(context.TODO(), isvc)
 		g.Expect(err).ToNot(HaveOccurred())
 
 		route := &gatewayapiv1.HTTPRoute{}
-		err = client.Get(t.Context(), types.NamespacedName{
+		err = client.Get(context.TODO(), types.NamespacedName{
 			Name:      "test-isvc-transformer",
 			Namespace: "default",
 		}, route)
@@ -2309,7 +2309,7 @@ func TestRawHTTPRouteReconciler_reconcileTransformerHTTPRoute(t *testing.T) {
 			},
 		}
 		client := fake.NewClientBuilder().WithScheme(s).Build()
-		client.Create(t.Context(), &corev1.Service{
+		client.Create(context.TODO(), &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      "test-isvc2-transformer",
 				Namespace: "default",
@@ -2325,7 +2325,7 @@ func TestRawHTTPRouteReconciler_reconcileTransformerHTTPRoute(t *testing.T) {
 				Hostnames: []gatewayapiv1.Hostname{"oldhost.example.com"},
 			},
 		}
-		client.Create(t.Context(), existingRoute)
+		client.Create(context.TODO(), existingRoute)
 
 		reconciler := &RawHTTPRouteReconciler{
 			client:        client,
@@ -2333,11 +2333,11 @@ func TestRawHTTPRouteReconciler_reconcileTransformerHTTPRoute(t *testing.T) {
 			ingressConfig: ingressConfig,
 			isvcConfig:    isvcConfig,
 		}
-		err := reconciler.reconcileTransformerHTTPRoute(t.Context(), isvc)
+		err := reconciler.reconcileTransformerHTTPRoute(context.TODO(), isvc)
 		g.Expect(err).ToNot(HaveOccurred())
 
 		route := &gatewayapiv1.HTTPRoute{}
-		err = client.Get(t.Context(), types.NamespacedName{
+		err = client.Get(context.TODO(), types.NamespacedName{
 			Name:      "test-isvc2-transformer",
 			Namespace: "default",
 		}, route)
@@ -2373,7 +2373,7 @@ func TestRawHTTPRouteReconciler_reconcileTransformerHTTPRoute(t *testing.T) {
 			ingressConfig: ingressConfig,
 			isvcConfig:    isvcConfig,
 		}
-		err := reconciler.reconcileTransformerHTTPRoute(t.Context(), isvc)
+		err := reconciler.reconcileTransformerHTTPRoute(context.TODO(), isvc)
 		g.Expect(err).ToNot(HaveOccurred())
 	})
 }
@@ -2383,7 +2383,7 @@ func TestRawHTTPRouteReconciler_reconcileExplainerHTTPRoute(t *testing.T) {
 	s := scheme.Scheme
 	s.AddKnownTypes(v1beta1.SchemeGroupVersion, &v1beta1.InferenceService{})
 	s.AddKnownTypes(schema.GroupVersion{Group: gatewayapiv1.GroupVersion.Group, Version: gatewayapiv1.GroupVersion.Version}, &gatewayapiv1.HTTPRoute{})
-	ctx := t.Context()
+	ctx := context.TODO()
 
 	ingressConfig := &v1beta1.IngressConfig{
 		IngressDomain:        "example.com",
@@ -2555,11 +2555,11 @@ func TestRawHTTPRouteReconciler_reconcileTopLevelHTTPRoute(t *testing.T) {
 			isvcConfig:    isvcConfig,
 		}
 
-		err := reconciler.reconcileTopLevelHTTPRoute(t.Context(), isvc)
+		err := reconciler.reconcileTopLevelHTTPRoute(context.TODO(), isvc)
 		g.Expect(err).ToNot(HaveOccurred())
 
 		route := &gatewayapiv1.HTTPRoute{}
-		err = client.Get(t.Context(), types.NamespacedName{
+		err = client.Get(context.TODO(), types.NamespacedName{
 			Name:      "test-isvc",
 			Namespace: "default",
 		}, route)
@@ -2621,11 +2621,11 @@ func TestRawHTTPRouteReconciler_reconcileTopLevelHTTPRoute(t *testing.T) {
 			isvcConfig:    isvcConfig,
 		}
 
-		err := reconciler.reconcileTopLevelHTTPRoute(t.Context(), isvc)
+		err := reconciler.reconcileTopLevelHTTPRoute(context.TODO(), isvc)
 		g.Expect(err).ToNot(HaveOccurred())
 
 		route := &gatewayapiv1.HTTPRoute{}
-		err = client.Get(t.Context(), types.NamespacedName{
+		err = client.Get(context.TODO(), types.NamespacedName{
 			Name:      "test-isvc2",
 			Namespace: "default",
 		}, route)
@@ -2652,11 +2652,11 @@ func TestRawHTTPRouteReconciler_reconcileTopLevelHTTPRoute(t *testing.T) {
 			ingressConfig: ingressConfig,
 			isvcConfig:    isvcConfig,
 		}
-		err := reconciler.reconcileTopLevelHTTPRoute(t.Context(), isvc)
+		err := reconciler.reconcileTopLevelHTTPRoute(context.TODO(), isvc)
 		g.Expect(err).ToNot(HaveOccurred())
 
 		route := &gatewayapiv1.HTTPRoute{}
-		err = client.Get(t.Context(), types.NamespacedName{
+		err = client.Get(context.TODO(), types.NamespacedName{
 			Name:      "test-isvc3",
 			Namespace: "default",
 		}, route)
@@ -2729,7 +2729,7 @@ func TestRawHTTPRouteReconciler_Reconcile(t *testing.T) {
 		}
 		client := fake.NewClientBuilder().WithScheme(s).Build()
 		reconciler := NewRawHTTPRouteReconciler(client, s, ingressConfig, isvcConfig)
-		err := reconciler.Reconcile(t.Context(), isvc)
+		err := reconciler.Reconcile(context.TODO(), isvc)
 		g.Expect(err).ToNot(HaveOccurred())
 		cond := isvc.Status.GetCondition(v1beta1.IngressReady)
 		g.Expect(cond).NotTo(BeNil())
@@ -2751,7 +2751,7 @@ func TestRawHTTPRouteReconciler_Reconcile(t *testing.T) {
 		clusterLocalConfig.IngressDomain = constants.ClusterLocalDomain
 		client := fake.NewClientBuilder().WithScheme(s).Build()
 		reconciler := NewRawHTTPRouteReconciler(client, s, &clusterLocalConfig, isvcConfig)
-		err := reconciler.Reconcile(t.Context(), isvc)
+		err := reconciler.Reconcile(context.TODO(), isvc)
 		g.Expect(err).ToNot(HaveOccurred())
 		cond := isvc.Status.GetCondition(v1beta1.IngressReady)
 		g.Expect(cond).NotTo(BeNil())
@@ -2775,7 +2775,7 @@ func TestRawHTTPRouteReconciler_Reconcile(t *testing.T) {
 		})
 		client := fake.NewClientBuilder().WithScheme(s).Build()
 		reconciler := NewRawHTTPRouteReconciler(client, s, ingressConfig, isvcConfig)
-		err := reconciler.Reconcile(t.Context(), isvc)
+		err := reconciler.Reconcile(context.TODO(), isvc)
 		g.Expect(err).ToNot(HaveOccurred())
 	})
 
@@ -2830,7 +2830,7 @@ func TestRawHTTPRouteReconciler_Reconcile(t *testing.T) {
 			).
 			Build()
 		reconciler := NewRawHTTPRouteReconciler(client, s, ingressConfig, isvcConfig)
-		err := reconciler.Reconcile(t.Context(), isvc)
+		err := reconciler.Reconcile(context.TODO(), isvc)
 		g.Expect(err).ToNot(HaveOccurred())
 		cond := isvc.Status.GetCondition(v1beta1.IngressReady)
 		g.Expect(cond).NotTo(BeNil())
@@ -2893,7 +2893,7 @@ func TestRawHTTPRouteReconciler_Reconcile(t *testing.T) {
 			Build()
 
 		reconciler := NewRawHTTPRouteReconciler(client, s, ingressConfig, isvcConfig)
-		err := reconciler.Reconcile(t.Context(), isvc)
+		err := reconciler.Reconcile(context.TODO(), isvc)
 		g.Expect(err).ToNot(HaveOccurred())
 		cond := isvc.Status.GetCondition(v1beta1.IngressReady)
 		g.Expect(cond).NotTo(BeNil())

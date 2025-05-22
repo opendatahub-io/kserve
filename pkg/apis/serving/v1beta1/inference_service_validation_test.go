@@ -1403,7 +1403,7 @@ func TestValidateDelete(t *testing.T) {
 
 	t.Run("Valid InferenceService object", func(t *testing.T) {
 		isvc := makeTestInferenceService()
-		warnings, err := validator.ValidateDelete(t.Context(), &isvc)
+		warnings, err := validator.ValidateDelete(context.TODO(), &isvc)
 		g.Expect(err).ShouldNot(gomega.HaveOccurred())
 		g.Expect(warnings).Should(gomega.BeEmpty())
 	})
@@ -1411,7 +1411,7 @@ func TestValidateDelete(t *testing.T) {
 	t.Run("Invalid object type", func(t *testing.T) {
 		// Use a valid runtime.Object type but not an InferenceService
 		notIsvc := &corev1.Pod{}
-		warnings, err := validator.ValidateDelete(t.Context(), notIsvc)
+		warnings, err := validator.ValidateDelete(context.TODO(), notIsvc)
 		g.Expect(err).Should(gomega.HaveOccurred())
 		g.Expect(warnings).Should(gomega.BeEmpty())
 	})

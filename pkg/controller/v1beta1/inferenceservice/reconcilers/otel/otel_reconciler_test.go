@@ -17,6 +17,7 @@ limitations under the License.
 package otel
 
 import (
+	"context"
 	"testing"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -171,12 +172,12 @@ func TestReconcileCreate(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test reconcile - should create a new resource
-	err = reconciler.Reconcile(t.Context())
+	err = reconciler.Reconcile(context.TODO())
 	require.NoError(t, err)
 	assert.NoError(t, err)
 	// Verify collector was created
 	collector := &otelv1beta1.OpenTelemetryCollector{}
-	err = client.Get(t.Context(), types.NamespacedName{Name: componentMeta.Name, Namespace: componentMeta.Namespace}, collector)
+	err = client.Get(context.TODO(), types.NamespacedName{Name: componentMeta.Name, Namespace: componentMeta.Namespace}, collector)
 	require.NoError(t, err)
 	assert.NoError(t, err)
 	assert.Equal(t, componentMeta.Name, collector.Name)
@@ -253,12 +254,12 @@ func TestReconcileUpdate(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test reconcile - should update existing resource
-	err = reconciler.Reconcile(t.Context())
+	err = reconciler.Reconcile(context.TODO())
 	require.NoError(t, err)
 	assert.NoError(t, err)
 	// Verify collector was updated
 	updatedCollector := &otelv1beta1.OpenTelemetryCollector{}
-	err = client.Get(t.Context(), types.NamespacedName{Name: componentMeta.Name, Namespace: componentMeta.Namespace}, updatedCollector)
+	err = client.Get(context.TODO(), types.NamespacedName{Name: componentMeta.Name, Namespace: componentMeta.Namespace}, updatedCollector)
 	require.NoError(t, err)
 	assert.NoError(t, err)
 

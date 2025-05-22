@@ -17,6 +17,7 @@ limitations under the License.
 package keda
 
 import (
+	"context"
 	"strconv"
 	"testing"
 
@@ -139,11 +140,11 @@ func TestReconcile(t *testing.T) {
 	r, err := NewKedaReconciler(client, scheme.Scheme, componentMeta, componentExt, configMap)
 	require.NoError(t, err)
 
-	err = r.Reconcile(t.Context())
+	err = r.Reconcile(context.TODO())
 	require.NoError(t, err)
 
 	scaledObject := &kedav1alpha1.ScaledObject{}
-	err = client.Get(t.Context(), types.NamespacedName{Name: "test-component", Namespace: "test-namespace"}, scaledObject)
+	err = client.Get(context.TODO(), types.NamespacedName{Name: "test-component", Namespace: "test-namespace"}, scaledObject)
 	require.NoError(t, err)
 	assert.Equal(t, "test-component", scaledObject.Name)
 	assert.Equal(t, "test-namespace", scaledObject.Namespace)
@@ -191,11 +192,11 @@ func TestReconcile_CreateScaledObject(t *testing.T) {
 	r, err := NewKedaReconciler(client, scheme.Scheme, componentMeta, componentExt, configMap)
 	require.NoError(t, err)
 
-	err = r.Reconcile(t.Context())
+	err = r.Reconcile(context.TODO())
 	require.NoError(t, err)
 
 	scaledObject := &kedav1alpha1.ScaledObject{}
-	err = client.Get(t.Context(), types.NamespacedName{Name: "test-component", Namespace: "test-namespace"}, scaledObject)
+	err = client.Get(context.TODO(), types.NamespacedName{Name: "test-component", Namespace: "test-namespace"}, scaledObject)
 	require.NoError(t, err)
 	assert.Equal(t, "test-component", scaledObject.Name)
 	assert.Equal(t, "test-namespace", scaledObject.Namespace)
@@ -230,14 +231,14 @@ func TestReconcile_UpdateScaledObject(t *testing.T) {
 			MaxReplicaCount: ptr.To(int32(5)),
 		},
 	}
-	err = client.Create(t.Context(), existingScaledObject)
+	err = client.Create(context.TODO(), existingScaledObject)
 	require.NoError(t, err)
 
-	err = r.Reconcile(t.Context())
+	err = r.Reconcile(context.TODO())
 	require.NoError(t, err)
 
 	updatedScaledObject := &kedav1alpha1.ScaledObject{}
-	err = client.Get(t.Context(), types.NamespacedName{Name: "test-component", Namespace: "test-namespace"}, updatedScaledObject)
+	err = client.Get(context.TODO(), types.NamespacedName{Name: "test-component", Namespace: "test-namespace"}, updatedScaledObject)
 	require.NoError(t, err)
 	assert.Equal(t, int32(1), *updatedScaledObject.Spec.MinReplicaCount)
 	assert.Equal(t, int32(3), *updatedScaledObject.Spec.MaxReplicaCount)
@@ -339,7 +340,7 @@ func TestReconcile_HandleGetError(t *testing.T) {
 	// Simulate a client error by using an invalid name for the ScaledObject
 	r.ScaledObject.Name = ""
 
-	err = r.Reconcile(t.Context())
+	err = r.Reconcile(context.TODO())
 	assert.Error(t, err)
 }
 

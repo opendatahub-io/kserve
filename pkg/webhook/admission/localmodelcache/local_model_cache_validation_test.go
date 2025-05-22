@@ -154,7 +154,7 @@ func TestValidateUpdate_LocalModelCacheWithSameStorageURI(t *testing.T) {
 	// newLmc has a different name but same StorageURI as existingLmc
 	newLmc := makeTestLocalModelCacheWithSameStorageURI()
 	oldLmc := makeTestLocalModelCacheWithDifferentStorageURI()
-	warnings, err := validator.ValidateUpdate(t.Context(), &oldLmc, &newLmc)
+	warnings, err := validator.ValidateUpdate(context.TODO(), &oldLmc, &newLmc)
 	g.Expect(warnings).NotTo(gomega.BeNil())
 	g.Expect(err).To(gomega.MatchError(fmt.Errorf("LocalModelCache %s has the same StorageURI %s", existingLmc.Name, newLmc.Spec.SourceModelUri)))
 }
@@ -172,7 +172,7 @@ func TestValidateUpdate_LocalModelCacheWithUniqueStorageURI(t *testing.T) {
 	// newLmc has a unique StorageURI
 	newLmc := makeTestLocalModelCacheWithDifferentStorageURI()
 	oldLmc := makeTestLocalModelCacheWithSameStorageURI()
-	warnings, err := validator.ValidateUpdate(t.Context(), &oldLmc, &newLmc)
+	warnings, err := validator.ValidateUpdate(context.TODO(), &oldLmc, &newLmc)
 	g.Expect(warnings).To(gomega.BeNil())
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 }
@@ -184,7 +184,7 @@ func TestValidateUpdate_InvalidObjectType(t *testing.T) {
 	validator := LocalModelCacheValidator{fakeClient}
 	invalidObj := &v1beta1.InferenceService{}
 	oldLmc := makeTestLocalModelCache()
-	warnings, err := validator.ValidateUpdate(t.Context(), &oldLmc, invalidObj)
+	warnings, err := validator.ValidateUpdate(context.TODO(), &oldLmc, invalidObj)
 	g.Expect(warnings).To(gomega.BeNil())
 	g.Expect(err).To(gomega.HaveOccurred())
 	g.Expect(err.Error()).To(gomega.ContainSubstring("expected an LocalModelCache object"))
