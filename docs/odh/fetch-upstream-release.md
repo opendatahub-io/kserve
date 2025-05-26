@@ -46,63 +46,9 @@ You will need:
 # Branch cut procedure
 
 ## Preparation of the working copy
-Clone your fork of [opendatahub-io/kserve](https://github.com/opendatahub-io/kserve/):
 
-```sh
-GH_USER={your-github-user}
-
-# Use one of the following commands:
-
-# If you prefer the remote configured with SSH
-$ git clone git@github.com:${GH_USER}/kserve.git 
-
-# If you prefer the remote configured with HTTPS
-$ git clone https://github.com/${GH_USER}/kserve.git 
-
-# If you have GitHub CLI
-gh repo clone ${GH_USER}/kserve
-```
-
-Add [opendatahub-io/kserve](https://github.com/opendatahub-io/kserve/)
-repository as a remote:
-
-```sh
-# Use one of the following commands:
-
-# If you prefer the remote configured with SSH
-$ git remote add odh git@github.com:opendatahub-io/kserve.git
-
-# If you prefer the remote configured with HTTPS
-$ git remote add odh https://github.com/opendatahub-io/kserve.git
-```
-
-Add [kserve/kserve](https://github.com/kserve/kserve) repository as a remote:
-
-```sh
-# Use one of the following commands:
-
-# If you prefer the remote configured with SSH
-$ git remote add kserve git@github.com:kserve/kserve.git
-
-# If you prefer the remote configured with HTTPS
-$ git remote add kserve https://github.com/kserve/kserve.git
-```
-
-Your remotes setup would look similar to the following:
-
-```sh
-$ git remote -v
-kserve  git@github.com:kserve/kserve.git (fetch)
-kserve  git@github.com:kserve/kserve.git (push)
-odh     git@github.com:opendatahub-io/kserve.git (fetch)
-odh     git@github.com:opendatahub-io/kserve.git (push)
-origin  git@github.com:${GH_USER}/kserve.git (fetch)
-origin  git@github.com:${GH_USER}/kserve.git (push)
-```
-
-> [!NOTE]  
-> Although in this setup the remotes are configured with SSH, you can also use
-> HTTPS if that is what you prefer.
+This guide assumes the setup mentioned in
+[CONTRIBUTING.md](../../CONTRIBUTING.md#working-copy-preparation-for-odh-development).
 
 ## Performing the branch cut
 
