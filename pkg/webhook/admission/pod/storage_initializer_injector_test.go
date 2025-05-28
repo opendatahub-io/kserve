@@ -2992,7 +2992,7 @@ func TestInjectModelcar(t *testing.T) {
 
 	// Test when srcURI starts with OciURIPrefix
 	{
-		testingPods := []*corev1.Pod{createTestPodForModelcar(), createTestWorkerPodForModelcar()}
+		testingPods := []*v1.Pod{createTestPodForModelcar(), createTestWorkerPodForModelcar()}
 		mi := &StorageInitializerInjector{
 			config: &StorageInitializerConfig{},
 		}
@@ -3084,15 +3084,15 @@ func createTestPodForModelcar() *v1.Pod {
 	return pod
 }
 
-func createTestWorkerPodForModelcar() *corev1.Pod {
-	pod := &corev1.Pod{
+func createTestWorkerPodForModelcar() *v1.Pod {
+	pod := &v1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
 				constants.StorageInitializerSourceUriInternalAnnotationKey: OciURIPrefix + "myrepo/mymodelimage",
 			},
 		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
+		Spec: v1.PodSpec{
+			Containers: []v1.Container{
 				{Name: constants.WorkerContainerName},
 			},
 		},
