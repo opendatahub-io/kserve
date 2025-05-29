@@ -128,6 +128,9 @@ func createInferenceGraphPodSpec(graph *v1alpha1.InferenceGraph, config *RouterC
 		podSpec.ServiceAccountName = graph.GetName() + "-auth-verifier"
 	}
 
+	// In ODH, the readiness probe is using HTTPS
+	podSpec.Containers[0].ReadinessProbe.ProbeHandler.HTTPGet.Scheme = corev1.URISchemeHTTPS
+
 	return podSpec
 }
 
