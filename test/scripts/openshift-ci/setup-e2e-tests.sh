@@ -195,4 +195,8 @@ spec:
   - Egress
 EOF
 
+echo "Configuring minio tls"
+${PROJECT_ROOT}/test/scripts/openshift-ci/tls/setup-minio-tls-custom-cert.sh
+${PROJECT_ROOT}/test/scripts/openshift-ci/tls/setup-minio-tls-serving-cert.sh
+
 echo "Setup complete"
