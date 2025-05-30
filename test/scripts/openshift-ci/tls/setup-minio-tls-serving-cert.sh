@@ -65,17 +65,17 @@ oc patch route minio-tls-serving-service -n kserve -p "{\"spec\":{\"tls\":{\"ter
 MINIO_TLS_SERVING_ROUTE=$(oc get routes -n kserve minio-tls-serving-service -o jsonpath="{.spec.host}")
 # Upload the model
 mc alias set storage-tls-serving https://$MINIO_TLS_SERVING_ROUTE minio minio123 --insecure
-if ! mc ls storage-tls-serving/example-models >/dev/null 2>&1; then
-  mc mb storage-tls-serving/example-models
+if ! mc ls storage-tls-serving/example-models --insecure >/dev/null 2>&1; then
+  mc mb storage-tls-serving/example-models --insecure
 else
   echo "Bucket 'example-models' already exists."
 fi
-if [[ $(mc ls storage-tls-serving/example-models/sklearn/model.joblib |wc -l) == "1" ]]; then
+if [[ $(mc ls storage-tls-serving/example-models/sklearn/model.joblib --insecure |wc -l) == "1" ]]; then
   echo "Test model exists"
 else
   echo "Copy test model"
   curl -L https://storage.googleapis.com/kfserving-examples/models/sklearn/1.0/model/model.joblib -o /tmp/sklearn-model.joblib
-  mc cp /tmp/sklearn-model.joblib storage-tls-serving/example-models/sklearn/model.joblib
+  mc cp /tmp/sklearn-model.joblib storage-tls-serving/example-models/sklearn/model.joblib --insecure
 fi
 # Delete the route after upload
 oc delete route -n kserve minio-tls-serving-service
