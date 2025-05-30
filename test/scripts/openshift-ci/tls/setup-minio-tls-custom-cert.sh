@@ -73,7 +73,7 @@ CUSTOM_ROOT_CERT="$(awk '{printf "%s\\n", $0}' ${TLS_DIR}/certs/custom/root.crt)
 oc patch route minio-tls-custom-service -n kserve -p "{\"spec\":{\"tls\":{\"termination\":\"reencrypt\",\"destinationCACertificate\":\"${CUSTOM_ROOT_CERT}\"}}}" && sleep 5
 MINIO_TLS_CUSTOM_ROUTE=$(oc get routes -n kserve minio-tls-custom-service -o jsonpath="{.spec.host}")
 # Upload the model
-mc alias set storage-tls-custom https://$MINIO_TLS_CUSTOM_ROUTE minio minio123
+mc alias set storage-tls-custom https://$MINIO_TLS_CUSTOM_ROUTE minio minio123 --insecure
 if ! mc ls storage-tls-custom/example-models >/dev/null 2>&1; then
   mc mb storage-tls-custom/example-models
 else
