@@ -63,6 +63,7 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 	}
 
 	expectedReadinessProbe := constants.GetRouterReadinessProbe()
+	expectedReadinessProbe.ProbeHandler.HTTPGet.Scheme = corev1.URISchemeHTTPS
 
 	testIGSpecs := map[string]*InferenceGraph{
 		"basic": {
@@ -220,13 +221,13 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							Drop: []corev1.Capability{corev1.Capability("ALL")},
 						},
 					},
-					VolumeMounts: []v1.VolumeMount{
+					VolumeMounts: []corev1.VolumeMount{
 						{
 							Name:      "openshift-service-ca-bundle",
 							MountPath: "/etc/odh/openshift-service-ca-bundle",
 						},
 					},
-					Env: []v1.EnvVar{
+					Env: []corev1.EnvVar{
 						{
 							Name:  "SSL_CERT_FILE",
 							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
@@ -234,12 +235,12 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 					},
 				},
 			},
-			Volumes: []v1.Volume{
+			Volumes: []corev1.Volume{
 				{
 					Name: "openshift-service-ca-bundle",
-					VolumeSource: v1.VolumeSource{
-						ConfigMap: &v1.ConfigMapVolumeSource{
-							LocalObjectReference: v1.LocalObjectReference{
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
 								Name: constants.OpenShiftServiceCaConfigMapName,
 							},
 						},
@@ -290,7 +291,7 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							Drop: []corev1.Capability{corev1.Capability("ALL")},
 						},
 					},
-					VolumeMounts: []v1.VolumeMount{
+					VolumeMounts: []corev1.VolumeMount{
 						{
 							Name:      "openshift-service-ca-bundle",
 							MountPath: "/etc/odh/openshift-service-ca-bundle",
@@ -298,12 +299,12 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 					},
 				},
 			},
-			Volumes: []v1.Volume{
+			Volumes: []corev1.Volume{
 				{
 					Name: "openshift-service-ca-bundle",
-					VolumeSource: v1.VolumeSource{
-						ConfigMap: &v1.ConfigMapVolumeSource{
-							LocalObjectReference: v1.LocalObjectReference{
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
 								Name: constants.OpenShiftServiceCaConfigMapName,
 							},
 						},
@@ -344,13 +345,13 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							Drop: []corev1.Capability{corev1.Capability("ALL")},
 						},
 					},
-					VolumeMounts: []v1.VolumeMount{
+					VolumeMounts: []corev1.VolumeMount{
 						{
 							Name:      "openshift-service-ca-bundle",
 							MountPath: "/etc/odh/openshift-service-ca-bundle",
 						},
 					},
-					Env: []v1.EnvVar{
+					Env: []corev1.EnvVar{
 						{
 							Name:  "SSL_CERT_FILE",
 							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
@@ -358,12 +359,12 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 					},
 				},
 			},
-			Volumes: []v1.Volume{
+			Volumes: []corev1.Volume{
 				{
 					Name: "openshift-service-ca-bundle",
-					VolumeSource: v1.VolumeSource{
-						ConfigMap: &v1.ConfigMapVolumeSource{
-							LocalObjectReference: v1.LocalObjectReference{
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
 								Name: constants.OpenShiftServiceCaConfigMapName,
 							},
 						},
@@ -402,6 +403,30 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 						AllowPrivilegeEscalation: proto.Bool(false),
 						Capabilities: &corev1.Capabilities{
 							Drop: []corev1.Capability{corev1.Capability("ALL")},
+						},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "openshift-service-ca-bundle",
+							MountPath: "/etc/odh/openshift-service-ca-bundle",
+						},
+					},
+					Env: []corev1.EnvVar{
+						{
+							Name:  "SSL_CERT_FILE",
+							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+						},
+					},
+				},
+			},
+			Volumes: []corev1.Volume{
+				{
+					Name: "openshift-service-ca-bundle",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: constants.OpenShiftServiceCaConfigMapName,
+							},
 						},
 					},
 				},
