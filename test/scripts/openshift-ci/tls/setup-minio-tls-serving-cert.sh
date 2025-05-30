@@ -56,8 +56,8 @@ echo "Configuring MinIO for TLS with Openshift serving certificate and adding mo
 if ! [ -d $TLS_DIR/certs/serving ]; then
     mkdir -p $TLS_DIR/certs/serving
 fi
-(oc get secret minio-tls-serving -n kserve -o json | jq -r '.data."tls.crt"' | base64 -d) > $TLS_DIR/certs/serving/tls.crt
-(oc get secret minio-tls-serving -n kserve -o json | jq -r '.data."tls.key"' | base64 -d) > $TLS_DIR/certs/serving/tls.key
+(oc get secret minio-tls-serving -n kserve -o jsonpath="{.data['tls\.crt']}" | base64 -d) > $TLS_DIR/certs/serving/tls.crt
+(oc get secret minio-tls-serving -n kserve -o jsonpath="{.data['tls\.key']}" | base64 -d) > $TLS_DIR/certs/serving/tls.key
 # Expose the route with tls enabled
 oc expose service minio-tls-serving-service -n kserve && sleep 5
 SERVING_ROOT_CERT="$(awk '{printf "%s\\n", $0}' ${TLS_DIR}/certs/serving/tls.crt)"
