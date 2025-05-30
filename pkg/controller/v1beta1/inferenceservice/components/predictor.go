@@ -41,6 +41,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	knutils "github.com/kserve/kserve/pkg/controller/v1alpha1/utils"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/knative"
 	modelconfig "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/modelconfig"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/raw"
@@ -63,11 +64,12 @@ type Predictor struct {
 	scheme                 *runtime.Scheme
 	inferenceServiceConfig *v1beta1.InferenceServicesConfig
 	deploymentMode         constants.DeploymentModeType
+	allowZeroInitialScale  bool
 	Log                    logr.Logger
 }
 
 func NewPredictor(client client.Client, clientset kubernetes.Interface, scheme *runtime.Scheme,
-	inferenceServiceConfig *v1beta1.InferenceServicesConfig, deploymentMode constants.DeploymentModeType,
+	inferenceServiceConfig *v1beta1.InferenceServicesConfig, deploymentMode constants.DeploymentModeType, allowZeroInitialScale bool,
 ) Component {
 	return &Predictor{
 		client:                 client,
@@ -75,6 +77,7 @@ func NewPredictor(client client.Client, clientset kubernetes.Interface, scheme *
 		scheme:                 scheme,
 		inferenceServiceConfig: inferenceServiceConfig,
 		deploymentMode:         deploymentMode,
+		allowZeroInitialScale:  allowZeroInitialScale,
 		Log:                    ctrl.Log.WithName("PredictorReconciler"),
 	}
 }
@@ -741,6 +744,7 @@ func (p *Predictor) reconcileRawDeployment(ctx context.Context, isvc *v1beta1.In
 }
 
 func (p *Predictor) reconcileKnativeDeployment(ctx context.Context, isvc *v1beta1.InferenceService, objectMeta *metav1.ObjectMeta, podSpec *corev1.PodSpec) (*knservingv1.ServiceStatus, error) {
+	knutils.ValidateInitialScaleAnnotation(objectMeta.Annotations, p.allowZeroInitialScale, isvc.Spec.Predictor.MinReplicas, p.Log)
 	r := knative.NewKsvcReconciler(p.client, p.scheme, *objectMeta, &isvc.Spec.Predictor.ComponentExtensionSpec,
 		podSpec, isvc.Status.Components[v1beta1.PredictorComponent], p.inferenceServiceConfig.ServiceLabelDisallowedList)
 

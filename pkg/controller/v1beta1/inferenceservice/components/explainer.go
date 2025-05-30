@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/kserve/kserve/pkg/constants"
+	knutils "github.com/kserve/kserve/pkg/controller/v1alpha1/utils"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/knative"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/raw"
 	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
@@ -50,11 +51,12 @@ type Explainer struct {
 	scheme                 *runtime.Scheme
 	inferenceServiceConfig *v1beta1.InferenceServicesConfig
 	deploymentMode         constants.DeploymentModeType
+	allowZeroInitialScale  bool
 	Log                    logr.Logger
 }
 
 func NewExplainer(client client.Client, clientset kubernetes.Interface, scheme *runtime.Scheme,
-	inferenceServiceConfig *v1beta1.InferenceServicesConfig, deploymentMode constants.DeploymentModeType,
+	inferenceServiceConfig *v1beta1.InferenceServicesConfig, deploymentMode constants.DeploymentModeType, allowZeroInitialScale bool,
 ) Component {
 	return &Explainer{
 		client:                 client,
@@ -62,6 +64,7 @@ func NewExplainer(client client.Client, clientset kubernetes.Interface, scheme *
 		scheme:                 scheme,
 		inferenceServiceConfig: inferenceServiceConfig,
 		deploymentMode:         deploymentMode,
+		allowZeroInitialScale:  allowZeroInitialScale,
 		Log:                    ctrl.Log.WithName("ExplainerReconciler"),
 	}
 }
@@ -187,6 +190,7 @@ func (e *Explainer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 		}
 		isvc.Status.PropagateRawStatus(v1beta1.ExplainerComponent, deployment, r.URL)
 	} else {
+		knutils.ValidateInitialScaleAnnotation(objectMeta.Annotations, e.allowZeroInitialScale, isvc.Spec.Explainer.MinReplicas, e.Log)
 		r := knative.NewKsvcReconciler(e.client, e.scheme, objectMeta, &isvc.Spec.Explainer.ComponentExtensionSpec,
 			&podSpec, isvc.Status.Components[v1beta1.ExplainerComponent], e.inferenceServiceConfig.ServiceLabelDisallowedList)
 

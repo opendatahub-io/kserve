@@ -283,11 +283,8 @@ type InferenceServiceProtocol string
 
 // Knative constants
 const (
-	AutoscalerKey               = "autoscaler"
-	AutoscalerInitialScaleKey   = "initial-scale"
 	AutoscalerConfigmapName     = "config-autoscaler"
 	AutoscalerAllowZeroScaleKey = "allow-zero-initial-scale"
-	DefaultKnServingName        = "knative-serving"
 	DefaultKnServingNamespace   = "knative-serving"
 	KnativeLocalGateway         = "knative-serving/knative-local-gateway"
 	KnativeIngressGateway       = "knative-serving/knative-ingress-gateway"
@@ -407,7 +404,6 @@ var (
 	// revisions, which prevents the reconciliation loop to be triggered if the annotations is
 	// configured here are used.
 	ServiceAnnotationDisallowedList = []string{
-		autoscaling.InitialScaleAnnotationKey,
 		autoscaling.MinScaleAnnotationKey,
 		autoscaling.MaxScaleAnnotationKey,
 		StorageInitializerSourceUriInternalAnnotationKey,
@@ -533,7 +529,6 @@ const (
 const (
 	IstioVirtualServiceKind = "VirtualService"
 	KnativeServiceKind      = "Service"
-	KnativeServingKind      = "KnativeServing"
 	HTTPRouteKind           = "HTTPRoute"
 	GatewayKind             = "Gateway"
 	ServiceKind             = "Service"
