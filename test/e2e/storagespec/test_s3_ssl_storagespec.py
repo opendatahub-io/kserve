@@ -64,7 +64,6 @@ TbVunBmL9HUClHgUc2B0NSfNyqXSwo+Gp5Kg4iYIw4hJw2EPwilUFafcM8uVDktK
 
 
 @pytest.mark.openshift_ci_predictor
-@pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")
 async def test_s3_tls_custom_cert_storagespec_kserve(rest_v1_client):
     kserve_client = KServeClient(
@@ -146,7 +145,6 @@ async def test_s3_tls_custom_cert_storagespec_kserve(rest_v1_client):
 
 
 @pytest.mark.openshift_ci_predictor
-@pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")
 async def test_s3_tls_serving_cert_storagespec_kserve(rest_v1_client):
     kserve_client = KServeClient(

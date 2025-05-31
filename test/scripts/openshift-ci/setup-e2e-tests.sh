@@ -195,7 +195,7 @@ spec:
   - Egress
 EOF
 
-if [[ $1 =~ "predictor" ]]; then
+if [[ $1 =~ "openshift_ci_predictor" ]]; then
   echo "Configuring minio tls"
   ${PROJECT_ROOT}/test/scripts/openshift-ci/tls/setup-minio-tls-custom-cert.sh
   ${PROJECT_ROOT}/test/scripts/openshift-ci/tls/setup-minio-tls-serving-cert.sh
