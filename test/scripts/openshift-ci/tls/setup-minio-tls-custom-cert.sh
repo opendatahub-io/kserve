@@ -68,9 +68,10 @@ oc create secret generic minio-tls-custom --from-file=${TLS_DIR}/certs/custom/ro
 # Mount certificates to minio-tls-custom container
 oc patch deployment minio-tls-custom -n kserve -p '{"spec":{"template":{"spec":{"containers":[{"name":"minio-tls-custom","volumeMounts":[{"mountPath":".minio/certs","name":"minio-tls-custom"}]}], "volumes":[{"name":"minio-tls-custom","projected":{"defaultMode":420,"sources":[{"secret":{"name":"minio-tls-custom","items":[{"key":"custom.crt","path":"public.crt"},{"key":"custom.key", "path":"private.key"},{"key":"root.crt","path":"CAs/root.crt"}]}}]}}]}}}}'
 # Expose the route with tls enabled
-oc expose service minio-tls-custom-service -n kserve && sleep 5
-CUSTOM_ROOT_CERT="$(awk '{printf "%s\\n", $0}' ${TLS_DIR}/certs/custom/root.crt)"
-oc patch route minio-tls-custom-service -n kserve -p "{\"spec\":{\"tls\":{\"termination\":\"reencrypt\",\"destinationCACertificate\":\"${CUSTOM_ROOT_CERT}\"}}}" && sleep 5
+oc create route reencrypt minio-tls-custom-service \
+  --service=minio-tls-custom-service \
+  --dest-ca-cert="${TLS_DIR}/certs/custom/root.crt" \
+  -n kserve && sleep 5
 MINIO_TLS_CUSTOM_ROUTE=$(oc get routes -n kserve minio-tls-custom-service -o jsonpath="{.spec.host}")
 # Upload the model
 mc alias set storage-tls-custom https://$MINIO_TLS_CUSTOM_ROUTE minio minio123 --insecure

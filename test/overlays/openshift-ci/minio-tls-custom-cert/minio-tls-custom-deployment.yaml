@@ -30,7 +30,7 @@ spec:
             secretKeyRef:
               name: minio-tls-custom-artifact
               key: secretkey
-        image: gcr.io/ml-pipeline/minio:RELEASE.2019-08-14T20-37-41Z-license-compliance
+        image: quay.io/minio/minio:RELEASE.2025-05-24T17-08-30Z
         name: minio-tls-custom
         ports:
         - containerPort: 9000

@@ -59,9 +59,10 @@ fi
 (oc get secret minio-tls-serving -n kserve -o jsonpath="{.data['tls\.crt']}" | base64 -d) > $TLS_DIR/certs/serving/tls.crt
 (oc get secret minio-tls-serving -n kserve -o jsonpath="{.data['tls\.key']}" | base64 -d) > $TLS_DIR/certs/serving/tls.key
 # Expose the route with tls enabled
-oc expose service minio-tls-serving-service -n kserve && sleep 5
-SERVING_ROOT_CERT="$(awk '{printf "%s\\n", $0}' ${TLS_DIR}/certs/serving/tls.crt)"
-oc patch route minio-tls-serving-service -n kserve -p "{\"spec\":{\"tls\":{\"termination\":\"reencrypt\",\"destinationCACertificate\":\"${SERVING_ROOT_CERT}\"}}}" && sleep 5
+oc create route reencrypt minio-tls-serving-service \
+  --service=minio-tls-serving-service \
+  --dest-ca-cert="${TLS_DIR}/certs/serving/tls.crt" \
+  -n kserve && sleep 5
 MINIO_TLS_SERVING_ROUTE=$(oc get routes -n kserve minio-tls-serving-service -o jsonpath="{.spec.host}")
 # Upload the model
 mc alias set storage-tls-serving https://$MINIO_TLS_SERVING_ROUTE minio minio123 --insecure
