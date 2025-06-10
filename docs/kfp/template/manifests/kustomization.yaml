@@ -1,5 +1,5 @@
 resources:
-  - kserve-serving-runtime.yaml
+  - {SERVING_RUNTIME}
   - dspa.yaml
   - role.yaml
   - role-binding.yaml

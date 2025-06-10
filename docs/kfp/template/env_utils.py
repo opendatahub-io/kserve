@@ -23,8 +23,6 @@ def set_env_vars(namespace, action, model_name, model_uri, framework, **kwargs):
         'watch_timeout': 'WATCH_TIMEOUT',
         'min_replicas': 'MIN_REPLICAS',
         'max_replicas': 'MAX_REPLICAS',
-        'request_timeout': 'REQUEST_TIMEOUT',
-        'enable_isvc_status': 'ENABLE_ISVC_STATUS',
         'canary_traffic_percent': 'CANARY_TRAFFIC_PERCENT'
     }
     

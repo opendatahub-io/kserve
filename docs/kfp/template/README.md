@@ -10,7 +10,6 @@ A template to use **Data Science Pipelines** to deploy a model to **KServe** in 
 
 Ensure the following components are installed and properly configured on your OpenShift cluster:
 
-- ✅ ServingRuntime (SR) manifest that your model requires
 - ✅ Red Hat OpenShift Serverless
 - ✅ Red Hat OpenShift Service Mesh
 - ✅ Authorino
@@ -26,7 +25,7 @@ After installing ODH:
 
 ### 1. Clone this repository
 ```bash
-git clone https://github.com/your-org/kserve.git
+git clone https://github.com/opendatahub-io/kserve.git
 cd kserve/docs/kfp/template
 ```
 
@@ -36,8 +35,20 @@ virtualenv -p python3.11 /tmp/venv
 source /tmp/venv/bin/activate
 ```
 
-### 3. Add your `ServingRuntime` manifest to the `manifests/` directory
+### 3. Install project dependencies
+```bash
+uv pip compile requirements.in -o requirements.txt
+pip install -r requirements.txt
+```
 
+### 4. Add your `ServingRuntime` manifest to the `manifests/` directory
+Ensure it is properly formatted and includes the correct metadata name.
+
+### 5. Set the ServingRuntime name as an environment variable
+
+```bash
+export SERVING_RUNTIME=servingruntime-filename.yaml
+```
 ---
 
 ## 📦 Deploying a Model
@@ -83,7 +94,7 @@ python main.py --action delete --model_name {MODEL_NAME}
 python main.py \
   --namespace demo-namespace \
   --action create \
-  --model_name granite-model \
-  --model_uri s3://mybucket/granite/ggml-model.bin \
-  --framework llama
+  --model_name sklearn-model \
+  --model_uri gs://kfserving-examples/models/sklearn/1.0/model \
+  --framework sklearn
 ```

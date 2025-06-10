@@ -29,8 +29,8 @@ def prepare_env_and_deploy(args):
     subprocess.run("pip install -r requirements.txt", shell=True, check=True)
 
     print(f"Deploying manifests with action={args['action']}...")
-    #cmd = "kustomize build manifests | envsubst | oc apply -f -"
-    subprocess.run("kustomize build manifests | envsubst | oc apply -f -", shell=True, check=True)
+    cmd = "kustomize build manifests | envsubst | oc apply -f -"
+    subprocess.run(cmd, shell=True, check=True)
 
 def _handle_create_action(args):
     """
