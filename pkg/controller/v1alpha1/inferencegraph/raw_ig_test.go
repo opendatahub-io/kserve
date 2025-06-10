@@ -22,9 +22,10 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/proto"
 	appsv1 "k8s.io/api/apps/v1"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 
@@ -60,6 +61,9 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 			},
 		},
 	}
+
+	expectedReadinessProbe := constants.GetRouterReadinessProbe()
+	expectedReadinessProbe.ProbeHandler.HTTPGet.Scheme = corev1.URISchemeHTTPS
 
 	testIGSpecs := map[string]*InferenceGraph{
 		"basic": {
@@ -104,14 +108,14 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 						},
 					},
 				},
-				Resources: v1.ResourceRequirements{
-					Limits: v1.ResourceList{
-						v1.ResourceCPU:    resource.MustParse("100m"),
-						v1.ResourceMemory: resource.MustParse("500Mi"),
+				Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+						corev1.ResourceMemory: resource.MustParse("500Mi"),
 					},
-					Requests: v1.ResourceList{
-						v1.ResourceCPU:    resource.MustParse("100m"),
-						v1.ResourceMemory: resource.MustParse("100Mi"),
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+						corev1.ResourceMemory: resource.MustParse("100Mi"),
 					},
 				},
 			},
@@ -141,11 +145,54 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 				},
 			},
 		},
+
+		"with tolerations": {
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "resource-ig",
+				Namespace: "resource-ig-namespace",
+				Annotations: map[string]string{
+					"serving.kserve.io/deploymentMode": string(constants.RawDeployment),
+				},
+			},
+
+			Spec: InferenceGraphSpec{
+				Nodes: map[string]InferenceRouter{
+					GraphRootNodeName: {
+						RouterType: Sequence,
+						Steps: []InferenceStep{
+							{
+								InferenceTarget: InferenceTarget{
+									ServiceURL: "http://someservice.exmaple.com",
+								},
+							},
+						},
+					},
+				},
+				Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+						corev1.ResourceMemory: resource.MustParse("500Mi"),
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+						corev1.ResourceMemory: resource.MustParse("100Mi"),
+					},
+				},
+				Tolerations: []corev1.Toleration{
+					{
+						Key:      "key1",
+						Operator: corev1.TolerationOpEqual,
+						Value:    "value1",
+						Effect:   corev1.TaintEffectNoSchedule,
+					},
+				},
+			},
+		},
 	}
 
-	expectedPodSpecs := map[string]*v1.PodSpec{
+	expectedPodSpecs := map[string]*corev1.PodSpec{
 		"basicgraph": {
-			Containers: []v1.Container{
+			Containers: []corev1.Container{
 				{
 					Image: "kserve/router:v0.10.0",
 					Name:  "basic-ig",
@@ -154,23 +201,48 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 						"--graph-json",
 						"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.exmaple.com\"}]}},\"resources\":{}}",
 					},
-					Resources: v1.ResourceRequirements{
-						Limits: v1.ResourceList{
-							v1.ResourceCPU:    resource.MustParse("100m"),
-							v1.ResourceMemory: resource.MustParse("500Mi"),
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("500Mi"),
 						},
-						Requests: v1.ResourceList{
-							v1.ResourceCPU:    resource.MustParse("100m"),
-							v1.ResourceMemory: resource.MustParse("100Mi"),
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("100Mi"),
 						},
 					},
-					SecurityContext: &v1.SecurityContext{
+					ReadinessProbe: expectedReadinessProbe,
+					SecurityContext: &corev1.SecurityContext{
 						Privileged:               proto.Bool(false),
 						RunAsNonRoot:             proto.Bool(true),
 						ReadOnlyRootFilesystem:   proto.Bool(true),
 						AllowPrivilegeEscalation: proto.Bool(false),
-						Capabilities: &v1.Capabilities{
-							Drop: []v1.Capability{v1.Capability("ALL")},
+						Capabilities: &corev1.Capabilities{
+							Drop: []corev1.Capability{corev1.Capability("ALL")},
+						},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "openshift-service-ca-bundle",
+							MountPath: "/etc/odh/openshift-service-ca-bundle",
+						},
+					},
+					Env: []corev1.EnvVar{
+						{
+							Name:  "SSL_CERT_FILE",
+							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+						},
+					},
+				},
+			},
+			Volumes: []corev1.Volume{
+				{
+					Name: "openshift-service-ca-bundle",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: constants.OpenShiftServiceCaConfigMapName,
+							},
 						},
 					},
 					VolumeMounts: []v1.VolumeMount{
@@ -201,9 +273,10 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 			},
 			AutomountServiceAccountToken: proto.Bool(false),
 			ServiceAccountName:           "default",
+			ImagePullSecrets:             []corev1.LocalObjectReference{},
 		},
 		"basicgraphwithheaders": {
-			Containers: []v1.Container{
+			Containers: []corev1.Container{
 				{
 					Image: "kserve/router:v0.10.0",
 					Name:  "basic-ig",
@@ -212,7 +285,11 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 						"--graph-json",
 						"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.exmaple.com\"}]}},\"resources\":{}}",
 					},
-					Env: []v1.EnvVar{
+					Env: []corev1.EnvVar{
+						{
+							Name:  "SSL_CERT_FILE",
+							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+						},
 						{
 							Name:  "SSL_CERT_FILE",
 							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
@@ -222,23 +299,42 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							Value: "Authorization,Intuit_tid",
 						},
 					},
-					Resources: v1.ResourceRequirements{
-						Limits: v1.ResourceList{
-							v1.ResourceCPU:    resource.MustParse("100m"),
-							v1.ResourceMemory: resource.MustParse("500Mi"),
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("500Mi"),
 						},
-						Requests: v1.ResourceList{
-							v1.ResourceCPU:    resource.MustParse("100m"),
-							v1.ResourceMemory: resource.MustParse("100Mi"),
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("100Mi"),
 						},
 					},
-					SecurityContext: &v1.SecurityContext{
+					ReadinessProbe: expectedReadinessProbe,
+					SecurityContext: &corev1.SecurityContext{
 						Privileged:               proto.Bool(false),
 						RunAsNonRoot:             proto.Bool(true),
 						ReadOnlyRootFilesystem:   proto.Bool(true),
 						AllowPrivilegeEscalation: proto.Bool(false),
-						Capabilities: &v1.Capabilities{
-							Drop: []v1.Capability{v1.Capability("ALL")},
+						Capabilities: &corev1.Capabilities{
+							Drop: []corev1.Capability{corev1.Capability("ALL")},
+						},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "openshift-service-ca-bundle",
+							MountPath: "/etc/odh/openshift-service-ca-bundle",
+						},
+					},
+				},
+			},
+			Volumes: []corev1.Volume{
+				{
+					Name: "openshift-service-ca-bundle",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: constants.OpenShiftServiceCaConfigMapName,
+							},
 						},
 					},
 					VolumeMounts: []v1.VolumeMount{
@@ -263,9 +359,10 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 			},
 			AutomountServiceAccountToken: proto.Bool(false),
 			ServiceAccountName:           "default",
+			ImagePullSecrets:             []corev1.LocalObjectReference{},
 		},
 		"withresource": {
-			Containers: []v1.Container{
+			Containers: []corev1.Container{
 				{
 					Image: "kserve/router:v0.10.0",
 					Name:  "resource-ig",
@@ -274,23 +371,48 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 						"--graph-json",
 						"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.exmaple.com\"}]}},\"resources\":{\"limits\":{\"cpu\":\"100m\",\"memory\":\"500Mi\"},\"requests\":{\"cpu\":\"100m\",\"memory\":\"100Mi\"}}}",
 					},
-					Resources: v1.ResourceRequirements{
-						Limits: v1.ResourceList{
-							v1.ResourceCPU:    resource.MustParse("100m"),
-							v1.ResourceMemory: resource.MustParse("500Mi"),
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("500Mi"),
 						},
-						Requests: v1.ResourceList{
-							v1.ResourceCPU:    resource.MustParse("100m"),
-							v1.ResourceMemory: resource.MustParse("100Mi"),
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("100Mi"),
 						},
 					},
-					SecurityContext: &v1.SecurityContext{
+					ReadinessProbe: expectedReadinessProbe,
+					SecurityContext: &corev1.SecurityContext{
 						Privileged:               proto.Bool(false),
 						RunAsNonRoot:             proto.Bool(true),
 						ReadOnlyRootFilesystem:   proto.Bool(true),
 						AllowPrivilegeEscalation: proto.Bool(false),
-						Capabilities: &v1.Capabilities{
-							Drop: []v1.Capability{v1.Capability("ALL")},
+						Capabilities: &corev1.Capabilities{
+							Drop: []corev1.Capability{corev1.Capability("ALL")},
+						},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "openshift-service-ca-bundle",
+							MountPath: "/etc/odh/openshift-service-ca-bundle",
+						},
+					},
+					Env: []corev1.EnvVar{
+						{
+							Name:  "SSL_CERT_FILE",
+							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+						},
+					},
+				},
+			},
+			Volumes: []corev1.Volume{
+				{
+					Name: "openshift-service-ca-bundle",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: constants.OpenShiftServiceCaConfigMapName,
+							},
 						},
 					},
 					VolumeMounts: []v1.VolumeMount{
@@ -321,13 +443,82 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 			},
 			AutomountServiceAccountToken: proto.Bool(false),
 			ServiceAccountName:           "default",
+			ImagePullSecrets:             []corev1.LocalObjectReference{},
+		},
+		"with tolerations": {
+			Containers: []corev1.Container{
+				{
+					Image: "kserve/router:v0.10.0",
+					Name:  "resource-ig",
+					Args: []string{
+						"--enable-tls",
+						"--graph-json",
+						"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.exmaple.com\"}]}},\"resources\":{\"limits\":{\"cpu\":\"100m\",\"memory\":\"500Mi\"},\"requests\":{\"cpu\":\"100m\",\"memory\":\"100Mi\"}},\"tolerations\":[{\"key\":\"key1\",\"operator\":\"Equal\",\"value\":\"value1\",\"effect\":\"NoSchedule\"}]}",
+					},
+					Resources: corev1.ResourceRequirements{
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("500Mi"),
+						},
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("100Mi"),
+						},
+					},
+					ReadinessProbe: expectedReadinessProbe,
+					SecurityContext: &corev1.SecurityContext{
+						Privileged:               proto.Bool(false),
+						RunAsNonRoot:             proto.Bool(true),
+						ReadOnlyRootFilesystem:   proto.Bool(true),
+						AllowPrivilegeEscalation: proto.Bool(false),
+						Capabilities: &corev1.Capabilities{
+							Drop: []corev1.Capability{corev1.Capability("ALL")},
+						},
+					},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "openshift-service-ca-bundle",
+							MountPath: "/etc/odh/openshift-service-ca-bundle",
+						},
+					},
+					Env: []corev1.EnvVar{
+						{
+							Name:  "SSL_CERT_FILE",
+							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+						},
+					},
+				},
+			},
+			Volumes: []corev1.Volume{
+				{
+					Name: "openshift-service-ca-bundle",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: constants.OpenShiftServiceCaConfigMapName,
+							},
+						},
+					},
+				},
+			},
+			AutomountServiceAccountToken: proto.Bool(false),
+			ServiceAccountName:           "default",
+			ImagePullSecrets:             []corev1.LocalObjectReference{},
+			Tolerations: []corev1.Toleration{
+				{
+					Key:      "key1",
+					Operator: corev1.TolerationOpEqual,
+					Value:    "value1",
+					Effect:   corev1.TaintEffectNoSchedule,
+				},
+			},
 		},
 	}
 
 	scenarios := []struct {
 		name     string
 		args     args
-		expected *v1.PodSpec
+		expected *corev1.PodSpec
 	}{
 		{
 			name: "Basic Inference graph",
@@ -349,6 +540,11 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 				config: &routerConfigWithHeaders,
 			},
 			expected: expectedPodSpecs["basicgraphwithheaders"],
+		},
+		{
+			name:     "Inference graph with tolerations",
+			args:     args{testIGSpecs["with tolerations"], &routerConfig},
+			expected: expectedPodSpecs["with tolerations"],
 		},
 	}
 
@@ -419,7 +615,7 @@ func TestConstructGraphObjectMeta(t *testing.T) {
 						},
 					},
 					Spec: InferenceGraphSpec{
-						MinReplicas: v1beta1.GetIntReference(2),
+						MinReplicas: ptr.To(int32(2)),
 						MaxReplicas: 5,
 					},
 				},
@@ -438,7 +634,7 @@ func TestConstructGraphObjectMeta(t *testing.T) {
 
 				componentExt: v1beta1.ComponentExtensionSpec{
 					MaxReplicas: 5,
-					MinReplicas: v1beta1.GetIntReference(2),
+					MinReplicas: ptr.To(int32(2)),
 					ScaleMetric: nil,
 					ScaleTarget: nil,
 				},
@@ -490,9 +686,9 @@ func TestConstructGraphObjectMeta(t *testing.T) {
 						},
 					},
 					Spec: InferenceGraphSpec{
-						MinReplicas: v1beta1.GetIntReference(5),
+						MinReplicas: ptr.To(int32(5)),
 						MaxReplicas: 10,
-						ScaleTarget: v1beta1.GetIntReference(50),
+						ScaleTarget: ptr.To(int32(50)),
 						ScaleMetric: (*ScaleMetric)(&cpuResource),
 					},
 				},
@@ -510,9 +706,9 @@ func TestConstructGraphObjectMeta(t *testing.T) {
 					},
 				},
 				componentExt: v1beta1.ComponentExtensionSpec{
-					MinReplicas: v1beta1.GetIntReference(5),
+					MinReplicas: ptr.To(int32(5)),
 					MaxReplicas: 10,
-					ScaleTarget: v1beta1.GetIntReference(50),
+					ScaleTarget: ptr.To(int32(50)),
 					ScaleMetric: &cpuResource,
 				},
 			},
@@ -545,14 +741,14 @@ func TestPropagateRawStatus(t *testing.T) {
 		expected *InferenceGraphStatus
 	}{
 		{
-			name: "Basic Inference graph with with graph status as ready and deployment available",
+			name: "Basic Inference graph with graph status as ready and deployment available",
 			args: args{
 				graphStatus: &InferenceGraphStatus{
 					Status: duckv1.Status{
 						Conditions: duckv1.Conditions{
 							{
 								Type:   apis.ConditionReady,
-								Status: v1.ConditionTrue,
+								Status: corev1.ConditionTrue,
 							},
 						},
 					},
@@ -572,7 +768,7 @@ func TestPropagateRawStatus(t *testing.T) {
 					Conditions: duckv1.Conditions{
 						{
 							Type:   apis.ConditionReady,
-							Status: v1.ConditionTrue,
+							Status: corev1.ConditionTrue,
 						},
 					},
 				},
@@ -580,14 +776,14 @@ func TestPropagateRawStatus(t *testing.T) {
 		},
 
 		{
-			name: "Basic Inference graph with with Inferencegraph status as not ready and deployment unavailable",
+			name: "Basic Inference graph with Inferencegraph status as not ready and deployment unavailable",
 			args: args{
 				graphStatus: &InferenceGraphStatus{
 					Status: duckv1.Status{
 						Conditions: duckv1.Conditions{
 							{
 								Type:   apis.ConditionReady,
-								Status: v1.ConditionFalse,
+								Status: corev1.ConditionFalse,
 							},
 						},
 					},
@@ -603,7 +799,7 @@ func TestPropagateRawStatus(t *testing.T) {
 					Conditions: duckv1.Conditions{
 						{
 							Type:   apis.ConditionReady,
-							Status: v1.ConditionFalse,
+							Status: corev1.ConditionFalse,
 						},
 					},
 				},

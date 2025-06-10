@@ -14,12 +14,13 @@
 
 import pytest
 import torch
+import json
 from kserve.model import PredictorConfig
-from kserve.protocol.rest.openai import ChatCompletionRequest, CompletionRequest
 from kserve.protocol.rest.openai.types import (
-    CreateChatCompletionRequest,
-    CreateCompletionRequest,
+    ChatCompletionRequest,
+    CompletionRequest,
 )
+from kserve.protocol.rest.openai.errors import OpenAIError
 from pytest_httpx import HTTPXMock
 from transformers import AutoConfig
 from pytest import approx
@@ -160,12 +161,11 @@ def test_unsupported_model():
 
 @pytest.mark.asyncio
 async def test_t5(t5_model: HuggingfaceGenerativeModel):
-    params = CreateCompletionRequest(
+    request = CompletionRequest(
         model="t5-small",
         prompt="translate from English to German: we are making words",
         stream=False,
     )
-    request = CompletionRequest(params=params, context={})
     response = await t5_model.create_completion(request)
     assert response.choices[0].text == "wir setzen Worte"
     assert response.usage.completion_tokens == 7
@@ -173,27 +173,25 @@ async def test_t5(t5_model: HuggingfaceGenerativeModel):
 
 @pytest.mark.asyncio
 async def test_t5_stopping_criteria(t5_model: HuggingfaceGenerativeModel):
-    params = CreateCompletionRequest(
+    request = CompletionRequest(
         model="t5-small",
         prompt="translate from English to German: we are making words",
         stop=["setzen "],
         stream=False,
     )
-    request = CompletionRequest(params=params, context={})
     response = await t5_model.create_completion(request)
     assert response.choices[0].text == "wir setzen"
 
 
 @pytest.mark.asyncio
 async def test_t5_bad_params(t5_model: HuggingfaceGenerativeModel):
-    params = CreateCompletionRequest(
+    request = CompletionRequest(
         model="t5-small",
         prompt="translate from English to German: we are making words",
         echo=True,
         stream=False,
     )
-    request = CompletionRequest(params=params, context={})
-    with pytest.raises(ValueError) as err_info:
+    with pytest.raises(OpenAIError) as err_info:
         await t5_model.create_completion(request)
     assert err_info.value.args[0] == "'echo' is not supported by encoder-decoder models"
 
@@ -324,13 +322,12 @@ async def test_bert_token_classification(bert_token_classification):
 
 @pytest.mark.asyncio
 async def test_bloom_completion(bloom_model: HuggingfaceGenerativeModel):
-    params = CreateCompletionRequest(
+    request = CompletionRequest(
         model="bloom-560m",
         prompt="Hello, my dog is cute",
         stream=False,
         echo=True,
     )
-    request = CompletionRequest(params=params, context={})
     response = await bloom_model.create_completion(request)
     assert (
         response.choices[0].text
@@ -340,7 +337,7 @@ async def test_bloom_completion(bloom_model: HuggingfaceGenerativeModel):
 
 @pytest.mark.asyncio
 async def test_bloom_completion_max_tokens(bloom_model: HuggingfaceGenerativeModel):
-    params = CreateCompletionRequest(
+    request = CompletionRequest(
         model="bloom-560m",
         prompt="Hello, my dog is cute",
         stream=False,
@@ -348,7 +345,6 @@ async def test_bloom_completion_max_tokens(bloom_model: HuggingfaceGenerativeMod
         max_tokens=100,
         # bloom doesn't have any field specifying context length. Our implementation would default to 2048. Testing with something longer than HF's default max_length of 20
     )
-    request = CompletionRequest(params=params, context={})
     response = await bloom_model.create_completion(request)
     assert (
         response.choices[0].text
@@ -358,17 +354,21 @@ async def test_bloom_completion_max_tokens(bloom_model: HuggingfaceGenerativeMod
 
 @pytest.mark.asyncio
 async def test_bloom_completion_streaming(bloom_model: HuggingfaceGenerativeModel):
-    params = CreateCompletionRequest(
+    request = CompletionRequest(
         model="bloom-560m",
         prompt="Hello, my dog is cute",
         stream=True,
         echo=False,
     )
-    request = CompletionRequest(params=params, context={})
     response = await bloom_model.create_completion(request)
     output = ""
     async for chunk in response:
-        output += chunk.choices[0].text
+        chunk = chunk.removeprefix("data: ")
+        chunk = chunk.removesuffix("\n\n")
+        if chunk == "[DONE]":
+            break
+        chunk = json.loads(chunk)
+        output += chunk["choices"][0]["text"]
     assert output == ".\n- Hey, my dog is cute.\n- Hey, my dog is cute"
 
 
@@ -384,13 +384,15 @@ async def test_bloom_chat_completion(bloom_model: HuggingfaceGenerativeModel):
             "content": "How many helicopters can a human eat in one sitting?",
         },
     ]
-    params = CreateChatCompletionRequest(
+    request = ChatCompletionRequest(
         model="bloom-560m",
         messages=messages,
         stream=False,
         max_tokens=20,
+        chat_template="{% for message in messages %}"
+        "{{ message.content }}{{ eos_token }}"
+        "{% endfor %}",
     )
-    request = ChatCompletionRequest(params=params, context={})
     response = await bloom_model.create_chat_completion(request)
     assert (
         response.choices[0].message.content
@@ -411,17 +413,24 @@ async def test_bloom_chat_completion_streaming(bloom_model: HuggingfaceGenerativ
             "content": "How many helicopters can a human eat in one sitting?",
         },
     ]
-    params = CreateChatCompletionRequest(
+    request = ChatCompletionRequest(
         model="bloom-560m",
         messages=messages,
         stream=True,
         max_tokens=20,
+        chat_template="{% for message in messages %}"
+        "{{ message.content }}{{ eos_token }}"
+        "{% endfor %}",
     )
-    request = ChatCompletionRequest(params=params, context={})
     response = await bloom_model.create_chat_completion(request)
     output = ""
     async for chunk in response:
-        output += chunk.choices[0].delta.content
+        chunk = chunk.removeprefix("data: ")
+        chunk = chunk.removesuffix("\n\n")
+        if chunk == "[DONE]":
+            break
+        chunk = json.loads(chunk)
+        output += chunk["choices"][0]["delta"]["content"]
     assert (
         output
         == "The first thing you need to do is to get a good idea of what you are looking for."
@@ -488,16 +497,82 @@ async def test_input_padding_with_pad_token_not_specified(
     # openai-gpt model does not specify the pad token, so the fallback pad token should be added.
     assert openai_gpt_model._tokenizer.pad_token == "[PAD]"
     assert openai_gpt_model._tokenizer.pad_token_id is not None
-    params = CreateCompletionRequest(
+    request = CompletionRequest(
         model="openai-gpt",
         prompt=["Sun rises in the east, sets in the", "My name is Teven and I am"],
         stream=False,
         temperature=0,
     )
-    request = CompletionRequest(params=params, context={})
     response = await openai_gpt_model.create_completion(request)
     assert (
         response.choices[0].text
-        == "west, and the sun sets in the west. \n the sun rises in the"
+        == "west , and the sun sets in the west . \n the sun rises in the"
     )
-    assert "a member of the royal family." in response.choices[1].text
+    assert "a member of the royal family ." in response.choices[1].text
+
+
+@pytest.mark.asyncio
+async def test_tools_chat_completion(bloom_model: HuggingfaceGenerativeModel):
+    messages = [
+        {
+            "role": "system",
+            "content": "You are a friendly chatbot whose purpose is to tell me what the weather is.",
+        },
+        {
+            "role": "user",
+            "content": "weather in Ithaca, NY",
+        },
+    ]
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_current_weather",
+                "description": "Get the current weather",
+                "parameters": {
+                    "type": "dict",
+                    "properties": {
+                        "location": {
+                            "type": "string",
+                            "description": "The city and state, e.g. San Francisco, CA",
+                        },
+                        "format": {
+                            "type": "string",
+                            "enum": ["celsius", "fahrenheit"],
+                            "description": "The temperature unit to use. Infer this from the users location.",
+                        },
+                    },
+                    "required": ["location", "format"],
+                },
+            },
+        }
+    ]
+    request = ChatCompletionRequest(
+        model="bloom-560m",
+        messages=messages,
+        stream=False,
+        max_tokens=100,
+        tools=tools,
+        tool_choice="auto",
+        chat_template="{% for message in messages %}"
+        "{{ message.content }} You have these tools: {% for tool in tools %} {{ eos_token }}"
+        "{% endfor %}{% endfor %}",
+    )
+    response = await bloom_model.create_chat_completion(request)
+
+    assert response.choices[0].message.content
+
+
+@pytest.mark.asyncio
+async def test_trust_remote_code_encoder_model():
+    model = HuggingfaceEncoderModel(
+        "nomic-embed-text",
+        model_id_or_path="nomic-ai/nomic-embed-text-v1.5",
+        max_length=1024,
+        dtype=torch.float32,
+        trust_remote_code=True,
+        task=MLTask.text_embedding,
+    )
+    model.load()
+    model.stop()

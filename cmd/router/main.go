@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"strings"
@@ -127,7 +128,7 @@ func callService(serviceUrl string, input []byte, headers http.Header) ([]byte, 
 		}
 	}
 
-	req, err := http.NewRequest("POST", serviceUrl, bytes.NewBuffer(input))
+	req, err := http.NewRequest(http.MethodPost, serviceUrl, bytes.NewBuffer(input))
 	if err != nil {
 		log.Error(err, "An error occurred while preparing request object with serviceUrl.", "serviceUrl", serviceUrl)
 		return nil, 500, err
@@ -152,7 +153,6 @@ func callService(serviceUrl string, input []byte, headers http.Header) ([]byte, 
 		req.Header.Add("Content-Type", "application/json")
 	}
 	resp, err := http.DefaultClient.Do(req)
-
 	if err != nil {
 		log.Error(err, "An error has occurred while calling service", "service", serviceUrl)
 		return nil, 500, err
@@ -323,11 +323,11 @@ func routeStep(nodeName string, graph v1alpha1.InferenceGraphSpec, input []byte,
 
 			if step.Condition != "" {
 				if !gjson.ValidBytes(responseBytes) {
-					return nil, 500, fmt.Errorf("invalid response")
+					return nil, 500, errors.New("invalid response")
 				}
 				// if the condition does not match for the step in the sequence we stop and return the response
 				if !gjson.GetBytes(responseBytes, step.Condition).Exists() {
-					return responseBytes, 500, nil
+					return responseBytes, 200, nil
 				}
 			}
 			if responseBytes, statusCode, err = executeStep(step, graph, request, headers); err != nil {
@@ -414,12 +414,24 @@ func compilePatterns(patterns []string) ([]*regexp.Regexp, error) {
 	return compiled, goerrors.Join(allErrors...)
 }
 
+// Mainly used for kubernetes readiness probe. It responds with "503 shutting down" if server is shutting down,
+// otherwise returns "200 OK".
+func readyHandler(w http.ResponseWriter, req *http.Request) {
+	if isShuttingDown {
+		http.Error(w, "shutting down", http.StatusServiceUnavailable)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
+}
+
 var (
 	enableTlsFlag          = flag.Bool("enable-tls", false, "enable TLS for the router")
 	enableAuthFlag         = flag.Bool("enable-auth", false, "protect the inference graph with authorization")
 	graphName              = flag.String("inferencegraph-name", "", "the name of the associated inference graph Kubernetes resource")
 	jsonGraph              = flag.String("graph-json", "", "serialized json graph def")
 	compiledHeaderPatterns []*regexp.Regexp
+	isShuttingDown         = false
+	drainSleepDuration     = 30 * time.Second
 )
 
 // findBearerToken parses the standard HTTP Authorization header to find and return
@@ -450,11 +462,11 @@ func findBearerToken(w http.ResponseWriter, r *http.Request) string {
 // valid and flagged as authenticated. If the token is usable, the result of the TokenReview
 // is returned. Otherwise, the HTTP response is sent rejecting the request and setting
 // a meaningful status code along with a reason (if available).
-func validateTokenIsAuthenticated(w http.ResponseWriter, token string, clientset *kubernetes.Clientset) *authnv1.TokenReview {
+func validateTokenIsAuthenticated(ctx context.Context, w http.ResponseWriter, token string, clientset *kubernetes.Clientset) *authnv1.TokenReview {
 	// Check the token is valid
 	tokenReview := authnv1.TokenReview{}
 	tokenReview.Spec.Token = token
-	tokenReviewResult, err := clientset.AuthenticationV1().TokenReviews().Create(context.Background(), &tokenReview, metav1.CreateOptions{})
+	tokenReviewResult, err := clientset.AuthenticationV1().TokenReviews().Create(ctx, &tokenReview, metav1.CreateOptions{})
 	if err != nil {
 		log.Error(err, "failed to create TokenReview when verifying credentials")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -477,7 +489,7 @@ func validateTokenIsAuthenticated(w http.ResponseWriter, token string, clientset
 // Kubernetes API and get the InferenceGraph resource that belongs to this pod. If so, the request is considered
 // as allowed and `true` is returned. Otherwise, the HTTP response is sent rejecting the request and setting
 // a meaningful status code along with a reason (if available).
-func checkRequestIsAuthorized(w http.ResponseWriter, _ *http.Request, tokenReviewResult *authnv1.TokenReview, clientset *kubernetes.Clientset) bool {
+func checkRequestIsAuthorized(ctx context.Context, w http.ResponseWriter, _ *http.Request, tokenReviewResult *authnv1.TokenReview, clientset *kubernetes.Clientset) bool {
 	// Read pod namespace
 	const namespaceFile = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
 	namespaceBytes, err := os.ReadFile(namespaceFile)
@@ -508,7 +520,10 @@ func checkRequestIsAuthorized(w http.ResponseWriter, _ *http.Request, tokenRevie
 		},
 	}
 
-	accessReviewResult, err := clientset.AuthorizationV1().SubjectAccessReviews().Create(context.Background(), &accessReview, metav1.CreateOptions{})
+	accessReviewResult, err := clientset.AuthorizationV1().SubjectAccessReviews().Create(
+		ctx,
+		&accessReview,
+		metav1.CreateOptions{})
 	if err != nil {
 		log.Error(err, "failed to create LocalSubjectAccessReview when verifying credentials")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -536,7 +551,7 @@ func checkRequestIsAuthorized(w http.ResponseWriter, _ *http.Request, tokenRevie
 // header. The token is verified against Kubernetes using the TokenReview and SubjectAccessReview APIs.
 // If the token is valid and has enough privileges, the handler provided in the `next` argument is run.
 // Otherwise, `next` is not invoked and the reason for the rejection is sent in response headers.
-func authMiddleware(next http.Handler) (http.Handler, error) {
+func authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		k8sConfig, k8sConfigErr := rest.InClusterConfig()
 		if k8sConfigErr != nil {
@@ -556,16 +571,16 @@ func authMiddleware(next http.Handler) (http.Handler, error) {
 			return
 		}
 
-		tokenReviewResult := validateTokenIsAuthenticated(w, token, clientset)
+		tokenReviewResult := validateTokenIsAuthenticated(r.Context(), w, token, clientset)
 		if tokenReviewResult == nil {
 			return
 		}
 
-		isAuthorized := checkRequestIsAuthorized(w, r, tokenReviewResult, clientset)
+		isAuthorized := checkRequestIsAuthorized(r.Context(), w, r, tokenReviewResult, clientset)
 		if isAuthorized {
 			next.ServeHTTP(w, r)
 		}
-	}), nil
+	})
 }
 
 func main() {
@@ -590,29 +605,53 @@ func main() {
 	var entrypointHandler http.Handler
 	entrypointHandler = http.HandlerFunc(graphHandler)
 	if *enableAuthFlag {
-		entrypointHandler, err = authMiddleware(entrypointHandler)
+		entrypointHandler = authMiddleware(entrypointHandler)
 		log.Info("This Router has authorization enabled")
-		if err != nil {
-			log.Error(err, "failed to create entrypoint handler")
-			os.Exit(1)
-		}
 	}
+
+	http.HandleFunc(constants.RouterReadinessEndpoint, readyHandler)
+	http.Handle("/", entrypointHandler)
 
 	server := &http.Server{
-		Addr:         ":8080",           // specify the address and port
-		Handler:      entrypointHandler, // specify your HTTP handler
-		ReadTimeout:  time.Minute,       // set the maximum duration for reading the entire request, including the body
-		WriteTimeout: time.Minute,       // set the maximum duration before timing out writes of the response
-		IdleTimeout:  3 * time.Minute,   // set the maximum amount of time to wait for the next request when keep-alives are enabled
+		Addr:         ":8080",         // specify the address and port
+		Handler:      nil,             // default server mux
+		ReadTimeout:  time.Minute,     // set the maximum duration for reading the entire request, including the body
+		WriteTimeout: time.Minute,     // set the maximum duration before timing out writes of the response
+		IdleTimeout:  3 * time.Minute, // set the maximum amount of time to wait for the next request when keep-alives are enabled
 	}
 
-	if *enableTlsFlag {
-		err = server.ListenAndServeTLS("/etc/tls/private/tls.crt", "/etc/tls/private/tls.key")
-	} else {
-		err = server.ListenAndServe()
-	}
-	if err != nil {
-		log.Error(err, "failed to listen on 8080")
+	go func() {
+		if *enableTlsFlag {
+			err = server.ListenAndServeTLS("/etc/tls/private/tls.crt", "/etc/tls/private/tls.key")
+		} else {
+			err = server.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Error(err, fmt.Sprintf("Failed to serve on address %v", server.Addr))
+			os.Exit(1)
+		}
+	}()
+
+	// Blocks until SIGTERM or SIGINT is received
+	handleSignals(server)
+}
+
+func handleSignals(server *http.Server) {
+	signalChan := make(chan os.Signal, 1)
+	signal.Notify(signalChan, os.Interrupt, syscall.SIGTERM)
+
+	sig := <-signalChan
+	log.Info("Received shutdown signal", "signal", sig)
+	// Fail the readiness probe
+	isShuttingDown = true
+	log.Info(fmt.Sprintf("Sleeping %v to allow K8s propagation of non-ready state", drainSleepDuration))
+	// Sleep to give networking a little bit more time to remove the pod
+	// from its configuration and propagate that to all loadbalancers and nodes.
+	time.Sleep(drainSleepDuration)
+	// Shut down the server gracefully
+	if err := server.Shutdown(context.Background()); err != nil {
+		log.Error(err, "Failed to shutdown the server gracefully")
 		os.Exit(1)
 	}
+	log.Info("Server gracefully shutdown")
 }

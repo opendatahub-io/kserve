@@ -43,15 +43,18 @@ if $RUNNING_LOCAL; then
 fi
 
 : "${SETUP_E2E:=true}"
-
 if [ "$SETUP_E2E" = "true" ]; then
   echo "Installing on cluster"
   pushd $PROJECT_ROOT >/dev/null
-  ./test/scripts/openshift-ci/setup-e2e-tests.sh "$1"
+  ./test/scripts/openshift-ci/setup-e2e-tests.sh "$1" | tee 2>&1 ./test/scripts/openshift-ci/setup-e2e-tests-$1.log
   popd
 fi
 
-sed -i -E -e '/^[[:space:]]*verify=.*,$/d' -e "s|^([[:space:]]*)timeout=60,|\1verify=False,\n\1timeout=60,|g" ./test/e2e/conftest.py
+PARALLELISM="${2:-1}"
+
+# Use certify go module to get the CA certs
+export REQUESTS_CA_BUNDLE="/tmp/ca.crt"
+echo "REQUESTS_CA_BUNDLE=$(cat ${REQUESTS_CA_BUNDLE})"
 
 PARALLELISM="${2:-1}"
 echo "Run E2E tests: $1"

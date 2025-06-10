@@ -29,9 +29,6 @@ from __future__ import absolute_import
 
 # import models into model package
 from kserve.models.v1alpha1_built_in_adapter import V1alpha1BuiltInAdapter
-from kserve.models.v1alpha1_cluster_local_model import V1alpha1ClusterLocalModel
-from kserve.models.v1alpha1_cluster_local_model_list import V1alpha1ClusterLocalModelList
-from kserve.models.v1alpha1_cluster_local_model_spec import V1alpha1ClusterLocalModelSpec
 from kserve.models.v1alpha1_cluster_serving_runtime import V1alpha1ClusterServingRuntime
 from kserve.models.v1alpha1_cluster_serving_runtime_list import V1alpha1ClusterServingRuntimeList
 from kserve.models.v1alpha1_cluster_storage_container import V1alpha1ClusterStorageContainer
@@ -43,9 +40,15 @@ from kserve.models.v1alpha1_inference_graph_status import V1alpha1InferenceGraph
 from kserve.models.v1alpha1_inference_router import V1alpha1InferenceRouter
 from kserve.models.v1alpha1_inference_step import V1alpha1InferenceStep
 from kserve.models.v1alpha1_inference_target import V1alpha1InferenceTarget
+from kserve.models.v1alpha1_local_model_cache import V1alpha1LocalModelCache
+from kserve.models.v1alpha1_local_model_cache_list import V1alpha1LocalModelCacheList
+from kserve.models.v1alpha1_local_model_cache_spec import V1alpha1LocalModelCacheSpec
+from kserve.models.v1alpha1_local_model_node import V1alpha1LocalModelNode
 from kserve.models.v1alpha1_local_model_node_group import V1alpha1LocalModelNodeGroup
 from kserve.models.v1alpha1_local_model_node_group_list import V1alpha1LocalModelNodeGroupList
 from kserve.models.v1alpha1_local_model_node_group_spec import V1alpha1LocalModelNodeGroupSpec
+from kserve.models.v1alpha1_local_model_node_list import V1alpha1LocalModelNodeList
+from kserve.models.v1alpha1_local_model_node_spec import V1alpha1LocalModelNodeSpec
 from kserve.models.v1alpha1_model_spec import V1alpha1ModelSpec
 from kserve.models.v1alpha1_serving_runtime import V1alpha1ServingRuntime
 from kserve.models.v1alpha1_serving_runtime_list import V1alpha1ServingRuntimeList
@@ -59,6 +62,7 @@ from kserve.models.v1alpha1_trained_model import V1alpha1TrainedModel
 from kserve.models.v1alpha1_trained_model_list import V1alpha1TrainedModelList
 from kserve.models.v1alpha1_trained_model_spec import V1alpha1TrainedModelSpec
 from kserve.models.v1beta1_art_explainer_spec import V1beta1ARTExplainerSpec
+from kserve.models.v1beta1_auto_scaling_spec import V1beta1AutoScalingSpec
 from kserve.models.v1beta1_batcher import V1beta1Batcher
 from kserve.models.v1beta1_component_extension_spec import V1beta1ComponentExtensionSpec
 from kserve.models.v1beta1_component_status_spec import V1beta1ComponentStatusSpec
@@ -70,6 +74,9 @@ from kserve.models.v1beta1_explainer_config import V1beta1ExplainerConfig
 from kserve.models.v1beta1_explainer_extension_spec import V1beta1ExplainerExtensionSpec
 from kserve.models.v1beta1_explainer_spec import V1beta1ExplainerSpec
 from kserve.models.v1beta1_explainers_config import V1beta1ExplainersConfig
+from kserve.models.v1beta1_ext_metric_auth import V1beta1ExtMetricAuth
+from kserve.models.v1beta1_external_metric_source import V1beta1ExternalMetricSource
+from kserve.models.v1beta1_external_metrics import V1beta1ExternalMetrics
 from kserve.models.v1beta1_failure_info import V1beta1FailureInfo
 from kserve.models.v1beta1_hugging_face_runtime_spec import V1beta1HuggingFaceRuntimeSpec
 from kserve.models.v1beta1_inference_service import V1beta1InferenceService
@@ -81,17 +88,26 @@ from kserve.models.v1beta1_ingress_config import V1beta1IngressConfig
 from kserve.models.v1beta1_light_gbm_spec import V1beta1LightGBMSpec
 from kserve.models.v1beta1_local_model_config import V1beta1LocalModelConfig
 from kserve.models.v1beta1_logger_spec import V1beta1LoggerSpec
+from kserve.models.v1beta1_metric_target import V1beta1MetricTarget
+from kserve.models.v1beta1_metrics_spec import V1beta1MetricsSpec
 from kserve.models.v1beta1_model_copies import V1beta1ModelCopies
 from kserve.models.v1beta1_model_format import V1beta1ModelFormat
 from kserve.models.v1beta1_model_revision_states import V1beta1ModelRevisionStates
 from kserve.models.v1beta1_model_spec import V1beta1ModelSpec
 from kserve.models.v1beta1_model_status import V1beta1ModelStatus
+from kserve.models.v1beta1_multi_node_config import V1beta1MultiNodeConfig
 from kserve.models.v1beta1_onnx_runtime_spec import V1beta1ONNXRuntimeSpec
+from kserve.models.v1beta1_oauth_config import V1beta1OauthConfig
+from kserve.models.v1beta1_otel_collector_config import V1beta1OtelCollectorConfig
 from kserve.models.v1beta1_pmml_spec import V1beta1PMMLSpec
 from kserve.models.v1beta1_paddle_server_spec import V1beta1PaddleServerSpec
+from kserve.models.v1beta1_pod_metric_source import V1beta1PodMetricSource
+from kserve.models.v1beta1_pod_metrics import V1beta1PodMetrics
 from kserve.models.v1beta1_pod_spec import V1beta1PodSpec
 from kserve.models.v1beta1_predictor_extension_spec import V1beta1PredictorExtensionSpec
 from kserve.models.v1beta1_predictor_spec import V1beta1PredictorSpec
+from kserve.models.v1beta1_resource_config import V1beta1ResourceConfig
+from kserve.models.v1beta1_resource_metric_source import V1beta1ResourceMetricSource
 from kserve.models.v1beta1_sk_learn_spec import V1beta1SKLearnSpec
 from kserve.models.v1beta1_security_config import V1beta1SecurityConfig
 from kserve.models.v1beta1_service_config import V1beta1ServiceConfig

@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -29,6 +30,8 @@ import (
 	cloudevents "github.com/cloudevents/sdk-go/v2"
 	cehttp "github.com/cloudevents/sdk-go/v2/protocol/http"
 	"go.uber.org/zap"
+
+	"github.com/kserve/kserve/pkg/constants"
 )
 
 const (
@@ -36,16 +39,16 @@ const (
 	CEInferenceResponse = "org.kubeflow.serving.inference.response"
 
 	// cloud events extension attributes have to be lowercase alphanumeric
-	//TODO: ideally request id would have its own header but make do with ce-id for now
+	// TODO: ideally request id would have its own header but make do with ce-id for now
 	InferenceServiceAttr = "inferenceservicename"
 	NamespaceAttr        = "namespace"
 	ComponentAttr        = "component"
 	MetadataAttr         = "metadata"
 	// endpoint would be either default or canary
-	EndpointAttr = "endpoint"
+	EndpointAttr   = "endpoint"
+	AnnotationAttr = "annotations"
 
 	LoggerWorkerQueueSize = 100
-	LoggerCaCertMountPath = "/etc/tls/logger"
 	CloudEventsIdHeader   = "Ce-Id"
 )
 
@@ -68,7 +71,6 @@ func NewWorker(id int, workerQueue chan chan LogRequest, logger *zap.SugaredLogg
 		Work:        make(chan LogRequest),
 		WorkerQueue: workerQueue,
 		QuitChan:    make(chan bool),
-		CeCtx:       cloudevents.WithEncodingBinary(context.Background()),
 	}
 }
 
@@ -78,26 +80,24 @@ type Worker struct {
 	Work        chan LogRequest
 	WorkerQueue chan chan LogRequest
 	QuitChan    chan bool
-	CeCtx       context.Context
 }
 
 func (w *Worker) sendCloudEvent(logReq LogRequest) error {
 	t, err := cloudevents.NewHTTP(
 		cloudevents.WithTarget(logReq.Url.String()),
 	)
-
 	if err != nil {
 		return fmt.Errorf("while creating http transport: %w", err)
 	}
 
 	if logReq.Url.Scheme == "https" {
-		caCertFilePath := filepath.Join(LoggerCaCertMountPath, logReq.CertName)
+		caCertFilePath := filepath.Join(constants.LoggerCaCertMountPath, logReq.CertName)
 		caCertFile, err := os.ReadFile(caCertFilePath)
 		// Do not fail if certificates not found, for backwards compatibility
 		if err == nil {
 			clientCertPool := x509.NewCertPool()
 			if !clientCertPool.AppendCertsFromPEM(caCertFile) {
-				return fmt.Errorf("while parsing CA certificate")
+				return errors.New("while parsing CA certificate")
 			}
 
 			tlsTransport := &http.Transport{
@@ -134,12 +134,21 @@ func (w *Worker) sendCloudEvent(logReq LogRequest) error {
 	}
 	event.SetExtension(MetadataAttr, string(encodedMetadata))
 
+	if len(logReq.Annotations) > 0 {
+		bits, err := json.Marshal(logReq.Annotations)
+		if err != nil {
+			w.Log.Errorf("failed to marshal annotations: %w", err)
+		} else {
+			event.SetExtension(AnnotationAttr, string(bits))
+		}
+	}
+
 	event.SetSource(logReq.SourceUri.String())
 	if err := event.SetData(logReq.ContentType, *logReq.Bytes); err != nil {
 		return fmt.Errorf("while setting cloudevents data: %w", err)
 	}
-
-	res := c.Send(w.CeCtx, event)
+	ceCtx := cloudevents.WithEncodingBinary(context.Background())
+	res := c.Send(ceCtx, event)
 	if cloudevents.IsUndelivered(res) {
 		return fmt.Errorf("while sending event: %w", res)
 	} else {
@@ -176,7 +185,7 @@ func (w *Worker) Start() {
 
 			case <-w.QuitChan:
 				// We have been asked to stop.
-				fmt.Printf("worker %d stopping\n", w.ID)
+				w.Log.Infof("worker %d stopping\n", w.ID)
 				return
 			}
 		}

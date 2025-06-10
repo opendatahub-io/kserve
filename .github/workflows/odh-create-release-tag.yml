@@ -24,7 +24,6 @@ jobs:
       
       - name: Get latest tag
         id: get_tag
-        run: |
       - name: print tag
         id: print_tag
         run: | 
@@ -62,7 +61,7 @@ jobs:
               
       - name: Update params.env with new release version
         run: |     
-          sed -i 's|:v[0-9.]*\b-latest|:${{ github.event.inputs.tag_name }}|gm' config/overlays/odh/params.env
+          sed -i 's|:latest|:${{ github.event.inputs.tag_name }}|gm' config/overlays/odh/params.env
       - name: Commit changes
         run: |
           git config --global user.email "github-actions@github.com"
@@ -97,3 +96,4 @@ jobs:
           files: bin/*
           generate_release_notes: true
           name: ${{ github.event.inputs.tag_name }}
+

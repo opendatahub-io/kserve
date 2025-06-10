@@ -24,11 +24,12 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/kserve/kserve/pkg/agent/storage"
-	"github.com/kserve/kserve/pkg/utils"
 	"k8s.io/apimachinery/pkg/runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
+
+	"github.com/kserve/kserve/pkg/agent/storage"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 // regular expressions for validation of isvc name
@@ -50,12 +51,11 @@ var (
 )
 
 // +kubebuilder:object:generate=false
-// +k8s:deepcopy-gen=false
 // +k8s:openapi-gen=false
 // TrainedModelValidator is responsible for setting default values on the TrainedModel resources
 // when created or updated.
 //
-// NOTE: The +kubebuilder:object:generate=false and +k8s:deepcopy-gen=false marker prevents controller-gen from generating DeepCopy methods,
+// NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
 // as it is used only for temporary operations and does not need to be deeply copied.
 type TrainedModelValidator struct{}
 

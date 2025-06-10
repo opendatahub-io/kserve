@@ -1,9 +1,9 @@
 [tool.poetry]
 name = "pmmlserver"
-version = "0.14.0"
+version = "0.15.2"
 description = "Model Server implementation for PMML. Not intended for use outside KServe Frameworks Images."
 authors = ["AnyISalIn <anyisalin@gmail.com>"]
-license = "https://github.com/kserve/kserve/blob/master/LICENSE"
+license = "Apache-2.0"
 readme = "README.md"
 packages = [
     { include = "pmmlserver" },
@@ -13,7 +13,7 @@ packages = [
 python = ">=3.9,<3.13"
 kserve = { path = "../kserve", extras = ["storage"], develop = true }
 jpmml-evaluator = "~0.10.3"
-setuptools =  {version = "^70.0.0", python = "3.12"} # https://github.com/jpmml/jpmml-evaluator-python/issues/27
+setuptools = "^70.0.0"
 
 [tool.poetry.group.test]
 optional = true

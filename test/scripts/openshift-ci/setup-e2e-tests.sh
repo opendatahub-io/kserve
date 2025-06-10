@@ -61,11 +61,12 @@ fi
 echo "Installing KServe Python SDK ..."
 pushd $PROJECT_ROOT >/dev/null
   ./test/scripts/gh-actions/setup-poetry.sh
-  ./test/scripts/gh-actions/check-poetry-lockfile.sh
 popd
 pushd $PROJECT_ROOT/python/kserve >/dev/null
   poetry install --with=test --no-interaction
 popd
+
+$MY_PATH/deploy.cma.sh
 
 # Install KServe stack
 if [ "$1" != "raw" ]; then
@@ -121,7 +122,7 @@ kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
   oc wait --for=condition=ready pod -l app=odh-model-controller -n kserve --timeout=300s
 
 echo "Add testing models to minio storage ..." # Reference: config/overlays/test/minio/minio-init-job.yaml
-oc expose service minio-service -n kserve && sleep 15
+oc expose service minio-service -n kserve && sleep 5
 MINIO_ROUTE=$(oc get routes -n kserve minio-service -o jsonpath="{.spec.host}")
 mc alias set storage http://$MINIO_ROUTE minio minio123
 

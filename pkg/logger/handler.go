@@ -26,10 +26,11 @@ import (
 
 	"github.com/go-logr/logr"
 	guuid "github.com/google/uuid"
-	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"knative.dev/pkg/network"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 )
 
 // loggingResponseWriter is a wrapper around an http.ResponseWriter that logs the response body
@@ -82,13 +83,15 @@ type LoggerHandler struct {
 	endpoint         string
 	next             http.Handler
 	metadataHeaders  []string
+	annotations      map[string]string
 	certName         string
 	tlsSkipVerify    bool
 }
 
 func New(logUrl *url.URL, sourceUri *url.URL, logMode v1beta1.LoggerType,
 	inferenceService string, namespace string, endpoint string, component string, next http.Handler, metadataHeaders []string,
-	certName string, tlsSkipVerify bool) http.Handler {
+	certName string, annotations map[string]string, tlsSkipVerify bool,
+) http.Handler {
 	logf.SetLogger(zap.New())
 	return &LoggerHandler{
 		log:              logf.Log.WithName("Logger"),
@@ -100,6 +103,7 @@ func New(logUrl *url.URL, sourceUri *url.URL, logMode v1beta1.LoggerType,
 		component:        component,
 		endpoint:         endpoint,
 		next:             next,
+		annotations:      annotations,
 		metadataHeaders:  metadataHeaders,
 		certName:         certName,
 		tlsSkipVerify:    tlsSkipVerify,
@@ -148,6 +152,7 @@ func (eh *LoggerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Namespace:        eh.namespace,
 			Endpoint:         eh.endpoint,
 			Component:        eh.component,
+			Annotations:      eh.annotations,
 			Metadata:         metadata,
 			CertName:         eh.certName,
 			TlsSkipVerify:    eh.tlsSkipVerify,
@@ -181,6 +186,7 @@ func (eh *LoggerHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				InferenceService: eh.inferenceService,
 				Namespace:        eh.namespace,
 				Endpoint:         eh.endpoint,
+				Annotations:      eh.annotations,
 				Component:        eh.component,
 				CertName:         eh.certName,
 				TlsSkipVerify:    eh.tlsSkipVerify,
