@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
-	v1 "k8s.io/api/core/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,10 +33,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/kserve/kserve/pkg/constants"
+	knutils "github.com/kserve/kserve/pkg/controller/v1alpha1/utils"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/knative"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/raw"
 	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
-	"github.com/kserve/kserve/pkg/credentials"
 	"github.com/kserve/kserve/pkg/utils"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -50,25 +50,27 @@ type Explainer struct {
 	clientset              kubernetes.Interface
 	scheme                 *runtime.Scheme
 	inferenceServiceConfig *v1beta1.InferenceServicesConfig
-	credentialBuilder      *credentials.CredentialBuilder //nolint: unused
 	deploymentMode         constants.DeploymentModeType
+	allowZeroInitialScale  bool
 	Log                    logr.Logger
 }
 
 func NewExplainer(client client.Client, clientset kubernetes.Interface, scheme *runtime.Scheme,
-	inferenceServiceConfig *v1beta1.InferenceServicesConfig, deploymentMode constants.DeploymentModeType) Component {
+	inferenceServiceConfig *v1beta1.InferenceServicesConfig, deploymentMode constants.DeploymentModeType, allowZeroInitialScale bool,
+) Component {
 	return &Explainer{
 		client:                 client,
 		clientset:              clientset,
 		scheme:                 scheme,
 		inferenceServiceConfig: inferenceServiceConfig,
 		deploymentMode:         deploymentMode,
+		allowZeroInitialScale:  allowZeroInitialScale,
 		Log:                    ctrl.Log.WithName("ExplainerReconciler"),
 	}
 }
 
 // Reconcile observes the explainer and attempts to drive the status towards the desired state.
-func (e *Explainer) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, error) {
+func (e *Explainer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceService) (ctrl.Result, error) {
 	e.Log.Info("Reconciling Explainer", "ExplainerSpec", isvc.Spec.Explainer)
 	explainer := isvc.Spec.Explainer.GetImplementation()
 	var annotations map[string]string
@@ -88,7 +90,7 @@ func (e *Explainer) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 	// StorageInitializer injector to mutate the underlying deployment to provision model data
 	if sourceURI := explainer.GetStorageUri(); sourceURI != nil {
 		annotations[constants.StorageInitializerSourceUriInternalAnnotationKey] = *sourceURI
-		err := isvcutils.ValidateStorageURI(sourceURI, e.client)
+		err := isvcutils.ValidateStorageURI(ctx, sourceURI, e.client)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("StorageURI not supported: %w", err)
 		}
@@ -98,15 +100,15 @@ func (e *Explainer) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 	explainerName := constants.ExplainerServiceName(isvc.Name)
 	predictorName := constants.PredictorServiceName(isvc.Name)
 	if e.deploymentMode == constants.RawDeployment {
-		existing := &v1.Service{}
-		err := e.client.Get(context.TODO(), types.NamespacedName{Name: constants.DefaultExplainerServiceName(isvc.Name), Namespace: isvc.Namespace}, existing)
+		existing := &corev1.Service{}
+		err := e.client.Get(ctx, types.NamespacedName{Name: constants.DefaultExplainerServiceName(isvc.Name), Namespace: isvc.Namespace}, existing)
 		if err == nil {
 			explainerName = constants.DefaultExplainerServiceName(isvc.Name)
 			predictorName = constants.DefaultPredictorServiceName(isvc.Name)
 		}
 	} else {
 		existing := &knservingv1.Service{}
-		err := e.client.Get(context.TODO(), types.NamespacedName{Name: constants.DefaultExplainerServiceName(isvc.Name), Namespace: isvc.Namespace}, existing)
+		err := e.client.Get(ctx, types.NamespacedName{Name: constants.DefaultExplainerServiceName(isvc.Name), Namespace: isvc.Namespace}, existing)
 		if err == nil {
 			explainerName = constants.DefaultExplainerServiceName(isvc.Name)
 			predictorName = constants.DefaultPredictorServiceName(isvc.Name)
@@ -149,18 +151,18 @@ func (e *Explainer) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 	}
 	container := explainer.GetContainer(isvc.ObjectMeta, isvc.Spec.Explainer.GetExtensions(), e.inferenceServiceConfig, predictorName)
 	if len(isvc.Spec.Explainer.PodSpec.Containers) == 0 {
-		isvc.Spec.Explainer.PodSpec.Containers = []v1.Container{
+		isvc.Spec.Explainer.PodSpec.Containers = []corev1.Container{
 			*container,
 		}
 	} else {
 		isvc.Spec.Explainer.PodSpec.Containers[0] = *container
 	}
 
-	podSpec := v1.PodSpec(isvc.Spec.Explainer.PodSpec)
+	podSpec := corev1.PodSpec(isvc.Spec.Explainer.PodSpec)
 
 	// Here we allow switch between knative and vanilla deployment
 	if e.deploymentMode == constants.RawDeployment {
-		r, err := raw.NewRawKubeReconciler(e.client, e.clientset, e.scheme, constants.InferenceServiceResource, objectMeta, metav1.ObjectMeta{},
+		r, err := raw.NewRawKubeReconciler(ctx, e.client, e.clientset, e.scheme, constants.InferenceServiceResource, objectMeta, metav1.ObjectMeta{},
 			&isvc.Spec.Explainer.ComponentExtensionSpec, &podSpec, nil)
 		if err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "fails to create NewRawKubeReconciler for explainer")
@@ -182,22 +184,20 @@ func (e *Explainer) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 			return ctrl.Result{}, errors.Wrapf(err, "fails to set autoscaler owner references for explainer")
 		}
 
-		deployment, err := r.Reconcile()
+		deployment, err := r.Reconcile(ctx)
 		if err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile explainer")
 		}
 		isvc.Status.PropagateRawStatus(v1beta1.ExplainerComponent, deployment, r.URL)
 	} else {
-		r, err := knative.NewKsvcReconciler(e.client, e.scheme, objectMeta, &isvc.Spec.Explainer.ComponentExtensionSpec,
+		knutils.ValidateInitialScaleAnnotation(objectMeta.Annotations, e.allowZeroInitialScale, isvc.Spec.Explainer.MinReplicas, e.Log)
+		r := knative.NewKsvcReconciler(e.client, e.scheme, objectMeta, &isvc.Spec.Explainer.ComponentExtensionSpec,
 			&podSpec, isvc.Status.Components[v1beta1.ExplainerComponent], e.inferenceServiceConfig.ServiceLabelDisallowedList)
-		if err != nil {
-			return ctrl.Result{}, errors.Wrapf(err, "fails to create new knative service reconciler for explainer")
-		}
 
 		if err := controllerutil.SetControllerReference(isvc, r.Service, e.scheme); err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "fails to set owner reference for explainer")
 		}
-		status, err := r.Reconcile()
+		status, err := r.Reconcile(ctx)
 		if err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile explainer")
 		}

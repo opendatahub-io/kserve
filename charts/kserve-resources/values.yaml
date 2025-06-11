@@ -1,12 +1,15 @@
 kserve:
-  version: &defaultVersion v0.14.0
-  modelmeshVersion: &defaultModelMeshVersion v0.12.0
+  version: &defaultVersion v0.15.2
   agent:
     image: kserve/agent
     tag: *defaultVersion
   router:
     image: kserve/router
     tag: *defaultVersion
+    # -- Specifies when to pull router image from registry.
+    imagePullPolicy: "IfNotPresent"
+    # -- specifies the list of secrets to be used for pulling the router image from registry.
+    imagePullSecrets: []
   service:
     serviceClusterIPNone: false
   storage:
@@ -21,9 +24,9 @@ kserve:
       capabilities:
         drop:
           - ALL
- 
+
     # -- Flag for enabling model sidecar feature.
-    enableModelcar: false
+    enableModelcar: true
 
     # -- Model sidecar cpu requirement.
     cpuModelcar: 10m
@@ -100,7 +103,7 @@ kserve:
         privileged: false
         capabilities:
           drop:
-          - ALL
+            - ALL
         readOnlyRootFilesystem: true
         runAsNonRoot: true
 
@@ -113,8 +116,14 @@ kserve:
     # -- Optional additional annotations to add to the controller deployment.
     annotations: {}
 
-    # -- Optional additional labels to add to the controller Pods.
+    # -- Optional additional annotations to add to the controller Pods.
     podAnnotations: {}
+
+    # -- Optional additional annotations to add to the controller service.
+    serviceAnnotations: {}
+
+    # -- Optional additional annotations to add to the webhook service.
+    webhookServiceAnnotations: {}
 
     # -- Pod Security Context.
     # For more information, see [Configure a Security Context for a Pod or Container](https://kubernetes.io/docs/tasks/configure-pod-container/security-context/).
@@ -127,10 +136,16 @@ kserve:
       allowPrivilegeEscalation: false
       capabilities:
         drop:
-        - ALL
+          - ALL
       privileged: false
       readOnlyRootFilesystem: true
       runAsNonRoot: true
+
+    # -- Metrics bind address
+    metricsBindAddress: "127.0.0.1"
+
+    # -- Metrics bind port
+    metricsBindPort: "8080"
 
     gateway:
       # -- Ingress domain for RawDeployment mode, for Serverless it is configured in Knative.
@@ -163,8 +178,18 @@ kserve:
         # -- knativeLocalGatewayService specifies the hostname of the Knative's local gateway service.
         # When unset, the value of "localGatewayService" will be used. When enabling strict mTLS in Istio, KServe local gateway should be created and pointed to the Knative local gateway.
         knativeGatewayService: ""
+      # -- ingressGateway specifies the gateway which handles the network traffic from outside the cluster.
       ingressGateway:
+        # -- enableGatewayApi controls whether to use the Gateway API for ingress routing instead of kuberetes Ingress.
+        enableGatewayApi: false
+        # -- kserveGateway specifies the name and namespace of the Gateway which handles the network traffic from outside the cluster.
+        # This is only used when Gateway API is enabled. The gateway should be specified in format <gateway namespace>/<gateway name>
+        kserveGateway: kserve/kserve-ingress-gateway
+        # -- createGateway controls whether to create the default Gateway resource for ingress routing as part of the installation. This is only used when Gateway API is enabled.
+        createGateway: false
+        # -- gateway specifies the name and namespace of the Knative's ingress gateway.
         gateway: knative-serving/knative-ingress-gateway
+        # -- class specifies the ingress class name. If Gateway API is enabled, this will not affect the ingress routing.
         className: istio
 
     # -- The nodeSelector on Pods tells Kubernetes to schedule Pods on the nodes with matching labels.
@@ -242,35 +267,6 @@ kserve:
     # This ClusterRole grants the necessary permissions for the Knative's DomainMapping reconciler to resolve InferenceService addressables.
     knativeAddressableResolver:
       enabled: false
-  modelmesh:
-    enabled: true
-    controller:
-      nodeSelector: {}
-      tolerations: []
-      topologySpreadConstraints: []
-      affinity:
-        podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-              - weight: 100
-                podAffinityTerm:
-                  labelSelector:
-                    matchExpressions:
-                      - key: control-plane
-                        operator: In
-                        values:
-                          - modelmesh-controller
-                  topologyKey: topology.kubernetes.io/zone
-      image: kserve/modelmesh-controller
-      tag: *defaultModelMeshVersion
-    config:
-      modelmeshImage: kserve/modelmesh
-      modelmeshImageTag: *defaultModelMeshVersion
-      modelmeshRuntimeAdapterImage: kserve/modelmesh-runtime-adapter
-      modelmeshRuntimeAdapterImageTag: *defaultModelMeshVersion
-      restProxyImage: kserve/rest-proxy
-      restProxyImageTag: *defaultModelMeshVersion
-      podsPerRuntime: 2
-
   servingruntime:
     modelNamePlaceholder: "{{.Name}}"
     tensorflow:
@@ -278,7 +274,7 @@ kserve:
       tag: 2.6.2
       imagePullSecrets: []
       securityContext:
-        runAsUser: 1000    # User is not defined in the Dockerfile, so we need to set it here to run as non-root
+        runAsUser: 1000 # User is not defined in the Dockerfile, so we need to set it here to run as non-root
         allowPrivilegeEscalation: false
         privileged: false
         runAsNonRoot: true
@@ -330,17 +326,30 @@ kserve:
         capabilities:
           drop:
             - ALL
+      lmcacheUseExperimental: "True"
       devShm:
         enabled: false
         sizeLimit: ""
       hostIPC:
         enabled: false
+    huggingfaceserver_multinode:
+      imagePullSecrets: []
+      securityContext:
+        allowPrivilegeEscalation: false
+        privileged: false
+        runAsNonRoot: true
+        capabilities:
+          drop:
+            - ALL
+      shm:
+        enabled: true
+        sizeLimit: "3Gi"
     tritonserver:
       image: nvcr.io/nvidia/tritonserver
       tag: 23.05-py3
       imagePullSecrets: []
       securityContext:
-        runAsUser: 1000    # https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/customization_guide/deploy.html#run-as-a-non-root-user
+        runAsUser: 1000 # https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/customization_guide/deploy.html#run-as-a-non-root-user
         allowPrivilegeEscalation: false
         privileged: false
         runAsNonRoot: true
@@ -386,7 +395,7 @@ kserve:
       serviceEnvelopePlaceholder: "{{.Labels.serviceEnvelope}}"
       imagePullSecrets: []
       securityContext:
-        runAsUser: 1000    # User ID is not defined in the Dockerfile, so we need to set it here to run as non-root
+        runAsUser: 1000 # User ID is not defined in the Dockerfile, so we need to set it here to run as non-root
         allowPrivilegeEscalation: false
         privileged: false
         runAsNonRoot: true
@@ -398,12 +407,33 @@ kserve:
       defaultVersion: *defaultVersion
       imagePullSecrets: []
   localmodel:
-      enabled: false
-      controller:
-        image: kserve/kserve-localmodel-controller
-        tag: *defaultVersion
-      jobNamespace: kserve-localmodel-jobs
+    enabled: false
+    controller:
+      image: kserve/kserve-localmodel-controller
+      tag: *defaultVersion
+    jobNamespace: kserve-localmodel-jobs
+    jobTTLSecondsAfterFinished: 3600
+    securityContext:
+      fsGroup: 1000
+    disableVolumeManagement: false
+    agent:
+      nodeSelector: {}
+      affinity: {}
+      tolerations: []
+      hostPath: /mnt/models
+      image: kserve/kserve-localmodelnode-agent
+      tag: *defaultVersion
+      reconcilationFrequencyInSecs: 60
       securityContext:
-        FSGroup: 1000
+        runAsUser: 1000
+        runAsNonRoot: true
   security:
     autoMountServiceAccountToken: true
+  inferenceservice:
+    resources:
+      limits:
+        cpu: "1"
+        memory: "2Gi"
+      requests:
+        cpu: "1"
+        memory: "2Gi"

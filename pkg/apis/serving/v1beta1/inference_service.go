@@ -17,7 +17,11 @@ limitations under the License.
 package v1beta1
 
 import (
+	"strings"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/kserve/kserve/pkg/constants"
 )
 
 // InferenceServiceSpec is the top level type for this resource
@@ -64,7 +68,27 @@ type LoggerSpec struct {
 	// Matched metadata HTTP headers for propagating to inference logger cloud events.
 	// +optional
 	MetadataHeaders []string `json:"metadataHeaders,omitempty"`
+	// Matched inference service annotations for propagating to inference logger cloud events.
+	// +optional
+	MetadataAnnotations []string `json:"metadataAnnotations,omitempty"`
 }
+
+// MetricsBackend enum
+// +kubebuilder:validation:Enum=prometheus;graphite
+type MetricsBackend string
+
+const (
+	PrometheusBackend MetricsBackend = "prometheus"
+	GraphiteBackend   MetricsBackend = "graphite"
+)
+
+// PodsMetricsBackend enum
+// +kubebuilder:validation:Enum=opentelemetry
+type PodsMetricsBackend string
+
+const (
+	OpenTelemetryBackend PodsMetricsBackend = "opentelemetry"
+)
 
 // Batcher specifies optional payload batching available for all components
 type Batcher struct {
@@ -81,7 +105,6 @@ type Batcher struct {
 
 // InferenceService is the Schema for the InferenceServices API
 // +k8s:openapi-gen=true
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
@@ -106,7 +129,6 @@ type InferenceService struct {
 
 // InferenceServiceList contains a list of Service
 // +k8s:openapi-gen=true
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +kubebuilder:object:root=true
 type InferenceServiceList struct {
 	metav1.TypeMeta `json:",inline"`
@@ -117,4 +139,16 @@ type InferenceServiceList struct {
 
 func init() {
 	SchemeBuilder.Register(&InferenceService{}, &InferenceServiceList{})
+}
+
+func (isvc *InferenceService) GetForceStopRuntime() bool {
+	forceStopRuntime := false
+	if isvc == nil || isvc.Annotations == nil {
+		return forceStopRuntime
+	}
+	if val, exist := isvc.Annotations[constants.StopAnnotationKey]; exist {
+		forceStopRuntime = strings.EqualFold(val, "true")
+	}
+
+	return forceStopRuntime
 }

@@ -15,6 +15,7 @@
 import base64
 import json
 import os
+import uuid
 from kubernetes import client
 from kubernetes.client import (
     V1ResourceRequirements,
@@ -41,10 +42,13 @@ api_version = constants.KSERVE_V1BETA1
 
 @pytest.mark.raw
 @pytest.mark.asyncio(scope="session")
-async def test_raw_deployment_kserve(rest_v1_client):
-    service_name = "raw-sklearn"
+async def test_raw_deployment_kserve(rest_v1_client, network_layer):
+    suffix = str(uuid.uuid4())[1:6]
+    service_name = "raw-sklearn-" + suffix
     annotations = dict()
     annotations["serving.kserve.io/deploymentMode"] = "RawDeployment"
+    labels = dict()
+    labels["networking.kserve.io/visibility"] = "exposed"
 
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
@@ -59,11 +63,12 @@ async def test_raw_deployment_kserve(rest_v1_client):
 
     isvc = V1beta1InferenceService(
         api_version=constants.KSERVE_V1BETA1,
-        kind=constants.KSERVE_KIND,
+        kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
             name=service_name,
             namespace=KSERVE_TEST_NAMESPACE,
             annotations=annotations,
+            labels=labels,
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -73,17 +78,25 @@ async def test_raw_deployment_kserve(rest_v1_client):
     )
     kserve_client.create(isvc)
     kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
-    res = await predict_isvc(rest_v1_client, service_name, "./data/iris_input.json")
+    res = await predict_isvc(
+        rest_v1_client,
+        service_name,
+        "./data/iris_input.json",
+        network_layer=network_layer,
+    )
     assert res["predictions"] == [1, 1]
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 
 @pytest.mark.raw
 @pytest.mark.asyncio(scope="session")
-async def test_raw_deployment_runtime_kserve(rest_v1_client):
-    service_name = "raw-sklearn-runtime"
+async def test_raw_deployment_runtime_kserve(rest_v1_client, network_layer):
+    suffix = str(uuid.uuid4())[1:6]
+    service_name = "raw-sklearn-runtime-" + suffix
     annotations = dict()
     annotations["serving.kserve.io/deploymentMode"] = "RawDeployment"
+    labels = dict()
+    labels["networking.kserve.io/visibility"] = "exposed"
 
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
@@ -101,11 +114,12 @@ async def test_raw_deployment_runtime_kserve(rest_v1_client):
 
     isvc = V1beta1InferenceService(
         api_version=constants.KSERVE_V1BETA1,
-        kind=constants.KSERVE_KIND,
+        kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
             name=service_name,
             namespace=KSERVE_TEST_NAMESPACE,
             annotations=annotations,
+            labels=labels,
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -115,7 +129,12 @@ async def test_raw_deployment_runtime_kserve(rest_v1_client):
     )
     kserve_client.create(isvc)
     kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
-    res = await predict_isvc(rest_v1_client, service_name, "./data/iris_input.json")
+    res = await predict_isvc(
+        rest_v1_client,
+        service_name,
+        "./data/iris_input.json",
+        network_layer=network_layer,
+    )
     assert res["predictions"] == [1, 1]
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
@@ -126,7 +145,7 @@ async def test_raw_deployment_runtime_kserve(rest_v1_client):
 @pytest.mark.skip(
     "The custom-model-grpc image fails in OpenShift with a permission denied error"
 )
-async def test_isvc_with_multiple_container_port():
+async def test_isvc_with_multiple_container_port(network_layer):
     service_name = "raw-multiport-custom-model"
     model_name = "custom-model"
 
@@ -153,7 +172,7 @@ async def test_isvc_with_multiple_container_port():
 
     isvc = V1beta1InferenceService(
         api_version=constants.KSERVE_V1BETA1,
-        kind=constants.KSERVE_KIND,
+        kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
             name=service_name,
             namespace=KSERVE_TEST_NAMESPACE,
@@ -184,7 +203,10 @@ async def test_isvc_with_multiple_container_port():
     ]
     expected_output = ["14.976", "14.037", "13.966", "12.252", "12.086"]
     grpc_response = await predict_grpc(
-        service_name=service_name, payload=payload, model_name=model_name
+        service_name=service_name,
+        payload=payload,
+        model_name=model_name,
+        network_layer=network_layer,
     )
     fields = grpc_response.outputs[0].data
     grpc_output = ["%.3f" % value for value in fields]

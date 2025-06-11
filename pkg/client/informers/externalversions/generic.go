@@ -19,7 +19,7 @@ limitations under the License.
 package externalversions
 
 import (
-	"fmt"
+	fmt "fmt"
 
 	v1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	v1beta1 "github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -54,14 +54,16 @@ func (f *genericInformer) Lister() cache.GenericLister {
 func (f *sharedInformerFactory) ForResource(resource schema.GroupVersionResource) (GenericInformer, error) {
 	switch resource {
 	// Group=serving.kserve.io, Version=v1alpha1
-	case v1alpha1.SchemeGroupVersion.WithResource("clusterlocalmodels"):
-		return &genericInformer{resource: resource.GroupResource(), informer: f.Serving().V1alpha1().ClusterLocalModels().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("clusterservingruntimes"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Serving().V1alpha1().ClusterServingRuntimes().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("clusterstoragecontainers"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Serving().V1alpha1().ClusterStorageContainers().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("inferencegraphs"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Serving().V1alpha1().InferenceGraphs().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("localmodelcaches"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Serving().V1alpha1().LocalModelCaches().Informer()}, nil
+	case v1alpha1.SchemeGroupVersion.WithResource("localmodelnodes"):
+		return &genericInformer{resource: resource.GroupResource(), informer: f.Serving().V1alpha1().LocalModelNodes().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("localmodelnodegroups"):
 		return &genericInformer{resource: resource.GroupResource(), informer: f.Serving().V1alpha1().LocalModelNodeGroups().Informer()}, nil
 	case v1alpha1.SchemeGroupVersion.WithResource("servingruntimes"):

@@ -85,17 +85,20 @@ jobs:
           [[ "$VERSION" =~ ^release- ]] && VERSION=$(echo $VERSION | sed 's/^release-//')-latest
 
           TAGS=$IMAGE_ID:$VERSION
-          
+
           # If a vX.Y.Z release is being built, also update the vX.Y tag.
           [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] && TAGS=$TAGS,$IMAGE_ID:$(echo $VERSION | sed 's/\(.*\)\.[[:digit:]]\+$/\1/')
-          
+
           echo CONTAINER_TAGS=$TAGS >> $GITHUB_ENV
 
       - name: Build and push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           platforms: linux/amd64,linux/arm64/v8,linux/ppc64le,linux/s390x
           context: .
           file: Dockerfile
           push: true
           tags: ${{ env.CONTAINER_TAGS }}
+          # https://github.com/docker/buildx/issues/1533
+          provenance: false
+          sbom: true

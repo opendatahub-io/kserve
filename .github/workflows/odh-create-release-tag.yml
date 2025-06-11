@@ -22,9 +22,6 @@ jobs:
           ref: ${{ github.ref }}
           fetch-depth: 0
       
-      - name: Get latest tag
-        id: get_tag
-        run: |
       - name: print tag
         id: print_tag
         run: | 
@@ -97,3 +94,4 @@ jobs:
           files: bin/*
           generate_release_notes: true
           name: ${{ github.event.inputs.tag_name }}
+

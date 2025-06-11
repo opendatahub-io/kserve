@@ -19,19 +19,20 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"net/http"
+	http "net/http"
 
-	v1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	"github.com/kserve/kserve/pkg/client/clientset/versioned/scheme"
+	servingv1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	scheme "github.com/kserve/kserve/pkg/client/clientset/versioned/scheme"
 	rest "k8s.io/client-go/rest"
 )
 
 type ServingV1alpha1Interface interface {
 	RESTClient() rest.Interface
-	ClusterLocalModelsGetter
 	ClusterServingRuntimesGetter
 	ClusterStorageContainersGetter
 	InferenceGraphsGetter
+	LocalModelCachesGetter
+	LocalModelNodesGetter
 	LocalModelNodeGroupsGetter
 	ServingRuntimesGetter
 	TrainedModelsGetter
@@ -40,10 +41,6 @@ type ServingV1alpha1Interface interface {
 // ServingV1alpha1Client is used to interact with features provided by the serving.kserve.io group.
 type ServingV1alpha1Client struct {
 	restClient rest.Interface
-}
-
-func (c *ServingV1alpha1Client) ClusterLocalModels(namespace string) ClusterLocalModelInterface {
-	return newClusterLocalModels(c, namespace)
 }
 
 func (c *ServingV1alpha1Client) ClusterServingRuntimes(namespace string) ClusterServingRuntimeInterface {
@@ -56,6 +53,14 @@ func (c *ServingV1alpha1Client) ClusterStorageContainers(namespace string) Clust
 
 func (c *ServingV1alpha1Client) InferenceGraphs(namespace string) InferenceGraphInterface {
 	return newInferenceGraphs(c, namespace)
+}
+
+func (c *ServingV1alpha1Client) LocalModelCaches(namespace string) LocalModelCacheInterface {
+	return newLocalModelCaches(c, namespace)
+}
+
+func (c *ServingV1alpha1Client) LocalModelNodes(namespace string) LocalModelNodeInterface {
+	return newLocalModelNodes(c, namespace)
 }
 
 func (c *ServingV1alpha1Client) LocalModelNodeGroups(namespace string) LocalModelNodeGroupInterface {
@@ -115,10 +120,10 @@ func New(c rest.Interface) *ServingV1alpha1Client {
 }
 
 func setConfigDefaults(config *rest.Config) error {
-	gv := v1alpha1.SchemeGroupVersion
+	gv := servingv1alpha1.SchemeGroupVersion
 	config.GroupVersion = &gv
 	config.APIPath = "/apis"
-	config.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
+	config.NegotiatedSerializer = rest.CodecFactoryForGeneratedClient(scheme.Scheme, scheme.Codecs).WithoutConversion()
 
 	if config.UserAgent == "" {
 		config.UserAgent = rest.DefaultKubernetesUserAgent()

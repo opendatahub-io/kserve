@@ -24,13 +24,15 @@ import (
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 	netv1 "k8s.io/api/networking/v1"
 
+	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	"github.com/onsi/gomega"
+	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	"k8s.io/client-go/kubernetes/scheme"
-	operatorv1beta1 "knative.dev/operator/pkg/apis/operator/v1beta1"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 var log = logf.Log.WithName("TestingEnvSetup")
@@ -56,8 +58,14 @@ func SetupEnvTest(crdDirectoryPaths []string) *envtest.Environment {
 		log.Error(err, "Failed to add istio scheme")
 	}
 
-	if err := operatorv1beta1.SchemeBuilder.AddToScheme(scheme.Scheme); err != nil {
-		log.Error(err, "Failed to add knative operator scheme")
+	if err := gatewayapiv1.Install(scheme.Scheme); err != nil {
+		log.Error(err, "Failed to add gateway scheme")
+	}
+	if err := kedav1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme); err != nil {
+		log.Error(err, "Failed to add KEDA scheme")
+	}
+	if err := otelv1beta1.SchemeBuilder.AddToScheme(scheme.Scheme); err != nil {
+		log.Error(err, "Failed to add OpenTelemetry scheme")
 	}
 	return t
 }

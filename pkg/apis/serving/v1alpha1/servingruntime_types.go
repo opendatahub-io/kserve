@@ -17,13 +17,14 @@ limitations under the License.
 package v1alpha1
 
 import (
-	"fmt"
+	"errors"
 
-	"github.com/kserve/kserve/pkg/constants"
 	"gopkg.in/go-playground/validator.v9"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+
+	"github.com/kserve/kserve/pkg/constants"
 )
 
 // +k8s:openapi-gen=true
@@ -174,8 +175,7 @@ type ServingRuntimeSpec struct {
 
 // ServingRuntimeStatus defines the observed state of ServingRuntime
 // +k8s:openapi-gen=true
-type ServingRuntimeStatus struct {
-}
+type ServingRuntimeStatus struct{}
 
 // ServerType constant for specifying the runtime name
 // +k8s:openapi-gen=true
@@ -208,7 +208,6 @@ type BuiltInAdapter struct {
 
 // ServingRuntime is the Schema for the servingruntimes API
 // +k8s:openapi-gen=true
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:printcolumn:name="Disabled",type="boolean",JSONPath=".spec.disabled"
@@ -226,7 +225,6 @@ type ServingRuntime struct {
 // ServingRuntimeList contains a list of ServingRuntime
 // +k8s:openapi-gen=true
 // +kubebuilder:object:root=true
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type ServingRuntimeList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -235,7 +233,6 @@ type ServingRuntimeList struct {
 
 // ClusterServingRuntime is the Schema for the servingruntimes API
 // +k8s:openapi-gen=true
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 // +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope="Cluster"
@@ -254,7 +251,6 @@ type ClusterServingRuntime struct {
 // ClusterServingRuntimeList contains a list of ServingRuntime
 // +k8s:openapi-gen=true
 // +kubebuilder:object:root=true
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type ClusterServingRuntimeList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
@@ -343,7 +339,7 @@ func (srSpec *ServingRuntimeSpec) validatePodSpecAndWorkerSpec() error {
 	// Additional validation for WorkerSpec
 	if srSpec.WorkerSpec != nil {
 		if len(srSpec.WorkerSpec.Containers) == 0 {
-			return fmt.Errorf("spec.workerSpec.containers: Required value")
+			return errors.New("spec.workerSpec.containers: Required value")
 		}
 	}
 

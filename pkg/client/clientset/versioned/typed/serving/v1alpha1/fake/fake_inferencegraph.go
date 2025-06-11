@@ -19,123 +19,34 @@ limitations under the License.
 package fake
 
 import (
-	"context"
-
 	v1alpha1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	labels "k8s.io/apimachinery/pkg/labels"
-	types "k8s.io/apimachinery/pkg/types"
-	watch "k8s.io/apimachinery/pkg/watch"
-	testing "k8s.io/client-go/testing"
+	servingv1alpha1 "github.com/kserve/kserve/pkg/client/clientset/versioned/typed/serving/v1alpha1"
+	gentype "k8s.io/client-go/gentype"
 )
 
-// FakeInferenceGraphs implements InferenceGraphInterface
-type FakeInferenceGraphs struct {
+// fakeInferenceGraphs implements InferenceGraphInterface
+type fakeInferenceGraphs struct {
+	*gentype.FakeClientWithList[*v1alpha1.InferenceGraph, *v1alpha1.InferenceGraphList]
 	Fake *FakeServingV1alpha1
-	ns   string
 }
 
-var inferencegraphsResource = v1alpha1.SchemeGroupVersion.WithResource("inferencegraphs")
-
-var inferencegraphsKind = v1alpha1.SchemeGroupVersion.WithKind("InferenceGraph")
-
-// Get takes name of the inferenceGraph, and returns the corresponding inferenceGraph object, and an error if there is any.
-func (c *FakeInferenceGraphs) Get(ctx context.Context, name string, options v1.GetOptions) (result *v1alpha1.InferenceGraph, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewGetAction(inferencegraphsResource, c.ns, name), &v1alpha1.InferenceGraph{})
-
-	if obj == nil {
-		return nil, err
+func newFakeInferenceGraphs(fake *FakeServingV1alpha1, namespace string) servingv1alpha1.InferenceGraphInterface {
+	return &fakeInferenceGraphs{
+		gentype.NewFakeClientWithList[*v1alpha1.InferenceGraph, *v1alpha1.InferenceGraphList](
+			fake.Fake,
+			namespace,
+			v1alpha1.SchemeGroupVersion.WithResource("inferencegraphs"),
+			v1alpha1.SchemeGroupVersion.WithKind("InferenceGraph"),
+			func() *v1alpha1.InferenceGraph { return &v1alpha1.InferenceGraph{} },
+			func() *v1alpha1.InferenceGraphList { return &v1alpha1.InferenceGraphList{} },
+			func(dst, src *v1alpha1.InferenceGraphList) { dst.ListMeta = src.ListMeta },
+			func(list *v1alpha1.InferenceGraphList) []*v1alpha1.InferenceGraph {
+				return gentype.ToPointerSlice(list.Items)
+			},
+			func(list *v1alpha1.InferenceGraphList, items []*v1alpha1.InferenceGraph) {
+				list.Items = gentype.FromPointerSlice(items)
+			},
+		),
+		fake,
 	}
-	return obj.(*v1alpha1.InferenceGraph), err
-}
-
-// List takes label and field selectors, and returns the list of InferenceGraphs that match those selectors.
-func (c *FakeInferenceGraphs) List(ctx context.Context, opts v1.ListOptions) (result *v1alpha1.InferenceGraphList, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewListAction(inferencegraphsResource, inferencegraphsKind, c.ns, opts), &v1alpha1.InferenceGraphList{})
-
-	if obj == nil {
-		return nil, err
-	}
-
-	label, _, _ := testing.ExtractFromListOptions(opts)
-	if label == nil {
-		label = labels.Everything()
-	}
-	list := &v1alpha1.InferenceGraphList{ListMeta: obj.(*v1alpha1.InferenceGraphList).ListMeta}
-	for _, item := range obj.(*v1alpha1.InferenceGraphList).Items {
-		if label.Matches(labels.Set(item.Labels)) {
-			list.Items = append(list.Items, item)
-		}
-	}
-	return list, err
-}
-
-// Watch returns a watch.Interface that watches the requested inferenceGraphs.
-func (c *FakeInferenceGraphs) Watch(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
-	return c.Fake.
-		InvokesWatch(testing.NewWatchAction(inferencegraphsResource, c.ns, opts))
-
-}
-
-// Create takes the representation of a inferenceGraph and creates it.  Returns the server's representation of the inferenceGraph, and an error, if there is any.
-func (c *FakeInferenceGraphs) Create(ctx context.Context, inferenceGraph *v1alpha1.InferenceGraph, opts v1.CreateOptions) (result *v1alpha1.InferenceGraph, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewCreateAction(inferencegraphsResource, c.ns, inferenceGraph), &v1alpha1.InferenceGraph{})
-
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.InferenceGraph), err
-}
-
-// Update takes the representation of a inferenceGraph and updates it. Returns the server's representation of the inferenceGraph, and an error, if there is any.
-func (c *FakeInferenceGraphs) Update(ctx context.Context, inferenceGraph *v1alpha1.InferenceGraph, opts v1.UpdateOptions) (result *v1alpha1.InferenceGraph, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewUpdateAction(inferencegraphsResource, c.ns, inferenceGraph), &v1alpha1.InferenceGraph{})
-
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.InferenceGraph), err
-}
-
-// UpdateStatus was generated because the type contains a Status member.
-// Add a +genclient:noStatus comment above the type to avoid generating UpdateStatus().
-func (c *FakeInferenceGraphs) UpdateStatus(ctx context.Context, inferenceGraph *v1alpha1.InferenceGraph, opts v1.UpdateOptions) (*v1alpha1.InferenceGraph, error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewUpdateSubresourceAction(inferencegraphsResource, "status", c.ns, inferenceGraph), &v1alpha1.InferenceGraph{})
-
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.InferenceGraph), err
-}
-
-// Delete takes name of the inferenceGraph and deletes it. Returns an error if one occurs.
-func (c *FakeInferenceGraphs) Delete(ctx context.Context, name string, opts v1.DeleteOptions) error {
-	_, err := c.Fake.
-		Invokes(testing.NewDeleteActionWithOptions(inferencegraphsResource, c.ns, name, opts), &v1alpha1.InferenceGraph{})
-
-	return err
-}
-
-// DeleteCollection deletes a collection of objects.
-func (c *FakeInferenceGraphs) DeleteCollection(ctx context.Context, opts v1.DeleteOptions, listOpts v1.ListOptions) error {
-	action := testing.NewDeleteCollectionAction(inferencegraphsResource, c.ns, listOpts)
-
-	_, err := c.Fake.Invokes(action, &v1alpha1.InferenceGraphList{})
-	return err
-}
-
-// Patch applies the patch and returns the patched inferenceGraph.
-func (c *FakeInferenceGraphs) Patch(ctx context.Context, name string, pt types.PatchType, data []byte, opts v1.PatchOptions, subresources ...string) (result *v1alpha1.InferenceGraph, err error) {
-	obj, err := c.Fake.
-		Invokes(testing.NewPatchSubresourceAction(inferencegraphsResource, c.ns, name, pt, data, subresources...), &v1alpha1.InferenceGraph{})
-
-	if obj == nil {
-		return nil, err
-	}
-	return obj.(*v1alpha1.InferenceGraph), err
 }

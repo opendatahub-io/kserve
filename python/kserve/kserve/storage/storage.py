@@ -39,11 +39,11 @@ _HDFS_PREFIX = "hdfs://"
 _WEBHDFS_PREFIX = "webhdfs://"
 _AZURE_BLOB_RE = [
     "https://(.+?).blob.core.windows.net/(.+)",
-    "https://(.+?).z[0-9]{2}.blob.storage.azure.net/(.+)",
+    "https://(.+?).z[0-9]{1,2}.blob.storage.azure.net/(.+)",
 ]
 _AZURE_FILE_RE = [
     "https://(.+?).file.core.windows.net/(.+)",
-    "https://(.+?).z[0-9]{2}.file.storage.azure.net/(.+)",
+    "https://(.+?).z[0-9]{1,2}.file.storage.azure.net/(.+)",
 ]
 _LOCAL_PREFIX = "file://"
 _URI_RE = "https?://(.+)/(.+)"
@@ -176,6 +176,17 @@ class Storage(object):
         if accelerate:
             c = c.merge(Config(s3={"use_accelerate_endpoint": accelerate}))
 
+        # NOTE: If endpoint_url provided is legacy ("https://s3.amazonaws.com") and region is not global (us-east-1), set to virtual addressing style
+        # So that request would not return PermanentRedirect due to region not in the endpoint url
+        # AWS SDK retries under the hood to set the correct region when the valid virtual addressing style endpoint url is provided
+        endpoint_url = os.getenv("AWS_ENDPOINT_URL")
+        region = os.getenv("AWS_DEFAULT_REGION")
+        if endpoint_url == "https://s3.amazonaws.com" and region not in (
+            None,
+            "us-east-1",
+        ):
+            c = c.merge(Config(s3={"addressing_style": "virtual"}))
+
         return c
 
     @staticmethod
@@ -248,18 +259,13 @@ class Storage(object):
             # (without any subpaths).
             # If the bucket path is s3://test/models
             # Objects: churn, churn-pickle, churn-pickle-logs
-            bucket_path_last_part = bucket_path.split("/")[-1]
-            object_last_path = obj.key.split("/")[-1]
 
             if bucket_path == obj.key:
                 target_key = obj.key.rsplit("/", 1)[-1]
                 exact_obj_found = True
-            elif bucket_path_last_part and object_last_path.startswith(
-                bucket_path_last_part
-            ):
-                target_key = object_last_path
+
             else:
-                target_key = obj.key.replace(bucket_path, "").lstrip("/")
+                target_key = re.sub(r"^" + re.escape(bucket_path) + r"/?", "", obj.key)
 
             target = f"{temp_dir}/{target_key}"
             if not os.path.exists(os.path.dirname(target)):
@@ -319,6 +325,7 @@ class Storage(object):
     def _download_gcs(uri, temp_dir: str) -> str:
         from google.auth import exceptions
         from google.cloud import storage
+        import copy
 
         try:
             storage_client = storage.Client()
@@ -333,22 +340,36 @@ class Storage(object):
             prefix = prefix + "/"
         blobs = bucket.list_blobs(prefix=prefix)
         file_count = 0
-        for blob in blobs:
-            # Replace any prefix from the object key with temp_dir
-            subdir_object_key = blob.name.replace(bucket_path, "", 1).lstrip("/")
 
-            # Create necessary subdirectory to store the object locally
-            if "/" in subdir_object_key:
-                local_object_dir = os.path.join(
-                    temp_dir, subdir_object_key.rsplit("/", 1)[0]
-                )
-                if not os.path.isdir(local_object_dir):
-                    os.makedirs(local_object_dir, exist_ok=True)
-            if subdir_object_key.strip() != "" and not subdir_object_key.endswith("/"):
-                dest_path = os.path.join(temp_dir, subdir_object_key)
-                logger.info("Downloading: %s", dest_path)
-                blob.download_to_filename(dest_path)
-                file_count += 1
+        # Shallow copy, otherwise Iterator has already started
+        shallow_blobs = copy.copy(blobs)
+        blob = bucket.blob(bucket_path)
+        # checks if the blob is a file or a directory
+        if blob.name == bucket_path and len(list(shallow_blobs)) == 0:
+            dest_path = os.path.join(temp_dir, os.path.basename(bucket_path))
+            logger.info("Downloading single file to: %s", dest_path)
+            blob.download_to_filename(dest_path)
+            file_count = 1
+
+        else:
+            for blob in blobs:
+                # Replace any prefix from the object key with temp_dir
+                subdir_object_key = blob.name.replace(bucket_path, "", 1).lstrip("/")
+                # Create necessary subdirectory to store the object locally
+                if "/" in subdir_object_key:
+                    local_object_dir = os.path.join(
+                        temp_dir, subdir_object_key.rsplit("/", 1)[0]
+                    )
+                    if not os.path.isdir(local_object_dir):
+                        os.makedirs(local_object_dir, exist_ok=True)
+                if subdir_object_key.strip() != "" and not subdir_object_key.endswith(
+                    "/"
+                ):
+                    dest_path = os.path.join(temp_dir, subdir_object_key)
+                    logger.info("Downloading: %s", dest_path)
+                    blob.download_to_filename(dest_path)
+                    file_count += 1
+
         if file_count == 0:
             raise RuntimeError("Failed to fetch model. No model found in %s." % uri)
 
