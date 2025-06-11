@@ -267,10 +267,6 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
 						},
 						{
-							Name:  "SSL_CERT_FILE",
-							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
-						},
-						{
 							Name:  "PROPAGATE_HEADERS",
 							Value: "Authorization,Intuit_tid",
 						},

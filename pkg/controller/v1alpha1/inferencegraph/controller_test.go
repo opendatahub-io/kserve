@@ -638,10 +638,6 @@ var _ = Describe("Inference Graph controller test", func() {
 													Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
 												},
 												{
-													Name:  "SSL_CERT_FILE",
-													Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
-												},
-												{
 													Name:  "PROPAGATE_HEADERS",
 													Value: "Authorization,Intuit_tid",
 												},
@@ -798,10 +794,6 @@ var _ = Describe("Inference Graph controller test", func() {
 										{
 											Image: "kserve/router:v0.10.0",
 											Env: []corev1.EnvVar{
-												{
-													Name:  "SSL_CERT_FILE",
-													Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
-												},
 												{
 													Name:  "SSL_CERT_FILE",
 													Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
@@ -976,10 +968,6 @@ var _ = Describe("Inference Graph controller test", func() {
 										{
 											Image: "kserve/router:v0.10.0",
 											Env: []corev1.EnvVar{
-												{
-													Name:  "SSL_CERT_FILE",
-													Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
-												},
 												{
 													Name:  "SSL_CERT_FILE",
 													Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
