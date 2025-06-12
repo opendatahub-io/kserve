@@ -9657,6 +9657,11 @@ var _ = Describe("v1beta1 inference service controller", func() {
 							Type:   apis.ConditionReady,
 							Status: "True",
 						},
+						{
+							Type:     v1beta1.Stopped,
+							Status:   "False",
+							Severity: apis.ConditionSeverityInfo,
+						},
 					},
 				},
 				URL: &apis.URL{
