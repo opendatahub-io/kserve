@@ -98,7 +98,7 @@ async def test_scheduler_name(rest_v1_client):
                 f"Pod {pod.metadata.name} scheduler name {pod.spec.scheduler_name} "
                 f"does not match expected value '{scheduler_name}'"
             )
-            kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
+        kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
     except TimeoutExpiredError as e:
         logger.error("Timeout waiting for pods to be created")
         raise e
