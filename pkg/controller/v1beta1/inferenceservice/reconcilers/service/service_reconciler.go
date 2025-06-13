@@ -25,6 +25,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/utils"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierr "k8s.io/apimachinery/pkg/api/errors"
@@ -265,6 +266,8 @@ func (r *ServiceReconciler) cleanHeadSvc() error {
 
 // checkServiceExist checks if the service exists?
 func (r *ServiceReconciler) checkServiceExist(client client.Client, svc *corev1.Service) (constants.CheckResultType, *corev1.Service, error) {
+	forceStopRuntime := utils.GetForceStopRuntime(svc)
+
 	// get service
 	existingService := &corev1.Service{}
 	err := client.Get(context.TODO(), types.NamespacedName{
@@ -273,9 +276,21 @@ func (r *ServiceReconciler) checkServiceExist(client client.Client, svc *corev1.
 	}, existingService)
 	if err != nil {
 		if apierr.IsNotFound(err) {
-			return constants.CheckResultCreate, nil, nil
+			if !forceStopRuntime {
+				return constants.CheckResultCreate, nil, nil
+			}
+			return constants.CheckResultSkipped, nil, nil
 		}
 		return constants.CheckResultUnknown, nil, err
+	}
+
+	// existed, but marked for deletion
+	if forceStopRuntime {
+		ctrl := metav1.GetControllerOf(svc)
+		existingCtrl := metav1.GetControllerOf(existingService)
+		if ctrl != nil && existingCtrl != nil && ctrl.UID == existingCtrl.UID {
+			return constants.CheckResultDelete, existingService, nil
+		}
 	}
 
 	// existed, check equivalent
@@ -306,6 +321,11 @@ func (r *ServiceReconciler) Reconcile() ([]*corev1.Service, error) {
 			opErr = r.client.Create(context.TODO(), svc)
 		case constants.CheckResultUpdate:
 			opErr = r.client.Update(context.TODO(), svc)
+		case constants.CheckResultDelete:
+			if svc.GetDeletionTimestamp() == nil { // check if the service was already deleted
+				log.Info("Deleting service", "namespace", svc.Namespace, "name", svc.Name)
+				opErr = r.client.Delete(context.TODO(), svc)
+			}
 		}
 
 		if opErr != nil {

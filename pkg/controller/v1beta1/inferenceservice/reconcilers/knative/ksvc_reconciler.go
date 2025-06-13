@@ -231,7 +231,7 @@ func (r *KsvcReconciler) Reconcile() (*knservingv1.ServiceStatus, error) {
 		}
 
 		if forceStopRuntime {
-			log.Info("Stopping knative service", "namespace", existing.Namespace, "name", existing.Name)
+			log.Info("Deleting knative service", "namespace", existing.Namespace, "name", existing.Name)
 			if existing.GetDeletionTimestamp() == nil { // check if the ksvc was already deleted
 				err := r.client.Delete(context.TODO(), existing)
 				if err != nil {

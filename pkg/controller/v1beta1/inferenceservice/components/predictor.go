@@ -393,7 +393,9 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 		if err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile predictor")
 		}
-		isvc.Status.PropagateRawStatus(v1beta1.PredictorComponent, deploymentList, r.URL)
+		if !utils.GetForceStopRuntime(isvc) {
+			isvc.Status.PropagateRawStatus(v1beta1.PredictorComponent, deploymentList, r.URL)
+		}
 	} else {
 		podLabelKey = constants.RevisionLabel
 		r, err := knative.NewKsvcReconciler(p.client, p.scheme, objectMeta, &isvc.Spec.Predictor.ComponentExtensionSpec,
@@ -410,46 +412,50 @@ func (p *Predictor) Reconcile(isvc *v1beta1.InferenceService) (ctrl.Result, erro
 		if err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile predictor")
 		}
-		if !isvc.GetForceStopRuntime() {
+		if !utils.GetForceStopRuntime(isvc) {
 			isvc.Status.PropagateStatus(v1beta1.PredictorComponent, kstatus)
 		}
-		if isvc.GetForceStopRuntime() {
-			// Exit early if we have already set the status to stopped
-			existing_stopped_condition := isvc.Status.GetCondition(v1beta1.Stopped)
-			if existing_stopped_condition != nil && existing_stopped_condition.Status == v1.ConditionTrue {
-				return ctrl.Result{}, nil
-			}
+	}
 
-			deployMode := isvc.Status.DeploymentMode
-
-			// Clear all statuses
-			isvc.Status = v1beta1.InferenceServiceStatus{}
-
-			// Preserve the deployment mode value
-			isvc.Status.DeploymentMode = deployMode
-
-			// Set the ready condition
-			predictor_ready_condition := &apis.Condition{
-				Type:   v1beta1.PredictorReady,
-				Status: v1.ConditionFalse,
-			}
-			isvc.Status.SetCondition(v1beta1.PredictorReady, predictor_ready_condition)
-
-			// Add the stopped condition
-			stopped_condition := &apis.Condition{
-				Type:   v1beta1.Stopped,
-				Status: v1.ConditionTrue,
-			}
-			isvc.Status.SetCondition(v1beta1.Stopped, stopped_condition)
-
+	// Handle InferenceService status updates based on the force stop annotation.
+	// If true, transition the service to a stopped and unready state; otherwise, ensure it's not marked as stopped.
+	if utils.GetForceStopRuntime(isvc) {
+		// Exit early if we have already set the status to stopped
+		existingStoppedCondition := isvc.Status.GetCondition(v1beta1.Stopped)
+		if existingStoppedCondition != nil && existingStoppedCondition.Status == v1.ConditionTrue {
 			return ctrl.Result{}, nil
-		} else {
-			resume_condition := &apis.Condition{
-				Type:   v1beta1.Stopped,
-				Status: v1.ConditionFalse,
-			}
-			isvc.Status.SetCondition(v1beta1.Stopped, resume_condition)
 		}
+
+		deployMode := isvc.Status.DeploymentMode
+
+		// Clear all statuses
+		isvc.Status = v1beta1.InferenceServiceStatus{}
+
+		// Preserve the deployment mode value
+		isvc.Status.DeploymentMode = deployMode
+
+		// Set the ready condition
+		predictorReadyCondition := &apis.Condition{
+			Type:   v1beta1.PredictorReady,
+			Status: v1.ConditionFalse,
+			Reason: v1beta1.StoppedISVCReason,
+		}
+		isvc.Status.SetCondition(v1beta1.PredictorReady, predictorReadyCondition)
+
+		// Add the stopped condition
+		stoppedCondition := &apis.Condition{
+			Type:   v1beta1.Stopped,
+			Status: v1.ConditionTrue,
+		}
+		isvc.Status.SetCondition(v1beta1.Stopped, stoppedCondition)
+
+		return ctrl.Result{}, nil
+	} else {
+		resumeCondition := &apis.Condition{
+			Type:   v1beta1.Stopped,
+			Status: v1.ConditionFalse,
+		}
+		isvc.Status.SetCondition(v1beta1.Stopped, resumeCondition)
 	}
 
 	statusSpec := isvc.Status.Components[v1beta1.PredictorComponent]

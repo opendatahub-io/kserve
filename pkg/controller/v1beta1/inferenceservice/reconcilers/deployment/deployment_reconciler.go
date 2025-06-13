@@ -425,6 +425,8 @@ func generateCookieSecret() (string, error) {
 
 // checkDeploymentExist checks if the deployment exists?
 func (r *DeploymentReconciler) checkDeploymentExist(client kclient.Client, deployment *appsv1.Deployment) (constants.CheckResultType, *appsv1.Deployment, error) {
+	forceStopRuntime := utils.GetForceStopRuntime(deployment)
+
 	// get deployment
 	existingDeployment := &appsv1.Deployment{}
 	err := client.Get(context.TODO(), types.NamespacedName{
@@ -433,10 +435,23 @@ func (r *DeploymentReconciler) checkDeploymentExist(client kclient.Client, deplo
 	}, existingDeployment)
 	if err != nil {
 		if apierr.IsNotFound(err) {
-			return constants.CheckResultCreate, nil, nil
+			if !forceStopRuntime {
+				return constants.CheckResultCreate, nil, nil
+			}
+			return constants.CheckResultSkipped, nil, nil
 		}
 		return constants.CheckResultUnknown, nil, err
 	}
+
+	// existed, but marked for deletion
+	if forceStopRuntime {
+		ctrl := metav1.GetControllerOf(deployment)
+		existingCtrl := metav1.GetControllerOf(existingDeployment)
+		if ctrl != nil && existingCtrl != nil && ctrl.UID == existingCtrl.UID {
+			return constants.CheckResultDelete, existingDeployment, nil
+		}
+	}
+
 	// existed, check equivalence
 	// for HPA scaling, we should ignore Replicas of Deployment
 	ignoreFields := cmpopts.IgnoreFields(appsv1.DeploymentSpec{}, "Replicas")
@@ -722,6 +737,12 @@ func (r *DeploymentReconciler) Reconcile() ([]*appsv1.Deployment, error) {
 				}
 			}
 			opErr = r.client.Patch(context.TODO(), deployment, kclient.RawPatch(types.StrategicMergePatchType, patchByte))
+
+		case constants.CheckResultDelete:
+			log.Info("Deleting deployment", "namespace", deployment.Namespace, "name", deployment.Name)
+			if deployment.GetDeletionTimestamp() == nil { // check if the deployment was already deleted
+				opErr = r.client.Delete(context.TODO(), deployment)
+			}
 		}
 
 		if opErr != nil {

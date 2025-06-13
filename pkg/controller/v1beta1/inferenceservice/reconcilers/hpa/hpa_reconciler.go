@@ -29,6 +29,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 var log = logf.Log.WithName("HPAReconciler")
@@ -141,11 +143,11 @@ func (r *HPAReconciler) checkHPAExist(client client.Client) (constants.CheckResu
 	}
 
 	// existed, check equivalent
-	if semanticHPAEquals(r.HPA, existingHPA) {
-		return constants.CheckResultExisted, existingHPA, nil
-	}
 	if shouldDeleteHPA(r.HPA) {
 		return constants.CheckResultDelete, existingHPA, nil
+	}
+	if semanticHPAEquals(r.HPA, existingHPA) {
+		return constants.CheckResultExisted, existingHPA, nil
 	}
 	return constants.CheckResultUpdate, existingHPA, nil
 }
@@ -163,11 +165,23 @@ func semanticHPAEquals(desired, existing *autoscalingv2.HorizontalPodAutoscaler)
 }
 
 func shouldDeleteHPA(desired *autoscalingv2.HorizontalPodAutoscaler) bool {
+	// Forcibly stop the HPA based on the stop annotation
+	forceStopRuntime := utils.GetForceStopRuntime(desired)
+	if forceStopRuntime {
+		return true
+	}
+
 	desiredAutoscalerClass, hasDesiredAutoscalerClass := desired.Annotations[constants.AutoscalerClass]
 	return hasDesiredAutoscalerClass && constants.AutoscalerClassType(desiredAutoscalerClass) == constants.AutoscalerClassExternal
 }
 
 func shouldCreateHPA(desired *autoscalingv2.HorizontalPodAutoscaler) bool {
+	// Skip creating the HPA if the stop annotation is true
+	forceStopRuntime := utils.GetForceStopRuntime(desired)
+	if forceStopRuntime {
+		return false
+	}
+
 	desiredAutoscalerClass, hasDesiredAutoscalerClass := desired.Annotations[constants.AutoscalerClass]
 	return !hasDesiredAutoscalerClass || (hasDesiredAutoscalerClass && constants.AutoscalerClassType(desiredAutoscalerClass) == constants.AutoscalerClassHPA)
 }

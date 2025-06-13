@@ -238,7 +238,7 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		if isvc.Spec.Explainer != nil {
 			componentList = append(componentList, v1beta1api.ExplainerComponent)
 		}
-		if !isvc.GetForceStopRuntime() {
+		if !utils.GetForceStopRuntime(isvc) {
 			isvc.Status.PropagateCrossComponentStatus(componentList, v1beta1api.RoutesReady)
 			isvc.Status.PropagateCrossComponentStatus(componentList, v1beta1api.LatestDeploymentReady)
 		}
