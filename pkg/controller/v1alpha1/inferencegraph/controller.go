@@ -283,7 +283,7 @@ func (r *InferenceGraphReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		if !ksvcAvailable {
 			r.Recorder.Event(graph, corev1.EventTypeWarning, "ServerlessModeRejected",
 				"It is not possible to use Serverless deployment mode when Knative Services are not available")
-			return reconcile.Result{Requeue: false}, reconcile.TerminalError(fmt.Errorf("the resolved deployment mode of InferenceGraph '%s' is Serverless, but Knative Serving is not available", graph.Name))
+			return reconcile.Result{Requeue: false}, reconcile.TerminalError(fmt.Errorf("the resolved deployment mode of InferenceGraph '%s' is Serverless, but Knative Services are not available", graph.Name))
 		}
 
 		// Retrieve the allow-zero-initial-scale value from the knative autoscaler configuration.

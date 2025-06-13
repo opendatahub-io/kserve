@@ -404,6 +404,7 @@ var (
 	// revisions, which prevents the reconciliation loop to be triggered if the annotations is
 	// configured here are used.
 	ServiceAnnotationDisallowedList = []string{
+		autoscaling.InitialScaleAnnotationKey,
 		autoscaling.MinScaleAnnotationKey,
 		autoscaling.MaxScaleAnnotationKey,
 		StorageInitializerSourceUriInternalAnnotationKey,

@@ -556,6 +556,7 @@ develop = true
 
 [package.dependencies]
 cloudevents = "^1.6.2"
+durationpy = "^0.9.0"
 fastapi = ">=0.115.3"
 grpc-interceptor = ">=0.15.4,<1.0.0"
 grpcio = "^1.60.0"

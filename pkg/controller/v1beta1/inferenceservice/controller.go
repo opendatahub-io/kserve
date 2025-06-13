@@ -210,7 +210,7 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		if !ksvcAvailable {
 			r.Recorder.Event(isvc, corev1.EventTypeWarning, "ServerlessModeRejected",
 				"It is not possible to use Serverless deployment mode when Knative Services are not available")
-			return reconcile.Result{Requeue: false}, reconcile.TerminalError(fmt.Errorf("the resolved deployment mode of InferenceService '%s' is Serverless, but Knative Serving is not available", isvc.Name))
+			return reconcile.Result{Requeue: false}, reconcile.TerminalError(fmt.Errorf("the resolved deployment mode of InferenceService '%s' is Serverless, but Knative Services are not available", isvc.Name))
 		}
 
 		// Retrieve the allow-zero-initial-scale value from the knative autoscaler configuration.

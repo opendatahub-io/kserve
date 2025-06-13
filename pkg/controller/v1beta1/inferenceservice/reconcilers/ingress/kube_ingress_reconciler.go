@@ -129,7 +129,6 @@ func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Infe
 			}
 		}
 	}
-
 	authEnabled := false
 	if val, ok := isvc.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
 		authEnabled = true

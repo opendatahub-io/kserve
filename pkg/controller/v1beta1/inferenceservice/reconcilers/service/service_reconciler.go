@@ -136,6 +136,9 @@ func createDefaultSvc(resourceType constants.ResourceType, componentMeta metav1.
 			if len(servicePort.Name) == 0 {
 				servicePort.Name = "http"
 			}
+			if len(servicePort.Name) == 0 {
+				servicePort.Name = "http"
+			}
 			servicePorts = append(servicePorts, servicePort)
 
 			for i := 1; i < len(container.Ports); i++ {

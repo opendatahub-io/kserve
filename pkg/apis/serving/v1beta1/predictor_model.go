@@ -114,6 +114,7 @@ func (m *ModelSpec) GetSupportingRuntimes(ctx context.Context, cl client.Client,
 		}
 	}
 	sortSupportedRuntimeByPriority(srSpecs, m.ModelFormat)
+
 	// for i := range clusterRuntimes.Items {
 	// 	crt := &clusterRuntimes.Items[i]
 	// 	if !crt.Spec.IsDisabled() && crt.Spec.IsMultiModelRuntime() == isMMS &&

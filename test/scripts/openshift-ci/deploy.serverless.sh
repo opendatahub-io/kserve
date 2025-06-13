@@ -190,6 +190,32 @@ oc create secret tls knative-serving-cert \
 export domain=$(oc get ingresses.config/cluster -o=jsonpath='{ .spec.domain}')
 
 
+export secret_name=$(oc get IngressController default -n openshift-ingress-operator -o yaml -o=jsonpath='{ .spec.defaultCertificate.name}')
+if [ -z "$secret_name" ]; then
+  # Fallback to the default secret name for crpkg/controller/v1beta1/inferenceservice/rawkube_controller_test.goc
+  if $RUNNING_LOCAL; then
+    export secret_name=router-certs-default
+  else
+    # In OpenShift 4.12, the default secret name is changed to default-ingress-cert
+    export secret_name=default-ingress-cert
+  fi
+fi
+oc get secret -n openshift-ingress
+oc get IngressController -n openshift-ingress-operator default -o yaml
+export tls_cert=$(oc get secret $secret_name -n openshift-ingress -o=jsonpath='{.data.tls\.crt}')
+export CA_CERT_PATH="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+if [ -f "$CA_CERT_PATH" ]; then
+  # This is for python requests to work
+  export REQUESTS_CA_BUNDLE=$CA_CERT_PATH
+fi
+export tls_key=$(oc get secret $secret_name -n openshift-ingress -o=jsonpath='{.data.tls\.key}')
+oc create secret tls knative-serving-cert \
+  --cert=<(echo $tls_cert | base64 -d) \
+  --key=<(echo $tls_key | base64 -d) \
+  -n istio-system
+export domain=$(oc get ingresses.config/cluster -o=jsonpath='{ .spec.domain}')
+
+
 # Install the Gateways
 cat <<EOF | oc apply -f -
 apiVersion: v1

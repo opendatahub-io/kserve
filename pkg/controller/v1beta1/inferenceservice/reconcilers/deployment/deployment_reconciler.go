@@ -509,7 +509,7 @@ func (r *DeploymentReconciler) checkDeploymentExist(ctx context.Context, client 
 		return constants.CheckResultUnknown, nil, err
 	} else if len(diff) > 0 {
 		log.Info("Deployment Updated", "Diff", diff)
-		return constants.CheckResultUpdate, existingDeployment, nil
+		return constants.CheckResultUpdate, processedNewDep, nil
 	}
 	return constants.CheckResultExisted, existingDeployment, nil
 }
