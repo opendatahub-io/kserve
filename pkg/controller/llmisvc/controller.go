@@ -52,9 +52,7 @@ var childResourcesPredicate, _ = predicate.LabelSelectorPredicate(metav1.LabelSe
 })
 
 type ReconcilerConfig struct {
-	LLMDRoutingSidecarImage string `json:"llmdRoutingSidecarImage,omitempty"`
-	LLMDImage               string `json:"llmdImage,omitempty"`
-	SystemNamespace         string `json:"systemNamespace,omitempty"`
+	SystemNamespace string `json:"systemNamespace,omitempty"`
 }
 
 // LLMInferenceServiceReconciler reconciles a LLMInferenceService object.
