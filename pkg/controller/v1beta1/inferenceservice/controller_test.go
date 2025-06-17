@@ -791,14 +791,14 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		defaultIsvc := func(namespace string, name string, storageUri string) *v1beta1.InferenceService {
 			predictor := v1beta1.PredictorSpec{
 				ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
-					MinReplicas: ptr.To(int32(1)),
+					MinReplicas: v1beta1.GetIntReference(1),
 					MaxReplicas: 3,
 				},
 				Tensorflow: &v1beta1.TFServingSpec{
 					PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
 						StorageURI:     &storageUri,
 						RuntimeVersion: proto.String("1.14.0"),
-						Container: corev1.Container{
+						Container: v1.Container{
 							Name:      constants.InferenceServiceContainerName,
 							Resources: defaultResource,
 						},
@@ -837,7 +837,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						},
 					},
 					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
-						Containers: []corev1.Container{
+						Containers: []v1.Container{
 							{
 								Name:    constants.InferenceServiceContainerName,
 								Image:   "tensorflow/serving:1.14.0",
@@ -851,7 +851,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								Resources: defaultResource,
 							},
 						},
-						ImagePullSecrets: []corev1.LocalObjectReference{
+						ImagePullSecrets: []v1.LocalObjectReference{
 							{Name: "sr-image-pull-secret"},
 						},
 					},
@@ -861,8 +861,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			return servingRuntime
 		}
 
-		createInferenceServiceConfigMap := func() *corev1.ConfigMap {
-			configMap := &corev1.ConfigMap{
+		createInferenceServiceConfigMap := func() *v1.ConfigMap {
+			configMap := &v1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      constants.InferenceServiceConfigMapName,
 					Namespace: constants.KServeNamespace,
@@ -947,7 +947,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Should(BeTrue())
 
 			// Check that the service is present
-			service := &corev1.Service{}
+			service := &v1.Service{}
 			Eventually(func() bool {
 				err := k8sClient.Get(context.TODO(), serviceKey, service)
 				return err == nil
@@ -959,7 +959,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				err := k8sClient.Get(ctx, serviceKey, updatedIsvc)
 				if err == nil {
 					stopped_cond := updatedIsvc.Status.GetCondition(v1beta1.Stopped)
-					if stopped_cond != nil && stopped_cond.Status == corev1.ConditionFalse {
+					if stopped_cond != nil && stopped_cond.Status == v1.ConditionFalse {
 						return true
 					}
 				}
@@ -973,7 +973,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					return false
 				}
 				readyCond := updatedIsvc.Status.GetCondition(v1beta1.PredictorReady)
-				return readyCond != nil && readyCond.Status == corev1.ConditionTrue
+				return readyCond != nil && readyCond.Status == v1.ConditionTrue
 			}, timeout, interval).Should(BeTrue(), "The predictor should be ready")
 
 			Eventually(func() bool {
@@ -982,7 +982,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					return false
 				}
 				readyCond := updatedIsvc.Status.GetCondition(v1beta1.IngressReady)
-				return readyCond != nil && readyCond.Status == corev1.ConditionTrue
+				return readyCond != nil && readyCond.Status == v1.ConditionTrue
 			}, timeout, interval).Should(BeTrue(), "The ingress should be ready")
 		})
 
@@ -1032,7 +1032,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Should(BeTrue(), "The virtual service should not be created")
 
 			// Check that the service was not created
-			service := &corev1.Service{}
+			service := &v1.Service{}
 			Consistently(func() bool {
 				err := k8sClient.Get(context.TODO(), serviceKey, service)
 				return apierr.IsNotFound(err)
@@ -1050,7 +1050,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				err := k8sClient.Get(ctx, serviceKey, updatedIsvc)
 				if err == nil {
 					stopped_cond := updatedIsvc.Status.GetCondition(v1beta1.Stopped)
-					if stopped_cond != nil && stopped_cond.Status == corev1.ConditionTrue {
+					if stopped_cond != nil && stopped_cond.Status == v1.ConditionTrue {
 						return true
 					}
 				}
@@ -1133,7 +1133,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Should(BeTrue())
 
 			// Check that the service is present
-			service := &corev1.Service{}
+			service := &v1.Service{}
 			Eventually(func() bool {
 				err := k8sClient.Get(context.TODO(), serviceKey, service)
 				return err == nil
@@ -1147,7 +1147,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					return false
 				}
 				readyCond := actualIsvc.Status.GetCondition(v1beta1.PredictorReady)
-				return readyCond != nil && readyCond.Status == corev1.ConditionTrue
+				return readyCond != nil && readyCond.Status == v1.ConditionTrue
 			}, timeout, interval).Should(BeTrue(), "The predictor should be ready before updating the annotation")
 
 			Eventually(func() bool {
@@ -1156,7 +1156,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					return false
 				}
 				readyCond := actualIsvc.Status.GetCondition(v1beta1.IngressReady)
-				return readyCond != nil && readyCond.Status == corev1.ConditionTrue
+				return readyCond != nil && readyCond.Status == v1.ConditionTrue
 			}, timeout, interval).Should(BeTrue(), "The ingress should be ready before updating the annotation")
 
 			// Stop the inference service
@@ -1195,7 +1195,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				err := k8sClient.Get(ctx, serviceKey, updatedStoppedIsvc)
 				if err == nil {
 					stopped_cond := updatedStoppedIsvc.Status.GetCondition(v1beta1.Stopped)
-					if stopped_cond != nil && stopped_cond.Status == corev1.ConditionTrue {
+					if stopped_cond != nil && stopped_cond.Status == v1.ConditionTrue {
 						return true
 					}
 				}
@@ -1249,7 +1249,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Should(BeTrue(), "The virtual service should not be created")
 
 			// Check that the service was not created
-			service := &corev1.Service{}
+			service := &v1.Service{}
 			Consistently(func() bool {
 				err := k8sClient.Get(context.TODO(), serviceKey, service)
 				return apierr.IsNotFound(err)
@@ -1267,7 +1267,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				err := k8sClient.Get(ctx, serviceKey, actualIsvc)
 				if err == nil {
 					stopped_cond := actualIsvc.Status.GetCondition(v1beta1.Stopped)
-					if stopped_cond != nil && stopped_cond.Status == corev1.ConditionTrue {
+					if stopped_cond != nil && stopped_cond.Status == v1.ConditionTrue {
 						return true
 					}
 				}
@@ -1326,7 +1326,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				err := k8sClient.Get(ctx, serviceKey, updatedIsvc)
 				if err == nil {
 					stopped_cond := updatedIsvc.Status.GetCondition(v1beta1.Stopped)
-					if stopped_cond != nil && stopped_cond.Status == corev1.ConditionFalse {
+					if stopped_cond != nil && stopped_cond.Status == v1.ConditionFalse {
 						return true
 					}
 				}
@@ -1340,7 +1340,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					return false
 				}
 				readyCond := actualIsvc.Status.GetCondition(v1beta1.PredictorReady)
-				return readyCond != nil && readyCond.Status == corev1.ConditionTrue
+				return readyCond != nil && readyCond.Status == v1.ConditionTrue
 			}, timeout, interval).Should(BeTrue(), "The predictor should be ready")
 
 			Eventually(func() bool {
@@ -1349,7 +1349,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					return false
 				}
 				readyCond := actualIsvc.Status.GetCondition(v1beta1.IngressReady)
-				return readyCond != nil && readyCond.Status == corev1.ConditionTrue
+				return readyCond != nil && readyCond.Status == v1.ConditionTrue
 			}, timeout, interval).Should(BeTrue(), "The ingress should be ready")
 		})
 	})
