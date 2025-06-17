@@ -42,18 +42,22 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 	// finalizing superfluous workloads).
 
 	if err := r.reconcileMainWorkload(ctx, llmSvc); err != nil {
+		llmSvc.MarkWorkloadNotReady("ReconcileMainWorkloadError", err.Error())
 		return fmt.Errorf("failed to reconcile main workload: %w", err)
 	}
 
 	if err := r.reconcileMainWorker(ctx, llmSvc); err != nil {
+		llmSvc.MarkWorkloadNotReady("ReconcileMainWorkerError", err.Error())
 		return fmt.Errorf("failed to reconcile main worker: %w", err)
 	}
 
 	if err := r.reconcileDisaggregatedServing(ctx, llmSvc); err != nil {
+		llmSvc.MarkWorkloadNotReady("ReconcileDisaggregatedServingError", err.Error())
 		logger.Error(err, "Failed to reconcile disaggregated serving workload")
 		return err
 	}
 
+	llmSvc.MarkWorkloadReady()
 	return nil
 }
 

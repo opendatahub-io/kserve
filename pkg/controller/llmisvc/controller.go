@@ -25,11 +25,13 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"knative.dev/pkg/reconciler"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -81,8 +83,8 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	logger.Info("Starting reconciliation")
 
 	// 1. Fetch the LLMInferenceService instance
-	llmSvc := &v1alpha1.LLMInferenceService{}
-	if err := r.Get(ctx, req.NamespacedName, llmSvc); err != nil {
+	original := &v1alpha1.LLMInferenceService{}
+	if err := r.Get(ctx, req.NamespacedName, original); err != nil {
 		if errors.IsNotFound(err) {
 			// Object not found, return. Created objects are automatically garbage collected.
 			// For additional cleanup logic use finalizers.
@@ -95,15 +97,35 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 			Requeue: true,
 		}, err
 	}
+	resource := original.DeepCopy()
 
-	if err := r.ReconcileKind(ctx, llmSvc); err != nil {
-		logger.Error(err, "Failed to reconcile LLMInferenceService")
-		r.Recorder.Eventf(llmSvc, corev1.EventTypeWarning, "Error", err.Error())
+	reconciler.PreProcessReconcile(ctx, resource)
+	reconcileErr := r.ReconcileKind(ctx, resource)
+	reconciler.PostProcessReconcile(ctx, resource, original)
+
+	if err := r.updateStatus(ctx, original, resource); err != nil {
 		return ctrl.Result{Requeue: true}, err
+	}
+
+	if reconcileErr != nil {
+		logger.Error(reconcileErr, "Failed to reconcile LLMInferenceService")
+		r.Recorder.Eventf(original, corev1.EventTypeWarning, "Error", reconcileErr.Error())
+		return ctrl.Result{Requeue: true}, reconcileErr
 	}
 
 	logger.Info("Reconciliation completed successfully")
 	return ctrl.Result{}, nil
+}
+
+func (r *LLMInferenceServiceReconciler) updateStatus(ctx context.Context, existing *v1alpha1.LLMInferenceService, desired *v1alpha1.LLMInferenceService) error {
+	// If there's nothing to update, just return.
+	if equality.Semantic.DeepEqual(existing.Status, desired.Status) {
+		return nil
+	}
+	if err := r.Client.Status().Update(ctx, desired); err != nil {
+		return fmt.Errorf("failed to update status for LLMInferenceService: %w", err)
+	}
+	return nil
 }
 
 func (r *LLMInferenceServiceReconciler) ReconcileKind(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
@@ -125,10 +147,6 @@ func (r *LLMInferenceServiceReconciler) ReconcileKind(ctx context.Context, llmSv
 
 	//if err := r.reconcileNetworking(ctx, llmSvc); err != nil {
 	//	return fmt.Errorf("failed to reconcile networking: %w", err)
-	//}
-
-	//if err := r.updateStatus(ctx, llmSvc); err != nil {
-	//	return fmt.Errorf("failed to update status: %w", err)
 	//}
 
 	return nil
