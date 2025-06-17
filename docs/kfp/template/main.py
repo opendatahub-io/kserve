@@ -17,7 +17,9 @@ def main():
     set_env_vars(**required_args, **optional_args)
 
     if not os.getenv("SERVING_RUNTIME"):
-        raise ValueError("SERVING_RUNTIME environment variable is not set. Please set it to your ServingRuntime's file path.")
+        raise ValueError(
+            "SERVING_RUNTIME environment variable is not set. Please set it to your ServingRuntime's file path."
+        )
 
     prepare_env_and_deploy(args_dict)
     compile_pipeline(args_dict["action"])
