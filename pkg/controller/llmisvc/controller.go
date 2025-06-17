@@ -145,7 +145,7 @@ func (r *LLMInferenceServiceReconciler) ReconcileKind(ctx context.Context, llmSv
 		return fmt.Errorf("failed to reconcile workload: %w", err)
 	}
 
-	//if err := r.reconcileNetworking(ctx, llmSvc); err != nil {
+	//if err := r.reconcileRouter(ctx, llmSvc); err != nil {
 	//	return fmt.Errorf("failed to reconcile networking: %w", err)
 	//}
 
@@ -183,30 +183,27 @@ func enqueueOnLLMInferenceServiceConfigChange(c client.Client, logger logr.Logge
 		reqs := make([]reconcile.Request, 0, 2)
 
 		continueToken := ""
-		llmIsvcList := &v1alpha1.LLMInferenceServiceList{}
 		for {
-			partialList := &v1alpha1.LLMInferenceServiceList{}
-			if err := c.List(ctx, partialList, &client.ListOptions{Namespace: corev1.NamespaceAll, Continue: continueToken}); err != nil {
+			llmSvcList := &v1alpha1.LLMInferenceServiceList{}
+			if err := c.List(ctx, llmSvcList, &client.ListOptions{Namespace: corev1.NamespaceAll, Continue: continueToken}); err != nil {
 				logger.Error(err, "Failed to list LLMInferenceService")
 				return reqs
 			}
-			llmIsvcList.Items = append(llmIsvcList.Items, partialList.Items...)
-
-			if partialList.Continue == "" {
-				break
-			}
-			continueToken = partialList.Continue
-		}
-
-		for _, llmIsvc := range llmIsvcList.Items {
-			for _, ref := range llmIsvc.Spec.BaseRefs {
-				if ref.Name == sub.Name {
-					reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
-						Namespace: llmIsvc.Namespace,
-						Name:      llmIsvc.Name,
-					}})
+			for _, llmSvc := range llmSvcList.Items {
+				for _, ref := range llmSvc.Spec.BaseRefs {
+					if ref.Name == sub.Name {
+						reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
+							Namespace: llmSvc.Namespace,
+							Name:      llmSvc.Name,
+						}})
+					}
 				}
 			}
+
+			if llmSvcList.Continue == "" {
+				break
+			}
+			continueToken = llmSvcList.Continue
 		}
 
 		return reqs
