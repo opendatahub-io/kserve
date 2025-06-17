@@ -340,7 +340,6 @@ func (ir *IngressReconciler) reconcileVirtualService(isvc *v1beta1.InferenceServ
 					return err
 				}
 			}
-
 		} else if !apierr.IsNotFound(getExistingErr) {
 			return getExistingErr
 		}
