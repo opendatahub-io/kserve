@@ -1925,7 +1925,7 @@ func TestGetPredictorEndpoint(t *testing.T) {
 
 	for name, scenario := range scenarios {
 		t.Run(name, func(t *testing.T) {
-			res, err := GetPredictorEndpoint(t.Context(), mockClient, &scenario.isvc)
+			res, err := GetPredictorEndpoint(context.Background(), mockClient, &scenario.isvc)
 			g.Expect(err).To(scenario.expectedErr)
 			if !g.Expect(res).To(gomega.Equal(scenario.expectedUrl)) {
 				t.Errorf("got %s, want %s", res, scenario.expectedUrl)
