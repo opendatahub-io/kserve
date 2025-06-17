@@ -159,7 +159,7 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.LLMInferenceService{}).
-		Watches(&v1alpha1.LLMInferenceServiceConfig{}, enqueueOnLLMInferenceServiceConfigChange(mgr.GetClient(), logger)).
+		Watches(&v1alpha1.LLMInferenceServiceConfig{}, r.enqueueOnLLMInferenceServiceConfigChange(logger)).
 		Owns(&appsv1.Deployment{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&corev1.Service{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&netv1.Ingress{}, builder.WithPredicates(childResourcesPredicate))
@@ -177,15 +177,22 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 	return b.Complete(r)
 }
 
-func enqueueOnLLMInferenceServiceConfigChange(c client.Client, logger logr.Logger) handler.EventHandler {
+func (r *LLMInferenceServiceReconciler) enqueueOnLLMInferenceServiceConfigChange(logger logr.Logger) handler.EventHandler {
 	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
 		sub := object.(*v1alpha1.LLMInferenceServiceConfig)
 		reqs := make([]reconcile.Request, 0, 2)
 
+		listNamespace := sub.GetNamespace()
+
+		// LLMInferenceServiceConfig in the system namespace can be used by any LLMInferenceService.
+		if sub.Namespace == r.Config.SystemNamespace {
+			listNamespace = corev1.NamespaceAll
+		}
+
 		continueToken := ""
 		for {
 			llmSvcList := &v1alpha1.LLMInferenceServiceList{}
-			if err := c.List(ctx, llmSvcList, &client.ListOptions{Namespace: corev1.NamespaceAll, Continue: continueToken}); err != nil {
+			if err := r.Client.List(ctx, llmSvcList, &client.ListOptions{Namespace: listNamespace, Continue: continueToken}); err != nil {
 				logger.Error(err, "Failed to list LLMInferenceService")
 				return reqs
 			}
