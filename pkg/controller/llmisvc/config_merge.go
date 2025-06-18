@@ -27,6 +27,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
+	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -111,7 +112,11 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 func ReplaceVariables(llmSvc *v1alpha1.LLMInferenceService, cfg *v1alpha1.LLMInferenceServiceConfig) (*v1alpha1.LLMInferenceServiceConfig, error) {
 	templateBytes, _ := json.Marshal(cfg)
 	buf := bytes.NewBuffer(nil)
-	if err := template.Must(template.New("config").Parse(string(templateBytes))).Execute(buf, llmSvc); err != nil {
+	if err := template.Must(template.New("config").
+		Funcs(map[string]any{
+			"ChildName": kmeta.ChildName,
+		}).
+		Parse(string(templateBytes))).Execute(buf, llmSvc); err != nil {
 		return nil, fmt.Errorf("failed to merge config: %w", err)
 	}
 

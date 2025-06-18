@@ -41,8 +41,9 @@ import (
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/utils"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
 
 var childResourcesPredicate, _ = predicate.LabelSelectorPredicate(metav1.LabelSelector{
