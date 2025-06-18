@@ -77,8 +77,6 @@ spec:
                         type: object
                       path:
                         type: string
-                      schemaPath:
-                        type: string
                     type: object
                   uri:
                     type: string

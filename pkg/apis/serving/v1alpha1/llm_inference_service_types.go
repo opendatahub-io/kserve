@@ -241,9 +241,6 @@ type LLMStorageSpec struct {
 	// with the storageURI.
 	// +optional
 	Path *string `json:"path,omitempty"`
-	// The path to the model schema file in the storage.
-	// +optional
-	SchemaPath *string `json:"schemaPath,omitempty"`
 	// Parameters to override the default storage credentials and config.
 	// +optional
 	Parameters *map[string]string `json:"parameters,omitempty"`
