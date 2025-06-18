@@ -151,7 +151,7 @@ poetry-lock: $(POETRY)
 	done
 
 # This runs all necessary steps to prepare for a commit.
-precommit: vet tidy go-lint py-fmt py-lint generate manifests poetry-lock
+precommit: vet tidy go-lint py-fmt py-lint generate manifests poetry-lock tidy
 
 # This is used by CI to ensure that the precommit checks are met.
 check: precommit
