@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
-	"github.com/kserve/kserve/pkg/utils"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
@@ -42,7 +41,8 @@ import (
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
-	kserveapis "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 var childResourcesPredicate, _ = predicate.LabelSelectorPredicate(metav1.LabelSelector{
@@ -81,7 +81,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	logger.Info("Starting reconciliation")
 
 	// 1. Fetch the LLMInferenceService instance
-	original := &kserveapis.LLMInferenceService{}
+	original := &v1alpha1.LLMInferenceService{}
 	if err := r.Get(ctx, req.NamespacedName, original); err != nil {
 		if errors.IsNotFound(err) {
 			// Object not found, return. Created objects are automatically garbage collected.
@@ -115,7 +115,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	return ctrl.Result{}, nil
 }
 
-func (r *LLMInferenceServiceReconciler) updateStatus(ctx context.Context, existing *kserveapis.LLMInferenceService, desired *kserveapis.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) updateStatus(ctx context.Context, existing *v1alpha1.LLMInferenceService, desired *v1alpha1.LLMInferenceService) error {
 	// If there's nothing to update, just return.
 	if equality.Semantic.DeepEqual(existing.Status, desired.Status) {
 		return nil
@@ -126,7 +126,7 @@ func (r *LLMInferenceServiceReconciler) updateStatus(ctx context.Context, existi
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) ReconcileKind(ctx context.Context, llmSvc *kserveapis.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) ReconcileKind(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("ReconcileKind")
 	ctx = log.IntoContext(ctx, logger)
 
@@ -143,7 +143,7 @@ func (r *LLMInferenceServiceReconciler) ReconcileKind(ctx context.Context, llmSv
 		return fmt.Errorf("failed to reconcile workload: %w", err)
 	}
 
-	//if err := r.reconcileRouter(ctx, llmSvc); err != nil {
+	// if err := r.reconcileRouter(ctx, llmSvc); err != nil {
 	//	return fmt.Errorf("failed to reconcile networking: %w", err)
 	//}
 
@@ -156,8 +156,8 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 	logger := mgr.GetLogger().WithName("LLMInferenceService.SetupWithManager")
 
 	b := ctrl.NewControllerManagedBy(mgr).
-		For(&kserveapis.LLMInferenceService{}).
-		Watches(&kserveapis.LLMInferenceServiceConfig{}, r.enqueueOnLLMInferenceServiceConfigChange(logger)).
+		For(&v1alpha1.LLMInferenceService{}).
+		Watches(&v1alpha1.LLMInferenceServiceConfig{}, r.enqueueOnLLMInferenceServiceConfigChange(logger)).
 		Owns(&appsv1.Deployment{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&corev1.Service{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&netv1.Ingress{}, builder.WithPredicates(childResourcesPredicate))
@@ -177,7 +177,7 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 
 func (r *LLMInferenceServiceReconciler) enqueueOnLLMInferenceServiceConfigChange(logger logr.Logger) handler.EventHandler {
 	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
-		sub := object.(*kserveapis.LLMInferenceServiceConfig)
+		sub := object.(*v1alpha1.LLMInferenceServiceConfig)
 		reqs := make([]reconcile.Request, 0, 2)
 
 		listNamespace := sub.GetNamespace()
@@ -189,7 +189,7 @@ func (r *LLMInferenceServiceReconciler) enqueueOnLLMInferenceServiceConfigChange
 
 		continueToken := ""
 		for {
-			llmSvcList := &kserveapis.LLMInferenceServiceList{}
+			llmSvcList := &v1alpha1.LLMInferenceServiceList{}
 			if err := r.Client.List(ctx, llmSvcList, &client.ListOptions{Namespace: listNamespace, Continue: continueToken}); err != nil {
 				logger.Error(err, "Failed to list LLMInferenceService")
 				return reqs

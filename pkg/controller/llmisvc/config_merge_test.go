@@ -26,59 +26,59 @@ import (
 	"knative.dev/pkg/apis"
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 
-	kserveapis "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
 
 func TestMergeSpecs(t *testing.T) {
 	tests := []struct {
 		name    string
-		cfgs    []kserveapis.LLMInferenceServiceSpec
-		want    kserveapis.LLMInferenceServiceSpec
+		cfgs    []v1alpha1.LLMInferenceServiceSpec
+		want    v1alpha1.LLMInferenceServiceSpec
 		wantErr bool
 	}{
 		{
 			name:    "no configs",
-			cfgs:    []kserveapis.LLMInferenceServiceSpec{},
-			want:    kserveapis.LLMInferenceServiceSpec{},
+			cfgs:    []v1alpha1.LLMInferenceServiceSpec{},
+			want:    v1alpha1.LLMInferenceServiceSpec{},
 			wantErr: false,
 		},
 		{
 			name: "single config",
-			cfgs: []kserveapis.LLMInferenceServiceSpec{
-				{Model: kserveapis.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+				{Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
 			},
-			want:    kserveapis.LLMInferenceServiceSpec{Model: kserveapis.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
+			want:    v1alpha1.LLMInferenceServiceSpec{Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
 			wantErr: false,
 		},
 		{
 			name: "two configs simple merge",
-			cfgs: []kserveapis.LLMInferenceServiceSpec{
-				{Model: kserveapis.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+				{Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
 			},
-			want: kserveapis.LLMInferenceServiceSpec{
-				Model: kserveapis.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
+			want: v1alpha1.LLMInferenceServiceSpec{
+				Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
 			},
 			wantErr: false,
 		},
 		{
 			name: "two configs with override",
-			cfgs: []kserveapis.LLMInferenceServiceSpec{
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
 				{
-					Model: kserveapis.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
-					WorkloadSpec: kserveapis.WorkloadSpec{
+					Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
 						Replicas: ptr.To[int32](1),
 					},
 				},
 				{
-					Model: kserveapis.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
-					WorkloadSpec: kserveapis.WorkloadSpec{
+					Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
 						Replicas: ptr.To[int32](2),
 					},
 				},
 			},
-			want: kserveapis.LLMInferenceServiceSpec{
-				Model: kserveapis.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
-				WorkloadSpec: kserveapis.WorkloadSpec{
+			want: v1alpha1.LLMInferenceServiceSpec{
+				Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
+				WorkloadSpec: v1alpha1.WorkloadSpec{
 					Replicas: ptr.To[int32](2),
 				},
 			},
@@ -86,23 +86,23 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "three configs chained merge",
-			cfgs: []kserveapis.LLMInferenceServiceSpec{
-				{Model: kserveapis.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+				{Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
 				{
-					Model: kserveapis.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
+					Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
 				},
 			},
-			want: kserveapis.LLMInferenceServiceSpec{
-				Model: kserveapis.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
+			want: v1alpha1.LLMInferenceServiceSpec{
+				Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
 			},
 			wantErr: false,
 		},
 		{
 			name: "deep merge with podspec template",
-			cfgs: []kserveapis.LLMInferenceServiceSpec{
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
 				// Base configuration
 				{
-					WorkloadSpec: kserveapis.WorkloadSpec{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
 						Replicas: ptr.To[int32](1),
 						Template: &corev1.PodSpec{
 							InitContainers: []corev1.Container{
@@ -135,7 +135,7 @@ func TestMergeSpecs(t *testing.T) {
 				},
 				// Override configuration
 				{
-					WorkloadSpec: kserveapis.WorkloadSpec{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
 						Replicas: ptr.To[int32](2),
 						Template: &corev1.PodSpec{
 							InitContainers: []corev1.Container{
@@ -178,8 +178,8 @@ func TestMergeSpecs(t *testing.T) {
 				},
 			},
 			// Expected result of the merge
-			want: kserveapis.LLMInferenceServiceSpec{
-				WorkloadSpec: kserveapis.WorkloadSpec{
+			want: v1alpha1.LLMInferenceServiceSpec{
+				WorkloadSpec: v1alpha1.WorkloadSpec{
 					Replicas: ptr.To[int32](2),
 					Template: &corev1.PodSpec{
 						InitContainers: []corev1.Container{
@@ -223,30 +223,30 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "merge with prefill spec",
-			cfgs: []kserveapis.LLMInferenceServiceSpec{
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
 				// Base has only a decode workload
 				{
-					WorkloadSpec: kserveapis.WorkloadSpec{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
 						Replicas: ptr.To[int32](1),
 						Template: &corev1.PodSpec{Containers: []corev1.Container{{Name: "kserve-container", Image: "decode:0.1"}}},
 					},
 				},
 				// Override adds a prefill workload
 				{
-					Prefill: &kserveapis.WorkloadSpec{
+					Prefill: &v1alpha1.WorkloadSpec{
 						Replicas: ptr.To[int32](4),
 						Template: &corev1.PodSpec{Containers: []corev1.Container{{Name: "kserve-container", Image: "prefill:0.1"}}},
 					},
 				},
 			},
-			want: kserveapis.LLMInferenceServiceSpec{
+			want: v1alpha1.LLMInferenceServiceSpec{
 				// Base workload spec is preserved
-				WorkloadSpec: kserveapis.WorkloadSpec{
+				WorkloadSpec: v1alpha1.WorkloadSpec{
 					Replicas: ptr.To[int32](1),
 					Template: &corev1.PodSpec{Containers: []corev1.Container{{Name: "kserve-container", Image: "decode:0.1"}}},
 				},
 				// Prefill spec is added
-				Prefill: &kserveapis.WorkloadSpec{
+				Prefill: &v1alpha1.WorkloadSpec{
 					Replicas: ptr.To[int32](4),
 					Template: &corev1.PodSpec{Containers: []corev1.Container{{Name: "kserve-container", Image: "prefill:0.1"}}},
 				},
@@ -254,22 +254,22 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "merge with worker spec",
-			cfgs: []kserveapis.LLMInferenceServiceSpec{
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
 				// Base has the main head/decode template
 				{
-					WorkloadSpec: kserveapis.WorkloadSpec{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
 						Template: &corev1.PodSpec{Containers: []corev1.Container{{Name: "kserve-container", Image: "head:0.1"}}},
 					},
 				},
 				// Override adds a worker spec
 				{
-					WorkloadSpec: kserveapis.WorkloadSpec{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
 						Worker: &corev1.PodSpec{Containers: []corev1.Container{{Name: "kserve-container", Image: "worker:0.1"}}},
 					},
 				},
 			},
-			want: kserveapis.LLMInferenceServiceSpec{
-				WorkloadSpec: kserveapis.WorkloadSpec{
+			want: v1alpha1.LLMInferenceServiceSpec{
+				WorkloadSpec: v1alpha1.WorkloadSpec{
 					// Head template is preserved
 					Template: &corev1.PodSpec{Containers: []corev1.Container{{Name: "kserve-container", Image: "head:0.1"}}},
 					// Worker spec is added
@@ -279,28 +279,28 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "merge with parallelism spec",
-			cfgs: []kserveapis.LLMInferenceServiceSpec{
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
 				// Base defines tensor parallelism
 				{
-					WorkloadSpec: kserveapis.WorkloadSpec{
-						Parallelism: &kserveapis.ParallelismSpec{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
 							Tensor: ptr.To[int64](2),
 						},
 					},
 				},
 				// Override defines pipeline parallelism
 				{
-					WorkloadSpec: kserveapis.WorkloadSpec{
-						Parallelism: &kserveapis.ParallelismSpec{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
 							Pipeline: ptr.To[int64](4),
 						},
 					},
 				},
 			},
-			want: kserveapis.LLMInferenceServiceSpec{
-				WorkloadSpec: kserveapis.WorkloadSpec{
+			want: v1alpha1.LLMInferenceServiceSpec{
+				WorkloadSpec: v1alpha1.WorkloadSpec{
 					// Both parallelism values should be present
-					Parallelism: &kserveapis.ParallelismSpec{
+					Parallelism: &v1alpha1.ParallelismSpec{
 						Tensor:   ptr.To[int64](2),
 						Pipeline: ptr.To[int64](4),
 					},
@@ -309,10 +309,10 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "deep merge of prefill spec",
-			cfgs: []kserveapis.LLMInferenceServiceSpec{
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
 				// Base defines a prefill workload with replicas and a container with a resource request
 				{
-					Prefill: &kserveapis.WorkloadSpec{
+					Prefill: &v1alpha1.WorkloadSpec{
 						Replicas: ptr.To[int32](2),
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
@@ -329,7 +329,7 @@ func TestMergeSpecs(t *testing.T) {
 				},
 				// Override changes replica count and adds an environment variable to the container
 				{
-					Prefill: &kserveapis.WorkloadSpec{
+					Prefill: &v1alpha1.WorkloadSpec{
 						Replicas: ptr.To[int32](4),
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
@@ -344,8 +344,8 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 			},
-			want: kserveapis.LLMInferenceServiceSpec{
-				Prefill: &kserveapis.WorkloadSpec{
+			want: v1alpha1.LLMInferenceServiceSpec{
+				Prefill: &v1alpha1.WorkloadSpec{
 					Replicas: ptr.To[int32](4), // Replicas are overridden
 					Template: &corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -366,16 +366,16 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "4 chained merge router, epp, multi node",
-			cfgs: []kserveapis.LLMInferenceServiceSpec{
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
 				{
-					Router: &kserveapis.RouterSpec{
-						Route:   &kserveapis.GatewayRoutesSpec{},
-						Gateway: &kserveapis.GatewaySpec{},
+					Router: &v1alpha1.RouterSpec{
+						Route:   &v1alpha1.GatewayRoutesSpec{},
+						Gateway: &v1alpha1.GatewaySpec{},
 					},
 				},
 				{
-					WorkloadSpec: kserveapis.WorkloadSpec{
-						Parallelism: &kserveapis.ParallelismSpec{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
 							Tensor:   ptr.To[int64](1),
 							Pipeline: ptr.To[int64](1),
 						},
@@ -395,9 +395,9 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 				{
-					Router: &kserveapis.RouterSpec{
-						Scheduler: &kserveapis.SchedulerSpec{
-							Pool: &kserveapis.InferencePoolSpec{
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Pool: &v1alpha1.InferencePoolSpec{
 								Spec: &igwapi.InferencePoolSpec{
 									TargetPortNumber: 0,
 									EndpointPickerConfig: igwapi.EndpointPickerConfig{
@@ -420,8 +420,8 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 				{
-					WorkloadSpec: kserveapis.WorkloadSpec{
-						Parallelism: &kserveapis.ParallelismSpec{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
 							Tensor:   ptr.To[int64](4),
 							Pipeline: ptr.To[int64](2),
 						},
@@ -441,12 +441,12 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 			},
-			want: kserveapis.LLMInferenceServiceSpec{
-				Router: &kserveapis.RouterSpec{
-					Route:   &kserveapis.GatewayRoutesSpec{},
-					Gateway: &kserveapis.GatewaySpec{},
-					Scheduler: &kserveapis.SchedulerSpec{
-						Pool: &kserveapis.InferencePoolSpec{
+			want: v1alpha1.LLMInferenceServiceSpec{
+				Router: &v1alpha1.RouterSpec{
+					Route:   &v1alpha1.GatewayRoutesSpec{},
+					Gateway: &v1alpha1.GatewaySpec{},
+					Scheduler: &v1alpha1.SchedulerSpec{
+						Pool: &v1alpha1.InferencePoolSpec{
 							Spec: &igwapi.InferencePoolSpec{
 								TargetPortNumber: 0,
 								EndpointPickerConfig: igwapi.EndpointPickerConfig{
@@ -467,8 +467,8 @@ func TestMergeSpecs(t *testing.T) {
 						},
 					},
 				},
-				WorkloadSpec: kserveapis.WorkloadSpec{
-					Parallelism: &kserveapis.ParallelismSpec{
+				WorkloadSpec: v1alpha1.WorkloadSpec{
+					Parallelism: &v1alpha1.ParallelismSpec{
 						Tensor:   ptr.To[int64](4),
 						Pipeline: ptr.To[int64](2),
 					},
@@ -490,16 +490,16 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "merge requests and limits",
-			cfgs: []kserveapis.LLMInferenceServiceSpec{
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
 				{
-					Router: &kserveapis.RouterSpec{
-						Route:   &kserveapis.GatewayRoutesSpec{},
-						Gateway: &kserveapis.GatewaySpec{},
+					Router: &v1alpha1.RouterSpec{
+						Route:   &v1alpha1.GatewayRoutesSpec{},
+						Gateway: &v1alpha1.GatewaySpec{},
 					},
 				},
 				{
-					WorkloadSpec: kserveapis.WorkloadSpec{
-						Parallelism: &kserveapis.ParallelismSpec{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
 							Tensor:   ptr.To[int64](1),
 							Pipeline: ptr.To[int64](1),
 						},
@@ -529,7 +529,7 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 				{
-					WorkloadSpec: kserveapis.WorkloadSpec{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
 						Worker: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{
@@ -555,13 +555,13 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 			},
-			want: kserveapis.LLMInferenceServiceSpec{
-				Router: &kserveapis.RouterSpec{
-					Route:   &kserveapis.GatewayRoutesSpec{},
-					Gateway: &kserveapis.GatewaySpec{},
+			want: v1alpha1.LLMInferenceServiceSpec{
+				Router: &v1alpha1.RouterSpec{
+					Route:   &v1alpha1.GatewayRoutesSpec{},
+					Gateway: &v1alpha1.GatewaySpec{},
 				},
-				WorkloadSpec: kserveapis.WorkloadSpec{
-					Parallelism: &kserveapis.ParallelismSpec{
+				WorkloadSpec: v1alpha1.WorkloadSpec{
+					Parallelism: &v1alpha1.ParallelismSpec{
 						Tensor:   ptr.To[int64](1),
 						Pipeline: ptr.To[int64](1),
 					},
@@ -612,19 +612,19 @@ func TestMergeSpecs(t *testing.T) {
 func TestReplaceVariables(t *testing.T) {
 	tests := []struct {
 		name    string
-		llmSvc  *kserveapis.LLMInferenceService
-		cfg     *kserveapis.LLMInferenceServiceConfig
-		want    *kserveapis.LLMInferenceServiceConfig
+		llmSvc  *v1alpha1.LLMInferenceService
+		cfg     *v1alpha1.LLMInferenceServiceConfig
+		want    *v1alpha1.LLMInferenceServiceConfig
 		wantErr bool
 	}{
 		{
 			name: "Replace model name",
-			cfg: &kserveapis.LLMInferenceServiceConfig{
-				Spec: kserveapis.LLMInferenceServiceSpec{
-					Model: kserveapis.LLMModelSpec{
+			cfg: &v1alpha1.LLMInferenceServiceConfig{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
 						Name: ptr.To("{{ .Spec.Model.Name }}"),
 					},
-					WorkloadSpec: kserveapis.WorkloadSpec{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{Args: []string{
@@ -636,19 +636,19 @@ func TestReplaceVariables(t *testing.T) {
 					},
 				},
 			},
-			llmSvc: &kserveapis.LLMInferenceService{
-				Spec: kserveapis.LLMInferenceServiceSpec{
-					Model: kserveapis.LLMModelSpec{
+			llmSvc: &v1alpha1.LLMInferenceService{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
 						Name: ptr.To("meta-llama/Llama-3.2-3B-Instruct"),
 					},
 				},
 			},
-			want: &kserveapis.LLMInferenceServiceConfig{
-				Spec: kserveapis.LLMInferenceServiceSpec{
-					Model: kserveapis.LLMModelSpec{
+			want: &v1alpha1.LLMInferenceServiceConfig{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
 						Name: ptr.To("meta-llama/Llama-3.2-3B-Instruct"),
 					},
-					WorkloadSpec: kserveapis.WorkloadSpec{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{Args: []string{

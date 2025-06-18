@@ -27,21 +27,17 @@ import (
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	kserveapis "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
 
-func (r *LLMInferenceServiceReconciler) reconcileDisaggregatedServing(ctx context.Context, llmSvc *kserveapis.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileDisaggregatedServing(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("reconcileDisaggregatedServing")
 	ctx = log.IntoContext(ctx, logger)
 
 	logger.V(2).Info("Reconciling disaggregated serving workload")
 
-	prefill, err := r.expectedPrefillMainDeployment(ctx, llmSvc)
-	if err != nil {
-		return fmt.Errorf("failed to create expected prefill deployment: %w", err)
-	}
 	if llmSvc.Spec.Prefill == nil {
-		if err := r.deleteDeployment(ctx, llmSvc, prefill); err != nil && !apierrors.IsNotFound(err) {
+		if err := r.deleteDeployment(ctx, llmSvc, r.expectedPrefillMainDeployment(ctx, llmSvc)); err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("failed to delete prefill deployment: %w", err)
 		}
 	}
@@ -49,13 +45,13 @@ func (r *LLMInferenceServiceReconciler) reconcileDisaggregatedServing(ctx contex
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx context.Context, llmSvc *kserveapis.LLMInferenceService) (*appsv1.Deployment, error) {
+func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *appsv1.Deployment {
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-prefill"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, kserveapis.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
 			},
 			Labels: map[string]string{
 				"app.kubernetes.io/component": "llminferenceservice-workload-prefill",
@@ -90,5 +86,5 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 
 	log.FromContext(ctx).V(2).Info("Expected prefill deployment", "deployment", d)
 
-	return d, nil
+	return d
 }
