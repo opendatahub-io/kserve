@@ -29,12 +29,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kserveapis "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
 
 // reconcileWorkload manages the Deployments and Services for the LLM.
 // It handles standard, multi-node, and disaggregated (prefill/decode) deployment patterns.
-func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, llmSvc *kserveapis.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("reconcileWorkload")
 	ctx = log.IntoContext(ctx, logger)
 
@@ -61,7 +61,7 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileMainWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileMainWorkload(ctx context.Context, llmSvc *kserveapis.LLMInferenceService) error {
 	expected, err := r.expectedMainDeployment(ctx, llmSvc)
 	if err != nil {
 		return fmt.Errorf("failed to get expected main deployment: %w", err)
@@ -69,7 +69,7 @@ func (r *LLMInferenceServiceReconciler) reconcileMainWorkload(ctx context.Contex
 	return r.reconcileDeployment(ctx, llmSvc, expected)
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileMainWorker(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileMainWorker(ctx context.Context, llmSvc *kserveapis.LLMInferenceService) error {
 	expected, err := r.expectedMainWorker(ctx, llmSvc)
 	if err != nil {
 		return fmt.Errorf("could not get expected main deployment: %w", err)
@@ -77,14 +77,14 @@ func (r *LLMInferenceServiceReconciler) reconcileMainWorker(ctx context.Context,
 	return r.reconcileDeployment(ctx, llmSvc, expected)
 }
 
-func (r *LLMInferenceServiceReconciler) expectedMainWorker(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*appsv1.Deployment, error) {
+func (r *LLMInferenceServiceReconciler) expectedMainWorker(ctx context.Context, llmSvc *kserveapis.LLMInferenceService) (*appsv1.Deployment, error) {
 
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-worker"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, kserveapis.LLMInferenceServiceGVK),
 			},
 			Labels: map[string]string{
 				"app.kubernetes.io/component": "llminferenceservice-workload-worker",
@@ -122,7 +122,7 @@ func (r *LLMInferenceServiceReconciler) expectedMainWorker(ctx context.Context, 
 	return d, nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedMainDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*appsv1.Deployment, error) {
+func (r *LLMInferenceServiceReconciler) expectedMainDeployment(ctx context.Context, llmSvc *kserveapis.LLMInferenceService) (*appsv1.Deployment, error) {
 	if llmSvc.Spec.Template == nil {
 		return nil, fmt.Errorf("llmSvc.Spec.Template must not be nil")
 	}
@@ -132,7 +132,7 @@ func (r *LLMInferenceServiceReconciler) expectedMainDeployment(ctx context.Conte
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, kserveapis.LLMInferenceServiceGVK),
 			},
 			Labels: map[string]string{
 				"app.kubernetes.io/component": "llminferenceservice-workload",
@@ -167,7 +167,7 @@ func (r *LLMInferenceServiceReconciler) expectedMainDeployment(ctx context.Conte
 	return d, nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) error {
+func (r *LLMInferenceServiceReconciler) reconcileDeployment(ctx context.Context, llmSvc *kserveapis.LLMInferenceService, expected *appsv1.Deployment) error {
 	curr := &appsv1.Deployment{}
 
 	err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
@@ -187,7 +187,7 @@ func (r *LLMInferenceServiceReconciler) reconcileDeployment(ctx context.Context,
 	return r.updateDeployment(ctx, llmSvc, curr, expected)
 }
 
-func (r *LLMInferenceServiceReconciler) createDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) error {
+func (r *LLMInferenceServiceReconciler) createDeployment(ctx context.Context, llmSvc *kserveapis.LLMInferenceService, expected *appsv1.Deployment) error {
 	if err := r.Client.Create(ctx, expected); err != nil {
 		return fmt.Errorf("failed to create deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 	}
@@ -196,7 +196,7 @@ func (r *LLMInferenceServiceReconciler) createDeployment(ctx context.Context, ll
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) updateDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, curr, expected *appsv1.Deployment) error {
+func (r *LLMInferenceServiceReconciler) updateDeployment(ctx context.Context, llmSvc *kserveapis.LLMInferenceService, curr, expected *appsv1.Deployment) error {
 	if !metav1.IsControlledBy(curr, llmSvc) {
 		return fmt.Errorf("failed to update deployment %s/%s: it is not controlled by LLMInferenceService %s/%s",
 			expected.GetNamespace(), expected.GetName(),
@@ -213,7 +213,7 @@ func (r *LLMInferenceServiceReconciler) updateDeployment(ctx context.Context, ll
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) deleteDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) error {
+func (r *LLMInferenceServiceReconciler) deleteDeployment(ctx context.Context, llmSvc *kserveapis.LLMInferenceService, expected *appsv1.Deployment) error {
 	if err := r.Client.Delete(ctx, expected); err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("failed to delete deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 	}

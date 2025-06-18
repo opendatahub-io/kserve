@@ -20,16 +20,17 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	kserveapis "github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
 
-func (r *LLMInferenceServiceReconciler) reconcileDisaggregatedServing(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileDisaggregatedServing(ctx context.Context, llmSvc *kserveapis.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("reconcileDisaggregatedServing")
 	ctx = log.IntoContext(ctx, logger)
 
@@ -48,13 +49,13 @@ func (r *LLMInferenceServiceReconciler) reconcileDisaggregatedServing(ctx contex
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*appsv1.Deployment, error) {
+func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx context.Context, llmSvc *kserveapis.LLMInferenceService) (*appsv1.Deployment, error) {
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-prefill"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, kserveapis.LLMInferenceServiceGVK),
 			},
 			Labels: map[string]string{
 				"app.kubernetes.io/component": "llminferenceservice-workload-prefill",
