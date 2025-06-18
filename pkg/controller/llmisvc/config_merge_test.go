@@ -54,11 +54,9 @@ func TestMergeSpecs(t *testing.T) {
 			name: "two configs simple merge",
 			cfgs: []kserveapis.LLMInferenceServiceSpec{
 				{Model: kserveapis.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
-				{Type: "llm-d"},
 			},
 			want: kserveapis.LLMInferenceServiceSpec{
 				Model: kserveapis.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
-				Type:  "llm-d",
 			},
 			wantErr: false,
 		},
@@ -92,13 +90,10 @@ func TestMergeSpecs(t *testing.T) {
 				{Model: kserveapis.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
 				{
 					Model: kserveapis.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
-					Type:  "type-b",
 				},
-				{Type: "type-c"},
 			},
 			want: kserveapis.LLMInferenceServiceSpec{
 				Model: kserveapis.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
-				Type:  "type-c",
 			},
 			wantErr: false,
 		},
@@ -609,6 +604,73 @@ func TestMergeSpecs(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("MergeSpecs() got = \n%#v\n, want \n%#v\nDiff (-want, +got):\n%s", got, tt.want, diff)
+			}
+		})
+	}
+}
+
+func TestReplaceVariables(t *testing.T) {
+	tests := []struct {
+		name    string
+		llmSvc  *kserveapis.LLMInferenceService
+		cfg     *kserveapis.LLMInferenceServiceConfig
+		want    *kserveapis.LLMInferenceServiceConfig
+		wantErr bool
+	}{
+		{
+			name: "Replace model name",
+			cfg: &kserveapis.LLMInferenceServiceConfig{
+				Spec: kserveapis.LLMInferenceServiceSpec{
+					Model: kserveapis.LLMModelSpec{
+						Name: ptr.To("{{ .Spec.Model.Name }}"),
+					},
+					WorkloadSpec: kserveapis.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Args: []string{
+									"--served-model-name",
+									"{{ .Spec.Model.Name }}",
+								}},
+							},
+						},
+					},
+				},
+			},
+			llmSvc: &kserveapis.LLMInferenceService{
+				Spec: kserveapis.LLMInferenceServiceSpec{
+					Model: kserveapis.LLMModelSpec{
+						Name: ptr.To("meta-llama/Llama-3.2-3B-Instruct"),
+					},
+				},
+			},
+			want: &kserveapis.LLMInferenceServiceConfig{
+				Spec: kserveapis.LLMInferenceServiceSpec{
+					Model: kserveapis.LLMModelSpec{
+						Name: ptr.To("meta-llama/Llama-3.2-3B-Instruct"),
+					},
+					WorkloadSpec: kserveapis.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Args: []string{
+									"--served-model-name",
+									"meta-llama/Llama-3.2-3B-Instruct",
+								}},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ReplaceVariables(tt.llmSvc, tt.cfg)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ReplaceVariables() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("ReplaceVariables() got = %#v, want %#v\nDiff:\n%s", got, tt.want, diff)
 			}
 		})
 	}

@@ -17,9 +17,11 @@ limitations under the License.
 package llmisvc
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"text/template"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -97,7 +99,27 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		ObjectMeta: *llmSvc.ObjectMeta.DeepCopy(),
 		Spec:       spec,
 	}
+
+	config, err2 := ReplaceVariables(llmSvc, cfg)
+	if err2 != nil {
+		return config, err2
+	}
+
 	return cfg, nil
+}
+
+func ReplaceVariables(llmSvc *kserveapis.LLMInferenceService, cfg *kserveapis.LLMInferenceServiceConfig) (*kserveapis.LLMInferenceServiceConfig, error) {
+	templateBytes, _ := json.Marshal(cfg)
+	buf := bytes.NewBuffer(nil)
+	if err := template.Must(template.New("config").Parse(string(templateBytes))).Execute(buf, llmSvc); err != nil {
+		return nil, fmt.Errorf("failed to merge config: %w", err)
+	}
+
+	out := &kserveapis.LLMInferenceServiceConfig{}
+	if err := json.Unmarshal(buf.Bytes(), out); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config from template: %w", err)
+	}
+	return out, nil
 }
 
 // getConfig retrieves kserveapis.LLMInferenceServiceConfig with the given name from either the kserveapis.LLMInferenceService
