@@ -15911,8 +15911,6 @@ spec:
                 required:
                 - containers
                 type: object
-              type:
-                type: string
               worker:
                 properties:
                   activeDeadlineSeconds:
@@ -19544,7 +19542,6 @@ spec:
                 type: object
             required:
             - model
-            - type
             type: object
           status:
             properties:
