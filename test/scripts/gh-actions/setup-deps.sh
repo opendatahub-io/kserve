@@ -33,8 +33,59 @@ YQ_VERSION="v4.28.1"
 GATEWAY_API_VERSION="v1.2.1"
 ENVOY_GATEWAY_VERSION="v1.2.2"
 
+
 echo "Installing yq ..."
 wget https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64 -O /usr/local/bin/yq && chmod +x /usr/local/bin/yq
+
+# [LLMInference] This is still experimental and need latest istio
+# For now, it uses helm to install istio but it will be removed once the experimental version is stable
+# ------------------------------------------------------------
+GATEWAY_API_EXPERIMENTAL_VERSION="v1.3.0"
+GATEWAY_API_EXT_VERSION="v0.3.0"
+ISTIO_HUB="gcr.io/istio-testing"
+ISTIO_HUB_VERSION="1.26-alpha.9befed2f1439d883120f8de70fd70d84ca0ebc3d"
+HELM_VERSION="v3.17.3"
+OS=$(uname | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+
+download_helm() {
+  case "$ARCH" in
+    arm64|aarch64) ARCH="arm64" ;;
+    x86_64) ARCH="amd64" ;;
+    *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+  esac
+
+  HELM_TARBALL="helm-${HELM_VERSION}-${OS}-${ARCH}.tar.gz"
+  HELM_DIR="$HOME/.local/bin"
+  HELM_PATH="$HELM_DIR/helm"
+  
+  # Create directory if it doesn't exist
+  mkdir -p "$HELM_DIR"
+  
+  if [[ ! -f "$HELM_PATH" ]]; then
+    cd /tmp
+    wget --progress=bar:force:noscroll "https://get.helm.sh/${HELM_TARBALL}"
+    tar -zxvf "${HELM_TARBALL}"
+    cp "${OS}-${ARCH}/helm" "$HELM_PATH"
+    chmod +x "$HELM_PATH"
+    rm -rf "${OS}-${ARCH}" "${HELM_TARBALL}"
+    cd -
+    echo "Helm ${HELM_VERSION} installed to $HELM_PATH"
+    echo "Please add $HELM_DIR to your PATH if not already added"
+  fi
+}
+
+if [[ $NETWORK_LAYER == "istio-gatewayapi-ext" ]]; then
+  download_helm
+  echo "Installing Gateway API experimental CRDs ..."
+  kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_EXPERIMENTAL_VERSION}/experimental-install.yaml
+  echo "Installing Gateway API Inference Extension CRDs ..."
+  kubectl apply -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/${GATEWAY_API_EXT_VERSION}/manifests.yaml
+
+  helm upgrade -i istio-base oci://$ISTIO_HUB/charts/base --version $ISTIO_HUB_VERSION -n istio-system --create-namespace
+  helm upgrade -i istiod oci://$ISTIO_HUB/charts/istiod --version $ISTIO_HUB_VERSION -n istio-system --set tag=$ISTIO_HUB_VERSION --set hub=$ISTIO_HUB --wait
+fi
+# ------------------------------------------------------------
 
 if [[ $NETWORK_LAYER == "istio-gatewayapi" || $NETWORK_LAYER == "envoy-gatewayapi" ]]; then
   echo "Installing Gateway CRDs ..."
@@ -111,3 +162,5 @@ kubectl apply --validate=false -f https://github.com/jetstack/cert-manager/relea
 
 echo "Waiting for cert-manager to be ready ..."
 kubectl wait --for=condition=ready pod -l 'app in (cert-manager,webhook)' --timeout=180s -n cert-manager
+
+
