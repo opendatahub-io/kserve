@@ -77,7 +77,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				}, expectedDeployment)
 
 				return errors.IsNotFound(err)
-			}).WithTimeout(10 * time.Minute).Should(BeFalse())
+			}).WithTimeout(2 * time.Second).Should(BeFalse())
 
 			Expect(expectedDeployment.Spec.Replicas).To(Equal(ptr.To[int32](1)))
 			Expect(expectedDeployment.Spec.Template.Spec.Containers).To(HaveLen(1))
