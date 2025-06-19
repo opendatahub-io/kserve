@@ -36,13 +36,14 @@ func (r *LLMInferenceServiceReconciler) reconcileDisaggregatedServing(ctx contex
 
 	logger.V(2).Info("Reconciling disaggregated serving workload")
 
+	prefill := r.expectedPrefillMainDeployment(ctx, llmSvc)
 	if llmSvc.Spec.Prefill == nil {
-		if err := r.deleteDeployment(ctx, llmSvc, r.expectedPrefillMainDeployment(ctx, llmSvc)); err != nil && !apierrors.IsNotFound(err) {
+		if err := r.deleteDeployment(ctx, llmSvc, prefill); err != nil && !apierrors.IsNotFound(err) {
 			return fmt.Errorf("failed to delete prefill deployment: %w", err)
 		}
+		return nil
 	}
-
-	return nil
+	return r.reconcileDeployment(ctx, llmSvc, prefill)
 }
 
 func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *appsv1.Deployment {

@@ -71,7 +71,8 @@ func (r *LLMInferenceServiceReconciler) reconcileMainWorkload(ctx context.Contex
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileMainWorker(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	return r.reconcileDeployment(ctx, llmSvc, r.expectedMainWorker(ctx, llmSvc))
+	expected := r.expectedMainWorker(ctx, llmSvc)
+	return r.reconcileDeployment(ctx, llmSvc, expected)
 }
 
 func (r *LLMInferenceServiceReconciler) expectedMainWorker(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *appsv1.Deployment {
