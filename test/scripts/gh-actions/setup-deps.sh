@@ -42,48 +42,23 @@ wget https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_am
 # ------------------------------------------------------------
 GATEWAY_API_EXPERIMENTAL_VERSION="v1.3.0"
 GATEWAY_API_EXT_VERSION="v0.3.0"
-ISTIO_HUB="gcr.io/istio-testing"
-ISTIO_HUB_VERSION="1.26-alpha.9befed2f1439d883120f8de70fd70d84ca0ebc3d"
-HELM_VERSION="v3.17.3"
-OS=$(uname | tr '[:upper:]' '[:lower:]')
-ARCH=$(uname -m)
 
-download_helm() {
-  case "$ARCH" in
-    arm64|aarch64) ARCH="arm64" ;;
-    x86_64) ARCH="amd64" ;;
-    *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
-  esac
-
-  HELM_TARBALL="helm-${HELM_VERSION}-${OS}-${ARCH}.tar.gz"
-  HELM_DIR="$HOME/.local/bin"
-  HELM_PATH="$HELM_DIR/helm"
-  
-  # Create directory if it doesn't exist
-  mkdir -p "$HELM_DIR"
-  
-  if [[ ! -f "$HELM_PATH" ]]; then
-    cd /tmp
-    wget --progress=bar:force:noscroll "https://get.helm.sh/${HELM_TARBALL}"
-    tar -zxvf "${HELM_TARBALL}"
-    cp "${OS}-${ARCH}/helm" "$HELM_PATH"
-    chmod +x "$HELM_PATH"
-    rm -rf "${OS}-${ARCH}" "${HELM_TARBALL}"
-    cd -
-    echo "Helm ${HELM_VERSION} installed to $HELM_PATH"
-    echo "Please add $HELM_DIR to your PATH if not already added"
-  fi
-}
+# To generate istio-base.yaml and istiod.yaml, you can use the following commands:
+#   ISTIO_HUB="gcr.io/istio-testing"
+#   ISTIO_HUB_VERSION="1.26-alpha.9befed2f1439d883120f8de70fd70d84ca0ebc3d"
+#   helm template istio-base oci://$ISTIO_HUB/charts/base --version $ISTIO_HUB_VERSION --set tag=$ISTIO_HUB_VERSION --set hub=$ISTIO_HUB --set namespace=istio-system > istio-base.yaml
+#   helm template istiod oci://$ISTIO_HUB/charts/istiod --version $ISTIO_HUB_VERSION --set tag=$ISTIO_HUB_VERSION --set hub=$ISTIO_HUB --namespace=istio-system > istiod.yaml
 
 if [[ $NETWORK_LAYER == "istio-gatewayapi-ext" ]]; then
-  download_helm
   echo "Installing Gateway API experimental CRDs ..."
   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_EXPERIMENTAL_VERSION}/experimental-install.yaml
   echo "Installing Gateway API Inference Extension CRDs ..."
   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/${GATEWAY_API_EXT_VERSION}/manifests.yaml
 
-  helm upgrade -i istio-base oci://$ISTIO_HUB/charts/base --version $ISTIO_HUB_VERSION -n istio-system --create-namespace
-  helm upgrade -i istiod oci://$ISTIO_HUB/charts/istiod --version $ISTIO_HUB_VERSION -n istio-system --set tag=$ISTIO_HUB_VERSION --set hub=$ISTIO_HUB --wait
+  kubectl get ns istio-system || kubectl create ns istio-system
+  kubectl apply -f ${SCRIPT_DIR}/../../overlays/llm-istio-experimental/istio-base.yaml -n istio-system
+  kubectl apply -f ${SCRIPT_DIR}/../../overlays/llm-istio-experimental/istiod.yaml -n istio-system
+  kubectl wait --for=condition=Ready pods --all --timeout=240s -n istio-system
 fi
 # ------------------------------------------------------------
 
