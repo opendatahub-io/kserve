@@ -95,6 +95,12 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 			Requeue: true,
 		}, err
 	}
+	if original.DeletionTimestamp != nil {
+		// TODO(reconcile): Handle finalization logic if needed.
+		logger.Info("Mark for deletion, skipping reconciliation")
+		return ctrl.Result{}, nil
+	}
+
 	resource := original.DeepCopy()
 
 	reconciler.PreProcessReconcile(ctx, resource)
