@@ -66,14 +66,15 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Route != nil {
 		refs = append(refs, corev1.LocalObjectReference{Name: configRouterRouteName})
 	}
-	if llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker == nil {
+	switch {
+	case llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker == nil:
 		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillTemplateName})
 		refs = append(refs, corev1.LocalObjectReference{Name: configDecodeTemplateName})
-	} else if llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker != nil {
+	case llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker != nil:
 		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerName})
-	} else if llmSvc.Spec.Worker != nil {
+	case llmSvc.Spec.Worker != nil:
 		refs = append(refs, corev1.LocalObjectReference{Name: configWorkerName})
-	} else {
+	default:
 		refs = append(refs, corev1.LocalObjectReference{Name: configTemplateName})
 	}
 	// Append explicit base refs to override well know configs.
