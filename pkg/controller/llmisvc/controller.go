@@ -102,13 +102,13 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	reconciler.PostProcessReconcile(ctx, resource, original)
 
 	if err := r.updateStatus(ctx, original, resource); err != nil {
-		return ctrl.Result{Requeue: true}, err
+		return ctrl.Result{}, err
 	}
 
 	if reconcileErr != nil {
 		logger.Error(reconcileErr, "Failed to reconcile LLMInferenceService")
 		r.Recorder.Eventf(original, corev1.EventTypeWarning, "Error", reconcileErr.Error())
-		return ctrl.Result{Requeue: true}, reconcileErr
+		return ctrl.Result{}, reconcileErr
 	}
 
 	logger.Info("Reconciliation completed successfully")
@@ -134,7 +134,7 @@ func (r *LLMInferenceServiceReconciler) ReconcileKind(ctx context.Context, llmSv
 	if err != nil {
 		return fmt.Errorf("failed to combine base-configurations: %w", err)
 	}
-	llmSvc = llmSvc.DeepCopy()
+	// We are only writing to status, so we can safely use the original object.
 	llmSvc.Spec = baseCfg.Spec
 
 	logger.Info("Reconciling with combined base configurations", "spec", llmSvc.Spec)

@@ -17,6 +17,7 @@ limitations under the License.
 package llmisvc_test
 
 import (
+	"context"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -29,6 +30,9 @@ import (
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
 	"knative.dev/pkg/kmeta"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	. "github.com/kserve/kserve/pkg/testing"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
@@ -86,6 +90,15 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			Expect(expectedDeployment.OwnerReferences).To(HaveLen(1))
 			Expect(expectedDeployment.OwnerReferences[0].Name).To(Equal(svcName))
 			Expect(expectedDeployment.OwnerReferences[0].Kind).To(Equal("LLMInferenceService"))
+
+			Eventually(func(g Gomega, ctx context.Context) error {
+				if err := envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), llmSvc); err != nil {
+					return err
+				}
+				g.Expect(llmSvc.Status).To(HaveCondition("WorkloadsReady", "True"))
+
+				return nil
+			}).WithContext(ctx).WithTimeout(2 * time.Minute).Should(Succeed())
 		})
 	})
 
