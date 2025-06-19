@@ -24,7 +24,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -78,23 +77,14 @@ type LLMInferenceServiceReconciler struct {
 // It fetches the LLMInferenceService and delegates the reconciliation of its constituent parts.
 func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	logger := log.FromContext(ctx).WithName("LLMInferenceService")
-	logger.Info("Starting reconciliation")
+	ctx = log.IntoContext(ctx, logger)
 
-	// 1. Fetch the LLMInferenceService instance
+	logger.Info("Starting reconciliation")
 	original := &v1alpha1.LLMInferenceService{}
 	if err := r.Get(ctx, req.NamespacedName, original); err != nil {
-		if errors.IsNotFound(err) {
-			// Object not found, return. Created objects are automatically garbage collected.
-			// For additional cleanup logic use finalizers.
-			logger.V(2).Info("LLMInferenceService resource not found. Ignoring since object must be deleted.")
-			return ctrl.Result{}, nil
-		}
-		// Error reading the object - requeue the request.
-		logger.Error(err, "Failed to get LLMInferenceService")
-		return ctrl.Result{
-			Requeue: true,
-		}, err
+		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
+
 	if original.DeletionTimestamp != nil {
 		// TODO(reconcile): Handle finalization logic if needed.
 		logger.Info("Mark for deletion, skipping reconciliation")
