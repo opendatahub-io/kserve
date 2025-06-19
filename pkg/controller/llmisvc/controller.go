@@ -96,36 +96,37 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	resource := original.DeepCopy()
 
 	reconciler.PreProcessReconcile(ctx, resource)
-	reconcileErr := r.ReconcileKind(ctx, resource)
+	reconcileErr := r.reconcile(ctx, resource)
 	reconciler.PostProcessReconcile(ctx, resource, original)
-
-	if err := r.updateStatus(ctx, original, resource); err != nil {
-		return ctrl.Result{}, err
-	}
 
 	if reconcileErr != nil {
 		logger.Error(reconcileErr, "Failed to reconcile LLMInferenceService")
-		r.Recorder.Eventf(original, corev1.EventTypeWarning, "Error", reconcileErr.Error())
-		return ctrl.Result{}, reconcileErr
+		r.Recorder.Eventf(original, corev1.EventTypeWarning, "Error", "Reconciliation failed: %v", reconcileErr.Error())
 	}
 
-	logger.Info("Reconciliation completed successfully")
-	return ctrl.Result{}, nil
+	if err := r.updateStatus(ctx, original, resource); err != nil {
+		logger.Error(err, "Failed to update status for LLMInferenceService")
+		return ctrl.Result{}, err
+	}
+
+	return ctrl.Result{}, reconcileErr
 }
 
 func (r *LLMInferenceServiceReconciler) updateStatus(ctx context.Context, existing *v1alpha1.LLMInferenceService, desired *v1alpha1.LLMInferenceService) error {
-	// If there's nothing to update, just return.
 	if equality.Semantic.DeepEqual(existing.Status, desired.Status) {
+		// If there's nothing to update, just return.
 		return nil
 	}
+
 	if err := r.Client.Status().Update(ctx, desired); err != nil {
 		return fmt.Errorf("failed to update status for LLMInferenceService: %w", err)
 	}
+
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) ReconcileKind(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	logger := log.FromContext(ctx).WithName("ReconcileKind")
+func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	logger := log.FromContext(ctx).WithName("reconcile")
 	ctx = log.IntoContext(ctx, logger)
 
 	baseCfg, err := r.combineBaseRefsConfig(ctx, llmSvc)
