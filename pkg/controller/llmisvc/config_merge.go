@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
@@ -100,9 +101,27 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		Spec:       spec,
 	}
 
-	config, err2 := ReplaceVariables(llmSvc, cfg)
-	if err2 != nil {
-		return config, err2
+	config, err := ReplaceVariables(llmSvc, cfg)
+	if err != nil {
+		return config, err
+	}
+
+	if cfg.Spec.Router != nil &&
+		cfg.Spec.Router.Scheduler != nil &&
+		cfg.Spec.Router.Scheduler.Pool != nil &&
+		cfg.Spec.Router.Scheduler.Pool.Spec != nil &&
+		len(cfg.Spec.Router.Scheduler.Pool.Spec.Selector) == 0 {
+		cfg.Spec.Router.Scheduler.Pool.Spec.Selector = map[igwapi.LabelKey]igwapi.LabelValue{
+			"app.kubernetes.io/component": "llminferenceservice-workload",
+			"app.kubernetes.io/name":      igwapi.LabelValue(llmSvc.GetName()),
+		}
+	}
+
+	if cfg.Spec.Router != nil &&
+		cfg.Spec.Router.Scheduler != nil &&
+		cfg.Spec.Router.Scheduler.Template != nil &&
+		cfg.Spec.Router.Scheduler.Template.ServiceAccountName == "" {
+		cfg.Spec.Router.Scheduler.Template.ServiceAccountName = kmeta.ChildName(llmSvc.GetName(), "-epp-sa")
 	}
 
 	return cfg, nil
@@ -134,9 +153,13 @@ func (r *LLMInferenceServiceReconciler) getConfig(ctx context.Context, llmSvc *v
 		if apierrors.IsNotFound(err) {
 			cfg = &v1alpha1.LLMInferenceServiceConfig{}
 			if err := r.Client.Get(ctx, client.ObjectKey{Name: name, Namespace: r.Config.SystemNamespace}, cfg); err != nil {
+				// TODO: add available LLMInferenceServiceConfig in system namespace and llmSvc.Namespace namespace if not found
+
 				return nil, fmt.Errorf("failed to get LLMInferenceServiceConfig %q from namespaces [%q, %q]: %w", name, llmSvc.Namespace, r.Config.SystemNamespace, err)
 			}
+			return cfg, nil
 		}
+		return nil, fmt.Errorf("failed to get LLMInferenceServiceConfig %s/%s: %w", llmSvc.Namespace, name, err)
 	}
 	return cfg, nil
 }
