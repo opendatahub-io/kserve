@@ -72,6 +72,12 @@ func (r *LLMInferenceServiceReconciler) reconcileMainWorkload(ctx context.Contex
 
 func (r *LLMInferenceServiceReconciler) reconcileMainWorker(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	expected := r.expectedMainWorker(ctx, llmSvc)
+	if llmSvc.Spec.Worker == nil {
+		if err := r.deleteDeployment(ctx, llmSvc, expected); client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf("failed to delete worken deployment: %w", err)
+		}
+		return nil
+	}
 	return r.reconcileDeployment(ctx, llmSvc, expected)
 }
 
