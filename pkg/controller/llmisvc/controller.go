@@ -20,6 +20,8 @@ import (
 	"context"
 	"fmt"
 
+	netv1 "k8s.io/api/networking/v1"
+
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -154,8 +156,7 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.LLMInferenceService{}).
 		Watches(&v1alpha1.LLMInferenceServiceConfig{}, r.enqueueOnLLMInferenceServiceConfigChange(logger)).
-		// FIXME(envtest): complains about missing Kind
-		// Owns(&netv1.Ingress{}, builder.WithPredicates(childResourcesPredicate)).
+		Owns(&netv1.Ingress{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&appsv1.Deployment{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&corev1.Service{}, builder.WithPredicates(childResourcesPredicate))
 
