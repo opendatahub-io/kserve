@@ -27,6 +27,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
+	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -65,17 +66,15 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Route != nil {
 		refs = append(refs, corev1.LocalObjectReference{Name: configRouterRouteName})
 	}
-	if llmSvc.Spec.Worker != nil {
-		refs = append(refs, corev1.LocalObjectReference{Name: configWorkerName})
-	}
-	if llmSvc.Spec.Prefill != nil {
+	if llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker == nil {
 		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillTemplateName})
 		refs = append(refs, corev1.LocalObjectReference{Name: configDecodeTemplateName})
+	} else if llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker != nil {
+		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerName})
+	} else if llmSvc.Spec.Worker != nil {
+		refs = append(refs, corev1.LocalObjectReference{Name: configWorkerName})
 	} else {
 		refs = append(refs, corev1.LocalObjectReference{Name: configTemplateName})
-	}
-	if llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker != nil {
-		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerName})
 	}
 	// Append explicit base refs to override well know configs.
 	refs = append(refs, llmSvc.Spec.BaseRefs...)
@@ -111,7 +110,11 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 func ReplaceVariables(llmSvc *v1alpha1.LLMInferenceService, cfg *v1alpha1.LLMInferenceServiceConfig) (*v1alpha1.LLMInferenceServiceConfig, error) {
 	templateBytes, _ := json.Marshal(cfg)
 	buf := bytes.NewBuffer(nil)
-	if err := template.Must(template.New("config").Parse(string(templateBytes))).Execute(buf, llmSvc); err != nil {
+	if err := template.Must(template.New("config").
+		Funcs(map[string]any{
+			"ChildName": kmeta.ChildName,
+		}).
+		Parse(string(templateBytes))).Execute(buf, llmSvc); err != nil {
 		return nil, fmt.Errorf("failed to merge config: %w", err)
 	}
 
@@ -130,7 +133,7 @@ func (r *LLMInferenceServiceReconciler) getConfig(ctx context.Context, llmSvc *v
 		if apierrors.IsNotFound(err) {
 			cfg = &v1alpha1.LLMInferenceServiceConfig{}
 			if err := r.Client.Get(ctx, client.ObjectKey{Name: name, Namespace: r.Config.SystemNamespace}, cfg); err != nil {
-				return nil, fmt.Errorf("failed to get LLMInferenceServiceConfig %q from namespaces [%q, %q]: %w", name, llmSvc.Namespace, "kserve", err)
+				return nil, fmt.Errorf("failed to get LLMInferenceServiceConfig %q from namespaces [%q, %q]: %w", name, llmSvc.Namespace, r.Config.SystemNamespace, err)
 			}
 		}
 	}
