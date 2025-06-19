@@ -159,7 +159,7 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 		For(&v1alpha1.LLMInferenceService{}).
 		Watches(&v1alpha1.LLMInferenceServiceConfig{}, r.enqueueOnLLMInferenceServiceConfigChange(logger)).
 		// FIXME(envtest): complains about missing Kind
-		//Owns(&netv1.Ingress{}, builder.WithPredicates(childResourcesPredicate)).
+		// Owns(&netv1.Ingress{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&appsv1.Deployment{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&corev1.Service{}, builder.WithPredicates(childResourcesPredicate))
 

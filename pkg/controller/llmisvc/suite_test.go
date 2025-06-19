@@ -60,7 +60,6 @@ var _ = SynchronizedBeforeSuite(func() {
 	envTest, cancel = pkgtest.StartWithControllers(llmCtrlFunc)
 
 	sharedTestFixture(context.Background(), envTest.Client)
-
 }, func() {})
 
 var _ = SynchronizedAfterSuite(func() {}, func() {

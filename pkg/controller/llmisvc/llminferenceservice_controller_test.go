@@ -17,7 +17,8 @@ limitations under the License.
 package llmisvc_test
 
 import (
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"time"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
@@ -28,13 +29,12 @@ import (
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
 	"knative.dev/pkg/kmeta"
-	"time"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
 
 var _ = Describe("LLMInferenceService Controller", func() {
-
 	Context("Basic Reconciliation", func() {
-
 		It("should create a basic single node deployment when LLMInferenceService is created", func(ctx SpecContext) {
 			// given
 			svcName := "test-llm"
@@ -87,7 +87,6 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			Expect(expectedDeployment.OwnerReferences[0].Name).To(Equal(svcName))
 			Expect(expectedDeployment.OwnerReferences[0].Kind).To(Equal("LLMInferenceService"))
 		})
-
 	})
 
 	PContext("HTTPRoute reconciliation", func() {
