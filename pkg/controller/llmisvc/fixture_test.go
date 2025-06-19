@@ -13,7 +13,7 @@ import (
 )
 
 func sharedTestFixture(ctx context.Context, c client.Client) {
-	Expect(envTest.Client.Create(context.Background(), &corev1.Namespace{
+	Expect(envTest.Client.Create(ctx, &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "kserve",
 		},
