@@ -133,7 +133,7 @@ func (r *LLMInferenceServiceReconciler) getConfig(ctx context.Context, llmSvc *v
 		if apierrors.IsNotFound(err) {
 			cfg = &v1alpha1.LLMInferenceServiceConfig{}
 			if err := r.Client.Get(ctx, client.ObjectKey{Name: name, Namespace: r.Config.SystemNamespace}, cfg); err != nil {
-				return nil, fmt.Errorf("failed to get LLMInferenceServiceConfig %q from namespaces [%q, %q]: %w", name, llmSvc.Namespace, "kserve", err)
+				return nil, fmt.Errorf("failed to get LLMInferenceServiceConfig %q from namespaces [%q, %q]: %w", name, llmSvc.Namespace, r.Config.SystemNamespace, err)
 			}
 		}
 	}
