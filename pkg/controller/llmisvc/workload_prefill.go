@@ -59,8 +59,10 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 				"app.kubernetes.io/name":      llmSvc.GetName(),
 				"app.kubernetes.io/part-of":   "llminferenceservice",
 			},
-		},
-		Spec: appsv1.DeploymentSpec{
+		}}
+
+	if llmSvc.Spec.Prefill != nil {
+		d.Spec = appsv1.DeploymentSpec{
 			Replicas: llmSvc.Spec.Prefill.Replicas,
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
@@ -78,10 +80,10 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 					},
 				},
 			},
-		},
+		}
 	}
 
-	if llmSvc.Spec.Prefill.Template != nil {
+	if llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Template != nil {
 		d.Spec.Template.Spec = *llmSvc.Spec.Prefill.Template.DeepCopy()
 	}
 
