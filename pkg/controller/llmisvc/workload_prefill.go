@@ -59,7 +59,8 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 				"app.kubernetes.io/name":      llmSvc.GetName(),
 				"app.kubernetes.io/part-of":   "llminferenceservice",
 			},
-		}}
+		},
+	}
 
 	if llmSvc.Spec.Prefill != nil {
 		d.Spec = appsv1.DeploymentSpec{
