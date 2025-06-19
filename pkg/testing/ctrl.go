@@ -3,10 +3,11 @@ package testing
 import (
 	"context"
 	"fmt"
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	"os"
 	"path/filepath"
+
+	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"

@@ -2,10 +2,11 @@ package testing
 
 import (
 	"context"
-	"google.golang.org/protobuf/proto"
 	"os"
 	"strings"
 	"time"
+
+	"google.golang.org/protobuf/proto"
 
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 
