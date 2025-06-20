@@ -70,8 +70,8 @@ spec:
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: FallbackToLogsOnError
         args:
-          - "--port=8080"
-          - "--vllm-port=8081"
+          - "--port=8000"
+          - "--vllm-port=8001"
     terminationGracePeriodSeconds: 30
     volumes:
       - emptyDir: { }
