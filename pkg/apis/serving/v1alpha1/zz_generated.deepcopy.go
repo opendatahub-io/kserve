@@ -699,11 +699,6 @@ func (in *LLMStorageSpec) DeepCopyInto(out *LLMStorageSpec) {
 		*out = new(string)
 		**out = **in
 	}
-	if in.SchemaPath != nil {
-		in, out := &in.SchemaPath, &out.SchemaPath
-		*out = new(string)
-		**out = **in
-	}
 	if in.Parameters != nil {
 		in, out := &in.Parameters, &out.Parameters
 		*out = new(map[string]string)

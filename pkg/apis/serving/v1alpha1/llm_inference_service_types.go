@@ -53,6 +53,8 @@ type LLMInferenceServiceConfig struct {
 // LLMInferenceServiceSpec defines the desired state of LLMInferenceService.
 type LLMInferenceServiceSpec struct {
 	// Model specification, including its URI, potential LoRA adapters, and storage details.
+	// It's optional for `LLMInferenceServiceConfig` kind.
+	// +optional
 	Model LLMModelSpec `json:"model"`
 
 	// WorkloadSpec configurations for the primary inference deployment.
@@ -241,9 +243,6 @@ type LLMStorageSpec struct {
 	// with the storageURI.
 	// +optional
 	Path *string `json:"path,omitempty"`
-	// The path to the model schema file in the storage.
-	// +optional
-	SchemaPath *string `json:"schemaPath,omitempty"`
 	// Parameters to override the default storage credentials and config.
 	// +optional
 	Parameters *map[string]string `json:"parameters,omitempty"`
