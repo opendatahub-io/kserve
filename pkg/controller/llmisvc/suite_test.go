@@ -19,6 +19,7 @@ package llmisvc_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
@@ -42,6 +43,9 @@ var (
 )
 
 var _ = SynchronizedBeforeSuite(func() {
+	SetDefaultEventuallyTimeout(10 * time.Second)
+	SetDefaultEventuallyPollingInterval(250 * time.Millisecond)
+
 	By("Setting up the test environment")
 	llmCtrlFunc := func(mgr ctrl.Manager) error {
 		eventBroadcaster := record.NewBroadcaster()

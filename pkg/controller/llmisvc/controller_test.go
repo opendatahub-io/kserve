@@ -18,7 +18,6 @@ package llmisvc_test
 
 import (
 	"context"
-	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -81,7 +80,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				}, expectedDeployment)
 
 				return errors.IsNotFound(err)
-			}).WithTimeout(2 * time.Second).Should(BeFalse())
+			}).Should(BeFalse())
 
 			Expect(expectedDeployment.Spec.Replicas).To(Equal(ptr.To[int32](1)))
 			Expect(expectedDeployment.Spec.Template.Spec.Containers).To(HaveLen(1))
@@ -98,7 +97,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				g.Expect(llmSvc.Status).To(HaveCondition("WorkloadsReady", "True"))
 
 				return nil
-			}).WithContext(ctx).WithTimeout(2 * time.Minute).Should(Succeed())
+			}).WithContext(ctx).Should(Succeed())
 		})
 	})
 
@@ -118,8 +117,3 @@ var _ = Describe("LLMInferenceService Controller", func() {
 		})
 	})
 })
-
-// ptr32 returns a pointer to an int32
-func ptr32(i int32) *int32 {
-	return &i
-}
