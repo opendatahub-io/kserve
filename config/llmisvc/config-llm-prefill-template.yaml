@@ -28,11 +28,6 @@ spec:
               value: INFO
             - name: HF_HUB_CACHE
               value: /models
-          resources:
-            limits:
-              nvidia.com/gpu: "1"
-            requests:
-              nvidia.com/gpu: "1"
           securityContext:
             allowPrivilegeEscalation: false
           terminationMessagePath: /dev/termination-log
