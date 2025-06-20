@@ -47,6 +47,12 @@ func (r *LLMInferenceServiceReconciler) reconcileDisaggregatedServing(ctx contex
 }
 
 func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *appsv1.Deployment {
+	labels := map[string]string{
+		"app.kubernetes.io/component": "llminferenceservice-workload-prefill",
+		"app.kubernetes.io/name":      llmSvc.GetName(),
+		"app.kubernetes.io/part-of":   "llminferenceservice",
+	}
+
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-prefill"),
@@ -54,11 +60,7 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
 			},
-			Labels: map[string]string{
-				"app.kubernetes.io/component": "llminferenceservice-workload-prefill",
-				"app.kubernetes.io/name":      llmSvc.GetName(),
-				"app.kubernetes.io/part-of":   "llminferenceservice",
-			},
+			Labels: labels,
 		},
 	}
 
@@ -66,19 +68,11 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 		d.Spec = appsv1.DeploymentSpec{
 			Replicas: llmSvc.Spec.Prefill.Replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"app.kubernetes.io/component": "llminferenceservice-workload-prefill",
-					"app.kubernetes.io/name":      llmSvc.GetName(),
-					"app.kubernetes.io/part-of":   "llminferenceservice",
-				},
+				MatchLabels: labels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						"app.kubernetes.io/component": "llminferenceservice-workload-prefill",
-						"app.kubernetes.io/name":      llmSvc.GetName(),
-						"app.kubernetes.io/part-of":   "llminferenceservice",
-					},
+					Labels: labels,
 				},
 			},
 		}

@@ -82,6 +82,12 @@ func (r *LLMInferenceServiceReconciler) reconcileMainWorker(ctx context.Context,
 }
 
 func (r *LLMInferenceServiceReconciler) expectedMainWorker(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *appsv1.Deployment {
+	labels := map[string]string{
+		"app.kubernetes.io/component": "llminferenceservice-workload-worker",
+		"app.kubernetes.io/name":      llmSvc.GetName(),
+		"app.kubernetes.io/part-of":   "llminferenceservice",
+	}
+
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-worker"),
@@ -89,28 +95,16 @@ func (r *LLMInferenceServiceReconciler) expectedMainWorker(ctx context.Context, 
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
 			},
-			Labels: map[string]string{
-				"app.kubernetes.io/component": "llminferenceservice-workload-worker",
-				"app.kubernetes.io/name":      llmSvc.GetName(),
-				"app.kubernetes.io/part-of":   "llminferenceservice",
-			},
+			Labels: labels,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: llmSvc.Spec.Replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"app.kubernetes.io/component": "llminferenceservice-workload-worker",
-					"app.kubernetes.io/name":      llmSvc.GetName(),
-					"app.kubernetes.io/part-of":   "llminferenceservice",
-				},
+				MatchLabels: labels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						"app.kubernetes.io/component": "llminferenceservice-workload-worker",
-						"app.kubernetes.io/name":      llmSvc.GetName(),
-						"app.kubernetes.io/part-of":   "llminferenceservice",
-					},
+					Labels: labels,
 				},
 			},
 		},
@@ -130,6 +124,12 @@ func (r *LLMInferenceServiceReconciler) expectedMainDeployment(ctx context.Conte
 		return nil, errors.New("llmSvc.Spec.Template must not be nil")
 	}
 
+	labels := map[string]string{
+		"app.kubernetes.io/component": "llminferenceservice-workload",
+		"app.kubernetes.io/name":      llmSvc.GetName(),
+		"app.kubernetes.io/part-of":   "llminferenceservice",
+	}
+
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve"),
@@ -137,28 +137,16 @@ func (r *LLMInferenceServiceReconciler) expectedMainDeployment(ctx context.Conte
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
 			},
-			Labels: map[string]string{
-				"app.kubernetes.io/component": "llminferenceservice-workload",
-				"app.kubernetes.io/name":      llmSvc.GetName(),
-				"app.kubernetes.io/part-of":   "llminferenceservice",
-			},
+			Labels: labels,
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: llmSvc.Spec.Replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"app.kubernetes.io/component": "llminferenceservice-workload",
-					"app.kubernetes.io/name":      llmSvc.GetName(),
-					"app.kubernetes.io/part-of":   "llminferenceservice",
-				},
+				MatchLabels: labels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: map[string]string{
-						"app.kubernetes.io/component": "llminferenceservice-workload",
-						"app.kubernetes.io/name":      llmSvc.GetName(),
-						"app.kubernetes.io/part-of":   "llminferenceservice",
-					},
+					Labels: labels,
 				},
 				Spec: *llmSvc.Spec.Template.DeepCopy(),
 			},
