@@ -19,6 +19,11 @@ package llmisvc_test
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/client-go/util/retry"
+	ctrl "sigs.k8s.io/controller-runtime"
+	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
+
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -26,12 +31,14 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	. "github.com/kserve/kserve/pkg/testing"
 )
 
@@ -81,23 +88,15 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			// then
 			expectedDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
-				err := envTest.Get(ctx, types.NamespacedName{
+				return envTest.Get(ctx, types.NamespacedName{
 					Name:      svcName + "-kserve",
 					Namespace: nsName,
 				}, expectedDeployment)
-
-				g.Expect(client.IgnoreNotFound(err)).NotTo(HaveOccurred())
-
-				return err
 			}).WithContext(ctx).Should(Succeed())
 
 			Expect(expectedDeployment.Spec.Replicas).To(Equal(ptr.To[int32](1)))
-			Expect(expectedDeployment.Spec.Template.Spec.Containers).To(HaveLen(1))
-			Expect(expectedDeployment.Spec.Template.Spec.Containers[0].Image).To(Equal("ghcr.io/llm-d/llm-d:0.0.8")) // Coming from preset
-
-			Expect(expectedDeployment.OwnerReferences).To(HaveLen(1))
-			Expect(expectedDeployment.OwnerReferences[0].Name).To(Equal(svcName))
-			Expect(expectedDeployment.OwnerReferences[0].Kind).To(Equal("LLMInferenceService"))
+			Expect(expectedDeployment).To(HaveContainerImage("ghcr.io/llm-d/llm-d:0.0.8")) // Coming from preset
+			Expect(expectedDeployment).To(BeOwnedBy(llmSvc))
 
 			Eventually(func(g Gomega, ctx context.Context) error {
 				if err := envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), llmSvc); err != nil {
@@ -108,7 +107,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				// Overall condition depends on owned resources such as Deployment.
 				// When running on EnvTest certain controllers are not built-in, and that
 				// includes deployment controllers, ReplicaSet controllers, etc.
-				// Therefore, we can only observe a successful reconcile when testing against actual cluster
+				// Therefore, we can only observe a successful reconcile when testing against the actual cluster
 				if envTest.Environment.UseExistingCluster == ptr.To[bool](true) {
 					g.Expect(llmSvc.Status).To(HaveCondition(string(v1alpha1.WorkloadReady), "True"))
 				}
@@ -118,19 +117,342 @@ var _ = Describe("LLMInferenceService Controller", func() {
 		})
 	})
 
-	PContext("HTTPRoute reconciliation", func() {
-		When("spec.router.route.http is present and refs is empty", func() {
-			It("should create HTTPRoute(s) pointing to the gateways in spec.router.gateway.refs", func() {
-				// TODO: Create LLMInferenceService with spec.router.route.http and no refs
-				// TODO: Assert HTTPRoute(s) are created, owned, and labeled correctly
+	Context("Routing reconciliation ", func() {
+		When("HTTP route is managed", func() {
+			It("should create routes pointing to the default gateway when both are managed", func(ctx SpecContext) {
+				// given
+				svcName := "test-llm-create-http-route"
+				nsName := kmeta.ChildName(svcName, "-test")
+				namespace := &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: nsName,
+					},
+				}
+				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+				defer func() {
+					envTest.DeleteAll(namespace)
+				}()
+
+				modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
+				Expect(err).ToNot(HaveOccurred())
+
+				llmSvc := &v1alpha1.LLMInferenceService{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      svcName,
+						Namespace: nsName,
+					},
+					Spec: v1alpha1.LLMInferenceServiceSpec{
+						Model: v1alpha1.LLMModelSpec{
+							URI: *modelURL,
+						},
+						WorkloadSpec: v1alpha1.WorkloadSpec{},
+						Router: &v1alpha1.RouterSpec{
+							Route:   &v1alpha1.GatewayRoutesSpec{},
+							Gateway: &v1alpha1.GatewaySpec{},
+						},
+					},
+				}
+
+				// when
+				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+				defer func() {
+					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+				}()
+
+				// then
+				expectedHTTPRoute := &gatewayapi.HTTPRoute{}
+				Eventually(func(g Gomega, ctx context.Context) error {
+					routes, errList := managedRoutes(ctx, llmSvc)
+					g.Expect(errList).ToNot(HaveOccurred())
+					g.Expect(routes).To(HaveLen(1))
+					expectedHTTPRoute = &routes[0]
+
+					return nil
+				}).WithContext(ctx).Should(Succeed())
+
+				Expect(expectedHTTPRoute).To(BeControllerBy(llmSvc))
+				Expect(expectedHTTPRoute).To(HaveGatewayRefs("kserve-ingress-gateway"))
+				Expect(expectedHTTPRoute).To(HaveBackendRefs(svcName + "-inference-pool"))
+			})
+
+			It("should create HTTPRoute with defined spec", func(ctx SpecContext) {
+				// given
+				svcName := "test-llm-defined-http-route"
+				nsName := kmeta.ChildName(svcName, "-test")
+				namespace := &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: nsName,
+					},
+				}
+				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+				defer func() {
+					envTest.DeleteAll(namespace)
+				}()
+
+				modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
+				Expect(err).ToNot(HaveOccurred())
+
+				llmSvc := &v1alpha1.LLMInferenceService{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      svcName,
+						Namespace: nsName,
+					},
+					Spec: v1alpha1.LLMInferenceServiceSpec{
+						Model: v1alpha1.LLMModelSpec{
+							URI: *modelURL,
+						},
+						WorkloadSpec: v1alpha1.WorkloadSpec{},
+						Router: &v1alpha1.RouterSpec{
+							Route: &v1alpha1.GatewayRoutesSpec{
+								HTTP: &v1alpha1.HTTPRouteSpec{
+									Spec: customRouteSpec(nsName, "my-ingress-gateway", "my-inference-pool"),
+								},
+							},
+							Gateway: &v1alpha1.GatewaySpec{},
+						},
+					},
+				}
+
+				// when
+				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+				defer func() {
+					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+				}()
+
+				expectedHTTPRoute := &gatewayapi.HTTPRoute{}
+
+				Eventually(func(g Gomega, ctx context.Context) error {
+					routes, errList := managedRoutes(ctx, llmSvc)
+					g.Expect(errList).ToNot(HaveOccurred())
+					g.Expect(routes).To(HaveLen(1))
+					expectedHTTPRoute = &routes[0]
+					return nil
+				}).WithContext(ctx).Should(Not(HaveOccurred()), "HTTPRoute should be created")
+
+				Expect(expectedHTTPRoute).To(BeControllerBy(llmSvc))
+				Expect(expectedHTTPRoute).To(HaveGatewayRefs("my-ingress-gateway"))
+				Expect(expectedHTTPRoute).To(HaveBackendRefs("my-inference-pool"))
+			})
+
+			It("should delete managed HTTPRoute when ref is defined", func(ctx SpecContext) {
+				// given
+				svcName := "test-llm-update-http-route"
+				nsName := kmeta.ChildName(svcName, "-test")
+				namespace := &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: nsName,
+					},
+				}
+				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+				defer func() {
+					envTest.DeleteAll(namespace)
+				}()
+
+				modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
+				Expect(err).ToNot(HaveOccurred())
+
+				llmSvc := &v1alpha1.LLMInferenceService{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      svcName,
+						Namespace: nsName,
+					},
+					Spec: v1alpha1.LLMInferenceServiceSpec{
+						Model: v1alpha1.LLMModelSpec{
+							URI: *modelURL,
+						},
+						WorkloadSpec: v1alpha1.WorkloadSpec{},
+						Router: &v1alpha1.RouterSpec{
+							Route: &v1alpha1.GatewayRoutesSpec{
+								HTTP: &v1alpha1.HTTPRouteSpec{},
+							},
+							Gateway: &v1alpha1.GatewaySpec{},
+						},
+					},
+				}
+
+				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+				defer func() {
+					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+				}()
+
+				Eventually(func(g Gomega, ctx context.Context) error {
+					routes, errList := managedRoutes(ctx, llmSvc)
+					g.Expect(errList).ToNot(HaveOccurred())
+					g.Expect(routes).To(HaveLen(1))
+
+					return nil
+				}).WithContext(ctx).Should(Succeed())
+
+				// when - Update the HTTPRoute spec
+				errRetry := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+					_, errUpdate := ctrl.CreateOrUpdate(ctx, envTest.Client, llmSvc, func() error {
+						llmSvc.Spec.Router.Route.HTTP.Refs = []corev1.LocalObjectReference{{Name: "my-custom-route"}}
+						return nil
+					})
+					return errUpdate
+				})
+				Expect(errRetry).ToNot(HaveOccurred())
+
+				// then
+				Eventually(func(g Gomega, ctx context.Context) error {
+					routes, errList := managedRoutes(ctx, llmSvc)
+					g.Expect(errList).ToNot(HaveOccurred())
+					g.Expect(routes).To(BeEmpty())
+
+					return nil
+				}).WithContext(ctx).Should(Succeed())
 			})
 		})
 
-		When("spec.router.route.http is removed", func() {
-			It("should delete owned HTTPRoute(s)", func() {
-				// TODO: Remove spec.router.route.http from LLMInferenceService
-				// TODO: Assert HTTPRoute(s) are deleted
-			})
+		When("transitioning from managed to unmanaged router", func() {
+			DescribeTable("owned resources should be deleted",
+
+				func(ctx SpecContext, testName string, initialRouterSpec *v1alpha1.RouterSpec, specMutation func(*v1alpha1.LLMInferenceService)) {
+					// given
+					svcName := "test-llm-" + testName
+					nsName := kmeta.ChildName(svcName, "-test")
+					namespace := &corev1.Namespace{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: nsName,
+						},
+					}
+					Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+					defer func() {
+						envTest.DeleteAll(namespace)
+					}()
+
+					modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
+					Expect(err).ToNot(HaveOccurred())
+
+					llmSvc := &v1alpha1.LLMInferenceService{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      svcName,
+							Namespace: nsName,
+						},
+						Spec: v1alpha1.LLMInferenceServiceSpec{
+							Model: v1alpha1.LLMModelSpec{
+								URI: *modelURL,
+							},
+							WorkloadSpec: v1alpha1.WorkloadSpec{},
+							Router:       initialRouterSpec,
+						},
+					}
+
+					// when - Create LLMInferenceService
+					Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+					defer func() {
+						Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+					}()
+
+					// then - HTTPRoute should be created with router labels
+					Eventually(func(g Gomega, ctx context.Context) error {
+						routes, errList := managedRoutes(ctx, llmSvc)
+						g.Expect(errList).ToNot(HaveOccurred())
+						g.Expect(routes).To(HaveLen(1))
+
+						return nil
+					}).WithContext(ctx).Should(Succeed(), "Should have managed HTTPRoute")
+
+					// when - Update LLMInferenceService using the provided update function
+					errRetry := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+						_, errUpdate := ctrl.CreateOrUpdate(ctx, envTest.Client, llmSvc, func() error {
+							specMutation(llmSvc)
+							return nil
+						})
+						return errUpdate
+					})
+
+					Expect(errRetry).ToNot(HaveOccurred())
+
+					// then - HTTPRoute with router labels should be deleted
+					Eventually(func(g Gomega, ctx context.Context) error {
+						routes, errList := managedRoutes(ctx, llmSvc)
+						g.Expect(errList).ToNot(HaveOccurred())
+						g.Expect(routes).To(BeEmpty())
+
+						return nil
+					}).WithContext(ctx).Should(Succeed(), "Should have no managed HTTPRoutes with router when ")
+				},
+				Entry("should delete HTTPRoutes when spec.Router is set to nil",
+					"router-spec-nil",
+					&v1alpha1.RouterSpec{
+						Route: &v1alpha1.GatewayRoutesSpec{
+							HTTP: &v1alpha1.HTTPRouteSpec{}, // Default empty spec
+						},
+						Gateway: &v1alpha1.GatewaySpec{},
+					},
+					func(llmSvc *v1alpha1.LLMInferenceService) {
+						llmSvc.Spec.Router = nil
+					},
+				),
+				Entry("should delete HTTPRoutes when entire route spec is set to nil",
+					"router-route-spec-nil",
+					&v1alpha1.RouterSpec{
+						Route: &v1alpha1.GatewayRoutesSpec{
+							HTTP: &v1alpha1.HTTPRouteSpec{}, // Default empty spec
+						},
+						Gateway: &v1alpha1.GatewaySpec{},
+					},
+					func(llmSvc *v1alpha1.LLMInferenceService) {
+						llmSvc.Spec.Router.Route = nil
+					},
+				),
+			)
 		})
 	})
 })
+
+func managedRoutes(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) ([]gatewayapi.HTTPRoute, error) {
+	httpRoutes := &gatewayapi.HTTPRouteList{}
+	listOpts := &client.ListOptions{
+		Namespace:     llmSvc.Namespace,
+		LabelSelector: labels.SelectorFromSet(llmisvc.RouterLabels(llmSvc)),
+	}
+	err := envTest.List(ctx, httpRoutes, listOpts)
+	return httpRoutes.Items, ignoreNoMatch(err)
+}
+
+func ignoreNoMatch(err error) error {
+	if meta.IsNoMatchError(err) {
+		return nil
+	}
+
+	return err
+}
+
+func customRouteSpec(nsName, gatewayRefName, backendRefName string) *gatewayapi.HTTPRouteSpec {
+	return &gatewayapi.HTTPRouteSpec{
+		CommonRouteSpec: gatewayapi.CommonRouteSpec{
+			ParentRefs: []gatewayapi.ParentReference{{
+				Group:     ptr.To(gatewayapi.Group("networking.x-k8s.io")),
+				Kind:      ptr.To(gatewayapi.Kind("Gateway")),
+				Name:      gatewayapi.ObjectName(gatewayRefName),
+				Namespace: ptr.To(gatewayapi.Namespace(nsName)),
+			}},
+		},
+
+		Rules: []gatewayapi.HTTPRouteRule{{
+			BackendRefs: []gatewayapi.HTTPBackendRef{{
+				BackendRef: gatewayapi.BackendRef{
+					BackendObjectReference: gatewayapi.BackendObjectReference{
+						Group: ptr.To(gatewayapi.Group("inference.networking.x-k8s.io")),
+						Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
+						Name:  gatewayapi.ObjectName(backendRefName),
+						Port:  ptr.To[gatewayapi.PortNumber](8000),
+					},
+					Weight: ptr.To[int32](1),
+				},
+			}},
+			Matches: []gatewayapi.HTTPRouteMatch{{
+				Path: &gatewayapi.HTTPPathMatch{
+					Type:  ptr.To(gatewayapi.PathMatchPathPrefix),
+					Value: ptr.To("/"),
+				},
+			}},
+			Timeouts: &gatewayapi.HTTPRouteTimeouts{
+				BackendRequest: ptr.To(gatewayapi.Duration("0s")),
+				Request:        ptr.To(gatewayapi.Duration("0s")),
+			},
+		}},
+	}
+}

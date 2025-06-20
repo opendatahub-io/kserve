@@ -171,7 +171,7 @@ func (r *LLMInferenceServiceReconciler) expectedMainDeployment(ctx context.Conte
 func (r *LLMInferenceServiceReconciler) reconcileDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) error {
 	curr := &appsv1.Deployment{}
 	err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
-	if err != nil && !apierrors.IsNotFound(err) {
+	if client.IgnoreNotFound(err) != nil {
 		return fmt.Errorf("failed to get deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 	}
 	if apierrors.IsNotFound(err) {
