@@ -28,9 +28,10 @@ const (
 )
 
 const (
-	MainWorkloadReady    apis.ConditionType = "MainWorkloadReady"
-	WorkerWorkloadReady  apis.ConditionType = "WorkerWorkloadReady"
-	PrefillWorkloadReady apis.ConditionType = "PrefillWorkloadReady"
+	MainWorkloadReady          apis.ConditionType = "MainWorkloadReady"
+	WorkerWorkloadReady        apis.ConditionType = "WorkerWorkloadReady"
+	PrefillWorkloadReady       apis.ConditionType = "PrefillWorkloadReady"
+	PrefillWorkerWorkloadReady apis.ConditionType = "PrefillWorkerWorkloadReady"
 )
 
 var llmInferenceServiceCondSet = apis.NewLivingConditionSet(
@@ -50,14 +51,56 @@ func (in *LLMInferenceService) MarkWorkloadNotReady(reason, messageFormat string
 	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(WorkloadReady, reason, messageFormat, messageA...)
 }
 
-func (in *LLMInferenceService) MarkWorkloadReady() {
+func (in *LLMInferenceService) MarkMainWorkloadReady() {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(MainWorkloadReady)
+}
+
+func (in *LLMInferenceService) MarkMainWorkloadNotReady(reason, messageFormat string, messageA ...interface{}) {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(MainWorkloadReady, reason, messageFormat, messageA...)
+}
+
+func (in *LLMInferenceService) MarkWorkerWorkloadReady() {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(WorkerWorkloadReady)
+}
+
+func (in *LLMInferenceService) MarkWorkerWorkloadNotReady(reason, messageFormat string, messageA ...interface{}) {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(WorkerWorkloadReady, reason, messageFormat, messageA...)
+}
+
+func (in *LLMInferenceService) MarkPrefillWorkloadReady() {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(PrefillWorkloadReady)
+}
+
+func (in *LLMInferenceService) MarkPrefillWorkloadNotReady(reason, messageFormat string, messageA ...interface{}) {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(PrefillWorkloadReady, reason, messageFormat, messageA...)
+}
+
+func (in *LLMInferenceService) MarkPrefillWorkerWorkloadReady() {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(PrefillWorkerWorkloadReady)
+}
+
+func (in *LLMInferenceService) MarkPrefillWorkerWorkloadNotReady(reason, messageFormat string, messageA ...interface{}) {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(PrefillWorkerWorkloadReady, reason, messageFormat, messageA...)
+}
+
+func (in *LLMInferenceService) DetermineWorkloadReadiness() {
+	// Return early if it explicitly set to false in order to keep the reason and message as it is.
+	tp := in.GetStatus().GetCondition(WorkloadReady)
+	if tp != nil && tp.IsFalse() {
+		return
+	}
+
 	subConditions := []*apis.Condition{
 		in.GetStatus().GetCondition(MainWorkloadReady),
 		in.GetStatus().GetCondition(WorkerWorkloadReady),
 		in.GetStatus().GetCondition(PrefillWorkloadReady),
+		in.GetStatus().GetCondition(PrefillWorkerWorkloadReady),
 	}
 
 	for _, cond := range subConditions {
+		if cond == nil {
+			continue
+		}
 		if cond.IsFalse() {
 			in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(WorkloadReady, cond.Reason, cond.Message)
 			return
