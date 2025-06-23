@@ -47,6 +47,8 @@ var _ = SynchronizedBeforeSuite(func() {
 	SetDefaultEventuallyPollingInterval(250 * time.Millisecond)
 
 	By("Setting up the test environment")
+	systemNs := "kserve"
+
 	llmCtrlFunc := func(mgr ctrl.Manager) error {
 		eventBroadcaster := record.NewBroadcaster()
 		llmCtrl := llmisvc.LLMInferenceServiceReconciler{
@@ -54,7 +56,7 @@ var _ = SynchronizedBeforeSuite(func() {
 			// TODO fix it to be set up similar to main.go, for now it's stub
 			Recorder: eventBroadcaster.NewRecorder(mgr.GetScheme(), corev1.EventSource{Component: "v1beta1Controllers"}),
 			Config: llmisvc.ReconcilerConfig{
-				SystemNamespace: "kserve",
+				SystemNamespace: systemNs,
 			},
 		}
 		return llmCtrl.SetupWithManager(mgr)
@@ -62,7 +64,7 @@ var _ = SynchronizedBeforeSuite(func() {
 
 	envTest, cancel = pkgtest.StartWithControllers(llmCtrlFunc)
 
-	sharedTestFixture(context.Background(), envTest.Client)
+	createRequiredResources(context.Background(), envTest.Client, systemNs)
 }, func() {})
 
 var _ = SynchronizedAfterSuite(func() {}, func() {

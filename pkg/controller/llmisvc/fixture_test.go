@@ -18,35 +18,76 @@ package llmisvc_test
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 
-	. "github.com/onsi/gomega"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/testing"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/yaml"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	. "github.com/onsi/gomega"
 )
 
-func sharedTestFixture(ctx context.Context, c client.Client) {
+func createRequiredResources(ctx context.Context, c client.Client, ns string) {
 	Expect(envTest.Client.Create(ctx, &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "kserve",
+			Name: ns,
 		},
 	})).To(Succeed())
 
-	templateConfig := &v1alpha1.LLMInferenceServiceConfig{
+	createSharedConfigPresets(ctx, c, ns)
+}
+
+// createSharedConfigPresets loads preset files shared as kustomize manifests that are stored in projects config.
+// Every file prefixed with `config-` is treated as such
+func createSharedConfigPresets(ctx context.Context, c client.Client, ns string) {
+	configDir := filepath.Join(testing.ProjectRoot(), "config", "llmisvc")
+	err := filepath.Walk(configDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() || !strings.HasSuffix(info.Name(), ".yaml") || !strings.HasPrefix(info.Name(), "config-") {
+			return nil
+		}
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		config := &v1alpha1.LLMInferenceServiceConfig{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: ns,
+			},
+		}
+		if err := yaml.Unmarshal(data, config); err != nil {
+			return err
+		}
+
+		return c.Create(ctx, config)
+	})
+
+	Expect(err).NotTo(HaveOccurred())
+
+	baseTemplateConfig := &v1alpha1.LLMInferenceServiceConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "kserve-config-llm-template",
 			Namespace: "kserve",
 		},
+
 		Spec: v1alpha1.LLMInferenceServiceSpec{
 			WorkloadSpec: v1alpha1.WorkloadSpec{
 				Template: &corev1.PodSpec{
 					Containers: []corev1.Container{
 						{
-							Name:  "model",
-							Image: "test-model:latest",
+							Name:  "main",
+							Image: "facebook/opt-125m:latest",
 							Resources: corev1.ResourceRequirements{
 								Limits: corev1.ResourceList{
 									"nvidia.com/gpu": resource.MustParse("1"),
@@ -58,5 +99,5 @@ func sharedTestFixture(ctx context.Context, c client.Client) {
 			},
 		},
 	}
-	Expect(c.Create(ctx, templateConfig)).To(Succeed())
+	Expect(c.Create(ctx, baseTemplateConfig)).To(Succeed())
 }

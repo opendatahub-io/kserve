@@ -51,7 +51,7 @@ func StartWithControllers(ctrls ...SetupWithManagerFunc) (*Client, context.Cance
 
 	return Configure(
 		WithCRDs(
-			filepath.Join(projectRoot(), "test", "crds"),
+			filepath.Join(ProjectRoot(), "test", "crds"),
 		),
 		WithScheme(
 			// KServe Schemes
@@ -73,8 +73,8 @@ func StartWithControllers(ctrls ...SetupWithManagerFunc) (*Client, context.Cance
 		Start(ctx), cancel
 }
 
-// projectRoot returns the root directory of the project by searching for the go.mod file up from where it is called.
-func projectRoot() string {
+// ProjectRoot returns the root directory of the project by searching for the go.mod file up from where it is called.
+func ProjectRoot() string {
 	rootDir := ""
 
 	currentDir, err := os.Getwd()
