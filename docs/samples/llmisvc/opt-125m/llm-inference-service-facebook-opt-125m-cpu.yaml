@@ -1,7 +1,7 @@
 apiVersion: serving.kserve.io/v1alpha1
 kind: LLMInferenceService
 metadata:
-  name: facebook-opt-125m-pd
+  name: facebook-opt-125m-single
 spec:
   model:
     uri: hf://facebook/opt-125m
@@ -11,9 +11,3 @@ spec:
     containers:
       - name: main
         image: quay.io/rh-aiservices-bu/vllm-cpu-openai-ubi9:0.3
-  prefill:
-    template:
-      containers:
-        - name: main
-          image: quay.io/rh-aiservices-bu/vllm-cpu-openai-ubi9:0.3
-
