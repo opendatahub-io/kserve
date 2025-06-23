@@ -131,7 +131,7 @@ if [[ $DEPLOYMENT_MODE == "raw" ]]; then
 fi
 
 echo "Installing cert-manager ..."
-kubectl create namespace cert-manager
+kubectl create namespace --dry-run=client cert-manager -oyaml | kubectl apply -f -
 sleep 2
 kubectl apply --validate=false -f https://github.com/jetstack/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml
 

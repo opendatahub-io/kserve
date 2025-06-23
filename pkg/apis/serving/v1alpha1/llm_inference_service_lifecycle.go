@@ -70,6 +70,14 @@ func (in *LLMInferenceService) MarkPresetsCombinedReady() {
 	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(PresetsCombined)
 }
 
-func (in *LLMInferenceService) MarkPresetsNotCombinedReady(reason, messageFormat string, messageA ...interface{}) {
+func (in *LLMInferenceService) MarkPresetsCombinedNotReady(reason, messageFormat string, messageA ...interface{}) {
 	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(PresetsCombined, reason, messageFormat, messageA...)
+}
+
+func (p *InferencePoolSpec) HasRef() bool {
+	return p != nil && p.Ref != nil && p.Ref.Name != ""
+}
+
+func (r *HTTPRouteSpec) HasRefs() bool {
+	return r != nil && len(r.Refs) > 0
 }

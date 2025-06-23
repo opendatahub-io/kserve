@@ -61,10 +61,10 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 	// SystemNamespace (e.g. `kserve`).
 
 	refs := make([]corev1.LocalObjectReference, 0, len(llmSvc.Spec.BaseRefs))
-	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil {
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil && !llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
 		refs = append(refs, corev1.LocalObjectReference{Name: configRouterSchedulerName})
 	}
-	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Route != nil {
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Route != nil && !llmSvc.Spec.Router.Route.HTTP.HasRefs() {
 		refs = append(refs, corev1.LocalObjectReference{Name: configRouterRouteName})
 	}
 	switch {
