@@ -42,6 +42,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
+	"github.com/kserve/kserve/pkg/controller/llmisvc"
+
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
@@ -252,6 +254,20 @@ func main() {
 		Recorder: eventBroadcaster.NewRecorder(
 			mgr.GetScheme(), corev1.EventSource{Component: "v1beta1Controllers"}),
 	}).SetupWithManager(mgr, deployConfig, ingressConfig); err != nil {
+		setupLog.Error(err, "unable to create controller", "v1beta1Controller", "InferenceService")
+		os.Exit(1)
+	}
+
+	setupLog.Info("Setting up LLMInferenceService controller")
+	llmEventBroadcaster := record.NewBroadcaster()
+	llmEventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: clientSet.CoreV1().Events("")})
+	if err = (&llmisvc.LLMInferenceServiceReconciler{
+		Client:   mgr.GetClient(),
+		Recorder: llmEventBroadcaster.NewRecorder(mgr.GetScheme(), corev1.EventSource{Component: "LLMInferenceServiceController"}),
+		Config: llmisvc.ReconcilerConfig{
+			SystemNamespace: constants.KServeNamespace,
+		},
+	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "v1beta1Controller", "InferenceService")
 		os.Exit(1)
 	}

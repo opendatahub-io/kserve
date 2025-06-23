@@ -51,7 +51,6 @@ var _ = SynchronizedBeforeSuite(func() {
 		eventBroadcaster := record.NewBroadcaster()
 		llmCtrl := llmisvc.LLMInferenceServiceReconciler{
 			Client: mgr.GetClient(),
-			Scheme: mgr.GetScheme(),
 			// TODO fix it to be set up similar to main.go, for now it's stub
 			Recorder: eventBroadcaster.NewRecorder(mgr.GetScheme(), corev1.EventSource{Component: "v1beta1Controllers"}),
 			Config: llmisvc.ReconcilerConfig{

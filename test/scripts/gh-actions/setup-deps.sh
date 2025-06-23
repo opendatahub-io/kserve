@@ -22,7 +22,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" &>/dev/null && pwd 2>/dev/null)"
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 DEPLOYMENT_MODE="${1:-'serverless'}"
 NETWORK_LAYER="${2:-'istio'}"
 ENABLE_KEDA="${3:-'false'}"
@@ -56,8 +56,8 @@ if [[ $NETWORK_LAYER == "istio-gatewayapi-ext" ]]; then
   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/${GATEWAY_API_EXT_VERSION}/manifests.yaml
 
   kubectl get ns istio-system || kubectl create ns istio-system
-  kubectl apply -f ${SCRIPT_DIR}/../../overlays/llm-istio-experimental/istio-base.yaml -n istio-system
-  kubectl apply -f ${SCRIPT_DIR}/../../overlays/llm-istio-experimental/istiod.yaml -n istio-system
+  kubectl apply -f "${SCRIPT_DIR}/../../overlays/llm-istio-experimental/istio_base.yaml" -n istio-system
+  kubectl apply -f "${SCRIPT_DIR}/../../overlays/llm-istio-experimental/istiod.yaml" -n istio-system
   kubectl wait --for=condition=Ready pods --all --timeout=240s -n istio-system
 fi
 # ------------------------------------------------------------

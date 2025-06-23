@@ -81,7 +81,21 @@ rules:
 - apiGroups:
   - gateway.networking.k8s.io
   resources:
+  - gateways
   - httproutes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - inference.networking.x-k8s.io
+  resources:
+  - inferencemodels
+  - inferencepools
   verbs:
   - create
   - delete
@@ -196,6 +210,8 @@ rules:
   - inferencegraphs/finalizers
   - inferenceservices
   - inferenceservices/finalizers
+  - llminferenceserviceconfigs
+  - llminferenceservices
   - servingruntimes
   - servingruntimes/finalizers
   - trainedmodels
@@ -213,11 +229,19 @@ rules:
   - clusterservingruntimes/status
   - inferencegraphs/status
   - inferenceservices/status
+  - llminferenceservices/status
   - servingruntimes/status
   - trainedmodels/status
   verbs:
   - get
   - patch
+  - update
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - llminferenceserviceconfigs/finalizers
+  - llminferenceservices/finalizers
+  verbs:
   - update
 - apiGroups:
   - serving.kserve.io
