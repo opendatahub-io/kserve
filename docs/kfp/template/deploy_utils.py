@@ -80,7 +80,7 @@ def _handle_create_action(args):
             print(
                 f"InferenceService '{args['model_name']}' does not exist. Switching action to 'apply'."
             )
-            args.action = "apply"
+            args['action'] = "apply"
         else:
             print(
                 f"InferenceService '{args['model_name']}' exists. Proceeding with 'update'."
