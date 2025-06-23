@@ -84,12 +84,6 @@ func (in *LLMInferenceService) MarkPrefillWorkerWorkloadNotReady(reason, message
 }
 
 func (in *LLMInferenceService) DetermineWorkloadReadiness() {
-	// Return early if it explicitly set to false in order to keep the reason and message as it is.
-	tp := in.GetStatus().GetCondition(WorkloadReady)
-	if tp != nil && tp.IsFalse() {
-		return
-	}
-
 	subConditions := []*apis.Condition{
 		in.GetStatus().GetCondition(MainWorkloadReady),
 		in.GetStatus().GetCondition(WorkerWorkloadReady),

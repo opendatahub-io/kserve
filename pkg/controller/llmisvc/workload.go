@@ -176,13 +176,6 @@ func (r *LLMInferenceServiceReconciler) reconcileDeployment(ctx context.Context,
 	if apierrors.IsNotFound(err) {
 		return r.createDeployment(ctx, llmSvc, expected)
 	}
-
-	if equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
-		equality.Semantic.DeepEqual(expected.Labels, curr.Labels) &&
-		equality.Semantic.DeepEqual(expected.Annotations, expected.Annotations) &&
-		metav1.IsControlledBy(curr, llmSvc) {
-		return nil
-	}
 	return r.updateDeployment(ctx, llmSvc, curr, expected)
 }
 
@@ -198,11 +191,32 @@ func (r *LLMInferenceServiceReconciler) createDeployment(ctx context.Context, ll
 func (r *LLMInferenceServiceReconciler) updateDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, curr, expected *appsv1.Deployment) error {
 	if !metav1.IsControlledBy(curr, llmSvc) {
 		return fmt.Errorf("failed to update deployment %s/%s: it is not controlled by LLMInferenceService %s/%s",
-			expected.GetNamespace(), expected.GetName(),
+			curr.GetNamespace(), curr.GetName(),
 			llmSvc.GetNamespace(), llmSvc.GetName(),
 		)
 	}
+
+	// Update defaults for the expected deployment, so that we don't trigger an unnecessary update.
+	if err := r.Client.Update(ctx, expected, client.DryRunAll); err != nil {
+		return fmt.Errorf("failed to update deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+	}
+
+	if equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
+		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
+		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations) {
+		return nil
+	}
+
 	expected.ResourceVersion = curr.ResourceVersion
+
+	log.FromContext(ctx).V(2).Info("Updating deployment",
+		"expected.spec", expected.Spec,
+		"curr.spec", curr.Spec,
+		"expected.labels", expected.Labels,
+		"curr.labels", curr.Labels,
+		"expected.annotations", expected.Annotations,
+		"curr.annotations", curr.Annotations,
+	)
 
 	if err := r.Client.Update(ctx, expected); err != nil {
 		return fmt.Errorf("failed to update deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
