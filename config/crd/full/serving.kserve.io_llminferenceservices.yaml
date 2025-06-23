@@ -77,8 +77,6 @@ spec:
                         type: object
                       path:
                         type: string
-                      schemaPath:
-                        type: string
                     type: object
                   uri:
                     type: string
@@ -19540,8 +19538,6 @@ spec:
                 required:
                 - containers
                 type: object
-            required:
-            - model
             type: object
           status:
             properties:

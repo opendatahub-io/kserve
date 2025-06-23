@@ -20,6 +20,7 @@ resources:
 # - ../certmanager # not needed, because ODH is using OpenShift's serving certificates for WebHooks
 # - ../localmodels # This is commented out for 2.16
 # - ../localmodelnodes
+- ../llmisvc
 - network-policies.yaml # ODH specific
 
 generatorOptions:
