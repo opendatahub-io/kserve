@@ -16,7 +16,8 @@ spec:
             - backendRefs:
                 - group: inference.networking.x-k8s.io
                   kind: InferencePool
-                  name: "{{ ChildName .ObjectMeta.Name \"inference-pool\" }}"
+                  name: |-
+                    {{ ChildName .ObjectMeta.Name `-inference-pool` }}
                   port: 8000
                   weight: 1
               matches:
