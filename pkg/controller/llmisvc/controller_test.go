@@ -117,7 +117,15 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				if err := envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), llmSvc); err != nil {
 					return err
 				}
-				g.Expect(llmSvc.Status).To(HaveCondition("WorkloadsReady", "True"))
+				g.Expect(llmSvc.Status).To(HaveCondition(string(v1alpha1.PresetsCombined), "True"))
+
+				// Overall condition depends on owned resources such as Deployment.
+				// When running on EnvTest certain controllers are not built-in, and that
+				// includes deployment controllers, ReplicaSet controllers, etc.
+				// Therefore, we can only observe a successful reconcile when testing against actual cluster
+				if envTest.Environment.UseExistingCluster == ptr.To[bool](true) {
+					g.Expect(llmSvc.Status).To(HaveCondition(string(v1alpha1.WorkloadReady), "True"))
+				}
 
 				return nil
 			}).WithContext(ctx).Should(Succeed())

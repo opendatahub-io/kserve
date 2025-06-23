@@ -39,8 +39,12 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 	logger := log.FromContext(ctx).WithName("reconcileWorkload")
 	ctx = log.IntoContext(ctx, logger)
 
+	defer llmSvc.DetermineWorkloadReadiness()
+
 	// We need to always reconcile every type of workload to handle transitions from P/D to another topology (meaning
 	// finalizing superfluous workloads).
+
+	// TODO Properly handle Replicas > 1 (scaling) for multi node (Worker) in both main and prefill WorkloadSpec.
 
 	if err := r.reconcileMainWorkload(ctx, llmSvc); err != nil {
 		llmSvc.MarkWorkloadNotReady("ReconcileMainWorkloadError", err.Error())
@@ -54,11 +58,9 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 
 	if err := r.reconcileDisaggregatedServing(ctx, llmSvc); err != nil {
 		llmSvc.MarkWorkloadNotReady("ReconcileDisaggregatedServingError", err.Error())
-		logger.Error(err, "Failed to reconcile disaggregated serving workload")
-		return err
+		return fmt.Errorf("failed to reconcile disaggregated serving workload: %w", err)
 	}
 
-	llmSvc.MarkWorkloadReady()
 	return nil
 }
 
@@ -67,18 +69,24 @@ func (r *LLMInferenceServiceReconciler) reconcileMainWorkload(ctx context.Contex
 	if err != nil {
 		return fmt.Errorf("failed to get expected main deployment: %w", err)
 	}
-	return r.reconcileDeployment(ctx, llmSvc, expected)
+	if err := r.reconcileDeployment(ctx, llmSvc, expected); err != nil {
+		return err
+	}
+	return r.propagateDeploymentStatus(ctx, expected, llmSvc.MarkMainWorkloadReady, llmSvc.MarkMainWorkloadNotReady)
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileMainWorker(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	expected := r.expectedMainWorker(ctx, llmSvc)
 	if llmSvc.Spec.Worker == nil {
-		if err := r.deleteDeployment(ctx, llmSvc, expected); client.IgnoreNotFound(err) != nil {
-			return fmt.Errorf("failed to delete worken deployment: %w", err)
+		if err := r.deleteDeployment(ctx, llmSvc, expected); err != nil {
+			return fmt.Errorf("failed to delete worker: %w", err)
 		}
 		return nil
 	}
-	return r.reconcileDeployment(ctx, llmSvc, expected)
+	if err := r.reconcileDeployment(ctx, llmSvc, expected); err != nil {
+		return err
+	}
+	return r.propagateDeploymentStatus(ctx, expected, llmSvc.MarkWorkerWorkloadReady, llmSvc.MarkWorkerWorkloadNotReady)
 }
 
 func (r *LLMInferenceServiceReconciler) expectedMainWorker(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *appsv1.Deployment {
@@ -168,13 +176,6 @@ func (r *LLMInferenceServiceReconciler) reconcileDeployment(ctx context.Context,
 	if apierrors.IsNotFound(err) {
 		return r.createDeployment(ctx, llmSvc, expected)
 	}
-
-	if equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
-		equality.Semantic.DeepEqual(expected.Labels, curr.Labels) &&
-		equality.Semantic.DeepEqual(expected.Annotations, expected.Annotations) &&
-		metav1.IsControlledBy(curr, llmSvc) {
-		return nil
-	}
 	return r.updateDeployment(ctx, llmSvc, curr, expected)
 }
 
@@ -190,11 +191,32 @@ func (r *LLMInferenceServiceReconciler) createDeployment(ctx context.Context, ll
 func (r *LLMInferenceServiceReconciler) updateDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, curr, expected *appsv1.Deployment) error {
 	if !metav1.IsControlledBy(curr, llmSvc) {
 		return fmt.Errorf("failed to update deployment %s/%s: it is not controlled by LLMInferenceService %s/%s",
-			expected.GetNamespace(), expected.GetName(),
+			curr.GetNamespace(), curr.GetName(),
 			llmSvc.GetNamespace(), llmSvc.GetName(),
 		)
 	}
+
+	// Update defaults for the expected deployment, so that we don't trigger an unnecessary update.
+	if err := r.Client.Update(ctx, expected, client.DryRunAll); err != nil {
+		return fmt.Errorf("failed to update deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+	}
+
+	if equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
+		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
+		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations) {
+		return nil
+	}
+
 	expected.ResourceVersion = curr.ResourceVersion
+
+	log.FromContext(ctx).V(2).Info("Updating deployment",
+		"expected.spec", expected.Spec,
+		"curr.spec", curr.Spec,
+		"expected.labels", expected.Labels,
+		"curr.labels", curr.Labels,
+		"expected.annotations", expected.Annotations,
+		"curr.annotations", curr.Annotations,
+	)
 
 	if err := r.Client.Update(ctx, expected); err != nil {
 		return fmt.Errorf("failed to update deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
@@ -205,9 +227,32 @@ func (r *LLMInferenceServiceReconciler) updateDeployment(ctx context.Context, ll
 }
 
 func (r *LLMInferenceServiceReconciler) deleteDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) error {
-	if err := r.Client.Delete(ctx, expected); err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("failed to delete deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+	if err := r.Client.Delete(ctx, expected); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+		}
+		return nil
 	}
 	r.Recorder.Eventf(llmSvc, corev1.EventTypeNormal, "Deleted", "Deleted deployment %s/%s", expected.GetNamespace(), expected.GetName())
+	return nil
+}
+
+func (r *LLMInferenceServiceReconciler) propagateDeploymentStatus(ctx context.Context, expected *appsv1.Deployment, ready func(), notReady func(reason, messageFormat string, messageA ...interface{})) error {
+	curr := &appsv1.Deployment{}
+	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil {
+		return fmt.Errorf("failed to get current deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+	}
+
+	for _, cond := range curr.Status.Conditions {
+		if cond.Type == appsv1.DeploymentAvailable {
+			if cond.Status == corev1.ConditionTrue {
+				ready()
+			} else {
+				notReady(cond.Reason, cond.Message)
+			}
+			return nil
+		}
+	}
+	notReady(string(appsv1.DeploymentProgressing), "")
 	return nil
 }
