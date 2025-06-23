@@ -62,9 +62,15 @@ def get_parsed_args():
     )
     parser.add_argument("--min_replicas", default="-1", help="Minimum replicas")
     parser.add_argument("--max_replicas", default="-1", help="Maximum replicas")
-    parser.add_argument('--request_timeout', default='60', help="Component request timeout (seconds)")
-    parser.add_argument('--enable_isvc_status', type=bool, default=True,
-                        help="Store inference service status as output")
+    parser.add_argument(
+        "--request_timeout", default="60", help="Component request timeout (seconds)"
+    )
+    parser.add_argument(
+        "--enable_isvc_status",
+        type=bool,
+        default=True,
+        help="Store inference service status as output",
+    )
     parser.add_argument(
         "--canary_traffic_percent",
         default="100",
