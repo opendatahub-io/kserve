@@ -27,7 +27,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
 	"knative.dev/pkg/reconciler"
@@ -60,20 +59,21 @@ type ReconcilerConfig struct {
 // It orchestrates the reconciliation of child resources based on the spec.
 type LLMInferenceServiceReconciler struct {
 	client.Client
-	Scheme   *runtime.Scheme
 	Recorder record.EventRecorder
 
 	Config ReconcilerConfig
 }
 
-//+kubebuilder:rbac:groups=llm.services.kserve.io,resources=llminferenceservices,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=llm.services.kserve.io,resources=llminferenceservices/status,verbs=get;update;patch
-//+kubebuilder:rbac:groups=llm.services.kserve.io,resources=llminferenceservices/finalizers,verbs=update
+//+kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/status,verbs=get;update;patch
+//+kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices/finalizers,verbs=update
+//+kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceserviceconfigs,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceserviceconfigs/finalizers,verbs=update
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch
 //+kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes;gateways,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=inference.networking.x-k8s.io,resources=inferencepools;inferencemodels;,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is the main entry point for the reconciliation loop.
 // It fetches the LLMInferenceService and delegates the reconciliation of its constituent parts.
@@ -131,8 +131,10 @@ func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v
 
 	baseCfg, err := r.combineBaseRefsConfig(ctx, llmSvc)
 	if err != nil {
+		llmSvc.MarkPresetsCombinedNotReady("CombineBaseError", err.Error())
 		return fmt.Errorf("failed to combine base-configurations: %w", err)
 	}
+	llmSvc.MarkPresetsCombinedReady()
 	// We are only writing to status, so we can safely use the original object.
 	llmSvc.Spec = baseCfg.Spec
 
@@ -162,12 +164,21 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 		Owns(&corev1.Service{}, builder.WithPredicates(childResourcesPredicate))
 
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), gatewayapi.GroupVersion.String(), "HTTPRoute"); ok && err == nil {
+		if err := gatewayapi.Install(mgr.GetScheme()); err != nil {
+			return fmt.Errorf("failed to add GIE APIs to scheme: %w", err)
+		}
 		b = b.Owns(&gatewayapi.HTTPRoute{}, builder.WithPredicates(childResourcesPredicate))
 	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwapi.GroupVersion.String(), "InferencePool"); ok && err == nil {
+		if err := igwapi.Install(mgr.GetScheme()); err != nil {
+			return fmt.Errorf("failed to add GIE APIs to scheme: %w", err)
+		}
 		b = b.Owns(&igwapi.InferencePool{}, builder.WithPredicates(childResourcesPredicate))
 	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwapi.GroupVersion.String(), "InferenceModel"); ok && err == nil {
+		if err := igwapi.Install(mgr.GetScheme()); err != nil {
+			return fmt.Errorf("failed to add GIE APIs to scheme: %w", err)
+		}
 		b = b.Owns(&igwapi.InferenceModel{}, builder.WithPredicates(childResourcesPredicate))
 	}
 

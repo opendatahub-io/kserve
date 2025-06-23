@@ -22,8 +22,15 @@ import (
 )
 
 const (
-	WorkloadReady apis.ConditionType = "WorkloadsReady"
-	RouterReady   apis.ConditionType = "RouterReady"
+	PresetsCombined apis.ConditionType = "PresetsCombined"
+	WorkloadReady   apis.ConditionType = "WorkloadsReady"
+	RouterReady     apis.ConditionType = "RouterReady"
+)
+
+const (
+	MainWorkloadReady    apis.ConditionType = "MainWorkloadReady"
+	WorkerWorkloadReady  apis.ConditionType = "WorkerWorkloadReady"
+	PrefillWorkloadReady apis.ConditionType = "PrefillWorkloadReady"
 )
 
 var llmInferenceServiceCondSet = apis.NewLivingConditionSet(
@@ -44,5 +51,33 @@ func (in *LLMInferenceService) MarkWorkloadNotReady(reason, messageFormat string
 }
 
 func (in *LLMInferenceService) MarkWorkloadReady() {
+	subConditions := []*apis.Condition{
+		in.GetStatus().GetCondition(MainWorkloadReady),
+		in.GetStatus().GetCondition(WorkerWorkloadReady),
+		in.GetStatus().GetCondition(PrefillWorkloadReady),
+	}
+
+	for _, cond := range subConditions {
+		if cond.IsFalse() {
+			in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(WorkloadReady, cond.Reason, cond.Message)
+			return
+		}
+	}
 	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(WorkloadReady)
+}
+
+func (in *LLMInferenceService) MarkPresetsCombinedReady() {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(PresetsCombined)
+}
+
+func (in *LLMInferenceService) MarkPresetsCombinedNotReady(reason, messageFormat string, messageA ...interface{}) {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(PresetsCombined, reason, messageFormat, messageA...)
+}
+
+func (p *InferencePoolSpec) HasRef() bool {
+	return p != nil && p.Ref != nil && p.Ref.Name != ""
+}
+
+func (r *HTTPRouteSpec) HasRefs() bool {
+	return r != nil && len(r.Refs) > 0
 }

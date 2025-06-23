@@ -61,10 +61,10 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 	// SystemNamespace (e.g. `kserve`).
 
 	refs := make([]corev1.LocalObjectReference, 0, len(llmSvc.Spec.BaseRefs))
-	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil {
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil && !llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
 		refs = append(refs, corev1.LocalObjectReference{Name: configRouterSchedulerName})
 	}
-	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Route != nil {
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Route != nil && !llmSvc.Spec.Router.Route.HTTP.HasRefs() {
 		refs = append(refs, corev1.LocalObjectReference{Name: configRouterRouteName})
 	}
 	switch {
@@ -91,7 +91,7 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 			specs = append(specs, cfg.Spec)
 		}
 	}
-	spec, err := MergeSpecs(specs...)
+	spec, err := MergeSpecs(append(specs, llmSvc.Spec)...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to merge specs: %w", err)
 	}
@@ -99,11 +99,6 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 	cfg := &v1alpha1.LLMInferenceServiceConfig{
 		ObjectMeta: *llmSvc.ObjectMeta.DeepCopy(),
 		Spec:       spec,
-	}
-
-	config, err := ReplaceVariables(llmSvc, cfg)
-	if err != nil {
-		return config, err
 	}
 
 	if cfg.Spec.Router != nil &&
@@ -122,6 +117,11 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		cfg.Spec.Router.Scheduler.Template != nil &&
 		cfg.Spec.Router.Scheduler.Template.ServiceAccountName == "" {
 		cfg.Spec.Router.Scheduler.Template.ServiceAccountName = kmeta.ChildName(llmSvc.GetName(), "-epp-sa")
+	}
+
+	cfg, err = ReplaceVariables(llmSvc, cfg)
+	if err != nil {
+		return cfg, err
 	}
 
 	return cfg, nil

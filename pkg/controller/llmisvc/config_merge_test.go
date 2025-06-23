@@ -25,6 +25,7 @@ import (
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
@@ -463,6 +464,148 @@ func TestMergeSpecs(t *testing.T) {
 								{
 									Name: "main",
 								},
+							},
+						},
+					},
+				},
+				WorkloadSpec: v1alpha1.WorkloadSpec{
+					Parallelism: &v1alpha1.ParallelismSpec{
+						Tensor:   ptr.To[int64](4),
+						Pipeline: ptr.To[int64](2),
+					},
+					Worker: &corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name: "main",
+								Resources: corev1.ResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceCPU: resource.MustParse("1"),
+										"nvidia.com/gpu":   resource.MustParse("4"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "4 chained merge router with scheduler, http route and gateway ref, multi node",
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+				{
+					Router: &v1alpha1.RouterSpec{
+						Route: &v1alpha1.GatewayRoutesSpec{
+							HTTP: &v1alpha1.HTTPRouteSpec{
+								Spec: &gatewayapi.HTTPRouteSpec{
+									CommonRouteSpec: gatewayapi.CommonRouteSpec{
+										ParentRefs: []gatewayapi.ParentReference{
+											{
+												Name: "my-parent",
+											},
+										},
+									},
+									Hostnames: nil,
+									Rules:     nil,
+								},
+								Refs: []corev1.LocalObjectReference{{Name: "my-route"}},
+							},
+						},
+						Gateway: &v1alpha1.GatewaySpec{
+							Refs: []v1alpha1.UntypedObjectReference{{Name: "my-gateway"}},
+						},
+					},
+				},
+				{
+					Router: &v1alpha1.RouterSpec{
+						Route: &v1alpha1.GatewayRoutesSpec{
+							HTTP: &v1alpha1.HTTPRouteSpec{
+								Refs: []corev1.LocalObjectReference{{Name: "my-second-route"}},
+							},
+						},
+						Gateway: &v1alpha1.GatewaySpec{
+							Refs: []v1alpha1.UntypedObjectReference{{Name: "my-second-gateway"}},
+						},
+					},
+				},
+				{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Tensor:   ptr.To[int64](1),
+							Pipeline: ptr.To[int64](1),
+						},
+						Worker: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "main",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											corev1.ResourceCPU: resource.MustParse("1"),
+											"nvidia.com/gpu":   resource.MustParse("1"),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Pool: &v1alpha1.InferencePoolSpec{
+								Ref: &corev1.LocalObjectReference{
+									Name: "my-pool",
+								},
+							},
+						},
+					},
+				},
+				{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Tensor:   ptr.To[int64](4),
+							Pipeline: ptr.To[int64](2),
+						},
+						Worker: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name: "main",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											corev1.ResourceCPU: resource.MustParse("1"),
+											"nvidia.com/gpu":   resource.MustParse("4"),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			want: v1alpha1.LLMInferenceServiceSpec{
+				Router: &v1alpha1.RouterSpec{
+					Route: &v1alpha1.GatewayRoutesSpec{
+						HTTP: &v1alpha1.HTTPRouteSpec{
+							Spec: &gatewayapi.HTTPRouteSpec{
+								CommonRouteSpec: gatewayapi.CommonRouteSpec{
+									ParentRefs: []gatewayapi.ParentReference{
+										{
+											Name: "my-parent",
+										},
+									},
+								},
+								Hostnames: nil,
+								Rules:     nil,
+							},
+							Refs: []corev1.LocalObjectReference{{Name: "my-second-route"}},
+						},
+					},
+					Gateway: &v1alpha1.GatewaySpec{
+						Refs: []v1alpha1.UntypedObjectReference{{Name: "my-second-gateway"}},
+					},
+					Scheduler: &v1alpha1.SchedulerSpec{
+						Pool: &v1alpha1.InferencePoolSpec{
+							Ref: &corev1.LocalObjectReference{
+								Name: "my-pool",
 							},
 						},
 					},
