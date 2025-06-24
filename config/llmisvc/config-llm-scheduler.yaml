@@ -10,7 +10,8 @@ spec:
           extensionRef:
             failureMode: FailClose
             kind: Service
-            name: "{{ ChildName .ObjectMeta.Name \"-epp-service\"}}"
+            name: |-
+              {{ ChildName .ObjectMeta.Name `-epp-service` }}
           selector: {}
           targetPortNumber: 8000
       template:
@@ -48,7 +49,7 @@ spec:
               timeoutSeconds: 1
             args:
               - --poolName
-              - "{{ ChildName .ObjectMeta.Name \"-inference-pool\"}}"
+              - "{{ ChildName .ObjectMeta.Name `-inference-pool` }}"
               - --poolNamespace
               - "{{ .ObjectMeta.Namespace }}"
               - --zap-encoder

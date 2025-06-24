@@ -41,7 +41,7 @@ const (
 	configWorkerName          = configPrefix + "config-llm-worker"
 	configPrefillTemplateName = configPrefix + "config-llm-prefill-template"
 	configPrefillWorkerName   = configPrefix + "config-llm-prefill-worker"
-	configRouterSchedulerName = configPrefix + "config-llm-router-scheduler"
+	configRouterSchedulerName = configPrefix + "config-llm-scheduler"
 	configRouterRouteName     = configPrefix + "config-llm-router-route"
 )
 
