@@ -21,6 +21,8 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,10 +31,6 @@ import (
 	"knative.dev/pkg/apis"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
-
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 
 	. "github.com/kserve/kserve/pkg/testing"
 )
@@ -67,21 +65,9 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					},
 					WorkloadSpec: v1alpha1.WorkloadSpec{},
 					Router: &v1alpha1.RouterSpec{
-						Route: &v1alpha1.GatewayRoutesSpec{
-							HTTP: &v1alpha1.HTTPRouteSpec{
-								Refs: []corev1.LocalObjectReference{
-									{Name: "test-gateway"},
-								},
-							},
-						},
-						Gateway: &v1alpha1.GatewaySpec{
-							Refs: []v1alpha1.UntypedObjectReference{
-								{
-									Name:      "test-gateway",
-									Namespace: gatewayapi.Namespace(nsName),
-								},
-							},
-						},
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
 					},
 				},
 			}
