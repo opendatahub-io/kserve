@@ -27,6 +27,7 @@ import (
 	istio_networking "istio.io/api/networking/v1alpha3"
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/client-go/kubernetes"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -144,13 +145,15 @@ func main() {
 	setupLog.Info("Registering Components.")
 
 	setupLog.Info("Setting up KServe v1alpha1 scheme")
-	if err := v1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+	scheme := mgr.GetScheme()
+
+	if err := v1alpha1.AddToScheme(scheme); err != nil {
 		setupLog.Error(err, "unable to add KServe v1alpha1 to scheme")
 		os.Exit(1)
 	}
 
 	setupLog.Info("Setting up KServe v1beta1 scheme")
-	if err := v1beta1.AddToScheme(mgr.GetScheme()); err != nil {
+	if err := v1beta1.AddToScheme(scheme); err != nil {
 		setupLog.Error(err, "unable to add KServe v1beta1 to scheme")
 		os.Exit(1)
 	}
@@ -185,7 +188,7 @@ func main() {
 	}
 	if ksvcFound {
 		setupLog.Info("Setting up Knative scheme")
-		if err := knservingv1.AddToScheme(mgr.GetScheme()); err != nil {
+		if err := knservingv1.AddToScheme(scheme); err != nil {
 			setupLog.Error(err, "unable to add Knative APIs to scheme")
 			os.Exit(1)
 		}
@@ -199,7 +202,7 @@ func main() {
 		}
 		if vsFound {
 			setupLog.Info("Setting up Istio schemes")
-			if err := istioclientv1beta1.AddToScheme(mgr.GetScheme()); err != nil {
+			if err := istioclientv1beta1.AddToScheme(scheme); err != nil {
 				setupLog.Error(err, "unable to add Istio v1beta1 APIs to scheme")
 				os.Exit(1)
 			}
@@ -217,7 +220,7 @@ func main() {
 	}
 	if kedaFound {
 		setupLog.Info("Setting up KEDA scheme")
-		if err := kedav1alpha1.AddToScheme(mgr.GetScheme()); err != nil {
+		if err := kedav1alpha1.AddToScheme(scheme); err != nil {
 			setupLog.Error(err, "unable to add KEDA APIs to scheme")
 			os.Exit(1)
 		}
@@ -230,20 +233,26 @@ func main() {
 	}
 	if otelFound {
 		setupLog.Info("Setting up OTEL scheme")
-		if err := otelv1beta1.AddToScheme(mgr.GetScheme()); err != nil {
+		if err := otelv1beta1.AddToScheme(scheme); err != nil {
 			setupLog.Error(err, "unable to add OTEL APIs to scheme")
 			os.Exit(1)
 		}
 	}
 
 	setupLog.Info("Setting up gateway api scheme")
-	if err := gatewayapiv1.Install(mgr.GetScheme()); err != nil {
+	if err := gatewayapiv1.Install(scheme); err != nil {
 		setupLog.Error(err, "unable to add Gateway APIs to scheme")
 		os.Exit(1)
 	}
 
 	setupLog.Info("Setting up core scheme")
-	if err := corev1.AddToScheme(mgr.GetScheme()); err != nil {
+	if err := corev1.AddToScheme(scheme); err != nil {
+		setupLog.Error(err, "unable to add Core APIs to scheme")
+		os.Exit(1)
+	}
+
+	setupLog.Info("Setting up rbac scheme")
+	if err := rbacv1.AddToScheme(scheme); err != nil {
 		setupLog.Error(err, "unable to add Core APIs to scheme")
 		os.Exit(1)
 	}
@@ -256,9 +265,9 @@ func main() {
 		Client:    mgr.GetClient(),
 		Clientset: clientSet,
 		Log:       ctrl.Log.WithName("v1beta1Controllers").WithName("InferenceService"),
-		Scheme:    mgr.GetScheme(),
+		Scheme:    scheme,
 		Recorder: eventBroadcaster.NewRecorder(
-			mgr.GetScheme(), corev1.EventSource{Component: "v1beta1Controllers"}),
+			scheme, corev1.EventSource{Component: "v1beta1Controllers"}),
 	}).SetupWithManager(mgr, deployConfig, ingressConfig); err != nil {
 		setupLog.Error(err, "unable to create controller", "v1beta1Controller", "InferenceService")
 		os.Exit(1)
@@ -269,7 +278,7 @@ func main() {
 	llmEventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: clientSet.CoreV1().Events("")})
 	if err = (&llmisvc.LLMInferenceServiceReconciler{
 		Client:   mgr.GetClient(),
-		Recorder: llmEventBroadcaster.NewRecorder(mgr.GetScheme(), corev1.EventSource{Component: "LLMInferenceServiceController"}),
+		Recorder: llmEventBroadcaster.NewRecorder(scheme, corev1.EventSource{Component: "LLMInferenceServiceController"}),
 		Config: llmisvc.ReconcilerConfig{
 			SystemNamespace: constants.KServeNamespace,
 		},
@@ -285,9 +294,9 @@ func main() {
 	if err = (&trainedmodelcontroller.TrainedModelReconciler{
 		Client:                mgr.GetClient(),
 		Log:                   ctrl.Log.WithName("v1beta1Controllers").WithName("TrainedModel"),
-		Scheme:                mgr.GetScheme(),
-		Recorder:              eventBroadcaster.NewRecorder(mgr.GetScheme(), corev1.EventSource{Component: "v1beta1Controllers"}),
-		ModelConfigReconciler: modelconfig.NewModelConfigReconciler(mgr.GetClient(), clientSet, mgr.GetScheme()),
+		Scheme:                scheme,
+		Recorder:              eventBroadcaster.NewRecorder(scheme, corev1.EventSource{Component: "v1beta1Controllers"}),
+		ModelConfigReconciler: modelconfig.NewModelConfigReconciler(mgr.GetClient(), clientSet, scheme),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "v1beta1Controllers", "TrainedModel")
 		os.Exit(1)
@@ -301,8 +310,8 @@ func main() {
 		Client:    mgr.GetClient(),
 		Clientset: clientSet,
 		Log:       ctrl.Log.WithName("v1alpha1Controllers").WithName("InferenceGraph"),
-		Scheme:    mgr.GetScheme(),
-		Recorder:  eventBroadcaster.NewRecorder(mgr.GetScheme(), corev1.EventSource{Component: "InferenceGraphController"}),
+		Scheme:    scheme,
+		Recorder:  eventBroadcaster.NewRecorder(scheme, corev1.EventSource{Component: "InferenceGraphController"}),
 	}).SetupWithManager(mgr, deployConfig); err != nil {
 		setupLog.Error(err, "unable to create controller", "v1alpha1Controllers", "InferenceGraph")
 		os.Exit(1)
@@ -313,7 +322,7 @@ func main() {
 
 	setupLog.Info("registering webhooks to the webhook server")
 	hookServer.Register("/mutate-pods", &webhook.Admission{
-		Handler: &pod.Mutator{Client: mgr.GetClient(), Clientset: clientSet, Decoder: admission.NewDecoder(mgr.GetScheme())},
+		Handler: &pod.Mutator{Client: mgr.GetClient(), Clientset: clientSet, Decoder: admission.NewDecoder(scheme)},
 	})
 
 	// log.Info("registering cluster serving runtime validator webhook to the webhook server")
@@ -323,7 +332,7 @@ func main() {
 
 	setupLog.Info("registering serving runtime validator webhook to the webhook server")
 	hookServer.Register("/validate-serving-kserve-io-v1alpha1-servingruntime", &webhook.Admission{
-		Handler: &servingruntime.ServingRuntimeValidator{Client: mgr.GetClient(), Decoder: admission.NewDecoder(mgr.GetScheme())},
+		Handler: &servingruntime.ServingRuntimeValidator{Client: mgr.GetClient(), Decoder: admission.NewDecoder(scheme)},
 	})
 
 	if err = ctrl.NewWebhookManagedBy(mgr).

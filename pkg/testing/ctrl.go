@@ -22,6 +22,10 @@ import (
 	"os"
 	"path/filepath"
 
+	rbacv1 "k8s.io/api/rbac/v1"
+
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
@@ -59,10 +63,12 @@ func StartWithControllers(ctrls ...SetupWithManagerFunc) (*Client, context.Cance
 			v1beta1.AddToScheme,
 			// Kubernetes Schemes
 			corev1.AddToScheme,
+			rbacv1.AddToScheme,
 			appsv1.AddToScheme,
 			apiextv1.AddToScheme,
 			netv1.AddToScheme,
 			gatewayapiv1.Install,
+			igwapi.Install,
 			// Other Schemes
 			knservingv1.AddToScheme,
 			istioclientv1beta1.AddToScheme,
