@@ -26,7 +26,6 @@ import (
 	"github.com/kserve/kserve/pkg/testing"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
@@ -74,30 +73,4 @@ func createSharedConfigPresets(ctx context.Context, c client.Client, ns string) 
 	})
 
 	Expect(err).NotTo(HaveOccurred())
-
-	baseTemplateConfig := &v1alpha1.LLMInferenceServiceConfig{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "kserve-config-llm-template",
-			Namespace: "kserve",
-		},
-
-		Spec: v1alpha1.LLMInferenceServiceSpec{
-			WorkloadSpec: v1alpha1.WorkloadSpec{
-				Template: &corev1.PodSpec{
-					Containers: []corev1.Container{
-						{
-							Name:  "main",
-							Image: "facebook/opt-125m:latest",
-							Resources: corev1.ResourceRequirements{
-								Limits: corev1.ResourceList{
-									"nvidia.com/gpu": resource.MustParse("1"),
-								},
-							},
-						},
-					},
-				},
-			},
-		},
-	}
-	Expect(c.Create(ctx, baseTemplateConfig)).To(Succeed())
 }

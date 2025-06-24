@@ -107,7 +107,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 			Expect(expectedDeployment.Spec.Replicas).To(Equal(ptr.To[int32](1)))
 			Expect(expectedDeployment.Spec.Template.Spec.Containers).To(HaveLen(1))
-			Expect(expectedDeployment.Spec.Template.Spec.Containers[0].Image).To(Equal("facebook/opt-125m:latest"))
+			Expect(expectedDeployment.Spec.Template.Spec.Containers[0].Image).To(Equal("ghcr.io/llm-d/llm-d:0.0.8")) // Coming from preset
 
 			Expect(expectedDeployment.OwnerReferences).To(HaveLen(1))
 			Expect(expectedDeployment.OwnerReferences[0].Name).To(Equal(svcName))
