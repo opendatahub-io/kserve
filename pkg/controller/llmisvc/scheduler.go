@@ -67,7 +67,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerRole(ctx context.Conte
 	if apierrors.IsNotFound(err) {
 		return r.createObject(ctx, llmSvc, expected)
 	}
-	return r.updateObject(ctx, llmSvc, curr, expected, semanticServiceAccountIsEqual)
+	return r.updateObject(ctx, llmSvc, curr, expected, semanticRoleIsEqual)
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerRoleBinding(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, sa *corev1.ServiceAccount) error {
@@ -83,7 +83,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerRoleBinding(ctx contex
 	if apierrors.IsNotFound(err) {
 		return r.createObject(ctx, llmSvc, expected)
 	}
-	return r.updateObject(ctx, llmSvc, curr, expected, semanticServiceAccountIsEqual)
+	return r.updateObject(ctx, llmSvc, curr, expected, semanticRoleBindingIsEqual)
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerServiceAccount(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*corev1.ServiceAccount, error) {
@@ -267,6 +267,23 @@ func semanticServiceAccountIsEqual(expected client.Object, curr client.Object) b
 	c := curr.(*corev1.ServiceAccount)
 	return equality.Semantic.DeepDerivative(e.Secrets, c.Secrets) &&
 		equality.Semantic.DeepDerivative(e.ImagePullSecrets, c.ImagePullSecrets) &&
+		equality.Semantic.DeepDerivative(e.Labels, c.Labels) &&
+		equality.Semantic.DeepDerivative(e.Annotations, c.Annotations)
+}
+
+func semanticRoleIsEqual(expected client.Object, curr client.Object) bool {
+	e := expected.(*rbacv1.Role)
+	c := curr.(*rbacv1.Role)
+	return equality.Semantic.DeepDerivative(e.Rules, c.Rules) &&
+		equality.Semantic.DeepDerivative(e.Labels, c.Labels) &&
+		equality.Semantic.DeepDerivative(e.Annotations, c.Annotations)
+}
+
+func semanticRoleBindingIsEqual(expected client.Object, curr client.Object) bool {
+	e := expected.(*rbacv1.RoleBinding)
+	c := curr.(*rbacv1.RoleBinding)
+	return equality.Semantic.DeepDerivative(e.Subjects, c.Subjects) &&
+		equality.Semantic.DeepDerivative(e.RoleRef, c.RoleRef) &&
 		equality.Semantic.DeepDerivative(e.Labels, c.Labels) &&
 		equality.Semantic.DeepDerivative(e.Annotations, c.Annotations)
 }
