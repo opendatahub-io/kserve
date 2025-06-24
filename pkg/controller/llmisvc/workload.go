@@ -78,7 +78,7 @@ func (r *LLMInferenceServiceReconciler) reconcileMainWorkload(ctx context.Contex
 func (r *LLMInferenceServiceReconciler) reconcileMainWorker(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	expected := r.expectedMainWorker(ctx, llmSvc)
 	if llmSvc.Spec.Worker == nil {
-		if err := r.deleteDeployment(ctx, llmSvc, expected); err != nil {
+		if err := r.deleteObject(ctx, llmSvc, expected); err != nil {
 			return fmt.Errorf("failed to delete worker: %w", err)
 		}
 		return nil
@@ -168,73 +168,14 @@ func (r *LLMInferenceServiceReconciler) expectedMainDeployment(ctx context.Conte
 
 func (r *LLMInferenceServiceReconciler) reconcileDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) error {
 	curr := &appsv1.Deployment{}
-
 	err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
 	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("failed to get deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 	}
 	if apierrors.IsNotFound(err) {
-		return r.createDeployment(ctx, llmSvc, expected)
+		return r.createObject(ctx, llmSvc, expected)
 	}
-	return r.updateDeployment(ctx, llmSvc, curr, expected)
-}
-
-func (r *LLMInferenceServiceReconciler) createDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) error {
-	if err := r.Client.Create(ctx, expected); err != nil {
-		return fmt.Errorf("failed to create deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
-	}
-	r.Recorder.Eventf(llmSvc, corev1.EventTypeNormal, "Created", "Created deployment %s/%s", expected.GetNamespace(), expected.GetName())
-
-	return nil
-}
-
-func (r *LLMInferenceServiceReconciler) updateDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, curr, expected *appsv1.Deployment) error {
-	if !metav1.IsControlledBy(curr, llmSvc) {
-		return fmt.Errorf("failed to update deployment %s/%s: it is not controlled by LLMInferenceService %s/%s",
-			curr.GetNamespace(), curr.GetName(),
-			llmSvc.GetNamespace(), llmSvc.GetName(),
-		)
-	}
-
-	// Update defaults for the expected deployment, so that we don't trigger an unnecessary update.
-	if err := r.Client.Update(ctx, expected, client.DryRunAll); err != nil {
-		return fmt.Errorf("failed to update deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
-	}
-
-	if equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
-		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
-		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations) {
-		return nil
-	}
-
-	expected.ResourceVersion = curr.ResourceVersion
-
-	log.FromContext(ctx).V(2).Info("Updating deployment",
-		"expected.spec", expected.Spec,
-		"curr.spec", curr.Spec,
-		"expected.labels", expected.Labels,
-		"curr.labels", curr.Labels,
-		"expected.annotations", expected.Annotations,
-		"curr.annotations", curr.Annotations,
-	)
-
-	if err := r.Client.Update(ctx, expected); err != nil {
-		return fmt.Errorf("failed to update deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
-	}
-	r.Recorder.Eventf(llmSvc, corev1.EventTypeNormal, "Updated", "Updated deployment %s/%s", expected.GetNamespace(), expected.GetName())
-
-	return nil
-}
-
-func (r *LLMInferenceServiceReconciler) deleteDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) error {
-	if err := r.Client.Delete(ctx, expected); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return fmt.Errorf("failed to delete deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
-		}
-		return nil
-	}
-	r.Recorder.Eventf(llmSvc, corev1.EventTypeNormal, "Deleted", "Deleted deployment %s/%s", expected.GetNamespace(), expected.GetName())
-	return nil
+	return r.updateObject(ctx, llmSvc, curr, expected, semanticDeploymentIsEqual)
 }
 
 func (r *LLMInferenceServiceReconciler) propagateDeploymentStatus(ctx context.Context, expected *appsv1.Deployment, ready func(), notReady func(reason, messageFormat string, messageA ...interface{})) error {
@@ -255,4 +196,12 @@ func (r *LLMInferenceServiceReconciler) propagateDeploymentStatus(ctx context.Co
 	}
 	notReady(string(appsv1.DeploymentProgressing), "")
 	return nil
+}
+
+func semanticDeploymentIsEqual(e client.Object, c client.Object) bool {
+	expected := e.(*appsv1.Deployment)
+	curr := c.(*appsv1.Deployment)
+	return equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
+		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
+		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)
 }

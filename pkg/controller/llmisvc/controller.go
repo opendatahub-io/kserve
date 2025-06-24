@@ -20,12 +20,12 @@ import (
 	"context"
 	"fmt"
 
-	netv1 "k8s.io/api/networking/v1"
-
 	"github.com/go-logr/logr"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	netv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -74,6 +74,11 @@ type LLMInferenceServiceReconciler struct {
 //+kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes;gateways,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=inference.networking.x-k8s.io,resources=inferencepools;inferencemodels;,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+//+kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
+//+kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews;subjectaccessreviews,verbs=create
 
 // Reconcile is the main entry point for the reconciliation loop.
 // It fetches the LLMInferenceService and delegates the reconciliation of its constituent parts.
@@ -141,6 +146,11 @@ func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v
 	logger.Info("Reconciling with combined base configurations", "spec", llmSvc.Spec)
 
 	if err := r.reconcileWorkload(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to reconcile workload: %w", err)
+	}
+
+	// TODO move in reconcileRouter
+	if err := r.reconcileScheduler(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to reconcile workload: %w", err)
 	}
 
@@ -223,4 +233,63 @@ func (r *LLMInferenceServiceReconciler) enqueueOnLLMInferenceServiceConfigChange
 
 		return reqs
 	})
+}
+
+func (r *LLMInferenceServiceReconciler) createObject(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected client.Object) error {
+	if err := r.Client.Create(ctx, expected); err != nil {
+		return fmt.Errorf("failed to create %s %s/%s: %w", logLineForObject(expected), expected.GetNamespace(), expected.GetName(), err)
+	}
+	r.Recorder.Eventf(llmSvc, corev1.EventTypeNormal, "Created", "Created %s %s/%s", logLineForObject(expected), expected.GetNamespace(), expected.GetName())
+	return nil
+}
+
+func (r *LLMInferenceServiceReconciler) deleteObject(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected client.Object) error {
+	if err := r.Client.Delete(ctx, expected); err != nil {
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("failed to delete %s %s/%s: %w", logLineForObject(expected), expected.GetNamespace(), expected.GetName(), err)
+		}
+		return nil
+	}
+	r.Recorder.Eventf(llmSvc, corev1.EventTypeNormal, "Deleted", "Deleted %s %s/%s", logLineForObject(expected), expected.GetNamespace(), expected.GetName())
+	return nil
+}
+
+func logLineForObject(obj client.Object) string {
+	return obj.GetObjectKind().GroupVersionKind().GroupKind().String()
+}
+
+type SemanticEqual func(expected client.Object, curr client.Object) bool
+
+func (r *LLMInferenceServiceReconciler) updateObject(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, curr, expected client.Object, isEqual SemanticEqual) error {
+	typeLogLine := logLineForObject(expected)
+
+	if !metav1.IsControlledBy(curr, llmSvc) {
+		return fmt.Errorf("failed to update %s %s/%s: it is not controlled by LLMInferenceService %s/%s",
+			typeLogLine,
+			curr.GetNamespace(), curr.GetName(),
+			llmSvc.GetNamespace(), llmSvc.GetName(),
+		)
+	}
+
+	expected.SetResourceVersion(curr.GetResourceVersion())
+	// Update defaults for the expected inference pool, so that we don't trigger an unnecessary update.
+	if err := r.Client.Update(ctx, expected, client.DryRunAll); err != nil {
+		return fmt.Errorf("failed to get defaults for %s %s/%s: %w", typeLogLine, expected.GetNamespace(), expected.GetName(), err)
+	}
+
+	if isEqual(expected, curr) {
+		return nil
+	}
+
+	log.FromContext(ctx).V(2).Info("Updating "+typeLogLine,
+		"expected", expected,
+		"curr", curr,
+	)
+
+	if err := r.Client.Update(ctx, expected); err != nil {
+		return fmt.Errorf("failed to update %s %s/%s: %w", typeLogLine, expected.GetNamespace(), expected.GetName(), err)
+	}
+	r.Recorder.Eventf(llmSvc, corev1.EventTypeNormal, "Updated", "Updated %s %s/%s", typeLogLine, expected.GetNamespace(), expected.GetName())
+
+	return nil
 }

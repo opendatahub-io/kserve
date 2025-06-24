@@ -34,6 +34,10 @@ const (
 	PrefillWorkerWorkloadReady apis.ConditionType = "PrefillWorkerWorkloadReady"
 )
 
+const (
+	SchedulerWorkloadReady apis.ConditionType = "SchedulerWorkloadReady"
+)
+
 var llmInferenceServiceCondSet = apis.NewLivingConditionSet(
 	WorkloadReady,
 	RouterReady,
@@ -109,6 +113,14 @@ func (in *LLMInferenceService) MarkPresetsCombinedReady() {
 
 func (in *LLMInferenceService) MarkPresetsCombinedNotReady(reason, messageFormat string, messageA ...interface{}) {
 	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(PresetsCombined, reason, messageFormat, messageA...)
+}
+
+func (in *LLMInferenceService) MarkSchedulerWorkloadReady() {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(SchedulerWorkloadReady)
+}
+
+func (in *LLMInferenceService) MarkSchedulerWorkloadNotReady(reason, messageFormat string, messageA ...interface{}) {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(SchedulerWorkloadReady, reason, messageFormat, messageA...)
 }
 
 func (p *InferencePoolSpec) HasRef() bool {
