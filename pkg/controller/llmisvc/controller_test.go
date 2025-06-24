@@ -82,7 +82,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			expectedDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				err := envTest.Get(ctx, types.NamespacedName{
-					Name:      "test-llm-kserve",
+					Name:      svcName + "-kserve",
 					Namespace: nsName,
 				}, expectedDeployment)
 
