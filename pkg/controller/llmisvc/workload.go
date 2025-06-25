@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 
+	"k8s.io/client-go/util/retry"
+
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -179,11 +181,15 @@ func (r *LLMInferenceServiceReconciler) reconcileDeployment(ctx context.Context,
 }
 
 func (r *LLMInferenceServiceReconciler) propagateDeploymentStatus(ctx context.Context, expected *appsv1.Deployment, ready func(), notReady func(reason, messageFormat string, messageA ...interface{})) error {
+	logger := log.FromContext(ctx)
+
 	curr := &appsv1.Deployment{}
-	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil {
+	err := retry.OnError(retry.DefaultRetry, apierrors.IsNotFound, func() error {
+		return r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
+	})
+	if err != nil {
 		return fmt.Errorf("failed to get current deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 	}
-
 	for _, cond := range curr.Status.Conditions {
 		if cond.Type == appsv1.DeploymentAvailable {
 			if cond.Status == corev1.ConditionTrue {
@@ -194,6 +200,7 @@ func (r *LLMInferenceServiceReconciler) propagateDeploymentStatus(ctx context.Co
 			return nil
 		}
 	}
+	logger.Info("Deployment processed")
 	notReady(string(appsv1.DeploymentProgressing), "")
 	return nil
 }
