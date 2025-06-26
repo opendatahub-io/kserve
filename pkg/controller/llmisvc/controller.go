@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
@@ -59,7 +58,7 @@ type ReconcilerConfig struct {
 // It orchestrates the reconciliation of child resources based on the spec.
 type LLMInferenceServiceReconciler struct {
 	client.Client
-	Recorder record.EventRecorder
+	record.EventRecorder
 
 	Config ReconcilerConfig
 }
@@ -106,7 +105,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 
 	if reconcileErr != nil {
 		logger.Error(reconcileErr, "Failed to reconcile LLMInferenceService")
-		r.Recorder.Eventf(original, corev1.EventTypeWarning, "Error", "Reconciliation failed: %v", reconcileErr.Error())
+		r.Eventf(original, corev1.EventTypeWarning, "Error", "Reconciliation failed: %v", reconcileErr.Error())
 	}
 
 	if err := r.updateStatus(ctx, original, resource); err != nil {
@@ -233,63 +232,4 @@ func (r *LLMInferenceServiceReconciler) enqueueOnLLMInferenceServiceConfigChange
 
 		return reqs
 	})
-}
-
-func (r *LLMInferenceServiceReconciler) createObject(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected client.Object) error {
-	if err := r.Client.Create(ctx, expected); err != nil {
-		return fmt.Errorf("failed to create %s %s/%s: %w", logLineForObject(expected), expected.GetNamespace(), expected.GetName(), err)
-	}
-	r.Recorder.Eventf(llmSvc, corev1.EventTypeNormal, "Created", "Created %s %s/%s", logLineForObject(expected), expected.GetNamespace(), expected.GetName())
-	return nil
-}
-
-func (r *LLMInferenceServiceReconciler) deleteObject(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected client.Object) error {
-	if err := r.Client.Delete(ctx, expected); err != nil {
-		if !apierrors.IsNotFound(err) {
-			return fmt.Errorf("failed to delete %s %s/%s: %w", logLineForObject(expected), expected.GetNamespace(), expected.GetName(), err)
-		}
-		return nil
-	}
-	r.Recorder.Eventf(llmSvc, corev1.EventTypeNormal, "Deleted", "Deleted %s %s/%s", logLineForObject(expected), expected.GetNamespace(), expected.GetName())
-	return nil
-}
-
-func logLineForObject(obj client.Object) string {
-	return obj.GetObjectKind().GroupVersionKind().GroupKind().String()
-}
-
-type SemanticEqual func(expected client.Object, curr client.Object) bool
-
-func (r *LLMInferenceServiceReconciler) updateObject(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, curr, expected client.Object, isEqual SemanticEqual) error {
-	typeLogLine := logLineForObject(expected)
-
-	if !metav1.IsControlledBy(curr, llmSvc) {
-		return fmt.Errorf("failed to update %s %s/%s: it is not controlled by LLMInferenceService %s/%s",
-			typeLogLine,
-			curr.GetNamespace(), curr.GetName(),
-			llmSvc.GetNamespace(), llmSvc.GetName(),
-		)
-	}
-
-	expected.SetResourceVersion(curr.GetResourceVersion())
-	// Update defaults for the expected inference pool, so that we don't trigger an unnecessary update.
-	if err := r.Client.Update(ctx, expected, client.DryRunAll); err != nil {
-		return fmt.Errorf("failed to get defaults for %s %s/%s: %w", typeLogLine, expected.GetNamespace(), expected.GetName(), err)
-	}
-
-	if isEqual(expected, curr) {
-		return nil
-	}
-
-	log.FromContext(ctx).V(2).Info("Updating "+typeLogLine,
-		"expected", expected,
-		"curr", curr,
-	)
-
-	if err := r.Client.Update(ctx, expected); err != nil {
-		return fmt.Errorf("failed to update %s %s/%s: %w", typeLogLine, expected.GetNamespace(), expected.GetName(), err)
-	}
-	r.Recorder.Eventf(llmSvc, corev1.EventTypeNormal, "Updated", "Updated %s %s/%s", typeLogLine, expected.GetNamespace(), expected.GetName())
-
-	return nil
 }
