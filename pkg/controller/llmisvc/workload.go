@@ -80,7 +80,7 @@ func (r *LLMInferenceServiceReconciler) reconcileMainWorkload(ctx context.Contex
 func (r *LLMInferenceServiceReconciler) reconcileMainWorker(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	expected := r.expectedMainWorker(ctx, llmSvc)
 	if llmSvc.Spec.Worker == nil {
-		if err := r.deleteObject(ctx, llmSvc, expected); err != nil {
+		if err := Delete(ctx, r, llmSvc, expected); err != nil {
 			return fmt.Errorf("failed to delete worker: %w", err)
 		}
 		return nil
@@ -175,9 +175,9 @@ func (r *LLMInferenceServiceReconciler) reconcileDeployment(ctx context.Context,
 		return fmt.Errorf("failed to get deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 	}
 	if apierrors.IsNotFound(err) {
-		return r.createObject(ctx, llmSvc, expected)
+		return Create(ctx, r, llmSvc, expected)
 	}
-	return r.updateObject(ctx, llmSvc, curr, expected, semanticDeploymentIsEqual)
+	return Update(ctx, r, llmSvc, curr, expected, semanticDeploymentIsEqual)
 }
 
 func (r *LLMInferenceServiceReconciler) propagateDeploymentStatus(ctx context.Context, expected *appsv1.Deployment, ready func(), notReady func(reason, messageFormat string, messageA ...interface{})) error {
@@ -205,9 +205,7 @@ func (r *LLMInferenceServiceReconciler) propagateDeploymentStatus(ctx context.Co
 	return nil
 }
 
-func semanticDeploymentIsEqual(e client.Object, c client.Object) bool {
-	expected := e.(*appsv1.Deployment)
-	curr := c.(*appsv1.Deployment)
+func semanticDeploymentIsEqual(expected *appsv1.Deployment, curr *appsv1.Deployment) bool {
 	return equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
 		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
 		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)

@@ -57,7 +57,7 @@ func (r *LLMInferenceServiceReconciler) reconcileScheduler(ctx context.Context, 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerRole(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	expected := r.expectedSchedulerRole(llmSvc)
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
-		return r.deleteObject(ctx, llmSvc, expected)
+		return Delete(ctx, r, llmSvc, expected)
 	}
 	curr := &rbacv1.Role{}
 	err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
@@ -65,15 +65,15 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerRole(ctx context.Conte
 		return fmt.Errorf("failed to get role %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 	}
 	if apierrors.IsNotFound(err) {
-		return r.createObject(ctx, llmSvc, expected)
+		return Create(ctx, r, llmSvc, expected)
 	}
-	return r.updateObject(ctx, llmSvc, curr, expected, semanticRoleIsEqual)
+	return Update(ctx, r, llmSvc, curr, expected, semanticRoleIsEqual)
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerRoleBinding(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, sa *corev1.ServiceAccount) error {
 	expected := r.expectedSchedulerRoleBinding(llmSvc, sa)
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
-		return r.deleteObject(ctx, llmSvc, expected)
+		return Delete(ctx, r, llmSvc, expected)
 	}
 	curr := &rbacv1.RoleBinding{}
 	err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
@@ -81,15 +81,15 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerRoleBinding(ctx contex
 		return fmt.Errorf("failed to get role %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 	}
 	if apierrors.IsNotFound(err) {
-		return r.createObject(ctx, llmSvc, expected)
+		return Create(ctx, r, llmSvc, expected)
 	}
-	return r.updateObject(ctx, llmSvc, curr, expected, semanticRoleBindingIsEqual)
+	return Update(ctx, r, llmSvc, curr, expected, semanticRoleBindingIsEqual)
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerServiceAccount(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*corev1.ServiceAccount, error) {
 	expected := r.expectedSchedulerServiceAccount(llmSvc)
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
-		return expected, r.deleteObject(ctx, llmSvc, expected)
+		return expected, Delete(ctx, r, llmSvc, expected)
 	}
 	curr := &corev1.ServiceAccount{}
 	err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
@@ -97,15 +97,15 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerServiceAccount(ctx con
 		return expected, fmt.Errorf("failed to get service account %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 	}
 	if apierrors.IsNotFound(err) {
-		return expected, r.createObject(ctx, llmSvc, expected)
+		return expected, Create(ctx, r, llmSvc, expected)
 	}
-	return expected, r.updateObject(ctx, llmSvc, curr, expected, semanticServiceAccountIsEqual)
+	return expected, Update(ctx, r, llmSvc, curr, expected, semanticServiceAccountIsEqual)
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	scheduler := r.expectedSchedulerDeployment(ctx, llmSvc)
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
-		return r.deleteObject(ctx, llmSvc, scheduler)
+		return Delete(ctx, r, llmSvc, scheduler)
 	}
 	if err := r.reconcileDeployment(ctx, llmSvc, scheduler); err != nil {
 		return fmt.Errorf("failed to reconcile scheduler deployment %s/%s: %w", scheduler.GetNamespace(), scheduler.GetName(), err)
@@ -116,7 +116,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerDeployment(ctx context
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerInferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	expected := r.expectedSchedulerInferencePool(ctx, llmSvc)
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
-		return r.deleteObject(ctx, llmSvc, expected)
+		return Delete(ctx, r, llmSvc, expected)
 	}
 
 	curr := &igwapi.InferencePool{}
@@ -125,9 +125,9 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerInferencePool(ctx cont
 		return fmt.Errorf("failed to get InferencePool %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 	}
 	if apierrors.IsNotFound(err) {
-		return r.createObject(ctx, llmSvc, expected)
+		return Create(ctx, r, llmSvc, expected)
 	}
-	return r.updateObject(ctx, llmSvc, curr, expected, semanticInferencePoolIsEqual)
+	return Update(ctx, r, llmSvc, curr, expected, semanticInferencePoolIsEqual)
 }
 
 func (r *LLMInferenceServiceReconciler) expectedSchedulerInferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *igwapi.InferencePool {
@@ -254,38 +254,30 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerRoleBinding(llmSvc *v1a
 	return rb
 }
 
-func semanticInferencePoolIsEqual(expected client.Object, curr client.Object) bool {
-	e := expected.(*igwapi.InferencePool)
-	c := curr.(*igwapi.InferencePool)
-	return equality.Semantic.DeepDerivative(e.Spec, c.Spec) &&
-		equality.Semantic.DeepDerivative(e.Labels, c.Labels) &&
-		equality.Semantic.DeepDerivative(e.Annotations, c.Annotations)
+func semanticInferencePoolIsEqual(expected *igwapi.InferencePool, curr *igwapi.InferencePool) bool {
+	return equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
+		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
+		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)
 }
 
-func semanticServiceAccountIsEqual(expected client.Object, curr client.Object) bool {
-	e := expected.(*corev1.ServiceAccount)
-	c := curr.(*corev1.ServiceAccount)
-	return equality.Semantic.DeepDerivative(e.Secrets, c.Secrets) &&
-		equality.Semantic.DeepDerivative(e.ImagePullSecrets, c.ImagePullSecrets) &&
-		equality.Semantic.DeepDerivative(e.Labels, c.Labels) &&
-		equality.Semantic.DeepDerivative(e.Annotations, c.Annotations)
+func semanticServiceAccountIsEqual(expected *corev1.ServiceAccount, current *corev1.ServiceAccount) bool {
+	return equality.Semantic.DeepDerivative(expected.Secrets, current.Secrets) &&
+		equality.Semantic.DeepDerivative(expected.ImagePullSecrets, current.ImagePullSecrets) &&
+		equality.Semantic.DeepDerivative(expected.Labels, current.Labels) &&
+		equality.Semantic.DeepDerivative(expected.Annotations, current.Annotations)
 }
 
-func semanticRoleIsEqual(expected client.Object, curr client.Object) bool {
-	e := expected.(*rbacv1.Role)
-	c := curr.(*rbacv1.Role)
-	return equality.Semantic.DeepDerivative(e.Rules, c.Rules) &&
-		equality.Semantic.DeepDerivative(e.Labels, c.Labels) &&
-		equality.Semantic.DeepDerivative(e.Annotations, c.Annotations)
+func semanticRoleIsEqual(expected *rbacv1.Role, curr *rbacv1.Role) bool {
+	return equality.Semantic.DeepDerivative(expected.Rules, curr.Rules) &&
+		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
+		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)
 }
 
-func semanticRoleBindingIsEqual(expected client.Object, curr client.Object) bool {
-	e := expected.(*rbacv1.RoleBinding)
-	c := curr.(*rbacv1.RoleBinding)
-	return equality.Semantic.DeepDerivative(e.Subjects, c.Subjects) &&
-		equality.Semantic.DeepDerivative(e.RoleRef, c.RoleRef) &&
-		equality.Semantic.DeepDerivative(e.Labels, c.Labels) &&
-		equality.Semantic.DeepDerivative(e.Annotations, c.Annotations)
+func semanticRoleBindingIsEqual(expected *rbacv1.RoleBinding, curr *rbacv1.RoleBinding) bool {
+	return equality.Semantic.DeepDerivative(expected.Subjects, curr.Subjects) &&
+		equality.Semantic.DeepDerivative(expected.RoleRef, curr.RoleRef) &&
+		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
+		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)
 }
 
 func (r *LLMInferenceServiceReconciler) schedulerLabels(llmSvc *v1alpha1.LLMInferenceService) map[string]string {

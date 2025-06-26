@@ -50,7 +50,7 @@ func (r *LLMInferenceServiceReconciler) reconcileDisaggregatedServing(ctx contex
 func (r *LLMInferenceServiceReconciler) reconcilePrefillMain(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	prefill := r.expectedPrefillMainDeployment(ctx, llmSvc)
 	if llmSvc.Spec.Prefill == nil {
-		if err := r.deleteObject(ctx, llmSvc, prefill); err != nil {
+		if err := Delete(ctx, r, llmSvc, prefill); err != nil {
 			return fmt.Errorf("failed to delete prefill main deployment: %w", err)
 		}
 		return nil
@@ -64,7 +64,7 @@ func (r *LLMInferenceServiceReconciler) reconcilePrefillMain(ctx context.Context
 func (r *LLMInferenceServiceReconciler) reconcilePrefillWorker(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	expected := r.expectedPrefillWorkerDeployment(ctx, llmSvc)
 	if llmSvc.Spec.Prefill == nil || llmSvc.Spec.Prefill.Worker == nil {
-		if err := r.deleteObject(ctx, llmSvc, expected); err != nil {
+		if err := Delete(ctx, r, llmSvc, expected); err != nil {
 			return fmt.Errorf("failed to delete prefill worker: %w", err)
 		}
 		return nil
