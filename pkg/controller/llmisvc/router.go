@@ -1,0 +1,153 @@
+/*
+Copyright 2025 The KServe Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package llmisvc
+
+import (
+	"context"
+	"fmt"
+
+	"k8s.io/utils/ptr"
+
+	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"knative.dev/pkg/kmeta"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
+
+	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+)
+
+func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	logger := log.FromContext(ctx).WithName("reconcileRouter")
+	ctx = log.IntoContext(ctx, logger)
+
+	logger.Info("Reconciling Router")
+
+	if err := r.reconcileScheduler(ctx, llmSvc); err != nil {
+		llmSvc.MarkRouterNotReady("SchedulerReconcileError", "Failed to reconcile scheduler: %v", err.Error())
+		return fmt.Errorf("failed to reconcile scheduler: %w", err)
+	}
+
+	if err := r.reconcileGateway(ctx, llmSvc); err != nil {
+		llmSvc.MarkRouterNotReady("GatewayReconcileError", "Failed to reconcile gateway: %v", err.Error())
+		return fmt.Errorf("failed to reconcile gateway: %w", err)
+	}
+
+	// TODO: reconcile networkingv1.Ingress
+
+	if err := r.reconcileHTTPRoutes(ctx, llmSvc); err != nil {
+		llmSvc.MarkRouterNotReady("HTTPRouteReconcileError", "Failed to reconcile HTTPRoute: %v", err.Error())
+		return fmt.Errorf("failed to reconcile HTTP routes: %w", err)
+	}
+
+	llmSvc.MarkRouterReady()
+
+	return nil
+}
+
+func (r *LLMInferenceServiceReconciler) reconcileGateway(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling Gateway... coming soon")
+
+	return nil
+}
+
+func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	logger := log.FromContext(ctx)
+	logger.Info("Reconciling HTTPRoute")
+
+	expectedHTTPRoute := r.expectedHTTPRoute(llmSvc)
+
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || llmSvc.Spec.Router.Route.HTTP == nil {
+		return Delete(ctx, r, llmSvc, expectedHTTPRoute)
+	}
+
+	route := llmSvc.Spec.Router.Route
+	if route.HTTP.HasRefs() {
+		// We should use provided HTTPRoutes, clean ours up if they exist
+		return Delete(ctx, r, llmSvc, expectedHTTPRoute)
+	}
+
+	if route.IsManaged() || route.HTTP.HasSpec() {
+		return r.reconcileHTTPRoute(ctx, llmSvc, expectedHTTPRoute)
+	}
+
+	return nil
+}
+
+func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(llmSvc *v1alpha1.LLMInferenceService) *gatewayapi.HTTPRoute {
+	httpRoute := &gatewayapi.HTTPRoute{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-route"),
+			Namespace: llmSvc.GetNamespace(),
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+			},
+			Labels: RouterLabels(llmSvc),
+		},
+	}
+
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Route != nil && llmSvc.Spec.Router.Route.HTTP.Spec != nil {
+		httpRoute.Spec = *llmSvc.Spec.Router.Route.HTTP.Spec.DeepCopy()
+	}
+
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Gateway != nil {
+		for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
+			httpRoute.Spec.CommonRouteSpec.ParentRefs = append(httpRoute.Spec.CommonRouteSpec.ParentRefs, gatewayapi.ParentReference{
+				// TODO(api): With this structure we are missing the ability to narrow a section of targeted gateway by the route we are creating
+				// missing SectionName and Port
+				Name:      ref.Name,
+				Namespace: &ref.Namespace,
+				Group:     ptr.To(gatewayapi.Group("gateway.networking.k8s.io")),
+				Kind:      ptr.To(gatewayapi.Kind("Gateway")),
+			})
+		}
+	}
+
+	return httpRoute
+}
+
+func (r *LLMInferenceServiceReconciler) reconcileHTTPRoute(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected *gatewayapi.HTTPRoute) error {
+	curr := &gatewayapi.HTTPRoute{}
+
+	err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to get HTTPRoute %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+	}
+	if apierrors.IsNotFound(err) {
+		return Create(ctx, r, llmSvc, expected)
+	}
+
+	return Update(ctx, r, llmSvc, curr, expected, semanticHTTPRouteIsEqual)
+}
+
+func RouterLabels(llmSvc *v1alpha1.LLMInferenceService) map[string]string {
+	return map[string]string{
+		"app.kubernetes.io/component": "llminferenceservice-router",
+		"app.kubernetes.io/name":      llmSvc.GetName(),
+		"app.kubernetes.io/part-of":   "llminferenceservice",
+	}
+}
+
+func semanticHTTPRouteIsEqual(e *gatewayapi.HTTPRoute, c *gatewayapi.HTTPRoute) bool {
+	return equality.Semantic.DeepDerivative(e.Spec, c.Spec) &&
+		equality.Semantic.DeepDerivative(e.Labels, c.Labels) &&
+		equality.Semantic.DeepDerivative(e.Annotations, c.Annotations)
+}

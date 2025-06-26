@@ -107,6 +107,14 @@ func (in *LLMInferenceService) DetermineWorkloadReadiness() {
 	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(WorkloadReady)
 }
 
+func (in *LLMInferenceService) MarkRouterNotReady(reason, messageFormat string, messageA ...interface{}) {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(RouterReady, reason, messageFormat, messageA...)
+}
+
+func (in *LLMInferenceService) MarkRouterReady() {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(RouterReady)
+}
+
 func (in *LLMInferenceService) MarkPresetsCombinedReady() {
 	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(PresetsCombined)
 }
@@ -121,12 +129,4 @@ func (in *LLMInferenceService) MarkSchedulerWorkloadReady() {
 
 func (in *LLMInferenceService) MarkSchedulerWorkloadNotReady(reason, messageFormat string, messageA ...interface{}) {
 	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(SchedulerWorkloadReady, reason, messageFormat, messageA...)
-}
-
-func (p *InferencePoolSpec) HasRef() bool {
-	return p != nil && p.Ref != nil && p.Ref.Name != ""
-}
-
-func (r *HTTPRouteSpec) HasRefs() bool {
-	return r != nil && len(r.Refs) > 0
 }

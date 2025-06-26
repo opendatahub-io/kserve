@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kserve/kserve/pkg/constants"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -43,7 +45,9 @@ var (
 )
 
 var _ = SynchronizedBeforeSuite(func() {
-	SetDefaultEventuallyTimeout(10 * time.Second)
+	duration, err := time.ParseDuration(constants.GetEnvOrDefault("ENVTEST_DEFAULT_TIMEOUT", "10s"))
+	Expect(err).NotTo(HaveOccurred())
+	SetDefaultEventuallyTimeout(duration)
 	SetDefaultEventuallyPollingInterval(250 * time.Millisecond)
 
 	By("Setting up the test environment")
