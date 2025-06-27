@@ -59,9 +59,7 @@ var _ = SynchronizedBeforeSuite(func() {
 	llmCtrlFunc := func(cfg *rest.Config, mgr ctrl.Manager) error {
 		eventBroadcaster := record.NewBroadcaster()
 		clientSet, err := kubernetes.NewForConfig(cfg)
-		if err != nil {
-			Expect(err).NotTo(HaveOccurred())
-		}
+		Expect(err).NotTo(HaveOccurred())
 
 		llmCtrl := llmisvc.LLMInferenceServiceReconciler{
 			Client:    mgr.GetClient(),
