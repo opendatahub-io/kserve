@@ -33,6 +33,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
 	"k8s.io/client-go/tools/record"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
+
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -273,9 +274,7 @@ func main() {
 	if err = (&llmisvc.LLMInferenceServiceReconciler{
 		Client:        mgr.GetClient(),
 		EventRecorder: llmEventBroadcaster.NewRecorder(scheme, corev1.EventSource{Component: "LLMInferenceServiceController"}),
-		Config: llmisvc.ReconcilerConfig{
-			SystemNamespace: constants.KServeNamespace,
-		},
+		Config:        llmisvc.NewConfig(ingressConfig),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "v1beta1Controller", "InferenceService")
 		os.Exit(1)

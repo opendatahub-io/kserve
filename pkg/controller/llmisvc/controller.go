@@ -19,6 +19,12 @@ package llmisvc
 import (
 	"context"
 	"fmt"
+	"strings"
+
+	"k8s.io/client-go/kubernetes"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/kserve/kserve/pkg/constants"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 
@@ -55,8 +61,28 @@ var childResourcesPredicate, _ = predicate.LabelSelectorPredicate(metav1.LabelSe
 	},
 })
 
-type ReconcilerConfig struct {
-	SystemNamespace string `json:"systemNamespace,omitempty"`
+type Config struct {
+	SystemNamespace         string `json:"systemNamespace,omitempty"`
+	IngressGatewayName      string `json:"ingressGatewayName,omitempty"`
+	IngressGatewayNamespace string `json:"ingressGatewayNamespace,omitempty"`
+}
+
+// NewConfig creates instance of llm-specific config based on predifined values
+// in IngressConfig struct
+func NewConfig(ingressConfig *v1beta1.IngressConfig) Config {
+	igwNs := constants.KServeNamespace
+	igwName := ingressConfig.KserveIngressGateway
+	igw := strings.Split(igwName, "/")
+	if len(igw) == 2 {
+		igwNs = igw[0]
+		igwName = igw[1]
+	}
+
+	return Config{
+		SystemNamespace:         constants.KServeNamespace,
+		IngressGatewayNamespace: igwNs,
+		IngressGatewayName:      igwName,
+	}
 }
 
 // LLMInferenceServiceReconciler reconciles a LLMInferenceService object.
@@ -64,8 +90,8 @@ type ReconcilerConfig struct {
 type LLMInferenceServiceReconciler struct {
 	client.Client
 	record.EventRecorder
-
-	Config ReconcilerConfig
+	Clientset kubernetes.Interface
+	Config    Config
 }
 
 //+kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;create;update;patch;delete
@@ -102,6 +128,9 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
+	// TODO(ingress) next: add watch on CfgMap with predicate and cache tuning to trigger reconcile when it changes
+	r.loadIngressConfig(ctx, logger, original)
+
 	resource := original.DeepCopy()
 
 	reconciler.PreProcessReconcile(ctx, resource)
@@ -119,6 +148,21 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 
 	return ctrl.Result{}, reconcileErr
+}
+
+func (r *LLMInferenceServiceReconciler) loadIngressConfig(ctx context.Context, logger logr.Logger, original *v1alpha1.LLMInferenceService) {
+	isvcConfigMap, errCfgMap := v1beta1.GetInferenceServiceConfigMap(ctx, r.Clientset) // Fetch directly from API Server (like everywhere else)
+	if errCfgMap != nil {
+		logger.Error(errCfgMap, fmt.Sprintf("Failed to load InferenceServiceConfigMap. Using existing values %+v", r.Config))
+		r.Eventf(original, corev1.EventTypeWarning, "Error", "Reconciliation failed: %v", errCfgMap.Error())
+	} else {
+		ingressConfig, errConvert := v1beta1.NewIngressConfig(isvcConfigMap)
+		if errConvert != nil {
+			logger.Error(errConvert, fmt.Sprintf("Failed to convert InferenceServiceConfigMap to IngressConfig. Using existing values %+v", r.Config))
+			r.Eventf(original, corev1.EventTypeWarning, "Error", "Reconciliation failed: %v", errConvert.Error())
+		}
+		r.Config = NewConfig(ingressConfig)
+	}
 }
 
 func (r *LLMInferenceServiceReconciler) updateStatus(ctx context.Context, desired *v1alpha1.LLMInferenceService) error {
@@ -146,7 +190,7 @@ func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v
 	logger := log.FromContext(ctx).WithName("reconcile")
 	ctx = log.IntoContext(ctx, logger)
 
-	baseCfg, err := r.combineBaseRefsConfig(ctx, llmSvc)
+	baseCfg, err := r.combineBaseRefsConfig(ctx, llmSvc, r.Config)
 	if err != nil {
 		llmSvc.MarkPresetsCombinedNotReady("CombineBaseError", err.Error())
 		return fmt.Errorf("failed to combine base-configurations: %w", err)
