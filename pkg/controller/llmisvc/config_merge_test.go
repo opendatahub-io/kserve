@@ -14,10 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmisvc
+package llmisvc_test
 
 import (
 	"testing"
+
+	"github.com/kserve/kserve/pkg/controller/llmisvc"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
@@ -740,7 +742,7 @@ func TestMergeSpecs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := MergeSpecs(tt.cfgs...)
+			got, err := llmisvc.MergeSpecs(tt.cfgs...)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("MergeSpecs() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -807,7 +809,7 @@ func TestReplaceVariables(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := ReplaceVariables(tt.llmSvc, tt.cfg)
+			got, err := llmisvc.ReplaceVariables(tt.llmSvc, tt.cfg)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ReplaceVariables() error = %v, wantErr %v", err, tt.wantErr)
 				return
