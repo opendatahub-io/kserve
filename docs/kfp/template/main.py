@@ -1,7 +1,7 @@
 from cli import get_parsed_args
 from env_utils import set_env_vars
 from deploy_utils import prepare_env_and_deploy, compile_pipeline
-
+import os
 
 def main():
     args = get_parsed_args()

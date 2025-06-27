@@ -42,6 +42,7 @@ pip install -r requirements.txt
 ```
 
 ### 4. Add your `ServingRuntime` manifest to the `manifests/` directory
+Ensure that your servingruntime file is renamed to ```runtime.yaml```
 Ensure it is properly formatted and includes the correct metadata name.
 
 ### 5. Set the ServingRuntime name as an environment variable
