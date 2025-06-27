@@ -28,7 +28,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
@@ -154,7 +153,7 @@ func (p *Predictor) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 		}
 	}
 
-	predictorName := p.getPredictorName(ctx, isvc)
+	predictorName := constants.PredictorServiceName(isvc.Name)
 
 	// Labels and annotations from predictor component
 	// Label filter will be handled in ksvc_reconciler and raw reconciler
@@ -216,42 +215,27 @@ func (p *Predictor) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 	// Handle InferenceService status updates based on the force stop annotation.
 	// If true, transition the service to a stopped and unready state; otherwise, ensure it's not marked as stopped.
 	if utils.GetForceStopRuntime(isvc) {
-		// Exit early if we have already set the status to stopped
-		existingStoppedCondition := isvc.Status.GetCondition(v1beta1.Stopped)
-		if existingStoppedCondition != nil && existingStoppedCondition.Status == corev1.ConditionTrue {
+		// Exit early if we have already set the predictor's status to stopped
+		existingPredictorCondition := isvc.Status.GetCondition(v1beta1.PredictorReady)
+		if existingPredictorCondition != nil && existingPredictorCondition.Status == corev1.ConditionFalse && existingPredictorCondition.Reason == v1beta1.StoppedISVCReason {
 			return ctrl.Result{}, nil
 		}
 
+		// Preserve the deployment mode value
 		deployMode := isvc.Status.DeploymentMode
 
 		// Clear all statuses
 		isvc.Status = v1beta1.InferenceServiceStatus{}
-
-		// Preserve the deployment mode value
 		isvc.Status.DeploymentMode = deployMode
 
-		// Set the ready condition
-		predictorReadyCondition := &apis.Condition{
+		// Set the predictor's ready condition to false
+		isvc.Status.SetCondition(v1beta1.PredictorReady, &apis.Condition{
 			Type:   v1beta1.PredictorReady,
 			Status: corev1.ConditionFalse,
 			Reason: v1beta1.StoppedISVCReason,
-		}
-		isvc.Status.SetCondition(v1beta1.PredictorReady, predictorReadyCondition)
-
-		// Add the stopped condition
-		stoppedCondition := &apis.Condition{
-			Type:   v1beta1.Stopped,
-			Status: corev1.ConditionTrue,
-		}
-		isvc.Status.SetCondition(v1beta1.Stopped, stoppedCondition)
+		})
 
 		return ctrl.Result{}, nil
-	} else {
-		resumeCondition := &apis.Condition{
-			Type:   v1beta1.Stopped,
-			Status: corev1.ConditionFalse,
-		}
-		isvc.Status.SetCondition(v1beta1.Stopped, resumeCondition)
 	}
 
 	statusSpec := isvc.Status.Components[v1beta1.PredictorComponent]
@@ -442,24 +426,6 @@ func (p *Predictor) buildPodSpec(isvc *v1beta1.InferenceService, sRuntime v1alph
 	}
 
 	return podSpec, nil
-}
-
-func (p *Predictor) getPredictorName(ctx context.Context, isvc *v1beta1.InferenceService) string {
-	predictorName := constants.PredictorServiceName(isvc.Name)
-	if p.deploymentMode == constants.RawDeployment {
-		existing := &corev1.Service{}
-		err := p.client.Get(ctx, types.NamespacedName{Name: constants.DefaultPredictorServiceName(isvc.Name), Namespace: isvc.Namespace}, existing)
-		if err == nil {
-			predictorName = constants.DefaultPredictorServiceName(isvc.Name)
-		}
-	} else {
-		existing := &knservingv1.Service{}
-		err := p.client.Get(ctx, types.NamespacedName{Name: constants.DefaultPredictorServiceName(isvc.Name), Namespace: isvc.Namespace}, existing)
-		if err == nil {
-			predictorName = constants.DefaultPredictorServiceName(isvc.Name)
-		}
-	}
-	return predictorName
 }
 
 func (p *Predictor) buildObjectMeta(isvc *v1beta1.InferenceService, predictorName string, sRuntimeLabels, predictorLabels, sRuntimeAnnotations, annotations, predictorAnnotations map[string]string) metav1.ObjectMeta {
@@ -748,11 +714,9 @@ func (p *Predictor) reconcileRawDeployment(ctx context.Context, isvc *v1beta1.In
 }
 
 func (p *Predictor) reconcileKnativeDeployment(ctx context.Context, isvc *v1beta1.InferenceService, objectMeta *metav1.ObjectMeta, podSpec *corev1.PodSpec) (*knservingv1.ServiceStatus, error) {
-	r, err := knative.NewKsvcReconciler(ctx, p.client, p.clientset, p.scheme, *objectMeta, &isvc.Spec.Predictor.ComponentExtensionSpec,
+	r := knative.NewKsvcReconciler(p.client, p.scheme, *objectMeta, &isvc.Spec.Predictor.ComponentExtensionSpec,
 		podSpec, isvc.Status.Components[v1beta1.PredictorComponent], p.inferenceServiceConfig.ServiceLabelDisallowedList)
-	if err != nil {
-		return nil, errors.Wrapf(err, "fails to create new knative service reconciler for predictor")
-	}
+
 	if err := controllerutil.SetControllerReference(isvc, r.Service, p.scheme); err != nil {
 		return nil, errors.Wrapf(err, "fails to set owner reference for predictor")
 	}

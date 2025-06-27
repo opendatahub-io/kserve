@@ -112,7 +112,7 @@ manifests: controller-gen yq
 	# rm charts/kserve-crd/templates/kustomization.yaml
 	# Generate minimal crd
 	./hack/minimal-crdgen.sh
-	kubectl kustomize config/crd/full > test/crds/serving.kserve.io_inferenceservices.yaml
+	kubectl kustomize config/crd/full > test/crds/serving.kserve.io_all_crds.yaml
 	# Copy the minimal crd to the helm chart
 	cp config/crd/minimal/* charts/kserve-crd-minimal/templates/
 	rm charts/kserve-crd-minimal/templates/kustomization.yaml
@@ -161,7 +161,7 @@ clean:
 
 # Run tests
 test: fmt vet manifests envtest test-qpext
-	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test $$(go list ./pkg/...) ./cmd/... -coverprofile coverage.out -coverpkg ./pkg/... ./cmd...
+	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test --timeout 20m $$(go list ./pkg/...) ./cmd/... -coverprofile coverage.out -coverpkg ./pkg/... ./cmd...
 
 test-qpext:
 	cd qpext && go test -v ./... -cover
