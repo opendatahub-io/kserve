@@ -29,27 +29,34 @@ import (
 // extractHTTPRoute safely extracts HTTPRoute from either pointer or value type
 func extractHTTPRoute(actual any) (*gatewayapi.HTTPRoute, error) {
 	switch v := actual.(type) {
+	case gatewayapi.HTTPRouteSpec:
+		return &gatewayapi.HTTPRoute{Spec: v}, nil
+	case *gatewayapi.HTTPRouteSpec:
+		if v == nil {
+			return nil, errors.New("expected non-nil gatewayapi.HTTPRouteSpec, but got nil")
+		}
+		return &gatewayapi.HTTPRoute{Spec: *v}, nil
 	case *gatewayapi.HTTPRoute:
 		if v == nil {
-			return nil, errors.New("expected non-nil *gatewayapi.HTTPRoute, but got nil")
+			return nil, errors.New("expected non-nil gatewayapi.HTTPRoute, but got nil")
 		}
 		return v, nil
 	case gatewayapi.HTTPRoute:
 		return &v, nil
 	default:
-		return nil, fmt.Errorf("expected *gatewayapi.HTTPRoute or gatewayapi.HTTPRoute, but got %T", actual)
+		return nil, fmt.Errorf("expected gatewayapi.HTTPRoute gatewayapi.HTTPRouteSpec, but got %T", actual)
 	}
 }
 
 // HaveGatewayRefs returns a matcher that checks if an HTTPRoute has the specified gateway parent refs
-func HaveGatewayRefs(expectedGatewayNames ...string) types.GomegaMatcher {
+func HaveGatewayRefs(expectedGateways ...gatewayapi.ParentReference) types.GomegaMatcher {
 	return &haveGatewayRefsMatcher{
-		expectedGatewayNames: expectedGatewayNames,
+		expectedGatewayNames: expectedGateways,
 	}
 }
 
 type haveGatewayRefsMatcher struct {
-	expectedGatewayNames []string
+	expectedGatewayNames []gatewayapi.ParentReference
 	actualParentRefs     []gatewayapi.ParentReference
 	actualGatewayNames   []string
 }
@@ -62,26 +69,19 @@ func (matcher *haveGatewayRefsMatcher) Match(actual any) (success bool, err erro
 
 	matcher.actualParentRefs = httpRoute.Spec.ParentRefs
 
-	actualNames := make([]string, 0, len(matcher.actualParentRefs))
+	expectedSet := make(map[string]gatewayapi.ParentReference)
+	for _, ref := range matcher.expectedGatewayNames {
+		expectedSet[string(ref.Name)] = ref
+	}
+
 	for _, ref := range matcher.actualParentRefs {
-		if ptr.Deref(ref.Kind, "") == "Gateway" {
-			actualNames = append(actualNames, string(ref.Name))
-		}
-	}
-	matcher.actualGatewayNames = actualNames
-
-	if len(actualNames) != len(matcher.expectedGatewayNames) {
-		return false, nil
-	}
-
-	expectedSet := make(map[string]bool)
-	for _, name := range matcher.expectedGatewayNames {
-		expectedSet[name] = true
-	}
-
-	for _, name := range actualNames {
-		if !expectedSet[name] {
+		expectedRef, found := expectedSet[string(ref.Name)]
+		if !found {
 			return false, nil
+		}
+
+		if expectedRef.Namespace != nil {
+			return ptr.Deref(expectedRef.Namespace, "") == ptr.Deref(ref.Namespace, ""), nil
 		}
 	}
 
@@ -150,64 +150,4 @@ func (matcher *haveBackendRefsMatcher) FailureMessage(actual any) string {
 func (matcher *haveBackendRefsMatcher) NegatedFailureMessage(actual any) string {
 	return fmt.Sprintf("Expected %T to not have backend refs %v, but they were found",
 		actual, matcher.expectedBackendNames)
-}
-
-// HaveGatewayRefsInNamespace returns a matcher that checks if an HTTPRoute has the specified gateway parent refs in the given namespace
-func HaveGatewayRefsInNamespace(namespace string, expectedGatewayNames ...string) types.GomegaMatcher {
-	return &haveGatewayRefsInNamespaceMatcher{
-		expectedNamespace:    namespace,
-		expectedGatewayNames: expectedGatewayNames,
-	}
-}
-
-type haveGatewayRefsInNamespaceMatcher struct {
-	expectedNamespace    string
-	expectedGatewayNames []string
-	actualParentRefs     []gatewayapi.ParentReference
-	actualGatewayNames   []string
-}
-
-func (matcher *haveGatewayRefsInNamespaceMatcher) Match(actual any) (success bool, err error) {
-	httpRoute, err := extractHTTPRoute(actual)
-	if err != nil {
-		return false, err
-	}
-
-	matcher.actualParentRefs = httpRoute.Spec.ParentRefs
-
-	actualNames := make([]string, 0, len(matcher.actualParentRefs))
-	for _, ref := range matcher.actualParentRefs {
-		// Only consider Gateway kind refs in the specified namespace
-		if ptr.Deref(ref.Kind, "") == "Gateway" && ptr.Deref(ref.Namespace, "") == gatewayapi.Namespace(matcher.expectedNamespace) {
-			actualNames = append(actualNames, string(ref.Name))
-		}
-	}
-	matcher.actualGatewayNames = actualNames
-
-	if len(actualNames) != len(matcher.expectedGatewayNames) {
-		return false, nil
-	}
-
-	expectedSet := make(map[string]bool)
-	for _, name := range matcher.expectedGatewayNames {
-		expectedSet[name] = true
-	}
-
-	for _, name := range actualNames {
-		if !expectedSet[name] {
-			return false, nil
-		}
-	}
-
-	return true, nil
-}
-
-func (matcher *haveGatewayRefsInNamespaceMatcher) FailureMessage(actual any) string {
-	return fmt.Sprintf("Expected %T to have gateway refs %v in namespace %q, but found %v",
-		actual, matcher.expectedGatewayNames, matcher.expectedNamespace, matcher.actualGatewayNames)
-}
-
-func (matcher *haveGatewayRefsInNamespaceMatcher) NegatedFailureMessage(actual any) string {
-	return fmt.Sprintf("Expected %T to not have gateway refs %v in namespace %q, but they were found",
-		actual, matcher.expectedGatewayNames, matcher.expectedNamespace)
 }

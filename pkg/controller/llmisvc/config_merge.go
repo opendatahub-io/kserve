@@ -21,6 +21,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"strings"
 	"text/template"
 
 	corev1 "k8s.io/api/core/v1"
@@ -55,7 +57,7 @@ var wellKnownDefaultConfigs = sets.NewString(
 	configRouterRouteName,
 )
 
-func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*v1alpha1.LLMInferenceServiceConfig, error) {
+func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, extra ...any) (*v1alpha1.LLMInferenceServiceConfig, error) {
 	// Apply well-known config overlays to inject default values for various components, when some components are
 	// enabled. These LLMInferenceServiceConfig resources must exist in either resource namespace (prioritized) or
 	// SystemNamespace (e.g. `kserve`).
@@ -119,7 +121,7 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		cfg.Spec.Router.Scheduler.Template.ServiceAccountName = kmeta.ChildName(llmSvc.GetName(), "-epp-sa")
 	}
 
-	cfg, err = ReplaceVariables(llmSvc, cfg)
+	cfg, err = ReplaceVariables(llmSvc, cfg, extra...)
 	if err != nil {
 		return cfg, err
 	}
@@ -127,14 +129,15 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 	return cfg, nil
 }
 
-func ReplaceVariables(llmSvc *v1alpha1.LLMInferenceService, cfg *v1alpha1.LLMInferenceServiceConfig) (*v1alpha1.LLMInferenceServiceConfig, error) {
+func ReplaceVariables(llmSvc *v1alpha1.LLMInferenceService, cfg *v1alpha1.LLMInferenceServiceConfig, extra ...any) (*v1alpha1.LLMInferenceServiceConfig, error) {
 	templateBytes, _ := json.Marshal(cfg)
 	buf := bytes.NewBuffer(nil)
 	if err := template.Must(template.New("config").
 		Funcs(map[string]any{
 			"ChildName": kmeta.ChildName,
 		}).
-		Parse(string(templateBytes))).Execute(buf, llmSvc); err != nil {
+		Option("missingkey=error").
+		Parse(string(templateBytes))).Execute(buf, extendWithContext(llmSvc, extra)); err != nil {
 		return nil, fmt.Errorf("failed to merge config: %w", err)
 	}
 
@@ -143,6 +146,30 @@ func ReplaceVariables(llmSvc *v1alpha1.LLMInferenceService, cfg *v1alpha1.LLMInf
 		return nil, fmt.Errorf("failed to unmarshal config from template: %w", err)
 	}
 	return out, nil
+}
+
+func extendWithContext(llmSvc *v1alpha1.LLMInferenceService, extra []any) struct {
+	*v1alpha1.LLMInferenceService
+	Context map[string]any
+} {
+	extendedTemplateWithContext := struct {
+		*v1alpha1.LLMInferenceService
+		Context map[string]any
+	}{
+		LLMInferenceService: llmSvc,
+	}
+
+	if len(extra) > 0 {
+		extendedTemplateWithContext.Context = make(map[string]any)
+		for _, item := range extra {
+			typeName := reflect.TypeOf(item).String()
+			if strings.LastIndex(typeName, ".") > 0 {
+				typeName = typeName[strings.LastIndex(typeName, ".")+1:]
+			}
+			extendedTemplateWithContext.Context[typeName] = item
+		}
+	}
+	return extendedTemplateWithContext
 }
 
 // getConfig retrieves kserveapis.LLMInferenceServiceConfig with the given name from either the kserveapis.LLMInferenceService

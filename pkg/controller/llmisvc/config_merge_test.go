@@ -19,6 +19,11 @@ package llmisvc_test
 import (
 	"testing"
 
+	. "github.com/onsi/gomega"
+	"sigs.k8s.io/yaml"
+
+	ktesting "github.com/kserve/kserve/pkg/testing"
+
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
 
 	"github.com/google/go-cmp/cmp"
@@ -817,6 +822,89 @@ func TestReplaceVariables(t *testing.T) {
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("ReplaceVariables() got = %#v, want %#v\nDiff:\n%s", got, tt.want, diff)
 			}
+		})
+	}
+}
+
+type IngressGatewayConfig struct {
+	GatewayName      string
+	GatewayNamespace string
+}
+
+type KServeConfig struct {
+	SystemNamespace string
+}
+
+func TestAdditionalData(t *testing.T) {
+	tests := []struct {
+		name    string
+		config  string
+		extra   []any
+		wantErr bool
+		want    func(llmSvc *v1alpha1.LLMInferenceServiceConfig, g *GomegaWithT)
+	}{
+		{
+			name: "additional structs replacements",
+			config: `apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: test-config
+  namespace: "{{ .Context.KServeConfig.SystemNamespace }}"
+spec:
+  router:
+    route:
+      http:
+        spec:
+          parentRefs:
+            - group: gateway.networking.k8s.io
+              kind: Gateway
+              name: "{{ .Context.IngressGatewayConfig.GatewayName }}"
+              namespace: "{{ .Context.IngressGatewayConfig.GatewayNamespace }}"`,
+			extra: []any{
+				IngressGatewayConfig{GatewayName: "my-gateway", GatewayNamespace: "my-ns"},
+				KServeConfig{SystemNamespace: "my-kserve"},
+			},
+			want: func(llmSvc *v1alpha1.LLMInferenceServiceConfig, g *GomegaWithT) {
+				httpRouteSpec := llmSvc.Spec.Router.Route.HTTP.Spec
+				expectedGatewayRef := gatewayapi.ParentReference{
+					Name:      "my-gateway",
+					Namespace: ptr.To(gatewayapi.Namespace("my-ns")),
+				}
+				g.Expect(httpRouteSpec).To(ktesting.HaveGatewayRefs(expectedGatewayRef))
+				g.Expect(llmSvc.Namespace).To(Equal("my-kserve"))
+			},
+		},
+		{
+			name: "template with non-existing key should error",
+			config: `apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: "{{ .Context.NonExistentConfig.SomeField }}"
+spec:
+  model:
+    name: "static-model"`,
+			extra:   []any{},
+			wantErr: true,
+			want:    func(llmSvc *v1alpha1.LLMInferenceServiceConfig, g *GomegaWithT) {},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			preset := &v1alpha1.LLMInferenceServiceConfig{}
+			if err := yaml.Unmarshal([]byte(tt.config), preset); err != nil {
+				t.Errorf("Failed to unmarshal YAML: %v", err)
+				return
+			}
+
+			llmSvc := &v1alpha1.LLMInferenceService{}
+			got, err := llmisvc.ReplaceVariables(llmSvc, preset, tt.extra...)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("ReplaceVariables() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+
+			tt.want(got, NewGomegaWithT(t))
 		})
 	}
 }
