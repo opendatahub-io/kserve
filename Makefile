@@ -194,6 +194,7 @@ run: generate fmt vet go-lint
 
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
 deploy: manifests
+	kubectl apply --server-side=true --force-conflicts -k config/crd
 	# Remove the certmanager certificate if KSERVE_ENABLE_SELF_SIGNED_CA is not false
 	cd config/default && if [ ${KSERVE_ENABLE_SELF_SIGNED_CA} != false ]; then \
 	echo > ../certmanager/certificate.yaml; \
@@ -206,6 +207,7 @@ deploy: manifests
 
 
 deploy-dev: manifests
+	kubectl apply --server-side=true --force-conflicts -k config/crd
 	./hack/image_patch_dev.sh development
 	# Remove the certmanager certificate if KSERVE_ENABLE_SELF_SIGNED_CA is not false
 	cd config/default && if [ ${KSERVE_ENABLE_SELF_SIGNED_CA} != false ]; then \
