@@ -45,13 +45,6 @@ pip install -r requirements.txt
 Ensure that your servingruntime file is renamed to ```runtime.yaml```
 Ensure it is properly formatted and includes the correct metadata name.
 
-### 5. Set the ServingRuntime name as an environment variable
-
-```bash
-export SERVING_RUNTIME=servingruntime-filename.yaml
-```
----
-
 ## 📦 Deploying a Model
 
 Run the `main.py` script with the required flags:
