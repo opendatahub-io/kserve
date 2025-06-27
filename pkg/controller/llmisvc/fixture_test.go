@@ -22,6 +22,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/kserve/kserve/pkg/constants"
+
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/testing"
 
@@ -41,6 +43,7 @@ func createRequiredResources(ctx context.Context, c client.Client, ns string) {
 	})).To(Succeed())
 
 	createSharedConfigPresets(ctx, c, ns)
+	createConfigMaps(ctx, c, ns)
 }
 
 // createSharedConfigPresets loads preset files shared as kustomize manifests that are stored in projects config.
@@ -73,4 +76,25 @@ func createSharedConfigPresets(ctx context.Context, c client.Client, ns string) 
 	})
 
 	Expect(err).NotTo(HaveOccurred())
+}
+
+func createConfigMaps(ctx context.Context, c client.Client, ns string) {
+	configs := map[string]string{
+		"ingress": `{
+				"enableGatewayApi": true,
+				"kserveIngressGateway": "kserve/kserve-ingress-gateway",
+				"ingressGateway": "knative-serving/knative-ingress-gateway",
+				"localGateway": "knative-serving/knative-local-gateway",
+				"localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local",
+				"additionalIngressDomains": ["additional.example.com"]
+			}`,
+	}
+	configMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      constants.InferenceServiceConfigMapName,
+			Namespace: ns,
+		},
+		Data: configs,
+	}
+	Expect(c.Create(ctx, configMap)).NotTo(HaveOccurred())
 }

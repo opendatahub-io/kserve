@@ -18,9 +18,10 @@ package testing
 
 import (
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-type SetupWithManagerFunc func(mgr ctrl.Manager) error
+type SetupWithManagerFunc func(cfg *rest.Config, mgr ctrl.Manager) error
 
 type AddToSchemeFunc func(scheme *runtime.Scheme) error

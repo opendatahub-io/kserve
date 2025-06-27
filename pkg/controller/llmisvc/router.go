@@ -45,13 +45,8 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 		return fmt.Errorf("failed to reconcile scheduler: %w", err)
 	}
 
-	if err := r.reconcileGateway(ctx, llmSvc); err != nil {
-		llmSvc.MarkRouterNotReady("GatewayReconcileError", "Failed to reconcile gateway: %v", err.Error())
-		return fmt.Errorf("failed to reconcile gateway: %w", err)
-	}
-
-	// TODO: reconcile networkingv1.Ingress
-
+	// We do not support Gateway's spec, when creating HTTPRoutes either the default gateway or those provided
+	// as refs are attached to reconciled routes
 	if err := r.reconcileHTTPRoutes(ctx, llmSvc); err != nil {
 		llmSvc.MarkRouterNotReady("HTTPRouteReconcileError", "Failed to reconcile HTTPRoute: %v", err.Error())
 		return fmt.Errorf("failed to reconcile HTTP routes: %w", err)
@@ -62,18 +57,11 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileGateway(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	logger := log.FromContext(ctx)
-	logger.Info("Reconciling Gateway... coming soon")
-
-	return nil
-}
-
 func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling HTTPRoute")
 
-	expectedHTTPRoute := r.expectedHTTPRoute(llmSvc)
+	expectedHTTPRoute := r.expectedHTTPRoute(ctx, llmSvc)
 
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || llmSvc.Spec.Router.Route.HTTP == nil {
 		return Delete(ctx, r, llmSvc, expectedHTTPRoute)
@@ -92,7 +80,7 @@ func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context,
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(llmSvc *v1alpha1.LLMInferenceService) *gatewayapi.HTTPRoute {
+func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *gatewayapi.HTTPRoute {
 	httpRoute := &gatewayapi.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-route"),
@@ -108,16 +96,23 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(llmSvc *v1alpha1.LLMIn
 		httpRoute.Spec = *llmSvc.Spec.Router.Route.HTTP.Spec.DeepCopy()
 	}
 
+	// TODO(webhook): validate if referenced gateway exists
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Gateway != nil {
-		for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
-			httpRoute.Spec.CommonRouteSpec.ParentRefs = append(httpRoute.Spec.CommonRouteSpec.ParentRefs, gatewayapi.ParentReference{
-				// TODO(api): With this structure we are missing the ability to narrow a section of targeted gateway by the route we are creating
-				// missing SectionName and Port
-				Name:      ref.Name,
-				Namespace: &ref.Namespace,
-				Group:     ptr.To(gatewayapi.Group("gateway.networking.k8s.io")),
-				Kind:      ptr.To(gatewayapi.Kind("Gateway")),
-			})
+		log.FromContext(ctx).Info("Reconciling Gateway", "gateway", llmSvc.Spec.Router.Gateway)
+
+		// If Gateway is not managed (has .refs), re-attach the expected route to the referenced gateways
+		if llmSvc.Spec.Router.Gateway.HasRefs() {
+			httpRoute.Spec.CommonRouteSpec.ParentRefs = make([]gatewayapi.ParentReference, 0, len(llmSvc.Spec.Router.Gateway.Refs))
+			for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
+				httpRoute.Spec.CommonRouteSpec.ParentRefs = append(httpRoute.Spec.CommonRouteSpec.ParentRefs, gatewayapi.ParentReference{
+					// TODO(api): With this structure we are missing the ability to narrow a section of targeted gateway by the route we are creating
+					// missing SectionName and Port
+					Name:      ref.Name,
+					Namespace: &ref.Namespace,
+					Group:     ptr.To(gatewayapi.Group("gateway.networking.k8s.io")),
+					Kind:      ptr.To(gatewayapi.Kind("Gateway")),
+				})
+			}
 		}
 	}
 
