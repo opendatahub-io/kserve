@@ -11,8 +11,8 @@ spec:
             - group: gateway.networking.k8s.io
               kind: Gateway
               name: |-
-                {{ .Context.Config.IngressGatewayName }}
-              # With inherited namespace validation we cannot use {{ .Context.Config.IngressGatewayNamespace }}
+                {{ .GlobalConfig.IngressGatewayName }}
+              # With inherited namespace validation we cannot use {{ .GlobalConfig.IngressGatewayNamespace }}
               # Need to disable validation on CRD level
               namespace: kserve
           rules:

@@ -36,7 +36,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
 
-// TODO(webhook): re-use webhook logic to do  the spec merge and validation
+// TODO(webhook): re-use webhook logic to do the spec merge and validation
 func TestPresetFiles(t *testing.T) {
 	presetsDir := filepath.Join(kservetesting.ProjectRoot(), "config", "llmisvc")
 
@@ -82,7 +82,7 @@ func TestPresetFiles(t *testing.T) {
 				t.Error("Expected ObjectMeta.Name to be set")
 			}
 
-			_, err = llmisvc.ReplaceVariables(llmSvc, config, kserveSystemConfig)
+			_, err = llmisvc.ReplaceVariables(llmSvc, config, &kserveSystemConfig)
 			if err != nil {
 				t.Errorf("ReplaceVariables() failed for %s: %v", filename, err)
 			}

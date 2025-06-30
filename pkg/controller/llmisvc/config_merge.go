@@ -21,8 +21,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
-	"strings"
 	"text/template"
 
 	corev1 "k8s.io/api/core/v1"
@@ -57,7 +55,7 @@ var wellKnownDefaultConfigs = sets.NewString(
 	configRouterRouteName,
 )
 
-func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, extra ...any) (*v1alpha1.LLMInferenceServiceConfig, error) {
+func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, reconcilerConfig *Config) (*v1alpha1.LLMInferenceServiceConfig, error) {
 	// Apply well-known config overlays to inject default values for various components, when some components are
 	// enabled. These LLMInferenceServiceConfig resources must exist in either resource namespace (prioritized) or
 	// SystemNamespace (e.g. `kserve`).
@@ -98,46 +96,53 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		return nil, fmt.Errorf("failed to merge specs: %w", err)
 	}
 
-	cfg := &v1alpha1.LLMInferenceServiceConfig{
+	llmSvcCfg := &v1alpha1.LLMInferenceServiceConfig{
 		ObjectMeta: *llmSvc.ObjectMeta.DeepCopy(),
 		Spec:       spec,
 	}
 
-	if cfg.Spec.Router != nil &&
-		cfg.Spec.Router.Scheduler != nil &&
-		cfg.Spec.Router.Scheduler.Pool != nil &&
-		cfg.Spec.Router.Scheduler.Pool.Spec != nil &&
-		len(cfg.Spec.Router.Scheduler.Pool.Spec.Selector) == 0 {
-		cfg.Spec.Router.Scheduler.Pool.Spec.Selector = map[igwapi.LabelKey]igwapi.LabelValue{
+	if llmSvcCfg.Spec.Router != nil &&
+		llmSvcCfg.Spec.Router.Scheduler != nil &&
+		llmSvcCfg.Spec.Router.Scheduler.Pool != nil &&
+		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec != nil &&
+		len(llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector) == 0 {
+		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector = map[igwapi.LabelKey]igwapi.LabelValue{
 			"app.kubernetes.io/component": "llminferenceservice-workload",
 			"app.kubernetes.io/name":      igwapi.LabelValue(llmSvc.GetName()),
 		}
 	}
 
-	if cfg.Spec.Router != nil &&
-		cfg.Spec.Router.Scheduler != nil &&
-		cfg.Spec.Router.Scheduler.Template != nil &&
-		cfg.Spec.Router.Scheduler.Template.ServiceAccountName == "" {
-		cfg.Spec.Router.Scheduler.Template.ServiceAccountName = kmeta.ChildName(llmSvc.GetName(), "-epp-sa")
+	if llmSvcCfg.Spec.Router != nil &&
+		llmSvcCfg.Spec.Router.Scheduler != nil &&
+		llmSvcCfg.Spec.Router.Scheduler.Template != nil &&
+		llmSvcCfg.Spec.Router.Scheduler.Template.ServiceAccountName == "" {
+		llmSvcCfg.Spec.Router.Scheduler.Template.ServiceAccountName = kmeta.ChildName(llmSvc.GetName(), "-epp-sa")
 	}
 
-	cfg, err = ReplaceVariables(llmSvc, cfg, extra...)
+	llmSvcCfg, err = ReplaceVariables(llmSvc, llmSvcCfg, reconcilerConfig)
 	if err != nil {
-		return cfg, err
+		return llmSvcCfg, err
 	}
 
-	return cfg, nil
+	return llmSvcCfg, nil
 }
 
-func ReplaceVariables(llmSvc *v1alpha1.LLMInferenceService, cfg *v1alpha1.LLMInferenceServiceConfig, extra ...any) (*v1alpha1.LLMInferenceServiceConfig, error) {
-	templateBytes, _ := json.Marshal(cfg)
+func ReplaceVariables(llmSvc *v1alpha1.LLMInferenceService, llmSvcCfg *v1alpha1.LLMInferenceServiceConfig, reconcilerConfig *Config) (*v1alpha1.LLMInferenceServiceConfig, error) {
+	templateBytes, _ := json.Marshal(llmSvcCfg)
 	buf := bytes.NewBuffer(nil)
+	config := struct {
+		*v1alpha1.LLMInferenceService
+		GlobalConfig *Config
+	}{
+		LLMInferenceService: llmSvc,
+		GlobalConfig:        reconcilerConfig,
+	}
 	if err := template.Must(template.New("config").
 		Funcs(map[string]any{
 			"ChildName": kmeta.ChildName,
 		}).
 		Option("missingkey=error").
-		Parse(string(templateBytes))).Execute(buf, extendWithContext(llmSvc, extra)); err != nil {
+		Parse(string(templateBytes))).Execute(buf, config); err != nil {
 		return nil, fmt.Errorf("failed to merge config: %w", err)
 	}
 
@@ -146,30 +151,6 @@ func ReplaceVariables(llmSvc *v1alpha1.LLMInferenceService, cfg *v1alpha1.LLMInf
 		return nil, fmt.Errorf("failed to unmarshal config from template: %w", err)
 	}
 	return out, nil
-}
-
-func extendWithContext(llmSvc *v1alpha1.LLMInferenceService, extra []any) struct {
-	*v1alpha1.LLMInferenceService
-	Context map[string]any
-} {
-	extendedTemplateWithContext := struct {
-		*v1alpha1.LLMInferenceService
-		Context map[string]any
-	}{
-		LLMInferenceService: llmSvc,
-	}
-
-	if len(extra) > 0 {
-		extendedTemplateWithContext.Context = make(map[string]any)
-		for _, item := range extra {
-			typeName := reflect.TypeOf(item).String()
-			if strings.LastIndex(typeName, ".") > 0 {
-				typeName = typeName[strings.LastIndex(typeName, ".")+1:]
-			}
-			extendedTemplateWithContext.Context[typeName] = item
-		}
-	}
-	return extendedTemplateWithContext
 }
 
 // getConfig retrieves kserveapis.LLMInferenceServiceConfig with the given name from either the kserveapis.LLMInferenceService
