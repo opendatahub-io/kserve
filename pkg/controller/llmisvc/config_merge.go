@@ -137,12 +137,16 @@ func ReplaceVariables(llmSvc *v1alpha1.LLMInferenceService, llmSvcCfg *v1alpha1.
 		LLMInferenceService: llmSvc,
 		GlobalConfig:        reconcilerConfig,
 	}
-	if err := template.Must(template.New("config").
+	t, err := template.New("config").
 		Funcs(map[string]any{
 			"ChildName": kmeta.ChildName,
 		}).
 		Option("missingkey=error").
-		Parse(string(templateBytes))).Execute(buf, config); err != nil {
+		Parse(string(templateBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse template config: %w", err)
+	}
+	if err := t.Execute(buf, config); err != nil {
 		return nil, fmt.Errorf("failed to merge config: %w", err)
 	}
 
