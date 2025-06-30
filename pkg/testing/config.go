@@ -119,7 +119,7 @@ func (e *Config) Start(ctx context.Context) *Client {
 	gomega.Expect(errMgr).NotTo(gomega.HaveOccurred())
 
 	for _, setupFunc := range e.ctrlSetupFuncs {
-		errSetup := setupFunc(mgr)
+		errSetup := setupFunc(cfg, mgr)
 		gomega.Expect(errSetup).NotTo(gomega.HaveOccurred())
 	}
 
