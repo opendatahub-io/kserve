@@ -190,7 +190,7 @@ func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v
 	logger := log.FromContext(ctx).WithName("reconcile")
 	ctx = log.IntoContext(ctx, logger)
 
-	baseCfg, err := r.combineBaseRefsConfig(ctx, llmSvc, r.Config)
+	baseCfg, err := r.combineBaseRefsConfig(ctx, llmSvc, &r.Config)
 	if err != nil {
 		llmSvc.MarkPresetsCombinedNotReady("CombineBaseError", err.Error())
 		return fmt.Errorf("failed to combine base-configurations: %w", err)

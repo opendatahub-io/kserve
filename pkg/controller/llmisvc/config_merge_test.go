@@ -814,7 +814,7 @@ func TestReplaceVariables(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := llmisvc.ReplaceVariables(tt.llmSvc, tt.cfg)
+			got, err := llmisvc.ReplaceVariables(tt.llmSvc, tt.cfg, &llmisvc.Config{})
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ReplaceVariables() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -826,22 +826,13 @@ func TestReplaceVariables(t *testing.T) {
 	}
 }
 
-type IngressGatewayConfig struct {
-	GatewayName      string
-	GatewayNamespace string
-}
-
-type KServeConfig struct {
-	SystemNamespace string
-}
-
 func TestAdditionalData(t *testing.T) {
 	tests := []struct {
-		name    string
-		config  string
-		extra   []any
-		wantErr bool
-		want    func(llmSvc *v1alpha1.LLMInferenceServiceConfig, g *GomegaWithT)
+		name             string
+		config           string
+		reconcilerConfig llmisvc.Config
+		wantErr          bool
+		want             func(llmSvc *v1alpha1.LLMInferenceServiceConfig, g *GomegaWithT)
 	}{
 		{
 			name: "additional structs replacements",
@@ -849,7 +840,7 @@ func TestAdditionalData(t *testing.T) {
 kind: LLMInferenceServiceConfig
 metadata:
   name: test-config
-  namespace: "{{ .Context.KServeConfig.SystemNamespace }}"
+  namespace: "{{ .GlobalConfig.SystemNamespace }}"
 spec:
   router:
     route:
@@ -858,11 +849,12 @@ spec:
           parentRefs:
             - group: gateway.networking.k8s.io
               kind: Gateway
-              name: "{{ .Context.IngressGatewayConfig.GatewayName }}"
-              namespace: "{{ .Context.IngressGatewayConfig.GatewayNamespace }}"`,
-			extra: []any{
-				IngressGatewayConfig{GatewayName: "my-gateway", GatewayNamespace: "my-ns"},
-				KServeConfig{SystemNamespace: "my-kserve"},
+              name: "{{ .GlobalConfig.IngressGatewayName }}"
+              namespace: "{{ .GlobalConfig.IngressGatewayNamespace }}"`,
+			reconcilerConfig: llmisvc.Config{
+				SystemNamespace:         "my-kserve",
+				IngressGatewayName:      "my-gateway",
+				IngressGatewayNamespace: "my-ns",
 			},
 			want: func(llmSvc *v1alpha1.LLMInferenceServiceConfig, g *GomegaWithT) {
 				httpRouteSpec := llmSvc.Spec.Router.Route.HTTP.Spec
@@ -879,11 +871,10 @@ spec:
 			config: `apiVersion: serving.kserve.io/v1alpha1
 kind: LLMInferenceServiceConfig
 metadata:
-  name: "{{ .Context.NonExistentConfig.SomeField }}"
+  name: "{{ .GlobalConfig.NonExistentConfig.SomeField }}"
 spec:
   model:
     name: "static-model"`,
-			extra:   []any{},
 			wantErr: true,
 			want:    func(llmSvc *v1alpha1.LLMInferenceServiceConfig, g *GomegaWithT) {},
 		},
@@ -898,7 +889,7 @@ spec:
 			}
 
 			llmSvc := &v1alpha1.LLMInferenceService{}
-			got, err := llmisvc.ReplaceVariables(llmSvc, preset, tt.extra...)
+			got, err := llmisvc.ReplaceVariables(llmSvc, preset, &tt.reconcilerConfig)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ReplaceVariables() error = %v, wantErr %v", err, tt.wantErr)
 				return
