@@ -161,6 +161,7 @@ func (r *LLMInferenceServiceReconciler) loadIngressConfig(ctx context.Context, l
 			logger.Error(errConvert, fmt.Sprintf("Failed to convert InferenceServiceConfigMap to IngressConfig. Using existing values %+v", r.Config))
 			r.Eventf(original, corev1.EventTypeWarning, "Error", "Reconciliation failed: %v", errConvert.Error())
 		}
+		// TODO Guard Config with a mutex or atomic
 		r.Config = NewConfig(ingressConfig)
 	}
 }
