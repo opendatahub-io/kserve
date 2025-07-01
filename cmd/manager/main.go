@@ -281,7 +281,6 @@ func main() {
 		Client:        mgr.GetClient(),
 		Clientset:     clientSet,
 		EventRecorder: llmEventBroadcaster.NewRecorder(scheme, corev1.EventSource{Component: "LLMInferenceServiceController"}),
-		Config:        llmisvc.NewConfig(ingressConfig),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "v1beta1Controller", "InferenceService")
 		os.Exit(1)

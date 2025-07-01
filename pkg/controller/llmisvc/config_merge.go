@@ -23,6 +23,8 @@ import (
 	"fmt"
 	"text/template"
 
+	"github.com/kserve/kserve/pkg/constants"
+
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -164,10 +166,10 @@ func (r *LLMInferenceServiceReconciler) getConfig(ctx context.Context, llmSvc *v
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: name, Namespace: llmSvc.Namespace}, cfg); err != nil {
 		if apierrors.IsNotFound(err) {
 			cfg = &v1alpha1.LLMInferenceServiceConfig{}
-			if err := r.Client.Get(ctx, client.ObjectKey{Name: name, Namespace: r.Config.SystemNamespace}, cfg); err != nil {
+			if err := r.Client.Get(ctx, client.ObjectKey{Name: name, Namespace: constants.KServeNamespace}, cfg); err != nil {
 				// TODO: add available LLMInferenceServiceConfig in system namespace and llmSvc.Namespace namespace if not found
 
-				return nil, fmt.Errorf("failed to get LLMInferenceServiceConfig %q from namespaces [%q, %q]: %w", name, llmSvc.Namespace, r.Config.SystemNamespace, err)
+				return nil, fmt.Errorf("failed to get LLMInferenceServiceConfig %q from namespaces [%q, %q]: %w", name, llmSvc.Namespace, constants.KServeNamespace, err)
 			}
 			return cfg, nil
 		}
