@@ -29,6 +29,7 @@ import pytest
 
 from ..common.utils import KSERVE_NAMESPACE, KSERVE_TEST_NAMESPACE
 
+ssl_error = "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"
 invalid_cert = """
 -----BEGIN CERTIFICATE-----
 MIIFLTCCAxWgAwIBAgIUF4tP6T1S5H/Gt8BpjFsbXo7f0SYwDQYJKoZIhvcNAQEL
@@ -111,9 +112,7 @@ async def test_s3_tls_custom_cert_storagespec_kserve(rest_v1_client):
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
     kserve_client.create(isvc)
-    check_model_transition_status(
-        kserve_client, service_name, KSERVE_TEST_NAMESPACE, "UpToDate"
-    )
+    check_model_status(kserve_client, service_name, KSERVE_TEST_NAMESPACE, "UpToDate")
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
     # Patch the odh-trusted-ca-bundle configmap to replace the custom cert with an invalid cert
@@ -133,8 +132,12 @@ async def test_s3_tls_custom_cert_storagespec_kserve(rest_v1_client):
     service_name = "isvc-sklearn-s3-tls-custom-fail"
     isvc.metadata.name = service_name
     kserve_client.create(isvc)
-    check_model_transition_status(
-        kserve_client, service_name, KSERVE_TEST_NAMESPACE, "BlockedByFailedLoad"
+    check_model_status(
+        kserve_client,
+        service_name,
+        KSERVE_TEST_NAMESPACE,
+        "BlockedByFailedLoad",
+        ssl_error,
     )
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
@@ -192,9 +195,7 @@ async def test_s3_tls_serving_cert_storagespec_kserve(rest_v1_client):
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
     kserve_client.create(isvc)
-    check_model_transition_status(
-        kserve_client, service_name, KSERVE_TEST_NAMESPACE, "UpToDate"
-    )
+    check_model_status(kserve_client, service_name, KSERVE_TEST_NAMESPACE, "UpToDate")
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
     # Patch the odh-trusted-ca-bundle configmap to replace the serving cert with an invalid cert
@@ -214,8 +215,12 @@ async def test_s3_tls_serving_cert_storagespec_kserve(rest_v1_client):
     service_name = "isvc-sklearn-s3-tls-serving-fail"
     isvc.metadata.name = service_name
     kserve_client.create(isvc)
-    check_model_transition_status(
-        kserve_client, service_name, KSERVE_TEST_NAMESPACE, "BlockedByFailedLoad"
+    check_model_status(
+        kserve_client,
+        service_name,
+        KSERVE_TEST_NAMESPACE,
+        "BlockedByFailedLoad",
+        ssl_error,
     )
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
@@ -225,11 +230,12 @@ async def test_s3_tls_serving_cert_storagespec_kserve(rest_v1_client):
     )
 
 
-def check_model_transition_status(
+def check_model_status(
     kserve_client: KServeClient,
     isvc_name: str,
     isvc_namespace: str,
     expected_status: str,
+    expected_failure_message: str | None = None,
     timeout_seconds: int = 600,
     polling_interval: int = 10,
 ):
@@ -240,9 +246,26 @@ def check_model_transition_status(
             namespace=isvc_namespace,
             version=constants.KSERVE_V1BETA1_VERSION,
         )
-        if isvc["status"]["modelStatus"]["transitionStatus"] == expected_status:
+
+        failure_message_match = True
+        if expected_failure_message is not None:
+            failure_message_match = expected_failure_message in isvc["status"][
+                "modelStatus"
+            ].get("lastFailureInfo", {}).get("message", "")
+
+        if (
+            isvc["status"]["modelStatus"]["transitionStatus"] == expected_status
+            and failure_message_match
+        ):
             return
+
+    if expected_failure_message is not None:
+        raise RuntimeError(
+            f"Expected inferenceservice {isvc_name} to have model transition status '{expected_status}' and last failure info \
+                '{expected_failure_message}' after timeout, but got model transition status '{isvc['status']['modelStatus']['transitionStatus']}' \
+                    and last failure info '{isvc['status']['modelStatus'].get('lastFailureInfo', {}).get('message', '')}'"
+        )
     raise RuntimeError(
-        f"InferenceService ({isvc_name}) has model transition status \
-            {isvc['status']['modelStatus']['transitionStatus']} after timeout, but expecting {expected_status}"
+        f"Expected inferenceservice {isvc_name} to have model transition status '{expected_status}' after timeout, but got \
+            '{isvc['status']['modelStatus']['transitionStatus']}'"
     )
