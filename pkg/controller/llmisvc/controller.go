@@ -67,9 +67,9 @@ type Config struct {
 	IngressGatewayNamespace string `json:"ingressGatewayNamespace,omitempty"`
 }
 
-// NewConfig creates instance of llm-specific config based on predifined values
+// NewConfig creates an instance of llm-specific config based on predefined values
 // in IngressConfig struct
-func NewConfig(ingressConfig *v1beta1.IngressConfig) Config {
+func NewConfig(ingressConfig *v1beta1.IngressConfig) *Config {
 	igwNs := constants.KServeNamespace
 	igwName := ingressConfig.KserveIngressGateway
 	igw := strings.Split(igwName, "/")
@@ -78,20 +78,19 @@ func NewConfig(ingressConfig *v1beta1.IngressConfig) Config {
 		igwName = igw[1]
 	}
 
-	return Config{
+	return &Config{
 		SystemNamespace:         constants.KServeNamespace,
 		IngressGatewayNamespace: igwNs,
 		IngressGatewayName:      igwName,
 	}
 }
 
-// LLMInferenceServiceReconciler reconciles a LLMInferenceService object.
+// LLMInferenceServiceReconciler reconciles an LLMInferenceService object.
 // It orchestrates the reconciliation of child resources based on the spec.
 type LLMInferenceServiceReconciler struct {
 	client.Client
 	record.EventRecorder
 	Clientset kubernetes.Interface
-	Config    Config
 }
 
 //+kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;create;update;patch;delete
@@ -128,9 +127,6 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, nil
 	}
 
-	// TODO(ingress) next: add watch on CfgMap with predicate and cache tuning to trigger reconcile when it changes
-	r.loadIngressConfig(ctx, logger, original)
-
 	resource := original.DeepCopy()
 
 	reconciler.PreProcessReconcile(ctx, resource)
@@ -150,19 +146,36 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	return ctrl.Result{}, reconcileErr
 }
 
-func (r *LLMInferenceServiceReconciler) loadIngressConfig(ctx context.Context, logger logr.Logger, original *v1alpha1.LLMInferenceService) {
-	isvcConfigMap, errCfgMap := v1beta1.GetInferenceServiceConfigMap(ctx, r.Clientset) // Fetch directly from API Server (like everywhere else)
-	if errCfgMap != nil {
-		logger.Error(errCfgMap, fmt.Sprintf("Failed to load InferenceServiceConfigMap. Using existing values %+v", r.Config))
-		r.Eventf(original, corev1.EventTypeWarning, "Error", "Reconciliation failed: %v", errCfgMap.Error())
-	} else {
-		ingressConfig, errConvert := v1beta1.NewIngressConfig(isvcConfigMap)
-		if errConvert != nil {
-			logger.Error(errConvert, fmt.Sprintf("Failed to convert InferenceServiceConfigMap to IngressConfig. Using existing values %+v", r.Config))
-			r.Eventf(original, corev1.EventTypeWarning, "Error", "Reconciliation failed: %v", errConvert.Error())
-		}
-		r.Config = NewConfig(ingressConfig)
+func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	logger := log.FromContext(ctx).WithName("reconcile")
+	ctx = log.IntoContext(ctx, logger)
+
+	// TODO(ctrl): add watch on CfgMap with predicate and cache tuning to trigger reconcile when it changes
+	config, configErr := r.loadConfig(ctx)
+	if configErr != nil {
+		return fmt.Errorf("failed to load ingress config: %w", configErr)
 	}
+
+	baseCfg, err := r.combineBaseRefsConfig(ctx, llmSvc, config)
+	if err != nil {
+		llmSvc.MarkPresetsCombinedNotReady("CombineBaseError", err.Error())
+		return fmt.Errorf("failed to combine base-configurations: %w", err)
+	}
+	llmSvc.MarkPresetsCombinedReady()
+	// We are only writing to status, so we can safely use the original object.
+	llmSvc.Spec = baseCfg.Spec
+
+	logger.Info("Reconciling with combined base configurations", "spec", llmSvc.Spec)
+
+	if err := r.reconcileWorkload(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to reconcile workload: %w", err)
+	}
+
+	if err := r.reconcileRouter(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to reconcile networking: %w", err)
+	}
+
+	return nil
 }
 
 func (r *LLMInferenceServiceReconciler) updateStatus(ctx context.Context, desired *v1alpha1.LLMInferenceService) error {
@@ -186,30 +199,18 @@ func (r *LLMInferenceServiceReconciler) updateStatus(ctx context.Context, desire
 	})
 }
 
-func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	logger := log.FromContext(ctx).WithName("reconcile")
-	ctx = log.IntoContext(ctx, logger)
-
-	baseCfg, err := r.combineBaseRefsConfig(ctx, llmSvc, &r.Config)
-	if err != nil {
-		llmSvc.MarkPresetsCombinedNotReady("CombineBaseError", err.Error())
-		return fmt.Errorf("failed to combine base-configurations: %w", err)
-	}
-	llmSvc.MarkPresetsCombinedReady()
-	// We are only writing to status, so we can safely use the original object.
-	llmSvc.Spec = baseCfg.Spec
-
-	logger.Info("Reconciling with combined base configurations", "spec", llmSvc.Spec)
-
-	if err := r.reconcileWorkload(ctx, llmSvc); err != nil {
-		return fmt.Errorf("failed to reconcile workload: %w", err)
+func (r *LLMInferenceServiceReconciler) loadConfig(ctx context.Context) (*Config, error) {
+	isvcConfigMap, errCfgMap := v1beta1.GetInferenceServiceConfigMap(ctx, r.Clientset) // Fetch directly from API Server
+	if errCfgMap != nil {
+		return nil, fmt.Errorf("failed to load InferenceServiceConfigMap: %w", errCfgMap)
 	}
 
-	if err := r.reconcileRouter(ctx, llmSvc); err != nil {
-		return fmt.Errorf("failed to reconcile networking: %w", err)
+	ingressConfig, errConvert := v1beta1.NewIngressConfig(isvcConfigMap)
+	if errConvert != nil {
+		return nil, fmt.Errorf("failed to convert InferenceServiceConfigMap to IngressConfig: %w", errConvert)
 	}
 
-	return nil
+	return NewConfig(ingressConfig), nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -254,7 +255,7 @@ func (r *LLMInferenceServiceReconciler) enqueueOnLLMInferenceServiceConfigChange
 		listNamespace := sub.GetNamespace()
 
 		// LLMInferenceServiceConfig in the system namespace can be used by any LLMInferenceService.
-		if sub.Namespace == r.Config.SystemNamespace {
+		if sub.Namespace == constants.KServeNamespace {
 			listNamespace = corev1.NamespaceAll
 		}
 

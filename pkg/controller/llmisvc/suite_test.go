@@ -66,11 +66,6 @@ var _ = SynchronizedBeforeSuite(func() {
 			Clientset: clientSet,
 			// TODO fix it to be set up similar to main.go, for now it's stub
 			EventRecorder: eventBroadcaster.NewRecorder(mgr.GetScheme(), corev1.EventSource{Component: "v1beta1Controllers"}),
-			Config: llmisvc.Config{
-				SystemNamespace:         systemNs,
-				IngressGatewayName:      "kserve-ingress-gateway",
-				IngressGatewayNamespace: "kserve",
-			},
 		}
 		return llmCtrl.SetupWithManager(mgr)
 	}
