@@ -14,10 +14,24 @@ spec:
   template:
     containers:
       - name: main
-        image: quay.io/rh-aiservices-bu/vllm-cpu-openai-ubi9:0.3
+        image: quay.io/pierdipi/vllm-cpu:latest
+        resources:
+          limits:
+            cpu: '2'
+            memory: 16Gi
+          requests:
+            cpu: '1'
+            memory: 8Gi
   prefill:
     template:
       containers:
         - name: main
-          image: quay.io/rh-aiservices-bu/vllm-cpu-openai-ubi9:0.3
+          image: quay.io/pierdipi/vllm-cpu:latest
+          resources:
+            limits:
+              cpu: '2'
+              memory: 16Gi
+            requests:
+              cpu: '1'
+              memory: 8Gi
 
