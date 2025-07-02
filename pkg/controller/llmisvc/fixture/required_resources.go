@@ -47,14 +47,12 @@ func RequiredResources(ctx context.Context, c client.Client, ns string) {
 
 	SharedConfigPresets(ctx, c, ns)
 	InferenceServiceCfgMap(ctx, c, ns)
-	DefaultGateway(ctx, c, ns)
-}
 
-// DefaultGateway creates Gateway instance derived from charts/kserve-resources/templates/ingress_gateway.yaml
-func DefaultGateway(ctx context.Context, c client.Client, ns string) {
-	gw := Gateway("kserve-ingress-gateway",
+	gwName := "kserve-ingress-gateway"
+	defaultGateway := Gateway(gwName,
 		InNamespace[*gatewayapiv1.Gateway](ns),
 		WithClassName("istio"),
+		WithInfrastructureLabels("serving.kserve.io/gateway", gwName),
 		WithListeners(gatewayapiv1.Listener{
 			Name:     "http",
 			Port:     80,
@@ -67,13 +65,7 @@ func DefaultGateway(ctx context.Context, c client.Client, ns string) {
 		}),
 	)
 
-	gw.Spec.Infrastructure = &gatewayapiv1.GatewayInfrastructure{
-		Labels: map[gatewayapiv1.LabelKey]gatewayapiv1.LabelValue{
-			"serving.kserve.io/gateway": "kserve-ingress-gateway",
-		},
-	}
-
-	gomega.Expect(c.Create(ctx, gw)).To(gomega.Succeed())
+	gomega.Expect(c.Create(ctx, defaultGateway)).To(gomega.Succeed())
 }
 
 func InferenceServiceCfgMap(ctx context.Context, c client.Client, ns string) {
