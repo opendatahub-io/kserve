@@ -98,22 +98,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			Expect(expectedDeployment).To(HaveContainerImage("ghcr.io/llm-d/llm-d:0.0.8")) // Coming from preset
 			Expect(expectedDeployment).To(BeOwnedBy(llmSvc))
 
-			Eventually(func(g Gomega, ctx context.Context) error {
-				if err := envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), llmSvc); err != nil {
-					return err
-				}
-				g.Expect(llmSvc.Status).To(HaveCondition(string(v1alpha1.PresetsCombined), "True"))
-
-				// Overall condition depends on owned resources such as Deployment.
-				// When running on EnvTest certain controllers are not built-in, and that
-				// includes deployment controllers, ReplicaSet controllers, etc.
-				// Therefore, we can only observe a successful reconcile when testing against the actual cluster
-				if envTest.Environment.UseExistingCluster == ptr.To[bool](true) {
-					g.Expect(llmSvc.Status).To(HaveCondition(string(v1alpha1.WorkloadReady), "True"))
-				}
-
-				return nil
-			}).WithContext(ctx).Should(Succeed())
+			Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 		})
 	})
 
@@ -173,6 +158,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(expectedHTTPRoute).To(BeControllerBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
 				Expect(expectedHTTPRoute).To(HaveBackendRefs(svcName + "-inference-pool"))
+
+				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 			})
 
 			It("should create HTTPRoute with defined spec", func(ctx SpecContext) {
@@ -232,6 +219,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(expectedHTTPRoute).To(BeControllerBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "my-ingress-gateway"}))
 				Expect(expectedHTTPRoute).To(HaveBackendRefs("my-inference-pool"))
+
+				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 			})
 
 			It("should delete managed HTTPRoute when ref is defined", func(ctx SpecContext) {
@@ -301,6 +290,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 					return nil
 				}).WithContext(ctx).Should(Succeed())
+
+				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 			})
 		})
 
@@ -372,6 +363,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 						return nil
 					}).WithContext(ctx).Should(Succeed(), "Should have no managed HTTPRoutes with router when ")
+
+					Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 				},
 				Entry("should delete HTTPRoutes when spec.Router is set to nil",
 					"router-spec-nil",
@@ -401,6 +394,26 @@ var _ = Describe("LLMInferenceService Controller", func() {
 		})
 	})
 })
+
+func LLMInferenceServiceIsReady(llmSvc *v1alpha1.LLMInferenceService) func(g Gomega, ctx context.Context) error {
+	return func(g Gomega, ctx context.Context) error {
+		llmSvc := llmSvc.DeepCopy()
+		g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), llmSvc)).To(Succeed())
+
+		g.Expect(llmSvc.Status).To(HaveCondition(string(v1alpha1.PresetsCombined), "True"))
+		g.Expect(llmSvc.Status).To(HaveCondition(string(v1alpha1.RouterReady), "True"))
+
+		// Overall condition depends on owned resources such as Deployment.
+		// When running on EnvTest certain controllers are not built-in, and that
+		// includes deployment controllers, ReplicaSet controllers, etc.
+		// Therefore, we can only observe a successful reconcile when testing against the actual cluster
+		if envTest.Environment.UseExistingCluster == ptr.To[bool](true) {
+			g.Expect(llmSvc.Status).To(HaveCondition("Ready", "True"))
+		}
+
+		return nil
+	}
+}
 
 func managedRoutes(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) ([]gatewayapi.HTTPRoute, error) {
 	httpRoutes := &gatewayapi.HTTPRouteList{}
