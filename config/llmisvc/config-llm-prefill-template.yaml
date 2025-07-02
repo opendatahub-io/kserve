@@ -21,6 +21,7 @@ spec:
             - "{{ .Spec.Model.Name }}"
             - --port
             - "8000"
+            - --disable-log-requests
           env:
             - name: HOME
               value: /home
@@ -37,7 +38,7 @@ spec:
               path: /health
               port: 8000
             initialDelaySeconds: 10
-            periodSeconds: 30
+            periodSeconds: 10
             timeoutSeconds: 10
             failureThreshold: 3
           readinessProbe:

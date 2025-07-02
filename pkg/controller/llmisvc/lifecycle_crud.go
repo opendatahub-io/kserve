@@ -66,6 +66,19 @@ func Delete[O client.Object, T client.Object](ctx context.Context, c clientWithR
 	return nil
 }
 
+func Reconcile[O client.Object, T client.Object](ctx context.Context, c clientWithRecorder, owner O, curr, expected T, isEqual SemanticEqual[T]) error {
+	typeLogLine := logLineForObject(expected)
+
+	err := c.Get(ctx, client.ObjectKeyFromObject(expected), curr)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("failed to get %s %s/%s: %w", typeLogLine, expected.GetNamespace(), expected.GetName(), err)
+	}
+	if apierrors.IsNotFound(err) {
+		return Create(ctx, c, owner, expected)
+	}
+	return Update(ctx, c, owner, curr, expected, isEqual)
+}
+
 func Update[O client.Object, T client.Object](ctx context.Context, c clientWithRecorder, owner O, curr, expected T, isEqual SemanticEqual[T]) error {
 	typeLogLine := logLineForObject(expected)
 	ownerLogLine := logLineForObject(owner)

@@ -12,11 +12,12 @@ spec:
       containers:
         - name: main
           args:
-            - --gpu_memory_utilization=0.8
+            - --gpu_memory_utilization=0.9
             - --served-model-name
             - "{{ .Spec.Model.Name }}"
             - --port
             - "8001"
+            - --disable-log-requests
           resources:
             limits:
               nvidia.com/gpu: "1"
