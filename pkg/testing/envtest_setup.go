@@ -27,7 +27,7 @@ import (
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 var log = logf.Log.WithName("TestingEnvSetup")
@@ -35,10 +35,8 @@ var log = logf.Log.WithName("TestingEnvSetup")
 func SetupEnvTest(crdDirectoryPaths []string) *envtest.Environment {
 	t := &envtest.Environment{
 		ErrorIfCRDPathMissing: true,
-		// The relative paths must be provided for each level of test nesting
-		// This code should be illegal
-		CRDDirectoryPaths:  crdDirectoryPaths,
-		UseExistingCluster: proto.Bool(false),
+		CRDDirectoryPaths:     crdDirectoryPaths,
+		UseExistingCluster:    proto.Bool(false),
 	}
 
 	if err := netv1.SchemeBuilder.AddToScheme(scheme.Scheme); err != nil {
@@ -53,7 +51,7 @@ func SetupEnvTest(crdDirectoryPaths []string) *envtest.Environment {
 		log.Error(err, "Failed to add istio scheme")
 	}
 
-	if err := gatewayapiv1.Install(scheme.Scheme); err != nil {
+	if err := gwapiv1.Install(scheme.Scheme); err != nil {
 		log.Error(err, "Failed to add gateway scheme")
 	}
 	if err := kedav1alpha1.SchemeBuilder.AddToScheme(scheme.Scheme); err != nil {
