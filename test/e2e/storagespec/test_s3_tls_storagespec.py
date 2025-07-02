@@ -66,7 +66,7 @@ TbVunBmL9HUClHgUc2B0NSfNyqXSwo+Gp5Kg4iYIw4hJw2EPwilUFafcM8uVDktK
 
 @pytest.mark.kserve_on_openshift
 @pytest.mark.asyncio(scope="session")
-async def test_s3_tls_custom_cert_storagespec_kserve(rest_v1_client):
+async def test_s3_tls_custom_cert_storagespec_kserve():
     kserve_client = KServeClient(
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
@@ -149,7 +149,7 @@ async def test_s3_tls_custom_cert_storagespec_kserve(rest_v1_client):
 
 @pytest.mark.kserve_on_openshift
 @pytest.mark.asyncio(scope="session")
-async def test_s3_tls_serving_cert_storagespec_kserve(rest_v1_client):
+async def test_s3_tls_serving_cert_storagespec_kserve():
     kserve_client = KServeClient(
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
