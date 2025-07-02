@@ -260,13 +260,18 @@ def check_model_status(
         ):
             return
 
+    actual_status = isvc["status"]["modelStatus"]["transitionStatus"]
     if expected_failure_message is not None:
+        actual_failure_message = (
+            isvc["status"]["modelStatus"].get("lastFailureInfo", {}).get("message", "")
+        )
         raise RuntimeError(
-            f"Expected inferenceservice {isvc_name} to have model transition status '{expected_status}' and last failure info \
-                '{expected_failure_message}' after timeout, but got model transition status '{isvc['status']['modelStatus']['transitionStatus']}' \
-                    and last failure info '{isvc['status']['modelStatus'].get('lastFailureInfo', {}).get('message', '')}'"
+            f"Expected inferenceservice {isvc_name} to have model transition status '{expected_status}' "
+            f"and last failure info '{expected_failure_message}' after timeout, "
+            f"but got model transition status '{actual_status}' "
+            f"and last failure info '{actual_failure_message}'"
         )
     raise RuntimeError(
-        f"Expected inferenceservice {isvc_name} to have model transition status '{expected_status}' after timeout, but got \
-            '{isvc['status']['modelStatus']['transitionStatus']}'"
+        f"Expected inferenceservice {isvc_name} to have model transition status '{expected_status}' "
+        f"after timeout, but got '{actual_status}'"
     )
