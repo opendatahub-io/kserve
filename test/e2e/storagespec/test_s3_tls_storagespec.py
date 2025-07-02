@@ -25,6 +25,7 @@ from kserve import (
     V1beta1StorageSpec,
 )
 from kubernetes.client import V1ResourceRequirements
+from typing import Optional
 import pytest
 
 from ..common.utils import KSERVE_NAMESPACE, KSERVE_TEST_NAMESPACE
@@ -235,7 +236,7 @@ def check_model_status(
     isvc_name: str,
     isvc_namespace: str,
     expected_status: str,
-    expected_failure_message: str | None = None,
+    expected_failure_message: Optional[str] = None,
     timeout_seconds: int = 600,
     polling_interval: int = 10,
 ):
