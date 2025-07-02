@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
+
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
@@ -72,7 +74,7 @@ var _ = SynchronizedBeforeSuite(func() {
 
 	envTest, cancel = pkgtest.StartWithControllers(llmCtrlFunc)
 
-	createRequiredResources(context.Background(), envTest.Client, systemNs)
+	fixture.RequiredResources(context.Background(), envTest.Client, systemNs)
 }, func() {})
 
 var _ = SynchronizedAfterSuite(func() {}, func() {
