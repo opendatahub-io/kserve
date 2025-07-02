@@ -18,8 +18,6 @@ package testing
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"path/filepath"
 
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -77,35 +75,4 @@ func StartWithControllers(ctrls ...SetupWithManagerFunc) (*Client, context.Cance
 		),
 	).WithControllers(ctrls...).
 		Start(ctx), cancel
-}
-
-// ProjectRoot returns the root directory of the project by searching for the go.mod file up from where it is called.
-func ProjectRoot() string {
-	rootDir := ""
-
-	currentDir, err := os.Getwd()
-	if err != nil {
-		panic(fmt.Sprintf("failed to get current working directory: %v", err))
-	}
-
-	for {
-		if _, err := os.Stat(filepath.Join(currentDir, "go.mod")); err == nil {
-			rootDir = filepath.FromSlash(currentDir)
-
-			break
-		}
-
-		parentDir := filepath.Dir(currentDir)
-		if parentDir == currentDir {
-			break
-		}
-
-		currentDir = parentDir
-	}
-
-	if rootDir == "" {
-		panic(fmt.Sprintf("failed to get current working directory: %v", err))
-	}
-
-	return rootDir
 }
