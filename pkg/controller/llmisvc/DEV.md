@@ -96,7 +96,7 @@ curl $(kubectl get llmisvc -n $NS -o=jsonpath='{.items[0].status.addresses[0].ur
 ```
 
 > [!NOTE]
-> Actual address in KinD setup is considered local, hence the jsonpath dabove.
+> Actual address in KinD setup is considered local, hence the jsonpath above.
 
 you should see a similar output:
 
