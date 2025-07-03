@@ -17,8 +17,16 @@ limitations under the License.
 package llmisvc
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"slices"
+
+	duckv1 "knative.dev/pkg/apis/duck/v1"
+
+	"knative.dev/pkg/apis"
+
+	"k8s.io/apimachinery/pkg/types"
 
 	"k8s.io/utils/ptr"
 
@@ -68,16 +76,38 @@ func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context,
 	}
 
 	route := llmSvc.Spec.Router.Route
+
+	var referencedRoutes []*gatewayapi.HTTPRoute
 	if route.HTTP.HasRefs() {
-		// We should use provided HTTPRoutes, clean ours up if they exist
+		for _, routeRef := range route.HTTP.Refs {
+			providedRoute := &gatewayapi.HTTPRoute{}
+			errGet := r.Client.Get(ctx, types.NamespacedName{Namespace: routeRef.Name, Name: llmSvc.GetNamespace()}, providedRoute)
+
+			if errGet != nil {
+				if apierrors.IsNotFound(errGet) {
+					// TODO(follow-up) mark condition if not found
+					continue
+				}
+				return fmt.Errorf("failed to get HTTPRoute %s/%s: %w", routeRef.Name, llmSvc.GetName(), errGet)
+			}
+
+			referencedRoutes = append(referencedRoutes, providedRoute)
+		}
+
 		return Delete(ctx, r, llmSvc, expectedHTTPRoute)
 	}
 
+	// TODO(validation): referenced gateway exists
 	if route.IsManaged() || route.HTTP.HasSpec() {
-		return r.reconcileHTTPRoute(ctx, llmSvc, expectedHTTPRoute)
+		updatedRoute, errReconcile := r.reconcileHTTPRoute(ctx, llmSvc, expectedHTTPRoute)
+		if errReconcile != nil {
+			return fmt.Errorf("failed to reconcile HTTPRoute %s/%s: %w", expectedHTTPRoute.GetNamespace(), expectedHTTPRoute.GetName(), errReconcile)
+		}
+
+		referencedRoutes = append(referencedRoutes, updatedRoute)
 	}
 
-	return nil
+	return r.updateRoutingStatus(ctx, llmSvc, referencedRoutes...)
 }
 
 func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *gatewayapi.HTTPRoute {
@@ -96,7 +126,6 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 		httpRoute.Spec = *llmSvc.Spec.Router.Route.HTTP.Spec.DeepCopy()
 	}
 
-	// TODO(webhook): validate if referenced gateway exists
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Gateway != nil {
 		log.FromContext(ctx).Info("Reconciling Gateway", "gateway", llmSvc.Spec.Router.Gateway)
 
@@ -104,14 +133,7 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 		if llmSvc.Spec.Router.Gateway.HasRefs() {
 			httpRoute.Spec.CommonRouteSpec.ParentRefs = make([]gatewayapi.ParentReference, 0, len(llmSvc.Spec.Router.Gateway.Refs))
 			for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
-				httpRoute.Spec.CommonRouteSpec.ParentRefs = append(httpRoute.Spec.CommonRouteSpec.ParentRefs, gatewayapi.ParentReference{
-					// TODO(api): With this structure we are missing the ability to narrow a section of targeted gateway by the route we are creating
-					// missing SectionName and Port
-					Name:      ref.Name,
-					Namespace: &ref.Namespace,
-					Group:     ptr.To(gatewayapi.Group("gateway.networking.k8s.io")),
-					Kind:      ptr.To(gatewayapi.Kind("Gateway")),
-				})
+				httpRoute.Spec.CommonRouteSpec.ParentRefs = append(httpRoute.Spec.CommonRouteSpec.ParentRefs, toGatewayRef(ref))
 			}
 		}
 	}
@@ -119,18 +141,64 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 	return httpRoute
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileHTTPRoute(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected *gatewayapi.HTTPRoute) error {
+func (r *LLMInferenceServiceReconciler) reconcileHTTPRoute(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected *gatewayapi.HTTPRoute) (*gatewayapi.HTTPRoute, error) {
 	curr := &gatewayapi.HTTPRoute{}
 
 	err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
 	if err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("failed to get HTTPRoute %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+		return nil, fmt.Errorf("failed to get HTTPRoute %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 	}
 	if apierrors.IsNotFound(err) {
-		return Create(ctx, r, llmSvc, expected)
+		return expected, Create(ctx, r, llmSvc, expected)
 	}
 
-	return Update(ctx, r, llmSvc, curr, expected, semanticHTTPRouteIsEqual)
+	return expected, Update(ctx, r, llmSvc, curr, expected, semanticHTTPRouteIsEqual)
+}
+
+func (r *LLMInferenceServiceReconciler) updateRoutingStatus(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, routes ...*gatewayapi.HTTPRoute) error {
+	logger := log.FromContext(ctx)
+
+	var urls []*apis.URL
+	for _, route := range routes {
+		discoverURL, err := DiscoverURLs(ctx, r.Client, route)
+		if IgnoreExternalAddressNotFound(err) != nil {
+			return fmt.Errorf("failed to discover URL for route %s/%s: %w", route.GetNamespace(), route.GetName(), err)
+		}
+		if discoverURL != nil {
+			urls = append(urls, discoverURL...)
+		}
+	}
+
+	slices.SortStableFunc(urls, func(a, b *apis.URL) int {
+		return cmp.Compare(a.String(), b.String())
+	})
+
+	externalURLs := FilterExternalURLs(urls)
+	if len(externalURLs) == 0 {
+		logger.Info("no public URL discovered")
+	} else {
+		llmSvc.Status.URL = externalURLs[0]
+	}
+
+	llmSvc.Status.Addresses = make([]duckv1.Addressable, 0, len(urls))
+	for _, url := range urls {
+		llmSvc.Status.Addresses = append(llmSvc.Status.Addresses, duckv1.Addressable{
+			URL: url,
+		})
+	}
+
+	return nil
+}
+
+func toGatewayRef(ref v1alpha1.UntypedObjectReference) gatewayapi.ParentReference {
+	return gatewayapi.ParentReference{
+		// TODO(api): With this structure we are missing the ability to narrow a section of targeted gateway by the route we are creating
+		// missing SectionName and Port will implicitly bind the route to the first listener in the parent
+		Name:      ref.Name,
+		Namespace: &ref.Namespace,
+		Group:     ptr.To(gatewayapi.Group("gateway.networking.k8s.io")),
+		Kind:      ptr.To(gatewayapi.Kind("Gateway")),
+	}
 }
 
 func RouterLabels(llmSvc *v1alpha1.LLMInferenceService) map[string]string {

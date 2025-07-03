@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
+	. "github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 	. "github.com/kserve/kserve/pkg/testing"
 )
 
@@ -192,7 +193,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						Router: &v1alpha1.RouterSpec{
 							Route: &v1alpha1.GatewayRoutesSpec{
 								HTTP: &v1alpha1.HTTPRouteSpec{
-									Spec: customRouteSpec(nsName, "my-ingress-gateway", "my-inference-pool"),
+									Spec: customRouteSpec(ctx, envTest.Client, nsName, "my-ingress-gateway", "my-inference-pool"),
 								},
 							},
 							Gateway: &v1alpha1.GatewaySpec{},
@@ -433,39 +434,30 @@ func ignoreNoMatch(err error) error {
 	return err
 }
 
-func customRouteSpec(nsName, gatewayRefName, backendRefName string) *gatewayapi.HTTPRouteSpec {
-	return &gatewayapi.HTTPRouteSpec{
-		CommonRouteSpec: gatewayapi.CommonRouteSpec{
-			ParentRefs: []gatewayapi.ParentReference{{
-				Group:     ptr.To(gatewayapi.Group("networking.x-k8s.io")),
-				Kind:      ptr.To(gatewayapi.Kind("Gateway")),
-				Name:      gatewayapi.ObjectName(gatewayRefName),
-				Namespace: ptr.To(gatewayapi.Namespace(nsName)),
-			}},
-		},
-
-		Rules: []gatewayapi.HTTPRouteRule{{
-			BackendRefs: []gatewayapi.HTTPBackendRef{{
-				BackendRef: gatewayapi.BackendRef{
-					BackendObjectReference: gatewayapi.BackendObjectReference{
-						Group: ptr.To(gatewayapi.Group("inference.networking.x-k8s.io")),
-						Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
-						Name:  gatewayapi.ObjectName(backendRefName),
-						Port:  ptr.To[gatewayapi.PortNumber](8000),
-					},
-					Weight: ptr.To[int32](1),
+func customRouteSpec(ctx context.Context, c client.Client, nsName, gatewayRefName, backendRefName string) *gatewayapi.HTTPRouteSpec {
+	customGateway := Gateway(gatewayRefName,
+		InNamespace[*gatewayapi.Gateway](nsName),
+		WithClassName("istio"),
+		WithListeners(gatewayapi.Listener{
+			Name:     "http",
+			Port:     9991,
+			Protocol: gatewayapi.HTTPProtocolType,
+			AllowedRoutes: &gatewayapi.AllowedRoutes{
+				Namespaces: &gatewayapi.RouteNamespaces{
+					From: ptr.To(gatewayapi.NamespacesFromAll),
 				},
-			}},
-			Matches: []gatewayapi.HTTPRouteMatch{{
-				Path: &gatewayapi.HTTPPathMatch{
-					Type:  ptr.To(gatewayapi.PathMatchPathPrefix),
-					Value: ptr.To("/"),
-				},
-			}},
-			Timeouts: &gatewayapi.HTTPRouteTimeouts{
-				BackendRequest: ptr.To(gatewayapi.Duration("0s")),
-				Request:        ptr.To(gatewayapi.Duration("0s")),
 			},
-		}},
-	}
+		}),
+	)
+
+	Expect(c.Create(ctx, customGateway)).To(Succeed())
+
+	httRouteSpec := BuildHTTPRouteSpec(
+		WithParentRef(GatewayParentRef(gatewayRefName, nsName)),
+		WithHTTPRouteRule(
+			HTTPRouteRuleWithBackendAndTimeouts(backendRefName, 8000, "/", "0s", "0s"),
+		),
+	)
+
+	return httRouteSpec
 }
