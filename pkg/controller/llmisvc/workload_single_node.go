@@ -56,7 +56,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainWorkload(ctx cont
 	if llmSvc.Spec.Worker != nil {
 		return Delete(ctx, r, llmSvc, expected)
 	}
-	if err := r.reconcileDeployment(ctx, llmSvc, expected); err != nil {
+	if err := Reconcile(ctx, r, llmSvc, &appsv1.Deployment{}, expected, semanticDeploymentIsEqual); err != nil {
 		return err
 	}
 	return r.propagateDeploymentStatus(ctx, expected, llmSvc.MarkMainWorkloadReady, llmSvc.MarkMainWorkloadNotReady)
@@ -112,7 +112,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodePrefill(ctx context.C
 		}
 		return nil
 	}
-	if err := r.reconcileDeployment(ctx, llmSvc, prefill); err != nil {
+	if err := Reconcile(ctx, r, llmSvc, &appsv1.Deployment{}, prefill, semanticDeploymentIsEqual); err != nil {
 		return fmt.Errorf("failed to reconcile prefill deployment %s/%s: %w", prefill.GetNamespace(), prefill.GetName(), err)
 	}
 	return r.propagateDeploymentStatus(ctx, prefill, llmSvc.MarkPrefillWorkloadReady, llmSvc.MarkPrefillWorkloadNotReady)
@@ -157,18 +157,6 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 	log.FromContext(ctx).V(2).Info("Expected prefill deployment", "deployment", d)
 
 	return d
-}
-
-func (r *LLMInferenceServiceReconciler) reconcileDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) error {
-	curr := &appsv1.Deployment{}
-	err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
-	if client.IgnoreNotFound(err) != nil {
-		return fmt.Errorf("failed to get deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
-	}
-	if apierrors.IsNotFound(err) {
-		return Create(ctx, r, llmSvc, expected)
-	}
-	return Update(ctx, r, llmSvc, curr, expected, semanticDeploymentIsEqual)
 }
 
 func (r *LLMInferenceServiceReconciler) propagateDeploymentStatus(ctx context.Context, expected *appsv1.Deployment, ready func(), notReady func(reason, messageFormat string, messageA ...interface{})) error {

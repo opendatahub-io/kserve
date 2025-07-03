@@ -52,7 +52,7 @@ const (
 	configRouterRouteName                   = configPrefix + "config-llm-router-route"
 )
 
-var wellKnownDefaultConfigs = sets.NewString(
+var WellKnownDefaultConfigs = sets.NewString(
 	configTemplateName,
 	configDecodeTemplateName,
 	configDecodeWorkerPipelineParallelName,
@@ -132,10 +132,13 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		llmSvcCfg.Spec.Router.Scheduler.Pool != nil &&
 		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec != nil &&
 		len(llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector) == 0 {
-		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector = map[igwapi.LabelKey]igwapi.LabelValue{
-			"app.kubernetes.io/component": "llminferenceservice-workload",
-			"app.kubernetes.io/name":      igwapi.LabelValue(llmSvc.GetName()),
+		selector := getWorkloadLabelSelector(llmSvc.ObjectMeta, &llmSvcCfg.Spec)
+
+		gieSelector := make(map[igwapi.LabelKey]igwapi.LabelValue, len(selector))
+		for k, v := range selector {
+			gieSelector[igwapi.LabelKey(k)] = igwapi.LabelValue(v)
 		}
+		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector = gieSelector
 	}
 
 	if llmSvcCfg.Spec.Router != nil &&

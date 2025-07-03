@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -47,4 +48,24 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 	}
 
 	return nil
+}
+
+func getWorkloadLabelSelector(meta metav1.ObjectMeta, spec *v1alpha1.LLMInferenceServiceSpec) map[string]string {
+	s := map[string]string{
+		"app.kubernetes.io/name": meta.GetName(),
+	}
+
+	componentLabelValue := "llminferenceservice-workload"
+	if spec.Worker != nil {
+		if spec.Template == nil {
+			// If there is no separate leader pod spec, send requests to the worker with index 0.
+			componentLabelValue = "llminferenceservice-workload-worker"
+			s["leaderworkerset.sigs.k8s.io/worker-index"] = "0"
+		} else {
+			componentLabelValue = "llminferenceservice-workload-leader"
+		}
+	}
+	s["app.kubernetes.io/component"] = componentLabelValue
+
+	return s
 }

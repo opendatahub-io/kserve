@@ -156,7 +156,7 @@ func TestPresetFiles(t *testing.T) {
 													Port: intstr.FromInt32(8001),
 												},
 											},
-											InitialDelaySeconds: 10,
+											InitialDelaySeconds: 120,
 											PeriodSeconds:       10,
 											TimeoutSeconds:      10,
 											FailureThreshold:    3,
@@ -281,6 +281,10 @@ fi`},
 			}
 			if config.ObjectMeta.Name == "" {
 				t.Error("Expected ObjectMeta.Name to be set")
+			}
+			// TODO Add the opposite check once PP configs are present so that we know that all WellKnownDefaultConfigs are present.
+			if !llmisvc.WellKnownDefaultConfigs.Has(config.ObjectMeta.Name) {
+				t.Fatalf("Expected %s to exist in WellKnownDefaultConfigs %#v", config.ObjectMeta.Name, llmisvc.WellKnownDefaultConfigs.List())
 			}
 
 			_, err = llmisvc.ReplaceVariables(llmSvc, config, &kserveSystemConfig)

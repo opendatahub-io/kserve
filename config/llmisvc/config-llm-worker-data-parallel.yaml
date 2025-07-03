@@ -1,7 +1,7 @@
 apiVersion: serving.kserve.io/v1alpha1
 kind: LLMInferenceServiceConfig
 metadata:
-  name: kserve-config-llm-decode-worker-data-parallel
+  name: kserve-config-llm-worker-data-parallel
 spec:
   worker:
     containers:
@@ -74,7 +74,7 @@ spec:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 10
+          initialDelaySeconds: 120
           periodSeconds: 10
           timeoutSeconds: 10
           failureThreshold: 3

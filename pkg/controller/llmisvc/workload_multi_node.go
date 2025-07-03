@@ -37,11 +37,13 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodeWorkload(ctx context.C
 	logger := log.FromContext(ctx).WithName("multi-node-workload")
 	ctx = log.IntoContext(ctx, logger)
 
-	err := r.reconcileMultiNodeMainWorkload(ctx, llmSvc)
-	if err != nil {
-		return err
+	if err := r.reconcileMultiNodeMainWorkload(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to reconcile multi-node main workload: %w", err)
 	}
-	return r.reconcileMultiNodePrefillWorkload(ctx, llmSvc)
+	if err := r.reconcileMultiNodePrefillWorkload(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to reconcile multi-node prefill workload: %w", err)
+	}
+	return nil
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
@@ -50,6 +52,7 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainWorkload(ctx conte
 		if err := Delete(ctx, r, llmSvc, expected); err != nil {
 			return err
 		}
+		return nil
 	}
 	if err := Reconcile(ctx, r, llmSvc, &lwsapi.LeaderWorkerSet{}, expected, semanticLWSIsEqual); err != nil {
 		return err
@@ -63,6 +66,7 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodePrefillWorkload(ctx co
 		if err := Delete(ctx, r, llmSvc, expected); err != nil {
 			return err
 		}
+		return nil
 	}
 	if err := Reconcile(ctx, r, llmSvc, &lwsapi.LeaderWorkerSet{}, expected, semanticLWSIsEqual); err != nil {
 		return err

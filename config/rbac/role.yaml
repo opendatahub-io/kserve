@@ -141,7 +141,7 @@ rules:
   - patch
   - update
 - apiGroups:
-  - leaderworkerset.x-k8s.io/v1
+  - leaderworkerset.x-k8s.io
   resources:
   - leaderworkersets
   verbs:

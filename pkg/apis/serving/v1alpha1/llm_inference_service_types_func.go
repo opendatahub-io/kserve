@@ -41,15 +41,24 @@ func (p *InferencePoolSpec) HasRef() bool {
 }
 
 func (p *ParallelismSpec) IsPipelineParallel() bool {
-	return p != nil && p.Pipeline != nil && *p.Pipeline > 0
+	if p == nil {
+		return false
+	}
+	return ptr.Deref(p.Pipeline, 0) > 0
 }
 
 func (p *ParallelismSpec) IsDataParallel() bool {
-	return p != nil && ((p.Data != nil && *p.Data > 0) || (p.DataLocal != nil && *p.DataLocal > 0))
+	if p == nil {
+		return false
+	}
+	return ptr.Deref(p.Data, 0) > 0 || ptr.Deref(p.DataLocal, 0) > 0
 }
 
 func (p *ParallelismSpec) IsTensorParallel() bool {
-	return p != nil && p.Tensor != nil && *p.Tensor > 0
+	if p == nil {
+		return false
+	}
+	return ptr.Deref(p.Tensor, 0) > 0
 }
 
 func (p *ParallelismSpec) GetSize() *int32 {
@@ -57,17 +66,10 @@ func (p *ParallelismSpec) GetSize() *int32 {
 		return nil
 	}
 	if p.IsDataParallel() {
-		return ptr.To(max(getOrDefault(p.Data, 1), 1) / max(getOrDefault(p.DataLocal, 1), 1))
+		return ptr.To(max(ptr.Deref(p.Data, 1), 1) / max(ptr.Deref(p.DataLocal, 1), 1))
 	}
 	if p.IsPipelineParallel() {
 		return p.Pipeline
 	}
 	return nil
-}
-
-func getOrDefault(value *int32, defaultValue int32) int32 {
-	if value == nil {
-		return defaultValue
-	}
-	return *value
 }

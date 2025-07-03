@@ -8,13 +8,16 @@ spec:
     name: facebook/opt-125m
   replicas: 1
   router:
-    scheduler: {}
-    route: {}
-    gateway: {}
+    scheduler: { }
+    route: { }
+    gateway: { }
   template:
     containers:
       - name: main
         image: quay.io/pierdipi/vllm-cpu:latest
+        env:
+          - name: VLLM_LOGGING_LEVEL
+            value: DEBUG
         resources:
           limits:
             cpu: '2'
@@ -27,6 +30,9 @@ spec:
       containers:
         - name: main
           image: quay.io/pierdipi/vllm-cpu:latest
+          env:
+            - name: VLLM_LOGGING_LEVEL
+              value: DEBUG
           resources:
             limits:
               cpu: '2'

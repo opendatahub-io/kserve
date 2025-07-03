@@ -107,7 +107,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerDeployment(ctx context
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
 		return Delete(ctx, r, llmSvc, scheduler)
 	}
-	if err := r.reconcileDeployment(ctx, llmSvc, scheduler); err != nil {
+	if err := Reconcile(ctx, r, llmSvc, &appsv1.Deployment{}, scheduler, semanticDeploymentIsEqual); err != nil {
 		return fmt.Errorf("failed to reconcile scheduler deployment %s/%s: %w", scheduler.GetNamespace(), scheduler.GetName(), err)
 	}
 	return r.propagateDeploymentStatus(ctx, scheduler, llmSvc.MarkSchedulerWorkloadReady, llmSvc.MarkSchedulerWorkloadNotReady)
@@ -119,15 +119,11 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerInferencePool(ctx cont
 		return Delete(ctx, r, llmSvc, expected)
 	}
 
-	curr := &igwapi.InferencePool{}
-	err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
-	if err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("failed to get InferencePool %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+	if err := Reconcile(ctx, r, llmSvc, &igwapi.InferencePool{}, expected, semanticInferencePoolIsEqual); err != nil {
+		return err
 	}
-	if apierrors.IsNotFound(err) {
-		return Create(ctx, r, llmSvc, expected)
-	}
-	return Update(ctx, r, llmSvc, curr, expected, semanticInferencePoolIsEqual)
+	// TODO add inference pool condition propagation and then aggregate it into "RouterReady" similar to WorkloadReady.
+	return nil
 }
 
 func (r *LLMInferenceServiceReconciler) expectedSchedulerInferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *igwapi.InferencePool {
