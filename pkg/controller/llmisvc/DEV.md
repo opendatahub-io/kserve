@@ -19,7 +19,7 @@ make deploy-dev-llm -e KO_DOCKER_REPO=<YOUR_REPO>
 NS=llm-test
 kubectl create namespace ${NS} || true
 
-kubectl apply -n ${NS} -f - <<EOF
+kubectl apply -f - <<EOF
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
@@ -46,7 +46,7 @@ kubectl apply -n ${NS} -f $LLM_ISVC
 
 #### Validation
 
-LB_IP=$(k get svc/kserve-ingress-gateway-istio -n kserve -o=jsonpath='{.status.loadBalancer.ingress[0].ip}')
+LB_IP=$(kubectl get svc/kserve-ingress-gateway-istio -n kserve -o=jsonpath='{.status.loadBalancer.ingress[0].ip}')
 
 curl http://${LB_IP}/${NS}/${LLM_ISVC_NAME}/v1/completions  \
     -H "Content-Type: application/json" \
