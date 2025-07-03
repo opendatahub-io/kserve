@@ -16,6 +16,10 @@ limitations under the License.
 
 package v1alpha1
 
+import (
+	"k8s.io/utils/ptr"
+)
+
 func (in *GatewayRoutesSpec) IsManaged() bool {
 	return in != nil && in == &GatewayRoutesSpec{}
 }
@@ -34,4 +38,38 @@ func (r *HTTPRouteSpec) HasSpec() bool {
 
 func (p *InferencePoolSpec) HasRef() bool {
 	return p != nil && p.Ref != nil && p.Ref.Name != ""
+}
+
+func (p *ParallelismSpec) IsPipelineParallel() bool {
+	if p == nil {
+		return false
+	}
+	return ptr.Deref(p.Pipeline, 0) > 0
+}
+
+func (p *ParallelismSpec) IsDataParallel() bool {
+	if p == nil {
+		return false
+	}
+	return ptr.Deref(p.Data, 0) > 0 || ptr.Deref(p.DataLocal, 0) > 0
+}
+
+func (p *ParallelismSpec) IsTensorParallel() bool {
+	if p == nil {
+		return false
+	}
+	return ptr.Deref(p.Tensor, 0) > 0
+}
+
+func (p *ParallelismSpec) GetSize() *int32 {
+	if p == nil {
+		return nil
+	}
+	if p.IsDataParallel() {
+		return ptr.To(max(ptr.Deref(p.Data, 1), 1) / max(ptr.Deref(p.DataLocal, 1), 1))
+	}
+	if p.IsPipelineParallel() {
+		return p.Pipeline
+	}
+	return nil
 }

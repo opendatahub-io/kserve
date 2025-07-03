@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"text/template"
 
@@ -37,22 +38,30 @@ import (
 )
 
 const (
-	configPrefix              = "kserve-"
-	configTemplateName        = configPrefix + "config-llm-template"
-	configDecodeTemplateName  = configPrefix + "config-llm-decode-template"
-	configWorkerName          = configPrefix + "config-llm-worker"
-	configPrefillTemplateName = configPrefix + "config-llm-prefill-template"
-	configPrefillWorkerName   = configPrefix + "config-llm-prefill-worker"
-	configRouterSchedulerName = configPrefix + "config-llm-scheduler"
-	configRouterRouteName     = configPrefix + "config-llm-router-route"
+	configPrefix                            = "kserve-"
+	configTemplateName                      = configPrefix + "config-llm-template"
+	configDecodeTemplateName                = configPrefix + "config-llm-decode-template"
+	configDecodeWorkerPipelineParallelName  = configPrefix + "config-llm-decode-worker-pipeline-parallel"
+	configWorkerPipelineParallelName        = configPrefix + "config-llm-worker-pipeline-parallel"
+	configWorkerDataParallelName            = configPrefix + "config-llm-worker-data-parallel"
+	configDecodeWorkerDataParallelName      = configPrefix + "config-llm-decode-worker-data-parallel"
+	configPrefillTemplateName               = configPrefix + "config-llm-prefill-template"
+	configPrefillWorkerPipelineParallelName = configPrefix + "config-llm-prefill-worker-pipeline-parallel"
+	configPrefillWorkerDataParallelName     = configPrefix + "config-llm-prefill-worker-data-parallel"
+	configRouterSchedulerName               = configPrefix + "config-llm-scheduler"
+	configRouterRouteName                   = configPrefix + "config-llm-router-route"
 )
 
-var wellKnownDefaultConfigs = sets.NewString(
+var WellKnownDefaultConfigs = sets.NewString(
 	configTemplateName,
-	configWorkerName,
-	configPrefillTemplateName,
 	configDecodeTemplateName,
-	configPrefillWorkerName,
+	configDecodeWorkerPipelineParallelName,
+	configWorkerPipelineParallelName,
+	configWorkerDataParallelName,
+	configDecodeWorkerDataParallelName,
+	configPrefillTemplateName,
+	configPrefillWorkerPipelineParallelName,
+	configPrefillWorkerDataParallelName,
 	configRouterSchedulerName,
 	configRouterRouteName,
 )
@@ -70,14 +79,29 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		refs = append(refs, corev1.LocalObjectReference{Name: configRouterRouteName})
 	}
 	switch {
+	// Disaggregated prefill and decode (P/D) cases.
 	case llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker == nil:
 		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillTemplateName})
 		refs = append(refs, corev1.LocalObjectReference{Name: configDecodeTemplateName})
-	case llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker != nil:
-		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerName})
-	case llmSvc.Spec.Worker != nil:
-		refs = append(refs, corev1.LocalObjectReference{Name: configWorkerName})
+	case llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker != nil && llmSvc.Spec.Prefill.Parallelism.IsPipelineParallel():
+		refs = append(refs, corev1.LocalObjectReference{Name: configDecodeWorkerPipelineParallelName})
+		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerPipelineParallelName})
+	case llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker != nil && llmSvc.Spec.Prefill.Parallelism.IsDataParallel():
+		refs = append(refs, corev1.LocalObjectReference{Name: configDecodeWorkerDataParallelName})
+		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerDataParallelName})
+
+	case llmSvc.Spec.Worker != nil && llmSvc.Spec.Parallelism == nil:
+		// TODO is this even valid?
+		// 	Even defaulting PP and TP to 1 when worker is non nil doesn't seems good enough for when we will have DP (https://docs.google.com/document/d/1mSYsWQEbp4Oq50ghFWUun7OgagbuUJivAC8Ds-pu-xU/edit?tab=t.0)
+		return nil, errors.New("unexpected configuration worker configured without any parallelism, specify at least one of the `spec.parallelism` values")
+
+	// Multi Node without Disaggregated prefill and decode (P/D) cases.
+	case llmSvc.Spec.Worker != nil && llmSvc.Spec.Parallelism.IsPipelineParallel():
+		refs = append(refs, corev1.LocalObjectReference{Name: configWorkerPipelineParallelName})
+	case llmSvc.Spec.Worker != nil && llmSvc.Spec.Parallelism.IsDataParallel():
+		refs = append(refs, corev1.LocalObjectReference{Name: configWorkerDataParallelName})
 	default:
+		// Single Node case.
 		refs = append(refs, corev1.LocalObjectReference{Name: configTemplateName})
 	}
 	// Append explicit base refs to override well know configs.
@@ -108,10 +132,13 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		llmSvcCfg.Spec.Router.Scheduler.Pool != nil &&
 		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec != nil &&
 		len(llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector) == 0 {
-		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector = map[igwapi.LabelKey]igwapi.LabelValue{
-			"app.kubernetes.io/component": "llminferenceservice-workload",
-			"app.kubernetes.io/name":      igwapi.LabelValue(llmSvc.GetName()),
+		selector := getWorkloadLabelSelector(llmSvc.ObjectMeta, &llmSvcCfg.Spec)
+
+		gieSelector := make(map[igwapi.LabelKey]igwapi.LabelValue, len(selector))
+		for k, v := range selector {
+			gieSelector[igwapi.LabelKey(k)] = igwapi.LabelValue(v)
 		}
+		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector = gieSelector
 	}
 
 	if llmSvcCfg.Spec.Router != nil &&
@@ -142,6 +169,12 @@ func ReplaceVariables(llmSvc *v1alpha1.LLMInferenceService, llmSvcCfg *v1alpha1.
 	t, err := template.New("config").
 		Funcs(map[string]any{
 			"ChildName": kmeta.ChildName,
+			"Default": func(val, def interface{}) interface{} {
+				if val == nil {
+					return def
+				}
+				return val
+			},
 		}).
 		Option("missingkey=error").
 		Parse(string(templateBytes))

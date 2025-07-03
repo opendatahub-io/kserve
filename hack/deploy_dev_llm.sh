@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-./test/scripts/gh-actions/setup-deps.sh raw istio-gatewayapi-ext
+./test/scripts/gh-actions/setup-deps.sh raw istio-gatewayapi-ext false true
 
 # Check if ko command is available, install if not
 if ! command -v ko &>/dev/null; then

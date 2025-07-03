@@ -22,19 +22,17 @@ import (
 	"fmt"
 	"slices"
 
-	duckv1 "knative.dev/pkg/apis/duck/v1"
-
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"knative.dev/pkg/apis"
+	duckv1 "knative.dev/pkg/apis/duck/v1"
 
 	"k8s.io/apimachinery/pkg/types"
 
 	"k8s.io/utils/ptr"
 
 	"k8s.io/apimachinery/pkg/api/equality"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/kmeta"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -99,12 +97,10 @@ func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context,
 
 	// TODO(validation): referenced gateway exists
 	if route.IsManaged() || route.HTTP.HasSpec() {
-		updatedRoute, errReconcile := r.reconcileHTTPRoute(ctx, llmSvc, expectedHTTPRoute)
-		if errReconcile != nil {
-			return fmt.Errorf("failed to reconcile HTTPRoute %s/%s: %w", expectedHTTPRoute.GetNamespace(), expectedHTTPRoute.GetName(), errReconcile)
+		if err := Reconcile(ctx, r, llmSvc, &gatewayapi.HTTPRoute{}, expectedHTTPRoute, semanticHTTPRouteIsEqual); err != nil {
+			return fmt.Errorf("failed to reconcile HTTPRoute %s/%s: %w", expectedHTTPRoute.GetNamespace(), expectedHTTPRoute.GetName(), err)
 		}
-
-		referencedRoutes = append(referencedRoutes, updatedRoute)
+		referencedRoutes = append(referencedRoutes, expectedHTTPRoute)
 	}
 
 	return r.updateRoutingStatus(ctx, llmSvc, referencedRoutes...)
@@ -139,20 +135,6 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 	}
 
 	return httpRoute
-}
-
-func (r *LLMInferenceServiceReconciler) reconcileHTTPRoute(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected *gatewayapi.HTTPRoute) (*gatewayapi.HTTPRoute, error) {
-	curr := &gatewayapi.HTTPRoute{}
-
-	err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
-	if err != nil && !apierrors.IsNotFound(err) {
-		return nil, fmt.Errorf("failed to get HTTPRoute %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
-	}
-	if apierrors.IsNotFound(err) {
-		return expected, Create(ctx, r, llmSvc, expected)
-	}
-
-	return expected, Update(ctx, r, llmSvc, curr, expected, semanticHTTPRouteIsEqual)
 }
 
 func (r *LLMInferenceServiceReconciler) updateRoutingStatus(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, routes ...*gatewayapi.HTTPRoute) error {

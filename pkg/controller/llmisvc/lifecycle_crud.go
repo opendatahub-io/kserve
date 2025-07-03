@@ -22,6 +22,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -56,7 +57,7 @@ func Delete[O client.Object, T client.Object](ctx context.Context, c clientWithR
 	}
 
 	if err := c.Delete(ctx, expected); err != nil {
-		if !apierrors.IsNotFound(err) {
+		if !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
 			return fmt.Errorf("failed to delete %s %s/%s: %w", typeLogLine, expected.GetNamespace(), expected.GetName(), err)
 		}
 		return nil
@@ -64,6 +65,19 @@ func Delete[O client.Object, T client.Object](ctx context.Context, c clientWithR
 
 	c.Eventf(owner, corev1.EventTypeNormal, "Deleted", "Deleted %s %s/%s", typeLogLine, expected.GetNamespace(), expected.GetName())
 	return nil
+}
+
+func Reconcile[O client.Object, T client.Object](ctx context.Context, c clientWithRecorder, owner O, empty, expected T, isEqual SemanticEqual[T]) error {
+	typeLogLine := logLineForObject(expected)
+
+	curr := empty
+	if err := c.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return fmt.Errorf("failed to get %s %s/%s: %w", typeLogLine, expected.GetNamespace(), expected.GetName(), err)
+		}
+		return Create(ctx, c, owner, expected)
+	}
+	return Update(ctx, c, owner, curr, expected, isEqual)
 }
 
 func Update[O client.Object, T client.Object](ctx context.Context, c clientWithRecorder, owner O, curr, expected T, isEqual SemanticEqual[T]) error {

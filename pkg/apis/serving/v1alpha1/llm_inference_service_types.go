@@ -247,11 +247,22 @@ type InferencePoolSpec struct {
 type ParallelismSpec struct {
 	// Tensor parallelism size.
 	// +optional
-	Tensor *int64 `json:"tensor,omitempty"`
+	Tensor *int32 `json:"tensor,omitempty"`
 	// Pipeline parallelism size.
 	// +optional
-	Pipeline *int64 `json:"pipeline,omitempty"`
-	// TODO more to be added ...
+	Pipeline *int32 `json:"pipeline,omitempty"`
+	// Data parallelism size.
+	// +optional
+	Data *int32 `json:"data,omitempty"`
+	// DataLocal data local parallelism size.
+	// +optional
+	DataLocal *int32 `json:"dataLocal,omitempty"`
+	// DataRPCPort is the data parallelism RPC port.
+	// +optional
+	DataRPCPort *int32 `json:"dataRPCPort,omitempty"`
+	// Expert enables expert parallelism.
+	// +optional
+	Expert bool `json:"expert,omitempty"`
 }
 
 // LLMStorageSpec is a copy of the v1beta1.StorageSpec. It is duplicated here to avoid

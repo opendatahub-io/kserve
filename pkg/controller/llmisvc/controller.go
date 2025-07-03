@@ -22,6 +22,7 @@ import (
 	"strings"
 
 	"k8s.io/client-go/kubernetes"
+	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
@@ -99,6 +100,7 @@ type LLMInferenceServiceReconciler struct {
 //+kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceserviceconfigs,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceserviceconfigs/finalizers,verbs=update
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=leaderworkerset.x-k8s.io,resources=leaderworkersets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes;gateways,verbs=get;list;watch;create;update;patch;delete
@@ -243,6 +245,12 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 		}
 		b = b.Owns(&igwapi.InferenceModel{}, builder.WithPredicates(childResourcesPredicate))
 	}
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), lwsapi.GroupVersion.String(), "LeaderWorkerSet"); ok && err == nil {
+		if err := lwsapi.AddToScheme(mgr.GetScheme()); err != nil {
+			return fmt.Errorf("failed to add LeaderWorkerSet APIs to scheme: %w", err)
+		}
+		b = b.Owns(&lwsapi.LeaderWorkerSet{}, builder.WithPredicates(childResourcesPredicate))
+	}
 
 	return b.Complete(r)
 }
@@ -268,7 +276,7 @@ func (r *LLMInferenceServiceReconciler) enqueueOnLLMInferenceServiceConfigChange
 			}
 			for _, llmSvc := range llmSvcList.Items {
 				for _, ref := range llmSvc.Spec.BaseRefs {
-					if ref.Name == sub.Name || wellKnownDefaultConfigs.Has(ref.Name) {
+					if ref.Name == sub.Name || WellKnownDefaultConfigs.Has(ref.Name) {
 						reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
 							Namespace: llmSvc.Namespace,
 							Name:      llmSvc.Name,

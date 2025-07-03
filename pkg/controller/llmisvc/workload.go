@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The KServe Authors.
+Copyright 2023 The KServe Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,18 +18,9 @@ package llmisvc
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
-	"k8s.io/client-go/util/retry"
-
-	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"knative.dev/pkg/kmeta"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -46,167 +37,35 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 	// We need to always reconcile every type of workload to handle transitions from P/D to another topology (meaning
 	// finalizing superfluous workloads).
 
-	// TODO Properly handle Replicas > 1 (scaling) for multi node (Worker) in both main and prefill WorkloadSpec.
-
-	if err := r.reconcileMainWorkload(ctx, llmSvc); err != nil {
-		llmSvc.MarkWorkloadNotReady("ReconcileMainWorkloadError", err.Error())
-		return fmt.Errorf("failed to reconcile main workload: %w", err)
+	if err := r.reconcileMultiNodeWorkload(ctx, llmSvc); err != nil {
+		llmSvc.MarkWorkloadNotReady("ReconcileMultiNodeWorkloadError", err.Error())
+		return fmt.Errorf("failed to reconcile multi node workload: %w", err)
 	}
 
-	if err := r.reconcileMainWorker(ctx, llmSvc); err != nil {
-		llmSvc.MarkWorkloadNotReady("ReconcileMainWorkerError", err.Error())
-		return fmt.Errorf("failed to reconcile main worker: %w", err)
-	}
-
-	if err := r.reconcileDisaggregatedServing(ctx, llmSvc); err != nil {
-		llmSvc.MarkWorkloadNotReady("ReconcileDisaggregatedServingError", err.Error())
-		return fmt.Errorf("failed to reconcile disaggregated serving workload: %w", err)
+	if err := r.reconcileSingleNodeWorkload(ctx, llmSvc); err != nil {
+		llmSvc.MarkWorkloadNotReady("ReconcileSingleNodeWorkloadError", err.Error())
+		return fmt.Errorf("failed to reconcile single node workload: %w", err)
 	}
 
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileMainWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	expected, err := r.expectedMainDeployment(ctx, llmSvc)
-	if err != nil {
-		return fmt.Errorf("failed to get expected main deployment: %w", err)
-	}
-	if err := r.reconcileDeployment(ctx, llmSvc, expected); err != nil {
-		return err
-	}
-	return r.propagateDeploymentStatus(ctx, expected, llmSvc.MarkMainWorkloadReady, llmSvc.MarkMainWorkloadNotReady)
-}
-
-func (r *LLMInferenceServiceReconciler) reconcileMainWorker(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	expected := r.expectedMainWorker(ctx, llmSvc)
-	if llmSvc.Spec.Worker == nil {
-		if err := Delete(ctx, r, llmSvc, expected); err != nil {
-			return fmt.Errorf("failed to delete worker: %w", err)
-		}
-		return nil
-	}
-	if err := r.reconcileDeployment(ctx, llmSvc, expected); err != nil {
-		return err
-	}
-	return r.propagateDeploymentStatus(ctx, expected, llmSvc.MarkWorkerWorkloadReady, llmSvc.MarkWorkerWorkloadNotReady)
-}
-
-func (r *LLMInferenceServiceReconciler) expectedMainWorker(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *appsv1.Deployment {
-	labels := map[string]string{
-		"app.kubernetes.io/component": "llminferenceservice-workload-worker",
-		"app.kubernetes.io/name":      llmSvc.GetName(),
-		"app.kubernetes.io/part-of":   "llminferenceservice",
+func getWorkloadLabelSelector(meta metav1.ObjectMeta, spec *v1alpha1.LLMInferenceServiceSpec) map[string]string {
+	s := map[string]string{
+		"app.kubernetes.io/name": meta.GetName(),
 	}
 
-	d := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-worker"),
-			Namespace: llmSvc.GetNamespace(),
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
-			},
-			Labels: labels,
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: llmSvc.Spec.Replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
-				},
-			},
-		},
-	}
-
-	if llmSvc.Spec.Worker != nil {
-		d.Spec.Template.Spec = *llmSvc.Spec.Worker.DeepCopy()
-	}
-
-	log.FromContext(ctx).V(2).Info("Expected worker deployment", "deployment", d)
-
-	return d
-}
-
-func (r *LLMInferenceServiceReconciler) expectedMainDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*appsv1.Deployment, error) {
-	if llmSvc.Spec.Template == nil {
-		return nil, errors.New("llmSvc.Spec.Template must not be nil")
-	}
-
-	labels := map[string]string{
-		"app.kubernetes.io/component": "llminferenceservice-workload",
-		"app.kubernetes.io/name":      llmSvc.GetName(),
-		"app.kubernetes.io/part-of":   "llminferenceservice",
-	}
-
-	d := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve"),
-			Namespace: llmSvc.GetNamespace(),
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
-			},
-			Labels: labels,
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: llmSvc.Spec.Replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
-				},
-				Spec: *llmSvc.Spec.Template.DeepCopy(),
-			},
-		},
-	}
-
-	log.FromContext(ctx).V(2).Info("Expected main deployment", "deployment", d)
-
-	return d, nil
-}
-
-func (r *LLMInferenceServiceReconciler) reconcileDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) error {
-	curr := &appsv1.Deployment{}
-	err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
-	if client.IgnoreNotFound(err) != nil {
-		return fmt.Errorf("failed to get deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
-	}
-	if apierrors.IsNotFound(err) {
-		return Create(ctx, r, llmSvc, expected)
-	}
-	return Update(ctx, r, llmSvc, curr, expected, semanticDeploymentIsEqual)
-}
-
-func (r *LLMInferenceServiceReconciler) propagateDeploymentStatus(ctx context.Context, expected *appsv1.Deployment, ready func(), notReady func(reason, messageFormat string, messageA ...interface{})) error {
-	logger := log.FromContext(ctx)
-
-	curr := &appsv1.Deployment{}
-	err := retry.OnError(retry.DefaultRetry, apierrors.IsNotFound, func() error {
-		return r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
-	})
-	if err != nil {
-		return fmt.Errorf("failed to get current deployment %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
-	}
-	for _, cond := range curr.Status.Conditions {
-		if cond.Type == appsv1.DeploymentAvailable {
-			if cond.Status == corev1.ConditionTrue {
-				ready()
-			} else {
-				notReady(cond.Reason, cond.Message)
-			}
-			return nil
+	componentLabelValue := "llminferenceservice-workload"
+	if spec.Worker != nil {
+		if spec.Template == nil {
+			// If there is no separate leader pod spec, send requests to the worker with index 0.
+			componentLabelValue = "llminferenceservice-workload-worker"
+			s["leaderworkerset.sigs.k8s.io/worker-index"] = "0"
+		} else {
+			componentLabelValue = "llminferenceservice-workload-leader"
 		}
 	}
-	logger.Info("Deployment processed")
-	notReady(string(appsv1.DeploymentProgressing), "")
-	return nil
-}
+	s["app.kubernetes.io/component"] = componentLabelValue
 
-func semanticDeploymentIsEqual(expected *appsv1.Deployment, curr *appsv1.Deployment) bool {
-	return equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
-		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
-		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)
+	return s
 }

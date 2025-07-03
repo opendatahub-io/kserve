@@ -141,6 +141,18 @@ rules:
   - patch
   - update
 - apiGroups:
+  - leaderworkerset.x-k8s.io
+  resources:
+  - leaderworkersets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - networking.istio.io
   resources:
   - virtualservices
