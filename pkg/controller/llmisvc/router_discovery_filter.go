@@ -20,6 +20,8 @@ import (
 	"net"
 	"strings"
 
+	"knative.dev/pkg/network"
+
 	"knative.dev/pkg/apis"
 )
 
@@ -76,6 +78,12 @@ func isInternalIP(addr string) bool {
 func isInternalHostname(hostname string) bool {
 	hostname = strings.ToLower(hostname)
 
-	return hostname == "localhost" || strings.HasSuffix(hostname, ".local") ||
-		strings.HasSuffix(hostname, ".localhost") || strings.HasSuffix(hostname, ".internal")
+	localSuffixes := []string{network.GetClusterDomainName(), ".local", ".localhost", ".internal"}
+	for _, localSuffix := range localSuffixes {
+		if strings.HasSuffix(hostname, localSuffix) {
+			return true
+		}
+	}
+
+	return hostname == "localhost"
 }
