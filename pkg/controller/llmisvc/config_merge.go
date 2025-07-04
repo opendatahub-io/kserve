@@ -169,12 +169,6 @@ func ReplaceVariables(llmSvc *v1alpha1.LLMInferenceService, llmSvcCfg *v1alpha1.
 	t, err := template.New("config").
 		Funcs(map[string]any{
 			"ChildName": kmeta.ChildName,
-			"Default": func(val, def interface{}) interface{} {
-				if val == nil {
-					return def
-				}
-				return val
-			},
 		}).
 		Option("missingkey=error").
 		Parse(string(templateBytes))
