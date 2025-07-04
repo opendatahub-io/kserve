@@ -47,8 +47,8 @@ GATEWAY_API_EXT_VERSION="v0.3.0"
 
 # To generate istio-base.yaml and istiod.yaml, you can use the following commands:
 #   ISTIO_HUB="gcr.io/istio-testing"
-#   ISTIO_HUB_VERSION="1.26-alpha.9befed2f1439d883120f8de70fd70d84ca0ebc3d"
-#   helm template istio-base oci://$ISTIO_HUB/charts/base --version $ISTIO_HUB_VERSION --set tag=$ISTIO_HUB_VERSION --set hub=$ISTIO_HUB --set namespace=istio-system > istio-base.yaml
+#   ISTIO_HUB_VERSION="1.27-alpha.0551127f00634403cddd4634567e65a8ecc499a7"
+#   helm template istio-base oci://$ISTIO_HUB/charts/base --version $ISTIO_HUB_VERSION --set tag=$ISTIO_HUB_VERSION --set hub=$ISTIO_HUB --set namespace=istio-system > istio_base.yaml
 #   helm template istiod oci://$ISTIO_HUB/charts/istiod --version $ISTIO_HUB_VERSION --set tag=$ISTIO_HUB_VERSION --set hub=$ISTIO_HUB --namespace=istio-system > istiod.yaml
 
 if [[ $NETWORK_LAYER == "istio-gatewayapi-ext" ]]; then
