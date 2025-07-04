@@ -19,7 +19,7 @@ spec:
         args:
           - |-
 
-            START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ Default .Spec.Parallelism.DataLocal 1 }} ))
+            START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or .Spec.Parallelism.DataLocal 1 }} ))
             if [ "${LWS_WORKER_INDEX:-0}" -eq 0 ]; then
               #################
               # Leader-only launch
@@ -31,8 +31,8 @@ spec:
                 --disable-log-requests \
                 {{- if .Spec.Parallelism.Expert -}}--enable-expert-parallel \{{- end }}
                 {{- if .Spec.Parallelism.Tensor -}}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }} \{{- end }}
-                --data-parallel-size {{ Default .Spec.Parallelism.Data 1 }} \
-                --data-parallel-size-local {{ Default .Spec.Parallelism.DataLocal 1 }} \
+                --data-parallel-size {{ or .Spec.Parallelism.Data 1 }} \
+                --data-parallel-size-local {{ or .Spec.Parallelism.DataLocal 1 }} \
                 --data-parallel-address $(LWS_LEADER_ADDRESS) \
                 --data-parallel-rpc-port {{ if .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
                 --data-parallel-start-rank $START_RANK \
@@ -47,8 +47,8 @@ spec:
                 --disable-log-requests \
                 {{- if .Spec.Parallelism.Expert }}--enable-expert-parallel \{{- end }}
                 {{- if .Spec.Parallelism.Tensor }}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }} \{{- end }}
-                --data-parallel-size {{ Default .Spec.Parallelism.Data 1 }} \
-                --data-parallel-size-local {{ Default .Spec.Parallelism.DataLocal 1 }} \
+                --data-parallel-size {{ or .Spec.Parallelism.Data 1 }} \
+                --data-parallel-size-local {{ or .Spec.Parallelism.DataLocal 1 }} \
                 --data-parallel-address $(LWS_LEADER_ADDRESS) \
                 --data-parallel-rpc-port {{ if .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
                 --data-parallel-start-rank $START_RANK \
