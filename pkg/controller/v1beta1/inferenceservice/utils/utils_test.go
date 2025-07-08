@@ -1000,12 +1000,18 @@ func TestGetServingRuntime(t *testing.T) {
 			if !g.Expect(res).To(gomega.Equal(&scenario.expected)) {
 				t.Errorf("got %v, want %v", res, &scenario.expected)
 			}
+			// Check if the returned runtime is a cluster serving runtime
+			if name == "ClusterServingRuntime" {
+				g.Expect(isClusterServingRuntime).To(gomega.BeTrue())
+			} else {
+				g.Expect(isClusterServingRuntime).To(gomega.BeFalse())
+			}
 		})
 	}
 
 	// Check invalid case
 	t.Run("InvalidServingRuntime", func(t *testing.T) {
-		res, err := GetServingRuntime(context.Background(), mockClient, "foo", namespace)
+		res, err, _ := GetServingRuntime(t.Context(), mockClient, "foo", namespace)
 		if !g.Expect(res).To(gomega.BeNil()) {
 			t.Errorf("got %v, want %v", res, nil)
 		}
