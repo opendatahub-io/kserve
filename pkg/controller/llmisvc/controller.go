@@ -153,7 +153,7 @@ func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v
 	ctx = log.IntoContext(ctx, logger)
 
 	// TODO(ctrl): add watch on CfgMap with predicate and cache tuning to trigger reconcile when it changes
-	config, configErr := r.loadConfig(ctx)
+	config, configErr := LoadConfig(ctx, r.Clientset)
 	if configErr != nil {
 		return fmt.Errorf("failed to load ingress config: %w", configErr)
 	}
@@ -201,8 +201,8 @@ func (r *LLMInferenceServiceReconciler) updateStatus(ctx context.Context, desire
 	})
 }
 
-func (r *LLMInferenceServiceReconciler) loadConfig(ctx context.Context) (*Config, error) {
-	isvcConfigMap, errCfgMap := v1beta1.GetInferenceServiceConfigMap(ctx, r.Clientset) // Fetch directly from API Server
+func LoadConfig(ctx context.Context, clientset kubernetes.Interface) (*Config, error) {
+	isvcConfigMap, errCfgMap := v1beta1.GetInferenceServiceConfigMap(ctx, clientset) // Fetch directly from API Server
 	if errCfgMap != nil {
 		return nil, fmt.Errorf("failed to load InferenceServiceConfigMap: %w", errCfgMap)
 	}

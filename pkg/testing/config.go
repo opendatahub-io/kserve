@@ -18,9 +18,16 @@ package testing
 
 import (
 	"context"
+	"crypto/tls"
+	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
+
+	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
+
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	"google.golang.org/protobuf/proto"
 
@@ -39,8 +46,9 @@ import (
 )
 
 type Config struct {
-	ctrlSetupFuncs []SetupWithManagerFunc
-	envTestOptions []Option
+	ctrlSetupFuncs     []SetupFunc
+	webhooksSetupFuncs []SetupFunc
+	envTestOptions     []Option
 }
 
 // Client acts as a facade for setting up k8s envtest. It allows to wire controllers under tests through
@@ -77,8 +85,15 @@ func (c *Client) UsingExistingCluster() bool {
 }
 
 // WithControllers register controllers under tests required for the test suite.
-func (e *Config) WithControllers(setupFunc ...SetupWithManagerFunc) *Config {
+func (e *Config) WithControllers(setupFunc ...SetupFunc) *Config {
 	e.ctrlSetupFuncs = append(e.ctrlSetupFuncs, setupFunc...)
+
+	return e
+}
+
+// WithWebhookManifests register webhooks under tests required for the test suite.
+func (e *Config) WithWebhooks(setupFunc ...SetupFunc) *Config {
+	e.webhooksSetupFuncs = append(e.webhooksSetupFuncs, setupFunc...)
 
 	return e
 }
@@ -112,10 +127,24 @@ func (e *Config) Start(ctx context.Context) *Client {
 	gomega.Expect(errClient).NotTo(gomega.HaveOccurred())
 	gomega.Expect(cli).NotTo(gomega.BeNil())
 
-	mgr, errMgr := ctrl.NewManager(cfg, ctrl.Options{
-		Scheme:         envTest.Scheme,
+	mgrOptions := ctrl.Options{
+		Scheme: envTest.Scheme,
+		Metrics: metricsserver.Options{
+			BindAddress: "0",
+		},
 		LeaderElection: false,
-	})
+	}
+
+	if len(e.webhooksSetupFuncs) > 0 {
+		webhookOptions := webhook.Options{
+			Port:    envTest.WebhookInstallOptions.LocalServingPort,
+			Host:    envTest.WebhookInstallOptions.LocalServingHost,
+			CertDir: envTest.WebhookInstallOptions.LocalServingCertDir,
+		}
+		mgrOptions.WebhookServer = webhook.NewServer(webhookOptions)
+	}
+
+	mgr, errMgr := ctrl.NewManager(cfg, mgrOptions)
 	gomega.Expect(errMgr).NotTo(gomega.HaveOccurred())
 
 	for _, setupFunc := range e.ctrlSetupFuncs {
@@ -123,10 +152,29 @@ func (e *Config) Start(ctx context.Context) *Client {
 		gomega.Expect(errSetup).NotTo(gomega.HaveOccurred())
 	}
 
+	for _, webhookSetupFunc := range e.webhooksSetupFuncs {
+		errSetup := webhookSetupFunc(cfg, mgr)
+		gomega.Expect(errSetup).NotTo(gomega.HaveOccurred())
+	}
+
 	go func() {
 		defer ginkgo.GinkgoRecover()
 		gomega.Expect(mgr.Start(ctx)).To(gomega.Succeed(), "Failed to start manager")
 	}()
+
+	if len(e.webhooksSetupFuncs) > 0 {
+		// wait for the webhook server to get ready
+		dialer := &net.Dialer{Timeout: time.Second}
+		addrPort := fmt.Sprintf("%s:%d", envTest.WebhookInstallOptions.LocalServingHost, envTest.WebhookInstallOptions.LocalServingPort)
+		gomega.Eventually(func() error {
+			conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true}) //nolint:gosec //reason testing infra code.
+			if err != nil {
+				return err
+			}
+
+			return conn.Close()
+		}).Should(gomega.Succeed())
+	}
 
 	return &Client{
 		Client:      cli,
@@ -140,6 +188,13 @@ type Option func(target *envtest.Environment)
 func WithCRDs(paths ...string) Option {
 	return func(target *envtest.Environment) {
 		target.CRDInstallOptions.Paths = append(target.CRDInstallOptions.Paths, paths...)
+	}
+}
+
+// WithWebhookManifests adds CRDs to the test environment using paths.
+func WithWebhookManifests(paths ...string) Option {
+	return func(target *envtest.Environment) {
+		target.WebhookInstallOptions.Paths = append(target.WebhookInstallOptions.Paths, paths...)
 	}
 }
 

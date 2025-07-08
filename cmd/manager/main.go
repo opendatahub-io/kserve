@@ -22,6 +22,8 @@ import (
 	"net/http"
 	"os"
 
+	llmisvcwebhook "github.com/kserve/kserve/pkg/controller/llmisvc/webhook"
+
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	istio_networking "istio.io/api/networking/v1alpha3"
@@ -364,6 +366,14 @@ func main() {
 		WithValidator(&localmodelcache.LocalModelCacheValidator{Client: mgr.GetClient()}).
 		Complete(); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "localmodelcache")
+		os.Exit(1)
+	}
+
+	llmConfigValidator := &llmisvcwebhook.LLMInferenceServiceConfigValidator{
+		ClientSet: clientSet,
+	}
+	if err = llmConfigValidator.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "llminferenceserviceconfig")
 		os.Exit(1)
 	}
 

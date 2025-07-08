@@ -20,9 +20,8 @@ import (
 	"net"
 	"strings"
 
-	"knative.dev/pkg/network"
-
 	"knative.dev/pkg/apis"
+	"knative.dev/pkg/network"
 )
 
 type URLPredicateFn func(*apis.URL) bool
