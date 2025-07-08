@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The KServe Authors.
+Copyright 2025 The KServe Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,32 +14,33 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmisvc_test
+package webhook_test
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"k8s.io/client-go/kubernetes"
+
+	"github.com/kserve/kserve/pkg/controller/llmisvc/webhook"
+
 	"github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
 	"github.com/kserve/kserve/pkg/constants"
 
-	corev1 "k8s.io/api/core/v1"
-	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	pkgtest "github.com/kserve/kserve/pkg/testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
-func TestLLMInferenceServiceController(t *testing.T) {
+func TestWebhooks(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "LLMInferenceService Controller Suite")
 }
@@ -55,22 +56,21 @@ var _ = SynchronizedBeforeSuite(func() {
 	By("Setting up the test environment")
 	systemNs := constants.KServeNamespace
 
-	llmCtrlFunc := func(cfg *rest.Config, mgr ctrl.Manager) error {
-		eventBroadcaster := record.NewBroadcaster()
-		clientSet, err := kubernetes.NewForConfig(cfg)
-		Expect(err).NotTo(HaveOccurred())
-
-		llmCtrl := llmisvc.LLMInferenceServiceReconciler{
-			Client:    mgr.GetClient(),
-			Clientset: clientSet,
-			// TODO fix it to be set up similar to main.go, for now it's stub
-			EventRecorder: eventBroadcaster.NewRecorder(mgr.GetScheme(), corev1.EventSource{Component: "v1beta1Controllers"}),
-		}
-		return llmCtrl.SetupWithManager(mgr)
-	}
-
 	ctx, cancel := context.WithCancel(context.Background())
-	envTest = pkgtest.NewEnvTest().WithControllers(llmCtrlFunc).Start(ctx)
+	envTest = pkgtest.NewEnvTest(
+		pkgtest.WithWebhookManifests(filepath.Join(pkgtest.ProjectRoot(), "test", "webhooks")),
+	).
+		WithWebhooks(func(cfg *rest.Config, mgr ctrl.Manager) error {
+			clientSet, err := kubernetes.NewForConfig(cfg)
+			if err != nil {
+				return err
+			}
+			llmInferenceServiceConfigValidator := webhook.LLMInferenceServiceConfigValidator{
+				ClientSet: clientSet,
+			}
+			return llmInferenceServiceConfigValidator.SetupWithManager(mgr)
+		}).
+		Start(ctx)
 	DeferCleanup(func() {
 		cancel()
 		Expect(envTest.Stop()).To(Succeed())

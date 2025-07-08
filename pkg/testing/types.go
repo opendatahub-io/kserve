@@ -22,6 +22,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 )
 
-type SetupWithManagerFunc func(cfg *rest.Config, mgr ctrl.Manager) error
-
-type AddToSchemeFunc func(scheme *runtime.Scheme) error
+type (
+	SetupFunc       func(cfg *rest.Config, mgr ctrl.Manager) error
+	AddToSchemeFunc func(scheme *runtime.Scheme) error
+)

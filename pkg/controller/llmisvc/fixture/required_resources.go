@@ -45,8 +45,8 @@ func RequiredResources(ctx context.Context, c client.Client, ns string) {
 		},
 	})).To(gomega.Succeed())
 
-	SharedConfigPresets(ctx, c, ns)
 	InferenceServiceCfgMap(ctx, c, ns)
+	SharedConfigPresets(ctx, c, ns)
 
 	gwName := "kserve-ingress-gateway"
 	defaultGateway := Gateway(gwName,
