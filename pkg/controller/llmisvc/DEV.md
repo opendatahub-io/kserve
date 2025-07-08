@@ -70,10 +70,34 @@ EOF
 LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-facebook-opt-125m-cpu.yaml
 LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
 
-kubectl apply -n ${NS} -f $LLM_ISVC
+kubectl apply -n ${NS} -f ${LLM_ISVC}
+
+> [!IMPORTANT]
+> The **`DestinationRule`** is required because the scheduler expects secure **HTTPS** connections 
+> (by default using `secureServing: true` with a self-signed certificate), while the KServe Gateway defaults to sending plaintext **HTTP** to internal services.
+>
+> This mismatch causes a `Connection reset` error when Envoy tries to connect to `ext_proc`, resulting in 500 error.
+> The `mode: SIMPLE` flag forces the gateway to initiate an **HTTPS** connection, matching the scheduler's expectation.
+> The `insecureSkipVerify: true` flag allows the gateway to accept the scheduler's **self-signed certificate**, which it would otherwise reject as untrusted.
+
+kubectl apply -f - <<EOF
+apiVersion: networking.istio.io/v1
+kind: DestinationRule
+metadata:
+  name: skip-cert-verification-for-scheduler
+  namespace: ${NS}
+spec:
+  host: ${LLM_ISVC_NAME}-epp-service
+  trafficPolicy:
+    tls:
+      insecureSkipVerify: true
+      mode: SIMPLE
+EOF
+```
 
 #### Validation
 
+```shell
 LB_IP=$(kubectl get svc/kserve-ingress-gateway-istio -n kserve -o=jsonpath='{.status.loadBalancer.ingress[0].ip}')
 
 curl http://${LB_IP}/${NS}/${LLM_ISVC_NAME}/v1/completions  \
@@ -122,7 +146,6 @@ curl $(kubectl get llmisvc -n $NS -o=jsonpath='{.items[0].status.addresses[0].ur
         "prompt": "San Francisco is a"
     }' | jq
 ```
-
 > [!NOTE]
 > Actual address in KinD setup is considered local, hence the jsonpath above.
 
