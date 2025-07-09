@@ -36,6 +36,7 @@ import (
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/credentials"
 	"github.com/kserve/kserve/pkg/credentials/s3"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 const (
@@ -44,9 +45,7 @@ const (
 	StorageInitializerVolumeName            = "kserve-provision-location"
 	StorageInitializerContainerImage        = "kserve/storage-initializer"
 	StorageInitializerContainerImageVersion = "latest"
-	PvcURIPrefix                            = "pvc://"
 	OciURIPrefix                            = "oci://"
-	PvcSourceMountName                      = "kserve-pvc-source"
 	PvcSourceMountPath                      = "/mnt/pvc"
 	CaBundleVolumeName                      = "cabundle-cert"
 	ModelcarContainerName                   = "modelcar"
@@ -266,61 +265,23 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *corev1.Pod) 
 
 	// For PVC source URIs we need to mount the source to be able to access it
 	// See design and discussion here: https://github.com/kserve/kserve/issues/148
-	if strings.HasPrefix(srcURI, PvcURIPrefix) {
-		pvcName, pvcPath, err := parsePvcURI(srcURI)
-		if err != nil {
-			return err
-		}
-
-		// add the PVC volume on the pod
-		pvcSourceVolume := corev1.Volume{
-			Name: PvcSourceMountName,
-			VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-					ClaimName: pvcName,
-				},
-			},
-		}
-		podVolumes = append(podVolumes, pvcSourceVolume)
-
+	if strings.HasPrefix(srcURI, constants.PvcURIPrefix) {
 		// check if using direct volume mount to mount the pvc
 		// if yes, mount the pvc to model local mount path and return
 		if mi.config.EnableDirectPvcVolumeMount {
-			// add a corresponding pvc volume mount to the userContainer
-			// pvc will be mount to /mnt/models rather than /mnt/pvc
-			// pvcPath will be injected via SubPath, pvcPath must be a root or Dir
-			// it is user responsibility to ensure it is a root or Dir
-			pvcSourceVolumeMount := corev1.VolumeMount{
-				Name:      PvcSourceMountName,
-				MountPath: constants.DefaultModelLocalMountPath,
-				// only path to volume's root ("") or folder is supported
-				SubPath:  pvcPath,
-				ReadOnly: isvcReadonlyStringFlag,
+			// add a corresponding pvc volume mount to the userContainer and transformerContainer.
+			// Pvc will be mount to /mnt/models rather than /mnt/pvc.
+			// PvcPath will be injected via SubPath, pvcPath must be a root or Dir.
+			// It is user responsibility to ensure it is a root or Dir
+			if mountErr := utils.AddModelPvcMount(srcURI, userContainer.Name, isvcReadonlyStringFlag, &pod.Spec); mountErr != nil {
+				return mountErr
 			}
-
-			// Check if PVC source URIs is already mounted
-			// this may occur when mutator is triggered more than once
-			if userContainer.VolumeMounts != nil {
-				for _, volumeMount := range userContainer.VolumeMounts {
-					if strings.Compare(volumeMount.Name, PvcSourceMountName) == 0 {
-						return nil
-					}
-				}
-			}
-
-			userContainer.VolumeMounts = append(userContainer.VolumeMounts, pvcSourceVolumeMount)
 			if transformerContainer != nil {
-				// Check if PVC source URIs is already mounted
-				if transformerContainer.VolumeMounts != nil {
-					for _, volumeMount := range transformerContainer.VolumeMounts {
-						if strings.Compare(volumeMount.Name, PvcSourceMountName) == 0 {
-							return nil
-						}
-					}
+				if mountErr := utils.AddModelPvcMount(srcURI, transformerContainer.Name, isvcReadonlyStringFlag, &pod.Spec); mountErr != nil {
+					return mountErr
 				}
-
-				transformerContainer.VolumeMounts = append(transformerContainer.VolumeMounts, pvcSourceVolumeMount)
 			}
+
 			// change the CustomSpecStorageUri env variable value
 			// to the default model path if present
 			for index, envVar := range userContainer.Env {
@@ -329,17 +290,31 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *corev1.Pod) 
 				}
 			}
 
-			// add volumes to the PodSpec
-			pod.Spec.Volumes = append(pod.Spec.Volumes, podVolumes...)
-
 			// not inject the storage initializer
 			return nil
 		}
 
+		// It follows logic for PVC as model storage, using storage-initializer
+		pvcName, pvcPath, err := utils.ParsePvcURI(srcURI)
+		if err != nil {
+			return err
+		}
+
+		// add the PVC volume on the pod
+		pvcSourceVolume := corev1.Volume{
+			Name: constants.PvcSourceMountName,
+			VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+					ClaimName: pvcName,
+				},
+			},
+		}
+		podVolumes = append(podVolumes, pvcSourceVolume)
+
 		// below use storage initializer to handle the pvc
 		// add a corresponding PVC volume mount to the INIT container
 		pvcSourceVolumeMount := corev1.VolumeMount{
-			Name:      PvcSourceMountName,
+			Name:      constants.PvcSourceMountName,
 			MountPath: PvcSourceMountPath,
 			ReadOnly:  isvcReadonlyStringFlag,
 		}
@@ -840,22 +815,6 @@ func mergeContainerSpecs(defaultContainer *corev1.Container, crdContainer *corev
 	}
 
 	return &mergedContainer, nil
-}
-
-func parsePvcURI(srcURI string) (pvcName string, pvcPath string, err error) {
-	parts := strings.Split(strings.TrimPrefix(srcURI, PvcURIPrefix), "/")
-	switch len(parts) {
-	case 0:
-		return "", "", fmt.Errorf("Invalid URI must be pvc://<pvcname>/[path]: %s", srcURI)
-	case 1:
-		pvcName = parts[0]
-		pvcPath = ""
-	default:
-		pvcName = parts[0]
-		pvcPath = strings.Join(parts[1:], "/")
-	}
-
-	return pvcName, pvcPath, nil
 }
 
 func needCaBundleMount(caBundleConfigMapName string, initContainer *corev1.Container) bool {

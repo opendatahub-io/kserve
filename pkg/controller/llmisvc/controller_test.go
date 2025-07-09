@@ -24,8 +24,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
@@ -37,6 +35,9 @@ import (
 	"knative.dev/pkg/apis"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/constants"
 
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	. "github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
@@ -392,6 +393,74 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					},
 				),
 			)
+		})
+	})
+
+	Context("Storage configuration", func() {
+		It("should configure direct PVC mount when model uri starts with pvc://", func(ctx SpecContext) {
+			// given
+			svcName := "test-llm"
+			nsName := kmeta.ChildName(svcName, "-test")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nsName,
+				},
+			}
+			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			defer func() {
+				envTest.DeleteAll(namespace)
+			}()
+
+			pvcNameAndPath := "facebook-models/opt-125m"
+			modelURL, err := apis.ParseURL("pvc://" + pvcNameAndPath)
+			Expect(err).ToNot(HaveOccurred())
+
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      svcName,
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						Name: ptr.To("foo"),
+						URI:  *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{},
+					Router: &v1alpha1.RouterSpec{
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
+					},
+				},
+			}
+
+			// when
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+			}()
+
+			// then
+			expectedDeployment := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve",
+					Namespace: nsName,
+				}, expectedDeployment)
+			}).WithContext(ctx).Should(Succeed())
+
+			Expect(expectedDeployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement(constants.DefaultModelLocalMountPath))
+			Expect(expectedDeployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
+				HaveField("Name", constants.PvcSourceMountName),
+				HaveField("VolumeSource.PersistentVolumeClaim.ClaimName", "facebook-models"),
+			)))
+
+			Expect(expectedDeployment.Spec.Template.Spec.Containers[0].VolumeMounts).To(ContainElement(And(
+				HaveField("Name", constants.PvcSourceMountName),
+				HaveField("MountPath", constants.DefaultModelLocalMountPath),
+				HaveField("ReadOnly", BeTrue()),
+				HaveField("SubPath", "opt-125m"),
+			)))
 		})
 	})
 })

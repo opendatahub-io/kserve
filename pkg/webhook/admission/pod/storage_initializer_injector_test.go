@@ -36,6 +36,7 @@ import (
 	"github.com/kserve/kserve/pkg/credentials"
 	"github.com/kserve/kserve/pkg/credentials/gcs"
 	"github.com/kserve/kserve/pkg/credentials/s3"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 const (
@@ -1352,7 +1353,7 @@ func TestParsePvcURI(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			pvcName, pvcPath, err := parsePvcURI(tc.uri)
+			pvcName, pvcPath, err := utils.ParsePvcURI(tc.uri)
 			g.Expect(pvcName).Should(tc.matchers[0])
 			g.Expect(pvcPath).Should(tc.matchers[1])
 			g.Expect(err).Should(tc.matchers[2])
