@@ -42,6 +42,8 @@ var (
 
 	LLMInferenceServiceGVK = SchemeGroupVersion.WithKind("LLMInferenceService")
 
+	LLMInferenceServiceConfigGVK = SchemeGroupVersion.WithKind("LLMInferenceServiceConfig")
+
 	// AddToScheme is required by pkg/client/...
 	AddToScheme = SchemeBuilder.AddToScheme
 )

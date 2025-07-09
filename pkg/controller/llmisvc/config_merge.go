@@ -52,15 +52,19 @@ const (
 	configRouterRouteName                   = configPrefix + "config-llm-router-route"
 )
 
-var WellKnownDefaultConfigs = sets.NewString(
-	configTemplateName,
-	configDecodeTemplateName,
+// FIXME move those presets to well-known when they're finally known :)
+var _ = sets.New[string](
+	configPrefillWorkerPipelineParallelName,
 	configDecodeWorkerPipelineParallelName,
 	configWorkerPipelineParallelName,
+)
+
+var WellKnownDefaultConfigs = sets.New[string](
+	configTemplateName,
+	configDecodeTemplateName,
 	configWorkerDataParallelName,
 	configDecodeWorkerDataParallelName,
 	configPrefillTemplateName,
-	configPrefillWorkerPipelineParallelName,
 	configPrefillWorkerDataParallelName,
 	configRouterSchedulerName,
 	configRouterRouteName,
