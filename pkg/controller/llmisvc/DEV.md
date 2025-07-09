@@ -5,17 +5,45 @@
 > [!IMPORTANT]
 > If you are using quay.io make sure to change kserve binary img repos visibility to public!
 
+##### Using `kind`
+
 ```shell
 kind create cluster -n "kserve-llm-d"
 
 go install sigs.k8s.io/cloud-provider-kind@latest
 
 cloud-provider-kind> /dev/null 2>&1 &
+```
 
+##### Using `minikube`
+
+```shell
+minikube start --cpus='12' --memory='16G'
+minikube addons enable metallb
+
+# You need to configure metallb with an IP range. This depends on the minikube network.
+# You can find your current minikube ip with:
+# $ minikube ip
+#   192.168.39.118
+#
+# With the previous sample output, you would configure metallb with a range not including
+# the minikube IP (change only the last entry). E.g:
+minikube addons configure metallb
+# Minikube will ask two prompts. Notice the configured range 192.168.39.200-192.168.39.235 is
+# not including minikube IP:
+# -- Enter Load Balancer Start IP: 192.168.39.200
+# -- Enter Load Balancer End IP: 192.168.39.235
+```
+
+#### Install KServe (dev) in the created cluster
+
+```shell
 make deploy-dev-llm -e KO_DOCKER_REPO=<YOUR_REPO>
+```
 
 #### Creating simple CPU model
 
+```shell
 NS=llm-test
 kubectl create namespace ${NS} || true
 
