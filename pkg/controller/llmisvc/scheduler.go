@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"sort"
 
 	"k8s.io/utils/ptr"
 
@@ -196,7 +197,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerService(ctx context.Con
 
 		if len(desiredPorts) != len(actualPorts) {
 			// TODO should this be raised as failing condition? + check if grpc port matches what's defined in the inferencepool
-			logger.Info("some ports are not matching. desired: %+v, actual: %+v", desiredPorts, maps.Keys(actualPorts))
+			logger.Info("some ports are not matching", "desired", desiredPorts, "actual", maps.Keys(actualPorts))
 		}
 
 		var servicePorts []corev1.ServicePort
@@ -208,6 +209,10 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerService(ctx context.Con
 				Protocol:   port.Protocol,
 			})
 		}
+
+		sort.Slice(servicePorts, func(i, j int) bool {
+			return servicePorts[i].Name < servicePorts[j].Name
+		})
 
 		svc.Spec.Ports = servicePorts
 	}
