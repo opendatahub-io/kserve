@@ -60,14 +60,6 @@ type Client struct {
 	*Cleaner
 }
 
-func (c *Client) DeleteAll(objects ...client.Object) {
-	if c.Cleaner == nil {
-		c.Cleaner = CreateCleaner(c.Client, c.Config, 10*time.Second, 250*time.Millisecond)
-	}
-
-	c.Cleaner.DeleteAll(objects...)
-}
-
 // Configure creates a new configuration for the Kubernetes EnvTest.
 func Configure(options ...Option) *Config {
 	return &Config{
@@ -178,6 +170,7 @@ func (e *Config) Start(ctx context.Context) *Client {
 
 	return &Client{
 		Client:      cli,
+		Cleaner:     CreateCleaner(cli, cfg, 10*time.Second, 250*time.Millisecond),
 		Environment: envTest,
 	}
 }
