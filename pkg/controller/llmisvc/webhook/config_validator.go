@@ -74,7 +74,7 @@ func (l *LLMInferenceServiceConfigValidator) ValidateUpdate(ctx context.Context,
 
 	warnings := admission.Warnings{}
 	if llmisvc.WellKnownDefaultConfigs.Has(oldConfig.Name) && !equality.Semantic.DeepDerivative(oldConfig.Spec, newConfig.Spec) {
-		warning := fmt.Sprintf("updating well-known config %s/%s may have undesired consequences", oldConfig.Namespace, oldConfig.Name)
+		warning := fmt.Sprintf("modifying well-known config %s/%s is not recommended. Consider creating a custom config instead", oldConfig.Namespace, oldConfig.Name)
 		logger.Info(warning)
 		warnings = append(warnings, warning)
 	}
@@ -91,7 +91,7 @@ func (l *LLMInferenceServiceConfigValidator) ValidateDelete(ctx context.Context,
 
 	warnings := admission.Warnings{}
 	if llmisvc.WellKnownDefaultConfigs.Has(config.Name) {
-		warning := fmt.Sprintf("deleting well-known config %s/%s may have undesired consequences", config.Namespace, config.Name)
+		warning := fmt.Sprintf("deleting well-known config %s/%s is not recommended", config.Namespace, config.Name)
 		logger.Info(warning)
 		warnings = append(warnings, warning)
 	}
