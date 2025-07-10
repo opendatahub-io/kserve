@@ -70,7 +70,7 @@ func Delete[O client.Object, T client.Object](ctx context.Context, c clientWithR
 func Reconcile[O client.Object, T client.Object](ctx context.Context, c clientWithRecorder, owner O, empty, expected T, isEqual SemanticEqual[T]) error {
 	typeLogLine := logLineForObject(expected)
 
-	curr := empty
+	curr := empty.DeepCopyObject().(T)
 	if err := c.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil {
 		if client.IgnoreNotFound(err) != nil {
 			return fmt.Errorf("failed to get %s %s/%s: %w", typeLogLine, expected.GetNamespace(), expected.GetName(), err)

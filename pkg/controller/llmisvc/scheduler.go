@@ -29,11 +29,9 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"knative.dev/pkg/kmeta"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 
@@ -41,14 +39,7 @@ import (
 )
 
 func (r *LLMInferenceServiceReconciler) reconcileScheduler(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	serviceAccount, err := r.reconcileSchedulerServiceAccount(ctx, llmSvc)
-	if err != nil {
-		return err
-	}
-	if err := r.reconcileSchedulerRole(ctx, llmSvc); err != nil {
-		return err
-	}
-	if err := r.reconcileSchedulerRoleBinding(ctx, llmSvc, serviceAccount); err != nil {
+	if err := r.reconcileSchedulerServiceAccount(ctx, llmSvc); err != nil {
 		return err
 	}
 	if err := r.reconcileSchedulerInferenceModel(ctx, llmSvc); err != nil {
@@ -67,51 +58,45 @@ func (r *LLMInferenceServiceReconciler) reconcileScheduler(ctx context.Context, 
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerRole(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	expected := r.expectedSchedulerRole(llmSvc)
+	role := r.expectedSchedulerRole(llmSvc)
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
-		return Delete(ctx, r, llmSvc, expected)
+		return Delete(ctx, r, llmSvc, role)
 	}
-	curr := &rbacv1.Role{}
-	err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
-	if err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("failed to get role %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+	if err := Reconcile(ctx, r, llmSvc, &rbacv1.Role{}, role, semanticRoleIsEqual); err != nil {
+		return fmt.Errorf("failed to reconcile scheduler deployment %s/%s: %w", role.GetNamespace(), role.GetName(), err)
 	}
-	if apierrors.IsNotFound(err) {
-		return Create(ctx, r, llmSvc, expected)
-	}
-	return Update(ctx, r, llmSvc, curr, expected, semanticRoleIsEqual)
+
+	return nil
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerRoleBinding(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, sa *corev1.ServiceAccount) error {
-	expected := r.expectedSchedulerRoleBinding(llmSvc, sa)
+	roleBinding := r.expectedSchedulerRoleBinding(llmSvc, sa)
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
-		return Delete(ctx, r, llmSvc, expected)
+		return Delete(ctx, r, llmSvc, roleBinding)
 	}
-	curr := &rbacv1.RoleBinding{}
-	err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
-	if err != nil && !apierrors.IsNotFound(err) {
-		return fmt.Errorf("failed to get role %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+
+	if err := Reconcile(ctx, r, llmSvc, &rbacv1.RoleBinding{}, roleBinding, semanticRoleBindingIsEqual); err != nil {
+		return fmt.Errorf("failed to reconcile scheduler deployment %s/%s: %w", roleBinding.GetNamespace(), roleBinding.GetName(), err)
 	}
-	if apierrors.IsNotFound(err) {
-		return Create(ctx, r, llmSvc, expected)
-	}
-	return Update(ctx, r, llmSvc, curr, expected, semanticRoleBindingIsEqual)
+
+	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileSchedulerServiceAccount(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*corev1.ServiceAccount, error) {
-	expected := r.expectedSchedulerServiceAccount(llmSvc)
+func (r *LLMInferenceServiceReconciler) reconcileSchedulerServiceAccount(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	serviceAccount := r.expectedSchedulerServiceAccount(llmSvc)
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
-		return expected, Delete(ctx, r, llmSvc, expected)
+		return Delete(ctx, r, llmSvc, serviceAccount)
 	}
-	curr := &corev1.ServiceAccount{}
-	err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr)
-	if err != nil && !apierrors.IsNotFound(err) {
-		return expected, fmt.Errorf("failed to get service account %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+
+	if err := Reconcile(ctx, r, llmSvc, &corev1.ServiceAccount{}, serviceAccount, semanticServiceAccountIsEqual); err != nil {
+		return fmt.Errorf("failed to reconcile scheduler deployment %s/%s: %w", serviceAccount.GetNamespace(), serviceAccount.GetName(), err)
 	}
-	if apierrors.IsNotFound(err) {
-		return expected, Create(ctx, r, llmSvc, expected)
+
+	if err := r.reconcileSchedulerRole(ctx, llmSvc); err != nil {
+		return err
 	}
-	return expected, Update(ctx, r, llmSvc, curr, expected, semanticServiceAccountIsEqual)
+
+	return r.reconcileSchedulerRoleBinding(ctx, llmSvc, serviceAccount)
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
