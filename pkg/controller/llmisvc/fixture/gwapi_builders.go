@@ -48,7 +48,7 @@ func Gateway(name string, opts ...GatewayOption) *gatewayapiv1.Gateway {
 	return gw
 }
 
-func InNamespace[T client.Object](namespace string) func(T) {
+func InNamespace[T metav1.Object](namespace string) func(T) {
 	return func(t T) {
 		t.SetNamespace(namespace)
 	}
@@ -76,6 +76,7 @@ func WithListener(protocol gatewayapiv1.ProtocolType) GatewayOption {
 			port = 443
 		}
 		listener := gatewayapiv1.Listener{
+			Name:     gatewayapiv1.SectionName("listener"),
 			Protocol: protocol,
 			Port:     port,
 		}
@@ -207,11 +208,9 @@ func GatewayRef(name string, opts ...ParentRefOption) gatewayapiv1.ParentReferen
 		Group: ptr.To(gatewayapiv1.Group("gateway.networking.k8s.io")),
 		Kind:  ptr.To(gatewayapiv1.Kind("Gateway")),
 	}
-
 	for _, opt := range opts {
 		opt(&ref)
 	}
-
 	return ref
 }
 
@@ -257,23 +256,64 @@ func WithHTTPRouteRule(rule gatewayapiv1.HTTPRouteRule) HTTPRouteOption {
 	}
 }
 
-func BuildHTTPRouteSpec(opts ...HTTPRouteOption) *gatewayapiv1.HTTPRouteSpec {
-	route := HTTPRoute("temp", opts...)
-	return &route.Spec
+func HTTPRouteRule(opts ...HTTPRouteRuleOption) gatewayapiv1.HTTPRouteRule {
+	rule := gatewayapiv1.HTTPRouteRule{
+		Matches:     []gatewayapiv1.HTTPRouteMatch{},
+		BackendRefs: []gatewayapiv1.HTTPBackendRef{},
+	}
+
+	for _, opt := range opts {
+		opt(&rule)
+	}
+
+	return rule
 }
 
-func InferenceServiceRef(name string, port int32, weight int32) gatewayapiv1.HTTPBackendRef {
-	return gatewayapiv1.HTTPBackendRef{
-		BackendRef: gatewayapiv1.BackendRef{
-			BackendObjectReference: gatewayapiv1.BackendObjectReference{
-				Group: ptr.To(gatewayapiv1.Group("serving.kserve.io")),
-				Kind:  ptr.To(gatewayapiv1.Kind("InferenceService")),
-				Name:  gatewayapiv1.ObjectName(name),
-				Port:  ptr.To(gatewayapiv1.PortNumber(port)),
-			},
-			Weight: ptr.To(weight),
-		},
+func WithMatches(matches ...gatewayapiv1.HTTPRouteMatch) HTTPRouteRuleOption {
+	return func(rule *gatewayapiv1.HTTPRouteRule) {
+		rule.Matches = append(rule.Matches, matches...)
 	}
+}
+
+func WithBackendRefs(refs ...gatewayapiv1.HTTPBackendRef) HTTPRouteRuleOption {
+	return func(rule *gatewayapiv1.HTTPRouteRule) {
+		rule.BackendRefs = append(rule.BackendRefs, refs...)
+	}
+}
+
+func WithTimeouts(backendTimeout, requestTimeout string) HTTPRouteRuleOption {
+	return func(rule *gatewayapiv1.HTTPRouteRule) {
+		rule.Timeouts = &gatewayapiv1.HTTPRouteTimeouts{
+			BackendRequest: ptr.To(gatewayapiv1.Duration(backendTimeout)),
+			Request:        ptr.To(gatewayapiv1.Duration(requestTimeout)),
+		}
+	}
+}
+
+func WithFilters(filters ...gatewayapiv1.HTTPRouteFilter) HTTPRouteRuleOption {
+	return func(rule *gatewayapiv1.HTTPRouteRule) {
+		rule.Filters = append(rule.Filters, filters...)
+	}
+}
+
+func WithHTTPRule(ruleOpts ...HTTPRouteRuleOption) HTTPRouteOption {
+	return WithHTTPRouteRule(HTTPRouteRule(ruleOpts...))
+}
+
+func Matches(matches ...gatewayapiv1.HTTPRouteMatch) HTTPRouteRuleOption {
+	return WithMatches(matches...)
+}
+
+func BackendRefs(refs ...gatewayapiv1.HTTPBackendRef) HTTPRouteRuleOption {
+	return WithBackendRefs(refs...)
+}
+
+func Timeouts(backendTimeout, requestTimeout string) HTTPRouteRuleOption {
+	return WithTimeouts(backendTimeout, requestTimeout)
+}
+
+func Filters(filters ...gatewayapiv1.HTTPRouteFilter) HTTPRouteRuleOption {
+	return WithFilters(filters...)
 }
 
 func PathPrefixMatch(path string) gatewayapiv1.HTTPRouteMatch {
@@ -285,10 +325,23 @@ func PathPrefixMatch(path string) gatewayapiv1.HTTPRouteMatch {
 	}
 }
 
+func ServiceRef(name string, port int32, weight int32) gatewayapiv1.HTTPBackendRef {
+	return gatewayapiv1.HTTPBackendRef{
+		BackendRef: gatewayapiv1.BackendRef{
+			BackendObjectReference: gatewayapiv1.BackendObjectReference{
+				Kind: ptr.To(gatewayapiv1.Kind("Service")),
+				Name: gatewayapiv1.ObjectName(name),
+				Port: ptr.To(gatewayapiv1.PortNumber(port)),
+			},
+			Weight: ptr.To(weight),
+		},
+	}
+}
+
 func HTTPRouteRuleWithBackendAndTimeouts(backendName string, backendPort int32, path string, backendTimeout, requestTimeout string) gatewayapiv1.HTTPRouteRule {
 	return gatewayapiv1.HTTPRouteRule{
 		BackendRefs: []gatewayapiv1.HTTPBackendRef{
-			InferenceServiceRef(backendName, backendPort, 1),
+			ServiceRef(backendName, backendPort, 1),
 		},
 		Matches: []gatewayapiv1.HTTPRouteMatch{
 			PathPrefixMatch(path),
