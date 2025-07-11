@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
 - ../../../runtimes
 - ../../../storagecontainers
+- ../../../llmisvc
 
 
 images:
