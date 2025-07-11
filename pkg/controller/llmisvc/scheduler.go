@@ -63,7 +63,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerRole(ctx context.Conte
 		return Delete(ctx, r, llmSvc, role)
 	}
 	if err := Reconcile(ctx, r, llmSvc, &rbacv1.Role{}, role, semanticRoleIsEqual); err != nil {
-		return fmt.Errorf("failed to reconcile scheduler deployment %s/%s: %w", role.GetNamespace(), role.GetName(), err)
+		return fmt.Errorf("failed to reconcile scheduler role %s/%s: %w", role.GetNamespace(), role.GetName(), err)
 	}
 
 	return nil
@@ -76,7 +76,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerRoleBinding(ctx contex
 	}
 
 	if err := Reconcile(ctx, r, llmSvc, &rbacv1.RoleBinding{}, roleBinding, semanticRoleBindingIsEqual); err != nil {
-		return fmt.Errorf("failed to reconcile scheduler deployment %s/%s: %w", roleBinding.GetNamespace(), roleBinding.GetName(), err)
+		return fmt.Errorf("failed to reconcile scheduler rolebinding %s/%s: %w", roleBinding.GetNamespace(), roleBinding.GetName(), err)
 	}
 
 	return nil
@@ -89,7 +89,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerServiceAccount(ctx con
 	}
 
 	if err := Reconcile(ctx, r, llmSvc, &corev1.ServiceAccount{}, serviceAccount, semanticServiceAccountIsEqual); err != nil {
-		return fmt.Errorf("failed to reconcile scheduler deployment %s/%s: %w", serviceAccount.GetNamespace(), serviceAccount.GetName(), err)
+		return fmt.Errorf("failed to reconcile scheduler service account %s/%s: %w", serviceAccount.GetNamespace(), serviceAccount.GetName(), err)
 	}
 
 	if err := r.reconcileSchedulerRole(ctx, llmSvc); err != nil {
