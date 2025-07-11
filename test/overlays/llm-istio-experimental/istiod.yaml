@@ -3005,8 +3005,8 @@ spec:
             value: ""
           resources:
             requests:
-              cpu: 500m
-              memory: 2048Mi
+              cpu: 100m
+              memory: 200Mi
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

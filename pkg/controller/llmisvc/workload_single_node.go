@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -32,6 +33,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 func (r *LLMInferenceServiceReconciler) reconcileSingleNodeWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
@@ -99,6 +102,10 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx con
 		d.Spec.Template.Spec = *llmSvc.Spec.Template.DeepCopy()
 	}
 
+	if err := r.attachModelArtifacts(llmSvc, &d.Spec.Template.Spec); err != nil {
+		return nil, fmt.Errorf("failed to attach model artifacts to main deployment: %w", err)
+	}
+
 	log.FromContext(ctx).V(2).Info("Expected main deployment", "deployment", d)
 
 	return d, nil
@@ -157,6 +164,52 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 	log.FromContext(ctx).V(2).Info("Expected prefill deployment", "deployment", d)
 
 	return d
+}
+
+func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LLMInferenceService, podSpec *corev1.PodSpec) error {
+	modelUri := llmSvc.Spec.Model.URI.String()
+
+	// For PVC source URIs we need to mount the source to be able to access it
+	// See design and discussion here: https://github.com/kserve/kserve/issues/148
+	if strings.HasPrefix(modelUri, constants.PvcURIPrefix) {
+		return r.attachPVCModelArtifact(modelUri, podSpec)
+	} else {
+		// Backwards compatibility
+		// TODO: Evaluate if this is needed, because it essentially ignores the model URI.
+		for idx := range podSpec.Containers {
+			if podSpec.Containers[idx].Name == "main" {
+				podSpec.Containers[idx].Args = append(podSpec.Containers[idx].Args, *llmSvc.Spec.Model.Name)
+			}
+		}
+	}
+
+	return nil
+}
+
+// attachPVCModelArtifact mounts a model artifact from a PersistentVolumeClaim (PVC) to the specified PodSpec.
+// It adds the PVC as a volume and mounts it to the `main` container. The mount path is added to the arguments of the
+// `main` container, assuming the model server expects a positional argument indicating the location of the model (which is the case of vLLM)
+//
+// Parameters:
+//   - modelUri: The URI of the model, expected to have a PVC prefix.
+//   - podSpec: The PodSpec to which the PVC volume and mount should be attached.
+//
+// Returns:
+//
+//	An error if attaching the PVC model artifact fails, otherwise nil.
+//
+// TODO: For now, this supports only direct mount. Copying from PVC would come later (if it makes sense at all).
+func (r *LLMInferenceServiceReconciler) attachPVCModelArtifact(modelUri string, podSpec *corev1.PodSpec) error {
+	if err := utils.AddModelPvcMount(modelUri, "main", true, podSpec); err != nil {
+		return err
+	}
+	for idx := range podSpec.Containers {
+		if podSpec.Containers[idx].Name == "main" {
+			podSpec.Containers[idx].Args = append(podSpec.Containers[idx].Args, constants.DefaultModelLocalMountPath)
+		}
+	}
+
+	return nil
 }
 
 func (r *LLMInferenceServiceReconciler) propagateDeploymentStatus(ctx context.Context, expected *appsv1.Deployment, ready func(), notReady func(reason, messageFormat string, messageA ...interface{})) error {

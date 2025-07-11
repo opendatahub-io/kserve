@@ -153,6 +153,11 @@ var (
 	DefaultStorageSpecSecretPath = "/mnt/storage-secret" // #nosec G101
 )
 
+const (
+	PvcURIPrefix       = "pvc://"
+	PvcSourceMountName = "kserve-pvc-source"
+)
+
 // Controller Constants
 var (
 	ControllerLabelName                   = KServeName + "-controller-manager"
