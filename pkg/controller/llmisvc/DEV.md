@@ -12,27 +12,34 @@ kind create cluster -n "kserve-llm-d"
 
 go install sigs.k8s.io/cloud-provider-kind@latest
 
-cloud-provider-kind> /dev/null 2>&1 &
+cloud-provider-kind > /dev/null 2>&1 &
 ```
 
 ##### Using `minikube`
 
 ```shell
-minikube start --cpus='12' --memory='16G'
+minikube start --cpus='12' --memory='16G' --kubernetes-version=v1.33.1
 minikube addons enable metallb
 
-# You need to configure metallb with an IP range. This depends on the minikube network.
-# You can find your current minikube ip with:
-# $ minikube ip
-#   192.168.39.118
-#
-# With the previous sample output, you would configure metallb with a range not including
-# the minikube IP (change only the last entry). E.g:
-minikube addons configure metallb
-# Minikube will ask two prompts. Notice the configured range 192.168.39.200-192.168.39.235 is
-# not including minikube IP:
-# -- Enter Load Balancer Start IP: 192.168.39.200
-# -- Enter Load Balancer End IP: 192.168.39.235
+IP=$(minikube ip)
+PREFIX=${IP%.*}
+START=${PREFIX}.200
+END=${PREFIX}.235
+
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: metallb-system
+  name: config
+data:
+  config: |
+    address-pools:
+    - name: default
+      protocol: layer2
+      addresses:
+      - ${START}-${END}
+EOF
 ```
 
 #### Install KServe (dev) in the created cluster
@@ -41,39 +48,55 @@ minikube addons configure metallb
 make deploy-dev-llm -e KO_DOCKER_REPO=<YOUR_REPO>
 ```
 
-#### Creating simple CPU model
+#### Validation
+
+##### pytest
+
+Set up pytest
+```shell
+cd python/kserve 
+python -m venv .venv
+pip install -e .
+pip install pytest pytest-asyncio requests portforward Jinja2 pytest-xdist
+cd -
+```
+
+Run the test
+
+```shell
+./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice(type='cpu')" 1 "istio-gatewayapi-ext"
+
+Starting E2E functional tests ...
+No parallelism requested for pytest. Will use default value of 1
+pytest -m 'llminferenceservice(type='cpu')' --ignore=qpext --log-cli-level=INFO -n 1 --dist worksteal --network-layer istio-gatewayapi-ext
+===================================================================================== test session starts =====================================================================================
+platform linux -- Python 3.12.11, pytest-8.4.1, pluggy-1.6.0
+rootdir: /home/bartek/code/redhat/model-serving/kserve/kserve-test/test/e2e
+configfile: pytest.ini
+plugins: anyio-4.9.0, xdist-3.8.0, asyncio-1.1.0
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+1 worker [1 item]s / 1 error
+scheduling tests via WorkStealingScheduling
+
+llmisvc/test_llm_inference_service.py::test_llm_inference_service[managed-single-cpu-fb-opt-125m]
+[gw0] [100%] PASSED llmisvc/test_llm_inference_service.py::test_llm_inference_service[managed-single-cpu-fb-opt-125m]
+```
+> [!NOTE] 
+> Ignore error from ERROR collecting graph/test_inference_graph.py, but we should fix it!
+
+##### Manual
+
+Create LLMInferenceService, e.g.:
 
 ```shell
 NS=llm-test
 kubectl create namespace ${NS} || true
-
-kubectl apply -f - <<EOF
-apiVersion: gateway.networking.k8s.io/v1
-kind: Gateway
-metadata:
-  name: kserve-ingress-gateway
-  namespace: kserve
-spec:
-  gatewayClassName: istio
-  listeners:
-   - name: http
-     port: 80
-     protocol: HTTP
-     allowedRoutes:
-       namespaces:
-         from: All
-  infrastructure:
-    labels:
-      serving.kserve.io/gateway: kserve-ingress-gateway
-EOF
 
 LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-facebook-opt-125m-cpu.yaml
 LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
 
 kubectl apply -n ${NS} -f ${LLM_ISVC}
 ```
-
-#### Validation
 
 ```shell
 LB_IP=$(kubectl get svc/kserve-ingress-gateway-istio -n kserve -o=jsonpath='{.status.loadBalancer.ingress[0].ip}')
