@@ -371,6 +371,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	llmInferenceServiceValidator := &llmisvcwebhook.LLMInferenceServiceValidator{}
+	if err = llmInferenceServiceValidator.SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "llminferenceservice")
+		os.Exit(1)
+	}
+
 	if err := mgr.AddHealthzCheck("healthz", func(req *http.Request) error {
 		return mgr.GetWebhookServer().StartedChecker()(req)
 	}); err != nil {

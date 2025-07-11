@@ -68,7 +68,12 @@ var _ = SynchronizedBeforeSuite(func() {
 			llmInferenceServiceConfigValidator := webhook.LLMInferenceServiceConfigValidator{
 				ClientSet: clientSet,
 			}
-			return llmInferenceServiceConfigValidator.SetupWithManager(mgr)
+			if err := llmInferenceServiceConfigValidator.SetupWithManager(mgr); err != nil {
+				return err
+			}
+
+			llmInferenceServiceValidator := webhook.LLMInferenceServiceValidator{}
+			return llmInferenceServiceValidator.SetupWithManager(mgr)
 		}).
 		Start(ctx)
 	DeferCleanup(func() {
