@@ -16,6 +16,7 @@ rules:
   - ""
   resources:
   - events
+  - secrets
   - serviceaccounts
   - services
   verbs:
@@ -35,12 +36,6 @@ rules:
   - get
   - list
   - watch
-- apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
 - apiGroups:
   - admissionregistration.k8s.io
   resources:

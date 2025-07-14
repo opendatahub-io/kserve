@@ -34,6 +34,10 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 
 	defer llmSvc.DetermineWorkloadReadiness()
 
+	if err := r.reconcileSelfSignedCertsSecret(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to reconcile self-signed certificates secret: %w", err)
+	}
+
 	// We need to always reconcile every type of workload to handle transitions from P/D to another topology (meaning
 	// finalizing superfluous workloads).
 

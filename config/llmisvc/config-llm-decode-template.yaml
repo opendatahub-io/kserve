@@ -21,6 +21,11 @@ spec:
           - --port
           - "8001"
           - --disable-log-requests
+          - --enable-ssl-refresh
+          - --ssl-certfile
+          - /etc/ssl/certs/tls.crt
+          - --ssl-keyfile
+          - /etc/ssl/certs/tls.key
         env:
           - name: HOME
             value: /home
@@ -58,6 +63,9 @@ spec:
             name: dshm
           - mountPath: /models
             name: model-cache
+          - mountPath: /etc/ssl/certs
+            name: tls-certs
+            readOnly: true
     initContainers:
       - name: llm-d-routing-sidecar
         imagePullPolicy: IfNotPresent
@@ -73,6 +81,10 @@ spec:
         args:
           - "--port=8000"
           - "--vllm-port=8001"
+        volumeMounts:
+          - mountPath: /etc/ssl/certs
+            name: tls-certs
+            readOnly: true
     terminationGracePeriodSeconds: 30
     volumes:
       - emptyDir: { }
@@ -83,3 +95,6 @@ spec:
         name: dshm
       - emptyDir: { }
         name: model-cache
+      - name: tls-certs
+        secret:
+          secretName: "{{ ChildName .ObjectMeta.Name `-kserve-self-signed-certs` }}"
