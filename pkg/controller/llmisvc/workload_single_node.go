@@ -169,11 +169,19 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LLMInferenceService, podSpec *corev1.PodSpec) error {
 	modelUri := llmSvc.Spec.Model.URI.String()
 
-	// For PVC source URIs we need to mount the source to be able to access it
-	// See design and discussion here: https://github.com/kserve/kserve/issues/148
-	if strings.HasPrefix(modelUri, constants.PvcURIPrefix) {
+	switch {
+	case strings.HasPrefix(modelUri, constants.PvcURIPrefix):
 		return r.attachPVCModelArtifact(modelUri, podSpec)
-	} else {
+
+	case strings.HasPrefix(modelUri, constants.OciURIPrefix):
+		// Check of OCI is enabled
+		if !r.StorageConfig.EnableOciImageSource {
+			return errors.New("OCI modelcars is not enabled")
+		}
+
+		return r.attachOciModelArtifact(modelUri, podSpec)
+
+	default:
 		// Backwards compatibility
 		// TODO: Evaluate if this is needed, because it essentially ignores the model URI.
 		for idx := range podSpec.Containers {
@@ -181,6 +189,30 @@ func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LL
 				podSpec.Containers[idx].Args = append(podSpec.Containers[idx].Args, *llmSvc.Spec.Model.Name)
 			}
 		}
+	}
+
+	return nil
+}
+
+// attachOciModelArtifact configures a PodSpec to use a model stored in an OCI registry.
+// It updates the "main" container in the PodSpec to use the model from OCI image. The
+// required supporting volumes and volume mounts are added to the PodSpec.
+//
+// Parameters:
+//   - ctx: The context for API calls and logging.
+//   - modelUri: The URI of the model in the OCI registry.
+//   - podSpec: The PodSpec to which the OCI model should be attached.
+//
+// Returns:
+//
+//	An error if the configuration fails, otherwise nil.
+func (r *LLMInferenceServiceReconciler) attachOciModelArtifact(modelUri string, podSpec *corev1.PodSpec) error {
+	if err := utils.ConfigureModelcarToContainer(modelUri, podSpec, "main", r.StorageConfig); err != nil {
+		return err
+	}
+
+	if mainContainer := utils.GetContainerWithName(podSpec, "main"); mainContainer != nil {
+		mainContainer.Args = append(mainContainer.Args, constants.DefaultModelLocalMountPath)
 	}
 
 	return nil
@@ -203,10 +235,8 @@ func (r *LLMInferenceServiceReconciler) attachPVCModelArtifact(modelUri string, 
 	if err := utils.AddModelPvcMount(modelUri, "main", true, podSpec); err != nil {
 		return err
 	}
-	for idx := range podSpec.Containers {
-		if podSpec.Containers[idx].Name == "main" {
-			podSpec.Containers[idx].Args = append(podSpec.Containers[idx].Args, constants.DefaultModelLocalMountPath)
-		}
+	if mainContainer := utils.GetContainerWithName(podSpec, "main"); mainContainer != nil {
+		mainContainer.Args = append(mainContainer.Args, constants.DefaultModelLocalMountPath)
 	}
 
 	return nil

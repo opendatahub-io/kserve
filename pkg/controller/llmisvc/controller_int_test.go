@@ -38,6 +38,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/utils"
 
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	. "github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
@@ -411,8 +412,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				envTest.DeleteAll(namespace)
 			}()
 
-			pvcNameAndPath := "facebook-models/opt-125m"
-			modelURL, err := apis.ParseURL("pvc://" + pvcNameAndPath)
+			modelURL, err := apis.ParseURL("pvc://facebook-models/opt-125m")
 			Expect(err).ToNot(HaveOccurred())
 
 			llmSvc := &v1alpha1.LLMInferenceService{
@@ -449,17 +449,112 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				}, expectedDeployment)
 			}).WithContext(ctx).Should(Succeed())
 
-			Expect(expectedDeployment.Spec.Template.Spec.Containers[0].Args).To(ContainElement(constants.DefaultModelLocalMountPath))
+			mainContainer := utils.GetContainerWithName(&expectedDeployment.Spec.Template.Spec, "main")
+			Expect(mainContainer).ToNot(BeNil())
+
+			Expect(mainContainer.Args).To(ContainElement(constants.DefaultModelLocalMountPath))
 			Expect(expectedDeployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
 				HaveField("Name", constants.PvcSourceMountName),
 				HaveField("VolumeSource.PersistentVolumeClaim.ClaimName", "facebook-models"),
 			)))
 
-			Expect(expectedDeployment.Spec.Template.Spec.Containers[0].VolumeMounts).To(ContainElement(And(
+			Expect(mainContainer.VolumeMounts).To(ContainElement(And(
 				HaveField("Name", constants.PvcSourceMountName),
 				HaveField("MountPath", constants.DefaultModelLocalMountPath),
 				HaveField("ReadOnly", BeTrue()),
 				HaveField("SubPath", "opt-125m"),
+			)))
+		})
+
+		It("should configure a modelcar when model uri starts with oci://", func(ctx SpecContext) {
+			// given
+			svcName := "test-llm"
+			nsName := kmeta.ChildName(svcName, "-test")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nsName,
+				},
+			}
+			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			defer func() {
+				envTest.DeleteAll(namespace)
+			}()
+
+			modelURL, err := apis.ParseURL("oci://registry.io/user-id/repo-id:tag")
+			Expect(err).ToNot(HaveOccurred())
+
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      svcName,
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						Name: ptr.To("foo"),
+						URI:  *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{},
+					Router: &v1alpha1.RouterSpec{
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
+					},
+				},
+			}
+
+			// when
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+			}()
+
+			// then
+			expectedDeployment := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve",
+					Namespace: nsName,
+				}, expectedDeployment)
+			}).WithContext(ctx).Should(Succeed())
+
+			// Check the main container and modelcar container are present.
+			mainContainer := utils.GetContainerWithName(&expectedDeployment.Spec.Template.Spec, "main")
+			Expect(mainContainer).ToNot(BeNil())
+			modelcarContainer := utils.GetContainerWithName(&expectedDeployment.Spec.Template.Spec, constants.ModelcarContainerName)
+			Expect(modelcarContainer).ToNot(BeNil())
+
+			// Check container are sharing resources.
+			Expect(expectedDeployment.Spec.Template.Spec.ShareProcessNamespace).To(Not(BeNil()))
+			Expect(*expectedDeployment.Spec.Template.Spec.ShareProcessNamespace).To(BeTrue())
+
+			// Check the model server is directed to the mount point of the OCI container
+			Expect(mainContainer.Args).To(ContainElement(constants.DefaultModelLocalMountPath))
+
+			// Check the model server has an envvar indicating that the model may not be mounted immediately.
+			Expect(mainContainer.Env).To(ContainElement(And(
+				HaveField("Name", constants.ModelInitModeEnv),
+				HaveField("Value", "async"),
+			)))
+
+			// Check OCI init container for the pre-fetch
+			Expect(expectedDeployment.Spec.Template.Spec.InitContainers).To(ContainElement(And(
+				HaveField("Name", constants.ModelcarInitContainerName),
+				HaveField("Resources.Limits", And(HaveKey(corev1.ResourceCPU), HaveKey(corev1.ResourceMemory))),
+				HaveField("Resources.Requests", And(HaveKey(corev1.ResourceCPU), HaveKey(corev1.ResourceMemory))),
+			)))
+
+			// Basic check of empty dir volume is configured (shared mount between the containers)
+			Expect(expectedDeployment.Spec.Template.Spec.Volumes).To(ContainElement(HaveField("Name", constants.StorageInitializerVolumeName)))
+
+			// Check that the empty-dir volume is mounted to the modelcar and main container (shared storage)
+			Expect(mainContainer.VolumeMounts).To(ContainElement(And(
+				HaveField("Name", constants.StorageInitializerVolumeName),
+				HaveField("MountPath", "/mnt"),
+			)))
+			Expect(modelcarContainer.VolumeMounts).To(ContainElement(And(
+				HaveField("Name", constants.StorageInitializerVolumeName),
+				HaveField("MountPath", "/mnt"),
+				HaveField("ReadOnly", false),
 			)))
 		})
 	})

@@ -26,6 +26,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	kserveTypes "github.com/kserve/kserve/pkg/types"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 
@@ -92,6 +93,8 @@ type LLMInferenceServiceReconciler struct {
 	client.Client
 	record.EventRecorder
 	Clientset kubernetes.Interface
+
+	StorageConfig *kserveTypes.StorageInitializerConfig
 }
 
 //+kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;create;update;patch;delete
