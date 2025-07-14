@@ -201,11 +201,6 @@ type ExternalMetricSource struct {
 	// metric identifies the target metric by name and selector
 	Metric ExternalMetrics `json:"metric"`
 
-	// authenticationRef is a reference to the authentication information
-	// for more information see: https://keda.sh/docs/2.17/scalers/prometheus/#authentication-parameters
-	// +optional
-	AuthenticationRef ExtMetricAuth `json:"authenticationRef"`
-
 	// target specifies the target value for the given metric
 	Target MetricTarget `json:"target"`
 }
@@ -220,10 +215,6 @@ type PodMetricSource struct {
 
 	// target specifies the target value for the given metric
 	Target MetricTarget `json:"target"`
-}
-
-type ExtMetricAuth struct {
-	Name string `json:"name"`
 }
 
 // MetricTarget defines the target value, average value, or average utilization of a specific metric
@@ -277,9 +268,6 @@ type ExternalMetrics struct {
 	// For namespaced query
 	// +optional
 	Namespace string `json:"namespace,omitempty"`
-	// authModes defines the authentication modes for the metrics backend
-	// +optional
-	AuthModes string `json:"authModes,omitempty"`
 }
 
 type PodMetrics struct {
