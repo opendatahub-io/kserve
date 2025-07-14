@@ -108,9 +108,7 @@ func getKedaMetrics(componentExt *v1beta1.ComponentExtensionSpec, configMap *cor
 			case v1beta1.ExternalMetricSourceType:
 				triggerType := string(metric.External.Metric.Backend)
 				serverAddress := metric.External.Metric.ServerAddress
-				authModes := metric.External.Metric.AuthModes
 				query := metric.External.Metric.Query
-				authRef := metric.External.AuthenticationRef
 
 				trigger := kedav1alpha1.ScaleTriggers{
 					Type: triggerType,

@@ -326,7 +326,7 @@ func GetServingRuntime(ctx context.Context, cl client.Client, name string, names
 	// } else if !apierrors.IsNotFound(err) {
 	//	return nil, err
 	//}
-	return nil, goerrors.New("No ServingRuntimes with the name: " + name)
+	return nil, goerrors.New("No ServingRuntimes with the name: " + name), false
 }
 
 // ReplacePlaceholders Replace placeholders in runtime container by values from inferenceservice metadata
