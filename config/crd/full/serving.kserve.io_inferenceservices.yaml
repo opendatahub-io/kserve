@@ -1198,24 +1198,8 @@ spec:
                             properties:
                               external:
                                 properties:
-                                  authenticationRef:
-                                    properties:
-                                      authModes:
-                                        type: string
-                                      authenticationRef:
-                                        properties:
-                                          name:
-                                            type: string
-                                        required:
-                                          - name
-                                        type: object
-                                    required:
-                                      - authenticationRef
-                                    type: object
                                   metric:
                                     properties:
-                                      authModes:
-                                        type: string
                                       backend:
                                         enum:
                                           - prometheus
@@ -4371,24 +4355,8 @@ spec:
                             properties:
                               external:
                                 properties:
-                                  authenticationRef:
-                                    properties:
-                                      authModes:
-                                        type: string
-                                      authenticationRef:
-                                        properties:
-                                          name:
-                                            type: string
-                                        required:
-                                          - name
-                                        type: object
-                                    required:
-                                      - authenticationRef
-                                    type: object
                                   metric:
                                     properties:
-                                      authModes:
-                                        type: string
                                       backend:
                                         enum:
                                           - prometheus
@@ -18745,24 +18713,8 @@ spec:
                             properties:
                               external:
                                 properties:
-                                  authenticationRef:
-                                    properties:
-                                      authModes:
-                                        type: string
-                                      authenticationRef:
-                                        properties:
-                                          name:
-                                            type: string
-                                        required:
-                                          - name
-                                        type: object
-                                    required:
-                                      - authenticationRef
-                                    type: object
                                   metric:
                                     properties:
-                                      authModes:
-                                        type: string
                                       backend:
                                         enum:
                                           - prometheus
