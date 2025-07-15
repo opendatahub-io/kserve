@@ -3946,7 +3946,7 @@ files = [
 
 [[package]]
 name = "sklearnserver"
-version = "0.15.0"
+version = "0.15.2"
 description = "Model Server implementation for scikit-learn. Not intended for use outside KServe Frameworks Images."
 optional = false
 python-versions = ">=3.9,<3.13"
