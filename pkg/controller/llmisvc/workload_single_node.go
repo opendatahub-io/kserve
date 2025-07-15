@@ -38,8 +38,7 @@ import (
 )
 
 func (r *LLMInferenceServiceReconciler) reconcileSingleNodeWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	logger := log.FromContext(ctx).WithName("single-node-workload")
-	ctx = log.IntoContext(ctx, logger)
+	log.FromContext(ctx).Info("Reconciling single-node workload")
 
 	if err := r.reconcileSingleNodeMainWorkload(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to reconcile main workload: %w", err)

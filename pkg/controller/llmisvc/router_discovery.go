@@ -31,27 +31,54 @@ import (
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 )
 
-func DiscoverURLs(ctx context.Context, c client.Client, route *gatewayapi.HTTPRoute) ([]*apis.URL, error) {
-	var urls []*apis.URL
+type resolvedGateway struct {
+	gateway      *gatewayapi.Gateway
+	gatewayClass *gatewayapi.GatewayClass
+	parentRef    gatewayapi.ParentReference
+}
 
+func DiscoverGateways(ctx context.Context, c client.Client, route *gatewayapi.HTTPRoute) ([]resolvedGateway, error) {
+	gateways := make([]resolvedGateway, 0)
 	for _, parentRef := range route.Spec.ParentRefs {
 		ns := ptr.Deref((&parentRef).Namespace, gatewayapi.Namespace(route.Namespace))
 		gwNS, gwName := string(ns), string((&parentRef).Name)
 
 		gateway := &gatewayapi.Gateway{}
 		if err := c.Get(ctx, types.NamespacedName{Namespace: gwNS, Name: gwName}, gateway); err != nil {
-			return nil, fmt.Errorf("fetch Gateway %s/%s: %w", gwNS, gwName, err)
+			return nil, fmt.Errorf("failed to get Gateway %s/%s for route %s/%s: %w", gwNS, gwName, route.Namespace, route.Name, err)
 		}
 
-		listener := selectListener(gateway, parentRef.SectionName)
+		gatewayClass := &gatewayapi.GatewayClass{}
+		if err := c.Get(ctx, types.NamespacedName{Name: string(gateway.Spec.GatewayClassName)}, gatewayClass); err != nil {
+			return nil, fmt.Errorf("failed to get GatewayClass %q for gateway %s/%s: %w", string(gateway.Spec.GatewayClassName), gwNS, gwName, err)
+		}
+		gateways = append(gateways, resolvedGateway{
+			gateway:      gateway,
+			gatewayClass: gatewayClass,
+			parentRef:    parentRef,
+		})
+	}
+	return gateways, nil
+}
+
+func DiscoverURLs(ctx context.Context, c client.Client, route *gatewayapi.HTTPRoute) ([]*apis.URL, error) {
+	var urls []*apis.URL
+
+	gateways, err := DiscoverGateways(ctx, c, route)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover gateways: %w", err)
+	}
+
+	for _, g := range gateways {
+		listener := selectListener(g.gateway, g.parentRef.SectionName)
 		scheme := extractSchemeFromListener(listener)
 		port := listener.Port
 
-		addresses := gateway.Status.Addresses
+		addresses := g.gateway.Status.Addresses
 		if len(addresses) == 0 {
 			return nil, &ExternalAddressNotFoundError{
-				GatewayNamespace: gateway.Namespace,
-				GatewayName:      gateway.Name,
+				GatewayNamespace: g.gateway.Namespace,
+				GatewayName:      g.gateway.Name,
 			}
 		}
 
@@ -64,7 +91,7 @@ func DiscoverURLs(ctx context.Context, c client.Client, route *gatewayapi.HTTPRo
 
 		gatewayURLs, err := combineIntoURLs(hostnames, scheme, port, path)
 		if err != nil {
-			return nil, fmt.Errorf("failed to combine URLs for Gateway %s/%s: %w", gwNS, gwName, err)
+			return nil, fmt.Errorf("failed to combine URLs for Gateway %s/%s: %w", g.gateway.Namespace, g.gateway.Name, err)
 		}
 
 		urls = append(urls, gatewayURLs...)

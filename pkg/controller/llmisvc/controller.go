@@ -19,8 +19,10 @@ package llmisvc
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
 	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -41,6 +43,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 
+	istioapi "istio.io/client-go/pkg/apis/networking/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -63,9 +66,14 @@ var childResourcesPredicate, _ = predicate.LabelSelectorPredicate(metav1.LabelSe
 })
 
 type Config struct {
-	SystemNamespace         string `json:"systemNamespace,omitempty"`
-	IngressGatewayName      string `json:"ingressGatewayName,omitempty"`
-	IngressGatewayNamespace string `json:"ingressGatewayNamespace,omitempty"`
+	SystemNamespace             string   `json:"systemNamespace,omitempty"`
+	IngressGatewayName          string   `json:"ingressGatewayName,omitempty"`
+	IngressGatewayNamespace     string   `json:"ingressGatewayNamespace,omitempty"`
+	IstioGatewayControllerNames []string `json:"istioGatewayControllerNames,omitempty"`
+}
+
+func (c Config) isIstioGatewayController(name string) bool {
+	return slices.Contains(c.IstioGatewayControllerNames, name)
 }
 
 // NewConfig creates an instance of llm-specific config based on predefined values
@@ -83,6 +91,12 @@ func NewConfig(ingressConfig *v1beta1.IngressConfig) *Config {
 		SystemNamespace:         constants.KServeNamespace,
 		IngressGatewayNamespace: igwNs,
 		IngressGatewayName:      igwName,
+		// TODO make it configurable
+		IstioGatewayControllerNames: []string{
+			"istio.io/gateway-controller",
+			"istio.io/unmanaged-gateway",
+			"openshift.io/gateway-controller",
+		},
 	}
 }
 
@@ -104,13 +118,14 @@ type LLMInferenceServiceReconciler struct {
 //+kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes;gateways,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes;gateways;gatewayclasses,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=inference.networking.x-k8s.io,resources=inferencepools;inferencemodels;,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 //+kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews;subjectaccessreviews,verbs=create
+//+kubebuilder:rbac:groups=networking.istio.io,resources=destinationrules,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is the main entry point for the reconciliation loop.
 // It fetches the LLMInferenceService and delegates the reconciliation of its constituent parts.
@@ -227,7 +242,8 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 		Owns(&netv1.Ingress{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&appsv1.Deployment{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&corev1.Secret{}, builder.WithPredicates(childResourcesPredicate)).
-		Owns(&corev1.Service{}, builder.WithPredicates(childResourcesPredicate))
+		Owns(&corev1.Service{}, builder.WithPredicates(childResourcesPredicate)).
+		Watches(&corev1.Service{}, r.enqueueOnIstioShadowServiceChange(mgr, logger))
 
 	if err := gatewayapi.Install(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("failed to add GIE APIs to scheme: %w", err)
@@ -236,8 +252,14 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 		b = b.Owns(&gatewayapi.HTTPRoute{}, builder.WithPredicates(childResourcesPredicate))
 	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), gatewayapi.GroupVersion.String(), "Gateway"); ok && err == nil {
-		// TODO do the same for unmanaged HTTPRoutes
 		b = b.Watches(&gatewayapi.Gateway{}, r.enqueueOnGatewayChange(logger))
+	}
+
+	if err := istioapi.AddToScheme(mgr.GetScheme()); err != nil {
+		return fmt.Errorf("failed to add Istio APIs to scheme: %w", err)
+	}
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), istioapi.SchemeGroupVersion.String(), "DestinationRule"); ok && err == nil {
+		b = b.Owns(&istioapi.DestinationRule{}, builder.WithPredicates(childResourcesPredicate))
 	}
 
 	if err := igwapi.Install(mgr.GetScheme()); err != nil {
@@ -368,5 +390,49 @@ func (r *LLMInferenceServiceReconciler) enqueueOnLLMInferenceServiceConfigChange
 		}
 
 		return reqs
+	})
+}
+
+func (r *LLMInferenceServiceReconciler) enqueueOnIstioShadowServiceChange(mgr ctrl.Manager, logger logr.Logger) handler.EventHandler {
+	logger = logger.WithName("enqueueOnIstioShadowServiceChange")
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		sub := object.(*corev1.Service)
+
+		poolName, ok := sub.Labels[istioInferencePoolLabelName]
+		if !ok {
+			return nil
+		}
+
+		if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwapi.GroupVersion.String(), "InferencePool"); err != nil || !ok {
+			logger.V(2).Error(err, "failed to get InferencePool", "name", poolName, "namespace", sub.GetNamespace())
+			return nil
+		}
+
+		pool := &igwapi.InferencePool{}
+		if err := r.Get(ctx, client.ObjectKey{Name: poolName, Namespace: sub.GetNamespace()}, pool); err != nil {
+			logger.V(2).Error(err, "failed to get InferencePool", "name", poolName, "namespace", sub.GetNamespace())
+			return nil
+		}
+
+		controller := metav1.GetControllerOf(pool)
+		if controller == nil {
+			logger.V(2).Info("InferencePool has no controller", "pool", pool)
+			return nil
+		}
+
+		gv, err := schema.ParseGroupVersion(controller.APIVersion)
+		if err != nil {
+			logger.V(2).Error(err, "failed to parse GroupVersion", "apiVersion", controller.APIVersion)
+		}
+
+		if controller.Kind != v1alpha1.LLMInferenceServiceGVK.Kind || gv.Group != v1alpha1.LLMInferenceServiceGVK.Group {
+			logger.V(2).Info("InferencePool is not controlled by LLMInferenceService", "pool", pool)
+			return nil
+		}
+
+		return []reconcile.Request{{NamespacedName: types.NamespacedName{
+			Namespace: sub.GetNamespace(),
+			Name:      controller.Name,
+		}}}
 	})
 }

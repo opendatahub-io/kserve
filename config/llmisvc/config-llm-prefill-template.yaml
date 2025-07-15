@@ -42,6 +42,7 @@ spec:
             httpGet:
               path: /health
               port: 8000
+              scheme: HTTPS
             initialDelaySeconds: 120
             periodSeconds: 10
             timeoutSeconds: 10
@@ -50,6 +51,7 @@ spec:
             httpGet:
               path: /health
               port: 8000
+              scheme: HTTPS
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5

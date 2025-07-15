@@ -59,7 +59,6 @@ spec:
               - --grpcHealthPort
               - "9003"
               - --secureServing
-              - --healthChecking
             env:
               - name: ENABLE_LOAD_AWARE_SCORER
                 value: "true"

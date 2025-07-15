@@ -104,6 +104,7 @@ rules:
 - apiGroups:
   - gateway.networking.k8s.io
   resources:
+  - gatewayclasses
   - gateways
   - httproutes
   verbs:
@@ -163,6 +164,7 @@ rules:
 - apiGroups:
   - networking.istio.io
   resources:
+  - destinationrules
   - virtualservices
   - virtualservices/finalizers
   verbs:

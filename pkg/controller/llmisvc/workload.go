@@ -32,6 +32,8 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 	logger := log.FromContext(ctx).WithName("reconcileWorkload")
 	ctx = log.IntoContext(ctx, logger)
 
+	logger.Info("Reconciling Workload")
+
 	defer llmSvc.DetermineWorkloadReadiness()
 
 	if err := r.reconcileSelfSignedCertsSecret(ctx, llmSvc); err != nil {
@@ -54,11 +56,12 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 	return nil
 }
 
-func getWorkloadLabelSelector(meta metav1.ObjectMeta, spec *v1alpha1.LLMInferenceServiceSpec) map[string]string {
+func getInferencePoolWorkloadLabelSelector(meta metav1.ObjectMeta, spec *v1alpha1.LLMInferenceServiceSpec) map[string]string {
 	s := map[string]string{
 		"app.kubernetes.io/name": meta.GetName(),
 	}
 
+	// TODO correctly include prefill and decode once https://github.com/llm-d/llm-d-inference-scheduler/issues/220 is resolved
 	componentLabelValue := "llminferenceservice-workload"
 	if spec.Worker != nil {
 		if spec.Template == nil {
