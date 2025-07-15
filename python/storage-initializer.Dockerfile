@@ -19,8 +19,10 @@ RUN microdnf install -y --setopt=ubi-9-appstream-rpms.module_hotfixes=1 --disabl
 
 
 # Install all system dependencies first
-RUN apt-get update && apt-get install -y --no-install-recommends python3-dev curl build-essential && apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+RUN microdnf update -y && \
+    microdnf install -y python3-devel gcc gcc-c++ make tar && \
+    microdnf clean all
+
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
     ln -s /root/.local/bin/uv /usr/local/bin/uv
