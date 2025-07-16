@@ -521,12 +521,13 @@ func customRouteSpec(ctx context.Context, c client.Client, nsName, gatewayRefNam
 
 	Expect(c.Create(ctx, customGateway)).To(Succeed())
 
-	httRouteSpec := BuildHTTPRouteSpec(
+	route := HTTPRoute("custom-route", []HTTPRouteOption{
 		WithParentRef(GatewayParentRef(gatewayRefName, nsName)),
 		WithHTTPRouteRule(
 			HTTPRouteRuleWithBackendAndTimeouts(backendRefName, 8000, "/", "0s", "0s"),
 		),
-	)
+	}...)
+	httpRouteSpec := &route.Spec
 
-	return httRouteSpec
+	return httpRouteSpec
 }
