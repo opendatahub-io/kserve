@@ -91,7 +91,7 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 			// then
 			Expect(errValidation).To(HaveOccurred())
-			Expect(errValidation.Error()).To(ContainSubstring("is not supported"))
+			Expect(errValidation.Error()).To(ContainSubstring("unsupported configuration"))
 		})
 
 		It("should reject LLMInferenceService with user-defined routes and managed gateway", func(ctx SpecContext) {
@@ -108,7 +108,7 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 			// then
 			Expect(errValidation).To(HaveOccurred())
-			Expect(errValidation.Error()).To(ContainSubstring("cannot be used with managed gateway"))
+			Expect(errValidation.Error()).To(ContainSubstring("cannot be used with a managed gateway"))
 		})
 
 		It("should reject LLMInferenceService with managed route and user-defined gateway refs", func(ctx SpecContext) {
@@ -125,7 +125,7 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 			// then
 			Expect(errValidation).To(HaveOccurred())
-			Expect(errValidation.Error()).To(ContainSubstring("custom gateway cannot be used with managed route"))
+			Expect(errValidation.Error()).To(ContainSubstring("cannot be used with managed route"))
 		})
 
 		It("should reject LLMInferenceService with managed route spec and user-defined gateway refs", func(ctx SpecContext) {
@@ -148,7 +148,7 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 			// then
 			Expect(errValidation).To(HaveOccurred())
-			Expect(errValidation.Error()).To(ContainSubstring("cannot be used with spec.router.gateway.refs"))
+			Expect(errValidation.Error()).To(ContainSubstring("unsupported configuration"))
 		})
 	})
 })
