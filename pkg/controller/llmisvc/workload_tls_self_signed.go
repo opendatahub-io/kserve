@@ -24,6 +24,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"maps"
 	"math/big"
 	"time"
 
@@ -137,17 +138,15 @@ func semanticCertificateSecretIsEqual(expected *corev1.Secret, curr *corev1.Secr
 	if ok {
 		t, err := time.Parse(time.RFC3339, expires)
 		if err == nil && time.Now().UTC().After(t.UTC()) {
-			return equality.Semantic.DeepDerivative(expected.Data, curr.Data) &&
-				equality.Semantic.DeepDerivative(expected.StringData, curr.StringData) &&
-				equality.Semantic.DeepDerivative(expected.Immutable, curr.Immutable) &&
-				equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
-				equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations) &&
-				equality.Semantic.DeepDerivative(expected.Type, curr.Type)
+			return true
 		}
 	}
 
+	expectedAnnotations := maps.Clone(expected.Annotations)
+	delete(expected.Annotations, certificatesExpirationAnnotation)
+
 	return equality.Semantic.DeepDerivative(expected.Immutable, curr.Immutable) &&
 		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
-		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations) &&
+		equality.Semantic.DeepDerivative(expectedAnnotations, curr.Annotations) &&
 		equality.Semantic.DeepDerivative(expected.Type, curr.Type)
 }
