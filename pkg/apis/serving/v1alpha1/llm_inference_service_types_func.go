@@ -20,10 +20,6 @@ import (
 	"k8s.io/utils/ptr"
 )
 
-func (in *GatewayRoutesSpec) IsManaged() bool {
-	return in != nil && in == &GatewayRoutesSpec{}
-}
-
 func (in *GatewaySpec) HasRefs() bool {
 	return in != nil && len(in.Refs) > 0
 }

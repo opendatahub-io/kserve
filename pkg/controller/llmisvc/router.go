@@ -92,11 +92,13 @@ func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context,
 			referencedRoutes = append(referencedRoutes, providedRoute)
 		}
 
-		return Delete(ctx, r, llmSvc, expectedHTTPRoute)
+		if errDel := Delete(ctx, r, llmSvc, expectedHTTPRoute); errDel != nil {
+			return fmt.Errorf("failed to delete managed HTTPRoute %s/%s: %w", expectedHTTPRoute.GetNamespace(), expectedHTTPRoute.GetName(), errDel)
+		}
 	}
 
 	// TODO(validation): referenced gateway exists
-	if route.IsManaged() || route.HTTP.HasSpec() {
+	if route.HTTP.HasSpec() {
 		if err := Reconcile(ctx, r, llmSvc, &gatewayapi.HTTPRoute{}, expectedHTTPRoute, semanticHTTPRouteIsEqual); err != nil {
 			return fmt.Errorf("failed to reconcile HTTPRoute %s/%s: %w", expectedHTTPRoute.GetNamespace(), expectedHTTPRoute.GetName(), err)
 		}
