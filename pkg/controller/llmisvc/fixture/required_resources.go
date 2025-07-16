@@ -45,14 +45,20 @@ func RequiredResources(ctx context.Context, c client.Client, ns string) {
 		},
 	})).To(gomega.Succeed())
 
-	InferenceServiceCfgMap(ctx, c, ns)
-	SharedConfigPresets(ctx, c, ns)
+	gomega.Expect(c.Create(ctx, InferenceServiceCfgMap(ns))).To(gomega.Succeed())
 
-	gwName := "kserve-ingress-gateway"
-	defaultGateway := Gateway(gwName,
+	for _, preset := range SharedConfigPresets(ns) {
+		gomega.Expect(c.Create(ctx, preset)).To(gomega.Succeed())
+	}
+
+	gomega.Expect(c.Create(ctx, DefaultGateway(ns))).To(gomega.Succeed())
+}
+
+func DefaultGateway(ns string) *gatewayapiv1.Gateway {
+	defaultGateway := Gateway(constants.GatewayName,
 		InNamespace[*gatewayapiv1.Gateway](ns),
 		WithClassName("istio"),
-		WithInfrastructureLabels("serving.kserve.io/gateway", gwName),
+		WithInfrastructureLabels("serving.kserve.io/gateway", constants.GatewayName),
 		WithListeners(gatewayapiv1.Listener{
 			Name:     "http",
 			Port:     80,
@@ -65,10 +71,10 @@ func RequiredResources(ctx context.Context, c client.Client, ns string) {
 		}),
 	)
 
-	gomega.Expect(c.Create(ctx, defaultGateway)).To(gomega.Succeed())
+	return defaultGateway
 }
 
-func InferenceServiceCfgMap(ctx context.Context, c client.Client, ns string) {
+func InferenceServiceCfgMap(ns string) *corev1.ConfigMap {
 	configs := map[string]string{
 		"ingress": `{
 				"enableGatewayApi": true,
@@ -86,13 +92,15 @@ func InferenceServiceCfgMap(ctx context.Context, c client.Client, ns string) {
 		},
 		Data: configs,
 	}
-	gomega.Expect(c.Create(ctx, configMap)).NotTo(gomega.HaveOccurred())
+
+	return configMap
 }
 
 // SharedConfigPresets loads preset files shared as kustomize manifests that are stored in projects config.
 // Every file prefixed with `config-` is treated as such
-func SharedConfigPresets(ctx context.Context, c client.Client, ns string) {
+func SharedConfigPresets(ns string) []*v1alpha1.LLMInferenceServiceConfig {
 	configDir := filepath.Join(testing.ProjectRoot(), "config", "llmisvc")
+	var configs []*v1alpha1.LLMInferenceServiceConfig
 	err := filepath.Walk(configDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -115,8 +123,11 @@ func SharedConfigPresets(ctx context.Context, c client.Client, ns string) {
 			return err
 		}
 
-		return c.Create(ctx, config)
-	})
+		configs = append(configs, config)
 
+		return nil
+	})
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	return configs
 }
