@@ -104,11 +104,15 @@ func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Con
 		"app.kubernetes.io/component": "llminferenceservice-workload-worker",
 		"app.kubernetes.io/name":      llmSvc.GetName(),
 		"app.kubernetes.io/part-of":   "llminferenceservice",
+		"kserve.io/component":         "workload",
+		"llm-d.ai/role":               "decode",
 	}
 	leaderLabels := map[string]string{
 		"app.kubernetes.io/component": "llminferenceservice-workload-leader",
 		"app.kubernetes.io/name":      llmSvc.GetName(),
 		"app.kubernetes.io/part-of":   "llminferenceservice",
+		"kserve.io/component":         "workload",
+		"llm-d.ai/role":               "decode",
 	}
 
 	expected := &lwsapi.LeaderWorkerSet{
@@ -160,11 +164,15 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMultiNodeLWS(ctx context.
 		"app.kubernetes.io/component": "llminferenceservice-workload-worker-prefill",
 		"app.kubernetes.io/name":      llmSvc.GetName(),
 		"app.kubernetes.io/part-of":   "llminferenceservice",
+		"kserve.io/component":         "workload",
+		"llm-d.ai/role":               "prefill",
 	}
 	leaderLabels := map[string]string{
 		"app.kubernetes.io/component": "llminferenceservice-workload-leader-prefill",
 		"app.kubernetes.io/name":      llmSvc.GetName(),
 		"app.kubernetes.io/part-of":   "llminferenceservice",
+		"kserve.io/component":         "workload",
+		"llm-d.ai/role":               "prefill",
 	}
 
 	expected := &lwsapi.LeaderWorkerSet{
