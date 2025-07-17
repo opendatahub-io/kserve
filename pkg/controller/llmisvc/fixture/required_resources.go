@@ -22,12 +22,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	"github.com/kserve/kserve/pkg/constants"
-
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/constants"
 
 	"github.com/kserve/kserve/pkg/testing"
 
@@ -83,6 +83,16 @@ func InferenceServiceCfgMap(ns string) *corev1.ConfigMap {
 				"localGateway": "knative-serving/knative-local-gateway",
 				"localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local",
 				"additionalIngressDomains": ["additional.example.com"]
+			}`,
+		"storageInitializer": `{
+				"memoryRequest": "100Mi",
+				"memoryLimit": "1Gi",
+				"cpuRequest": "100m",
+				"cpuLimit": "1",
+				"cpuModelcar": "10m",
+				"memoryModelcar": "15Mi",
+				"enableModelcar": true,
+				"uidModelcar": 1010
 			}`,
 	}
 	configMap := &corev1.ConfigMap{

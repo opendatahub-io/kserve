@@ -26,6 +26,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	kserveTypes "github.com/kserve/kserve/pkg/types"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 
@@ -66,11 +67,13 @@ type Config struct {
 	SystemNamespace         string `json:"systemNamespace,omitempty"`
 	IngressGatewayName      string `json:"ingressGatewayName,omitempty"`
 	IngressGatewayNamespace string `json:"ingressGatewayNamespace,omitempty"`
+
+	StorageConfig *kserveTypes.StorageInitializerConfig `json:"-"`
 }
 
 // NewConfig creates an instance of llm-specific config based on predefined values
 // in IngressConfig struct
-func NewConfig(ingressConfig *v1beta1.IngressConfig) *Config {
+func NewConfig(ingressConfig *v1beta1.IngressConfig, storageConfig *kserveTypes.StorageInitializerConfig) *Config {
 	igwNs := constants.KServeNamespace
 	igwName := ingressConfig.KserveIngressGateway
 	igw := strings.Split(igwName, "/")
@@ -83,6 +86,7 @@ func NewConfig(ingressConfig *v1beta1.IngressConfig) *Config {
 		SystemNamespace:         constants.KServeNamespace,
 		IngressGatewayNamespace: igwNs,
 		IngressGatewayName:      igwName,
+		StorageConfig:           storageConfig,
 	}
 }
 
@@ -169,7 +173,7 @@ func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v
 
 	logger.Info("Reconciling with combined base configurations", "spec", llmSvc.Spec)
 
-	if err := r.reconcileWorkload(ctx, llmSvc); err != nil {
+	if err := r.reconcileWorkload(ctx, llmSvc, config.StorageConfig); err != nil {
 		return fmt.Errorf("failed to reconcile workload: %w", err)
 	}
 
@@ -212,7 +216,12 @@ func LoadConfig(ctx context.Context, clientset kubernetes.Interface) (*Config, e
 		return nil, fmt.Errorf("failed to convert InferenceServiceConfigMap to IngressConfig: %w", errConvert)
 	}
 
-	return NewConfig(ingressConfig), nil
+	storageInitializerConfig, errConvert := v1beta1.GetStorageInitializerConfigs(isvcConfigMap)
+	if errConvert != nil {
+		return nil, fmt.Errorf("failed to convert InferenceServiceConfigMap to StorageInitializerConfig: %w", errConvert)
+	}
+
+	return NewConfig(ingressConfig, storageInitializerConfig), nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
