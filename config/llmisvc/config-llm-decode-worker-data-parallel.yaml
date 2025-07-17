@@ -7,7 +7,7 @@ spec:
     initContainers:
       - name: llm-d-routing-sidecar
         imagePullPolicy: IfNotPresent
-        image: ghcr.io/llm-d/llm-d-routing-sidecar:0.0.6
+        image: ghcr.io/llm-d/llm-d-routing-sidecar:v0.2.0
         restartPolicy: Always
         ports:
           - containerPort: 8000
@@ -41,10 +41,16 @@ spec:
           - "--decoder-tls-insecure-skip-verify=true"
           - "--prefiller-use-tls=true"
           - "--prefiller-tls-insecure-skip-verify=true"
+          - "--enable-ssrf-protection=true"
         volumeMounts:
           - mountPath: /etc/ssl/certs
             name: tls-certs
             readOnly: true
+        env:
+          - name: INFERENCE_POOL_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
     containers:
       - image: ghcr.io/llm-d/llm-d:0.0.8
         imagePullPolicy: IfNotPresent
