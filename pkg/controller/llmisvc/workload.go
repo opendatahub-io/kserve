@@ -24,11 +24,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	kserveTypes "github.com/kserve/kserve/pkg/types"
 )
 
 // reconcileWorkload manages the Deployments and Services for the LLM.
 // It handles standard, multi-node, and disaggregated (prefill/decode) deployment patterns.
-func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig) error {
 	logger := log.FromContext(ctx).WithName("reconcileWorkload")
 	ctx = log.IntoContext(ctx, logger)
 
@@ -42,7 +43,7 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 		return fmt.Errorf("failed to reconcile multi node workload: %w", err)
 	}
 
-	if err := r.reconcileSingleNodeWorkload(ctx, llmSvc); err != nil {
+	if err := r.reconcileSingleNodeWorkload(ctx, llmSvc, storageConfig); err != nil {
 		llmSvc.MarkWorkloadNotReady("ReconcileSingleNodeWorkloadError", err.Error())
 		return fmt.Errorf("failed to reconcile single node workload: %w", err)
 	}

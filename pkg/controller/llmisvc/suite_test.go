@@ -27,14 +27,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	"github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 	pkgtest "github.com/kserve/kserve/pkg/testing"
-	"github.com/kserve/kserve/pkg/types"
 )
 
 func TestLLMInferenceServiceController(t *testing.T) {
@@ -63,13 +61,6 @@ var _ = SynchronizedBeforeSuite(func() {
 			Clientset: clientSet,
 			// TODO fix it to be set up similar to main.go, for now it's stub
 			EventRecorder: eventBroadcaster.NewRecorder(mgr.GetScheme(), corev1.EventSource{Component: "v1beta1Controllers"}),
-
-			StorageConfig: &types.StorageInitializerConfig{
-				CpuModelcar:          "50m",
-				MemoryModelcar:       "50Mi",
-				EnableOciImageSource: true,
-				UidModelcar:          ptr.To[int64](0),
-			},
 		}
 		return llmCtrl.SetupWithManager(mgr)
 	}

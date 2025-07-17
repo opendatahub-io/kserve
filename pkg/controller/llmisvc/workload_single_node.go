@@ -34,14 +34,15 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/types"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
-func (r *LLMInferenceServiceReconciler) reconcileSingleNodeWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileSingleNodeWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *types.StorageInitializerConfig) error {
 	logger := log.FromContext(ctx).WithName("single-node-workload")
 	ctx = log.IntoContext(ctx, logger)
 
-	if err := r.reconcileSingleNodeMainWorkload(ctx, llmSvc); err != nil {
+	if err := r.reconcileSingleNodeMainWorkload(ctx, llmSvc, storageConfig); err != nil {
 		return fmt.Errorf("failed to reconcile main workload: %w", err)
 	}
 
@@ -51,8 +52,8 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodeWorkload(ctx context.
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	expected, err := r.expectedSingleNodeMainDeployment(ctx, llmSvc)
+func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *types.StorageInitializerConfig) error {
+	expected, err := r.expectedSingleNodeMainDeployment(ctx, llmSvc, storageConfig)
 	if err != nil {
 		return fmt.Errorf("failed to get expected main deployment: %w", err)
 	}
@@ -65,7 +66,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainWorkload(ctx cont
 	return r.propagateDeploymentStatus(ctx, expected, llmSvc.MarkMainWorkloadReady, llmSvc.MarkMainWorkloadNotReady)
 }
 
-func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*appsv1.Deployment, error) {
+func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *types.StorageInitializerConfig) (*appsv1.Deployment, error) {
 	if llmSvc.Spec.Template == nil {
 		return nil, errors.New("llmSvc.Spec.Template must not be nil")
 	}
@@ -102,7 +103,7 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx con
 		d.Spec.Template.Spec = *llmSvc.Spec.Template.DeepCopy()
 	}
 
-	if err := r.attachModelArtifacts(llmSvc, &d.Spec.Template.Spec); err != nil {
+	if err := r.attachModelArtifacts(llmSvc, &d.Spec.Template.Spec, storageConfig); err != nil {
 		return nil, fmt.Errorf("failed to attach model artifacts to main deployment: %w", err)
 	}
 
@@ -166,7 +167,7 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 	return d
 }
 
-func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LLMInferenceService, podSpec *corev1.PodSpec) error {
+func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LLMInferenceService, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
 	modelUri := llmSvc.Spec.Model.URI.String()
 
 	switch {
@@ -175,11 +176,11 @@ func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LL
 
 	case strings.HasPrefix(modelUri, constants.OciURIPrefix):
 		// Check of OCI is enabled
-		if !r.StorageConfig.EnableOciImageSource {
+		if !storageConfig.EnableOciImageSource {
 			return errors.New("OCI modelcars is not enabled")
 		}
 
-		return r.attachOciModelArtifact(modelUri, podSpec)
+		return r.attachOciModelArtifact(modelUri, podSpec, storageConfig)
 
 	default:
 		// Backwards compatibility
@@ -206,8 +207,8 @@ func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LL
 // Returns:
 //
 //	An error if the configuration fails, otherwise nil.
-func (r *LLMInferenceServiceReconciler) attachOciModelArtifact(modelUri string, podSpec *corev1.PodSpec) error {
-	if err := utils.ConfigureModelcarToContainer(modelUri, podSpec, "main", r.StorageConfig); err != nil {
+func (r *LLMInferenceServiceReconciler) attachOciModelArtifact(modelUri string, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
+	if err := utils.ConfigureModelcarToContainer(modelUri, podSpec, "main", storageConfig); err != nil {
 		return err
 	}
 

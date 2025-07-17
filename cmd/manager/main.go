@@ -175,11 +175,6 @@ func main() {
 		setupLog.Error(err, "unable to get ingress config.")
 		os.Exit(1)
 	}
-	storageInitializerConfig, err := v1beta1.GetStorageInitializerConfigs(isvcConfigMap)
-	if err != nil {
-		setupLog.Error(err, "unable to get storage initializer config.")
-		os.Exit(1)
-	}
 
 	// Update Global GPU Resource Type List when custom GPU resource types are provided
 	_, err = v1beta1.NewMultiNodeConfig(isvcConfigMap)
@@ -282,7 +277,6 @@ func main() {
 		Client:        mgr.GetClient(),
 		Clientset:     clientSet,
 		EventRecorder: llmEventBroadcaster.NewRecorder(scheme, corev1.EventSource{Component: "LLMInferenceServiceController"}),
-		StorageConfig: storageInitializerConfig,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "v1beta1Controller", "InferenceService")
 		os.Exit(1)
