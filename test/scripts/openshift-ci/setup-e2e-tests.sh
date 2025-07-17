@@ -65,6 +65,7 @@ popd
 echo "Installing KServe Python SDK ..."
 pushd $PROJECT_ROOT/python/kserve >/dev/null
   uv sync --active --group test
+  uv pip insall timeout-sampler
 popd
 
 $MY_PATH/deploy.cma.sh
