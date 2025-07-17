@@ -26,6 +26,10 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
 
+const (
+	routingSidecarContainerName = "llm-d-routing-sidecar"
+)
+
 // reconcileWorkload manages the Deployments and Services for the LLM.
 // It handles standard, multi-node, and disaggregated (prefill/decode) deployment patterns.
 func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
@@ -52,20 +56,12 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 
 func getWorkloadLabelSelector(meta metav1.ObjectMeta, spec *v1alpha1.LLMInferenceServiceSpec) map[string]string {
 	s := map[string]string{
-		"app.kubernetes.io/name": meta.GetName(),
+		"app.kubernetes.io/part-of": "llminferenceservice",
+		"app.kubernetes.io/name":    meta.GetName(),
+		"kserve.io/component":       "workload",
 	}
 
-	componentLabelValue := "llminferenceservice-workload"
-	if spec.Worker != nil {
-		if spec.Template == nil {
-			// If there is no separate leader pod spec, send requests to the worker with index 0.
-			componentLabelValue = "llminferenceservice-workload-worker"
-			s["leaderworkerset.sigs.k8s.io/worker-index"] = "0"
-		} else {
-			componentLabelValue = "llminferenceservice-workload-leader"
-		}
-	}
-	s["app.kubernetes.io/component"] = componentLabelValue
+	// TODO https://github.com/llm-d/llm-d-inference-scheduler/issues/220 and DP template
 
 	return s
 }
