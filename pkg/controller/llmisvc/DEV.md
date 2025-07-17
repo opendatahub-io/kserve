@@ -176,3 +176,88 @@ you should see a similar output:
   "kv_transfer_params": null
 }
 ```
+
+#### Persistent Volume (PV) for model storage
+
+Create a PV and a PVC to store the model:
+
+```shell
+kubectl apply -n ${NS} -f - <<EOF
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: opt-125m-pv
+spec:
+  accessModes:
+  - ReadWriteOnce
+  capacity:
+    storage: 3Gi
+  hostPath:
+    path: /data/models/opt-125m
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: opt-125m-pvc
+spec:
+  storageClassName: ""
+  volumeName: opt-125m-pv
+  resources:
+    requests:
+      storage: 800Mi
+  accessModes:
+  - ReadWriteOnce
+EOF
+```
+
+To download a model to the PV, the KServe storage initializer can be used by
+creating a Job:
+
+```shell
+kubectl apply -n ${NS} -f - <<EOF
+STORAGE_INIT_IMG=$(kubectl get cm -n kserve -o jsonpath="{.data.storageInitializer}" inferenceservice-config | jq -r '.image')
+
+kubectl apply -n ${NS} -f - <<EOF
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: opt-125m-download-job
+spec:
+  parallelism: 1
+  completions: 1
+  template:
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsUser: 0
+      volumes:
+      - name: pvc
+        persistentVolumeClaim:
+          claimName: opt-125m-pvc
+          readOnly: false
+      containers:
+      - image: ${STORAGE_INIT_IMG}
+        name: storage-initializer
+        args:
+        - hf://facebook/opt-125m
+        - /tmp/model
+        resources:
+          requests: 
+            cpu: "100m"
+            memory: "100Mi"
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+        volumeMounts:
+        - name: pvc
+          mountPath: "/tmp/model"
+          readOnly: false
+EOF
+```
+
+Deploy the model from the persistent volume:
+
+```shell
+yq '.spec.model.uri="pvc://opt-125m-pvc"' ${LLM_ISVC} | kubectl apply -n ${NS} -f -
+```
