@@ -154,10 +154,16 @@ var (
 )
 
 const (
-	OciURIPrefix                 = "oci://"
-	PvcURIPrefix                 = "pvc://"
+	HfURIPrefix  = "hf://"
+	OciURIPrefix = "oci://"
+	PvcURIPrefix = "pvc://"
+	S3URIPrefix  = "s3://"
+
 	PvcSourceMountName           = "kserve-pvc-source"
 	StorageInitializerVolumeName = "kserve-provision-location"
+
+	StorageInitializerContainerImage        = "kserve/storage-initializer"
+	StorageInitializerContainerImageVersion = "latest"
 
 	CpuModelcarDefault    = "10m"
 	MemoryModelcarDefault = "15Mi"

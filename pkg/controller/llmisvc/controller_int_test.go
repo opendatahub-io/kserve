@@ -565,6 +565,162 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				HaveField("ReadOnly", false),
 			)))
 		})
+
+		It("should use storage-initializer to download model when uri starts with hf://", func(ctx SpecContext) {
+			// given
+			svcName := "test-llm"
+			nsName := kmeta.ChildName(svcName, "-test")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nsName,
+				},
+			}
+			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			defer func() {
+				envTest.DeleteAll(namespace)
+			}()
+
+			modelURL, err := apis.ParseURL("hf://user-id/repo-id:tag")
+			Expect(err).ToNot(HaveOccurred())
+
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      svcName,
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						Name: ptr.To("foo"),
+						URI:  *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{},
+					Router: &v1alpha1.RouterSpec{
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
+					},
+				},
+			}
+
+			// when
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+			}()
+
+			// then
+			expectedDeployment := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve",
+					Namespace: nsName,
+				}, expectedDeployment)
+			}).WithContext(ctx).Should(Succeed())
+
+			// Check the volume to store the model exists
+			Expect(expectedDeployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
+				HaveField("Name", constants.StorageInitializerVolumeName),
+				HaveField("EmptyDir", Not(BeNil())),
+			)))
+
+			// Check the storage-initializer container is present.
+			Expect(expectedDeployment.Spec.Template.Spec.InitContainers).To(ContainElement(And(
+				HaveField("Name", constants.StorageInitializerContainerName),
+				HaveField("Args", ContainElements("hf://user-id/repo-id:tag", constants.DefaultModelLocalMountPath)),
+				HaveField("VolumeMounts", ContainElement(And(
+					HaveField("Name", constants.StorageInitializerVolumeName),
+					HaveField("MountPath", constants.DefaultModelLocalMountPath),
+				))),
+			)))
+
+			// Check the main container has the model mounted
+			mainContainer := utils.GetContainerWithName(&expectedDeployment.Spec.Template.Spec, "main")
+			Expect(mainContainer).ToNot(BeNil())
+			Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
+			Expect(mainContainer.VolumeMounts).To(ContainElement(And(
+				HaveField("Name", constants.StorageInitializerVolumeName),
+				HaveField("MountPath", constants.DefaultModelLocalMountPath),
+				HaveField("ReadOnly", BeTrue()),
+			)))
+		})
+
+		It("should use storage-initializer to download model when uri starts with s3://", func(ctx SpecContext) {
+			// given
+			svcName := "test-llm-s3"
+			nsName := kmeta.ChildName(svcName, "-test")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nsName,
+				},
+			}
+			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			defer func() {
+				envTest.DeleteAll(namespace)
+			}()
+
+			modelURL, err := apis.ParseURL("s3://user-id/repo-id:tag")
+			Expect(err).ToNot(HaveOccurred())
+
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      svcName,
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						Name: ptr.To("foo"),
+						URI:  *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{},
+					Router: &v1alpha1.RouterSpec{
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
+					},
+				},
+			}
+
+			// when
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+			}()
+
+			// then
+			expectedDeployment := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve",
+					Namespace: nsName,
+				}, expectedDeployment)
+			}).WithContext(ctx).Should(Succeed())
+
+			// Check the volume to store the model exists
+			Expect(expectedDeployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
+				HaveField("Name", constants.StorageInitializerVolumeName),
+				HaveField("EmptyDir", Not(BeNil())),
+			)))
+
+			// Check the storage-initializer container is present.
+			Expect(expectedDeployment.Spec.Template.Spec.InitContainers).To(ContainElement(And(
+				HaveField("Name", constants.StorageInitializerContainerName),
+				HaveField("Args", ContainElements("s3://user-id/repo-id:tag", constants.DefaultModelLocalMountPath)),
+				HaveField("VolumeMounts", ContainElement(And(
+					HaveField("Name", constants.StorageInitializerVolumeName),
+					HaveField("MountPath", constants.DefaultModelLocalMountPath),
+				))),
+			)))
+
+			// Check the main container has the model mounted
+			mainContainer := utils.GetContainerWithName(&expectedDeployment.Spec.Template.Spec, "main")
+			Expect(mainContainer).ToNot(BeNil())
+			Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
+			Expect(mainContainer.VolumeMounts).To(ContainElement(And(
+				HaveField("Name", constants.StorageInitializerVolumeName),
+				HaveField("MountPath", constants.DefaultModelLocalMountPath),
+				HaveField("ReadOnly", BeTrue()),
+			)))
+		})
 	})
 })
 

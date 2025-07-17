@@ -153,6 +153,72 @@ func AddEmptyDirVolumeIfNotPresent(podSpec *corev1.PodSpec, name string) {
 	})
 }
 
+// AddStorageInitializerContainer configures the KServe storage-initializer in the
+// specified PodSpec:
+//   - An emptyDir volume is added to hold the model to download.
+//   - The KServe storage-initializer is added as an init-container.
+//   - The emptyDir volume is mounted in the container named as in mainContainerName in
+//     readOnly mode as specified by the readOnlyMainContainerMount argument.
+//
+// This function is idempotent.
+//
+// Returns:
+//
+//	The init container added to the podSpec, or the existing one.
+func AddStorageInitializerContainer(podSpec *corev1.PodSpec, mainContainerName, srcURI string, readOnlyMainContainerMount bool, storageConfig *types.StorageInitializerConfig) *corev1.Container {
+	// Create a volume that is shared between the storage-initializer and main container
+	AddEmptyDirVolumeIfNotPresent(podSpec, constants.StorageInitializerVolumeName)
+
+	// Add storage initializer container, if not present
+	initContainer := GetInitContainerWithName(podSpec, constants.StorageInitializerContainerName)
+	if initContainer == nil {
+		storageInitializerImage := constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion
+		if storageConfig.Image != "" {
+			storageInitializerImage = storageConfig.Image
+		}
+
+		initContainer = &corev1.Container{
+			Name:  constants.StorageInitializerContainerName,
+			Image: storageInitializerImage,
+			Args: []string{
+				srcURI,
+				constants.DefaultModelLocalMountPath,
+			},
+			TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
+			VolumeMounts: []corev1.VolumeMount{{
+				Name:      constants.StorageInitializerVolumeName,
+				MountPath: constants.DefaultModelLocalMountPath,
+				ReadOnly:  false,
+			}},
+			Resources: corev1.ResourceRequirements{
+				Limits: map[corev1.ResourceName]resource.Quantity{
+					corev1.ResourceCPU:    resource.MustParse(storageConfig.CpuLimit),
+					corev1.ResourceMemory: resource.MustParse(storageConfig.MemoryLimit),
+				},
+				Requests: map[corev1.ResourceName]resource.Quantity{
+					corev1.ResourceCPU:    resource.MustParse(storageConfig.CpuRequest),
+					corev1.ResourceMemory: resource.MustParse(storageConfig.MemoryRequest),
+				},
+			},
+		}
+		podSpec.InitContainers = append(podSpec.InitContainers, *initContainer)
+		initContainer = GetInitContainerWithName(podSpec, constants.StorageInitializerContainerName)
+	}
+
+	// Mount the shared volume to the main container, if not present
+	if len(mainContainerName) != 0 {
+		if mainContainer := GetContainerWithName(podSpec, mainContainerName); mainContainer != nil {
+			AddVolumeMountIfNotPresent(
+				mainContainer,
+				constants.StorageInitializerVolumeName,
+				constants.DefaultModelLocalMountPath,
+				readOnlyMainContainerMount)
+		}
+	}
+
+	return initContainer
+}
+
 // CreateModelcarContainer creates the definition of a container holding a model intended to be used as a sidecar (modelcar).
 // The container is configured with CPU, memory, and UID settings from the storage initializer configuration.
 //
@@ -287,7 +353,7 @@ func ConfigureModelcarToContainer(modelUri string, podSpec *corev1.PodSpec, targ
 	// Mount volume initialized by the modelcar container to the target container
 	modelParentDir := GetParentDirectory(constants.DefaultModelLocalMountPath)
 	AddEmptyDirVolumeIfNotPresent(podSpec, constants.StorageInitializerVolumeName)
-	AddVolumeMountIfNotPresent(targetContainer, constants.StorageInitializerVolumeName, modelParentDir)
+	AddVolumeMountIfNotPresent(targetContainer, constants.StorageInitializerVolumeName, modelParentDir, false)
 
 	// If configured, run as the given user. There might be certain installations
 	// of Kubernetes where sharing the filesystem via the process namespace only works

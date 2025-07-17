@@ -25,7 +25,6 @@ import (
 	"strconv"
 	"strings"
 
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 
 	corev1 "k8s.io/api/core/v1"
@@ -41,11 +40,8 @@ import (
 )
 
 const (
-	StorageInitializerContainerName         = "storage-initializer"
-	StorageInitializerContainerImage        = "kserve/storage-initializer"
-	StorageInitializerContainerImageVersion = "latest"
-	PvcSourceMountPath                      = "/mnt/pvc"
-	CaBundleVolumeName                      = "cabundle-cert"
+	PvcSourceMountPath = "/mnt/pvc"
+	CaBundleVolumeName = "cabundle-cert"
 )
 
 type StorageInitializerInjector struct {
@@ -129,7 +125,7 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *corev1.Pod) 
 
 	// Don't inject if InitContainer already injected
 	for _, container := range pod.Spec.InitContainers {
-		if strings.Compare(container.Name, StorageInitializerContainerName) == 0 {
+		if strings.Compare(container.Name, constants.StorageInitializerContainerName) == 0 {
 			return nil
 		}
 	}
@@ -238,60 +234,13 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *corev1.Pod) 
 		srcURI = PvcSourceMountPath + "/" + pvcPath
 	}
 
-	// Create a volume that is shared between the storage-initializer and kserve-container
-	sharedVolume := corev1.Volume{
-		Name: constants.StorageInitializerVolumeName,
-		VolumeSource: corev1.VolumeSource{
-			EmptyDir: &corev1.EmptyDirVolumeSource{},
-		},
-	}
-	podVolumes = append(podVolumes, sharedVolume)
-
-	// Create a write mount into the shared volume
-	sharedVolumeWriteMount := corev1.VolumeMount{
-		Name:      constants.StorageInitializerVolumeName,
-		MountPath: constants.DefaultModelLocalMountPath,
-		ReadOnly:  false,
-	}
-	storageInitializerMounts = append(storageInitializerMounts, sharedVolumeWriteMount)
-
-	storageInitializerImage := StorageInitializerContainerImage + ":" + StorageInitializerContainerImageVersion
-	if mi.config != nil && mi.config.Image != "" {
-		storageInitializerImage = mi.config.Image
-	}
-
-	// Add an init container to run provisioning logic to the PodSpec
-	initContainer := &corev1.Container{
-		Name:  StorageInitializerContainerName,
-		Image: storageInitializerImage,
-		Args: []string{
-			srcURI,
-			constants.DefaultModelLocalMountPath,
-		},
-		TerminationMessagePolicy: corev1.TerminationMessageFallbackToLogsOnError,
-		VolumeMounts:             storageInitializerMounts,
-		Resources: corev1.ResourceRequirements{
-			Limits: map[corev1.ResourceName]resource.Quantity{
-				corev1.ResourceCPU:    resource.MustParse(mi.config.CpuLimit),
-				corev1.ResourceMemory: resource.MustParse(mi.config.MemoryLimit),
-			},
-			Requests: map[corev1.ResourceName]resource.Quantity{
-				corev1.ResourceCPU:    resource.MustParse(mi.config.CpuRequest),
-				corev1.ResourceMemory: resource.MustParse(mi.config.MemoryRequest),
-			},
-		},
-	}
-
-	// Add a mount the shared volume on the kserve-container, update the PodSpec
-	sharedVolumeReadMount := corev1.VolumeMount{
-		Name:      constants.StorageInitializerVolumeName,
-		MountPath: constants.DefaultModelLocalMountPath,
-		ReadOnly:  isvcReadonlyStringFlag,
-	}
-	userContainer.VolumeMounts = append(userContainer.VolumeMounts, sharedVolumeReadMount)
+	initContainer := utils.AddStorageInitializerContainer(&pod.Spec, userContainer.Name, srcURI, isvcReadonlyStringFlag, mi.config)
 	if transformerContainer != nil {
-		transformerContainer.VolumeMounts = append(transformerContainer.VolumeMounts, sharedVolumeReadMount)
+		initContainer = utils.AddStorageInitializerContainer(&pod.Spec, transformerContainer.Name, srcURI, isvcReadonlyStringFlag, mi.config)
 	}
+
+	initContainer.VolumeMounts = append(initContainer.VolumeMounts, storageInitializerMounts...)
+
 	// Change the CustomSpecStorageUri env variable value to the default model path if present
 	for index, envVar := range userContainer.Env {
 		if envVar.Name == constants.CustomSpecStorageUriEnvVarKey && envVar.Value != "" {
@@ -398,14 +347,11 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *corev1.Pod) 
 		return err
 	}
 	if storageContainerSpec != nil {
-		initContainer, err = mergeContainerSpecs(initContainer, storageContainerSpec)
+		err = mergeContainerSpecs(initContainer, storageContainerSpec)
 		if err != nil {
 			return err
 		}
 	}
-
-	// Add init container to the spec
-	pod.Spec.InitContainers = append(pod.Spec.InitContainers, *initContainer)
 
 	return nil
 }
@@ -417,7 +363,7 @@ func (mi *StorageInitializerInjector) SetIstioCniSecurityContext(pod *corev1.Pod
 	// Find storage initializer container
 	var storageInitializerContainer *corev1.Container
 	for idx, c := range pod.Spec.InitContainers {
-		if c.Name == StorageInitializerContainerName {
+		if c.Name == constants.StorageInitializerContainerName {
 			storageInitializerContainer = &pod.Spec.InitContainers[idx]
 		}
 	}
@@ -531,38 +477,37 @@ func (mi *StorageInitializerInjector) SetIstioCniSecurityContext(pod *corev1.Pod
 
 // Use JSON Marshal/Unmarshal to merge Container structs using strategic merge patch.
 // Use container name from defaultContainer spec, crdContainer takes precedence for other fields.
-func mergeContainerSpecs(defaultContainer *corev1.Container, crdContainer *corev1.Container) (*corev1.Container, error) {
-	if defaultContainer == nil {
-		return nil, errors.New("defaultContainer is nil")
+func mergeContainerSpecs(targetContainer *corev1.Container, crdContainer *corev1.Container) error {
+	if targetContainer == nil {
+		return errors.New("targetContainer is nil")
 	}
 
-	containerName := defaultContainer.Name
+	containerName := targetContainer.Name
 
-	defaultContainerJson, err := json.Marshal(*defaultContainer)
+	defaultContainerJson, err := json.Marshal(*targetContainer)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	overrides, err := json.Marshal(*crdContainer)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	mergedContainer := corev1.Container{}
-	jsonResult, err := strategicpatch.StrategicMergePatch(defaultContainerJson, overrides, mergedContainer)
+	jsonResult, err := strategicpatch.StrategicMergePatch(defaultContainerJson, overrides, corev1.Container{})
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	if err := json.Unmarshal(jsonResult, &mergedContainer); err != nil {
-		return nil, err
+	if err := json.Unmarshal(jsonResult, targetContainer); err != nil {
+		return err
 	}
 
-	if mergedContainer.Name == "" {
-		mergedContainer.Name = containerName
+	if targetContainer.Name == "" {
+		targetContainer.Name = containerName
 	}
 
-	return &mergedContainer, nil
+	return nil
 }
 
 func needCaBundleMount(caBundleConfigMapName string, initContainer *corev1.Container) bool {

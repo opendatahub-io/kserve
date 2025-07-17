@@ -246,9 +246,18 @@ func GetContainerWithName(podSpec *corev1.PodSpec, name string) *corev1.Containe
 	return nil
 }
 
+func GetInitContainerWithName(podSpec *corev1.PodSpec, name string) *corev1.Container {
+	for idx, container := range podSpec.InitContainers {
+		if strings.Compare(container.Name, name) == 0 {
+			return &podSpec.InitContainers[idx]
+		}
+	}
+	return nil
+}
+
 // AddVolumeMountIfNotPresent adds a volume mount to a given container but only if no volume mount
 // with this name has been already added. Container must not be nil
-func AddVolumeMountIfNotPresent(container *corev1.Container, mountName string, mountPath string) {
+func AddVolumeMountIfNotPresent(container *corev1.Container, mountName, mountPath string, readOnly bool) {
 	for _, v := range container.VolumeMounts {
 		if v.Name == mountName {
 			return
@@ -257,7 +266,7 @@ func AddVolumeMountIfNotPresent(container *corev1.Container, mountName string, m
 	modelMount := corev1.VolumeMount{
 		Name:      mountName,
 		MountPath: mountPath,
-		ReadOnly:  false,
+		ReadOnly:  readOnly,
 	}
 	container.VolumeMounts = append(container.VolumeMounts, modelMount)
 }

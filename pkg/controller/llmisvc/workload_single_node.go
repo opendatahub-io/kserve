@@ -34,6 +34,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/credentials/s3"
 	"github.com/kserve/kserve/pkg/types"
 	"github.com/kserve/kserve/pkg/utils"
 )
@@ -166,14 +167,32 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 	return d
 }
 
+// attachModelArtifacts configures a PodSpec to fetch and use a model froma provided URI in the LLMInferenceService.
+// The storage backend (PVC, OCI, Hugging Face, or S3) is determined from the URI schema and the appropriate helper function
+// is called to configure the PodSpec. This function will adjust volumes, container arguments, container volume mounts,
+// add containers, and do other changes to the PodSpec to ensure the model is fetched properly from storage.
+//
+// Parameters:
+//   - llmSvc: The LLMInferenceService resource containing the model specification.
+//   - podSpec: The PodSpec to configure with the model artifact.
+//   - storageConfig: The storage initializer configuration.
+//
+// Returns:
+//
+//	An error if the configuration fails, otherwise nil.
 func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LLMInferenceService, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
 	modelUri := llmSvc.Spec.Model.URI.String()
+	schema, _, sepFound := strings.Cut(modelUri, "://")
 
-	switch {
-	case strings.HasPrefix(modelUri, constants.PvcURIPrefix):
+	if !sepFound {
+		return fmt.Errorf("invalid model URI: %s", modelUri)
+	}
+
+	switch schema + "://" {
+	case constants.PvcURIPrefix:
 		return r.attachPVCModelArtifact(modelUri, podSpec)
 
-	case strings.HasPrefix(modelUri, constants.OciURIPrefix):
+	case constants.OciURIPrefix:
 		// Check of OCI is enabled
 		if !storageConfig.EnableOciImageSource {
 			return errors.New("OCI modelcars is not enabled")
@@ -181,17 +200,14 @@ func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LL
 
 		return r.attachOciModelArtifact(modelUri, podSpec, storageConfig)
 
-	default:
-		// Backwards compatibility
-		// TODO: Evaluate if this is needed, because it essentially ignores the model URI.
-		for idx := range podSpec.Containers {
-			if podSpec.Containers[idx].Name == "main" {
-				podSpec.Containers[idx].Command = append(podSpec.Containers[idx].Command, *llmSvc.Spec.Model.Name)
-			}
-		}
+	case constants.HfURIPrefix:
+		return r.attachStorageInitializer(modelUri, podSpec, storageConfig)
+
+	case constants.S3URIPrefix:
+		return r.attachS3ModelArtifact(modelUri, podSpec, storageConfig)
 	}
 
-	return nil
+	return fmt.Errorf("unsupported schema in model URI: %s", modelUri)
 }
 
 // attachOciModelArtifact configures a PodSpec to use a model stored in an OCI registry.
@@ -202,6 +218,7 @@ func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LL
 //   - ctx: The context for API calls and logging.
 //   - modelUri: The URI of the model in the OCI registry.
 //   - podSpec: The PodSpec to which the OCI model should be attached.
+//   - storageConfig: The storage initializer configuration.
 //
 // Returns:
 //
@@ -237,6 +254,50 @@ func (r *LLMInferenceServiceReconciler) attachPVCModelArtifact(modelUri string, 
 	}
 	if mainContainer := utils.GetContainerWithName(podSpec, "main"); mainContainer != nil {
 		mainContainer.Args = append(mainContainer.Args, constants.DefaultModelLocalMountPath)
+	}
+
+	return nil
+}
+
+// attachS3ModelArtifact configures a PodSpec to use a model stored in an S3-compatible object store.
+// Model downloading is delegated to vLLM by passing the S3 URI and other required arguments.
+//
+// Parameters:
+//   - modelUri: The URI of the model in the S3-compatible object store.
+//   - podSpec: The PodSpec to which the S3 model should be attached.
+//   - storageConfig: The storage initializer configuration.
+//
+// Returns:
+//
+//	An error if the configuration fails, otherwise nil.
+func (r *LLMInferenceServiceReconciler) attachS3ModelArtifact(modelUri string, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
+	if err := r.attachStorageInitializer(modelUri, podSpec, storageConfig); err != nil {
+		return err
+	}
+	if initContainer := utils.GetInitContainerWithName(podSpec, constants.StorageInitializerContainerName); initContainer != nil {
+		initContainer.Env = append(initContainer.Env, corev1.EnvVar{
+			Name:  s3.AWSAnonymousCredential,
+			Value: "true",
+		})
+	}
+
+	return nil
+}
+
+// attachStorageInitializer configures a PodSpec to use KServe storage-initializer for
+// downloading a model from compatible storage.
+//
+// Parameters:
+//   - modelUri: The URI of the model in compatible object store.
+//   - podSpec: The PodSpec to which the storage-initializer container should be attached.
+//
+// Returns:
+//
+//	An error if the configuration fails, otherwise nil.
+func (r *LLMInferenceServiceReconciler) attachStorageInitializer(modelUri string, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
+	utils.AddStorageInitializerContainer(podSpec, "main", modelUri, true, storageConfig)
+	if mainContainer := utils.GetContainerWithName(podSpec, "main"); mainContainer != nil {
+		mainContainer.Command = append(mainContainer.Command, constants.DefaultModelLocalMountPath)
 	}
 
 	return nil
