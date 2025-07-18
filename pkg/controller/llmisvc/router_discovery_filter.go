@@ -41,11 +41,7 @@ func Filter(urls []*apis.URL, predicate URLPredicateFn) []*apis.URL {
 }
 
 func IsInternalURL(url *apis.URL) bool {
-	host := url.Host
-
-	if colonIndex := strings.LastIndex(host, ":"); colonIndex != -1 {
-		host = host[:colonIndex]
-	}
+	host := url.URL().Hostname()
 
 	if isInternalIP(host) {
 		return true

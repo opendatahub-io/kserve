@@ -6,12 +6,14 @@ spec:
   model:
     uri: hf://facebook/opt-125m
     name: facebook/opt-125m
-  replicas: 1
   router:
     scheduler: { }
     route: { }
     gateway: { }
   template:
+    initContainers:
+      - name: llm-d-routing-sidecar
+        image: quay.io/pierdipi/llm-d-routing-sidecar:24c4316aaa
     containers:
       - name: main
         image: quay.io/pierdipi/vllm-cpu:latest

@@ -40,6 +40,8 @@ import (
 )
 
 func (r *LLMInferenceServiceReconciler) reconcileScheduler(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	log.FromContext(ctx).Info("Reconciling Scheduler")
+
 	if err := r.reconcileSchedulerServiceAccount(ctx, llmSvc); err != nil {
 		return err
 	}
@@ -154,7 +156,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerService(ctx context.Con
 	logger := log.FromContext(ctx)
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-epp-service"),
+			Name:      llmSvc.Spec.Router.Scheduler.EPPServiceName(llmSvc),
 			Namespace: llmSvc.GetNamespace(),
 			Labels:    r.schedulerLabels(llmSvc),
 			OwnerReferences: []metav1.OwnerReference{
