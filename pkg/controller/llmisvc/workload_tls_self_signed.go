@@ -32,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/kmeta"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -47,7 +48,16 @@ const (
 func (r *LLMInferenceServiceReconciler) reconcileSelfSignedCertsSecret(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	log.FromContext(ctx).Info("Reconciling self-signed certificates secret")
 
-	expected, err := r.expectedSelfSignedCertsSecret(llmSvc)
+	// Generating a new certificate is quite slow and expensive as it generates a new certificate, check if the current
+	// self-signed certificate (if any) is expired before creating a new one.
+	var certFunc createCertFunc = createSelfSignedTLSCertificate
+	if curr := r.getExistingSelfSignedCertificate(ctx, llmSvc); curr != nil && (isCertificateExpired(curr) || len(curr.Data["tls.key"]) == 0 || len(curr.Data["tls.crt"]) == 0) {
+		certFunc = func() ([]byte, []byte, error) {
+			return curr.Data["tls.key"], curr.Data["tls.crt"], nil
+		}
+	}
+
+	expected, err := r.expectedSelfSignedCertsSecret(llmSvc, certFunc)
 	if err != nil {
 		return fmt.Errorf("failed to get expected self-signed certificate secret: %w", err)
 	}
@@ -57,8 +67,10 @@ func (r *LLMInferenceServiceReconciler) reconcileSelfSignedCertsSecret(ctx conte
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedSelfSignedCertsSecret(llmSvc *v1alpha1.LLMInferenceService) (*corev1.Secret, error) {
-	keyBytes, certBytes, err := createSelfSignedTLSCertificate()
+type createCertFunc func() ([]byte, []byte, error)
+
+func (r *LLMInferenceServiceReconciler) expectedSelfSignedCertsSecret(llmSvc *v1alpha1.LLMInferenceService, certFunc createCertFunc) (*corev1.Secret, error) {
+	keyBytes, certBytes, err := certFunc()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create self-signed TLS certificate: %w", err)
 	}
@@ -131,15 +143,32 @@ func createSelfSignedTLSCertificate() ([]byte, []byte, error) {
 	return keyBytes, certBytes, nil
 }
 
-// semanticCertificateSecretIsEqual is a semantic comparison for secrets that is specifically meant to compare TLS
-// certificates secrets handling expiration and renewal.
-func semanticCertificateSecretIsEqual(expected *corev1.Secret, curr *corev1.Secret) bool {
+func (r *LLMInferenceServiceReconciler) getExistingSelfSignedCertificate(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *corev1.Secret {
+	curr := &corev1.Secret{}
+	key := client.ObjectKey{Namespace: llmSvc.GetNamespace(), Name: kmeta.ChildName(llmSvc.GetName(), "-kserve-self-signed-certs")}
+	err := r.Client.Get(ctx, key, curr)
+	if err != nil {
+		return nil
+	}
+	return curr
+}
+
+func isCertificateExpired(curr *corev1.Secret) bool {
 	expires, ok := curr.Annotations[certificatesExpirationAnnotation]
 	if ok {
 		t, err := time.Parse(time.RFC3339, expires)
 		if err == nil && time.Now().UTC().After(t.UTC()) {
 			return true
 		}
+	}
+	return false
+}
+
+// semanticCertificateSecretIsEqual is a semantic comparison for secrets that is specifically meant to compare TLS
+// certificates secrets handling expiration and renewal.
+func semanticCertificateSecretIsEqual(expected *corev1.Secret, curr *corev1.Secret) bool {
+	if isCertificateExpired(curr) {
+		return true
 	}
 
 	expectedAnnotations := maps.Clone(expected.Annotations)

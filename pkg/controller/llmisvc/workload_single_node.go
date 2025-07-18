@@ -177,7 +177,7 @@ func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LL
 		// TODO: Evaluate if this is needed, because it essentially ignores the model URI.
 		for idx := range podSpec.Containers {
 			if podSpec.Containers[idx].Name == "main" {
-				podSpec.Containers[idx].Args = append(podSpec.Containers[idx].Args, *llmSvc.Spec.Model.Name)
+				podSpec.Containers[idx].Command = append(podSpec.Containers[idx].Command, *llmSvc.Spec.Model.Name)
 			}
 		}
 	}

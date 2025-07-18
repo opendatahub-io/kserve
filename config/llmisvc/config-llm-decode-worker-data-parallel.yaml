@@ -14,9 +14,33 @@ spec:
             protocol: TCP
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: FallbackToLogsOnError
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 10
         args:
           - "--port=8000"
           - "--vllm-port=8001"
+          - "--secure-proxy=true"
+          - "--cert-path=/etc/ssl/certs"
+          - "--decoder-use-tls=true"
+          - "--decoder-tls-insecure-skip-verify=true"
+          - "--prefiller-use-tls=true"
+          - "--prefiller-tls-insecure-skip-verify=true"
         volumeMounts:
           - mountPath: /etc/ssl/certs
             name: tls-certs
