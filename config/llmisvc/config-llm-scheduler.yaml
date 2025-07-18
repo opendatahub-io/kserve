@@ -8,7 +8,7 @@ spec:
       pool:
         spec:
           extensionRef:
-            failureMode: FailClose
+            failureMode: FailOpen
             kind: Service
             name: |-
               {{ ChildName .ObjectMeta.Name `-epp-service` }}

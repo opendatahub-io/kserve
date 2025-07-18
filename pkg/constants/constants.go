@@ -154,8 +154,13 @@ var (
 )
 
 const (
-	PvcURIPrefix       = "pvc://"
-	PvcSourceMountName = "kserve-pvc-source"
+	OciURIPrefix                 = "oci://"
+	PvcURIPrefix                 = "pvc://"
+	PvcSourceMountName           = "kserve-pvc-source"
+	StorageInitializerVolumeName = "kserve-provision-location"
+
+	CpuModelcarDefault    = "10m"
+	MemoryModelcarDefault = "15Mi"
 )
 
 // Controller Constants
@@ -270,6 +275,7 @@ const (
 	CustomSpecMultiModelServerEnvVarKey               = "MULTI_MODEL_SERVER"
 	KServeContainerPrometheusMetricsPortEnvVarKey     = "KSERVE_CONTAINER_PROMETHEUS_METRICS_PORT"
 	KServeContainerPrometheusMetricsPathEnvVarKey     = "KSERVE_CONTAINER_PROMETHEUS_METRICS_PATH"
+	ModelInitModeEnv                                  = "MODEL_INIT_MODE"
 	QueueProxyAggregatePrometheusMetricsPortEnvVarKey = "AGGREGATE_PROMETHEUS_METRICS_PORT"
 )
 
@@ -368,6 +374,9 @@ const (
 	// WorkerContainerName is for worker node container
 	WorkerContainerName     = "worker-container"
 	QueueProxyContainerName = "queue-proxy"
+
+	ModelcarContainerName     = "modelcar"
+	ModelcarInitContainerName = "modelcar-init"
 )
 
 // DefaultModelLocalMountPath is where models will be mounted by the storage-initializer

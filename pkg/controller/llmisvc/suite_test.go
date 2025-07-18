@@ -21,22 +21,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
-
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-
-	"github.com/kserve/kserve/pkg/constants"
-
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 
+	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
+	"github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 	pkgtest "github.com/kserve/kserve/pkg/testing"
-
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 )
 
 func TestLLMInferenceServiceController(t *testing.T) {
