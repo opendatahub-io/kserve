@@ -128,3 +128,70 @@ func HTTPRouteRef(name string) corev1.LocalObjectReference {
 		Name: name,
 	}
 }
+
+func WithParallelism(parallelism *v1alpha1.ParallelismSpec) LLMInferenceServiceOption {
+	return func(llmSvc *v1alpha1.LLMInferenceService) {
+		llmSvc.Spec.Parallelism = parallelism
+	}
+}
+
+func WithPrefillParallelism(parallelism *v1alpha1.ParallelismSpec) LLMInferenceServiceOption {
+	return func(llmSvc *v1alpha1.LLMInferenceService) {
+		if llmSvc.Spec.Prefill == nil {
+			llmSvc.Spec.Prefill = &v1alpha1.WorkloadSpec{}
+		}
+		llmSvc.Spec.Prefill.Parallelism = parallelism
+	}
+}
+
+func WithWorker(worker *corev1.PodSpec) LLMInferenceServiceOption {
+	return func(llmSvc *v1alpha1.LLMInferenceService) {
+		llmSvc.Spec.Worker = worker
+	}
+}
+
+func WithPrefillWorker(worker *corev1.PodSpec) LLMInferenceServiceOption {
+	return func(llmSvc *v1alpha1.LLMInferenceService) {
+		if llmSvc.Spec.Prefill == nil {
+			llmSvc.Spec.Prefill = &v1alpha1.WorkloadSpec{}
+		}
+		llmSvc.Spec.Prefill.Worker = worker
+	}
+}
+
+func ParallelismSpec(opts ...func(*v1alpha1.ParallelismSpec)) *v1alpha1.ParallelismSpec {
+	p := &v1alpha1.ParallelismSpec{}
+	for _, opt := range opts {
+		opt(p)
+	}
+	return p
+}
+
+func WithPipelineParallelism(pipeline int32) func(*v1alpha1.ParallelismSpec) {
+	return func(p *v1alpha1.ParallelismSpec) {
+		p.Pipeline = &pipeline
+	}
+}
+
+func WithDataParallelism(data int32) func(*v1alpha1.ParallelismSpec) {
+	return func(p *v1alpha1.ParallelismSpec) {
+		p.Data = &data
+	}
+}
+
+func WithDataLocalParallelism(dataLocal int32) func(*v1alpha1.ParallelismSpec) {
+	return func(p *v1alpha1.ParallelismSpec) {
+		p.DataLocal = &dataLocal
+	}
+}
+
+func SimpleWorkerPodSpec() *corev1.PodSpec {
+	return &corev1.PodSpec{
+		Containers: []corev1.Container{
+			{
+				Name:  "worker",
+				Image: "test-worker:latest",
+			},
+		},
+	}
+}
