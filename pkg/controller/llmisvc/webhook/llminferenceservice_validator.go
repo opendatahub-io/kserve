@@ -60,7 +60,7 @@ func (l *LLMInferenceServiceValidator) ValidateCreate(ctx context.Context, obj r
 	return warnings, l.validate(ctx, llmSvc)
 }
 
-func (l *LLMInferenceServiceValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
+func (l *LLMInferenceServiceValidator) ValidateUpdate(ctx context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
 	warnings := admission.Warnings{}
 	llmSvc, err := utils.Convert[*v1alpha1.LLMInferenceService](newObj)
 	if err != nil {
@@ -70,7 +70,7 @@ func (l *LLMInferenceServiceValidator) ValidateUpdate(ctx context.Context, oldOb
 	return warnings, l.validate(ctx, llmSvc)
 }
 
-func (l *LLMInferenceServiceValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
+func (l *LLMInferenceServiceValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
 	// No validation needed for deletion
 	return admission.Warnings{}, nil
 }
@@ -81,9 +81,8 @@ func (l *LLMInferenceServiceValidator) validate(ctx context.Context, llmSvc *v1a
 
 	var allErrs field.ErrorList
 
-	if errs := l.validateRouterCrossFieldConstraints(llmSvc); len(errs) > 0 {
-		allErrs = append(allErrs, errs...)
-	}
+	allErrs = append(allErrs, l.validateRouterCrossFieldConstraints(llmSvc)...)
+	allErrs = append(allErrs, l.validateParallelismConstraints(llmSvc)...)
 
 	if len(allErrs) == 0 {
 		return nil
@@ -96,7 +95,7 @@ func (l *LLMInferenceServiceValidator) validate(ctx context.Context, llmSvc *v1a
 
 func (l *LLMInferenceServiceValidator) validateRouterCrossFieldConstraints(llmSvc *v1alpha1.LLMInferenceService) field.ErrorList {
 	router := llmSvc.Spec.Router
-	if router.Route == nil {
+	if router == nil || router.Route == nil {
 		return field.ErrorList{}
 	}
 
@@ -166,6 +165,98 @@ func (l *LLMInferenceServiceValidator) validateRouterCrossFieldConstraints(llmSv
 				"either remove '%s' or '%s'",
 				httpRouteSpec, gwRefsPath, gwRefsPath, httpRouteSpec,
 			),
+		))
+	}
+
+	return allErrs
+}
+
+func (l *LLMInferenceServiceValidator) validateParallelismConstraints(llmSvc *v1alpha1.LLMInferenceService) field.ErrorList {
+	var allErrs field.ErrorList
+
+	allErrs = append(allErrs, l.validateWorkloadParallelism(field.NewPath("spec"), &llmSvc.Spec.WorkloadSpec)...)
+
+	if llmSvc.Spec.Prefill != nil {
+		allErrs = append(allErrs, l.validateWorkloadParallelism(field.NewPath("spec").Child("prefill"), llmSvc.Spec.Prefill)...)
+	}
+
+	return allErrs
+}
+
+func (l *LLMInferenceServiceValidator) validateWorkloadParallelism(basePath *field.Path, workload *v1alpha1.WorkloadSpec) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if workload.Worker != nil && workload.Parallelism == nil {
+		allErrs = append(allErrs, field.Invalid(
+			basePath.Child("worker"),
+			workload.Worker,
+			"when worker is specified, parallelism must be configured for either data parallelism or pipeline parallelism",
+		))
+		return allErrs
+	}
+
+	if workload.Parallelism == nil {
+		return field.ErrorList{}
+	}
+
+	parallelismPath := basePath.Child("parallelism")
+	parallelism := workload.Parallelism
+
+	if workload.Worker != nil && !parallelism.IsDataParallel() && !parallelism.IsPipelineParallel() {
+		allErrs = append(allErrs, field.Invalid(
+			basePath.Child("worker"),
+			workload.Worker,
+			"when worker is specified, parallelism must be configured for either data parallelism or pipeline parallelism",
+		))
+	}
+
+	if parallelism.IsPipelineParallel() && parallelism.IsDataParallel() {
+		allErrs = append(allErrs, field.Invalid(
+			parallelismPath,
+			parallelism,
+			"cannot set both pipeline parallelism and data parallelism (data or dataLocal) simultaneously",
+		))
+	}
+
+	// Data and DataLocal must always be set together
+	if (parallelism.Data != nil) != (parallelism.DataLocal != nil) {
+		if parallelism.Data != nil && parallelism.DataLocal == nil {
+			allErrs = append(allErrs, field.Invalid(
+				parallelismPath.Child("dataLocal"),
+				parallelism.DataLocal,
+				"dataLocal must be set when data is set",
+			))
+		}
+		if parallelism.DataLocal != nil && parallelism.Data == nil {
+			allErrs = append(allErrs, field.Invalid(
+				parallelismPath.Child("data"),
+				parallelism.Data,
+				"data must be set when dataLocal is set",
+			))
+		}
+	}
+
+	if parallelism.Pipeline != nil && *parallelism.Pipeline <= 0 {
+		allErrs = append(allErrs, field.Invalid(
+			parallelismPath.Child("pipeline"),
+			*parallelism.Pipeline,
+			"pipeline parallelism must be greater than 0",
+		))
+	}
+
+	if parallelism.Data != nil && *parallelism.Data <= 0 {
+		allErrs = append(allErrs, field.Invalid(
+			parallelismPath.Child("data"),
+			*parallelism.Data,
+			"data parallelism must be greater than 0",
+		))
+	}
+
+	if parallelism.DataLocal != nil && *parallelism.DataLocal <= 0 {
+		allErrs = append(allErrs, field.Invalid(
+			parallelismPath.Child("dataLocal"),
+			*parallelism.DataLocal,
+			"dataLocal parallelism must be greater than 0",
 		))
 	}
 

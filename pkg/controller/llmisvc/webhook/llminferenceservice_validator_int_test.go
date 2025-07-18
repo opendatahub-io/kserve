@@ -151,4 +151,227 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 			Expect(errValidation.Error()).To(ContainSubstring("unsupported configuration"))
 		})
 	})
+
+	Context("parallelism constraints validation", func() {
+		It("should reject LLMInferenceService with both pipeline and data parallelism", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-both-pipeline-and-data",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithParallelism(fixture.ParallelismSpec(
+					fixture.WithPipelineParallelism(2),
+					fixture.WithDataParallelism(4),
+					fixture.WithDataLocalParallelism(2),
+				)),
+			)
+
+			// when
+			errValidation := envTest.Client.Create(ctx, llmSvc)
+
+			// then
+			Expect(errValidation).To(HaveOccurred())
+			Expect(errValidation.Error()).To(ContainSubstring("cannot set both pipeline parallelism and data parallelism"))
+		})
+
+		It("should reject LLMInferenceService with data parallelism but missing dataLocal", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-data-without-datalocal",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithParallelism(fixture.ParallelismSpec(
+					fixture.WithDataParallelism(4),
+				)),
+			)
+
+			// when
+			errValidation := envTest.Client.Create(ctx, llmSvc)
+
+			// then
+			Expect(errValidation).To(HaveOccurred())
+			Expect(errValidation.Error()).To(ContainSubstring("dataLocal must be set when data is set"))
+		})
+
+		It("should reject LLMInferenceService with dataLocal parallelism but missing data", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-datalocal-without-data",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithParallelism(fixture.ParallelismSpec(
+					fixture.WithDataLocalParallelism(2),
+				)),
+			)
+
+			// when
+			errValidation := envTest.Client.Create(ctx, llmSvc)
+
+			// then
+			Expect(errValidation).To(HaveOccurred())
+			Expect(errValidation.Error()).To(ContainSubstring("data must be set when dataLocal is set"))
+		})
+
+		It("should reject LLMInferenceService with zero pipeline parallelism", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-zero-pipeline",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithParallelism(fixture.ParallelismSpec(
+					fixture.WithPipelineParallelism(0),
+				)),
+			)
+
+			// when
+			errValidation := envTest.Client.Create(ctx, llmSvc)
+
+			// then
+			Expect(errValidation).To(HaveOccurred())
+			Expect(errValidation.Error()).To(ContainSubstring("pipeline parallelism must be greater than 0"))
+		})
+
+		It("should reject LLMInferenceService with zero data parallelism", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-zero-data",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithParallelism(fixture.ParallelismSpec(
+					fixture.WithDataParallelism(0),
+					fixture.WithDataLocalParallelism(1),
+				)),
+			)
+
+			// when
+			errValidation := envTest.Client.Create(ctx, llmSvc)
+
+			// then
+			Expect(errValidation).To(HaveOccurred())
+			Expect(errValidation.Error()).To(ContainSubstring("data parallelism must be greater than 0"))
+		})
+
+		It("should reject LLMInferenceService with zero dataLocal parallelism", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-zero-datalocal",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithParallelism(fixture.ParallelismSpec(
+					fixture.WithDataParallelism(4),
+					fixture.WithDataLocalParallelism(0),
+				)),
+			)
+
+			// when
+			errValidation := envTest.Client.Create(ctx, llmSvc)
+
+			// then
+			Expect(errValidation).To(HaveOccurred())
+			Expect(errValidation.Error()).To(ContainSubstring("dataLocal parallelism must be greater than 0"))
+		})
+
+		It("should reject LLMInferenceService with worker but no parallelism configuration", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-worker-no-parallelism",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithWorker(fixture.SimpleWorkerPodSpec()),
+			)
+
+			// when
+			errValidation := envTest.Client.Create(ctx, llmSvc)
+
+			// then
+			Expect(errValidation).To(HaveOccurred())
+			Expect(errValidation.Error()).To(ContainSubstring("when worker is specified, parallelism must be configured"))
+		})
+
+		It("should reject LLMInferenceService with prefill having both pipeline and data parallelism", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-prefill-both-parallelism",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithPrefillParallelism(fixture.ParallelismSpec(
+					fixture.WithPipelineParallelism(2),
+					fixture.WithDataParallelism(4),
+					fixture.WithDataLocalParallelism(2),
+				)),
+			)
+
+			// when
+			errValidation := envTest.Client.Create(ctx, llmSvc)
+
+			// then
+			Expect(errValidation).To(HaveOccurred())
+			Expect(errValidation.Error()).To(ContainSubstring("cannot set both pipeline parallelism and data parallelism"))
+		})
+
+		It("should reject LLMInferenceService with prefill worker but no parallelism configuration", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-prefill-worker-no-parallelism",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithPrefillWorker(fixture.SimpleWorkerPodSpec()),
+			)
+
+			// when
+			errValidation := envTest.Client.Create(ctx, llmSvc)
+
+			// then
+			Expect(errValidation).To(HaveOccurred())
+			Expect(errValidation.Error()).To(ContainSubstring("when worker is specified, parallelism must be configured"))
+		})
+
+		It("should accept LLMInferenceService with valid pipeline parallelism", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-valid-pipeline",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithParallelism(fixture.ParallelismSpec(
+					fixture.WithPipelineParallelism(2),
+				)),
+				fixture.WithWorker(fixture.SimpleWorkerPodSpec()),
+			)
+
+			// then
+			Expect(envTest.Client.Create(ctx, llmSvc)).To(Succeed())
+		})
+
+		It("should accept LLMInferenceService with valid data parallelism", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-valid-data",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithParallelism(fixture.ParallelismSpec(
+					fixture.WithDataParallelism(4),
+					fixture.WithDataLocalParallelism(2),
+				)),
+				fixture.WithWorker(fixture.SimpleWorkerPodSpec()),
+			)
+
+			// then
+			Expect(envTest.Client.Create(ctx, llmSvc)).To(Succeed())
+		})
+
+		It("should accept LLMInferenceService with valid prefill parallelism configuration", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-valid-prefill",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithPrefillParallelism(fixture.ParallelismSpec(
+					fixture.WithPipelineParallelism(2),
+				)),
+				fixture.WithPrefillWorker(fixture.SimpleWorkerPodSpec()),
+			)
+
+			// then
+			Expect(envTest.Client.Create(ctx, llmSvc)).To(Succeed())
+		})
+
+		It("should accept LLMInferenceService without parallelism configuration", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-no-parallelism",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+			)
+
+			// then
+			Expect(envTest.Client.Create(ctx, llmSvc)).To(Succeed())
+		})
+	})
 })
