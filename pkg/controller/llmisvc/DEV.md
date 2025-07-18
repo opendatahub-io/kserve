@@ -71,6 +71,7 @@ LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-facebook-opt-125m-c
 LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
 
 kubectl apply -n ${NS} -f ${LLM_ISVC}
+```
 
 > [!IMPORTANT]
 > The **`DestinationRule`** is required because the scheduler expects secure **HTTPS** connections 
@@ -80,6 +81,7 @@ kubectl apply -n ${NS} -f ${LLM_ISVC}
 > The `mode: SIMPLE` flag forces the gateway to initiate an **HTTPS** connection, matching the scheduler's expectation.
 > The `insecureSkipVerify: true` flag allows the gateway to accept the scheduler's **self-signed certificate**, which it would otherwise reject as untrusted.
 
+```shell
 kubectl apply -f - <<EOF
 apiVersion: networking.istio.io/v1
 kind: DestinationRule

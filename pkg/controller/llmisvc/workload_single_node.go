@@ -167,14 +167,32 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 	return d
 }
 
+// attachModelArtifacts configures a PodSpec to fetch and use a model froma provided URI in the LLMInferenceService.
+// The storage backend (PVC, OCI, Hugging Face, or S3) is determined from the URI schema and the appropriate helper function
+// is called to configure the PodSpec. This function will adjust volumes, container arguments, container volume mounts,
+// add containers, and do other changes to the PodSpec to ensure the model is fetched properly from storage.
+//
+// Parameters:
+//   - llmSvc: The LLMInferenceService resource containing the model specification.
+//   - podSpec: The PodSpec to configure with the model artifact.
+//   - storageConfig: The storage initializer configuration.
+//
+// Returns:
+//
+//	An error if the configuration fails, otherwise nil.
 func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LLMInferenceService, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
 	modelUri := llmSvc.Spec.Model.URI.String()
+	schema, _, sepFound := strings.Cut(modelUri, "://")
 
-	switch {
-	case strings.HasPrefix(modelUri, constants.PvcURIPrefix):
+	if !sepFound {
+		return fmt.Errorf("invalid model URI: %s", modelUri)
+	}
+
+	switch schema + "://" {
+	case constants.PvcURIPrefix:
 		return r.attachPVCModelArtifact(modelUri, podSpec)
 
-	case strings.HasPrefix(modelUri, constants.OciURIPrefix):
+	case constants.OciURIPrefix:
 		// Check of OCI is enabled
 		if !storageConfig.EnableOciImageSource {
 			return errors.New("OCI modelcars is not enabled")
@@ -182,14 +200,35 @@ func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LL
 
 		return r.attachOciModelArtifact(modelUri, podSpec, storageConfig)
 
-	default:
-		// Backwards compatibility
-		// TODO: Evaluate if this is needed, because it essentially ignores the model URI.
-		for idx := range podSpec.Containers {
-			if podSpec.Containers[idx].Name == "main" {
-				podSpec.Containers[idx].Args = append(podSpec.Containers[idx].Args, *llmSvc.Spec.Model.Name)
-			}
-		}
+	case constants.HfURIPrefix:
+		return r.attachHfModelArtifact(modelUri, podSpec)
+
+	case constants.S3URIPrefix:
+		return r.attachS3ModelArtifact(modelUri, podSpec)
+	}
+
+	return fmt.Errorf("unsupported schema in model URI: %s", modelUri)
+}
+
+// attachHfModelArtifact configures a PodSpec to use a model stored in a Hugging Face repository.
+// Model downloading is delegated to vLLM by passing the repository ID as an argument.
+//
+// Parameters:
+//   - modelUri: The URI of the model in the Hugging Face repository.
+//   - podSpec: The PodSpec to configure.
+//
+// Returns:
+//
+//	An error if the configuration fails, otherwise nil.
+func (r *LLMInferenceServiceReconciler) attachHfModelArtifact(modelUri string, podSpec *corev1.PodSpec) error {
+	repoId := strings.TrimSpace(strings.TrimPrefix(modelUri, constants.HfURIPrefix))
+	if repoId == "" {
+		return errors.New("invalid model URI: hugging face repository id is blank")
+	}
+
+	// Delegate model downloading to vLLM
+	if mainContainer := utils.GetContainerWithName(podSpec, "main"); mainContainer != nil {
+		mainContainer.Args = append(mainContainer.Args, repoId)
 	}
 
 	return nil
@@ -238,6 +277,30 @@ func (r *LLMInferenceServiceReconciler) attachPVCModelArtifact(modelUri string, 
 	}
 	if mainContainer := utils.GetContainerWithName(podSpec, "main"); mainContainer != nil {
 		mainContainer.Args = append(mainContainer.Args, constants.DefaultModelLocalMountPath)
+	}
+
+	return nil
+}
+
+// attachS3ModelArtifact configures a PodSpec to use a model stored in an S3-compatible object store.
+// Model downloading is delegated to vLLM by passing the S3 URI and other required arguments.
+//
+// Parameters:
+//   - modelUri: The URI of the model in the S3-compatible object store.
+//   - podSpec: The PodSpec to which the S3 model should be attached.
+//
+// Returns:
+//
+//	An error if the configuration fails, otherwise nil.
+func (r *LLMInferenceServiceReconciler) attachS3ModelArtifact(modelUri string, podSpec *corev1.PodSpec) error {
+	repoId := strings.TrimSpace(strings.TrimPrefix(modelUri, constants.S3URIPrefix))
+	if repoId == "" {
+		return errors.New("invalid model URI: S3 path is blank")
+	}
+
+	// Delegate model downloading to vLLM
+	if mainContainer := utils.GetContainerWithName(podSpec, "main"); mainContainer != nil {
+		mainContainer.Args = append(mainContainer.Args, modelUri, "--load-format", "runai_streamer")
 	}
 
 	return nil

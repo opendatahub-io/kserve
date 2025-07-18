@@ -154,8 +154,11 @@ var (
 )
 
 const (
-	OciURIPrefix                 = "oci://"
-	PvcURIPrefix                 = "pvc://"
+	HfURIPrefix  = "hf://"
+	OciURIPrefix = "oci://"
+	PvcURIPrefix = "pvc://"
+	S3URIPrefix  = "s3://"
+
 	PvcSourceMountName           = "kserve-pvc-source"
 	StorageInitializerVolumeName = "kserve-provision-location"
 
