@@ -38,6 +38,10 @@ import (
 	"sigs.k8s.io/yaml"
 )
 
+const (
+	defaultGatewayClass = "istio"
+)
+
 func RequiredResources(ctx context.Context, c client.Client, ns string) {
 	gomega.Expect(c.Create(ctx, &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
@@ -52,12 +56,13 @@ func RequiredResources(ctx context.Context, c client.Client, ns string) {
 	}
 
 	gomega.Expect(c.Create(ctx, DefaultGateway(ns))).To(gomega.Succeed())
+	gomega.Expect(c.Create(ctx, DefaultGatewayClass())).To(gomega.Succeed())
 }
 
 func DefaultGateway(ns string) *gatewayapiv1.Gateway {
 	defaultGateway := Gateway(constants.GatewayName,
 		InNamespace[*gatewayapiv1.Gateway](ns),
-		WithClassName("istio"),
+		WithClassName(defaultGatewayClass),
 		WithInfrastructureLabels("serving.kserve.io/gateway", constants.GatewayName),
 		WithListeners(gatewayapiv1.Listener{
 			Name:     "http",
@@ -72,6 +77,17 @@ func DefaultGateway(ns string) *gatewayapiv1.Gateway {
 	)
 
 	return defaultGateway
+}
+
+func DefaultGatewayClass() *gatewayapiv1.GatewayClass {
+	return &gatewayapiv1.GatewayClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: defaultGatewayClass,
+		},
+		Spec: gatewayapiv1.GatewayClassSpec{
+			ControllerName: "istio.io/gateway-controller",
+		},
+	}
 }
 
 func InferenceServiceCfgMap(ns string) *corev1.ConfigMap {
