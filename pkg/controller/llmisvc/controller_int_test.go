@@ -56,7 +56,9 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Name: nsName,
 				},
 			}
+
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
 			defer func() {
 				envTest.DeleteAll(namespace)
 			}()
@@ -117,6 +119,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					},
 				}
 				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
 				defer func() {
 					envTest.DeleteAll(namespace)
 				}()
@@ -175,6 +178,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					},
 				}
 				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
 				defer func() {
 					envTest.DeleteAll(namespace)
 				}()
@@ -236,6 +240,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					},
 				}
 				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
 				defer func() {
 					envTest.DeleteAll(namespace)
 				}()
@@ -311,6 +316,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						},
 					}
 					Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+					Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
 					defer func() {
 						envTest.DeleteAll(namespace)
 					}()
@@ -400,7 +406,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 	Context("Storage configuration", func() {
 		It("should configure direct PVC mount when model uri starts with pvc://", func(ctx SpecContext) {
 			// given
-			svcName := "test-llm"
+			svcName := "test-llm-storage-pvc"
 			nsName := kmeta.ChildName(svcName, "-test")
 			namespace := &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
@@ -408,6 +414,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				},
 			}
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
 			defer func() {
 				envTest.DeleteAll(namespace)
 			}()
@@ -468,7 +475,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 		It("should configure a modelcar when model uri starts with oci://", func(ctx SpecContext) {
 			// given
-			svcName := "test-llm"
+			svcName := "test-llm-storage-oci"
 			nsName := kmeta.ChildName(svcName, "-test")
 			namespace := &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
@@ -476,6 +483,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				},
 			}
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
 			defer func() {
 				envTest.DeleteAll(namespace)
 			}()
