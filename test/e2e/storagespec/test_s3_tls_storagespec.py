@@ -62,7 +62,7 @@ TbVunBmL9HUClHgUc2B0NSfNyqXSwo+Gp5Kg4iYIw4hJw2EPwilUFafcM8uVDktK
 5kwH30e7WUlkXz+j8p1UIuFM5kKHW/OwPBdLU/1Pl5ts
 -----END CERTIFICATE-----
 """
-invalid_data_connection=(
+invalid_data_connection = (
     '{"type": "s3","access_key_id":"minio","secret_access_key":"minio123",'
     '"endpoint_url":"https://minio-tls-serving-service.kserve.svc:9000",'
     '"bucket":"mlpipeline","region":"us-south","anonymous":"False"}'
@@ -263,7 +263,7 @@ async def test_s3_tls_serving_cert_storagespec_kserve():
     storage_config_data = kserve_client.core_api.read_namespaced_secret(
         "storage-config", KSERVE_TEST_NAMESPACE
     ).data
-    original_data_connection = storage_config_data["localTLSMinIOServing"] 
+    original_data_connection = storage_config_data["localTLSMinIOServing"]
 
     kserve_client.core_api.patch_namespaced_secret(
         name="storage-config",
