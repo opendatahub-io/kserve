@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The KServe Authors.
+Copyright 2025 The KServe Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -79,7 +79,7 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRules(ctx conte
 			return fmt.Errorf("failed to discover gateways : %w", err)
 		}
 		for _, g := range gateways {
-			if cfg.isIstioGatewayController(string(g.gatewayClass.Spec.ControllerName)) {
+			if g.gatewayClass != nil && cfg.isIstioGatewayController(string(g.gatewayClass.Spec.ControllerName)) {
 				if err := r.reconcileIstioDestinationRuleForScheduler(ctx, llmSvc); err != nil {
 					return fmt.Errorf("failed to reconcile Istio destination rule for scheduler: %w", err)
 				}

@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The KServe Authors.
+Copyright 2025 The KServe Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -157,9 +157,7 @@ func isCertificateExpired(curr *corev1.Secret) bool {
 	expires, ok := curr.Annotations[certificatesExpirationAnnotation]
 	if ok {
 		t, err := time.Parse(time.RFC3339, expires)
-		if err == nil && time.Now().UTC().After(t.UTC()) {
-			return true
-		}
+		return err == nil && time.Now().UTC().After(t.UTC())
 	}
 	return false
 }
