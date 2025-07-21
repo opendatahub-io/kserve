@@ -22,11 +22,8 @@ import (
 	"fmt"
 	"slices"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
-
-	"k8s.io/apimachinery/pkg/types"
 
 	"k8s.io/utils/ptr"
 
@@ -58,14 +55,14 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 		return fmt.Errorf("failed to reconcile HTTP routes: %w", err)
 	}
 
-	llmSvc.MarkRouterReady()
-
 	return nil
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling HTTPRoute")
+
+	validation := &RefValidationResult{}
 
 	expectedHTTPRoute := r.expectedHTTPRoute(ctx, llmSvc)
 
@@ -77,35 +74,36 @@ func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context,
 
 	var referencedRoutes []*gatewayapi.HTTPRoute
 	if route.HTTP.HasRefs() {
-		for _, routeRef := range route.HTTP.Refs {
-			providedRoute := &gatewayapi.HTTPRoute{}
-			errGet := r.Client.Get(ctx, types.NamespacedName{Namespace: routeRef.Name, Name: llmSvc.GetNamespace()}, providedRoute)
-
-			if errGet != nil {
-				if apierrors.IsNotFound(errGet) {
-					// TODO(follow-up) mark condition if not found
-					continue
-				}
-				return fmt.Errorf("failed to get HTTPRoute %s/%s: %w", routeRef.Name, llmSvc.GetName(), errGet)
-			}
-
-			referencedRoutes = append(referencedRoutes, providedRoute)
-		}
+		referencedRoutes = r.validateHTTPRouteRefs(ctx, route.HTTP.Refs, llmSvc, validation)
+		r.validateHTTPRouteConfigs(ctx, referencedRoutes, llmSvc, validation)
 
 		if errDel := Delete(ctx, r, llmSvc, expectedHTTPRoute); errDel != nil {
 			return fmt.Errorf("failed to delete managed HTTPRoute %s/%s: %w", expectedHTTPRoute.GetNamespace(), expectedHTTPRoute.GetName(), errDel)
 		}
 	}
 
-	// TODO(validation): referenced gateway exists
 	if route.HTTP.HasSpec() {
 		if err := Reconcile(ctx, r, llmSvc, &gatewayapi.HTTPRoute{}, expectedHTTPRoute, semanticHTTPRouteIsEqual); err != nil {
 			return fmt.Errorf("failed to reconcile HTTPRoute %s/%s: %w", expectedHTTPRoute.GetNamespace(), expectedHTTPRoute.GetName(), err)
 		}
 		referencedRoutes = append(referencedRoutes, expectedHTTPRoute)
+
+		parentGateways := extractParentRefGateways(expectedHTTPRoute.Spec.ParentRefs, expectedHTTPRoute.Namespace)
+		r.validateGatewayRefs(ctx, parentGateways, validation)
 	}
 
-	return r.updateRoutingStatus(ctx, llmSvc, referencedRoutes...)
+	if validation.IsValid() {
+		llmSvc.MarkRouterReady()
+	} else {
+		if validation.HasNotFoundIssues() {
+			// Prioritize "not found" issues
+			llmSvc.MarkRouterNotReady(string(RefsNotFoundReason), validation.CombinedMessage())
+		} else if validation.HasMisconfiguredIssues() {
+			llmSvc.MarkRouterNotReady(string(RefsMisconfiguredReason), validation.CombinedMessage())
+		}
+	}
+
+	return r.updateLLMInferenceServiceURLs(ctx, llmSvc, referencedRoutes...)
 }
 
 func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *gatewayapi.HTTPRoute {
@@ -129,7 +127,7 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 
 		// If Gateway is not managed (has .refs), re-attach the expected route to the referenced gateways
 		if llmSvc.Spec.Router.Gateway.HasRefs() {
-			httpRoute.Spec.CommonRouteSpec.ParentRefs = make([]gatewayapi.ParentReference, 0, len(llmSvc.Spec.Router.Gateway.Refs))
+			// Preserve existing ParentRefs and append router gateway refs
 			for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
 				httpRoute.Spec.CommonRouteSpec.ParentRefs = append(httpRoute.Spec.CommonRouteSpec.ParentRefs, toGatewayRef(ref))
 			}
@@ -139,7 +137,7 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 	return httpRoute
 }
 
-func (r *LLMInferenceServiceReconciler) updateRoutingStatus(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, routes ...*gatewayapi.HTTPRoute) error {
+func (r *LLMInferenceServiceReconciler) updateLLMInferenceServiceURLs(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, routes ...*gatewayapi.HTTPRoute) error {
 	logger := log.FromContext(ctx)
 
 	var urls []*apis.URL

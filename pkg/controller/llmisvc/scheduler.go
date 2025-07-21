@@ -209,10 +209,11 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerService(ctx context.Con
 
 func (r *LLMInferenceServiceReconciler) expectedSchedulerInferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *igwapi.InferencePool {
 	labels := r.schedulerLabels(llmSvc)
+	poolName := llmSvc.InferencePoolName()
 
 	ip := &igwapi.InferencePool{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-inference-pool"),
+			Name:      poolName,
 			Namespace: llmSvc.GetNamespace(),
 			Labels:    labels,
 			OwnerReferences: []metav1.OwnerReference{
@@ -231,6 +232,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerInferencePool(ctx conte
 
 func (r *LLMInferenceServiceReconciler) expectedSchedulerInferenceModel(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *igwapi.InferenceModel {
 	labels := r.schedulerLabels(llmSvc)
+	poolName := llmSvc.InferencePoolName()
 
 	im := &igwapi.InferenceModel{
 		ObjectMeta: metav1.ObjectMeta{
@@ -246,7 +248,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerInferenceModel(ctx cont
 			PoolRef: igwapi.PoolObjectReference{
 				Group: "inference.networking.x-k8s.io",
 				Kind:  "InferencePool",
-				Name:  igwapi.ObjectName(kmeta.ChildName(llmSvc.GetName(), "-inference-pool")),
+				Name:  igwapi.ObjectName(poolName),
 			},
 		},
 	}

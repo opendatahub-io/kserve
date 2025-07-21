@@ -23,6 +23,8 @@ import (
 	"net"
 	"slices"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
@@ -40,7 +42,11 @@ func DiscoverURLs(ctx context.Context, c client.Client, route *gatewayapi.HTTPRo
 
 		gateway := &gatewayapi.Gateway{}
 		if err := c.Get(ctx, types.NamespacedName{Namespace: gwNS, Name: gwName}, gateway); err != nil {
-			return nil, fmt.Errorf("fetch Gateway %s/%s: %w", gwNS, gwName, err)
+			if apierrors.IsNotFound(err) {
+				// Do not fail when Gateway does not exist, skip processing
+				return nil, nil
+			}
+			return nil, fmt.Errorf("error while getting Gateway %s/%s: %w", gwNS, gwName, err)
 		}
 
 		listener := selectListener(gateway, parentRef.SectionName)

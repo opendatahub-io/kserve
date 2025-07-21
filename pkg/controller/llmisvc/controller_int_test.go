@@ -18,6 +18,7 @@ package llmisvc_test
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/util/retry"
@@ -275,7 +276,19 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					return nil
 				}).WithContext(ctx).Should(Succeed())
 
-				// when - Update the HTTPRoute spec
+				// when - point to existing custom route
+				customHttpRoute := HTTPRoute("my-custom-route", []HTTPRouteOption{
+					InNamespace[*gatewayapi.HTTPRoute](nsName),
+					WithParentRef(GatewayParentRef("kserve-ingress-gateway", "kserve")),
+					WithHTTPRouteRule(
+						HTTPRouteRuleWithBackendAndTimeouts(llmSvc.InferencePoolName(), 8000, "/", "0s", "0s"),
+					),
+				}...)
+				Expect(envTest.Create(ctx, customHttpRoute)).To(Succeed())
+				defer func() {
+					Expect(envTest.Delete(ctx, customHttpRoute)).To(Succeed())
+				}()
+
 				errRetry := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 					_, errUpdate := ctrl.CreateOrUpdate(ctx, envTest.Client, llmSvc, func() error {
 						llmSvc.Spec.Router.Route.HTTP.Refs = []corev1.LocalObjectReference{{Name: "my-custom-route"}}
@@ -365,7 +378,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						g.Expect(routes).To(BeEmpty())
 
 						return nil
-					}).WithContext(ctx).Should(Succeed(), "Should have no managed HTTPRoutes with router when ")
+					}).WithContext(ctx).Should(Succeed(), "Should have no managed HTTPRoutes ")
 
 					Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 				},
@@ -394,6 +407,265 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					},
 				),
 			)
+		})
+	})
+
+	Context("Reference validation", func() {
+		When("referenced Gateway does not exist", func() {
+			It("should mark RouterReady condition as False with RefsNotFound reason", func(ctx SpecContext) {
+				// given
+				svcName := "test-llm-gateway-ref-not-found"
+				nsName := kmeta.ChildName(svcName, "-test")
+				namespace := &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: nsName,
+					},
+				}
+				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+				defer func() {
+					envTest.DeleteAll(namespace)
+				}()
+
+				llmSvc := LLMInferenceService(svcName,
+					InNamespace[*v1alpha1.LLMInferenceService](nsName),
+					WithModelURI("hf://facebook/opt-125m"),
+					WithManagedRoute(),
+					WithGatewayRefs(LLMGatewayRef("non-existent-gateway", nsName)),
+				)
+
+				// when
+				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+				defer func() {
+					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+				}()
+
+				// then
+				Eventually(func(g Gomega, ctx context.Context) error {
+					updatedLLMSvc := &v1alpha1.LLMInferenceService{}
+					g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), updatedLLMSvc)).To(Succeed())
+
+					g.Expect(updatedLLMSvc.Status).To(HaveCondition(string(v1alpha1.RouterReady), "False"))
+
+					routerCondition := updatedLLMSvc.Status.GetCondition(v1alpha1.RouterReady)
+					g.Expect(routerCondition).ToNot(BeNil())
+					g.Expect(routerCondition.Reason).To(Equal("RefsNotFound"))
+					g.Expect(routerCondition.Message).To(ContainSubstring(fmt.Sprintf("Gateway %s/non-existent-gateway does not exist", nsName)))
+
+					return nil
+				}).WithContext(ctx).Should(Succeed())
+			})
+		})
+
+		When("referenced parent Gateway from HTTPRoute does not exist", func() {
+			It("should mark RouterReady condition as False with RefsNotFound reason", func(ctx SpecContext) {
+				// given
+				svcName := "test-llm-parent-gateway-ref-not-found"
+				nsName := kmeta.ChildName(svcName, "-test")
+				namespace := &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: nsName,
+					},
+				}
+				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+				defer func() {
+					envTest.DeleteAll(namespace)
+				}()
+
+				// Create HTTPRoute spec that references a non-existent gateway
+				customRouteSpec := &HTTPRoute("temp",
+					WithParentRefs(GatewayParentRef("non-existent-parent-gateway", nsName)),
+					WithHTTPRule(
+						WithBackendRefs(ServiceRef("some-backend", 8000, 1)),
+					),
+				).Spec
+
+				llmSvc := LLMInferenceService(svcName,
+					InNamespace[*v1alpha1.LLMInferenceService](nsName),
+					WithModelURI("hf://facebook/opt-125m"),
+					WithHTTPRouteSpec(customRouteSpec),
+					WithManagedGateway(),
+				)
+
+				// when
+				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+				defer func() {
+					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+				}()
+
+				// then
+				Eventually(func(g Gomega, ctx context.Context) error {
+					updatedLLMSvc := &v1alpha1.LLMInferenceService{}
+					g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), updatedLLMSvc)).To(Succeed())
+
+					g.Expect(updatedLLMSvc.Status).To(HaveCondition(string(v1alpha1.RouterReady), "False"))
+
+					routerCondition := updatedLLMSvc.Status.GetCondition(v1alpha1.RouterReady)
+					g.Expect(routerCondition).ToNot(BeNil())
+					g.Expect(routerCondition.Reason).To(Equal("RefsNotFound"))
+					g.Expect(routerCondition.Message).To(ContainSubstring(fmt.Sprintf("Gateway %s/non-existent-parent-gateway does not exist", nsName)))
+
+					return nil
+				}).WithContext(ctx).Should(Succeed())
+			})
+		})
+
+		When("referenced HTTPRoute does not exist", func() {
+			It("should mark RouterReady condition as False with RefsNotFound reason", func(ctx SpecContext) {
+				// given
+				svcName := "test-llm-route-ref-not-found"
+				nsName := kmeta.ChildName(svcName, "-test")
+				namespace := &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: nsName,
+					},
+				}
+				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+				defer func() {
+					envTest.DeleteAll(namespace)
+				}()
+
+				llmSvc := LLMInferenceService(svcName,
+					InNamespace[*v1alpha1.LLMInferenceService](nsName),
+					WithModelURI("hf://facebook/opt-125m"),
+					WithHTTPRouteRefs(HTTPRouteRef("non-existent-route")),
+					WithManagedGateway(),
+				)
+
+				// when
+				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+				defer func() {
+					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+				}()
+
+				// then
+				Eventually(func(g Gomega, ctx context.Context) error {
+					updatedLLMSvc := &v1alpha1.LLMInferenceService{}
+					g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), updatedLLMSvc)).To(Succeed())
+
+					g.Expect(updatedLLMSvc.Status).To(HaveCondition(string(v1alpha1.RouterReady), "False"))
+
+					routerCondition := updatedLLMSvc.Status.GetCondition(v1alpha1.RouterReady)
+					g.Expect(routerCondition).ToNot(BeNil())
+					g.Expect(routerCondition.Reason).To(Equal("RefsNotFound"))
+					g.Expect(routerCondition.Message).To(ContainSubstring(fmt.Sprintf("HTTPRoute %s/non-existent-route does not exist", nsName)))
+
+					return nil
+				}).WithContext(ctx).Should(Succeed())
+			})
+		})
+
+		When("multiple references do not exist", func() {
+			It("should mark RouterReady condition as False with RefsNotFound reasons", func(ctx SpecContext) {
+				// given
+				svcName := "test-llm-multiple-refs-not-found"
+				nsName := kmeta.ChildName(svcName, "-test")
+				namespace := &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: nsName,
+					},
+				}
+				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+				defer func() {
+					envTest.DeleteAll(namespace)
+				}()
+
+				// Create HTTPRoute spec that references a non-existent parent gateway
+				customRouteSpec := &HTTPRoute("temp",
+					WithParentRefs(GatewayParentRef("non-existent-parent-gateway", nsName)),
+					WithHTTPRule(
+						WithBackendRefs(ServiceRef("some-backend", 8000, 1)),
+					),
+				).Spec
+
+				llmSvc := LLMInferenceService(svcName,
+					InNamespace[*v1alpha1.LLMInferenceService](nsName),
+					WithModelURI("hf://facebook/opt-125m"),
+					WithHTTPRouteSpec(customRouteSpec),
+					WithGatewayRefs(LLMGatewayRef("non-existent-router-gateway", nsName)),
+				)
+
+				// when
+				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+				defer func() {
+					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+				}()
+
+				// then
+				Eventually(func(g Gomega, ctx context.Context) error {
+					updatedLLMSvc := &v1alpha1.LLMInferenceService{}
+					g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), updatedLLMSvc)).To(Succeed())
+
+					g.Expect(updatedLLMSvc.Status).To(HaveCondition(string(v1alpha1.RouterReady), "False"))
+
+					routerCondition := updatedLLMSvc.Status.GetCondition(v1alpha1.RouterReady)
+					g.Expect(routerCondition).ToNot(BeNil())
+					g.Expect(routerCondition.Reason).To(Equal("RefsNotFound"))
+
+					// Should contain all three missing references in bulleted format
+					g.Expect(routerCondition.Message).To(ContainSubstring(fmt.Sprintf("Gateway %s/non-existent-parent-gateway does not exist", nsName)))
+					g.Expect(routerCondition.Message).To(ContainSubstring(fmt.Sprintf("Gateway %s/non-existent-router-gateway does not exist", nsName)))
+
+					return nil
+				}).WithContext(ctx).Should(Succeed())
+			})
+		})
+
+		When("referenced HTTPRoute exists but is misconfigured", func() {
+			It("should mark RouterReady condition as False with RefsMisconfigured reason", func(ctx SpecContext) {
+				// given
+				svcName := "test-llm-route-misconfigured"
+				nsName := kmeta.ChildName(svcName, "-test")
+				namespace := &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: nsName,
+					},
+				}
+				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+				defer func() {
+					envTest.DeleteAll(namespace)
+				}()
+
+				// Create a misconfigured HTTPRoute that targets the wrong backend
+				wrongRoute := HTTPRoute("wrong-backend-route",
+					InNamespace[*gatewayapi.HTTPRoute](nsName),
+					WithHTTPRule(
+						WithBackendRefs(ServiceRef("wrong-backend", 8000, 1)),
+					),
+				)
+				Expect(envTest.Client.Create(ctx, wrongRoute)).To(Succeed())
+				defer func() {
+					Expect(envTest.Client.Delete(ctx, wrongRoute)).To(Succeed())
+				}()
+
+				llmSvc := LLMInferenceService(svcName,
+					InNamespace[*v1alpha1.LLMInferenceService](nsName),
+					WithModelURI("hf://facebook/opt-125m"),
+					WithHTTPRouteRefs(HTTPRouteRef("wrong-backend-route")),
+					WithManagedGateway(),
+				)
+
+				// when
+				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+				defer func() {
+					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+				}()
+
+				// then
+				Eventually(func(g Gomega, ctx context.Context) error {
+					updatedLLMSvc := &v1alpha1.LLMInferenceService{}
+					g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), updatedLLMSvc)).To(Succeed())
+
+					g.Expect(updatedLLMSvc.Status).To(HaveCondition(string(v1alpha1.RouterReady), "False"))
+
+					routerCondition := updatedLLMSvc.Status.GetCondition(v1alpha1.RouterReady)
+					g.Expect(routerCondition).ToNot(BeNil())
+					g.Expect(routerCondition.Reason).To(Equal("RefsMisconfigured"))
+					expectedBackendName := llmSvc.InferencePoolName()
+					g.Expect(routerCondition.Message).To(ContainSubstring(fmt.Sprintf("HTTPRoute %s/wrong-backend-route does not target service %s", nsName, expectedBackendName)))
+
+					return nil
+				}).WithContext(ctx).Should(Succeed())
+			})
 		})
 	})
 
@@ -562,18 +834,18 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 func LLMInferenceServiceIsReady(llmSvc *v1alpha1.LLMInferenceService) func(g Gomega, ctx context.Context) error {
 	return func(g Gomega, ctx context.Context) error {
-		llmSvc := llmSvc.DeepCopy()
-		g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), llmSvc)).To(Succeed())
+		current := &v1alpha1.LLMInferenceService{}
+		g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), current)).To(Succeed())
 
-		g.Expect(llmSvc.Status).To(HaveCondition(string(v1alpha1.PresetsCombined), "True"))
-		g.Expect(llmSvc.Status).To(HaveCondition(string(v1alpha1.RouterReady), "True"))
+		g.Expect(current.Status).To(HaveCondition(string(v1alpha1.PresetsCombined), "True"))
+		g.Expect(current.Status).To(HaveCondition(string(v1alpha1.RouterReady), "True"))
 
 		// Overall condition depends on owned resources such as Deployment.
 		// When running on EnvTest certain controllers are not built-in, and that
 		// includes deployment controllers, ReplicaSet controllers, etc.
 		// Therefore, we can only observe a successful reconcile when testing against the actual cluster
 		if envTest.Environment.UseExistingCluster == ptr.To[bool](true) {
-			g.Expect(llmSvc.Status).To(HaveCondition("Ready", "True"))
+			g.Expect(current.Status).To(HaveCondition("Ready", "True"))
 		}
 
 		return nil

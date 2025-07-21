@@ -18,7 +18,21 @@ package v1alpha1
 
 import (
 	"k8s.io/utils/ptr"
+	"knative.dev/pkg/kmeta"
 )
+
+func (in *LLMInferenceService) InferencePoolName() string {
+	s := &SchedulerSpec{}
+	if in.Spec.Router != nil && in.Spec.Router.Scheduler != nil {
+		s = in.Spec.Router.Scheduler
+	}
+
+	if s.Pool == nil || !s.Pool.HasRef() {
+		// This default MUST match the default value set in the well-known presets.
+		return kmeta.ChildName(in.GetName(), "-inference-pool")
+	}
+	return s.Pool.Ref.Name
+}
 
 func (in *GatewaySpec) HasRefs() bool {
 	return in != nil && len(in.Refs) > 0
