@@ -5,7 +5,7 @@ metadata:
 spec:
   worker:
     containers:
-      - image: ghcr.io/llm-d/llm-d:0.0.8
+      - image: ghcr.io/llm-d/llm-d:v0.2.0
         imagePullPolicy: IfNotPresent
         name: main
         ports:

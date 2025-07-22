@@ -170,7 +170,7 @@ func semanticCertificateSecretIsEqual(expected *corev1.Secret, curr *corev1.Secr
 	}
 
 	expectedAnnotations := maps.Clone(expected.Annotations)
-	delete(expected.Annotations, certificatesExpirationAnnotation)
+	delete(expectedAnnotations, certificatesExpirationAnnotation)
 
 	return equality.Semantic.DeepDerivative(expected.Immutable, curr.Immutable) &&
 		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&

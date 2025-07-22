@@ -236,7 +236,7 @@ func (r *LLMInferenceServiceReconciler) attachOciModelArtifact(modelUri string, 
 	}
 
 	if mainContainer := utils.GetContainerWithName(podSpec, "main"); mainContainer != nil {
-		mainContainer.Args = append(mainContainer.Args, constants.DefaultModelLocalMountPath)
+		mainContainer.Command = append(mainContainer.Command, constants.DefaultModelLocalMountPath)
 	}
 
 	return nil
@@ -260,7 +260,7 @@ func (r *LLMInferenceServiceReconciler) attachPVCModelArtifact(modelUri string, 
 		return err
 	}
 	if mainContainer := utils.GetContainerWithName(podSpec, "main"); mainContainer != nil {
-		mainContainer.Args = append(mainContainer.Args, constants.DefaultModelLocalMountPath)
+		mainContainer.Command = append(mainContainer.Command, constants.DefaultModelLocalMountPath)
 	}
 
 	return nil

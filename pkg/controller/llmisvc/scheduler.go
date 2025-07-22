@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 
 	"k8s.io/utils/ptr"
@@ -250,7 +251,11 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerInferenceModel(ctx cont
 				Kind:  "InferencePool",
 				Name:  igwapi.ObjectName(kmeta.ChildName(llmSvc.GetName(), "-inference-pool")),
 			},
+			Criticality: llmSvc.Spec.Model.Criticality,
 		},
+	}
+	if im.Spec.Criticality == nil {
+		im.Spec.Criticality = ptr.To(igwapi.Critical)
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected InferenceModel", "inferencemodel", im)
@@ -283,11 +288,84 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerDeployment(ctx context.
 
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil && llmSvc.Spec.Router.Scheduler.Template != nil {
 		d.Spec.Template.Spec = *llmSvc.Spec.Router.Scheduler.Template.DeepCopy()
+		for i := range d.Spec.Template.Spec.Containers {
+			if d.Spec.Template.Spec.Containers[i].Name != "main" {
+				continue
+			}
+
+			if slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "--configText") ||
+				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "-configText") ||
+				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "--configFile") ||
+				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "-configFile") {
+				// When the configuration is overridden, don't add/override it.
+				break
+			}
+
+			d.Spec.Template.Spec.Containers[i].Args = append(d.Spec.Template.Spec.Containers[i].Args,
+				"--configText",
+				schedulerConfigText(llmSvc),
+			)
+		}
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected router scheduler deployment", "deployment", d)
 
 	return d
+}
+
+func schedulerConfigText(llmSvc *v1alpha1.LLMInferenceService) string {
+	switch {
+	case llmSvc.Spec.Prefill != nil:
+		return `
+apiVersion: inference.networking.x-k8s.io/v1alpha1
+kind: EndpointPickerConfig
+plugins:
+- type: pd-profile-handler
+  parameters:
+    threshold: 100
+- type: prefill-header-handler
+- type: prefill-filter
+- type: decode-filter
+- type: prefix-cache-scorer
+- type: load-aware-scorer
+- type: max-score-picker
+schedulingProfiles:
+- name: prefill
+  plugins:
+  - pluginRef: prefill-filter
+  - pluginRef: prefix-cache-scorer
+    weight: 2.0
+  - pluginRef: load-aware-scorer
+    weight: 1.0
+  - pluginRef: max-score-picker
+- name: decode
+  plugins:
+  - pluginRef: decode-filter
+  - pluginRef: prefix-cache-scorer
+    weight: 2.0
+  - pluginRef: load-aware-scorer
+    weight: 1.0
+  - pluginRef: max-score-picker
+`
+	default:
+		return `
+apiVersion: inference.networking.x-k8s.io/v1alpha1
+kind: EndpointPickerConfig
+plugins:
+- type: single-profile-handler
+- type: prefix-cache-scorer
+- type: load-aware-scorer
+- type: max-score-picker
+schedulingProfiles:
+- name: default
+  plugins:
+  - pluginRef: prefix-cache-scorer
+    weight: 2.0
+  - pluginRef: load-aware-scorer
+    weight: 1.0
+  - pluginRef: max-score-picker
+`
+	}
 }
 
 func (r *LLMInferenceServiceReconciler) expectedSchedulerServiceAccount(llmSvc *v1alpha1.LLMInferenceService) *corev1.ServiceAccount {

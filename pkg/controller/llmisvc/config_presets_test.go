@@ -165,7 +165,7 @@ func TestPresetFiles(t *testing.T) {
 							Containers: []corev1.Container{
 								{
 									Name:    "main",
-									Image:   "ghcr.io/llm-d/llm-d:0.0.8",
+									Image:   "ghcr.io/llm-d/llm-d:v0.2.0",
 									Command: []string{"/bin/sh", "-c"},
 									Ports: []corev1.ContainerPort{
 										{
