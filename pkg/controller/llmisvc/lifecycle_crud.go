@@ -48,13 +48,15 @@ func Delete[O client.Object, T client.Object](ctx context.Context, c clientWithR
 	typeLogLine := logLineForObject(expected)
 	ownerLogLine := logLineForObject(owner)
 
-	if !metav1.IsControlledBy(expected, owner) {
-		return fmt.Errorf("failed to delete %s %s/%s: it is not controlled by %s %s/%s",
-			typeLogLine,
-			expected.GetNamespace(), expected.GetName(),
-			ownerLogLine,
-			owner.GetNamespace(), owner.GetName(),
-		)
+	if len(expected.GetNamespace()) != 0 {
+		if !metav1.IsControlledBy(expected, owner) {
+			return fmt.Errorf("failed to delete %s %s/%s: it is not controlled by %s %s/%s",
+				typeLogLine,
+				expected.GetNamespace(), expected.GetName(),
+				ownerLogLine,
+				owner.GetNamespace(), owner.GetName(),
+			)
+		}
 	}
 
 	if err := c.Delete(ctx, expected); err != nil {
@@ -85,13 +87,15 @@ func Update[O client.Object, T client.Object](ctx context.Context, c clientWithR
 	typeLogLine := logLineForObject(expected)
 	ownerLogLine := logLineForObject(owner)
 
-	if !metav1.IsControlledBy(curr, owner) {
-		return fmt.Errorf("failed to update %s %s/%s: it is not controlled by %s %s/%s",
-			typeLogLine,
-			curr.GetNamespace(), curr.GetName(),
-			ownerLogLine,
-			owner.GetNamespace(), owner.GetName(),
-		)
+	if len(curr.GetNamespace()) != 0 {
+		if !metav1.IsControlledBy(curr, owner) {
+			return fmt.Errorf("failed to update %s %s/%s: it is not controlled by %s %s/%s",
+				typeLogLine,
+				curr.GetNamespace(), curr.GetName(),
+				ownerLogLine,
+				owner.GetNamespace(), owner.GetName(),
+			)
+		}
 	}
 
 	expected.SetResourceVersion(curr.GetResourceVersion())
