@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
@@ -216,12 +215,11 @@ func TestDiscoverURLs(t *testing.T) {
 			},
 		},
 		{
-			name: "gateway not found should cause not found error",
+			name: "gateway not found should not cause not found error",
 			route: HTTPRoute("missing-gw-route",
 				InNamespace[*gatewayapi.HTTPRoute]("test-ns"),
 				WithParentRef(GatewayRef("missing-gateway", RefInNamespace("test-ns"))),
 			),
-			expectedErrorCheck: apierrors.IsNotFound,
 		},
 		{
 			name: "empty route rules - default path",
