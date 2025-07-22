@@ -156,7 +156,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerService(ctx context.Con
 	logger := log.FromContext(ctx)
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      llmSvc.Spec.Router.Scheduler.EPPServiceName(llmSvc),
+			Name:      llmSvc.Spec.Router.EPPServiceName(llmSvc),
 			Namespace: llmSvc.GetNamespace(),
 			Labels:    r.schedulerLabels(llmSvc),
 			OwnerReferences: []metav1.OwnerReference{

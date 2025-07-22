@@ -144,7 +144,7 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForScheduler
 	}
 
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil {
-		name := llmSvc.Spec.Router.Scheduler.EPPServiceName(llmSvc)
+		name := llmSvc.Spec.Router.EPPServiceName(llmSvc)
 		if llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
 			pool := igwapi.InferencePool{}
 			if err := r.Client.Get(ctx, client.ObjectKey{Name: llmSvc.Spec.Router.Scheduler.Pool.Ref.Name, Namespace: llmSvc.GetNamespace()}, &pool); err != nil {

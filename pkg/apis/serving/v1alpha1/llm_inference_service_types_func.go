@@ -29,11 +29,11 @@ func (s *SchedulerSpec) InferencePoolName(llmSvc *LLMInferenceService) string {
 	return s.Pool.Ref.Name
 }
 
-func (s *SchedulerSpec) EPPServiceName(llmSvc *LLMInferenceService) string {
-	if s == nil || s.Pool == nil || !s.Pool.HasRef() || s.Pool.Spec == nil || s.Pool.Spec.ExtensionRef == nil {
+func (r *RouterSpec) EPPServiceName(llmSvc *LLMInferenceService) string {
+	if r == nil || r.Route == nil || r.Scheduler == nil || r.Scheduler.Pool == nil || !r.Scheduler.Pool.HasRef() || r.Scheduler.Pool.Spec == nil || r.Scheduler.Pool.Spec.ExtensionRef == nil {
 		return kmeta.ChildName(llmSvc.GetName(), "-epp-service")
 	}
-	return string(s.Pool.Spec.ExtensionRef.Name)
+	return string(r.Scheduler.Pool.Spec.ExtensionRef.Name)
 }
 
 func (in *GatewaySpec) HasRefs() bool {
