@@ -64,7 +64,7 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRules(ctx conte
 		return fmt.Errorf("failed to collect referenced routes: %w", err)
 	}
 
-	if llmSvc.Spec.Router.Route != nil && !llmSvc.Spec.Router.Route.HTTP.HasRefs() {
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Route != nil && !llmSvc.Spec.Router.Route.HTTP.HasRefs() {
 		routes = append(routes, r.expectedHTTPRoute(ctx, llmSvc))
 	}
 

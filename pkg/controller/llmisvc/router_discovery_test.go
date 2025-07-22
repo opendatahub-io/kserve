@@ -486,6 +486,7 @@ func TestDiscoverURLs(t *testing.T) {
 			for _, gw := range tt.additionalGateways {
 				objects = append(objects, gw)
 			}
+			objects = append(objects, DefaultGatewayClass())
 
 			fakeClient := fake.NewClientBuilder().
 				WithScheme(scheme).

@@ -33,8 +33,9 @@ func Gateway(name string, opts ...GatewayOption) *gatewayapiv1.Gateway {
 			Name: name,
 		},
 		Spec: gatewayapiv1.GatewaySpec{
-			Listeners:      []gatewayapiv1.Listener{},
-			Infrastructure: &gatewayapiv1.GatewayInfrastructure{},
+			GatewayClassName: defaultGatewayClass,
+			Listeners:        []gatewayapiv1.Listener{},
+			Infrastructure:   &gatewayapiv1.GatewayInfrastructure{},
 		},
 		Status: gatewayapiv1.GatewayStatus{
 			Addresses: []gatewayapiv1.GatewayStatusAddress{},
