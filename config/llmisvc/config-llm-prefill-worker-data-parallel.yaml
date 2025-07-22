@@ -37,7 +37,12 @@ spec:
                   --data-parallel-address $(LWS_LEADER_ADDRESS) \
                   --data-parallel-rpc-port {{ if .Spec.Prefill.Parallelism.DataRPCPort }}{{ .Spec.Prefill.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
                   --data-parallel-start-rank $START_RANK \
-                  --trust-remote-code
+                  --trust-remote-code \
+                  --enable-ssl-refresh \
+                  --ssl-certfile \
+                  /etc/ssl/certs/tls.crt \
+                  --ssl-keyfile \
+                  /etc/ssl/certs/tls.key
               else
                 #################
                 # Worker-only launch
@@ -54,7 +59,12 @@ spec:
                   --data-parallel-rpc-port {{ if .Spec.Prefill.Parallelism.DataRPCPort }}{{ .Spec.Prefill.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
                   --data-parallel-start-rank $START_RANK \
                   --trust-remote-code \
-                  --headless
+                  --headless \
+                  --enable-ssl-refresh \
+                  --ssl-certfile \
+                  /etc/ssl/certs/tls.crt \
+                  --ssl-keyfile \
+                  /etc/ssl/certs/tls.key
               fi
           env:
             - name: HOME
@@ -75,6 +85,7 @@ spec:
             httpGet:
               path: /health
               port: 8000
+              scheme: HTTPS
             initialDelaySeconds: 120
             periodSeconds: 10
             timeoutSeconds: 10
@@ -83,6 +94,7 @@ spec:
             httpGet:
               path: /health
               port: 8000
+              scheme: HTTPS
             initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
@@ -94,6 +106,9 @@ spec:
               name: dshm
             - mountPath: /models
               name: model-cache
+            - mountPath: /etc/ssl/certs
+              name: tls-certs
+              readOnly: true
       terminationGracePeriodSeconds: 30
       volumes:
         - emptyDir: { }
@@ -104,3 +119,6 @@ spec:
           name: dshm
         - emptyDir: { }
           name: model-cache
+        - name: tls-certs
+          secret:
+            secretName: "{{ ChildName .ObjectMeta.Name `-kserve-self-signed-certs` }}"

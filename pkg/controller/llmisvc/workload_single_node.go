@@ -39,8 +39,7 @@ import (
 )
 
 func (r *LLMInferenceServiceReconciler) reconcileSingleNodeWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *types.StorageInitializerConfig) error {
-	logger := log.FromContext(ctx).WithName("single-node-workload")
-	ctx = log.IntoContext(ctx, logger)
+	log.FromContext(ctx).Info("Reconciling single-node workload")
 
 	if err := r.reconcileSingleNodeMainWorkload(ctx, llmSvc, storageConfig); err != nil {
 		return fmt.Errorf("failed to reconcile main workload: %w", err)
@@ -187,7 +186,7 @@ func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LL
 		// TODO: Evaluate if this is needed, because it essentially ignores the model URI.
 		for idx := range podSpec.Containers {
 			if podSpec.Containers[idx].Name == "main" {
-				podSpec.Containers[idx].Args = append(podSpec.Containers[idx].Args, *llmSvc.Spec.Model.Name)
+				podSpec.Containers[idx].Command = append(podSpec.Containers[idx].Command, *llmSvc.Spec.Model.Name)
 			}
 		}
 	}

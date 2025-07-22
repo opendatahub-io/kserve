@@ -34,8 +34,7 @@ import (
 )
 
 func (r *LLMInferenceServiceReconciler) reconcileMultiNodeWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	logger := log.FromContext(ctx).WithName("multi-node-workload")
-	ctx = log.IntoContext(ctx, logger)
+	log.FromContext(ctx).Info("Reconciling multi-node workload")
 
 	if err := r.reconcileMultiNodeMainWorkload(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to reconcile multi-node main workload: %w", err)

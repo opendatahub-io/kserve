@@ -86,13 +86,26 @@ func TestPresetFiles(t *testing.T) {
 										EmptyDir: &corev1.EmptyDirVolumeSource{},
 									},
 								},
+								{
+									Name:         "tls-certs",
+									VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "test-llm-preset-kserve-self-signed-certs"}},
+								},
 							},
 							TerminationGracePeriodSeconds: ptr.To(int64(30)),
 							InitContainers: []corev1.Container{
 								{
 									Name:  "llm-d-routing-sidecar",
 									Image: "ghcr.io/llm-d/llm-d-routing-sidecar:0.0.6",
-									Args:  []string{"--port=8000", "--vllm-port=8001"},
+									Args: []string{
+										"--port=8000",
+										"--vllm-port=8001",
+										"--secure-proxy=true",
+										"--cert-path=/etc/ssl/certs",
+										"--decoder-use-tls=true",
+										"--decoder-tls-insecure-skip-verify=true",
+										"--prefiller-use-tls=true",
+										"--prefiller-tls-insecure-skip-verify=true",
+									},
 									Ports: []corev1.ContainerPort{
 										{
 											ContainerPort: 8000,
@@ -103,6 +116,39 @@ func TestPresetFiles(t *testing.T) {
 									TerminationMessagePath:   "/dev/termination-log",
 									TerminationMessagePolicy: "FallbackToLogsOnError",
 									ImagePullPolicy:          "IfNotPresent",
+									VolumeMounts: []corev1.VolumeMount{
+										{
+											Name:      "tls-certs",
+											ReadOnly:  true,
+											MountPath: "/etc/ssl/certs",
+										},
+									},
+									ReadinessProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											HTTPGet: &corev1.HTTPGetAction{
+												Path:   "/health",
+												Port:   intstr.FromInt32(8000),
+												Scheme: corev1.URISchemeHTTPS,
+											},
+										},
+										InitialDelaySeconds: 10,
+										TimeoutSeconds:      5,
+										PeriodSeconds:       10,
+										FailureThreshold:    10,
+									},
+									LivenessProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											HTTPGet: &corev1.HTTPGetAction{
+												Path:   "/health",
+												Port:   intstr.FromInt32(8000),
+												Scheme: corev1.URISchemeHTTPS,
+											},
+										},
+										InitialDelaySeconds: 10,
+										TimeoutSeconds:      10,
+										PeriodSeconds:       10,
+										FailureThreshold:    3,
+									},
 								},
 							},
 							Containers: []corev1.Container{
@@ -129,12 +175,18 @@ func TestPresetFiles(t *testing.T) {
 											Name:      "model-cache",
 											MountPath: "/models",
 										},
+										{
+											Name:      "tls-certs",
+											ReadOnly:  true,
+											MountPath: "/etc/ssl/certs",
+										},
 									},
 									LivenessProbe: &corev1.Probe{
 										ProbeHandler: corev1.ProbeHandler{
 											HTTPGet: &corev1.HTTPGetAction{
-												Path: "/health",
-												Port: intstr.FromInt32(8001),
+												Path:   "/health",
+												Port:   intstr.FromInt32(8001),
+												Scheme: corev1.URISchemeHTTPS,
 											},
 										},
 										InitialDelaySeconds: 120,
@@ -145,8 +197,9 @@ func TestPresetFiles(t *testing.T) {
 									ReadinessProbe: &corev1.Probe{
 										ProbeHandler: corev1.ProbeHandler{
 											HTTPGet: &corev1.HTTPGetAction{
-												Path: "/health",
-												Port: intstr.FromInt32(8001),
+												Path:   "/health",
+												Port:   intstr.FromInt32(8001),
+												Scheme: corev1.URISchemeHTTPS,
 											},
 										},
 										InitialDelaySeconds: 10,
@@ -200,7 +253,12 @@ if [ "${LWS_WORKER_INDEX:-0}" -eq 0 ]; then
     --data-parallel-address $(LWS_LEADER_ADDRESS) \
     --data-parallel-rpc-port 5555 \
     --data-parallel-start-rank $START_RANK \
-    --trust-remote-code
+    --trust-remote-code \
+    --enable-ssl-refresh \
+    --ssl-certfile \
+    /etc/ssl/certs/tls.crt \
+    --ssl-keyfile \
+    /etc/ssl/certs/tls.key
 else
   #################
   # Worker-only launch
@@ -217,7 +275,12 @@ else
     --data-parallel-rpc-port 5555 \
     --data-parallel-start-rank $START_RANK \
     --trust-remote-code \
-    --headless
+    --headless \
+    --enable-ssl-refresh \
+    --ssl-certfile \
+    /etc/ssl/certs/tls.crt \
+    --ssl-keyfile \
+    /etc/ssl/certs/tls.key
 fi`},
 								},
 							},

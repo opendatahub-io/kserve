@@ -58,6 +58,11 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 		return fmt.Errorf("failed to reconcile HTTP routes: %w", err)
 	}
 
+	if err := r.reconcileIstioDestinationRules(ctx, llmSvc); err != nil {
+		llmSvc.MarkRouterNotReady("IstioDestinationRuleReconcileError", "Failed to reconcile DestinationRule: %v", err.Error())
+		return fmt.Errorf("failed to reconcile istio destination rules: %w", err)
+	}
+
 	llmSvc.MarkRouterReady()
 
 	return nil
@@ -69,32 +74,20 @@ func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context,
 
 	expectedHTTPRoute := r.expectedHTTPRoute(ctx, llmSvc)
 
+	// TODO should we remove "llmSvc.Spec.Router.Route.HTTP == nil" from the condition below so that a non nil Route meeans "all type of routes are enabled"?
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || llmSvc.Spec.Router.Route.HTTP == nil {
 		return Delete(ctx, r, llmSvc, expectedHTTPRoute)
 	}
 
+	referencedRoutes, err := r.collectReferencedRoutes(ctx, llmSvc)
+	if err != nil {
+		return fmt.Errorf("failed to collect referenced routes: %w", err)
+	}
+
 	route := llmSvc.Spec.Router.Route
 
-	var referencedRoutes []*gatewayapi.HTTPRoute
 	if route.HTTP.HasRefs() {
-		for _, routeRef := range route.HTTP.Refs {
-			providedRoute := &gatewayapi.HTTPRoute{}
-			errGet := r.Client.Get(ctx, types.NamespacedName{Namespace: routeRef.Name, Name: llmSvc.GetNamespace()}, providedRoute)
-
-			if errGet != nil {
-				if apierrors.IsNotFound(errGet) {
-					// TODO(follow-up) mark condition if not found
-					continue
-				}
-				return fmt.Errorf("failed to get HTTPRoute %s/%s: %w", routeRef.Name, llmSvc.GetName(), errGet)
-			}
-
-			referencedRoutes = append(referencedRoutes, providedRoute)
-		}
-
-		if errDel := Delete(ctx, r, llmSvc, expectedHTTPRoute); errDel != nil {
-			return fmt.Errorf("failed to delete managed HTTPRoute %s/%s: %w", expectedHTTPRoute.GetNamespace(), expectedHTTPRoute.GetName(), errDel)
-		}
+		return Delete(ctx, r, llmSvc, expectedHTTPRoute)
 	}
 
 	// TODO(validation): referenced gateway exists
@@ -106,6 +99,27 @@ func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context,
 	}
 
 	return r.updateRoutingStatus(ctx, llmSvc, referencedRoutes...)
+}
+
+func (r *LLMInferenceServiceReconciler) collectReferencedRoutes(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) ([]*gatewayapi.HTTPRoute, error) {
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || !llmSvc.Spec.Router.Route.HTTP.HasRefs() {
+		return nil, nil
+	}
+
+	referencedRoutes := make([]*gatewayapi.HTTPRoute, 0, len(llmSvc.Spec.Router.Route.HTTP.Refs))
+	for _, routeRef := range llmSvc.Spec.Router.Route.HTTP.Refs {
+		route := &gatewayapi.HTTPRoute{}
+		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: routeRef.Name, Name: llmSvc.GetNamespace()}, route); err != nil {
+			if apierrors.IsNotFound(err) {
+				// TODO(follow-up) mark condition if not found
+				continue
+			}
+			return referencedRoutes, fmt.Errorf("failed to get HTTPRoute %s/%s: %w", routeRef.Name, llmSvc.GetName(), err)
+		}
+
+		referencedRoutes = append(referencedRoutes, route)
+	}
+	return referencedRoutes, nil
 }
 
 func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *gatewayapi.HTTPRoute {
