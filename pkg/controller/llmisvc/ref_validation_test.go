@@ -14,9 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmisvc
+package llmisvc_test
 
 import (
+	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -51,7 +52,7 @@ func TestRefValidationResult_CombinedMessage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := &RefValidationResult{}
+			result := &llmisvc.RefValidationResult{}
 			for _, issue := range tt.issues {
 				result.AddNotFoundIssue(issue)
 			}
@@ -82,7 +83,7 @@ func TestRefValidationResult_IsValid(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := &RefValidationResult{}
+			result := &llmisvc.RefValidationResult{}
 			for _, issue := range tt.issues {
 				result.AddNotFoundIssue(issue)
 			}
@@ -95,7 +96,7 @@ func TestRefValidationResult_IsValid(t *testing.T) {
 
 func TestRefValidationResult_IssueTypes(t *testing.T) {
 	t.Run("should track not found issues", func(t *testing.T) {
-		result := &RefValidationResult{}
+		result := &llmisvc.RefValidationResult{}
 		result.AddNotFoundIssue("HTTPRoute default/test does not exist")
 
 		assert.False(t, result.IsValid())
@@ -104,7 +105,7 @@ func TestRefValidationResult_IssueTypes(t *testing.T) {
 	})
 
 	t.Run("should track misconfigured issues", func(t *testing.T) {
-		result := &RefValidationResult{}
+		result := &llmisvc.RefValidationResult{}
 		result.AddMisconfiguredIssue("HTTPRoute default/test does not target correct service")
 
 		assert.False(t, result.IsValid())
@@ -113,7 +114,7 @@ func TestRefValidationResult_IssueTypes(t *testing.T) {
 	})
 
 	t.Run("should track mixed issue types", func(t *testing.T) {
-		result := &RefValidationResult{}
+		result := &llmisvc.RefValidationResult{}
 		result.AddNotFoundIssue("HTTPRoute default/test does not exist")
 		result.AddMisconfiguredIssue("HTTPRoute default/other does not target correct service")
 
