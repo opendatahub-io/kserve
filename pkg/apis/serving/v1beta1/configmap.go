@@ -366,7 +366,7 @@ func NewServiceConfig(isvcConfigMap *corev1.ConfigMap) (*ServiceConfig, error) {
 }
 
 // GetStorageInitializerConfigs parses the StorageInitializer configuration from the provided ConfigMap.
-// It unmarshals the JSON configuration under the "storageInitializer" key into a StorageInitializerConfig struct.
+// It unmarshalls JSON configuration under the "storageInitializer" key into a StorageInitializerConfig struct.
 // The fields related to CPU and memory resource values are validated to contain valid Kubernetes resource quantities.
 //
 // Parameters:
@@ -386,18 +386,18 @@ func GetStorageInitializerConfigs(configMap *corev1.ConfigMap) (*types.StorageIn
 		}
 	}
 	// Ensure that we set proper values for CPU/Memory Limit/Request
-	resourceDefaults := []string{
-		storageInitializerConfig.MemoryRequest,
-		storageInitializerConfig.MemoryLimit,
-		storageInitializerConfig.CpuRequest,
-		storageInitializerConfig.CpuLimit,
-		storageInitializerConfig.CpuModelcar,
-		storageInitializerConfig.MemoryModelcar,
+	resourceDefaults := map[string]string{
+		"memoryRequest":  storageInitializerConfig.MemoryRequest,
+		"memoryLimit":    storageInitializerConfig.MemoryLimit,
+		"cpuRequest":     storageInitializerConfig.CpuRequest,
+		"cpuLimit":       storageInitializerConfig.CpuLimit,
+		"cpuModelcar":    storageInitializerConfig.CpuModelcar,
+		"memoryModelcar": storageInitializerConfig.MemoryModelcar,
 	}
-	for _, key := range resourceDefaults {
-		_, err := resource.ParseQuantity(key)
+	for key, value := range resourceDefaults {
+		_, err := resource.ParseQuantity(value)
 		if err != nil {
-			return storageInitializerConfig, fmt.Errorf("Failed to parse resource configuration for %q: %q", StorageInitializerConfigMapKeyName, err.Error())
+			return storageInitializerConfig, fmt.Errorf("failed to parse resource configuration for %q.%q: %w", StorageInitializerConfigMapKeyName, key, err)
 		}
 	}
 
