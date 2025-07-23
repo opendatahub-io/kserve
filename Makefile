@@ -63,7 +63,7 @@ fmt:
 	go fmt ./pkg/... ./cmd/... && cd qpext && go fmt ./...
 
 py-fmt: $(BLACK_FMT)
-	black --config python/pyproject.toml ./python ./docs
+	$(BLACK_FMT) --config python/pyproject.toml ./python ./docs
 
 # Run go vet against code
 vet:
@@ -77,7 +77,7 @@ go-lint: golangci-lint
 	@$(GOLANGCI_LINT) run --fix
 
 py-lint: $(FLAKE8_LINT)
-	flake8 --config=.flake8 .
+	$(FLAKE8_LINT) --config=.flake8 .
 
 # Generate manifests e.g. CRD, RBAC etc.
 manifests: controller-gen yq
@@ -143,7 +143,7 @@ generate: controller-gen helm-docs
 poetry-lock: $(POETRY)
 # Update the kserve package first as other packages depends on it.
 	cd ./python && \
-	cd kserve && poetry lock --no-update && cd .. && \
+	cd kserve && $(POETRY) lock --no-update && cd .. && \
 	for file in $$(find . -type f -name "pyproject.toml" -not -path "./pyproject.toml" -not -path "*.venv/*"); do \
 		folder=$$(dirname "$$file"); \
 		echo "moving into folder $$folder"; \
@@ -151,7 +151,7 @@ poetry-lock: $(POETRY)
 			*plugin*|plugin|kserve) \
 				echo -e "\033[33mSkipping folder $$folder\033[0m" ;; \
 			*) \
-				cd "$$folder" && poetry lock --no-update && cd - > /dev/null ;; \
+				cd "$$folder" && $(POETRY) lock --no-update && cd - > /dev/null ;; \
 		esac; \
 	done
 
