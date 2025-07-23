@@ -1002,7 +1002,7 @@ func TestCheckDeploymentExist(t *testing.T) {
 			r := &DeploymentReconciler{
 				client: mockClient,
 			}
-			ctx := context.TODO()
+			ctx := t.Context()
 			gotResult, gotExisting, err := r.checkDeploymentExist(ctx, mockClient, tt.args.deployment)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("checkDeploymentExist() error = %v, wantErr %v", err, tt.wantErr)
@@ -1126,7 +1126,7 @@ func TestNewDeploymentReconciler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := NewDeploymentReconciler(
-				context.TODO(),
+				t.Context(),
 				tt.fields.client,
 				tt.fields.clientset,
 				tt.fields.scheme,

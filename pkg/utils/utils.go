@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -379,15 +378,6 @@ func CheckEnvsToRemove(desired, current []corev1.EnvVar) ([]corev1.EnvVar, []cor
 		}
 	}
 	return envsToRemove, envsToKeep
-}
-
-// StringToInt32 converts a given integer to int32. If the number exceeds the int32 limit, it returns an error.
-func StringToInt32(number string) (int32, error) {
-	converted, err := strconv.ParseInt(number, 10, 32)
-	if err != nil {
-		return 0, err
-	}
-	return int32(converted), err
 }
 
 // UpdateGPUResourceTypeListByAnnotation updates the GPU resource type list

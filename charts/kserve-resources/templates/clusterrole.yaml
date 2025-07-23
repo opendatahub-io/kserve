@@ -50,23 +50,6 @@ rules:
   - list
   - watch
 - apiGroups:
-  - ""
-  resources:
-  - secrets
-  verbs:
-  - get
-- apiGroups:
-  - ""
-  resources:
-  - serviceaccounts
-  verbs:
-  - create
-  - delete
-  - get
-  - patch
-- apiGroups:
-=======
->>>>>>> upstream/feature-llmd-llm-inference-service
   - admissionregistration.k8s.io
   resources:
   - mutatingwebhookconfigurations
@@ -245,44 +228,10 @@ rules:
   - patch
   - update
 - apiGroups:
-  - route.openshift.io
-  resources:
-  - routes
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - route.openshift.io
-  resources:
-  - routes/status
-  verbs:
-  - get
-- apiGroups:
   - rbac.authorization.k8s.io
-<<<<<<< HEAD
-  resourceNames:
-  - kserve-inferencegraph-auth-verifiers
-  resources:
-  - clusterrolebindings
-  verbs:
-  - create
-  - get
-  - patch
-  - update
-- apiGroups:
-  - route.openshift.io
-  resources:
-  - routes
-=======
   resources:
   - rolebindings
   - roles
->>>>>>> upstream/feature-llmd-llm-inference-service
   verbs:
   - create
   - delete
@@ -292,15 +241,24 @@ rules:
   - update
   - watch
 - apiGroups:
-<<<<<<< HEAD
+  - route.openshift.io
+  resources:
+  - routes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - route.openshift.io
   resources:
   - routes/status
   verbs:
   - get
 - apiGroups:
-=======
->>>>>>> upstream/feature-llmd-llm-inference-service
   - serving.knative.dev
   resources:
   - services

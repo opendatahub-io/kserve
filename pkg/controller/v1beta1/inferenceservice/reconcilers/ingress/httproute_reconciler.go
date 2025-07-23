@@ -86,12 +86,26 @@ func createRawURL(isvc *v1beta1.InferenceService,
 	return url, nil
 }
 
-func getRawServiceHost(isvc *v1beta1.InferenceService) string {
+func getRawServiceHost(ctx context.Context, isvc *v1beta1.InferenceService, client client.Client) string {
+	existingService := &corev1.Service{}
 	if isvc.Spec.Transformer != nil {
 		transformerName := constants.TransformerServiceName(isvc.Name)
+
+		// Check if existing transformer service name has default suffix
+		err := client.Get(ctx, types.NamespacedName{Name: constants.TransformerServiceName(isvc.Name), Namespace: isvc.Namespace}, existingService)
+		if err == nil {
+			transformerName = constants.TransformerServiceName(isvc.Name)
+		}
 		return network.GetServiceHostname(transformerName, isvc.Namespace)
 	}
+
 	predictorName := constants.PredictorServiceName(isvc.Name)
+
+	// Check if existing predictor service name has default suffix
+	err := client.Get(ctx, types.NamespacedName{Name: constants.PredictorServiceName(isvc.Name), Namespace: isvc.Namespace}, existingService)
+	if err == nil {
+		predictorName = constants.PredictorServiceName(isvc.Name)
+	}
 	return network.GetServiceHostname(predictorName, isvc.Namespace)
 }
 
@@ -150,8 +164,8 @@ func createHTTPRouteRule(routeMatches []gatewayapiv1.HTTPRouteMatch, filters []g
 	}
 }
 
-func createRawPredictorHTTPRoute(isvc *v1beta1.InferenceService, ingressConfig *v1beta1.IngressConfig,
-	isvcConfig *v1beta1.InferenceServicesConfig,
+func createRawPredictorHTTPRoute(ctx context.Context, isvc *v1beta1.InferenceService, ingressConfig *v1beta1.IngressConfig, isvcConfig *v1beta1.InferenceServicesConfig,
+	client client.Client,
 ) (*gatewayapiv1.HTTPRoute, error) {
 	var httpRouteRules []gatewayapiv1.HTTPRouteRule
 	var allowedHosts []gatewayapiv1.Hostname
@@ -164,7 +178,16 @@ func createRawPredictorHTTPRoute(isvc *v1beta1.InferenceService, ingressConfig *
 		})
 		return nil, nil
 	}
+
+	existing := &corev1.Service{}
 	predictorName := constants.PredictorServiceName(isvc.Name)
+
+	// Check if existing predictor service name has default suffix
+	err := client.Get(ctx, types.NamespacedName{Name: constants.PredictorServiceName(isvc.Name), Namespace: isvc.Namespace}, existing)
+	if err == nil {
+		// Found existing predictor service with default suffix
+		predictorName = constants.PredictorServiceName(isvc.Name)
+	}
 
 	// Add isvc name and namespace headers
 	filters := []gatewayapiv1.HTTPRouteFilter{addIsvcHeaders(isvc.Name, isvc.Namespace)}
@@ -214,8 +237,8 @@ func createRawPredictorHTTPRoute(isvc *v1beta1.InferenceService, ingressConfig *
 	return &httpRoute, nil
 }
 
-func createRawTransformerHTTPRoute(isvc *v1beta1.InferenceService, ingressConfig *v1beta1.IngressConfig,
-	isvcConfig *v1beta1.InferenceServicesConfig,
+func createRawTransformerHTTPRoute(ctx context.Context, isvc *v1beta1.InferenceService, ingressConfig *v1beta1.IngressConfig, isvcConfig *v1beta1.InferenceServicesConfig,
+	client client.Client,
 ) (*gatewayapiv1.HTTPRoute, error) {
 	var httpRouteRules []gatewayapiv1.HTTPRouteRule
 	var allowedHosts []gatewayapiv1.Hostname
@@ -228,7 +251,16 @@ func createRawTransformerHTTPRoute(isvc *v1beta1.InferenceService, ingressConfig
 		})
 		return nil, nil
 	}
+
+	existing := &corev1.Service{}
 	transformerName := constants.TransformerServiceName(isvc.Name)
+
+	// Check if existing transformer service name has default suffix
+	err := client.Get(ctx, types.NamespacedName{Name: constants.TransformerServiceName(isvc.Name), Namespace: isvc.Namespace}, existing)
+	if err == nil {
+		// Found existing transformer service with default suffix
+		transformerName = constants.TransformerServiceName(isvc.Name)
+	}
 
 	// Add isvc name and namespace headers
 	filters := []gatewayapiv1.HTTPRouteFilter{addIsvcHeaders(isvc.Name, isvc.Namespace)}
@@ -278,8 +310,8 @@ func createRawTransformerHTTPRoute(isvc *v1beta1.InferenceService, ingressConfig
 	return &httpRoute, nil
 }
 
-func createRawExplainerHTTPRoute(isvc *v1beta1.InferenceService, ingressConfig *v1beta1.IngressConfig,
-	isvcConfig *v1beta1.InferenceServicesConfig,
+func createRawExplainerHTTPRoute(ctx context.Context, isvc *v1beta1.InferenceService, ingressConfig *v1beta1.IngressConfig, isvcConfig *v1beta1.InferenceServicesConfig,
+	client client.Client,
 ) (*gatewayapiv1.HTTPRoute, error) {
 	var httpRouteRules []gatewayapiv1.HTTPRouteRule
 	var allowedHosts []gatewayapiv1.Hostname
@@ -292,7 +324,16 @@ func createRawExplainerHTTPRoute(isvc *v1beta1.InferenceService, ingressConfig *
 		})
 		return nil, nil
 	}
+
+	existing := &corev1.Service{}
 	explainerName := constants.ExplainerServiceName(isvc.Name)
+
+	// Check if existing explainer service name has default suffix
+	err := client.Get(ctx, types.NamespacedName{Name: constants.ExplainerServiceName(isvc.Name), Namespace: isvc.Namespace}, existing)
+	if err == nil {
+		// Found existing explainer service with default suffix
+		explainerName = constants.ExplainerServiceName(isvc.Name)
+	}
 
 	// Add isvc name and namespace headers
 	filters := []gatewayapiv1.HTTPRouteFilter{addIsvcHeaders(isvc.Name, isvc.Namespace)}
@@ -344,8 +385,8 @@ func createRawExplainerHTTPRoute(isvc *v1beta1.InferenceService, ingressConfig *
 	return &httpRoute, nil
 }
 
-func createRawTopLevelHTTPRoute(isvc *v1beta1.InferenceService, ingressConfig *v1beta1.IngressConfig,
-	isvcConfig *v1beta1.InferenceServicesConfig,
+func createRawTopLevelHTTPRoute(ctx context.Context, isvc *v1beta1.InferenceService, ingressConfig *v1beta1.IngressConfig, isvcConfig *v1beta1.InferenceServicesConfig,
+	client client.Client,
 ) (*gatewayapiv1.HTTPRoute, error) {
 	var httpRouteRules []gatewayapiv1.HTTPRouteRule
 	var allowedHosts []gatewayapiv1.Hostname
@@ -358,10 +399,18 @@ func createRawTopLevelHTTPRoute(isvc *v1beta1.InferenceService, ingressConfig *v
 		})
 		return nil, nil
 	}
+	existing := &corev1.Service{}
 	predictorName := constants.PredictorServiceName(isvc.Name)
 	transformerName := constants.TransformerServiceName(isvc.Name)
 	explainerName := constants.ExplainerServiceName(isvc.Name)
-
+	// Check if existing predictor service name has default suffix
+	err := client.Get(ctx, types.NamespacedName{Name: constants.PredictorServiceName(isvc.Name), Namespace: isvc.Namespace}, existing)
+	if err == nil {
+		// Found existing predictor service with default suffix
+		predictorName = constants.PredictorServiceName(isvc.Name)
+		transformerName = constants.TransformerServiceName(isvc.Name)
+		explainerName = constants.ExplainerServiceName(isvc.Name)
+	}
 	topLevelHost, err := GenerateDomainName(isvc.Name, isvc.ObjectMeta, ingressConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate top level ingress host: %w", err)
@@ -530,7 +579,7 @@ func isHTTPRouteReady(httpRouteStatus gatewayapiv1.HTTPRouteStatus) (bool, *stri
 }
 
 func (r *RawHTTPRouteReconciler) reconcilePredictorHTTPRoute(ctx context.Context, isvc *v1beta1.InferenceService) error {
-	desired, err := createRawPredictorHTTPRoute(isvc, r.ingressConfig, r.isvcConfig)
+	desired, err := createRawPredictorHTTPRoute(ctx, isvc, r.ingressConfig, r.isvcConfig, r.client)
 	if err != nil {
 		return err
 	}
@@ -593,7 +642,7 @@ func (r *RawHTTPRouteReconciler) reconcilePredictorHTTPRoute(ctx context.Context
 }
 
 func (r *RawHTTPRouteReconciler) reconcileTransformerHTTPRoute(ctx context.Context, isvc *v1beta1.InferenceService) error {
-	desired, err := createRawTransformerHTTPRoute(isvc, r.ingressConfig, r.isvcConfig)
+	desired, err := createRawTransformerHTTPRoute(ctx, isvc, r.ingressConfig, r.isvcConfig, r.client)
 	if err != nil {
 		return err
 	}
@@ -653,7 +702,7 @@ func (r *RawHTTPRouteReconciler) reconcileTransformerHTTPRoute(ctx context.Conte
 }
 
 func (r *RawHTTPRouteReconciler) reconcileExplainerHTTPRoute(ctx context.Context, isvc *v1beta1.InferenceService) error {
-	desired, err := createRawExplainerHTTPRoute(isvc, r.ingressConfig, r.isvcConfig)
+	desired, err := createRawExplainerHTTPRoute(ctx, isvc, r.ingressConfig, r.isvcConfig, r.client)
 	if err != nil {
 		return err
 	}
@@ -713,7 +762,7 @@ func (r *RawHTTPRouteReconciler) reconcileExplainerHTTPRoute(ctx context.Context
 }
 
 func (r *RawHTTPRouteReconciler) reconcileTopLevelHTTPRoute(ctx context.Context, isvc *v1beta1.InferenceService) error {
-	desired, err := createRawTopLevelHTTPRoute(isvc, r.ingressConfig, r.isvcConfig)
+	desired, err := createRawTopLevelHTTPRoute(ctx, isvc, r.ingressConfig, r.isvcConfig, r.client)
 	if err != nil {
 		return err
 	}
@@ -905,7 +954,7 @@ func (r *RawHTTPRouteReconciler) Reconcile(ctx context.Context, isvc *v1beta1.In
 	}
 	isvc.Status.Address = &duckv1.Addressable{
 		URL: &apis.URL{
-			Host:   getRawServiceHost(isvc),
+			Host:   getRawServiceHost(ctx, isvc, r.client),
 			Scheme: r.ingressConfig.UrlScheme,
 			Path:   "",
 		},
