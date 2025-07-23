@@ -18,6 +18,14 @@ echo "::group::List Pods in all other namespaces"
 kubectl get pods -A --field-selector=metadata.namespace!=kserve,metadata.namespace!=kserve-ci-e2e-test
 echo "::endgroup::"
 
+echo "::group::Describe Pods in kserve namespace"
+kubectl describe pods -n kserve
+echo "::endgroup::"
+
+echo "::group::K8s Events in kserve"
+kubectl get events -n kserve
+echo "::endgroup::"
+
 echo "::group::Describe Pods in kserve-ci-e2e-test namespace"
 kubectl describe pods -n kserve-ci-e2e-test
 echo "::endgroup::"
