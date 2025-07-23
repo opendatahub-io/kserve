@@ -70,7 +70,7 @@ func LLMInferenceServiceSample() *v1alpha1.LLMInferenceService {
 					Containers: []corev1.Container{
 						{
 							Name:  "kserve-container",
-							Image: "ghcr.io/llm-d/llm-d:0.0.8",
+							Image: "ghcr.io/llm-d/llm-d:v0.2.0",
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 8000,
@@ -115,7 +115,7 @@ func LLMInferenceServiceSample() *v1alpha1.LLMInferenceService {
 					Containers: []corev1.Container{
 						{
 							Name:  "kserve-container",
-							Image: "ghcr.io/llm-d/llm-d:0.0.8",
+							Image: "ghcr.io/llm-d/llm-d:0.2.0",
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("1"),
@@ -142,7 +142,7 @@ func LLMInferenceServiceSample() *v1alpha1.LLMInferenceService {
 					Containers: []corev1.Container{
 						{
 							Name:  "kserve-container",
-							Image: "ghcr.io/llm-d/llm-d:0.0.8",
+							Image: "ghcr.io/llm-d/llm-d:v0.2.0",
 							Ports: []corev1.ContainerPort{
 								{
 									ContainerPort: 8000,

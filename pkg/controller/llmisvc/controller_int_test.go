@@ -100,7 +100,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			}).WithContext(ctx).Should(Succeed())
 
 			Expect(expectedDeployment.Spec.Replicas).To(Equal(ptr.To[int32](1)))
-			Expect(expectedDeployment).To(HaveContainerImage("ghcr.io/llm-d/llm-d:0.0.8")) // Coming from preset
+			Expect(expectedDeployment).To(HaveContainerImage("ghcr.io/llm-d/llm-d:v0.2.0")) // Coming from preset
 			Expect(expectedDeployment).To(BeOwnedBy(llmSvc))
 
 			Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
@@ -459,7 +459,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			mainContainer := utils.GetContainerWithName(&expectedDeployment.Spec.Template.Spec, "main")
 			Expect(mainContainer).ToNot(BeNil())
 
-			Expect(mainContainer.Args).To(ContainElement(constants.DefaultModelLocalMountPath))
+			Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
 			Expect(expectedDeployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
 				HaveField("Name", constants.PvcSourceMountName),
 				HaveField("VolumeSource.PersistentVolumeClaim.ClaimName", "facebook-models"),
@@ -536,7 +536,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			Expect(*expectedDeployment.Spec.Template.Spec.ShareProcessNamespace).To(BeTrue())
 
 			// Check the model server is directed to the mount point of the OCI container
-			Expect(mainContainer.Args).To(ContainElement(constants.DefaultModelLocalMountPath))
+			Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
 
 			// Check the model server has an envvar indicating that the model may not be mounted immediately.
 			Expect(mainContainer.Env).To(ContainElement(And(

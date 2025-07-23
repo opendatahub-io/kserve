@@ -20,7 +20,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"text/template"
 
@@ -93,12 +92,6 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 	case llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker != nil && llmSvc.Spec.Prefill.Parallelism.IsDataParallel():
 		refs = append(refs, corev1.LocalObjectReference{Name: configDecodeWorkerDataParallelName})
 		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerDataParallelName})
-
-	case llmSvc.Spec.Worker != nil && llmSvc.Spec.Parallelism == nil:
-		// TODO is this even valid?
-		// 	Even defaulting PP and TP to 1 when worker is non nil doesn't seems good enough for when we will have DP (https://docs.google.com/document/d/1mSYsWQEbp4Oq50ghFWUun7OgagbuUJivAC8Ds-pu-xU/edit?tab=t.0)
-		return nil, errors.New("unexpected configuration worker configured without any parallelism, specify at least one of the `spec.parallelism` values")
-
 	// Multi Node without Disaggregated prefill and decode (P/D) cases.
 	case llmSvc.Spec.Worker != nil && llmSvc.Spec.Parallelism.IsPipelineParallel():
 		refs = append(refs, corev1.LocalObjectReference{Name: configWorkerPipelineParallelName})

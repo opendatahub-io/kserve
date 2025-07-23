@@ -12,7 +12,7 @@ spec:
             kind: Service
             name: |-
               {{ ChildName .ObjectMeta.Name `-epp-service` }}
-          selector: {}
+          selector: { }
           targetPortNumber: 8000
       template:
         containers:
@@ -27,7 +27,7 @@ spec:
               - containerPort: 9090
                 name: metrics
                 protocol: TCP
-            image: ghcr.io/llm-d/llm-d-inference-scheduler:0.0.4
+            image: ghcr.io/llm-d/llm-d-inference-scheduler:v0.2.0
             imagePullPolicy: IfNotPresent
             livenessProbe:
               failureThreshold: 3
@@ -59,35 +59,8 @@ spec:
               - --grpcHealthPort
               - "9003"
               - --secureServing
-            env:
-              - name: ENABLE_LOAD_AWARE_SCORER
-                value: "true"
-              - name: ENABLE_PREFIX_AWARE_SCORER
-                value: "true"
-              - name: ENABLE_SESSION_AWARE_SCORER
-                value: "true"
-              - name: LOAD_AWARE_SCORER_WEIGHT
-                value: "1"
-              - name: PD_ENABLED
-                value: "true"
-              - name: PD_PROMPT_LEN_THRESHOLD
-                value: "100"
-              - name: PREFILL_ENABLE_LOAD_AWARE_SCORER
-                value: "true"
-              - name: PREFILL_ENABLE_PREFIX_AWARE_SCORER
-                value: "true"
-              - name: PREFILL_ENABLE_SESSION_AWARE_SCORER
-                value: "true"
-              - name: PREFILL_LOAD_AWARE_SCORER_WEIGHT
-                value: "1"
-              - name: PREFILL_PREFIX_AWARE_SCORER_WEIGHT
-                value: "1"
-              - name: PREFILL_SESSION_AWARE_SCORER_WEIGHT
-                value: "1"
-              - name: PREFIX_AWARE_SCORER_WEIGHT
-                value: "2"
-              - name: SESSION_AWARE_SCORER_WEIGHT
-                value: "1"
+              - --certPath
+              - "/etc/ssl/certs"
             resources:
               requests:
                 cpu: 256m
@@ -103,6 +76,14 @@ spec:
                   - ALL
               seccompProfile:
                 type: RuntimeDefault
+            volumeMounts:
+              - mountPath: /etc/ssl/certs
+                name: tls-certs
+                readOnly: true
+        volumes:
+          - name: tls-certs
+            secret:
+              secretName: "{{ ChildName .ObjectMeta.Name `-kserve-self-signed-certs` }}"
         dnsPolicy: ClusterFirst
         restartPolicy: Always
         terminationGracePeriodSeconds: 30
