@@ -319,6 +319,10 @@ func (ir *IngressReconciler) reconcileExternalService(ctx context.Context, isvc 
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      isvc.Name,
 			Namespace: isvc.Namespace,
+			// ODH model controller adds this annotation, need to make sure it's here for ODH and RHOAI
+			Annotations: map[string]string{
+				constants.OpenshiftServingCertAnnotation: isvc.Name,
+			},
 		},
 		Spec: corev1.ServiceSpec{
 			ExternalName:    config.LocalGatewayServiceName,
