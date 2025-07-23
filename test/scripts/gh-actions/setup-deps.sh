@@ -45,6 +45,11 @@ wget https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_am
 GATEWAY_API_EXPERIMENTAL_VERSION="v1.3.0"
 GATEWAY_API_EXT_VERSION="v0.3.0"
 
+if [[ $NETWORK_LAYER == "istio-gatewayapi" || $NETWORK_LAYER == "envoy-gatewayapi" || $NETWORK_LAYER == "istio-gatewayapi-ext" ]]; then
+  echo "Installing Gateway CRDs ..."
+  kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml
+fi
+
 # To generate istio-base.yaml and istiod.yaml, you can use the following commands:
 #   ISTIO_HUB="gcr.io/istio-testing"
 #   ISTIO_HUB_VERSION="1.27-alpha.0551127f00634403cddd4634567e65a8ecc499a7"
@@ -57,17 +62,12 @@ if [[ $NETWORK_LAYER == "istio-gatewayapi-ext" ]]; then
   echo "Installing Gateway API Inference Extension CRDs ..."
   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/${GATEWAY_API_EXT_VERSION}/manifests.yaml
 
-  kubectl get ns istio-system || kubectl create ns istio-system
+  kubectl create ns istio-system || true
   kubectl apply -f "${SCRIPT_DIR}/../../overlays/llm-istio-experimental/istio_base.yaml" -n istio-system
   kubectl apply -f "${SCRIPT_DIR}/../../overlays/llm-istio-experimental/istiod.yaml" -n istio-system
   kubectl wait --for=condition=Ready pods --all --timeout=240s -n istio-system
 fi
 # ------------------------------------------------------------
-
-if [[ $NETWORK_LAYER == "istio-gatewayapi" || $NETWORK_LAYER == "envoy-gatewayapi" ]]; then
-  echo "Installing Gateway CRDs ..."
-  kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml
-fi
 
 if [[ $NETWORK_LAYER == "istio-ingress" || $NETWORK_LAYER == "istio-gatewayapi" || $NETWORK_LAYER == "istio" ]]; then
   echo "Installing Istio ..."
