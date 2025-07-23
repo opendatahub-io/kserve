@@ -80,13 +80,9 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx con
 		role = "both"
 	}
 
-	labels := map[string]string{
-		"app.kubernetes.io/component": "llminferenceservice-workload",
-		"app.kubernetes.io/name":      llmSvc.GetName(),
-		"app.kubernetes.io/part-of":   "llminferenceservice",
-		"kserve.io/component":         "workload",
-		"llm-d.ai/role":               role,
-	}
+	labels := r.singleNodeLabels(llmSvc)
+	labels["kserve.io/component"] = "workload"
+	labels["llm-d.ai/role"] = role
 
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -299,19 +295,6 @@ func semanticDeploymentIsEqual(expected *appsv1.Deployment, curr *appsv1.Deploym
 	return equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
 		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
 		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)
-}
-
-func hasRoutingSidecar(pod corev1.PodSpec) bool {
-	return routingSidecar(&pod) != nil
-}
-
-func routingSidecar(pod *corev1.PodSpec) *corev1.Container {
-	for i := range pod.InitContainers {
-		if pod.InitContainers[i].Name == routingSidecarContainerName {
-			return &pod.InitContainers[i]
-		}
-	}
-	return nil
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainServiceAccount(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *types.StorageInitializerConfig) error {

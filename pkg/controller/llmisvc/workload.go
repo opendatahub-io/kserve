@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -77,4 +78,17 @@ func getInferencePoolWorkloadLabelSelector(meta metav1.ObjectMeta, _ *v1alpha1.L
 	// TODO https://github.com/llm-d/llm-d-inference-scheduler/issues/220 and DP template
 
 	return s
+}
+
+func hasRoutingSidecar(pod corev1.PodSpec) bool {
+	return routingSidecar(&pod) != nil
+}
+
+func routingSidecar(pod *corev1.PodSpec) *corev1.Container {
+	for i := range pod.InitContainers {
+		if pod.InitContainers[i].Name == routingSidecarContainerName {
+			return &pod.InitContainers[i]
+		}
+	}
+	return nil
 }
