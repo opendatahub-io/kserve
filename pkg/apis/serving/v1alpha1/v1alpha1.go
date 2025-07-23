@@ -40,6 +40,10 @@ var (
 	// SchemeBuilder is used to add go types to the GroupVersionKind scheme
 	SchemeBuilder = &scheme.Builder{GroupVersion: SchemeGroupVersion}
 
+	LLMInferenceServiceGVK = SchemeGroupVersion.WithKind("LLMInferenceService")
+
+	LLMInferenceServiceConfigGVK = SchemeGroupVersion.WithKind("LLMInferenceServiceConfig")
+
 	// AddToScheme is required by pkg/client/...
 	AddToScheme = SchemeBuilder.AddToScheme
 )
@@ -52,4 +56,6 @@ func Resource(resource string) schema.GroupResource {
 func init() {
 	SchemeBuilder.Register(&TrainedModel{}, &TrainedModelList{})
 	SchemeBuilder.Register(&InferenceGraph{}, &InferenceGraphList{})
+	SchemeBuilder.Register(&LLMInferenceService{}, &LLMInferenceServiceList{})
+	SchemeBuilder.Register(&LLMInferenceServiceConfig{}, &LLMInferenceServiceConfigList{})
 }

@@ -33,10 +33,13 @@ import (
 	"knative.dev/pkg/ptr"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/credentials"
 	"github.com/kserve/kserve/pkg/credentials/gcs"
 	"github.com/kserve/kserve/pkg/credentials/s3"
+	kserveTypes "github.com/kserve/kserve/pkg/types"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 const (
@@ -50,7 +53,7 @@ const (
 )
 
 var (
-	storageInitializerConfig = &StorageInitializerConfig{
+	storageInitializerConfig = &kserveTypes.StorageInitializerConfig{
 		CpuRequest:                 StorageInitializerDefaultCPURequest,
 		CpuLimit:                   StorageInitializerDefaultCPULimit,
 		MemoryRequest:              StorageInitializerDefaultMemoryRequest,
@@ -231,7 +234,7 @@ func TestStorageInitializerInjector(t *testing.T) {
 							Name: constants.InferenceServiceContainerName,
 							VolumeMounts: []corev1.VolumeMount{
 								{
-									Name:      StorageInitializerVolumeName,
+									Name:      constants.StorageInitializerVolumeName,
 									MountPath: constants.DefaultModelLocalMountPath,
 									ReadOnly:  true,
 								},
@@ -247,7 +250,7 @@ func TestStorageInitializerInjector(t *testing.T) {
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
 								{
-									Name:      StorageInitializerVolumeName,
+									Name:      constants.StorageInitializerVolumeName,
 									MountPath: constants.DefaultModelLocalMountPath,
 								},
 							},
@@ -255,7 +258,7 @@ func TestStorageInitializerInjector(t *testing.T) {
 					},
 					Volumes: []corev1.Volume{
 						{
-							Name: StorageInitializerVolumeName,
+							Name: constants.StorageInitializerVolumeName,
 							VolumeSource: corev1.VolumeSource{
 								EmptyDir: &corev1.EmptyDirVolumeSource{},
 							},
@@ -293,7 +296,7 @@ func TestStorageInitializerInjector(t *testing.T) {
 							Name: constants.InferenceServiceContainerName,
 							VolumeMounts: []corev1.VolumeMount{
 								{
-									Name:      StorageInitializerVolumeName,
+									Name:      constants.StorageInitializerVolumeName,
 									MountPath: constants.DefaultModelLocalMountPath,
 									ReadOnly:  false,
 								},
@@ -309,7 +312,7 @@ func TestStorageInitializerInjector(t *testing.T) {
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
 								{
-									Name:      StorageInitializerVolumeName,
+									Name:      constants.StorageInitializerVolumeName,
 									MountPath: constants.DefaultModelLocalMountPath,
 								},
 							},
@@ -317,7 +320,7 @@ func TestStorageInitializerInjector(t *testing.T) {
 					},
 					Volumes: []corev1.Volume{
 						{
-							Name: StorageInitializerVolumeName,
+							Name: constants.StorageInitializerVolumeName,
 							VolumeSource: corev1.VolumeSource{
 								EmptyDir: &corev1.EmptyDirVolumeSource{},
 							},
@@ -355,7 +358,7 @@ func TestStorageInitializerInjector(t *testing.T) {
 							Name: constants.InferenceServiceContainerName,
 							VolumeMounts: []corev1.VolumeMount{
 								{
-									Name:      StorageInitializerVolumeName,
+									Name:      constants.StorageInitializerVolumeName,
 									MountPath: constants.DefaultModelLocalMountPath,
 									ReadOnly:  true,
 								},
@@ -371,7 +374,7 @@ func TestStorageInitializerInjector(t *testing.T) {
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
 								{
-									Name:      StorageInitializerVolumeName,
+									Name:      constants.StorageInitializerVolumeName,
 									MountPath: constants.DefaultModelLocalMountPath,
 								},
 							},
@@ -379,7 +382,7 @@ func TestStorageInitializerInjector(t *testing.T) {
 					},
 					Volumes: []corev1.Volume{
 						{
-							Name: StorageInitializerVolumeName,
+							Name: constants.StorageInitializerVolumeName,
 							VolumeSource: corev1.VolumeSource{
 								EmptyDir: &corev1.EmptyDirVolumeSource{},
 							},
@@ -1226,7 +1229,7 @@ func TestStorageInitializerConfigmap(t *testing.T) {
 			credentialBuilder: credentials.NewCredentialBuilder(c, clientset, &corev1.ConfigMap{
 				Data: map[string]string{},
 			}),
-			config: &StorageInitializerConfig{
+			config: &kserveTypes.StorageInitializerConfig{
 				Image:                   "kserve/storage-initializer@sha256:xxx",
 				CpuRequest:              StorageInitializerDefaultCPURequest,
 				CpuLimit:                StorageInitializerDefaultCPULimit,
@@ -1259,25 +1262,29 @@ func TestGetStorageInitializerConfigs(t *testing.T) {
 				TypeMeta:   metav1.TypeMeta{},
 				ObjectMeta: metav1.ObjectMeta{},
 				Data: map[string]string{
-					StorageInitializerConfigMapKeyName: `{
+					v1beta1.StorageInitializerConfigMapKeyName: `{
 						"Image":        		 "gcr.io/kserve/storage-initializer:latest",
 						"CpuRequest":   		 "100m",
 						"CpuLimit":      		 "1",
 						"MemoryRequest": 		 "200Mi",
 						"MemoryLimit":   		 "1Gi",
-						"CaBundleConfigMapName":      "",
+						"CpuModelcar": 			 "100m",
+						"MemoryModelcar": 		 "50Mi",
+						"CaBundleConfigMapName": "",
 						"CaBundleVolumeMountPath": "/etc/ssl/custom-certs"
 					}`,
 				},
 				BinaryData: map[string][]byte{},
 			},
 			matchers: []types.GomegaMatcher{
-				gomega.Equal(&StorageInitializerConfig{
+				gomega.Equal(&kserveTypes.StorageInitializerConfig{
 					Image:                   "gcr.io/kserve/storage-initializer:latest",
 					CpuRequest:              "100m",
 					CpuLimit:                "1",
 					MemoryRequest:           "200Mi",
 					MemoryLimit:             "1Gi",
+					CpuModelcar:             "100m",
+					MemoryModelcar:          "50Mi",
 					CaBundleConfigMapName:   "",
 					CaBundleVolumeMountPath: "/etc/ssl/custom-certs",
 				}),
@@ -1290,12 +1297,14 @@ func TestGetStorageInitializerConfigs(t *testing.T) {
 				TypeMeta:   metav1.TypeMeta{},
 				ObjectMeta: metav1.ObjectMeta{},
 				Data: map[string]string{
-					StorageInitializerConfigMapKeyName: `{
+					v1beta1.StorageInitializerConfigMapKeyName: `{
 						"Image":        		 "gcr.io/kserve/storage-initializer:latest",
 						"CpuRequest":   		 "100m",
 						"CpuLimit":      		 "1",
 						"MemoryRequest": 		 "200MC",
 						"MemoryLimit":   		 "1Gi",
+						"CpuModelcar": 			 "100m",
+						"MemoryModelcar": 		 "50Mi",
 						"CaBundleConfigMapName":      "",
 						"CaBundleVolumeMountPath": "/etc/ssl/custom-certs"
 					}`,
@@ -1303,12 +1312,14 @@ func TestGetStorageInitializerConfigs(t *testing.T) {
 				BinaryData: map[string][]byte{},
 			},
 			matchers: []types.GomegaMatcher{
-				gomega.Equal(&StorageInitializerConfig{
+				gomega.Equal(&kserveTypes.StorageInitializerConfig{
 					Image:                   "gcr.io/kserve/storage-initializer:latest",
 					CpuRequest:              "100m",
 					CpuLimit:                "1",
 					MemoryRequest:           "200MC",
 					MemoryLimit:             "1Gi",
+					CpuModelcar:             "100m",
+					MemoryModelcar:          "50Mi",
 					CaBundleConfigMapName:   "",
 					CaBundleVolumeMountPath: "/etc/ssl/custom-certs",
 				}),
@@ -1318,7 +1329,7 @@ func TestGetStorageInitializerConfigs(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		loggerConfigs, err := getStorageInitializerConfigs(tc.configMap)
+		loggerConfigs, err := v1beta1.GetStorageInitializerConfigs(tc.configMap)
 		g.Expect(err).Should(tc.matchers[1])
 		g.Expect(loggerConfigs).Should(tc.matchers[0])
 	}
@@ -1353,7 +1364,7 @@ func TestParsePvcURI(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			pvcName, pvcPath, err := parsePvcURI(tc.uri)
+			pvcName, pvcPath, err := utils.ParsePvcURI(tc.uri)
 			g.Expect(pvcName).Should(tc.matchers[0])
 			g.Expect(pvcPath).Should(tc.matchers[1])
 			g.Expect(err).Should(tc.matchers[2])
@@ -1375,7 +1386,7 @@ func TestCaBundleConfigMapVolumeMountInStorageInitializer(t *testing.T) {
 		},
 	}
 	scenarios := map[string]struct {
-		storageConfig *StorageInitializerConfig
+		storageConfig *kserveTypes.StorageInitializerConfig
 		secret        *corev1.Secret
 		sa            *corev1.ServiceAccount
 		original      *corev1.Pod
@@ -1476,7 +1487,7 @@ func TestCaBundleConfigMapVolumeMountInStorageInitializer(t *testing.T) {
 			},
 		},
 		"MountsCaBundleConfigMapVolumeWhenCaBundleConfigMapNameSet": {
-			storageConfig: &StorageInitializerConfig{
+			storageConfig: &kserveTypes.StorageInitializerConfig{
 				Image:                 "kserve/storage-initializer:latest",
 				CpuRequest:            "100m",
 				CpuLimit:              "1",
@@ -1594,7 +1605,7 @@ func TestCaBundleConfigMapVolumeMountInStorageInitializer(t *testing.T) {
 			},
 		},
 		"MountsCaBundleConfigMapVolumeByAnnotation": {
-			storageConfig: &StorageInitializerConfig{
+			storageConfig: &kserveTypes.StorageInitializerConfig{
 				Image:         "kserve/storage-initializer:latest",
 				CpuRequest:    "100m",
 				CpuLimit:      "1",
@@ -1715,7 +1726,7 @@ func TestCaBundleConfigMapVolumeMountInStorageInitializer(t *testing.T) {
 			},
 		},
 		"MountsCaBundleConfigMapVolumeByAnnotationInstreadOfConfigMap": {
-			storageConfig: &StorageInitializerConfig{
+			storageConfig: &kserveTypes.StorageInitializerConfig{
 				Image:                 "kserve/storage-initializer:latest",
 				CpuRequest:            "100m",
 				CpuLimit:              "1",
@@ -1935,7 +1946,7 @@ func TestCaBundleConfigMapVolumeMountInStorageInitializer(t *testing.T) {
 			},
 		},
 		"SetMountsCaBundleConfigMapVolumePathByAnnotationInstreadOfConfigMap": {
-			storageConfig: &StorageInitializerConfig{
+			storageConfig: &kserveTypes.StorageInitializerConfig{
 				Image:                   "kserve/storage-initializer:latest",
 				CpuRequest:              "100m",
 				CpuLimit:                "1",
@@ -2291,7 +2302,7 @@ func TestDirectVolumeMountForPvc(t *testing.T) {
 			credentialBuilder: credentials.NewCredentialBuilder(c, clientset, &corev1.ConfigMap{
 				Data: map[string]string{},
 			}),
-			config: &StorageInitializerConfig{
+			config: &kserveTypes.StorageInitializerConfig{
 				EnableDirectPvcVolumeMount: true, // enable direct volume mount for PVC
 			},
 			client: c,
@@ -2307,7 +2318,7 @@ func TestDirectVolumeMountForPvc(t *testing.T) {
 
 func TestTransformerCollocation(t *testing.T) {
 	scenarios := map[string]struct {
-		storageConfig *StorageInitializerConfig
+		storageConfig *kserveTypes.StorageInitializerConfig
 		original      *corev1.Pod
 		expected      *corev1.Pod
 	}{
@@ -2422,7 +2433,7 @@ func TestTransformerCollocation(t *testing.T) {
 			},
 		},
 		"Transformer collocation with pvc direct mount": {
-			storageConfig: &StorageInitializerConfig{
+			storageConfig: &kserveTypes.StorageInitializerConfig{
 				EnableDirectPvcVolumeMount: true, // enable direct volume mount for PVC
 			},
 			original: &corev1.Pod{
@@ -2939,7 +2950,7 @@ func TestAddOrReplaceEnv(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			addOrReplaceEnv(tt.container, tt.envKey, tt.envValue)
+			utils.AddOrReplaceEnv(tt.container, tt.envKey, tt.envValue)
 
 			if len(tt.container.Env) != tt.wantEnvLen {
 				t.Errorf("Expected env length %d, but got %d", tt.wantEnvLen, len(tt.container.Env))
@@ -2991,7 +3002,7 @@ func TestInjectModelcar(t *testing.T) {
 	{
 		testingPods := []*corev1.Pod{createTestPodForModelcar(), createTestWorkerPodForModelcar()}
 		mi := &StorageInitializerInjector{
-			config: &StorageInitializerConfig{},
+			config: &kserveTypes.StorageInitializerConfig{},
 		}
 
 		for _, pod := range testingPods {
@@ -3000,36 +3011,36 @@ func TestInjectModelcar(t *testing.T) {
 				t.Errorf("Expected nil error but got %v", err)
 			}
 
-			// Check that an emptyDir volume has been attached
-			if len(pod.Spec.Volumes) != 1 || pod.Spec.Volumes[0].Name != StorageInitializerVolumeName {
-				t.Errorf("Expected one volume with name %s, but got %v", StorageInitializerVolumeName, pod.Spec.Volumes)
-			}
+		// Check that an emptyDir volume has been attached
+		if len(pod.Spec.Volumes) != 1 || pod.Spec.Volumes[0].Name != constants.StorageInitializerVolumeName {
+			t.Errorf("Expected one volume with name %s, but got %v", constants.StorageInitializerVolumeName, pod.Spec.Volumes)
+		}
 
 			// Check that a sidecar container has been injected
 			if len(pod.Spec.Containers) != 2 {
 				t.Errorf("Expected two containers but got %d", len(pod.Spec.Containers))
 			}
 
-			// Check that an init container has been injected, and it is the model container
-			switch {
-			case len(pod.Spec.InitContainers) != 1:
-				t.Errorf("Expected one init container but got %d", len(pod.Spec.InitContainers))
-			case pod.Spec.InitContainers[0].Name != ModelcarInitContainerName:
-				t.Errorf("Expected the init container to be the model but got %s", pod.Spec.InitContainers[0].Name)
-			default:
-				// Check that resources are correctly set.
-				if _, ok := pod.Spec.InitContainers[0].Resources.Limits[corev1.ResourceCPU]; !ok {
-					t.Error("The model container does not have CPU limit set")
-				}
-				if _, ok := pod.Spec.InitContainers[0].Resources.Limits[corev1.ResourceMemory]; !ok {
-					t.Error("The model container does not have Memory limit set")
-				}
-				if _, ok := pod.Spec.InitContainers[0].Resources.Requests[corev1.ResourceCPU]; !ok {
-					t.Error("The model container does not have CPU request set")
-				}
-				if _, ok := pod.Spec.InitContainers[0].Resources.Requests[corev1.ResourceMemory]; !ok {
-					t.Error("The model container does not have Memory request set")
-				}
+		// Check that an init container has been injected, and it is the model container
+		switch {
+		case len(pod.Spec.InitContainers) != 1:
+			t.Errorf("Expected one init container but got %d", len(pod.Spec.InitContainers))
+		case pod.Spec.InitContainers[0].Name != constants.ModelcarInitContainerName:
+			t.Errorf("Expected the init container to be the model but got %s", pod.Spec.InitContainers[0].Name)
+		default:
+			// Check that resources are correctly set.
+			if _, ok := pod.Spec.InitContainers[0].Resources.Limits[corev1.ResourceCPU]; !ok {
+				t.Error("The model container does not have CPU limit set")
+			}
+			if _, ok := pod.Spec.InitContainers[0].Resources.Limits[corev1.ResourceMemory]; !ok {
+				t.Error("The model container does not have Memory limit set")
+			}
+			if _, ok := pod.Spec.InitContainers[0].Resources.Requests[corev1.ResourceCPU]; !ok {
+				t.Error("The model container does not have CPU request set")
+			}
+			if _, ok := pod.Spec.InitContainers[0].Resources.Requests[corev1.ResourceMemory]; !ok {
+				t.Error("The model container does not have Memory request set")
+			}
 
 				// Check args
 				joinedArgs := strings.Join(pod.Spec.InitContainers[0].Args, " ")
@@ -3038,19 +3049,19 @@ func TestInjectModelcar(t *testing.T) {
 				}
 			}
 
-			// Check that the user-container has an env var set
-			found := false
-			if pod.Spec.Containers[0].Env != nil {
-				for _, env := range pod.Spec.Containers[0].Env {
-					if env.Name == ModelInitModeEnv && env.Value == "async" {
-						found = true
-						break
-					}
+		// Check that the user-container has an env var set
+		found := false
+		if pod.Spec.Containers[0].Env != nil {
+			for _, env := range pod.Spec.Containers[0].Env {
+				if env.Name == constants.ModelInitModeEnv && env.Value == "async" {
+					found = true
+					break
 				}
 			}
-			if !found {
-				t.Errorf("Expected env var %s=async but did not find it", ModelInitModeEnv)
-			}
+		}
+		if !found {
+			t.Errorf("Expected env var %s=async but did not find it", constants.ModelInitModeEnv)
+		}
 
 			// Check volume mounts in both containers
 			if len(pod.Spec.Containers[0].VolumeMounts) != 1 || len(pod.Spec.Containers[1].VolumeMounts) != 1 {
@@ -3070,7 +3081,7 @@ func createTestPodForModelcar() *corev1.Pod {
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Annotations: map[string]string{
-				constants.StorageInitializerSourceUriInternalAnnotationKey: OciURIPrefix + "myrepo/mymodelimage",
+				constants.StorageInitializerSourceUriInternalAnnotationKey: constants.OciURIPrefix + "myrepo/mymodelimage",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -3107,28 +3118,28 @@ func createTestPodForModelcarWithTransformer() *corev1.Pod {
 func TestModelcarVolumeMounts(t *testing.T) {
 	t.Run("Test that volume mounts has been added (no transformer)", func(t *testing.T) {
 		pod := createTestPodForModelcar()
-		assert.Nil(t, getContainerWithName(pod, constants.TransformerContainerName))
-		checkVolumeMounts(t, pod, []string{ModelcarContainerName, constants.InferenceServiceContainerName})
+		assert.Nil(t, utils.GetContainerWithName(&pod.Spec, constants.TransformerContainerName))
+		checkVolumeMounts(t, pod, []string{constants.ModelcarContainerName, constants.InferenceServiceContainerName})
 	})
 
 	t.Run("Test that volume mounts has been added (with transformer)", func(t *testing.T) {
 		pod := createTestPodForModelcarWithTransformer()
-		checkVolumeMounts(t, pod, []string{ModelcarContainerName, constants.InferenceServiceContainerName, constants.TransformerContainerName})
+		checkVolumeMounts(t, pod, []string{constants.ModelcarContainerName, constants.InferenceServiceContainerName, constants.TransformerContainerName})
 	})
 }
 
 func checkVolumeMounts(t *testing.T, pod *corev1.Pod, containerNames []string) {
-	injector := &StorageInitializerInjector{config: &StorageInitializerConfig{}}
+	injector := &StorageInitializerInjector{config: &kserveTypes.StorageInitializerConfig{}}
 	err := injector.InjectModelcar(pod)
 	require.NoError(t, err)
 
 	for _, containerName := range containerNames {
-		container := getContainerWithName(pod, containerName)
+		container := utils.GetContainerWithName(&pod.Spec, containerName)
 		assert.NotNil(t, container)
 		volumeMounts := container.VolumeMounts
 		assert.NotEmpty(t, volumeMounts)
 		assert.Len(t, volumeMounts, 1)
-		assert.Equal(t, volumeMounts[0].MountPath, getParentDirectory(constants.DefaultModelLocalMountPath))
+		assert.Equal(t, volumeMounts[0].MountPath, utils.GetParentDirectory(constants.DefaultModelLocalMountPath))
 	}
 }
 
@@ -3137,7 +3148,7 @@ func TestModelcarIdempotency(t *testing.T) {
 		podReference := createTestPodForModelcarWithTransformer()
 		pod := createTestPodForModelcarWithTransformer()
 
-		injector := &StorageInitializerInjector{config: &StorageInitializerConfig{}}
+		injector := &StorageInitializerInjector{config: &kserveTypes.StorageInitializerConfig{}}
 
 		// Inject modelcar twice
 		err := injector.InjectModelcar(pod)
@@ -3156,7 +3167,7 @@ func TestModelcarIdempotency(t *testing.T) {
 
 func TestStorageInitializerInjectorWithModelcarConfig(t *testing.T) {
 	t.Run("Test empty config", func(t *testing.T) {
-		config := &StorageInitializerConfig{}
+		config := &kserveTypes.StorageInitializerConfig{}
 		injector := &StorageInitializerInjector{config: config}
 
 		pod := createTestPodForModelcar()
@@ -3164,17 +3175,17 @@ func TestStorageInitializerInjectorWithModelcarConfig(t *testing.T) {
 		require.NoError(t, err)
 
 		// Assertions
-		modelcarContainer := getContainerWithName(pod, ModelcarContainerName)
+		modelcarContainer := utils.GetContainerWithName(&pod.Spec, constants.ModelcarContainerName)
 		assert.NotNil(t, modelcarContainer)
-		assert.Equal(t, resource.MustParse(CpuModelcarDefault), modelcarContainer.Resources.Limits["cpu"])
-		assert.Equal(t, resource.MustParse(MemoryModelcarDefault), modelcarContainer.Resources.Limits["memory"])
-		assert.Equal(t, resource.MustParse(CpuModelcarDefault), modelcarContainer.Resources.Requests["cpu"])
-		assert.Equal(t, resource.MustParse(MemoryModelcarDefault), modelcarContainer.Resources.Requests["memory"])
+		assert.Equal(t, resource.MustParse(constants.CpuModelcarDefault), modelcarContainer.Resources.Limits["cpu"])
+		assert.Equal(t, resource.MustParse(constants.MemoryModelcarDefault), modelcarContainer.Resources.Limits["memory"])
+		assert.Equal(t, resource.MustParse(constants.CpuModelcarDefault), modelcarContainer.Resources.Requests["cpu"])
+		assert.Equal(t, resource.MustParse(constants.MemoryModelcarDefault), modelcarContainer.Resources.Requests["memory"])
 		assert.Nil(t, modelcarContainer.SecurityContext)
 	})
 
 	t.Run("Test uidModelcar config", func(t *testing.T) {
-		config := &StorageInitializerConfig{UidModelcar: ptr.Int64(10)}
+		config := &kserveTypes.StorageInitializerConfig{UidModelcar: ptr.Int64(10)}
 		injector := &StorageInitializerInjector{config: config}
 
 		pod := createTestPodForModelcar()
@@ -3182,8 +3193,8 @@ func TestStorageInitializerInjectorWithModelcarConfig(t *testing.T) {
 		require.NoError(t, err)
 
 		// Assertions
-		modelcarContainer := getContainerWithName(pod, ModelcarContainerName)
-		userContainer := getContainerWithName(pod, constants.InferenceServiceContainerName)
+		modelcarContainer := utils.GetContainerWithName(&pod.Spec, constants.ModelcarContainerName)
+		userContainer := utils.GetContainerWithName(&pod.Spec, constants.InferenceServiceContainerName)
 		assert.NotNil(t, modelcarContainer)
 		assert.NotNil(t, userContainer)
 		assert.Equal(t, int64(10), *modelcarContainer.SecurityContext.RunAsUser)
@@ -3191,7 +3202,7 @@ func TestStorageInitializerInjectorWithModelcarConfig(t *testing.T) {
 	})
 
 	t.Run("Test CPU and Memory config", func(t *testing.T) {
-		config := &StorageInitializerConfig{CpuModelcar: "50m", MemoryModelcar: "50Mi"}
+		config := &kserveTypes.StorageInitializerConfig{CpuModelcar: "50m", MemoryModelcar: "50Mi"}
 		injector := &StorageInitializerInjector{config: config}
 
 		pod := createTestPodForModelcar()
@@ -3199,7 +3210,7 @@ func TestStorageInitializerInjectorWithModelcarConfig(t *testing.T) {
 		require.NoError(t, err)
 
 		// Assertions
-		modelcarContainer := getContainerWithName(pod, ModelcarContainerName)
+		modelcarContainer := utils.GetContainerWithName(&pod.Spec, constants.ModelcarContainerName)
 		assert.NotNil(t, modelcarContainer)
 		assert.Equal(t, resource.MustParse("50m"), modelcarContainer.Resources.Limits["cpu"])
 		assert.Equal(t, resource.MustParse("50Mi"), modelcarContainer.Resources.Requests["memory"])
@@ -3221,7 +3232,7 @@ func TestGetContainerWithName(t *testing.T) {
 		}
 
 		seekName := "container-1"
-		got := getContainerWithName(pod, seekName)
+		got := utils.GetContainerWithName(&pod.Spec, seekName)
 
 		if got == nil {
 			t.Errorf("Expected a container, but got nil")
@@ -3242,7 +3253,7 @@ func TestGetContainerWithName(t *testing.T) {
 		}
 
 		seekName := "non-existent-container"
-		got := getContainerWithName(pod, seekName)
+		got := utils.GetContainerWithName(&pod.Spec, seekName)
 
 		if got != nil {
 			t.Errorf("Expected nil, but got a container")
@@ -4012,7 +4023,7 @@ func TestStorageInitializerUIDForIstioCNI(t *testing.T) {
 }
 
 func TestLocalModelPVC(t *testing.T) {
-	storageConfig := &StorageInitializerConfig{
+	storageConfig := &kserveTypes.StorageInitializerConfig{
 		EnableDirectPvcVolumeMount: true, // enable direct volume mount for PVC
 	}
 	scenarios := map[string]struct {

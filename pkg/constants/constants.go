@@ -23,7 +23,6 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"knative.dev/pkg/network"
 	"knative.dev/serving/pkg/apis/autoscaling"
@@ -39,8 +38,8 @@ const (
 )
 
 var (
-	KServeNamespace              = getEnvOrDefault("POD_NAMESPACE", "kserve")
-	AutoscalerConfigmapNamespace = getEnvOrDefault("KNATIVE_CONFIG_AUTOSCALER_NAMESPACE", DefaultKnServingNamespace)
+	KServeNamespace              = GetEnvOrDefault("POD_NAMESPACE", "kserve")
+	AutoscalerConfigmapNamespace = GetEnvOrDefault("KNATIVE_CONFIG_AUTOSCALER_NAMESPACE", DefaultKnServingNamespace)
 )
 
 // InferenceService Constants
@@ -160,6 +159,16 @@ var (
 	DefaultStorageSpecSecretPath = "/mnt/storage-secret" // #nosec G101
 )
 
+const (
+	OciURIPrefix                 = "oci://"
+	PvcURIPrefix                 = "pvc://"
+	PvcSourceMountName           = "kserve-pvc-source"
+	StorageInitializerVolumeName = "kserve-provision-location"
+
+	CpuModelcarDefault    = "10m"
+	MemoryModelcarDefault = "15Mi"
+)
+
 // Controller Constants
 var (
 	ControllerLabelName                   = KServeName + "-controller-manager"
@@ -272,6 +281,7 @@ const (
 	CustomSpecMultiModelServerEnvVarKey               = "MULTI_MODEL_SERVER"
 	KServeContainerPrometheusMetricsPortEnvVarKey     = "KSERVE_CONTAINER_PROMETHEUS_METRICS_PORT"
 	KServeContainerPrometheusMetricsPathEnvVarKey     = "KSERVE_CONTAINER_PROMETHEUS_METRICS_PATH"
+	ModelInitModeEnv                                  = "MODEL_INIT_MODE"
 	QueueProxyAggregatePrometheusMetricsPortEnvVarKey = "AGGREGATE_PROMETHEUS_METRICS_PORT"
 )
 
@@ -344,10 +354,9 @@ const (
 	InferenceServiceLabel       = "serving.kserve.io/inferenceservice"
 )
 
-// InferenceService default/canary constants
+// InferenceService canary constants
 const (
-	InferenceServiceDefault = "default"
-	InferenceServiceCanary  = "canary"
+	InferenceServiceCanary = "canary"
 )
 
 // InferenceService model server args
@@ -371,6 +380,9 @@ const (
 	// WorkerContainerName is for worker node container
 	WorkerContainerName     = "worker-container"
 	QueueProxyContainerName = "queue-proxy"
+
+	ModelcarContainerName     = "modelcar"
+	ModelcarInitContainerName = "modelcar-init"
 )
 
 // DefaultModelLocalMountPath is where models will be mounted by the storage-initializer
@@ -592,7 +604,7 @@ func (v InferenceServiceVerb) String() string {
 	return string(v)
 }
 
-func getEnvOrDefault(key string, fallback string) string {
+func GetEnvOrDefault(key string, fallback string) string {
 	if value, ok := os.LookupEnv(key); ok {
 		return value
 	}
@@ -607,10 +619,6 @@ func InferenceServiceHostName(name string, namespace string, domain string) stri
 	return fmt.Sprintf("%s.%s.%s", name, namespace, domain)
 }
 
-func DefaultPredictorServiceName(name string) string {
-	return name + "-" + string(Predictor) + "-" + InferenceServiceDefault
-}
-
 func PredictorServiceName(name string) string {
 	return name + "-" + string(Predictor)
 }
@@ -623,10 +631,6 @@ func CanaryPredictorServiceName(name string) string {
 	return name + "-" + string(Predictor) + "-" + InferenceServiceCanary
 }
 
-func DefaultExplainerServiceName(name string) string {
-	return name + "-" + string(Explainer) + "-" + InferenceServiceDefault
-}
-
 func ExplainerServiceName(name string) string {
 	return name + "-" + string(Explainer)
 }
@@ -635,20 +639,12 @@ func CanaryExplainerServiceName(name string) string {
 	return name + "-" + string(Explainer) + "-" + InferenceServiceCanary
 }
 
-func DefaultTransformerServiceName(name string) string {
-	return name + "-" + string(Transformer) + "-" + InferenceServiceDefault
-}
-
 func TransformerServiceName(name string) string {
 	return name + "-" + string(Transformer)
 }
 
 func CanaryTransformerServiceName(name string) string {
 	return name + "-" + string(Transformer) + "-" + InferenceServiceCanary
-}
-
-func DefaultServiceName(name string, component InferenceServiceComponent) string {
-	return name + "-" + component.String() + "-" + InferenceServiceDefault
 }
 
 func CanaryServiceName(name string, component InferenceServiceComponent) string {
@@ -697,22 +693,6 @@ func PathBasedExplainPrefix() string {
 func VirtualServiceHostname(name string, predictorHostName string) string {
 	index := strings.Index(predictorHostName, ".")
 	return name + predictorHostName[index:]
-}
-
-func PredictorURL(metadata metav1.ObjectMeta, isCanary bool) string {
-	serviceName := DefaultPredictorServiceName(metadata.Name)
-	if isCanary {
-		serviceName = CanaryPredictorServiceName(metadata.Name)
-	}
-	return fmt.Sprintf("%s.%s", serviceName, metadata.Namespace)
-}
-
-func TransformerURL(metadata metav1.ObjectMeta, isCanary bool) string {
-	serviceName := DefaultTransformerServiceName(metadata.Name)
-	if isCanary {
-		serviceName = CanaryTransformerServiceName(metadata.Name)
-	}
-	return fmt.Sprintf("%s.%s", serviceName, metadata.Namespace)
 }
 
 // Should only match 1..65535, but for simplicity it matches 0-99999.

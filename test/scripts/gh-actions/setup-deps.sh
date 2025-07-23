@@ -22,24 +22,52 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" &>/dev/null && pwd 2>/dev/null)"
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 DEPLOYMENT_MODE="${1:-'serverless'}"
 NETWORK_LAYER="${2:-'istio'}"
 ENABLE_KEDA="${3:-'false'}"
+ENABLE_LWS="${4:-'false'}"
 
 ISTIO_VERSION="1.23.2"
 CERT_MANAGER_VERSION="v1.16.1"
 YQ_VERSION="v4.28.1"
 GATEWAY_API_VERSION="v1.2.1"
 ENVOY_GATEWAY_VERSION="v1.2.2"
+LWS_VERSION=v0.6.2
+
 
 echo "Installing yq ..."
 wget https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64 -O /usr/local/bin/yq && chmod +x /usr/local/bin/yq
 
-if [[ $NETWORK_LAYER == "istio-gatewayapi" || $NETWORK_LAYER == "envoy-gatewayapi" ]]; then
+# [LLMInference] This is still experimental and need latest istio
+# For now, it uses helm to install istio but it will be removed once the experimental version is stable
+# ------------------------------------------------------------
+GATEWAY_API_EXPERIMENTAL_VERSION="v1.3.0"
+GATEWAY_API_EXT_VERSION="v0.5.0"
+
+if [[ $NETWORK_LAYER == "istio-gatewayapi" || $NETWORK_LAYER == "envoy-gatewayapi" || $NETWORK_LAYER == "istio-gatewayapi-ext" ]]; then
   echo "Installing Gateway CRDs ..."
   kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_VERSION}/standard-install.yaml
 fi
+
+# To generate istio-base.yaml and istiod.yaml, you can use the following commands:
+#   ISTIO_HUB="gcr.io/istio-testing"
+#   ISTIO_HUB_VERSION="1.27-alpha.0551127f00634403cddd4634567e65a8ecc499a7"
+#   helm template istio-base oci://$ISTIO_HUB/charts/base --version $ISTIO_HUB_VERSION --set tag=$ISTIO_HUB_VERSION --set hub=$ISTIO_HUB --set namespace=istio-system > istio_base.yaml
+#   helm template istiod oci://$ISTIO_HUB/charts/istiod --version $ISTIO_HUB_VERSION --set tag=$ISTIO_HUB_VERSION --set hub=$ISTIO_HUB --namespace=istio-system > istiod.yaml
+
+if [[ $NETWORK_LAYER == "istio-gatewayapi-ext" ]]; then
+  echo "Installing Gateway API experimental CRDs ..."
+  kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/${GATEWAY_API_EXPERIMENTAL_VERSION}/experimental-install.yaml
+  echo "Installing Gateway API Inference Extension CRDs ..."
+  kubectl apply -f https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/${GATEWAY_API_EXT_VERSION}/manifests.yaml
+
+  kubectl create ns istio-system || true
+  kubectl apply -f "${SCRIPT_DIR}/../../overlays/llm-istio-experimental/istio_base.yaml" -n istio-system
+  kubectl apply -f "${SCRIPT_DIR}/../../overlays/llm-istio-experimental/istiod.yaml" -n istio-system
+  kubectl wait --for=condition=Ready pods --all --timeout=240s -n istio-system
+fi
+# ------------------------------------------------------------
 
 if [[ $NETWORK_LAYER == "istio-ingress" || $NETWORK_LAYER == "istio-gatewayapi" || $NETWORK_LAYER == "istio" ]]; then
   echo "Installing Istio ..."
@@ -104,10 +132,18 @@ if [[ $DEPLOYMENT_MODE == "raw" ]]; then
   fi
 fi
 
+if [[ $ENABLE_LWS == "true" ]]; then
+  echo "Installing LWS ..."
+  kubectl apply --server-side -f https://github.com/kubernetes-sigs/lws/releases/download/$LWS_VERSION/manifests.yaml
+  kubectl wait deploy/lws-controller-manager -n lws-system --for=condition=available --timeout=5m
+fi
+
 echo "Installing cert-manager ..."
-kubectl create namespace cert-manager
+kubectl create namespace --dry-run=client cert-manager -oyaml | kubectl apply -f -
 sleep 2
 kubectl apply --validate=false -f https://github.com/jetstack/cert-manager/releases/download/${CERT_MANAGER_VERSION}/cert-manager.yaml
 
 echo "Waiting for cert-manager to be ready ..."
 kubectl wait --for=condition=ready pod -l 'app in (cert-manager,webhook)' --timeout=180s -n cert-manager
+
+

@@ -29,6 +29,8 @@ rules:
   - ""
   resources:
   - events
+  - secrets
+  - serviceaccounts
   - services
   verbs:
   - create
@@ -63,6 +65,8 @@ rules:
   - get
   - patch
 - apiGroups:
+=======
+>>>>>>> upstream/feature-llmd-llm-inference-service
   - admissionregistration.k8s.io
   resources:
   - mutatingwebhookconfigurations
@@ -88,6 +92,13 @@ rules:
   - update
   - watch
 - apiGroups:
+  - authentication.k8s.io
+  resources:
+  - subjectaccessreviews
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
   - autoscaling
   resources:
   - horizontalpodautoscalers
@@ -100,9 +111,32 @@ rules:
   - update
   - watch
 - apiGroups:
+  - discovery.k8s.io
+  resources:
+  - endpointslices
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - gateway.networking.k8s.io
   resources:
+  - gatewayclasses
+  - gateways
   - httproutes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - inference.networking.x-k8s.io
+  resources:
+  - inferencemodels
+  - inferencepools
   verbs:
   - create
   - delete
@@ -133,8 +167,21 @@ rules:
   - patch
   - update
 - apiGroups:
+  - leaderworkerset.x-k8s.io
+  resources:
+  - leaderworkersets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - networking.istio.io
   resources:
+  - destinationrules
   - virtualservices
   - virtualservices/finalizers
   verbs:
@@ -216,6 +263,44 @@ rules:
   verbs:
   - get
 - apiGroups:
+  - rbac.authorization.k8s.io
+<<<<<<< HEAD
+  resourceNames:
+  - kserve-inferencegraph-auth-verifiers
+  resources:
+  - clusterrolebindings
+  verbs:
+  - create
+  - get
+  - patch
+  - update
+- apiGroups:
+  - route.openshift.io
+  resources:
+  - routes
+=======
+  resources:
+  - rolebindings
+  - roles
+>>>>>>> upstream/feature-llmd-llm-inference-service
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+<<<<<<< HEAD
+  - route.openshift.io
+  resources:
+  - routes/status
+  verbs:
+  - get
+- apiGroups:
+=======
+>>>>>>> upstream/feature-llmd-llm-inference-service
   - serving.knative.dev
   resources:
   - services
@@ -246,6 +331,8 @@ rules:
   - inferencegraphs/finalizers
   - inferenceservices
   - inferenceservices/finalizers
+  - llminferenceserviceconfigs
+  - llminferenceservices
   - servingruntimes
   - servingruntimes/finalizers
   - trainedmodels
@@ -263,11 +350,19 @@ rules:
   - clusterservingruntimes/status
   - inferencegraphs/status
   - inferenceservices/status
+  - llminferenceservices/status
   - servingruntimes/status
   - trainedmodels/status
   verbs:
   - get
   - patch
+  - update
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - llminferenceserviceconfigs/finalizers
+  - llminferenceservices/finalizers
+  verbs:
   - update
 - apiGroups:
   - serving.kserve.io

@@ -218,3 +218,62 @@ webhooks:
           - DELETE
         resources:
           - localmodelcaches
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: llminferenceservice.serving.kserve.io
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/serving-cert
+webhooks:
+  - admissionReviewVersions:
+      - v1
+      - v1beta1
+    clientConfig:
+      service:
+        name: kserve-webhook-server-service
+        namespace: {{ .Release.Namespace }}
+        path: /validate-serving-kserve-io-v1alpha1-llminferenceservice
+    failurePolicy: Fail
+    sideEffects: None
+    name: llminferenceservice.kserve-webhook-server.validator
+    rules:
+      - apiGroups:
+          - serving.kserve.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - llminferenceservices
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: llminferenceserviceconfig.serving.kserve.io
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/serving-cert
+webhooks:
+  - admissionReviewVersions:
+      - v1
+      - v1beta1
+    clientConfig:
+      service:
+        name: kserve-webhook-server-service
+        namespace: {{ .Release.Namespace }}
+        path: /validate-serving-kserve-io-v1alpha1-llminferenceserviceconfig
+    failurePolicy: Fail
+    sideEffects: None
+    name: llminferenceserviceconfigs.kserve-webhook-server.validator
+    rules:
+      - apiGroups:
+          - serving.kserve.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+          - DELETE
+        resources:
+          - llminferenceserviceconfigs

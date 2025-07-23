@@ -1,5 +1,5 @@
 /*
-Copyright 2021 The KServe Authors.
+Copyright 2023 The KServe Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,28 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package utils
+package v1alpha1
 
 import (
-	"testing"
+	"context"
 
-	"github.com/google/go-cmp/cmp"
+	"k8s.io/utils/ptr"
+	"knative.dev/pkg/apis"
 )
 
-func TestBool(t *testing.T) {
-	input := true
-	expected := &input
-	result := Bool(input)
-	if diff := cmp.Diff(expected, result); diff != "" {
-		t.Errorf("Test %q unexpected result (-want +got): %v", t.Name(), diff)
-	}
-}
+var _ apis.Defaultable = &LLMInferenceService{}
 
-func TestUInt64(t *testing.T) {
-	input := uint64(63)
-	expected := &input
-	result := UInt64(input)
-	if diff := cmp.Diff(expected, result); diff != "" {
-		t.Errorf("Test %q unexpected result (-want +got): %v", t.Name(), diff)
+func (in *LLMInferenceService) SetDefaults(_ context.Context) {
+	if in.Spec.Model.Name == nil || *in.Spec.Model.Name == "" {
+		in.Spec.Model.Name = ptr.To(in.GetName())
 	}
 }
