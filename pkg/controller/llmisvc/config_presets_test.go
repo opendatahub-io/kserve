@@ -95,7 +95,7 @@ func TestPresetFiles(t *testing.T) {
 							InitContainers: []corev1.Container{
 								{
 									Name:  "llm-d-routing-sidecar",
-									Image: "ghcr.io/llm-d/llm-d-routing-sidecar:0.0.6",
+									Image: "ghcr.io/llm-d/llm-d-routing-sidecar:v0.2.0",
 									Args: []string{
 										"--port=8000",
 										"--vllm-port=8001",
@@ -105,6 +105,17 @@ func TestPresetFiles(t *testing.T) {
 										"--decoder-tls-insecure-skip-verify=true",
 										"--prefiller-use-tls=true",
 										"--prefiller-tls-insecure-skip-verify=true",
+										"--enable-ssrf-protection=true",
+									},
+									Env: []corev1.EnvVar{
+										{
+											Name: "INFERENCE_POOL_NAMESPACE",
+											ValueFrom: &corev1.EnvVarSource{
+												FieldRef: &corev1.ObjectFieldSelector{
+													FieldPath: "metadata.namespace",
+												},
+											},
+										},
 									},
 									Ports: []corev1.ContainerPort{
 										{
