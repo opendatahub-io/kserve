@@ -96,7 +96,8 @@ jobs:
       - name: Run E2E tests
         timeout-minutes: 30
         run: |
-          ./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice" "1" "istio-gatewayapi-ext"
+          # Run only CPU tests for now
+          ./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice(type='cpu')" 2 "istio-gatewayapi-ext"
 
       - name: Check system status
         if: always()
