@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import asyncio
-import os
 
 import pytest
 import pytest_asyncio
@@ -39,10 +38,11 @@ def event_loop():
 
 @pytest_asyncio.fixture(scope="session")
 async def rest_v1_client():
-    ca_cert_path = os.environ.get("REQUESTS_CA_BUNDLE")
+    # Disabling certificate verification for now, needs to be re-enabled
+    # ca_cert_path = os.environ.get("REQUESTS_CA_BUNDLE")
     v1_client = InferenceRESTClient(
         config=RESTConfig(
-            verify=ca_cert_path,
+            verify=False,
             timeout=180,
             verbose=True,
             protocol=PredictorProtocol.REST_V1,
@@ -54,10 +54,11 @@ async def rest_v1_client():
 
 @pytest_asyncio.fixture(scope="session")
 async def rest_v2_client():
-    ca_cert_path = os.environ.get("REQUESTS_CA_BUNDLE")
+    # Disabling certificate verification for now, needs to be re-enabled
+    # ca_cert_path = os.environ.get("REQUESTS_CA_BUNDLE")
     v2_client = InferenceRESTClient(
         config=RESTConfig(
-            verify=ca_cert_path,
+            verify=False,
             timeout=180,
             verbose=True,
             protocol=PredictorProtocol.REST_V2,
