@@ -154,7 +154,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	} else {
 		logger.Info("Marked for deletion, finalizing resources")
 		if controllerutil.ContainsFinalizer(original, finalizerName) {
-			if cleanupErr := r.reconcileSchedulerServiceAccount(ctx, original); cleanupErr != nil {
+			if cleanupErr := r.finalize(ctx, original); cleanupErr != nil {
 				logger.Error(cleanupErr, "Finalization failed")
 				return ctrl.Result{}, cleanupErr
 			}
@@ -218,6 +218,10 @@ func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v
 	}
 
 	return nil
+}
+
+func (r *LLMInferenceServiceReconciler) finalize(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	return r.reconcileSchedulerServiceAccount(ctx, llmSvc)
 }
 
 func (r *LLMInferenceServiceReconciler) updateStatus(ctx context.Context, desired *v1alpha1.LLMInferenceService) error {
