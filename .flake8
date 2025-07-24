@@ -16,3 +16,4 @@ exclude =
   python/*_pb2.py
   docs/**/*.py
   python/kserve/kserve/protocol/rest/openai/types/openapi.py
+  test/e2e/llmisvc/**.py
