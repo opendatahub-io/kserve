@@ -75,16 +75,20 @@ def llm_config_factory():
                 get_llmisvc_config(client, name, namespace)
                 continue
             except Exception as e:
-                is_404_api = isinstance(e, ApiException) and getattr(e, "status", None) == 404
-                is_404_runtime = isinstance(e, RuntimeError) and "not found" in str(e).lower()
+                is_404_api = (
+                    isinstance(e, ApiException) and getattr(e, "status", None) == 404
+                )
+                is_404_runtime = (
+                    isinstance(e, RuntimeError) and "not found" in str(e).lower()
+                )
                 if not (is_404_api or is_404_runtime):
                     raise
 
             body = {
                 "apiVersion": "serving.kserve.io/v1alpha1",
-                "kind":       "LLMInferenceServiceConfig",
-                "metadata":   {"name": name, "namespace": namespace},
-                "spec":       spec,
+                "kind": "LLMInferenceServiceConfig",
+                "metadata": {"name": name, "namespace": namespace},
+                "spec": spec,
             }
 
             try:
