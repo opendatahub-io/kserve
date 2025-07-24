@@ -102,27 +102,27 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerRoleBinding(ctx contex
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerServiceAccount(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	serviceAccount := r.expectedSchedulerServiceAccount(llmSvc)
 
-	if llmSvc.DeletionTimestamp.IsZero() {
-		if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
-			return Delete(ctx, r, llmSvc, serviceAccount)
-		}
-
-		if err := Reconcile(ctx, r, llmSvc, &corev1.ServiceAccount{}, serviceAccount, semanticServiceAccountIsEqual); err != nil {
-			return fmt.Errorf("failed to reconcile scheduler service account %s/%s: %w", serviceAccount.GetNamespace(), serviceAccount.GetName(), err)
-		}
-
-		if err := r.reconcileSchedulerAuthDelegatorBinding(ctx, llmSvc, serviceAccount); err != nil {
-			return err
-		}
-
-		if err := r.reconcileSchedulerRole(ctx, llmSvc); err != nil {
-			return err
-		}
-
-		return r.reconcileSchedulerRoleBinding(ctx, llmSvc, serviceAccount)
-	} else {
+	if !llmSvc.DeletionTimestamp.IsZero() {
 		return r.reconcileSchedulerAuthDelegatorBinding(ctx, llmSvc, serviceAccount)
 	}
+
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
+		return Delete(ctx, r, llmSvc, serviceAccount)
+	}
+
+	if err := Reconcile(ctx, r, llmSvc, &corev1.ServiceAccount{}, serviceAccount, semanticServiceAccountIsEqual); err != nil {
+		return fmt.Errorf("failed to reconcile scheduler service account %s/%s: %w", serviceAccount.GetNamespace(), serviceAccount.GetName(), err)
+	}
+
+	if err := r.reconcileSchedulerAuthDelegatorBinding(ctx, llmSvc, serviceAccount); err != nil {
+		return err
+	}
+
+	if err := r.reconcileSchedulerRole(ctx, llmSvc); err != nil {
+		return err
+	}
+
+	return r.reconcileSchedulerRoleBinding(ctx, llmSvc, serviceAccount)
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
