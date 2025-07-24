@@ -121,6 +121,7 @@ patches:
 - path: trainedmodel_validatingwebhook_cainjection_patch.yaml
 #- path: clusterservingruntime_validatingwebhook_cainjection_patch.yaml
 - path: servingruntime_validationwebhook_cainjection_patch.yaml
+- path: svc_webhook_cainjection_patch.yaml
 - path: localmodelcache_validatingwebhook_cainjection_patch.yaml
 - path: manager_resources_patch.yaml
 - path: cainjection_conversion_webhook.yaml
