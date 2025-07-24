@@ -77,6 +77,7 @@ if [ "$1" != "raw" ]; then
 fi
 
 echo "Installing KServe with Minio"
+kustomize build $PROJECT_ROOT/config/crd | oc apply --server-side=true -f -
 kustomize build $PROJECT_ROOT/config/overlays/test |
   sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
   sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
