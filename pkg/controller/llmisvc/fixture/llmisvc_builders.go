@@ -52,6 +52,12 @@ func WithModelURI(uri string) LLMInferenceServiceOption {
 	}
 }
 
+func WithModelName(name string) LLMInferenceServiceOption {
+	return func(llmSvc *v1alpha1.LLMInferenceService) {
+		llmSvc.Spec.Model.Name = &name
+	}
+}
+
 func WithGatewayRefs(refs ...v1alpha1.UntypedObjectReference) LLMInferenceServiceOption {
 	return func(llmSvc *v1alpha1.LLMInferenceService) {
 		if llmSvc.Spec.Router == nil {
@@ -193,5 +199,60 @@ func SimpleWorkerPodSpec() *corev1.PodSpec {
 				Image: "test-worker:latest",
 			},
 		},
+	}
+}
+
+func WithBaseRefs(refs ...corev1.LocalObjectReference) LLMInferenceServiceOption {
+	return func(llmSvc *v1alpha1.LLMInferenceService) {
+		llmSvc.Spec.BaseRefs = refs
+	}
+}
+
+type LLMInferenceServiceConfigOption ObjectOption[*v1alpha1.LLMInferenceServiceConfig]
+
+func LLMInferenceServiceConfig(name string, opts ...LLMInferenceServiceConfigOption) *v1alpha1.LLMInferenceServiceConfig {
+	config := &v1alpha1.LLMInferenceServiceConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Spec: v1alpha1.LLMInferenceServiceSpec{},
+	}
+
+	for _, opt := range opts {
+		opt(config)
+	}
+
+	return config
+}
+
+func WithConfigModelURI(uri string) LLMInferenceServiceConfigOption {
+	return func(config *v1alpha1.LLMInferenceServiceConfig) {
+		modelURL, err := apis.ParseURL(uri)
+		if err != nil {
+			panic(err) // For test fixtures, panic is acceptable
+		}
+		config.Spec.Model.URI = *modelURL
+	}
+}
+
+func WithConfigModelName(name string) LLMInferenceServiceConfigOption {
+	return func(config *v1alpha1.LLMInferenceServiceConfig) {
+		config.Spec.Model.Name = &name
+	}
+}
+
+func WithConfigManagedRouter() LLMInferenceServiceConfigOption {
+	return func(config *v1alpha1.LLMInferenceServiceConfig) {
+		config.Spec.Router = &v1alpha1.RouterSpec{
+			Gateway:   &v1alpha1.GatewaySpec{},
+			Route:     &v1alpha1.GatewayRoutesSpec{},
+			Scheduler: &v1alpha1.SchedulerSpec{},
+		}
+	}
+}
+
+func WithConfigWorkloadTemplate(podSpec *corev1.PodSpec) LLMInferenceServiceConfigOption {
+	return func(config *v1alpha1.LLMInferenceServiceConfig) {
+		config.Spec.Template = podSpec
 	}
 }

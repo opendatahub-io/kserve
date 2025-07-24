@@ -19,6 +19,8 @@ package llmisvc_test
 import (
 	"context"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -47,7 +49,7 @@ import (
 
 var _ = Describe("LLMInferenceService Controller", func() {
 	Context("Basic Reconciliation", func() {
-		It("should create a basic single node deployment when LLMInferenceService is created", func(ctx SpecContext) {
+		It("should create a basic single node deployment with just base refs", func(ctx SpecContext) {
 			// given
 			svcName := "test-llm"
 			nsName := kmeta.ChildName(svcName, "-test")
@@ -63,26 +65,64 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				envTest.DeleteAll(namespace)
 			}()
 
-			modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
-			Expect(err).ToNot(HaveOccurred())
+			modelConfig := LLMInferenceServiceConfig("model-fb-opt-125m",
+				InNamespace[*v1alpha1.LLMInferenceServiceConfig](nsName),
+				WithConfigModelName("facebook/opt-125m"),
+				WithConfigModelURI("hf://facebook/opt-125m"),
+			)
 
-			llmSvc := &v1alpha1.LLMInferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      svcName,
-					Namespace: nsName,
-				},
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
-						URI: *modelURL,
+			routerConfig := LLMInferenceServiceConfig("router-managed",
+				InNamespace[*v1alpha1.LLMInferenceServiceConfig](nsName),
+				WithConfigManagedRouter(),
+			)
+
+			workloadConfig := LLMInferenceServiceConfig("workload-single-cpu",
+				InNamespace[*v1alpha1.LLMInferenceServiceConfig](nsName),
+				WithConfigWorkloadTemplate(&corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "main",
+							Image: "quay.io/pierdipi/vllm-cpu:latest",
+							Env: []corev1.EnvVar{
+								{
+									Name:  "VLLM_LOGGING_LEVEL",
+									Value: "DEBUG",
+								},
+							},
+							LivenessProbe: &corev1.Probe{
+								FailureThreshold:    5,
+								InitialDelaySeconds: 30,
+								PeriodSeconds:       30,
+								TimeoutSeconds:      30,
+							},
+							Resources: corev1.ResourceRequirements{
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("1"),
+									corev1.ResourceMemory: resource.MustParse("10Gi"),
+								},
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("8Gi"),
+								},
+							},
+						},
 					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{},
-					Router: &v1alpha1.RouterSpec{
-						Route:     &v1alpha1.GatewayRoutesSpec{},
-						Gateway:   &v1alpha1.GatewaySpec{},
-						Scheduler: &v1alpha1.SchedulerSpec{},
-					},
-				},
-			}
+				}),
+			)
+
+			Expect(envTest.Client.Create(ctx, modelConfig)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, routerConfig)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, workloadConfig)).To(Succeed())
+
+			// Create LLMInferenceService using baseRefs only
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				WithBaseRefs(
+					corev1.LocalObjectReference{Name: "model-fb-opt-125m"},
+					corev1.LocalObjectReference{Name: "router-managed"},
+					corev1.LocalObjectReference{Name: "workload-single-cpu"},
+				),
+			)
 
 			// when
 			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
@@ -100,7 +140,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			}).WithContext(ctx).Should(Succeed())
 
 			Expect(expectedDeployment.Spec.Replicas).To(Equal(ptr.To[int32](1)))
-			Expect(expectedDeployment).To(HaveContainerImage("ghcr.io/llm-d/llm-d:v0.2.0")) // Coming from preset
+			Expect(expectedDeployment).To(HaveContainerImage("quay.io/pierdipi/vllm-cpu:latest")) // Coming from preset
 			Expect(expectedDeployment).To(BeOwnedBy(llmSvc))
 
 			Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
@@ -568,20 +608,23 @@ var _ = Describe("LLMInferenceService Controller", func() {
 	})
 })
 
-func LLMInferenceServiceIsReady(llmSvc *v1alpha1.LLMInferenceService) func(g Gomega, ctx context.Context) error {
+func LLMInferenceServiceIsReady(llmSvc *v1alpha1.LLMInferenceService, assertFns ...func(g Gomega, current *v1alpha1.LLMInferenceService)) func(g Gomega, ctx context.Context) error {
 	return func(g Gomega, ctx context.Context) error {
-		llmSvc := llmSvc.DeepCopy()
-		g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), llmSvc)).To(Succeed())
-
-		g.Expect(llmSvc.Status).To(HaveCondition(string(v1alpha1.PresetsCombined), "True"))
-		g.Expect(llmSvc.Status).To(HaveCondition(string(v1alpha1.RouterReady), "True"))
+		current := &v1alpha1.LLMInferenceService{}
+		g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), current)).To(Succeed())
+		g.Expect(current.Status).To(HaveCondition(string(v1alpha1.PresetsCombined), "True"))
+		g.Expect(current.Status).To(HaveCondition(string(v1alpha1.RouterReady), "True"))
 
 		// Overall condition depends on owned resources such as Deployment.
 		// When running on EnvTest certain controllers are not built-in, and that
 		// includes deployment controllers, ReplicaSet controllers, etc.
 		// Therefore, we can only observe a successful reconcile when testing against the actual cluster
 		if envTest.Environment.UseExistingCluster == ptr.To[bool](true) {
-			g.Expect(llmSvc.Status).To(HaveCondition("Ready", "True"))
+			g.Expect(current.Status).To(HaveCondition("Ready", "True"))
+		}
+
+		for _, assertFn := range assertFns {
+			assertFn(g, current)
 		}
 
 		return nil

@@ -70,6 +70,46 @@ func TestMergeSpecs(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name: "two configs simple merge with sub-field override",
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+				{
+					Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
+					Router: &v1alpha1.RouterSpec{
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
+					},
+				},
+				{
+					Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Pool: &v1alpha1.InferencePoolSpec{
+								Spec: &igwapi.InferencePoolSpec{
+									TargetPortNumber: 9999,
+								},
+							},
+						},
+					},
+				},
+			},
+			want: v1alpha1.LLMInferenceServiceSpec{
+				Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
+				Router: &v1alpha1.RouterSpec{
+					Route:   &v1alpha1.GatewayRoutesSpec{},
+					Gateway: &v1alpha1.GatewaySpec{},
+					Scheduler: &v1alpha1.SchedulerSpec{
+						Pool: &v1alpha1.InferencePoolSpec{
+							Spec: &igwapi.InferencePoolSpec{
+								TargetPortNumber: 9999,
+							},
+						},
+					},
+				},
+			},
+			wantErr: false,
+		},
+		{
 			name: "two configs with override",
 			cfgs: []v1alpha1.LLMInferenceServiceSpec{
 				{

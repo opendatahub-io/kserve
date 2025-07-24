@@ -69,33 +69,53 @@ var WellKnownDefaultConfigs = sets.New[string](
 	configRouterRouteName,
 )
 
+// combineBaseRefsConfig applies well-known config overlays to inject default values for various components, when some components are
+// enabled. These LLMInferenceServiceConfig resources must exist in either resource namespace (prioritized) or
+// SystemNamespace (e.g. `kserve`).
 func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, reconcilerConfig *Config) (*v1alpha1.LLMInferenceServiceConfig, error) {
-	// Apply well-known config overlays to inject default values for various components, when some components are
-	// enabled. These LLMInferenceServiceConfig resources must exist in either resource namespace (prioritized) or
-	// SystemNamespace (e.g. `kserve`).
+	// Creates the initial spec with the merged BaseRefs, so that we know what's "Enabled".
+	resolvedSpec := *llmSvc.Spec.DeepCopy()
+	for _, ref := range llmSvc.Spec.BaseRefs {
+		cfg, err := r.getConfig(ctx, llmSvc, ref.Name)
+		if err != nil {
+			return nil, err
+		}
+		if cfg != nil {
+			var resolvedErr error
+			resolvedSpec, resolvedErr = mergeSpecs(resolvedSpec, cfg.Spec)
+			if resolvedErr != nil {
+				return nil, fmt.Errorf("failed to merge specs: %w", resolvedErr)
+			}
+		}
+	}
+
+	if resolvedSpec.Model.Name != nil {
+		// If original model name was defaulted check if it was not substituted by baseRef
+		llmSvc.Spec.Model.Name = resolvedSpec.Model.Name
+	}
 
 	refs := make([]corev1.LocalObjectReference, 0, len(llmSvc.Spec.BaseRefs))
-	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil && !llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
+	if resolvedSpec.Router != nil && resolvedSpec.Router.Scheduler != nil && !resolvedSpec.Router.Scheduler.Pool.HasRef() {
 		refs = append(refs, corev1.LocalObjectReference{Name: configRouterSchedulerName})
 	}
-	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Route != nil && !llmSvc.Spec.Router.Route.HTTP.HasRefs() {
+	if resolvedSpec.Router != nil && resolvedSpec.Router.Route != nil && !resolvedSpec.Router.Route.HTTP.HasRefs() {
 		refs = append(refs, corev1.LocalObjectReference{Name: configRouterRouteName})
 	}
 	switch {
 	// Disaggregated prefill and decode (P/D) cases.
-	case llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker == nil:
+	case resolvedSpec.Prefill != nil && resolvedSpec.Prefill.Worker == nil:
 		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillTemplateName})
 		refs = append(refs, corev1.LocalObjectReference{Name: configDecodeTemplateName})
-	case llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker != nil && llmSvc.Spec.Prefill.Parallelism.IsPipelineParallel():
+	case resolvedSpec.Prefill != nil && resolvedSpec.Prefill.Worker != nil && resolvedSpec.Prefill.Parallelism.IsPipelineParallel():
 		refs = append(refs, corev1.LocalObjectReference{Name: configDecodeWorkerPipelineParallelName})
 		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerPipelineParallelName})
-	case llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker != nil && llmSvc.Spec.Prefill.Parallelism.IsDataParallel():
+	case resolvedSpec.Prefill != nil && resolvedSpec.Prefill.Worker != nil && resolvedSpec.Prefill.Parallelism.IsDataParallel():
 		refs = append(refs, corev1.LocalObjectReference{Name: configDecodeWorkerDataParallelName})
 		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerDataParallelName})
 	// Multi Node without Disaggregated prefill and decode (P/D) cases.
-	case llmSvc.Spec.Worker != nil && llmSvc.Spec.Parallelism.IsPipelineParallel():
+	case resolvedSpec.Worker != nil && resolvedSpec.Parallelism.IsPipelineParallel():
 		refs = append(refs, corev1.LocalObjectReference{Name: configWorkerPipelineParallelName})
-	case llmSvc.Spec.Worker != nil && llmSvc.Spec.Parallelism.IsDataParallel():
+	case resolvedSpec.Worker != nil && resolvedSpec.Parallelism.IsDataParallel():
 		refs = append(refs, corev1.LocalObjectReference{Name: configWorkerDataParallelName})
 	default:
 		// Single Node case.
