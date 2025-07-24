@@ -167,6 +167,10 @@ func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v
 
 	logger.Info("Reconciling with combined base configurations", "spec", llmSvc.Spec)
 
+	if err := r.reconcileNetworkPolicies(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to reconcile network policies: %w", err)
+	}
+
 	if err := r.reconcileWorkload(ctx, llmSvc, config.StorageConfig); err != nil {
 		return fmt.Errorf("failed to reconcile workload: %w", err)
 	}
