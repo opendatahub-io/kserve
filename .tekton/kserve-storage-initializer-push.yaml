@@ -23,7 +23,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/kserve-storage-initializer:odh-v2.32
+    value: quay.io/opendatahub/kserve-storage-initializer:odh-v2.33
   - name: dockerfile
     value: storage-initializer.Dockerfile
   - name: path-context
