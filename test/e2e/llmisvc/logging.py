@@ -17,29 +17,35 @@ import logging
 import time
 from datetime import datetime
 
-# Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
+
 
 def log_execution(func):
     """Decorator to log function start/end with timestamps and duration."""
+
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         func_name = func.__name__
-        
+
         timestamp_start = datetime.now().isoformat()
         logger.info(f"[{func_name}] [{timestamp_start}] start")
         start_time = time.time()
-        
+
         try:
             result = func(*args, **kwargs)
             duration = time.time() - start_time
             timestamp_end = datetime.now().isoformat()
-            logger.info(f"[{func_name}] [{timestamp_end}] end - SUCCESS in {duration:.3f}s")
+            logger.info(f"[{func_name}] [{timestamp_end}] end - ✅ in {duration:.3f}s")
             return result
         except Exception as e:
             duration = time.time() - start_time
             timestamp_end = datetime.now().isoformat()
-            logger.error(f"[{func_name}] [{timestamp_end}] end - FAILED in {duration:.3f}s: {e}")
+            logger.error(
+                f"[{func_name}] [{timestamp_end}] end - ❌ {duration:.3f}s: {e}"
+            )
             raise
+
     return wrapper
