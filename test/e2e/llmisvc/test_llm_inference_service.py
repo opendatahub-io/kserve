@@ -36,8 +36,14 @@ KSERVE_PLURAL_LLMINFERENCESERVICE = "llminferenceservices"
 @pytest.mark.parametrize(
     "config_names",
     [
-        pytest.param(["router-managed", "workload-single-cpu", "model-fb-opt-125m"], marks=pytest.mark.cluster_cpu),
-        pytest.param(["router-managed", "workload-amd-gpu", "model-fb-opt-125m"], marks=pytest.mark.cluster_amd),
+        pytest.param(
+            ["router-managed", "workload-single-cpu", "model-fb-opt-125m"],
+            marks=pytest.mark.cluster_cpu,
+        ),
+        pytest.param(
+            ["router-managed", "workload-amd-gpu", "model-fb-opt-125m"],
+            marks=pytest.mark.cluster_amd,
+        ),
     ],
     indirect=["config_names"],
     ids=generate_test_id,
@@ -53,8 +59,9 @@ async def test_llm_inference_service(request, llm_config_factory, config_names):
             name=service_name, namespace=KSERVE_TEST_NAMESPACE
         ),
         spec={
-
-            "baseRefs": [{"name": config_name} for config_name in created_service_configs],
+            "baseRefs": [
+                {"name": config_name} for config_name in created_service_configs
+            ],
         },
     )
 
