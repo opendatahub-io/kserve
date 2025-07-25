@@ -15,7 +15,6 @@ patches:
 - path: config-llm-decode-template-patch.yaml
 - path: config-llm-decode-worker-data-parallel-patch.yaml
 
-
 replacements:
 - source:
     kind: ConfigMap
