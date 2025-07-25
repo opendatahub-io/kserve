@@ -31,18 +31,19 @@ from .test_configs import (
 KSERVE_PLURAL_LLMINFERENCESERVICE = "llminferenceservices"
 
 
-@pytest.mark.llminferenceservice(type="cpu")
+@pytest.mark.llminferenceservice
 @pytest.mark.asyncio(scope="session")
 @pytest.mark.parametrize(
     "config_names",
     [
-        ["router-managed", "workload-single-cpu", "model-fb-opt-125m"],
+        pytest.param(["router-managed", "workload-single-cpu", "model-fb-opt-125m"], marks=pytest.mark.cluster_cpu),
+        pytest.param(["router-managed", "workload-amd-gpu", "model-fb-opt-125m"], marks=pytest.mark.cluster_amd),
     ],
-    indirect=True,
+    indirect=["config_names"],
     ids=generate_test_id,
 )
 async def test_llm_inference_service(request, llm_config_factory, config_names):
-    created_config_names = llm_config_factory(config_names)
+    created_service_configs = llm_config_factory(config_names)
     service_name = generate_service_name(request.node.name, config_names)
 
     llm_isvc = V1alpha1LLMInferenceService(
@@ -52,8 +53,8 @@ async def test_llm_inference_service(request, llm_config_factory, config_names):
             name=service_name, namespace=KSERVE_TEST_NAMESPACE
         ),
         spec={
-            "replicas": 1,
-            "baseRefs": [{"name": config_name} for config_name in created_config_names],
+
+            "baseRefs": [{"name": config_name} for config_name in created_service_configs],
         },
     )
 
