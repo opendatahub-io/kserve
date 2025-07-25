@@ -1,0 +1,9 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: kserve-config-llm-decode-template
+spec:
+  template:
+    initContainers:
+    - name: llm-d-routing-sidecar
+      image: "$(kserve-llm-d-routing-sidecar)"

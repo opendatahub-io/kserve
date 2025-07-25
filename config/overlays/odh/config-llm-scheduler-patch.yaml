@@ -1,0 +1,11 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: kserve-config-llm-scheduler
+spec:
+  router:
+    scheduler:
+      template:
+        containers:
+        - name: main
+          image: "$(kserve-llm-d-inference-scheduler)"
