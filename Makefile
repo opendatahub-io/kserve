@@ -253,7 +253,7 @@ deploy-dev-llm:
 	./hack/deploy_dev_llm.sh
 
 deploy-ci: manifests
-	kubectl apply --server-side=true -k config/crd || true
+	kubectl apply --server-side=true -k config/crd
 	kubectl wait --for=condition=established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
 	kubectl apply --server-side=true -k config/overlays/test
 	# TODO: Add runtimes as part of default deployment
