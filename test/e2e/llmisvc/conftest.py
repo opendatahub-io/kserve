@@ -12,14 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pytest
 
-
-@pytest.fixture
-def config_names(request):
-    return request.param
-
-
+# This hook is used to ensure that the test names are unique and to ensure that
+# the test names are consistent with the cluster marks.
 def pytest_collection_modifyitems(config, items):
     for item in items:
         # only touch parameterized tests
