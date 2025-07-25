@@ -19,6 +19,7 @@ import pytest
 def config_names(request):
     return request.param
 
+
 def pytest_collection_modifyitems(config, items):
     for item in items:
         # only touch parameterized tests
@@ -32,15 +33,14 @@ def pytest_collection_modifyitems(config, items):
         rest = rest.rstrip("]")
 
         cluster_marks = [
-            m.name
-            for m in item.iter_markers()
-            if m.name.startswith("cluster_")
+            m.name for m in item.iter_markers() if m.name.startswith("cluster_")
         ]
         if not cluster_marks:
             continue
 
         new_id = "-".join(cluster_marks + [rest])
         item._nodeid = f"{base}[{new_id}]"
+
 
 def pytest_configure(config):
     config.addinivalue_line(

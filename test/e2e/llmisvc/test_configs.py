@@ -58,6 +58,7 @@ LLMINFERENCESERVICE_CONFIGS = {
     },
 }
 
+
 @pytest.fixture(scope="session")
 def llm_config_factory():
     """Factory for creating/cleaning LLMInferenceServiceConfig once per session."""
@@ -113,12 +114,14 @@ def llm_config_factory():
         except Exception:
             pass
 
+
 def generate_test_id(config_names):
     """Generate a test ID from config names by removing prefixes."""
     parts = []
     for config in config_names:
         parts.append(config)
     return "-".join(parts)
+
 
 def create_llmisvc_config(kserve_client, llm_config, namespace=None):
     version = llm_config["apiVersion"].split("/")[1]
