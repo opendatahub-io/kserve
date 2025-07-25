@@ -19,6 +19,28 @@ import pytest
 def config_names(request):
     return request.param
 
+def pytest_collection_modifyitems(config, items):
+    for item in items:
+        # only touch parameterized tests
+        if not hasattr(item, "callspec"):
+            continue
+
+        # if there's no [...] suffix (i.e. not parametrized), skip
+        if "[" not in item.nodeid:
+            continue
+        base, rest = item.nodeid.split("[", 1)
+        rest = rest.rstrip("]")
+
+        cluster_marks = [
+            m.name
+            for m in item.iter_markers()
+            if m.name.startswith("cluster_")
+        ]
+        if not cluster_marks:
+            continue
+
+        new_id = "-".join(cluster_marks + [rest])
+        item._nodeid = f"{base}[{new_id}]"
 
 def pytest_configure(config):
     config.addinivalue_line(

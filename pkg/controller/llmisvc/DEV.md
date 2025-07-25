@@ -64,11 +64,26 @@ cd -
 Run the test
 
 ```shell
-./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice(type='cpu')" 1 "istio-gatewayapi-ext"
+# Use pytest markers for filtering
+
+# Run only CPU tests
+./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice and cluster_cpu" 1 "istio-gatewayapi-ext"
+
+# Run only NVIDIA GPU tests
+./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice and cluster_nvidia" 1 "istio-gatewayapi-ext"
+
+# Run all GPU tests (any vendor: amd, nvidia, intel)
+./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice and (cluster_amd or cluster_nvidia or cluster_intel)" 1 "istio-gatewayapi-ext"
+
+# Run CPU and AMD GPU tests only
+./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice and (cluster_cpu or cluster_amd)" 1 "istio-gatewayapi-ext"
+
+# Run all LLM inference service tests
+./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice" 1 "istio-gatewayapi-ext"
 
 Starting E2E functional tests ...
 No parallelism requested for pytest. Will use default value of 1
-pytest -m 'llminferenceservice(type='cpu')' --ignore=qpext --log-cli-level=INFO -n 1 --dist worksteal --network-layer istio-gatewayapi-ext
+pytest -m 'llminferenceservice and cluster_cpu' --ignore=qpext --log-cli-level=INFO -n 1 --dist worksteal --network-layer istio-gatewayapi-ext
 ===================================================================================== test session starts =====================================================================================
 platform linux -- Python 3.12.11, pytest-8.4.1, pluggy-1.6.0
 rootdir: /home/bartek/code/redhat/model-serving/kserve/kserve-test/test/e2e
