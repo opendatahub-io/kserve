@@ -24,7 +24,7 @@ from kserve import KServeClient, V1alpha1LLMInferenceService, constants
 from .test_configs import (
     LLMINFERENCESERVICE_CONFIGS,
     generate_test_id,
-    llm_config_factory,
+    llm_config_factory,  # noqa: F401,F811
     KSERVE_TEST_NAMESPACE,
 )
 
