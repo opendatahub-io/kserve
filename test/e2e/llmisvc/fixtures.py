@@ -64,9 +64,11 @@ LLMINFERENCESERVICE_CONFIGS = {
 @pytest.fixture(scope="function")
 def test_case(request):
     tc = request.param
-    
+
     service_name = generate_service_name(request.node.name, tc.base_refs)
     tc.model_name = get_model_name_from_configs(tc.base_refs)
+
+    # TODO fail early if base_refs does not exist (e.g. mistyped)?
 
     tc.llm_service = V1alpha1LLMInferenceService(
         api_version="serving.kserve.io/v1alpha1",
@@ -75,13 +77,12 @@ def test_case(request):
             name=service_name, namespace=KSERVE_TEST_NAMESPACE
         ),
         spec={
-            "baseRefs": [
-                {"name": base_ref} for base_ref in tc.base_refs
-            ],
+            "baseRefs": [{"name": base_ref} for base_ref in tc.base_refs],
         },
     )
-    
+
     return tc
+
 
 @pytest.fixture(scope="session", autouse=True)
 def llm_config_factory():
@@ -127,7 +128,6 @@ def llm_config_factory():
                 # otherwise, real error
                 raise
 
-
     yield _create_configs()
 
     # teardown: best‑effort cleanup
@@ -137,6 +137,7 @@ def llm_config_factory():
         except Exception:
             pass
 
+
 def get_model_name_from_configs(config_names):
     """Extract model name from model config."""
     for config_name in config_names:
@@ -145,6 +146,7 @@ def get_model_name_from_configs(config_names):
             if "model" in config and "name" in config["model"]:
                 return config["model"]["name"]
     return "default-model"
+
 
 def generate_service_name(test_name: str, base_refs: List[str]) -> str:
     base_name = test_name.split("[", 1)[0]
@@ -161,6 +163,7 @@ def generate_service_name(test_name: str, base_refs: List[str]) -> str:
     test_case = test_case[:max_test_case].rstrip(sep)
 
     return f"{test_case}{sep}{uid}"
+
 
 def generate_test_id(test_case) -> str:
     """Generate a test ID from base refs."""
