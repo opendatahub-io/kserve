@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import uuid
 import os
 import pytest
+from typing import List
 from kubernetes import client
 from kubernetes.client.rest import ApiException
-from kserve import KServeClient, constants
+from kserve import KServeClient, constants, V1alpha1LLMInferenceService
 
 KSERVE_PLURAL_LLMINFERENCESERVICECONFIG = "llminferenceserviceconfigs"
 KSERVE_TEST_NAMESPACE = "kserve-ci-e2e-test"
@@ -51,7 +53,7 @@ LLMINFERENCESERVICE_CONFIGS = {
     },
     "router-with-scheduler": {
         "router": {
-            "scheduler": {"pool": {}, "template": {}},
+            "scheduler": {},
             "route": {},
             "gateway": {},
         },
@@ -59,14 +61,36 @@ LLMINFERENCESERVICE_CONFIGS = {
 }
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
+def test_case(request):
+    tc = request.param
+    
+    service_name = generate_service_name(request.node.name, tc.base_refs)
+    tc.model_name = get_model_name_from_configs(tc.base_refs)
+
+    tc.llm_service = V1alpha1LLMInferenceService(
+        api_version="serving.kserve.io/v1alpha1",
+        kind="LLMInferenceService",
+        metadata=client.V1ObjectMeta(
+            name=service_name, namespace=KSERVE_TEST_NAMESPACE
+        ),
+        spec={
+            "baseRefs": [
+                {"name": base_ref} for base_ref in tc.base_refs
+            ],
+        },
+    )
+    
+    return tc
+
+@pytest.fixture(scope="session", autouse=True)
 def llm_config_factory():
     """Factory for creating/cleaning LLMInferenceServiceConfig once per session."""
     created = []
     client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
 
-    def _create_configs(names, namespace=KSERVE_TEST_NAMESPACE):
-        for name in names:
+    def _create_configs(namespace=KSERVE_TEST_NAMESPACE):
+        for name in LLMINFERENCESERVICE_CONFIGS:
             if name not in LLMINFERENCESERVICE_CONFIGS:
                 raise ValueError(f"Unknown config name: {name}")
 
@@ -103,9 +127,8 @@ def llm_config_factory():
                 # otherwise, real error
                 raise
 
-        return names
 
-    yield _create_configs
+    yield _create_configs()
 
     # teardown: best‑effort cleanup
     for name, namespace in created:
@@ -114,13 +137,34 @@ def llm_config_factory():
         except Exception:
             pass
 
+def get_model_name_from_configs(config_names):
+    """Extract model name from model config."""
+    for config_name in config_names:
+        if config_name.startswith("model-"):
+            config = LLMINFERENCESERVICE_CONFIGS[config_name]
+            if "model" in config and "name" in config["model"]:
+                return config["model"]["name"]
+    return "default-model"
 
-def generate_test_id(config_names):
-    """Generate a test ID from config names by removing prefixes."""
-    parts = []
-    for config in config_names:
-        parts.append(config)
-    return "-".join(parts)
+def generate_service_name(test_name: str, base_refs: List[str]) -> str:
+    base_name = test_name.split("[", 1)[0]
+    base_name = base_name.replace("test_", "")
+    base_name = base_name.replace("_", "-")
+    config_suffix = "-".join(sorted(base_refs))
+    test_case = f"{base_name}-{config_suffix}".lower()
+
+    uid = uuid.uuid4().hex[:8]
+
+    max_total = 63
+    sep = "-"
+    max_test_case = max_total - len(sep) - len(uid)
+    test_case = test_case[:max_test_case].rstrip(sep)
+
+    return f"{test_case}{sep}{uid}"
+
+def generate_test_id(test_case) -> str:
+    """Generate a test ID from base refs."""
+    return "-".join(test_case.base_refs)
 
 
 def create_llmisvc_config(kserve_client, llm_config, namespace=None):
