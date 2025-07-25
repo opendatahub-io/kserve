@@ -38,7 +38,6 @@ def print_all_events_table(namespace: str, max_events: int = 50):
             evs, key=lambda e: e.last_timestamp or e.first_timestamp, reverse=True
         )[:max_events]
 
-        # print header
         header = f"{'TIME':<25} {'NAMESPACE':<12} {'SOURCE':<20} {'TYPE':<8} {'REASON':<20} MESSAGE"
         print(header)
         print("-" * len(header))
