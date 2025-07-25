@@ -44,7 +44,7 @@ pytest -m "llminferenceservice and (cluster_cpu or cluster_amd)" test/e2e/llmisv
 
 Use prefixed categories that get composed together:
 
-- **`workload-*`**: Container specs and resources (e.g., `workload-single-cpu`, `workload-multi-node-gpu`)
+- **`workload-*`**: workload topology, container specs and resource specs (e.g., `workload-single-cpu`, `workload-multi-node-gpu`)
 - **`model-*`**: Model sources (e.g., `model-fb-opt-125m`, `model-gpt2`) 
 - **`router-*`**: Routing configs (e.g., `router-managed`, `router-with-scheduler`)
 
