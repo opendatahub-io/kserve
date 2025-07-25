@@ -15,13 +15,16 @@ data:
     }
   storageInitializer: |-
     {
-        "image" : "quay.io/opendatahub/kserve-storage-initializer",
+        "image" : "kserve/storage-initializer:latest",
         "memoryRequest": "100Mi",
         "memoryLimit": "1Gi",
         "cpuRequest": "100m",
         "cpuLimit": "1",
         "enableDirectPvcVolumeMount": true,
-        "enableModelcar": true
+        "cpuModelcar": "10m",
+        "memoryModelcar": "15Mi",
+        "enableModelcar": true,
+        "uidModelcar": 1010
     }
   ingress: |-
     {
