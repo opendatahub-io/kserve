@@ -93,7 +93,6 @@ def test_llm_inference_service(test_case: TestCase):
     try:
         create_llmisvc(kserve_client, test_case.llm_service)
         wait_for_model_response(kserve_client, test_case, test_case.wait_timeout)
-        print(f"🎉 Test completed successfully for service {service_name}")
     except Exception as e:
         print(f"❌ ERROR: Failed to call llm inference service {service_name}: {e}")
         collect_diagnostics(kserve_client, test_case.llm_service)
@@ -229,7 +228,6 @@ def get_llm_service_url(
         status = llm_isvc["status"]
 
         if "url" in status and status["url"]:
-            print(f"✅ Found service URL: {status['url']}")
             return status["url"]
 
         if (
@@ -239,7 +237,6 @@ def get_llm_service_url(
         ):
             first_address = status["addresses"][0]
             if "url" in first_address:
-                print(f"✅ Found service URL in addresses: {first_address['url']}")
                 return first_address["url"]
 
         raise ValueError(
@@ -269,7 +266,6 @@ def wait_for(
 def collect_diagnostics(
     kserve_client: KServeClient, llm_isvc: V1alpha1LLMInferenceService
 ):
-    print("🔍 # Collecting diagnostics...")
     name = llm_isvc.metadata.name
     ns = llm_isvc.metadata.namespace
 

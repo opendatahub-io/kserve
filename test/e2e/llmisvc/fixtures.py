@@ -130,7 +130,6 @@ def llm_config_factory():
 
     yield _create_configs()
 
-    # teardown: best‑effort cleanup
     for name, namespace in created:
         try:
             delete_llmisvc_config(client, name, namespace)
