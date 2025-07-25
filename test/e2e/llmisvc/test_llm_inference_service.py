@@ -66,7 +66,7 @@ class TestCase:
         ),
         # Example test case
         # pytest.param(
-        #     Case(
+        #     TestCase(
         #         base_refs=["router-managed", "workload-single-cpu", "model-fb-opt-125m"],
         #         prompt="What is the capital of France?",
         #         response_assertion=lambda response: (
