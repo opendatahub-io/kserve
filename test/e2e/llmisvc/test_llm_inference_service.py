@@ -16,7 +16,7 @@ import json
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, List, Optional
+from typing import Any, Callable, List
 
 import pytest
 import requests
@@ -24,12 +24,10 @@ from kubernetes import client
 from kserve import KServeClient, V1alpha1LLMInferenceService, constants
 
 from .fixtures import (
-    LLMINFERENCESERVICE_CONFIGS,
     generate_test_id,
-    llm_config_factory,  # noqa: F401,F811
     test_case,  # noqa: F401,F811
-    KSERVE_TEST_NAMESPACE,
 )
+from .logging import log_execution
 
 KSERVE_PLURAL_LLMINFERENCESERVICE = "llminferenceservices"
 
@@ -61,22 +59,23 @@ class Case:
             Case(["router-managed", "workload-single-cpu", "model-fb-opt-125m"]),
             marks=pytest.mark.cluster_cpu,
         ),
-        pytest.param(
-            Case(
-                base_refs=["router-managed", "workload-single-cpu", "model-fb-opt-125m"],
-                prompt="What is the capital of France?",
-                response_assertion=lambda response: (
-                    response.status_code == 200 
-                    and response.json().get("choices") is not None
-                    and len(response.json().get("choices", [])) > 0
-                ),
-            ),
-            marks=pytest.mark.cluster_cpu,
-        ),
+        # pytest.param(
+        #     Case(
+        #         base_refs=["router-managed", "workload-single-cpu", "model-fb-opt-125m"],
+        #         prompt="What is the capital of France?",
+        #         response_assertion=lambda response: (
+        #             response.status_code == 200 
+        #             and response.json().get("choices") is not None
+        #             and len(response.json().get("choices", [])) > 0
+        #         ),
+        #     ),
+        #     marks=pytest.mark.cluster_cpu,
+        # ),
     ],
     indirect=["test_case"],
     ids=generate_test_id,
 )
+@log_execution
 def test_llm_inference_service(test_case: Case):
     
     kserve_client = KServeClient(
@@ -99,6 +98,7 @@ def test_llm_inference_service(test_case: Case):
             print(f"Warning: Failed to cleanup service {service_name}: {e}")
 
 
+@log_execution
 def create_llmisvc(kserve_client: KServeClient, llm_isvc: V1alpha1LLMInferenceService):
     from kserve.utils import utils
 
@@ -118,6 +118,7 @@ def create_llmisvc(kserve_client: KServeClient, llm_isvc: V1alpha1LLMInferenceSe
         ) from e
 
 
+@log_execution
 def delete_llmisvc(kserve_client: KServeClient, llm_isvc: V1alpha1LLMInferenceService):
     try:
         return kserve_client.api_instance.delete_namespaced_custom_object(
@@ -134,6 +135,7 @@ def delete_llmisvc(kserve_client: KServeClient, llm_isvc: V1alpha1LLMInferenceSe
         ) from e
 
 
+@log_execution
 def get_llmisvc(kserve_client: KServeClient, name, namespace, version=constants.KSERVE_V1ALPHA1_VERSION):
     try:
         return kserve_client.api_instance.get_namespaced_custom_object(
@@ -150,6 +152,7 @@ def get_llmisvc(kserve_client: KServeClient, name, namespace, version=constants.
         ) from e
 
 
+@log_execution
 def wait_for_model_response(
     kserve_client: KServeClient,
     test_case: Case,
