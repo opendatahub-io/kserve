@@ -69,6 +69,6 @@ RUN mkdir /work
 WORKDIR /work
 
 # Set a writable /mnt folder to avoid permission issue on Huggingface download. See https://huggingface.co/docs/hub/spaces-sdks-docker#permissions
-RUN chown -R kserve:kserve /mnt
+RUN chown -R 0:0 /mnt && chmod -R g=u /mnt
 USER 1000
 ENTRYPOINT ["/storage-initializer/scripts/initializer-entrypoint"]
