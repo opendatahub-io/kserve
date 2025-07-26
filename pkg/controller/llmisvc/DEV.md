@@ -254,3 +254,192 @@ Deploy the model from the persistent volume:
 ```shell
 yq '.spec.model.uri="pvc://opt-125m-pvc"' ${LLM_ISVC} | kubectl apply -n ${NS} -f -
 ```
+
+
+---
+#### OCP integration
+
+##### Using `openshift local`
+
+```shell
+crc setup
+crc config set memory 16384
+crc config set cpus 10
+crc config set disk-size 150
+crc config set kubeadmin-password kubeadmin
+crc config set enable-cluster-monitoring false
+
+# Download secret from https://developers.redhat.com/products/openshift-local/overview
+crc start -p ~/pull-secret.txt
+
+oc login -u kubeadmin https://api.crc.testing:6443
+```
+
+*Pre-requisites*
+- Install Cert-Manager
+- Install LWS operator (This should be installed by user)
+- Install istio operator (This is not needed when openshift has all capability of GIE)
+
+**Install Cert-Manager**
+
+```shell
+oc new-project cert-manager-operator
+
+cat<<EOF |oc create -f -
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-cert-manager-operator
+  namespace: cert-manager-operator
+spec:
+  targetNamespaces: []
+  spec: {}
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: openshift-cert-manager-operator
+  namespace: cert-manager-operator
+spec:
+  channel: stable-v1
+  name: openshift-cert-manager-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  installPlanApproval: Automatic
+EOF
+```
+
+**Install LWS Operator**
+
+This step should be changed when official lws-operator is released.
+
+```shell
+cat <<EOF|oc create -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: lws-operator
+  namespace: openshift-marketplace
+spec:
+  sourceType: grpc
+  image: quay.io/jooholee/lws-operator-index:llmd
+EOF
+
+oc wait pod -l olm.catalogSource=lws-operator -n openshift-marketplace --for=condition=Ready --timeout=120s
+
+oc create ns openshift-lws-operator
+
+cat <<EOF|oc create -f -
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-lws-operator-jw944
+  namespace: openshift-lws-operator
+spec:
+  targetNamespaces:
+  - openshift-lws-operator
+  upgradeStrategy: Default
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: leader-worker-set
+  namespace: openshift-lws-operator
+spec:
+  channel: stable
+  installPlanApproval: Automatic
+  name: leader-worker-set
+  source: lws-operator
+  sourceNamespace: openshift-marketplace
+  startingCSV: leader-worker-set.v1.0.0
+
+oc wait pod -l name=openshift-lws-operator -n openshift-lws-operator --for=condition=Ready --timeout=120s
+
+cat <<EOF|oc create -f -
+apiVersion: operator.openshift.io/v1
+kind: LeaderWorkerSetOperator
+metadata:
+  name: cluster
+  namespace: openshift-lws-operator
+spec:
+  managementState: Managed
+  logLevel: Normal
+  operatorLogLevel: Normal
+EOF
+
+```
+
+**Install GATEWAY API CRD**
+This step will be removed at some point because the CRD should be provided by the platform.
+
+```shell
+GATEWAY_API_EXPERIMENTAL_VERSION="v1.3.0"
+kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/$GATEWAY_API_EXPERIMENTAL_VERSION/experimental-install.yaml
+```
+
+**Install ISTIO**
+
+This step will be removed at some point because the ISTIO(OSSM) should be provided by the platform.
+
+```shell
+oc create ns istio-system
+oc create -f test/overlays/llm-istio-experimental -n istio-system
+
+cat <<EOF| oc create -f -
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: GatewayClass
+metadata:
+  name: istio
+spec:
+  controllerName: istio.io/gateway-controller
+  description: "Custom Istio GatewayClass"
+EOF  
+```
+
+**Deploy Kserve using overlay/odh**
+
+A new CRD related objects will be added 
+  - LLMIsvc/LLMIsvcConfig CRD
+  - Webhook
+  - `well-know preset` LlmIsvcConfig in the controller namespace
+
+```shell
+# Create controller namespace
+oc get ns opendatahub || oc new-project opendatahub
+
+# Create CRDs
+kustomize build config/crd | oc apply --server-side=true -f -
+
+oc wait --for=condition=Established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
+
+# Deploy Kserve
+kustomize build config/overlays/odh |oc apply  --server-side=true -f -
+
+oc wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n opendatahub  --timeout=300s
+
+# Retry to create kserve again for preset LLMInferenceserviceConfigs
+kustomize build config/overlays/odh |oc apply  --server-side=true -f -
+```
+
+Deploy the model:
+
+```shell
+LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-facebook-opt-125m-cpu.yaml
+LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
+
+kubectl apply -n ${NS} -f ${LLM_ISVC}
+```
+
+
+#### Validation
+
+```shell
+LB_IP=$(kubectl get svc/kserve-ingress-gateway-istio -n opendatahub -o=jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+curl http://${LB_IP}/${NS}/${LLM_ISVC_NAME}/v1/completions  \
+    -H "Content-Type: application/json" \
+    -d '{
+        "model": "facebook/opt-125m",
+        "prompt": "San Francisco is a"
+    }'
+```
