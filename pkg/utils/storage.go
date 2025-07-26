@@ -190,6 +190,12 @@ func AddStorageInitializerContainer(podSpec *corev1.PodSpec, mainContainerName, 
 				MountPath: constants.DefaultModelLocalMountPath,
 				ReadOnly:  false,
 			}},
+			Env: []corev1.EnvVar{
+				{
+					Name:  "HF_HOME",
+					Value: "/tmp",
+				},
+			},
 			Resources: corev1.ResourceRequirements{
 				Limits: map[corev1.ResourceName]resource.Quantity{
 					corev1.ResourceCPU:    resource.MustParse(storageConfig.CpuLimit),
