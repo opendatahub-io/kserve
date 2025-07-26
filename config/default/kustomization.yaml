@@ -127,7 +127,6 @@ patches:
 #- path: clusterservingruntime_validatingwebhook_cainjection_patch.yaml
 - path: servingruntime_validationwebhook_cainjection_patch.yaml
 - path: svc_webhook_cainjection_patch.yaml
-
 # - path: localmodelcache_validatingwebhook_cainjection_patch.yaml
 - path: llmisvc_validatingwebhook_cainjection_patch.yaml
 - path: llmisvcconfig_validatingwebhook_cainjection_patch.yaml
