@@ -49,7 +49,7 @@ class TestCase:
     """Test case configuration for LLM inference service tests."""
     base_refs: List[str]
     prompt: str
-    max_tokens: int = 1
+    max_tokens: int = None
     response_assertion: Callable[[requests.Response], None] = assert_200
     wait_timeout: int = 300
     response_timeout: int = 60
@@ -293,21 +293,7 @@ def collect_diagnostics(
 
     print_all_events_table(ns)
 
-    all_resources = kinds_matching_by_labels(
-        ns,
-        labels,
-        api_kinds={
-            "HTTPRoute",
-            "InferencePool",
-            "InferenceModel",
-            "Service",
-            "Deployment",
-            "LeaderWorkerSet",
-            "DestinationRule",
-            "StatefulSet",
-        },
-    )
-
+    all_resources = kinds_matching_by_labels(ns, labels)
     for obj in all_resources:
         print("---")
         print(yaml.safe_dump(obj.to_dict(), sort_keys=False))

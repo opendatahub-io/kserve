@@ -60,14 +60,14 @@ def print_all_events_table(namespace: str, max_events: int = 50):
         print(f"# ❌ failed to list events: {e}")
 
 
-def kinds_matching_by_labels(namespace: str, labels, api_kinds):
+def kinds_matching_by_labels(namespace: str, labels, skip_api_kinds={"Secret"}):
     """
     List all namespaced objects in `namespace` matching `labels`
-    whose kind is in `api_kinds`.
+    whose kinds are not in `skip_api_kinds`.
 
     :param namespace: kube namespace to search
     :param labels: either a dict of {k: v} or a raw selector string
-    :param api_kinds: an iterable of Resource.kind strings to include
+    :param skip_api_kinds: an iterable of Resource.kind strings to exclude
     :return: list of Unstructured objects
     """
     config.load_kube_config()
@@ -85,12 +85,13 @@ def kinds_matching_by_labels(namespace: str, labels, api_kinds):
     for rsrc in all_resources:
         if not rsrc.namespaced or "list" not in rsrc.verbs:
             continue
-        if rsrc.kind not in api_kinds:
+        if rsrc.kind in skip_api_kinds:
             continue
 
         try:
             resp = rsrc.get(namespace=namespace, label_selector=selector)
-        except ApiException:
+        except Exception as e:
+            print(f"failed to get {rsrc.kind}, skipping: {e}")
             continue
 
         items = getattr(resp, "items", [])
