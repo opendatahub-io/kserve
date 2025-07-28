@@ -29,7 +29,7 @@ from .fixtures import (
     generate_test_id,
     # Factory functions are not called explicitly, but they need to be imported to work
     test_case,  # noqa: F401,F811
-    llm_config_factory, # noqa: F401,F811
+    llm_config_factory,  # noqa: F401,F811
 )
 from .logging import log_execution
 
@@ -66,7 +66,7 @@ class TestCase:
         pytest.param(
             TestCase(
                 base_refs=["router-managed", "workload-single-cpu", "model-fb-opt-125m"],
-                prompt = "KServe is a",
+                prompt="KServe is a",
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
@@ -80,7 +80,7 @@ class TestCase:
                         response.status_code == 200
                         and response.json().get("choices") is not None
                         and len(response.json().get("choices", [])) > 0
-                ),                
+                ),
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
@@ -202,7 +202,7 @@ def wait_for_model_response(
                 completion_url,
                 headers={"Content-Type": "application/json"},
                 json=test_payload,
-                timeout=test_case.response_timeout, 
+                timeout=test_case.response_timeout,
             )
         except Exception as e:
             raise AssertionError(f"❌ Failed to call model: {e}") from e
