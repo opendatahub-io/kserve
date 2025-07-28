@@ -32,8 +32,8 @@ LLMINFERENCESERVICE_CONFIGS = {
                     "image": "quay.io/pierdipi/vllm-cpu:latest",
                     "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
                     "resources": {
-                        "limits": {"cpu": "1", "memory": "10Gi"},
-                        "requests": {"cpu": "100m", "memory": "8Gi"},
+                        "limits": {"cpu": "2", "memory": "10Gi"},
+                        "requests": {"cpu": "1", "memory": "8Gi"},
                     },
                     "livenessProbe": {
                         "initialDelaySeconds": 30,
