@@ -32,6 +32,26 @@ patches:
     - op: replace
       path: /spec/worker/initContainers/0/image
       value: "$(kserve-llm-d-routing-sidecar)"
+- target:
+    kind: ValidatingWebhookConfiguration
+    name: llminferenceservice.serving.kserve.io
+  patch: |-
+    - op: remove
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+      value: "service.beta.openshift.io/inject-cabundle"
+    - op: replace
+      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
+      value: "true"
+- target:
+    kind: ValidatingWebhookConfiguration
+    name: llminferenceserviceconfig.serving.kserve.io
+  patch: |-
+    - op: remove
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+      value: "service.beta.openshift.io/inject-cabundle"
+    - op: replace
+      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
+      value: "true"
 
 replacements:
 - source:
@@ -44,7 +64,7 @@ replacements:
       name: kserve-controller-manager
     fieldPaths:
     - spec.template.spec.containers.[name=manager].image
-    
+
 configMapGenerator:
 - envs:
   - params.env
@@ -103,7 +123,6 @@ vars:
     apiVersion: v1
     kind: ConfigMap
     name: kserve-parameters
-
 
 configurations:
 - params.yaml
