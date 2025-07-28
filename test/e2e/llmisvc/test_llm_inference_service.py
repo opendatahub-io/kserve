@@ -280,7 +280,7 @@ def collect_diagnostics(
 
     labels = {
         "app.kubernetes.io/part-of": "llminferenceservice",
-        "app.kubernetes.io/name": svc["metadata"].get("name"),
+        "app.kubernetes.io/name": name,
     }
 
     print(f"🔍 # Diagnostics for {name!r} in {ns!r}")
