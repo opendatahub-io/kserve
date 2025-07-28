@@ -46,15 +46,6 @@ LLMINFERENCESERVICE_CONFIGS = {
         },
     },
     "workload-pd-cpu": {
-        "model": {
-            "uri": "hf://facebook/opt-125m",
-            "name": "facebook/opt-125m"
-        },
-        "router": {
-            "scheduler": {},
-            "route": {},
-            "gateway": {}
-        },
         "template": {
             "initContainers": [
                 {
