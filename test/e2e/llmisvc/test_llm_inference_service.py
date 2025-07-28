@@ -63,22 +63,26 @@ class TestCase:
     "test_case",
     [
         pytest.param(
-            TestCase(["router-managed", "workload-single-cpu", "model-fb-opt-125m"]),
-            marks=pytest.mark.cluster_cpu,
+            TestCase(
+                base_refs=["router-managed", "workload-single-cpu", "model-fb-opt-125m"],
+                prompt = "KServe is a",
+            ),
+            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
-        # Example test case
-        # pytest.param(
-        #     TestCase(
-        #         base_refs=["router-managed", "workload-single-cpu", "model-fb-opt-125m"],
-        #         prompt="What is the capital of France?",
-        #         response_assertion=lambda response: (
-        #             response.status_code == 200
-        #             and response.json().get("choices") is not None
-        #             and len(response.json().get("choices", [])) > 0
-        #         ),
-        #     ),
-        #     marks=pytest.mark.cluster_cpu,
-        # ),
+        pytest.param(
+            TestCase(
+                base_refs=["router-managed", "workload-pd-cpu", "model-fb-opt-125m"],
+                prompt="You are an expert in Kubernetes-native machine learning serving platforms, with deep knowledge of the KServe project. "
+                       "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
+                       "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.",
+                response_assertion=lambda response: (
+                        response.status_code == 200
+                        and response.json().get("choices") is not None
+                        and len(response.json().get("choices", [])) > 0
+                ),                
+            ),
+            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+        ),
     ],
     indirect=["test_case"],
     ids=generate_test_id,

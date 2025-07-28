@@ -45,6 +45,51 @@ LLMINFERENCESERVICE_CONFIGS = {
             ]
         },
     },
+    "workload-pd-cpu": {
+        "model": {
+            "uri": "hf://facebook/opt-125m",
+            "name": "facebook/opt-125m"
+        },
+        "router": {
+            "scheduler": {},
+            "route": {},
+            "gateway": {}
+        },
+        "template": {
+            "initContainers": [
+                {
+                    "name": "llm-d-routing-sidecar",
+                    "image": "ghcr.io/llm-d/llm-d-routing-sidecar:v0.2.0"
+                }
+            ],
+            "containers": [
+                {
+                    "name": "main",
+                    "image": "quay.io/pierdipi/vllm-cpu:latest",
+                    "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
+                    "resources": {
+                        "limits": {"cpu": "2", "memory": "10Gi"},
+                        "requests": {"cpu": "1", "memory": "8Gi"},
+                    }
+                }
+            ]
+        },
+        "prefill": {
+            "template": {
+                "containers": [
+                    {
+                        "name": "main",
+                        "image": "quay.io/pierdipi/vllm-cpu:latest",
+                        "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
+                        "resources": {
+                            "limits": {"cpu": "2", "memory": "10Gi"},
+                            "requests": {"cpu": "1", "memory": "8Gi"},
+                        }
+                    }
+                ]
+            }
+        }
+    },
     "model-fb-opt-125m": {
         "model": {"uri": "hf://facebook/opt-125m", "name": "facebook/opt-125m"},
     },
