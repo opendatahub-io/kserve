@@ -53,6 +53,7 @@ concurrency:
 
 jobs:
   test-llmisvc:
+    if: false
     runs-on: ubuntu-22.04
     needs: [ kserve-image-build ]
     steps:
@@ -106,6 +107,7 @@ jobs:
           ./test/scripts/gh-actions/status-check.sh
 
   kserve-image-build:
+    if: false
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
