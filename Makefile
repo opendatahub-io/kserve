@@ -132,6 +132,8 @@ manifests: controller-gen yq
 	cp config/crd/minimal/* charts/kserve-crd-minimal/templates/
 	rm charts/kserve-crd-minimal/templates/kustomization.yaml
 
+	kubectl kustomize config/crd/external/gie > config/llmisvc/gie.yaml
+
 # Generate code
 generate: controller-gen helm-docs
 	hack/update-codegen.sh

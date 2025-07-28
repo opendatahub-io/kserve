@@ -4,7 +4,6 @@ kind: Kustomization
 resources:
 - ../../default
 - user-cluster-roles.yaml
-- ../../crd/external/gie
 
 namespace: opendatahub
 
