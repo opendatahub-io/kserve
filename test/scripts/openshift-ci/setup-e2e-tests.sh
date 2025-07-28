@@ -39,6 +39,11 @@ echo "STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_IMAGE"
 echo "ERROR_404_ISVC_IMAGE=$ERROR_404_ISVC_IMAGE"
 echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
 
+if [ "$1" == "llm-inference-service" ]; then
+  echo "dummy stub for llm-inference-service setup"
+  exit 0
+fi
+
 # Create directory for installing tooling
 # It is assumed that $HOME/.local/bin is in the $PATH
 mkdir -p $HOME/.local/bin
