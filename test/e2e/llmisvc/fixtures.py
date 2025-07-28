@@ -51,15 +51,7 @@ LLMINFERENCESERVICE_CONFIGS = {
     "router-managed": {
         "router": {"scheduler": {}, "route": {}, "gateway": {}},
     },
-    "router-with-scheduler": {
-        "router": {
-            "scheduler": {},
-            "route": {},
-            "gateway": {},
-        },
-    },
 }
-
 
 @pytest.fixture(scope="function")
 def test_case(request):
@@ -92,8 +84,6 @@ def llm_config_factory():
 
     def _create_configs(namespace=KSERVE_TEST_NAMESPACE):
         for name in LLMINFERENCESERVICE_CONFIGS:
-            if name not in LLMINFERENCESERVICE_CONFIGS:
-                raise ValueError(f"Unknown config name: {name}")
 
             spec = LLMINFERENCESERVICE_CONFIGS[name]
 

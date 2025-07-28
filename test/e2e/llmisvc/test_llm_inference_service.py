@@ -191,7 +191,7 @@ def wait_for_model_response(
             "prompt": test_case.prompt,
             "max_tokens": test_case.max_tokens,
         }
-        print(f"📞 Calling LLM service at {completion_url} with payload {test_payload}")
+        print(f"Calling LLM service at {completion_url} with payload {test_payload}")
         try:
             response = requests.post(
                 completion_url,
@@ -254,7 +254,7 @@ def get_llm_service_url(
 def wait_for(
     assertion_fn: Callable[[], Any], timeout: float = 5.0, interval: float = 0.1
 ) -> Any:
-    """Wait for assertion function to succeed within timeout."""
+    """Wait for the assertion to succeed within timeout."""
     deadline = time.time() + timeout
     while True:
         try:
