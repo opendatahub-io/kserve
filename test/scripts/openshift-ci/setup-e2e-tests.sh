@@ -58,9 +58,29 @@ echo "STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_IMAGE"
 echo "ERROR_404_ISVC_IMAGE=$ERROR_404_ISVC_IMAGE"
 echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
 
-# Install Kustomize using the centralized install script
-$PROJECT_ROOT/hack/setup/cli/install-kustomize.sh
-export PATH="${PROJECT_ROOT}/bin:${PATH}"
+if [ "$1" == "llm-inference-service" ]; then
+  echo "dummy stub for llm-inference-service setup"
+  exit 0
+fi
+
+# Create directory for installing tooling
+# It is assumed that $HOME/.local/bin is in the $PATH
+mkdir -p $HOME/.local/bin
+MY_PATH=$(dirname "$0")
+PROJECT_ROOT=$MY_PATH/../../../
+
+# If Kustomize is not installed, install it
+if ! command -v kustomize &>/dev/null; then
+  echo "Installing Kustomize"
+  curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash -s -- 5.0.1 $HOME/.local/bin
+fi
+
+# If minio CLI is not installed, install it
+if ! command -v mc &>/dev/null; then
+  echo "Installing Minio CLI"
+  curl https://dl.min.io/client/mc/release/linux-amd64/mc --create-dirs -o $HOME/.local/bin/mc
+  chmod +x $HOME/.local/bin/mc
+fi
 
 echo "Installing KServe Python SDK ..."
 pushd $PROJECT_ROOT >/dev/null
