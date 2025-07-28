@@ -11,9 +11,6 @@ spec:
     route: { }
     gateway: { }
   template:
-    initContainers:
-      - name: llm-d-routing-sidecar
-        image: ghcr.io/llm-d/llm-d-routing-sidecar:v0.2.0
     containers:
       - name: main
         image: quay.io/pierdipi/vllm-cpu:latest
