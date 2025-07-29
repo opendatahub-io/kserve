@@ -58,16 +58,19 @@ def print_all_events_table(namespace: str, max_events: int = 50):
         print(f"# ❌ failed to list events: {e}")
 
 
-def kinds_matching_by_labels(namespace: str, labels, skip_api_kinds={"Secret"}):
+def kinds_matching_by_labels(namespace: str, labels, skip_api_kinds=None):
     """
     List all namespaced objects in `namespace` matching `labels`
     whose kinds are not in `skip_api_kinds`.
 
-    :param namespace: kube namespace to search
+    :param namespace: Namespace to search
     :param labels: either a dict of {k: v} or a raw selector string
     :param skip_api_kinds: an iterable of Resource.kind strings to exclude
-    :return: list of Unstructured objects
+    :return: a list of Unstructured objects
     """
+    if skip_api_kinds is None:
+        skip_api_kinds = {"Secret"}
+        
     config.load_kube_config()
     dyn = dynamic.DynamicClient(api_client.ApiClient())
 

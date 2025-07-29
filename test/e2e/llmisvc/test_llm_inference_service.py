@@ -112,8 +112,6 @@ def test_llm_inference_service(test_case: TestCase):
 
 @log_execution
 def create_llmisvc(kserve_client: KServeClient, llm_isvc: V1alpha1LLMInferenceService):
-    from kserve.utils import utils
-
     try:
         outputs = kserve_client.api_instance.create_namespaced_custom_object(
             constants.KSERVE_GROUP,
