@@ -22,6 +22,11 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+if [ "$1" == "llm-inference-service" ]; then
+  echo "dummy stub for llm-inference-service setup"
+  exit 0
+fi
+
 MY_PATH=$(dirname "$0")
 PROJECT_ROOT=$MY_PATH/../../../
 export CI_USE_ISVC_HOST="1"
