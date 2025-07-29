@@ -29,14 +29,14 @@ data:
   ingress: |-
     {
         "enableGatewayApi": false,
-        "kserveIngressGateway": "$(kserveNamespace)/kserve-ingress-gateway",
+        "kserveIngressGateway": "openshift-ingress/openshift-ai-inference",
         "ingressGateway" : "knative-serving/knative-ingress-gateway",
         "knativeLocalGatewayService" : "knative-local-gateway.istio-system.svc.cluster.local",
         "ingressService" : "istio-ingressgateway.istio-system.svc.cluster.local",
         "localGateway" : "istio-system/kserve-local-gateway",
         "localGatewayService" : "kserve-local-gateway.istio-system.svc.cluster.local",
         "ingressDomain"  : "example.com",
-        "ingressClassName" : "istio-remote",
+        "ingressClassName" : "istio",
         "domainTemplate": "example.com",
         "urlScheme": "https",
         "disableIstioVirtualHost": false, 

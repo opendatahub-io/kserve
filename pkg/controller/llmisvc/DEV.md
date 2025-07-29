@@ -259,11 +259,21 @@ yq '.spec.model.uri="pvc://opt-125m-pvc"' ${LLM_ISVC} | kubectl apply -n ${NS} -
 ---
 #### OCP integration
 
+##### Using `openshift ROSA cluster`
+
+You just need to login to ROSA cluster
+
+```
+oc login $OCP_API_SERVER
+```
+
 ##### Using `openshift local`
+
+*openshift 4.19*
 
 ```shell
 crc setup
-crc config set memory 16384
+crc config set memory 25600
 crc config set cpus 10
 crc config set disk-size 150
 crc config set kubeadmin-password kubeadmin
@@ -274,7 +284,6 @@ crc start -p ~/pull-secret.txt
 
 oc login -u kubeadmin https://api.crc.testing:6443
 ```
-
 *Pre-requisites*
 - Install Cert-Manager
 - Install LWS operator (This should be installed by user)
@@ -289,23 +298,22 @@ cat<<EOF |oc create -f -
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
-  name: openshift-cert-manager-operator
+  name: cert-manager-operator
   namespace: cert-manager-operator
 spec:
-  targetNamespaces: []
-  spec: {}
+  upgradeStrategy: Default
 ---
-apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
   name: openshift-cert-manager-operator
   namespace: cert-manager-operator
 spec:
   channel: stable-v1
+  installPlanApproval: Automatic
   name: openshift-cert-manager-operator
   source: redhat-operators
   sourceNamespace: openshift-marketplace
-  installPlanApproval: Automatic
+  startingCSV: cert-manager-operator.v1.16.1
 EOF
 ```
 
@@ -324,6 +332,8 @@ spec:
   sourceType: grpc
   image: quay.io/jooholee/lws-operator-index:llmd
 EOF
+
+sleep 10
 
 oc wait pod -l olm.catalogSource=lws-operator -n openshift-marketplace --for=condition=Ready --timeout=120s
 
@@ -352,7 +362,9 @@ spec:
   source: lws-operator
   sourceNamespace: openshift-marketplace
   startingCSV: leader-worker-set.v1.0.0
+EOF
 
+# Wait until the pod is created
 oc wait pod -l name=openshift-lws-operator -n openshift-lws-operator --for=condition=Ready --timeout=120s
 
 cat <<EOF|oc create -f -
@@ -366,18 +378,11 @@ spec:
   logLevel: Normal
   operatorLogLevel: Normal
 EOF
-
 ```
 
-**Install GATEWAY API CRD**
-This step will be removed at some point because the CRD should be provided by the platform.
+**Install OSSM(TBD)**
 
-```shell
-GATEWAY_API_EXPERIMENTAL_VERSION="v1.3.0"
-kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/$GATEWAY_API_EXPERIMENTAL_VERSION/experimental-install.yaml
-```
-
-**Install ISTIO**
+**Install upstream ISTIO**
 
 This step will be removed at some point because the ISTIO(OSSM) should be provided by the platform.
 
@@ -385,15 +390,28 @@ This step will be removed at some point because the ISTIO(OSSM) should be provid
 oc create ns istio-system
 oc create -f test/overlays/llm-istio-experimental -n istio-system
 
-cat <<EOF| oc create -f -
-apiVersion: gateway.networking.k8s.io/v1beta1
-kind: GatewayClass
+INGRESS_NS=openshift-ingress
+kubectl create namespace ${INGRESS_NS} || true
+
+kubectl apply -f - <<EOF
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
 metadata:
-  name: istio
+  name: openshift-ai-inference
+  namespace: openshift-ingress
 spec:
-  controllerName: istio.io/gateway-controller
-  description: "Custom Istio GatewayClass"
-EOF  
+  gatewayClassName: istio
+  listeners:
+   - name: http
+     port: 80
+     protocol: HTTP
+     allowedRoutes:
+       namespaces:
+         from: All
+  infrastructure:
+    labels:
+      serving.kserve.io/gateway: kserve-ingress-gateway
+EOF
 ```
 
 **Deploy Kserve using overlay/odh**
@@ -413,33 +431,71 @@ kustomize build config/crd | oc apply --server-side=true -f -
 oc wait --for=condition=Established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
 
 # Deploy Kserve
+# Retry to create kserve again for preset LLMInferenceserviceConfigs
 kustomize build config/overlays/odh |oc apply  --server-side=true -f -
 
 oc wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n opendatahub  --timeout=300s
 
-# Retry to create kserve again for preset LLMInferenceserviceConfigs
-kustomize build config/overlays/odh |oc apply  --server-side=true -f -
 ```
 
 Deploy the model:
 
 ```shell
+NS=llm-test
 LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-facebook-opt-125m-cpu.yaml
 LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
 
+oc get ns $NS||oc new-project $NS
 kubectl apply -n ${NS} -f ${LLM_ISVC}
 ```
 
 
 #### Validation
 
+**ROSA Cluster**
 ```shell
-LB_IP=$(kubectl get svc/kserve-ingress-gateway-istio -n opendatahub -o=jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+LB_URL=$(kubectl get llmisvc facebook-opt-125m-single  -o=jsonpath='{.status.url}')
 
-curl http://${LB_IP}/${NS}/${LLM_ISVC_NAME}/v1/completions  \
+curl "${LB_URL}/v1/completions"  \
     -H "Content-Type: application/json" \
     -d '{
         "model": "facebook/opt-125m",
         "prompt": "San Francisco is a"
     }'
+```
+
+**OpenShift Local**
+
+*Using Gateway Route (this is for testing only)*
+```shell
+MODEL_ID=facebook/opt-125m
+
+oc expose svc/openshift-ai-inference-istio -n openshift-ingress --port http 
+oc wait --for=condition=ready pod -l app.kubernetes.io/part-of=llminferenceservice -n $NS --timeout 150s
+  
+LB_HOST=$( oc get route/openshift-ai-inference-istio -n openshift-ingress -o=jsonpath='{.status.ingress[*].host}'  )
+
+curl http://$LB_HOST/$NS/$LLM_ISVC_NAME/v1/completions  \
+    -H "Content-Type: application/json" \
+    -d '{
+        "model":"'"$MODEL_ID"'",
+        "prompt": "San Francisco is a"
+    }'    
+```
+
+
+*Using Port-forward*
+```shell
+WORKLOAD_POD=$(oc get pod -l app.kubernetes.io/component=llminferenceservice-workload --no-headers|awk '{print $1}' )
+GATEWAY_POD=$(oc get pod -l gateway.networking.k8s.io/gateway-name=openshift-ai-inference -n openshift-ingress --no-headers|awk '{print $1}' )
+
+oc port-forward $GATEWAY_POD 8001:80  &
+oc port-forward svc/openshift-ai-inference-istio -n openshift-ingress  8001:80 &
+curl -sS -X POST http://localhost:8001/$NS/$LLM_ISVC_NAME/v1/completions   \
+    -H 'accept: application/json'   \
+    -H 'Content-Type: application/json'    \
+    -d '{
+        "model":"'"$MODEL_ID"'",
+        "prompt":"Who are you?"
+      }'
 ```

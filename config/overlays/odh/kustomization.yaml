@@ -116,13 +116,6 @@ vars:
     apiVersion: v1
     kind: ConfigMap
     name: kserve-parameters
-- fieldref:
-    fieldpath: metadata.namespace
-  name: kserveNamespace
-  objref:
-    apiVersion: v1
-    kind: ConfigMap
-    name: kserve-parameters
 
 configurations:
 - params.yaml
