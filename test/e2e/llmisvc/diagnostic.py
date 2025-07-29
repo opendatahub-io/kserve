@@ -70,7 +70,7 @@ def kinds_matching_by_labels(namespace: str, labels, skip_api_kinds=None):
     """
     if skip_api_kinds is None:
         skip_api_kinds = {"Secret"}
-        
+
     config.load_kube_config()
     dyn = dynamic.DynamicClient(api_client.ApiClient())
 
