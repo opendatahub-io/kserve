@@ -47,12 +47,6 @@ LLMINFERENCESERVICE_CONFIGS = {
     },
     "workload-pd-cpu": {
         "template": {
-            "initContainers": [
-                {
-                    "name": "llm-d-routing-sidecar",
-                    "image": "ghcr.io/llm-d/llm-d-routing-sidecar:v0.2.0"
-                }
-            ],
             "containers": [
                 {
                     "name": "main",
