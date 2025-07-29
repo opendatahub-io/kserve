@@ -14,10 +14,8 @@
 
 import itertools
 from datetime import datetime
-import pytest
 from kubernetes import client, config, dynamic
 from kubernetes.client import api_client
-from kubernetes.client.exceptions import ApiException
 from kserve import KServeClient, V1alpha1LLMInferenceService, constants
 
 
@@ -28,21 +26,21 @@ def print_all_events_table(namespace: str, max_events: int = 50):
     core = client.CoreV1Api()
 
     try:
-        evs = core.list_namespaced_event(namespace=namespace).items
+        events = core.list_namespaced_event(namespace=namespace).items
 
-        if not evs:
+        if not events:
             print("ℹ️ # No events found in namespace", namespace)
             return
 
-        evs = sorted(
-            evs, key=lambda e: e.last_timestamp or e.first_timestamp, reverse=True
+        events = sorted(
+            events, key=lambda e: e.last_timestamp or e.first_timestamp, reverse=True
         )[:max_events]
 
         header = f"{'TIME':<25} {'NAMESPACE':<12} {'SOURCE':<20} {'TYPE':<8} {'REASON':<20} MESSAGE"
         print(header)
         print("-" * len(header))
 
-        for ev in evs:
+        for ev in events:
             ts = ev.last_timestamp or ev.first_timestamp
             ts_str = (
                 ts.strftime("%Y-%m-%d %H:%M:%S")

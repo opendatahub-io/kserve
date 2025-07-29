@@ -99,7 +99,7 @@ def test_case(request):
             raise ValueError(f"Missing base_refs in LLMINFERENCESERVICE_CONFIGS: {missing_refs}")
 
         service_name = generate_service_name(request.node.name, tc.base_refs)
-        tc.model_name = get_model_name_from_configs(tc.base_refs)
+        tc.model_name = _get_model_name_from_configs(tc.base_refs)
 
         # Create unique configs for this test
         unique_base_refs = []
@@ -116,7 +116,7 @@ def test_case(request):
                 "spec": original_spec,
             }
 
-            create_or_update_llmisvc_config(kserve_client, unique_config_body, KSERVE_TEST_NAMESPACE)
+            _create_or_update_llmisvc_config(kserve_client, unique_config_body, KSERVE_TEST_NAMESPACE)
             created_configs.append(unique_config_name)
 
         tc.llm_service = V1alpha1LLMInferenceService(
@@ -136,13 +136,13 @@ def test_case(request):
         for config_name in created_configs:
             try:
                 logger.info(f"Cleaning up unique LLMInferenceServiceConfig {config_name}")
-                delete_llmisvc_config(kserve_client, config_name, KSERVE_TEST_NAMESPACE)
+                _delete_llmisvc_config(kserve_client, config_name, KSERVE_TEST_NAMESPACE)
                 logger.info(f"✓ Deleted unique LLMInferenceServiceConfig {config_name}")
             except Exception as e:
                 logger.warning(f"Failed to cleanup LLMInferenceServiceConfig {config_name}: {e}")
 
 
-def get_model_name_from_configs(config_names):
+def _get_model_name_from_configs(config_names):
     """Extract the model name from model config."""
     for config_name in config_names:
         if config_name.startswith("model-"):
@@ -182,7 +182,7 @@ def generate_test_id(test_case) -> str:
     return "-".join(test_case.base_refs)
 
 
-def create_or_update_llmisvc_config(kserve_client, llm_config, namespace=None):
+def _create_or_update_llmisvc_config(kserve_client, llm_config, namespace=None):
     """Create or update an LLMInferenceServiceConfig resource."""
     version = llm_config["apiVersion"].split("/")[1]
 
@@ -233,7 +233,7 @@ def create_or_update_llmisvc_config(kserve_client, llm_config, namespace=None):
             raise RuntimeError(f"Failed to get/create LLMInferenceServiceConfig {name}: {e}") from e
 
 
-def delete_llmisvc_config(
+def _delete_llmisvc_config(
     kserve_client, name, namespace, version=constants.KSERVE_V1ALPHA1_VERSION
 ):
     try:
@@ -252,7 +252,7 @@ def delete_llmisvc_config(
         ) from e
 
 
-def get_llmisvc_config(
+def _get_llmisvc_config(
     kserve_client, name, namespace, version=constants.KSERVE_V1ALPHA1_VERSION
 ):
     try:

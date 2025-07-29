@@ -15,7 +15,6 @@
 import os
 import time
 from dataclasses import dataclass
-from operator import truediv
 from typing import Any, Callable, List
 import pytest
 import requests
@@ -102,7 +101,7 @@ def test_llm_inference_service(test_case: TestCase):
         wait_for_model_response(kserve_client, test_case, test_case.wait_timeout)
     except Exception as e:
         print(f"❌ ERROR: Failed to call llm inference service {service_name}: {e}")
-        collect_diagnostics(kserve_client, test_case.llm_service)
+        _collect_diagnostics(kserve_client, test_case.llm_service)
         raise
     finally:
         try:
@@ -270,7 +269,7 @@ def wait_for(
             time.sleep(interval)
 
 
-def collect_diagnostics(
+def _collect_diagnostics(
     kserve_client: KServeClient, llm_isvc: V1alpha1LLMInferenceService
 ):
     name = llm_isvc.metadata.name
