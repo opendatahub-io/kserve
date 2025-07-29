@@ -85,7 +85,7 @@ def kinds_matching_by_labels(namespace: str, labels, skip_api_kinds={"Secret"}):
     for rsrc in all_resources:
         if not rsrc.namespaced or "list" not in rsrc.verbs:
             continue
-        if rsrc.kind in skip_api_kinds:
+        if rsrc.kind.endswith("List") or rsrc.kind in skip_api_kinds:
             continue
 
         try:
