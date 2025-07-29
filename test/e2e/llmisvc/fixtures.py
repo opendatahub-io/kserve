@@ -12,13 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import uuid
 import os
 import pytest
+import hashlib
 from typing import List
 from kubernetes import client
 from kubernetes.client.rest import ApiException
 from kserve import KServeClient, constants, V1alpha1LLMInferenceService
+
+from .logging import logger
 
 KSERVE_PLURAL_LLMINFERENCESERVICECONFIG = "llminferenceserviceconfigs"
 KSERVE_TEST_NAMESPACE = "kserve-ci-e2e-test"
@@ -87,79 +89,61 @@ LLMINFERENCESERVICE_CONFIGS = {
 @pytest.fixture(scope="function")
 def test_case(request):
     tc = request.param
+    created_configs = []
+    kserve_client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
 
-    service_name = generate_service_name(request.node.name, tc.base_refs)
-    tc.model_name = get_model_name_from_configs(tc.base_refs)
+    try:
+        # Validate base_refs defined in the test fixture exist in LLMINFERENCESERVICE_CONFIGS
+        missing_refs = [ref for ref in tc.base_refs if ref not in LLMINFERENCESERVICE_CONFIGS]
+        if missing_refs:
+            raise ValueError(f"Missing base_refs in LLMINFERENCESERVICE_CONFIGS: {missing_refs}")
 
-    # TODO fail early if base_refs does not exist (e.g. mistyped)?
+        service_name = generate_service_name(request.node.name, tc.base_refs)
+        tc.model_name = get_model_name_from_configs(tc.base_refs)
 
-    tc.llm_service = V1alpha1LLMInferenceService(
-        api_version="serving.kserve.io/v1alpha1",
-        kind="LLMInferenceService",
-        metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE
-        ),
-        spec={
-            "baseRefs": [{"name": base_ref} for base_ref in tc.base_refs],
-        },
-    )
+        # Create unique configs for this test
+        unique_base_refs = []
+        for base_ref in tc.base_refs:
+            unique_config_name = generate_k8s_safe_suffix(base_ref, [service_name])
+            unique_base_refs.append(unique_config_name)
 
-    return tc
+            original_spec = LLMINFERENCESERVICE_CONFIGS[base_ref]
 
-
-@pytest.fixture(scope="session", autouse=True)
-def llm_config_factory():
-    """Factory for creating/cleaning LLMInferenceServiceConfig once per session."""
-    created = []
-    client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
-
-    def _create_configs(namespace=KSERVE_TEST_NAMESPACE):
-        for name in LLMINFERENCESERVICE_CONFIGS:
-
-            spec = LLMINFERENCESERVICE_CONFIGS[name]
-
-            try:
-                get_llmisvc_config(client, name, namespace)
-                continue
-            except Exception as e:
-                is_404_api = (
-                    isinstance(e, ApiException) and getattr(e, "status", None) == 404
-                )
-                is_404_runtime = (
-                    isinstance(e, RuntimeError) and "not found" in str(e).lower()
-                )
-                if not (is_404_api or is_404_runtime):
-                    raise
-
-            body = {
+            unique_config_body = {
                 "apiVersion": "serving.kserve.io/v1alpha1",
                 "kind": "LLMInferenceServiceConfig",
-                "metadata": {"name": name, "namespace": namespace},
-                "spec": spec,
+                "metadata": {"name": unique_config_name, "namespace": KSERVE_TEST_NAMESPACE},
+                "spec": original_spec,
             }
 
+            create_or_update_llmisvc_config(kserve_client, unique_config_body, KSERVE_TEST_NAMESPACE)
+            created_configs.append(unique_config_name)
+
+        tc.llm_service = V1alpha1LLMInferenceService(
+            api_version="serving.kserve.io/v1alpha1",
+            kind="LLMInferenceService",
+            metadata=client.V1ObjectMeta(
+                name=service_name, namespace=KSERVE_TEST_NAMESPACE
+            ),
+            spec={
+                "baseRefs": [{"name": base_ref} for base_ref in unique_base_refs],
+            },
+        )
+
+        yield tc
+
+    finally:
+        for config_name in created_configs:
             try:
-                create_llmisvc_config(client, body, namespace)
-                created.append((name, namespace))
+                logger.info(f"Cleaning up unique LLMInferenceServiceConfig {config_name}")
+                delete_llmisvc_config(kserve_client, config_name, KSERVE_TEST_NAMESPACE)
+                logger.info(f"✓ Deleted unique LLMInferenceServiceConfig {config_name}")
             except Exception as e:
-                if isinstance(e, ApiException) and getattr(e, "status", None) == 409:
-                    continue
-                if isinstance(e, RuntimeError) and "already exists" in str(e).lower():
-                    continue
-                # otherwise, real error
-                raise
-
-    yield _create_configs()
-
-    for name, namespace in created:
-        try:
-            delete_llmisvc_config(client, name, namespace)
-        except Exception:
-            pass
+                logger.warning(f"Failed to cleanup LLMInferenceServiceConfig {config_name}: {e}")
 
 
 def get_model_name_from_configs(config_names):
-    """Extract model name from model config."""
+    """Extract the model name from model config."""
     for config_name in config_names:
         if config_name.startswith("model-"):
             config = LLMINFERENCESERVICE_CONFIGS[config_name]
@@ -168,21 +152,29 @@ def get_model_name_from_configs(config_names):
     return "default-model"
 
 
-def generate_service_name(test_name: str, base_refs: List[str]) -> str:
-    base_name = test_name.split("[", 1)[0]
-    base_name = base_name.replace("test_", "")
-    base_name = base_name.replace("_", "-")
-    config_suffix = "-".join(sorted(base_refs))
-    test_case = f"{base_name}-{config_suffix}".lower()
+def generate_k8s_safe_suffix(base_name: str, extra_parts: List[str] = None) -> str:
+    """Generate a Kubernetes-safe name suffix with hash."""
+    if extra_parts:
+        full_name = f"{base_name}-{'-'.join(sorted(extra_parts))}"
+    else:
+        full_name = base_name
 
-    uid = uuid.uuid4().hex[:8]
+    full_name = full_name.lower().replace("_", "-")
+
+    name_hash = hashlib.md5(full_name.encode()).hexdigest()[:8]
 
     max_total = 63
     sep = "-"
-    max_test_case = max_total - len(sep) - len(uid)
-    test_case = test_case[:max_test_case].rstrip(sep)
+    max_base = max_total - len(sep) - len(name_hash)
+    safe_base = full_name[:max_base].rstrip(sep)
 
-    return f"{test_case}{sep}{uid}"
+    return f"{safe_base}{sep}{name_hash}"
+
+
+def generate_service_name(test_name: str, base_refs: List[str]) -> str:
+    base_name = test_name.split("[", 1)[0]
+    base_name = base_name.replace("test_", "")
+    return generate_k8s_safe_suffix(base_name, base_refs)
 
 
 def generate_test_id(test_case) -> str:
@@ -190,32 +182,62 @@ def generate_test_id(test_case) -> str:
     return "-".join(test_case.base_refs)
 
 
-def create_llmisvc_config(kserve_client, llm_config, namespace=None):
+def create_or_update_llmisvc_config(kserve_client, llm_config, namespace=None):
+    """Create or update an LLMInferenceServiceConfig resource."""
     version = llm_config["apiVersion"].split("/")[1]
 
     if namespace is None:
         namespace = llm_config.get("metadata", {}).get("namespace", "default")
 
+    name = llm_config.get("metadata", {}).get("name")
+    if not name:
+        raise ValueError("LLMInferenceServiceConfig must have a name in metadata")
+
+    logger.info(f"Checking LLMInferenceServiceConfig {name} in namespace {namespace}")
+
     try:
-        outputs = kserve_client.api_instance.create_namespaced_custom_object(
+        existing_config = kserve_client.api_instance.get_namespaced_custom_object(
             constants.KSERVE_GROUP,
             version,
             namespace,
             KSERVE_PLURAL_LLMINFERENCESERVICECONFIG,
+            name,
+        )
+
+        llm_config["metadata"] = existing_config["metadata"]
+
+        outputs = kserve_client.api_instance.replace_namespaced_custom_object(
+            constants.KSERVE_GROUP,
+            version,
+            namespace,
+            KSERVE_PLURAL_LLMINFERENCESERVICECONFIG,
+            name,
             llm_config,
         )
+        logger.info(f"✓ Successfully updated LLMInferenceServiceConfig {name}")
         return outputs
+
     except client.rest.ApiException as e:
-        raise RuntimeError(
-            f"Exception when calling CustomObjectsApi->"
-            f"create_namespaced_custom_object for LLMInferenceServiceConfig: {e}"
-        ) from e
+        if e.status == 404:  # Not found - create it
+            logger.info(f"Resource not found, creating LLMInferenceServiceConfig {name}")
+            outputs = kserve_client.api_instance.create_namespaced_custom_object(
+                constants.KSERVE_GROUP,
+                version,
+                namespace,
+                KSERVE_PLURAL_LLMINFERENCESERVICECONFIG,
+                llm_config,
+            )
+            logger.info(f"✓ Successfully created LLMInferenceServiceConfig {name}")
+            return outputs
+        else:
+            raise RuntimeError(f"Failed to get/create LLMInferenceServiceConfig {name}: {e}") from e
 
 
 def delete_llmisvc_config(
     kserve_client, name, namespace, version=constants.KSERVE_V1ALPHA1_VERSION
 ):
     try:
+        print(f"Deleting LLMInferenceServiceConfig {name} in namespace {namespace}")
         return kserve_client.api_instance.delete_namespaced_custom_object(
             constants.KSERVE_GROUP,
             version,

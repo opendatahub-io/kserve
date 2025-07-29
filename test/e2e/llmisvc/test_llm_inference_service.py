@@ -15,6 +15,7 @@
 import os
 import time
 from dataclasses import dataclass
+from operator import truediv
 from typing import Any, Callable, List
 import pytest
 import requests
@@ -29,7 +30,6 @@ from .fixtures import (
     generate_test_id,
     # Factory functions are not called explicitly, but they need to be imported to work
     test_case,  # noqa: F401,F811
-    llm_config_factory,  # noqa: F401,F811
 )
 from .logging import log_execution
 
@@ -49,7 +49,7 @@ class TestCase:
     """Test case configuration for LLM inference service tests."""
     base_refs: List[str]
     prompt: str
-    max_tokens: int = None
+    max_tokens: int = 10
     response_assertion: Callable[[requests.Response], None] = assert_200
     wait_timeout: int = 300
     response_timeout: int = 60
