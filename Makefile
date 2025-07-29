@@ -96,6 +96,9 @@ manifests: controller-gen yq
 	echo '{{- if .Values.kserve.localmodel.enabled }}'> charts/kserve-resources/templates/localmodelnode/role.yaml
 	cat config/rbac/localmodelnode/role.yaml >> charts/kserve-resources/templates/localmodelnode/role.yaml
 	echo '{{- end }}' >> charts/kserve-resources/templates/localmodelnode/role.yaml
+	# Copy the llmisvc templates 
+	cp config/llmisvc/* charts/llmisvc-resources/templates/ 
+	rm charts/llmisvc-resources/templates/kustomization.yaml
 	
 	@$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths=./pkg/apis/serving/v1alpha1
 	@$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths=./pkg/apis/serving/v1beta1
@@ -126,6 +129,14 @@ manifests: controller-gen yq
 	# Copy the minimal crd to the helm chart
 	cp config/crd/minimal/* charts/kserve-crd-minimal/templates/
 	rm charts/kserve-crd-minimal/templates/kustomization.yaml
+    
+	# Generate llmisvc rbac
+	@$(CONTROLLER_GEN) rbac:roleName=llmisvc-manager-role paths={./pkg/controller/v1alpha1/llmisvc} output:rbac:artifacts:config=config/rbac/llmisvc
+	# Copy the cluster role to the helm chart
+	cat config/rbac/llmisvc/role.yaml > charts/llmisvc-resources/templates/clusterrole.yaml
+	# Copy llmisvc crd
+	cp config/crd/full/serving.kserve.io_llminferenceservices.yaml charts/llmisvc-crd/templates/
+	cp config/crd/full/serving.kserve.io_llminferenceserviceconfigs.yaml charts/llmisvc-crd/templates/
 
 # Generate code
 generate: controller-gen helm-docs
@@ -134,24 +145,25 @@ generate: controller-gen helm-docs
 	hack/python-sdk/client-gen.sh
 	$(HELM_DOCS) --chart-search-root=charts --output-file=README.md
 
-# Update poetry.lock files
-poetry-lock: $(POETRY)
+# Update uv.lock files
+uv-lock: $(UV)
 # Update the kserve package first as other packages depends on it.
 	cd ./python && \
-	cd kserve && $(POETRY) lock --no-update && cd .. && \
-	for file in $$(find . -type f -name "pyproject.toml" -not -path "./pyproject.toml" -not -path "*.venv/*" -not -path "*/prod_venv/*" -not -path "*/site-packages/*"); do \
+	cd kserve && $(UV) lock && cd .. && \
+	for file in $$(find . -type f -name "pyproject.toml" -not -path "./pyproject.toml" -not -path "*.venv/*"); do \
 		folder=$$(dirname "$$file"); \
 		echo "moving into folder $$folder"; \
 		case "$$folder" in \
 			*plugin*|plugin|kserve) \
 				echo -e "\033[33mSkipping folder $$folder\033[0m" ;; \
 			*) \
-				cd "$$folder" && $(POETRY) lock --no-update && cd - > /dev/null ;; \
+				cd "$$folder" && $(UV) lock && cd - > /dev/null ;; \
 		esac; \
 	done
 
+
 # This runs all necessary steps to prepare for a commit.
-precommit: vet tidy go-lint py-fmt py-lint generate manifests poetry-lock
+precommit: vet tidy go-lint py-fmt py-lint generate manifests uv-lock
 
 # This is used by CI to ensure that the precommit checks are met.
 check: precommit
@@ -398,5 +410,3 @@ apidocs:
 check-doc-links:
 	@python3 hack/verify-doc-links.py && echo "$@: OK"
 
-poetry-update-lockfiles:
-	bash -ec 'for value in $$(find . -name poetry.lock -exec dirname {} \;); do (cd "$${value}" && echo "Updating $${value}/poetry.lock" && poetry update --lock); done'

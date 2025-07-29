@@ -22,7 +22,7 @@ import (
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
-	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
+	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 // LLMInferenceService is the Schema for the llminferenceservices API, representing a single LLM deployment.
@@ -59,6 +59,8 @@ type LLMInferenceServiceConfig struct {
 // LLMInferenceServiceSpec defines the desired state of LLMInferenceService.
 type LLMInferenceServiceSpec struct {
 	// Model specification, including its URI, potential LoRA adapters, and storage details.
+	// It's optional for `LLMInferenceServiceConfig` kind.
+	// +optional
 	Model LLMModelSpec `json:"model"`
 
 	// WorkloadSpec configurations for the primary inference deployment.
@@ -189,7 +191,7 @@ type HTTPRouteSpec struct {
 	// Spec allows for providing a custom specification for an HTTPRoute.
 	// If provided, the controller will create and manage an HTTPRoute with this specification.
 	// +optional
-	Spec *gatewayapi.HTTPRouteSpec `json:"spec,omitempty"`
+	Spec *gwapiv1.HTTPRouteSpec `json:"spec,omitempty"`
 }
 
 // GatewaySpec defines the configuration for a Gateway API Gateway.
@@ -245,11 +247,22 @@ type InferencePoolSpec struct {
 type ParallelismSpec struct {
 	// Tensor parallelism size.
 	// +optional
-	Tensor *int64 `json:"tensor,omitempty"`
+	Tensor *int32 `json:"tensor,omitempty"`
 	// Pipeline parallelism size.
 	// +optional
-	Pipeline *int64 `json:"pipeline,omitempty"`
-	// TODO more to be added ...
+	Pipeline *int32 `json:"pipeline,omitempty"`
+	// Data parallelism size.
+	// +optional
+	Data *int32 `json:"data,omitempty"`
+	// DataLocal data local parallelism size.
+	// +optional
+	DataLocal *int32 `json:"dataLocal,omitempty"`
+	// DataRPCPort is the data parallelism RPC port.
+	// +optional
+	DataRPCPort *int32 `json:"dataRPCPort,omitempty"`
+	// Expert enables expert parallelism.
+	// +optional
+	Expert bool `json:"expert,omitempty"`
 }
 
 // LLMStorageSpec is a copy of the v1beta1.StorageSpec. It is duplicated here to avoid
@@ -272,9 +285,9 @@ type LLMStorageSpec struct {
 // might be inferred or is not strictly required by this controller.
 type UntypedObjectReference struct {
 	// Name of the referenced object.
-	Name gatewayapi.ObjectName `json:"name,omitempty"`
+	Name gwapiv1.ObjectName `json:"name,omitempty"`
 	// Namespace of the referenced object.
-	Namespace gatewayapi.Namespace `json:"namespace,omitempty"`
+	Namespace gwapiv1.Namespace `json:"namespace,omitempty"`
 }
 
 // LLMInferenceServiceStatus defines the observed state of LLMInferenceService.
