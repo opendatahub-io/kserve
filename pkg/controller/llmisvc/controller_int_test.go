@@ -608,7 +608,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 		It("should use storage-initializer to download model when uri starts with hf://", func(ctx SpecContext) {
 			// given
-			svcName := "test-llm"
+			svcName := "test-llm-storage-hf"
 			nsName := kmeta.ChildName(svcName, "-test")
 			namespace := &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
@@ -686,7 +686,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 		It("should use storage-initializer to download model when uri starts with s3://", func(ctx SpecContext) {
 			// given
-			svcName := "test-llm-s3"
+			svcName := "test-llm-storage-s3"
 			nsName := kmeta.ChildName(svcName, "-test")
 			namespace := &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
