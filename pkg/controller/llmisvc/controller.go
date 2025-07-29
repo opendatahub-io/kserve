@@ -221,7 +221,11 @@ func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v
 }
 
 func (r *LLMInferenceServiceReconciler) finalize(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	return r.reconcileSchedulerServiceAccount(ctx, llmSvc)
+	if err := r.reconcileSchedulerServiceAccount(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to finalize scheduler service account: %w", err)
+	}
+
+	return nil
 }
 
 func (r *LLMInferenceServiceReconciler) updateStatus(ctx context.Context, desired *v1alpha1.LLMInferenceService) error {

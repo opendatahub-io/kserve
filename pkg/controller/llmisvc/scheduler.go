@@ -415,7 +415,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerServiceAccount(llmSvc *
 func (r *LLMInferenceServiceReconciler) expectedSchedulerAuthDelegatorBinding(llmSvc *v1alpha1.LLMInferenceService, sa *corev1.ServiceAccount) *rbacv1.ClusterRoleBinding {
 	crb := &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   kmeta.ChildName(llmSvc.GetName(), "-epp-auth-rb"),
+			Name:   kmeta.ChildName(llmSvc.GetNamespace(), "-"+llmSvc.GetName()+"-epp-auth-rb"),
 			Labels: r.schedulerLabels(llmSvc),
 		},
 		Subjects: []rbacv1.Subject{{
