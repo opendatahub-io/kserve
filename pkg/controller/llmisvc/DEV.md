@@ -559,8 +559,6 @@ kind: Gateway
 metadata:
   name: openshift-ai-inference
   namespace: openshift-ingress
-  labels:
-    kuadrant.io/gateway: "true"
 spec:
   gatewayClassName: istio
   listeners:
