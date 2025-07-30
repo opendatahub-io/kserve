@@ -427,6 +427,8 @@ EOF
 
 You have to add pullsecret for brew image on your cluster.
 
+The OSSM prebuilt image have an issue so do not follow up this step for now(2025.July.30)
+USE `upstream istio` following the next step `Install upstream ISTIO(Optional)`
 
 ```shell
 
@@ -474,7 +476,7 @@ spec:
           source: registry.redhat.io/openshift-service-mesh-dev-preview-beta
 EOF
 
-# Deploy OSSM
+# Deploy OSSM  (need to update iib image when blocker issue is fixed)
 cat<<EOF |oc create -f -
 apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
@@ -518,6 +520,7 @@ spec:
 EOF
 
 oc create ns istio-system
+
 cat<<EOF|oc create -f -
 apiVersion: sailoperator.io/v1
 kind: Istio
@@ -532,7 +535,7 @@ spec:
   values:
     pilot:
       env:
-        SUPPORT_GATEWAY_API_INFERENCE_EXTENSION: "true"
+        SUPPORT_GATEWAY_API_INFERENCE_EXTENSION: "true"    # TO-DO: This need to be removed soon [istio issue](https://github.com/istio/istio/pull/57099)
         ENABLE_GATEWAY_API_INFERENCE_EXTENSION: "true"
 EOF
 ```
