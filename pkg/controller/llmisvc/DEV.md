@@ -96,8 +96,6 @@ scheduling tests via WorkStealingScheduling
 llmisvc/test_llm_inference_service.py::test_llm_inference_service[managed-single-cpu-fb-opt-125m]
 [gw0] [100%] PASSED llmisvc/test_llm_inference_service.py::test_llm_inference_service[managed-single-cpu-fb-opt-125m]
 ```
-> [!NOTE] 
-> Ignore error from ERROR collecting graph/test_inference_graph.py, but we should fix it!
 
 ##### Manual
 
