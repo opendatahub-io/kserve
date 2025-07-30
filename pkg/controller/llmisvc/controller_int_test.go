@@ -302,7 +302,14 @@ var _ = Describe("LLMInferenceService Controller", func() {
 							Route: &v1alpha1.GatewayRoutesSpec{
 								HTTP: &v1alpha1.HTTPRouteSpec{},
 							},
-							Gateway: &v1alpha1.GatewaySpec{},
+							Gateway: &v1alpha1.GatewaySpec{
+								Refs: []v1alpha1.UntypedObjectReference{
+									{
+										Name:      "my-ingress-gateway",
+										Namespace: gatewayapi.Namespace(nsName),
+									},
+								},
+							},
 						},
 					},
 				}
