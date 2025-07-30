@@ -450,7 +450,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 		})
 	})
 
-	Context("Storage configuration", func() {
+	Context("Storage configuration for single node", func() {
 		It("should configure direct PVC mount when model uri starts with pvc://", func(ctx SpecContext) {
 			// given
 			svcName := "test-llm-storage-pvc"
@@ -485,6 +485,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						Gateway:   &v1alpha1.GatewaySpec{},
 						Scheduler: &v1alpha1.SchedulerSpec{},
 					},
+					Prefill: &v1alpha1.WorkloadSpec{},
 				},
 			}
 
@@ -495,29 +496,39 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			}()
 
 			// then
-			expectedDeployment := &appsv1.Deployment{}
+			expectedMainDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
 					Name:      svcName + "-kserve",
 					Namespace: nsName,
-				}, expectedDeployment)
+				}, expectedMainDeployment)
 			}).WithContext(ctx).Should(Succeed())
 
-			mainContainer := utils.GetContainerWithName(&expectedDeployment.Spec.Template.Spec, "main")
-			Expect(mainContainer).ToNot(BeNil())
+			expectedPrefillDeployment := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-prefill",
+					Namespace: nsName,
+				}, expectedPrefillDeployment)
+			}).WithContext(ctx).Should(Succeed())
 
-			Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
-			Expect(expectedDeployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
-				HaveField("Name", constants.PvcSourceMountName),
-				HaveField("VolumeSource.PersistentVolumeClaim.ClaimName", "facebook-models"),
-			)))
+			for _, deployment := range []*appsv1.Deployment{expectedMainDeployment, expectedPrefillDeployment} {
+				mainContainer := utils.GetContainerWithName(&deployment.Spec.Template.Spec, "main")
+				Expect(mainContainer).ToNot(BeNil())
 
-			Expect(mainContainer.VolumeMounts).To(ContainElement(And(
-				HaveField("Name", constants.PvcSourceMountName),
-				HaveField("MountPath", constants.DefaultModelLocalMountPath),
-				HaveField("ReadOnly", BeTrue()),
-				HaveField("SubPath", "opt-125m"),
-			)))
+				Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
+				Expect(deployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
+					HaveField("Name", constants.PvcSourceMountName),
+					HaveField("VolumeSource.PersistentVolumeClaim.ClaimName", "facebook-models"),
+				)))
+
+				Expect(mainContainer.VolumeMounts).To(ContainElement(And(
+					HaveField("Name", constants.PvcSourceMountName),
+					HaveField("MountPath", constants.DefaultModelLocalMountPath),
+					HaveField("ReadOnly", BeTrue()),
+					HaveField("SubPath", "opt-125m"),
+				)))
+			}
 		})
 
 		It("should configure a modelcar when model uri starts with oci://", func(ctx SpecContext) {
@@ -554,6 +565,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						Gateway:   &v1alpha1.GatewaySpec{},
 						Scheduler: &v1alpha1.SchedulerSpec{},
 					},
+					Prefill: &v1alpha1.WorkloadSpec{},
 				},
 			}
 
@@ -564,53 +576,63 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			}()
 
 			// then
-			expectedDeployment := &appsv1.Deployment{}
+			expectedMainDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
 					Name:      svcName + "-kserve",
 					Namespace: nsName,
-				}, expectedDeployment)
+				}, expectedMainDeployment)
 			}).WithContext(ctx).Should(Succeed())
 
-			// Check the main container and modelcar container are present.
-			mainContainer := utils.GetContainerWithName(&expectedDeployment.Spec.Template.Spec, "main")
-			Expect(mainContainer).ToNot(BeNil())
-			modelcarContainer := utils.GetContainerWithName(&expectedDeployment.Spec.Template.Spec, constants.ModelcarContainerName)
-			Expect(modelcarContainer).ToNot(BeNil())
+			expectedPrefillDeployment := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-prefill",
+					Namespace: nsName,
+				}, expectedPrefillDeployment)
+			}).WithContext(ctx).Should(Succeed())
 
-			// Check container are sharing resources.
-			Expect(expectedDeployment.Spec.Template.Spec.ShareProcessNamespace).To(Not(BeNil()))
-			Expect(*expectedDeployment.Spec.Template.Spec.ShareProcessNamespace).To(BeTrue())
+			for _, deployment := range []*appsv1.Deployment{expectedMainDeployment, expectedPrefillDeployment} {
+				// Check the main container and modelcar container are present.
+				mainContainer := utils.GetContainerWithName(&deployment.Spec.Template.Spec, "main")
+				Expect(mainContainer).ToNot(BeNil())
+				modelcarContainer := utils.GetContainerWithName(&deployment.Spec.Template.Spec, constants.ModelcarContainerName)
+				Expect(modelcarContainer).ToNot(BeNil())
 
-			// Check the model server is directed to the mount point of the OCI container
-			Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
+				// Check container are sharing resources.
+				Expect(deployment.Spec.Template.Spec.ShareProcessNamespace).To(Not(BeNil()))
+				Expect(*deployment.Spec.Template.Spec.ShareProcessNamespace).To(BeTrue())
 
-			// Check the model server has an envvar indicating that the model may not be mounted immediately.
-			Expect(mainContainer.Env).To(ContainElement(And(
-				HaveField("Name", constants.ModelInitModeEnv),
-				HaveField("Value", "async"),
-			)))
+				// Check the model server is directed to the mount point of the OCI container
+				Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
 
-			// Check OCI init container for the pre-fetch
-			Expect(expectedDeployment.Spec.Template.Spec.InitContainers).To(ContainElement(And(
-				HaveField("Name", constants.ModelcarInitContainerName),
-				HaveField("Resources.Limits", And(HaveKey(corev1.ResourceCPU), HaveKey(corev1.ResourceMemory))),
-				HaveField("Resources.Requests", And(HaveKey(corev1.ResourceCPU), HaveKey(corev1.ResourceMemory))),
-			)))
+				// Check the model server has an envvar indicating that the model may not be mounted immediately.
+				Expect(mainContainer.Env).To(ContainElement(And(
+					HaveField("Name", constants.ModelInitModeEnv),
+					HaveField("Value", "async"),
+				)))
 
-			// Basic check of empty dir volume is configured (shared mount between the containers)
-			Expect(expectedDeployment.Spec.Template.Spec.Volumes).To(ContainElement(HaveField("Name", constants.StorageInitializerVolumeName)))
+				// Check OCI init container for the pre-fetch
+				Expect(deployment.Spec.Template.Spec.InitContainers).To(ContainElement(And(
+					HaveField("Name", constants.ModelcarInitContainerName),
+					HaveField("Resources.Limits", And(HaveKey(corev1.ResourceCPU), HaveKey(corev1.ResourceMemory))),
+					HaveField("Resources.Requests", And(HaveKey(corev1.ResourceCPU), HaveKey(corev1.ResourceMemory))),
+				)))
 
-			// Check that the empty-dir volume is mounted to the modelcar and main container (shared storage)
-			Expect(mainContainer.VolumeMounts).To(ContainElement(And(
-				HaveField("Name", constants.StorageInitializerVolumeName),
-				HaveField("MountPath", "/mnt"),
-			)))
-			Expect(modelcarContainer.VolumeMounts).To(ContainElement(And(
-				HaveField("Name", constants.StorageInitializerVolumeName),
-				HaveField("MountPath", "/mnt"),
-				HaveField("ReadOnly", false),
-			)))
+				// Basic check of empty dir volume is configured (shared mount between the containers)
+				Expect(deployment.Spec.Template.Spec.Volumes).To(ContainElement(HaveField("Name", constants.StorageInitializerVolumeName)))
+
+				// Check that the empty-dir volume is mounted to the modelcar and main container (shared storage)
+				Expect(mainContainer.VolumeMounts).To(ContainElement(And(
+					HaveField("Name", constants.StorageInitializerVolumeName),
+					HaveField("MountPath", "/mnt"),
+				)))
+				Expect(modelcarContainer.VolumeMounts).To(ContainElement(And(
+					HaveField("Name", constants.StorageInitializerVolumeName),
+					HaveField("MountPath", "/mnt"),
+					HaveField("ReadOnly", false),
+				)))
+			}
 		})
 
 		It("should use storage-initializer to download model when uri starts with hf://", func(ctx SpecContext) {
@@ -646,6 +668,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						Gateway:   &v1alpha1.GatewaySpec{},
 						Scheduler: &v1alpha1.SchedulerSpec{},
 					},
+					Prefill: &v1alpha1.WorkloadSpec{},
 				},
 			}
 
@@ -656,39 +679,49 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			}()
 
 			// then
-			expectedDeployment := &appsv1.Deployment{}
+			expectedMainDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
 					Name:      svcName + "-kserve",
 					Namespace: nsName,
-				}, expectedDeployment)
+				}, expectedMainDeployment)
 			}).WithContext(ctx).Should(Succeed())
 
-			// Check the volume to store the model exists
-			Expect(expectedDeployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
-				HaveField("Name", constants.StorageInitializerVolumeName),
-				HaveField("EmptyDir", Not(BeNil())),
-			)))
+			expectedPrefillDeployment := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-prefill",
+					Namespace: nsName,
+				}, expectedPrefillDeployment)
+			}).WithContext(ctx).Should(Succeed())
 
-			// Check the storage-initializer container is present.
-			Expect(expectedDeployment.Spec.Template.Spec.InitContainers).To(ContainElement(And(
-				HaveField("Name", constants.StorageInitializerContainerName),
-				HaveField("Args", ContainElements("hf://user-id/repo-id:tag", constants.DefaultModelLocalMountPath)),
-				HaveField("VolumeMounts", ContainElement(And(
+			for _, deployment := range []*appsv1.Deployment{expectedMainDeployment, expectedPrefillDeployment} {
+				// Check the volume to store the model exists
+				Expect(deployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
+					HaveField("Name", constants.StorageInitializerVolumeName),
+					HaveField("EmptyDir", Not(BeNil())),
+				)))
+
+				// Check the storage-initializer container is present.
+				Expect(deployment.Spec.Template.Spec.InitContainers).To(ContainElement(And(
+					HaveField("Name", constants.StorageInitializerContainerName),
+					HaveField("Args", ContainElements("hf://user-id/repo-id:tag", constants.DefaultModelLocalMountPath)),
+					HaveField("VolumeMounts", ContainElement(And(
+						HaveField("Name", constants.StorageInitializerVolumeName),
+						HaveField("MountPath", constants.DefaultModelLocalMountPath),
+					))),
+				)))
+
+				// Check the main container has the model mounted
+				mainContainer := utils.GetContainerWithName(&deployment.Spec.Template.Spec, "main")
+				Expect(mainContainer).ToNot(BeNil())
+				Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
+				Expect(mainContainer.VolumeMounts).To(ContainElement(And(
 					HaveField("Name", constants.StorageInitializerVolumeName),
 					HaveField("MountPath", constants.DefaultModelLocalMountPath),
-				))),
-			)))
-
-			// Check the main container has the model mounted
-			mainContainer := utils.GetContainerWithName(&expectedDeployment.Spec.Template.Spec, "main")
-			Expect(mainContainer).ToNot(BeNil())
-			Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
-			Expect(mainContainer.VolumeMounts).To(ContainElement(And(
-				HaveField("Name", constants.StorageInitializerVolumeName),
-				HaveField("MountPath", constants.DefaultModelLocalMountPath),
-				HaveField("ReadOnly", BeTrue()),
-			)))
+					HaveField("ReadOnly", BeTrue()),
+				)))
+			}
 		})
 
 		It("should use storage-initializer to download model when uri starts with s3://", func(ctx SpecContext) {
@@ -724,6 +757,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						Gateway:   &v1alpha1.GatewaySpec{},
 						Scheduler: &v1alpha1.SchedulerSpec{},
 					},
+					Prefill: &v1alpha1.WorkloadSpec{},
 				},
 			}
 
@@ -734,39 +768,49 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			}()
 
 			// then
-			expectedDeployment := &appsv1.Deployment{}
+			expectedMainDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
 					Name:      svcName + "-kserve",
 					Namespace: nsName,
-				}, expectedDeployment)
+				}, expectedMainDeployment)
 			}).WithContext(ctx).Should(Succeed())
 
-			// Check the volume to store the model exists
-			Expect(expectedDeployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
-				HaveField("Name", constants.StorageInitializerVolumeName),
-				HaveField("EmptyDir", Not(BeNil())),
-			)))
+			expectedPrefillDeployment := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-prefill",
+					Namespace: nsName,
+				}, expectedPrefillDeployment)
+			}).WithContext(ctx).Should(Succeed())
 
-			// Check the storage-initializer container is present.
-			Expect(expectedDeployment.Spec.Template.Spec.InitContainers).To(ContainElement(And(
-				HaveField("Name", constants.StorageInitializerContainerName),
-				HaveField("Args", ContainElements("s3://user-id/repo-id:tag", constants.DefaultModelLocalMountPath)),
-				HaveField("VolumeMounts", ContainElement(And(
+			for _, deployment := range []*appsv1.Deployment{expectedMainDeployment, expectedPrefillDeployment} {
+				// Check the volume to store the model exists
+				Expect(deployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
+					HaveField("Name", constants.StorageInitializerVolumeName),
+					HaveField("EmptyDir", Not(BeNil())),
+				)))
+
+				// Check the storage-initializer container is present.
+				Expect(deployment.Spec.Template.Spec.InitContainers).To(ContainElement(And(
+					HaveField("Name", constants.StorageInitializerContainerName),
+					HaveField("Args", ContainElements("s3://user-id/repo-id:tag", constants.DefaultModelLocalMountPath)),
+					HaveField("VolumeMounts", ContainElement(And(
+						HaveField("Name", constants.StorageInitializerVolumeName),
+						HaveField("MountPath", constants.DefaultModelLocalMountPath),
+					))),
+				)))
+
+				// Check the main container has the model mounted
+				mainContainer := utils.GetContainerWithName(&deployment.Spec.Template.Spec, "main")
+				Expect(mainContainer).ToNot(BeNil())
+				Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
+				Expect(mainContainer.VolumeMounts).To(ContainElement(And(
 					HaveField("Name", constants.StorageInitializerVolumeName),
 					HaveField("MountPath", constants.DefaultModelLocalMountPath),
-				))),
-			)))
-
-			// Check the main container has the model mounted
-			mainContainer := utils.GetContainerWithName(&expectedDeployment.Spec.Template.Spec, "main")
-			Expect(mainContainer).ToNot(BeNil())
-			Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
-			Expect(mainContainer.VolumeMounts).To(ContainElement(And(
-				HaveField("Name", constants.StorageInitializerVolumeName),
-				HaveField("MountPath", constants.DefaultModelLocalMountPath),
-				HaveField("ReadOnly", BeTrue()),
-			)))
+					HaveField("ReadOnly", BeTrue()),
+				)))
+			}
 		})
 	})
 })
