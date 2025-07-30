@@ -83,7 +83,7 @@ func (e *Config) WithControllers(setupFunc ...SetupFunc) *Config {
 	return e
 }
 
-// WithWebhookManifests register webhooks under tests required for the test suite.
+// WithWebhooks register webhooks under tests required for the test suite.
 func (e *Config) WithWebhooks(setupFunc ...SetupFunc) *Config {
 	e.webhooksSetupFuncs = append(e.webhooksSetupFuncs, setupFunc...)
 
@@ -187,7 +187,15 @@ func WithCRDs(paths ...string) Option {
 // WithWebhookManifests adds CRDs to the test environment using paths.
 func WithWebhookManifests(paths ...string) Option {
 	return func(target *envtest.Environment) {
-		target.WebhookInstallOptions.Paths = append(target.WebhookInstallOptions.Paths, paths...)
+		seen := make(map[string]bool)
+		for _, p := range target.WebhookInstallOptions.Paths {
+			seen[p] = true
+		}
+		for _, p := range paths {
+			if !seen[p] {
+				target.WebhookInstallOptions.Paths = append(target.WebhookInstallOptions.Paths, p)
+			}
+		}
 	}
 }
 
