@@ -330,9 +330,9 @@ oc login -u kubeadmin https://api.crc.testing:6443
 **Install Cert-Manager**
 
 ```shell
-oc new-project cert-manager-operator
+kubectl create namespace cert-manager-operator || true
 
-cat<<EOF |oc create -f -
+cat<<EOF | kubectl create -f -
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
@@ -365,7 +365,7 @@ oc wait pod -l name=cert-manager-operator -n cert-manager-operator --for=conditi
 This step should be changed when official lws-operator is released.
 
 ```shell
-cat <<EOF|oc create -f -
+cat <<EOF | kubectl create -f -
 apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
 metadata:
@@ -376,13 +376,11 @@ spec:
   image: quay.io/jooholee/lws-operator-index:llmd
 EOF
 
-sleep 10
+kubectl wait pod -l olm.catalogSource=lws-operator -n openshift-marketplace --for=condition=Ready --timeout=180s
 
-oc wait pod -l olm.catalogSource=lws-operator -n openshift-marketplace --for=condition=Ready --timeout=120s
+kubectl create ns openshift-lws-operator || true
 
-oc create ns openshift-lws-operator
-
-cat <<EOF|oc create -f -
+cat <<EOF | kubectl create -f -
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
@@ -407,10 +405,19 @@ spec:
   startingCSV: leader-worker-set.v1.0.0
 EOF
 
-# Wait until the pod is created
-oc wait pod -l name=openshift-lws-operator -n openshift-lws-operator --for=condition=Ready --timeout=120s
+kubectl wait pod -l name=openshift-lws-operator -n openshift-lws-operator --for=condition=Ready --timeout=120s
 
-cat <<EOF|oc create -f -
+until kubectl get crd leaderworkersetoperators.operator.openshift.io &> /dev/null; do
+  echo "⏳ waiting for CRD to appear…"
+  sleep 2
+done
+
+kubectl wait \
+  --for=condition=Established \
+  --timeout=60s \
+  crd/leaderworkersetoperators.operator.openshift.io
+  
+cat <<EOF | kubectl create -f -
 apiVersion: operator.openshift.io/v1
 kind: LeaderWorkerSetOperator
 metadata:
@@ -544,9 +551,9 @@ EOF
 This step will be removed at some point because the ISTIO(OSSM) should be provided by the platform.
 
 ```shell
-oc create ns istio-system
-oc create -f test/overlays/llm-istio-experimental -n istio-system
-```
+kubectl create ns istio-system || true
+kubectl create -f test/overlays/llm-istio-experimental -n istio-system
+
 
 **Create a gateway**
 ```shell
@@ -582,20 +589,18 @@ A new CRD related objects will be added
   - `well-know preset` LlmIsvcConfig in the controller namespace
 
 ```shell
-# Create controller namespace
-oc get ns opendatahub || oc new-project opendatahub
+kubectl create ns opendatahub || true
 
-# Create CRDs
-kustomize build config/crd | oc apply --server-side=true -f -
+kubectl kustomize config/crd/ | kubectl apply --server-side=true -f -
+until kubectl get crd llminferenceserviceconfigs.serving.kserve.io &> /dev/null; do
+  echo "⏳ waiting for CRD to appear…"
+  sleep 2
+done
+kubectl wait --for=condition=Established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
 
-oc wait --for=condition=Established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
+kubectl kustomize config/overlays/odh | kubectl apply  --server-side=true -f -
 
-# Deploy Kserve
-# Retry to create kserve again for preset LLMInferenceserviceConfigs
-kustomize build config/overlays/odh |oc apply  --server-side=true -f -
-
-oc wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n opendatahub  --timeout=300s
-
+kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n opendatahub  --timeout=300s
 ```
 
 Deploy the model:
