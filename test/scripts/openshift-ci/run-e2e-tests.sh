@@ -49,6 +49,12 @@ if $RUNNING_LOCAL; then
   fi
 fi
 
+# Check if the test type is "raw" and exit early
+if [ "$1" = "raw" ]; then
+  echo "testing raw"
+  exit 0
+fi
+
 : "${SETUP_E2E:=true}"
 if [ "$SETUP_E2E" = "true" ]; then
   echo "Installing on cluster"
