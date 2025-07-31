@@ -55,7 +55,7 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 	// We need to always reconcile every type of workload to handle transitions from P/D to another topology (meaning
 	// finalizing superfluous workloads).
 
-	if err := r.reconcileMultiNodeWorkload(ctx, llmSvc); err != nil {
+	if err := r.reconcileMultiNodeWorkload(ctx, llmSvc, storageConfig); err != nil {
 		llmSvc.MarkWorkloadNotReady("ReconcileMultiNodeWorkloadError", err.Error())
 		return fmt.Errorf("failed to reconcile multi node workload: %w", err)
 	}
