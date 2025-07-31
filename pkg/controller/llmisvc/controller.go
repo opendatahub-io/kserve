@@ -24,6 +24,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -126,7 +127,7 @@ type LLMInferenceServiceReconciler struct {
 //+kubebuilder:rbac:groups=inference.networking.x-k8s.io,resources=inferencepools;inferencemodels;,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 //+kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews;subjectaccessreviews,verbs=create
 //+kubebuilder:rbac:groups=networking.istio.io,resources=destinationrules,verbs=get;list;watch;create;update;patch;delete
@@ -143,9 +144,28 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if original.DeletionTimestamp != nil {
-		// TODO(reconcile): Handle finalization logic if needed.
-		logger.Info("Mark for deletion, skipping reconciliation")
+	finalizerName := constants.KServeAPIGroupName + "/llmisvc-finalizer"
+	if original.DeletionTimestamp.IsZero() {
+		if controllerutil.AddFinalizer(original, finalizerName) {
+			if err := r.Update(ctx, original); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	} else {
+		logger.Info("Marked for deletion, finalizing resources")
+		if controllerutil.ContainsFinalizer(original, finalizerName) {
+			if cleanupErr := r.finalize(ctx, original); cleanupErr != nil {
+				logger.Error(cleanupErr, "Finalization failed")
+				return ctrl.Result{}, cleanupErr
+			}
+
+			controllerutil.RemoveFinalizer(original, finalizerName)
+			if err := r.Update(ctx, original); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		// Do not reconcile, because llmisvc is being deleted.
 		return ctrl.Result{}, nil
 	}
 
@@ -195,6 +215,14 @@ func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v
 
 	if err := r.reconcileRouter(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to reconcile networking: %w", err)
+	}
+
+	return nil
+}
+
+func (r *LLMInferenceServiceReconciler) finalize(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	if err := r.reconcileSchedulerServiceAccount(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to finalize scheduler service account: %w", err)
 	}
 
 	return nil
