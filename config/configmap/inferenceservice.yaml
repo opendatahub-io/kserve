@@ -618,7 +618,8 @@ data:
         "enableDirectPvcVolumeMount": true,
         "enableModelcar": true,
         "cpuModelcar": "10m",
-        "memoryModelcar": "15Mi"
+        "memoryModelcar": "15Mi",
+        "uidModelcar": 1010
     }
 
   credentials: |-
