@@ -132,7 +132,7 @@ manifests: controller-gen yq
 	cp config/crd/minimal/* charts/kserve-crd-minimal/templates/
 	rm charts/kserve-crd-minimal/templates/kustomization.yaml
 
-	kubectl kustomize config/crd/external/gie > config/llmisvc/gie.yaml
+	kubectl kustomize https://github.com/kubernetes-sigs/gateway-api-inference-extension/config/crd?ref=v0.5.0 > config/crd/external/gateway-inference-extension/gateway-inference-extension.yaml
 
 # Generate code
 generate: controller-gen helm-docs
