@@ -33,7 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/kmeta"
-	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
+	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -58,12 +58,10 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 		return fmt.Errorf("failed to reconcile HTTP routes: %w", err)
 	}
 
-	if err := r.reconcileIstioDestinationRules(ctx, llmSvc); err != nil {
-		llmSvc.MarkRouterNotReady("IstioDestinationRuleReconcileError", "Failed to reconcile DestinationRule: %v", err.Error())
-		return fmt.Errorf("failed to reconcile istio destination rules: %w", err)
+	// Evaluate Gateway conditions to determine overall router readiness
+	if err := r.EvaluateGatewayConditions(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to evaluate gateway conditions: %w", err)
 	}
-
-	llmSvc.MarkRouterReady()
 
 	return nil
 }
@@ -92,7 +90,7 @@ func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context,
 
 	// TODO(validation): referenced gateway exists
 	if route.HTTP.HasSpec() {
-		if err := Reconcile(ctx, r, llmSvc, &gatewayapi.HTTPRoute{}, expectedHTTPRoute, semanticHTTPRouteIsEqual); err != nil {
+		if err := Reconcile(ctx, r, llmSvc, &gwapiv1.HTTPRoute{}, expectedHTTPRoute, semanticHTTPRouteIsEqual); err != nil {
 			return fmt.Errorf("failed to reconcile HTTPRoute %s/%s: %w", expectedHTTPRoute.GetNamespace(), expectedHTTPRoute.GetName(), err)
 		}
 		referencedRoutes = append(referencedRoutes, expectedHTTPRoute)
@@ -101,14 +99,14 @@ func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context,
 	return r.updateRoutingStatus(ctx, llmSvc, referencedRoutes...)
 }
 
-func (r *LLMInferenceServiceReconciler) collectReferencedRoutes(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) ([]*gatewayapi.HTTPRoute, error) {
+func (r *LLMInferenceServiceReconciler) collectReferencedRoutes(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) ([]*gwapiv1.HTTPRoute, error) {
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || !llmSvc.Spec.Router.Route.HTTP.HasRefs() {
 		return nil, nil
 	}
 
-	referencedRoutes := make([]*gatewayapi.HTTPRoute, 0, len(llmSvc.Spec.Router.Route.HTTP.Refs))
+	referencedRoutes := make([]*gwapiv1.HTTPRoute, 0, len(llmSvc.Spec.Router.Route.HTTP.Refs))
 	for _, routeRef := range llmSvc.Spec.Router.Route.HTTP.Refs {
-		route := &gatewayapi.HTTPRoute{}
+		route := &gwapiv1.HTTPRoute{}
 		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: llmSvc.GetNamespace(), Name: routeRef.Name}, route); err != nil {
 			if apierrors.IsNotFound(err) {
 				// TODO(follow-up) mark condition if not found
@@ -122,8 +120,8 @@ func (r *LLMInferenceServiceReconciler) collectReferencedRoutes(ctx context.Cont
 	return referencedRoutes, nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *gatewayapi.HTTPRoute {
-	httpRoute := &gatewayapi.HTTPRoute{
+func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *gwapiv1.HTTPRoute {
+	httpRoute := &gwapiv1.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-route"),
 			Namespace: llmSvc.GetNamespace(),
@@ -143,7 +141,7 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 
 		// If Gateway is not managed (has .refs), re-attach the expected route to the referenced gateways
 		if llmSvc.Spec.Router.Gateway.HasRefs() {
-			httpRoute.Spec.CommonRouteSpec.ParentRefs = make([]gatewayapi.ParentReference, 0, len(llmSvc.Spec.Router.Gateway.Refs))
+			httpRoute.Spec.CommonRouteSpec.ParentRefs = make([]gwapiv1.ParentReference, 0, len(llmSvc.Spec.Router.Gateway.Refs))
 			for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
 				httpRoute.Spec.CommonRouteSpec.ParentRefs = append(httpRoute.Spec.CommonRouteSpec.ParentRefs, toGatewayRef(ref))
 			}
@@ -153,7 +151,7 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 	return httpRoute
 }
 
-func (r *LLMInferenceServiceReconciler) updateRoutingStatus(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, routes ...*gatewayapi.HTTPRoute) error {
+func (r *LLMInferenceServiceReconciler) updateRoutingStatus(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, routes ...*gwapiv1.HTTPRoute) error {
 	logger := log.FromContext(ctx)
 
 	var urls []*apis.URL
@@ -188,14 +186,14 @@ func (r *LLMInferenceServiceReconciler) updateRoutingStatus(ctx context.Context,
 	return nil
 }
 
-func toGatewayRef(ref v1alpha1.UntypedObjectReference) gatewayapi.ParentReference {
-	return gatewayapi.ParentReference{
+func toGatewayRef(ref v1alpha1.UntypedObjectReference) gwapiv1.ParentReference {
+	return gwapiv1.ParentReference{
 		// TODO(api): With this structure we are missing the ability to narrow a section of targeted gateway by the route we are creating
 		// missing SectionName and Port will implicitly bind the route to the first listener in the parent
 		Name:      ref.Name,
 		Namespace: &ref.Namespace,
-		Group:     ptr.To(gatewayapi.Group("gateway.networking.k8s.io")),
-		Kind:      ptr.To(gatewayapi.Kind("Gateway")),
+		Group:     ptr.To(gwapiv1.Group("gateway.networking.k8s.io")),
+		Kind:      ptr.To(gwapiv1.Kind("Gateway")),
 	}
 }
 
@@ -207,8 +205,68 @@ func RouterLabels(llmSvc *v1alpha1.LLMInferenceService) map[string]string {
 	}
 }
 
-func semanticHTTPRouteIsEqual(e *gatewayapi.HTTPRoute, c *gatewayapi.HTTPRoute) bool {
+func semanticHTTPRouteIsEqual(e *gwapiv1.HTTPRoute, c *gwapiv1.HTTPRoute) bool {
 	return equality.Semantic.DeepDerivative(e.Spec, c.Spec) &&
 		equality.Semantic.DeepDerivative(e.Labels, c.Labels) &&
 		equality.Semantic.DeepDerivative(e.Annotations, c.Annotations)
+}
+
+// EvaluateGatewayConditions evaluates the readiness of all Gateways referenced by the LLMInferenceService
+// and updates the Router condition accordingly
+func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	logger := log.FromContext(ctx).WithName("evaluateGatewayConditions")
+
+	// If no router or gateway configuration, skip Gateway evaluation
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
+		logger.Info("No Gateway references found, skipping Gateway condition evaluation")
+		return nil
+	}
+
+	gateways, err := r.FetchReferencedGateways(ctx, llmSvc)
+	if err != nil {
+		llmSvc.MarkRouterNotReady("GatewayFetchError", "Failed to fetch referenced Gateways: %v", err.Error())
+		return fmt.Errorf("failed to fetch referenced gateways: %w", err)
+	}
+
+	notReadyGateways := evaluateGatewayReadiness(ctx, gateways)
+
+	if len(notReadyGateways) > 0 {
+		llmSvc.MarkRouterNotReady("GatewaysNotReady", "One or more referenced Gateways are not ready")
+		return nil
+	}
+	llmSvc.MarkRouterReady()
+	logger.Info("All referenced Gateways are ready")
+
+	return nil
+}
+
+// FetchReferencedGateways retrieves all Gateway objects referenced in the LLMInferenceService spec
+func (r *LLMInferenceServiceReconciler) FetchReferencedGateways(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) ([]*gwapiv1.Gateway, error) {
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
+		return nil, nil
+	}
+
+	gateways := make([]*gwapiv1.Gateway, 0, len(llmSvc.Spec.Router.Gateway.Refs))
+
+	for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
+		gateway := &gwapiv1.Gateway{}
+		gatewayKey := types.NamespacedName{
+			Name:      string(ref.Name),
+			Namespace: string(ref.Namespace),
+		}
+
+		// If namespace is not specified, use the same namespace as the LLMInferenceService
+		if gatewayKey.Namespace == "" {
+			gatewayKey.Namespace = llmSvc.GetNamespace()
+		}
+
+		err := r.Client.Get(ctx, gatewayKey, gateway)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get Gateway %s: %w", gatewayKey, err)
+		}
+
+		gateways = append(gateways, gateway)
+	}
+
+	return gateways, nil
 }
