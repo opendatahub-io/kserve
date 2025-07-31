@@ -408,7 +408,10 @@ spec:
   startingCSV: leader-worker-set.v1.0.0
 EOF
 
-kubectl wait pod -l name=openshift-lws-operator -n openshift-lws-operator --for=condition=Ready --timeout=120s
+sleep 5
+
+# Wait until the pod is created
+oc wait pod -l name=openshift-lws-operator -n openshift-lws-operator --for=condition=Ready --timeout=120s
 
 until kubectl get crd leaderworkersetoperators.operator.openshift.io &> /dev/null; do
   echo "⏳ waiting for CRD to appear…"
@@ -579,9 +582,6 @@ spec:
      allowedRoutes:
        namespaces:
          from: All
-  infrastructure:
-    labels:
-      serving.kserve.io/gateway: kserve-ingress-gateway
 EOF
 ```
 
@@ -611,11 +611,15 @@ Deploy the model:
 
 ```shell
 NS=llm-test
+oc new-project "${NS}" || true
+
 LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-facebook-opt-125m-cpu.yaml
 LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
 
 kubectl get ns $NS||kubectl create ns $NS
 kubectl apply -n ${NS} -f ${LLM_ISVC}
+
+oc wait llminferenceservice --for=condition=ready --all --timeout=300s
 ```
 
 

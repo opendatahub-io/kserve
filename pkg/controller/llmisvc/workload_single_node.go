@@ -18,7 +18,6 @@ package llmisvc
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -68,10 +67,6 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainWorkload(ctx cont
 }
 
 func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *types.StorageInitializerConfig) (*appsv1.Deployment, error) {
-	if llmSvc.Spec.Template == nil {
-		return nil, errors.New("llmSvc.Spec.Template must not be nil")
-	}
-
 	role := "decode"
 	if llmSvc.Spec.Prefill == nil {
 		role = "both"

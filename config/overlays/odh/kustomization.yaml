@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
 - ../../default
 - user-cluster-roles.yaml
+- llm-d-scc.yaml
 
 namespace: opendatahub
 

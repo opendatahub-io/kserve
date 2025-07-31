@@ -1,0 +1,75 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: qwen-1-5-moe-a2-7b
+  annotations:
+    leaderworkerset.sigs.k8s.io/subgroup-exclusive-topology: kubernetes.io/hostname
+spec:
+  model:
+    uri: hf://Qwen/Qwen1.5-MoE-A2.7B
+    name: Qwen/Qwen1.5-MoE-A2.7B
+  parallelism:
+    data: 2
+    dataLocal: 1
+    expert: true
+    tensor: 1
+  router:
+    scheduler: { }
+    route: { }
+    gateway: { }
+  worker:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: nvidia.com/gpu.product
+                  operator: In
+                  values:
+                    - NVIDIA-H100-80GB-HBM3
+    containers:
+      - name: main
+        env:
+          - name: VLLM_LOGGING_LEVEL
+            value: DEBUG
+          - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: VLLM_USE_DEEP_GEMM
+            value: "1"
+          - name: VLLM_ALL2ALL_BACKEND
+            value: "naive"
+          - name: NCCL_SOCKET_IFNAME
+            value: eth0
+          - name: NCCL_IB_HCA
+            value: ibp
+#        livenessProbe:
+#          httpGet:
+#            path: /health
+#            port: 8000
+#            scheme: HTTP
+#          initialDelaySeconds: 300
+#          periodSeconds: 10
+#          timeoutSeconds: 10
+#          failureThreshold: 3
+#        readinessProbe:
+#          httpGet:
+#            path: /health
+#            port: 8000
+#            scheme: HTTP
+#          initialDelaySeconds: 300
+#          periodSeconds: 30
+#          timeoutSeconds: 5
+#          failureThreshold: 60
+        resources:
+          limits:
+            cpu: 16
+            ephemeral-storage: 64Gi
+            memory: 128Gi
+            nvidia.com/gpu: "1"
+          requests:
+            cpu: 8
+            ephemeral-storage: 32Gi
+            memory: 64Gi
+            nvidia.com/gpu: "1"

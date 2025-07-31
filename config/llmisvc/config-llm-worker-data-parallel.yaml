@@ -4,6 +4,8 @@ metadata:
   name: kserve-config-llm-worker-data-parallel
 spec:
   worker:
+    hostIPC: true
+    hostPID: true
     containers:
       - image: ghcr.io/llm-d/llm-d:v0.2.0
         imagePullPolicy: IfNotPresent
@@ -29,8 +31,8 @@ spec:
                 --port 8000 \
                 --api-server-count 4 \
                 --disable-log-requests \
-                {{- if .Spec.Parallelism.Expert -}}--enable-expert-parallel \{{- end }}
-                {{- if .Spec.Parallelism.Tensor -}}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }} \{{- end }}
+                {{- if .Spec.Parallelism.Expert -}}--enable-expert-parallel{{- end }} \
+                {{- if .Spec.Parallelism.Tensor -}}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
                 --data-parallel-size {{ or .Spec.Parallelism.Data 1 }} \
                 --data-parallel-size-local {{ or .Spec.Parallelism.DataLocal 1 }} \
                 --data-parallel-address $(LWS_LEADER_ADDRESS) \
@@ -50,8 +52,8 @@ spec:
                 {{ .Spec.Model.Name }} \
                 --port 8000 \
                 --disable-log-requests \
-                {{- if .Spec.Parallelism.Expert }}--enable-expert-parallel \{{- end }}
-                {{- if .Spec.Parallelism.Tensor }}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }} \{{- end }}
+                {{- if .Spec.Parallelism.Expert }}--enable-expert-parallel{{- end }} \
+                {{- if .Spec.Parallelism.Tensor }}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
                 --data-parallel-size {{ or .Spec.Parallelism.Data 1 }} \
                 --data-parallel-size-local {{ or .Spec.Parallelism.DataLocal 1 }} \
                 --data-parallel-address $(LWS_LEADER_ADDRESS) \
@@ -72,32 +74,34 @@ spec:
             value: INFO
           - name: HF_HUB_CACHE
             value: /models
+          - name: VLLM_RANDOMIZE_DP_DUMMY_INPUTS
+            value: "1"
         securityContext:
-          allowPrivilegeEscalation: false
           capabilities:
             add:
               - "IPC_LOCK"
               - "SYS_RAWIO"
+          privileged: true
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: FallbackToLogsOnError
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8000
-            scheme: HTTPS
-          initialDelaySeconds: 120
-          periodSeconds: 10
-          timeoutSeconds: 10
-          failureThreshold: 3
-        readinessProbe:
-          httpGet:
-            path: /health
-            port: 8000
-            scheme: HTTPS
-          initialDelaySeconds: 10
-          periodSeconds: 10
-          timeoutSeconds: 5
-          failureThreshold: 60
+#        livenessProbe:
+#          httpGet:
+#            path: /health
+#            port: 8000
+#            scheme: HTTPS
+#          initialDelaySeconds: 120
+#          periodSeconds: 10
+#          timeoutSeconds: 10
+#          failureThreshold: 3
+#        readinessProbe:
+#          httpGet:
+#            path: /health
+#            port: 8000
+#            scheme: HTTPS
+#          initialDelaySeconds: 120
+#          periodSeconds: 30
+#          timeoutSeconds: 5
+#          failureThreshold: 60
         volumeMounts:
           - mountPath: /home
             name: home
