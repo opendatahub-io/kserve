@@ -11,9 +11,47 @@ patches:
 - path: remove-namespace.yaml
 - path: inferenceservice-config-patch.yaml
 - path: set-resources-manager-patch.yaml
-- path: config-llm-scheduler-patch.yaml
-- path: config-llm-decode-template-patch.yaml
-- path: config-llm-decode-worker-data-parallel-patch.yaml
+- target:
+    kind: LLMInferenceServiceConfig
+    name: kserve-config-llm-scheduler
+  patch: |-
+    - op: replace
+      path: /spec/router/scheduler/template/containers/0/image
+      value: "$(kserve-llm-d-inference-scheduler)"
+- target:
+    kind: LLMInferenceServiceConfig
+    name: kserve-config-llm-decode-template
+  patch: |-
+    - op: replace
+      path: /spec/template/initContainers/0/image
+      value: "$(kserve-llm-d-routing-sidecar)"
+- target:
+    kind: LLMInferenceServiceConfig
+    name: kserve-config-llm-decode-worker-data-parallel
+  patch: |-
+    - op: replace
+      path: /spec/worker/initContainers/0/image
+      value: "$(kserve-llm-d-routing-sidecar)"
+- target:
+    kind: ValidatingWebhookConfiguration
+    name: llminferenceservice.serving.kserve.io
+  patch: |-
+    - op: remove
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+      value: "service.beta.openshift.io/inject-cabundle"
+    - op: replace
+      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
+      value: "true"
+- target:
+    kind: ValidatingWebhookConfiguration
+    name: llminferenceserviceconfig.serving.kserve.io
+  patch: |-
+    - op: remove
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+      value: "service.beta.openshift.io/inject-cabundle"
+    - op: replace
+      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
+      value: "true"
 
 replacements:
 - source:
@@ -77,7 +115,7 @@ vars:
   objref:
     apiVersion: v1
     kind: ConfigMap
-    name: kserve-parameters    
+    name: kserve-parameters
 
 configurations:
-  - params.yaml
+- params.yaml

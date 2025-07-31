@@ -22,7 +22,9 @@ import (
 	"net/http"
 	"os"
 
-	llmisvcwebhook "github.com/kserve/kserve/pkg/controller/llmisvc/webhook"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
@@ -49,6 +51,7 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
+	llmisvcwebhook "github.com/kserve/kserve/pkg/controller/llmisvc/webhook"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -128,6 +131,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	secretCacheSelector, _ := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
+		MatchLabels: map[string]string{
+			"app.kubernetes.io/part-of": "llminferenceservice",
+		},
+	})
+
 	// Create a new Cmd to provide shared dependencies and start components
 	setupLog.Info("Setting up manager")
 	mgr, err := manager.New(cfg, manager.Options{
@@ -140,6 +149,13 @@ func main() {
 		LeaderElection:         options.enableLeaderElection,
 		LeaderElectionID:       LeaderLockName,
 		HealthProbeBindAddress: options.probeAddr,
+		Cache: cache.Options{
+			ByObject: map[client.Object]cache.ByObject{
+				&corev1.Secret{}: {
+					Label: secretCacheSelector,
+				},
+			},
+		},
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to set up overall controller manager")

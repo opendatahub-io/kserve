@@ -109,7 +109,7 @@ func (r *LLMInferenceServiceReconciler) collectReferencedRoutes(ctx context.Cont
 	referencedRoutes := make([]*gatewayapi.HTTPRoute, 0, len(llmSvc.Spec.Router.Route.HTTP.Refs))
 	for _, routeRef := range llmSvc.Spec.Router.Route.HTTP.Refs {
 		route := &gatewayapi.HTTPRoute{}
-		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: routeRef.Name, Name: llmSvc.GetNamespace()}, route); err != nil {
+		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: llmSvc.GetNamespace(), Name: routeRef.Name}, route); err != nil {
 			if apierrors.IsNotFound(err) {
 				// TODO(follow-up) mark condition if not found
 				continue

@@ -13,6 +13,10 @@ inputs:
     description: 'Enable KEDA for autoscaling'
     required: false
     default: 'false'
+  enable-lws:
+    description: 'Enable Leader Worker Set'
+    required: false
+    default: 'false'
 runs:
   using: "composite"
   steps:
@@ -26,7 +30,7 @@ runs:
           ./test/scripts/gh-actions/setup-kourier.sh
         else
           echo "Selected network layer ${{ inputs.network-layer }}"
-          ./test/scripts/gh-actions/setup-deps.sh ${{ inputs.deployment-mode }} "${{ inputs.network-layer }}" "${{ inputs.enable-keda }}"
+          ./test/scripts/gh-actions/setup-deps.sh ${{ inputs.deployment-mode }} "${{ inputs.network-layer }}" "${{ inputs.enable-keda }}" "${{ inputs.enable-lws }}"
         fi
 
     - name: Update test overlays

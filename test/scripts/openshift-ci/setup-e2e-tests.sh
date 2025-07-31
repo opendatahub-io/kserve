@@ -39,6 +39,15 @@ echo "STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_IMAGE"
 echo "ERROR_404_ISVC_IMAGE=$ERROR_404_ISVC_IMAGE"
 echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
 
+readonly MARKERS="${1:-raw}"
+readonly PARALLELISM="${2:-1}"
+readonly DEPLOYMENT_PROFILE="${3:-serverless}"
+
+if [[ "${MARKERS}" == *"llminferenceservice"* || "${MARKERS}" == *"llm-inference-service"* ]]; then
+  echo "dummy stub for llm-inference-service setup"
+  exit 0
+fi
+
 # Create directory for installing tooling
 # It is assumed that $HOME/.local/bin is in the $PATH
 mkdir -p $HOME/.local/bin
@@ -69,7 +78,7 @@ popd
 $MY_PATH/deploy.cma.sh
 
 # Install KServe stack
-if [ "$1" != "raw" ]; then
+if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
   echo "Installing OSSM"
   $MY_PATH/deploy.ossm.sh
   echo "Installing Serverless"
@@ -90,28 +99,26 @@ kustomize build $PROJECT_ROOT/config/overlays/test |
 oc create -f config/overlays/test/dsci.yaml
 oc create -f config/overlays/test/dsc.yaml
 
+export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
+
 # Patch the inferenceservice-config ConfigMap, when running RawDeployment tests
-if [ "$1" == "raw" ]; then
-  export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
+if [[ "${MARKERS}" == *"raw" ]]; then
   oc patch configmap inferenceservice-config -n kserve --patch-file <(cat config/overlays/test/configmap/inferenceservice-openshift-ci-raw.yaml | envsubst)
   oc delete pod -n kserve -l control-plane=kserve-controller-manager
 
   oc patch DataScienceCluster test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
-else
-  export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
-  if [ "$1" == "graph" ]; then
+fi
+
+if [[ "${MARKERS}" == *"graph"* ]]; then
     oc patch configmap inferenceservice-config -n kserve --patch-file <(cat config/overlays/test/configmap/inferenceservice-openshift-ci-serverless.yaml | envsubst)
   else 
     oc patch configmap inferenceservice-config -n kserve --patch-file <(cat config/overlays/test/configmap/inferenceservice-openshift-ci-serverless-predictor.yaml | envsubst)
-  fi
 fi
 
-# Wait until KServe starts
 oc wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n kserve --timeout=300s
 
-if [ "$1" != "raw" ]; then
+if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
   echo "Installing authorino and kserve gateways"
-  # authorino
   curl -sL https://raw.githubusercontent.com/Kuadrant/authorino-operator/main/utils/install.sh | sed "s|kubectl|oc|" | 
     bash -s -- -v 0.16.0
 
@@ -178,7 +185,7 @@ metadata:
   name: kserve-ci-e2e-test
 EOF
 
-if [ "$1" != "raw" ]; then
+if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
   cat <<EOF | oc apply -f -
 apiVersion: maistra.io/v1
 kind: ServiceMeshMember
@@ -202,7 +209,7 @@ kustomize build $PROJECT_ROOT/config/overlays/test/clusterresources |
 
 # Add the enablePassthrough annotation to the ServingRuntimes, to let Knative to
 # generate passthrough routes.
-if [ "$1" != "raw" ]; then
+if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
   oc annotate servingruntimes -n kserve-ci-e2e-test --all serving.knative.openshift.io/enablePassthrough=true
 fi
 

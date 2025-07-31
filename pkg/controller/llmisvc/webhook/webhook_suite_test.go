@@ -17,22 +17,9 @@ limitations under the License.
 package webhook_test
 
 import (
-	"context"
-	"path/filepath"
 	"testing"
-	"time"
-
-	"k8s.io/client-go/kubernetes"
-
-	"github.com/kserve/kserve/pkg/controller/llmisvc/webhook"
 
 	"github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
-
-	"k8s.io/client-go/rest"
-
-	"github.com/kserve/kserve/pkg/constants"
-
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	pkgtest "github.com/kserve/kserve/pkg/testing"
 
@@ -48,38 +35,5 @@ func TestWebhooks(t *testing.T) {
 var envTest *pkgtest.Client
 
 var _ = SynchronizedBeforeSuite(func() {
-	duration, err := time.ParseDuration(constants.GetEnvOrDefault("ENVTEST_DEFAULT_TIMEOUT", "10s"))
-	Expect(err).NotTo(HaveOccurred())
-	SetDefaultEventuallyTimeout(duration)
-	SetDefaultEventuallyPollingInterval(250 * time.Millisecond)
-
-	By("Setting up the test environment")
-	systemNs := constants.KServeNamespace
-
-	ctx, cancel := context.WithCancel(context.Background())
-	envTest = pkgtest.NewEnvTest(
-		pkgtest.WithWebhookManifests(filepath.Join(pkgtest.ProjectRoot(), "test", "webhooks")),
-	).
-		WithWebhooks(func(cfg *rest.Config, mgr ctrl.Manager) error {
-			clientSet, err := kubernetes.NewForConfig(cfg)
-			if err != nil {
-				return err
-			}
-			llmInferenceServiceConfigValidator := webhook.LLMInferenceServiceConfigValidator{
-				ClientSet: clientSet,
-			}
-			if err := llmInferenceServiceConfigValidator.SetupWithManager(mgr); err != nil {
-				return err
-			}
-
-			llmInferenceServiceValidator := webhook.LLMInferenceServiceValidator{}
-			return llmInferenceServiceValidator.SetupWithManager(mgr)
-		}).
-		Start(ctx)
-	DeferCleanup(func() {
-		cancel()
-		Expect(envTest.Stop()).To(Succeed())
-	})
-
-	fixture.RequiredResources(context.Background(), envTest.Client, systemNs)
+	envTest = fixture.SetupTestEnv()
 }, func() {})

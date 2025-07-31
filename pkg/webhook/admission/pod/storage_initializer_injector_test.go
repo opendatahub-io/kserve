@@ -181,10 +181,13 @@ func TestStorageInitializerInjector(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"gs://foo", constants.DefaultModelLocalMountPath},
-							Resources:                resourceRequirement,
+							Name:      "storage-initializer",
+							Image:     constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:      []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Resources: resourceRequirement,
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -247,6 +250,9 @@ func TestStorageInitializerInjector(t *testing.T) {
 							Args:                     []string{"gs://foo", constants.DefaultModelLocalMountPath},
 							Resources:                resourceRequirement,
 							TerminationMessagePolicy: "FallbackToLogsOnError",
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      constants.StorageInitializerVolumeName,
@@ -304,10 +310,13 @@ func TestStorageInitializerInjector(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"gs://foo", constants.DefaultModelLocalMountPath},
-							Resources:                resourceRequirement,
+							Name:      "storage-initializer",
+							Image:     constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:      []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Resources: resourceRequirement,
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -366,10 +375,13 @@ func TestStorageInitializerInjector(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"gs://foo", constants.DefaultModelLocalMountPath},
-							Resources:                resourceRequirement,
+							Name:      "storage-initializer",
+							Image:     constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:      []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Resources: resourceRequirement,
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -432,10 +444,13 @@ func TestStorageInitializerInjector(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"/mnt/pvc/some/path/on/pvc", constants.DefaultModelLocalMountPath},
-							Resources:                resourceRequirement,
+							Name:      "storage-initializer",
+							Image:     constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:      []string{"/mnt/pvc/some/path/on/pvc", constants.DefaultModelLocalMountPath},
+							Resources: resourceRequirement,
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -515,6 +530,7 @@ func TestStorageInitializerInjector(t *testing.T) {
 							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
 							Args:  []string{"s3://my-bucket/foo/bar", constants.DefaultModelLocalMountPath},
 							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
 								{
 									Name:  credentials.StorageOverrideConfigEnvKey,
 									Value: `{"bucket":"my-bucket","type":"s3"}`,
@@ -797,6 +813,7 @@ func TestCredentialInjection(t *testing.T) {
 								},
 							},
 							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
 								{
 									Name: s3.AWSAccessKeyId,
 									ValueFrom: &corev1.EnvVarSource{
@@ -902,6 +919,7 @@ func TestCredentialInjection(t *testing.T) {
 								},
 							},
 							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
 								{
 									Name:  gcs.GCSCredentialEnvKey,
 									Value: gcs.GCSCredentialVolumeMountPath + "gcloud-application-credentials.json",
@@ -990,6 +1008,7 @@ func TestCredentialInjection(t *testing.T) {
 							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
 							Args:  []string{"s3://my-bucket/foo/bar", constants.DefaultModelLocalMountPath},
 							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
 								{
 									Name: credentials.StorageConfigEnvKey,
 									ValueFrom: &corev1.EnvVarSource{
@@ -1085,6 +1104,7 @@ func TestCredentialInjection(t *testing.T) {
 							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
 							Args:  []string{"s3://my-bucket/foo/bar", constants.DefaultModelLocalMountPath},
 							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
 								{
 									Name: credentials.StorageConfigEnvKey,
 									ValueFrom: &corev1.EnvVarSource{
@@ -1197,10 +1217,13 @@ func TestStorageInitializerConfigmap(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    "kserve/storage-initializer@sha256:xxx",
-							Args:                     []string{"gs://foo", constants.DefaultModelLocalMountPath},
-							Resources:                resourceRequirement,
+							Name:      "storage-initializer",
+							Image:     "kserve/storage-initializer@sha256:xxx",
+							Args:      []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Resources: resourceRequirement,
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -1441,6 +1464,7 @@ func TestCaBundleConfigMapVolumeMountInStorageInitializer(t *testing.T) {
 							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
 							Args:  []string{"gs://foo", constants.DefaultModelLocalMountPath},
 							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
 								{
 									Name: s3.AWSAccessKeyId,
 									ValueFrom: &corev1.EnvVarSource{
@@ -1542,6 +1566,7 @@ func TestCaBundleConfigMapVolumeMountInStorageInitializer(t *testing.T) {
 							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
 							Args:  []string{"gs://foo", constants.DefaultModelLocalMountPath},
 							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
 								{
 									Name: s3.AWSAccessKeyId,
 									ValueFrom: &corev1.EnvVarSource{
@@ -1662,6 +1687,7 @@ func TestCaBundleConfigMapVolumeMountInStorageInitializer(t *testing.T) {
 							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
 							Args:  []string{"gs://foo", constants.DefaultModelLocalMountPath},
 							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
 								{
 									Name: s3.AWSAccessKeyId,
 									ValueFrom: &corev1.EnvVarSource{
@@ -1784,6 +1810,7 @@ func TestCaBundleConfigMapVolumeMountInStorageInitializer(t *testing.T) {
 							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
 							Args:  []string{"gs://foo", constants.DefaultModelLocalMountPath},
 							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
 								{
 									Name: s3.AWSAccessKeyId,
 									ValueFrom: &corev1.EnvVarSource{
@@ -1899,6 +1926,7 @@ func TestCaBundleConfigMapVolumeMountInStorageInitializer(t *testing.T) {
 							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
 							Args:  []string{"gs://foo", constants.DefaultModelLocalMountPath},
 							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
 								{
 									Name: s3.AWSAccessKeyId,
 									ValueFrom: &corev1.EnvVarSource{
@@ -2005,6 +2033,7 @@ func TestCaBundleConfigMapVolumeMountInStorageInitializer(t *testing.T) {
 							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
 							Args:  []string{"gs://foo", constants.DefaultModelLocalMountPath},
 							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
 								{
 									Name: s3.AWSAccessKeyId,
 									ValueFrom: &corev1.EnvVarSource{
@@ -2393,10 +2422,13 @@ func TestTransformerCollocation(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"/mnt/pvc/some/path/on/pvc", constants.DefaultModelLocalMountPath},
-							Resources:                resourceRequirement,
+							Name:      "storage-initializer",
+							Image:     constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:      []string{"/mnt/pvc/some/path/on/pvc", constants.DefaultModelLocalMountPath},
+							Resources: resourceRequirement,
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -2561,10 +2593,13 @@ func TestTransformerCollocation(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"/mnt/pvc/some/path/on/pvc", constants.DefaultModelLocalMountPath},
-							Resources:                resourceRequirement,
+							Name:      "storage-initializer",
+							Image:     constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:      []string{"/mnt/pvc/some/path/on/pvc", constants.DefaultModelLocalMountPath},
+							Resources: resourceRequirement,
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -2811,6 +2846,7 @@ func TestStorageContainerCRDInjection(t *testing.T) {
 							},
 							Env: []corev1.EnvVar{
 								{Name: "name", Value: "value"},
+								{Name: "HF_HOME", Value: "/tmp"},
 							},
 						},
 					},
@@ -2861,10 +2897,13 @@ func TestStorageContainerCRDInjection(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"https://foo", constants.DefaultModelLocalMountPath},
-							Resources:                resourceRequirement, // from configMap instead of the CR
+							Name:      "storage-initializer",
+							Image:     constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:      []string{"https://foo", constants.DefaultModelLocalMountPath},
+							Resources: resourceRequirement, // from configMap instead of the CR
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -3295,9 +3334,12 @@ func TestStorageInitializerUIDForIstioCNI(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Name:  "storage-initializer",
+							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:  []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							Resources:                resourceRequirement,
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
@@ -3366,10 +3408,13 @@ func TestStorageInitializerUIDForIstioCNI(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"gs://foo", constants.DefaultModelLocalMountPath},
-							Resources:                resourceRequirement,
+							Name:      "storage-initializer",
+							Image:     constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:      []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Resources: resourceRequirement,
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
 								{
@@ -3451,9 +3496,12 @@ func TestStorageInitializerUIDForIstioCNI(t *testing.T) {
 							Name: constants.IstioInitContainerName,
 						},
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Name:  "storage-initializer",
+							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:  []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							Resources:                resourceRequirement,
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
@@ -3513,9 +3561,12 @@ func TestStorageInitializerUIDForIstioCNI(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Name:  "storage-initializer",
+							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:  []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							Resources:                resourceRequirement,
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
@@ -3587,9 +3638,12 @@ func TestStorageInitializerUIDForIstioCNI(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Name:  "storage-initializer",
+							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:  []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							Resources:                resourceRequirement,
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
@@ -3661,9 +3715,12 @@ func TestStorageInitializerUIDForIstioCNI(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Name:  "storage-initializer",
+							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:  []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							Resources:                resourceRequirement,
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
@@ -3735,9 +3792,12 @@ func TestStorageInitializerUIDForIstioCNI(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Name:  "storage-initializer",
+							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:  []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							Resources:                resourceRequirement,
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
@@ -3808,9 +3868,12 @@ func TestStorageInitializerUIDForIstioCNI(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Name:  "storage-initializer",
+							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:  []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							Resources:                resourceRequirement,
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
@@ -3881,9 +3944,12 @@ func TestStorageInitializerUIDForIstioCNI(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Name:  "storage-initializer",
+							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:  []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							Resources:                resourceRequirement,
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{
@@ -3955,9 +4021,12 @@ func TestStorageInitializerUIDForIstioCNI(t *testing.T) {
 					},
 					InitContainers: []corev1.Container{
 						{
-							Name:                     "storage-initializer",
-							Image:                    constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
-							Args:                     []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Name:  "storage-initializer",
+							Image: constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:  []string{"gs://foo", constants.DefaultModelLocalMountPath},
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+							},
 							Resources:                resourceRequirement,
 							TerminationMessagePolicy: "FallbackToLogsOnError",
 							VolumeMounts: []corev1.VolumeMount{

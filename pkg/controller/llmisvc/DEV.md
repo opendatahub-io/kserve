@@ -12,27 +12,34 @@ kind create cluster -n "kserve-llm-d"
 
 go install sigs.k8s.io/cloud-provider-kind@latest
 
-cloud-provider-kind> /dev/null 2>&1 &
+cloud-provider-kind > /dev/null 2>&1 &
 ```
 
 ##### Using `minikube`
 
 ```shell
-minikube start --cpus='12' --memory='16G'
+minikube start --cpus='12' --memory='16G' --kubernetes-version=v1.33.1
 minikube addons enable metallb
 
-# You need to configure metallb with an IP range. This depends on the minikube network.
-# You can find your current minikube ip with:
-# $ minikube ip
-#   192.168.39.118
-#
-# With the previous sample output, you would configure metallb with a range not including
-# the minikube IP (change only the last entry). E.g:
-minikube addons configure metallb
-# Minikube will ask two prompts. Notice the configured range 192.168.39.200-192.168.39.235 is
-# not including minikube IP:
-# -- Enter Load Balancer Start IP: 192.168.39.200
-# -- Enter Load Balancer End IP: 192.168.39.235
+IP=$(minikube ip)
+PREFIX=${IP%.*}
+START=${PREFIX}.200
+END=${PREFIX}.235
+
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  namespace: metallb-system
+  name: config
+data:
+  config: |
+    address-pools:
+    - name: default
+      protocol: layer2
+      addresses:
+      - ${START}-${END}
+EOF
 ```
 
 #### Install KServe (dev) in the created cluster
@@ -41,39 +48,68 @@ minikube addons configure metallb
 make deploy-dev-llm -e KO_DOCKER_REPO=<YOUR_REPO>
 ```
 
-#### Creating simple CPU model
+#### Validation
+
+##### pytest
+
+Set up pytest
+```shell
+cd python/kserve 
+python -m venv .venv
+pip install -e .
+pip install pytest pytest-asyncio requests portforward Jinja2 pytest-xdist
+cd -
+```
+
+Run the test
+
+```shell
+# Use pytest markers for filtering
+
+# Run only CPU tests
+./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice and cluster_cpu" 1 "istio-gatewayapi-ext"
+
+# Run only NVIDIA GPU tests
+./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice and cluster_nvidia" 1 "istio-gatewayapi-ext"
+
+# Run all GPU tests (any vendor: amd, nvidia, intel)
+./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice and (cluster_amd or cluster_nvidia or cluster_intel)" 1 "istio-gatewayapi-ext"
+
+# Run CPU and AMD GPU tests only
+./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice and (cluster_cpu or cluster_amd)" 1 "istio-gatewayapi-ext"
+
+# Run all LLM inference service tests
+./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice" 1 "istio-gatewayapi-ext"
+
+Starting E2E functional tests ...
+No parallelism requested for pytest. Will use default value of 1
+pytest -m 'llminferenceservice and cluster_cpu' --ignore=qpext --log-cli-level=INFO -n 1 --dist worksteal --network-layer istio-gatewayapi-ext
+===================================================================================== test session starts =====================================================================================
+platform linux -- Python 3.12.11, pytest-8.4.1, pluggy-1.6.0
+rootdir: /home/bartek/code/redhat/model-serving/kserve/kserve-test/test/e2e
+configfile: pytest.ini
+plugins: anyio-4.9.0, xdist-3.8.0, asyncio-1.1.0
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+1 worker [1 item]s / 1 error
+scheduling tests via WorkStealingScheduling
+
+llmisvc/test_llm_inference_service.py::test_llm_inference_service[managed-single-cpu-fb-opt-125m]
+[gw0] [100%] PASSED llmisvc/test_llm_inference_service.py::test_llm_inference_service[managed-single-cpu-fb-opt-125m]
+```
+
+##### Manual
+
+Create LLMInferenceService, e.g.:
 
 ```shell
 NS=llm-test
 kubectl create namespace ${NS} || true
-
-kubectl apply -f - <<EOF
-apiVersion: gateway.networking.k8s.io/v1
-kind: Gateway
-metadata:
-  name: kserve-ingress-gateway
-  namespace: kserve
-spec:
-  gatewayClassName: istio
-  listeners:
-   - name: http
-     port: 80
-     protocol: HTTP
-     allowedRoutes:
-       namespaces:
-         from: All
-  infrastructure:
-    labels:
-      serving.kserve.io/gateway: kserve-ingress-gateway
-EOF
 
 LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-facebook-opt-125m-cpu.yaml
 LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
 
 kubectl apply -n ${NS} -f ${LLM_ISVC}
 ```
-
-#### Validation
 
 ```shell
 LB_IP=$(kubectl get svc/kserve-ingress-gateway-istio -n kserve -o=jsonpath='{.status.loadBalancer.ingress[0].ip}')
@@ -253,4 +289,255 @@ Deploy the model from the persistent volume:
 
 ```shell
 yq '.spec.model.uri="pvc://opt-125m-pvc"' ${LLM_ISVC} | kubectl apply -n ${NS} -f -
+```
+
+
+---
+#### OCP integration
+
+##### Using `openshift ROSA cluster`
+
+You just need to login to ROSA cluster
+
+```
+oc login $OCP_API_SERVER
+```
+
+##### Using `openshift local`
+
+*openshift 4.19*
+
+```shell
+crc setup
+crc config set memory 25600
+crc config set cpus 10
+crc config set disk-size 150
+crc config set kubeadmin-password kubeadmin
+crc config set enable-cluster-monitoring false
+
+# Download secret from https://developers.redhat.com/products/openshift-local/overview
+crc start -p ~/pull-secret.txt
+
+oc login -u kubeadmin https://api.crc.testing:6443
+```
+*Pre-requisites*
+- Install Cert-Manager
+- Install LWS operator (This should be installed by user)
+- Install istio operator (This is not needed when openshift has all capability of GIE)
+
+**Install Cert-Manager**
+
+```shell
+kubectl create namespace cert-manager-operator || true
+
+cat<<EOF | kubectl create -f -
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: cert-manager-operator
+  namespace: cert-manager-operator
+spec:
+  upgradeStrategy: Default
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: openshift-cert-manager-operator
+  namespace: cert-manager-operator
+spec:
+  channel: stable-v1
+  installPlanApproval: Automatic
+  name: openshift-cert-manager-operator
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  startingCSV: cert-manager-operator.v1.16.1
+EOF
+```
+
+**Install LWS Operator**
+
+This step should be changed when official lws-operator is released.
+
+```shell
+cat <<EOF | kubectl create -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: lws-operator
+  namespace: openshift-marketplace
+spec:
+  sourceType: grpc
+  image: quay.io/jooholee/lws-operator-index:llmd
+EOF
+
+kubectl wait pod -l olm.catalogSource=lws-operator -n openshift-marketplace --for=condition=Ready --timeout=180s
+
+kubectl create ns openshift-lws-operator || true
+
+cat <<EOF | kubectl create -f -
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: openshift-lws-operator-jw944
+  namespace: openshift-lws-operator
+spec:
+  targetNamespaces:
+  - openshift-lws-operator
+  upgradeStrategy: Default
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: leader-worker-set
+  namespace: openshift-lws-operator
+spec:
+  channel: stable
+  installPlanApproval: Automatic
+  name: leader-worker-set
+  source: lws-operator
+  sourceNamespace: openshift-marketplace
+  startingCSV: leader-worker-set.v1.0.0
+EOF
+
+kubectl wait pod -l name=openshift-lws-operator -n openshift-lws-operator --for=condition=Ready --timeout=120s
+
+until kubectl get crd leaderworkersetoperators.operator.openshift.io &> /dev/null; do
+  echo "⏳ waiting for CRD to appear…"
+  sleep 2
+done
+
+kubectl wait \
+  --for=condition=Established \
+  --timeout=60s \
+  crd/leaderworkersetoperators.operator.openshift.io
+  
+cat <<EOF | kubectl create -f -
+apiVersion: operator.openshift.io/v1
+kind: LeaderWorkerSetOperator
+metadata:
+  name: cluster
+  namespace: openshift-lws-operator
+spec:
+  managementState: Managed
+  logLevel: Normal
+  operatorLogLevel: Normal
+EOF
+```
+
+**Install OSSM(TBD)**
+
+**Install upstream ISTIO**
+
+This step will be removed at some point because the ISTIO(OSSM) should be provided by the platform.
+
+```shell
+kubectl create ns istio-system || true
+kubectl create -f test/overlays/llm-istio-experimental -n istio-system
+
+INGRESS_NS=openshift-ingress
+kubectl create namespace ${INGRESS_NS} || true
+
+kubectl apply -f - <<EOF
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: openshift-ai-inference
+  namespace: openshift-ingress
+spec:
+  gatewayClassName: istio
+  listeners:
+   - name: http
+     port: 80
+     protocol: HTTP
+     allowedRoutes:
+       namespaces:
+         from: All
+  infrastructure:
+    labels:
+      serving.kserve.io/gateway: kserve-ingress-gateway
+EOF
+```
+
+**Deploy Kserve using overlay/odh**
+
+A new CRD related objects will be added 
+  - LLMIsvc/LLMIsvcConfig CRD
+  - Webhook
+  - `well-know preset` LlmIsvcConfig in the controller namespace
+
+```shell
+kubectl create ns opendatahub || true
+
+kubectl kustomize config/crd/ | kubectl apply --server-side=true -f -
+until kubectl get crd llminferenceserviceconfigs.serving.kserve.io &> /dev/null; do
+  echo "⏳ waiting for CRD to appear…"
+  sleep 2
+done
+kubectl wait --for=condition=Established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
+
+kubectl kustomize config/overlays/odh | kubectl apply  --server-side=true -f -
+
+kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n opendatahub  --timeout=300s
+```
+
+Deploy the model:
+
+```shell
+NS=llm-test
+LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-facebook-opt-125m-cpu.yaml
+LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
+
+oc get ns $NS||oc new-project $NS
+kubectl apply -n ${NS} -f ${LLM_ISVC}
+```
+
+
+#### Validation
+
+**ROSA Cluster**
+```shell
+LB_URL=$(kubectl get llmisvc facebook-opt-125m-single  -o=jsonpath='{.status.url}')
+
+curl "${LB_URL}/v1/completions"  \
+    -H "Content-Type: application/json" \
+    -d '{
+        "model": "facebook/opt-125m",
+        "prompt": "San Francisco is a"
+    }'
+```
+
+**OpenShift Local**
+
+*Using Gateway Route (this is for testing only)*
+```shell
+MODEL_ID=facebook/opt-125m
+
+oc expose svc/openshift-ai-inference-istio -n openshift-ingress --port http 
+oc wait --for=condition=ready pod -l app.kubernetes.io/part-of=llminferenceservice -n $NS --timeout 150s
+  
+LB_HOST=$( oc get route/openshift-ai-inference-istio -n openshift-ingress -o=jsonpath='{.status.ingress[*].host}'  )
+
+curl http://$LB_HOST/$NS/$LLM_ISVC_NAME/v1/completions  \
+    -H "Content-Type: application/json" \
+    -d '{
+        "model":"'"$MODEL_ID"'",
+        "prompt": "San Francisco is a"
+    }'    
+```
+
+
+*Using Port-forward*
+```shell
+WORKLOAD_POD=$(oc get pod -l app.kubernetes.io/component=llminferenceservice-workload --no-headers|awk '{print $1}' )
+GATEWAY_POD=$(oc get pod -l gateway.networking.k8s.io/gateway-name=openshift-ai-inference -n openshift-ingress --no-headers|awk '{print $1}' )
+
+oc port-forward $GATEWAY_POD 8001:80  &
+oc port-forward svc/openshift-ai-inference-istio -n openshift-ingress  8001:80 &
+curl -sS -X POST http://localhost:8001/$NS/$LLM_ISVC_NAME/v1/completions   \
+    -H 'accept: application/json'   \
+    -H 'Content-Type: application/json'    \
+    -d '{
+        "model":"'"$MODEL_ID"'",
+        "prompt":"Who are you?"
+      }'
 ```
