@@ -22,7 +22,11 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-if [ "$1" == "llm-inference-service" ]; then
+readonly MARKERS="${1:-raw}"
+readonly PARALLELISM="${2:-1}"
+readonly DEPLOYMENT_PROFILE="${3:-serverless}"
+
+if [[ "${MARKERS}" == *"llminferenceservice"* || "${MARKERS}" == *"llm-inference-service"* ]]; then
   echo "dummy stub for llm-inference-service setup"
   exit 0
 fi
@@ -33,14 +37,13 @@ export CI_USE_ISVC_HOST="1"
 export GITHUB_SHA=stable # Need to use stable as this is what the CI tags the images to for success-200 and error-404
 : "${BUILD_GRAPH_IMAGES:=true}"
 : "${RUNNING_LOCAL:=false}"
-cp ./test/e2e/conftest.py ./test/e2e/conftest.py.bak
 
 if $RUNNING_LOCAL; then
   export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
   export IMAGE_TRANSFORMER_IMG_TAG=kserve/image-transformer:latest
   export GITHUB_SHA=master
 
-  if [ "$1" = "graph" ] && [ "$BUILD_GRAPH_IMAGES" = "true" ]; then
+  if [[ "${MARKERS}" = *"graph"*  && "$BUILD_GRAPH_IMAGES" = "true" ]]; then
     pushd $PROJECT_ROOT >/dev/null
     ./test/scripts/gh-actions/build-graph-tests-images.sh | tee 2>&1 ./test/scripts/openshift-ci/build-graph-tests-images.log
     popd
@@ -55,14 +58,11 @@ if [ "$SETUP_E2E" = "true" ]; then
   popd
 fi
 
-PARALLELISM="${2:-1}"
-
 # Use certify go module to get the CA certs
 export REQUESTS_CA_BUNDLE="/tmp/ca.crt"
 echo "REQUESTS_CA_BUNDLE=$(cat ${REQUESTS_CA_BUNDLE})"
 
-echo "Run E2E tests: $1"
+echo "Run E2E tests: ${MARKERS}"
 pushd $PROJECT_ROOT >/dev/null
-./test/scripts/gh-actions/run-e2e-tests.sh "$1" $PARALLELISM | tee 2>&1 ./test/scripts/openshift-ci/run-e2e-tests-$1.log
+./test/scripts/gh-actions/run-e2e-tests.sh "${MARKERS}" "${PARALLELISM}" "${DEPLOYMENT_PROFILE}" | tee 2>&1 ./test/scripts/openshift-ci/run-e2e-tests-$1.log
 popd
-cp ./test/e2e/conftest.py.bak ./test/e2e/conftest.py
