@@ -304,7 +304,7 @@ yq '.spec.model.uri="pvc://opt-125m-pvc"' ${LLM_ISVC} | kubectl apply -n ${NS} -
 You just need to login to ROSA cluster
 
 ```
-oc login $OCP_API_SERVER
+kubectl login $OCP_API_SERVER
 ```
 
 ##### Using `openshift local`
@@ -320,7 +320,7 @@ crc config set enable-cluster-monitoring false
 # Download secret from https://developers.redhat.com/products/openshift-local/overview
 crc start -p ~/pull-secret.txt
 
-oc login -u kubeadmin https://api.crc.testing:6443
+kubectl login -u kubeadmin https://api.crc.testing:6443
 ```
 *Pre-requisites*
 - Install Cert-Manager
@@ -357,7 +357,12 @@ spec:
   startingCSV: cert-manager-operator.v1.16.1
 EOF
 
-oc wait pod -l name=cert-manager-operator -n cert-manager-operator --for=condition=Ready --timeout=120s 
+while [ $(kubectl get pod -n cert-manager-operator  | wc -l) -le 1 ]; 
+do
+  echo "⏳ waiting for Cert-Manager Pod to appear…"
+  sleep 10
+done
+kubectl wait pod -l name=cert-manager-operator -n cert-manager-operator --for=condition=Ready --timeout=120s 
 ```
 
 **Install LWS Operator**
@@ -430,12 +435,13 @@ spec:
 EOF
 ```
 
-**Install OSSM**
+**Install OSSM(DO NOT USE)**
+
+> [!NOTE] 
+> The OSSM prebuilt image have an issue so do not follow up this step for now(2025.July.30)
+> USE `upstream istio` following the next step `Install upstream ISTIO(Optional)`
 
 You have to add pullsecret for brew image on your cluster.
-
-The OSSM prebuilt image have an issue so do not follow up this step for now(2025.July.30)
-USE `upstream istio` following the next step `Install upstream ISTIO(Optional)`
 
 ```shell
 
@@ -443,13 +449,13 @@ USE `upstream istio` following the next step `Install upstream ISTIO(Optional)`
 export BREW_PULL_SECRET_FILE="path/to/file"
 export REGISTRY_PULL_SECRET_FILE="path/to/file"
 
-oc get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > /tmp/pull-secret.json 
+kubectl get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > /tmp/pull-secret.json 
 jq -s '.[0].auths += .[1].auths | {auths: .[0].auths}' /tmp/pull-secret.json $BREW_PULL_SECRET_FILE > /tmp/new-pull-secret.json    
 jq -s '.[0].auths += .[1].auths | {auths: .[0].auths}' /tmp/new-pull-secret.json  $REGISTRY_PULL_SECRET_FILE > /tmp/final-pull-secret.json    
-oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/tmp/final-pull-secret.json  
+kubectl set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/tmp/final-pull-secret.json  
 
 # Create MirrorSet to pull prebuilt images 
-cat <<EOF| oc create -f -
+cat <<EOF| kubectl create -f -
 apiVersion: config.openshift.io/v1
 kind: ImageTagMirrorSet
 metadata:
@@ -484,7 +490,7 @@ spec:
 EOF
 
 # Deploy OSSM  (need to update iib image when blocker issue is fixed)
-cat<<EOF |oc create -f -
+cat<<EOF |kubectl create -f -
 apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
 metadata:
@@ -497,7 +503,7 @@ spec:
   sourceType: grpc
 EOF
 
-cat<<EOF|oc create -f -
+cat<<EOF|kubectl create -f -
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
@@ -512,11 +518,11 @@ spec:
   startingCSV: servicemeshoperator3.v3.1.0
 EOF
 
-oc wait --for=condition=ready pod -l control-plane=servicemesh-operator3 -n openshift-operators --timeout=300s
+kubectl wait --for=condition=ready pod -l control-plane=servicemesh-operator3 -n openshift-operators --timeout=300s
 
 
-oc create ns istio-cni  
-cat<<EOF|oc create -f -
+kubectl create ns istio-cni  
+cat<<EOF|kubectl create -f -
 kind: IstioCNI
 apiVersion: sailoperator.io/v1
 metadata:
@@ -526,9 +532,9 @@ spec:
   version: v1.26.2
 EOF
 
-oc create ns istio-system
+kubectl create ns istio-system
 
-cat<<EOF|oc create -f -
+cat<<EOF|kubectl create -f -
 apiVersion: sailoperator.io/v1
 kind: Istio
 metadata:
@@ -553,7 +559,7 @@ This step will be removed at some point because the ISTIO(OSSM) should be provid
 ```shell
 kubectl create ns istio-system || true
 kubectl create -f test/overlays/llm-istio-experimental -n istio-system
-
+```
 
 **Create a gateway**
 ```shell
@@ -610,7 +616,7 @@ NS=llm-test
 LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-facebook-opt-125m-cpu.yaml
 LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
 
-oc get ns $NS||oc new-project $NS
+kubectl get ns $NS||kubectl create ns $NS
 kubectl apply -n ${NS} -f ${LLM_ISVC}
 ```
 
@@ -635,10 +641,10 @@ curl "${LB_URL}/v1/completions"  \
 ```shell
 MODEL_ID=facebook/opt-125m
 
-oc expose svc/openshift-ai-inference-istio -n openshift-ingress --port http 
-oc wait --for=condition=ready pod -l app.kubernetes.io/part-of=llminferenceservice -n $NS --timeout 150s
+kubectl expose svc/openshift-ai-inference-istio -n openshift-ingress --port http 
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/part-of=llminferenceservice -n $NS --timeout 150s
   
-LB_HOST=$( oc get route/openshift-ai-inference-istio -n openshift-ingress -o=jsonpath='{.status.ingress[*].host}'  )
+LB_HOST=$( kubectl get route/openshift-ai-inference-istio -n openshift-ingress -o=jsonpath='{.status.ingress[*].host}'  )
 
 curl http://$LB_HOST/$NS/$LLM_ISVC_NAME/v1/completions  \
     -H "Content-Type: application/json" \
@@ -652,7 +658,7 @@ curl http://$LB_HOST/$NS/$LLM_ISVC_NAME/v1/completions  \
 *Using Port-forward*
 ```shell
 
-oc port-forward svc/openshift-ai-inference-istio -n openshift-ingress  8001:80 &
+kubectl port-forward svc/openshift-ai-inference-istio -n openshift-ingress  8001:80 &
 curl -sS -X POST http://localhost:8001/$NS/$LLM_ISVC_NAME/v1/completions   \
     -H 'accept: application/json'   \
     -H 'Content-Type: application/json'    \
@@ -661,3 +667,5 @@ curl -sS -X POST http://localhost:8001/$NS/$LLM_ISVC_NAME/v1/completions   \
         "prompt":"Who are you?"
       }'
 ```
+
+
