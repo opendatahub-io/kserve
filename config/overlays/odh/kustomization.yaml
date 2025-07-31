@@ -3,16 +3,46 @@ kind: Kustomization
 
 resources:
 - ../../default
-- user-cluster-roles.yaml
-- llm-svc-scc.yaml
+- ../../llmisvc
 - ../../monitoring/llmisvc
+- llm-svc-scc.yaml
+- network-policies.yaml
+- user-cluster-roles.yaml
 
 namespace: opendatahub
 
 patches:
-- path: remove-namespace.yaml
-- path: inferenceservice-config-patch.yaml
-- path: set-resources-manager-patch.yaml
+- path: patches/remove-clusterservingruntime.yaml
+- path: patches/remove-cert-manager.yaml
+- path: patches/remove-local-model.yaml
+- path: patches/patch-webhook-svc-openshift-cert-injection.yaml
+- path: patches/patch-inferenceservice-config.yaml
+- path: patches/patch-set-resources-manager.yaml
+- target:
+    kind: MutatingWebhookConfiguration
+  patch: |
+    - op: remove
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+    - op: add
+      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
+      value: "true"
+- target:
+      kind: CustomResourceDefinition
+      name: inferenceservices.serving.kserve.io
+  patch: |
+    - op: remove
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+    - op: add
+      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
+      value: "true"
+- target:
+    kind: ValidatingWebhookConfiguration
+  patch: |
+    - op: remove
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+    - op: add
+      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
+      value: "true"
 - target:
     kind: LLMInferenceServiceConfig
     name: kserve-config-llm-scheduler
@@ -34,26 +64,6 @@ patches:
     - op: replace
       path: /spec/template/initContainers/0/image
       value: "$(kserve-llm-d-routing-sidecar)"
-- target:
-    kind: ValidatingWebhookConfiguration
-    name: llminferenceservice.serving.kserve.io
-  patch: |-
-    - op: remove
-      path: /metadata/annotations/cert-manager.io~1inject-ca-from
-      value: "service.beta.openshift.io/inject-cabundle"
-    - op: replace
-      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
-      value: "true"
-- target:
-    kind: ValidatingWebhookConfiguration
-    name: llminferenceserviceconfig.serving.kserve.io
-  patch: |-
-    - op: remove
-      path: /metadata/annotations/cert-manager.io~1inject-ca-from
-      value: "service.beta.openshift.io/inject-cabundle"
-    - op: replace
-      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
-      value: "true"
 
 replacements:
 - source:
