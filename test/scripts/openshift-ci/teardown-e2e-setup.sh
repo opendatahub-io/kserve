@@ -15,7 +15,7 @@
 # This is a helper script to run E2E tests on the openshift-ci operator.
 # This script assumes to be run inside a container/machine that has
 # python pre-installed and the `oc` command available. Additional tooling,
-# like kustomize and the mc client are installed by the script if not available.
+# like kustomize and the minio client are installed by the script if not available.
 # The oc CLI is assumed to be configured with the credentials of the
 # target cluster. The target cluster is assumed to be a clean cluster.
 set -o errexit
@@ -76,8 +76,8 @@ kustomize build $PROJECT_ROOT/config/overlays/test |
   oc delete --server-side=true -f -
 
 # Install DSC/DSCI for test. (sometimes there is timing issue when it is under the same kustomization so it is separated)
-oc delete -f config/overlays/test/dsci.yaml
-oc delete -f config/overlays/test/dsc.yaml
+oc delete -f config/overlays/odh-test/dsci.yaml
+oc delete -f config/overlays/odh-test/dsc.yaml
 
 if [ "$1" != "raw" ]; then
   echo "Deleting authorino and kserve gateways"
