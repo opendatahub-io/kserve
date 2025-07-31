@@ -320,7 +320,7 @@ crc config set enable-cluster-monitoring false
 # Download secret from https://developers.redhat.com/products/openshift-local/overview
 crc start -p ~/pull-secret.txt
 
-kubectl login -u kubeadmin https://api.crc.testing:6443
+oc login -u kubeadmin https://api.crc.testing:6443
 ```
 *Pre-requisites*
 - Install Cert-Manager
@@ -641,7 +641,7 @@ curl "${LB_URL}/v1/completions"  \
 ```shell
 MODEL_ID=facebook/opt-125m
 
-kubectl expose svc/openshift-ai-inference-istio -n openshift-ingress --port http 
+oc expose svc/openshift-ai-inference-istio -n openshift-ingress --port http 
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/part-of=llminferenceservice -n $NS --timeout 150s
   
 LB_HOST=$( kubectl get route/openshift-ai-inference-istio -n openshift-ingress -o=jsonpath='{.status.ingress[*].host}'  )
