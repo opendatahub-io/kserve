@@ -15,7 +15,7 @@
 # This is a helper script to run E2E tests on the openshift-ci operator.
 # This script assumes to be run inside a container/machine that has
 # python pre-installed and the `oc` command available. Additional tooling,
-# like kustomize and the mc client are installed by the script if not available.
+# like kustomize and the minio client are installed by the script if not available.
 # The oc CLI is assumed to be configured with the credentials of the
 # target cluster. The target cluster is assumed to be a clean cluster.
 set -o errexit
