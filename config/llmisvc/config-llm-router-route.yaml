@@ -34,5 +34,5 @@ spec:
                       type: ReplacePrefixMatch
                       replacePrefixMatch: /
               timeouts:
-                backendRequest: 0s
-                request: 0s
+                backendRequest: 30m
+                request: 30m

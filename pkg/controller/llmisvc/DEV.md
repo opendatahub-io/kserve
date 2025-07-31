@@ -408,7 +408,10 @@ spec:
   startingCSV: leader-worker-set.v1.0.0
 EOF
 
-kubectl wait pod -l name=openshift-lws-operator -n openshift-lws-operator --for=condition=Ready --timeout=120s
+sleep 5
+
+# Wait until the pod is created
+oc wait pod -l name=openshift-lws-operator -n openshift-lws-operator --for=condition=Ready --timeout=120s
 
 until kubectl get crd leaderworkersetoperators.operator.openshift.io &> /dev/null; do
   echo "⏳ waiting for CRD to appear…"
@@ -585,6 +588,38 @@ spec:
 EOF
 ```
 
+**Install upstream ISTIO(Optional)**
+
+This step will be removed at some point because the ISTIO(OSSM) should be provided by the platform.
+
+```shell
+kubectl create ns istio-system || true
+kubectl create -f test/overlays/llm-istio-experimental -n istio-system
+```
+
+**Create a gateway**
+```shell
+INGRESS_NS=openshift-ingress
+kubectl create namespace ${INGRESS_NS} || true
+
+kubectl apply -f - <<EOF
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: openshift-ai-inference
+  namespace: openshift-ingress
+spec:
+  gatewayClassName: istio
+  listeners:
+   - name: http
+     port: 80
+     protocol: HTTP
+     allowedRoutes:
+       namespaces:
+         from: All
+EOF
+```
+
 **Deploy Kserve using overlay/odh**
 
 A new CRD related objects will be added 
@@ -659,21 +694,39 @@ You can verify if istiod pod is running in openshift-ingress namespace.
 oc get pod -n openshift-ingress -l operator.istio.io/component=Pilot
 ```
 
-Deploy the model:
+### Deploy CPU model
 
 ```shell
 NS=llm-test
+oc new-project "${NS}" || true
+
 LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-facebook-opt-125m-cpu.yaml
 LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
 
 kubectl get ns $NS||kubectl create ns $NS
 kubectl apply -n ${NS} -f ${LLM_ISVC}
+
+oc wait llminferenceservice --for=condition=ready --all --timeout=300s
 ```
 
+### Deploy DP + EP model on GPUs
+
+```shell
+NS=llm-test
+oc new-project "${NS}" || true
+
+LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-dp-ep-qwen-gpu.yaml
+LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
+
+kubectl get ns $NS || kubectl create ns $NS
+kubectl apply -n ${NS} -f ${LLM_ISVC}
+
+oc wait llminferenceservice --for=condition=ready --all --timeout=600s
+```
 
 #### Validation
 
-**ROSA Cluster**
+**OpenShift Cluster**
 ```shell
 LB_URL=$(kubectl get llmisvc facebook-opt-125m-single  -o=jsonpath='{.status.url}')
 

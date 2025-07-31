@@ -1,0 +1,100 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: qwen3-30b-a3b-fp8
+  annotations:
+    leaderworkerset.sigs.k8s.io/subgroup-exclusive-topology: kubernetes.io/hostname
+spec:
+  model:
+    uri: hf://Qwen/Qwen3-30B-A3B-FP8
+    name: Qwen/Qwen3-30B-A3B-FP8
+  parallelism:
+    data: 2
+    dataLocal: 1
+    expert: true
+    tensor: 1
+  router:
+    scheduler: { }
+    route: { }
+    gateway: { }
+  template:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: nvidia.com/gpu.product
+                  operator: In
+                  # TODO is this value cross-platform? This was tested on GCP 'a3-highgpu-2g' instance type
+                  values:
+                    - NVIDIA-H100-80GB-HBM3
+    containers:
+      - name: main
+        env:
+          - name: VLLM_LOGGING_LEVEL
+            value: DEBUG
+          - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          # Disabled because of https://github.com/vllm-project/vllm/pull/21517 and llm-d 0.2 doesn't include the fix.
+          - name: VLLM_USE_DEEP_GEMM
+            value: "0"
+          - name: VLLM_ALL2ALL_BACKEND
+            value: "naive"
+          - name: VLLM_RANDOMIZE_DP_DUMMY_INPUTS
+            value: "1"
+          - name: NCCL_SOCKET_IFNAME
+            value: eth0
+          - name: NVIDIA_GDRCOPY
+            value: enabled
+        resources:
+          limits:
+            cpu: 16
+            ephemeral-storage: 64Gi
+            memory: 128Gi
+            nvidia.com/gpu: "1"
+          requests:
+            cpu: 8
+            ephemeral-storage: 32Gi
+            memory: 64Gi
+            nvidia.com/gpu: "1"
+  worker:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: nvidia.com/gpu.product
+                  operator: In
+                  # TODO is this value cross-platform? This was tested on GCP 'a3-highgpu-2g' instance type
+                  values:
+                    - NVIDIA-H100-80GB-HBM3
+    containers:
+      - name: main
+        env:
+          - name: VLLM_LOGGING_LEVEL
+            value: DEBUG
+          - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: VLLM_USE_DEEP_GEMM
+            value: "0"
+          - name: VLLM_ALL2ALL_BACKEND
+            value: "naive"
+          - name: NCCL_SOCKET_IFNAME
+            value: eth0
+          - name: NVIDIA_GDRCOPY
+            value: enabled
+        resources:
+          limits:
+            cpu: 16
+            ephemeral-storage: 64Gi
+            memory: 128Gi
+            nvidia.com/gpu: "1"
+          requests:
+            cpu: 8
+            ephemeral-storage: 32Gi
+            memory: 64Gi
+            nvidia.com/gpu: "1"
