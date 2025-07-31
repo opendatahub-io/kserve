@@ -150,6 +150,12 @@ func WithPrefillParallelism(parallelism *v1alpha1.ParallelismSpec) LLMInferenceS
 	}
 }
 
+func WithDeploymentReplicas(replicas int32) LLMInferenceServiceOption {
+	return func(llmSvc *v1alpha1.LLMInferenceService) {
+		llmSvc.Spec.Replicas = &replicas
+	}
+}
+
 func WithWorker(worker *corev1.PodSpec) LLMInferenceServiceOption {
 	return func(llmSvc *v1alpha1.LLMInferenceService) {
 		llmSvc.Spec.Worker = worker
@@ -173,6 +179,12 @@ func ParallelismSpec(opts ...func(*v1alpha1.ParallelismSpec)) *v1alpha1.Parallel
 	return p
 }
 
+func WithTensorParallelism(tensor int32) func(*v1alpha1.ParallelismSpec) {
+	return func(p *v1alpha1.ParallelismSpec) {
+		p.Tensor = &tensor
+	}
+}
+
 func WithPipelineParallelism(pipeline int32) func(*v1alpha1.ParallelismSpec) {
 	return func(p *v1alpha1.ParallelismSpec) {
 		p.Pipeline = &pipeline
@@ -188,6 +200,12 @@ func WithDataParallelism(data int32) func(*v1alpha1.ParallelismSpec) {
 func WithDataLocalParallelism(dataLocal int32) func(*v1alpha1.ParallelismSpec) {
 	return func(p *v1alpha1.ParallelismSpec) {
 		p.DataLocal = &dataLocal
+	}
+}
+
+func WithDataRPCPort(rpcPort int32) func(*v1alpha1.ParallelismSpec) {
+	return func(p *v1alpha1.ParallelismSpec) {
+		p.DataRPCPort = &rpcPort
 	}
 }
 
