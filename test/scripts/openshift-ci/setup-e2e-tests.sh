@@ -58,7 +58,11 @@ echo "STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_IMAGE"
 echo "ERROR_404_ISVC_IMAGE=$ERROR_404_ISVC_IMAGE"
 echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
 
-if [ "$1" == "llm-inference-service" ]; then
+readonly MARKERS="${1:-raw}"
+readonly PARALLELISM="${2:-1}"
+readonly DEPLOYMENT_PROFILE="${3:-serverless}"
+
+if [[ "${MARKERS}" == *"llminferenceservice"* || "${MARKERS}" == *"llm-inference-service"* ]]; then
   echo "dummy stub for llm-inference-service setup"
   exit 0
 fi
@@ -93,9 +97,14 @@ pushd $PROJECT_ROOT/python/kserve >/dev/null
   uv pip install timeout-sampler
 popd
 
-# Install autoscaler only if NOT using ODH operator (operator handles it)
-if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
-  $SCRIPT_DIR/deploy.cma.sh
+$MY_PATH/deploy.cma.sh
+
+# Install KServe stack
+if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
+  echo "Installing OSSM"
+  $MY_PATH/deploy.ossm.sh
+  echo "Installing Serverless"
+  $MY_PATH/deploy.serverless.sh
 fi
 
 # Install ODH operator if requested
@@ -111,97 +120,27 @@ if [[ "$1" =~ raw ]]; then
     # Cluster root CA bundle
     oc get configmap kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' 2>/dev/null && echo ""
 
-    # OpenShift service CA
-    oc get configmap openshift-service-ca.crt -n openshift-config-managed -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null || \
-    oc get secret service-ca -n openshift-service-ca -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null | base64 -d || true
-  } > /tmp/ca.crt
-
-  # Verify we got a valid CA bundle
-  if [ -s "/tmp/ca.crt" ] && grep -q "BEGIN CERTIFICATE" "/tmp/ca.crt"; then
-    echo "✅ CA certificate bundle extracted ($(grep -c "BEGIN CERTIFICATE" /tmp/ca.crt) certificates)"
-  else
-    echo "❌ Failed to extract CA certificates"
-  fi
-fi
-
-# Ensure the target namespace exists
-oc new-project ${KSERVE_NAMESPACE} || true
-
-# Install KServe components based on method
-if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
-  # Manual installation: Install KServe directly with PR images
-  echo "⏳ Installing LLMISvc CRDs"
-  kustomize build $PROJECT_ROOT/config/crd/full/llmisvc | oc apply --server-side=true --force-conflicts -f -
-  wait_for_crd llminferenceserviceconfigs.serving.kserve.io 90s
-
-  echo "⏳ Installing KServe with SeaweedFS"
-  kustomize build $PROJECT_ROOT/config/overlays/odh-test |
-    sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
-    sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
-    sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
-    sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
-    sed "s|kserve/llmisvc-controller:latest|${LLMISVC_CONTROLLER_IMAGE}|" |
-    oc apply --server-side=true --force-conflicts -f -
-
-  echo "⏳ Waiting for LLMISvc CRD to be ready"
-  wait_for_crd llminferenceserviceconfigs.serving.kserve.io 90s
-
-  # Install DSC/DSCI for manual installation
-  echo "Installing DSC/DSCI resources..."
-  oc apply -f config/overlays/odh-test/dsci.yaml
-  oc apply -f config/overlays/odh-test/dsc.yaml
-
-else
-  # ODH operator path: Copy full kustomize directory structure to operator PVC
-  echo "⏳ Preparing PR manifests for ODH operator..."
-
-  # Copy PR manifests into ODH operator PVC using the helper script
-  echo "Copying PR manifests into ODH operator PVC..."
-  $SCRIPT_DIR/copy-kserve-manifests-to-pvc.sh
-
-  # Apply DSC/DSCI to trigger deployment with custom manifests
-  # Sed the DSCI to use opendatahub namespace for ODH operator mode
-  echo "Applying DSC/DSCI to trigger ODH operator deployment with PR manifests..."
-  sed 's/applicationsNamespace:  kserve/applicationsNamespace: opendatahub/' config/overlays/odh-test/dsci.yaml | oc apply -f -
-  oc apply -f config/overlays/odh-test/dsc.yaml
-
-  # Wait for KServe controller to be deployed by the operator
-  echo "Waiting for ODH operator to deploy KServe components with PR manifests..."
-  wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=kserve-controller-manager" 600s
-
-  echo "ODH operator deployed KServe using PR manifests and images"
-fi
+export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
 
 # Patch the inferenceservice-config ConfigMap, when running RawDeployment tests
-if skip_serverless "$1"; then
-  echo "Patching RAW deployment, markers: $1"
-  export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
-  oc patch configmap inferenceservice-config -n ${KSERVE_NAMESPACE} --type=strategic \
-    --patch-file=<(cat config/overlays/odh-test/configmap/inferenceservice-openshift-ci-raw.yaml | \
-    sed "s/namespace: kserve/namespace: ${KSERVE_NAMESPACE}/" | \
-    envsubst)
-  oc delete pod -n ${KSERVE_NAMESPACE} -l control-plane=kserve-controller-manager
+if [[ "${MARKERS}" == *"raw" ]]; then
+  oc patch configmap inferenceservice-config -n kserve --patch-file <(cat config/overlays/test/configmap/inferenceservice-openshift-ci-raw.yaml | envsubst)
+  oc delete pod -n kserve -l control-plane=kserve-controller-manager
 
-  # Patch DSC only in manual mode (operator mode uses yaml files directly)
-  if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
-    oc patch DataScienceCluster test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
-  fi
-else
-  export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
-  oc patch configmap inferenceservice-config -n ${KSERVE_NAMESPACE} --type=strategic \
-    --patch-file=<(cat config/overlays/odh-test/configmap/inferenceservice-openshift-ci-serverless-predictor.yaml | \
-    sed "s/namespace: kserve/namespace: ${KSERVE_NAMESPACE}/" | \
-    envsubst)
+  oc patch DataScienceCluster test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
 fi
 
-# Wait until KServe starts
-echo "waiting kserve-controller get ready..."
-oc wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n ${KSERVE_NAMESPACE} --timeout=300s
+if [[ "${MARKERS}" == *"graph"* ]]; then
+    oc patch configmap inferenceservice-config -n kserve --patch-file <(cat config/overlays/test/configmap/inferenceservice-openshift-ci-serverless.yaml | envsubst)
+  else 
+    oc patch configmap inferenceservice-config -n kserve --patch-file <(cat config/overlays/test/configmap/inferenceservice-openshift-ci-serverless-predictor.yaml | envsubst)
+fi
 
-if ! skip_serverless "$1"; then
+oc wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n kserve --timeout=300s
+
+if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
   echo "Installing authorino and kserve gateways"
-  # authorino
-  curl -sL https://raw.githubusercontent.com/Kuadrant/authorino-operator/main/utils/install.sh | sed "s|kubectl|oc|" |
+  curl -sL https://raw.githubusercontent.com/Kuadrant/authorino-operator/main/utils/install.sh | sed "s|kubectl|oc|" | 
     bash -s -- -v 0.16.0
 
 fi
@@ -266,6 +205,45 @@ if [[ "$1" =~ "kserve_on_openshift" ]]; then
 fi
 
 # Allow all traffic to the KServe namespace. Without this networkpolicy, webhook will return 500
+oc delete route -n kserve minio-service
+
+echo "Prepare CI namespace and install ServingRuntimes"
+cat <<EOF | oc apply -f -
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kserve-ci-e2e-test
+EOF
+
+if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
+  cat <<EOF | oc apply -f -
+apiVersion: maistra.io/v1
+kind: ServiceMeshMember
+metadata:
+  name: default
+  namespace: kserve-ci-e2e-test
+spec:
+  controlPlaneRef:
+    namespace: istio-system
+    name: basic
+EOF
+fi
+
+oc apply -f $PROJECT_ROOT/config/overlays/test/minio/minio-user-secret.yaml -n kserve-ci-e2e-test
+
+kustomize build $PROJECT_ROOT/config/overlays/test/clusterresources |
+  sed 's/ClusterServingRuntime/ServingRuntime/' |
+  sed "s|kserve/sklearnserver:latest|${SKLEARN_IMAGE}|" |
+  sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
+  oc apply -n kserve-ci-e2e-test -f -
+
+# Add the enablePassthrough annotation to the ServingRuntimes, to let Knative to
+# generate passthrough routes.
+if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
+  oc annotate servingruntimes -n kserve-ci-e2e-test --all serving.knative.openshift.io/enablePassthrough=true
+fi
+
+# Allow all traffic to the kserve namespace. Without this networkpolicy, webhook will return 500
 # error msg: 'http: server gave HTTP response to HTTPS client"}]},"code":500}'
 cat <<EOF | oc apply -f -
 apiVersion: networking.k8s.io/v1
