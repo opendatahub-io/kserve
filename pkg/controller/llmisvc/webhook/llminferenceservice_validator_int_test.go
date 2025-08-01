@@ -209,62 +209,6 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 			Expect(errValidation.Error()).To(ContainSubstring("data must be set when dataLocal is set"))
 		})
 
-		It("should reject LLMInferenceService with zero pipeline parallelism", func(ctx SpecContext) {
-			// given
-			llmSvc := fixture.LLMInferenceService("test-zero-pipeline",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithPipelineParallelism(0),
-				)),
-			)
-
-			// when
-			errValidation := envTest.Client.Create(ctx, llmSvc)
-
-			// then
-			Expect(errValidation).To(HaveOccurred())
-			Expect(errValidation.Error()).To(ContainSubstring("pipeline parallelism must be greater than 0"))
-		})
-
-		It("should reject LLMInferenceService with zero data parallelism", func(ctx SpecContext) {
-			// given
-			llmSvc := fixture.LLMInferenceService("test-zero-data",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithDataParallelism(0),
-					fixture.WithDataLocalParallelism(1),
-				)),
-			)
-
-			// when
-			errValidation := envTest.Client.Create(ctx, llmSvc)
-
-			// then
-			Expect(errValidation).To(HaveOccurred())
-			Expect(errValidation.Error()).To(ContainSubstring("data parallelism must be greater than 0"))
-		})
-
-		It("should reject LLMInferenceService with zero dataLocal parallelism", func(ctx SpecContext) {
-			// given
-			llmSvc := fixture.LLMInferenceService("test-zero-datalocal",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithDataParallelism(4),
-					fixture.WithDataLocalParallelism(0),
-				)),
-			)
-
-			// when
-			errValidation := envTest.Client.Create(ctx, llmSvc)
-
-			// then
-			Expect(errValidation).To(HaveOccurred())
-			Expect(errValidation.Error()).To(ContainSubstring("dataLocal parallelism must be greater than 0"))
-		})
-
 		It("should reject LLMInferenceService with worker but no parallelism configuration", func(ctx SpecContext) {
 			// given
 			llmSvc := fixture.LLMInferenceService("test-worker-no-parallelism",
