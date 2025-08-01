@@ -38,6 +38,10 @@ const (
 	SchedulerWorkloadReady apis.ConditionType = "SchedulerWorkloadReady"
 )
 
+const (
+	GatewaysReady apis.ConditionType = "GatewaysReady"
+)
+
 var llmInferenceServiceCondSet = apis.NewLivingConditionSet(
 	WorkloadReady,
 	RouterReady,
@@ -94,7 +98,6 @@ func (in *LLMInferenceService) DetermineWorkloadReadiness() {
 		in.GetStatus().GetCondition(PrefillWorkloadReady),
 		in.GetStatus().GetCondition(PrefillWorkerWorkloadReady),
 		in.GetStatus().GetCondition(SchedulerWorkloadReady),
-		in.GetStatus().GetCondition(RouterReady),
 	}
 
 	for _, cond := range subConditions {
@@ -131,4 +134,45 @@ func (in *LLMInferenceService) MarkSchedulerWorkloadReady() {
 
 func (in *LLMInferenceService) MarkSchedulerWorkloadNotReady(reason, messageFormat string, messageA ...interface{}) {
 	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(SchedulerWorkloadReady, reason, messageFormat, messageA...)
+}
+
+func (in *LLMInferenceService) MarkGatewaysReady() {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(GatewaysReady)
+}
+
+func (in *LLMInferenceService) MarkGatewaysNotReady(reason, messageFormat string, messageA ...interface{}) {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(GatewaysReady, reason, messageFormat, messageA...)
+}
+
+func (in *LLMInferenceService) DetermineRouterReadiness() {
+	subConditions := []*apis.Condition{
+		in.GetStatus().GetCondition(GatewaysReady),
+		// Add other router sub-conditions here as needed
+	}
+
+	// Check if any sub-conditions are false
+	for _, cond := range subConditions {
+		if cond == nil {
+			continue
+		}
+		if cond.IsFalse() {
+			in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(RouterReady, cond.Reason, cond.Message)
+			return
+		}
+	}
+
+	// Check if we have any sub-conditions set to true (meaningful evaluation occurred)
+	hasSetConditions := false
+	for _, cond := range subConditions {
+		if cond != nil {
+			hasSetConditions = true
+			break
+		}
+	}
+
+	// Only mark router ready if we have sub-conditions that were evaluated
+	if hasSetConditions {
+		in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(RouterReady)
+	}
+	// If no sub-conditions are set, don't modify RouterReady condition
 }

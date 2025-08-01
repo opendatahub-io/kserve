@@ -238,22 +238,33 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 
 			g.Expect(err).ToNot(HaveOccurred())
 
+			// Aggregate gateway conditions into router readiness
+			tt.llmSvc.DetermineRouterReadiness()
+
 			// Check the router condition
 			routerCondition := tt.llmSvc.GetStatus().GetCondition(v1alpha1.RouterReady)
+			// Also check the gateway condition was set properly
+			gatewayCondition := tt.llmSvc.GetStatus().GetCondition(v1alpha1.GatewaysReady)
 			switch {
 			case tt.expectConditionUnset:
 				g.Expect(routerCondition).To(BeNil(), "Router condition should not be set when no gateway refs")
+				g.Expect(gatewayCondition).To(BeNil(), "Gateway condition should not be set when no gateway refs")
 			case tt.expectedRouterReady:
 				g.Expect(routerCondition).ToNot(BeNil(), "Router condition should be set")
 				g.Expect(routerCondition.IsTrue()).To(BeTrue(), "Router should be ready")
+				g.Expect(gatewayCondition).ToNot(BeNil(), "Gateway condition should be set")
+				g.Expect(gatewayCondition.IsTrue()).To(BeTrue(), "Gateways should be ready")
 				if tt.expectedConditionReason != "" {
 					g.Expect(routerCondition.Reason).To(Equal(tt.expectedConditionReason))
 				}
 			default:
 				g.Expect(routerCondition).ToNot(BeNil(), "Router condition should be set")
 				g.Expect(routerCondition.IsFalse()).To(BeTrue(), "Router should not be ready")
+				g.Expect(gatewayCondition).ToNot(BeNil(), "Gateway condition should be set")
+				g.Expect(gatewayCondition.IsFalse()).To(BeTrue(), "Gateways should not be ready")
 				if tt.expectedConditionReason != "" {
-					g.Expect(routerCondition.Reason).To(Equal(tt.expectedConditionReason))
+					// The router condition reason should propagate from gateway condition
+					g.Expect(routerCondition.Reason).To(Equal(gatewayCondition.Reason))
 				}
 			}
 		})

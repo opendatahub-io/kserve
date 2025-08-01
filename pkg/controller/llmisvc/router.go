@@ -47,6 +47,7 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 	logger.Info("Reconciling Router")
 
 	if err := r.reconcileScheduler(ctx, llmSvc); err != nil {
+		// Note: Eventually this should set a SchedulerReady sub-condition instead
 		llmSvc.MarkRouterNotReady("SchedulerReconcileError", "Failed to reconcile scheduler: %v", err.Error())
 		return fmt.Errorf("failed to reconcile scheduler: %w", err)
 	}
@@ -54,14 +55,18 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 	// We do not support Gateway's spec, when creating HTTPRoutes either the default gateway or those provided
 	// as refs are attached to reconciled routes
 	if err := r.reconcileHTTPRoutes(ctx, llmSvc); err != nil {
+		// Note: Eventually this should set a HTTPRoutesReady sub-condition instead
 		llmSvc.MarkRouterNotReady("HTTPRouteReconcileError", "Failed to reconcile HTTPRoute: %v", err.Error())
 		return fmt.Errorf("failed to reconcile HTTP routes: %w", err)
 	}
 
-	// Evaluate Gateway conditions to determine overall router readiness
+	// Evaluate Gateway conditions and set GatewaysReady condition
 	if err := r.EvaluateGatewayConditions(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to evaluate gateway conditions: %w", err)
 	}
+
+	// Aggregate all router sub-conditions into RouterReady
+	llmSvc.DetermineRouterReadiness()
 
 	return nil
 }
@@ -212,7 +217,7 @@ func semanticHTTPRouteIsEqual(e *gwapiv1.HTTPRoute, c *gwapiv1.HTTPRoute) bool {
 }
 
 // EvaluateGatewayConditions evaluates the readiness of all Gateways referenced by the LLMInferenceService
-// and updates the Router condition accordingly
+// and updates the GatewaysReady condition accordingly
 func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("evaluateGatewayConditions")
 
@@ -224,17 +229,21 @@ func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Co
 
 	gateways, err := r.CollectReferencedGateways(ctx, llmSvc)
 	if err != nil {
-		llmSvc.MarkRouterNotReady("GatewayFetchError", "Failed to fetch referenced Gateways: %v", err.Error())
+		llmSvc.MarkGatewaysNotReady("GatewayFetchError", "Failed to fetch referenced Gateways: %v", err.Error())
 		return fmt.Errorf("failed to fetch referenced gateways: %w", err)
 	}
 
 	notReadyGateways := evaluateGatewayReadiness(ctx, gateways)
 
 	if len(notReadyGateways) > 0 {
-		llmSvc.MarkRouterNotReady("GatewaysNotReady", "One or more referenced Gateways are not ready")
+		gatewayNames := make([]string, len(notReadyGateways))
+		for i, gw := range notReadyGateways {
+			gatewayNames[i] = fmt.Sprintf("%s/%s", gw.Namespace, gw.Name)
+		}
+		llmSvc.MarkGatewaysNotReady("GatewaysNotReady", "The following Gateways are not ready: %v", gatewayNames)
 		return nil
 	}
-	llmSvc.MarkRouterReady()
+	llmSvc.MarkGatewaysReady()
 	logger.Info("All referenced Gateways are ready")
 
 	return nil
