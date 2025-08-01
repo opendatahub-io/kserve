@@ -33,6 +33,7 @@ RUN uv venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Install Python dependencies
+RUN mkdir -p /work/kserve
 WORKDIR /work/kserve
 COPY kserve/pyproject.toml kserve/uv.lock ./
 RUN uv sync --frozen --active --no-cache --extra storage
@@ -74,7 +75,6 @@ COPY --from=builder kserve kserve
 COPY ./storage-initializer /storage-initializer
 
 RUN chmod +x /storage-initializer/scripts/initializer-entrypoint
-RUN mkdir /work
 WORKDIR /work
 
 # Set a writable /mnt folder to avoid permission issue on Huggingface download. See https://huggingface.co/docs/hub/spaces-sdks-docker#permissions
