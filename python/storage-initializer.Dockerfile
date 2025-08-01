@@ -18,32 +18,38 @@ RUN microdnf install -y --setopt=ubi-9-appstream-rpms.module_hotfixes=1 --disabl
     && alternatives --install /usr/bin/python python /usr/bin/python3.11 1
 
 
-# Install Poetry
-ARG POETRY_HOME=/opt/poetry
-ARG POETRY_VERSION=1.8.3
-
-RUN python -m venv ${POETRY_HOME} && ${POETRY_HOME}/bin/pip install --upgrade pip && ${POETRY_HOME}/bin/pip install poetry==${POETRY_VERSION}
-ENV PATH="$PATH:${POETRY_HOME}/bin"
+# Install all system dependencies first
+ RUN microdnf update -y && \
+     microdnf install -y python3-devel gcc gcc-c++ make tar && \
+     microdnf clean all
+# Install uv
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
+    ln -s /root/.local/bin/uv /usr/local/bin/uv
 
 # Activate virtual env
 ARG VENV_PATH
 ENV VIRTUAL_ENV=${VENV_PATH}
-RUN python -m venv $VIRTUAL_ENV
+RUN uv venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-COPY kserve/pyproject.toml kserve/poetry.lock kserve/
-RUN cd kserve && poetry install --no-root --no-interaction --no-cache --extras "storage"
+# Install Python dependencies
+COPY kserve/pyproject.toml kserve/uv.lock kserve/
+RUN cd kserve && uv sync --extra storage --active --no-cache
 COPY kserve kserve
-RUN cd kserve && poetry install --no-interaction --no-cache --extras "storage"
+RUN cd kserve && uv sync --extra storage --active --no-cache 
 
-RUN pip install --no-cache-dir krbcontext==0.10 hdfs~=2.6.0 requests-kerberos==0.14.0
+# Install Kerberos-related packages
+RUN uv pip install --no-cache \
+    krbcontext==0.10 \
+    hdfs~=2.6.0 \
+    requests-kerberos==0.14.0
 
 # Generate third-party licenses
 COPY pyproject.toml pyproject.toml
 COPY third_party/pip-licenses.py pip-licenses.py
 # TODO: Remove this when upgrading to python 3.11+
-RUN pip install --no-cache-dir tomli
-RUN mkdir -p third_party/library && python3 pip-licenses.py
+#RUN pip install --no-cache-dir tomli
+#RUN mkdir -p third_party/library && python3 pip-licenses.py
 
 
 ## Runtime
@@ -60,9 +66,10 @@ RUN microdnf install -y --setopt=ubi-9-appstream-rpms.module_hotfixes=1 --disabl
     &&  alternatives --install /usr/bin/python python3 /usr/bin/python3.11 1
 RUN useradd kserve -m -u 1000 -d /home/kserve
 
-COPY --from=builder --chown=kserve:kserve third_party third_party
-COPY --from=builder --chown=kserve:kserve $VIRTUAL_ENV $VIRTUAL_ENV
+COPY --from=builder third_party third_party
+COPY --from=builder $VIRTUAL_ENV $VIRTUAL_ENV
 COPY --from=builder kserve kserve
+RUN chown -R kserve:kserve third_party $VIRTUAL_ENV kserve
 COPY ./storage-initializer /storage-initializer
 
 RUN chmod +x /storage-initializer/scripts/initializer-entrypoint
