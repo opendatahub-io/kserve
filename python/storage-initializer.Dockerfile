@@ -33,8 +33,9 @@ RUN uv venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Install Python dependencies
-COPY kserve/pyproject.toml kserve/uv.lock kserve/
-RUN cd kserve && uv sync --extra storage --active --no-cache 
+WORKDIR /work/kserve
+COPY kserve/pyproject.toml kserve/uv.lock ./
+RUN uv sync --frozen --active --no-cache --extra storage
 
 COPY kserve kserve
 RUN cd kserve && uv sync --extra storage --active --no-cache 
