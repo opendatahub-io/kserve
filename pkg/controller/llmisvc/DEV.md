@@ -649,10 +649,10 @@ spec:
       serving.kserve.io/gateway: kserve-ingress-gateway
 EOF
 ```
-You can verify if istiod pod is running in openshift-ingress namespace
+You can verify if istiod pod is running in openshift-ingress namespace.
 ```shell
 oc get pod -n openshift-ingress -l operator.istio.io/component=Pilot
-```operator.istio.io/component=Pilot
+```
 
 Deploy the model:
 
@@ -663,20 +663,6 @@ LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
 
 kubectl get ns $NS||kubectl create ns $NS
 kubectl apply -n ${NS} -f ${LLM_ISVC}
-
-kubectl apply -f - <<EOF
-apiVersion: networking.istio.io/v1
-kind: DestinationRule
-metadata:
-  name: skip-cert-verification-for-scheduler
-  namespace: ${NS}
-spec:
-  host: ${LLM_ISVC_NAME}-epp-service
-  trafficPolicy:
-    tls:
-      insecureSkipVerify: true
-      mode: SIMPLE
-EOF
 ```
 
 
