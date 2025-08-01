@@ -57,17 +57,21 @@ func (l *LLMInferenceServiceValidator) ValidateCreate(ctx context.Context, obj r
 		return warnings, err
 	}
 
-	return warnings, l.validate(ctx, llmSvc)
+	return warnings, l.validate(ctx, nil, llmSvc)
 }
 
-func (l *LLMInferenceServiceValidator) ValidateUpdate(ctx context.Context, _, newObj runtime.Object) (admission.Warnings, error) {
+func (l *LLMInferenceServiceValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	warnings := admission.Warnings{}
 	llmSvc, err := utils.Convert[*v1alpha1.LLMInferenceService](newObj)
 	if err != nil {
 		return warnings, err
 	}
+	prev, err := utils.Convert[*v1alpha1.LLMInferenceService](oldObj)
+	if err != nil {
+		return warnings, err
+	}
 
-	return warnings, l.validate(ctx, llmSvc)
+	return warnings, l.validate(ctx, prev, llmSvc)
 }
 
 func (l *LLMInferenceServiceValidator) ValidateDelete(_ context.Context, _ runtime.Object) (admission.Warnings, error) {
@@ -75,7 +79,7 @@ func (l *LLMInferenceServiceValidator) ValidateDelete(_ context.Context, _ runti
 	return admission.Warnings{}, nil
 }
 
-func (l *LLMInferenceServiceValidator) validate(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (l *LLMInferenceServiceValidator) validate(ctx context.Context, prev *v1alpha1.LLMInferenceService, llmSvc *v1alpha1.LLMInferenceService) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Validating LLMInferenceService", "name", llmSvc.Name, "namespace", llmSvc.Namespace)
 
@@ -83,6 +87,7 @@ func (l *LLMInferenceServiceValidator) validate(ctx context.Context, llmSvc *v1a
 
 	allErrs = append(allErrs, l.validateRouterCrossFieldConstraints(llmSvc)...)
 	allErrs = append(allErrs, l.validateParallelismConstraints(llmSvc)...)
+	allErrs = append(allErrs, l.validateImmutable(prev, llmSvc)...)
 
 	if len(allErrs) == 0 {
 		return nil
@@ -261,4 +266,41 @@ func (l *LLMInferenceServiceValidator) validateWorkloadParallelism(basePath *fie
 	}
 
 	return allErrs
+}
+
+func (l *LLMInferenceServiceValidator) validateImmutable(prev *v1alpha1.LLMInferenceService, curr *v1alpha1.LLMInferenceService) field.ErrorList {
+	var allErrs field.ErrorList
+	if prev == nil {
+		return allErrs
+	}
+	if prev.Spec.Parallelism == nil || curr.Spec.Parallelism == nil {
+		return allErrs
+	}
+
+	specPath := field.NewPath("spec")
+
+	allErrs = append(allErrs, l.validateImmutableParallelism(specPath, prev.Spec.Parallelism, curr.Spec.Parallelism)...)
+	if curr.Spec.Prefill != nil && prev.Spec.Prefill != nil {
+		allErrs = append(allErrs, l.validateImmutableParallelism(specPath.Child("prefill"), prev.Spec.Prefill.Parallelism, curr.Spec.Prefill.Parallelism)...)
+	}
+
+	return allErrs
+}
+
+func (l *LLMInferenceServiceValidator) validateImmutableParallelism(basePath *field.Path, prev *v1alpha1.ParallelismSpec, curr *v1alpha1.ParallelismSpec) field.ErrorList {
+	var allErrs field.ErrorList
+	if pSize, cSize := ptr.Deref(prev.GetSize(), 1), ptr.Deref(curr.GetSize(), 1); cSize != pSize {
+		allErrs = append(allErrs, Immutable(
+			basePath.Child("parallelism"),
+			cSize,
+			fmt.Sprintf("total parallelism size is immutable, previous size %d, curr size %d", pSize, cSize),
+		))
+	}
+	return allErrs
+}
+
+// Immutable returns a *Error indicating "unsupported mutation".
+// This is used to report unsupported mutation of values.
+func Immutable(path *field.Path, value interface{}, detail string) *field.Error {
+	return &field.Error{Type: field.ErrorTypeNotSupported, Field: path.String(), BadValue: value, Detail: detail}
 }
