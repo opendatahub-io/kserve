@@ -3657,12 +3657,12 @@ wheels = [
 
 [[package]]
 name = "python-simple-logger"
-version = "2.0.15"
+version = "2.0.16"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "colorlog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7d/9b/cd44e8a5000c0de82078723483f605d2b629cfb081b5251e2f8eabe18ce9/python_simple_logger-2.0.15.tar.gz", hash = "sha256:0a8d355e0e91c363e649fe37bda2fad9d5d13dde18c029a7a030c97e796a9ca9", size = 9451, upload-time = "2025-07-20T08:21:25.205Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/16/e1/1f8b2645c74d2ae3bfadbeb4c83f4a8175a013b5e2632e7267bc69e98f02/python_simple_logger-2.0.16.tar.gz", hash = "sha256:1e89f01568dab7ad16732b2fd3f0fd1fe9cefc05e0073abcef305b1efa5533a7", size = 9471, upload-time = "2025-08-01T01:20:52.019Z" }
 
 [[package]]
 name = "pytz"
