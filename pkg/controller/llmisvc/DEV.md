@@ -624,9 +624,14 @@ spec:
 EOF
 ```
 
-**Create a gateway**
+**Create a gateway **
 ```shell
 INGRESS_NS=openshift-ingress
+GW_CLASS_NAME=openshift-default
+
+#If you install OSSM 3.1 manually, use this
+#GW_CLASS_NAME=istio
+
 kubectl create namespace ${INGRESS_NS} || true
 
 kubectl apply -f - <<EOF
@@ -636,7 +641,7 @@ metadata:
   name: openshift-ai-inference
   namespace: openshift-ingress
 spec:
-  gatewayClassName: openshift-default
+  gatewayClassName: $GW_CLASS_NAME
   listeners:
    - name: http
      port: 80
@@ -686,10 +691,10 @@ curl "${LB_URL}/v1/completions"  \
 ```shell
 MODEL_ID=facebook/opt-125m
 
-oc expose svc/openshift-ai-inference-openshift-default -n openshift-ingress --port http 
+oc expose svc/openshift-ai-inference-$GW_CLASS_NAME -n openshift-ingress --port http 
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/part-of=llminferenceservice -n $NS --timeout 150s
   
-LB_HOST=$( kubectl get route/openshift-ai-inference-openshift-default -n openshift-ingress -o=jsonpath='{.status.ingress[*].host}'  )
+LB_HOST=$(kubectl get route/openshift-ai-inference-$GW_CLASS_NAME -n openshift-ingress -o=jsonpath='{.status.ingress[*].host}')
 
 curl http://$LB_HOST/$NS/$LLM_ISVC_NAME/v1/completions  \
     -H "Content-Type: application/json" \
