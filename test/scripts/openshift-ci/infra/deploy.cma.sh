@@ -15,7 +15,7 @@
 set -eu # Exit on error and undefined variables
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-source "${SCRIPT_DIR}/common.sh"
+source "${SCRIPT_DIR}/../common.sh"
 
 : "${SUBSCRIPTION_NAME:=openshift-custom-metrics-autoscaler-operator}"
 : "${KEDA_NAMESPACE:=openshift-keda}"
