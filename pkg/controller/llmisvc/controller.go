@@ -99,7 +99,7 @@ func NewConfig(ingressConfig *v1beta1.IngressConfig, storageConfig *kserveTypes.
 		IstioGatewayControllerNames: []string{
 			"istio.io/gateway-controller",
 			"istio.io/unmanaged-gateway",
-			"openshift.io/gateway-controller",
+			"openshift.io/gateway-controller/v1",
 		},
 		StorageConfig: storageConfig,
 	}
