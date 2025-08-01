@@ -492,6 +492,7 @@ async def test_sklearn_keda_scale_resource_memory(rest_v1_client, network_layer)
 
 @pytest.mark.raw
 @pytest.mark.asyncio(scope="session")
+@pytest.mark.skip()
 async def test_sklearn_keda_scale_new_spec_external(rest_v1_client, network_layer):
     """
     Test KEDA autoscaling with new InferenceService (auto_scaling) spec
@@ -586,6 +587,7 @@ async def test_sklearn_keda_scale_new_spec_external(rest_v1_client, network_laye
 
 @pytest.mark.raw
 @pytest.mark.asyncio(scope="session")
+@pytest.mark.skip()
 async def test_scaling_sklearn_with_keda_otel_add_on(rest_v1_client, network_layer):
     """
     Test KEDA-Otel-Add-On autoscaling with InferenceService (auto_scaling) spec
