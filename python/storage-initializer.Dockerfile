@@ -66,9 +66,10 @@ RUN microdnf install -y --setopt=ubi-9-appstream-rpms.module_hotfixes=1 --disabl
     &&  alternatives --install /usr/bin/python python3 /usr/bin/python3.11 1
 RUN useradd kserve -m -u 1000 -d /home/kserve
 
-COPY --from=builder --chown=kserve:kserve third_party third_party
-COPY --from=builder --chown=kserve:kserve $VIRTUAL_ENV $VIRTUAL_ENV
+COPY --from=builder third_party third_party
+COPY --from=builder $VIRTUAL_ENV $VIRTUAL_ENV
 COPY --from=builder kserve kserve
+RUN chown -R kserve:kserve third_party $VIRTUAL_ENV kserve
 COPY ./storage-initializer /storage-initializer
 
 RUN chmod +x /storage-initializer/scripts/initializer-entrypoint
