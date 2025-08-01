@@ -222,7 +222,7 @@ func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Co
 		return nil
 	}
 
-	gateways, err := r.FetchReferencedGateways(ctx, llmSvc)
+	gateways, err := r.CollectReferencedGateways(ctx, llmSvc)
 	if err != nil {
 		llmSvc.MarkRouterNotReady("GatewayFetchError", "Failed to fetch referenced Gateways: %v", err.Error())
 		return fmt.Errorf("failed to fetch referenced gateways: %w", err)
@@ -240,13 +240,28 @@ func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Co
 	return nil
 }
 
-// FetchReferencedGateways retrieves all Gateway objects referenced in the LLMInferenceService spec
-func (r *LLMInferenceServiceReconciler) FetchReferencedGateways(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) ([]*gwapiv1.Gateway, error) {
+// CollectReferencedGateways retrieves all Gateway objects referenced in the LLMInferenceService spec
+func (r *LLMInferenceServiceReconciler) CollectReferencedGateways(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) ([]*gwapiv1.Gateway, error) {
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
 		return nil, nil
 	}
 
-	gateways := make([]*gwapiv1.Gateway, 0, len(llmSvc.Spec.Router.Gateway.Refs))
+	// Use a map to ensure gateways are not repeated (keyed by namespace/name)
+	gatewayMap := make(map[string]*gwapiv1.Gateway)
+	routes, err := r.collectReferencedRoutes(ctx, llmSvc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to collect referenced routes: %w", err)
+	}
+	for _, route := range routes {
+		discoveredGateways, err := DiscoverGateways(ctx, r.Client, route)
+		if err != nil {
+			return nil, fmt.Errorf("failed to discover gateways: %w", err)
+		}
+		for _, gateway := range discoveredGateways {
+			key := gateway.gateway.Namespace + "/" + gateway.gateway.Name
+			gatewayMap[key] = gateway.gateway
+		}
+	}
 
 	for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
 		gateway := &gwapiv1.Gateway{}
@@ -265,7 +280,14 @@ func (r *LLMInferenceServiceReconciler) FetchReferencedGateways(ctx context.Cont
 			return nil, fmt.Errorf("failed to get Gateway %s: %w", gatewayKey, err)
 		}
 
-		gateways = append(gateways, gateway)
+		key := gateway.Namespace + "/" + gateway.Name
+		gatewayMap[key] = gateway
+	}
+
+	// Convert map values to slice
+	gateways := make([]*gwapiv1.Gateway, 0, len(gatewayMap))
+	for _, gw := range gatewayMap {
+		gateways = append(gateways, gw)
 	}
 
 	return gateways, nil

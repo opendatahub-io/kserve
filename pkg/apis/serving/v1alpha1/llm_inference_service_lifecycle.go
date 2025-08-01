@@ -94,6 +94,7 @@ func (in *LLMInferenceService) DetermineWorkloadReadiness() {
 		in.GetStatus().GetCondition(PrefillWorkloadReady),
 		in.GetStatus().GetCondition(PrefillWorkerWorkloadReady),
 		in.GetStatus().GetCondition(SchedulerWorkloadReady),
+		in.GetStatus().GetCondition(RouterReady),
 	}
 
 	for _, cond := range subConditions {
