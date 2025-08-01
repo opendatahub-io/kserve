@@ -45,11 +45,16 @@ var _ = Describe("LLMInferenceService API validation", func() {
 			},
 		}
 		Expect(envTest.Client.Create(ctx, ns)).To(Succeed())
+
+		DeferCleanup(func() {
+			ns := ns
+			envTest.DeleteAll(ns)
+		})
 	})
 	Context("Integer value validation", func() {
 		It("should reject LLMInferenceService with negative workload replicas", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-zero-int-pipeline",
+			llmSvc := fixture.LLMInferenceService("test-negative-replicas",
 				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
 				fixture.WithModelURI("hf://facebook/opt-125m"),
 				fixture.WithDeploymentReplicas(-1),
@@ -66,7 +71,7 @@ var _ = Describe("LLMInferenceService API validation", func() {
 
 		It("should reject LLMInferenceService with zero tensor parallelism", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-zero-int-pipeline",
+			llmSvc := fixture.LLMInferenceService("test-zero-int-parallelism",
 				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
 				fixture.WithModelURI("hf://facebook/opt-125m"),
 				fixture.WithParallelism(fixture.ParallelismSpec(
@@ -144,7 +149,7 @@ var _ = Describe("LLMInferenceService API validation", func() {
 
 		It("should reject LLMInferenceService with zero data parallelism RPC Port", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-zero-datalocal",
+			llmSvc := fixture.LLMInferenceService("test-zero-data-rpc-port",
 				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
 				fixture.WithModelURI("hf://facebook/opt-125m"),
 				fixture.WithParallelism(fixture.ParallelismSpec(
@@ -163,7 +168,7 @@ var _ = Describe("LLMInferenceService API validation", func() {
 
 		It("should reject LLMInferenceService with too large data parallelism RPC Port", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-zero-datalocal",
+			llmSvc := fixture.LLMInferenceService("test-max-data-rpc-port-exceeded",
 				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
 				fixture.WithModelURI("hf://facebook/opt-125m"),
 				fixture.WithParallelism(fixture.ParallelismSpec(
