@@ -405,7 +405,7 @@ func TestFetchReferencedGateways(t *testing.T) {
 			}
 
 			// Execute the fetch
-			gateways, err := reconciler.FetchReferencedGateways(ctx, tt.llmSvc)
+			gateways, err := reconciler.CollectReferencedGateways(ctx, tt.llmSvc)
 
 			if tt.expectedError != "" {
 				g.Expect(err).To(HaveOccurred())
