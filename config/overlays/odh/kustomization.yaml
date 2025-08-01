@@ -2,13 +2,44 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
+- ../../crd/external/gateway-inference-extension
 - ../../default
 - user-cluster-roles.yaml
+- network-policies.yaml
+- ../../llmisvc
 
 namespace: opendatahub
 
 patches:
-- path: remove-namespace.yaml
+- target:
+    kind: MutatingWebhookConfiguration
+  patch: |
+    - op: remove
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+    - op: add
+      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
+      value: "true"
+- target:
+      kind: CustomResourceDefinition
+      name: inferenceservices.serving.kserve.io
+  patch: |
+    - op: remove
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+    - op: add
+      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
+      value: "true"
+- target:
+    kind: ValidatingWebhookConfiguration
+  patch: |
+    - op: remove
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+    - op: add
+      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
+      value: "true"
+- path: remove-clusterservingruntime.yaml
+- path: remove-cert-manager.yaml
+- path: remove-local-model.yaml
+- path: svc_webhook_cainjection_patch.yaml
 - path: inferenceservice-config-patch.yaml
 - path: set-resources-manager-patch.yaml
 - target:
@@ -32,26 +63,6 @@ patches:
     - op: replace
       path: /spec/worker/initContainers/0/image
       value: "$(kserve-llm-d-routing-sidecar)"
-- target:
-    kind: ValidatingWebhookConfiguration
-    name: llminferenceservice.serving.kserve.io
-  patch: |-
-    - op: remove
-      path: /metadata/annotations/cert-manager.io~1inject-ca-from
-      value: "service.beta.openshift.io/inject-cabundle"
-    - op: replace
-      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
-      value: "true"
-- target:
-    kind: ValidatingWebhookConfiguration
-    name: llminferenceserviceconfig.serving.kserve.io
-  patch: |-
-    - op: remove
-      path: /metadata/annotations/cert-manager.io~1inject-ca-from
-      value: "service.beta.openshift.io/inject-cabundle"
-    - op: replace
-      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
-      value: "true"
 
 replacements:
 - source:

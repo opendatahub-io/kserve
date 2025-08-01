@@ -22,17 +22,16 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+PROJECT_ROOT="$(find_project_root "$SCRIPT_DIR")"
+
 readonly MARKERS="${1:-raw}"
 readonly PARALLELISM="${2:-1}"
+
 readonly DEPLOYMENT_PROFILE="${3:-serverless}"
+validate_deployment_profile "${DEPLOYMENT_PROFILE}"
 
-if [[ "${MARKERS}" == *"llminferenceservice"* || "${MARKERS}" == *"llm-inference-service"* ]]; then
-  echo "dummy stub for llm-inference-service setup"
-  exit 0
-fi
-
-MY_PATH=$(dirname "$0")
-PROJECT_ROOT=$MY_PATH/../../../
 export CI_USE_ISVC_HOST="1"
 export GITHUB_SHA=stable # Need to use stable as this is what the CI tags the images to for success-200 and error-404
 : "${BUILD_GRAPH_IMAGES:=true}"
@@ -54,7 +53,7 @@ fi
 if [ "$SETUP_E2E" = "true" ]; then
   echo "Installing on cluster"
   pushd $PROJECT_ROOT >/dev/null
-  ./test/scripts/openshift-ci/setup-e2e-tests.sh "$1" | tee 2>&1 ./test/scripts/openshift-ci/setup-e2e-tests-$1.log
+  ./test/scripts/openshift-ci/setup-e2e-tests.sh "${MARKERS}" "${PARALLELISM}" "${DEPLOYMENT_PROFILE}" | tee 2>&1 ./test/scripts/openshift-ci/setup-e2e-tests-"${MARKERS// /_}".log
   popd
 fi
 
@@ -64,5 +63,5 @@ echo "REQUESTS_CA_BUNDLE=$(cat ${REQUESTS_CA_BUNDLE})"
 
 echo "Run E2E tests: ${MARKERS}"
 pushd $PROJECT_ROOT >/dev/null
-./test/scripts/gh-actions/run-e2e-tests.sh "${MARKERS}" "${PARALLELISM}" "${DEPLOYMENT_PROFILE}" | tee 2>&1 ./test/scripts/openshift-ci/run-e2e-tests-$1.log
+./test/scripts/gh-actions/run-e2e-tests.sh "${MARKERS}" "${PARALLELISM}" "${DEPLOYMENT_PROFILE}" | tee 2>&1 ./test/scripts/openshift-ci/run-e2e-tests-"${MARKERS// /_}".log
 popd
