@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"text/template"
 
-	"github.com/kserve/kserve/pkg/constants"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -34,6 +34,7 @@ import (
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/constants"
 )
 
 const (
@@ -73,6 +74,8 @@ var WellKnownDefaultConfigs = sets.New[string](
 // enabled. These LLMInferenceServiceConfig resources must exist in either resource namespace (prioritized) or
 // SystemNamespace (e.g. `kserve`).
 func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, reconcilerConfig *Config) (*v1alpha1.LLMInferenceServiceConfig, error) {
+	logger := log.FromContext(ctx).WithName("combineBaseRefsConfig")
+
 	// Creates the initial spec with the merged BaseRefs, so that we know what's "Enabled".
 	resolvedSpec := *llmSvc.Spec.DeepCopy()
 	for _, ref := range llmSvc.Spec.BaseRefs {
@@ -94,32 +97,42 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		llmSvc.Spec.Model.Name = resolvedSpec.Model.Name
 	}
 
+	logger.Info("Resolved spec", "spec", resolvedSpec)
+
 	refs := make([]corev1.LocalObjectReference, 0, len(llmSvc.Spec.BaseRefs))
 	if resolvedSpec.Router != nil && resolvedSpec.Router.Scheduler != nil && !resolvedSpec.Router.Scheduler.Pool.HasRef() {
 		refs = append(refs, corev1.LocalObjectReference{Name: configRouterSchedulerName})
+		logger.Info("Using template", "scheduler", configRouterSchedulerName)
 	}
 	if resolvedSpec.Router != nil && resolvedSpec.Router.Route != nil && !resolvedSpec.Router.Route.HTTP.HasRefs() {
 		refs = append(refs, corev1.LocalObjectReference{Name: configRouterRouteName})
+		logger.Info("Using template", "route", configRouterRouteName)
 	}
 	switch {
 	// Disaggregated prefill and decode (P/D) cases.
 	case resolvedSpec.Prefill != nil && resolvedSpec.Prefill.Worker == nil:
 		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillTemplateName})
 		refs = append(refs, corev1.LocalObjectReference{Name: configDecodeTemplateName})
+		logger.Info("Using templates", "prefill", configPrefillTemplateName, "main", configDecodeTemplateName)
 	case resolvedSpec.Prefill != nil && resolvedSpec.Prefill.Worker != nil && resolvedSpec.Prefill.Parallelism.IsPipelineParallel():
 		refs = append(refs, corev1.LocalObjectReference{Name: configDecodeWorkerPipelineParallelName})
 		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerPipelineParallelName})
+		logger.Info("Using template", "prefill", configPrefillWorkerPipelineParallelName, "main", configDecodeWorkerPipelineParallelName)
 	case resolvedSpec.Prefill != nil && resolvedSpec.Prefill.Worker != nil && resolvedSpec.Prefill.Parallelism.IsDataParallel():
 		refs = append(refs, corev1.LocalObjectReference{Name: configDecodeWorkerDataParallelName})
 		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerDataParallelName})
+		logger.Info("Using template", "prefill", configPrefillWorkerDataParallelName, "main", configDecodeWorkerDataParallelName)
 	// Multi Node without Disaggregated prefill and decode (P/D) cases.
 	case resolvedSpec.Worker != nil && resolvedSpec.Parallelism.IsPipelineParallel():
 		refs = append(refs, corev1.LocalObjectReference{Name: configWorkerPipelineParallelName})
+		logger.Info("Using template", "main", configWorkerPipelineParallelName)
 	case resolvedSpec.Worker != nil && resolvedSpec.Parallelism.IsDataParallel():
 		refs = append(refs, corev1.LocalObjectReference{Name: configWorkerDataParallelName})
+		logger.Info("Using template", "main", configWorkerDataParallelName)
 	default:
 		// Single Node case.
 		refs = append(refs, corev1.LocalObjectReference{Name: configTemplateName})
+		logger.Info("Using template", "main", configTemplateName)
 	}
 	// Append explicit base refs to override well know configs.
 	refs = append(refs, llmSvc.Spec.BaseRefs...)
