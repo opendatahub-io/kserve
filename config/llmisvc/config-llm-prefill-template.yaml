@@ -15,7 +15,6 @@ spec:
           command:
             - vllm
             - serve
-            - "{{ .Spec.Model.Name }}"
           args:
             - --served-model-name
             - "{{ .Spec.Model.Name }}"
