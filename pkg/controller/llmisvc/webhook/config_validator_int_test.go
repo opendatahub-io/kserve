@@ -19,28 +19,22 @@ package webhook_test
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 )
 
 var _ = Describe("Validating config configs", func() {
 	Context("validating new configs", func() {
 		It("should reject config with invalid template fields", func(ctx SpecContext) {
 			// given
-			preset := &v1alpha1.LLMInferenceServiceConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "invalid-template-fields",
-					Namespace: constants.KServeNamespace,
-				},
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
-						Name: ptr.To("{{ .NonExisting }}"),
-					},
-				},
-			}
+			preset := fixture.LLMInferenceServiceConfig("invalid-template-fields",
+				fixture.InNamespace[*v1alpha1.LLMInferenceServiceConfig](constants.KServeNamespace),
+				fixture.WithConfigModelName("{{ .NonExisting }}"),
+			)
 
 			// when
 			admissionError := envTest.Client.Create(ctx, preset)
@@ -52,17 +46,10 @@ var _ = Describe("Validating config configs", func() {
 
 		It("should reject updating config with wrong template syntax", func(ctx SpecContext) {
 			// given
-			preset := &v1alpha1.LLMInferenceServiceConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "invalid-template-fields",
-					Namespace: constants.KServeNamespace,
-				},
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
-						Name: ptr.To("{{ ChildName .ObjectMeta.Name `-inference-pool` }}"),
-					},
-				},
-			}
+			preset := fixture.LLMInferenceServiceConfig("invalid-template-fields",
+				fixture.InNamespace[*v1alpha1.LLMInferenceServiceConfig](constants.KServeNamespace),
+				fixture.WithConfigModelName("{{ ChildName .ObjectMeta.Name `-inference-pool` }}"),
+			)
 			Expect(envTest.Client.Create(ctx, preset)).To(Succeed())
 
 			// when
@@ -72,6 +59,25 @@ var _ = Describe("Validating config configs", func() {
 			// then
 			Expect(admissionError).To(HaveOccurred())
 			Expect(admissionError.Error()).To(ContainSubstring(`unexpected "\\" in operand`))
+		})
+
+		It("should reject config with baseRefs", func(ctx SpecContext) {
+			// given
+			preset := fixture.LLMInferenceServiceConfig("config-with-baserefs",
+				fixture.InNamespace[*v1alpha1.LLMInferenceServiceConfig](constants.KServeNamespace),
+				fixture.WithConfigModelName("test-model"),
+			)
+
+			preset.Spec.BaseRefs = []corev1.LocalObjectReference{
+				{Name: "base-config"},
+			}
+
+			// when
+			admissionError := envTest.Client.Create(ctx, preset)
+
+			// then
+			Expect(admissionError).To(HaveOccurred())
+			Expect(admissionError.Error()).To(ContainSubstring("spec.baseRefs is not a permitted field in LLMInferenceServiceConfig"))
 		})
 	})
 })
