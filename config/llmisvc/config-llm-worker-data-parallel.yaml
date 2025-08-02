@@ -25,7 +25,7 @@ spec:
               # Leader-only launch
               #################
               vllm serve \
-                {{ .Spec.Model.Name }} \
+                /mnt/models \
                 --port 8000 \
                 --api-server-count 4 \
                 --disable-log-requests \
@@ -47,7 +47,7 @@ spec:
               # Worker-only launch
               #################
               vllm serve \
-                {{ .Spec.Model.Name }} \
+                /mnt/models \
                 --port 8000 \
                 --disable-log-requests \
                 {{- if .Spec.Parallelism.Expert }}--enable-expert-parallel \{{- end }}
