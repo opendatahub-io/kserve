@@ -3,7 +3,7 @@ source "$SCRIPT_DIR/../common.sh"
 
 echo "⏳ Installing openshift-lws-operator"
 {
-cat <<EOF | kubectl create -f -
+cat <<EOF | oc create -f -
 apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
 metadata:
@@ -15,10 +15,10 @@ spec:
 EOF
 } || true
 
-kubectl create ns openshift-lws-operator || true
+oc create ns openshift-lws-operator || true
 
 {
-cat <<EOF | kubectl create -f -
+cat <<EOF | oc create -f -
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
@@ -47,7 +47,7 @@ EOF
 wait_for_crd leaderworkersetoperators.operator.openshift.io 90s
 
 {
-cat <<EOF | kubectl create -f -
+cat <<EOF | oc create -f -
 apiVersion: operator.openshift.io/v1
 kind: LeaderWorkerSetOperator
 metadata:

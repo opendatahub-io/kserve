@@ -37,18 +37,18 @@ validate_deployment_profile() {
 
 # Usage: wait_for_crd <crd-name> [timeout]
 #   <crd-name> : the full CRD name (e.g. leaderworkersetoperators.operator.openshift.io)
-#   [timeout]  : kubectl wait timeout (default “60s”)
+#   [timeout]  : oc wait timeout (default “60s”)
 wait_for_crd() {
   local crd="$1"
   local timeout="${2:-60s}"
 
   echo "⏳ Waiting for CRD ${crd} to appear…"
-  until kubectl get crd "$crd" &> /dev/null; do
+  until oc get crd "$crd" &> /dev/null; do
     sleep 2
   done
 
   echo "⏳ CRD ${crd} detected — waiting for it to become Established (timeout: ${timeout})…"
-  kubectl wait \
+  oc wait \
     --for=condition=Established \
     --timeout="$timeout" \
     crd/"$crd"

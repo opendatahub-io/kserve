@@ -2,10 +2,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../common.sh"
 
 echo "⏳ Installing cert-manager"
-kubectl create namespace cert-manager-operator || true
+oc create namespace cert-manager-operator || true
 
 {
-cat<<EOF | kubectl create -f -
+cat<<EOF | oc create -f -
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:

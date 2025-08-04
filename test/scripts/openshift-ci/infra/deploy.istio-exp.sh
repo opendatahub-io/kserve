@@ -9,15 +9,15 @@ install_upstream_istio() {
   echo "⚠️  Temporarily until Ingress Operator provides it out of the box"
 
   # create namespaces if they don't already exist
-  kubectl create namespace istio-system   >/dev/null 2>&1 || true
-  kubectl create namespace openshift-ingress >/dev/null 2>&1 || true
+  oc create namespace istio-system   >/dev/null 2>&1 || true
+  oc create namespace openshift-ingress >/dev/null 2>&1 || true
 
   # apply the experimental overlay
-  kubectl create -f "${PROJECT_ROOT}/test/overlays/llm-istio-experimental" -n istio-system || true
+  oc create -f "${PROJECT_ROOT}/test/overlays/llm-istio-experimental" -n istio-system || true
 
   # apply the Gateway manifest, ignore errors
   {
-    kubectl apply -f - <<EOF
+    oc apply -f - <<EOF
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
