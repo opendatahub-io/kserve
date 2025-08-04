@@ -370,53 +370,88 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			validatePvcStorageIsConfiguredForLWS(expectedMainLWS)
 			validatePvcStorageIsConfiguredForLWS(expectedPrefillLWS)
 		})
+
+		It("should configure a modelcar when model uri starts with oci://", func(ctx SpecContext) {
+			// given
+			svcName := "test-llm-storage-oci-mn"
+			nsName := kmeta.ChildName(svcName, "-test")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nsName,
+				},
+			}
+			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			defer func() {
+				envTest.DeleteAll(namespace)
+			}()
+
+			modelURL, err := apis.ParseURL("oci://registry.io/user-id/repo-id:tag")
+			Expect(err).ToNot(HaveOccurred())
+
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      svcName,
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						Name: ptr.To("foo"),
+						URI:  *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Worker: &corev1.PodSpec{
+							Containers: []corev1.Container{},
+						},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
+					Router: &v1alpha1.RouterSpec{
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
+					},
+					Prefill: &v1alpha1.WorkloadSpec{},
+				},
+			}
+
+			// when
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+			}()
+
+			// then
+			expectedMainLWS := &lwsapi.LeaderWorkerSet{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn",
+					Namespace: nsName,
+				}, expectedMainLWS)
+			}).WithContext(ctx).Should(Succeed())
+
+			expectedPrefillLWS := &lwsapi.LeaderWorkerSet{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn-prefill",
+					Namespace: nsName,
+				}, expectedPrefillLWS)
+			}).WithContext(ctx).Should(Succeed())
+
+			validateOciStorageIsConfiguredForLWS(expectedMainLWS)
+			validateOciStorageIsConfiguredForLWS(expectedPrefillLWS)
+		})
 	})
 })
 
 func validatePvcStorageIsConfigured(deployment *appsv1.Deployment) {
-	validatePvcStorageForPodSpec(&deployment.Spec.Template.Spec, deployment.Spec.Template.Spec.Volumes)
+	validatePvcStorageForPodSpec(&deployment.Spec.Template.Spec)
 }
 
 func validateOciStorageIsConfigured(deployment *appsv1.Deployment) {
-	// Check the main container and modelcar container are present.
-	mainContainer := utils.GetContainerWithName(&deployment.Spec.Template.Spec, "main")
-	Expect(mainContainer).ToNot(BeNil())
-	modelcarContainer := utils.GetContainerWithName(&deployment.Spec.Template.Spec, constants.ModelcarContainerName)
-	Expect(modelcarContainer).ToNot(BeNil())
-
-	// Check container are sharing resources.
-	Expect(deployment.Spec.Template.Spec.ShareProcessNamespace).To(Not(BeNil()))
-	Expect(*deployment.Spec.Template.Spec.ShareProcessNamespace).To(BeTrue())
-
-	// Check the model server is directed to the mount point of the OCI container
-	Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
-
-	// Check the model server has an envvar indicating that the model may not be mounted immediately.
-	Expect(mainContainer.Env).To(ContainElement(And(
-		HaveField("Name", constants.ModelInitModeEnv),
-		HaveField("Value", "async"),
-	)))
-
-	// Check OCI init container for the pre-fetch
-	Expect(deployment.Spec.Template.Spec.InitContainers).To(ContainElement(And(
-		HaveField("Name", constants.ModelcarInitContainerName),
-		HaveField("Resources.Limits", And(HaveKey(corev1.ResourceCPU), HaveKey(corev1.ResourceMemory))),
-		HaveField("Resources.Requests", And(HaveKey(corev1.ResourceCPU), HaveKey(corev1.ResourceMemory))),
-	)))
-
-	// Basic check of empty dir volume is configured (shared mount between the containers)
-	Expect(deployment.Spec.Template.Spec.Volumes).To(ContainElement(HaveField("Name", constants.StorageInitializerVolumeName)))
-
-	// Check that the empty-dir volume is mounted to the modelcar and main container (shared storage)
-	Expect(mainContainer.VolumeMounts).To(ContainElement(And(
-		HaveField("Name", constants.StorageInitializerVolumeName),
-		HaveField("MountPath", "/mnt"),
-	)))
-	Expect(modelcarContainer.VolumeMounts).To(ContainElement(And(
-		HaveField("Name", constants.StorageInitializerVolumeName),
-		HaveField("MountPath", "/mnt"),
-		HaveField("ReadOnly", false),
-	)))
+	validateOciStorageForPodSpec(&deployment.Spec.Template.Spec)
 }
 
 func validateStorageInitializerIsConfigured(deployment *appsv1.Deployment, storageUri string) {
@@ -449,15 +484,15 @@ func validateStorageInitializerIsConfigured(deployment *appsv1.Deployment, stora
 
 func validatePvcStorageIsConfiguredForLWS(lws *lwsapi.LeaderWorkerSet) {
 	workerSpec := lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec
-	validatePvcStorageForPodSpec(&workerSpec, workerSpec.Volumes)
+	validatePvcStorageForPodSpec(&workerSpec)
 }
 
-func validatePvcStorageForPodSpec(podSpec *corev1.PodSpec, volumes []corev1.Volume) {
+func validatePvcStorageForPodSpec(podSpec *corev1.PodSpec) {
 	mainContainer := utils.GetContainerWithName(podSpec, "main")
 	Expect(mainContainer).ToNot(BeNil())
 
 	Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
-	Expect(volumes).To(ContainElement(And(
+	Expect(podSpec.Volumes).To(ContainElement(And(
 		HaveField("Name", constants.PvcSourceMountName),
 		HaveField("VolumeSource.PersistentVolumeClaim.ClaimName", "facebook-models"),
 	)))
@@ -467,5 +502,52 @@ func validatePvcStorageForPodSpec(podSpec *corev1.PodSpec, volumes []corev1.Volu
 		HaveField("MountPath", constants.DefaultModelLocalMountPath),
 		HaveField("ReadOnly", BeTrue()),
 		HaveField("SubPath", "opt-125m"),
+	)))
+}
+
+func validateOciStorageIsConfiguredForLWS(lws *lwsapi.LeaderWorkerSet) {
+	workerSpec := lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec
+	validateOciStorageForPodSpec(&workerSpec)
+}
+
+func validateOciStorageForPodSpec(podSpec *corev1.PodSpec) {
+	// Check the main container and modelcar container are present.
+	mainContainer := utils.GetContainerWithName(podSpec, "main")
+	Expect(mainContainer).ToNot(BeNil())
+	modelcarContainer := utils.GetContainerWithName(podSpec, constants.ModelcarContainerName)
+	Expect(modelcarContainer).ToNot(BeNil())
+
+	// Check container are sharing resources.
+	Expect(podSpec.ShareProcessNamespace).To(Not(BeNil()))
+	Expect(*podSpec.ShareProcessNamespace).To(BeTrue())
+
+	// Check the model server is directed to the mount point of the OCI container
+	Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
+
+	// Check the model server has an envvar indicating that the model may not be mounted immediately.
+	Expect(mainContainer.Env).To(ContainElement(And(
+		HaveField("Name", constants.ModelInitModeEnv),
+		HaveField("Value", "async"),
+	)))
+
+	// Check OCI init container for the pre-fetch
+	Expect(podSpec.InitContainers).To(ContainElement(And(
+		HaveField("Name", constants.ModelcarInitContainerName),
+		HaveField("Resources.Limits", And(HaveKey(corev1.ResourceCPU), HaveKey(corev1.ResourceMemory))),
+		HaveField("Resources.Requests", And(HaveKey(corev1.ResourceCPU), HaveKey(corev1.ResourceMemory))),
+	)))
+
+	// Basic check of empty dir volume is configured (shared mount between the containers)
+	Expect(podSpec.Volumes).To(ContainElement(HaveField("Name", constants.StorageInitializerVolumeName)))
+
+	// Check that the empty-dir volume is mounted to the modelcar and main container (shared storage)
+	Expect(mainContainer.VolumeMounts).To(ContainElement(And(
+		HaveField("Name", constants.StorageInitializerVolumeName),
+		HaveField("MountPath", "/mnt"),
+	)))
+	Expect(modelcarContainer.VolumeMounts).To(ContainElement(And(
+		HaveField("Name", constants.StorageInitializerVolumeName),
+		HaveField("MountPath", "/mnt"),
+		HaveField("ReadOnly", false),
 	)))
 }
