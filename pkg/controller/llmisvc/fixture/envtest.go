@@ -30,8 +30,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
-	"github.com/kserve/kserve/pkg/controller/llmisvc/webhook"
-	"github.com/kserve/kserve/pkg/testing"
+	"github.com/kserve/kserve/pkg/controller/llmisvc/validation"
 	pkgtest "github.com/kserve/kserve/pkg/testing"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -68,18 +67,18 @@ func SetupTestEnv() *pkgtest.Client {
 		if err != nil {
 			return err
 		}
-		llmInferenceServiceConfigValidator := webhook.LLMInferenceServiceConfigValidator{
+		llmInferenceServiceConfigValidator := validation.LLMInferenceServiceConfigValidator{
 			ClientSet: clientSet,
 		}
 		if err := llmInferenceServiceConfigValidator.SetupWithManager(mgr); err != nil {
 			return err
 		}
 
-		llmInferenceServiceValidator := webhook.LLMInferenceServiceValidator{}
+		llmInferenceServiceValidator := validation.LLMInferenceServiceValidator{}
 		return llmInferenceServiceValidator.SetupWithManager(mgr)
 	}
 
-	envTest := testing.NewEnvTest(webhookManifests).
+	envTest := pkgtest.NewEnvTest(webhookManifests).
 		WithWebhooks(webhooks).
 		WithControllers(llmCtrlFunc).
 		Start(ctx)
