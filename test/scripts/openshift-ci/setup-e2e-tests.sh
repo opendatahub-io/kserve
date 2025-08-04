@@ -147,7 +147,6 @@ kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
 
 wait_for_pod_ready "${NS}" "app=odh-model-controller"
 
-
 echo "Add testing models to minio storage ..." # Reference: config/overlays/odh-test/minio/minio-init-job.yaml
 oc expose service minio-service -n ${NS} && sleep 5
 MINIO_ROUTE=$(oc get routes -n ${NS} minio-service -o jsonpath="{.spec.host}")

@@ -37,7 +37,7 @@ EOF
 wait_for_pod_ready "openshift-operators" "name=istio-operator"
 
 # Create new namespace
-oc new-project istio-system
+oc create ns istio-system || true
 # Install OSSM
 cat <<EOF | oc apply -f -
 apiVersion: maistra.io/v2
