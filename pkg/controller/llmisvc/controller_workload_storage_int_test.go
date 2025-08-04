@@ -28,6 +28,7 @@ import (
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
 	"knative.dev/pkg/kmeta"
+	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
@@ -295,24 +296,85 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			validateStorageInitializerIsConfigured(expectedPrefillDeployment, "s3://user-id/repo-id:tag")
 		})
 	})
+
+	Context("Multi node", func() {
+		It("should configure direct PVC mount when model uri starts with pvc://", func(ctx SpecContext) {
+			// given
+			svcName := "test-llm-storage-pvc-mn"
+			nsName := kmeta.ChildName(svcName, "-test")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nsName,
+				},
+			}
+			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			defer func() {
+				envTest.DeleteAll(namespace)
+			}()
+
+			modelURL, err := apis.ParseURL("pvc://facebook-models/opt-125m")
+			Expect(err).ToNot(HaveOccurred())
+
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      svcName,
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						Name: ptr.To("foo"),
+						URI:  *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Worker: &corev1.PodSpec{
+							Containers: []corev1.Container{},
+						},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
+					Router: &v1alpha1.RouterSpec{
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
+					},
+					Prefill: &v1alpha1.WorkloadSpec{},
+				},
+			}
+
+			// when
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+			}()
+
+			// then
+			expectedMainLWS := &lwsapi.LeaderWorkerSet{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn",
+					Namespace: nsName,
+				}, expectedMainLWS)
+			}).WithContext(ctx).Should(Succeed())
+
+			expectedPrefillLWS := &lwsapi.LeaderWorkerSet{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn-prefill",
+					Namespace: nsName,
+				}, expectedPrefillLWS)
+			}).WithContext(ctx).Should(Succeed())
+
+			validatePvcStorageIsConfiguredForLWS(expectedMainLWS)
+			validatePvcStorageIsConfiguredForLWS(expectedPrefillLWS)
+		})
+	})
 })
 
 func validatePvcStorageIsConfigured(deployment *appsv1.Deployment) {
-	mainContainer := utils.GetContainerWithName(&deployment.Spec.Template.Spec, "main")
-	Expect(mainContainer).ToNot(BeNil())
-
-	Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
-	Expect(deployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
-		HaveField("Name", constants.PvcSourceMountName),
-		HaveField("VolumeSource.PersistentVolumeClaim.ClaimName", "facebook-models"),
-	)))
-
-	Expect(mainContainer.VolumeMounts).To(ContainElement(And(
-		HaveField("Name", constants.PvcSourceMountName),
-		HaveField("MountPath", constants.DefaultModelLocalMountPath),
-		HaveField("ReadOnly", BeTrue()),
-		HaveField("SubPath", "opt-125m"),
-	)))
+	validatePvcStorageForPodSpec(&deployment.Spec.Template.Spec, deployment.Spec.Template.Spec.Volumes)
 }
 
 func validateOciStorageIsConfigured(deployment *appsv1.Deployment) {
@@ -382,5 +444,28 @@ func validateStorageInitializerIsConfigured(deployment *appsv1.Deployment, stora
 		HaveField("Name", constants.StorageInitializerVolumeName),
 		HaveField("MountPath", constants.DefaultModelLocalMountPath),
 		HaveField("ReadOnly", BeTrue()),
+	)))
+}
+
+func validatePvcStorageIsConfiguredForLWS(lws *lwsapi.LeaderWorkerSet) {
+	workerSpec := lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec
+	validatePvcStorageForPodSpec(&workerSpec, workerSpec.Volumes)
+}
+
+func validatePvcStorageForPodSpec(podSpec *corev1.PodSpec, volumes []corev1.Volume) {
+	mainContainer := utils.GetContainerWithName(podSpec, "main")
+	Expect(mainContainer).ToNot(BeNil())
+
+	Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
+	Expect(volumes).To(ContainElement(And(
+		HaveField("Name", constants.PvcSourceMountName),
+		HaveField("VolumeSource.PersistentVolumeClaim.ClaimName", "facebook-models"),
+	)))
+
+	Expect(mainContainer.VolumeMounts).To(ContainElement(And(
+		HaveField("Name", constants.PvcSourceMountName),
+		HaveField("MountPath", constants.DefaultModelLocalMountPath),
+		HaveField("ReadOnly", BeTrue()),
+		HaveField("SubPath", "opt-125m"),
 	)))
 }
