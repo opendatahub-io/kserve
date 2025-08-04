@@ -170,12 +170,7 @@ fi
 oc delete route -n ${NS} minio-service
 
 echo "Prepare CI namespace and install ServingRuntimes"
-cat <<EOF | oc apply -f -
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: kserve-ci-e2e-test
-EOF
+oc create ns kserve-ci-e2e-test || true
 
 if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
   cat <<EOF | oc apply -f -
@@ -191,18 +186,18 @@ spec:
 EOF
 fi
 
-oc apply -f $PROJECT_ROOT/config/overlays/test/minio/minio-user-secret.yaml -n ${NS}-ci-e2e-test
+oc apply -f $PROJECT_ROOT/config/overlays/test/minio/minio-user-secret.yaml -n kserve-ci-e2e-test
 
 kustomize build $PROJECT_ROOT/config/overlays/test/clusterresources |
   sed 's/ClusterServingRuntime/ServingRuntime/' |
   sed "s|kserve/sklearnserver:latest|${SKLEARN_IMAGE}|" |
   sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
-  oc apply -n ${NS}-ci-e2e-test -f -
+  oc apply -n kserve-ci-e2e-test -f -
 
 # Add the enablePassthrough annotation to the ServingRuntimes, to let Knative to
 # generate passthrough routes.
 if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
-  oc annotate servingruntimes -n ${NS}-ci-e2e-test --all serving.knative.openshift.io/enablePassthrough=true
+  oc annotate servingruntimes -n kserve-ci-e2e-test --all serving.knative.openshift.io/enablePassthrough=true
 fi
 
 # Allow all traffic to the kserve namespace. Without this networkpolicy, webhook will return 500
@@ -226,4 +221,4 @@ spec:
 EOF
 } || true
 
-echo "Setup complete"
+echo "✅ Setup complete"
