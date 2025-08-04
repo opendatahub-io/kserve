@@ -357,13 +357,13 @@ var _ = Describe("LLMInferenceService API validation", func() {
 			Expect(errValidation.Error()).To(ContainSubstring("spec.replicas in body should be greater than or equal to 0"))
 		})
 
-		It("should reject LLMInferenceService with zero tensor parallelism", func(ctx SpecContext) {
+		It("should reject LLMInferenceService with negative tensor parallelism", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-zero-int-parallelism",
+			llmSvc := fixture.LLMInferenceService("test-negative-int-parallelism",
 				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
 				fixture.WithModelURI("hf://facebook/opt-125m"),
 				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithTensorParallelism(0),
+					fixture.WithTensorParallelism(-1),
 				)),
 			)
 
@@ -372,16 +372,16 @@ var _ = Describe("LLMInferenceService API validation", func() {
 
 			// then
 			Expect(errValidation).To(HaveOccurred(), "Expected the Create call to fail due to a validation error, but it succeeded")
-			Expect(errValidation.Error()).To(ContainSubstring("spec.parallelism.tensor in body should be greater than or equal to 1"))
+			Expect(errValidation.Error()).To(ContainSubstring("spec.parallelism.tensor in body should be greater than or equal to 0"))
 		})
 
-		It("should reject LLMInferenceService with zero pipeline parallelism", func(ctx SpecContext) {
+		It("should reject LLMInferenceService with negative pipeline parallelism", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-zero-int-pipeline",
+			llmSvc := fixture.LLMInferenceService("test-negative-int-pipeline",
 				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
 				fixture.WithModelURI("hf://facebook/opt-125m"),
 				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithPipelineParallelism(0),
+					fixture.WithPipelineParallelism(-1),
 				)),
 			)
 
@@ -390,16 +390,16 @@ var _ = Describe("LLMInferenceService API validation", func() {
 
 			// then
 			Expect(errValidation).To(HaveOccurred(), "Expected the Create call to fail due to a validation error, but it succeeded")
-			Expect(errValidation.Error()).To(ContainSubstring("spec.parallelism.pipeline in body should be greater than or equal to 1"))
+			Expect(errValidation.Error()).To(ContainSubstring("spec.parallelism.pipeline in body should be greater than or equal to 0"))
 		})
 
-		It("should reject LLMInferenceService with zero data parallelism", func(ctx SpecContext) {
+		It("should reject LLMInferenceService with negative data parallelism", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-zero-data",
+			llmSvc := fixture.LLMInferenceService("test-negative-data",
 				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
 				fixture.WithModelURI("hf://facebook/opt-125m"),
 				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithDataParallelism(0),
+					fixture.WithDataParallelism(-1),
 					fixture.WithDataLocalParallelism(1),
 				)),
 			)
@@ -409,17 +409,17 @@ var _ = Describe("LLMInferenceService API validation", func() {
 
 			// then
 			Expect(errValidation).To(HaveOccurred(), "Expected the Create call to fail due to a validation error, but it succeeded")
-			Expect(errValidation.Error()).To(ContainSubstring("spec.parallelism.data in body should be greater than or equal to 1"))
+			Expect(errValidation.Error()).To(ContainSubstring("spec.parallelism.data in body should be greater than or equal to 0"))
 		})
 
-		It("should reject LLMInferenceService with zero dataLocal parallelism", func(ctx SpecContext) {
+		It("should reject LLMInferenceService with negative dataLocal parallelism", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-zero-datalocal",
+			llmSvc := fixture.LLMInferenceService("test-negative-datalocal",
 				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
 				fixture.WithModelURI("hf://facebook/opt-125m"),
 				fixture.WithParallelism(fixture.ParallelismSpec(
 					fixture.WithDataParallelism(4),
-					fixture.WithDataLocalParallelism(0),
+					fixture.WithDataLocalParallelism(-1),
 				)),
 			)
 
@@ -428,7 +428,7 @@ var _ = Describe("LLMInferenceService API validation", func() {
 
 			// then
 			Expect(errValidation).To(HaveOccurred(), "Expected the Create call to fail due to a validation error, but it succeeded")
-			Expect(errValidation.Error()).To(ContainSubstring("spec.parallelism.dataLocal in body should be greater than or equal to 1"))
+			Expect(errValidation.Error()).To(ContainSubstring("spec.parallelism.dataLocal in body should be greater than or equal to 0"))
 		})
 
 		It("should reject LLMInferenceService with zero data parallelism RPC Port", func(ctx SpecContext) {

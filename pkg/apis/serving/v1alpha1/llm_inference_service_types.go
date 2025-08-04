@@ -244,19 +244,19 @@ type InferencePoolSpec struct {
 type ParallelismSpec struct {
 	// Tensor parallelism size.
 	// +optional
-	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Minimum=0
 	Tensor *int32 `json:"tensor,omitempty"`
 	// Pipeline parallelism size.
 	// +optional
-	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Minimum=0
 	Pipeline *int32 `json:"pipeline,omitempty"`
 	// Data parallelism size.
 	// +optional
-	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Minimum=0
 	Data *int32 `json:"data,omitempty"`
 	// DataLocal data local parallelism size.
 	// +optional
-	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Minimum=0
 	DataLocal *int32 `json:"dataLocal,omitempty"`
 	// DataRPCPort is the data parallelism RPC port.
 	// +optional
