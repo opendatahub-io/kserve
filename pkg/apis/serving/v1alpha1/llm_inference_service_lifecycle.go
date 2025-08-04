@@ -98,7 +98,6 @@ func (in *LLMInferenceService) DetermineWorkloadReadiness() {
 		in.GetStatus().GetCondition(PrefillWorkloadReady),
 		in.GetStatus().GetCondition(PrefillWorkerWorkloadReady),
 		in.GetStatus().GetCondition(SchedulerWorkloadReady),
-		in.GetStatus().GetCondition(RouterReady),
 	}
 
 	for _, cond := range subConditions {
@@ -152,22 +151,15 @@ func (in *LLMInferenceService) DetermineRouterReadiness() {
 	}
 
 	// Check if any sub-conditions are false
+	hasSetConditions := false
 	for _, cond := range subConditions {
 		if cond == nil {
 			continue
 		}
+		hasSetConditions = true
 		if cond.IsFalse() {
 			in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(RouterReady, cond.Reason, cond.Message)
 			return
-		}
-	}
-
-	// Check if we have any sub-conditions set to true (meaningful evaluation occurred)
-	hasSetConditions := false
-	for _, cond := range subConditions {
-		if cond != nil {
-			hasSetConditions = true
-			break
 		}
 	}
 

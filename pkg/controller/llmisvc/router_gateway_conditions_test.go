@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
@@ -35,7 +35,7 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 	tests := []struct {
 		name                    string
 		llmSvc                  *v1alpha1.LLMInferenceService
-		gateways                []*gwapiv1.Gateway
+		gateways                []*gatewayapiv1.Gateway
 		expectedRouterReady     bool
 		expectedConditionReason string
 		expectedErrorMsg        string
@@ -51,10 +51,10 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 					Namespace: "test-ns",
 				}),
 			),
-			gateways: []*gwapiv1.Gateway{
+			gateways: []*gatewayapiv1.Gateway{
 				Gateway("ready-gateway",
-					InNamespace[*gwapiv1.Gateway]("test-ns"),
-					WithListener(gwapiv1.HTTPProtocolType),
+					InNamespace[*gatewayapiv1.Gateway]("test-ns"),
+					WithListener(gatewayapiv1.HTTPProtocolType),
 					WithAddresses("203.0.113.1"),
 					WithProgrammedCondition(metav1.ConditionTrue, "Ready", "Gateway is ready"),
 				),
@@ -72,10 +72,10 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 					Namespace: "test-ns",
 				}),
 			),
-			gateways: []*gwapiv1.Gateway{
+			gateways: []*gatewayapiv1.Gateway{
 				Gateway("not-ready-gateway",
-					InNamespace[*gwapiv1.Gateway]("test-ns"),
-					WithListener(gwapiv1.HTTPProtocolType),
+					InNamespace[*gatewayapiv1.Gateway]("test-ns"),
+					WithListener(gatewayapiv1.HTTPProtocolType),
 					WithAddresses("203.0.113.1"),
 					WithProgrammedCondition(metav1.ConditionFalse, "NotReady", "Gateway is not ready"),
 				),
@@ -93,15 +93,15 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 					v1alpha1.UntypedObjectReference{Name: "gateway-2", Namespace: "test-ns"},
 				),
 			),
-			gateways: []*gwapiv1.Gateway{
+			gateways: []*gatewayapiv1.Gateway{
 				Gateway("gateway-1",
-					InNamespace[*gwapiv1.Gateway]("test-ns"),
-					WithListener(gwapiv1.HTTPProtocolType),
+					InNamespace[*gatewayapiv1.Gateway]("test-ns"),
+					WithListener(gatewayapiv1.HTTPProtocolType),
 					WithProgrammedCondition(metav1.ConditionTrue, "Ready", "Gateway 1 is ready"),
 				),
 				Gateway("gateway-2",
-					InNamespace[*gwapiv1.Gateway]("test-ns"),
-					WithListener(gwapiv1.HTTPProtocolType),
+					InNamespace[*gatewayapiv1.Gateway]("test-ns"),
+					WithListener(gatewayapiv1.HTTPProtocolType),
 					WithProgrammedCondition(metav1.ConditionTrue, "Ready", "Gateway 2 is ready"),
 				),
 			},
@@ -118,15 +118,15 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 					v1alpha1.UntypedObjectReference{Name: "not-ready-gateway", Namespace: "test-ns"},
 				),
 			),
-			gateways: []*gwapiv1.Gateway{
+			gateways: []*gatewayapiv1.Gateway{
 				Gateway("ready-gateway",
-					InNamespace[*gwapiv1.Gateway]("test-ns"),
-					WithListener(gwapiv1.HTTPProtocolType),
+					InNamespace[*gatewayapiv1.Gateway]("test-ns"),
+					WithListener(gatewayapiv1.HTTPProtocolType),
 					WithProgrammedCondition(metav1.ConditionTrue, "Ready", "Gateway is ready"),
 				),
 				Gateway("not-ready-gateway",
-					InNamespace[*gwapiv1.Gateway]("test-ns"),
-					WithListener(gwapiv1.HTTPProtocolType),
+					InNamespace[*gatewayapiv1.Gateway]("test-ns"),
+					WithListener(gatewayapiv1.HTTPProtocolType),
 					WithProgrammedCondition(metav1.ConditionFalse, "NotReady", "Gateway is not ready"),
 				),
 			},
@@ -143,10 +143,10 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 					Namespace: "test-ns",
 				}),
 			),
-			gateways: []*gwapiv1.Gateway{
+			gateways: []*gatewayapiv1.Gateway{
 				Gateway("no-condition-gateway",
-					InNamespace[*gwapiv1.Gateway]("test-ns"),
-					WithListener(gwapiv1.HTTPProtocolType),
+					InNamespace[*gatewayapiv1.Gateway]("test-ns"),
+					WithListener(gatewayapiv1.HTTPProtocolType),
 					// No programmed condition set
 				),
 			},
@@ -163,7 +163,7 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 					Namespace: "test-ns",
 				}),
 			),
-			gateways:            []*gwapiv1.Gateway{},
+			gateways:            []*gatewayapiv1.Gateway{},
 			expectedRouterReady: false,
 			expectedErrorMsg:    "failed to get Gateway",
 		},
@@ -174,7 +174,7 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 				WithModelURI("hf://test/model"),
 				// No gateway refs
 			),
-			gateways:             []*gwapiv1.Gateway{},
+			gateways:             []*gatewayapiv1.Gateway{},
 			expectConditionUnset: true, // Should not set any router condition
 		},
 		{
@@ -187,10 +187,10 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 					// Namespace omitted - should use test-ns
 				}),
 			),
-			gateways: []*gwapiv1.Gateway{
+			gateways: []*gatewayapiv1.Gateway{
 				Gateway("same-ns-gateway",
-					InNamespace[*gwapiv1.Gateway]("test-ns"),
-					WithListener(gwapiv1.HTTPProtocolType),
+					InNamespace[*gatewayapiv1.Gateway]("test-ns"),
+					WithListener(gatewayapiv1.HTTPProtocolType),
 					WithProgrammedCondition(metav1.ConditionTrue, "Ready", "Gateway is ready"),
 				),
 			},
@@ -207,7 +207,7 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 			scheme := runtime.NewScheme()
 			err := v1alpha1.AddToScheme(scheme)
 			g.Expect(err).ToNot(HaveOccurred())
-			err = gwapiv1.Install(scheme)
+			err = gatewayapiv1.Install(scheme)
 			g.Expect(err).ToNot(HaveOccurred())
 
 			// Prepare objects for fake client
@@ -274,7 +274,7 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 func TestIsGatewayReady(t *testing.T) {
 	tests := []struct {
 		name     string
-		gateway  *gwapiv1.Gateway
+		gateway  *gatewayapiv1.Gateway
 		expected bool
 	}{
 		{
@@ -301,7 +301,7 @@ func TestIsGatewayReady(t *testing.T) {
 		{
 			name: "gateway with no conditions - should not be ready",
 			gateway: Gateway("test-gateway",
-				WithListener(gwapiv1.HTTPProtocolType),
+				WithListener(gatewayapiv1.HTTPProtocolType),
 			),
 			expected: false,
 		},
@@ -329,7 +329,7 @@ func TestFetchReferencedGateways(t *testing.T) {
 	tests := []struct {
 		name          string
 		llmSvc        *v1alpha1.LLMInferenceService
-		gateways      []*gwapiv1.Gateway
+		gateways      []*gatewayapiv1.Gateway
 		expectedCount int
 		expectedError string
 	}{
@@ -342,8 +342,8 @@ func TestFetchReferencedGateways(t *testing.T) {
 					Namespace: "test-ns",
 				}),
 			),
-			gateways: []*gwapiv1.Gateway{
-				Gateway("test-gateway", InNamespace[*gwapiv1.Gateway]("test-ns")),
+			gateways: []*gatewayapiv1.Gateway{
+				Gateway("test-gateway", InNamespace[*gatewayapiv1.Gateway]("test-ns")),
 			},
 			expectedCount: 1,
 		},
@@ -356,9 +356,9 @@ func TestFetchReferencedGateways(t *testing.T) {
 					v1alpha1.UntypedObjectReference{Name: "gateway-2", Namespace: "other-ns"},
 				),
 			),
-			gateways: []*gwapiv1.Gateway{
-				Gateway("gateway-1", InNamespace[*gwapiv1.Gateway]("test-ns")),
-				Gateway("gateway-2", InNamespace[*gwapiv1.Gateway]("other-ns")),
+			gateways: []*gatewayapiv1.Gateway{
+				Gateway("gateway-1", InNamespace[*gatewayapiv1.Gateway]("test-ns")),
+				Gateway("gateway-2", InNamespace[*gatewayapiv1.Gateway]("other-ns")),
 			},
 			expectedCount: 2,
 		},
@@ -371,7 +371,7 @@ func TestFetchReferencedGateways(t *testing.T) {
 					Namespace: "test-ns",
 				}),
 			),
-			gateways:      []*gwapiv1.Gateway{},
+			gateways:      []*gatewayapiv1.Gateway{},
 			expectedCount: 0,
 			expectedError: "failed to get Gateway",
 		},
@@ -381,7 +381,7 @@ func TestFetchReferencedGateways(t *testing.T) {
 				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
 				// No gateway refs
 			),
-			gateways:      []*gwapiv1.Gateway{},
+			gateways:      []*gatewayapiv1.Gateway{},
 			expectedCount: 0,
 		},
 	}
@@ -395,7 +395,7 @@ func TestFetchReferencedGateways(t *testing.T) {
 			scheme := runtime.NewScheme()
 			err := v1alpha1.AddToScheme(scheme)
 			g.Expect(err).ToNot(HaveOccurred())
-			err = gwapiv1.Install(scheme)
+			err = gatewayapiv1.Install(scheme)
 			g.Expect(err).ToNot(HaveOccurred())
 
 			// Prepare objects for fake client

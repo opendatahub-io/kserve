@@ -30,27 +30,27 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
 type resolvedGateway struct {
-	gateway      *gwapiv1.Gateway
-	gatewayClass *gwapiv1.GatewayClass
-	parentRef    gwapiv1.ParentReference
+	gateway      *gatewayapiv1.Gateway
+	gatewayClass *gatewayapiv1.GatewayClass
+	parentRef    gatewayapiv1.ParentReference
 }
 
-func DiscoverGateways(ctx context.Context, c client.Client, route *gwapiv1.HTTPRoute) ([]resolvedGateway, error) {
+func DiscoverGateways(ctx context.Context, c client.Client, route *gatewayapiv1.HTTPRoute) ([]resolvedGateway, error) {
 	gateways := make([]resolvedGateway, 0)
 	for _, parentRef := range route.Spec.ParentRefs {
-		ns := ptr.Deref((&parentRef).Namespace, gwapiv1.Namespace(route.Namespace))
+		ns := ptr.Deref((&parentRef).Namespace, gatewayapiv1.Namespace(route.Namespace))
 		gwNS, gwName := string(ns), string((&parentRef).Name)
 
-		gateway := &gwapiv1.Gateway{}
+		gateway := &gatewayapiv1.Gateway{}
 		if err := c.Get(ctx, types.NamespacedName{Namespace: gwNS, Name: gwName}, gateway); err != nil {
 			return nil, fmt.Errorf("failed to get Gateway %s/%s for route %s/%s: %w", gwNS, gwName, route.Namespace, route.Name, err)
 		}
 
-		gatewayClass := &gwapiv1.GatewayClass{}
+		gatewayClass := &gatewayapiv1.GatewayClass{}
 		if err := c.Get(ctx, types.NamespacedName{Name: string(gateway.Spec.GatewayClassName)}, gatewayClass); err != nil {
 			return nil, fmt.Errorf("failed to get GatewayClass %q for gateway %s/%s: %w", string(gateway.Spec.GatewayClassName), gwNS, gwName, err)
 		}
@@ -63,7 +63,7 @@ func DiscoverGateways(ctx context.Context, c client.Client, route *gwapiv1.HTTPR
 	return gateways, nil
 }
 
-func DiscoverURLs(ctx context.Context, c client.Client, route *gwapiv1.HTTPRoute) ([]*apis.URL, error) {
+func DiscoverURLs(ctx context.Context, c client.Client, route *gatewayapiv1.HTTPRoute) ([]*apis.URL, error) {
 	var urls []*apis.URL
 
 	gateways, err := DiscoverGateways(ctx, c, route)
@@ -102,7 +102,7 @@ func DiscoverURLs(ctx context.Context, c client.Client, route *gwapiv1.HTTPRoute
 	return urls, nil
 }
 
-func extractRoutePath(route *gwapiv1.HTTPRoute) string {
+func extractRoutePath(route *gatewayapiv1.HTTPRoute) string {
 	if len(route.Spec.Rules) > 0 && len(route.Spec.Rules[0].Matches) > 0 {
 		// TODO how do we deal with regexp
 		return ptr.Deref(route.Spec.Rules[0].Matches[0].Path.Value, "/")
@@ -110,7 +110,7 @@ func extractRoutePath(route *gwapiv1.HTTPRoute) string {
 	return "/"
 }
 
-func selectListener(gateway *gwapiv1.Gateway, sectionName *gwapiv1.SectionName) *gwapiv1.Listener {
+func selectListener(gateway *gatewayapiv1.Gateway, sectionName *gatewayapiv1.SectionName) *gatewayapiv1.Listener {
 	if sectionName != nil {
 		for _, listener := range gateway.Spec.Listeners {
 			if listener.Name == *sectionName {
@@ -122,14 +122,14 @@ func selectListener(gateway *gwapiv1.Gateway, sectionName *gwapiv1.SectionName) 
 	return &gateway.Spec.Listeners[0]
 }
 
-func extractSchemeFromListener(listener *gwapiv1.Listener) string {
-	if listener.Protocol == gwapiv1.HTTPSProtocolType {
+func extractSchemeFromListener(listener *gatewayapiv1.Listener) string {
+	if listener.Protocol == gatewayapiv1.HTTPSProtocolType {
 		return "https"
 	}
 	return "http"
 }
 
-func extractRouteHostnames(route *gwapiv1.HTTPRoute) []string {
+func extractRouteHostnames(route *gatewayapiv1.HTTPRoute) []string {
 	var hostnames []string
 	for _, h := range route.Spec.Hostnames {
 		host := string(h)
@@ -140,7 +140,7 @@ func extractRouteHostnames(route *gwapiv1.HTTPRoute) []string {
 	return hostnames
 }
 
-func extractAddressValues(addresses []gwapiv1.GatewayStatusAddress) []string {
+func extractAddressValues(addresses []gatewayapiv1.GatewayStatusAddress) []string {
 	var values []string
 	for _, addr := range addresses {
 		if addr.Value != "" {
@@ -150,7 +150,7 @@ func extractAddressValues(addresses []gwapiv1.GatewayStatusAddress) []string {
 	return values
 }
 
-func combineIntoURLs(hostnames []string, scheme string, port gwapiv1.PortNumber, path string) ([]*apis.URL, error) {
+func combineIntoURLs(hostnames []string, scheme string, port gatewayapiv1.PortNumber, path string) ([]*apis.URL, error) {
 	urls := make([]*apis.URL, 0, len(hostnames))
 
 	sortedHostnames := make([]string, len(hostnames))
@@ -176,7 +176,7 @@ func combineIntoURLs(hostnames []string, scheme string, port gwapiv1.PortNumber,
 	return urls, nil
 }
 
-func joinHostPort(host string, port *gwapiv1.PortNumber) string {
+func joinHostPort(host string, port *gatewayapiv1.PortNumber) string {
 	if port != nil && *port != 0 {
 		return net.JoinHostPort(host, fmt.Sprint(*port))
 	}
@@ -215,9 +215,9 @@ func filter[T any](s []T, predicateFn func(T) bool) []T {
 }
 
 // EvaluateGatewayReadiness checks the readiness status of Gateways and returns those that are not ready
-func evaluateGatewayReadiness(ctx context.Context, gateways []*gwapiv1.Gateway) []*gwapiv1.Gateway {
+func evaluateGatewayReadiness(ctx context.Context, gateways []*gatewayapiv1.Gateway) []*gatewayapiv1.Gateway {
 	logger := log.FromContext(ctx)
-	notReadyGateways := make([]*gwapiv1.Gateway, 0)
+	notReadyGateways := make([]*gatewayapiv1.Gateway, 0)
 
 	for _, gateway := range gateways {
 		ready := IsGatewayReady(gateway)
@@ -232,10 +232,10 @@ func evaluateGatewayReadiness(ctx context.Context, gateways []*gwapiv1.Gateway) 
 }
 
 // IsGatewayReady determines if a Gateway is ready based on its status conditions
-func IsGatewayReady(gateway *gwapiv1.Gateway) bool {
+func IsGatewayReady(gateway *gatewayapiv1.Gateway) bool {
 	// Check for the standard Gateway API "Programmed" condition
 	for _, condition := range gateway.Status.Conditions {
-		if condition.Type == string(gwapiv1.GatewayConditionProgrammed) {
+		if condition.Type == string(gatewayapiv1.GatewayConditionProgrammed) {
 			return condition.Status == metav1.ConditionTrue
 		}
 	}
