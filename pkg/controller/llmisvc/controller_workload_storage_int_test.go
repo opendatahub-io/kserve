@@ -443,6 +443,79 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			validateOciStorageIsConfiguredForLWS(expectedMainLWS)
 			validateOciStorageIsConfiguredForLWS(expectedPrefillLWS)
 		})
+
+		It("should use storage-initializer to download model when uri starts with hf://", func(ctx SpecContext) {
+			// given
+			svcName := "test-llm-storage-hf-mn"
+			nsName := kmeta.ChildName(svcName, "-test")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nsName,
+				},
+			}
+			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			defer func() {
+				envTest.DeleteAll(namespace)
+			}()
+
+			modelURL, err := apis.ParseURL("hf://user-id/repo-id:tag")
+			Expect(err).ToNot(HaveOccurred())
+
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      svcName,
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						Name: ptr.To("foo"),
+						URI:  *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Worker: &corev1.PodSpec{
+							Containers: []corev1.Container{},
+						},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
+					Router: &v1alpha1.RouterSpec{
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
+					},
+					Prefill: &v1alpha1.WorkloadSpec{},
+				},
+			}
+
+			// when
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+			}()
+
+			// then
+			expectedMainLWS := &lwsapi.LeaderWorkerSet{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn",
+					Namespace: nsName,
+				}, expectedMainLWS)
+			}).WithContext(ctx).Should(Succeed())
+
+			expectedPrefillLWS := &lwsapi.LeaderWorkerSet{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn-prefill",
+					Namespace: nsName,
+				}, expectedPrefillLWS)
+			}).WithContext(ctx).Should(Succeed())
+
+			validateStorageInitializerIsConfiguredForLWS(expectedMainLWS, "hf://user-id/repo-id:tag")
+			validateStorageInitializerIsConfiguredForLWS(expectedPrefillLWS, "hf://user-id/repo-id:tag")
+		})
 	})
 })
 
@@ -455,31 +528,7 @@ func validateOciStorageIsConfigured(deployment *appsv1.Deployment) {
 }
 
 func validateStorageInitializerIsConfigured(deployment *appsv1.Deployment, storageUri string) {
-	// Check the volume to store the model exists
-	Expect(deployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
-		HaveField("Name", constants.StorageInitializerVolumeName),
-		HaveField("EmptyDir", Not(BeNil())),
-	)))
-
-	// Check the storage-initializer container is present.
-	Expect(deployment.Spec.Template.Spec.InitContainers).To(ContainElement(And(
-		HaveField("Name", constants.StorageInitializerContainerName),
-		HaveField("Args", ContainElements(storageUri, constants.DefaultModelLocalMountPath)),
-		HaveField("VolumeMounts", ContainElement(And(
-			HaveField("Name", constants.StorageInitializerVolumeName),
-			HaveField("MountPath", constants.DefaultModelLocalMountPath),
-		))),
-	)))
-
-	// Check the main container has the model mounted
-	mainContainer := utils.GetContainerWithName(&deployment.Spec.Template.Spec, "main")
-	Expect(mainContainer).ToNot(BeNil())
-	Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
-	Expect(mainContainer.VolumeMounts).To(ContainElement(And(
-		HaveField("Name", constants.StorageInitializerVolumeName),
-		HaveField("MountPath", constants.DefaultModelLocalMountPath),
-		HaveField("ReadOnly", BeTrue()),
-	)))
+	validateStorageInitializerForPodSpec(&deployment.Spec.Template.Spec, storageUri)
 }
 
 func validatePvcStorageIsConfiguredForLWS(lws *lwsapi.LeaderWorkerSet) {
@@ -549,5 +598,38 @@ func validateOciStorageForPodSpec(podSpec *corev1.PodSpec) {
 		HaveField("Name", constants.StorageInitializerVolumeName),
 		HaveField("MountPath", "/mnt"),
 		HaveField("ReadOnly", false),
+	)))
+}
+
+func validateStorageInitializerIsConfiguredForLWS(lws *lwsapi.LeaderWorkerSet, storageUri string) {
+	workerSpec := lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec
+	validateStorageInitializerForPodSpec(&workerSpec, storageUri)
+}
+
+func validateStorageInitializerForPodSpec(podSpec *corev1.PodSpec, storageUri string) {
+	// Check the volume to store the model exists
+	Expect(podSpec.Volumes).To(ContainElement(And(
+		HaveField("Name", constants.StorageInitializerVolumeName),
+		HaveField("EmptyDir", Not(BeNil())),
+	)))
+
+	// Check the storage-initializer container is present.
+	Expect(podSpec.InitContainers).To(ContainElement(And(
+		HaveField("Name", constants.StorageInitializerContainerName),
+		HaveField("Args", ContainElements(storageUri, constants.DefaultModelLocalMountPath)),
+		HaveField("VolumeMounts", ContainElement(And(
+			HaveField("Name", constants.StorageInitializerVolumeName),
+			HaveField("MountPath", constants.DefaultModelLocalMountPath),
+		))),
+	)))
+
+	// Check the main container has the model mounted
+	mainContainer := utils.GetContainerWithName(podSpec, "main")
+	Expect(mainContainer).ToNot(BeNil())
+	Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
+	Expect(mainContainer.VolumeMounts).To(ContainElement(And(
+		HaveField("Name", constants.StorageInitializerVolumeName),
+		HaveField("MountPath", constants.DefaultModelLocalMountPath),
+		HaveField("ReadOnly", BeTrue()),
 	)))
 }
