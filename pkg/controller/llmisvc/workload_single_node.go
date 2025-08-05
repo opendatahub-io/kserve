@@ -130,7 +130,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodePrefill(ctx context.C
 	if err != nil {
 		return fmt.Errorf("failed to get expected prefill deployment: %w", err)
 	}
-	if llmSvc.Spec.Prefill == nil {
+	if llmSvc.Spec.Prefill == nil || llmSvc.Spec.Prefill.Worker != nil {
 		if err := Delete(ctx, r, llmSvc, prefill); err != nil {
 			return fmt.Errorf("failed to delete prefill main deployment: %w", err)
 		}
@@ -215,7 +215,10 @@ func (r *LLMInferenceServiceReconciler) propagateDeploymentStatus(ctx context.Co
 }
 
 func semanticDeploymentIsEqual(expected *appsv1.Deployment, curr *appsv1.Deployment) bool {
-	return equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
+	// Use DeepEqual for the Pod Spec so that when fields are removed (like resource requirements, we push them down to the
+	// child resource)
+	return equality.Semantic.DeepEqual(expected.Spec.Template.Spec, curr.Spec.Template.Spec) &&
+		equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
 		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
 		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)
 }

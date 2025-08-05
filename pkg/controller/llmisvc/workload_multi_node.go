@@ -430,7 +430,22 @@ func (r *LLMInferenceServiceReconciler) propagateLeaderWorkerSetMetadata(llmSvc 
 }
 
 func semanticLWSIsEqual(expected *lwsapi.LeaderWorkerSet, curr *lwsapi.LeaderWorkerSet) bool {
-	return equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
+	isLeaderEqual := true
+	if (expected.Spec.LeaderWorkerTemplate.LeaderTemplate != nil) != (curr.Spec.LeaderWorkerTemplate.LeaderTemplate != nil) {
+		isLeaderEqual = false
+	}
+	if expected.Spec.LeaderWorkerTemplate.LeaderTemplate != nil && curr.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+		// Use DeepEqual for the Pod Spec so that when fields are removed (like resource requirements, we push them down
+		// to the child resource)
+		isLeaderEqual = equality.Semantic.DeepEqual(
+			expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec,
+			curr.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec,
+		)
+	}
+
+	return isLeaderEqual &&
+		equality.Semantic.DeepEqual(expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, curr.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec) &&
+		equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
 		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
 		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)
 }
