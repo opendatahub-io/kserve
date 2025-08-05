@@ -185,7 +185,10 @@ spec:
 EOF
 fi
 
-oc apply -f $PROJECT_ROOT/config/overlays/test/minio/minio-user-secret.yaml -n kserve-ci-e2e-test
+oc apply -n kserve-ci-e2e-test -f <(
+  sed "s|http://minio-service\.kserve:9000|http://minio-service.${NS}:9000|g" \
+      "$PROJECT_ROOT/config/overlays/test/minio/minio-user-secret.yaml"
+)
 
 kustomize build $PROJECT_ROOT/config/overlays/test/clusterresources |
   sed 's/ClusterServingRuntime/ServingRuntime/' |
