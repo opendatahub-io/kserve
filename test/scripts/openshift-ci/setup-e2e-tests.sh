@@ -207,7 +207,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: allow-all
-  namespace: kserve
+  namespace: ${NS}
 spec:
   podSelector: {} 
   ingress:
