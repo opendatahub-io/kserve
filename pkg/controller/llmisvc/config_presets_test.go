@@ -253,7 +253,7 @@ if [ "${LWS_WORKER_INDEX:-0}" -eq 0 ]; then
   # Leader-only launch
   #################
   vllm serve \
-    llama \
+    /mnt/models \
     --port 8001 \
     --api-server-count 4 \
     --disable-log-requests \
@@ -275,7 +275,7 @@ else
   # Worker-only launch
   #################
   vllm serve \
-    llama \
+    /mnt/models \
     --port 8001 \
     --disable-log-requests \
 --enable-expert-parallel \

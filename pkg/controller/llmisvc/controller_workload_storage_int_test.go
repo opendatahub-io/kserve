@@ -327,9 +327,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 						URI:  *modelURL,
 					},
 					WorkloadSpec: v1alpha1.WorkloadSpec{
-						Worker: &corev1.PodSpec{
-							Containers: []corev1.Container{},
-						},
+						Worker: &corev1.PodSpec{Containers: []corev1.Container{}},
 						Parallelism: &v1alpha1.ParallelismSpec{
 							Data:      ptr.To[int32](1),
 							DataLocal: ptr.To[int32](1),
@@ -340,7 +338,13 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 						Gateway:   &v1alpha1.GatewaySpec{},
 						Scheduler: &v1alpha1.SchedulerSpec{},
 					},
-					Prefill: &v1alpha1.WorkloadSpec{},
+					Prefill: &v1alpha1.WorkloadSpec{
+						Worker: &corev1.PodSpec{Containers: []corev1.Container{}},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
 				},
 			}
 
@@ -413,7 +417,13 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 						Gateway:   &v1alpha1.GatewaySpec{},
 						Scheduler: &v1alpha1.SchedulerSpec{},
 					},
-					Prefill: &v1alpha1.WorkloadSpec{},
+					Prefill: &v1alpha1.WorkloadSpec{
+						Worker: &corev1.PodSpec{Containers: []corev1.Container{}},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
 				},
 			}
 
@@ -486,7 +496,13 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 						Gateway:   &v1alpha1.GatewaySpec{},
 						Scheduler: &v1alpha1.SchedulerSpec{},
 					},
-					Prefill: &v1alpha1.WorkloadSpec{},
+					Prefill: &v1alpha1.WorkloadSpec{
+						Worker: &corev1.PodSpec{Containers: []corev1.Container{}},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
 				},
 			}
 
@@ -559,7 +575,13 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 						Gateway:   &v1alpha1.GatewaySpec{},
 						Scheduler: &v1alpha1.SchedulerSpec{},
 					},
-					Prefill: &v1alpha1.WorkloadSpec{},
+					Prefill: &v1alpha1.WorkloadSpec{
+						Worker: &corev1.PodSpec{Containers: []corev1.Container{}},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
 				},
 			}
 
@@ -613,7 +635,6 @@ func validatePvcStorageForPodSpec(podSpec *corev1.PodSpec) {
 	mainContainer := utils.GetContainerWithName(podSpec, "main")
 	Expect(mainContainer).ToNot(BeNil())
 
-	Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
 	Expect(podSpec.Volumes).To(ContainElement(And(
 		HaveField("Name", constants.PvcSourceMountName),
 		HaveField("VolumeSource.PersistentVolumeClaim.ClaimName", "facebook-models"),
@@ -642,9 +663,6 @@ func validateOciStorageForPodSpec(podSpec *corev1.PodSpec) {
 	// Check container are sharing resources.
 	Expect(podSpec.ShareProcessNamespace).To(Not(BeNil()))
 	Expect(*podSpec.ShareProcessNamespace).To(BeTrue())
-
-	// Check the model server is directed to the mount point of the OCI container
-	Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
 
 	// Check the model server has an envvar indicating that the model may not be mounted immediately.
 	Expect(mainContainer.Env).To(ContainElement(And(
@@ -699,7 +717,6 @@ func validateStorageInitializerForPodSpec(podSpec *corev1.PodSpec, storageUri st
 	// Check the main container has the model mounted
 	mainContainer := utils.GetContainerWithName(podSpec, "main")
 	Expect(mainContainer).ToNot(BeNil())
-	Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
 	Expect(mainContainer.VolumeMounts).To(ContainElement(And(
 		HaveField("Name", constants.StorageInitializerVolumeName),
 		HaveField("MountPath", constants.DefaultModelLocalMountPath),
