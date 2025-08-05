@@ -165,6 +165,7 @@ wait_for_pod_ready "knative-serving" "app=webhook"
 wait_for_pod_ready "knative-serving" "app=activator"
 wait_for_pod_ready "knative-serving" "app=autoscaler"
 
+: "${RUNNING_LOCAL:=false}"
 export secret_name=$(oc get IngressController default -n openshift-ingress-operator -o yaml -o=jsonpath='{ .spec.defaultCertificate.name}')
 if [ -z "$secret_name" ]; then
   # Fallback to the default secret name for crpkg/controller/v1beta1/inferenceservice/rawkube_controller_test.goc
