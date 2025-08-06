@@ -23035,11 +23035,11 @@ spec:
                 properties:
                   data:
                     format: int32
-                    minimum: 0
+                    minimum: 1
                     type: integer
                   dataLocal:
                     format: int32
-                    minimum: 0
+                    minimum: 1
                     type: integer
                   dataRPCPort:
                     format: int32
@@ -23050,11 +23050,11 @@ spec:
                     type: boolean
                   pipeline:
                     format: int32
-                    minimum: 0
+                    minimum: 1
                     type: integer
                   tensor:
                     format: int32
-                    minimum: 0
+                    minimum: 1
                     type: integer
                 type: object
               prefill:
@@ -23063,11 +23063,11 @@ spec:
                     properties:
                       data:
                         format: int32
-                        minimum: 0
+                        minimum: 1
                         type: integer
                       dataLocal:
                         format: int32
-                        minimum: 0
+                        minimum: 1
                         type: integer
                       dataRPCPort:
                         format: int32
@@ -23078,11 +23078,11 @@ spec:
                         type: boolean
                       pipeline:
                         format: int32
-                        minimum: 0
+                        minimum: 1
                         type: integer
                       tensor:
                         format: int32
-                        minimum: 0
+                        minimum: 1
                         type: integer
                     type: object
                   replicas:
@@ -42546,11 +42546,11 @@ spec:
                 properties:
                   data:
                     format: int32
-                    minimum: 0
+                    minimum: 1
                     type: integer
                   dataLocal:
                     format: int32
-                    minimum: 0
+                    minimum: 1
                     type: integer
                   dataRPCPort:
                     format: int32
@@ -42561,11 +42561,11 @@ spec:
                     type: boolean
                   pipeline:
                     format: int32
-                    minimum: 0
+                    minimum: 1
                     type: integer
                   tensor:
                     format: int32
-                    minimum: 0
+                    minimum: 1
                     type: integer
                 type: object
               prefill:
@@ -42574,11 +42574,11 @@ spec:
                     properties:
                       data:
                         format: int32
-                        minimum: 0
+                        minimum: 1
                         type: integer
                       dataLocal:
                         format: int32
-                        minimum: 0
+                        minimum: 1
                         type: integer
                       dataRPCPort:
                         format: int32
@@ -42589,11 +42589,11 @@ spec:
                         type: boolean
                       pipeline:
                         format: int32
-                        minimum: 0
+                        minimum: 1
                         type: integer
                       tensor:
                         format: int32
-                        minimum: 0
+                        minimum: 1
                         type: integer
                     type: object
                   replicas:
