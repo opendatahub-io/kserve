@@ -1,9 +1,9 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: llm-scheduler
+  name: kserve-llm-isvc-scheduler
   labels:
-    app.kubernetes.io/name: llm-scheduler-monitoring
+    app.kubernetes.io/name: kserve-llm-isvc-scheduler-monitoring
 spec:
   selector:
     matchLabels:
@@ -30,4 +30,4 @@ spec:
       action: replace
       regex: "llminferenceservice-(.*)"
       replacement: "$1"
-      targetLabel: llm_component
+      targetLabel: llm_isvc_component

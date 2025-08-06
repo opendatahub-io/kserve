@@ -1,9 +1,9 @@
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
-  name: llm-gateway
+  name: kserve-llm-isvc-gateway
   labels:
-    app.kubernetes.io/name: llm-gateway-monitoring
+    app.kubernetes.io/name: kserve-llm-isvc-gateway-monitoring
 spec:
   selector:
     matchLabels:
