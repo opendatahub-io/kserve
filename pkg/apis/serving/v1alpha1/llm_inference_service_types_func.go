@@ -78,7 +78,11 @@ func (p *ParallelismSpec) GetSize() *int32 {
 		return nil
 	}
 	if p.IsDataParallel() {
-		return ptr.To(max(ptr.Deref(p.Data, 1), 1) / max(ptr.Deref(p.DataLocal, 1), 1))
+		return ptr.To(max(
+			// p.Data / p.DataLocal
+			max(ptr.Deref(p.Data, 1), 1)/max(ptr.Deref(p.DataLocal, 1), 1),
+			1,
+		))
 	}
 	if p.IsPipelineParallel() {
 		return p.Pipeline

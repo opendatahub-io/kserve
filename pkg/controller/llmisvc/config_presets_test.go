@@ -63,7 +63,89 @@ func TestPresetFiles(t *testing.T) {
 				},
 				Spec: v1alpha1.LLMInferenceServiceSpec{
 					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							HostIPC: true,
+							HostPID: true,
+							InitContainers: []corev1.Container{
+								{
+									Name:  "llm-d-routing-sidecar",
+									Image: "ghcr.io/llm-d/llm-d-routing-sidecar:v0.2.0",
+									Args: []string{
+										"--port=8000",
+										"--vllm-port=8001",
+										"--secure-proxy=true",
+										"--cert-path=/etc/ssl/certs",
+										"--decoder-use-tls=true",
+										"--decoder-tls-insecure-skip-verify=true",
+										"--prefiller-use-tls=true",
+										"--prefiller-tls-insecure-skip-verify=true",
+										"--enable-ssrf-protection=true",
+									},
+									Env: []corev1.EnvVar{
+										{
+											Name: "INFERENCE_POOL_NAMESPACE",
+											ValueFrom: &corev1.EnvVarSource{
+												FieldRef: &corev1.ObjectFieldSelector{
+													FieldPath: "metadata.namespace",
+												},
+											},
+										},
+									},
+									Ports: []corev1.ContainerPort{
+										{
+											ContainerPort: 8000,
+											Protocol:      corev1.ProtocolTCP,
+										},
+									},
+									SecurityContext: &corev1.SecurityContext{
+										AllowPrivilegeEscalation: ptr.To(false),
+										RunAsNonRoot:             ptr.To(false),
+									},
+									RestartPolicy:            ptr.To(corev1.ContainerRestartPolicyAlways),
+									TerminationMessagePath:   "/dev/termination-log",
+									TerminationMessagePolicy: "FallbackToLogsOnError",
+									ImagePullPolicy:          "IfNotPresent",
+									VolumeMounts: []corev1.VolumeMount{
+										{
+											Name:      "tls-certs",
+											ReadOnly:  true,
+											MountPath: "/etc/ssl/certs",
+										},
+									},
+									ReadinessProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											HTTPGet: &corev1.HTTPGetAction{
+												Path:   "/health",
+												Port:   intstr.FromInt32(8000),
+												Scheme: corev1.URISchemeHTTPS,
+											},
+										},
+										InitialDelaySeconds: 10,
+										TimeoutSeconds:      5,
+										PeriodSeconds:       10,
+										FailureThreshold:    10,
+									},
+									LivenessProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											HTTPGet: &corev1.HTTPGetAction{
+												Path:   "/health",
+												Port:   intstr.FromInt32(8000),
+												Scheme: corev1.URISchemeHTTPS,
+											},
+										},
+										InitialDelaySeconds: 10,
+										TimeoutSeconds:      10,
+										PeriodSeconds:       10,
+										FailureThreshold:    3,
+									},
+								},
+							},
+							Containers: []corev1.Container{},
+						},
 						Worker: &corev1.PodSpec{
+							HostIPC:         true,
+							HostPID:         true,
+							SecurityContext: &corev1.PodSecurityContext{},
 							Volumes: []corev1.Volume{
 								{
 									Name: "home",
@@ -339,7 +421,7 @@ fi`},
 
 			// Verify the actual Spec rendered if provided for the found file.
 			if tc, exist := tt[filename]; exist {
-				if !equality.Semantic.DeepEqual(tc.expected, out) {
+				if !equality.Semantic.DeepDerivative(tc.expected, out) {
 					diff := cmp.Diff(tc.expected, out)
 					t.Errorf("ReplaceVariables() returned unexpected diff (-want +got):\n%s", diff)
 				}

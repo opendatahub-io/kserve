@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
 - ../../default
 - user-cluster-roles.yaml
+- llm-svc-scc.yaml
 
 namespace: opendatahub
 
@@ -30,7 +31,7 @@ patches:
     name: kserve-config-llm-decode-worker-data-parallel
   patch: |-
     - op: replace
-      path: /spec/worker/initContainers/0/image
+      path: /spec/template/initContainers/0/image
       value: "$(kserve-llm-d-routing-sidecar)"
 - target:
     kind: ValidatingWebhookConfiguration
@@ -57,7 +58,7 @@ replacements:
 - source:
     kind: ConfigMap
     name: kserve-parameters
-    fieldpath: data.kserve-controller
+    fieldPath: data.kserve-controller
   targets:
   - select:
       kind: Deployment
