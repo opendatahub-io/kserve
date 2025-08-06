@@ -73,6 +73,7 @@ spec:
               #################
               vllm serve \
                 /mnt/models \
+                --served-model-name "{{ .Spec.Model.Name }}" \
                 --port 8001 \
                 --api-server-count 4 \
                 --disable-log-requests \
@@ -95,6 +96,7 @@ spec:
               #################
               vllm serve \
                 /mnt/models \
+                --served-model-name "{{ .Spec.Model.Name }}" \
                 --port 8001 \
                 --disable-log-requests \
                 {{- if .Spec.Parallelism.Expert }}--enable-expert-parallel \{{- end }}
