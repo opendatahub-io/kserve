@@ -147,25 +147,16 @@ func (in *LLMInferenceService) MarkGatewaysNotReady(reason, messageFormat string
 func (in *LLMInferenceService) DetermineRouterReadiness() {
 	subConditions := []*apis.Condition{
 		in.GetStatus().GetCondition(GatewaysReady),
-		// Add other router sub-conditions here as needed
 	}
 
-	// Check if any sub-conditions are false
-	hasSetConditions := false
 	for _, cond := range subConditions {
 		if cond == nil {
 			continue
 		}
-		hasSetConditions = true
 		if cond.IsFalse() {
 			in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(RouterReady, cond.Reason, cond.Message)
 			return
 		}
 	}
-
-	// Only mark router ready if we have sub-conditions that were evaluated
-	if hasSetConditions {
-		in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(RouterReady)
-	}
-	// If no sub-conditions are set, don't modify RouterReady condition
+	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(RouterReady)
 }

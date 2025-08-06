@@ -17,6 +17,7 @@ limitations under the License.
 package llmisvc_test
 
 import (
+	"context"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -24,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
@@ -35,7 +36,7 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 	tests := []struct {
 		name                    string
 		llmSvc                  *v1alpha1.LLMInferenceService
-		gateways                []*gatewayapiv1.Gateway
+		gateways                []*gatewayapi.Gateway
 		expectedRouterReady     bool
 		expectedConditionReason string
 		expectedErrorMsg        string
@@ -51,10 +52,10 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 					Namespace: "test-ns",
 				}),
 			),
-			gateways: []*gatewayapiv1.Gateway{
+			gateways: []*gatewayapi.Gateway{
 				Gateway("ready-gateway",
-					InNamespace[*gatewayapiv1.Gateway]("test-ns"),
-					WithListener(gatewayapiv1.HTTPProtocolType),
+					InNamespace[*gatewayapi.Gateway]("test-ns"),
+					WithListener(gatewayapi.HTTPProtocolType),
 					WithAddresses("203.0.113.1"),
 					WithProgrammedCondition(metav1.ConditionTrue, "Ready", "Gateway is ready"),
 				),
@@ -72,10 +73,10 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 					Namespace: "test-ns",
 				}),
 			),
-			gateways: []*gatewayapiv1.Gateway{
+			gateways: []*gatewayapi.Gateway{
 				Gateway("not-ready-gateway",
-					InNamespace[*gatewayapiv1.Gateway]("test-ns"),
-					WithListener(gatewayapiv1.HTTPProtocolType),
+					InNamespace[*gatewayapi.Gateway]("test-ns"),
+					WithListener(gatewayapi.HTTPProtocolType),
 					WithAddresses("203.0.113.1"),
 					WithProgrammedCondition(metav1.ConditionFalse, "NotReady", "Gateway is not ready"),
 				),
@@ -93,15 +94,15 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 					v1alpha1.UntypedObjectReference{Name: "gateway-2", Namespace: "test-ns"},
 				),
 			),
-			gateways: []*gatewayapiv1.Gateway{
+			gateways: []*gatewayapi.Gateway{
 				Gateway("gateway-1",
-					InNamespace[*gatewayapiv1.Gateway]("test-ns"),
-					WithListener(gatewayapiv1.HTTPProtocolType),
+					InNamespace[*gatewayapi.Gateway]("test-ns"),
+					WithListener(gatewayapi.HTTPProtocolType),
 					WithProgrammedCondition(metav1.ConditionTrue, "Ready", "Gateway 1 is ready"),
 				),
 				Gateway("gateway-2",
-					InNamespace[*gatewayapiv1.Gateway]("test-ns"),
-					WithListener(gatewayapiv1.HTTPProtocolType),
+					InNamespace[*gatewayapi.Gateway]("test-ns"),
+					WithListener(gatewayapi.HTTPProtocolType),
 					WithProgrammedCondition(metav1.ConditionTrue, "Ready", "Gateway 2 is ready"),
 				),
 			},
@@ -118,15 +119,15 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 					v1alpha1.UntypedObjectReference{Name: "not-ready-gateway", Namespace: "test-ns"},
 				),
 			),
-			gateways: []*gatewayapiv1.Gateway{
+			gateways: []*gatewayapi.Gateway{
 				Gateway("ready-gateway",
-					InNamespace[*gatewayapiv1.Gateway]("test-ns"),
-					WithListener(gatewayapiv1.HTTPProtocolType),
+					InNamespace[*gatewayapi.Gateway]("test-ns"),
+					WithListener(gatewayapi.HTTPProtocolType),
 					WithProgrammedCondition(metav1.ConditionTrue, "Ready", "Gateway is ready"),
 				),
 				Gateway("not-ready-gateway",
-					InNamespace[*gatewayapiv1.Gateway]("test-ns"),
-					WithListener(gatewayapiv1.HTTPProtocolType),
+					InNamespace[*gatewayapi.Gateway]("test-ns"),
+					WithListener(gatewayapi.HTTPProtocolType),
 					WithProgrammedCondition(metav1.ConditionFalse, "NotReady", "Gateway is not ready"),
 				),
 			},
@@ -143,10 +144,10 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 					Namespace: "test-ns",
 				}),
 			),
-			gateways: []*gatewayapiv1.Gateway{
+			gateways: []*gatewayapi.Gateway{
 				Gateway("no-condition-gateway",
-					InNamespace[*gatewayapiv1.Gateway]("test-ns"),
-					WithListener(gatewayapiv1.HTTPProtocolType),
+					InNamespace[*gatewayapi.Gateway]("test-ns"),
+					WithListener(gatewayapi.HTTPProtocolType),
 					// No programmed condition set
 				),
 			},
@@ -163,7 +164,7 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 					Namespace: "test-ns",
 				}),
 			),
-			gateways:            []*gatewayapiv1.Gateway{},
+			gateways:            []*gatewayapi.Gateway{},
 			expectedRouterReady: false,
 			expectedErrorMsg:    "failed to get Gateway",
 		},
@@ -174,7 +175,7 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 				WithModelURI("hf://test/model"),
 				// No gateway refs
 			),
-			gateways:             []*gatewayapiv1.Gateway{},
+			gateways:             []*gatewayapi.Gateway{},
 			expectConditionUnset: true, // Should not set any router condition
 		},
 		{
@@ -187,10 +188,10 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 					// Namespace omitted - should use test-ns
 				}),
 			),
-			gateways: []*gatewayapiv1.Gateway{
+			gateways: []*gatewayapi.Gateway{
 				Gateway("same-ns-gateway",
-					InNamespace[*gatewayapiv1.Gateway]("test-ns"),
-					WithListener(gatewayapiv1.HTTPProtocolType),
+					InNamespace[*gatewayapi.Gateway]("test-ns"),
+					WithListener(gatewayapi.HTTPProtocolType),
 					WithProgrammedCondition(metav1.ConditionTrue, "Ready", "Gateway is ready"),
 				),
 			},
@@ -207,7 +208,7 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 			scheme := runtime.NewScheme()
 			err := v1alpha1.AddToScheme(scheme)
 			g.Expect(err).ToNot(HaveOccurred())
-			err = gatewayapiv1.Install(scheme)
+			err = gatewayapi.Install(scheme)
 			g.Expect(err).ToNot(HaveOccurred())
 
 			// Prepare objects for fake client
@@ -247,7 +248,7 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 			gatewayCondition := tt.llmSvc.GetStatus().GetCondition(v1alpha1.GatewaysReady)
 			switch {
 			case tt.expectConditionUnset:
-				g.Expect(routerCondition).To(BeNil(), "Router condition should not be set when no gateway refs")
+				g.Expect(routerCondition.IsTrue()).To(BeTrue(), "Router should be ready")
 				g.Expect(gatewayCondition).To(BeNil(), "Gateway condition should not be set when no gateway refs")
 			case tt.expectedRouterReady:
 				g.Expect(routerCondition).ToNot(BeNil(), "Router condition should be set")
@@ -274,7 +275,7 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 func TestIsGatewayReady(t *testing.T) {
 	tests := []struct {
 		name     string
-		gateway  *gatewayapiv1.Gateway
+		gateway  *gatewayapi.Gateway
 		expected bool
 	}{
 		{
@@ -301,7 +302,7 @@ func TestIsGatewayReady(t *testing.T) {
 		{
 			name: "gateway with no conditions - should not be ready",
 			gateway: Gateway("test-gateway",
-				WithListener(gatewayapiv1.HTTPProtocolType),
+				WithListener(gatewayapi.HTTPProtocolType),
 			),
 			expected: false,
 		},
@@ -329,7 +330,7 @@ func TestFetchReferencedGateways(t *testing.T) {
 	tests := []struct {
 		name          string
 		llmSvc        *v1alpha1.LLMInferenceService
-		gateways      []*gatewayapiv1.Gateway
+		gateways      []*gatewayapi.Gateway
 		expectedCount int
 		expectedError string
 	}{
@@ -342,8 +343,8 @@ func TestFetchReferencedGateways(t *testing.T) {
 					Namespace: "test-ns",
 				}),
 			),
-			gateways: []*gatewayapiv1.Gateway{
-				Gateway("test-gateway", InNamespace[*gatewayapiv1.Gateway]("test-ns")),
+			gateways: []*gatewayapi.Gateway{
+				Gateway("test-gateway", InNamespace[*gatewayapi.Gateway]("test-ns")),
 			},
 			expectedCount: 1,
 		},
@@ -356,9 +357,9 @@ func TestFetchReferencedGateways(t *testing.T) {
 					v1alpha1.UntypedObjectReference{Name: "gateway-2", Namespace: "other-ns"},
 				),
 			),
-			gateways: []*gatewayapiv1.Gateway{
-				Gateway("gateway-1", InNamespace[*gatewayapiv1.Gateway]("test-ns")),
-				Gateway("gateway-2", InNamespace[*gatewayapiv1.Gateway]("other-ns")),
+			gateways: []*gatewayapi.Gateway{
+				Gateway("gateway-1", InNamespace[*gatewayapi.Gateway]("test-ns")),
+				Gateway("gateway-2", InNamespace[*gatewayapi.Gateway]("other-ns")),
 			},
 			expectedCount: 2,
 		},
@@ -371,7 +372,7 @@ func TestFetchReferencedGateways(t *testing.T) {
 					Namespace: "test-ns",
 				}),
 			),
-			gateways:      []*gatewayapiv1.Gateway{},
+			gateways:      []*gatewayapi.Gateway{},
 			expectedCount: 0,
 			expectedError: "failed to get Gateway",
 		},
@@ -381,7 +382,7 @@ func TestFetchReferencedGateways(t *testing.T) {
 				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
 				// No gateway refs
 			),
-			gateways:      []*gatewayapiv1.Gateway{},
+			gateways:      []*gatewayapi.Gateway{},
 			expectedCount: 0,
 		},
 	}
@@ -395,7 +396,7 @@ func TestFetchReferencedGateways(t *testing.T) {
 			scheme := runtime.NewScheme()
 			err := v1alpha1.AddToScheme(scheme)
 			g.Expect(err).ToNot(HaveOccurred())
-			err = gatewayapiv1.Install(scheme)
+			err = gatewayapi.Install(scheme)
 			g.Expect(err).ToNot(HaveOccurred())
 
 			// Prepare objects for fake client
@@ -428,4 +429,38 @@ func TestFetchReferencedGateways(t *testing.T) {
 			g.Expect(gateways).To(HaveLen(tt.expectedCount))
 		})
 	}
+}
+
+func ensureGatewayReady(ctx context.Context, c client.Client, gateway *gatewayapi.Gateway) {
+	// Get the current gateway
+	createdGateway := &gatewayapi.Gateway{}
+	Expect(c.Get(ctx, client.ObjectKeyFromObject(gateway), createdGateway)).To(Succeed())
+
+	// Set the status conditions to simulate the Gateway controller making it ready
+	createdGateway.Status.Conditions = []metav1.Condition{
+		{
+			Type:               string(gatewayapi.GatewayConditionAccepted),
+			Status:             metav1.ConditionTrue,
+			Reason:             "Accepted",
+			Message:            "Gateway accepted",
+			LastTransitionTime: metav1.Now(),
+		},
+		{
+			Type:               string(gatewayapi.GatewayConditionProgrammed),
+			Status:             metav1.ConditionTrue,
+			Reason:             "Ready",
+			Message:            "Gateway is ready",
+			LastTransitionTime: metav1.Now(),
+		},
+	}
+
+	// Update the status
+	Expect(c.Status().Update(ctx, createdGateway)).To(Succeed())
+
+	// Verify the gateway is now ready
+	Eventually(func(g Gomega, ctx context.Context) bool {
+		updatedGateway := &gatewayapi.Gateway{}
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(gateway), updatedGateway)).To(Succeed())
+		return llmisvc.IsGatewayReady(updatedGateway)
+	}).WithContext(ctx).Should(BeTrue())
 }
