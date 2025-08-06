@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package webhook_test
+package validation_test
 
 import (
 	"fmt"
@@ -209,62 +209,6 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 			Expect(errValidation.Error()).To(ContainSubstring("data must be set when dataLocal is set"))
 		})
 
-		It("should reject LLMInferenceService with zero pipeline parallelism", func(ctx SpecContext) {
-			// given
-			llmSvc := fixture.LLMInferenceService("test-zero-pipeline",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithPipelineParallelism(0),
-				)),
-			)
-
-			// when
-			errValidation := envTest.Client.Create(ctx, llmSvc)
-
-			// then
-			Expect(errValidation).To(HaveOccurred())
-			Expect(errValidation.Error()).To(ContainSubstring("pipeline parallelism must be greater than 0"))
-		})
-
-		It("should reject LLMInferenceService with zero data parallelism", func(ctx SpecContext) {
-			// given
-			llmSvc := fixture.LLMInferenceService("test-zero-data",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithDataParallelism(0),
-					fixture.WithDataLocalParallelism(1),
-				)),
-			)
-
-			// when
-			errValidation := envTest.Client.Create(ctx, llmSvc)
-
-			// then
-			Expect(errValidation).To(HaveOccurred())
-			Expect(errValidation.Error()).To(ContainSubstring("data parallelism must be greater than 0"))
-		})
-
-		It("should reject LLMInferenceService with zero dataLocal parallelism", func(ctx SpecContext) {
-			// given
-			llmSvc := fixture.LLMInferenceService("test-zero-datalocal",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithDataParallelism(4),
-					fixture.WithDataLocalParallelism(0),
-				)),
-			)
-
-			// when
-			errValidation := envTest.Client.Create(ctx, llmSvc)
-
-			// then
-			Expect(errValidation).To(HaveOccurred())
-			Expect(errValidation.Error()).To(ContainSubstring("dataLocal parallelism must be greater than 0"))
-		})
-
 		It("should reject LLMInferenceService with worker but no parallelism configuration", func(ctx SpecContext) {
 			// given
 			llmSvc := fixture.LLMInferenceService("test-worker-no-parallelism",
@@ -372,6 +316,155 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 			// then
 			Expect(envTest.Client.Create(ctx, llmSvc)).To(Succeed())
+		})
+	})
+})
+
+var _ = Describe("LLMInferenceService API validation", func() {
+	var (
+		ns     *corev1.Namespace
+		nsName string
+	)
+	BeforeEach(func(ctx SpecContext) {
+		nsName = fmt.Sprintf("test-llmisvc-api-validation-%d", time.Now().UnixNano())
+
+		ns = &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: nsName,
+			},
+		}
+		Expect(envTest.Client.Create(ctx, ns)).To(Succeed())
+
+		DeferCleanup(func() {
+			ns := ns
+			envTest.DeleteAll(ns)
+		})
+	})
+	Context("Integer value validation", func() {
+		It("should reject LLMInferenceService with negative workload replicas", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-negative-replicas",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithDeploymentReplicas(-1),
+			)
+
+			// when
+			errValidation := envTest.Client.Create(ctx, llmSvc)
+
+			// then
+			Expect(errValidation).To(HaveOccurred(), "Expected the Create call to fail due to a validation error, but it succeeded")
+			Expect(errValidation.Error()).To(ContainSubstring("spec.replicas in body should be greater than or equal to 0"))
+		})
+
+		It("should reject LLMInferenceService with negative tensor parallelism", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-negative-int-parallelism",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithParallelism(fixture.ParallelismSpec(
+					fixture.WithTensorParallelism(-1),
+				)),
+			)
+
+			// when
+			errValidation := envTest.Client.Create(ctx, llmSvc)
+
+			// then
+			Expect(errValidation).To(HaveOccurred(), "Expected the Create call to fail due to a validation error, but it succeeded")
+			Expect(errValidation.Error()).To(ContainSubstring("spec.parallelism.tensor in body should be greater than or equal to 1"))
+		})
+
+		It("should reject LLMInferenceService with negative pipeline parallelism", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-negative-int-pipeline",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithParallelism(fixture.ParallelismSpec(
+					fixture.WithPipelineParallelism(-1),
+				)),
+			)
+
+			// when
+			errValidation := envTest.Client.Create(ctx, llmSvc)
+
+			// then
+			Expect(errValidation).To(HaveOccurred(), "Expected the Create call to fail due to a validation error, but it succeeded")
+			Expect(errValidation.Error()).To(ContainSubstring("spec.parallelism.pipeline in body should be greater than or equal to 1"))
+		})
+
+		It("should reject LLMInferenceService with negative data parallelism", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-negative-data",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithParallelism(fixture.ParallelismSpec(
+					fixture.WithDataParallelism(-1),
+					fixture.WithDataLocalParallelism(1),
+				)),
+			)
+
+			// when
+			errValidation := envTest.Client.Create(ctx, llmSvc)
+
+			// then
+			Expect(errValidation).To(HaveOccurred(), "Expected the Create call to fail due to a validation error, but it succeeded")
+			Expect(errValidation.Error()).To(ContainSubstring("spec.parallelism.data in body should be greater than or equal to 1"))
+		})
+
+		It("should reject LLMInferenceService with zero dataLocal parallelism", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-negative-datalocal",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithParallelism(fixture.ParallelismSpec(
+					fixture.WithDataParallelism(4),
+					fixture.WithDataLocalParallelism(0),
+				)),
+			)
+
+			// when
+			errValidation := envTest.Client.Create(ctx, llmSvc)
+
+			// then
+			Expect(errValidation).To(HaveOccurred(), "Expected the Create call to fail due to a validation error, but it succeeded")
+			Expect(errValidation.Error()).To(ContainSubstring("spec.parallelism.dataLocal in body should be greater than or equal to 1"))
+		})
+
+		It("should reject LLMInferenceService with zero data parallelism RPC Port", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-zero-data-rpc-port",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithParallelism(fixture.ParallelismSpec(
+					fixture.WithDataRPCPort(0),
+				)),
+			)
+
+			// when
+			errValidation := envTest.Client.Create(ctx, llmSvc)
+
+			// then
+			Expect(errValidation).To(HaveOccurred(), "Expected the Create call to fail due to a validation error, but it succeeded")
+			Expect(errValidation.Error()).To(ContainSubstring("spec.parallelism.dataRPCPort in body should be greater than or equal to 1"))
+		})
+
+		It("should reject LLMInferenceService with too large data parallelism RPC Port", func(ctx SpecContext) {
+			// given
+			llmSvc := fixture.LLMInferenceService("test-max-data-rpc-port-exceeded",
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithParallelism(fixture.ParallelismSpec(
+					fixture.WithDataRPCPort(99999),
+				)),
+			)
+
+			// when
+			errValidation := envTest.Client.Create(ctx, llmSvc)
+
+			// then
+			Expect(errValidation).To(HaveOccurred(), "Expected the Create call to fail due to a validation error, but it succeeded")
+			Expect(errValidation.Error()).To(ContainSubstring("spec.parallelism.dataRPCPort in body should be less than or equal to 65535"))
 		})
 	})
 })

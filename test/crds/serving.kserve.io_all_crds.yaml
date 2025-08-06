@@ -23035,20 +23035,26 @@ spec:
                 properties:
                   data:
                     format: int32
+                    minimum: 1
                     type: integer
                   dataLocal:
                     format: int32
+                    minimum: 1
                     type: integer
                   dataRPCPort:
                     format: int32
+                    maximum: 65535
+                    minimum: 1
                     type: integer
                   expert:
                     type: boolean
                   pipeline:
                     format: int32
+                    minimum: 1
                     type: integer
                   tensor:
                     format: int32
+                    minimum: 1
                     type: integer
                 type: object
               prefill:
@@ -23057,24 +23063,31 @@ spec:
                     properties:
                       data:
                         format: int32
+                        minimum: 1
                         type: integer
                       dataLocal:
                         format: int32
+                        minimum: 1
                         type: integer
                       dataRPCPort:
                         format: int32
+                        maximum: 65535
+                        minimum: 1
                         type: integer
                       expert:
                         type: boolean
                       pipeline:
                         format: int32
+                        minimum: 1
                         type: integer
                       tensor:
                         format: int32
+                        minimum: 1
                         type: integer
                     type: object
                   replicas:
                     format: int32
+                    minimum: 0
                     type: integer
                   template:
                     properties:
@@ -30337,6 +30350,7 @@ spec:
                 type: object
               replicas:
                 format: int32
+                minimum: 0
                 type: integer
               router:
                 properties:
@@ -42532,20 +42546,26 @@ spec:
                 properties:
                   data:
                     format: int32
+                    minimum: 1
                     type: integer
                   dataLocal:
                     format: int32
+                    minimum: 1
                     type: integer
                   dataRPCPort:
                     format: int32
+                    maximum: 65535
+                    minimum: 1
                     type: integer
                   expert:
                     type: boolean
                   pipeline:
                     format: int32
+                    minimum: 1
                     type: integer
                   tensor:
                     format: int32
+                    minimum: 1
                     type: integer
                 type: object
               prefill:
@@ -42554,24 +42574,31 @@ spec:
                     properties:
                       data:
                         format: int32
+                        minimum: 1
                         type: integer
                       dataLocal:
                         format: int32
+                        minimum: 1
                         type: integer
                       dataRPCPort:
                         format: int32
+                        maximum: 65535
+                        minimum: 1
                         type: integer
                       expert:
                         type: boolean
                       pipeline:
                         format: int32
+                        minimum: 1
                         type: integer
                       tensor:
                         format: int32
+                        minimum: 1
                         type: integer
                     type: object
                   replicas:
                     format: int32
+                    minimum: 0
                     type: integer
                   template:
                     properties:
@@ -49834,6 +49861,7 @@ spec:
                 type: object
               replicas:
                 format: int32
+                minimum: 0
                 type: integer
               router:
                 properties:
