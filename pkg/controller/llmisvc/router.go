@@ -233,7 +233,7 @@ func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Co
 		return fmt.Errorf("failed to fetch referenced gateways: %w", err)
 	}
 
-	notReadyGateways := evaluateGatewayReadiness(ctx, gateways)
+	notReadyGateways := EvaluateGatewayReadiness(ctx, gateways)
 
 	if len(notReadyGateways) > 0 {
 		gatewayNames := make([]string, len(notReadyGateways))

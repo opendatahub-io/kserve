@@ -215,7 +215,7 @@ func filter[T any](s []T, predicateFn func(T) bool) []T {
 }
 
 // EvaluateGatewayReadiness checks the readiness status of Gateways and returns those that are not ready
-func evaluateGatewayReadiness(ctx context.Context, gateways []*gatewayapiv1.Gateway) []*gatewayapiv1.Gateway {
+func EvaluateGatewayReadiness(ctx context.Context, gateways []*gatewayapiv1.Gateway) []*gatewayapiv1.Gateway {
 	logger := log.FromContext(ctx)
 	notReadyGateways := make([]*gatewayapiv1.Gateway, 0)
 
