@@ -46,6 +46,10 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 
 	logger.Info("Reconciling Router")
 
+	defer func() {
+		llmSvc.DetermineRouterReadiness()
+	}()
+
 	if err := r.reconcileScheduler(ctx, llmSvc); err != nil {
 		// Note: Eventually this should set a SchedulerReady sub-condition instead
 		llmSvc.MarkRouterNotReady("SchedulerReconcileError", "Failed to reconcile scheduler: %v", err.Error())
@@ -64,9 +68,6 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 	if err := r.EvaluateGatewayConditions(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to evaluate gateway conditions: %w", err)
 	}
-
-	// Aggregate all router sub-conditions into RouterReady
-	llmSvc.DetermineRouterReadiness()
 
 	return nil
 }
