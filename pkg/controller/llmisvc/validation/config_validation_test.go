@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package webhook_test
+package validation_test
 
 import (
 	"testing"
@@ -24,7 +24,7 @@ import (
 
 	"github.com/onsi/gomega"
 
-	"github.com/kserve/kserve/pkg/controller/llmisvc/webhook"
+	"github.com/kserve/kserve/pkg/controller/llmisvc/validation"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
@@ -207,7 +207,7 @@ func TestLLMInferenceServiceConfigValidator_ValidateDelete_Warnings(t *testing.T
 	}
 }
 
-func setupValidator(t *testing.T) *webhook.LLMInferenceServiceConfigValidator {
+func setupValidator(t *testing.T) *validation.LLMInferenceServiceConfigValidator {
 	clientset := fake.NewClientset()
 
 	namespace := constants.KServeNamespace
@@ -219,7 +219,7 @@ func setupValidator(t *testing.T) *webhook.LLMInferenceServiceConfigValidator {
 		t.Fatalf("Failed to create inference service configmap: %v", err)
 	}
 
-	return &webhook.LLMInferenceServiceConfigValidator{
+	return &validation.LLMInferenceServiceConfigValidator{
 		ClientSet: clientset,
 	}
 }

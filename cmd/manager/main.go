@@ -51,7 +51,7 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
-	llmisvcwebhook "github.com/kserve/kserve/pkg/controller/llmisvc/webhook"
+	llmisvcvalidation "github.com/kserve/kserve/pkg/controller/llmisvc/validation"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -386,7 +386,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	llmConfigValidator := &llmisvcwebhook.LLMInferenceServiceConfigValidator{
+	llmConfigValidator := &llmisvcvalidation.LLMInferenceServiceConfigValidator{
 		ClientSet: clientSet,
 	}
 	if err = llmConfigValidator.SetupWithManager(mgr); err != nil {
@@ -394,7 +394,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	llmInferenceServiceValidator := &llmisvcwebhook.LLMInferenceServiceValidator{}
+	llmInferenceServiceValidator := &llmisvcvalidation.LLMInferenceServiceValidator{}
 	if err = llmInferenceServiceValidator.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "llminferenceservice")
 		os.Exit(1)

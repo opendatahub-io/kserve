@@ -14,10 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package webhook
+package validation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -102,6 +103,10 @@ func (l *LLMInferenceServiceConfigValidator) ValidateDelete(ctx context.Context,
 func (l *LLMInferenceServiceConfigValidator) validate(ctx context.Context, llmSvcConfig *v1alpha1.LLMInferenceServiceConfig) error {
 	logger := log.FromContext(ctx)
 	llmSvcConfig = llmSvcConfig.DeepCopy()
+
+	if len(llmSvcConfig.Spec.BaseRefs) > 0 {
+		return errors.New("spec.baseRefs is not a permitted field in LLMInferenceServiceConfig, support for recursive refs has been disabled")
+	}
 
 	config, err := llmisvc.LoadConfig(ctx, l.ClientSet)
 	if err != nil {
