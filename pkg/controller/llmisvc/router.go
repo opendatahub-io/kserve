@@ -46,9 +46,7 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 
 	logger.Info("Reconciling Router")
 
-	defer func() {
-		llmSvc.DetermineRouterReadiness()
-	}()
+	defer llmSvc.DetermineRouterReadiness()
 
 	if err := r.reconcileScheduler(ctx, llmSvc); err != nil {
 		// Note: Eventually this should set a SchedulerReady sub-condition instead
