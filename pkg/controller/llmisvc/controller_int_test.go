@@ -19,7 +19,6 @@ package llmisvc_test
 import (
 	"context"
 
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -141,35 +140,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			Expect(expectedDeployment).To(HaveContainerImage("quay.io/pierdipi/vllm-cpu:latest")) // Coming from preset
 			Expect(expectedDeployment).To(BeOwnedBy(llmSvc))
 
-			// Wait for managed resources to be created and make them ready
-			Eventually(func(g Gomega, ctx context.Context) {
-				// Get managed gateways and make them ready
-				gateways := &gatewayapi.GatewayList{}
-				listOpts := &client.ListOptions{
-					Namespace:     nsName,
-					LabelSelector: labels.SelectorFromSet(llmisvc.RouterLabels(llmSvc)),
-				}
-				err := envTest.List(ctx, gateways, listOpts)
-				if err != nil && !errors.IsNotFound(err) {
-					g.Expect(err).NotTo(HaveOccurred())
-				}
-				for _, gateway := range gateways.Items {
-					ensureGatewayReady(ctx, envTest.Client, &gateway)
-				}
-
-				// Get managed HTTPRoutes and make them ready
-				httpRoutes := &gatewayapi.HTTPRouteList{}
-				err = envTest.List(ctx, httpRoutes, listOpts)
-				if err != nil && !errors.IsNotFound(err) {
-					g.Expect(err).NotTo(HaveOccurred())
-				}
-				for _, route := range httpRoutes.Items {
-					ensureHTTPRouteReady(ctx, envTest.Client, &route)
-				}
-
-				// Ensure at least one HTTPRoute was found and made ready
-				g.Expect(httpRoutes.Items).To(HaveLen(1), "Expected exactly one managed HTTPRoute")
-			}).WithContext(ctx).Should(Succeed())
+			EnsureManagedResourcesReady(ctx, envTest.Client, llmSvc)
 
 			Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 		})
@@ -233,35 +204,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
 				Expect(expectedHTTPRoute).To(HaveBackendRefs(svcName + "-inference-pool"))
 
-				// Wait for managed resources to be created and make them ready
-				Eventually(func(g Gomega, ctx context.Context) {
-					// Get managed gateways and make them ready
-					gateways := &gatewayapi.GatewayList{}
-					listOpts := &client.ListOptions{
-						Namespace:     nsName,
-						LabelSelector: labels.SelectorFromSet(llmisvc.RouterLabels(llmSvc)),
-					}
-					err := envTest.List(ctx, gateways, listOpts)
-					if err != nil && !errors.IsNotFound(err) {
-						g.Expect(err).NotTo(HaveOccurred())
-					}
-					for _, gateway := range gateways.Items {
-						ensureGatewayReady(ctx, envTest.Client, &gateway)
-					}
-
-					// Get managed HTTPRoutes and make them ready
-					httpRoutes := &gatewayapi.HTTPRouteList{}
-					err = envTest.List(ctx, httpRoutes, listOpts)
-					if err != nil && !errors.IsNotFound(err) {
-						g.Expect(err).NotTo(HaveOccurred())
-					}
-					for _, route := range httpRoutes.Items {
-						ensureHTTPRouteReady(ctx, envTest.Client, &route)
-					}
-
-					// Ensure at least one HTTPRoute was found and made ready
-					g.Expect(httpRoutes.Items).To(HaveLen(1), "Expected exactly one managed HTTPRoute")
-				}).WithContext(ctx).Should(Succeed())
+				EnsureManagedResourcesReady(ctx, envTest.Client, llmSvc)
 
 				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 			})
@@ -324,8 +267,10 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "my-ingress-gateway"}))
 				Expect(expectedHTTPRoute).To(HaveBackendRefs("my-inference-pool"))
 
-				// Ensure the managed HTTPRoute becomes ready (this is the one created by the controller)
-				ensureHTTPRouteReady(ctx, envTest.Client, expectedHTTPRoute)
+				// Advanced fixture pattern: Update the HTTPRoute status using fixture functions
+				updatedRoute := expectedHTTPRoute.DeepCopy()
+				WithHTTPRouteReadyStatus("gateway.networking.k8s.io/gateway-controller")(updatedRoute)
+				Expect(envTest.Client.Status().Update(ctx, updatedRoute)).To(Succeed())
 
 				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 			})
@@ -745,12 +690,11 @@ func customRouteSpec(ctx context.Context, c client.Client, nsName, gatewayRefNam
 				},
 			},
 		}),
+		WithGatewayReadyStatus(),
 	)
 
 	Expect(c.Create(ctx, customGateway)).To(Succeed())
-
-	// Ensure the gateway becomes ready
-	ensureGatewayReady(ctx, c, customGateway)
+	Expect(c.Status().Update(ctx, customGateway)).To(Succeed())
 
 	route := HTTPRoute("custom-route", []HTTPRouteOption{
 		InNamespace[*gatewayapi.HTTPRoute](nsName),

@@ -24,10 +24,15 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	"github.com/kserve/kserve/pkg/controller/llmisvc/validation"
@@ -91,4 +96,46 @@ func SetupTestEnv() *pkgtest.Client {
 	RequiredResources(context.Background(), envTest.Client, systemNs)
 
 	return envTest
+}
+
+// EnsureManagedResourcesReady ensures that managed Gateway and HTTPRoute resources become ready in tests
+func EnsureManagedResourcesReady(ctx context.Context, c client.Client, llmSvc *v1alpha1.LLMInferenceService) {
+	const defaultControllerName = "gateway.networking.k8s.io/gateway-controller"
+
+	gomega.Eventually(func(g gomega.Gomega, ctx context.Context) {
+		// Get managed gateways and make them ready
+		gateways := &gatewayapi.GatewayList{}
+		listOpts := &client.ListOptions{
+			Namespace:     llmSvc.Namespace,
+			LabelSelector: labels.SelectorFromSet(llmisvc.RouterLabels(llmSvc)),
+		}
+		err := c.List(ctx, gateways, listOpts)
+		if err != nil && !errors.IsNotFound(err) {
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		for _, gateway := range gateways.Items {
+			// Update gateway status to ready
+			updatedGateway := gateway.DeepCopy()
+			WithGatewayReadyStatus()(updatedGateway)
+			g.Expect(c.Status().Update(ctx, updatedGateway)).To(gomega.Succeed())
+		}
+
+		// Get managed HTTPRoutes and make them ready
+		httpRoutes := &gatewayapi.HTTPRouteList{}
+		err = c.List(ctx, httpRoutes, listOpts)
+		if err != nil && !errors.IsNotFound(err) {
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		for _, route := range httpRoutes.Items {
+			// Update HTTPRoute status to ready
+			updatedRoute := route.DeepCopy()
+			WithHTTPRouteReadyStatus(defaultControllerName)(updatedRoute)
+			g.Expect(c.Status().Update(ctx, updatedRoute)).To(gomega.Succeed())
+		}
+
+		// Ensure at least one HTTPRoute was found and made ready
+		g.Expect(httpRoutes.Items).To(gomega.HaveLen(1), "Expected exactly one managed HTTPRoute")
+	}).WithContext(ctx).Should(gomega.Succeed())
 }

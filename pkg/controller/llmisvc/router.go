@@ -51,27 +51,20 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 	if err := r.reconcileScheduler(ctx, llmSvc); err != nil {
 		// Note: Eventually this should set a SchedulerReady sub-condition instead
 		llmSvc.MarkRouterNotReady("SchedulerReconcileError", "Failed to reconcile scheduler: %v", err.Error())
-		// Ensure HTTPRoute condition is set even if we return early
 		return fmt.Errorf("failed to reconcile scheduler: %w", err)
 	}
 
 	// We do not support Gateway's spec, when creating HTTPRoutes either the default gateway or those provided
 	// as refs are attached to reconciled routes
 	if err := r.reconcileHTTPRoutes(ctx, llmSvc); err != nil {
-		// Note: Eventually this should set a HTTPRoutesReady sub-condition instead
-		llmSvc.MarkRouterNotReady("HTTPRouteReconcileError", "Failed to reconcile HTTPRoute: %v", err.Error())
-		// Ensure HTTPRoute condition is set even if we return early
 		llmSvc.MarkHTTPRoutesNotReady("HTTPRouteReconcileError", "Failed to reconcile HTTPRoute: %v", err.Error())
 		return fmt.Errorf("failed to reconcile HTTP routes: %w", err)
 	}
 
-	// Evaluate Gateway conditions and set GatewaysReady condition
 	if err := r.EvaluateGatewayConditions(ctx, llmSvc); err != nil {
-		// Ensure HTTPRoute condition is set even if we return early
 		return fmt.Errorf("failed to evaluate gateway conditions: %w", err)
 	}
 
-	// Evaluate HTTPRoute conditions and set HTTPRoutesReady condition
 	if err := r.EvaluateHTTPRouteConditions(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to evaluate HTTPRoute conditions: %w", err)
 	}
