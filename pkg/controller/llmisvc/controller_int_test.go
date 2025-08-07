@@ -18,8 +18,8 @@ package llmisvc_test
 
 import (
 	"context"
-	"fmt"
 
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -141,6 +141,36 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			Expect(expectedDeployment).To(HaveContainerImage("quay.io/pierdipi/vllm-cpu:latest")) // Coming from preset
 			Expect(expectedDeployment).To(BeOwnedBy(llmSvc))
 
+			// Wait for managed resources to be created and make them ready
+			Eventually(func(g Gomega, ctx context.Context) {
+				// Get managed gateways and make them ready
+				gateways := &gatewayapi.GatewayList{}
+				listOpts := &client.ListOptions{
+					Namespace:     nsName,
+					LabelSelector: labels.SelectorFromSet(llmisvc.RouterLabels(llmSvc)),
+				}
+				err := envTest.List(ctx, gateways, listOpts)
+				if err != nil && !errors.IsNotFound(err) {
+					g.Expect(err).NotTo(HaveOccurred())
+				}
+				for _, gateway := range gateways.Items {
+					ensureGatewayReady(ctx, envTest.Client, &gateway)
+				}
+
+				// Get managed HTTPRoutes and make them ready
+				httpRoutes := &gatewayapi.HTTPRouteList{}
+				err = envTest.List(ctx, httpRoutes, listOpts)
+				if err != nil && !errors.IsNotFound(err) {
+					g.Expect(err).NotTo(HaveOccurred())
+				}
+				for _, route := range httpRoutes.Items {
+					ensureHTTPRouteReady(ctx, envTest.Client, &route)
+				}
+
+				// Ensure at least one HTTPRoute was found and made ready
+				g.Expect(httpRoutes.Items).To(HaveLen(1), "Expected exactly one managed HTTPRoute")
+			}).WithContext(ctx).Should(Succeed())
+
 			Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 		})
 	})
@@ -203,6 +233,36 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
 				Expect(expectedHTTPRoute).To(HaveBackendRefs(svcName + "-inference-pool"))
 
+				// Wait for managed resources to be created and make them ready
+				Eventually(func(g Gomega, ctx context.Context) {
+					// Get managed gateways and make them ready
+					gateways := &gatewayapi.GatewayList{}
+					listOpts := &client.ListOptions{
+						Namespace:     nsName,
+						LabelSelector: labels.SelectorFromSet(llmisvc.RouterLabels(llmSvc)),
+					}
+					err := envTest.List(ctx, gateways, listOpts)
+					if err != nil && !errors.IsNotFound(err) {
+						g.Expect(err).NotTo(HaveOccurred())
+					}
+					for _, gateway := range gateways.Items {
+						ensureGatewayReady(ctx, envTest.Client, &gateway)
+					}
+
+					// Get managed HTTPRoutes and make them ready
+					httpRoutes := &gatewayapi.HTTPRouteList{}
+					err = envTest.List(ctx, httpRoutes, listOpts)
+					if err != nil && !errors.IsNotFound(err) {
+						g.Expect(err).NotTo(HaveOccurred())
+					}
+					for _, route := range httpRoutes.Items {
+						ensureHTTPRouteReady(ctx, envTest.Client, &route)
+					}
+
+					// Ensure at least one HTTPRoute was found and made ready
+					g.Expect(httpRoutes.Items).To(HaveLen(1), "Expected exactly one managed HTTPRoute")
+				}).WithContext(ctx).Should(Succeed())
+
 				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 			})
 
@@ -240,7 +300,6 @@ var _ = Describe("LLMInferenceService Controller", func() {
 									Spec: customRouteSpec(ctx, envTest.Client, nsName, "my-ingress-gateway", "my-inference-pool"),
 								},
 							},
-							Gateway: &v1alpha1.GatewaySpec{},
 						},
 					},
 				}
@@ -264,6 +323,9 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(expectedHTTPRoute).To(BeControllerBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "my-ingress-gateway"}))
 				Expect(expectedHTTPRoute).To(HaveBackendRefs("my-inference-pool"))
+
+				// Ensure the managed HTTPRoute becomes ready (this is the one created by the controller)
+				ensureHTTPRouteReady(ctx, envTest.Client, expectedHTTPRoute)
 
 				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 			})
@@ -294,44 +356,11 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				)
 				Expect(envTest.Client.Create(ctx, gateway)).To(Succeed())
 
-				// Update the gateway status after creation to simulate a ready gateway
-				createdGateway := &gatewayapi.Gateway{}
-				Expect(envTest.Client.Get(ctx, client.ObjectKeyFromObject(gateway), createdGateway)).To(Succeed())
-
-				// Set the status conditions to simulate the Gateway controller making it ready
-				createdGateway.Status.Conditions = []metav1.Condition{
-					{
-						Type:               string(gatewayapi.GatewayConditionAccepted),
-						Status:             metav1.ConditionTrue,
-						Reason:             "Accepted",
-						Message:            "Gateway accepted",
-						LastTransitionTime: metav1.Now(),
-					},
-					{
-						Type:               string(gatewayapi.GatewayConditionProgrammed),
-						Status:             metav1.ConditionTrue,
-						Reason:             "Ready",
-						Message:            "Gateway is ready",
-						LastTransitionTime: metav1.Now(),
-					},
-				}
-
-				// Update the status
-				Expect(envTest.Client.Status().Update(ctx, createdGateway)).To(Succeed())
-
-				// Verify the gateway is now ready
-				Eventually(func(g Gomega, ctx context.Context) bool {
-					updatedGateway := &gatewayapi.Gateway{}
-					g.Expect(envTest.Client.Get(ctx, client.ObjectKeyFromObject(gateway), updatedGateway)).To(Succeed())
-					ready := llmisvc.IsGatewayReady(updatedGateway)
-					if !ready {
-						fmt.Printf("Gateway still not ready. Conditions: %+v\n", updatedGateway.Status.Conditions)
-					}
-					return ready
-				}).WithContext(ctx).Should(BeTrue())
+				// Ensure the gateway becomes ready
+				ensureGatewayReady(ctx, envTest.Client, gateway)
 
 				defer func() {
-					Expect(envTest.Delete(ctx, createdGateway)).To(Succeed())
+					Expect(envTest.Delete(ctx, gateway)).To(Succeed())
 				}()
 
 				llmSvc := &v1alpha1.LLMInferenceService{
@@ -391,6 +420,81 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 					return nil
 				}).WithContext(ctx).Should(Succeed())
+
+				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
+			})
+
+			It("should evaluate HTTPRoute readiness conditions", func(ctx SpecContext) {
+				// given
+				svcName := "test-llm-httproute-conditions"
+				nsName := kmeta.ChildName(svcName, "-test")
+				namespace := &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: nsName,
+					},
+				}
+				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+				defer func() {
+					envTest.DeleteAll(namespace)
+				}()
+
+				modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
+				Expect(err).ToNot(HaveOccurred())
+
+				// Create a custom HTTPRoute that we'll reference
+				customHTTPRoute := HTTPRoute("my-custom-route", []HTTPRouteOption{
+					InNamespace[*gatewayapi.HTTPRoute](nsName),
+					WithParentRef(GatewayParentRef("kserve-ingress-gateway", "kserve-system")),
+					WithHTTPRouteRule(
+						HTTPRouteRuleWithBackendAndTimeouts(svcName+"-inference-pool", 8000, "/", "0s", "0s"),
+					),
+				}...)
+				Expect(envTest.Client.Create(ctx, customHTTPRoute)).To(Succeed())
+
+				// Make the HTTPRoute ready
+				ensureHTTPRouteReady(ctx, envTest.Client, customHTTPRoute)
+
+				llmSvc := &v1alpha1.LLMInferenceService{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      svcName,
+						Namespace: nsName,
+					},
+					Spec: v1alpha1.LLMInferenceServiceSpec{
+						Model: v1alpha1.LLMModelSpec{
+							URI: *modelURL,
+						},
+						WorkloadSpec: v1alpha1.WorkloadSpec{},
+						Router: &v1alpha1.RouterSpec{
+							Route: &v1alpha1.GatewayRoutesSpec{
+								HTTP: &v1alpha1.HTTPRouteSpec{
+									Refs: []corev1.LocalObjectReference{
+										{Name: "my-custom-route"},
+									},
+								},
+							},
+						},
+					},
+				}
+
+				// when
+				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+				defer func() {
+					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+				}()
+
+				// then - verify HTTPRoutesReady condition is set
+				Eventually(func(g Gomega, ctx context.Context) error {
+					current := &v1alpha1.LLMInferenceService{}
+					g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), current)).To(Succeed())
+
+					// Check that HTTPRoutesReady condition exists and is True
+					httpRoutesCondition := current.Status.GetCondition(v1alpha1.HTTPRoutesReady)
+					g.Expect(httpRoutesCondition).ToNot(BeNil(), "HTTPRoutesReady condition should be set")
+					g.Expect(httpRoutesCondition.IsTrue()).To(BeTrue(), "HTTPRoutesReady condition should be True")
+
+					return nil
+				}).WithContext(ctx).Should(Succeed(), "HTTPRoutesReady condition should be set to True")
 
 				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 			})
@@ -504,6 +608,15 @@ func LLMInferenceServiceIsReady(llmSvc *v1alpha1.LLMInferenceService, assertFns 
 		g.Expect(current.Status).To(HaveCondition(string(v1alpha1.PresetsCombined), "True"))
 		g.Expect(current.Status).To(HaveCondition(string(v1alpha1.RouterReady), "True"))
 
+		// Check sub-conditions that contribute to RouterReady
+		// Note: These may not always be present depending on the test scenario
+		if current.Status.GetCondition(v1alpha1.GatewaysReady) != nil {
+			g.Expect(current.Status).To(HaveCondition(string(v1alpha1.GatewaysReady), "True"))
+		}
+		if current.Status.GetCondition(v1alpha1.HTTPRoutesReady) != nil {
+			g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
+		}
+
 		// Overall condition depends on owned resources such as Deployment.
 		// When running on EnvTest certain controllers are not built-in, and that
 		// includes deployment controllers, ReplicaSet controllers, etc.
@@ -538,6 +651,86 @@ func ignoreNoMatch(err error) error {
 	return err
 }
 
+// ensureGatewayReady sets up Gateway status conditions to simulate a ready Gateway
+func ensureGatewayReady(ctx context.Context, c client.Client, gateway *gatewayapi.Gateway) {
+	// Get the current gateway
+	createdGateway := &gatewayapi.Gateway{}
+	Expect(c.Get(ctx, client.ObjectKeyFromObject(gateway), createdGateway)).To(Succeed())
+
+	// Set the status conditions to simulate the Gateway controller making it ready
+	createdGateway.Status.Conditions = []metav1.Condition{
+		{
+			Type:               string(gatewayapi.GatewayConditionAccepted),
+			Status:             metav1.ConditionTrue,
+			Reason:             "Accepted",
+			Message:            "Gateway accepted",
+			LastTransitionTime: metav1.Now(),
+		},
+		{
+			Type:               string(gatewayapi.GatewayConditionProgrammed),
+			Status:             metav1.ConditionTrue,
+			Reason:             "Ready",
+			Message:            "Gateway is ready",
+			LastTransitionTime: metav1.Now(),
+		},
+	}
+
+	// Update the status
+	Expect(c.Status().Update(ctx, createdGateway)).To(Succeed())
+
+	// Verify the gateway is now ready
+	Eventually(func(g Gomega, ctx context.Context) bool {
+		updatedGateway := &gatewayapi.Gateway{}
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(gateway), updatedGateway)).To(Succeed())
+		return llmisvc.IsGatewayReady(updatedGateway)
+	}).WithContext(ctx).Should(BeTrue())
+}
+
+// ensureHTTPRouteReady sets up HTTPRoute status conditions to simulate a ready HTTPRoute
+func ensureHTTPRouteReady(ctx context.Context, c client.Client, route *gatewayapi.HTTPRoute) {
+	// Get the current HTTPRoute
+	createdRoute := &gatewayapi.HTTPRoute{}
+	Expect(c.Get(ctx, client.ObjectKeyFromObject(route), createdRoute)).To(Succeed())
+
+	// Set the status conditions to simulate the Gateway controller making the HTTPRoute ready
+	// HTTPRoute readiness is determined by parent status conditions
+	if len(createdRoute.Spec.ParentRefs) > 0 {
+		createdRoute.Status.RouteStatus.Parents = make([]gatewayapi.RouteParentStatus, len(createdRoute.Spec.ParentRefs))
+		for i, parentRef := range createdRoute.Spec.ParentRefs {
+			createdRoute.Status.RouteStatus.Parents[i] = gatewayapi.RouteParentStatus{
+				ParentRef:      parentRef,
+				ControllerName: "gateway.networking.k8s.io/gateway-controller",
+				Conditions: []metav1.Condition{
+					{
+						Type:               string(gatewayapi.RouteConditionAccepted),
+						Status:             metav1.ConditionTrue,
+						Reason:             "Accepted",
+						Message:            "HTTPRoute accepted",
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               string(gatewayapi.RouteConditionResolvedRefs),
+						Status:             metav1.ConditionTrue,
+						Reason:             "ResolvedRefs",
+						Message:            "HTTPRoute references resolved",
+						LastTransitionTime: metav1.Now(),
+					},
+				},
+			}
+		}
+	}
+
+	// Update the status
+	Expect(c.Status().Update(ctx, createdRoute)).To(Succeed())
+
+	// Verify the HTTPRoute is now ready
+	Eventually(func(g Gomega, ctx context.Context) bool {
+		updatedRoute := &gatewayapi.HTTPRoute{}
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(route), updatedRoute)).To(Succeed())
+		return llmisvc.IsHTTPRouteReady(updatedRoute)
+	}).WithContext(ctx).Should(BeTrue())
+}
+
 func customRouteSpec(ctx context.Context, c client.Client, nsName, gatewayRefName, backendRefName string) *gatewayapi.HTTPRouteSpec {
 	customGateway := Gateway(gatewayRefName,
 		InNamespace[*gatewayapi.Gateway](nsName),
@@ -556,12 +749,23 @@ func customRouteSpec(ctx context.Context, c client.Client, nsName, gatewayRefNam
 
 	Expect(c.Create(ctx, customGateway)).To(Succeed())
 
+	// Ensure the gateway becomes ready
+	ensureGatewayReady(ctx, c, customGateway)
+
 	route := HTTPRoute("custom-route", []HTTPRouteOption{
+		InNamespace[*gatewayapi.HTTPRoute](nsName),
 		WithParentRef(GatewayParentRef(gatewayRefName, nsName)),
 		WithHTTPRouteRule(
 			HTTPRouteRuleWithBackendAndTimeouts(backendRefName, 8000, "/", "0s", "0s"),
 		),
 	}...)
+
+	// Create the HTTPRoute so we can make it ready
+	Expect(c.Create(ctx, route)).To(Succeed())
+
+	// Ensure the HTTPRoute becomes ready
+	ensureHTTPRouteReady(ctx, c, route)
+
 	httpRouteSpec := &route.Spec
 
 	return httpRouteSpec

@@ -39,7 +39,8 @@ const (
 )
 
 const (
-	GatewaysReady apis.ConditionType = "GatewaysReady"
+	GatewaysReady   apis.ConditionType = "GatewaysReady"
+	HTTPRoutesReady apis.ConditionType = "HTTPRoutesReady"
 )
 
 var llmInferenceServiceCondSet = apis.NewLivingConditionSet(
@@ -144,9 +145,18 @@ func (in *LLMInferenceService) MarkGatewaysNotReady(reason, messageFormat string
 	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(GatewaysReady, reason, messageFormat, messageA...)
 }
 
+func (in *LLMInferenceService) MarkHTTPRoutesReady() {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(HTTPRoutesReady)
+}
+
+func (in *LLMInferenceService) MarkHTTPRoutesNotReady(reason, messageFormat string, messageA ...interface{}) {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(HTTPRoutesReady, reason, messageFormat, messageA...)
+}
+
 func (in *LLMInferenceService) DetermineRouterReadiness() {
 	subConditions := []*apis.Condition{
 		in.GetStatus().GetCondition(GatewaysReady),
+		in.GetStatus().GetCondition(HTTPRoutesReady),
 	}
 
 	for _, cond := range subConditions {

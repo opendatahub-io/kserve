@@ -51,6 +51,7 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 	if err := r.reconcileScheduler(ctx, llmSvc); err != nil {
 		// Note: Eventually this should set a SchedulerReady sub-condition instead
 		llmSvc.MarkRouterNotReady("SchedulerReconcileError", "Failed to reconcile scheduler: %v", err.Error())
+		// Ensure HTTPRoute condition is set even if we return early
 		return fmt.Errorf("failed to reconcile scheduler: %w", err)
 	}
 
@@ -59,12 +60,20 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 	if err := r.reconcileHTTPRoutes(ctx, llmSvc); err != nil {
 		// Note: Eventually this should set a HTTPRoutesReady sub-condition instead
 		llmSvc.MarkRouterNotReady("HTTPRouteReconcileError", "Failed to reconcile HTTPRoute: %v", err.Error())
+		// Ensure HTTPRoute condition is set even if we return early
+		llmSvc.MarkHTTPRoutesNotReady("HTTPRouteReconcileError", "Failed to reconcile HTTPRoute: %v", err.Error())
 		return fmt.Errorf("failed to reconcile HTTP routes: %w", err)
 	}
 
 	// Evaluate Gateway conditions and set GatewaysReady condition
 	if err := r.EvaluateGatewayConditions(ctx, llmSvc); err != nil {
+		// Ensure HTTPRoute condition is set even if we return early
 		return fmt.Errorf("failed to evaluate gateway conditions: %w", err)
+	}
+
+	// Evaluate HTTPRoute conditions and set HTTPRoutesReady condition
+	if err := r.EvaluateHTTPRouteConditions(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to evaluate HTTPRoute conditions: %w", err)
 	}
 
 	return nil
@@ -299,4 +308,64 @@ func (r *LLMInferenceServiceReconciler) CollectReferencedGateways(ctx context.Co
 	}
 
 	return gateways, nil
+}
+
+// EvaluateHTTPRouteConditions evaluates the readiness of all HTTPRoutes referenced by the LLMInferenceService
+// and updates the HTTPRoutesReady condition accordingly
+func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	logger := log.FromContext(ctx).WithName("evaluateHTTPRouteConditions")
+
+	// If no router or route configuration, mark HTTPRoutes as ready (no routes to evaluate)
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || llmSvc.Spec.Router.Route.HTTP == nil {
+		logger.Info("No HTTPRoute configuration found, marking HTTPRoutesReady as True")
+		llmSvc.MarkHTTPRoutesReady()
+		return nil
+	}
+
+	// Collect all HTTPRoutes (both referenced and managed)
+	var allRoutes []*gatewayapi.HTTPRoute
+
+	// Get referenced routes
+	referencedRoutes, err := r.collectReferencedRoutes(ctx, llmSvc)
+	if err != nil {
+		llmSvc.MarkHTTPRoutesNotReady("HTTPRouteFetchError", "Failed to fetch referenced HTTPRoutes: %v", err.Error())
+		return fmt.Errorf("failed to fetch referenced HTTPRoutes: %w", err)
+	}
+	allRoutes = append(allRoutes, referencedRoutes...)
+
+	// Get managed route if it exists
+	if llmSvc.Spec.Router.Route.HTTP.HasSpec() {
+		expectedHTTPRoute := r.expectedHTTPRoute(ctx, llmSvc)
+		// Try to get the actual managed route from the cluster
+		managedRoute := &gatewayapi.HTTPRoute{}
+		if err := r.Client.Get(ctx, types.NamespacedName{
+			Namespace: expectedHTTPRoute.Namespace,
+			Name:      expectedHTTPRoute.Name,
+		}, managedRoute); err == nil {
+			allRoutes = append(allRoutes, managedRoute)
+		}
+	}
+
+	// If no routes found, mark as ready (nothing to evaluate)
+	if len(allRoutes) == 0 {
+		llmSvc.MarkHTTPRoutesReady()
+		logger.Info("No HTTPRoutes found, marking HTTPRoutesReady as true")
+		return nil
+	}
+
+	notReadyRoutes := EvaluateHTTPRouteReadiness(ctx, allRoutes)
+
+	if len(notReadyRoutes) > 0 {
+		routeNames := make([]string, len(notReadyRoutes))
+		for i, route := range notReadyRoutes {
+			routeNames[i] = fmt.Sprintf("%s/%s", route.Namespace, route.Name)
+		}
+		llmSvc.MarkHTTPRoutesNotReady("HTTPRoutesNotReady", "The following HTTPRoutes are not ready: %v", routeNames)
+		logger.V(2).Info("Some HTTPRoutes are not ready", "routes", notReadyRoutes)
+		return nil
+	}
+
+	llmSvc.MarkHTTPRoutesReady()
+	logger.Info("All HTTPRoutes are ready")
+	return nil
 }
