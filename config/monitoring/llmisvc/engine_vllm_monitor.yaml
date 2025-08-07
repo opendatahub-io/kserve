@@ -21,7 +21,7 @@ spec:
   namespaceSelector:
     any: true
   podMetricsEndpoints:
-  - portNumber: 8000
+  - targetPort: 8000
     scheme: https
     tlsConfig:
       insecureSkipVerify: true
