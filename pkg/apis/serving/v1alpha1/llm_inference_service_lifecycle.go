@@ -38,6 +38,10 @@ const (
 	SchedulerWorkloadReady apis.ConditionType = "SchedulerWorkloadReady"
 )
 
+const (
+	GatewaysReady apis.ConditionType = "GatewaysReady"
+)
+
 var llmInferenceServiceCondSet = apis.NewLivingConditionSet(
 	WorkloadReady,
 	RouterReady,
@@ -130,4 +134,29 @@ func (in *LLMInferenceService) MarkSchedulerWorkloadReady() {
 
 func (in *LLMInferenceService) MarkSchedulerWorkloadNotReady(reason, messageFormat string, messageA ...interface{}) {
 	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(SchedulerWorkloadReady, reason, messageFormat, messageA...)
+}
+
+func (in *LLMInferenceService) MarkGatewaysReady() {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(GatewaysReady)
+}
+
+func (in *LLMInferenceService) MarkGatewaysNotReady(reason, messageFormat string, messageA ...interface{}) {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(GatewaysReady, reason, messageFormat, messageA...)
+}
+
+func (in *LLMInferenceService) DetermineRouterReadiness() {
+	subConditions := []*apis.Condition{
+		in.GetStatus().GetCondition(GatewaysReady),
+	}
+
+	for _, cond := range subConditions {
+		if cond == nil {
+			continue
+		}
+		if cond.IsFalse() {
+			in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(RouterReady, cond.Reason, cond.Message)
+			return
+		}
+	}
+	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(RouterReady)
 }

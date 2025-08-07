@@ -18,6 +18,7 @@ package llmisvc_test
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
@@ -284,6 +285,54 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
 				Expect(err).ToNot(HaveOccurred())
+				// Create the Gateway that the router-managed preset references
+				gateway := Gateway("my-ingress-gateway",
+					InNamespace[*gatewayapi.Gateway](nsName),
+					WithListener(gatewayapi.HTTPProtocolType),
+					WithAddresses("203.0.113.1"),
+					// Don't set the condition here initially
+				)
+				Expect(envTest.Client.Create(ctx, gateway)).To(Succeed())
+
+				// Update the gateway status after creation to simulate a ready gateway
+				createdGateway := &gatewayapi.Gateway{}
+				Expect(envTest.Client.Get(ctx, client.ObjectKeyFromObject(gateway), createdGateway)).To(Succeed())
+
+				// Set the status conditions to simulate the Gateway controller making it ready
+				createdGateway.Status.Conditions = []metav1.Condition{
+					{
+						Type:               string(gatewayapi.GatewayConditionAccepted),
+						Status:             metav1.ConditionTrue,
+						Reason:             "Accepted",
+						Message:            "Gateway accepted",
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               string(gatewayapi.GatewayConditionProgrammed),
+						Status:             metav1.ConditionTrue,
+						Reason:             "Ready",
+						Message:            "Gateway is ready",
+						LastTransitionTime: metav1.Now(),
+					},
+				}
+
+				// Update the status
+				Expect(envTest.Client.Status().Update(ctx, createdGateway)).To(Succeed())
+
+				// Verify the gateway is now ready
+				Eventually(func(g Gomega, ctx context.Context) bool {
+					updatedGateway := &gatewayapi.Gateway{}
+					g.Expect(envTest.Client.Get(ctx, client.ObjectKeyFromObject(gateway), updatedGateway)).To(Succeed())
+					ready := llmisvc.IsGatewayReady(updatedGateway)
+					if !ready {
+						fmt.Printf("Gateway still not ready. Conditions: %+v\n", updatedGateway.Status.Conditions)
+					}
+					return ready
+				}).WithContext(ctx).Should(BeTrue())
+
+				defer func() {
+					Expect(envTest.Delete(ctx, createdGateway)).To(Succeed())
+				}()
 
 				llmSvc := &v1alpha1.LLMInferenceService{
 					ObjectMeta: metav1.ObjectMeta{
