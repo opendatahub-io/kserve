@@ -4,14 +4,20 @@ kind: Kustomization
 resources:
 - ../../crd/external/gateway-inference-extension
 - ../../default
-- user-cluster-roles.yaml
 - ../../monitoring/llmisvc
-- network-policies.yaml
 - ../../llmisvc
+- network-policies.yaml
+- user-cluster-roles.yaml
 
 namespace: opendatahub
 
 patches:
+- path: patches/remove-clusterservingruntime.yaml
+- path: patches/remove-cert-manager.yaml
+- path: patches/remove-local-model.yaml
+- path: patches/patch-webhook-svc-openshift-cert-injection.yaml
+- path: patches/patch-inferenceservice-config.yaml
+- path: patches/patch-set-resources-manager.yaml
 - target:
     kind: MutatingWebhookConfiguration
   patch: |
@@ -37,12 +43,6 @@ patches:
     - op: add
       path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
       value: "true"
-- path: remove-clusterservingruntime.yaml
-- path: remove-cert-manager.yaml
-- path: remove-local-model.yaml
-- path: svc_webhook_cainjection_patch.yaml
-- path: inferenceservice-config-patch.yaml
-- path: set-resources-manager-patch.yaml
 - target:
     kind: LLMInferenceServiceConfig
     name: kserve-config-llm-scheduler
