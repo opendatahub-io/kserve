@@ -91,10 +91,6 @@ func (r *LLMInferenceServiceReconciler) attachOciModelArtifact(modelUri string, 
 		return err
 	}
 
-	if mainContainer := utils.GetContainerWithName(podSpec, "main"); mainContainer != nil {
-		mainContainer.Command = append(mainContainer.Command, constants.DefaultModelLocalMountPath)
-	}
-
 	return nil
 }
 
@@ -114,9 +110,6 @@ func (r *LLMInferenceServiceReconciler) attachOciModelArtifact(modelUri string, 
 func (r *LLMInferenceServiceReconciler) attachPVCModelArtifact(modelUri string, podSpec *corev1.PodSpec) error {
 	if err := utils.AddModelPvcMount(modelUri, "main", true, podSpec); err != nil {
 		return err
-	}
-	if mainContainer := utils.GetContainerWithName(podSpec, "main"); mainContainer != nil {
-		mainContainer.Command = append(mainContainer.Command, constants.DefaultModelLocalMountPath)
 	}
 
 	return nil
@@ -159,9 +152,6 @@ func (r *LLMInferenceServiceReconciler) attachS3ModelArtifact(modelUri string, p
 //	An error if the configuration fails, otherwise nil.
 func (r *LLMInferenceServiceReconciler) attachStorageInitializer(modelUri string, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
 	utils.AddStorageInitializerContainer(podSpec, "main", modelUri, true, storageConfig)
-	if mainContainer := utils.GetContainerWithName(podSpec, "main"); mainContainer != nil {
-		mainContainer.Command = append(mainContainer.Command, constants.DefaultModelLocalMountPath)
-	}
 
 	return nil
 }
