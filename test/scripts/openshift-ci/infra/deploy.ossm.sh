@@ -15,7 +15,7 @@
 set -eu
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-source "${SCRIPT_DIR}/common.sh"
+source "${SCRIPT_DIR}/../common.sh"
 
 # Deploy OSSM operator
 cat <<EOF | oc apply -f -
@@ -37,7 +37,7 @@ EOF
 wait_for_pod_ready "openshift-operators" "name=istio-operator"
 
 # Create new namespace
-oc new-project istio-system
+oc create ns istio-system || true
 # Install OSSM
 cat <<EOF | oc apply -f -
 apiVersion: maistra.io/v2
