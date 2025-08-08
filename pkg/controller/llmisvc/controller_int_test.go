@@ -140,7 +140,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			Expect(expectedDeployment).To(HaveContainerImage("quay.io/pierdipi/vllm-cpu:latest")) // Coming from preset
 			Expect(expectedDeployment).To(BeOwnedBy(llmSvc))
 
-			EnsureManagedResourcesReady(ctx, envTest.Client, llmSvc)
+			EnsureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
 
 			Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 		})
@@ -204,7 +204,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
 				Expect(expectedHTTPRoute).To(HaveBackendRefs(svcName + "-inference-pool"))
 
-				EnsureManagedResourcesReady(ctx, envTest.Client, llmSvc)
+				EnsureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
 
 				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 			})
@@ -269,7 +269,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				// Advanced fixture pattern: Update the HTTPRoute status using fixture functions
 				updatedRoute := expectedHTTPRoute.DeepCopy()
-				WithHTTPRouteReadyStatus("gateway.networking.k8s.io/gateway-controller")(updatedRoute)
+				WithHTTPRouteReadyStatus(DefaultGatewayControllerName)(updatedRoute)
 				Expect(envTest.Client.Status().Update(ctx, updatedRoute)).To(Succeed())
 
 				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
