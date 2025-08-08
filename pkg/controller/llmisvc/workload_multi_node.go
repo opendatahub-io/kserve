@@ -206,8 +206,10 @@ func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Con
 		}
 
 		// Attach model artifacts to worker template
-		if err := r.attachModelArtifacts(llmSvc, &expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, storageConfig); err != nil {
-			return nil, fmt.Errorf("failed to attach model artifacts to worker template: %w", err)
+		if llmSvc.Spec.Worker != nil {
+			if err := r.attachModelArtifacts(llmSvc, &expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, storageConfig); err != nil {
+				return nil, fmt.Errorf("failed to attach model artifacts to worker template: %w", err)
+			}
 		}
 	}
 
@@ -287,8 +289,10 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMultiNodeLWS(ctx context.
 		}
 
 		// Attach model artifacts to worker template
-		if err := r.attachModelArtifacts(llmSvc, &expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, storageConfig); err != nil {
-			return nil, fmt.Errorf("failed to attach model artifacts to prefill worker template: %w", err)
+		if llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker != nil {
+			if err := r.attachModelArtifacts(llmSvc, &expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, storageConfig); err != nil {
+				return nil, fmt.Errorf("failed to attach model artifacts to prefill worker template: %w", err)
+			}
 		}
 	}
 
