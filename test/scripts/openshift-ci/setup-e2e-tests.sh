@@ -112,8 +112,8 @@ kustomize build $PROJECT_ROOT/config/overlays/odh-test |
 wait_for_crd datascienceclusters.datasciencecluster.opendatahub.io 90s
 wait_for_crd dscinitializations.dscinitialization.opendatahub.io 90s
              
-oc create -f config/overlays/odh-test/dsci.yaml
-oc create -f config/overlays/odh-test/dsc.yaml
+oc create -f $PROJECT_ROOT/config/overlays/odh-test/dsci.yaml
+oc create -f $PROJECT_ROOT/config/overlays/odh-test/dsc.yaml
 
 export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
 
