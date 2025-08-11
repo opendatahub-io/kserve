@@ -46,7 +46,10 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 
 	logger.Info("Reconciling Router")
 
+	defer llmSvc.DetermineRouterReadiness()
+
 	if err := r.reconcileScheduler(ctx, llmSvc); err != nil {
+		// Note: Eventually this should set a SchedulerReady sub-condition instead
 		llmSvc.MarkRouterNotReady("SchedulerReconcileError", "Failed to reconcile scheduler: %v", err.Error())
 		return fmt.Errorf("failed to reconcile scheduler: %w", err)
 	}
@@ -54,6 +57,7 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 	// We do not support Gateway's spec, when creating HTTPRoutes either the default gateway or those provided
 	// as refs are attached to reconciled routes
 	if err := r.reconcileHTTPRoutes(ctx, llmSvc); err != nil {
+		// Note: Eventually this should set a HTTPRoutesReady sub-condition instead
 		llmSvc.MarkRouterNotReady("HTTPRouteReconcileError", "Failed to reconcile HTTPRoute: %v", err.Error())
 		return fmt.Errorf("failed to reconcile HTTP routes: %w", err)
 	}
@@ -63,7 +67,10 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 		return fmt.Errorf("failed to reconcile istio destination rules: %w", err)
 	}
 
-	llmSvc.MarkRouterReady()
+	// Evaluate Gateway conditions and set GatewaysReady condition
+	if err := r.EvaluateGatewayConditions(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to evaluate gateway conditions: %w", err)
+	}
 
 	return nil
 }
@@ -211,4 +218,90 @@ func semanticHTTPRouteIsEqual(e *gatewayapi.HTTPRoute, c *gatewayapi.HTTPRoute) 
 	return equality.Semantic.DeepDerivative(e.Spec, c.Spec) &&
 		equality.Semantic.DeepDerivative(e.Labels, c.Labels) &&
 		equality.Semantic.DeepDerivative(e.Annotations, c.Annotations)
+}
+
+// EvaluateGatewayConditions evaluates the readiness of all Gateways referenced by the LLMInferenceService
+// and updates the GatewaysReady condition accordingly
+func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	logger := log.FromContext(ctx).WithName("evaluateGatewayConditions")
+
+	// If no router or gateway configuration, skip Gateway evaluation
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
+		logger.Info("No Gateway references found, skipping Gateway condition evaluation")
+		return nil
+	}
+
+	gateways, err := r.CollectReferencedGateways(ctx, llmSvc)
+	if err != nil {
+		llmSvc.MarkGatewaysNotReady("GatewayFetchError", "Failed to fetch referenced Gateways: %v", err.Error())
+		return fmt.Errorf("failed to fetch referenced gateways: %w", err)
+	}
+
+	notReadyGateways := EvaluateGatewayReadiness(ctx, gateways)
+
+	if len(notReadyGateways) > 0 {
+		gatewayNames := make([]string, len(notReadyGateways))
+		for i, gw := range notReadyGateways {
+			gatewayNames[i] = fmt.Sprintf("%s/%s", gw.Namespace, gw.Name)
+		}
+		llmSvc.MarkGatewaysNotReady("GatewaysNotReady", "The following Gateways are not ready: %v", gatewayNames)
+		logger.V(2).Info("Some referenced Gateways are not ready", "gateways", notReadyGateways)
+		return nil
+	}
+	llmSvc.MarkGatewaysReady()
+	logger.Info("All referenced Gateways are ready")
+	return nil
+}
+
+// CollectReferencedGateways retrieves all Gateway objects referenced in the LLMInferenceService spec
+func (r *LLMInferenceServiceReconciler) CollectReferencedGateways(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) ([]*gatewayapi.Gateway, error) {
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
+		return nil, nil
+	}
+
+	// Use a map to ensure gateways are not repeated (keyed by namespace/name)
+	gatewayMap := make(map[string]*gatewayapi.Gateway)
+	routes, err := r.collectReferencedRoutes(ctx, llmSvc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to collect referenced routes: %w", err)
+	}
+	for _, route := range routes {
+		discoveredGateways, err := DiscoverGateways(ctx, r.Client, route)
+		if err != nil {
+			return nil, fmt.Errorf("failed to discover gateways: %w", err)
+		}
+		for _, gateway := range discoveredGateways {
+			key := gateway.gateway.Namespace + "/" + gateway.gateway.Name
+			gatewayMap[key] = gateway.gateway
+		}
+	}
+
+	for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
+		gateway := &gatewayapi.Gateway{}
+		gatewayKey := types.NamespacedName{
+			Name:      string(ref.Name),
+			Namespace: string(ref.Namespace),
+		}
+
+		// If namespace is not specified, use the same namespace as the LLMInferenceService
+		if gatewayKey.Namespace == "" {
+			gatewayKey.Namespace = llmSvc.GetNamespace()
+		}
+
+		err := r.Client.Get(ctx, gatewayKey, gateway)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get Gateway %s: %w", gatewayKey, err)
+		}
+
+		key := gateway.Namespace + "/" + gateway.Name
+		gatewayMap[key] = gateway
+	}
+
+	// Convert map values to slice
+	gateways := make([]*gatewayapi.Gateway, 0, len(gatewayMap))
+	for _, gw := range gatewayMap {
+		gateways = append(gateways, gw)
+	}
+
+	return gateways, nil
 }

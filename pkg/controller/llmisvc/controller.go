@@ -19,18 +19,15 @@ package llmisvc
 import (
 	"context"
 	"fmt"
-	"slices"
-	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/kserve/kserve/pkg/constants"
-	kserveTypes "github.com/kserve/kserve/pkg/types"
-
 	"k8s.io/apimachinery/pkg/api/equality"
+
+	"github.com/kserve/kserve/pkg/constants"
 
 	"knative.dev/pkg/reconciler"
 
@@ -66,44 +63,6 @@ var childResourcesPredicate, _ = predicate.LabelSelectorPredicate(metav1.LabelSe
 	},
 })
 
-type Config struct {
-	SystemNamespace             string   `json:"systemNamespace,omitempty"`
-	IngressGatewayName          string   `json:"ingressGatewayName,omitempty"`
-	IngressGatewayNamespace     string   `json:"ingressGatewayNamespace,omitempty"`
-	IstioGatewayControllerNames []string `json:"istioGatewayControllerNames,omitempty"`
-
-	StorageConfig *kserveTypes.StorageInitializerConfig `json:"-"`
-}
-
-func (c Config) isIstioGatewayController(name string) bool {
-	return slices.Contains(c.IstioGatewayControllerNames, name)
-}
-
-// NewConfig creates an instance of llm-specific config based on predefined values
-// in IngressConfig struct
-func NewConfig(ingressConfig *v1beta1.IngressConfig, storageConfig *kserveTypes.StorageInitializerConfig) *Config {
-	igwNs := constants.KServeNamespace
-	igwName := ingressConfig.KserveIngressGateway
-	igw := strings.Split(igwName, "/")
-	if len(igw) == 2 {
-		igwNs = igw[0]
-		igwName = igw[1]
-	}
-
-	return &Config{
-		SystemNamespace:         constants.KServeNamespace,
-		IngressGatewayNamespace: igwNs,
-		IngressGatewayName:      igwName,
-		// TODO make it configurable
-		IstioGatewayControllerNames: []string{
-			"istio.io/gateway-controller",
-			"istio.io/unmanaged-gateway",
-			"openshift.io/gateway-controller",
-		},
-		StorageConfig: storageConfig,
-	}
-}
-
 // LLMInferenceServiceReconciler reconciles an LLMInferenceService object.
 // It orchestrates the reconciliation of child resources based on the spec.
 type LLMInferenceServiceReconciler struct {
@@ -126,7 +85,7 @@ type LLMInferenceServiceReconciler struct {
 //+kubebuilder:rbac:groups=inference.networking.x-k8s.io,resources=inferencepools;inferencemodels;,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 //+kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews;subjectaccessreviews,verbs=create
 //+kubebuilder:rbac:groups=networking.istio.io,resources=destinationrules,verbs=get;list;watch;create;update;patch;delete
@@ -143,9 +102,28 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	if original.DeletionTimestamp != nil {
-		// TODO(reconcile): Handle finalization logic if needed.
-		logger.Info("Mark for deletion, skipping reconciliation")
+	finalizerName := constants.KServeAPIGroupName + "/llmisvc-finalizer"
+	if original.DeletionTimestamp.IsZero() {
+		if controllerutil.AddFinalizer(original, finalizerName) {
+			if err := r.Update(ctx, original); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+	} else {
+		logger.Info("Marked for deletion, finalizing resources")
+		if controllerutil.ContainsFinalizer(original, finalizerName) {
+			if cleanupErr := r.finalize(ctx, original); cleanupErr != nil {
+				logger.Error(cleanupErr, "Finalization failed")
+				return ctrl.Result{}, cleanupErr
+			}
+
+			controllerutil.RemoveFinalizer(original, finalizerName)
+			if err := r.Update(ctx, original); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+
+		// Do not reconcile, because llmisvc is being deleted.
 		return ctrl.Result{}, nil
 	}
 
@@ -200,6 +178,14 @@ func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v
 	return nil
 }
 
+func (r *LLMInferenceServiceReconciler) finalize(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	if err := r.reconcileSchedulerServiceAccount(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to finalize scheduler service account: %w", err)
+	}
+
+	return nil
+}
+
 func (r *LLMInferenceServiceReconciler) updateStatus(ctx context.Context, desired *v1alpha1.LLMInferenceService) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		latest := &v1alpha1.LLMInferenceService{}
@@ -219,25 +205,6 @@ func (r *LLMInferenceServiceReconciler) updateStatus(ctx context.Context, desire
 
 		return nil
 	})
-}
-
-func LoadConfig(ctx context.Context, clientset kubernetes.Interface) (*Config, error) {
-	isvcConfigMap, errCfgMap := v1beta1.GetInferenceServiceConfigMap(ctx, clientset) // Fetch directly from API Server
-	if errCfgMap != nil {
-		return nil, fmt.Errorf("failed to load InferenceServiceConfigMap: %w", errCfgMap)
-	}
-
-	ingressConfig, errConvert := v1beta1.NewIngressConfig(isvcConfigMap)
-	if errConvert != nil {
-		return nil, fmt.Errorf("failed to convert InferenceServiceConfigMap to IngressConfig: %w", errConvert)
-	}
-
-	storageInitializerConfig, errConvert := v1beta1.GetStorageInitializerConfigs(isvcConfigMap)
-	if errConvert != nil {
-		return nil, fmt.Errorf("failed to convert InferenceServiceConfigMap to StorageInitializerConfig: %w", errConvert)
-	}
-
-	return NewConfig(ingressConfig, storageInitializerConfig), nil
 }
 
 // SetupWithManager sets up the controller with the Manager.

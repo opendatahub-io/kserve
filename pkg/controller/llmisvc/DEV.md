@@ -295,17 +295,17 @@ yq '.spec.model.uri="pvc://opt-125m-pvc"' ${LLM_ISVC} | kubectl apply -n ${NS} -
 ---
 #### OCP integration
 
+*OpenShift Cluster 4.19+*
+
 ##### Using `openshift ROSA cluster`
 
 You just need to login to ROSA cluster
 
 ```
-oc login $OCP_API_SERVER
+kubectl login $OCP_API_SERVER
 ```
 
 ##### Using `openshift local`
-
-*openshift 4.19*
 
 ```shell
 crc setup
@@ -334,6 +334,8 @@ cat<<EOF | kubectl create -f -
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
+  annotations:
+      olm.providedAPIs: CertManager.v1alpha1.operator.openshift.io,Certificate.v1.cert-manager.io,CertificateRequest.v1.cert-manager.io,Challenge.v1.acme.cert-manager.io,ClusterIssuer.v1.cert-manager.io,Issuer.v1.cert-manager.io,IstioCSR.v1alpha1.operator.openshift.io,Order.v1.acme.cert-manager.io
   name: cert-manager-operator
   namespace: cert-manager-operator
 spec:
@@ -352,6 +354,13 @@ spec:
   sourceNamespace: openshift-marketplace
   startingCSV: cert-manager-operator.v1.16.1
 EOF
+
+while [ $(kubectl get pod -n cert-manager-operator  | wc -l) -le 1 ]; 
+do
+  echo "⏳ waiting for Cert-Manager Pod to appear…"
+  sleep 10
+done
+kubectl wait pod -l name=cert-manager-operator -n cert-manager-operator --for=condition=Ready --timeout=120s 
 ```
 
 **Install LWS Operator**
@@ -423,38 +432,19 @@ spec:
   operatorLogLevel: Normal
 EOF
 ```
-
-**Install OSSM(TBD)**
-
-**Install upstream ISTIO**
-
-This step will be removed at some point because the ISTIO(OSSM) should be provided by the platform.
-
+**Create a default GatewayClass**
 ```shell
-kubectl create ns istio-system || true
-kubectl create -f test/overlays/llm-istio-experimental -n istio-system
-
-INGRESS_NS=openshift-ingress
-kubectl create namespace ${INGRESS_NS} || true
-
-kubectl apply -f - <<EOF
+cat<<EOF|oc create -f -
 apiVersion: gateway.networking.k8s.io/v1
-kind: Gateway
+kind: GatewayClass
 metadata:
-  name: openshift-ai-inference
-  namespace: openshift-ingress
+  name: openshift-default
+  annotations:
+    unsupported.do-not-use.openshift.io/ossm-channel: stable
+    unsupported.do-not-use.openshift.io/ossm-version: servicemeshoperator3.v3.1.0 
+    unsupported.do-not-use.openshift.io/istio-version: v1.26.2
 spec:
-  gatewayClassName: istio
-  listeners:
-   - name: http
-     port: 80
-     protocol: HTTP
-     allowedRoutes:
-       namespaces:
-         from: All
-  infrastructure:
-    labels:
-      serving.kserve.io/gateway: kserve-ingress-gateway
+  controllerName: "openshift.io/gateway-controller/v1"
 EOF
 ```
 
@@ -462,6 +452,7 @@ EOF
 
 A new CRD related objects will be added 
   - LLMIsvc/LLMIsvcConfig CRD
+  - GIE CRD
   - Webhook
   - `well-know preset` LlmIsvcConfig in the controller namespace
 
@@ -480,6 +471,118 @@ kubectl kustomize config/overlays/odh | kubectl apply  --server-side=true -f -
 kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n opendatahub  --timeout=300s
 ```
 
+**Install OSSM by OCP**
+
+You have to add pullsecret for brew image on your cluster.
+
+*If you use OCP 4.19.8*, follow this steps
+```shell
+
+while [ $(kubectl get pod -l control-plane=servicemesh-operator3 -n openshift-operators  | wc -l) -le 1 ]; 
+do
+  echo "⏳ waiting for OSSM Pod to appear…"
+  sleep 10
+done
+kubectl wait --for=condition=ready pod -l control-plane=servicemesh-operator3 -n openshift-operators --timeout=300s
+
+
+# You need to install GIE CRD --> This will be done by installing Kserve.
+```
+
+**Install OSSM manually(Optional)**
+*If you don't use OCP 4.19.2 with fix(openshift/cluster-ingress-operator#1249)*, you should install OSSM3 manually
+
+```shell
+cat<<EOF|kubectl create -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: servicemeshoperator3
+  namespace: openshift-operators
+spec:
+  channel: stable
+  installPlanApproval: Automatic
+  name: servicemeshoperator3
+  source: redhat-operators
+  sourceNamespace: openshift-marketplace
+  startingCSV: servicemeshoperator3.v3.1.0
+EOF
+
+
+while [ $(kubectl get pod -l control-plane=servicemesh-operator3 -n openshift-operators  | wc -l) -le 1 ]; 
+do
+  echo "⏳ waiting for OSSM Pod to appear…"
+  sleep 10
+done
+kubectl wait --for=condition=ready pod -l control-plane=servicemesh-operator3 -n openshift-operators --timeout=300s
+
+kubectl create ns istio-cni  
+cat<<EOF|kubectl create -f -
+kind: IstioCNI
+apiVersion: sailoperator.io/v1
+metadata:
+  name: default
+spec:
+  namespace: istio-cni
+  version: v1.26.2
+EOF
+
+kubectl create ns istio-system
+
+cat<<EOF|kubectl create -f -
+apiVersion: sailoperator.io/v1
+kind: Istio
+metadata:
+  name: default
+spec:
+  namespace: istio-system
+  updateStrategy:
+    type: InPlace
+    inactiveRevisionDeletionGracePeriodSeconds: 30
+  version: v1.26.2
+  values:
+    pilot:
+      env:
+        SUPPORT_GATEWAY_API_INFERENCE_EXTENSION: "true"    # TO-DO: This need to be removed soon [istio issue](https://github.com/istio/istio/pull/57099)
+        ENABLE_GATEWAY_API_INFERENCE_EXTENSION: "true"
+EOF
+```
+
+**Create a gateway **
+```shell
+INGRESS_NS=openshift-ingress
+GW_CLASS_NAME=openshift-default
+
+#If you install OSSM 3.1 manually, use this
+#GW_CLASS_NAME=istio
+
+kubectl create namespace ${INGRESS_NS} || true
+
+kubectl apply -f - <<EOF
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: openshift-ai-inference
+  namespace: openshift-ingress
+spec:
+  gatewayClassName: $GW_CLASS_NAME
+  listeners:
+   - name: http
+     port: 80
+     protocol: HTTP
+     allowedRoutes:
+       namespaces:
+         from: All
+  infrastructure:
+    labels:
+      serving.kserve.io/gateway: kserve-ingress-gateway
+EOF
+```
+You can verify if istiod pod is running in openshift-ingress namespace.
+```shell
+oc get pod -n openshift-ingress -l operator.istio.io/component=Pilot
+```
+
 Deploy the model:
 
 ```shell
@@ -487,7 +590,7 @@ NS=llm-test
 LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-facebook-opt-125m-cpu.yaml
 LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
 
-oc get ns $NS||oc new-project $NS
+kubectl get ns $NS||kubectl create ns $NS
 kubectl apply -n ${NS} -f ${LLM_ISVC}
 ```
 
@@ -512,27 +615,23 @@ curl "${LB_URL}/v1/completions"  \
 ```shell
 MODEL_ID=facebook/opt-125m
 
-oc expose svc/openshift-ai-inference-istio -n openshift-ingress --port http 
-oc wait --for=condition=ready pod -l app.kubernetes.io/part-of=llminferenceservice -n $NS --timeout 150s
+oc expose svc/openshift-ai-inference-$GW_CLASS_NAME -n openshift-ingress --port http 
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/part-of=llminferenceservice -n $NS --timeout 150s
   
-LB_HOST=$( oc get route/openshift-ai-inference-istio -n openshift-ingress -o=jsonpath='{.status.ingress[*].host}'  )
+LB_HOST=$(kubectl get route/openshift-ai-inference-$GW_CLASS_NAME -n openshift-ingress -o=jsonpath='{.status.ingress[*].host}')
 
 curl http://$LB_HOST/$NS/$LLM_ISVC_NAME/v1/completions  \
     -H "Content-Type: application/json" \
     -d '{
         "model":"'"$MODEL_ID"'",
         "prompt": "San Francisco is a"
-    }'    
+    }'
 ```
-
 
 *Using Port-forward*
 ```shell
-WORKLOAD_POD=$(oc get pod -l app.kubernetes.io/component=llminferenceservice-workload --no-headers|awk '{print $1}' )
-GATEWAY_POD=$(oc get pod -l gateway.networking.k8s.io/gateway-name=openshift-ai-inference -n openshift-ingress --no-headers|awk '{print $1}' )
 
-oc port-forward $GATEWAY_POD 8001:80  &
-oc port-forward svc/openshift-ai-inference-istio -n openshift-ingress  8001:80 &
+kubectl port-forward svc/openshift-ai-inference-istio -n openshift-ingress  8001:80 &
 curl -sS -X POST http://localhost:8001/$NS/$LLM_ISVC_NAME/v1/completions   \
     -H 'accept: application/json'   \
     -H 'Content-Type: application/json'    \

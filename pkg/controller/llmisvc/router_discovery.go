@@ -27,7 +27,9 @@ import (
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -210,4 +212,34 @@ func filter[T any](s []T, predicateFn func(T) bool) []T {
 		}
 	}
 	return out
+}
+
+// EvaluateGatewayReadiness checks the readiness status of Gateways and returns those that are not ready
+func EvaluateGatewayReadiness(ctx context.Context, gateways []*gatewayapi.Gateway) []*gatewayapi.Gateway {
+	logger := log.FromContext(ctx)
+	notReadyGateways := make([]*gatewayapi.Gateway, 0)
+
+	for _, gateway := range gateways {
+		ready := IsGatewayReady(gateway)
+		logger.Info("Gateway readiness evaluated", "gateway", fmt.Sprintf("%s/%s", gateway.Namespace, gateway.Name), "ready", ready)
+
+		if !ready {
+			notReadyGateways = append(notReadyGateways, gateway)
+		}
+	}
+
+	return notReadyGateways
+}
+
+// IsGatewayReady determines if a Gateway is ready based on its status conditions
+func IsGatewayReady(gateway *gatewayapi.Gateway) bool {
+	// Check for the standard Gateway API "Programmed" condition
+	for _, condition := range gateway.Status.Conditions {
+		if condition.Type == string(gatewayapi.GatewayConditionProgrammed) {
+			return condition.Status == metav1.ConditionTrue
+		}
+	}
+
+	// If no Programmed condition is found, Gateway is considered not ready
+	return false
 }

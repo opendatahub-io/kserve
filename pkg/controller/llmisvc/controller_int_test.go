@@ -18,6 +18,7 @@ package llmisvc_test
 
 import (
 	"context"
+	"fmt"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 
@@ -39,9 +40,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	"github.com/kserve/kserve/pkg/constants"
-	"github.com/kserve/kserve/pkg/utils"
-
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	. "github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 	. "github.com/kserve/kserve/pkg/testing"
@@ -287,6 +285,54 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
 				Expect(err).ToNot(HaveOccurred())
+				// Create the Gateway that the router-managed preset references
+				gateway := Gateway("my-ingress-gateway",
+					InNamespace[*gatewayapi.Gateway](nsName),
+					WithListener(gatewayapi.HTTPProtocolType),
+					WithAddresses("203.0.113.1"),
+					// Don't set the condition here initially
+				)
+				Expect(envTest.Client.Create(ctx, gateway)).To(Succeed())
+
+				// Update the gateway status after creation to simulate a ready gateway
+				createdGateway := &gatewayapi.Gateway{}
+				Expect(envTest.Client.Get(ctx, client.ObjectKeyFromObject(gateway), createdGateway)).To(Succeed())
+
+				// Set the status conditions to simulate the Gateway controller making it ready
+				createdGateway.Status.Conditions = []metav1.Condition{
+					{
+						Type:               string(gatewayapi.GatewayConditionAccepted),
+						Status:             metav1.ConditionTrue,
+						Reason:             "Accepted",
+						Message:            "Gateway accepted",
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               string(gatewayapi.GatewayConditionProgrammed),
+						Status:             metav1.ConditionTrue,
+						Reason:             "Ready",
+						Message:            "Gateway is ready",
+						LastTransitionTime: metav1.Now(),
+					},
+				}
+
+				// Update the status
+				Expect(envTest.Client.Status().Update(ctx, createdGateway)).To(Succeed())
+
+				// Verify the gateway is now ready
+				Eventually(func(g Gomega, ctx context.Context) bool {
+					updatedGateway := &gatewayapi.Gateway{}
+					g.Expect(envTest.Client.Get(ctx, client.ObjectKeyFromObject(gateway), updatedGateway)).To(Succeed())
+					ready := llmisvc.IsGatewayReady(updatedGateway)
+					if !ready {
+						fmt.Printf("Gateway still not ready. Conditions: %+v\n", updatedGateway.Status.Conditions)
+					}
+					return ready
+				}).WithContext(ctx).Should(BeTrue())
+
+				defer func() {
+					Expect(envTest.Delete(ctx, createdGateway)).To(Succeed())
+				}()
 
 				llmSvc := &v1alpha1.LLMInferenceService{
 					ObjectMeta: metav1.ObjectMeta{
@@ -447,326 +493,6 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					},
 				),
 			)
-		})
-	})
-
-	Context("Storage configuration", func() {
-		It("should configure direct PVC mount when model uri starts with pvc://", func(ctx SpecContext) {
-			// given
-			svcName := "test-llm-storage-pvc"
-			nsName := kmeta.ChildName(svcName, "-test")
-			namespace := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: nsName,
-				},
-			}
-			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
-			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
-			defer func() {
-				envTest.DeleteAll(namespace)
-			}()
-
-			modelURL, err := apis.ParseURL("pvc://facebook-models/opt-125m")
-			Expect(err).ToNot(HaveOccurred())
-
-			llmSvc := &v1alpha1.LLMInferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      svcName,
-					Namespace: nsName,
-				},
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
-						Name: ptr.To("foo"),
-						URI:  *modelURL,
-					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{},
-					Router: &v1alpha1.RouterSpec{
-						Route:     &v1alpha1.GatewayRoutesSpec{},
-						Gateway:   &v1alpha1.GatewaySpec{},
-						Scheduler: &v1alpha1.SchedulerSpec{},
-					},
-				},
-			}
-
-			// when
-			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
-			defer func() {
-				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
-			}()
-
-			// then
-			expectedDeployment := &appsv1.Deployment{}
-			Eventually(func(g Gomega, ctx context.Context) error {
-				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve",
-					Namespace: nsName,
-				}, expectedDeployment)
-			}).WithContext(ctx).Should(Succeed())
-
-			mainContainer := utils.GetContainerWithName(&expectedDeployment.Spec.Template.Spec, "main")
-			Expect(mainContainer).ToNot(BeNil())
-
-			Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
-			Expect(expectedDeployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
-				HaveField("Name", constants.PvcSourceMountName),
-				HaveField("VolumeSource.PersistentVolumeClaim.ClaimName", "facebook-models"),
-			)))
-
-			Expect(mainContainer.VolumeMounts).To(ContainElement(And(
-				HaveField("Name", constants.PvcSourceMountName),
-				HaveField("MountPath", constants.DefaultModelLocalMountPath),
-				HaveField("ReadOnly", BeTrue()),
-				HaveField("SubPath", "opt-125m"),
-			)))
-		})
-
-		It("should configure a modelcar when model uri starts with oci://", func(ctx SpecContext) {
-			// given
-			svcName := "test-llm-storage-oci"
-			nsName := kmeta.ChildName(svcName, "-test")
-			namespace := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: nsName,
-				},
-			}
-			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
-			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
-			defer func() {
-				envTest.DeleteAll(namespace)
-			}()
-
-			modelURL, err := apis.ParseURL("oci://registry.io/user-id/repo-id:tag")
-			Expect(err).ToNot(HaveOccurred())
-
-			llmSvc := &v1alpha1.LLMInferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      svcName,
-					Namespace: nsName,
-				},
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
-						Name: ptr.To("foo"),
-						URI:  *modelURL,
-					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{},
-					Router: &v1alpha1.RouterSpec{
-						Route:     &v1alpha1.GatewayRoutesSpec{},
-						Gateway:   &v1alpha1.GatewaySpec{},
-						Scheduler: &v1alpha1.SchedulerSpec{},
-					},
-				},
-			}
-
-			// when
-			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
-			defer func() {
-				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
-			}()
-
-			// then
-			expectedDeployment := &appsv1.Deployment{}
-			Eventually(func(g Gomega, ctx context.Context) error {
-				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve",
-					Namespace: nsName,
-				}, expectedDeployment)
-			}).WithContext(ctx).Should(Succeed())
-
-			// Check the main container and modelcar container are present.
-			mainContainer := utils.GetContainerWithName(&expectedDeployment.Spec.Template.Spec, "main")
-			Expect(mainContainer).ToNot(BeNil())
-			modelcarContainer := utils.GetContainerWithName(&expectedDeployment.Spec.Template.Spec, constants.ModelcarContainerName)
-			Expect(modelcarContainer).ToNot(BeNil())
-
-			// Check container are sharing resources.
-			Expect(expectedDeployment.Spec.Template.Spec.ShareProcessNamespace).To(Not(BeNil()))
-			Expect(*expectedDeployment.Spec.Template.Spec.ShareProcessNamespace).To(BeTrue())
-
-			// Check the model server is directed to the mount point of the OCI container
-			Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
-
-			// Check the model server has an envvar indicating that the model may not be mounted immediately.
-			Expect(mainContainer.Env).To(ContainElement(And(
-				HaveField("Name", constants.ModelInitModeEnv),
-				HaveField("Value", "async"),
-			)))
-
-			// Check OCI init container for the pre-fetch
-			Expect(expectedDeployment.Spec.Template.Spec.InitContainers).To(ContainElement(And(
-				HaveField("Name", constants.ModelcarInitContainerName),
-				HaveField("Resources.Limits", And(HaveKey(corev1.ResourceCPU), HaveKey(corev1.ResourceMemory))),
-				HaveField("Resources.Requests", And(HaveKey(corev1.ResourceCPU), HaveKey(corev1.ResourceMemory))),
-			)))
-
-			// Basic check of empty dir volume is configured (shared mount between the containers)
-			Expect(expectedDeployment.Spec.Template.Spec.Volumes).To(ContainElement(HaveField("Name", constants.StorageInitializerVolumeName)))
-
-			// Check that the empty-dir volume is mounted to the modelcar and main container (shared storage)
-			Expect(mainContainer.VolumeMounts).To(ContainElement(And(
-				HaveField("Name", constants.StorageInitializerVolumeName),
-				HaveField("MountPath", "/mnt"),
-			)))
-			Expect(modelcarContainer.VolumeMounts).To(ContainElement(And(
-				HaveField("Name", constants.StorageInitializerVolumeName),
-				HaveField("MountPath", "/mnt"),
-				HaveField("ReadOnly", false),
-			)))
-		})
-
-		It("should use storage-initializer to download model when uri starts with hf://", func(ctx SpecContext) {
-			// given
-			svcName := "test-llm"
-			nsName := kmeta.ChildName(svcName, "-test")
-			namespace := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: nsName,
-				},
-			}
-			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
-			defer func() {
-				envTest.DeleteAll(namespace)
-			}()
-
-			modelURL, err := apis.ParseURL("hf://user-id/repo-id:tag")
-			Expect(err).ToNot(HaveOccurred())
-
-			llmSvc := &v1alpha1.LLMInferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      svcName,
-					Namespace: nsName,
-				},
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
-						Name: ptr.To("foo"),
-						URI:  *modelURL,
-					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{},
-					Router: &v1alpha1.RouterSpec{
-						Route:     &v1alpha1.GatewayRoutesSpec{},
-						Gateway:   &v1alpha1.GatewaySpec{},
-						Scheduler: &v1alpha1.SchedulerSpec{},
-					},
-				},
-			}
-
-			// when
-			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
-			defer func() {
-				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
-			}()
-
-			// then
-			expectedDeployment := &appsv1.Deployment{}
-			Eventually(func(g Gomega, ctx context.Context) error {
-				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve",
-					Namespace: nsName,
-				}, expectedDeployment)
-			}).WithContext(ctx).Should(Succeed())
-
-			// Check the volume to store the model exists
-			Expect(expectedDeployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
-				HaveField("Name", constants.StorageInitializerVolumeName),
-				HaveField("EmptyDir", Not(BeNil())),
-			)))
-
-			// Check the storage-initializer container is present.
-			Expect(expectedDeployment.Spec.Template.Spec.InitContainers).To(ContainElement(And(
-				HaveField("Name", constants.StorageInitializerContainerName),
-				HaveField("Args", ContainElements("hf://user-id/repo-id:tag", constants.DefaultModelLocalMountPath)),
-				HaveField("VolumeMounts", ContainElement(And(
-					HaveField("Name", constants.StorageInitializerVolumeName),
-					HaveField("MountPath", constants.DefaultModelLocalMountPath),
-				))),
-			)))
-
-			// Check the main container has the model mounted
-			mainContainer := utils.GetContainerWithName(&expectedDeployment.Spec.Template.Spec, "main")
-			Expect(mainContainer).ToNot(BeNil())
-			Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
-			Expect(mainContainer.VolumeMounts).To(ContainElement(And(
-				HaveField("Name", constants.StorageInitializerVolumeName),
-				HaveField("MountPath", constants.DefaultModelLocalMountPath),
-				HaveField("ReadOnly", BeTrue()),
-			)))
-		})
-
-		It("should use storage-initializer to download model when uri starts with s3://", func(ctx SpecContext) {
-			// given
-			svcName := "test-llm-s3"
-			nsName := kmeta.ChildName(svcName, "-test")
-			namespace := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: nsName,
-				},
-			}
-			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
-			defer func() {
-				envTest.DeleteAll(namespace)
-			}()
-
-			modelURL, err := apis.ParseURL("s3://user-id/repo-id:tag")
-			Expect(err).ToNot(HaveOccurred())
-
-			llmSvc := &v1alpha1.LLMInferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      svcName,
-					Namespace: nsName,
-				},
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
-						Name: ptr.To("foo"),
-						URI:  *modelURL,
-					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{},
-					Router: &v1alpha1.RouterSpec{
-						Route:     &v1alpha1.GatewayRoutesSpec{},
-						Gateway:   &v1alpha1.GatewaySpec{},
-						Scheduler: &v1alpha1.SchedulerSpec{},
-					},
-				},
-			}
-
-			// when
-			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
-			defer func() {
-				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
-			}()
-
-			// then
-			expectedDeployment := &appsv1.Deployment{}
-			Eventually(func(g Gomega, ctx context.Context) error {
-				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve",
-					Namespace: nsName,
-				}, expectedDeployment)
-			}).WithContext(ctx).Should(Succeed())
-
-			// Check the volume to store the model exists
-			Expect(expectedDeployment.Spec.Template.Spec.Volumes).To(ContainElement(And(
-				HaveField("Name", constants.StorageInitializerVolumeName),
-				HaveField("EmptyDir", Not(BeNil())),
-			)))
-
-			// Check the storage-initializer container is present.
-			Expect(expectedDeployment.Spec.Template.Spec.InitContainers).To(ContainElement(And(
-				HaveField("Name", constants.StorageInitializerContainerName),
-				HaveField("Args", ContainElements("s3://user-id/repo-id:tag", constants.DefaultModelLocalMountPath)),
-				HaveField("VolumeMounts", ContainElement(And(
-					HaveField("Name", constants.StorageInitializerVolumeName),
-					HaveField("MountPath", constants.DefaultModelLocalMountPath),
-				))),
-			)))
-
-			// Check the main container has the model mounted
-			mainContainer := utils.GetContainerWithName(&expectedDeployment.Spec.Template.Spec, "main")
-			Expect(mainContainer).ToNot(BeNil())
-			Expect(mainContainer.Command).To(ContainElement(constants.DefaultModelLocalMountPath))
-			Expect(mainContainer.VolumeMounts).To(ContainElement(And(
-				HaveField("Name", constants.StorageInitializerVolumeName),
-				HaveField("MountPath", constants.DefaultModelLocalMountPath),
-				HaveField("ReadOnly", BeTrue()),
-			)))
 		})
 	})
 })
