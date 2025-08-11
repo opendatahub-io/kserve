@@ -435,6 +435,7 @@ spec:
   operatorLogLevel: Normal
 EOF
 ```
+
 **Create a default GatewayClass**
 ```shell
 cat<<EOF|oc create -f -
@@ -481,7 +482,6 @@ You have to add pullsecret for brew image on your cluster.
 *If you use OCP 4.19.8*, follow this steps
 ```shell
 
-<<<<<<< HEAD
 # Update PULL SECRET
 export BREW_PULL_SECRET_FILE="path/to/file"
 export REGISTRY_PULL_SECRET_FILE="path/to/file"
@@ -647,8 +647,10 @@ spec:
          from: All
 EOF
 
-
 kubectl wait gateways.gateway.networking.k8s.io -n openshift-ingress openshift-ai-inference --timeout=5m --for=condition=programmed
+
+# If the cluster doesn't support LoadBalancer service type
+# kubectl annotate gateway.gateway.networking.k8s.io -n openshift-ingress openshift-ai-inference networking.istio.io/service-type=NodePort --overwrite
 ```
 
 **Deploy Kserve using overlay/odh**
@@ -661,7 +663,7 @@ A new CRD related objects will be added
 ```shell
 kubectl create ns opendatahub || true
 
-kubectl kustomize config/crd/ | kubectl apply --server-side=true -f -
+kubectl kustomize config/crd/ | kubectl apply --server-side=true --force-conflicts -f -
 until kubectl get crd llminferenceserviceconfigs.serving.kserve.io &> /dev/null; do
   echo "⏳ waiting for CRD to appear…"
   sleep 2
@@ -763,7 +765,7 @@ oc wait llminferenceservice --for=condition=ready --all --timeout=600s
 NS=llm-test
 oc new-project "${NS}" || true
 
-LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-dp-ep-qwen-gpu.yaml
+LLM_ISVC=./docs/samples/llmisvc/dp-ep/llm-inference-service-dp-ep-pd-deepseek-gpu.yaml
 LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
 
 kubectl get ns $NS || kubectl create ns $NS
@@ -860,6 +862,8 @@ LB_URL=$(kubectl get llmisvc deepseek-v2-lite-chat -o=jsonpath='{.status.address
 
 echo "LB_URL = $LB_URL - MODEL = ${MODEL}"
 
+uv venv
+source .venv/bin/activate
 uv pip install "lm_eval[api]"
 lm_eval --model local-completions --tasks gsm8k \
     --model_args model=${MODEL},base_url=${LB_URL}/v1/completions,num_concurrent=50,max_retries=3,tokenized_requests=False

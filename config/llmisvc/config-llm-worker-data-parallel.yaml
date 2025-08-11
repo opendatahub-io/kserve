@@ -5,7 +5,7 @@ metadata:
 spec:
   template:
     containers:
-      - image: ghcr.io/llm-d/llm-d:v0.2.0
+      - image: ghcr.io/llm-d/llm-d-dev:v0.2.2
         imagePullPolicy: IfNotPresent
         name: main
         ports:
@@ -17,6 +17,7 @@ spec:
         args:
           - |-
 
+            echo 'Waiting 15 seconds for network to stabilize...' && sleep 15
             START_RANK=0
             eval "vllm serve \
               /mnt/models \
@@ -98,7 +99,7 @@ spec:
           secretName: "{{ ChildName .ObjectMeta.Name `-kserve-self-signed-certs` }}"
   worker:
     containers:
-      - image: ghcr.io/llm-d/llm-d:v0.2.0
+      - image: ghcr.io/llm-d/llm-d-dev:v0.2.2
         imagePullPolicy: IfNotPresent
         name: main
         ports:
@@ -110,6 +111,7 @@ spec:
         args:
           - |-
 
+            echo 'Waiting 15 seconds for network to stabilize...' && sleep 15
             START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or .Spec.Parallelism.DataLocal 1 }} ))
             eval "vllm serve \
               /mnt/models \

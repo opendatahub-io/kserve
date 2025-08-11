@@ -48,17 +48,17 @@ spec:
             - name: NVSHMEM_DEBUG
               value: INFO
             - name: NVSHMEM_REMOTE_TRANSPORT
-              value: ibgda
-            - name: NVSHMEM_IB_ENABLE_IBGDA
-              value: "true"
+              value: ucx  # Use UCX for RoCE, use `ibgda` for IB
             - name: NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME
               value: eth0
             - name: GLOO_SOCKET_IFNAME
               value: eth0
             - name: NCCL_SOCKET_IFNAME
               value: eth0
-            - name: NCCL_IB_HCA
-              value: ibp
+            # - name: NCCL_IB_HCA # IB-specific
+            #   value: ibp
+            # - name: NVSHMEM_IB_ENABLE_IBGDA # IB-specific
+            #   value: "true"
             - name: HF_HUB_CACHE
               value: /huggingface-cache
             - name: VLLM_NIXL_SIDE_CHANNEL_HOST
@@ -67,6 +67,10 @@ spec:
                   fieldPath: status.podIP
             - name: VLLM_ADDITIONAL_ARGS
               value: "--kv_transfer_config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_both\"}'"
+            - name: UCX_NET_DEVICES
+              value: "eth0"
+            - name: UCX_IB_GID_INDEX
+              value: "auto"
             - name: UCX_PROTO_INFO
               value: "y"
             - name: UCX_LOG_LEVEL
@@ -77,13 +81,13 @@ spec:
               ephemeral-storage: 64Gi
               memory: 512Gi
               nvidia.com/gpu: "8"
-              rdma/ib: 1
+              rdma/roce_gdr: 1 # rdma/ib for IB
             requests:
               cpu: 8
               ephemeral-storage: 32Gi
               memory: 256Gi
               nvidia.com/gpu: "8"
-              rdma/ib: 1
+              rdma/roce_gdr: 1 # rdma/ib for IB
           livenessProbe:
             httpGet:
               path: /health
@@ -117,17 +121,17 @@ spec:
             - name: NVSHMEM_DEBUG
               value: INFO
             - name: NVSHMEM_REMOTE_TRANSPORT
-              value: ibgda
-            - name: NVSHMEM_IB_ENABLE_IBGDA
-              value: "true"
+              value: ucx  # Use UCX for RoCE, use `ibgda` for IB
             - name: NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME
               value: eth0
             - name: GLOO_SOCKET_IFNAME
               value: eth0
             - name: NCCL_SOCKET_IFNAME
               value: eth0
-            - name: NCCL_IB_HCA
-              value: ibp
+            # - name: NCCL_IB_HCA # IB-specific
+            #   value: ibp
+            # - name: NVSHMEM_IB_ENABLE_IBGDA # IB-specific
+            #   value: "true"
             - name: HF_HUB_CACHE
               value: /huggingface-cache
             - name: VLLM_NIXL_SIDE_CHANNEL_HOST
@@ -136,6 +140,10 @@ spec:
                   fieldPath: status.podIP
             - name: VLLM_ADDITIONAL_ARGS
               value: "--kv_transfer_config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_both\"}'"
+            - name: UCX_NET_DEVICES
+              value: "eth0"
+            - name: UCX_IB_GID_INDEX
+              value: "auto"
             - name: UCX_PROTO_INFO
               value: "y"
             - name: UCX_LOG_LEVEL
@@ -146,28 +154,14 @@ spec:
               ephemeral-storage: 64Gi
               memory: 512Gi
               nvidia.com/gpu: "8"
-              rdma/ib: 1
+              rdma/roce_gdr: 1 # rdma/ib for IB
             requests:
               cpu: 8
               ephemeral-storage: 32Gi
               memory: 256Gi
               nvidia.com/gpu: "8"
-              rdma/ib: 1
+              rdma/roce_gdr: 1 # rdma/ib for IB
   template:
-    initContainers:
-      - name: llm-d-routing-sidecar
-        args:
-          - "--port=8000"
-          - "--vllm-port=8001"
-          - "--connector=nixlv2"
-          - "--secure-proxy=true"
-          - "--cert-path=/etc/ssl/certs"
-          - "--decoder-use-tls=true"
-          - "--decoder-tls-insecure-skip-verify=true"
-          - "--prefiller-use-tls=true"
-          - "--prefiller-tls-insecure-skip-verify=true"
-          - "--enable-ssrf-protection=true"
-
     containers:
       - name: main
         env:
@@ -191,17 +185,17 @@ spec:
           - name: NVSHMEM_DEBUG
             value: INFO
           - name: NVSHMEM_REMOTE_TRANSPORT
-            value: ibgda
-          - name: NVSHMEM_IB_ENABLE_IBGDA
-            value: "true"
+            value: ucx  # Use UCX for RoCE, use `ibgda` for IB
           - name: NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME
             value: eth0
           - name: GLOO_SOCKET_IFNAME
             value: eth0
           - name: NCCL_SOCKET_IFNAME
             value: eth0
-          - name: NCCL_IB_HCA
-            value: ibp
+          # - name: NCCL_IB_HCA # IB-specific
+          #   value: ibp
+          # - name: NVSHMEM_IB_ENABLE_IBGDA # IB-specific
+          #   value: "true"
           - name: HF_HUB_CACHE
             value: /huggingface-cache
           - name: VLLM_NIXL_SIDE_CHANNEL_HOST
@@ -210,6 +204,10 @@ spec:
                 fieldPath: status.podIP
           - name: VLLM_ADDITIONAL_ARGS
             value: "--kv_transfer_config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_both\"}'"
+          - name: UCX_NET_DEVICES
+            value: "eth0"
+          - name: UCX_IB_GID_INDEX
+            value: "auto"
           - name: UCX_PROTO_INFO
             value: "y"
           - name: UCX_LOG_LEVEL
@@ -220,13 +218,13 @@ spec:
             ephemeral-storage: 64Gi
             memory: 512Gi
             nvidia.com/gpu: "8"
-#            rdma/ib: 1
+            rdma/roce_gdr: 1 # rdma/ib for IB
           requests:
             cpu: 8
             ephemeral-storage: 32Gi
             memory: 256Gi
             nvidia.com/gpu: "8"
-#            rdma/ib: 1
+            rdma/roce_gdr: 1 # rdma/ib for IB
         livenessProbe:
           httpGet:
             path: /health
@@ -260,17 +258,17 @@ spec:
           - name: NVSHMEM_DEBUG
             value: INFO
           - name: NVSHMEM_REMOTE_TRANSPORT
-            value: ibgda
-          - name: NVSHMEM_IB_ENABLE_IBGDA
-            value: "true"
+            value: ucx  # Use UCX for RoCE, use `ibgda` for IB
           - name: NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME
             value: eth0
           - name: GLOO_SOCKET_IFNAME
             value: eth0
           - name: NCCL_SOCKET_IFNAME
             value: eth0
-          - name: NCCL_IB_HCA
-            value: ibp
+          # - name: NCCL_IB_HCA # IB-specific
+          #   value: ibp
+          # - name: NVSHMEM_IB_ENABLE_IBGDA # IB-specific
+          #   value: "true"
           - name: HF_HUB_CACHE
             value: /huggingface-cache
           - name: VLLM_NIXL_SIDE_CHANNEL_HOST
@@ -279,6 +277,10 @@ spec:
                 fieldPath: status.podIP
           - name: VLLM_ADDITIONAL_ARGS
             value: "--kv_transfer_config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_both\"}'"
+          - name: UCX_NET_DEVICES
+            value: "eth0"
+          - name: UCX_IB_GID_INDEX
+            value: "auto"
           - name: UCX_PROTO_INFO
             value: "y"
           - name: UCX_LOG_LEVEL
@@ -289,10 +291,10 @@ spec:
             ephemeral-storage: 64Gi
             memory: 512Gi
             nvidia.com/gpu: "8"
-            rdma/ib: 1
+            rdma/roce_gdr: 1 # rdma/ib for IB
           requests:
             cpu: 8
             ephemeral-storage: 32Gi
             memory: 256Gi
             nvidia.com/gpu: "8"
-            rdma/ib: 1
+            rdma/roce_gdr: 1 # rdma/ib for IB

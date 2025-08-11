@@ -5,7 +5,7 @@ metadata:
 spec:
   template:
     containers:
-      - image: ghcr.io/llm-d/llm-d:v0.2.0
+      - image: ghcr.io/llm-d/llm-d-dev:v0.2.2
         imagePullPolicy: IfNotPresent
         name: main
         ports:
@@ -101,6 +101,7 @@ spec:
         args:
           - "--port=8000"
           - "--vllm-port=8001"
+          - "--connector=nixlv2"
           - "--secure-proxy=true"
           - "--cert-path=/etc/ssl/certs"
           - "--decoder-use-tls=true"

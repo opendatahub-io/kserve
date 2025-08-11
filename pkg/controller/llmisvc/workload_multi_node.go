@@ -274,6 +274,9 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMultiNodeLWS(ctx context.
 		expected.Spec.Replicas = llmSvc.Spec.Prefill.Replicas
 		expected.Spec.LeaderWorkerTemplate.Size = llmSvc.Spec.Prefill.Parallelism.GetSize()
 
+		serviceAccount := r.expectedMultiNodePrefillServiceAccount(llmSvc)
+		expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.ServiceAccountName = serviceAccount.GetName()
+
 		if llmSvc.Spec.Prefill.Template != nil {
 			expected.Spec.LeaderWorkerTemplate.LeaderTemplate = &corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
@@ -281,6 +284,7 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMultiNodeLWS(ctx context.
 				},
 				Spec: *llmSvc.Spec.Prefill.Template.DeepCopy(),
 			}
+			expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.ServiceAccountName = serviceAccount.GetName()
 		}
 		if llmSvc.Spec.Prefill.Worker != nil {
 			expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec = *llmSvc.Spec.Prefill.Worker.DeepCopy()
@@ -490,6 +494,8 @@ func semanticLWSIsEqual(expected *lwsapi.LeaderWorkerSet, curr *lwsapi.LeaderWor
 	}
 
 	return isLeaderEqual &&
+		// Use DeepEqual for the Pod Spec so that when fields are removed (like resource requirements, we push them down
+		// to the child resource)
 		equality.Semantic.DeepEqual(expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, curr.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec) &&
 		equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
 		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
