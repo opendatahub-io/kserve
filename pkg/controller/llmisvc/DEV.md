@@ -435,13 +435,53 @@ spec:
   operatorLogLevel: Normal
 EOF
 ```
+**Create a default GatewayClass**
+```shell
+cat<<EOF|oc create -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: openshift-default
+  annotations:
+    unsupported.do-not-use.openshift.io/ossm-channel: stable
+    unsupported.do-not-use.openshift.io/ossm-version: servicemeshoperator3.v3.1.0 
+    unsupported.do-not-use.openshift.io/istio-version: v1.26.2
+spec:
+  controllerName: "openshift.io/gateway-controller/v1"
+EOF
+```
+
+**Deploy Kserve using overlay/odh**
+
+A new CRD related objects will be added 
+  - LLMIsvc/LLMIsvcConfig CRD
+  - GIE CRD
+  - Webhook
+  - `well-know preset` LlmIsvcConfig in the controller namespace
+
+```shell
+kubectl create ns opendatahub || true
+
+kubectl kustomize config/crd/ | kubectl apply --server-side=true -f -
+until kubectl get crd llminferenceserviceconfigs.serving.kserve.io &> /dev/null; do
+  echo "⏳ waiting for CRD to appear…"
+  sleep 2
+done
+kubectl wait --for=condition=Established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
+
+kubectl kustomize config/overlays/odh | kubectl apply  --server-side=true -f -
+
+kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n opendatahub  --timeout=300s
+```
 
 **Install OSSM by OCP**
 
 You have to add pullsecret for brew image on your cluster.
 
+*If you use OCP 4.19.8*, follow this steps
 ```shell
 
+<<<<<<< HEAD
 # Update PULL SECRET
 export BREW_PULL_SECRET_FILE="path/to/file"
 export REGISTRY_PULL_SECRET_FILE="path/to/file"
@@ -523,20 +563,7 @@ do
 done
 kubectl wait --for=condition=ready pod -l control-plane=servicemesh-operator3 -n openshift-operators --timeout=300s
 
-# this should be created by default but it was not created now so need to create it manually
-cat <<EOF|oc create -f
-apiVersion: sailoperator.io/v1
-kind: IstioCNI
-metadata:
-  name: default
-spec:
-  namespace: openshift-ingress
-  profile: default
-  version: v1.26.2
-EOF
-
-# You need to install GIE CRD --> This will be done by installing Kserve
-# Next, you need to create gatewayclass --> This will be done after KServer installation.
+# You need to install GIE CRD --> This will be done by installing Kserve.
 ```
 
 **Install OSSM manually(Optional)**
@@ -553,7 +580,7 @@ spec:
   channel: stable
   installPlanApproval: Automatic
   name: servicemeshoperator3
-  source: istio-catalog
+  source: redhat-operators
   sourceNamespace: openshift-marketplace
   startingCSV: servicemeshoperator3.v3.1.0
 EOF
@@ -692,6 +719,8 @@ spec:
     labels:
       serving.kserve.io/gateway: kserve-ingress-gateway
 EOF
+
+kubectl wait gateways.gateway.networking.k8s.io -n openshift-ingress openshift-ai-inference --timeout=5m --for=condition=programmed
 ```
 You can verify if istiod pod is running in openshift-ingress namespace.
 ```shell

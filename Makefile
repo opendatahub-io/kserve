@@ -202,6 +202,7 @@ run: generate fmt vet go-lint
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
 deploy: manifests
 	kubectl apply --server-side=true --force-conflicts -k config/crd
+	kubectl wait --for=condition=established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
 	# Remove the certmanager certificate if KSERVE_ENABLE_SELF_SIGNED_CA is not false
 	cd config/default && if [ ${KSERVE_ENABLE_SELF_SIGNED_CA} != false ]; then \
 	echo > ../certmanager/certificate.yaml; \
@@ -215,6 +216,7 @@ deploy: manifests
 
 deploy-dev: manifests
 	kubectl apply --server-side=true --force-conflicts -k config/crd
+	kubectl wait --for=condition=established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
 	./hack/image_patch_dev.sh development
 	# Remove the certmanager certificate if KSERVE_ENABLE_SELF_SIGNED_CA is not false
 	cd config/default && if [ ${KSERVE_ENABLE_SELF_SIGNED_CA} != false ]; then \
@@ -253,7 +255,7 @@ deploy-dev-llm:
 	./hack/deploy_dev_llm.sh
 
 deploy-ci: manifests
-	kubectl apply --server-side=true -k config/crd
+	kubectl apply --server-side=true --force-conflicts -k config/crd
 	kubectl wait --for=condition=established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
 	kubectl apply --server-side=true -k config/overlays/test
 	# TODO: Add runtimes as part of default deployment

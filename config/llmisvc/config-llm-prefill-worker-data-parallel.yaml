@@ -20,7 +20,8 @@ spec:
 
               START_RANK=0
               eval "vllm serve \
-                {{ .Spec.Model.Name }} \
+                /mnt/models \
+                --served-model-name "{{ .Spec.Model.Name }}" \
                 --port 8000 \
                 --api-server-count ${VLLM_API_SERVER_COUNT:-8} \
                 --disable-log-requests \
@@ -112,7 +113,8 @@ spec:
 
               START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or .Spec.Parallelism.DataLocal 1 }} ))
               eval "vllm serve \
-                {{ .Spec.Model.Name }} \
+                /mnt/models \
+                --served-model-name "{{ .Spec.Model.Name }}" \
                 --port 8000 \
                 --disable-log-requests \
                 {{- if .Spec.Parallelism.Expert }}--enable-expert-parallel{{- end }} \

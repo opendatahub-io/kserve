@@ -5,6 +5,7 @@ resources:
 - ../../default
 - user-cluster-roles.yaml
 - llm-svc-scc.yaml
+- ../../monitoring/llmisvc
 
 namespace: opendatahub
 
