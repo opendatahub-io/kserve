@@ -62,6 +62,11 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 		return fmt.Errorf("failed to reconcile HTTP routes: %w", err)
 	}
 
+	if err := r.reconcileIstioDestinationRules(ctx, llmSvc); err != nil {
+		llmSvc.MarkRouterNotReady("IstioDestinationRuleReconcileError", "Failed to reconcile DestinationRule: %v", err.Error())
+		return fmt.Errorf("failed to reconcile istio destination rules: %w", err)
+	}
+
 	// Evaluate Gateway conditions and set GatewaysReady condition
 	if err := r.EvaluateGatewayConditions(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to evaluate gateway conditions: %w", err)
