@@ -229,6 +229,7 @@ spec:
   - Egress
 EOF
 
+# setup minio resources with tls enabled
 if [[ $1 =~ "kserve_on_openshift" ]]; then
   echo "Configuring minio tls"
   ${PROJECT_ROOT}/test/scripts/openshift-ci/tls/setup-minio-tls-custom-cert.sh
