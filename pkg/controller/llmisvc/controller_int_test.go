@@ -387,10 +387,17 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
 				Expect(err).ToNot(HaveOccurred())
 
-				// Create a custom HTTPRoute that we'll reference
+				ingressGateway := DefaultGateway(nsName)
+				Expect(envTest.Client.Create(ctx, ingressGateway)).To(Succeed())
+				ensureGatewayReady(ctx, envTest.Client, ingressGateway)
+
+				defer func() {
+					Expect(envTest.Delete(ctx, ingressGateway)).To(Succeed())
+				}()
+
 				customHTTPRoute := HTTPRoute("my-custom-route", []HTTPRouteOption{
 					InNamespace[*gatewayapi.HTTPRoute](nsName),
-					WithParentRef(GatewayParentRef("kserve-ingress-gateway", "kserve-system")),
+					WithParentRef(GatewayParentRef("kserve-ingress-gateway", nsName)),
 					WithHTTPRouteRule(
 						HTTPRouteRuleWithBackendAndTimeouts(svcName+"-inference-pool", 8000, "/", "0s", "0s"),
 					),
