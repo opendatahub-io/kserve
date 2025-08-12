@@ -90,6 +90,7 @@ func (l *LLMInferenceServiceValidator) validate(ctx context.Context, prev *v1alp
 	allErrs = append(allErrs, l.validateImmutable(prev, llmSvc)...)
 
 	if len(allErrs) == 0 {
+		logger.V(2).Info("LLMInferenceService is valid", "llmisvc", llmSvc)
 		return nil
 	}
 
@@ -271,9 +272,6 @@ func (l *LLMInferenceServiceValidator) validateWorkloadParallelism(basePath *fie
 func (l *LLMInferenceServiceValidator) validateImmutable(prev *v1alpha1.LLMInferenceService, curr *v1alpha1.LLMInferenceService) field.ErrorList {
 	var allErrs field.ErrorList
 	if prev == nil {
-		return allErrs
-	}
-	if prev.Spec.Parallelism == nil || curr.Spec.Parallelism == nil {
 		return allErrs
 	}
 

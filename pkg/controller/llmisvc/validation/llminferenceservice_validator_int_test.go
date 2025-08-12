@@ -22,6 +22,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -305,6 +307,66 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 			// then
 			Expect(envTest.Client.Create(ctx, llmSvc)).To(Succeed())
+		})
+
+		It("should reject LLMInferenceService update with different decode parallelism 'size'", func(ctx SpecContext) {
+			name := "test-update-decode-parallelism-different-size"
+			// given
+			llmSvc := fixture.LLMInferenceService(name,
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithParallelism(fixture.ParallelismSpec(
+					fixture.WithDataParallelism(1),
+					fixture.WithDataLocalParallelism(8),
+				)),
+				fixture.WithWorker(fixture.SimpleWorkerPodSpec()),
+			)
+
+			// Consistency check
+			Expect(llmSvc.Spec.Parallelism.GetSize()).To(Equal(ptr.To(int32(1))))
+			Expect(envTest.Client.Create(ctx, llmSvc)).To(Succeed())
+
+			updated := &v1alpha1.LLMInferenceService{}
+			Expect(envTest.Client.Get(ctx, types.NamespacedName{Namespace: llmSvc.GetNamespace(), Name: llmSvc.GetName()}, updated)).To(Succeed())
+
+			updated.Spec.Parallelism.Data = ptr.To[int32](8)
+			updated.Spec.Parallelism.DataLocal = ptr.To[int32](1)
+
+			// Consistency check
+			Expect(updated.Spec.Parallelism.GetSize()).To(Equal(ptr.To(int32(8))))
+
+			// then
+			Expect(envTest.Client.Update(ctx, updated)).To(HaveOccurred())
+		})
+
+		It("should reject LLMInferenceService update with different prefill parallelism 'size'", func(ctx SpecContext) {
+			name := "test-update-prefill-parallelism-different-size"
+			// given
+			llmSvc := fixture.LLMInferenceService(name,
+				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				fixture.WithModelURI("hf://facebook/opt-125m"),
+				fixture.WithPrefillParallelism(fixture.ParallelismSpec(
+					fixture.WithDataParallelism(1),
+					fixture.WithDataLocalParallelism(8),
+				)),
+				fixture.WithPrefillWorker(fixture.SimpleWorkerPodSpec()),
+			)
+
+			// Consistency check
+			Expect(llmSvc.Spec.Prefill.Parallelism.GetSize()).To(Equal(ptr.To(int32(1))))
+			Expect(envTest.Client.Create(ctx, llmSvc)).To(Succeed())
+
+			updated := &v1alpha1.LLMInferenceService{}
+			Expect(envTest.Client.Get(ctx, types.NamespacedName{Namespace: llmSvc.GetNamespace(), Name: llmSvc.GetName()}, updated)).To(Succeed())
+
+			updated.Spec.Prefill.Parallelism.Data = ptr.To[int32](9)
+			updated.Spec.Prefill.Parallelism.DataLocal = ptr.To[int32](1)
+
+			// Consistency check
+			Expect(updated.Spec.Prefill.Parallelism.GetSize()).To(Equal(ptr.To[int32](9)))
+
+			// then
+			Expect(envTest.Client.Update(ctx, updated)).To(HaveOccurred())
 		})
 
 		It("should accept LLMInferenceService without parallelism configuration", func(ctx SpecContext) {
