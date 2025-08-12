@@ -142,7 +142,9 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 			EnsureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
 
-			Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
+			Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
+				g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
+			})).WithContext(ctx).Should(Succeed())
 		})
 	})
 
@@ -206,7 +208,9 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				EnsureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
 
-				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
+				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
+					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
+				})).WithContext(ctx).Should(Succeed())
 			})
 
 			It("should create HTTPRoute with defined spec", func(ctx SpecContext) {
@@ -272,7 +276,9 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				WithHTTPRouteReadyStatus(DefaultGatewayControllerName)(updatedRoute)
 				Expect(envTest.Client.Status().Update(ctx, updatedRoute)).To(Succeed())
 
-				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
+				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
+					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
+				})).WithContext(ctx).Should(Succeed())
 			})
 
 			It("should delete managed HTTPRoute when ref is defined", func(ctx SpecContext) {
@@ -366,7 +372,10 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					return nil
 				}).WithContext(ctx).Should(Succeed())
 
-				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
+				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
+					// g.Expect(current.Status).To(HaveCondition(string(v1alpha1.GatewaysReady), "True"))
+					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
+				})).WithContext(ctx).Should(Succeed())
 			})
 
 			It("should evaluate HTTPRoute readiness conditions", func(ctx SpecContext) {
@@ -448,7 +457,9 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					return nil
 				}).WithContext(ctx).Should(Succeed(), "HTTPRoutesReady condition should be set to True")
 
-				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
+				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
+					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
+				})).WithContext(ctx).Should(Succeed())
 			})
 		})
 
@@ -522,7 +533,9 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						return nil
 					}).WithContext(ctx).Should(Succeed(), "Should have no managed HTTPRoutes with router when ")
 
-					Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
+					Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
+						g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
+					})).WithContext(ctx).Should(Succeed())
 				},
 				Entry("should delete HTTPRoutes when spec.Router is set to nil",
 					"router-spec-nil",
@@ -559,15 +572,6 @@ func LLMInferenceServiceIsReady(llmSvc *v1alpha1.LLMInferenceService, assertFns 
 		g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), current)).To(Succeed())
 		g.Expect(current.Status).To(HaveCondition(string(v1alpha1.PresetsCombined), "True"))
 		g.Expect(current.Status).To(HaveCondition(string(v1alpha1.RouterReady), "True"))
-
-		// Check sub-conditions that contribute to RouterReady
-		// Note: These may not always be present depending on the test scenario
-		if current.Status.GetCondition(v1alpha1.GatewaysReady) != nil {
-			g.Expect(current.Status).To(HaveCondition(string(v1alpha1.GatewaysReady), "True"))
-		}
-		if current.Status.GetCondition(v1alpha1.HTTPRoutesReady) != nil {
-			g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
-		}
 
 		// Overall condition depends on owned resources such as Deployment.
 		// When running on EnvTest certain controllers are not built-in, and that
