@@ -432,76 +432,51 @@ spec:
   operatorLogLevel: Normal
 EOF
 ```
+**Create a default GatewayClass**
+```shell
+cat<<EOF|oc create -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: openshift-default
+  annotations:
+    unsupported.do-not-use.openshift.io/ossm-channel: stable
+    unsupported.do-not-use.openshift.io/ossm-version: servicemeshoperator3.v3.1.0 
+    unsupported.do-not-use.openshift.io/istio-version: v1.26.2
+spec:
+  controllerName: "openshift.io/gateway-controller/v1"
+EOF
+```
+
+**Deploy Kserve using overlay/odh**
+
+A new CRD related objects will be added 
+  - LLMIsvc/LLMIsvcConfig CRD
+  - GIE CRD
+  - Webhook
+  - `well-know preset` LlmIsvcConfig in the controller namespace
+
+```shell
+kubectl create ns opendatahub || true
+
+kubectl kustomize config/crd/ | kubectl apply --server-side=true -f -
+until kubectl get crd llminferenceserviceconfigs.serving.kserve.io &> /dev/null; do
+  echo "⏳ waiting for CRD to appear…"
+  sleep 2
+done
+kubectl wait --for=condition=Established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
+
+kubectl kustomize config/overlays/odh | kubectl apply  --server-side=true -f -
+
+kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n opendatahub  --timeout=300s
+```
 
 **Install OSSM by OCP**
 
 You have to add pullsecret for brew image on your cluster.
 
+*If you use OCP 4.19.8*, follow this steps
 ```shell
-
-# Update PULL SECRET
-export BREW_PULL_SECRET_FILE="path/to/file"
-export REGISTRY_PULL_SECRET_FILE="path/to/file"
-
-kubectl get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > /tmp/pull-secret.json 
-jq -s '.[0].auths += .[1].auths | {auths: .[0].auths}' /tmp/pull-secret.json $BREW_PULL_SECRET_FILE > /tmp/new-pull-secret.json    
-jq -s '.[0].auths += .[1].auths | {auths: .[0].auths}' /tmp/new-pull-secret.json  $REGISTRY_PULL_SECRET_FILE > /tmp/final-pull-secret.json    
-oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/tmp/final-pull-secret.json  
-
-# Create MirrorSet to pull prebuilt images 
-cat <<EOF| kubectl create -f -
-apiVersion: config.openshift.io/v1
-kind: ImageTagMirrorSet
-metadata:
-    name: stage-registry
-spec:
-    imageTagMirrors:
-        - mirrors:
-            - registry.stage.redhat.io/openshift-service-mesh
-          source: registry.redhat.io/openshift-service-mesh
-        - mirrors:
-            - registry.stage.redhat.io/openshift-service-mesh-tech-preview
-          source: registry.redhat.io/openshift-service-mesh-tech-preview
-        - mirrors:
-            - registry.stage.redhat.io/openshift-service-mesh-dev-preview-beta
-          source: registry.redhat.io/openshift-service-mesh-dev-preview-beta
----
-apiVersion: config.openshift.io/v1
-kind: ImageDigestMirrorSet
-metadata:
-    name: stage-registry
-spec:
-    imageDigestMirrors:
-        - mirrors:
-            - registry.stage.redhat.io/openshift-service-mesh
-          source: registry.redhat.io/openshift-service-mesh
-        - mirrors:
-            - registry.stage.redhat.io/openshift-service-mesh-tech-preview
-          source: registry.redhat.io/openshift-service-mesh-tech-preview
-        - mirrors:
-            - registry.stage.redhat.io/openshift-service-mesh-dev-preview-beta
-          source: registry.redhat.io/openshift-service-mesh-dev-preview-beta
-EOF
-
-# Deploy OSSM
-cat<<EOF |kubectl create -f -
-apiVersion: operators.coreos.com/v1alpha1
-kind: CatalogSource
-metadata:
-  name: istio-catalog
-  namespace: openshift-marketplace
-spec:
-  displayName: istio-catalog
-  image: brew.registry.redhat.io/rh-osbs/iib:1019209
-  publisher: grpc
-  sourceType: grpc
-EOF
-```
-
-*If you use OCP 4.19.2 with fix(openshift/cluster-ingress-operator#1249)*, follow this steps
-```shell
-
-oc patch installplan $( oc get installplan  -n openshift-operators |grep servicemesh|awk '{print $1}') -n openshift-operators --type merge -p '{"spec":{"approved":true}}'
 
 while [ $(kubectl get pod -l control-plane=servicemesh-operator3 -n openshift-operators  | wc -l) -le 1 ]; 
 do
@@ -510,20 +485,8 @@ do
 done
 kubectl wait --for=condition=ready pod -l control-plane=servicemesh-operator3 -n openshift-operators --timeout=300s
 
-# this should be created by default but it was not created now so need to create it manually
-cat <<EOF|oc create -f
-apiVersion: sailoperator.io/v1
-kind: IstioCNI
-metadata:
-  name: default
-spec:
-  namespace: openshift-ingress
-  profile: default
-  version: v1.26.2
-EOF
 
-# You need to install GIE CRD --> This will be done by installing Kserve
-# Next, you need to create gatewayclass --> This will be done after KServer installation.
+# You need to install GIE CRD --> This will be done by installing Kserve.
 ```
 
 **Install OSSM manually(Optional)**
@@ -540,7 +503,7 @@ spec:
   channel: stable
   installPlanApproval: Automatic
   name: servicemeshoperator3
-  source: istio-catalog
+  source: redhat-operators
   sourceNamespace: openshift-marketplace
   startingCSV: servicemeshoperator3.v3.1.0
 EOF
@@ -582,45 +545,6 @@ spec:
       env:
         SUPPORT_GATEWAY_API_INFERENCE_EXTENSION: "true"    # TO-DO: This need to be removed soon [istio issue](https://github.com/istio/istio/pull/57099)
         ENABLE_GATEWAY_API_INFERENCE_EXTENSION: "true"
-EOF
-```
-
-**Deploy Kserve using overlay/odh**
-
-A new CRD related objects will be added 
-  - LLMIsvc/LLMIsvcConfig CRD
-  - Webhook
-  - `well-know preset` LlmIsvcConfig in the controller namespace
-
-```shell
-kubectl create ns opendatahub || true
-
-kubectl kustomize config/crd/ | kubectl apply --server-side=true -f -
-until kubectl get crd llminferenceserviceconfigs.serving.kserve.io &> /dev/null; do
-  echo "⏳ waiting for CRD to appear…"
-  sleep 2
-done
-kubectl wait --for=condition=Established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
-
-kubectl kustomize config/overlays/odh | kubectl apply  --server-side=true -f -
-
-kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n opendatahub  --timeout=300s
-```
-
-**Create a default GatewayClass**
-```shell
-cat<<EOF|oc create -f -
-apiVersion: gateway.networking.k8s.io/v1
-kind: GatewayClass
-metadata:
-  name: openshift-default
-  annotations:
-    unsupported.do-not-use.openshift.io/ossm-channel: stable
-    unsupported.do-not-use.openshift.io/ossm-version: servicemeshoperator3.v3.1.0 
-    unsupported.do-not-use.openshift.io/ossm-catalog: istio-catalog
-    unsupported.do-not-use.openshift.io/istio-version: v1.26.2
-spec:
-  controllerName: "openshift.io/gateway-controller/v1"
 EOF
 ```
 
