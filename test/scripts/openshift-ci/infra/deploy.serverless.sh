@@ -33,7 +33,7 @@ metadata:
 spec:
   upgradeStrategy: Default
 EOF
-}|| true
+} || true
 
 # Install Serverless operator
 {
