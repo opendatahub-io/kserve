@@ -49,12 +49,15 @@ spec:
             - name: HF_HUB_CACHE
               value: /models
           securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
             capabilities:
               add:
                 - "IPC_LOCK"
                 - "SYS_RAWIO"
-            runAsGroup: 0
-            runAsUser: 0
+              drop:
+                - ALL
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: FallbackToLogsOnError
           livenessProbe:
@@ -143,12 +146,15 @@ spec:
             - name: HF_HUB_CACHE
               value: /models
           securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            runAsNonRoot: true
             capabilities:
               add:
                 - "IPC_LOCK"
                 - "SYS_RAWIO"
-            runAsGroup: 0
-            runAsUser: 0
+              drop:
+                - ALL
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: FallbackToLogsOnError
           volumeMounts:

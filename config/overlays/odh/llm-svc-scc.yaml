@@ -2,13 +2,18 @@ kind: SecurityContextConstraints
 apiVersion: security.openshift.io/v1
 metadata:
   name: openshift-ai-llminferenceservice-scc
-allowPrivilegedContainer: true
-allowHostIPC: true
-allowHostPID: true
+priority: 10
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegeEscalation: false
+allowPrivilegedContainer: false
 runAsUser:
-  type: RunAsAny
+  type: MustRunAsRange
 seLinuxContext:
-  type: RunAsAny
+  type: MustRunAs
 fsGroup:
   type: RunAsAny
 supplementalGroups:
@@ -16,6 +21,9 @@ supplementalGroups:
 allowedCapabilities:
   - "IPC_LOCK"
   - "SYS_RAWIO"
+  - "NET_BIND_SERVICE"
+requiredDropCapabilities:
+- ALL
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole

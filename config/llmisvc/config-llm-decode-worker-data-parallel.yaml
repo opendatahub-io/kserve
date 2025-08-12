@@ -14,7 +14,13 @@ spec:
             protocol: TCP
         securityContext:
           allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
           runAsNonRoot: true
+          capabilities:
+            drop:
+              - ALL
+#          seccompProfile:
+#            type: RuntimeDefault
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: FallbackToLogsOnError
         livenessProbe:
@@ -98,12 +104,15 @@ spec:
           - name: HF_HUB_CACHE
             value: /models
         securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          runAsNonRoot: true
           capabilities:
             add:
               - "IPC_LOCK"
               - "SYS_RAWIO"
-          runAsGroup: 0
-          runAsUser: 0
+            drop:
+              - ALL
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: FallbackToLogsOnError
         livenessProbe:
@@ -193,12 +202,15 @@ spec:
           - name: VLLM_RANDOMIZE_DP_DUMMY_INPUTS
             value: "1"
         securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: false
+          runAsNonRoot: true
           capabilities:
             add:
               - "IPC_LOCK"
               - "SYS_RAWIO"
-          runAsGroup: 0
-          runAsUser: 0
+            drop:
+              - ALL
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: FallbackToLogsOnError
         volumeMounts:
