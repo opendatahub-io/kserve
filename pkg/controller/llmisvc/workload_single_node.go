@@ -114,10 +114,10 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx con
 				})
 			}
 		}
-	}
 
-	if err := r.attachModelArtifacts(llmSvc, &d.Spec.Template.Spec, storageConfig); err != nil {
-		return nil, fmt.Errorf("failed to attach model artifacts to main deployment: %w", err)
+		if err := r.attachModelArtifacts(llmSvc, &d.Spec.Template.Spec, storageConfig); err != nil {
+			return nil, fmt.Errorf("failed to attach model artifacts to main deployment: %w", err)
+		}
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected main deployment", "deployment", d)
@@ -178,10 +178,10 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 
 	if llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Template != nil {
 		d.Spec.Template.Spec = *llmSvc.Spec.Prefill.Template.DeepCopy()
-	}
 
-	if err := r.attachModelArtifacts(llmSvc, &d.Spec.Template.Spec, storageConfig); err != nil {
-		return nil, fmt.Errorf("failed to attach model artifacts to prefill deployment: %w", err)
+		if err := r.attachModelArtifacts(llmSvc, &d.Spec.Template.Spec, storageConfig); err != nil {
+			return nil, fmt.Errorf("failed to attach model artifacts to prefill deployment: %w", err)
+		}
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected prefill deployment", "deployment", d)

@@ -39,7 +39,7 @@ import (
 func (r *LLMInferenceServiceReconciler) reconcileMultiNodeWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *types.StorageInitializerConfig) error {
 	log.FromContext(ctx).Info("Reconciling multi-node workload")
 
-	if err := r.reconcileMultiNodeMainServiceAccount(ctx, llmSvc); err != nil {
+	if err := r.reconcileMultiNodeMainServiceAccount(ctx, llmSvc, storageConfig); err != nil {
 		return fmt.Errorf("failed to reconcile multi-node service account: %w", err)
 	}
 	if err := r.reconcileMultiNodePrefillServiceAccount(ctx, llmSvc); err != nil {
@@ -173,6 +173,11 @@ func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Con
 
 		serviceAccount := r.expectedMultiNodeMainServiceAccount(llmSvc)
 		expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.ServiceAccountName = serviceAccount.GetName()
+
+		if err := r.attachModelArtifacts(llmSvc, &expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec, storageConfig); err != nil {
+			return nil, fmt.Errorf("failed to attach model artifacts to leader template: %w", err)
+		}
+
 		if hasRoutingSidecar(expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec) {
 			log.FromContext(ctx).V(2).Info("Main container has a routing sidecar")
 
@@ -191,6 +196,10 @@ func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Con
 		serviceAccount := r.expectedMultiNodeMainServiceAccount(llmSvc)
 		expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.ServiceAccountName = serviceAccount.GetName()
 
+		if err := r.attachModelArtifacts(llmSvc, &expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, storageConfig); err != nil {
+			return nil, fmt.Errorf("failed to attach model artifacts to worker template: %w", err)
+		}
+
 		if hasRoutingSidecar(expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec) {
 			log.FromContext(ctx).V(2).Info("Main (worker) container has a routing sidecar")
 
@@ -200,23 +209,6 @@ func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Con
 					Name:  "INFERENCE_POOL_NAME",
 					Value: llmSvc.Spec.Router.Scheduler.InferencePoolName(llmSvc),
 				})
-			}
-		}
-	}
-
-	// Attach model artifacts to leader and worker templates if model URI is specified and storageConfig is available
-	if llmSvc.Spec.Model.URI.String() != "" && storageConfig != nil {
-		// Attach model artifacts to leader template if it exists
-		if expected.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-			if err := r.attachModelArtifacts(llmSvc, &expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec, storageConfig); err != nil {
-				return nil, fmt.Errorf("failed to attach model artifacts to leader template: %w", err)
-			}
-		}
-
-		// Attach model artifacts to worker template
-		if llmSvc.Spec.Worker != nil {
-			if err := r.attachModelArtifacts(llmSvc, &expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, storageConfig); err != nil {
-				return nil, fmt.Errorf("failed to attach model artifacts to worker template: %w", err)
 			}
 		}
 	}
@@ -285,30 +277,23 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMultiNodeLWS(ctx context.
 				Spec: *llmSvc.Spec.Prefill.Template.DeepCopy(),
 			}
 			expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.ServiceAccountName = serviceAccount.GetName()
+
+			if err := r.attachModelArtifacts(llmSvc, &expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec, storageConfig); err != nil {
+				return nil, fmt.Errorf("failed to attach model artifacts to prefill leader template: %w", err)
+			}
 		}
 		if llmSvc.Spec.Prefill.Worker != nil {
 			expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec = *llmSvc.Spec.Prefill.Worker.DeepCopy()
+
+			if err := r.attachModelArtifacts(llmSvc, &expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, storageConfig); err != nil {
+				return nil, fmt.Errorf("failed to attach model artifacts to prefill worker template: %w", err)
+			}
 		}
 
 		if llmSvc.Spec.Prefill.Parallelism.IsDataParallel() && expected.Spec.LeaderWorkerTemplate.Size != nil {
 			expected.Spec.LeaderWorkerTemplate.SubGroupPolicy = &lwsapi.SubGroupPolicy{
 				SubGroupSize: expected.Spec.LeaderWorkerTemplate.Size,
 			}
-		}
-	}
-
-	// Attach model artifacts to leader and worker templates if model URI is specified and storageConfig is available
-	if llmSvc.Spec.Model.URI.String() != "" && storageConfig != nil {
-		// Attach model artifacts to leader template if it exists
-		if expected.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-			if err := r.attachModelArtifacts(llmSvc, &expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec, storageConfig); err != nil {
-				return nil, fmt.Errorf("failed to attach model artifacts to prefill leader template: %w", err)
-			}
-		}
-
-		// Attach model artifacts to worker template
-		if err := r.attachModelArtifacts(llmSvc, &expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, storageConfig); err != nil {
-			return nil, fmt.Errorf("failed to attach model artifacts to prefill worker template: %w", err)
 		}
 	}
 
@@ -319,7 +304,7 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMultiNodeLWS(ctx context.
 	return expected, nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainServiceAccount(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainServiceAccount(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *types.StorageInitializerConfig) error {
 	serviceAccount := r.expectedMultiNodeMainServiceAccount(llmSvc)
 	if llmSvc.Spec.Worker == nil {
 		return Delete(ctx, r, llmSvc, serviceAccount)
@@ -329,11 +314,11 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainServiceAccount(ctx
 		return fmt.Errorf("failed to reconcile multi node service account %s/%s: %w", serviceAccount.GetNamespace(), serviceAccount.GetName(), err)
 	}
 
-	if err := r.reconcileMultiNodeMainRole(ctx, llmSvc); err != nil {
+	if err := r.reconcileMultiNodeMainRole(ctx, llmSvc, storageConfig); err != nil {
 		return err
 	}
 
-	return r.reconcileMultiNodeMainRoleBinding(ctx, llmSvc, serviceAccount)
+	return r.reconcileMultiNodeMainRoleBinding(ctx, llmSvc, serviceAccount, storageConfig)
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileMultiNodePrefillServiceAccount(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
@@ -349,8 +334,8 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodePrefillServiceAccount(
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainRole(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	lws, err := r.expectedMainMultiNodeLWS(ctx, llmSvc, nil)
+func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainRole(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *types.StorageInitializerConfig) error {
+	lws, err := r.expectedMainMultiNodeLWS(ctx, llmSvc, storageConfig)
 	if err != nil {
 		return fmt.Errorf("failed to build the expected main LWS for building the Role: %w", err)
 	}
@@ -367,8 +352,8 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainRole(ctx context.C
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainRoleBinding(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, sa *corev1.ServiceAccount) error {
-	lws, err := r.expectedMainMultiNodeLWS(ctx, llmSvc, nil)
+func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainRoleBinding(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, sa *corev1.ServiceAccount, storageConfig *types.StorageInitializerConfig) error {
+	lws, err := r.expectedMainMultiNodeLWS(ctx, llmSvc, storageConfig)
 	if err != nil {
 		return fmt.Errorf("failed to build the expected main LWS for building the RoleBinding: %w", err)
 	}
