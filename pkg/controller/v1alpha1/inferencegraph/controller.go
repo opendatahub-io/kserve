@@ -269,6 +269,7 @@ func (r *InferenceGraphReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 		}
 
+		// ODH specific: Reconcile the Openshift route
 		routeReconciler := OpenShiftRouteReconciler{
 			Scheme: r.Scheme,
 			Client: r.Client,

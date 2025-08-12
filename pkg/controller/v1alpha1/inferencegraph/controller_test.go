@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	osv1 "github.com/openshift/api/route/v1"
+	v1 "github.com/openshift/api/route/v1"
 	"google.golang.org/protobuf/proto"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -1812,7 +1813,7 @@ var _ = Describe("Inference Graph controller test", func() {
 				Expect(k8sClient.Status().Update(ctx, updatedDeployment)).NotTo(HaveOccurred())
 			}
 
-			It("Should keep the service/deployment when the StopAnnotationKey annotation is set to false", func() {
+			It("Should keep the service/deployment/Openshift route when the StopAnnotationKey annotation is set to false", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				DeferCleanup(cancel)
 
@@ -1836,12 +1837,17 @@ var _ = Describe("Inference Graph controller test", func() {
 				expectDeploymentToBeReady(context.Background(), graphServiceKey)
 
 				expectResourceToExist(context.Background(), &corev1.Service{}, graphServiceKey)
+				expectResourceToExist(
+					context.Background(),
+					&v1.Route{},
+					types.NamespacedName{Name: graphName + "-route", Namespace: serviceNamespace},
+				) // ODH only
 				expectIGToExist(context.Background(), graphServiceKey)
 
 				expectIGConditionStatus(ctx, graphServiceKey, v1beta1.Stopped, corev1.ConditionFalse)
 			})
 
-			It("Should not create the service/deployment when the StopAnnotationKey annotation is set to true", func() {
+			It("Should not create the service/deployment/Openshift route when the StopAnnotationKey annotation is set to true", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				DeferCleanup(cancel)
 
@@ -1860,6 +1866,11 @@ var _ = Describe("Inference Graph controller test", func() {
 
 				// Check that the service and deployment were not created
 				expectResourceIsDeleted(context.Background(), &corev1.Service{}, graphServiceKey)
+				expectResourceIsDeleted(
+					context.Background(),
+					&v1.Route{},
+					types.NamespacedName{Name: graphName + "-route", Namespace: serviceNamespace},
+				) // ODH only
 				expectResourceIsDeleted(context.Background(), &appsv1.Deployment{}, graphServiceKey)
 
 				// Check the inference graph
@@ -1867,7 +1878,7 @@ var _ = Describe("Inference Graph controller test", func() {
 				expectIGConditionStatus(ctx, graphServiceKey, v1beta1.Stopped, corev1.ConditionTrue)
 			})
 
-			It("Should delete the service/deployment when the StopAnnotationKey annotation is updated to true on an existing IG", func() {
+			It("Should delete the service/deployment/Openshift route when the StopAnnotationKey annotation is updated to true on an existing IG", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				DeferCleanup(cancel)
 
@@ -1881,6 +1892,7 @@ var _ = Describe("Inference Graph controller test", func() {
 				graphName := "stop-raw-update-true-ig"
 				graphExpectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: serviceNamespace}}
 				graphServiceKey := graphExpectedRequest.NamespacedName
+				routeKey := types.NamespacedName{Name: graphName + "-route", Namespace: serviceNamespace}
 				ig := defaultRawIG(graphServiceKey)
 				ig.Annotations[constants.StopAnnotationKey] = "false"
 				Expect(k8sClient.Create(ctx, ig)).Should(Succeed())
@@ -1890,6 +1902,7 @@ var _ = Describe("Inference Graph controller test", func() {
 				expectResourceToExist(context.Background(), &appsv1.Deployment{}, graphServiceKey)
 				expectDeploymentToBeReady(context.Background(), graphServiceKey)
 				expectResourceToExist(context.Background(), &corev1.Service{}, graphServiceKey)
+				expectResourceToExist(context.Background(), &v1.Route{}, routeKey) // ODH only
 				expectIGToExist(context.Background(), graphServiceKey)
 
 				expectIGConditionStatus(ctx, graphServiceKey, v1beta1.Stopped, corev1.ConditionFalse)
@@ -1902,6 +1915,7 @@ var _ = Describe("Inference Graph controller test", func() {
 
 				// Check that the service and deployment were deleted
 				expectResourceToBeDeleted(context.Background(), &corev1.Service{}, graphServiceKey)
+				expectResourceToBeDeleted(context.Background(), &v1.Route{}, routeKey) // ODH only
 				expectResourceToBeDeleted(context.Background(), &appsv1.Deployment{}, graphServiceKey)
 
 				// Check the inference graph
@@ -1909,7 +1923,7 @@ var _ = Describe("Inference Graph controller test", func() {
 				expectIGConditionStatus(ctx, graphServiceKey, v1beta1.Stopped, corev1.ConditionTrue)
 			})
 
-			It("Should create the service/deployment when the StopAnnotationKey annotation is updated to false on an existing IG", func() {
+			It("Should create the service/deployment/Openshift route when the StopAnnotationKey annotation is updated to false on an existing IG", func() {
 				ctx, cancel := context.WithCancel(context.Background())
 				DeferCleanup(cancel)
 
@@ -1921,6 +1935,7 @@ var _ = Describe("Inference Graph controller test", func() {
 				serviceNamespace := "default"
 				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: graphName, Namespace: serviceNamespace}}
 				graphServiceKey := expectedRequest.NamespacedName
+				routeKey := types.NamespacedName{Name: graphName + "-route", Namespace: serviceNamespace}
 				ig := defaultRawIG(graphServiceKey)
 				ig.Annotations[constants.StopAnnotationKey] = "true"
 				Expect(k8sClient.Create(context.Background(), ig)).Should(Succeed())
@@ -1928,6 +1943,7 @@ var _ = Describe("Inference Graph controller test", func() {
 
 				// Check that the service and deployment were not created
 				expectResourceIsDeleted(context.Background(), &corev1.Service{}, graphServiceKey)
+				expectResourceIsDeleted(context.Background(), &v1.Route{}, routeKey) // ODH only
 				expectResourceIsDeleted(context.Background(), &appsv1.Deployment{}, graphServiceKey)
 
 				// Check the inference graph
@@ -1944,6 +1960,7 @@ var _ = Describe("Inference Graph controller test", func() {
 				expectResourceToExist(context.Background(), &appsv1.Deployment{}, graphServiceKey)
 				expectDeploymentToBeReady(context.Background(), graphServiceKey)
 				expectResourceToExist(context.Background(), &corev1.Service{}, graphServiceKey)
+				expectResourceToExist(context.Background(), &v1.Route{}, routeKey) // ODH only
 				expectIGToExist(context.Background(), graphServiceKey)
 
 				expectIGConditionStatus(ctx, graphServiceKey, v1beta1.Stopped, corev1.ConditionFalse)

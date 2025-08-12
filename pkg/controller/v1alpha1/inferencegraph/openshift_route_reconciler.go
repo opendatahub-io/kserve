@@ -18,9 +18,11 @@ package inferencegraph
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 
 	v1 "github.com/openshift/api/route/v1"
+	apierr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -32,6 +34,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 type OpenShiftRouteReconciler struct {
@@ -42,20 +45,33 @@ type OpenShiftRouteReconciler struct {
 func (r *OpenShiftRouteReconciler) Reconcile(ctx context.Context, inferenceGraph *v1alpha1.InferenceGraph) (string, error) {
 	logger := ctrlLog.FromContext(ctx, "subreconciler", "OpenShiftRoute")
 
-	desiredRoute, err := r.buildOpenShiftRoute(inferenceGraph)
-	if err != nil {
-		return "", err
-	}
-
+	desiredRoute := r.buildOpenShiftRoute(inferenceGraph)
 	nsName := types.NamespacedName{
 		Namespace: desiredRoute.Namespace,
 		Name:      desiredRoute.Name,
 	}
 
 	actualRoute := v1.Route{}
-	err = client.IgnoreNotFound(r.Client.Get(ctx, nsName, &actualRoute))
-	if err != nil {
-		return "", err
+	getExistingErr := r.Client.Get(ctx, nsName, &actualRoute)
+	routeIsNotFound := apierr.IsNotFound(getExistingErr)
+	if getExistingErr != nil && !routeIsNotFound {
+		return "", fmt.Errorf("failed to get existing OpenShift route: %w", getExistingErr)
+	}
+
+	// Graph is stopped, delete the route if it exists, otherwise do nothing
+	forceStopRuntime := utils.GetForceStopRuntime(inferenceGraph)
+	if (getExistingErr != nil && routeIsNotFound) && forceStopRuntime {
+		return "", nil
+	}
+
+	if forceStopRuntime {
+		if actualRoute.GetDeletionTimestamp() == nil { // check if the otel was already deleted
+			log.Info("Deleting OpenTelemetry Collector", "namespace", actualRoute.Namespace, "name", actualRoute.Name)
+			if err := r.Client.Delete(ctx, &actualRoute); err != nil {
+				return "", err
+			}
+		}
+		return "", nil
 	}
 
 	if val, ok := inferenceGraph.Labels[constants.NetworkVisibility]; ok && val == constants.ClusterLocalVisibility {
@@ -63,7 +79,7 @@ func (r *OpenShiftRouteReconciler) Reconcile(ctx context.Context, inferenceGraph
 		// The IG is private. Remove the route, if needed.
 		if len(actualRoute.Name) != 0 {
 			logger.Info("Deleting OpenShift Route for InferenceGraph", "namespace", desiredRoute.Namespace, "name", desiredRoute.Name)
-			err = r.Client.Delete(ctx, &actualRoute)
+			err := r.Client.Delete(ctx, &actualRoute)
 			if err != nil {
 				return privateHost, err
 			}
@@ -71,6 +87,12 @@ func (r *OpenShiftRouteReconciler) Reconcile(ctx context.Context, inferenceGraph
 
 		// Return private hostname.
 		return privateHost, nil
+	}
+
+	// Create or update the route to match the desired state
+	err := controllerutil.SetControllerReference(inferenceGraph, &desiredRoute, r.Scheme)
+	if err != nil {
+		return "", err
 	}
 
 	if len(actualRoute.Name) == 0 {
@@ -88,7 +110,7 @@ func (r *OpenShiftRouteReconciler) Reconcile(ctx context.Context, inferenceGraph
 	return getRouteHostname(&actualRoute), err
 }
 
-func (r *OpenShiftRouteReconciler) buildOpenShiftRoute(inferenceGraph *v1alpha1.InferenceGraph) (v1.Route, error) {
+func (r *OpenShiftRouteReconciler) buildOpenShiftRoute(inferenceGraph *v1alpha1.InferenceGraph) v1.Route {
 	route := v1.Route{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
@@ -109,8 +131,7 @@ func (r *OpenShiftRouteReconciler) buildOpenShiftRoute(inferenceGraph *v1alpha1.
 		},
 	}
 
-	err := controllerutil.SetControllerReference(inferenceGraph, &route, r.Scheme)
-	return route, err
+	return route
 }
 
 func getRouteHostname(route *v1.Route) string {
