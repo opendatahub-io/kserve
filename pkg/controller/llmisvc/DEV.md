@@ -603,21 +603,6 @@ kubectl apply -n ${NS} -f ${LLM_ISVC}
 oc wait llminferenceservice --for=condition=ready --all --timeout=300s
 ```
 
-### Deploy DP + EP model on GPUs
-
-```shell
-NS=llm-test
-oc new-project "${NS}" || true
-
-LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-dp-ep-qwen-gpu.yaml
-LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
-
-kubectl get ns $NS || kubectl create ns $NS
-kubectl apply -n ${NS} -f ${LLM_ISVC}
-
-oc wait llminferenceservice --for=condition=ready --all --timeout=600s
-```
-
 ### Deploy DP + EP model with P/D on GPUS
 
 ```shell
