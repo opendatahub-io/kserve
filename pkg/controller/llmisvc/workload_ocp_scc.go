@@ -20,11 +20,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
 
 // +kubebuilder:rbac:groups="security.openshift.io",resources=securitycontextconstraints,verbs=use,resourceNames=openshift-ai-llminferenceservice-scc

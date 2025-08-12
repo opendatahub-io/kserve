@@ -493,10 +493,12 @@ func semanticLWSIsEqual(expected *lwsapi.LeaderWorkerSet, curr *lwsapi.LeaderWor
 		)
 	}
 
+	// Use DeepEqual for the Pod Spec so that when fields are removed (like resource requirements, we push them down
+	// to the child resource)
+	isWorkerEqual := equality.Semantic.DeepEqual(expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, curr.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec)
+
 	return isLeaderEqual &&
-		// Use DeepEqual for the Pod Spec so that when fields are removed (like resource requirements, we push them down
-		// to the child resource)
-		equality.Semantic.DeepEqual(expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, curr.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec) &&
+		isWorkerEqual &&
 		equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
 		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
 		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)

@@ -64,88 +64,6 @@ func TestPresetFiles(t *testing.T) {
 				Spec: v1alpha1.LLMInferenceServiceSpec{
 					WorkloadSpec: v1alpha1.WorkloadSpec{
 						Template: &corev1.PodSpec{
-							HostIPC: true,
-							HostPID: true,
-							InitContainers: []corev1.Container{
-								{
-									Name:  "llm-d-routing-sidecar",
-									Image: "ghcr.io/llm-d/llm-d-routing-sidecar:v0.2.0",
-									Args: []string{
-										"--port=8000",
-										"--vllm-port=8001",
-										"--secure-proxy=true",
-										"--cert-path=/etc/ssl/certs",
-										"--decoder-use-tls=true",
-										"--decoder-tls-insecure-skip-verify=true",
-										"--prefiller-use-tls=true",
-										"--prefiller-tls-insecure-skip-verify=true",
-										"--enable-ssrf-protection=true",
-									},
-									Env: []corev1.EnvVar{
-										{
-											Name: "INFERENCE_POOL_NAMESPACE",
-											ValueFrom: &corev1.EnvVarSource{
-												FieldRef: &corev1.ObjectFieldSelector{
-													FieldPath: "metadata.namespace",
-												},
-											},
-										},
-									},
-									Ports: []corev1.ContainerPort{
-										{
-											ContainerPort: 8000,
-											Protocol:      corev1.ProtocolTCP,
-										},
-									},
-									SecurityContext: &corev1.SecurityContext{
-										AllowPrivilegeEscalation: ptr.To(false),
-										RunAsNonRoot:             ptr.To(false),
-									},
-									RestartPolicy:            ptr.To(corev1.ContainerRestartPolicyAlways),
-									TerminationMessagePath:   "/dev/termination-log",
-									TerminationMessagePolicy: "FallbackToLogsOnError",
-									ImagePullPolicy:          "IfNotPresent",
-									VolumeMounts: []corev1.VolumeMount{
-										{
-											Name:      "tls-certs",
-											ReadOnly:  true,
-											MountPath: "/etc/ssl/certs",
-										},
-									},
-									ReadinessProbe: &corev1.Probe{
-										ProbeHandler: corev1.ProbeHandler{
-											HTTPGet: &corev1.HTTPGetAction{
-												Path:   "/health",
-												Port:   intstr.FromInt32(8000),
-												Scheme: corev1.URISchemeHTTPS,
-											},
-										},
-										InitialDelaySeconds: 10,
-										TimeoutSeconds:      5,
-										PeriodSeconds:       10,
-										FailureThreshold:    10,
-									},
-									LivenessProbe: &corev1.Probe{
-										ProbeHandler: corev1.ProbeHandler{
-											HTTPGet: &corev1.HTTPGetAction{
-												Path:   "/health",
-												Port:   intstr.FromInt32(8000),
-												Scheme: corev1.URISchemeHTTPS,
-											},
-										},
-										InitialDelaySeconds: 10,
-										TimeoutSeconds:      10,
-										PeriodSeconds:       10,
-										FailureThreshold:    3,
-									},
-								},
-							},
-							Containers: []corev1.Container{},
-						},
-						Worker: &corev1.PodSpec{
-							HostIPC:         true,
-							HostPID:         true,
-							SecurityContext: &corev1.PodSecurityContext{},
 							Volumes: []corev1.Volume{
 								{
 									Name: "home",
@@ -173,7 +91,6 @@ func TestPresetFiles(t *testing.T) {
 									VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "test-llm-preset-kserve-self-signed-certs"}},
 								},
 							},
-							TerminationGracePeriodSeconds: ptr.To(int64(30)),
 							InitContainers: []corev1.Container{
 								{
 									Name:  "llm-d-routing-sidecar",
@@ -181,6 +98,7 @@ func TestPresetFiles(t *testing.T) {
 									Args: []string{
 										"--port=8000",
 										"--vllm-port=8001",
+										"--connector=nixlv2",
 										"--secure-proxy=true",
 										"--cert-path=/etc/ssl/certs",
 										"--decoder-use-tls=true",
@@ -204,6 +122,10 @@ func TestPresetFiles(t *testing.T) {
 											ContainerPort: 8000,
 											Protocol:      corev1.ProtocolTCP,
 										},
+									},
+									SecurityContext: &corev1.SecurityContext{
+										AllowPrivilegeEscalation: ptr.To(false),
+										RunAsNonRoot:             ptr.To(true),
 									},
 									RestartPolicy:            ptr.To(corev1.ContainerRestartPolicyAlways),
 									TerminationMessagePath:   "/dev/termination-log",
@@ -247,12 +169,27 @@ func TestPresetFiles(t *testing.T) {
 							Containers: []corev1.Container{
 								{
 									Name:    "main",
-									Image:   "ghcr.io/llm-d/llm-d:v0.2.0",
+									Image:   "ghcr.io/llm-d/llm-d-dev:v0.2.2",
 									Command: []string{"/bin/sh", "-c"},
+									Args:    []string{"echo 'Waiting 15 seconds for network to stabilize...' && sleep 15\nSTART_RANK=0\neval \"vllm serve \\\n  /mnt/models \\\n  --served-model-name \"llama\" \\\n  --port 8001 \\\n  --api-server-count ${VLLM_API_SERVER_COUNT:-8} \\\n  --disable-log-requests \\\n--enable-expert-parallel \\\n--tensor-parallel-size 1 \\\n  --data-parallel-size $(( 2 * 4 )) \\\n  --data-parallel-size-local 2 \\\n  --data-parallel-address $(LWS_LEADER_ADDRESS) \\\n  --data-parallel-rpc-port 5555 \\\n  --data-parallel-start-rank $START_RANK \\\n  --data-parallel-hybrid-lb \\\n  ${VLLM_ADDITIONAL_ARGS} \\\n  --trust-remote-code \\\n  --enable-ssl-refresh \\\n  --ssl-certfile \\\n  /etc/ssl/certs/tls.crt \\\n  --ssl-keyfile \\\n  /etc/ssl/certs/tls.key\""},
 									Ports: []corev1.ContainerPort{
 										{
 											ContainerPort: 8001,
 											Protocol:      corev1.ProtocolTCP,
+										},
+									},
+									Env: []corev1.EnvVar{
+										{
+											Name:  "HOME",
+											Value: "/home",
+										},
+										{
+											Name:  "VLLM_LOGGING_LEVEL",
+											Value: "INFO",
+										},
+										{
+											Name:  "HF_HUB_CACHE",
+											Value: "/models",
 										},
 									},
 									VolumeMounts: []corev1.VolumeMount{
@@ -282,9 +219,9 @@ func TestPresetFiles(t *testing.T) {
 												Scheme: corev1.URISchemeHTTPS,
 											},
 										},
-										InitialDelaySeconds: 120,
-										PeriodSeconds:       10,
+										InitialDelaySeconds: 300,
 										TimeoutSeconds:      10,
+										PeriodSeconds:       10,
 										FailureThreshold:    3,
 									},
 									ReadinessProbe: &corev1.Probe{
@@ -295,19 +232,97 @@ func TestPresetFiles(t *testing.T) {
 												Scheme: corev1.URISchemeHTTPS,
 											},
 										},
-										InitialDelaySeconds: 10,
-										PeriodSeconds:       10,
+										InitialDelaySeconds: 200,
 										TimeoutSeconds:      5,
+										PeriodSeconds:       30,
 										FailureThreshold:    60,
 									},
+									TerminationMessagePath:   "/dev/termination-log",
+									TerminationMessagePolicy: "FallbackToLogsOnError",
+									ImagePullPolicy:          "IfNotPresent",
 									SecurityContext: &corev1.SecurityContext{
-										AllowPrivilegeEscalation: ptr.To(false),
 										Capabilities: &corev1.Capabilities{
 											Add: []corev1.Capability{
 												"IPC_LOCK",
 												"SYS_RAWIO",
 											},
 										},
+										RunAsUser:  ptr.To(int64(0)),
+										RunAsGroup: ptr.To(int64(0)),
+									},
+								},
+							},
+							TerminationGracePeriodSeconds: ptr.To(int64(30)),
+						},
+						Worker: &corev1.PodSpec{
+							Volumes: []corev1.Volume{
+								{
+									Name: "home",
+									VolumeSource: corev1.VolumeSource{
+										EmptyDir: &corev1.EmptyDirVolumeSource{},
+									},
+								},
+								{
+									Name: "dshm",
+									VolumeSource: corev1.VolumeSource{
+										EmptyDir: &corev1.EmptyDirVolumeSource{
+											Medium:    corev1.StorageMediumMemory,
+											SizeLimit: ptr.To(resource.MustParse("1Gi")),
+										},
+									},
+								},
+								{
+									Name: "model-cache",
+									VolumeSource: corev1.VolumeSource{
+										EmptyDir: &corev1.EmptyDirVolumeSource{},
+									},
+								},
+								{
+									Name:         "tls-certs",
+									VolumeSource: corev1.VolumeSource{Secret: &corev1.SecretVolumeSource{SecretName: "test-llm-preset-kserve-self-signed-certs"}},
+								},
+							},
+							TerminationGracePeriodSeconds: ptr.To(int64(30)),
+							Containers: []corev1.Container{
+								{
+									Name:    "main",
+									Image:   "ghcr.io/llm-d/llm-d-dev:v0.2.2",
+									Command: []string{"/bin/sh", "-c"},
+									Args:    []string{"echo 'Waiting 15 seconds for network to stabilize...' && sleep 15\nSTART_RANK=$(( ${LWS_WORKER_INDEX:-0} * 2 ))\neval \"vllm serve \\\n  /mnt/models \\\n  --served-model-name \"llama\" \\\n  --port 8001 \\\n  --disable-log-requests \\\n--enable-expert-parallel \\\n--tensor-parallel-size 1 \\\n  --data-parallel-size $(( 2 * 4 )) \\\n  --data-parallel-size-local 2 \\\n  --data-parallel-address $(LWS_LEADER_ADDRESS) \\\n  --data-parallel-rpc-port 5555 \\\n  --data-parallel-start-rank $START_RANK \\\n  --data-parallel-hybrid-lb \\\n  ${VLLM_ADDITIONAL_ARGS} \\\n  --trust-remote-code \\\n  --headless \\\n  --enable-ssl-refresh \\\n  --ssl-certfile \\\n  /etc/ssl/certs/tls.crt \\\n  --ssl-keyfile \\\n  /etc/ssl/certs/tls.key\""},
+									Ports: []corev1.ContainerPort{
+										{
+											ContainerPort: 8001,
+											Protocol:      corev1.ProtocolTCP,
+										},
+									},
+									VolumeMounts: []corev1.VolumeMount{
+										{
+											Name:      "home",
+											MountPath: "/home",
+										},
+										{
+											Name:      "dshm",
+											MountPath: "/dev/shm",
+										},
+										{
+											Name:      "model-cache",
+											MountPath: "/models",
+										},
+										{
+											Name:      "tls-certs",
+											ReadOnly:  true,
+											MountPath: "/etc/ssl/certs",
+										},
+									},
+									SecurityContext: &corev1.SecurityContext{
+										Capabilities: &corev1.Capabilities{
+											Add: []corev1.Capability{
+												"IPC_LOCK",
+												"SYS_RAWIO",
+											},
+										},
+										RunAsUser:  ptr.To(int64(0)),
+										RunAsGroup: ptr.To(int64(0)),
 									},
 									Env: []corev1.EnvVar{
 										{
@@ -322,61 +337,14 @@ func TestPresetFiles(t *testing.T) {
 											Name:  "HF_HUB_CACHE",
 											Value: "/models",
 										},
+										{
+											Name:  "VLLM_RANDOMIZE_DP_DUMMY_INPUTS",
+											Value: "1",
+										},
 									},
 									TerminationMessagePath:   "/dev/termination-log",
 									TerminationMessagePolicy: "FallbackToLogsOnError",
 									ImagePullPolicy:          "IfNotPresent",
-									Stdin:                    true,
-									TTY:                      true,
-									Args: []string{`
-START_RANK=$(( ${LWS_WORKER_INDEX:-0} * 2 ))
-if [ "${LWS_WORKER_INDEX:-0}" -eq 0 ]; then
-  #################
-  # Leader-only launch
-  #################
-  vllm serve \
-    /mnt/models \
-    --served-model-name "llama" \
-    --port 8001 \
-    --api-server-count 4 \
-    --disable-log-requests \
---enable-expert-parallel \
---tensor-parallel-size 1 \
-    --data-parallel-size 4 \
-    --data-parallel-size-local 2 \
-    --data-parallel-address $(LWS_LEADER_ADDRESS) \
-    --data-parallel-rpc-port 5555 \
-    --data-parallel-start-rank $START_RANK \
-    --trust-remote-code \
-    --enable-ssl-refresh \
-    --ssl-certfile \
-    /etc/ssl/certs/tls.crt \
-    --ssl-keyfile \
-    /etc/ssl/certs/tls.key
-else
-  #################
-  # Worker-only launch
-  #################
-  vllm serve \
-    /mnt/models \
-    --served-model-name "llama" \
-    --port 8001 \
-    --disable-log-requests \
---enable-expert-parallel \
---tensor-parallel-size 1 \
-    --data-parallel-size 4 \
-    --data-parallel-size-local 2 \
-    --data-parallel-address $(LWS_LEADER_ADDRESS) \
-    --data-parallel-rpc-port 5555 \
-    --data-parallel-start-rank $START_RANK \
-    --trust-remote-code \
-    --headless \
-    --enable-ssl-refresh \
-    --ssl-certfile \
-    /etc/ssl/certs/tls.crt \
-    --ssl-keyfile \
-    /etc/ssl/certs/tls.key
-fi`},
 								},
 							},
 						},
