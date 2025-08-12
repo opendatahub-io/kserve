@@ -373,7 +373,6 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				}).WithContext(ctx).Should(Succeed())
 
 				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
-					// g.Expect(current.Status).To(HaveCondition(string(v1alpha1.GatewaysReady), "True"))
 					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
 				})).WithContext(ctx).Should(Succeed())
 			})
