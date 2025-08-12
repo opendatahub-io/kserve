@@ -32,10 +32,6 @@ def print_all_events_table(namespace: str, max_events: int = 50):
             print("ℹ️ # No events found in namespace", namespace)
             return
 
-        events = sorted(
-            events, key=lambda e: e.last_timestamp or e.first_timestamp, reverse=True
-        )[:max_events]
-
         header = f"{'TIME':<25} {'NAMESPACE':<12} {'SOURCE':<20} {'TYPE':<8} {'REASON':<20} MESSAGE"
         print(header)
         print("-" * len(header))
@@ -84,9 +80,14 @@ def kinds_matching_by_labels(namespace: str, labels, skip_api_kinds=None):
 
     found = []
     for rsrc in all_resources:
-        if not rsrc.namespaced or "list" not in rsrc.verbs:
-            continue
         if rsrc.kind.endswith("List") or rsrc.kind in skip_api_kinds:
+            continue
+
+        try:
+            if not rsrc.namespaced or "list" not in rsrc.verbs:
+                continue
+        except Exception as e:
+            print(f"failed to check resource properties for {getattr(rsrc, 'kind', 'unknown')}, skipping: {e}")
             continue
 
         try:
