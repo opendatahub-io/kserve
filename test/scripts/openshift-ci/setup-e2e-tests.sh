@@ -32,7 +32,7 @@ readonly PARALLELISM="${2:-1}"
 readonly DEPLOYMENT_PROFILE="${3:-serverless}"
 validate_deployment_profile "${DEPLOYMENT_PROFILE}"
 
-: "${NS:=opendatahub}"
+: "${NS:=kserve}"
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
 : "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:latest}"
 : "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
