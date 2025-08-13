@@ -126,6 +126,13 @@ func TestPresetFiles(t *testing.T) {
 									SecurityContext: &corev1.SecurityContext{
 										AllowPrivilegeEscalation: ptr.To(false),
 										RunAsNonRoot:             ptr.To(true),
+										Capabilities: &corev1.Capabilities{
+											Drop: []corev1.Capability{"ALL"},
+										},
+										ReadOnlyRootFilesystem: ptr.To(true),
+										SeccompProfile: &corev1.SeccompProfile{
+											Type: corev1.SeccompProfileTypeRuntimeDefault,
+										},
 									},
 									RestartPolicy:            ptr.To(corev1.ContainerRestartPolicyAlways),
 									TerminationMessagePath:   "/dev/termination-log",
@@ -246,9 +253,14 @@ func TestPresetFiles(t *testing.T) {
 												"IPC_LOCK",
 												"SYS_RAWIO",
 											},
+											Drop: []corev1.Capability{"ALL"},
 										},
-										RunAsUser:  ptr.To(int64(0)),
-										RunAsGroup: ptr.To(int64(0)),
+										AllowPrivilegeEscalation: ptr.To(false),
+										RunAsNonRoot:             ptr.To(true),
+										ReadOnlyRootFilesystem:   ptr.To(false),
+										SeccompProfile: &corev1.SeccompProfile{
+											Type: corev1.SeccompProfileTypeRuntimeDefault,
+										},
 									},
 								},
 							},
@@ -320,9 +332,14 @@ func TestPresetFiles(t *testing.T) {
 												"IPC_LOCK",
 												"SYS_RAWIO",
 											},
+											Drop: []corev1.Capability{"ALL"},
 										},
-										RunAsUser:  ptr.To(int64(0)),
-										RunAsGroup: ptr.To(int64(0)),
+										AllowPrivilegeEscalation: ptr.To(false),
+										RunAsNonRoot:             ptr.To(true),
+										ReadOnlyRootFilesystem:   ptr.To(false),
+										SeccompProfile: &corev1.SeccompProfile{
+											Type: corev1.SeccompProfileTypeRuntimeDefault,
+										},
 									},
 									Env: []corev1.EnvVar{
 										{
