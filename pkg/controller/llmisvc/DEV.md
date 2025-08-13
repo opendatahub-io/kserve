@@ -700,6 +700,8 @@ curl -v -X POST "${LB_URL}/v1/chat/completions" \
 
 #### Example evaluation
 
+##### Using lm_eval directory
+
 ```shell
 MODEL="deepseek-ai/DeepSeek-V2-Lite-Chat"
 LB_URL=$(kubectl get llmisvc deepseek-v2-lite-chat -o=jsonpath='{.status.addresses[0].url}')
@@ -711,6 +713,37 @@ source .venv/bin/activate
 uv pip install "lm_eval[api]"
 lm_eval --model local-completions --tasks gsm8k \
     --model_args model=${MODEL},base_url=${LB_URL}/v1/completions,num_concurrent=50,max_retries=3,tokenized_requests=False
+```
+
+##### Using lm-eval job
+
+```shell
+kubectl apply -k test/llmisvc/eval/overlays/deepseek-live-chat/
+
+echo "Waiting 5 seconds for the pod to be created ..."
+sleep 5
+
+kubectl logs -l=batch.kubernetes.io/job-name=lm-eval-deepseek-v2-lite-chat -f
+```
+
+Example Output:
+```shell
+# ...
+
+2025-08-13:06:40:11 INFO     [loggers.evaluation_tracker:280] Output path not provided, skipping saving results aggregated
+local-completions (model=deepseek-ai/DeepSeek-V2-Lite-Chat,base_url=http://openshift-ai-inference-istio.openshift-ingress.svc.cluster.local/llm-test/deepseek-v2-lite-chat/v1/completions,num_concurrent=100,max_retries=3,tokenized_requests=False), gen_kwargs: (None), limit: None, num_fewshot: None, batch_size: 1
+|     Tasks      |Version|     Filter     |n-shot|  Metric   |   | Value |   |Stderr|
+|----------------|------:|----------------|-----:|-----------|---|------:|---|-----:|
+|gsm8k           |      3|flexible-extract|     5|exact_match|↑  | 0.6550|±  |0.0131|
+|                |       |strict-match    |     5|exact_match|↑  | 0.6490|±  |0.0131|
+|hellaswag       |      1|none            |     0|acc        |↑  | 0.6213|±  |0.0048|
+|                |       |none            |     0|acc_norm   |↑  | 0.8051|±  |0.0040|
+|lambada_openai  |      1|none            |     0|acc        |↑  | 0.4493|±  |0.0069|
+|                |       |none            |     0|perplexity |↓  |12.4125|±  |0.4293|
+|abstract_algebra|      1|none            |     0|acc        |↑  | 0.3200|±  |0.0469|
+
+--- lm_eval run finished successfully ---
++ echo --- lm_eval run finished successfully ---
 ```
 
 #### Validation

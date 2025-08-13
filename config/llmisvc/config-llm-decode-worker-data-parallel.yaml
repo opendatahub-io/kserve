@@ -73,7 +73,6 @@ spec:
           - "-c"
         args:
           - |-
-            echo 'Waiting 15 seconds for network to stabilize...' && sleep 15
             START_RANK=0
             eval "vllm serve \
               /mnt/models \
@@ -171,7 +170,6 @@ spec:
           - "-c"
         args:
           - |-
-            echo 'Waiting 15 seconds for network to stabilize...' && sleep 15
             START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or .Spec.Parallelism.DataLocal 1 }} ))
             eval "vllm serve \
               /mnt/models \

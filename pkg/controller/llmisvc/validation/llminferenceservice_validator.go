@@ -288,7 +288,7 @@ func (l *LLMInferenceServiceValidator) validateImmutable(prev *v1alpha1.LLMInfer
 func (l *LLMInferenceServiceValidator) validateImmutableParallelism(basePath *field.Path, prev *v1alpha1.ParallelismSpec, curr *v1alpha1.ParallelismSpec) field.ErrorList {
 	var allErrs field.ErrorList
 	if pSize, cSize := ptr.Deref(prev.GetSize(), 1), ptr.Deref(curr.GetSize(), 1); cSize != pSize {
-		allErrs = append(allErrs, Immutable(
+		allErrs = append(allErrs, immutable(
 			basePath.Child("parallelism"),
 			cSize,
 			fmt.Sprintf("total parallelism size is immutable, previous size %d, curr size %d", pSize, cSize),
@@ -297,8 +297,8 @@ func (l *LLMInferenceServiceValidator) validateImmutableParallelism(basePath *fi
 	return allErrs
 }
 
-// Immutable returns a *Error indicating "unsupported mutation".
+// immutable returns a *Error indicating "unsupported mutation".
 // This is used to report unsupported mutation of values.
-func Immutable(path *field.Path, value interface{}, detail string) *field.Error {
+func immutable(path *field.Path, value interface{}, detail string) *field.Error {
 	return &field.Error{Type: field.ErrorTypeNotSupported, Field: path.String(), BadValue: value, Detail: detail}
 }
