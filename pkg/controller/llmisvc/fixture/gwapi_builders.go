@@ -282,6 +282,34 @@ func WithBackendRefs(refs ...gatewayapi.HTTPBackendRef) HTTPRouteRuleOption {
 	}
 }
 
+func BackendRefInferencePool(name string) gatewayapi.HTTPBackendRef {
+	return gatewayapi.HTTPBackendRef{
+		BackendRef: gatewayapi.BackendRef{
+			BackendObjectReference: gatewayapi.BackendObjectReference{
+				Group: ptr.To(gatewayapi.Group("inference.networking.x-k8s.io")),
+				Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
+				Name:  gatewayapi.ObjectName(name),
+				Port:  ptr.To(gatewayapi.PortNumber(8000)),
+			},
+			Weight: ptr.To(int32(1)),
+		},
+	}
+}
+
+func BackendRefService(name string) gatewayapi.HTTPBackendRef {
+	return gatewayapi.HTTPBackendRef{
+		BackendRef: gatewayapi.BackendRef{
+			BackendObjectReference: gatewayapi.BackendObjectReference{
+				Group: ptr.To(gatewayapi.Group("")),
+				Kind:  ptr.To(gatewayapi.Kind("Service")),
+				Name:  gatewayapi.ObjectName(name),
+				Port:  ptr.To(gatewayapi.PortNumber(8000)),
+			},
+			Weight: ptr.To(int32(1)),
+		},
+	}
+}
+
 func WithTimeouts(backendTimeout, requestTimeout string) HTTPRouteRuleOption {
 	return func(rule *gatewayapi.HTTPRouteRule) {
 		rule.Timeouts = &gatewayapi.HTTPRouteTimeouts{

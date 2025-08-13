@@ -83,8 +83,7 @@ func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context,
 
 	expectedHTTPRoute := r.expectedHTTPRoute(ctx, llmSvc)
 
-	// TODO should we remove "llmSvc.Spec.Router.Route.HTTP == nil" from the condition below so that a non nil Route meeans "all type of routes are enabled"?
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || llmSvc.Spec.Router.Route.HTTP == nil {
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil {
 		return Delete(ctx, r, llmSvc, expectedHTTPRoute)
 	}
 

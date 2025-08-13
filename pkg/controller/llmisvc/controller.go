@@ -163,10 +163,10 @@ func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v
 		return fmt.Errorf("failed to combine base-configurations: %w", err)
 	}
 	llmSvc.MarkPresetsCombinedReady()
+
+	logger.Info("Reconciling with combined base configurations", "combined.spec", baseCfg.Spec, "original.spec", llmSvc.Spec)
 	// We are only writing to status, so we can safely use the original object.
 	llmSvc.Spec = baseCfg.Spec
-
-	logger.Info("Reconciling with combined base configurations", "spec", llmSvc.Spec)
 
 	if err := r.reconcileWorkload(ctx, llmSvc, config.StorageConfig); err != nil {
 		return fmt.Errorf("failed to reconcile workload: %w", err)

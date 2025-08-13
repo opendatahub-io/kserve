@@ -23,15 +23,16 @@ import (
 	"fmt"
 	"text/template"
 
-	"sigs.k8s.io/controller-runtime/pkg/log"
-
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
+	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
@@ -174,7 +175,7 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		llmSvcCfg.Spec.Router.Scheduler.Pool != nil &&
 		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec != nil &&
 		len(llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector) == 0 {
-		selector := getInferencePoolWorkloadLabelSelector(llmSvc.ObjectMeta, &llmSvcCfg.Spec)
+		selector := GetWorkloadLabelSelector(llmSvc.ObjectMeta, &llmSvcCfg.Spec)
 
 		gieSelector := make(map[igwapi.LabelKey]igwapi.LabelValue, len(selector))
 		for k, v := range selector {
@@ -193,6 +194,24 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 	llmSvcCfg, err = ReplaceVariables(llmSvc, llmSvcCfg, reconcilerConfig)
 	if err != nil {
 		return llmSvcCfg, err
+	}
+
+	// Point HTTPRoute to a Service if there is no Scheduler or InferencePool, and the HTTPRoute uses the default
+	// InferencePool (to handle cases where the HTTPRoute Spec uses a custom BackendRef).
+	if llmSvcCfg.Spec.Router != nil &&
+		llmSvcCfg.Spec.Router.Route != nil &&
+		llmSvcCfg.Spec.Router.Route.HTTP != nil &&
+		llmSvcCfg.Spec.Router.Route.HTTP.Spec != nil &&
+		llmSvcCfg.Spec.Router.Scheduler == nil {
+		for i := range llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules {
+			for j := range llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs {
+				if isDefaultBackendRef(llmSvc, llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].BackendRef) {
+					llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].Group = ptr.To[gatewayapi.Group]("")
+					llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].Kind = ptr.To[gatewayapi.Kind]("Service")
+					llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].Name = gatewayapi.ObjectName(kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"))
+				}
+			}
+		}
 	}
 
 	return llmSvcCfg, nil
@@ -312,4 +331,11 @@ func mergeSpecs(ctx context.Context, base, override v1alpha1.LLMInferenceService
 		return v1alpha1.LLMInferenceServiceSpec{}, fmt.Errorf("could not unmarshal merged spec: %w", err)
 	}
 	return finalSpec, nil
+}
+
+func isDefaultBackendRef(llmSvc *v1alpha1.LLMInferenceService, ref gatewayapi.BackendRef) bool {
+	defaultInfPoolName := (&v1alpha1.SchedulerSpec{}).InferencePoolName(llmSvc)
+	return ref.Group != nil && string(*ref.Group) == igwapi.GroupName &&
+		ref.Kind != nil && string(*ref.Kind) == "InferencePool" &&
+		string(ref.Name) == defaultInfPoolName
 }
