@@ -15,12 +15,13 @@
 set -eu
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-source "${SCRIPT_DIR}/common.sh"
+source "${SCRIPT_DIR}/../common.sh"
 
 # Create namespaces(openshift-serverless)
-oc create ns openshift-serverless
+oc create ns openshift-serverless || true
 
 # Create operatorGroup
+{
 cat <<EOF | oc create -f -
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
@@ -32,8 +33,10 @@ metadata:
 spec:
   upgradeStrategy: Default
 EOF
+} || true
 
 # Install Serverless operator
+{
 cat <<EOF | oc create -f -
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
@@ -49,7 +52,8 @@ spec:
   source: redhat-operators
   sourceNamespace: openshift-marketplace
 EOF
-
+} || true
+ 
 wait_for_pod_ready "openshift-serverless" "name=knative-openshift"
 wait_for_pod_ready "openshift-serverless" "name=knative-openshift-ingress"
 wait_for_pod_ready "openshift-serverless" "name=knative-operator"
@@ -161,6 +165,7 @@ wait_for_pod_ready "knative-serving" "app=webhook"
 wait_for_pod_ready "knative-serving" "app=activator"
 wait_for_pod_ready "knative-serving" "app=autoscaler"
 
+: "${RUNNING_LOCAL:=false}"
 export secret_name=$(oc get IngressController default -n openshift-ingress-operator -o yaml -o=jsonpath='{ .spec.defaultCertificate.name}')
 if [ -z "$secret_name" ]; then
   # Fallback to the default secret name for crpkg/controller/v1beta1/inferenceservice/rawkube_controller_test.goc
@@ -176,17 +181,19 @@ oc get IngressController -n openshift-ingress-operator default -o yaml
 export tls_cert=$(oc get secret $secret_name -n openshift-ingress -o=jsonpath='{.data.tls\.crt}')
 export CA_CERT_PATH="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 # This is for local testing
-oc exec deploy/istio-ingressgateway -- cat $CA_CERT_PATH > /tmp/ca.crt
+oc exec deploy/istio-ingressgateway -n istio-system -- cat $CA_CERT_PATH > /tmp/ca.crt
 
 if [ -f "$CA_CERT_PATH" ]; then
   # This is for python requests to work
   export REQUESTS_CA_BUNDLE=$CA_CERT_PATH
 fi
 export tls_key=$(oc get secret $secret_name -n openshift-ingress -o=jsonpath='{.data.tls\.key}')
+{
 oc create secret tls knative-serving-cert \
   --cert=<(echo $tls_cert | base64 -d) \
   --key=<(echo $tls_key | base64 -d) \
   -n istio-system
+} || true
 export domain=$(oc get ingresses.config/cluster -o=jsonpath='{ .spec.domain}')
 
 

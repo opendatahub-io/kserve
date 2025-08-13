@@ -42,13 +42,22 @@ def assert_200(response: requests.Response) -> None:
     ), f"Service returned {response.status_code}: {response.text}"
 
 
+def assert_200_with_choices(response: requests.Response) -> None:
+    """Assert 200 status code with choices in response."""
+    assert (
+        response.status_code == 200
+        and response.json().get("choices") is not None
+        and len(response.json().get("choices", [])) > 0
+    ), f"Expected 200 with choices, got {response.status_code}: {response.text}"
+
+
 @dataclass
 class TestCase:
     __test__ = False  # So pytest will not try to execute it.
     """Test case configuration for LLM inference service tests."""
     base_refs: List[str]
     prompt: str
-    max_tokens: int = 10
+    max_tokens: int = 100
     response_assertion: Callable[[requests.Response], None] = assert_200
     wait_timeout: int = 300
     response_timeout: int = 60
@@ -75,11 +84,7 @@ class TestCase:
                 prompt="You are an expert in Kubernetes-native machine learning serving platforms, with deep knowledge of the KServe project. "
                        "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
                        "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.",
-                response_assertion=lambda response: (
-                        response.status_code == 200
-                        and response.json().get("choices") is not None
-                        and len(response.json().get("choices", [])) > 0
-                ),
+                response_assertion=assert_200_with_choices,
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
@@ -177,11 +182,7 @@ def wait_for_model_response(
     timeout_seconds: int = 600,
 ) -> str:
 
-    service_url = None
-
     def assert_model_responds():
-        nonlocal service_url
-
         try:
             service_url = get_llm_service_url(kserve_client, test_case.llm_service)
         except Exception as e:
@@ -205,8 +206,7 @@ def wait_for_model_response(
             raise AssertionError(f"❌ Failed to call model: {e}") from e
 
         test_case.response_assertion(response)
-        print("✅ LLM service responded successfully")
-        return service_url
+        return response.text[:test_case.max_tokens]
 
     return wait_for(assert_model_responds, timeout=timeout_seconds, interval=10.0)
 

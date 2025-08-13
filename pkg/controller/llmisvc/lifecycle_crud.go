@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -136,7 +137,7 @@ func Update[O client.Object, T client.Object](ctx context.Context, c clientWithR
 
 func logLineForObject(obj client.Object) string {
 	// Note: don't use `obj.GetObjectKind()` as it's always empty.
-	return reflect.TypeOf(obj).String()
+	return strings.Replace(reflect.TypeOf(obj).String(), "*", "", 1)
 }
 
 type SemanticEqual[T client.Object] func(expected T, curr T) bool
