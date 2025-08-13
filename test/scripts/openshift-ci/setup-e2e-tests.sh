@@ -109,6 +109,8 @@ kustomize build $PROJECT_ROOT/config/overlays/test |
   sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
   oc apply --server-side=true -f -
 
+kustomize build $PROJECT_ROOT/config/crd/external/opendatahub-operator | oc apply --server-side=true -f -
+
 wait_for_crd datascienceclusters.datasciencecluster.opendatahub.io 90s
 wait_for_crd dscinitializations.dscinitialization.opendatahub.io 90s
              
