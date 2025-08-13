@@ -131,7 +131,7 @@ if [[ "${MARKERS}" == *"graph"* ]]; then
     oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/test/configmap/inferenceservice-openshift-ci-serverless.yaml | envsubst)
 fi
 
-if [[ "${MARKERS}" == *"predictor"* ]]; then
+if [[ "${MARKERS}" == *"predictor"* || "${MARKERS}" == *"path"* ]]; then
     oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/test/configmap/inferenceservice-openshift-ci-serverless-predictor.yaml | envsubst)
 fi
 
