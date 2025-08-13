@@ -247,6 +247,14 @@ rules:
   verbs:
   - get
 - apiGroups:
+  - security.openshift.io
+  resourceNames:
+  - openshift-ai-llminferenceservice-scc
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
+- apiGroups:
   - serving.knative.dev
   resources:
   - services

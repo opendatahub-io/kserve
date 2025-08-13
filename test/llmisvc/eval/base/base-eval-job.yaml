@@ -1,0 +1,72 @@
+# This Kubernetes Job runs the lm-evaluation-harness tool.
+# It's designed to be self-contained, installing its own dependencies
+# using the 'uv' package manager before executing the evaluation.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: lm-eval
+spec:
+  backoffLimit: 1
+  template:
+    spec:
+      containers:
+        - name: lm-eval-container
+          image: ghcr.io/astral-sh/uv:0.8-python3.12-bookworm
+          env:
+            - name: MODEL
+              value: "TBD"
+            - name: BASE_URL
+              value: "TBD"
+            - name: TASKS
+              value: "gsm8k"
+            - name: NUM_CONCURRENT
+              value: "100"
+            # Set a writable cache directory for uv to avoid permission errors.
+            # The default user in this container does not have write access to the root filesystem.
+            - name: UV_CACHE_DIR
+              value: "/tmp/uv-cache"
+            # Set a writable platform directory for uv to avoid permission errors.
+            - name: UV_PLATFORM_DIR
+              value: "/tmp/uv-platform"
+            # Set the HOME directory to a writable location to avoid permission errors.
+            - name: HOME
+              value: "/tmp"
+          command: ["/bin/sh", "-c"]
+          # The script to be executed. The '|' allows for a multi-line string.
+          args:
+            - |
+              mkdir /tmp/lm-eval && cd /tmp/lm-eval
+              set -e # Exit immediately if a command exits with a non-zero status.
+              set -x # Print commands and their arguments as they are executed.
+              
+              echo "--- Starting lm_eval setup ---"
+              
+              # Create a virtual environment in the current directory named '.venv'.
+              echo "Creating Python virtual environment..."
+              uv venv
+              echo "Virtual environment created."
+              # Activate the virtual environment.
+              . .venv/bin/activate
+              
+              # Install the lm-evaluation-harness library with API support.
+              echo "Installing lm_eval library..."
+              uv pip install "lm_eval[api]"
+              echo "lm_eval installation complete."
+              
+              echo "--- Setup complete. Starting evaluation ---"
+              echo "Model for evaluation: ${MODEL}"
+              echo "Target URL: ${BASE_URL}"
+              
+              # Execute the lm_eval command with the specified arguments.
+              # The model arguments are passed as a comma-separated string.
+              lm_eval --model local-completions --tasks "${TASKS}" \
+                --model_args model=${MODEL},base_url=${BASE_URL}/v1/completions,num_concurrent=${NUM_CONCURRENT},max_retries=3,tokenized_requests=False
+              
+              echo "--- lm_eval run finished successfully ---"
+          resources:
+            requests:
+              cpu: "2"
+              memory: "512Mi"
+      # The restart policy for the Pod. 'Never' is suitable for one-off tasks.
+      # 'OnFailure' could also be used if you want the Pod to retry on its own.
+      restartPolicy: Never
