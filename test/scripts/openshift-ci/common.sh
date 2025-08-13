@@ -1,3 +1,56 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# find_project_root [start_dir] [marker]
+#   start_dir : directory to begin the search (defaults to this script’s dir)
+#   marker    : filename or directory name to look for (defaults to "go.mod")
+#
+# Prints the first dir containing the marker, or exits 1 if none found.
+find_project_root() {
+  local start_dir="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+  local marker="${2:-go.mod}"
+  local dir="$start_dir"
+
+  while [[ "$dir" != "/" && ! -e "$dir/$marker" ]]; do
+    dir="$(dirname "$dir")"
+  done
+
+  if [[ -e "$dir/$marker" ]]; then
+    printf '%s\n' "$dir"
+  else
+    echo "Error: couldn’t find '$marker' in any parent of '$start_dir'" >&2
+    return 1
+  fi
+}
+
+readonly VALID_DEPLOYMENT_PROFILES=(raw serverless llm-d)
+# validate_deployment_profile [value]
+validate_deployment_profile() {
+  local profile="$1"
+  if [[ ! " ${VALID_DEPLOYMENT_PROFILES[*]} " =~ " ${DEPLOYMENT_PROFILE} " ]]; then
+    echo "Error: '$DEPLOYMENT_PROFILE' is not a valid deployment profile." >&2
+    echo "Allowed values: ${VALID_DEPLOYMENT_PROFILES[*]}" >&2
+    exit 1
+  fi
+}
+
+# Usage: wait_for_crd <crd-name> [timeout]
+#   <crd-name> : the full CRD name (e.g. leaderworkersetoperators.operator.openshift.io)
+#   [timeout]  : oc wait timeout (default “60s”)
+wait_for_crd() {
+  local crd="$1"
+  local timeout="${2:-60s}"
+
+  echo "⏳ Waiting for CRD ${crd} to appear (timeout: ${timeout})…"
+  if ! timeout "$timeout" bash -c 'until oc get crd "$1" &>/dev/null; do sleep 2; done' _ "$crd"; then
+    echo "❌ Timed out after $timeout waiting for CRD $crd to appear." >&2
+    return 1
+  fi
+
+  echo "⏳ CRD ${crd} detected — waiting for it to become Established (timeout: ${timeout})…"
+  oc wait --for=condition=Established --timeout="$timeout" "crd/$crd"
+}
 
 # Helper function to wait for a pod with a given label to be created
 wait_for_pod_labeled() {
