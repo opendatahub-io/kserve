@@ -40,8 +40,8 @@ spec:
           capabilities:
             drop:
               - ALL
-#          seccompProfile:
-#            type: RuntimeDefault
+          seccompProfile:
+            type: RuntimeDefault
         terminationMessagePath: /dev/termination-log
         terminationMessagePolicy: FallbackToLogsOnError
         livenessProbe:

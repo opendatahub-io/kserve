@@ -8,7 +8,7 @@ spec:
   model:
     uri: hf://deepseek-ai/DeepSeek-V2-Lite-Chat
     name: deepseek-ai/DeepSeek-V2-Lite-Chat
-  replicas: 1
+  replicas: 2
   parallelism:
     data: 1
     dataLocal: 8

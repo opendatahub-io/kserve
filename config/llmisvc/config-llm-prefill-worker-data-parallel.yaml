@@ -58,6 +58,8 @@ spec:
                 - "SYS_RAWIO"
               drop:
                 - ALL
+            seccompProfile:
+              type: RuntimeDefault
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: FallbackToLogsOnError
           livenessProbe:
@@ -155,6 +157,8 @@ spec:
                 - "SYS_RAWIO"
               drop:
                 - ALL
+            seccompProfile:
+              type: RuntimeDefault
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: FallbackToLogsOnError
           volumeMounts:
