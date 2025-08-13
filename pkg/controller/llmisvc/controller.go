@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -385,8 +386,11 @@ func (r *LLMInferenceServiceReconciler) enqueueOnIstioShadowServiceChange(mgr ct
 		}
 
 		pool := &igwapi.InferencePool{}
-		if err := r.Get(ctx, client.ObjectKey{Name: poolName, Namespace: sub.GetNamespace()}, pool); err != nil {
-			logger.V(2).Error(err, "failed to get InferencePool", "name", poolName, "namespace", sub.GetNamespace())
+		err := r.Get(ctx, client.ObjectKey{Name: poolName, Namespace: sub.GetNamespace()}, pool)
+		if err != nil {
+			if !apierrors.IsNotFound(err) {
+				logger.V(2).Error(err, "failed to get InferencePool", "name", poolName, "namespace", sub.GetNamespace())
+			}
 			return nil
 		}
 

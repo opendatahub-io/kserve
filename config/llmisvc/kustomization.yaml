@@ -4,6 +4,7 @@ kind: Kustomization
 namespace: kserve
 
 resources:
+  - ../crd/external/gateway-inference-extension
   - config-llm-decode-template.yaml
   - config-llm-decode-worker-data-parallel.yaml
   - config-llm-prefill-template.yaml
@@ -12,4 +13,3 @@ resources:
   - config-llm-scheduler.yaml
   - config-llm-template.yaml
   - config-llm-worker-data-parallel.yaml
-  - gie.yaml

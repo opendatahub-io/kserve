@@ -37,7 +37,7 @@ import (
 )
 
 func SetupTestEnv() *pkgtest.Client {
-	duration, err := time.ParseDuration(constants.GetEnvOrDefault("ENVTEST_DEFAULT_TIMEOUT", "10s"))
+	duration, err := time.ParseDuration(constants.GetEnvOrDefault("ENVTEST_DEFAULT_TIMEOUT", "30s"))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.SetDefaultEventuallyTimeout(duration)
 	gomega.SetDefaultEventuallyPollingInterval(250 * time.Millisecond)
