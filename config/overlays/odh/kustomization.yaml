@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
 - ../../default
 - user-cluster-roles.yaml
+- llm-svc-scc.yaml
 - ../../monitoring/llmisvc
 
 namespace: opendatahub
@@ -31,7 +32,7 @@ patches:
     name: kserve-config-llm-decode-worker-data-parallel
   patch: |-
     - op: replace
-      path: /spec/worker/initContainers/0/image
+      path: /spec/template/initContainers/0/image
       value: "$(kserve-llm-d-routing-sidecar)"
 - target:
     kind: ValidatingWebhookConfiguration
@@ -58,13 +59,51 @@ replacements:
 - source:
     kind: ConfigMap
     name: kserve-parameters
-    fieldpath: data.kserve-controller
+    fieldPath: data.kserve-controller
   targets:
   - select:
       kind: Deployment
       name: kserve-controller-manager
     fieldPaths:
     - spec.template.spec.containers.[name=manager].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d
+  targets:
+    - select:
+        kind: LLMInferenceServiceConfig
+        name: kserve-config-llm-decode-template
+      fieldPaths:
+        - spec.template.containers.[name=main].image
+    - select:
+        kind: LLMInferenceServiceConfig
+        name: kserve-config-llm-decode-worker-data-parallel
+      fieldPaths:
+        - spec.template.containers.[name=main].image
+        - spec.worker.containers.[name=main].image
+    - select:
+        kind: LLMInferenceServiceConfig
+        name: kserve-config-llm-prefill-template
+      fieldPaths:
+        - spec.prefill.template.containers.[name=main].image
+    - select:
+        kind: LLMInferenceServiceConfig
+        name: kserve-config-llm-prefill-worker-data-parallel
+      fieldPaths:
+        - spec.prefill.template.containers.[name=main].image
+        - spec.prefill.worker.containers.[name=main].image
+    - select:
+        kind: LLMInferenceServiceConfig
+        name: kserve-config-llm-template
+      fieldPaths:
+        - spec.template.containers.[name=main].image
+    - select:
+        kind: LLMInferenceServiceConfig
+        name: kserve-config-llm-worker-data-parallel
+      fieldPaths:
+        - spec.template.containers.[name=main].image
+        - spec.worker.containers.[name=main].image
 
 configMapGenerator:
 - envs:
