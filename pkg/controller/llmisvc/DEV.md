@@ -201,7 +201,7 @@ but it should work the "first" time.
 curl -v -k -XPOST -H "Content-Type: application/json" \
   -d '{
   "model": "facebook/opt-125m",
-  "prompt": ""Delve into the multifaceted implications of a fully disaggregated cloud architecture, specifically where the compute plane (P) and the data plane (D) are independently deployed and managed for a geographically distributed, high-throughput, low-latency microservices ecosystem. Beyond the fundamental challenges of network latency and data consistency, elaborate on the advanced considerations and trade-offs inherent in such a setup: 1. Network Architecture and Protocols: How would the network fabric and underlying protocols (e.g., RDMA, custom transport layers) need to evolve to support optimal performance and minimize inter-plane communication overhead, especially for synchronous operations? Discuss the role of network programmability (e.g., SDN, P4) in dynamically optimizing routing and traffic flow between P and D. 2. Advanced Data Consistency and Durability: Explore sophisticated data consistency models (e.g., causal consistency, strong eventual consistency) and their applicability in balancing performance and data integrity across a globally distributed data plane. Detail strategies for ensuring data durability and fault tolerance, including multi-region replication, intelligent partitioning, and recovery mechanisms in the event of partial or full plane failures. 3. Dynamic Resource Orchestration and Cost Optimization: Analyze how an orchestration layer would intelligently manage the independent scaling of compute (P) and data (D) resources, considering fluctuating workloads, cost efficiency, and performance targets (e.g., using predictive analytics for resource provisioning). Discuss mechanisms for dynamically reallocating compute nodes to different data partitions based on workload patterns and data locality, potentially involving live migration strategies. 4. Security and Compliance in a Distributed Landscape: Address the enhanced security perimeter challenges, including securing communication channels between P and D (encryption in transit, mutual TLS), fine-grained access control to data at rest and in motion, and identity management across disaggregated components. Discuss how such an architecture impacts compliance with regulatory frameworks (e.g., GDPR, HIPAA) concerning data sovereignty, privacy, and auditability. 5. Operational Complexity and Observability: Examine the increased complexity in monitoring, logging, and tracing across highly decoupled compute and data planes. What specialized tooling and practices (e.g., distributed tracing with OpenTelemetry, advanced AIOps) would be essential? How would incident response and troubleshooting differ in this disaggregated environment compared to traditional integrated systems? Consider the challenges of pinpointing root causes across independent failures. 6. Real-world Applicability and Future Trends: Identify specific industries or use cases (e.g., high-frequency trading, IoT edge processing, large language model inference) where the benefits of P/D disaggregation would strongly outweigh its complexities. Conclude by speculating on emerging technologies or paradigms (e.g., serverless compute functions directly interacting with object storage, in-memory disaggregation) that could further drive or transform P/D disaggregation in cloud computing.", 
+  "prompt": "Delve into the multifaceted implications of a fully disaggregated cloud architecture, specifically where the compute plane (P) and the data plane (D) are independently deployed and managed for a geographically distributed, high-throughput, low-latency microservices ecosystem. Beyond the fundamental challenges of network latency and data consistency, elaborate on the advanced considerations and trade-offs inherent in such a setup: 1. Network Architecture and Protocols: How would the network fabric and underlying protocols (e.g., RDMA, custom transport layers) need to evolve to support optimal performance and minimize inter-plane communication overhead, especially for synchronous operations? Discuss the role of network programmability (e.g., SDN, P4) in dynamically optimizing routing and traffic flow between P and D. 2. Advanced Data Consistency and Durability: Explore sophisticated data consistency models (e.g., causal consistency, strong eventual consistency) and their applicability in balancing performance and data integrity across a globally distributed data plane. Detail strategies for ensuring data durability and fault tolerance, including multi-region replication, intelligent partitioning, and recovery mechanisms in the event of partial or full plane failures. 3. Dynamic Resource Orchestration and Cost Optimization: Analyze how an orchestration layer would intelligently manage the independent scaling of compute (P) and data (D) resources, considering fluctuating workloads, cost efficiency, and performance targets (e.g., using predictive analytics for resource provisioning). Discuss mechanisms for dynamically reallocating compute nodes to different data partitions based on workload patterns and data locality, potentially involving live migration strategies. 4. Security and Compliance in a Distributed Landscape: Address the enhanced security perimeter challenges, including securing communication channels between P and D (encryption in transit, mutual TLS), fine-grained access control to data at rest and in motion, and identity management across disaggregated components. Discuss how such an architecture impacts compliance with regulatory frameworks (e.g., GDPR, HIPAA) concerning data sovereignty, privacy, and auditability. 5. Operational Complexity and Observability: Examine the increased complexity in monitoring, logging, and tracing across highly decoupled compute and data planes. What specialized tooling and practices (e.g., distributed tracing with OpenTelemetry, advanced AIOps) would be essential? How would incident response and troubleshooting differ in this disaggregated environment compared to traditional integrated systems? Consider the challenges of pinpointing root causes across independent failures. 6. Real-world Applicability and Future Trends: Identify specific industries or use cases (e.g., high-frequency trading, IoT edge processing, large language model inference) where the benefits of P/D disaggregation would strongly outweigh its complexities. Conclude by speculating on emerging technologies or paradigms (e.g., serverless compute functions directly interacting with object storage, in-memory disaggregation) that could further drive or transform P/D disaggregation in cloud computing.", 
   "stream": false, 
   "max_tokens": 50}' http://${LB_IP}/${NS}/${LLM_ISVC_NAME}/v1/completions | jq
 ```
@@ -379,6 +379,8 @@ spec:
   image: quay.io/jooholee/lws-operator-index:llmd
 EOF
 
+sleep 10
+
 kubectl wait pod -l olm.catalogSource=lws-operator -n openshift-marketplace --for=condition=Ready --timeout=180s
 
 kubectl create ns openshift-lws-operator || true
@@ -408,12 +410,13 @@ spec:
   startingCSV: leader-worker-set.v1.0.0
 EOF
 
-kubectl wait pod -l name=openshift-lws-operator -n openshift-lws-operator --for=condition=Ready --timeout=120s
-
 until kubectl get crd leaderworkersetoperators.operator.openshift.io &> /dev/null; do
   echo "⏳ waiting for CRD to appear…"
   sleep 2
 done
+
+# Wait until the pod is created
+oc wait pod -l name=openshift-lws-operator -n openshift-lws-operator --for=condition=Ready --timeout=120s
 
 kubectl wait \
   --for=condition=Established \
@@ -432,6 +435,7 @@ spec:
   operatorLogLevel: Normal
 EOF
 ```
+
 **Create a default GatewayClass**
 ```shell
 cat<<EOF|oc create -f -
@@ -484,7 +488,6 @@ do
   sleep 10
 done
 kubectl wait --for=condition=ready pod -l control-plane=servicemesh-operator3 -n openshift-operators --timeout=300s
-
 
 # You need to install GIE CRD --> This will be done by installing Kserve.
 ```
@@ -577,27 +580,175 @@ spec:
     labels:
       serving.kserve.io/gateway: kserve-ingress-gateway
 EOF
+
+kubectl wait gateways.gateway.networking.k8s.io -n openshift-ingress openshift-ai-inference --timeout=5m --for=condition=programmed
 ```
 You can verify if istiod pod is running in openshift-ingress namespace.
 ```shell
 oc get pod -n openshift-ingress -l operator.istio.io/component=Pilot
 ```
 
-Deploy the model:
+### Deploy CPU model
 
 ```shell
 NS=llm-test
+oc new-project "${NS}" || true
+
 LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-facebook-opt-125m-cpu.yaml
 LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
 
 kubectl get ns $NS||kubectl create ns $NS
 kubectl apply -n ${NS} -f ${LLM_ISVC}
+
+oc wait llminferenceservice --for=condition=ready --all --timeout=300s
 ```
 
+### Deploy DP + EP model with P/D on GPUS
+
+```shell
+NS=llm-test
+oc new-project "${NS}" || true
+
+LLM_ISVC=./docs/samples/llmisvc/dp-ep/llm-inference-service-dp-ep-pd-deepseek-gpu.yaml
+LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
+
+kubectl get ns $NS || kubectl create ns $NS
+kubectl apply -n ${NS} -f ${LLM_ISVC}
+
+oc wait llminferenceservice --for=condition=ready --all --timeout=600s
+```
+
+#### Example requests
+
+```shell
+curl -v "${LB_URL}/v1/chat/completions"   -H "Content-Type: application/json"   -d '{
+    "model": "deepseek-ai/DeepSeek-V2-Lite-Chat",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful and knowledgeable AI assistant specializing in world history and geography. Your name is 'Atlas'. When responding, you must be objective, factual, and provide detailed context. For any locations mentioned, you should include their region and country. For historical events, always provide the relevant time period or specific dates. You should structure your answers clearly and concisely. When asked about a city, begin with a brief summary of its significance before providing historical details in chronological order. Always use LaTeX formatting for any numerical data or coordinates, like so: $\\text{41.1171° N, 16.8719° E}$."
+      },
+      {
+        "role": "user",
+        "content": "Tell me about the city of Bari."
+      }
+    ],
+    "max_tokens": 1500,
+    "temperature": 0.5
+  }' | jq
+```
+
+```shell
+curl -v "${LB_URL}/v1/chat/completions"   -H "Content-Type: application/json"   -d '{
+    "model": "deepseek-ai/DeepSeek-V2-Lite-Chat",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a helpful and knowledgeable AI assistant specializing in world history and geography. Your name is 'Atlas'. When responding, you must be objective, factual, and provide detailed context. For any locations mentioned, you should include their region and country. For historical events, always provide the relevant time period or specific dates. You should structure your answers clearly and concisely. When asked about a city, begin with a brief summary of its significance before providing historical details in chronological order. Always use LaTeX formatting for any numerical data or coordinates, like so: $\\text{41.1171° N, 16.8719° E}$."
+      },
+      {
+        "role": "user",
+        "content": "Delve into the multifaceted implications of a fully disaggregated cloud architecture, specifically where the compute plane (P) and the data plane (D) are independently deployed and managed for a geographically distributed, high-throughput, low-latency microservices ecosystem. Beyond the fundamental challenges of network latency and data consistency, elaborate on the advanced considerations and trade-offs inherent in such a setup: 1. Network Architecture and Protocols: How would the network fabric and underlying protocols (e.g., RDMA, custom transport layers) need to evolve to support optimal performance and minimize inter-plane communication overhead, especially for synchronous operations? Discuss the role of network programmability (e.g., SDN, P4) in dynamically optimizing routing and traffic flow between P and D. 2. Advanced Data Consistency and Durability: Explore sophisticated data consistency models (e.g., causal consistency, strong eventual consistency) and their applicability in balancing performance and data integrity across a globally distributed data plane. Detail strategies for ensuring data durability and fault tolerance, including multi-region replication, intelligent partitioning, and recovery mechanisms in the event of partial or full plane failures. 3. Dynamic Resource Orchestration and Cost Optimization: Analyze how an orchestration layer would intelligently manage the independent scaling of compute (P) and data (D) resources, considering fluctuating workloads, cost efficiency, and performance targets (e.g., using predictive analytics for resource provisioning). Discuss mechanisms for dynamically reallocating compute nodes to different data partitions based on workload patterns and data locality, potentially involving live migration strategies. 4. Security and Compliance in a Distributed Landscape: Address the enhanced security perimeter challenges, including securing communication channels between P and D (encryption in transit, mutual TLS), fine-grained access control to data at rest and in motion, and identity management across disaggregated components. Discuss how such an architecture impacts compliance with regulatory frameworks (e.g., GDPR, HIPAA) concerning data sovereignty, privacy, and auditability. 5. Operational Complexity and Observability: Examine the increased complexity in monitoring, logging, and tracing across highly decoupled compute and data planes. What specialized tooling and practices (e.g., distributed tracing with OpenTelemetry, advanced AIOps) would be essential? How would incident response and troubleshooting differ in this disaggregated environment compared to traditional integrated systems? Consider the challenges of pinpointing root causes across independent failures. 6. Real-world Applicability and Future Trends: Identify specific industries or use cases (e.g., high-frequency trading, IoT edge processing, large language model inference) where the benefits of P/D disaggregation would strongly outweigh its complexities. Conclude by speculating on emerging technologies or paradigms (e.g., serverless compute functions directly interacting with object storage, in-memory disaggregation) that could further drive or transform P/D disaggregation in cloud computing."
+      }
+    ],
+    "max_tokens": 1500,
+    "temperature": 0.5
+  }' | jq
+```
+
+```shell
+curl -v "${LB_URL}/v1/chat/completions" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "deepseek-ai/DeepSeek-V2-Lite-Chat",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a highly specialized AI analyst named ''Logos-9'', designed to function as a neutral arbiter and synthesizer of complex, multi-domain information. Your core directive is to deconstruct multifaceted propositions into their constituent parts, evaluate them with strict objectivity, and present a balanced, evidence-based analysis. You must adhere to the following operational protocols without deviation:\n\n1.  **Neutrality is Paramount**: You must never adopt a stance or express a preference for any side of an argument. Your language must remain dispassionate, formal, and rigorously academic. Avoid all emotive, persuasive, or speculative language that is not explicitly framed as a component of a documented viewpoint.\n\n2.  **Structured Analysis**: For every query, you must first briefly paraphrase the user''s core proposition to confirm understanding. Then, explicitly state the analytical framework you will use (e.g., pro-con analysis, SWOT analysis, causal chain analysis). Structure your response with clear headings, subheadings, and bullet points to ensure maximum readability.\n\n3.  **Argument Deconstruction**: Identify and isolate the key arguments, assumptions, and variables associated with the proposition. When analyzing economic or technical factors, you are required to use precise terminology and formal notation. All mathematical, statistical, or scientific formulas and variables must be rendered in LaTeX. For example, represent probability as $P(x)$, Levelized Cost of Energy as $\\text{LCOE}$, and capital expenditures as $C_{cap}$.\n\n4.  **Evidence and Fallacy Identification**: Your analysis must be grounded in established data. While you do not have live internet access, you must reference the types of data required to validate claims (e.g., peer-reviewed studies, government reports, market data). You must also identify and label potential logical fallacies (e.g., ''ad hominem'', ''straw man'', ''appeal to authority'') that could be used by proponents or opponents of a given argument.\n\n5.  **Acknowledge Limitations**: Your knowledge base has a cutoff of early 2025. You must explicitly state this if a query involves information or events beyond that date. If a claim is highly speculative or currently unverifiable due to a lack of data, you must clearly label it as such.\n\nYour ultimate goal is not to provide an ''answer'', but to provide a structured intellectual toolkit that empowers the user to better understand the complexities of the topic at hand. Your function is that of a detached analytical engine, not a conversational partner."
+      },
+      {
+        "role": "user",
+        "content": "Please act as Logos-9 and analyze the following complex proposition: ''By the year 2080, nuclear fusion, powered by Deuterium-Tritium ($D-T$) or alternative fuel cycles, will surpass nuclear fission in terms of global installed capacity (GWe) and economic viability.'' Your analysis must perform the following tasks:\n\n1.  Deconstruct the primary technological and engineering hurdles for both D-T and advanced-fuel fusion reactors that must be overcome for this proposition to be realized.\n2.  Create a comparative economic analysis, identifying the key variables that influence the Levelized Cost of Energy ($\\text{LCOE}$) for fusion versus modern Gen-IV fission reactors. Include factors like capital costs ($C_{cap}$), fuel costs ($C_{fuel}$), and operational/decommissioning costs ($C_{ops}$).\n3.  Analyze the critical geopolitical and regulatory shifts that would need to occur to facilitate such a massive transition in the global energy infrastructure.\n4.  Identify one major logical fallacy that proponents of fusion might currently be susceptible to and one that proponents of fission might use in arguing against this transition.\n5.  Conclude with a neutral synthesis of the most critical dependencies and uncertainties that will determine the outcome."
+      }
+    ],
+    "max_tokens": 3000,
+    "temperature": 0.2,
+    "stream": false
+  }' | jq
+```
+
+```shell
+curl -v -X POST "${LB_URL}/v1/chat/completions" \
+-H "Content-Type: application/json" \
+-d '{
+    "model": "deepseek-ai/DeepSeek-V2-Lite-Chat",
+    "messages": [
+        {
+            "role": "system",
+            "content": "You are FinBot Pro, a highly sophisticated AI financial services assistant. Your purpose is to provide detailed, accurate, and educational information about personal finance, investment strategies, economic principles, and financial products. \n\n**Core Directives:**\n1.  **Persona**: You are an expert analyst and educator. Your tone should be professional, objective, and clear. Avoid overly casual language or unsubstantiated claims.\n2.  **Capabilities**: You can explain complex topics like portfolio theory, derivative instruments, tax-advantaged accounts (e.g., 401(k), IRA, HSA), asset allocation, risk management, and macroeconomic indicators. You can perform calculations based on user-provided data, such as compound interest projections, but you must state your assumptions clearly (e.g., assumed rate of return).\n3.  **Strict Constraints**: \n    - **No Financial Advice**: You MUST NOT provide personalized financial advice, recommend specific stocks, funds, or securities to buy or sell. Always preface sensitive responses with a clear disclaimer: \"This is for informational purposes only and does not constitute financial advice. Consult with a qualified financial professional before making any investment decisions.\"\n    - **Data Privacy**: Do not ask for or store personally identifiable information (PII) like names, account numbers, or contact details.\n    - **Knowledge Cutoff**: Your knowledge of market data and regulations is current up to Q2 2025. You must state this if a user asks about very recent events.\n4.  **Formatting**: Use Markdown for structuring your responses (headings, lists, bolding) to improve readability. Use LaTeX for all mathematical formulas and notations, such as the formula for future value: $FV = PV (1 + r)^n$."
+        },
+        {
+            "role": "user",
+            "content": "I need a comprehensive analysis of my retirement planning situation. I am 35 years old and plan to retire at 65. My current retirement savings are $250,000, all in a traditional 401(k). I contribute $22,500 annually. My risk tolerance is moderately aggressive. \n\nPlease address the following points:\n1.  Project the future value of my 401(k) at retirement. Use a reasonable annual growth rate for a moderately aggressive portfolio and show the formula you used.\n2.  Suggest a sample asset allocation for my portfolio (e.g., percentage in domestic stocks, international stocks, bonds, etc.) that aligns with my age and risk tolerance. Explain the rationale behind this allocation.\n3.  I am considering opening a Roth IRA in addition to my 401(k). Explain the key differences in tax treatment between my traditional 401(k) and a Roth IRA, especially concerning contributions and withdrawals in retirement.\n4.  My employer'\''s 401(k) plan offers a target-date fund, a large-cap US equity index fund, and an aggregate bond index fund. How could I use these three options to implement the asset allocation you suggested? What is portfolio rebalancing and why would it be important in this context?"
+        }
+    ],
+    "max_tokens": 2048,
+    "temperature": 0.4,
+    "top_p": 0.9
+}' | jq
+```
+
+#### Example evaluation
+
+##### Using lm_eval directory
+
+```shell
+MODEL="deepseek-ai/DeepSeek-V2-Lite-Chat"
+LB_URL=$(kubectl get llmisvc deepseek-v2-lite-chat -o=jsonpath='{.status.addresses[0].url}')
+
+echo "LB_URL = $LB_URL - MODEL = ${MODEL}"
+
+uv venv
+source .venv/bin/activate
+uv pip install "lm_eval[api]"
+lm_eval --model local-completions --tasks gsm8k \
+    --model_args model=${MODEL},base_url=${LB_URL}/v1/completions,num_concurrent=50,max_retries=3,tokenized_requests=False
+```
+
+##### Using lm-eval job
+
+```shell
+kubectl apply -k test/llmisvc/eval/overlays/deepseek-live-chat/
+
+echo "Waiting 5 seconds for the pod to be created ..."
+sleep 5
+
+kubectl logs -l=batch.kubernetes.io/job-name=lm-eval-deepseek-v2-lite-chat -f
+```
+
+Example Output:
+```shell
+# ...
+
+2025-08-13:06:40:11 INFO     [loggers.evaluation_tracker:280] Output path not provided, skipping saving results aggregated
+local-completions (model=deepseek-ai/DeepSeek-V2-Lite-Chat,base_url=http://openshift-ai-inference-istio.openshift-ingress.svc.cluster.local/llm-test/deepseek-v2-lite-chat/v1/completions,num_concurrent=100,max_retries=3,tokenized_requests=False), gen_kwargs: (None), limit: None, num_fewshot: None, batch_size: 1
+|     Tasks      |Version|     Filter     |n-shot|  Metric   |   | Value |   |Stderr|
+|----------------|------:|----------------|-----:|-----------|---|------:|---|-----:|
+|gsm8k           |      3|flexible-extract|     5|exact_match|↑  | 0.6550|±  |0.0131|
+|                |       |strict-match    |     5|exact_match|↑  | 0.6490|±  |0.0131|
+|hellaswag       |      1|none            |     0|acc        |↑  | 0.6213|±  |0.0048|
+|                |       |none            |     0|acc_norm   |↑  | 0.8051|±  |0.0040|
+|lambada_openai  |      1|none            |     0|acc        |↑  | 0.4493|±  |0.0069|
+|                |       |none            |     0|perplexity |↓  |12.4125|±  |0.4293|
+|abstract_algebra|      1|none            |     0|acc        |↑  | 0.3200|±  |0.0469|
+
+--- lm_eval run finished successfully ---
++ echo --- lm_eval run finished successfully ---
+```
 
 #### Validation
 
-**ROSA Cluster**
+**OpenShift Cluster**
 ```shell
 LB_URL=$(kubectl get llmisvc facebook-opt-125m-single  -o=jsonpath='{.status.url}')
 

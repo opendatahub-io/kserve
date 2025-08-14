@@ -17,7 +17,6 @@ limitations under the License.
 package llmisvc_test
 
 import (
-	"context"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -429,38 +428,4 @@ func TestFetchReferencedGateways(t *testing.T) {
 			g.Expect(gateways).To(HaveLen(tt.expectedCount))
 		})
 	}
-}
-
-func ensureGatewayReady(ctx context.Context, c client.Client, gateway *gatewayapi.Gateway) {
-	// Get the current gateway
-	createdGateway := &gatewayapi.Gateway{}
-	Expect(c.Get(ctx, client.ObjectKeyFromObject(gateway), createdGateway)).To(Succeed())
-
-	// Set the status conditions to simulate the Gateway controller making it ready
-	createdGateway.Status.Conditions = []metav1.Condition{
-		{
-			Type:               string(gatewayapi.GatewayConditionAccepted),
-			Status:             metav1.ConditionTrue,
-			Reason:             "Accepted",
-			Message:            "Gateway accepted",
-			LastTransitionTime: metav1.Now(),
-		},
-		{
-			Type:               string(gatewayapi.GatewayConditionProgrammed),
-			Status:             metav1.ConditionTrue,
-			Reason:             "Ready",
-			Message:            "Gateway is ready",
-			LastTransitionTime: metav1.Now(),
-		},
-	}
-
-	// Update the status
-	Expect(c.Status().Update(ctx, createdGateway)).To(Succeed())
-
-	// Verify the gateway is now ready
-	Eventually(func(g Gomega, ctx context.Context) bool {
-		updatedGateway := &gatewayapi.Gateway{}
-		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(gateway), updatedGateway)).To(Succeed())
-		return llmisvc.IsGatewayReady(updatedGateway)
-	}).WithContext(ctx).Should(BeTrue())
 }

@@ -79,6 +79,7 @@ go-lint: golangci-lint
 py-lint: $(FLAKE8_LINT)
 	$(FLAKE8_LINT) --config=.flake8 .
 
+GIE_VERSION=v0.5.0
 # Generate manifests e.g. CRD, RBAC etc.
 manifests: controller-gen yq
 	@$(CONTROLLER_GEN) $(CRD_OPTIONS) paths=./pkg/apis/serving/... output:crd:dir=config/crd/full
@@ -132,7 +133,7 @@ manifests: controller-gen yq
 	cp config/crd/minimal/* charts/kserve-crd-minimal/templates/
 	rm charts/kserve-crd-minimal/templates/kustomization.yaml
 
-	kubectl kustomize config/crd/external/gie > config/llmisvc/gie.yaml
+	kubectl kustomize https://github.com/kubernetes-sigs/gateway-api-inference-extension/config/crd?ref=$(GIE_VERSION) > config/crd/external/gateway-inference-extension/gateway-inference-extension.yaml
 
 # Generate code
 generate: controller-gen helm-docs

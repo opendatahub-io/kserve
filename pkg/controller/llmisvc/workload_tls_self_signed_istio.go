@@ -102,6 +102,13 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForWorkload
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
 		return Delete(ctx, r, llmSvc, expected)
 	}
+	if expected.Spec.GetHost() == "" {
+		log.FromContext(ctx).Info("Warning: Istio shadow service is not present yet, continue without reconciling the associated DestinationRule")
+		// Host is required, and this happens when the shadow service hasn't been created yet, to avoid having warning
+		// events that are temporary and will not make sense for users just return without reconciling. The resource
+		// will get re-queued once the shadow service is created.
+		return nil
+	}
 	return Reconcile(ctx, r, llmSvc, &istioapi.DestinationRule{}, expected, semanticDestinationRuleIsEqual)
 }
 

@@ -380,3 +380,123 @@ func WithGatewayCondition(conditionType string, status metav1.ConditionStatus, r
 func WithProgrammedCondition(status metav1.ConditionStatus, reason, message string) GatewayOption {
 	return WithGatewayCondition(string(gatewayapi.GatewayConditionProgrammed), status, reason, message)
 }
+
+// HTTPRoute Status Options
+
+// WithHTTPRouteParentStatus adds parent status to the HTTPRoute
+func WithHTTPRouteParentStatus(parentRef gatewayapi.ParentReference, controllerName string, conditions ...metav1.Condition) HTTPRouteOption {
+	return func(route *gatewayapi.HTTPRoute) {
+		parentStatus := gatewayapi.RouteParentStatus{
+			ParentRef:      parentRef,
+			ControllerName: gatewayapi.GatewayController(controllerName),
+			Conditions:     conditions,
+		}
+		route.Status.RouteStatus.Parents = append(route.Status.RouteStatus.Parents, parentStatus)
+	}
+}
+
+// WithHTTPRouteReadyStatus sets the HTTPRoute status to ready for all parent refs
+func WithHTTPRouteReadyStatus(controllerName string) HTTPRouteOption {
+	return func(route *gatewayapi.HTTPRoute) {
+		if len(route.Spec.ParentRefs) > 0 {
+			route.Status.RouteStatus.Parents = make([]gatewayapi.RouteParentStatus, len(route.Spec.ParentRefs))
+			for i, parentRef := range route.Spec.ParentRefs {
+				route.Status.RouteStatus.Parents[i] = gatewayapi.RouteParentStatus{
+					ParentRef:      parentRef,
+					ControllerName: gatewayapi.GatewayController(controllerName),
+					Conditions: []metav1.Condition{
+						{
+							Type:               string(gatewayapi.RouteConditionAccepted),
+							Status:             metav1.ConditionTrue,
+							Reason:             "Accepted",
+							Message:            "HTTPRoute accepted",
+							LastTransitionTime: metav1.Now(),
+						},
+						{
+							Type:               string(gatewayapi.RouteConditionResolvedRefs),
+							Status:             metav1.ConditionTrue,
+							Reason:             "ResolvedRefs",
+							Message:            "HTTPRoute references resolved",
+							LastTransitionTime: metav1.Now(),
+						},
+					},
+				}
+			}
+		}
+	}
+}
+
+// WithGatewayReadyStatus sets the Gateway status to ready (Accepted and Programmed)
+func WithGatewayReadyStatus() GatewayOption {
+	return func(gw *gatewayapi.Gateway) {
+		gw.Status.Conditions = []metav1.Condition{
+			{
+				Type:               string(gatewayapi.GatewayConditionAccepted),
+				Status:             metav1.ConditionTrue,
+				Reason:             "Accepted",
+				Message:            "Gateway accepted",
+				LastTransitionTime: metav1.Now(),
+			},
+			{
+				Type:               string(gatewayapi.GatewayConditionProgrammed),
+				Status:             metav1.ConditionTrue,
+				Reason:             "Ready",
+				Message:            "Gateway is ready",
+				LastTransitionTime: metav1.Now(),
+			},
+		}
+	}
+}
+
+// Advanced fixture patterns for custom conditions
+
+// WithCustomHTTPRouteConditions allows setting custom conditions on HTTPRoute parent status
+func WithCustomHTTPRouteConditions(parentRef gatewayapi.ParentReference, controllerName string, conditions ...metav1.Condition) HTTPRouteOption {
+	return WithHTTPRouteParentStatus(parentRef, controllerName, conditions...)
+}
+
+// WithGatewayNotReadyStatus sets the Gateway status to not ready (for negative testing)
+func WithGatewayNotReadyStatus(reason, message string) GatewayOption {
+	return func(gw *gatewayapi.Gateway) {
+		gw.Status.Conditions = []metav1.Condition{
+			{
+				Type:               string(gatewayapi.GatewayConditionAccepted),
+				Status:             metav1.ConditionTrue,
+				Reason:             "Accepted",
+				Message:            "Gateway accepted",
+				LastTransitionTime: metav1.Now(),
+			},
+			{
+				Type:               string(gatewayapi.GatewayConditionProgrammed),
+				Status:             metav1.ConditionFalse,
+				Reason:             reason,
+				Message:            message,
+				LastTransitionTime: metav1.Now(),
+			},
+		}
+	}
+}
+
+// WithHTTPRouteNotReadyStatus sets the HTTPRoute status to not ready (for negative testing)
+func WithHTTPRouteNotReadyStatus(controllerName, reason, message string) HTTPRouteOption {
+	return func(route *gatewayapi.HTTPRoute) {
+		if len(route.Spec.ParentRefs) > 0 {
+			route.Status.RouteStatus.Parents = make([]gatewayapi.RouteParentStatus, len(route.Spec.ParentRefs))
+			for i, parentRef := range route.Spec.ParentRefs {
+				route.Status.RouteStatus.Parents[i] = gatewayapi.RouteParentStatus{
+					ParentRef:      parentRef,
+					ControllerName: gatewayapi.GatewayController(controllerName),
+					Conditions: []metav1.Condition{
+						{
+							Type:               string(gatewayapi.RouteConditionAccepted),
+							Status:             metav1.ConditionFalse,
+							Reason:             reason,
+							Message:            message,
+							LastTransitionTime: metav1.Now(),
+						},
+					},
+				}
+			}
+		}
+	}
+}
