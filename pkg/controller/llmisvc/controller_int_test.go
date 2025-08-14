@@ -40,7 +40,6 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
-	"github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 	. "github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 	. "github.com/kserve/kserve/pkg/testing"
 )
@@ -141,7 +140,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			Expect(expectedDeployment).To(HaveContainerImage("quay.io/pierdipi/vllm-cpu:latest")) // Coming from preset
 			Expect(expectedDeployment).To(BeOwnedBy(llmSvc))
 
-			EnsureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
+			EnsureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc, InCluster())
 
 			Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
 				g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
@@ -207,7 +206,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
 				Expect(expectedHTTPRoute).To(HaveBackendRefs(svcName + "-inference-pool"))
 
-				EnsureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
+				EnsureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc, InCluster())
 
 				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
 					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
@@ -610,7 +609,7 @@ func ignoreNoMatch(err error) error {
 // ensureGatewayReady sets up Gateway status conditions to simulate a ready Gateway
 // Only runs in non-cluster mode
 func ensureGatewayReady(ctx context.Context, c client.Client, gateway *gatewayapi.Gateway) {
-	if fixture.InCluster() {
+	if InCluster() {
 		return
 	}
 
@@ -650,7 +649,7 @@ func ensureGatewayReady(ctx context.Context, c client.Client, gateway *gatewayap
 // ensureHTTPRouteReady sets up HTTPRoute status conditions to simulate a ready HTTPRoute
 // Only runs in non-cluster mode
 func ensureHTTPRouteReady(ctx context.Context, c client.Client, route *gatewayapi.HTTPRoute) {
-	if fixture.InCluster() {
+	if InCluster() {
 		return
 	}
 

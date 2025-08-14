@@ -18,8 +18,6 @@ package fixture
 
 import (
 	"context"
-	"log"
-	"os"
 
 	"github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -35,19 +33,9 @@ const (
 	DefaultGatewayControllerName = "gateway.networking.k8s.io/gateway-controller"
 )
 
-func InCluster() bool {
-	_, err := os.Stat("/var/run/secrets/kubernetes.io/serviceaccount/token")
-	if err != nil {
-		log.Println("Not in cluster")
-	} else {
-		log.Println("In cluster, skipping")
-	}
-	return err == nil
-}
-
 // Only runs in non-cluster mode
-func EnsureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, llmSvc *v1alpha1.LLMInferenceService) {
-	if InCluster() {
+func EnsureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, llmSvc *v1alpha1.LLMInferenceService, inCluster bool) {
+	if inCluster {
 		return
 	}
 

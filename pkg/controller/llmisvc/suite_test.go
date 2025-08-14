@@ -21,6 +21,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/utils/ptr"
 
 	"github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 	pkgtest "github.com/kserve/kserve/pkg/testing"
@@ -29,6 +30,10 @@ import (
 func TestLLMInferenceServiceController(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "LLMInferenceService Controller Suite")
+}
+
+func InCluster() bool {
+	return envTest.Environment.UseExistingCluster == ptr.To[bool](true)
 }
 
 var envTest *pkgtest.Client
