@@ -25,7 +25,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
-	"github.com/kserve/kserve/pkg/credentials/s3"
+	"github.com/kserve/kserve/pkg/credentials/hf"
 	"github.com/kserve/kserve/pkg/types"
 	"github.com/kserve/kserve/pkg/utils"
 )
@@ -64,10 +64,10 @@ func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LL
 		return r.attachOciModelArtifact(modelUri, podSpec, storageConfig)
 
 	case constants.HfURIPrefix:
-		return r.attachStorageInitializer(modelUri, podSpec, storageConfig)
+		return r.attachHfModelArtifact(llmSvc.Namespace, llmSvc.Annotations, modelUri, podSpec, storageConfig)
 
 	case constants.S3URIPrefix:
-		return r.attachS3ModelArtifact(modelUri, podSpec, storageConfig)
+		return r.attachS3ModelArtifact(llmSvc.Namespace, llmSvc.Annotations, modelUri, podSpec, storageConfig)
 	}
 
 	return fmt.Errorf("unsupported schema in model URI: %s", modelUri)
@@ -119,6 +119,8 @@ func (r *LLMInferenceServiceReconciler) attachPVCModelArtifact(modelUri string, 
 // Model downloading is delegated to vLLM by passing the S3 URI and other required arguments.
 //
 // Parameters:
+//   - podNamespace: The namespace in which the pod and llmisvc exist.
+//   - podAnnotations: The annotations present in the pod and llmisvc.
 //   - modelUri: The URI of the model in the S3-compatible object store.
 //   - podSpec: The PodSpec to which the S3 model should be attached.
 //   - storageConfig: The storage initializer configuration.
@@ -126,15 +128,67 @@ func (r *LLMInferenceServiceReconciler) attachPVCModelArtifact(modelUri string, 
 // Returns:
 //
 //	An error if the configuration fails, otherwise nil.
-func (r *LLMInferenceServiceReconciler) attachS3ModelArtifact(modelUri string, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
+func (r *LLMInferenceServiceReconciler) attachS3ModelArtifact(podNamespace string, podAnnotations map[string]string, modelUri string, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
+	if err := r.attachStorageInitializer(modelUri, podSpec, storageConfig); err != nil {
+		return err
+	}
+	if initContainer := utils.GetInitContainerWithName(podSpec, constants.StorageInitializerContainerName); initContainer != nil && r.CredentialBuilder != nil {
+		// Check for AWS IAM Role for Service Account or AWS IAM User Credentials
+		if err := r.CredentialBuilder.CreateSecretVolumeAndEnv(
+			podNamespace,
+			podAnnotations,
+			podSpec.ServiceAccountName,
+			initContainer,
+			&podSpec.Volumes,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// attachHfModelArtifact configures a PodSpec to use a model stored in the hugging face hub.
+// Model downloading is delegated to vLLM by passing the HF URI and other required arguments.
+//
+// Parameters:
+//   - podNamespace: The namespace in which the pod and llmisvc exist.
+//   - podAnnotations: The annotations present in the pod and llmisvc.
+//   - modelUri: The URI of the model in hugging face hub.
+//   - podSpec: The PodSpec to which the HF model should be attached.
+//   - storageConfig: The storage initializer configuration.
+//
+// Returns:
+//
+//	An error if the configuration fails, otherwise nil.
+func (r *LLMInferenceServiceReconciler) attachHfModelArtifact(podNamespace string, podAnnotations map[string]string, modelUri string, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
 	if err := r.attachStorageInitializer(modelUri, podSpec, storageConfig); err != nil {
 		return err
 	}
 	if initContainer := utils.GetInitContainerWithName(podSpec, constants.StorageInitializerContainerName); initContainer != nil {
-		initContainer.Env = append(initContainer.Env, corev1.EnvVar{
-			Name:  s3.AWSAnonymousCredential,
-			Value: "true",
-		})
+		// Check for env variable with secret ref
+		for _, container := range podSpec.Containers {
+			if container.Name == "main" {
+				for _, envvar := range container.Env {
+					if envvar.Name == hf.HFTokenKey {
+						initContainer.Env = append(initContainer.Env, envvar)
+						return nil
+					}
+				}
+			}
+		}
+		// Check for service account with secret ref
+		if r.CredentialBuilder != nil {
+			if err := r.CredentialBuilder.CreateSecretVolumeAndEnv(
+				podNamespace,
+				podAnnotations,
+				podSpec.ServiceAccountName,
+				initContainer,
+				&podSpec.Volumes,
+			); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
