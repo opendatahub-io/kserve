@@ -56,10 +56,6 @@ func (in *LLMInferenceService) GetConditionSet() apis.ConditionSet {
 	return llmInferenceServiceCondSet
 }
 
-func (in *LLMInferenceService) MarkWorkloadNotReady(reason, messageFormat string, messageA ...interface{}) {
-	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(WorkloadReady, reason, messageFormat, messageA...)
-}
-
 func (in *LLMInferenceService) MarkMainWorkloadReady() {
 	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(MainWorkloadReady)
 }
@@ -98,7 +94,6 @@ func (in *LLMInferenceService) DetermineWorkloadReadiness() {
 		in.GetStatus().GetCondition(WorkerWorkloadReady),
 		in.GetStatus().GetCondition(PrefillWorkloadReady),
 		in.GetStatus().GetCondition(PrefillWorkerWorkloadReady),
-		in.GetStatus().GetCondition(SchedulerWorkloadReady),
 	}
 
 	for _, cond := range subConditions {
@@ -111,14 +106,6 @@ func (in *LLMInferenceService) DetermineWorkloadReadiness() {
 		}
 	}
 	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(WorkloadReady)
-}
-
-func (in *LLMInferenceService) MarkRouterNotReady(reason, messageFormat string, messageA ...interface{}) {
-	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(RouterReady, reason, messageFormat, messageA...)
-}
-
-func (in *LLMInferenceService) MarkRouterReady() {
-	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(RouterReady)
 }
 
 func (in *LLMInferenceService) MarkPresetsCombinedReady() {
@@ -157,6 +144,7 @@ func (in *LLMInferenceService) DetermineRouterReadiness() {
 	subConditions := []*apis.Condition{
 		in.GetStatus().GetCondition(GatewaysReady),
 		in.GetStatus().GetCondition(HTTPRoutesReady),
+		in.GetStatus().GetCondition(SchedulerWorkloadReady),
 	}
 
 	for _, cond := range subConditions {
