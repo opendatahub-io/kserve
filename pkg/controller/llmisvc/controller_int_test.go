@@ -40,6 +40,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
+	"github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 	. "github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 	. "github.com/kserve/kserve/pkg/testing"
 )
@@ -607,7 +608,12 @@ func ignoreNoMatch(err error) error {
 }
 
 // ensureGatewayReady sets up Gateway status conditions to simulate a ready Gateway
+// Only runs in non-cluster mode
 func ensureGatewayReady(ctx context.Context, c client.Client, gateway *gatewayapi.Gateway) {
+	if fixture.InCluster() {
+		return
+	}
+
 	// Get the current gateway
 	createdGateway := &gatewayapi.Gateway{}
 	Expect(c.Get(ctx, client.ObjectKeyFromObject(gateway), createdGateway)).To(Succeed())
@@ -642,7 +648,12 @@ func ensureGatewayReady(ctx context.Context, c client.Client, gateway *gatewayap
 }
 
 // ensureHTTPRouteReady sets up HTTPRoute status conditions to simulate a ready HTTPRoute
+// Only runs in non-cluster mode
 func ensureHTTPRouteReady(ctx context.Context, c client.Client, route *gatewayapi.HTTPRoute) {
+	if fixture.InCluster() {
+		return
+	}
+
 	// Get the current HTTPRoute
 	createdRoute := &gatewayapi.HTTPRoute{}
 	Expect(c.Get(ctx, client.ObjectKeyFromObject(route), createdRoute)).To(Succeed())
