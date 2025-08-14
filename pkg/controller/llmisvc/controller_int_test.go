@@ -21,6 +21,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/util/retry"
@@ -147,6 +148,14 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			Expect(expectedDeployment).To(BeOwnedBy(llmSvc))
 
 			ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
+
+			Eventually(func(g Gomega, ctx context.Context) error {
+				routes, errList := managedRoutes(ctx, llmSvc)
+				g.Expect(errList).ToNot(HaveOccurred())
+				g.Expect(routes).To(HaveLen(1))
+				g.Expect(llmisvc.IsHTTPRouteReady(&routes[0])).To(BeTrue())
+				return nil
+			}).WithContext(ctx).Should(Succeed())
 
 			Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
 				g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
@@ -720,6 +729,7 @@ func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, 
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
+		logf.FromContext(ctx).Info("Marking Gateway resources ready", "gateways", gateways)
 		for _, gateway := range gateways.Items {
 			// Update gateway status to ready
 			updatedGateway := gateway.DeepCopy()
@@ -734,6 +744,7 @@ func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, 
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
+		logf.FromContext(ctx).Info("Marking HTTPRoute resources ready", "routes", httpRoutes)
 		for _, route := range httpRoutes.Items {
 			// Update HTTPRoute status to ready
 			updatedRoute := route.DeepCopy()
@@ -743,6 +754,27 @@ func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, 
 
 		// Ensure at least one HTTPRoute was found and made ready
 		g.Expect(httpRoutes.Items).To(gomega.HaveLen(1), "Expected exactly one managed HTTPRoute")
+
+		schedulerListOpts := &client.ListOptions{
+			Namespace:     llmSvc.Namespace,
+			LabelSelector: labels.SelectorFromSet(llmisvc.SchedulerLabels(llmSvc)),
+		}
+		deployments := &appsv1.DeploymentList{}
+		err = c.List(ctx, deployments, schedulerListOpts)
+		if err != nil && !errors.IsNotFound(err) {
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		logf.FromContext(ctx).Info("Marking scheduler ready (if any)", "deployments", deployments)
+		for _, d := range deployments.Items {
+			// Update Deployment status to Available
+			dep := d.DeepCopy()
+			dep.Status.Conditions = append(dep.Status.Conditions, appsv1.DeploymentCondition{
+				Type:   appsv1.DeploymentAvailable,
+				Status: corev1.ConditionTrue,
+			})
+			g.Expect(c.Status().Update(ctx, dep)).To(gomega.Succeed())
+		}
 	}).WithContext(ctx).Should(gomega.Succeed())
 }
 

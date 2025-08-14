@@ -261,17 +261,38 @@ func EvaluateHTTPRouteReadiness(ctx context.Context, routes []*gatewayapi.HTTPRo
 	return notReadyRoutes
 }
 
-// IsHTTPRouteReady determines if an HTTPRoute is ready based on its status conditions
+// IsHTTPRouteReady determines if an HTTPRoute is ready based on its status conditions.
 func IsHTTPRouteReady(route *gatewayapi.HTTPRoute) bool {
-	// Check for the standard Gateway API "Accepted" condition
+	// Check for the standard Gateway API "Accepted" condition for each parent.
 	for _, condition := range route.Status.RouteStatus.Parents {
+		if len(condition.Conditions) == 0 {
+			return false
+		}
+		found := false
 		for _, parentCondition := range condition.Conditions {
 			if parentCondition.Type == string(gatewayapi.RouteConditionAccepted) {
-				return parentCondition.Status == metav1.ConditionTrue
+				if parentCondition.Status != metav1.ConditionTrue {
+					return false
+				}
+				found = true
 			}
+		}
+		if !found {
+			return false
 		}
 	}
 
-	// If no Accepted condition is found, HTTPRoute is considered not ready
-	return false
+	// HTTPRoute is ready only when _all_ parents have accepted the route.
+	return len(route.Status.RouteStatus.Parents) == len(route.Spec.ParentRefs)
+}
+
+func nonReadyHTTPRouteTopLevelCondition(route *gatewayapi.HTTPRoute) *metav1.Condition {
+	for _, condition := range route.Status.RouteStatus.Parents {
+		for _, parentCondition := range condition.Conditions {
+			if parentCondition.Type == string(gatewayapi.RouteConditionAccepted) && parentCondition.Status != metav1.ConditionTrue {
+				return &parentCondition
+			}
+		}
+	}
+	return nil
 }
