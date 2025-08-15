@@ -550,6 +550,7 @@ const (
 	HTTPRouteKind           = "HTTPRoute"
 	GatewayKind             = "Gateway"
 	ServiceKind             = "Service"
+	ServiceMonitorKind      = "ServiceMonitor"
 	KedaScaledObjectKind    = "ScaledObject"
 	OpenTelemetryCollector  = "OpenTelemetryCollector"
 )
