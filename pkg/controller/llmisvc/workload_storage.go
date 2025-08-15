@@ -17,6 +17,7 @@ limitations under the License.
 package llmisvc
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -43,7 +44,7 @@ import (
 // Returns:
 //
 //	An error if the configuration fails, otherwise nil.
-func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LLMInferenceService, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
+func (r *LLMInferenceServiceReconciler) attachModelArtifacts(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
 	modelUri := llmSvc.Spec.Model.URI.String()
 	schema, _, sepFound := strings.Cut(modelUri, "://")
 
@@ -64,10 +65,10 @@ func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LL
 		return r.attachOciModelArtifact(modelUri, podSpec, storageConfig)
 
 	case constants.HfURIPrefix:
-		return r.attachHfModelArtifact(llmSvc.Namespace, llmSvc.Annotations, modelUri, podSpec, storageConfig)
+		return r.attachHfModelArtifact(ctx, llmSvc.Namespace, llmSvc.Annotations, modelUri, podSpec, storageConfig)
 
 	case constants.S3URIPrefix:
-		return r.attachS3ModelArtifact(llmSvc.Namespace, llmSvc.Annotations, modelUri, podSpec, storageConfig)
+		return r.attachS3ModelArtifact(ctx, llmSvc.Namespace, llmSvc.Annotations, modelUri, podSpec, storageConfig)
 	}
 
 	return fmt.Errorf("unsupported schema in model URI: %s", modelUri)
@@ -78,7 +79,6 @@ func (r *LLMInferenceServiceReconciler) attachModelArtifacts(llmSvc *v1alpha1.LL
 // required supporting volumes and volume mounts are added to the PodSpec.
 //
 // Parameters:
-//   - ctx: The context for API calls and logging.
 //   - modelUri: The URI of the model in the OCI registry.
 //   - podSpec: The PodSpec to which the OCI model should be attached.
 //   - storageConfig: The storage initializer configuration.
@@ -119,6 +119,7 @@ func (r *LLMInferenceServiceReconciler) attachPVCModelArtifact(modelUri string, 
 // Model downloading is delegated to vLLM by passing the S3 URI and other required arguments.
 //
 // Parameters:
+//   - ctx: The context for API calls and logging.
 //   - podNamespace: The namespace in which the pod and llmisvc exist.
 //   - podAnnotations: The annotations present in the pod and llmisvc.
 //   - modelUri: The URI of the model in the S3-compatible object store.
@@ -128,13 +129,14 @@ func (r *LLMInferenceServiceReconciler) attachPVCModelArtifact(modelUri string, 
 // Returns:
 //
 //	An error if the configuration fails, otherwise nil.
-func (r *LLMInferenceServiceReconciler) attachS3ModelArtifact(podNamespace string, podAnnotations map[string]string, modelUri string, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
+func (r *LLMInferenceServiceReconciler) attachS3ModelArtifact(ctx context.Context, podNamespace string, podAnnotations map[string]string, modelUri string, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
 	if err := r.attachStorageInitializer(modelUri, podSpec, storageConfig); err != nil {
 		return err
 	}
 	if initContainer := utils.GetInitContainerWithName(podSpec, constants.StorageInitializerContainerName); initContainer != nil && r.CredentialBuilder != nil {
 		// Check for AWS IAM Role for Service Account or AWS IAM User Credentials
 		if err := r.CredentialBuilder.CreateSecretVolumeAndEnv(
+			ctx,
 			podNamespace,
 			podAnnotations,
 			podSpec.ServiceAccountName,
@@ -152,6 +154,7 @@ func (r *LLMInferenceServiceReconciler) attachS3ModelArtifact(podNamespace strin
 // Model downloading is delegated to vLLM by passing the HF URI and other required arguments.
 //
 // Parameters:
+//   - ctx: The context for API calls and logging.
 //   - podNamespace: The namespace in which the pod and llmisvc exist.
 //   - podAnnotations: The annotations present in the pod and llmisvc.
 //   - modelUri: The URI of the model in hugging face hub.
@@ -161,7 +164,7 @@ func (r *LLMInferenceServiceReconciler) attachS3ModelArtifact(podNamespace strin
 // Returns:
 //
 //	An error if the configuration fails, otherwise nil.
-func (r *LLMInferenceServiceReconciler) attachHfModelArtifact(podNamespace string, podAnnotations map[string]string, modelUri string, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
+func (r *LLMInferenceServiceReconciler) attachHfModelArtifact(ctx context.Context, podNamespace string, podAnnotations map[string]string, modelUri string, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
 	if err := r.attachStorageInitializer(modelUri, podSpec, storageConfig); err != nil {
 		return err
 	}
@@ -180,6 +183,7 @@ func (r *LLMInferenceServiceReconciler) attachHfModelArtifact(podNamespace strin
 		// Check for service account with secret ref
 		if r.CredentialBuilder != nil {
 			if err := r.CredentialBuilder.CreateSecretVolumeAndEnv(
+				ctx,
 				podNamespace,
 				podAnnotations,
 				podSpec.ServiceAccountName,
