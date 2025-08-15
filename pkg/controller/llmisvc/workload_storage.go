@@ -170,16 +170,15 @@ func (r *LLMInferenceServiceReconciler) attachHfModelArtifact(ctx context.Contex
 	}
 	if initContainer := utils.GetInitContainerWithName(podSpec, constants.StorageInitializerContainerName); initContainer != nil {
 		// Check for env variable with secret ref
-		for _, container := range podSpec.Containers {
-			if container.Name == "main" {
-				for _, envvar := range container.Env {
-					if envvar.Name == hf.HFTokenKey {
-						initContainer.Env = append(initContainer.Env, envvar)
-						return nil
-					}
+		if mainContainer := utils.GetContainerWithName(podSpec, "main"); mainContainer != nil {
+			for _, envvar := range mainContainer.Env {
+				if envvar.Name == hf.HFTokenKey {
+					initContainer.Env = append(initContainer.Env, envvar)
+					return nil
 				}
 			}
 		}
+
 		// Check for service account with secret ref
 		if r.CredentialBuilder != nil {
 			if err := r.CredentialBuilder.CreateSecretVolumeAndEnv(
