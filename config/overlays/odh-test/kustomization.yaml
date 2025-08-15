@@ -17,5 +17,4 @@ namespace: opendatahub
 # cp ../test/manager_image_patch.yaml manager_image_patch.yaml
 patches:
   - path: manager_image_patch.yaml
-
-
+ 

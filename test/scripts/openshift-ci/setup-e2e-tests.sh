@@ -196,8 +196,7 @@ oc apply -n kserve-ci-e2e-test -f <(
       "$PROJECT_ROOT/config/overlays/test/minio/minio-user-secret.yaml"
 )
 
-kustomize build $PROJECT_ROOT/config/overlays/test/clusterresources |
-  sed 's/ClusterServingRuntime/ServingRuntime/' |
+kustomize build $PROJECT_ROOT/config/overlays/odh-test/clusterresources |
   sed "s|kserve/sklearnserver:latest|${SKLEARN_IMAGE}|" |
   sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
   oc apply -n kserve-ci-e2e-test -f -
