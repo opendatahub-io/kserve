@@ -33,6 +33,8 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
 
+// reconcileMonitoringResources reconciles all monitoring-related resources for an LLMInferenceService,
+// including RBAC permissions, Prometheus operator monitors for the llm-d scheduler and the vLLM engine.
 func (r *LLMInferenceServiceReconciler) reconcileMonitoringResources(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("reconcileMonitoring")
 	ctx = log.IntoContext(ctx, logger)
@@ -54,6 +56,8 @@ func (r *LLMInferenceServiceReconciler) reconcileMonitoringResources(ctx context
 	return nil
 }
 
+// reconcileMetricsReaderRBAC creates and manages RBAC resources (ServiceAccount, Secret, ClusterRoleBinding)
+// required for metrics collection from LLMInferenceService components - specifically, for the scheduler.
 func (r *LLMInferenceServiceReconciler) reconcileMetricsReaderRBAC(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	log.FromContext(ctx).Info("Reconciling LLMInferenceService metrics reader RBAC for namespace")
 
@@ -75,16 +79,20 @@ func (r *LLMInferenceServiceReconciler) reconcileMetricsReaderRBAC(ctx context.C
 	return nil
 }
 
+// reconcileVLLMEngineMonitor creates and manages a PodMonitor resource to scrape metrics
+// from vLLM engine pods running within the LLMInferenceService.
 func (r *LLMInferenceServiceReconciler) reconcileVLLMEngineMonitor(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	log.FromContext(ctx).Info("Reconciling LLMInferenceService engine monitor")
 
 	monitor := r.expectedVLLMEngineMonitor(llmSvc)
 	if err := Reconcile[*v1alpha1.LLMInferenceService](ctx, r, nil, &monitoringv1.PodMonitor{}, monitor, semanticPodMonitorIsEqual); err != nil {
-		return fmt.Errorf("failed to reconcile VLLM engine monitor %s/%s: %w", monitor.GetNamespace(), monitor.GetName(), err)
+		return fmt.Errorf("failed to reconcile vLLM engine monitor %s/%s: %w", monitor.GetNamespace(), monitor.GetName(), err)
 	}
 	return nil
 }
 
+// reconcileSchedulerMonitor creates and manages a ServiceMonitor resource to scrape metrics
+// from the scheduler service of the LLMInferenceService.
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerMonitor(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	log.FromContext(ctx).Info("Reconciling LLMInferenceService scheduler monitor")
 
@@ -95,6 +103,8 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerMonitor(ctx context.Co
 	return nil
 }
 
+// expectedMetricsReaderServiceAccount returns the expected ServiceAccount configuration
+// for metrics collection. This is required to correctly scrape metrics from llm-d scheduler.
 func (r *LLMInferenceServiceReconciler) expectedMetricsReaderServiceAccount(llmSvc *v1alpha1.LLMInferenceService) *corev1.ServiceAccount {
 	return &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
@@ -109,6 +119,8 @@ func (r *LLMInferenceServiceReconciler) expectedMetricsReaderServiceAccount(llmS
 	}
 }
 
+// expectedMetricsReaderSecret returns the Secret definition to hold a token for the ServiceAccount used by metrics collection
+// components. This is required to correctly scrape metrics from llm-d scheduler.
 func (r *LLMInferenceServiceReconciler) expectedMetricsReaderSecret(llmSvc *v1alpha1.LLMInferenceService) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -126,6 +138,9 @@ func (r *LLMInferenceServiceReconciler) expectedMetricsReaderSecret(llmSvc *v1al
 	}
 }
 
+// expectedMetricsReaderClusterRoleBinding returns the expected ClusterRoleBinding configuration
+// that grants the metrics reader ServiceAccount the necessary permissions for metrics collection.
+// This is required to correctly scrape metrics from llm-d scheduler.
 func (r *LLMInferenceServiceReconciler) expectedMetricsReaderClusterRoleBinding(llmSvc *v1alpha1.LLMInferenceService) *rbacv1.ClusterRoleBinding {
 	return &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
@@ -150,6 +165,8 @@ func (r *LLMInferenceServiceReconciler) expectedMetricsReaderClusterRoleBinding(
 	}
 }
 
+// expectedVLLMEngineMonitor returns the expected PodMonitor configuration for scraping
+// metrics from vLLM engine pods.
 func (r *LLMInferenceServiceReconciler) expectedVLLMEngineMonitor(llmSvc *v1alpha1.LLMInferenceService) *monitoringv1.PodMonitor {
 	metricsPort := intstr.FromInt32(8000)
 
@@ -222,6 +239,8 @@ func (r *LLMInferenceServiceReconciler) expectedVLLMEngineMonitor(llmSvc *v1alph
 	}
 }
 
+// expectedSchedulerMonitor returns the expected ServiceMonitor configuration for scraping
+// metrics from the llm-d scheduler. The scheduler requires authorization.
 func (r *LLMInferenceServiceReconciler) expectedSchedulerMonitor(llmSvc *v1alpha1.LLMInferenceService) *monitoringv1.ServiceMonitor {
 	return &monitoringv1.ServiceMonitor{
 		ObjectMeta: metav1.ObjectMeta{
@@ -278,6 +297,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerMonitor(llmSvc *v1alpha
 	}
 }
 
+// cleanupMonitoringResources removes LLM monitoring resources when the last LLMInferenceService in the namespace is deleted.
 func (r *LLMInferenceServiceReconciler) cleanupMonitoringResources(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("cleanupMonitoring")
 	ctx = log.IntoContext(ctx, logger)
