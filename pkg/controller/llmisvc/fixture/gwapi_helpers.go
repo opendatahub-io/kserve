@@ -34,8 +34,8 @@ const (
 )
 
 // Only runs in non-cluster mode
-func EnsureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, llmSvc *v1alpha1.LLMInferenceService, inCluster bool) {
-	if inCluster {
+func EnsureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, llmSvc *v1alpha1.LLMInferenceService, usingExistingCluster bool) {
+	if usingExistingCluster {
 		return
 	}
 

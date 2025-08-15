@@ -140,7 +140,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			Expect(expectedDeployment).To(HaveContainerImage("quay.io/pierdipi/vllm-cpu:latest")) // Coming from preset
 			Expect(expectedDeployment).To(BeOwnedBy(llmSvc))
 
-			EnsureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc, InCluster())
+			EnsureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc, envTest.UsingExistingCluster())
 
 			Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
 				g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
@@ -206,7 +206,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
 				Expect(expectedHTTPRoute).To(HaveBackendRefs(svcName + "-inference-pool"))
 
-				EnsureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc, InCluster())
+				EnsureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc, envTest.UsingExistingCluster())
 
 				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
 					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
@@ -609,7 +609,7 @@ func ignoreNoMatch(err error) error {
 // ensureGatewayReady sets up Gateway status conditions to simulate a ready Gateway
 // Only runs in non-cluster mode
 func ensureGatewayReady(ctx context.Context, c client.Client, gateway *gatewayapi.Gateway) {
-	if InCluster() {
+	if envTest.UsingExistingCluster() {
 		return
 	}
 
@@ -649,7 +649,7 @@ func ensureGatewayReady(ctx context.Context, c client.Client, gateway *gatewayap
 // ensureHTTPRouteReady sets up HTTPRoute status conditions to simulate a ready HTTPRoute
 // Only runs in non-cluster mode
 func ensureHTTPRouteReady(ctx context.Context, c client.Client, route *gatewayapi.HTTPRoute) {
-	if InCluster() {
+	if envTest.UsingExistingCluster() {
 		return
 	}
 
