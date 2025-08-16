@@ -49,6 +49,7 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 	defer llmSvc.DetermineWorkloadReadiness()
 
 	if err := r.reconcileSelfSignedCertsSecret(ctx, llmSvc); err != nil {
+		llmSvc.MarkMainWorkloadNotReady("ReconcileCertsError", err.Error())
 		return fmt.Errorf("failed to reconcile self-signed certificates secret: %w", err)
 	}
 
@@ -56,12 +57,12 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 	// finalizing superfluous workloads).
 
 	if err := r.reconcileMultiNodeWorkload(ctx, llmSvc, storageConfig); err != nil {
-		llmSvc.MarkWorkloadNotReady("ReconcileMultiNodeWorkloadError", err.Error())
+		llmSvc.MarkMainWorkloadNotReady("ReconcileMultiNodeWorkloadError", err.Error())
 		return fmt.Errorf("failed to reconcile multi node workload: %w", err)
 	}
 
 	if err := r.reconcileSingleNodeWorkload(ctx, llmSvc, storageConfig); err != nil {
-		llmSvc.MarkWorkloadNotReady("ReconcileSingleNodeWorkloadError", err.Error())
+		llmSvc.MarkMainWorkloadNotReady("ReconcileSingleNodeWorkloadError", err.Error())
 		return fmt.Errorf("failed to reconcile single node workload: %w", err)
 	}
 

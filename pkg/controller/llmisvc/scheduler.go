@@ -181,13 +181,13 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerService(ctx context.Con
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      llmSvc.Spec.Router.EPPServiceName(llmSvc),
 			Namespace: llmSvc.GetNamespace(),
-			Labels:    r.schedulerLabels(llmSvc),
+			Labels:    SchedulerLabels(llmSvc),
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
 			},
 		},
 		Spec: corev1.ServiceSpec{
-			Selector: r.schedulerLabels(llmSvc),
+			Selector: SchedulerLabels(llmSvc),
 		},
 	}
 
@@ -233,7 +233,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerService(ctx context.Con
 }
 
 func (r *LLMInferenceServiceReconciler) expectedSchedulerInferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *igwapi.InferencePool {
-	labels := r.schedulerLabels(llmSvc)
+	labels := SchedulerLabels(llmSvc)
 
 	ip := &igwapi.InferencePool{
 		ObjectMeta: metav1.ObjectMeta{
@@ -255,7 +255,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerInferencePool(ctx conte
 }
 
 func (r *LLMInferenceServiceReconciler) expectedSchedulerInferenceModel(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *igwapi.InferenceModel {
-	labels := r.schedulerLabels(llmSvc)
+	labels := SchedulerLabels(llmSvc)
 
 	im := &igwapi.InferenceModel{
 		ObjectMeta: metav1.ObjectMeta{
@@ -286,7 +286,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerInferenceModel(ctx cont
 }
 
 func (r *LLMInferenceServiceReconciler) expectedSchedulerDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *appsv1.Deployment {
-	labels := r.schedulerLabels(llmSvc)
+	labels := SchedulerLabels(llmSvc)
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-router-scheduler"),
@@ -398,7 +398,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerServiceAccount(llmSvc *
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
 			},
-			Labels: r.schedulerLabels(llmSvc),
+			Labels: SchedulerLabels(llmSvc),
 		},
 	}
 
@@ -416,7 +416,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerAuthDelegatorBinding(ll
 	crb := &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:   kmeta.ChildName(llmSvc.GetNamespace(), "-"+llmSvc.GetName()+"-epp-auth-rb"),
-			Labels: r.schedulerLabels(llmSvc),
+			Labels: SchedulerLabels(llmSvc),
 		},
 		Subjects: []rbacv1.Subject{{
 			Kind:      "ServiceAccount",
@@ -440,7 +440,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerRole(llmSvc *v1alpha1.L
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
 			},
-			Labels: r.schedulerLabels(llmSvc),
+			Labels: SchedulerLabels(llmSvc),
 		},
 		Rules: []rbacv1.PolicyRule{
 			{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get", "list", "watch"}},
@@ -459,7 +459,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerRoleBinding(llmSvc *v1a
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
 			},
-			Labels: r.schedulerLabels(llmSvc),
+			Labels: SchedulerLabels(llmSvc),
 		},
 		Subjects: []rbacv1.Subject{{
 			Kind:      "ServiceAccount",
@@ -520,7 +520,7 @@ func semanticRoleBindingIsEqual(expected *rbacv1.RoleBinding, curr *rbacv1.RoleB
 		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)
 }
 
-func (r *LLMInferenceServiceReconciler) schedulerLabels(llmSvc *v1alpha1.LLMInferenceService) map[string]string {
+func SchedulerLabels(llmSvc *v1alpha1.LLMInferenceService) map[string]string {
 	return map[string]string{
 		"app.kubernetes.io/component": "llminferenceservice-router-scheduler",
 		"app.kubernetes.io/name":      llmSvc.GetName(),
