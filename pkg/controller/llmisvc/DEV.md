@@ -452,7 +452,144 @@ spec:
 EOF
 ```
 
-**Deploy Kserve using overlay/odh**
+**Deploy Kserve** 
+*- option 1 - through custom opendatahub-operator catalogsource*
+
+Create a catalogsource
+```shell
+cat <<EOF| kubectl create -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: odh-catalog-dev
+  namespace: openshift-marketplace  
+spec:
+  displayName: custom catalogsource
+  image: quay.io/jooholee/opendatahub-operator-index:2.33.0
+  publisher: custom catalogsource
+  sourceType: grpc
+EOF
+
+sleep 5
+
+kubectl wait pod -l olm.catalogSource=odh-catalog-dev -n openshift-marketplace --for=condition=Ready --timeout=180s
+```
+
+Create OpenDataHub subscription
+```shell
+cat <<EOF| kubectl create -f -
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  labels:
+    model.serving.test: "true"
+    operators.coreos.com/opendatahub-operator.openshift-operators: ""
+  name: test-opendatahub-operator
+  namespace: openshift-operators
+spec:
+  channel: fast
+  installPlanApproval: Automatic
+  name: opendatahub-operator
+  source: odh-catalog-dev
+  sourceNamespace: openshift-marketplace
+EOF
+
+until kubectl get crd dscinitializations.dscinitialization.opendatahub.io &> /dev/null; do
+  echo "⏳ waiting for CRD to appear…"
+  sleep 2
+done
+
+kubectl wait pod -l name=opendatahub-operator -n openshift-operators --for=condition=Ready --timeout=120s
+```
+
+Create DSCI and DSC 
+```shell
+cat <<EOF| kubectl create -f -
+apiVersion: dscinitialization.opendatahub.io/v1
+kind: DSCInitialization
+metadata:  
+  labels:
+    app.kubernetes.io/created-by: opendatahub-operator
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: dscinitialization
+    app.kubernetes.io/part-of: opendatahub-operator
+  name: default-dsci  
+spec:
+  applicationsNamespace: opendatahub
+  monitoring:
+    managementState: Removed
+    namespace: redhat-ods-monitoring
+  serviceMesh:
+    auth:
+      audiences:
+      - https://kubernetes.default.svc
+    controlPlane:
+      metricsCollection: Istio
+      name: data-science-smcp
+      namespace: istio-system
+    managementState: Removed
+  trustedCABundle:
+    customCABundle: ""
+    managementState: Managed
+---
+apiVersion: datasciencecluster.opendatahub.io/v1
+kind: DataScienceCluster
+metadata:
+  labels:
+    app.kubernetes.io/created-by: rhods-operator
+    app.kubernetes.io/instance: rhods
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/name: datasciencecluster
+    app.kubernetes.io/part-of: rhods-operator
+  name: default-dsc
+spec:
+  components:
+    codeflare:
+      managementState: Removed
+    dashboard:
+      managementState: Removed
+    datasciencepipelines:
+      managementState: Removed
+    feastoperator: {}
+    kserve:
+      defaultDeploymentMode: RawDeployment
+      managementState: Managed
+      nim:
+        managementState: Managed
+      rawDeploymentServiceConfig: Headless
+      serving:
+        ingressGateway:
+          certificate:
+            type: OpenshiftDefaultIngress
+        managementState: Removed
+        name: knative-serving
+    kueue:
+      defaultClusterQueueName: default
+      defaultLocalQueueName: default
+      managementState: Removed
+    llamastackoperator: {}
+    modelmeshserving:
+      managementState: Removed
+    modelregistry:
+      managementState: Removed
+      registriesNamespace: odh-model-registries
+    ray:
+      managementState: Removed
+    trainingoperator:
+      managementState: Removed
+    trustyai:
+      managementState: Removed
+    workbenches:
+      managementState: Removed
+      workbenchNamespace: opendatahub    
+EOF
+
+kubectl wait --for=condition=Established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
+kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n opendatahub  --timeout=300s
+```
+
+*- option 2 - Using overlay/odh*
 
 A new CRD related objects will be added 
   - LLMIsvc/LLMIsvcConfig CRD
@@ -551,7 +688,7 @@ spec:
 EOF
 ```
 
-**Create a gateway **
+**Create a gateway**
 ```shell
 INGRESS_NS=openshift-ingress
 GW_CLASS_NAME=openshift-default
