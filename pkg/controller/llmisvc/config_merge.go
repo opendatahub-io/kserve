@@ -23,7 +23,8 @@ import (
 	"fmt"
 	"text/template"
 
-	"github.com/kserve/kserve/pkg/constants"
+	"k8s.io/utils/ptr"
+	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -34,6 +35,7 @@ import (
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/constants"
 )
 
 const (
@@ -149,7 +151,7 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		llmSvcCfg.Spec.Router.Scheduler.Pool != nil &&
 		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec != nil &&
 		len(llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector) == 0 {
-		selector := getInferencePoolWorkloadLabelSelector(llmSvc.ObjectMeta, &llmSvcCfg.Spec)
+		selector := getWorkloadLabelSelector(llmSvc.ObjectMeta, &llmSvcCfg.Spec)
 
 		gieSelector := make(map[igwapi.LabelKey]igwapi.LabelValue, len(selector))
 		for k, v := range selector {
@@ -163,6 +165,21 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		llmSvcCfg.Spec.Router.Scheduler.Template != nil &&
 		llmSvcCfg.Spec.Router.Scheduler.Template.ServiceAccountName == "" {
 		llmSvcCfg.Spec.Router.Scheduler.Template.ServiceAccountName = kmeta.ChildName(llmSvc.GetName(), "-epp-sa")
+	}
+
+	// Point HTTPRoute to a Service if there is no Scheduler or InferencePool
+	if llmSvcCfg.Spec.Router != nil &&
+		llmSvcCfg.Spec.Router.Route != nil &&
+		llmSvcCfg.Spec.Router.Route.HTTP != nil &&
+		llmSvcCfg.Spec.Router.Route.HTTP.Spec != nil &&
+		llmSvcCfg.Spec.Router.Scheduler == nil {
+		for i := range llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules {
+			for j := range llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs {
+				llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].Group = ptr.To[gatewayapi.Group]("")
+				llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].Kind = ptr.To[gatewayapi.Kind]("Service")
+				llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].Name = gatewayapi.ObjectName(kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"))
+			}
+		}
 	}
 
 	llmSvcCfg, err = ReplaceVariables(llmSvc, llmSvcCfg, reconcilerConfig)

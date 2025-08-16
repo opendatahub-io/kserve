@@ -84,8 +84,7 @@ func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context,
 
 	expectedHTTPRoute := r.expectedHTTPRoute(ctx, llmSvc)
 
-	// TODO should we remove "llmSvc.Spec.Router.Route.HTTP == nil" from the condition below so that a non nil Route meeans "all type of routes are enabled"?
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || llmSvc.Spec.Router.Route.HTTP == nil {
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil {
 		return Delete(ctx, r, llmSvc, expectedHTTPRoute)
 	}
 
@@ -357,7 +356,12 @@ func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.
 	if len(notReadyRoutes) > 0 {
 		routeNames := make([]string, len(notReadyRoutes))
 		for i, route := range notReadyRoutes {
-			routeNames[i] = fmt.Sprintf("%s/%s", route.Namespace, route.Name)
+			topLevelCondition := nonReadyHTTPRouteTopLevelCondition(route)
+			if topLevelCondition != nil {
+				routeNames[i] = fmt.Sprintf("%s/%s (reason %q, message %q)", route.Namespace, route.Name, topLevelCondition.Reason, topLevelCondition.Message)
+			} else {
+				routeNames[i] = fmt.Sprintf("%s/%s: %#v", route.Namespace, route.Name, route.Status)
+			}
 		}
 		llmSvc.MarkHTTPRoutesNotReady("HTTPRoutesNotReady", "The following HTTPRoutes are not ready: %v", routeNames)
 		logger.V(2).Info("Some HTTPRoutes are not ready", "routes", notReadyRoutes)

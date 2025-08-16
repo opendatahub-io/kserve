@@ -104,22 +104,17 @@ func (matcher *haveConditionMatcher) convertToConditions(conditionsValue reflect
 
 func (matcher *haveConditionMatcher) FailureMessage(actual any) (message string) {
 	if matcher.foundCondition != nil {
-		return fmt.Sprintf("Expected %T to have condition %q with status %q, but found status %q",
-			actual, matcher.conditionType, matcher.expectedStatus, string(matcher.foundCondition.Status))
+		return fmt.Sprintf("Expected %T to have condition %q with status %q, but found status %q (reason: %q, message: %q)",
+			actual, matcher.conditionType, matcher.expectedStatus, string(matcher.foundCondition.Status), matcher.foundCondition.Reason, matcher.foundCondition.Message)
 	}
 
-	conditionTypes := make([]string, len(matcher.actualConditions))
-	for i, condition := range matcher.actualConditions {
-		conditionTypes[i] = string(condition.Type)
-	}
-
-	if len(conditionTypes) == 0 {
+	if len(matcher.actualConditions) == 0 {
 		return fmt.Sprintf("Expected %T to have condition %q with status %q, but no conditions were found",
 			actual, matcher.conditionType, matcher.expectedStatus)
 	}
 
 	return fmt.Sprintf("Expected %T to have condition %q with status %q, but condition was not found. Available conditions: %v",
-		actual, matcher.conditionType, matcher.expectedStatus, conditionTypes)
+		actual, matcher.conditionType, matcher.expectedStatus, matcher.actualConditions)
 }
 
 func (matcher *haveConditionMatcher) NegatedFailureMessage(actual any) (message string) {
