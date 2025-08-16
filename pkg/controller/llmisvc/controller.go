@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/credentials"
 
 	"knative.dev/pkg/reconciler"
 
@@ -69,7 +70,8 @@ var childResourcesPredicate, _ = predicate.LabelSelectorPredicate(metav1.LabelSe
 type LLMInferenceServiceReconciler struct {
 	client.Client
 	record.EventRecorder
-	Clientset kubernetes.Interface
+	Clientset         kubernetes.Interface
+	CredentialBuilder *credentials.CredentialBuilder
 }
 
 //+kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;create;update;patch;delete

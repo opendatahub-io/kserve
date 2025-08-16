@@ -52,6 +52,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	llmisvcvalidation "github.com/kserve/kserve/pkg/controller/llmisvc/validation"
+	"github.com/kserve/kserve/pkg/credentials"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -297,9 +298,10 @@ func main() {
 	llmEventBroadcaster := record.NewBroadcaster()
 	llmEventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: clientSet.CoreV1().Events("")})
 	if err = (&llmisvc.LLMInferenceServiceReconciler{
-		Client:        mgr.GetClient(),
-		Clientset:     clientSet,
-		EventRecorder: llmEventBroadcaster.NewRecorder(scheme, corev1.EventSource{Component: "LLMInferenceServiceController"}),
+		Client:            mgr.GetClient(),
+		Clientset:         clientSet,
+		CredentialBuilder: credentials.NewCredentialBuilder(mgr.GetClient(), clientSet, isvcConfigMap),
+		EventRecorder:     llmEventBroadcaster.NewRecorder(scheme, corev1.EventSource{Component: "LLMInferenceServiceController"}),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "v1beta1Controller", "InferenceService")
 		os.Exit(1)
