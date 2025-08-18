@@ -356,7 +356,7 @@ func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.
 	if len(notReadyRoutes) > 0 {
 		nonReadyRouteMessages := make([]string, len(notReadyRoutes))
 		for i, route := range notReadyRoutes {
-			topLevelCondition := nonReadyHTTPRouteTopLevelCondition(route)
+			topLevelCondition, _ := nonReadyHTTPRouteTopLevelCondition(route)
 			if topLevelCondition != nil {
 				nonReadyRouteMessages[i] = fmt.Sprintf("%s/%s: %#v (reason %q, message %q)", route.Namespace, route.Name, topLevelCondition.Status, topLevelCondition.Reason, topLevelCondition.Message)
 			} else {

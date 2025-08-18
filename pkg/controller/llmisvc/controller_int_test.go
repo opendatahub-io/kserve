@@ -767,7 +767,6 @@ func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, 
 
 		logf.FromContext(ctx).Info("Marking scheduler ready (if any)", "deployments", deployments)
 		for _, d := range deployments.Items {
-			// Update Deployment status to Available
 			dep := d.DeepCopy()
 			dep.Status.Conditions = append(dep.Status.Conditions, appsv1.DeploymentCondition{
 				Type:   appsv1.DeploymentAvailable,
