@@ -17,7 +17,6 @@ limitations under the License.
 package llmisvc_test
 
 import (
-	"context"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -1313,8 +1312,7 @@ func TestMergeSpecs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-
-			ctx := context.Background()
+			ctx := t.Context()
 			ctx = log.IntoContext(ctx, pkgtest.NewTestLogger(t))
 
 			got, err := llmisvc.MergeSpecs(ctx, tt.cfgs...)
