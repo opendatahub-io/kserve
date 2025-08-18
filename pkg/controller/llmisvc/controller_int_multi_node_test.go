@@ -18,9 +18,7 @@ package llmisvc_test
 
 import (
 	"context"
-	"fmt"
 
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
@@ -32,7 +30,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
-	"knative.dev/pkg/apis"
 	"knative.dev/pkg/kmeta"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -59,61 +56,21 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 				envTest.DeleteAll(namespace)
 			}()
 
-			modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
-			Expect(err).ToNot(HaveOccurred())
-
-			llmSvc := &v1alpha1.LLMInferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      svcName,
-					Namespace: nsName,
-				},
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
-						URI: *modelURL,
-					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{
-						Replicas: ptr.To[int32](2),
-						Parallelism: &v1alpha1.ParallelismSpec{
-							Data:      ptr.To[int32](4),
-							DataLocal: ptr.To[int32](1),
-							Tensor:    ptr.To[int32](3),
-						},
-						Template: &corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "main",
-									Image: "quay.io/pierdipi/vllm-cpu:latest",
-									Resources: corev1.ResourceRequirements{
-										Limits: corev1.ResourceList{
-											corev1.ResourceCPU:    resource.MustParse("1"),
-											corev1.ResourceMemory: resource.MustParse("4Gi"),
-										},
-									},
-								},
-							},
-						},
-						Worker: &corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "main",
-									Image: "quay.io/pierdipi/vllm-cpu:latest",
-									Resources: corev1.ResourceRequirements{
-										Limits: corev1.ResourceList{
-											corev1.ResourceCPU:    resource.MustParse("500m"),
-											corev1.ResourceMemory: resource.MustParse("2Gi"),
-										},
-									},
-								},
-							},
-						},
-					},
-					Prefill: &v1alpha1.WorkloadSpec{},
-					Router: &v1alpha1.RouterSpec{
-						Route:   &v1alpha1.GatewayRoutesSpec{},
-						Gateway: &v1alpha1.GatewaySpec{},
-					},
-				},
-			}
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithReplicas(2),
+				WithParallelism(ParallelismSpec(
+					WithDataParallelism(4),
+					WithDataLocalParallelism(1),
+					WithTensorParallelism(3),
+				)),
+				WithTemplate(SimpleWorkerPodSpec()),
+				WithWorker(SimpleWorkerPodSpec()),
+				WithPrefill(SimpleWorkerPodSpec()),
+				WithManagedRoute(),
+				WithManagedGateway(),
+			)
 
 			// when
 			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
@@ -164,82 +121,26 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 				envTest.DeleteAll(namespace)
 			}()
 
-			modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
-			Expect(err).ToNot(HaveOccurred())
-
-			llmSvc := &v1alpha1.LLMInferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      svcName,
-					Namespace: nsName,
-				},
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
-						URI: *modelURL,
-					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{
-						Replicas: ptr.To[int32](1),
-						Parallelism: &v1alpha1.ParallelismSpec{
-							Data:      ptr.To[int32](10),
-							DataLocal: ptr.To[int32](2),
-							Tensor:    ptr.To[int32](4),
-						},
-						Worker: &corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "main",
-									Image: "quay.io/pierdipi/vllm-cpu:latest",
-									Resources: corev1.ResourceRequirements{
-										Limits: corev1.ResourceList{
-											corev1.ResourceCPU:    resource.MustParse("500m"),
-											corev1.ResourceMemory: resource.MustParse("2Gi"),
-										},
-									},
-								},
-							},
-						},
-					},
-					Prefill: &v1alpha1.WorkloadSpec{
-						Replicas: ptr.To[int32](1),
-						Parallelism: &v1alpha1.ParallelismSpec{
-							Data:      ptr.To[int32](3),
-							DataLocal: ptr.To[int32](1),
-							Tensor:    ptr.To[int32](4),
-						},
-						Template: &corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "main",
-									Image: "quay.io/pierdipi/vllm-prefill:latest",
-									Resources: corev1.ResourceRequirements{
-										Limits: corev1.ResourceList{
-											corev1.ResourceCPU:    resource.MustParse("1"),
-											corev1.ResourceMemory: resource.MustParse("4Gi"),
-										},
-									},
-								},
-							},
-						},
-						Worker: &corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "main",
-									Image: "quay.io/pierdipi/vllm-prefill:latest",
-									Resources: corev1.ResourceRequirements{
-										Limits: corev1.ResourceList{
-											corev1.ResourceCPU:    resource.MustParse("500m"),
-											corev1.ResourceMemory: resource.MustParse("2Gi"),
-										},
-									},
-								},
-							},
-						},
-					},
-					Router: &v1alpha1.RouterSpec{
-						Route:   &v1alpha1.GatewayRoutesSpec{},
-						Gateway: &v1alpha1.GatewaySpec{},
-					},
-				},
-			}
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithReplicas(1),
+				WithParallelism(ParallelismSpec(
+					WithDataParallelism(10),
+					WithDataLocalParallelism(2),
+					WithTensorParallelism(4),
+				)),
+				WithWorker(SimpleWorkerPodSpec()),
+				WithPrefillParallelism(ParallelismSpec(
+					WithDataParallelism(3),
+					WithDataLocalParallelism(1),
+					WithTensorParallelism(4),
+				)),
+				WithPrefillWorker(SimpleWorkerPodSpec()),
+				WithPrefillReplicas(1),
+				WithManagedRoute(),
+				WithManagedGateway(),
+			)
 
 			// when
 			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
@@ -292,38 +193,21 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 				envTest.DeleteAll(namespace)
 			}()
 
-			modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
-			Expect(err).ToNot(HaveOccurred())
-
-			llmSvc := &v1alpha1.LLMInferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      svcName,
-					Namespace: nsName,
-				},
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
-						URI: *modelURL,
-					},
-					Prefill: &v1alpha1.WorkloadSpec{},
-					WorkloadSpec: v1alpha1.WorkloadSpec{
-						Replicas: ptr.To[int32](1),
-						Parallelism: &v1alpha1.ParallelismSpec{
-							Data:      ptr.To[int32](2),
-							DataLocal: ptr.To[int32](1),
-							Tensor:    ptr.To[int32](4),
-						},
-						Template: &corev1.PodSpec{},
-						Worker:   &corev1.PodSpec{},
-					},
-					Router: &v1alpha1.RouterSpec{
-						Route:   &v1alpha1.GatewayRoutesSpec{},
-						Gateway: &v1alpha1.GatewaySpec{},
-						Scheduler: &v1alpha1.SchedulerSpec{
-							Template: &corev1.PodSpec{},
-						},
-					},
-				},
-			}
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithReplicas(1),
+				WithParallelism(ParallelismSpec(
+					WithDataParallelism(2),
+					WithDataLocalParallelism(1),
+					WithTensorParallelism(4),
+				)),
+				WithWorker(&corev1.PodSpec{}),
+				WithManagedRoute(),
+				WithManagedScheduler(),
+				WithManagedGateway(),
+				WithPrefill(SimpleWorkerPodSpec()),
+			)
 
 			// when
 			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
@@ -399,32 +283,20 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 				envTest.DeleteAll(namespace)
 			}()
 
-			modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
-			Expect(err).ToNot(HaveOccurred())
+			parallelismSpec := ParallelismSpec(
+				WithDataParallelism(2),
+				WithDataLocalParallelism(1),
+			)
+			parallelismSpec.Expert = true
 
-			llmSvc := &v1alpha1.LLMInferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      svcName,
-					Namespace: nsName,
-				},
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
-						URI: *modelURL,
-					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{
-						Parallelism: &v1alpha1.ParallelismSpec{
-							Data:      ptr.To[int32](2),
-							DataLocal: ptr.To[int32](1),
-							Expert:    true,
-						},
-						Worker: &corev1.PodSpec{},
-					},
-					Router: &v1alpha1.RouterSpec{
-						Route:   &v1alpha1.GatewayRoutesSpec{},
-						Gateway: &v1alpha1.GatewaySpec{},
-					},
-				},
-			}
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithParallelism(parallelismSpec),
+				WithWorker(&corev1.PodSpec{}),
+				WithManagedRoute(),
+				WithManagedGateway(),
+			)
 
 			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
 			defer func() {
@@ -480,32 +352,17 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 				envTest.DeleteAll(namespace)
 			}()
 
-			modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
-			Expect(err).ToNot(HaveOccurred())
-
-			llmSvc := &v1alpha1.LLMInferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      svcName,
-					Namespace: nsName,
-				},
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
-						URI: *modelURL,
-					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{},
-					Prefill: &v1alpha1.WorkloadSpec{
-						Parallelism: &v1alpha1.ParallelismSpec{
-							Data:      ptr.To[int32](2),
-							DataLocal: ptr.To[int32](1),
-						},
-						Worker: &corev1.PodSpec{},
-					},
-					Router: &v1alpha1.RouterSpec{
-						Route:   &v1alpha1.GatewayRoutesSpec{},
-						Gateway: &v1alpha1.GatewaySpec{},
-					},
-				},
-			}
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithPrefillParallelism(ParallelismSpec(
+					WithDataParallelism(2),
+					WithDataLocalParallelism(1),
+				)),
+				WithPrefillWorker(&corev1.PodSpec{}),
+				WithManagedRoute(),
+				WithManagedGateway(),
+			)
 
 			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
 			defer func() {
@@ -563,31 +420,17 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 				envTest.DeleteAll(namespace)
 			}()
 
-			modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
-			Expect(err).ToNot(HaveOccurred())
-
-			llmSvc := &v1alpha1.LLMInferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      svcName,
-					Namespace: nsName,
-				},
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
-						URI: *modelURL,
-					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{
-						Parallelism: &v1alpha1.ParallelismSpec{
-							Data:      ptr.To[int32](1),
-							DataLocal: ptr.To[int32](1),
-						},
-						Worker: &corev1.PodSpec{},
-					},
-					Router: &v1alpha1.RouterSpec{
-						Route:   &v1alpha1.GatewayRoutesSpec{},
-						Gateway: &v1alpha1.GatewaySpec{},
-					},
-				},
-			}
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithParallelism(ParallelismSpec(
+					WithDataParallelism(1),
+					WithDataLocalParallelism(1),
+				)),
+				WithWorker(&corev1.PodSpec{}),
+				WithManagedRoute(),
+				WithManagedGateway(),
+			)
 
 			// safety check
 			Expect(llmSvc.Spec.Parallelism.IsDataParallel()).To(BeTrue())
@@ -611,8 +454,8 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			Expect(expectedLWS).To(BeOwnedBy(llmSvc))
 			Expect(expectedLWS.Spec.LeaderWorkerTemplate.Size).To(Equal(ptr.To(int32(1))))
 			Expect(expectedLWS.Spec.LeaderWorkerTemplate.LeaderTemplate).To(Not(BeNil()))
-			Expect(expectedLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels).To(HaveKeyWithValue("kserve.io/component", "workload"), fmt.Sprintf("%#v", expectedLWS))
-			Expect(expectedLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels).To(HaveKeyWithValue("llm-d.ai/role", "both"), fmt.Sprintf("%#v", expectedLWS))
+			Expect(expectedLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels).To(HaveKeyWithValue("kserve.io/component", "workload"))
+			Expect(expectedLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels).To(HaveKeyWithValue("llm-d.ai/role", "both"))
 		})
 	})
 })
