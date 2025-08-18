@@ -187,9 +187,6 @@ clean:
 test: fmt vet manifests envtest test-qpext
 	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test --timeout 20m $$(go list ./pkg/...) ./cmd/... -coverprofile coverage.out -coverpkg ./pkg/... ./cmd...
 
-test-llmisvc: manifests envtest
-	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test -v --timeout 10m ./pkg/controller/llmisvc ./cmd/... -coverprofile coverage.out -coverpkg ./pkg/controller/llmisvc/... ./pkg/apis/serving/v1alpha1/... -ginkgo.focus "$(FOCUS)" -ginkgo.v
-
 test-qpext:
 	cd qpext && go test -v ./... -cover
 
