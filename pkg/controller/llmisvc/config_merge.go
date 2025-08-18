@@ -97,7 +97,7 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		llmSvc.Spec.Model.Name = resolvedSpec.Model.Name
 	}
 
-	logger.Info("Resolved spec", "spec", resolvedSpec)
+	logger.V(2).Info("Resolved spec", "spec", resolvedSpec)
 
 	refs := make([]corev1.LocalObjectReference, 0, len(llmSvc.Spec.BaseRefs))
 	if resolvedSpec.Router != nil && resolvedSpec.Router.Scheduler != nil && !resolvedSpec.Router.Scheduler.Pool.HasRef() {
