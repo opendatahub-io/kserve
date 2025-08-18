@@ -19,7 +19,6 @@ package llmisvc_test
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/client-go/util/retry"
@@ -108,6 +107,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 							},
 						},
 					},
+					Prefill: &v1alpha1.WorkloadSpec{},
 					Router: &v1alpha1.RouterSpec{
 						Route:   &v1alpha1.GatewayRoutesSpec{},
 						Gateway: &v1alpha1.GatewaySpec{},
@@ -128,7 +128,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 					Name:      svcName + "-kserve-mn",
 					Namespace: nsName,
 				}, expectedLWS)
-			}).WithTimeout(30 * time.Second).WithPolling(time.Second).WithContext(ctx).Should(Succeed())
+			}).WithContext(ctx).Should(Succeed())
 
 			Expect(expectedLWS.Spec.Replicas).To(Equal(ptr.To[int32](2)))
 			Expect(expectedLWS.Spec.LeaderWorkerTemplate.Size).To(Equal(ptr.To[int32](4)))
@@ -254,7 +254,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 					Name:      svcName + "-kserve-mn",
 					Namespace: nsName,
 				}, expectedMainLWS)
-			}).WithTimeout(30 * time.Second).WithPolling(time.Second).WithContext(ctx).Should(Succeed())
+			}).WithContext(ctx).Should(Succeed())
 
 			Expect(expectedMainLWS.Spec.Replicas).To(Equal(ptr.To[int32](1)))
 			Expect(expectedMainLWS.Spec.LeaderWorkerTemplate.Size).To(Equal(ptr.To[int32](5)))
@@ -266,7 +266,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 					Name:      svcName + "-kserve-mn-prefill",
 					Namespace: nsName,
 				}, expectedPrefillLWS)
-			}).WithTimeout(30 * time.Second).WithPolling(time.Second).WithContext(ctx).Should(Succeed())
+			}).WithContext(ctx).Should(Succeed())
 
 			Expect(expectedPrefillLWS.Spec.Replicas).To(Equal(ptr.To[int32](1)))
 			Expect(expectedPrefillLWS.Spec.LeaderWorkerTemplate.Size).To(Equal(ptr.To[int32](3)))
@@ -276,7 +276,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			Expect(expectedPrefillLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels).To(HaveKeyWithValue("llm-d.ai/role", "prefill"))
 		})
 
-		It("should create RBAC resources when routing sidecar is present", func(ctx SpecContext) {
+		It("should create RBAC resources when prefill and decode is used", func(ctx SpecContext) {
 			// given
 			svcName := "test-llm-multinode-rbac"
 			nsName := kmeta.ChildName(svcName, "-test")
@@ -304,6 +304,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 					Model: v1alpha1.LLMModelSpec{
 						URI: *modelURL,
 					},
+					Prefill: &v1alpha1.WorkloadSpec{},
 					WorkloadSpec: v1alpha1.WorkloadSpec{
 						Replicas: ptr.To[int32](1),
 						Parallelism: &v1alpha1.ParallelismSpec{
@@ -311,47 +312,14 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 							DataLocal: ptr.To[int32](1),
 							Tensor:    ptr.To[int32](4),
 						},
-						Template: &corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "main",
-									Image: "quay.io/pierdipi/vllm-cpu:latest",
-								},
-							},
-							InitContainers: []corev1.Container{
-								{
-									Name:  "llm-d-routing-sidecar",
-									Image: "quay.io/kserve/router:latest",
-								},
-							},
-						},
-						Worker: &corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "main",
-									Image: "quay.io/pierdipi/vllm-cpu:latest",
-								},
-							},
-							InitContainers: []corev1.Container{
-								{
-									Name:  "llm-d-routing-sidecar",
-									Image: "quay.io/kserve/router:latest",
-								},
-							},
-						},
+						Template: &corev1.PodSpec{},
+						Worker:   &corev1.PodSpec{},
 					},
 					Router: &v1alpha1.RouterSpec{
 						Route:   &v1alpha1.GatewayRoutesSpec{},
 						Gateway: &v1alpha1.GatewaySpec{},
 						Scheduler: &v1alpha1.SchedulerSpec{
-							Template: &corev1.PodSpec{
-								Containers: []corev1.Container{
-									{
-										Name:  "main",
-										Image: "quay.io/kserve/router:latest",
-									},
-								},
-							},
+							Template: &corev1.PodSpec{},
 						},
 					},
 				},
@@ -370,7 +338,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 					Name:      svcName + "-kserve-mn",
 					Namespace: nsName,
 				}, expectedSA)
-			}).WithTimeout(30 * time.Second).WithPolling(time.Second).WithContext(ctx).Should(Succeed())
+			}).WithContext(ctx).Should(Succeed())
 
 			Expect(expectedSA).To(BeOwnedBy(llmSvc))
 			Expect(expectedSA.Labels).To(HaveKeyWithValue("app.kubernetes.io/name", svcName))
@@ -382,7 +350,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 					Name:      svcName + "-kserve-mn-role",
 					Namespace: nsName,
 				}, expectedRole)
-			}).WithTimeout(30 * time.Second).WithPolling(time.Second).WithContext(ctx).Should(Succeed())
+			}).WithContext(ctx).Should(Succeed())
 
 			Expect(expectedRole).To(BeOwnedBy(llmSvc))
 			Expect(expectedRole.Rules).ToNot(BeEmpty())
@@ -394,7 +362,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 					Name:      svcName + "-kserve-mn-rb",
 					Namespace: nsName,
 				}, expectedRB)
-			}).WithTimeout(30 * time.Second).WithPolling(time.Second).WithContext(ctx).Should(Succeed())
+			}).WithContext(ctx).Should(Succeed())
 
 			Expect(expectedRB).To(BeOwnedBy(llmSvc))
 			Expect(expectedRB.Subjects).To(HaveLen(1))
@@ -408,8 +376,9 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 					Name:      svcName + "-kserve-mn",
 					Namespace: nsName,
 				}, expectedLWS)
-			}).WithTimeout(30 * time.Second).WithPolling(time.Second).WithContext(ctx).Should(Succeed())
+			}).WithContext(ctx).Should(Succeed())
 
+			Expect(expectedLWS).To(BeOwnedBy(llmSvc))
 			Expect(expectedLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.ServiceAccountName).To(Equal(expectedSA.Name))
 			Expect(expectedLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.ServiceAccountName).To(Equal(expectedSA.Name))
 		})
@@ -443,14 +412,12 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 						URI: *modelURL,
 					},
 					WorkloadSpec: v1alpha1.WorkloadSpec{
-						Worker: &corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "main",
-									Image: "quay.io/pierdipi/vllm-cpu:latest",
-								},
-							},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](2),
+							DataLocal: ptr.To[int32](1),
+							Expert:    true,
 						},
+						Worker: &corev1.PodSpec{},
 					},
 					Router: &v1alpha1.RouterSpec{
 						Route:   &v1alpha1.GatewayRoutesSpec{},
@@ -464,14 +431,16 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
 			}()
 
+			lwsName := svcName + "-kserve-mn"
+
 			// Verify LWS is created
 			Eventually(func(g Gomega, ctx context.Context) error {
 				lws := &lwsapi.LeaderWorkerSet{}
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn",
+					Name:      lwsName,
 					Namespace: nsName,
 				}, lws)
-			}).WithTimeout(30 * time.Second).WithPolling(time.Second).WithContext(ctx).Should(Succeed())
+			}).WithContext(ctx).Should(Succeed())
 
 			// when - Remove worker spec
 			errRetry := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -487,12 +456,12 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			Eventually(func(g Gomega, ctx context.Context) error {
 				lws := &lwsapi.LeaderWorkerSet{}
 				err := envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn",
+					Name:      lwsName,
 					Namespace: nsName,
 				}, lws)
 				g.Expect(err).To(HaveOccurred())
 				return nil
-			}).WithTimeout(30 * time.Second).WithPolling(time.Second).WithContext(ctx).Should(Succeed())
+			}).WithContext(ctx).Should(Succeed())
 		})
 
 		It("should delete prefill resources when prefill spec is removed", func(ctx SpecContext) {
@@ -525,14 +494,11 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 					},
 					WorkloadSpec: v1alpha1.WorkloadSpec{},
 					Prefill: &v1alpha1.WorkloadSpec{
-						Worker: &corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "main",
-									Image: "quay.io/pierdipi/vllm-prefill:latest",
-								},
-							},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](2),
+							DataLocal: ptr.To[int32](1),
 						},
+						Worker: &corev1.PodSpec{},
 					},
 					Router: &v1alpha1.RouterSpec{
 						Route:   &v1alpha1.GatewayRoutesSpec{},
@@ -546,14 +512,16 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
 			}()
 
+			prefillLWSName := kmeta.ChildName(svcName, "-kserve-mn-prefill")
+
 			// Verify prefill LWS is created
 			Eventually(func(g Gomega, ctx context.Context) error {
 				lws := &lwsapi.LeaderWorkerSet{}
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn-prefill",
+					Name:      prefillLWSName,
 					Namespace: nsName,
 				}, lws)
-			}).WithTimeout(30 * time.Second).WithPolling(time.Second).WithContext(ctx).Should(Succeed())
+			}).WithContext(ctx).Should(Succeed())
 
 			// when - Remove prefill spec
 			errRetry := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -569,19 +537,19 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			Eventually(func(g Gomega, ctx context.Context) error {
 				lws := &lwsapi.LeaderWorkerSet{}
 				err := envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn-prefill",
+					Name:      prefillLWSName,
 					Namespace: nsName,
 				}, lws)
 				g.Expect(err).To(HaveOccurred())
 				return nil
-			}).WithTimeout(30 * time.Second).WithPolling(time.Second).WithContext(ctx).Should(Succeed())
+			}).WithContext(ctx).Should(Succeed())
 		})
 	})
 
 	Context("Multi-Node Label Management", func() {
-		It("should set correct labels when no leader template is provided", func(ctx SpecContext) {
+		It("should set correct labels", func(ctx SpecContext) {
 			// given
-			svcName := "test-llm-no-leader"
+			svcName := "test-llm-lws-labels"
 			nsName := kmeta.ChildName(svcName, "-test")
 			namespace := &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
@@ -612,15 +580,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 							Data:      ptr.To[int32](1),
 							DataLocal: ptr.To[int32](1),
 						},
-						// No Template specified, only Worker
-						Worker: &corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "main",
-									Image: "quay.io/pierdipi/vllm-cpu:latest",
-								},
-							},
-						},
+						Worker: &corev1.PodSpec{},
 					},
 					Router: &v1alpha1.RouterSpec{
 						Route:   &v1alpha1.GatewayRoutesSpec{},
@@ -646,11 +606,13 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 					Name:      svcName + "-kserve-mn",
 					Namespace: nsName,
 				}, expectedLWS)
-			}).WithTimeout(30 * time.Second).WithPolling(time.Second).WithContext(ctx).Should(Succeed())
+			}).WithContext(ctx).Should(Succeed())
 
-			// When no leader template, workers should get InferencePool selector labels
-			Expect(expectedLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels).To(HaveKeyWithValue("kserve.io/component", "workload"), fmt.Sprintf("%#v", expectedLWS))
-			Expect(expectedLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels).To(HaveKeyWithValue("llm-d.ai/role", "decode"), fmt.Sprintf("%#v", expectedLWS))
+			Expect(expectedLWS).To(BeOwnedBy(llmSvc))
+			Expect(expectedLWS.Spec.LeaderWorkerTemplate.Size).To(Equal(ptr.To(int32(1))))
+			Expect(expectedLWS.Spec.LeaderWorkerTemplate.LeaderTemplate).To(Not(BeNil()))
+			Expect(expectedLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels).To(HaveKeyWithValue("kserve.io/component", "workload"), fmt.Sprintf("%#v", expectedLWS))
+			Expect(expectedLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels).To(HaveKeyWithValue("llm-d.ai/role", "both"), fmt.Sprintf("%#v", expectedLWS))
 		})
 	})
 })
