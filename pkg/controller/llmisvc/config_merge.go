@@ -174,7 +174,7 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		llmSvcCfg.Spec.Router.Scheduler.Pool != nil &&
 		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec != nil &&
 		len(llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector) == 0 {
-		selector := getInferencePoolWorkloadLabelSelector(llmSvc.ObjectMeta, &llmSvcCfg.Spec)
+		selector := getWorkloadLabelSelector(llmSvc.ObjectMeta, &llmSvcCfg.Spec)
 
 		gieSelector := make(map[igwapi.LabelKey]igwapi.LabelValue, len(selector))
 		for k, v := range selector {

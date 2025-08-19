@@ -69,7 +69,7 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 	return nil
 }
 
-func getInferencePoolWorkloadLabelSelector(meta metav1.ObjectMeta, _ *v1alpha1.LLMInferenceServiceSpec) map[string]string {
+func getWorkloadLabelSelector(meta metav1.ObjectMeta, _ *v1alpha1.LLMInferenceServiceSpec) map[string]string {
 	s := map[string]string{
 		"app.kubernetes.io/part-of": "llminferenceservice",
 		"app.kubernetes.io/name":    meta.GetName(),
