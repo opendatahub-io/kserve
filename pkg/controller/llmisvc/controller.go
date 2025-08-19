@@ -29,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 
 	"github.com/kserve/kserve/pkg/constants"
-	"github.com/kserve/kserve/pkg/credentials"
 
 	"knative.dev/pkg/reconciler"
 
@@ -70,8 +69,7 @@ var childResourcesPredicate, _ = predicate.LabelSelectorPredicate(metav1.LabelSe
 type LLMInferenceServiceReconciler struct {
 	client.Client
 	record.EventRecorder
-	Clientset         kubernetes.Interface
-	CredentialBuilder *credentials.CredentialBuilder
+	Clientset kubernetes.Interface
 }
 
 //+kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;create;update;patch;delete
@@ -170,7 +168,7 @@ func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v
 
 	logger.Info("Reconciling with combined base configurations", "spec", llmSvc.Spec)
 
-	if err := r.reconcileWorkload(ctx, llmSvc, config.StorageConfig); err != nil {
+	if err := r.reconcileWorkload(ctx, llmSvc, config.StorageConfig, config.CredentialConfig); err != nil {
 		return fmt.Errorf("failed to reconcile workload: %w", err)
 	}
 

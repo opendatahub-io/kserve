@@ -31,7 +31,6 @@ import (
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	"github.com/kserve/kserve/pkg/controller/llmisvc/validation"
-	"github.com/kserve/kserve/pkg/credentials"
 	pkgtest "github.com/kserve/kserve/pkg/testing"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -55,9 +54,8 @@ func SetupTestEnv() *pkgtest.Client {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		llmCtrl := llmisvc.LLMInferenceServiceReconciler{
-			Client:            mgr.GetClient(),
-			Clientset:         clientSet,
-			CredentialBuilder: credentials.NewCredentialBuilder(mgr.GetClient(), clientSet, InferenceServiceCfgMap(systemNs)),
+			Client:    mgr.GetClient(),
+			Clientset: clientSet,
 			// TODO fix it to be set up similar to main.go, for now it's stub
 			EventRecorder: eventBroadcaster.NewRecorder(mgr.GetScheme(), corev1.EventSource{Component: "v1beta1Controllers"}),
 		}

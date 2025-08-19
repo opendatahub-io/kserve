@@ -71,19 +71,34 @@ type CredentialBuilder struct {
 
 var log = logf.Log.WithName("CredentialBuilder")
 
-func NewCredentialBuilder(client client.Client, clientset kubernetes.Interface, config *corev1.ConfigMap) *CredentialBuilder {
+func GetCredentialConfig(configMap *corev1.ConfigMap) (CredentialConfig, error) {
 	credentialConfig := CredentialConfig{}
-	if credential, ok := config.Data[CredentialConfigKeyName]; ok {
+	if credential, ok := configMap.Data[CredentialConfigKeyName]; ok {
 		err := json.Unmarshal([]byte(credential), &credentialConfig)
 		if err != nil {
-			panic(fmt.Errorf("Unable to unmarshall json string due to %w ", err))
+			return credentialConfig, fmt.Errorf("unable to parse credential config json: %w", err)
 		}
 	}
+	return credentialConfig, nil
+}
 
+func NewCredentialBuilder(client client.Client, clientset kubernetes.Interface, configMap *corev1.ConfigMap) *CredentialBuilder {
+	credentialConfig, err := GetCredentialConfig(configMap)
+	if err != nil {
+		panic(err)
+	}
 	return &CredentialBuilder{
 		client:    client,
 		clientset: clientset,
 		config:    credentialConfig,
+	}
+}
+
+func NewCredentialBuilderFromConfig(client client.Client, clientset kubernetes.Interface, config CredentialConfig) *CredentialBuilder {
+	return &CredentialBuilder{
+		client:    client,
+		clientset: clientset,
+		config:    config,
 	}
 }
 
