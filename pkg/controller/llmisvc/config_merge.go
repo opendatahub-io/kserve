@@ -200,8 +200,7 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 	// InferencePool (to handle cases where the HTTPRoute Spec uses a custom BackendRef).
 	if llmSvcCfg.Spec.Router != nil &&
 		llmSvcCfg.Spec.Router.Route != nil &&
-		llmSvcCfg.Spec.Router.Route.HTTP != nil &&
-		llmSvcCfg.Spec.Router.Route.HTTP.Spec != nil &&
+		llmSvcCfg.Spec.Router.Route.HTTP.HasSpec() &&
 		llmSvcCfg.Spec.Router.Scheduler == nil {
 		for i := range llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules {
 			for j := range llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs {
@@ -217,8 +216,7 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 	// Point HTTPRoute to InferencePool reference if specified.
 	if llmSvcCfg.Spec.Router != nil &&
 		llmSvcCfg.Spec.Router.Route != nil &&
-		llmSvcCfg.Spec.Router.Route.HTTP != nil &&
-		llmSvcCfg.Spec.Router.Route.HTTP.Spec != nil &&
+		llmSvcCfg.Spec.Router.Route.HTTP.HasSpec() &&
 		llmSvcCfg.Spec.Router.Scheduler != nil &&
 		llmSvcCfg.Spec.Router.Scheduler.Pool.HasRef() {
 		for i := range llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules {
@@ -351,7 +349,7 @@ func mergeSpecs(ctx context.Context, base, override v1alpha1.LLMInferenceService
 
 func isDefaultBackendRef(llmSvc *v1alpha1.LLMInferenceService, ref gatewayapi.BackendRef) bool {
 	defaultInfPoolName := (&v1alpha1.SchedulerSpec{}).InferencePoolName(llmSvc)
-	return ref.Group != nil && string(*ref.Group) == igwapi.GroupName &&
-		ref.Kind != nil && string(*ref.Kind) == "InferencePool" &&
+	return ptr.Deref[gatewayapi.Group](ref.Group, "") == igwapi.GroupName &&
+		ptr.Deref[gatewayapi.Kind](ref.Kind, "") == "InferencePool" &&
 		string(ref.Name) == defaultInfPoolName
 }

@@ -278,43 +278,13 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					},
 				}
 
-				infPool := &igwapi.InferencePool{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      infPoolName,
-						Namespace: nsName,
-					},
-					Spec: igwapi.InferencePoolSpec{
-						Selector: map[igwapi.LabelKey]igwapi.LabelValue{
-							"app": "workload",
-						},
-						TargetPortNumber: 8000,
-						EndpointPickerConfig: igwapi.EndpointPickerConfig{
-							ExtensionRef: &igwapi.Extension{
-								ExtensionReference: igwapi.ExtensionReference{
-									Group: ptr.To(igwapi.Group("")),
-									Kind:  ptr.To(igwapi.Kind("Service")),
-									Name:  igwapi.ObjectName(kmeta.ChildName(svcName, "-epp-service")),
-								},
-								ExtensionConnection: igwapi.ExtensionConnection{
-									FailureMode: ptr.To(igwapi.FailOpen),
-								},
-							},
-						},
-					},
-					Status: igwapi.InferencePoolStatus{
-						Parents: []igwapi.PoolStatus{
-							{
-								Conditions: []metav1.Condition{
-									{
-										Type:   string(igwapi.InferencePoolConditionAccepted),
-										Status: metav1.ConditionTrue,
-										Reason: string(igwapi.InferencePoolReasonAccepted),
-									},
-								},
-							},
-						},
-					},
-				}
+				infPool := InferencePool(infPoolName,
+					InNamespace[*igwapi.InferencePool](nsName),
+					WithSelector("app", "workload"),
+					WithTargetPort(8000),
+					WithExtensionRef("", "Service", kmeta.ChildName(svcName, "-epp-service")),
+					WithInferencePoolReadyStatus(),
+				)
 
 				// when
 				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
