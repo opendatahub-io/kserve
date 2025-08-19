@@ -234,6 +234,117 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 			})
 
+			It("should reference external InferencePool", func(ctx SpecContext) {
+				// given
+				svcName := "test-llm-create-http-route-inf-pool-ref"
+				nsName := kmeta.ChildName(svcName, "-test")
+				namespace := &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: nsName,
+					},
+				}
+				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+				defer func() {
+					envTest.DeleteAll(namespace)
+				}()
+
+				modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
+				Expect(err).ToNot(HaveOccurred())
+
+				infPoolName := kmeta.ChildName(svcName, "-my-inf-pool")
+
+				llmSvc := &v1alpha1.LLMInferenceService{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      svcName,
+						Namespace: nsName,
+					},
+					Spec: v1alpha1.LLMInferenceServiceSpec{
+						Model: v1alpha1.LLMModelSpec{
+							URI: *modelURL,
+						},
+						WorkloadSpec: v1alpha1.WorkloadSpec{},
+						Router: &v1alpha1.RouterSpec{
+							Route:   &v1alpha1.GatewayRoutesSpec{},
+							Gateway: &v1alpha1.GatewaySpec{},
+							Scheduler: &v1alpha1.SchedulerSpec{
+								Pool: &v1alpha1.InferencePoolSpec{
+									Ref: &corev1.LocalObjectReference{
+										Name: infPoolName,
+									},
+								},
+							},
+						},
+					},
+				}
+
+				infPool := &igwapi.InferencePool{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      infPoolName,
+						Namespace: nsName,
+					},
+					Spec: igwapi.InferencePoolSpec{
+						Selector: map[igwapi.LabelKey]igwapi.LabelValue{
+							"app": "workload",
+						},
+						TargetPortNumber: 8000,
+						EndpointPickerConfig: igwapi.EndpointPickerConfig{
+							ExtensionRef: &igwapi.Extension{
+								ExtensionReference: igwapi.ExtensionReference{
+									Group: ptr.To(igwapi.Group("")),
+									Kind:  ptr.To(igwapi.Kind("Service")),
+									Name:  igwapi.ObjectName(kmeta.ChildName(svcName, "-epp-service")),
+								},
+								ExtensionConnection: igwapi.ExtensionConnection{
+									FailureMode: ptr.To(igwapi.FailOpen),
+								},
+							},
+						},
+					},
+					Status: igwapi.InferencePoolStatus{
+						Parents: []igwapi.PoolStatus{
+							{
+								Conditions: []metav1.Condition{
+									{
+										Type:   string(igwapi.InferencePoolConditionAccepted),
+										Status: metav1.ConditionTrue,
+										Reason: string(igwapi.InferencePoolReasonAccepted),
+									},
+								},
+							},
+						},
+					},
+				}
+
+				// when
+				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+				Expect(envTest.Create(ctx, infPool)).To(Succeed())
+				defer func() {
+					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+					Expect(envTest.Delete(ctx, infPool)).To(Succeed())
+				}()
+
+				// then
+				expectedHTTPRoute := &gatewayapi.HTTPRoute{}
+				Eventually(func(g Gomega, ctx context.Context) error {
+					routes, errList := managedRoutes(ctx, llmSvc)
+					g.Expect(errList).ToNot(HaveOccurred())
+					g.Expect(routes).To(HaveLen(1))
+					expectedHTTPRoute = &routes[0]
+
+					return nil
+				}).WithContext(ctx).Should(Succeed())
+
+				Expect(expectedHTTPRoute).To(BeControllerBy(llmSvc))
+				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
+				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefInferencePool(infPoolName)))
+				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefService(svcName + "-kserve-workload-svc"))))
+
+				ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
+
+				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
+			})
+
 			It("should create routes pointing to workload service when no scheduler is configured", func(ctx SpecContext) {
 				// given
 				llmSvcName := "test-llm-create-http-route-no-scheduler"
@@ -346,12 +457,10 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						Router: &v1alpha1.RouterSpec{
 							Route: &v1alpha1.GatewayRoutesSpec{
 								HTTP: &v1alpha1.HTTPRouteSpec{
-									// TODO: this is configuring a core.v1 Service to be the BackendRef, isn't this technically invalid since Scheduler != nil and the BackendRef doesn't point to the InferencePool ?
 									Spec: customRouteSpec(ctx, envTest.Client, nsName, "my-ingress-gateway", "my-inference-service"),
 								},
 							},
-							Gateway:   &v1alpha1.GatewaySpec{},
-							Scheduler: &v1alpha1.SchedulerSpec{},
+							Gateway: &v1alpha1.GatewaySpec{},
 						},
 					},
 				}
@@ -841,6 +950,10 @@ func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, 
 }
 
 func ensureSchedulerDeploymentReady(ctx context.Context, c client.Client, llmSvc *v1alpha1.LLMInferenceService) {
+	if envTest.UsingExistingCluster() {
+		return
+	}
+
 	schedulerListOpts := &client.ListOptions{
 		Namespace:     llmSvc.Namespace,
 		LabelSelector: labels.SelectorFromSet(llmisvc.SchedulerLabels(llmSvc)),

@@ -214,6 +214,22 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		}
 	}
 
+	// Point HTTPRoute to InferencePool reference if specified.
+	if llmSvcCfg.Spec.Router != nil &&
+		llmSvcCfg.Spec.Router.Route != nil &&
+		llmSvcCfg.Spec.Router.Route.HTTP != nil &&
+		llmSvcCfg.Spec.Router.Route.HTTP.Spec != nil &&
+		llmSvcCfg.Spec.Router.Scheduler != nil &&
+		llmSvcCfg.Spec.Router.Scheduler.Pool.HasRef() {
+		for i := range llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules {
+			for j := range llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs {
+				if isDefaultBackendRef(llmSvc, llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].BackendRef) {
+					llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].Name = gatewayapi.ObjectName(llmSvcCfg.Spec.Router.Scheduler.Pool.Ref.Name)
+				}
+			}
+		}
+	}
+
 	return llmSvcCfg, nil
 }
 
