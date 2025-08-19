@@ -29,11 +29,6 @@ PROJECT_ROOT="$(find_project_root "$SCRIPT_DIR")"
 readonly MARKERS="${1:-raw}"
 readonly PARALLELISM="${2:-1}"
 
-if [[ "${MARKERS}" == *"llminferenceservice"* || "${MARKERS}" == *"llm-inference-service"* ]]; then
-  echo "Dummy stub for llm-inference-service setup"
-  exit 0
-fi
-
 readonly DEPLOYMENT_PROFILE="${3:-serverless}"
 validate_deployment_profile "${DEPLOYMENT_PROFILE}"
 

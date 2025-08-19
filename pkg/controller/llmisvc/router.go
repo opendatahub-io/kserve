@@ -49,8 +49,7 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 	defer llmSvc.DetermineRouterReadiness()
 
 	if err := r.reconcileScheduler(ctx, llmSvc); err != nil {
-		// Note: Eventually this should set a SchedulerReady sub-condition instead
-		llmSvc.MarkRouterNotReady("SchedulerReconcileError", "Failed to reconcile scheduler: %v", err.Error())
+		llmSvc.MarkSchedulerWorkloadNotReady("SchedulerReconcileError", "Failed to reconcile scheduler: %v", err.Error())
 		return fmt.Errorf("failed to reconcile scheduler: %w", err)
 	}
 
@@ -62,7 +61,7 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 	}
 
 	if err := r.reconcileIstioDestinationRules(ctx, llmSvc); err != nil {
-		llmSvc.MarkRouterNotReady("IstioDestinationRuleReconcileError", "Failed to reconcile DestinationRule: %v", err.Error())
+		llmSvc.MarkHTTPRoutesNotReady("IstioDestinationRuleReconcileError", "Failed to reconcile DestinationRule: %v", err.Error())
 		return fmt.Errorf("failed to reconcile istio destination rules: %w", err)
 	}
 
@@ -84,8 +83,7 @@ func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context,
 
 	expectedHTTPRoute := r.expectedHTTPRoute(ctx, llmSvc)
 
-	// TODO should we remove "llmSvc.Spec.Router.Route.HTTP == nil" from the condition below so that a non nil Route meeans "all type of routes are enabled"?
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || llmSvc.Spec.Router.Route.HTTP == nil {
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil {
 		return Delete(ctx, r, llmSvc, expectedHTTPRoute)
 	}
 
@@ -355,16 +353,21 @@ func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.
 	notReadyRoutes := EvaluateHTTPRouteReadiness(ctx, allRoutes)
 
 	if len(notReadyRoutes) > 0 {
-		routeNames := make([]string, len(notReadyRoutes))
+		nonReadyRouteMessages := make([]string, len(notReadyRoutes))
 		for i, route := range notReadyRoutes {
-			routeNames[i] = fmt.Sprintf("%s/%s", route.Namespace, route.Name)
+			topLevelCondition, _ := nonReadyHTTPRouteTopLevelCondition(route)
+			if topLevelCondition != nil {
+				nonReadyRouteMessages[i] = fmt.Sprintf("%s/%s: %#v (reason %q, message %q)", route.Namespace, route.Name, topLevelCondition.Status, topLevelCondition.Reason, topLevelCondition.Message)
+			} else {
+				nonReadyRouteMessages[i] = fmt.Sprintf("%s/%s: %#v", route.Namespace, route.Name, route.Status)
+			}
 		}
-		llmSvc.MarkHTTPRoutesNotReady("HTTPRoutesNotReady", "The following HTTPRoutes are not ready: %v", routeNames)
+		llmSvc.MarkHTTPRoutesNotReady("HTTPRoutesNotReady", "The following HTTPRoutes are not ready: %v", nonReadyRouteMessages)
 		logger.V(2).Info("Some HTTPRoutes are not ready", "routes", notReadyRoutes)
 		return nil
 	}
 
 	llmSvc.MarkHTTPRoutesReady()
-	logger.Info("All HTTPRoutes are ready")
+	logger.V(2).Info("All HTTPRoutes are ready", "routes", allRoutes)
 	return nil
 }

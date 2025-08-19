@@ -129,12 +129,16 @@ func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Con
 		workerLabels["kserve.io/component"] = "workload"
 		workerLabels["llm-d.ai/role"] = "decode"
 	}
+	role := "decode"
+	if llmSvc.Spec.Prefill == nil {
+		role = "both"
+	}
 	leaderLabels := map[string]string{
 		"app.kubernetes.io/component": "llminferenceservice-workload-leader",
 		"app.kubernetes.io/name":      llmSvc.GetName(),
 		"app.kubernetes.io/part-of":   "llminferenceservice",
 		"kserve.io/component":         "workload",
-		"llm-d.ai/role":               "decode",
+		"llm-d.ai/role":               role,
 	}
 
 	expected := &lwsapi.LeaderWorkerSet{

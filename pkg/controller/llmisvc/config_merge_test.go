@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/yaml"
 
 	ktesting "github.com/kserve/kserve/pkg/testing"
@@ -36,6 +37,7 @@ import (
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	pkgtest "github.com/kserve/kserve/pkg/testing"
 )
 
 func TestMergeSpecs(t *testing.T) {
@@ -1064,10 +1066,256 @@ func TestMergeSpecs(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "merge pod spec with nil containers",
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+				{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: "busybox",
+									Name:  "busybox",
+								},
+							},
+							InitContainers: []corev1.Container{
+								{
+									Image: "busybox-init",
+									Name:  "busybox-init",
+								},
+							},
+							Volumes: []corev1.Volume{
+								{
+									Name: "vol1",
+								},
+							},
+						},
+						Replicas: ptr.To[int32](1),
+					},
+				},
+				{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{},
+						Replicas: nil,
+					},
+				},
+			},
+			want: v1alpha1.LLMInferenceServiceSpec{
+				WorkloadSpec: v1alpha1.WorkloadSpec{
+					Template: &corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Image: "busybox",
+								Name:  "busybox",
+							},
+						},
+						InitContainers: []corev1.Container{
+							{
+								Image: "busybox-init",
+								Name:  "busybox-init",
+							},
+						},
+						Volumes: []corev1.Volume{
+							{
+								Name: "vol1",
+							},
+						},
+					},
+					Replicas: ptr.To[int32](1),
+				},
+			},
+		},
+		{
+			name: "merge pod spec with empty containers",
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+				{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: "busybox",
+									Name:  "busybox",
+								},
+							},
+							InitContainers: []corev1.Container{
+								{
+									Image: "busybox-init",
+									Name:  "busybox-init",
+								},
+							},
+							Volumes: []corev1.Volume{
+								{
+									Name: "vol1",
+								},
+							},
+						},
+						Replicas: ptr.To[int32](1),
+					},
+				},
+				{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							Containers: []corev1.Container{},
+						},
+						Replicas: nil,
+					},
+				},
+			},
+			want: v1alpha1.LLMInferenceServiceSpec{
+				WorkloadSpec: v1alpha1.WorkloadSpec{
+					Template: &corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Image: "busybox",
+								Name:  "busybox",
+							},
+						},
+						InitContainers: []corev1.Container{
+							{
+								Image: "busybox-init",
+								Name:  "busybox-init",
+							},
+						},
+						Volumes: []corev1.Volume{
+							{
+								Name: "vol1",
+							},
+						},
+					},
+					Replicas: ptr.To[int32](1),
+				},
+			},
+		},
+		{
+			name: "merge pod spec, add container",
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+				{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: "busybox",
+									Name:  "busybox",
+								},
+							},
+							InitContainers: []corev1.Container{
+								{
+									Image: "busybox-sidecar",
+									Name:  "busybox-sidecar",
+								},
+							},
+						},
+						Replicas: ptr.To[int32](2),
+					},
+				},
+				{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: "busybox-2",
+									Name:  "busybox-2",
+								},
+							},
+							InitContainers: []corev1.Container{},
+						},
+						Replicas: nil,
+					},
+				},
+			},
+			want: v1alpha1.LLMInferenceServiceSpec{
+				WorkloadSpec: v1alpha1.WorkloadSpec{
+					Template: &corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Image: "busybox-2",
+								Name:  "busybox-2",
+							},
+							{
+								Image: "busybox",
+								Name:  "busybox",
+							},
+						},
+						InitContainers: []corev1.Container{
+							{
+								Image: "busybox-sidecar",
+								Name:  "busybox-sidecar",
+							},
+						},
+					},
+					Replicas: ptr.To[int32](2),
+				},
+			},
+		},
+		{
+			name: "merge pod spec, add container",
+			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+				{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: "busybox",
+									Name:  "busybox",
+								},
+							},
+							InitContainers: []corev1.Container{
+								{
+									Image: "busybox-sidecar",
+									Name:  "busybox-sidecar",
+								},
+							},
+						},
+						Replicas: ptr.To[int32](2),
+					},
+				},
+				{
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: "busybox-2",
+									Name:  "busybox-2",
+								},
+							},
+							InitContainers: []corev1.Container{},
+						},
+						Replicas: nil,
+					},
+				},
+				{},
+			},
+			want: v1alpha1.LLMInferenceServiceSpec{
+				WorkloadSpec: v1alpha1.WorkloadSpec{
+					Template: &corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Image: "busybox-2",
+								Name:  "busybox-2",
+							},
+							{
+								Image: "busybox",
+								Name:  "busybox",
+							},
+						},
+						InitContainers: []corev1.Container{
+							{
+								Image: "busybox-sidecar",
+								Name:  "busybox-sidecar",
+							},
+						},
+					},
+					Replicas: ptr.To[int32](2),
+				},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := llmisvc.MergeSpecs(tt.cfgs...)
+			ctx := t.Context()
+			ctx = log.IntoContext(ctx, pkgtest.NewTestLogger(t))
+
+			got, err := llmisvc.MergeSpecs(ctx, tt.cfgs...)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("MergeSpecs() error = %v, wantErr %v", err, tt.wantErr)
 				return

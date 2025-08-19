@@ -18,15 +18,19 @@ package llmisvc_test
 
 import (
 	"context"
+	"time"
 
-	"k8s.io/apimachinery/pkg/api/resource"
-
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	. "github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -42,6 +46,10 @@ import (
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	. "github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 	. "github.com/kserve/kserve/pkg/testing"
+)
+
+const (
+	DefaultGatewayControllerName = "gateway.networking.k8s.io/gateway-controller"
 )
 
 var _ = Describe("LLMInferenceService Controller", func() {
@@ -140,7 +148,15 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			Expect(expectedDeployment).To(HaveContainerImage("quay.io/pierdipi/vllm-cpu:latest")) // Coming from preset
 			Expect(expectedDeployment).To(BeOwnedBy(llmSvc))
 
-			EnsureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
+			ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
+
+			Eventually(func(g Gomega, ctx context.Context) error {
+				routes, errList := managedRoutes(ctx, llmSvc)
+				g.Expect(errList).ToNot(HaveOccurred())
+				g.Expect(routes).To(HaveLen(1))
+				g.Expect(llmisvc.IsHTTPRouteReady(&routes[0])).To(BeTrue())
+				return nil
+			}).WithContext(ctx).Should(Succeed())
 
 			Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
 				g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
@@ -179,6 +195,154 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						},
 						WorkloadSpec: v1alpha1.WorkloadSpec{},
 						Router: &v1alpha1.RouterSpec{
+							Route:     &v1alpha1.GatewayRoutesSpec{},
+							Gateway:   &v1alpha1.GatewaySpec{},
+							Scheduler: &v1alpha1.SchedulerSpec{},
+						},
+					},
+				}
+
+				// when
+				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+				defer func() {
+					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+				}()
+
+				// then
+				expectedHTTPRoute := &gatewayapi.HTTPRoute{}
+				Eventually(func(g Gomega, ctx context.Context) error {
+					routes, errList := managedRoutes(ctx, llmSvc)
+					g.Expect(errList).ToNot(HaveOccurred())
+					g.Expect(routes).To(HaveLen(1))
+					expectedHTTPRoute = &routes[0]
+
+					return nil
+				}).WithContext(ctx).Should(Succeed())
+
+				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
+				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
+				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefInferencePool(svcName + "-inference-pool")))
+				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefService(svcName + "-kserve-workload-svc"))))
+
+				ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
+
+				Eventually(func(g Gomega, ctx context.Context) error {
+					ip := igwapi.InferencePool{}
+					return envTest.Client.Get(ctx, client.ObjectKey{Name: svcName + "-inference-pool", Namespace: llmSvc.GetNamespace()}, &ip)
+				}).WithContext(ctx).Should(Succeed())
+
+				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
+			})
+
+			It("should reference external InferencePool", func(ctx SpecContext) {
+				// given
+				svcName := "test-llm-create-http-route-inf-pool-ref"
+				nsName := kmeta.ChildName(svcName, "-test")
+				namespace := &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: nsName,
+					},
+				}
+				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+				defer func() {
+					envTest.DeleteAll(namespace)
+				}()
+
+				modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
+				Expect(err).ToNot(HaveOccurred())
+
+				infPoolName := kmeta.ChildName(svcName, "-my-inf-pool")
+
+				llmSvc := &v1alpha1.LLMInferenceService{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      svcName,
+						Namespace: nsName,
+					},
+					Spec: v1alpha1.LLMInferenceServiceSpec{
+						Model: v1alpha1.LLMModelSpec{
+							URI: *modelURL,
+						},
+						WorkloadSpec: v1alpha1.WorkloadSpec{},
+						Router: &v1alpha1.RouterSpec{
+							Route:   &v1alpha1.GatewayRoutesSpec{},
+							Gateway: &v1alpha1.GatewaySpec{},
+							Scheduler: &v1alpha1.SchedulerSpec{
+								Pool: &v1alpha1.InferencePoolSpec{
+									Ref: &corev1.LocalObjectReference{
+										Name: infPoolName,
+									},
+								},
+							},
+						},
+					},
+				}
+
+				infPool := InferencePool(infPoolName,
+					InNamespace[*igwapi.InferencePool](nsName),
+					WithSelector("app", "workload"),
+					WithTargetPort(8000),
+					WithExtensionRef("", "Service", kmeta.ChildName(svcName, "-epp-service")),
+					WithInferencePoolReadyStatus(),
+				)
+
+				// when
+				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+				Expect(envTest.Create(ctx, infPool)).To(Succeed())
+				defer func() {
+					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+					Expect(envTest.Delete(ctx, infPool)).To(Succeed())
+				}()
+
+				// then
+				expectedHTTPRoute := &gatewayapi.HTTPRoute{}
+				Eventually(func(g Gomega, ctx context.Context) error {
+					routes, errList := managedRoutes(ctx, llmSvc)
+					g.Expect(errList).ToNot(HaveOccurred())
+					g.Expect(routes).To(HaveLen(1))
+					expectedHTTPRoute = &routes[0]
+
+					return nil
+				}).WithContext(ctx).Should(Succeed())
+
+				Expect(expectedHTTPRoute).To(BeControllerBy(llmSvc))
+				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
+				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefInferencePool(infPoolName)))
+				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefService(svcName + "-kserve-workload-svc"))))
+
+				ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
+
+				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
+			})
+
+			It("should create routes pointing to workload service when no scheduler is configured", func(ctx SpecContext) {
+				// given
+				llmSvcName := "test-llm-create-http-route-no-scheduler"
+				nsName := kmeta.ChildName(llmSvcName, "-test")
+				namespace := &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: nsName,
+					},
+				}
+				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+				Expect(envTest.Client.Create(ctx, IstioShadowService(llmSvcName, nsName))).To(Succeed())
+				defer func() {
+					envTest.DeleteAll(namespace)
+				}()
+
+				modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
+				Expect(err).ToNot(HaveOccurred())
+
+				llmSvc := &v1alpha1.LLMInferenceService{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      llmSvcName,
+						Namespace: nsName,
+					},
+					Spec: v1alpha1.LLMInferenceServiceSpec{
+						Model: v1alpha1.LLMModelSpec{
+							URI: *modelURL,
+						},
+						Router: &v1alpha1.RouterSpec{
 							Route:   &v1alpha1.GatewayRoutesSpec{},
 							Gateway: &v1alpha1.GatewaySpec{},
 						},
@@ -202,15 +366,34 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					return nil
 				}).WithContext(ctx).Should(Succeed())
 
+				svcName := kmeta.ChildName(llmSvcName, "-kserve-workload-svc")
+
 				Expect(expectedHTTPRoute).To(BeControllerBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
-				Expect(expectedHTTPRoute).To(HaveBackendRefs(svcName + "-inference-pool"))
+				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefService(svcName)))
+				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefInferencePool(kmeta.ChildName(llmSvcName, "-inference-pool")))))
 
-				EnsureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
+				Eventually(func(g Gomega, ctx context.Context) error {
+					svc := &corev1.Service{}
+					err := envTest.Client.Get(ctx, client.ObjectKey{Name: svcName, Namespace: nsName}, svc)
+					g.Expect(err).ToNot(HaveOccurred())
+					g.Expect(svc.Spec.Selector).To(Equal(llmisvc.GetWorkloadLabelSelector(llmSvc.ObjectMeta, &llmSvc.Spec)))
+					return nil
+				})
+
+				ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
 
 				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
 					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
 				})).WithContext(ctx).Should(Succeed())
+
+				Consistently(func(g Gomega, ctx context.Context) error {
+					ip := igwapi.InferencePool{}
+					return envTest.Client.Get(ctx, client.ObjectKey{Name: llmSvcName + "-inference-pool", Namespace: llmSvc.GetNamespace()}, &ip)
+				}).WithContext(ctx).
+					Within(2 * time.Second).
+					WithPolling(300 * time.Millisecond).
+					Should(HaveOccurred())
 			})
 
 			It("should create HTTPRoute with defined spec", func(ctx SpecContext) {
@@ -244,9 +427,10 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						Router: &v1alpha1.RouterSpec{
 							Route: &v1alpha1.GatewayRoutesSpec{
 								HTTP: &v1alpha1.HTTPRouteSpec{
-									Spec: customRouteSpec(ctx, envTest.Client, nsName, "my-ingress-gateway", "my-inference-pool"),
+									Spec: customRouteSpec(ctx, envTest.Client, nsName, "my-ingress-gateway", "my-inference-service"),
 								},
 							},
+							Gateway: &v1alpha1.GatewaySpec{},
 						},
 					},
 				}
@@ -267,14 +451,17 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					return nil
 				}).WithContext(ctx).Should(Not(HaveOccurred()), "HTTPRoute should be created")
 
-				Expect(expectedHTTPRoute).To(BeControllerBy(llmSvc))
+				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "my-ingress-gateway"}))
-				Expect(expectedHTTPRoute).To(HaveBackendRefs("my-inference-pool"))
+				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefService("my-inference-service")))
+				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefInferencePool(kmeta.ChildName(svcName, "-inference-pool")))))
 
 				// Advanced fixture pattern: Update the HTTPRoute status using fixture functions
 				updatedRoute := expectedHTTPRoute.DeepCopy()
 				WithHTTPRouteReadyStatus(DefaultGatewayControllerName)(updatedRoute)
 				Expect(envTest.Client.Status().Update(ctx, updatedRoute)).To(Succeed())
+
+				ensureSchedulerDeploymentReady(ctx, envTest.Client, llmSvc)
 
 				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
 					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
@@ -548,18 +735,6 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						llmSvc.Spec.Router = nil
 					},
 				),
-				Entry("should delete HTTPRoutes when entire route spec is set to nil",
-					"router-route-spec-nil",
-					&v1alpha1.RouterSpec{
-						Route: &v1alpha1.GatewayRoutesSpec{
-							HTTP: &v1alpha1.HTTPRouteSpec{}, // Default empty spec
-						},
-						Gateway: &v1alpha1.GatewaySpec{},
-					},
-					func(llmSvc *v1alpha1.LLMInferenceService) {
-						llmSvc.Spec.Router.Route = nil
-					},
-				),
 			)
 		})
 	})
@@ -576,7 +751,7 @@ func LLMInferenceServiceIsReady(llmSvc *v1alpha1.LLMInferenceService, assertFns 
 		// When running on EnvTest certain controllers are not built-in, and that
 		// includes deployment controllers, ReplicaSet controllers, etc.
 		// Therefore, we can only observe a successful reconcile when testing against the actual cluster
-		if envTest.Environment.UseExistingCluster == ptr.To[bool](true) {
+		if envTest.UsingExistingCluster() {
 			g.Expect(current.Status).To(HaveCondition("Ready", "True"))
 		}
 
@@ -607,7 +782,12 @@ func ignoreNoMatch(err error) error {
 }
 
 // ensureGatewayReady sets up Gateway status conditions to simulate a ready Gateway
+// Only runs in non-cluster mode
 func ensureGatewayReady(ctx context.Context, c client.Client, gateway *gatewayapi.Gateway) {
+	if envTest.UsingExistingCluster() {
+		return
+	}
+
 	// Get the current gateway
 	createdGateway := &gatewayapi.Gateway{}
 	Expect(c.Get(ctx, client.ObjectKeyFromObject(gateway), createdGateway)).To(Succeed())
@@ -642,7 +822,12 @@ func ensureGatewayReady(ctx context.Context, c client.Client, gateway *gatewayap
 }
 
 // ensureHTTPRouteReady sets up HTTPRoute status conditions to simulate a ready HTTPRoute
+// Only runs in non-cluster mode
 func ensureHTTPRouteReady(ctx context.Context, c client.Client, route *gatewayapi.HTTPRoute) {
+	if envTest.UsingExistingCluster() {
+		return
+	}
+
 	// Get the current HTTPRoute
 	createdRoute := &gatewayapi.HTTPRoute{}
 	Expect(c.Get(ctx, client.ObjectKeyFromObject(route), createdRoute)).To(Succeed())
@@ -684,6 +869,80 @@ func ensureHTTPRouteReady(ctx context.Context, c client.Client, route *gatewayap
 		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(route), updatedRoute)).To(Succeed())
 		return llmisvc.IsHTTPRouteReady(updatedRoute)
 	}).WithContext(ctx).Should(BeTrue())
+}
+
+// Only runs in non-cluster mode
+func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, llmSvc *v1alpha1.LLMInferenceService) {
+	if envTest.UsingExistingCluster() {
+		return
+	}
+
+	gomega.Eventually(func(g gomega.Gomega, ctx context.Context) {
+		// Get managed gateways and make them ready
+		gateways := &gatewayapi.GatewayList{}
+		listOpts := &client.ListOptions{
+			Namespace:     llmSvc.Namespace,
+			LabelSelector: labels.SelectorFromSet(llmisvc.RouterLabels(llmSvc)),
+		}
+		err := c.List(ctx, gateways, listOpts)
+		if err != nil && !errors.IsNotFound(err) {
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		logf.FromContext(ctx).Info("Marking Gateway resources ready", "gateways", gateways)
+		for _, gateway := range gateways.Items {
+			// Update gateway status to ready
+			updatedGateway := gateway.DeepCopy()
+			WithGatewayReadyStatus()(updatedGateway)
+			g.Expect(c.Status().Update(ctx, updatedGateway)).To(gomega.Succeed())
+		}
+
+		// Get managed HTTPRoutes and make them ready
+		httpRoutes := &gatewayapi.HTTPRouteList{}
+		err = c.List(ctx, httpRoutes, listOpts)
+		if err != nil && !errors.IsNotFound(err) {
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		logf.FromContext(ctx).Info("Marking HTTPRoute resources ready", "routes", httpRoutes)
+		for _, route := range httpRoutes.Items {
+			// Update HTTPRoute status to ready
+			updatedRoute := route.DeepCopy()
+			WithHTTPRouteReadyStatus(DefaultGatewayControllerName)(updatedRoute)
+			g.Expect(c.Status().Update(ctx, updatedRoute)).To(gomega.Succeed())
+		}
+
+		// Ensure at least one HTTPRoute was found and made ready
+		g.Expect(httpRoutes.Items).To(gomega.HaveLen(1), "Expected exactly one managed HTTPRoute")
+
+		ensureSchedulerDeploymentReady(ctx, c, llmSvc)
+	}).WithContext(ctx).Should(gomega.Succeed())
+}
+
+func ensureSchedulerDeploymentReady(ctx context.Context, c client.Client, llmSvc *v1alpha1.LLMInferenceService) {
+	if envTest.UsingExistingCluster() {
+		return
+	}
+
+	schedulerListOpts := &client.ListOptions{
+		Namespace:     llmSvc.Namespace,
+		LabelSelector: labels.SelectorFromSet(llmisvc.SchedulerLabels(llmSvc)),
+	}
+	deployments := &appsv1.DeploymentList{}
+	err := c.List(ctx, deployments, schedulerListOpts)
+	if err != nil && !errors.IsNotFound(err) {
+		Expect(err).NotTo(gomega.HaveOccurred())
+	}
+
+	logf.FromContext(ctx).Info("Marking scheduler ready (if any)", "deployments", deployments)
+	for _, d := range deployments.Items {
+		dep := d.DeepCopy()
+		dep.Status.Conditions = append(dep.Status.Conditions, appsv1.DeploymentCondition{
+			Type:   appsv1.DeploymentAvailable,
+			Status: corev1.ConditionTrue,
+		})
+		Expect(c.Status().Update(ctx, dep)).To(gomega.Succeed())
+	}
 }
 
 func customRouteSpec(ctx context.Context, c client.Client, nsName, gatewayRefName, backendRefName string) *gatewayapi.HTTPRouteSpec {
