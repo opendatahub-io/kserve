@@ -12,15 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import time
-from dataclasses import dataclass
-from typing import Any, Callable, List
+
+import os
 import pytest
 import requests
-from kubernetes import client
 import yaml
+from dataclasses import dataclass
 from kserve import KServeClient, V1alpha1LLMInferenceService, constants
+from kubernetes import client
+from kubernetes import client
+from typing import Any, Callable, List
+
 from .diagnostic import (
     print_all_events_table,
     kinds_matching_by_labels,
@@ -73,7 +76,11 @@ class TestCase:
     [
         pytest.param(
             TestCase(
-                base_refs=["router-managed", "workload-single-cpu", "model-fb-opt-125m"],
+                base_refs=[
+                    "router-managed",
+                    "workload-single-cpu",
+                    "model-fb-opt-125m",
+                ],
                 prompt="KServe is a",
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
@@ -82,11 +89,62 @@ class TestCase:
             TestCase(
                 base_refs=["router-managed", "workload-pd-cpu", "model-fb-opt-125m"],
                 prompt="You are an expert in Kubernetes-native machine learning serving platforms, with deep knowledge of the KServe project. "
-                       "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
-                       "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.",
+                "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
+                "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.",
                 response_assertion=assert_200_with_choices,
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+        ),
+        pytest.param(
+            TestCase(
+                base_refs=[
+                    "router-managed",
+                    "workload-dp-ep-gpu",
+                    "workload-dp-ep-prefill-gpu",
+                    "model-deepseek-v2-lite",
+                ],
+                prompt="Delve into the multifaceted implications of a fully disaggregated cloud architecture, specifically "
+                "where the compute plane (P) and the data plane (D) are independently deployed and managed for a "
+                "geographically distributed, high-throughput, low-latency microservices ecosystem. Beyond the "
+                "fundamental challenges of network latency and data consistency, elaborate on the advanced "
+                "considerations and trade-offs inherent in such a setup: 1. Network Architecture and Protocols: "
+                "How would the network fabric and underlying protocols (e.g., RDMA, custom transport layers) need to "
+                "evolve to support optimal performance and minimize inter-plane communication overhead, especially for "
+                "synchronous operations? Discuss the role of network programmability (e.g., SDN, P4) in dynamically "
+                "optimizing routing and traffic flow between P and D. 2. Advanced Data Consistency and Durability: "
+                "Explore sophisticated data consistency models (e.g., causal consistency, strong eventual consistency) "
+                "and their applicability in balancing performance and data integrity across a globally distributed data plane. "
+                "Detail strategies for ensuring data durability and fault tolerance, including multi-region replication, "
+                "intelligent partitioning, and recovery mechanisms in the event of partial or full plane failures. "
+                "3. Dynamic Resource Orchestration and Cost Optimization: Analyze how an orchestration layer would intelligently "
+                "manage the independent scaling of compute (P) and data (D) resources, considering fluctuating workloads, "
+                "cost efficiency, and performance targets (e.g., using predictive analytics for resource provisioning). "
+                "Discuss mechanisms for dynamically reallocating compute nodes to different data partitions based on "
+                "workload patterns and data locality, potentially involving live migration strategies. "
+                "4. Security and Compliance in a Distributed Landscape: Address the enhanced security perimeter "
+                "challenges, including securing communication channels between P and D (encryption in transit, mutual TLS), "
+                "fine-grained access control to data at rest and in motion, and identity management across disaggregated "
+                "components. Discuss how such an architecture impacts compliance with regulatory frameworks (e.g., GDPR, HIPAA) "
+                "concerning data sovereignty, privacy, and auditability. 5. Operational Complexity and Observability: "
+                "Examine the increased complexity in monitoring, logging, and tracing across highly decoupled compute and "
+                "data planes. What specialized tooling and practices (e.g., distributed tracing with OpenTelemetry, advanced AIOps) "
+                "would be essential? How would incident response and troubleshooting differ in this disaggregated environment "
+                "compared to traditional integrated systems? Consider the challenges of pinpointing root causes across "
+                "independent failures. 6. Real-world Applicability and Future Trends: Identify specific industries "
+                "or use cases (e.g., high-frequency trading, IoT edge processing, large language model inference) "
+                "where the benefits of P/D disaggregation would strongly outweigh its complexities. "
+                "Conclude by speculating on emerging technologies or paradigms (e.g., serverless compute functions "
+                "directly interacting with object storage, in-memory disaggregation) that could further drive or "
+                "transform P/D disaggregation in cloud computing.",
+                max_tokens=2000,
+                wait_timeout=600,
+                response_timeout=20,
+            ),
+            marks=[
+                pytest.mark.cluster_gpu,
+                pytest.mark.cluster_nvidia,
+                pytest.mark.cluster_nvidia_roce,
+            ],
         ),
     ],
     indirect=["test_case"],
@@ -94,7 +152,6 @@ class TestCase:
 )
 @log_execution
 def test_llm_inference_service(test_case: TestCase):
-
     kserve_client = KServeClient(
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
@@ -103,6 +160,9 @@ def test_llm_inference_service(test_case: TestCase):
 
     try:
         create_llmisvc(kserve_client, test_case.llm_service)
+        wait_for_llm_isvc_ready(
+            kserve_client, test_case.llm_service, test_case.wait_timeout
+        )
         wait_for_model_response(kserve_client, test_case, test_case.wait_timeout)
     except Exception as e:
         print(f"❌ ERROR: Failed to call llm inference service {service_name}: {e}")
@@ -181,7 +241,6 @@ def wait_for_model_response(
     test_case: TestCase,
     timeout_seconds: int = 600,
 ) -> str:
-
     def assert_model_responds():
         try:
             service_url = get_llm_service_url(kserve_client, test_case.llm_service)
@@ -206,9 +265,9 @@ def wait_for_model_response(
             raise AssertionError(f"❌ Failed to call model: {e}") from e
 
         test_case.response_assertion(response)
-        return response.text[:test_case.max_tokens]
+        return response.text[: test_case.max_tokens]
 
-    return wait_for(assert_model_responds, timeout=timeout_seconds, interval=10.0)
+    return wait_for(assert_model_responds, timeout=timeout_seconds, interval=5.0)
 
 
 def get_llm_service_url(
@@ -251,6 +310,46 @@ def get_llm_service_url(
         raise ValueError(
             f"❌ Failed to get URL for LLM inference service {service_name}: {e}"
         ) from e
+
+
+@log_execution
+def wait_for_llm_isvc_ready(
+    kserve_client: KServeClient,
+    given: V1alpha1LLMInferenceService,
+    timeout_seconds: int = 600,
+) -> str:
+    def assert_llm_isvc_ready():
+        out = get_llmisvc(
+            kserve_client,
+            given.metadata.name,
+            given.metadata.namespace,
+            given.api_version.split("/")[1],
+        )
+
+        if "status" not in out:
+            raise AssertionError("No status found in LLM inference service")
+
+        status = out["status"]
+        if "conditions" not in status:
+            raise AssertionError("No conditions found in status")
+
+        expected_true_conditions = {"Ready", "WorkloadReady", "RouterReady"}
+        got_true_conditions = set()
+
+        conditions = status["conditions"]
+
+        for condition in conditions:
+            if condition.get("status") == "True":
+                got_true_conditions.add(condition.get("type"))
+
+        missing_conditions = expected_true_conditions - got_true_conditions
+        if missing_conditions:
+            raise AssertionError(
+                f"Missing true conditions: {missing_conditions}, expected {expected_true_conditions}, got {conditions}"
+            )
+        return True
+
+    return wait_for(assert_llm_isvc_ready, timeout=timeout_seconds, interval=1.0)
 
 
 def wait_for(

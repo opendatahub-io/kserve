@@ -20,6 +20,7 @@ Tests are marked with both general and cluster-specific capability markers:
 - `@pytest.mark.cluster_cpu` - CPU-only tests  
 - `@pytest.mark.cluster_amd` - AMD GPU tests
 - `@pytest.mark.cluster_nvidia` - NVIDIA GPU tests
+- `@pytest.mark.cluster_nvidia_roce` - NVIDIA ROCe tests
 - `@pytest.mark.cluster_intel` - Intel GPU tests
 
 Examples:
