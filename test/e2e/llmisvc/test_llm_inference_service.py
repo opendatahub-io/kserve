@@ -20,8 +20,7 @@ import requests
 import yaml
 from dataclasses import dataclass
 from kserve import KServeClient, V1alpha1LLMInferenceService, constants
-from kubernetes import client
-from kubernetes import client
+from kubernetes import client, config
 from typing import Any, Callable, List
 
 from .diagnostic import (
@@ -34,6 +33,7 @@ from .fixtures import (
     test_case,  # noqa: F401,F811
 )
 from .logging import log_execution
+from .logging import logger
 
 KSERVE_PLURAL_LLMINFERENCESERVICE = "llminferenceservices"
 
@@ -157,14 +157,35 @@ class TestCase:
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
+        pytest.param(
+            TestCase(
+                base_refs=[
+                    "router-managed",
+                    "workload-simulated-dp-ep-cpu",
+                    "model-fb-opt-125m",
+                ],
+                prompt="This test simulates DP+EP that can run on CPU, the idea is to test the LWS-based deployment, "
+                "but without the resources requirements for DP+EP (GPUs and ROCe/IB).",
+            ),
+            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_multi_node],
+        ),
     ],
     indirect=["test_case"],
     ids=generate_test_id,
 )
 @log_execution
 def test_llm_inference_service(test_case: TestCase):
+    config.load_kube_config()
+    proxy_url = os.getenv("HTTPS_PROXY", os.getenv("HTTP_PROXY", None))
+    if proxy_url:
+        logger.info("✅ Using Proxy URL: {proxy_url}")
+        client.Configuration._default.proxy = proxy_url
+    else:
+        logger.info("❌ No proxy configured")
+
     kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        config_file=os.environ.get("KUBECONFIG", "~/.kube/config"),
+        client_configuration=client.Configuration(),
     )
 
     service_name = test_case.llm_service.metadata.name
@@ -344,7 +365,7 @@ def wait_for_llm_isvc_ready(
         if "conditions" not in status:
             raise AssertionError("No conditions found in status")
 
-        expected_true_conditions = {"Ready", "WorkloadReady", "RouterReady"}
+        expected_true_conditions = {"Ready", "WorkloadsReady", "RouterReady"}
         got_true_conditions = set()
 
         conditions = status["conditions"]

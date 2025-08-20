@@ -607,7 +607,8 @@ until kubectl get crd llminferenceserviceconfigs.serving.kserve.io &> /dev/null;
 done
 kubectl wait --for=condition=Established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
 
-kubectl kustomize config/overlays/odh | kubectl apply  --server-side=true -f -
+# Use Kustomize 5.7+
+kustomize build config/overlays/odh | kubectl apply  --server-side=true --force-conflicts -f -
 
 kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n opendatahub  --timeout=300s
 ```
@@ -694,7 +695,7 @@ INGRESS_NS=openshift-ingress
 GW_CLASS_NAME=openshift-default
 
 #If you install OSSM 3.1 manually, use this
-#GW_CLASS_NAME=istio
+GW_CLASS_NAME=istio
 
 kubectl create namespace ${INGRESS_NS} || true
 
@@ -717,6 +718,9 @@ spec:
     labels:
       serving.kserve.io/gateway: kserve-ingress-gateway
 EOF
+
+# If LoadBalancer IP is not available, annotate the Gateway to use a NodePort Service
+# kubectl annotate gateways.gateway.networking.k8s.io -n openshift-ingress openshift-ai-inference networking.istio.io/service-type=NodePort --overwrite
 
 kubectl wait gateways.gateway.networking.k8s.io -n openshift-ingress openshift-ai-inference --timeout=5m --for=condition=programmed
 ```
