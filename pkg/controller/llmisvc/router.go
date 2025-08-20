@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/kmeta"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -369,5 +370,76 @@ func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.
 
 	llmSvc.MarkHTTPRoutesReady()
 	logger.V(2).Info("All HTTPRoutes are ready", "routes", allRoutes)
+	return nil
+}
+
+// EvaluateInferencePoolConditions evaluates the readiness of all Inference Pools in the LLMInferenceService
+// and updates the InferencePoolsReady condition accordingly
+func (r *LLMInferenceServiceReconciler) EvaluateInferencePoolConditions(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	logger := log.FromContext(ctx).WithName("EvaluateInferencePoolConditions")
+
+	// If no router or scheduler configuration, mark Inference Pools as ready (no Inference Pools to evaluate)
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Pool == nil {
+		logger.V(2).Info("No Router or Inference Pool configuration found, marking InferencePoolsReady as True")
+		llmSvc.MarkInferencePoolsReady()
+		return nil
+	}
+
+	// Collect all Inference Pools (both referenced and embedded)
+	var allPools []*igwapi.InferencePool
+
+	// Get the referenced inference pool
+	referencedPool := &igwapi.InferencePool{}
+	if llmSvc.Spec.Router.Scheduler.Pool.Ref != nil {
+		poolRef := llmSvc.Spec.Router.Scheduler.Pool.Ref
+
+		err := r.Client.Get(ctx, types.NamespacedName{
+			Namespace: llmSvc.Namespace,
+			Name:      poolRef.Name,
+		}, referencedPool)
+		if err != nil {
+			msg := fmt.Sprintf("Failed to fetch referenced Inference Pool: %v", err)
+			llmSvc.MarkInferencePoolsNotReady("InferencePoolFetchError", msg)
+			return fmt.Errorf(msg, err)
+		}
+	}
+	allPools = append(allPools, referencedPool)
+
+	// Check if the LLMInferenceService has an embedded Inference Pool spec
+	if llmSvc.Spec.Router.Scheduler.Pool.Spec != nil {
+		embeddedPool := &igwapi.InferencePool{}
+		err := r.Client.Get(ctx, types.NamespacedName{
+			Name:      llmSvc.Name + "-pool",
+			Namespace: llmSvc.Namespace,
+		}, embeddedPool)
+		if err != nil {
+			msg := fmt.Sprintf("Failed to fetch embedded Inference Pool: %v", err)
+			llmSvc.MarkInferencePoolsNotReady("InferencePoolFetchError", msg)
+			return fmt.Errorf(msg, err)
+		}
+		allPools = append(allPools, embeddedPool)
+	}
+
+	// If the list is empty at this point, mark as ready since there is nothing to evaluate
+	if len(allPools) == 0 {
+		logger.V(2).Info("No Inference Pools found, marking InferencePoolsReady as True")
+		llmSvc.MarkInferencePoolsReady()
+		return nil
+	}
+
+	// Determine which inference pools are not ready
+	notReadyPools := EvaluateInferencePoolReadiness(ctx, allPools)
+	if len(notReadyPools) > 0 {
+		poolNames := make([]string, len(notReadyPools))
+		for i, route := range notReadyPools {
+			poolNames[i] = fmt.Sprintf("%s/%s", route.Namespace, route.Name)
+		}
+		llmSvc.MarkInferencePoolsNotReady("InferencePoolsNotReady", "The following Inference Pools are not ready: %v", poolNames)
+		logger.V(2).Info("Some Inference Pools are not ready", "pools", notReadyPools)
+		return nil
+	}
+
+	llmSvc.MarkInferencePoolsReady()
+	logger.V(2).Info("All Inference Pools are ready", "pools", allPools)
 	return nil
 }

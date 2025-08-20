@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -297,4 +298,33 @@ func nonReadyHTTPRouteTopLevelCondition(route *gatewayapi.HTTPRoute) (*metav1.Co
 	}
 
 	return nil, false
+}
+
+// IsInferencePoolReady checks if an InferencePool has been accepted by at least one parent Gateway.
+func IsInferencePoolReady(pool *igwapi.InferencePool) bool {
+	// An InferencePool is considered ready if it has been accepted by at least one parent Gateway.
+	for _, parentStatus := range pool.Status.Parents {
+		for _, condition := range parentStatus.Conditions {
+			if condition.Type == "Accepted" && condition.Status == metav1.ConditionTrue {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// EvaluateInferencePoolReadiness checks the readiness status of each Inference Pool provided and returns those that are not ready
+func EvaluateInferencePoolReadiness(ctx context.Context, pools []*igwapi.InferencePool) []*igwapi.InferencePool {
+	logger := log.FromContext(ctx).WithName("EvaluateInferencePoolReadiness")
+	var notReadyPools []*igwapi.InferencePool
+
+	for _, pool := range pools {
+		ready := IsInferencePoolReady(pool)
+		logger.Info("Inference Pool readiness evaluated", "pool", fmt.Sprintf("%s/%s", pool.Namespace, pool.Name), "ready", ready)
+		if !ready {
+			notReadyPools = append(notReadyPools, pool)
+		}
+	}
+
+	return notReadyPools
 }
