@@ -27,7 +27,6 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/credentials"
-	"github.com/kserve/kserve/pkg/credentials/hf"
 	"github.com/kserve/kserve/pkg/types"
 	"github.com/kserve/kserve/pkg/utils"
 )
@@ -175,16 +174,6 @@ func (r *LLMInferenceServiceReconciler) attachHfModelArtifact(ctx context.Contex
 		return err
 	}
 	if initContainer := utils.GetInitContainerWithName(podSpec, constants.StorageInitializerContainerName); initContainer != nil {
-		// Check for env variable with secret ref
-		if mainContainer := utils.GetContainerWithName(podSpec, "main"); mainContainer != nil {
-			for _, envvar := range mainContainer.Env {
-				if envvar.Name == hf.HFTokenKey {
-					initContainer.Env = append(initContainer.Env, envvar)
-					return nil
-				}
-			}
-		}
-
 		// Check for service account with secret ref
 		credentialBuilder := credentials.NewCredentialBuilderFromConfig(r.Client, r.Clientset, *credentialConfig)
 		if err := credentialBuilder.CreateSecretVolumeAndEnv(

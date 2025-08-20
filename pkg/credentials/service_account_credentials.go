@@ -87,11 +87,7 @@ func NewCredentialBuilder(client client.Client, clientset kubernetes.Interface, 
 	if err != nil {
 		panic(err)
 	}
-	return &CredentialBuilder{
-		client:    client,
-		clientset: clientset,
-		config:    credentialConfig,
-	}
+	return NewCredentialBuilderFromConfig(client, clientset, credentialConfig)
 }
 
 func NewCredentialBuilderFromConfig(client client.Client, clientset kubernetes.Interface, config CredentialConfig) *CredentialBuilder {
