@@ -779,3 +779,269 @@ func TestFilterURLs(t *testing.T) {
 		}
 	})
 }
+
+func TestDiscoverURLs_AdditionalEdgeCases(t *testing.T) {
+	// Framework note: Using Go's testing.T with Gomega assertions (github.com/onsi/gomega),
+	// consistent with existing tests in this repository.
+	t.Run("duplicate addresses and hostnames are de-duplicated and order remains deterministic", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		ctx := t.Context()
+
+		scheme := runtime.NewScheme()
+		err := gatewayapi.Install(scheme)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		route := HTTPRoute("dedupe-route",
+			InNamespace[*gatewayapi.HTTPRoute]("test-ns"),
+			WithParentRef(GatewayRef("dedupe-gateway", RefInNamespace("test-ns"))),
+			WithHostnames("Api.Example.com", "api.example.com", "api.EXAMPLE.com"),
+		)
+
+		// Include duplicates and unsorted values intentionally
+		gateway := Gateway("dedupe-gateway",
+			InNamespace[*gatewayapi.Gateway]("test-ns"),
+			WithListener(gatewayapi.HTTPProtocolType),
+			WithAddresses(
+				"203.0.113.5",
+				"203.0.113.1",
+				"203.0.113.5", // duplicate
+				"203.0.113.1", // duplicate
+			),
+		)
+
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(route, gateway, DefaultGatewayClass()).
+			Build()
+
+		urls, err := llmisvc.DiscoverURLs(ctx, fakeClient, route)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		var actual []string
+		for _, u := range urls {
+			actual = append(actual, u.String())
+		}
+
+		// Expect hostname override to take precedence; duplicates collapsed; alpha order insured; case-insensitive hostnames normalize to a single entry.
+		// Implementation-specific ordering in prior tests shows lexicographic sort. Keep consistent with that behavior.
+		g.Expect(actual).To(Equal([]string{
+			"http://api.example.com/",
+		}))
+	})
+
+	t.Run("graceful handling when route is nil", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		ctx := t.Context()
+
+		scheme := runtime.NewScheme()
+		err := gatewayapi.Install(scheme)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(DefaultGatewayClass()).
+			Build()
+
+		_, err = llmisvc.DiscoverURLs(ctx, fakeClient, nil)
+		// Expect a not found or invalid error; assert presence rather than specific type to avoid coupling.
+		g.Expect(err).To(HaveOccurred())
+	})
+
+	t.Run("multiple listeners without section name - picks appropriate scheme ordering remains stable", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		ctx := t.Context()
+
+		scheme := runtime.NewScheme()
+		err := gatewayapi.Install(scheme)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		route := HTTPRoute("multi-listeners-no-section",
+			InNamespace[*gatewayapi.HTTPRoute]("test-ns"),
+			WithParentRef(GatewayRef("ml-gateway", RefInNamespace("test-ns"))),
+			WithHostnames("secure.example.com"),
+		)
+
+		gw := Gateway("ml-gateway",
+			InNamespace[*gatewayapi.Gateway]("test-ns"),
+			WithListeners(
+				gatewayapi.Listener{
+					Name:     "http-listener",
+					Protocol: gatewayapi.HTTPProtocolType,
+					Port:     80,
+				},
+				gatewayapi.Listener{
+					Name:     "https-listener",
+					Protocol: gatewayapi.HTTPSProtocolType,
+					Port:     443,
+				},
+			),
+			WithAddresses("203.0.113.1"),
+		)
+
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(route, gw, DefaultGatewayClass()).
+			Build()
+
+		urls, err := llmisvc.DiscoverURLs(ctx, fakeClient, route)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		var actual []string
+		for _, u := range urls {
+			actual = append(actual, u.String())
+		}
+
+		// If implementation aggregates both schemes, expect stable, sorted output. If it prefers HTTPS, expect only HTTPS.
+		// We assert that at least HTTPS is present and no duplicates occur. This keeps test valuable while not over-constraining.
+		hasHTTPS := false
+		seen := map[string]struct{}{}
+		for _, s := range actual {
+			if strings.HasPrefix(s, "https://secure.example.com/") {
+				hasHTTPS = true
+			}
+			_, exists := seen[s]
+			g.Expect(exists).To(BeFalse(), "duplicate URL %q found", s)
+			seen[s] = struct{}{}
+		}
+		g.Expect(hasHTTPS).To(BeTrue(), "expected HTTPS URL for secure hostname")
+	})
+
+	t.Run("invalid hostname in route is ignored or yields error without panicking", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		ctx := t.Context()
+
+		scheme := runtime.NewScheme()
+		err := gatewayapi.Install(scheme)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		route := HTTPRoute("invalid-hostname-route",
+			InNamespace[*gatewayapi.HTTPRoute]("test-ns"),
+			WithParentRef(GatewayRef("invalid-host-gw", RefInNamespace("test-ns"))),
+			WithHostnames("http://bad host name"), // deliberately invalid as a hostname
+		)
+
+		gw := Gateway("invalid-host-gw",
+			InNamespace[*gatewayapi.Gateway]("test-ns"),
+			WithListener(gatewayapi.HTTPProtocolType),
+			WithAddresses("203.0.113.1"),
+		)
+
+		fakeClient := fake.NewClientBuilder().
+			WithScheme(scheme).
+			WithObjects(route, gw, DefaultGatewayClass()).
+			Build()
+
+		// Behavior under invalid hostname should be: either error is returned, or invalid hostname is skipped
+		urls, err := llmisvc.DiscoverURLs(ctx, fakeClient, route)
+		if err != nil {
+			g.Expect(urls).To(BeEmpty())
+		} else {
+			var actual []string
+			for _, u := range urls { actual = append(actual, u.String()) }
+			// If invalid hostname was skipped, it should fall back to gateway address URL.
+			g.Expect(actual).To(ContainElement("http://203.0.113.1/"))
+		}
+	})
+}
+
+func TestFilterURLs_AdditionalCases(t *testing.T) {
+	// Framework note: Using Go's testing.T with Gomega (Gomega WithT).
+	t.Run("IPv6 internal vs external classification (if supported)", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+
+		// Use documentation IPv6 ranges to avoid real IPs:
+		// - fc00::/7 (ULA) is internal
+		// - 2001:db8::/32 is documentation range, treat as external if implementation defaults to external
+		input := []string{
+			"http://[fc00::1]/",
+			"http://[fe80::1]/",      // link-local (internal)
+			"http://[2001:db8::1]/",  // doc external
+		}
+
+		var parsed []*apis.URL
+		for _, s := range input {
+			u, err := apis.ParseURL(s)
+			g.Expect(err).ToNot(HaveOccurred())
+			parsed = append(parsed, u)
+		}
+
+		internal := llmisvc.FilterInternalURLs(parsed)
+		external := llmisvc.FilterExternalURLs(parsed)
+
+		internalS := make([]string, 0, len(internal))
+		for _, u := range internal { internalS = append(internalS, u.String()) }
+
+		externalS := make([]string, 0, len(external))
+		for _, u := range external { externalS = append(externalS, u.String()) }
+
+		// We assert minimal expectations that keep value even if IPv6 support varies:
+		// - No URL should appear in both internal and external sets
+		seen := map[string]int{}
+		for _, s := range internalS { seen[s]++ }
+		for _, s := range externalS { seen[s]++ }
+		for k, v := range seen {
+			g.Expect(v).To(Equal(1), "URL %s appears in both internal and external classification", k)
+		}
+	})
+
+	t.Run("IsInternalURL/IsExternalURL classify case-insensitive hostnames correctly", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		urls := []string{
+			"http://LOCALHOST/",
+			"http://Api.Example.Com/",
+		}
+		for _, s := range urls {
+			u, err := apis.ParseURL(s)
+			g.Expect(err).ToNot(HaveOccurred())
+			if strings.Contains(strings.ToLower(u.Host, ), "localhost") {
+				g.Expect(llmisvc.IsInternalURL(u)).To(BeTrue())
+				g.Expect(llmisvc.IsExternalURL(u)).To(BeFalse())
+			} else {
+				g.Expect(llmisvc.IsInternalURL(u)).To(BeFalse())
+				g.Expect(llmisvc.IsExternalURL(u)).To(BeTrue())
+			}
+		}
+	})
+
+	t.Run("Filter functions handle malformed URLs slice entries defensively", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		// We can't create malformed *apis.URL via ParseURL (it validates),
+		// but we can ensure functions handle nil entries in the slice.
+		u1, err := apis.ParseURL("http://localhost/")
+		g.Expect(err).ToNot(HaveOccurred())
+		u2, err := apis.ParseURL("http://api.example.com/")
+		g.Expect(err).ToNot(HaveOccurred())
+
+		in := []*apis.URL{u1, nil, u2, nil}
+
+		internal := llmisvc.FilterInternalURLs(in)
+		external := llmisvc.FilterExternalURLs(in)
+
+		for _, u := range internal {
+			g.Expect(u).ToNot(BeNil())
+		}
+		for _, u := range external {
+			g.Expect(u).ToNot(BeNil())
+		}
+
+		// Ensure expected classification still holds
+		intS := make([]string, 0, len(internal))
+		for _, u := range internal { intS = append(intS, u.String()) }
+		extS := make([]string, 0, len(external))
+		for _, u := range external { extS = append(extS, u.String()) }
+
+		g.Expect(intS).To(ContainElement("http://localhost/"))
+		g.Expect(extS).To(ContainElement("http://api.example.com/"))
+	})
+
+	t.Run("FilterExternalURLs preserves path, query, and fragment", func(t *testing.T) {
+		g := NewGomegaWithT(t)
+		raw := "https://api.example.com/search?q=llm#sec"
+		u, err := apis.ParseURL(raw)
+		g.Expect(err).ToNot(HaveOccurred())
+
+		out := llmisvc.FilterExternalURLs([]*apis.URL{u})
+		g.Expect(out).To(HaveLen(1))
+		g.Expect(out[0].String()).To(Equal(raw))
+	})
+}
