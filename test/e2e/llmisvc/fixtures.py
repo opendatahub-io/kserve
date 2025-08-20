@@ -258,6 +258,9 @@ LLMINFERENCESERVICE_CONFIGS = {
     "router-managed": {
         "router": {"scheduler": {}, "route": {}, "gateway": {}},
     },
+    "router-no-scheduler": {
+        "router": {"route": {}},
+    },
 }
 
 

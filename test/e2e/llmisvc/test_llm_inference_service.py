@@ -146,6 +146,17 @@ class TestCase:
                 pytest.mark.cluster_nvidia_roce,
             ],
         ),
+        pytest.param(
+            TestCase(
+                base_refs=[
+                    "router-no-scheduler",
+                    "workload-single-cpu",
+                    "model-fb-opt-125m",
+                ],
+                prompt="What is KServe?",
+            ),
+            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+        ),
     ],
     indirect=["test_case"],
     ids=generate_test_id,
