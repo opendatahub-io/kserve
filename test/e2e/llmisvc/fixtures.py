@@ -16,7 +16,7 @@ import hashlib
 import os
 import pytest
 from kserve import KServeClient, constants, V1alpha1LLMInferenceService
-from kubernetes import client
+from kubernetes import client, config
 from kubernetes.client.rest import ApiException
 from typing import List
 
@@ -261,6 +261,67 @@ LLMINFERENCESERVICE_CONFIGS = {
     "router-no-scheduler": {
         "router": {"route": {}},
     },
+    # This preset simulates DP+EP that can run on CPU, the idea is to test the LWS-based deployment
+    # but without the resources requirements for DP+EP (GPUs and ROCe/IB)
+    "workload-simulated-dp-ep-cpu": {
+        "replicas": 2,
+        "parallelism": {
+            "data": 2,
+            "dataLocal": 1,
+            "expert": True,
+            "tensor": 1,
+        },
+        "template": {
+            "containers": [
+                {
+                    "name": "main",
+                    "image": "quay.io/pierdipi/vllm-cpu:latest",
+                    "command": ["vllm", "serve", "/mnt/models"],
+                    "args": [
+                        "--served-model-name",
+                        "{{ .Spec.Model.Name }}",
+                        "--port",
+                        "8000",
+                        "--disable-log-requests",
+                        "--enable-ssl-refresh",
+                        "--ssl-certfile",
+                        "/etc/ssl/certs/tls.crt",
+                        "--ssl-keyfile",
+                        "/etc/ssl/certs/tls.key",
+                    ],
+                    "resources": {
+                        "limits": {"cpu": "2", "memory": "16Gi"},
+                        "requests": {"cpu": "1", "memory": "8Gi"},
+                    },
+                }
+            ]
+        },
+        "worker": {
+            "containers": [
+                {
+                    "name": "main",
+                    "image": "quay.io/pierdipi/vllm-cpu:latest",
+                    "command": ["vllm", "serve", "/mnt/models"],
+                    "args": [
+                        "--served-model-name",
+                        "{{ .Spec.Model.Name }}",
+                        "--port",
+                        "8000",
+                        "--disable-log-requests",
+                        "--enable-ssl-refresh",
+                        "--ssl-certfile",
+                        "/etc/ssl/certs/tls.crt",
+                        "--ssl-keyfile",
+                        "/etc/ssl/certs/tls.key",
+                    ],
+                    "resources": {
+                        "limits": {"cpu": "2", "memory": "16Gi"},
+                        "requests": {"cpu": "1", "memory": "8Gi"},
+                    },
+                }
+            ]
+        },
+    },
 }
 
 
@@ -268,8 +329,18 @@ LLMINFERENCESERVICE_CONFIGS = {
 def test_case(request):
     tc = request.param
     created_configs = []
+
+    config.load_kube_config()
+    proxy_url = os.getenv("HTTPS_PROXY", os.getenv("HTTP_PROXY", None))
+    if proxy_url:
+        logger.info("✅ Using Proxy URL: {proxy_url}")
+        client.Configuration._default.proxy = proxy_url
+    else:
+        logger.info("❌ No proxy configured")
+
     kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        config_file=os.environ.get("KUBECONFIG", "~/.kube/config"),
+        client_configuration=client.Configuration(),
     )
 
     try:
@@ -358,7 +429,8 @@ def generate_k8s_safe_suffix(base_name: str, extra_parts: List[str] = None) -> s
 
     name_hash = hashlib.md5(full_name.encode()).hexdigest()[:8]
 
-    max_total = 63
+    # TODO: we can't use the real maximum (63), LWS and STS add additional suffixes (ie `-0`) and don't handle that case.
+    max_total = 40
     sep = "-"
     max_base = max_total - len(sep) - len(name_hash)
     safe_base = full_name[:max_base].rstrip(sep)
@@ -368,7 +440,7 @@ def generate_k8s_safe_suffix(base_name: str, extra_parts: List[str] = None) -> s
 
 def generate_service_name(test_name: str, base_refs: List[str]) -> str:
     base_name = test_name.split("[", 1)[0]
-    base_name = base_name.replace("test_", "")
+    base_name = base_name.replace("test_llm_inference_service", "llmisvc")
     return generate_k8s_safe_suffix(base_name, base_refs)
 
 
