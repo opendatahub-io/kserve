@@ -305,7 +305,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					return nil
 				}).WithContext(ctx).Should(Succeed())
 
-				Expect(expectedHTTPRoute).To(BeControllerBy(llmSvc))
+				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
 				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefInferencePool(infPoolName)))
 				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefService(svcName + "-kserve-workload-svc"))))
@@ -368,7 +368,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				svcName := kmeta.ChildName(llmSvcName, "-kserve-workload-svc")
 
-				Expect(expectedHTTPRoute).To(BeControllerBy(llmSvc))
+				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
 				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefService(svcName)))
 				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefInferencePool(kmeta.ChildName(llmSvcName, "-inference-pool")))))
