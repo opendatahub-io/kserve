@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
+	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -144,7 +145,7 @@ func (r *LLMInferenceServiceReconciler) expectedMetricsReaderSecret(llmSvc *v1al
 func (r *LLMInferenceServiceReconciler) expectedMetricsReaderClusterRoleBinding(llmSvc *v1alpha1.LLMInferenceService) *rbacv1.ClusterRoleBinding {
 	return &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "kserve-metrics-reader-role-binding-" + llmSvc.GetNamespace(),
+			Name: kmeta.ChildName("kserve-metrics-reader-role-binding-", llmSvc.GetNamespace()),
 			Labels: map[string]string{
 				"app.kubernetes.io/component": "llm-monitoring",
 				"app.kubernetes.io/part-of":   "llminferenceservice",
@@ -175,8 +176,9 @@ func (r *LLMInferenceServiceReconciler) expectedVLLMEngineMonitor(llmSvc *v1alph
 			Name:      "kserve-llm-isvc-vllm-engine",
 			Namespace: llmSvc.GetNamespace(),
 			Labels: map[string]string{
-				"app.kubernetes.io/component": "llm-monitoring",
-				"app.kubernetes.io/part-of":   "llminferenceservice",
+				"app.kubernetes.io/component":      "llm-monitoring",
+				"app.kubernetes.io/part-of":        "llminferenceservice",
+				"monitoring.opendatahub.io/scrape": "true",
 			},
 		},
 		Spec: monitoringv1.PodMonitorSpec{
@@ -247,8 +249,9 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerMonitor(llmSvc *v1alpha
 			Name:      "kserve-llm-isvc-scheduler",
 			Namespace: llmSvc.GetNamespace(),
 			Labels: map[string]string{
-				"app.kubernetes.io/component": "llm-monitoring",
-				"app.kubernetes.io/part-of":   "llminferenceservice",
+				"app.kubernetes.io/component":      "llm-monitoring",
+				"app.kubernetes.io/part-of":        "llminferenceservice",
+				"monitoring.opendatahub.io/scrape": "true",
 			},
 		},
 		Spec: monitoringv1.ServiceMonitorSpec{
@@ -307,15 +310,15 @@ func (r *LLMInferenceServiceReconciler) cleanupMonitoringResources(ctx context.C
 		return fmt.Errorf("failed to list LLMInferenceServices in namespace %s: %w", llmSvc.GetNamespace(), err)
 	}
 
-	lastLLMIsvc := true
+	namespaceHasLlmIsvcs := false
 	for _, svc := range llmSvcList.Items {
-		if svc.Name != llmSvc.Name && svc.DeletionTimestamp.IsZero() {
-			lastLLMIsvc = false
+		if svc.DeletionTimestamp.IsZero() {
+			namespaceHasLlmIsvcs = true
 			break
 		}
 	}
 
-	if !lastLLMIsvc {
+	if namespaceHasLlmIsvcs {
 		logger.Info("Other LLMInferenceServices exist in namespace, skipping monitoring cleanup",
 			"namespace", llmSvc.GetNamespace())
 		return nil
