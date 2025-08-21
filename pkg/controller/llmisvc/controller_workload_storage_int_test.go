@@ -313,7 +313,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
 			}()
 
-			// retrieve the create deployments
+			// retrieve the created deployments
 			expectedMainDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
@@ -497,7 +497,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
 			}()
 
-			// retrieve the create deployments
+			// retrieve the created deployments
 			expectedMainDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
@@ -557,6 +557,10 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 				{
 					Name:  s3.AWSEndpointUrl,
 					Value: "http://" + s3Endpoint,
+				},
+				{
+					Name:  s3.AWSRegion,
+					Value: s3Region,
 				},
 			}
 			validateStorageInitializerCredentials(expectedMainDeployment, expectedEnvVars)
@@ -634,7 +638,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
 			}()
 
-			// retrieve the create deployments
+			// retrieve the created deployments
 			expectedMainDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
@@ -673,6 +677,10 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 					Name:  s3.AWSEndpointUrl,
 					Value: "http://" + s3Endpoint,
 				},
+				{
+					Name:  s3.AWSRegion,
+					Value: s3Region,
+				},
 			}
 			validateStorageInitializerCredentials(expectedMainDeployment, expectedEnvVars)
 			validateStorageInitializerCredentials(expectedPrefillDeployment, expectedEnvVars)
@@ -681,12 +689,12 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedServiceAccount := &corev1.ServiceAccount{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      serviceAccountName,
+					Name:      svcName + "-kserve",
 					Namespace: nsName,
 				}, expectedServiceAccount)
 			}).WithContext(ctx).Should(Succeed())
 
-			// validate the arn-role annotation was properly propagated to the created service account
+			// validate the role-arn annotation was properly propagated to the created service account
 			Expect(expectedServiceAccount.Annotations[credentials.AwsIrsaAnnotationKey]).To(BeEquivalentTo(s3IamRole))
 		})
 	})
@@ -927,6 +935,135 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			validateStorageInitializerIsConfiguredForLWS(expectedPrefillLWS, "hf://user-id/repo-id:tag")
 		})
 
+		It("should use storage-initializer and set proper env variables when uri starts with hf:// and credentials are configured", func(ctx SpecContext) {
+			// setup test dependencies
+			svcName := "test-llm-storage-hf-mn-with-credentials"
+			nsName := kmeta.ChildName(svcName, "-test")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nsName,
+				},
+			}
+			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			defer func() {
+				envTest.DeleteAll(namespace)
+			}()
+
+			secretName := kmeta.ChildName(svcName, "-secret")
+			hfTokenValue := "test-token"
+			credentialSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: nsName,
+				},
+				StringData: map[string]string{
+					hf.HFTokenKey: hfTokenValue,
+				},
+			}
+			Expect(envTest.Client.Create(ctx, credentialSecret)).To(Succeed())
+
+			serviceAccountName := kmeta.ChildName(svcName, "-sa")
+			serviceAccount := &corev1.ServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceAccountName,
+					Namespace: nsName,
+				},
+				Secrets: []corev1.ObjectReference{
+					{
+						Name:      secretName,
+						Namespace: nsName,
+					},
+				},
+			}
+			Expect(envTest.Client.Create(ctx, serviceAccount)).To(Succeed())
+
+			modelURL, err := apis.ParseURL("hf://user-id/repo-id:tag")
+			Expect(err).ToNot(HaveOccurred())
+
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      svcName,
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						Name: ptr.To("foo"),
+						URI:  *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{},
+						},
+						Worker: &corev1.PodSpec{
+							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{},
+						},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
+					Router: &v1alpha1.RouterSpec{
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
+					},
+					Prefill: &v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{},
+						},
+						Worker: &corev1.PodSpec{
+							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{},
+						},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
+				},
+			}
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+			}()
+
+			// retrieve the created LeaderWorkerSets
+			expectedMainLWS := &lwsapi.LeaderWorkerSet{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn",
+					Namespace: nsName,
+				}, expectedMainLWS)
+			}).WithContext(ctx).Should(Succeed())
+
+			expectedPrefillLWS := &lwsapi.LeaderWorkerSet{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn-prefill",
+					Namespace: nsName,
+				}, expectedPrefillLWS)
+			}).WithContext(ctx).Should(Succeed())
+
+			// validate the storage initializer configuration in the leader worker sets
+			validateStorageInitializerIsConfiguredForLWS(expectedMainLWS, "hf://user-id/repo-id:tag")
+			validateStorageInitializerIsConfiguredForLWS(expectedPrefillLWS, "hf://user-id/repo-id:tag")
+
+			// validate the storage initializer credentials in the leader worker sets
+			expectedEnvVars := []corev1.EnvVar{
+				{
+					Name:  hf.HFTokenKey,
+					Value: hfTokenValue,
+				},
+			}
+			validateStorageInitializerCredentialsForLWS(expectedMainLWS, expectedEnvVars)
+			validateStorageInitializerCredentialsForLWS(expectedPrefillLWS, expectedEnvVars)
+		})
+
 		It("should use storage-initializer to download model when uri starts with s3://", func(ctx SpecContext) {
 			// given
 			svcName := "test-llm-storage-s3-mn"
@@ -1004,6 +1141,342 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 
 			validateStorageInitializerIsConfiguredForLWS(expectedMainLWS, "s3://user-id/repo-id:tag")
 			validateStorageInitializerIsConfiguredForLWS(expectedPrefillLWS, "s3://user-id/repo-id:tag")
+		})
+
+		It("should use storage-initializer and set proper env variables when uri starts with s3:// and credentials are configured", func(ctx SpecContext) {
+			// setup test dependencies
+			svcName := "test-llm-storage-s3-mn-with-credentials"
+			nsName := kmeta.ChildName(svcName, "-test")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nsName,
+				},
+			}
+			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			defer func() {
+				envTest.DeleteAll(namespace)
+			}()
+
+			secretName := kmeta.ChildName(svcName, "-secret")
+			s3Endpoint := "s3-credentials-test.kserve:9000"
+			s3UseHttps := "0"
+			s3Region := "us-south"
+			s3Anon := "false"
+			credentialSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: nsName,
+					Annotations: map[string]string{
+						s3.InferenceServiceS3SecretEndpointAnnotation: s3Endpoint,
+						s3.InferenceServiceS3SecretHttpsAnnotation:    s3UseHttps,
+						s3.InferenceServiceS3SecretRegionAnnotation:   s3Region,
+						s3.InferenceServiceS3UseAnonymousCredential:   s3Anon,
+					},
+				},
+				StringData: map[string]string{
+					s3.AWSAccessKeyIdName:     "test-id",
+					s3.AWSSecretAccessKeyName: "test-secret",
+				},
+			}
+			Expect(envTest.Client.Create(ctx, credentialSecret)).To(Succeed())
+
+			serviceAccountName := kmeta.ChildName(svcName, "-sa")
+			serviceAccount := &corev1.ServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceAccountName,
+					Namespace: nsName,
+				},
+				Secrets: []corev1.ObjectReference{
+					{
+						Name:      secretName,
+						Namespace: nsName,
+					},
+				},
+			}
+			Expect(envTest.Client.Create(ctx, serviceAccount)).To(Succeed())
+
+			modelURL, err := apis.ParseURL("s3://bucket/model")
+			Expect(err).ToNot(HaveOccurred())
+
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      svcName,
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						Name: ptr.To("foo"),
+						URI:  *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{},
+						},
+						Worker: &corev1.PodSpec{
+							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{},
+						},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
+					Router: &v1alpha1.RouterSpec{
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
+					},
+					Prefill: &v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{},
+						},
+						Worker: &corev1.PodSpec{
+							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{},
+						},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
+				},
+			}
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+			}()
+
+			// retrieve the created leader worker sets
+			expectedMainLWS := &lwsapi.LeaderWorkerSet{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn",
+					Namespace: nsName,
+				}, expectedMainLWS)
+			}).WithContext(ctx).Should(Succeed())
+
+			expectedPrefillLWS := &lwsapi.LeaderWorkerSet{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn-prefill",
+					Namespace: nsName,
+				}, expectedPrefillLWS)
+			}).WithContext(ctx).Should(Succeed())
+
+			// validate the storage initializer configuration in the leader worker sets
+			validateStorageInitializerIsConfiguredForLWS(expectedMainLWS, "s3://bucket/model")
+			validateStorageInitializerIsConfiguredForLWS(expectedPrefillLWS, "s3://bucket/model")
+
+			// validate the storage initializer credentials are properly set
+			expectedEnvVars := []corev1.EnvVar{
+				{
+					Name: s3.AWSAccessKeyId,
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: credentialSecret.Name,
+							},
+							Key: s3.AWSAccessKeyIdName,
+						},
+					},
+				},
+				{
+					Name: s3.AWSSecretAccessKey,
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: credentialSecret.Name,
+							},
+							Key: s3.AWSSecretAccessKeyName,
+						},
+					},
+				},
+				{
+					Name:  s3.S3UseHttps,
+					Value: s3UseHttps,
+				},
+				{
+					Name:  s3.S3Endpoint,
+					Value: s3Endpoint,
+				},
+				{
+					Name:  s3.AWSAnonymousCredential,
+					Value: s3Anon,
+				},
+				{
+					Name:  s3.AWSEndpointUrl,
+					Value: "http://" + s3Endpoint,
+				},
+				{
+					Name:  s3.AWSRegion,
+					Value: s3Region,
+				},
+			}
+			validateStorageInitializerCredentialsForLWS(expectedMainLWS, expectedEnvVars)
+			validateStorageInitializerCredentialsForLWS(expectedPrefillLWS, expectedEnvVars)
+		})
+
+		It("should use storage-initializer and set proper env variables when uri starts with s3:// and credentials are configured for IAM", func(ctx SpecContext) {
+			// setup test dependencies
+			svcName := "test-llm-storage-s3-mn-with-iam-credentials"
+			nsName := kmeta.ChildName(svcName, "-test")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nsName,
+				},
+			}
+			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			defer func() {
+				envTest.DeleteAll(namespace)
+			}()
+
+			serviceAccountName := kmeta.ChildName(svcName, "-sa")
+			s3IamRole := "arn:aws:iam::123456789012:role/s3access"
+			s3Endpoint := "s3-credentials-test.kserve:9000"
+			s3UseHttps := "0"
+			s3Region := "us-south"
+			s3Anon := "false"
+			serviceAccount := &corev1.ServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceAccountName,
+					Namespace: nsName,
+					Annotations: map[string]string{
+						credentials.AwsIrsaAnnotationKey:              s3IamRole,
+						s3.InferenceServiceS3SecretEndpointAnnotation: s3Endpoint,
+						s3.InferenceServiceS3SecretHttpsAnnotation:    s3UseHttps,
+						s3.InferenceServiceS3SecretRegionAnnotation:   s3Region,
+						s3.InferenceServiceS3UseAnonymousCredential:   s3Anon,
+					},
+				},
+			}
+			Expect(envTest.Client.Create(ctx, serviceAccount)).To(Succeed())
+
+			modelURL, err := apis.ParseURL("s3://bucket/model")
+			Expect(err).ToNot(HaveOccurred())
+
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      svcName,
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						Name: ptr.To("foo"),
+						URI:  *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{},
+						},
+						Worker: &corev1.PodSpec{
+							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{},
+						},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
+					Router: &v1alpha1.RouterSpec{
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
+					},
+					Prefill: &v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{},
+						},
+						Worker: &corev1.PodSpec{
+							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{},
+						},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
+				},
+			}
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+			}()
+
+			// retrieve the created leader worker sets
+			expectedMainLWS := &lwsapi.LeaderWorkerSet{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn",
+					Namespace: nsName,
+				}, expectedMainLWS)
+			}).WithContext(ctx).Should(Succeed())
+
+			expectedPrefillLWS := &lwsapi.LeaderWorkerSet{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn-prefill",
+					Namespace: nsName,
+				}, expectedPrefillLWS)
+			}).WithContext(ctx).Should(Succeed())
+
+			// validate the storage initializer configuration in the leader worker sets
+			validateStorageInitializerIsConfiguredForLWS(expectedMainLWS, "s3://bucket/model")
+			validateStorageInitializerIsConfiguredForLWS(expectedPrefillLWS, "s3://bucket/model")
+
+			// validate the storage initializer credentials are properly set
+			expectedEnvVars := []corev1.EnvVar{
+				{
+					Name:  s3.S3UseHttps,
+					Value: s3UseHttps,
+				},
+				{
+					Name:  s3.S3Endpoint,
+					Value: s3Endpoint,
+				},
+				{
+					Name:  s3.AWSAnonymousCredential,
+					Value: s3Anon,
+				},
+				{
+					Name:  s3.AWSEndpointUrl,
+					Value: "http://" + s3Endpoint,
+				},
+				{
+					Name:  s3.AWSRegion,
+					Value: s3Region,
+				},
+			}
+			validateStorageInitializerCredentialsForLWS(expectedMainLWS, expectedEnvVars)
+			validateStorageInitializerCredentialsForLWS(expectedPrefillLWS, expectedEnvVars)
+
+			// retrieve the created service account
+			expectedMainServiceAccount := &corev1.ServiceAccount{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn",
+					Namespace: nsName,
+				}, expectedMainServiceAccount)
+			}).WithContext(ctx).Should(Succeed())
+
+			expectedPrefillServiceAccount := &corev1.ServiceAccount{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn-prefill",
+					Namespace: nsName,
+				}, expectedPrefillServiceAccount)
+			}).WithContext(ctx).Should(Succeed())
+
+			// validate the role-arn annotation was properly propagated to the created service account
+			Expect(expectedMainServiceAccount.Annotations[credentials.AwsIrsaAnnotationKey]).To(BeEquivalentTo(s3IamRole))
+			Expect(expectedPrefillServiceAccount.Annotations[credentials.AwsIrsaAnnotationKey]).To(BeEquivalentTo(s3IamRole))
 		})
 	})
 })
@@ -1093,6 +1566,13 @@ func validateOciStorageForPodSpec(podSpec *corev1.PodSpec) {
 func validateStorageInitializerIsConfiguredForLWS(lws *lwsapi.LeaderWorkerSet, storageUri string) {
 	workerSpec := lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec
 	validateStorageInitializerForPodSpec(&workerSpec, storageUri)
+}
+
+func validateStorageInitializerCredentialsForLWS(lws *lwsapi.LeaderWorkerSet, envVars []corev1.EnvVar) {
+	leaderSpec := lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec
+	workerSpec := lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec
+	validatePodSpecEnvVars(&leaderSpec, envVars)
+	validatePodSpecEnvVars(&workerSpec, envVars)
 }
 
 func validateStorageInitializerForPodSpec(podSpec *corev1.PodSpec, storageUri string) {
