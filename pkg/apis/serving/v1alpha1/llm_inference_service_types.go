@@ -142,7 +142,7 @@ type LoRASpec struct {
 	// Adapters is the static specification for one or more LoRA adapters.
 	// Each adapter is defined by its own ModelSpec.
 	// +optional
-	Adapters []ModelSpec `json:"adapters,omitempty"`
+	Adapters []LLMModelSpec `json:"adapters,omitempty"`
 }
 
 // RouterSpec defines the routing configuration for exposing the service.
