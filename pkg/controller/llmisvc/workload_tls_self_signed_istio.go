@@ -99,7 +99,7 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForWorkload
 	if err != nil {
 		return fmt.Errorf("failed to get expected Istio destination rule for workload: %w", err)
 	}
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
+	if llmSvc.Spec.Router == nil {
 		return Delete(ctx, r, llmSvc, expected)
 	}
 	if expected.Spec.GetHost() == "" {
@@ -202,6 +202,9 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForWorkload(
 	}
 	if shadowSvc != nil {
 		dr.Spec.Host = network.GetServiceHostname(shadowSvc.GetName(), shadowSvc.GetNamespace())
+	}
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler == nil {
+		dr.Spec.Host = network.GetServiceHostname(kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"), llmSvc.GetNamespace())
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected destination rule for workload", "destinationrule", dr)
