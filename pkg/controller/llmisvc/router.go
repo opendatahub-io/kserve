@@ -49,6 +49,10 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 
 	defer llmSvc.DetermineRouterReadiness()
 
+	if err := r.validateRouterReferences(ctx, llmSvc); err != nil {
+		return err
+	}
+
 	if err := r.reconcileScheduler(ctx, llmSvc); err != nil {
 		llmSvc.MarkSchedulerWorkloadNotReady("SchedulerReconcileError", "Failed to reconcile scheduler: %v", err.Error())
 		return fmt.Errorf("failed to reconcile scheduler: %w", err)
@@ -103,7 +107,6 @@ func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context,
 		return Delete(ctx, r, llmSvc, expectedHTTPRoute)
 	}
 
-	// TODO(validation): referenced gateway exists
 	if route.HTTP.HasSpec() {
 		if err := Reconcile(ctx, r, llmSvc, &gatewayapi.HTTPRoute{}, expectedHTTPRoute, semanticHTTPRouteIsEqual); err != nil {
 			return fmt.Errorf("failed to reconcile HTTPRoute %s/%s: %w", expectedHTTPRoute.GetNamespace(), expectedHTTPRoute.GetName(), err)
@@ -120,18 +123,20 @@ func (r *LLMInferenceServiceReconciler) collectReferencedRoutes(ctx context.Cont
 	}
 
 	referencedRoutes := make([]*gatewayapi.HTTPRoute, 0, len(llmSvc.Spec.Router.Route.HTTP.Refs))
+
 	for _, routeRef := range llmSvc.Spec.Router.Route.HTTP.Refs {
 		route := &gatewayapi.HTTPRoute{}
 		if err := r.Client.Get(ctx, types.NamespacedName{Namespace: llmSvc.GetNamespace(), Name: routeRef.Name}, route); err != nil {
 			if apierrors.IsNotFound(err) {
-				// TODO(follow-up) mark condition if not found
+				// Skip missing routes - validation is handled separately
 				continue
 			}
-			return referencedRoutes, fmt.Errorf("failed to get HTTPRoute %s/%s: %w", routeRef.Name, llmSvc.GetName(), err)
+			return referencedRoutes, fmt.Errorf("failed to get HTTPRoute %s/%s: %w", llmSvc.GetName(), routeRef.Name, err)
 		}
 
 		referencedRoutes = append(referencedRoutes, route)
 	}
+
 	return referencedRoutes, nil
 }
 
@@ -237,6 +242,13 @@ func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Co
 		return nil
 	}
 
+	// Check if there's already a validation failure condition set
+	condition := llmSvc.GetStatus().GetCondition(v1alpha1.GatewaysReady)
+	if condition != nil && condition.IsFalse() && condition.Reason == RefsInvalidReason {
+		logger.Info("Gateway validation failed, skipping readiness evaluation", "reason", condition.Reason, "message", condition.Message)
+		return nil
+	}
+
 	gateways, err := r.CollectReferencedGateways(ctx, llmSvc)
 	if err != nil {
 		llmSvc.MarkGatewaysNotReady("GatewayFetchError", "Failed to fetch referenced Gateways: %v", err.Error())
@@ -321,6 +333,13 @@ func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || llmSvc.Spec.Router.Route.HTTP == nil {
 		logger.Info("No HTTPRoute configuration found, marking HTTPRoutesReady as True")
 		llmSvc.MarkHTTPRoutesReady()
+		return nil
+	}
+
+	// Check if there's already a validation failure condition set
+	condition := llmSvc.GetStatus().GetCondition(v1alpha1.HTTPRoutesReady)
+	if condition != nil && condition.IsFalse() && condition.Reason == RefsInvalidReason {
+		logger.Info("HTTPRoute validation failed, skipping readiness evaluation", "reason", condition.Reason, "message", condition.Message)
 		return nil
 	}
 
