@@ -260,6 +260,7 @@ func main() {
 		}
 	}
 
+	// TODO(llmisvc): move it to new manager when upstreaming
 	monitoringFound, monitoringCheckErr := utils.IsCrdAvailable(cfg, monitoringv1.SchemeGroupVersion.String(), constants.ServiceMonitorKind)
 	if monitoringCheckErr != nil {
 		setupLog.Error(monitoringCheckErr, "error when checking if ServiceMonitor kind is available")

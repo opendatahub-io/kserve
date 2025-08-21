@@ -749,103 +749,6 @@ var _ = Describe("LLMInferenceService Controller", func() {
 	})
 
 	Context("Monitoring Reconciliation", func() {
-		waitForServiceAccount := func(ctx context.Context, nsName string) {
-			expectedServiceAccount := &corev1.ServiceAccount{}
-			Eventually(func(_ Gomega, ctx context.Context) error {
-				return envTest.Get(ctx, types.NamespacedName{
-					Name:      "kserve-metrics-reader-sa",
-					Namespace: nsName,
-				}, expectedServiceAccount)
-			}).WithContext(ctx).Should(Succeed())
-		}
-
-		waitForSASecret := func(ctx context.Context, nsName string) *corev1.Secret {
-			expectedSecret := &corev1.Secret{}
-			Eventually(func(_ Gomega, ctx context.Context) error {
-				return envTest.Get(ctx, types.NamespacedName{
-					Name:      "kserve-metrics-reader-sa-secret",
-					Namespace: nsName,
-				}, expectedSecret)
-			}).WithContext(ctx).Should(Succeed())
-
-			return expectedSecret
-		}
-
-		waitForRoleBinding := func(ctx context.Context, nsName string) *rbacv1.ClusterRoleBinding {
-			expectedClusterRoleBinding := &rbacv1.ClusterRoleBinding{}
-			Eventually(func(_ Gomega, ctx context.Context) error {
-				return envTest.Get(ctx, types.NamespacedName{
-					Name: "kserve-metrics-reader-role-binding-" + nsName,
-				}, expectedClusterRoleBinding)
-			}).WithContext(ctx).Should(Succeed())
-
-			return expectedClusterRoleBinding
-		}
-
-		waitForPodMonitor := func(ctx context.Context, nsName string) {
-			expectedPodMonitor := &monitoringv1.PodMonitor{}
-			Eventually(func(_ Gomega, ctx context.Context) error {
-				return envTest.Get(ctx, types.NamespacedName{
-					Name:      "kserve-llm-isvc-vllm-engine",
-					Namespace: nsName,
-				}, expectedPodMonitor)
-			}).WithContext(ctx).Should(Succeed())
-		}
-
-		waitForServiceMonitor := func(ctx context.Context, nsName string) *monitoringv1.ServiceMonitor {
-			expectedServiceMonitor := &monitoringv1.ServiceMonitor{}
-			Eventually(func(_ Gomega, ctx context.Context) error {
-				return envTest.Get(ctx, types.NamespacedName{
-					Name:      "kserve-llm-isvc-scheduler",
-					Namespace: nsName,
-				}, expectedServiceMonitor)
-			}).WithContext(ctx).Should(Succeed())
-
-			return expectedServiceMonitor
-		}
-
-		waitForAllMonitoringResources := func(ctx context.Context, nsName string) {
-			waitForServiceMonitor(ctx, nsName)
-			waitForSASecret(ctx, nsName)
-			waitForRoleBinding(ctx, nsName)
-			waitForPodMonitor(ctx, nsName)
-			waitForServiceMonitor(ctx, nsName)
-		}
-
-		waitConsistentlyForAllMonitoringResources := func(ctx context.Context, nsName string) {
-			expectedServiceAccount := &corev1.ServiceAccount{}
-			expectedSecret := &corev1.Secret{}
-			expectedClusterRoleBinding := &rbacv1.ClusterRoleBinding{}
-			expectedPodMonitor := &monitoringv1.PodMonitor{}
-			expectedServiceMonitor := &monitoringv1.ServiceMonitor{}
-
-			Consistently(func(g Gomega, ctx context.Context) {
-				g.Expect(envTest.Get(ctx, types.NamespacedName{
-					Name:      "kserve-metrics-reader-sa",
-					Namespace: nsName,
-				}, expectedServiceAccount)).To(Succeed())
-
-				g.Expect(envTest.Get(ctx, types.NamespacedName{
-					Name:      "kserve-metrics-reader-sa-secret",
-					Namespace: nsName,
-				}, expectedSecret)).To(Succeed())
-
-				g.Expect(envTest.Get(ctx, types.NamespacedName{
-					Name: "kserve-metrics-reader-role-binding-" + nsName,
-				}, expectedClusterRoleBinding)).Should(Succeed())
-
-				g.Expect(envTest.Get(ctx, types.NamespacedName{
-					Name:      "kserve-llm-isvc-vllm-engine",
-					Namespace: nsName,
-				}, expectedPodMonitor)).Should(Succeed())
-
-				g.Expect(envTest.Get(ctx, types.NamespacedName{
-					Name:      "kserve-llm-isvc-scheduler",
-					Namespace: nsName,
-				}, expectedServiceMonitor)).Should(Succeed())
-			}).WithContext(ctx).Should(Succeed())
-		}
-
 		It("should create monitoring resources when llmisvc is created", func(ctx SpecContext) {
 			// given
 			svcName := "test-llm-monitoring"
@@ -873,14 +776,14 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			}()
 
 			// then - verify ServiceAccount is created
-			waitForServiceAccount(ctx, nsName)
+			waitForMetricsReaderServiceAccount(ctx, nsName)
 
 			// then - verify Secret is created
-			expectedSecret := waitForSASecret(ctx, nsName)
+			expectedSecret := waitForMetricsReaderSASecret(ctx, nsName)
 			Expect(expectedSecret.Annotations).To(HaveKeyWithValue("kubernetes.io/service-account.name", "kserve-metrics-reader-sa"))
 
 			// then - verify ClusterRoleBinding is created
-			expectedClusterRoleBinding := waitForRoleBinding(ctx, nsName)
+			expectedClusterRoleBinding := waitForMetricsReaderRoleBinding(ctx, nsName)
 			Expect(expectedClusterRoleBinding.Subjects).To(HaveLen(1))
 			Expect(expectedClusterRoleBinding.Subjects[0].Kind).To(Equal("ServiceAccount"))
 			Expect(expectedClusterRoleBinding.Subjects[0].Name).To(Equal("kserve-metrics-reader-sa"))
@@ -889,10 +792,10 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			Expect(expectedClusterRoleBinding.RoleRef.Name).To(Equal("kserve-metrics-reader-cluster-role"))
 
 			// then - verify PodMonitor is created
-			waitForPodMonitor(ctx, nsName)
+			waitForVLLMEnginePodMonitor(ctx, nsName)
 
 			// then - verify ServiceMonitor is created
-			expectedServiceMonitor := waitForServiceMonitor(ctx, nsName)
+			expectedServiceMonitor := waitForSchedulerServiceMonitor(ctx, nsName)
 			Expect(expectedServiceMonitor.Spec.Endpoints).To(HaveLen(1))
 			Expect(expectedServiceMonitor.Spec.Endpoints[0].Port).To(Equal("metrics"))
 			Expect(expectedServiceMonitor.Spec.Endpoints[0].Authorization.Credentials.Name).To(Equal("kserve-metrics-reader-sa-secret"))
@@ -936,7 +839,37 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			Expect(envTest.Delete(ctx, llmSvc1)).To(Succeed())
 
 			// then - monitoring resources should still exist (because second service exists)
-			waitConsistentlyForAllMonitoringResources(ctx, nsName)
+			expectedServiceAccount := &corev1.ServiceAccount{}
+			expectedSecret := &corev1.Secret{}
+			expectedClusterRoleBinding := &rbacv1.ClusterRoleBinding{}
+			expectedPodMonitor := &monitoringv1.PodMonitor{}
+			expectedServiceMonitor := &monitoringv1.ServiceMonitor{}
+
+			Consistently(func(g Gomega, ctx context.Context) {
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name:      "kserve-metrics-reader-sa",
+					Namespace: nsName,
+				}, expectedServiceAccount)).To(Succeed())
+
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name:      "kserve-metrics-reader-sa-secret",
+					Namespace: nsName,
+				}, expectedSecret)).To(Succeed())
+
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name: "kserve-metrics-reader-role-binding-" + nsName,
+				}, expectedClusterRoleBinding)).Should(Succeed())
+
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name:      "kserve-llm-isvc-vllm-engine",
+					Namespace: nsName,
+				}, expectedPodMonitor)).Should(Succeed())
+
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name:      "kserve-llm-isvc-scheduler",
+					Namespace: nsName,
+				}, expectedServiceMonitor)).Should(Succeed())
+			}).WithContext(ctx).Should(Succeed())
 		})
 
 		It("should perform cleanup when the last llmisvc is deleted", func(ctx SpecContext) {
@@ -1295,4 +1228,67 @@ func customRouteSpec(ctx context.Context, c client.Client, nsName, gatewayRefNam
 	httpRouteSpec := &route.Spec
 
 	return httpRouteSpec
+}
+
+func waitForMetricsReaderServiceAccount(ctx context.Context, nsName string) {
+	expectedServiceAccount := &corev1.ServiceAccount{}
+	Eventually(func(_ Gomega, ctx context.Context) error {
+		return envTest.Get(ctx, types.NamespacedName{
+			Name:      "kserve-metrics-reader-sa",
+			Namespace: nsName,
+		}, expectedServiceAccount)
+	}).WithContext(ctx).Should(Succeed())
+}
+
+func waitForMetricsReaderSASecret(ctx context.Context, nsName string) *corev1.Secret {
+	expectedSecret := &corev1.Secret{}
+	Eventually(func(_ Gomega, ctx context.Context) error {
+		return envTest.Get(ctx, types.NamespacedName{
+			Name:      "kserve-metrics-reader-sa-secret",
+			Namespace: nsName,
+		}, expectedSecret)
+	}).WithContext(ctx).Should(Succeed())
+
+	return expectedSecret
+}
+
+func waitForMetricsReaderRoleBinding(ctx context.Context, nsName string) *rbacv1.ClusterRoleBinding {
+	expectedClusterRoleBinding := &rbacv1.ClusterRoleBinding{}
+	Eventually(func(_ Gomega, ctx context.Context) error {
+		return envTest.Get(ctx, types.NamespacedName{
+			Name: "kserve-metrics-reader-role-binding-" + nsName,
+		}, expectedClusterRoleBinding)
+	}).WithContext(ctx).Should(Succeed())
+
+	return expectedClusterRoleBinding
+}
+
+func waitForVLLMEnginePodMonitor(ctx context.Context, nsName string) {
+	expectedPodMonitor := &monitoringv1.PodMonitor{}
+	Eventually(func(_ Gomega, ctx context.Context) error {
+		return envTest.Get(ctx, types.NamespacedName{
+			Name:      "kserve-llm-isvc-vllm-engine",
+			Namespace: nsName,
+		}, expectedPodMonitor)
+	}).WithContext(ctx).Should(Succeed())
+}
+
+func waitForSchedulerServiceMonitor(ctx context.Context, nsName string) *monitoringv1.ServiceMonitor {
+	expectedServiceMonitor := &monitoringv1.ServiceMonitor{}
+	Eventually(func(_ Gomega, ctx context.Context) error {
+		return envTest.Get(ctx, types.NamespacedName{
+			Name:      "kserve-llm-isvc-scheduler",
+			Namespace: nsName,
+		}, expectedServiceMonitor)
+	}).WithContext(ctx).Should(Succeed())
+
+	return expectedServiceMonitor
+}
+
+func waitForAllMonitoringResources(ctx context.Context, nsName string) {
+	waitForMetricsReaderServiceAccount(ctx, nsName)
+	waitForMetricsReaderSASecret(ctx, nsName)
+	waitForMetricsReaderRoleBinding(ctx, nsName)
+	waitForVLLMEnginePodMonitor(ctx, nsName)
+	waitForSchedulerServiceMonitor(ctx, nsName)
 }
