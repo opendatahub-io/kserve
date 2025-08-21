@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -291,6 +292,38 @@ func nonReadyHTTPRouteTopLevelCondition(route *gatewayapi.HTTPRoute) (*metav1.Co
 			return nil, true
 		}
 		staleCondition := cond.ObservedGeneration > 0 && cond.ObservedGeneration < route.Generation
+		if cond.Status != metav1.ConditionTrue || staleCondition {
+			return cond, false
+		}
+	}
+
+	return nil, false
+}
+
+// IsInferencePoolReady checks if an InferencePool has been accepted by all parents.
+func IsInferencePoolReady(pool *igwapi.InferencePool) bool {
+	if pool == nil || len(pool.Status.Parents) == 0 {
+		return false
+	}
+
+	if cond, missing := nonReadyInferencePoolTopLevelCondition(pool); cond != nil || missing {
+		return false
+	}
+
+	return true
+}
+
+func nonReadyInferencePoolTopLevelCondition(pool *igwapi.InferencePool) (*metav1.Condition, bool) {
+	if pool == nil {
+		return nil, true
+	}
+
+	for _, parent := range pool.Status.Parents {
+		cond := meta.FindStatusCondition(parent.Conditions, string(igwapi.InferencePoolConditionAccepted))
+		if cond == nil {
+			return nil, true
+		}
+		staleCondition := cond.ObservedGeneration > 0 && cond.ObservedGeneration < pool.Generation
 		if cond.Status != metav1.ConditionTrue || staleCondition {
 			return cond, false
 		}

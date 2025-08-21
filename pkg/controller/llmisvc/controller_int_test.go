@@ -18,6 +18,7 @@ package llmisvc_test
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -231,10 +232,13 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					return envTest.Client.Get(ctx, client.ObjectKey{Name: svcName + "-inference-pool", Namespace: llmSvc.GetNamespace()}, &ip)
 				}).WithContext(ctx).Should(Succeed())
 
-				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
+				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
+					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
+					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.InferencePoolReady), "True"))
+				})).WithContext(ctx).Should(Succeed())
 			})
 
-			It("should reference external InferencePool", func(ctx SpecContext) {
+			It("should use referenced external InferencePool", func(ctx SpecContext) {
 				// given
 				svcName := "test-llm-create-http-route-inf-pool-ref"
 				nsName := kmeta.ChildName(svcName, "-test")
@@ -310,9 +314,13 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefInferencePool(infPoolName)))
 				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefService(svcName + "-kserve-workload-svc"))))
 
+				ensureInferencePoolReady(ctx, envTest.Client, infPool)
 				ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
 
-				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
+				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
+					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
+					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.InferencePoolReady), "True"))
+				})).WithContext(ctx).Should(Succeed())
 			})
 
 			It("should create routes pointing to workload service when no scheduler is configured", func(ctx SpecContext) {
@@ -871,6 +879,26 @@ func ensureHTTPRouteReady(ctx context.Context, c client.Client, route *gatewayap
 	}).WithContext(ctx).Should(BeTrue())
 }
 
+// ensureInferencePoolReady sets up InferencePool status conditions to simulate a ready InferencePool
+func ensureInferencePoolReady(ctx context.Context, c client.Client, pool *igwapi.InferencePool) {
+	if envTest.UsingExistingCluster() {
+		return
+	}
+
+	createdPool := &igwapi.InferencePool{}
+	Expect(c.Get(ctx, client.ObjectKeyFromObject(pool), createdPool)).To(Succeed())
+	WithInferencePoolReadyStatus()(createdPool)
+	Expect(c.Status().Update(ctx, createdPool)).To(Succeed())
+
+	// Verify the InferencePool is now ready
+	updatedPool := &igwapi.InferencePool{}
+	Eventually(func(g Gomega, ctx context.Context) bool {
+		updatedPool = &igwapi.InferencePool{}
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(pool), updatedPool)).To(Succeed())
+		return llmisvc.IsInferencePoolReady(updatedPool)
+	}).WithContext(ctx).Should(BeTrue(), fmt.Sprintf("Expected InferencePool to be ready, got: %#v", updatedPool.Status))
+}
+
 // Only runs in non-cluster mode
 func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, llmSvc *v1alpha1.LLMInferenceService) {
 	if envTest.UsingExistingCluster() {
@@ -914,6 +942,23 @@ func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, 
 
 		// Ensure at least one HTTPRoute was found and made ready
 		g.Expect(httpRoutes.Items).To(gomega.HaveLen(1), "Expected exactly one managed HTTPRoute")
+
+		infPoolsListOpts := &client.ListOptions{
+			Namespace:     llmSvc.Namespace,
+			LabelSelector: labels.SelectorFromSet(llmisvc.SchedulerLabels(llmSvc)),
+		}
+
+		infPools := &igwapi.InferencePoolList{}
+		err = c.List(ctx, infPools, infPoolsListOpts)
+		if err != nil && !errors.IsNotFound(err) {
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		logf.FromContext(ctx).Info("Marking InferencePool resources ready", "inferencepools", infPools)
+		for _, pool := range infPools.Items {
+			updatedPool := pool.DeepCopy()
+			WithInferencePoolReadyStatus()(updatedPool)
+			g.Expect(c.Status().Update(ctx, updatedPool)).To(gomega.Succeed())
+		}
 
 		ensureSchedulerDeploymentReady(ctx, c, llmSvc)
 	}).WithContext(ctx).Should(gomega.Succeed())

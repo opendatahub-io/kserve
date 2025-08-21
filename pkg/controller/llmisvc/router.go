@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/kmeta"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -65,7 +66,11 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 		return fmt.Errorf("failed to reconcile istio destination rules: %w", err)
 	}
 
-	// Evaluate Gateway conditions and set GatewaysReady condition
+	// Evaluate the subconditions
+	if err := r.EvaluateInferencePoolConditions(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to evaluate Inference Pool conditions: %w", err)
+	}
+
 	if err := r.EvaluateGatewayConditions(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to evaluate gateway conditions: %w", err)
 	}
@@ -369,5 +374,60 @@ func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.
 
 	llmSvc.MarkHTTPRoutesReady()
 	logger.V(2).Info("All HTTPRoutes are ready", "routes", allRoutes)
+	return nil
+}
+
+// EvaluateInferencePoolConditions evaluates the readiness of all Inference Pools in the LLMInferenceService
+// and updates the InferencePoolReady condition accordingly
+func (r *LLMInferenceServiceReconciler) EvaluateInferencePoolConditions(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	logger := log.FromContext(ctx).WithName("EvaluateInferencePoolConditions")
+
+	// If no router or scheduler configuration, mark Inference Pools as ready (no Inference Pools to evaluate)
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
+		logger.V(2).Info("Scheduler is disabled, marking InferencePoolReady as True")
+		llmSvc.MarkInferencePoolReady()
+		return nil
+	}
+
+	curr := &igwapi.InferencePool{}
+
+	if llmSvc.Spec.Router.Scheduler.Pool != nil && llmSvc.Spec.Router.Scheduler.Pool.Ref != nil && llmSvc.Spec.Router.Scheduler.Pool.Ref.Name != "" {
+		poolRef := llmSvc.Spec.Router.Scheduler.Pool.Ref
+		err := r.Client.Get(ctx, types.NamespacedName{Namespace: llmSvc.Namespace, Name: poolRef.Name}, curr)
+		if err != nil {
+			err := fmt.Errorf("failed to fetch referenced Inference Pool %s/%s: %w", llmSvc.Namespace, poolRef.Name, err)
+			llmSvc.MarkInferencePoolNotReady("InferencePoolFetchError", err.Error())
+			return err
+		}
+	} else {
+		expected := r.expectedSchedulerInferencePool(ctx, llmSvc)
+		err := r.Client.Get(ctx, types.NamespacedName{Namespace: expected.Namespace, Name: expected.Name}, curr)
+		if err != nil {
+			err := fmt.Errorf("failed to fetch embedded Inference Pool %s/%s: %w", llmSvc.Namespace, llmSvc.Name, err)
+			llmSvc.MarkInferencePoolNotReady("InferencePoolFetchError", err.Error())
+			return err
+		}
+	}
+
+	if !IsInferencePoolReady(curr) {
+		topLevelCondition, _ := nonReadyInferencePoolTopLevelCondition(curr)
+		if topLevelCondition != nil {
+			llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady", fmt.Sprintf(
+				"%s/%s: %v=%#v (reason %q, message %q)",
+				curr.Namespace,
+				curr.Name,
+				topLevelCondition.Type,
+				topLevelCondition.Status,
+				topLevelCondition.Reason,
+				topLevelCondition.Message,
+			))
+		} else {
+			llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady", fmt.Sprintf("The inference pool %s/%s is not ready", curr.Namespace, curr.Name))
+		}
+		return nil
+	}
+
+	llmSvc.MarkInferencePoolReady()
+	logger.V(2).Info("Inference Pool is ready", "pool", curr)
 	return nil
 }
