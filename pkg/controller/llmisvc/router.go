@@ -66,13 +66,17 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 		return fmt.Errorf("failed to reconcile istio destination rules: %w", err)
 	}
 
-	// Evaluate Gateway conditions and set GatewaysReady condition
+	// Evaluate the subconditions
 	if err := r.EvaluateGatewayConditions(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to evaluate gateway conditions: %w", err)
 	}
 
 	if err := r.EvaluateHTTPRouteConditions(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to evaluate HTTPRoute conditions: %w", err)
+	}
+
+	if err := r.EvaluateInferencePoolConditions(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to evaluate Inference Pool conditions: %w", err)
 	}
 
 	return nil

@@ -315,6 +315,103 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 			})
 
+			It("should evaluate InferencePool readiness conditions", func(ctx SpecContext) {
+				// given
+				svcName := "test-llm-infpool-conditions"
+				nsName := kmeta.ChildName(svcName, "-test")
+				namespace := &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: nsName,
+					},
+				}
+				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+				defer func() {
+					envTest.DeleteAll(namespace)
+				}()
+
+				modelURL, err := apis.ParseURL("hf://facebook/opt-125m")
+				Expect(err).ToNot(HaveOccurred())
+
+				// Create the Gateway
+				ingressGateway := DefaultGateway(nsName)
+				Expect(envTest.Client.Create(ctx, ingressGateway)).To(Succeed())
+				ensureGatewayReady(ctx, envTest.Client, ingressGateway)
+				defer func() {
+					Expect(envTest.Delete(ctx, ingressGateway)).To(Succeed())
+				}()
+
+				// Create the inference pool
+				infPoolName := kmeta.ChildName(svcName, "-my-inf-pool")
+				infPool := InferencePool(infPoolName,
+					InNamespace[*igwapi.InferencePool](nsName),
+					WithSelector("app", "workload"),
+					WithTargetPort(8000),
+					WithExtensionRef("", "Service", kmeta.ChildName(svcName, "-epp-service")),
+				)
+				Expect(envTest.Create(ctx, infPool)).To(Succeed())
+				defer func() {
+					Expect(envTest.Delete(ctx, infPool)).To(Succeed())
+				}()
+
+				// Create the llmd inference service
+				llmSvc := &v1alpha1.LLMInferenceService{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      svcName,
+						Namespace: nsName,
+					},
+					Spec: v1alpha1.LLMInferenceServiceSpec{
+						Model: v1alpha1.LLMModelSpec{
+							URI: *modelURL,
+						},
+						WorkloadSpec: v1alpha1.WorkloadSpec{},
+						Router: &v1alpha1.RouterSpec{
+							Scheduler: &v1alpha1.SchedulerSpec{
+								Pool: &v1alpha1.InferencePoolSpec{
+									Ref: &corev1.LocalObjectReference{
+										Name: infPoolName,
+									},
+								},
+							},
+						},
+					},
+				}
+
+				// when
+				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+				defer func() {
+					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+				}()
+
+				// then - verify InferencePoolsReady condition is False because the pool is not ready
+				Eventually(func(g Gomega, ctx context.Context) {
+					current := &v1alpha1.LLMInferenceService{}
+					g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), current)).To(Succeed())
+					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.InferencePoolsReady), "False"))
+					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.RouterReady), "False"))
+				}).WithContext(ctx).Should(Succeed())
+
+				// when - we make the inference pool ready
+				ensureInferencePoolReady(ctx, envTest.Client, infPool)
+
+				// then - verify InferencePoolsReady condition becomes True
+				Eventually(func(g Gomega, ctx context.Context) error {
+					current := &v1alpha1.LLMInferenceService{}
+					g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), current)).To(Succeed())
+
+					// Check that InferencePoolsReady condition exists and is True
+					poolsCondition := current.Status.GetCondition(v1alpha1.InferencePoolsReady)
+					g.Expect(poolsCondition).ToNot(BeNil(), "InferencePoolsReady condition should be set")
+					g.Expect(poolsCondition.IsTrue()).To(BeTrue(), "InferencePoolsReady condition should be True")
+
+					return nil
+				}).WithContext(ctx).Should(Succeed(), "InferencePoolsReady condition should be set to True")
+
+				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
+					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.InferencePoolsReady), "True"))
+				})).WithContext(ctx).Should(Succeed())
+			})
+
 			It("should create routes pointing to workload service when no scheduler is configured", func(ctx SpecContext) {
 				// given
 				llmSvcName := "test-llm-create-http-route-no-scheduler"
@@ -868,6 +965,57 @@ func ensureHTTPRouteReady(ctx context.Context, c client.Client, route *gatewayap
 		updatedRoute := &gatewayapi.HTTPRoute{}
 		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(route), updatedRoute)).To(Succeed())
 		return llmisvc.IsHTTPRouteReady(updatedRoute)
+	}).WithContext(ctx).Should(BeTrue())
+}
+
+// ensureInferencePoolReady sets up InferencePool status conditions to simulate a ready InferencePool
+func ensureInferencePoolReady(ctx context.Context, c client.Client, pool *igwapi.InferencePool) {
+	if envTest.UsingExistingCluster() {
+		return
+	}
+
+	// Get the current InferencePool
+	createdPool := &igwapi.InferencePool{}
+	Expect(c.Get(ctx, client.ObjectKeyFromObject(pool), createdPool)).To(Succeed())
+
+	// Set the status conditions to simulate the controller making the InferencePool ready
+	createdPool.Status.Parents = []igwapi.PoolStatus{
+		{
+			GatewayRef: corev1.ObjectReference{
+				Name: "kserve-ingress-gateway", // Example gateway
+			},
+			Conditions: []metav1.Condition{
+				{
+					Type:               "Accepted",
+					Status:             metav1.ConditionTrue,
+					Reason:             "Accepted",
+					Message:            "InferencePool accepted",
+					LastTransitionTime: metav1.Now(),
+				},
+			},
+		},
+	}
+
+	// Update the status
+	Expect(c.Status().Update(ctx, createdPool)).To(Succeed())
+
+	// Verify the InferencePool is now ready
+	Eventually(func(g Gomega, ctx context.Context) bool {
+		updatedPool := &igwapi.InferencePool{}
+		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(pool), updatedPool)).To(Succeed())
+		isReady := false
+		for _, parent := range updatedPool.Status.Parents {
+			for _, cond := range parent.Conditions {
+				if cond.Type == "Accepted" && cond.Status == metav1.ConditionTrue {
+					isReady = true
+					break
+				}
+			}
+			if isReady {
+				break
+			}
+		}
+		return isReady
 	}).WithContext(ctx).Should(BeTrue())
 }
 
