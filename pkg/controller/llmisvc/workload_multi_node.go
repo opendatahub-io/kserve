@@ -189,7 +189,7 @@ func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Con
 			if llmSvc.Spec.Router != nil {
 				s.Env = append(s.Env, corev1.EnvVar{
 					Name:  "INFERENCE_POOL_NAME",
-					Value: llmSvc.Spec.Router.Scheduler.InferencePoolName(llmSvc),
+					Value: llmSvc.InferencePoolName(),
 				})
 			}
 		}
@@ -211,7 +211,7 @@ func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Con
 			if llmSvc.Spec.Router != nil {
 				s.Env = append(s.Env, corev1.EnvVar{
 					Name:  "INFERENCE_POOL_NAME",
-					Value: llmSvc.Spec.Router.Scheduler.InferencePoolName(llmSvc),
+					Value: llmSvc.InferencePoolName(),
 				})
 			}
 		}
