@@ -330,13 +330,7 @@ def test_case(request):
     tc = request.param
     created_configs = []
 
-    config.load_kube_config()
-    proxy_url = os.getenv("HTTPS_PROXY", os.getenv("HTTP_PROXY", None))
-    if proxy_url:
-        logger.info("✅ Using Proxy URL: {proxy_url}")
-        client.Configuration._default.proxy = proxy_url
-    else:
-        logger.info("❌ No proxy configured")
+    inject_k8s_proxy()
 
     kserve_client = KServeClient(
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config"),
@@ -398,9 +392,15 @@ def test_case(request):
                 logger.info(
                     f"Cleaning up unique LLMInferenceServiceConfig {config_name}"
                 )
-                _delete_llmisvc_config(
-                    kserve_client, config_name, KSERVE_TEST_NAMESPACE
-                )
+
+                if os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in (
+                    "false",
+                    "0",
+                    "f",
+                ):
+                    _delete_llmisvc_config(
+                        kserve_client, config_name, KSERVE_TEST_NAMESPACE
+                    )
                 logger.info(f"✓ Deleted unique LLMInferenceServiceConfig {config_name}")
             except Exception as e:
                 logger.warning(
@@ -539,3 +539,13 @@ def _get_llmisvc_config(
             f"Exception when calling CustomObjectsApi->"
             f"get_namespaced_custom_object for LLMInferenceServiceConfig: {e}"
         ) from e
+
+
+def inject_k8s_proxy():
+    config.load_kube_config()
+    proxy_url = os.getenv("HTTPS_PROXY", os.getenv("HTTP_PROXY", None))
+    if proxy_url:
+        logger.info(f"✅ Using Proxy URL: {proxy_url} for k8s client")
+        client.Configuration._default.proxy = proxy_url
+    else:
+        logger.info("No HTTP proxy configured for k8s client")
