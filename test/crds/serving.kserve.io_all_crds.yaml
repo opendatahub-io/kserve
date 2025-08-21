@@ -27061,8 +27061,7 @@ spec:
                   lora:
                     properties:
                       adapters:
-                        items: {}
-                        type: array
+                        x-kubernetes-preserve-unknown-fields: true
                     type: object
                   name:
                     type: string
@@ -46546,8 +46545,7 @@ spec:
                   lora:
                     properties:
                       adapters:
-                        items: {}
-                        type: array
+                        x-kubernetes-preserve-unknown-fields: true
                     type: object
                   name:
                     type: string
