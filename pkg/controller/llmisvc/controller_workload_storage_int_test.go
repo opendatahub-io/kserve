@@ -33,6 +33,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
 	. "github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
+	"github.com/kserve/kserve/pkg/credentials/hf"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
@@ -230,6 +231,116 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 
 			validateStorageInitializerIsConfigured(expectedMainDeployment, "hf://user-id/repo-id:tag")
 			validateStorageInitializerIsConfigured(expectedPrefillDeployment, "hf://user-id/repo-id:tag")
+		})
+
+		It("should use storage-initializer and set proper env variables when uri starts with hf:// and credentials are configured", func(ctx SpecContext) {
+			// setup test dependencies
+			svcName := "test-llm-storage-hf-with-credentials"
+			nsName := kmeta.ChildName(svcName, "-test")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nsName,
+				},
+			}
+			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			defer func() {
+				envTest.DeleteAll(namespace)
+			}()
+
+			secretName := kmeta.ChildName(svcName, "-secret")
+			hfTokenValue := "test-token"
+			credentialSecret := &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      secretName,
+					Namespace: nsName,
+				},
+				StringData: map[string]string{
+					hf.HFTokenKey: hfTokenValue,
+				},
+			}
+			Expect(envTest.Client.Create(ctx, credentialSecret)).To(Succeed())
+
+			serviceAccountName := kmeta.ChildName(svcName, "-sa")
+			serviceAccount := &corev1.ServiceAccount{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceAccountName,
+					Namespace: nsName,
+				},
+				Secrets: []corev1.ObjectReference{
+					{
+						Name:      secretName,
+						Namespace: nsName,
+					},
+				},
+			}
+			Expect(envTest.Client.Create(ctx, serviceAccount)).To(Succeed())
+
+			modelURL, err := apis.ParseURL("hf://user-id/repo-id:tag")
+			Expect(err).ToNot(HaveOccurred())
+
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      svcName,
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						Name: ptr.To("foo"),
+						URI:  *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							ServiceAccountName: serviceAccountName,
+						},
+					},
+					Router: &v1alpha1.RouterSpec{
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
+					},
+					Prefill: &v1alpha1.WorkloadSpec{
+						Template: &corev1.PodSpec{
+							ServiceAccountName: serviceAccountName,
+						},
+					},
+				},
+			}
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+			}()
+
+			// retrieve the create deployments
+			expectedMainDeployment := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve",
+					Namespace: nsName,
+				}, expectedMainDeployment)
+			}).WithContext(ctx).Should(Succeed())
+
+			expectedPrefillDeployment := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-prefill",
+					Namespace: nsName,
+				}, expectedPrefillDeployment)
+			}).WithContext(ctx).Should(Succeed())
+
+			// validate the storage initializer configuration in the deployments
+			validateStorageInitializerIsConfigured(expectedMainDeployment, "hf://user-id/repo-id:tag")
+			validateStorageInitializerIsConfigured(expectedPrefillDeployment, "hf://user-id/repo-id:tag")
+
+			// validate the storage initializer credentials are properly set
+			expectedEnvVars := []corev1.EnvVar{
+				{
+					Name:  hf.HFTokenKey,
+					Value: hfTokenValue,
+				},
+			}
+			validateStorageInitializerCredentials(expectedMainDeployment, expectedEnvVars)
+			validateStorageInitializerCredentials(expectedPrefillDeployment, expectedEnvVars)
 		})
 
 		It("should use storage-initializer to download model when uri starts with s3://", func(ctx SpecContext) {
@@ -626,6 +737,10 @@ func validateStorageInitializerIsConfigured(deployment *appsv1.Deployment, stora
 	validateStorageInitializerForPodSpec(&deployment.Spec.Template.Spec, storageUri)
 }
 
+func validateStorageInitializerCredentials(deployment *appsv1.Deployment, envVars []corev1.EnvVar) {
+	validatePodSpecEnvVars(&deployment.Spec.Template.Spec, envVars)
+}
+
 func validatePvcStorageIsConfiguredForLWS(lws *lwsapi.LeaderWorkerSet) {
 	workerSpec := lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec
 	validatePvcStorageForPodSpec(&workerSpec)
@@ -722,4 +837,10 @@ func validateStorageInitializerForPodSpec(podSpec *corev1.PodSpec, storageUri st
 		HaveField("MountPath", constants.DefaultModelLocalMountPath),
 		HaveField("ReadOnly", BeTrue()),
 	)))
+}
+
+func validatePodSpecEnvVars(podSpec *corev1.PodSpec, envVars []corev1.EnvVar) {
+	initContainer := utils.GetInitContainerWithName(podSpec, constants.StorageInitializerContainerName)
+	Expect(initContainer).NotTo(BeNil())
+	Expect(initContainer.Env).To(ContainElements(envVars))
 }
