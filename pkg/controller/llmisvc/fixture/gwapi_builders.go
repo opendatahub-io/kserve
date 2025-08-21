@@ -591,9 +591,10 @@ func WithInferencePoolReadyStatus() InferencePoolOption {
 			{
 				Conditions: []metav1.Condition{
 					{
-						Type:   string(igwapi.InferencePoolConditionAccepted),
-						Status: metav1.ConditionTrue,
-						Reason: string(igwapi.InferencePoolReasonAccepted),
+						Type:               string(igwapi.InferencePoolConditionAccepted),
+						Status:             metav1.ConditionTrue,
+						Reason:             string(igwapi.InferencePoolReasonAccepted),
+						LastTransitionTime: metav1.Now(),
 					},
 				},
 			},

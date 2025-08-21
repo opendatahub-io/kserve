@@ -300,31 +300,34 @@ func nonReadyHTTPRouteTopLevelCondition(route *gatewayapi.HTTPRoute) (*metav1.Co
 	return nil, false
 }
 
-// IsInferencePoolReady checks if an InferencePool has been accepted by at least one parent Gateway.
+// IsInferencePoolReady checks if an InferencePool has been accepted by all parents.
 func IsInferencePoolReady(pool *igwapi.InferencePool) bool {
-	// An InferencePool is considered ready if it has been accepted by at least one parent Gateway.
-	for _, parentStatus := range pool.Status.Parents {
-		for _, condition := range parentStatus.Conditions {
-			if condition.Type == "Accepted" && condition.Status == metav1.ConditionTrue {
-				return true
-			}
-		}
+	if pool == nil || len(pool.Status.Parents) == 0 {
+		return false
 	}
-	return false
+
+	if cond, missing := nonReadyInferencePoolTopLevelCondition(pool); cond != nil || missing {
+		return false
+	}
+
+	return true
 }
 
-// EvaluateInferencePoolReadiness checks the readiness status of each Inference Pool provided and returns those that are not ready
-func EvaluateInferencePoolReadiness(ctx context.Context, pools []*igwapi.InferencePool) []*igwapi.InferencePool {
-	logger := log.FromContext(ctx).WithName("EvaluateInferencePoolReadiness")
-	var notReadyPools []*igwapi.InferencePool
+func nonReadyInferencePoolTopLevelCondition(pool *igwapi.InferencePool) (*metav1.Condition, bool) {
+	if pool == nil {
+		return nil, true
+	}
 
-	for _, pool := range pools {
-		ready := IsInferencePoolReady(pool)
-		logger.Info("Inference Pool readiness evaluated", "pool", fmt.Sprintf("%s/%s", pool.Namespace, pool.Name), "ready", ready)
-		if !ready {
-			notReadyPools = append(notReadyPools, pool)
+	for _, parent := range pool.Status.Parents {
+		cond := meta.FindStatusCondition(parent.Conditions, string(igwapi.InferencePoolConditionAccepted))
+		if cond == nil {
+			return nil, true
+		}
+		staleCondition := cond.ObservedGeneration > 0 && cond.ObservedGeneration < pool.Generation
+		if cond.Status != metav1.ConditionTrue || staleCondition {
+			return cond, false
 		}
 	}
 
-	return notReadyPools
+	return nil, false
 }
