@@ -23,6 +23,26 @@ replacements:
       name: kserve-controller-manager
     fieldPaths:
     - spec.template.spec.containers.[name=manager].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldpath: data.kserve-localmodel-controller
+  targets:
+    - select:
+        kind: Deployment
+        name: kserve-localmodel-controller-manager
+      fieldPaths:
+        - spec.template.spec.containers.[name=manager].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldpath: data.kserve-localmodelnode-agent
+  targets:
+    - select:
+        kind: DaemonSet
+        name: kserve-localmodelnode-agent
+      fieldPaths:
+        - spec.template.spec.containers.[name=manager].image
 
 configMapGenerator:
 - envs:
@@ -50,6 +70,20 @@ vars:
 - fieldref:
     fieldpath: data.kserve-router
   name: kserve-router
+  objref:
+    apiVersion: v1
+    kind: ConfigMap
+    name: kserve-parameters
+- fieldref:
+    fieldpath: data.kserve-localmodel-controller
+  name: kserve-localmodel-controller
+  objref:
+    apiVersion: v1
+    kind: ConfigMap
+    name: kserve-parameters
+- fieldref:
+    fieldpath: data.kserve-localmodelnode-agent
+  name: kserve-localmodelnode-agent
   objref:
     apiVersion: v1
     kind: ConfigMap
