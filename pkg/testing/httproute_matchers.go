@@ -17,9 +17,11 @@ limitations under the License.
 package testing
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/utils/ptr"
 
 	"github.com/onsi/gomega/types"
@@ -98,16 +100,16 @@ func (matcher *haveGatewayRefsMatcher) NegatedFailureMessage(actual any) string 
 		actual, matcher.expectedGatewayNames)
 }
 
-// HaveBackendRefs returns a matcher that checks if an HTTPRoute has the specified backend refs
-func HaveBackendRefs(expectedBackendNames ...string) types.GomegaMatcher {
+// HaveBackendRefs returns a matcher that checks if an HTTPRoute has the specified backend refs.
+func HaveBackendRefs(backends ...gatewayapi.HTTPBackendRef) types.GomegaMatcher {
 	return &haveBackendRefsMatcher{
-		expectedBackendNames: expectedBackendNames,
+		expectedBackendRefs: backends,
 	}
 }
 
 type haveBackendRefsMatcher struct {
-	expectedBackendNames []string
-	actualBackendNames   []string
+	expectedBackendRefs []gatewayapi.HTTPBackendRef
+	actualBackendRefs   []gatewayapi.HTTPBackendRef
 }
 
 func (matcher *haveBackendRefsMatcher) Match(actual any) (success bool, err error) {
@@ -116,25 +118,23 @@ func (matcher *haveBackendRefsMatcher) Match(actual any) (success bool, err erro
 		return false, err
 	}
 
-	var backendNames []string
 	for _, rule := range httpRoute.Spec.Rules {
-		for _, backendRef := range rule.BackendRefs {
-			backendNames = append(backendNames, string(backendRef.Name))
-		}
+		matcher.actualBackendRefs = append(matcher.actualBackendRefs, rule.BackendRefs...)
 	}
-	matcher.actualBackendNames = backendNames
 
-	if len(backendNames) != len(matcher.expectedBackendNames) {
+	if len(matcher.actualBackendRefs) != len(matcher.expectedBackendRefs) {
 		return false, nil
 	}
 
-	expectedSet := make(map[string]bool)
-	for _, name := range matcher.expectedBackendNames {
-		expectedSet[name] = true
-	}
-
-	for _, name := range backendNames {
-		if !expectedSet[name] {
+	for _, want := range matcher.expectedBackendRefs {
+		found := false
+		for _, got := range matcher.actualBackendRefs {
+			if equality.Semantic.DeepEqual(want, got) {
+				found = true
+				break
+			}
+		}
+		if !found {
 			return false, nil
 		}
 	}
@@ -143,11 +143,15 @@ func (matcher *haveBackendRefsMatcher) Match(actual any) (success bool, err erro
 }
 
 func (matcher *haveBackendRefsMatcher) FailureMessage(actual any) string {
-	return fmt.Sprintf("Expected %T to have backend refs %v, but found %v",
-		actual, matcher.expectedBackendNames, matcher.actualBackendNames)
+	expected, _ := json.MarshalIndent(matcher.expectedBackendRefs, "", "  ")
+	got, _ := json.MarshalIndent(matcher.actualBackendRefs, "", "  ")
+	return fmt.Sprintf("Expected %T to have backend refs:\n%s\nbut found:\n%s",
+		actual, expected, got)
 }
 
 func (matcher *haveBackendRefsMatcher) NegatedFailureMessage(actual any) string {
-	return fmt.Sprintf("Expected %T to not have backend refs %v, but they were found",
-		actual, matcher.expectedBackendNames)
+	expected, _ := json.MarshalIndent(matcher.expectedBackendRefs, "", "  ")
+	got, _ := json.MarshalIndent(matcher.actualBackendRefs, "", "  ")
+	return fmt.Sprintf("Expected %T to not have backend refs:\n%s, got:\n%s",
+		actual, expected, got)
 }

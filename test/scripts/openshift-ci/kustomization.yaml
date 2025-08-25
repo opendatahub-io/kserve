@@ -4,4 +4,4 @@ kind: Kustomization
 resources:
   - github.com/opendatahub-io/odh-model-controller/config/base?ref=incubating
 
-namespace: kserve
+namespace: opendatahub

@@ -39,8 +39,9 @@ const (
 )
 
 const (
-	GatewaysReady   apis.ConditionType = "GatewaysReady"
-	HTTPRoutesReady apis.ConditionType = "HTTPRoutesReady"
+	GatewaysReady      apis.ConditionType = "GatewaysReady"
+	HTTPRoutesReady    apis.ConditionType = "HTTPRoutesReady"
+	InferencePoolReady apis.ConditionType = "InferencePoolReady"
 )
 
 var llmInferenceServiceCondSet = apis.NewLivingConditionSet(
@@ -54,10 +55,6 @@ func (in *LLMInferenceService) GetStatus() *duckv1.Status {
 
 func (in *LLMInferenceService) GetConditionSet() apis.ConditionSet {
 	return llmInferenceServiceCondSet
-}
-
-func (in *LLMInferenceService) MarkWorkloadNotReady(reason, messageFormat string, messageA ...interface{}) {
-	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(WorkloadReady, reason, messageFormat, messageA...)
 }
 
 func (in *LLMInferenceService) MarkMainWorkloadReady() {
@@ -98,7 +95,6 @@ func (in *LLMInferenceService) DetermineWorkloadReadiness() {
 		in.GetStatus().GetCondition(WorkerWorkloadReady),
 		in.GetStatus().GetCondition(PrefillWorkloadReady),
 		in.GetStatus().GetCondition(PrefillWorkerWorkloadReady),
-		in.GetStatus().GetCondition(SchedulerWorkloadReady),
 	}
 
 	for _, cond := range subConditions {
@@ -111,14 +107,6 @@ func (in *LLMInferenceService) DetermineWorkloadReadiness() {
 		}
 	}
 	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(WorkloadReady)
-}
-
-func (in *LLMInferenceService) MarkRouterNotReady(reason, messageFormat string, messageA ...interface{}) {
-	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(RouterReady, reason, messageFormat, messageA...)
-}
-
-func (in *LLMInferenceService) MarkRouterReady() {
-	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(RouterReady)
 }
 
 func (in *LLMInferenceService) MarkPresetsCombinedReady() {
@@ -153,10 +141,20 @@ func (in *LLMInferenceService) MarkHTTPRoutesNotReady(reason, messageFormat stri
 	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(HTTPRoutesReady, reason, messageFormat, messageA...)
 }
 
+func (in *LLMInferenceService) MarkInferencePoolReady() {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(InferencePoolReady)
+}
+
+func (in *LLMInferenceService) MarkInferencePoolNotReady(reason, messageFormat string, messageA ...interface{}) {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(InferencePoolReady, reason, messageFormat, messageA...)
+}
+
 func (in *LLMInferenceService) DetermineRouterReadiness() {
 	subConditions := []*apis.Condition{
 		in.GetStatus().GetCondition(GatewaysReady),
 		in.GetStatus().GetCondition(HTTPRoutesReady),
+		in.GetStatus().GetCondition(InferencePoolReady),
+		in.GetStatus().GetCondition(SchedulerWorkloadReady),
 	}
 
 	for _, cond := range subConditions {

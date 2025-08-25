@@ -32,7 +32,7 @@ readonly PARALLELISM="${2:-1}"
 readonly DEPLOYMENT_PROFILE="${3:-serverless}"
 validate_deployment_profile "${DEPLOYMENT_PROFILE}"
 
-: "${NS:=kserve}"
+: "${NS:=opendatahub}"
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
 : "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:latest}"
 : "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
@@ -102,41 +102,39 @@ kustomize build $PROJECT_ROOT/config/crd | oc apply --server-side=true -f -
 wait_for_crd llminferenceserviceconfigs.serving.kserve.io 90s
 
 echo "⏳ Installing KServe with Minio"
-kustomize build $PROJECT_ROOT/config/overlays/test |
+kustomize build $PROJECT_ROOT/config/overlays/odh-test |
   sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
   sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
   sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
   sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
   oc apply --server-side=true -f -
 
-kustomize build $PROJECT_ROOT/config/crd/external/opendatahub-operator | oc apply --server-side=true -f -
-
 wait_for_crd datascienceclusters.datasciencecluster.opendatahub.io 90s
 wait_for_crd dscinitializations.dscinitialization.opendatahub.io 90s
              
-oc create -f ${PROJECT_ROOT}/config/overlays/test/dsci.yaml
-oc create -f ${PROJECT_ROOT}/config/overlays/test/dsc.yaml
+oc create -f ${PROJECT_ROOT}/config/overlays/odh-test/dsci.yaml
+oc create -f ${PROJECT_ROOT}/config/overlays/odh-test/dsc.yaml
 
 export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
 
 # Patch the inferenceservice-config ConfigMap, when running RawDeployment tests
 if [[ "${MARKERS}" == *"raw"* ]]; then
-  oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/test/configmap/inferenceservice-openshift-ci-raw.yaml | envsubst)
+  oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/odh-test/configmap/inferenceservice-openshift-ci-raw.yaml | envsubst)
   oc delete pod -n ${NS} -l control-plane=kserve-controller-manager
 
   oc patch DataScienceCluster test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
 fi
 
 if [[ "${MARKERS}" == *"graph"* ]]; then
-    oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/test/configmap/inferenceservice-openshift-ci-serverless.yaml | envsubst)
+    oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/odh-test/configmap/inferenceservice-openshift-ci-serverless.yaml | envsubst)
 fi
 
 if [[ "${MARKERS}" == *"predictor"* || "${MARKERS}" == *"path"* ]]; then
-    oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/test/configmap/inferenceservice-openshift-ci-serverless-predictor.yaml | envsubst)
+    oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/odh-test/configmap/inferenceservice-openshift-ci-serverless-predictor.yaml | envsubst)
 fi
 
 if [[ "${DEPLOYMENT_PROFILE}" == "llm-d" ]]; then
-  oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/test/configmap/inferenceservice-openshift-ci-llm.yaml | envsubst)
+  oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/odh-test/configmap/inferenceservice-openshift-ci-llm.yaml | envsubst)
 fi
 
 wait_for_pod_ready "${NS}" "control-plane=kserve-controller-manager"
@@ -224,8 +222,7 @@ oc apply -n kserve-ci-e2e-test -f <(
       "$PROJECT_ROOT/config/overlays/test/minio/minio-user-secret.yaml"
 )
 
-kustomize build $PROJECT_ROOT/config/overlays/test/clusterresources |
-  sed 's/ClusterServingRuntime/ServingRuntime/' |
+kustomize build $PROJECT_ROOT/config/overlays/odh-test/clusterresources |
   sed "s|kserve/sklearnserver:latest|${SKLEARN_IMAGE}|" |
   sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
   oc apply -n kserve-ci-e2e-test -f -

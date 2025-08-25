@@ -23,6 +23,7 @@ import (
 	"net"
 	"slices"
 
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
@@ -30,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -261,17 +263,71 @@ func EvaluateHTTPRouteReadiness(ctx context.Context, routes []*gatewayapi.HTTPRo
 	return notReadyRoutes
 }
 
-// IsHTTPRouteReady determines if an HTTPRoute is ready based on its status conditions
+// IsHTTPRouteReady determines if an HTTPRoute is ready based on its status conditions.
 func IsHTTPRouteReady(route *gatewayapi.HTTPRoute) bool {
-	// Check for the standard Gateway API "Accepted" condition
-	for _, condition := range route.Status.RouteStatus.Parents {
-		for _, parentCondition := range condition.Conditions {
-			if parentCondition.Type == string(gatewayapi.RouteConditionAccepted) {
-				return parentCondition.Status == metav1.ConditionTrue
-			}
+	if route == nil || len(route.Spec.ParentRefs) == 0 {
+		return false
+	}
+
+	if len(route.Status.RouteStatus.Parents) != len(route.Spec.ParentRefs) {
+		// HTTPRoute is ready only when _all_ parents have accepted the route.
+		return false
+	}
+
+	if cond, missing := nonReadyHTTPRouteTopLevelCondition(route); cond != nil || missing {
+		return false
+	}
+
+	return true
+}
+
+func nonReadyHTTPRouteTopLevelCondition(route *gatewayapi.HTTPRoute) (*metav1.Condition, bool) {
+	if route == nil {
+		return nil, true
+	}
+
+	for _, parent := range route.Status.RouteStatus.Parents {
+		cond := meta.FindStatusCondition(parent.Conditions, string(gatewayapi.RouteConditionAccepted))
+		if cond == nil {
+			return nil, true
+		}
+		staleCondition := cond.ObservedGeneration > 0 && cond.ObservedGeneration < route.Generation
+		if cond.Status != metav1.ConditionTrue || staleCondition {
+			return cond, false
 		}
 	}
 
-	// If no Accepted condition is found, HTTPRoute is considered not ready
-	return false
+	return nil, false
+}
+
+// IsInferencePoolReady checks if an InferencePool has been accepted by all parents.
+func IsInferencePoolReady(pool *igwapi.InferencePool) bool {
+	if pool == nil || len(pool.Status.Parents) == 0 {
+		return false
+	}
+
+	if cond, missing := nonReadyInferencePoolTopLevelCondition(pool); cond != nil || missing {
+		return false
+	}
+
+	return true
+}
+
+func nonReadyInferencePoolTopLevelCondition(pool *igwapi.InferencePool) (*metav1.Condition, bool) {
+	if pool == nil {
+		return nil, true
+	}
+
+	for _, parent := range pool.Status.Parents {
+		cond := meta.FindStatusCondition(parent.Conditions, string(igwapi.InferencePoolConditionAccepted))
+		if cond == nil {
+			return nil, true
+		}
+		staleCondition := cond.ObservedGeneration > 0 && cond.ObservedGeneration < pool.Generation
+		if cond.Status != metav1.ConditionTrue || staleCondition {
+			return cond, false
+		}
+	}
+
+	return nil, false
 }

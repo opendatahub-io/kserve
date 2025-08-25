@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
@@ -90,6 +91,8 @@ type LLMInferenceServiceReconciler struct {
 //+kubebuilder:rbac:groups=discovery.k8s.io,resources=endpointslices,verbs=get;list;watch
 //+kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews;subjectaccessreviews,verbs=create
 //+kubebuilder:rbac:groups=networking.istio.io,resources=destinationrules,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=monitoring.coreos.com,resources=podmonitors;servicemonitors,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:urls=/metrics,verbs=get
 
 // Reconcile is the main entry point for the reconciliation loop.
 // It fetches the LLMInferenceService and delegates the reconciliation of its constituent parts.
@@ -163,17 +166,21 @@ func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v
 		return fmt.Errorf("failed to combine base-configurations: %w", err)
 	}
 	llmSvc.MarkPresetsCombinedReady()
+
+	logger.Info("Reconciling with combined base configurations", "combined.spec", baseCfg.Spec, "original.spec", llmSvc.Spec)
 	// We are only writing to status, so we can safely use the original object.
 	llmSvc.Spec = baseCfg.Spec
 
-	logger.Info("Reconciling with combined base configurations", "spec", llmSvc.Spec)
-
-	if err := r.reconcileWorkload(ctx, llmSvc, config.StorageConfig); err != nil {
+	if err := r.reconcileWorkload(ctx, llmSvc, config.StorageConfig, config.CredentialConfig); err != nil {
 		return fmt.Errorf("failed to reconcile workload: %w", err)
 	}
 
 	if err := r.reconcileRouter(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to reconcile networking: %w", err)
+	}
+
+	if err := r.reconcileMonitoringResources(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to reconcile monitoring resources: %w", err)
 	}
 
 	return nil
@@ -182,6 +189,10 @@ func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v
 func (r *LLMInferenceServiceReconciler) finalize(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	if err := r.reconcileSchedulerServiceAccount(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to finalize scheduler service account: %w", err)
+	}
+
+	if err := r.cleanupMonitoringResources(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to cleanup monitoring resources: %w", err)
 	}
 
 	return nil
@@ -254,6 +265,13 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), lwsapi.GroupVersion.String(), "LeaderWorkerSet"); ok && err == nil {
 		b = b.Owns(&lwsapi.LeaderWorkerSet{}, builder.WithPredicates(childResourcesPredicate))
+	}
+
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), monitoringv1.SchemeGroupVersion.String(), "ServiceMonitor"); ok && err == nil {
+		b = b.Owns(&monitoringv1.ServiceMonitor{}, builder.WithPredicates(childResourcesPredicate))
+	}
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), monitoringv1.SchemeGroupVersion.String(), "PodMonitor"); ok && err == nil {
+		b = b.Owns(&monitoringv1.PodMonitor{}, builder.WithPredicates(childResourcesPredicate))
 	}
 
 	return b.Complete(r)

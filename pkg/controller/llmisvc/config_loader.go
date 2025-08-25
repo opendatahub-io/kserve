@@ -26,6 +26,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/credentials"
 	"github.com/kserve/kserve/pkg/types"
 )
 
@@ -35,12 +36,13 @@ type Config struct {
 	IngressGatewayNamespace     string   `json:"ingressGatewayNamespace,omitempty"`
 	IstioGatewayControllerNames []string `json:"istioGatewayControllerNames,omitempty"`
 
-	StorageConfig *types.StorageInitializerConfig `json:"-"`
+	StorageConfig    *types.StorageInitializerConfig `json:"-"`
+	CredentialConfig *credentials.CredentialConfig   `json:"-"`
 }
 
 // NewConfig creates an instance of llm-specific config based on predefined values
 // in IngressConfig struct
-func NewConfig(ingressConfig *v1beta1.IngressConfig, storageConfig *types.StorageInitializerConfig) *Config {
+func NewConfig(ingressConfig *v1beta1.IngressConfig, storageConfig *types.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) *Config {
 	igwNs := constants.KServeNamespace
 	igwName := ingressConfig.KserveIngressGateway
 	igw := strings.Split(igwName, "/")
@@ -59,7 +61,8 @@ func NewConfig(ingressConfig *v1beta1.IngressConfig, storageConfig *types.Storag
 			"istio.io/unmanaged-gateway",
 			"openshift.io/gateway-controller/v1",
 		},
-		StorageConfig: storageConfig,
+		StorageConfig:    storageConfig,
+		CredentialConfig: credentialConfig,
 	}
 }
 
@@ -79,7 +82,12 @@ func LoadConfig(ctx context.Context, clientset kubernetes.Interface) (*Config, e
 		return nil, fmt.Errorf("failed to convert InferenceServiceConfigMap to StorageInitializerConfig: %w", errConvert)
 	}
 
-	return NewConfig(ingressConfig, storageInitializerConfig), nil
+	credentialConfig, errConvert := credentials.GetCredentialConfig(isvcConfigMap)
+	if errConvert != nil {
+		return nil, fmt.Errorf("failed to convert InferenceServiceConfigMap to CredentialConfig: %w", errConvert)
+	}
+
+	return NewConfig(ingressConfig, storageInitializerConfig, &credentialConfig), nil
 }
 
 func (c Config) isIstioGatewayController(name string) bool {

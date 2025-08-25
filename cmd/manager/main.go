@@ -22,6 +22,7 @@ import (
 	"net/http"
 	"os"
 
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -255,6 +256,20 @@ func main() {
 		setupLog.Info("Setting up OTEL scheme")
 		if err := otelv1beta1.AddToScheme(scheme); err != nil {
 			setupLog.Error(err, "unable to add OTEL APIs to scheme")
+			os.Exit(1)
+		}
+	}
+
+	// TODO(llmisvc): move it to new manager when upstreaming
+	monitoringFound, monitoringCheckErr := utils.IsCrdAvailable(cfg, monitoringv1.SchemeGroupVersion.String(), constants.ServiceMonitorKind)
+	if monitoringCheckErr != nil {
+		setupLog.Error(monitoringCheckErr, "error when checking if ServiceMonitor kind is available")
+		os.Exit(1)
+	}
+	if monitoringFound {
+		setupLog.Info("Setting up Prometheus Operator scheme")
+		if err := monitoringv1.AddToScheme(scheme); err != nil {
+			setupLog.Error(err, "unable to add Prometheus Operator APIs to scheme")
 			os.Exit(1)
 		}
 	}

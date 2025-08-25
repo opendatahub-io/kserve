@@ -20,6 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -282,6 +283,34 @@ func WithBackendRefs(refs ...gatewayapi.HTTPBackendRef) HTTPRouteRuleOption {
 	}
 }
 
+func BackendRefInferencePool(name string) gatewayapi.HTTPBackendRef {
+	return gatewayapi.HTTPBackendRef{
+		BackendRef: gatewayapi.BackendRef{
+			BackendObjectReference: gatewayapi.BackendObjectReference{
+				Group: ptr.To(gatewayapi.Group("inference.networking.x-k8s.io")),
+				Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
+				Name:  gatewayapi.ObjectName(name),
+				Port:  ptr.To(gatewayapi.PortNumber(8000)),
+			},
+			Weight: ptr.To(int32(1)),
+		},
+	}
+}
+
+func BackendRefService(name string) gatewayapi.HTTPBackendRef {
+	return gatewayapi.HTTPBackendRef{
+		BackendRef: gatewayapi.BackendRef{
+			BackendObjectReference: gatewayapi.BackendObjectReference{
+				Group: ptr.To(gatewayapi.Group("")),
+				Kind:  ptr.To(gatewayapi.Kind("Service")),
+				Name:  gatewayapi.ObjectName(name),
+				Port:  ptr.To(gatewayapi.PortNumber(8000)),
+			},
+			Weight: ptr.To(int32(1)),
+		},
+	}
+}
+
 func WithTimeouts(backendTimeout, requestTimeout string) HTTPRouteRuleOption {
 	return func(rule *gatewayapi.HTTPRouteRule) {
 		rule.Timeouts = &gatewayapi.HTTPRouteTimeouts{
@@ -497,6 +526,78 @@ func WithHTTPRouteNotReadyStatus(controllerName, reason, message string) HTTPRou
 					},
 				}
 			}
+		}
+	}
+}
+
+type InferencePoolOption ObjectOption[*igwapi.InferencePool]
+
+func InferencePool(name string, opts ...InferencePoolOption) *igwapi.InferencePool {
+	pool := &igwapi.InferencePool{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: name,
+		},
+		Spec: igwapi.InferencePoolSpec{
+			Selector:         make(map[igwapi.LabelKey]igwapi.LabelValue),
+			TargetPortNumber: 8000,
+		},
+		Status: igwapi.InferencePoolStatus{
+			Parents: []igwapi.PoolStatus{},
+		},
+	}
+
+	for _, opt := range opts {
+		opt(pool)
+	}
+
+	return pool
+}
+
+func WithSelector(key, value string) InferencePoolOption {
+	return func(pool *igwapi.InferencePool) {
+		if pool.Spec.Selector == nil {
+			pool.Spec.Selector = make(map[igwapi.LabelKey]igwapi.LabelValue)
+		}
+		pool.Spec.Selector[igwapi.LabelKey(key)] = igwapi.LabelValue(value)
+	}
+}
+
+func WithTargetPort(port int32) InferencePoolOption {
+	return func(pool *igwapi.InferencePool) {
+		pool.Spec.TargetPortNumber = port
+	}
+}
+
+func WithExtensionRef(group, kind, name string) InferencePoolOption {
+	return func(pool *igwapi.InferencePool) {
+		pool.Spec.EndpointPickerConfig = igwapi.EndpointPickerConfig{
+			ExtensionRef: &igwapi.Extension{
+				ExtensionReference: igwapi.ExtensionReference{
+					Group: ptr.To(igwapi.Group(group)),
+					Kind:  ptr.To(igwapi.Kind(kind)),
+					Name:  igwapi.ObjectName(name),
+				},
+				ExtensionConnection: igwapi.ExtensionConnection{
+					FailureMode: ptr.To(igwapi.FailOpen),
+				},
+			},
+		}
+	}
+}
+
+func WithInferencePoolReadyStatus() InferencePoolOption {
+	return func(pool *igwapi.InferencePool) {
+		pool.Status.Parents = []igwapi.PoolStatus{
+			{
+				Conditions: []metav1.Condition{
+					{
+						Type:               string(igwapi.InferencePoolConditionAccepted),
+						Status:             metav1.ConditionTrue,
+						Reason:             string(igwapi.InferencePoolReasonAccepted),
+						LastTransitionTime: metav1.Now(),
+					},
+				},
+			},
 		}
 	}
 }

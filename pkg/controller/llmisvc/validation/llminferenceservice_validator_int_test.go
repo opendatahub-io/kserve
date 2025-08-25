@@ -408,7 +408,7 @@ var _ = Describe("LLMInferenceService API validation", func() {
 			llmSvc := fixture.LLMInferenceService("test-negative-replicas",
 				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
 				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithDeploymentReplicas(-1),
+				fixture.WithReplicas(-1),
 			)
 
 			// when

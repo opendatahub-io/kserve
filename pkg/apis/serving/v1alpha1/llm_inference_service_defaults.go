@@ -19,6 +19,7 @@ package v1alpha1
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
 )
@@ -28,5 +29,24 @@ var _ apis.Defaultable = &LLMInferenceService{}
 func (in *LLMInferenceService) SetDefaults(_ context.Context) {
 	if in.Spec.Model.Name == nil || *in.Spec.Model.Name == "" {
 		in.Spec.Model.Name = ptr.To(in.GetName())
+	}
+}
+
+func (in *LLMInferenceServiceSpec) SetDefaults(_ context.Context) {
+	// Setting containers to empty slices will prevent the merge logic from removing containers.
+	// This happens only on `Containers` because they don't have the `omitempty` tag and json.Marshal always keeps them.
+
+	if in.WorkloadSpec.Template != nil && in.WorkloadSpec.Template.Containers == nil {
+		in.WorkloadSpec.Template.Containers = []corev1.Container{}
+	}
+	if in.WorkloadSpec.Worker != nil && in.WorkloadSpec.Worker.Containers == nil {
+		in.WorkloadSpec.Worker.Containers = []corev1.Container{}
+	}
+
+	if in.Prefill != nil && in.Prefill.Template != nil && in.Prefill.Template.Containers == nil {
+		in.Prefill.Template.Containers = []corev1.Container{}
+	}
+	if in.Prefill != nil && in.Prefill.Worker != nil && in.Prefill.Worker.Containers == nil {
+		in.Prefill.Worker.Containers = []corev1.Container{}
 	}
 }

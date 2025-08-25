@@ -83,8 +83,8 @@ if [ "$1" =~ "kserve_on_openshift" ]; then
   rm -rf $PROJECT_ROOT/test/scripts/openshift-ci/tls/certs
 fi
 # Install DSC/DSCI for test. (sometimes there is timing issue when it is under the same kustomization so it is separated)
-oc delete -f config/overlays/test/dsci.yaml
-oc delete -f config/overlays/test/dsc.yaml
+oc delete -f config/overlays/odh-test/dsci.yaml
+oc delete -f config/overlays/odh-test/dsc.yaml
 
 if [ "$1" != "raw" ]; then
   echo "Deleting authorino and kserve gateways"

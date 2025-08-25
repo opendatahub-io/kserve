@@ -115,21 +115,21 @@ func (matcher *beOwnedByMatcher) NegatedFailureMessage(actual any) string {
 		actual, matcher.expectedName, matcher.expectedKind)
 }
 
-// BeControllerBy returns a matcher that checks if a Kubernetes object is owned AND controlled by the specified owner
-func BeControllerBy(expectedOwner any) types.GomegaMatcher {
-	return &beControllerByMatcher{
+// BeControlledBy returns a matcher that checks if a Kubernetes object is owned AND controlled by the specified owner
+func BeControlledBy(expectedOwner any) types.GomegaMatcher {
+	return &beControlledByMatcher{
 		expectedOwner:  expectedOwner,
 		ownedByMatcher: BeOwnedBy(expectedOwner).(*beOwnedByMatcher),
 	}
 }
 
-type beControllerByMatcher struct {
+type beControlledByMatcher struct {
 	expectedOwner    any
 	ownedByMatcher   *beOwnedByMatcher
 	controllerStatus string
 }
 
-func (matcher *beControllerByMatcher) Match(actual any) (success bool, err error) {
+func (matcher *beControlledByMatcher) Match(actual any) (success bool, err error) {
 	owned, err := matcher.ownedByMatcher.Match(actual)
 	if err != nil {
 		return false, err
@@ -150,7 +150,7 @@ func (matcher *beControllerByMatcher) Match(actual any) (success bool, err error
 	return isController, nil
 }
 
-func (matcher *beControllerByMatcher) FailureMessage(actual any) string {
+func (matcher *beControlledByMatcher) FailureMessage(actual any) string {
 	owned, _ := matcher.ownedByMatcher.Match(actual)
 	if !owned {
 		return fmt.Sprintf("Expected %T to be controlled by %q, but %s",
@@ -162,7 +162,7 @@ func (matcher *beControllerByMatcher) FailureMessage(actual any) string {
 		actual, matcher.ownedByMatcher.expectedName, matcher.ownedByMatcher.expectedKind, matcher.controllerStatus)
 }
 
-func (matcher *beControllerByMatcher) NegatedFailureMessage(actual any) string {
+func (matcher *beControlledByMatcher) NegatedFailureMessage(actual any) string {
 	return fmt.Sprintf("Expected %T to not be controlled by %q (Kind: %q), but it was found as a controller",
 		actual, matcher.ownedByMatcher.expectedName, matcher.ownedByMatcher.expectedKind)
 }

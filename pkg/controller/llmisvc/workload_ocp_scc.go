@@ -38,16 +38,25 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodeOCPRoleBinding(ctx con
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileMultiNodeSCCRoleBinding(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	expected := r.expectedMultiNodeSCCRoleBinding(ctx, llmSvc)
+	expected, err := r.expectedMultiNodeSCCRoleBinding(ctx, llmSvc)
+	if err != nil {
+		return fmt.Errorf("failed to create expected multi node scc role binding: %w", err)
+	}
 	if llmSvc.Spec.Worker == nil && (llmSvc.Spec.Prefill == nil || llmSvc.Spec.Prefill.Worker == nil) {
 		return Delete(ctx, r, llmSvc, expected)
 	}
 	return Reconcile(ctx, r, llmSvc, &rbacv1.RoleBinding{}, expected, semanticRoleBindingIsEqual)
 }
 
-func (r *LLMInferenceServiceReconciler) expectedMultiNodeSCCRoleBinding(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *rbacv1.RoleBinding {
-	m := r.expectedMultiNodeMainServiceAccount(llmSvc)
-	p := r.expectedMultiNodePrefillServiceAccount(llmSvc)
+func (r *LLMInferenceServiceReconciler) expectedMultiNodeSCCRoleBinding(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*rbacv1.RoleBinding, error) {
+	m, err := r.expectedMultiNodeMainServiceAccount(ctx, llmSvc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create expected multi node main service account: %w", err)
+	}
+	p, err := r.expectedMultiNodePrefillServiceAccount(ctx, llmSvc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create expected multi node prefill service account: %w", err)
+	}
 
 	expected := &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
@@ -80,5 +89,5 @@ func (r *LLMInferenceServiceReconciler) expectedMultiNodeSCCRoleBinding(ctx cont
 
 	log.FromContext(ctx).V(2).Info("Expected SCC multi-node role binding", "rolebinding", expected)
 
-	return expected
+	return expected, nil
 }
