@@ -284,7 +284,7 @@ var _ = Describe("Inference Graph controller test", func() {
 						Name:      serviceKey.Name,
 						Namespace: serviceKey.Namespace,
 						Annotations: map[string]string{
-							"serving.kserve.io/deploymentMode": string(constants.Serverless),
+							"serving.kserve.io/deploymentMode": string(constants.Knative),
 						},
 					},
 					Spec: v1alpha1.InferenceGraphSpec{
@@ -532,7 +532,7 @@ var _ = Describe("Inference Graph controller test", func() {
 						Name:      serviceKey.Name,
 						Namespace: serviceKey.Namespace,
 						Annotations: map[string]string{
-							"serving.kserve.io/deploymentMode": string(constants.Serverless),
+							"serving.kserve.io/deploymentMode": string(constants.Knative),
 						},
 					},
 					Spec: v1alpha1.InferenceGraphSpec{
@@ -1218,7 +1218,7 @@ var _ = Describe("Inference Graph controller test", func() {
 					Name:      serviceKey.Name,
 					Namespace: serviceKey.Namespace,
 					Annotations: map[string]string{
-						"serving.kserve.io/deploymentMode": string(constants.RawDeployment),
+						"serving.kserve.io/deploymentMode": string(constants.Standard),
 					},
 					Labels: map[string]string{
 						constants.NetworkVisibility: constants.ClusterLocalVisibility,
@@ -1285,7 +1285,7 @@ var _ = Describe("Inference Graph controller test", func() {
 					Name:      serviceKey.Name,
 					Namespace: serviceKey.Namespace,
 					Annotations: map[string]string{
-						"serving.kserve.io/deploymentMode": string(constants.RawDeployment),
+						"serving.kserve.io/deploymentMode": string(constants.Standard),
 					},
 				},
 				Spec: v1alpha1.InferenceGraphSpec{
@@ -1434,7 +1434,7 @@ var _ = Describe("Inference Graph controller test", func() {
 					Name:      graphName,
 					Namespace: "default",
 					Annotations: map[string]string{
-						"serving.kserve.io/deploymentMode": string(constants.RawDeployment),
+						"serving.kserve.io/deploymentMode": string(constants.Standard),
 						constants.ODHKserveRawAuth:         "true",
 					},
 				},
