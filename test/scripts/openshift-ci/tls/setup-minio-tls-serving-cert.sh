@@ -22,6 +22,10 @@ MY_PATH=$(dirname "$0")
 PROJECT_ROOT=$MY_PATH/../../../../
 TLS_DIR=$PROJECT_ROOT/test/scripts/openshift-ci/tls
 
+: "${NS:=opendatahub}"
+
+echo "NS=$NS"
+
 # If Kustomize is not installed, install it
 if ! command -v kustomize &>/dev/null; then
   echo "Installing Kustomize"
@@ -35,39 +39,39 @@ if ! command -v mc &>/dev/null; then
   chmod +x $HOME/.local/bin/mc
 fi
 
-# Create kserve namespace if it does not already exist
-if oc get namespace kserve > /dev/null 2>&1; then
-    echo "Namespace kserve exists."
+# Create namespace if it does not already exist
+if oc get namespace ${NS} > /dev/null 2>&1; then
+    echo "Namespace ${NS} exists."
 else
     cat <<EOF | oc apply -f -
 apiVersion: v1
 kind: Namespace
 metadata:
-    name: kserve
+    name: ${NS}
 EOF
 fi
 
 # Create tls minio resources
 kustomize build $PROJECT_ROOT/test/overlays/openshift-ci/minio-tls-serving-cert |
-  oc apply -n kserve --server-side=true -f - 
+  oc apply -n ${NS} --server-side=true -f - 
 
 # Wait for minio pod to be ready
 echo "Waiting for minio-tls-serving pod to be ready..."
-oc wait --for=condition=ready pod -l app=minio-tls-serving -n kserve --timeout=300s
+oc wait --for=condition=ready pod -l app=minio-tls-serving -n ${NS} --timeout=300s
 
 echo "Configuring MinIO for TLS with Openshift serving certificate and adding models to storage"
 # Add openshift generated serving certificates to certs directory
 if ! [ -d $TLS_DIR/certs/serving ]; then
     mkdir -p $TLS_DIR/certs/serving
 fi
-(oc get secret minio-tls-serving -n kserve -o jsonpath="{.data['tls\.crt']}" | base64 -d) > $TLS_DIR/certs/serving/tls.crt
-(oc get secret minio-tls-serving -n kserve -o jsonpath="{.data['tls\.key']}" | base64 -d) > $TLS_DIR/certs/serving/tls.key
+(oc get secret minio-tls-serving -n ${NS} -o jsonpath="{.data['tls\.crt']}" | base64 -d) > $TLS_DIR/certs/serving/tls.crt
+(oc get secret minio-tls-serving -n ${NS} -o jsonpath="{.data['tls\.key']}" | base64 -d) > $TLS_DIR/certs/serving/tls.key
 # Expose the route with tls enabled
 oc create route reencrypt minio-tls-serving-service \
   --service=minio-tls-serving-service \
   --dest-ca-cert="${TLS_DIR}/certs/serving/tls.crt" \
-  -n kserve && sleep 5
-MINIO_TLS_SERVING_ROUTE=$(oc get routes -n kserve minio-tls-serving-service -o jsonpath="{.spec.host}")
+  -n ${NS} && sleep 5
+MINIO_TLS_SERVING_ROUTE=$(oc get routes -n ${NS} minio-tls-serving-service -o jsonpath="{.spec.host}")
 
 # Wait for minio TLS endpoint to be accessible
 echo "Waiting for minio TLS endpoint to be accessible..."
@@ -103,7 +107,7 @@ else
   mc cp /tmp/sklearn-model.joblib storage-tls-serving/example-models/sklearn/model.joblib --insecure
 fi
 # Delete the route after upload
-oc delete route -n kserve minio-tls-serving-service
+oc delete route -n ${NS} minio-tls-serving-service
 
 # Create kserve-ci-e2e-test namespace if it does not already exist
 if oc get namespace kserve-ci-e2e-test > /dev/null 2>&1; then
@@ -119,7 +123,7 @@ fi
 
 echo "Adding localTLSMinIOServing configuration to storage-config secret"
 # Creating/Updating storage-config secret with ca created ca bundle
-LOCAL_TLS_MINIO_SERVING="{\"type\": \"s3\",\"access_key_id\":\"minio\",\"secret_access_key\":\"minio123\",\"endpoint_url\":\"https://minio-tls-serving-service.kserve.svc:9000\",\"bucket\":\"mlpipeline\",\"region\":\"us-south\",\"cabundle_configmap\":\"odh-kserve-custom-ca-bundle\",\"anonymous\":\"False\"}" 
+LOCAL_TLS_MINIO_SERVING="{\"type\": \"s3\",\"access_key_id\":\"minio\",\"secret_access_key\":\"minio123\",\"endpoint_url\":\"https://minio-tls-serving-service.${NS}.svc:9000\",\"bucket\":\"mlpipeline\",\"region\":\"us-south\",\"cabundle_configmap\":\"odh-kserve-custom-ca-bundle\",\"anonymous\":\"False\"}" 
 LOCAL_TLS_MINIO_SERVING_BASE64=$(echo ${LOCAL_TLS_MINIO_SERVING} | base64 -w 0)
 if oc get secret storage-config -n kserve-ci-e2e-test > /dev/null 2>&1; then
     oc patch secret storage-config -n kserve-ci-e2e-test -p "{\"data\":{\"localTLSMinIOServing\":\"${LOCAL_TLS_MINIO_SERVING_BASE64}\"}}"

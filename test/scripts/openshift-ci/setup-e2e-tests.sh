@@ -157,7 +157,7 @@ echo "Add testing models to minio storage ..." # Reference: config/overlays/test
 
 # Wait for minio pod to be ready
 echo "Waiting for minio pod to be ready..."
-oc wait --for=condition=ready pod -l app=minio -n kserve --timeout=300s
+oc wait --for=condition=ready pod -l app=minio -n ${NS} --timeout=300s
 
 # Expose minio service and get route
 oc expose service minio-service -n ${NS} && sleep 5
