@@ -18,8 +18,8 @@ resources:
 - ../manager
 - ../webhook
 # - ../certmanager # not needed, because ODH is using OpenShift's serving certificates for WebHooks
-# - ../localmodels # This is commented out for 2.16
-# - ../localmodelnodes
+- ../localmodels
+- ../localmodelnodes
 - network-policies.yaml # ODH specific
 
 generatorOptions:
@@ -204,7 +204,7 @@ patches:
 - path: svc_webhook_cainjection_patch.yaml
 - path: manager_resources_patch.yaml
 - path: cainjection_conversion_webhook.yaml
-# - path: localmodel_manager_image_patch.yaml
+- path: localmodel_manager_image_patch.yaml
 # Since OpenShift serving-certificates are being used,
 # remove CA bundle placeholders
 # - patch: |-
