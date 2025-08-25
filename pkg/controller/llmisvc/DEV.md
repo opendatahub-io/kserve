@@ -368,6 +368,45 @@ kubectl wait pod -l name=cert-manager-operator -n cert-manager-operator --for=co
 This step should be changed when official lws-operator is released.
 
 ```shell
+# Update PULL SECRET
+export BREW_PULL_SECRET_FILE="path/to/file"
+export REGISTRY_PULL_SECRET_FILE="path/to/file"
+
+kubectl get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > /tmp/pull-secret.json 
+jq -s '.[0].auths += .[1].auths | {auths: .[0].auths}' /tmp/pull-secret.json $BREW_PULL_SECRET_FILE > /tmp/new-pull-secret.json    
+jq -s '.[0].auths += .[1].auths | {auths: .[0].auths}' /tmp/new-pull-secret.json  $REGISTRY_PULL_SECRET_FILE > /tmp/final-pull-secret.json    
+oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/tmp/final-pull-secret.json  
+
+# Create MirrorSet to pull prebuilt images 
+cat <<EOF| kubectl create -f -
+apiVersion: config.openshift.io/v1
+kind: ImageTagMirrorSet
+metadata:
+    name: stage-registry
+spec:
+    imageTagMirrors:
+    - mirrors:
+        - registry.stage.redhat.io/leader-worker-set/lws-operator-bundle
+      source: registry.redhat.io/leader-worker-set/lws-operator-bundle
+    - mirrors:
+        - registry.stage.redhat.io/leader-worker-set/lws-rhel9-operator
+      source: registry.redhat.io/leader-worker-set/lws-rhel9-operator
+---
+apiVersion: config.openshift.io/v1
+kind: ImageDigestMirrorSet
+metadata:
+    name: stage-registry
+spec:
+    imageDigestMirrors:
+    - mirrors:
+        - registry.stage.redhat.io/leader-worker-set/lws-operator-bundle
+      source: registry.redhat.io/leader-worker-set/lws-operator-bundle
+    - mirrors:
+        - registry.stage.redhat.io/leader-worker-set/lws-rhel9-operator
+      source: registry.redhat.io/leader-worker-set/lws-rhel9-operator
+EOF
+
+
 cat <<EOF | kubectl create -f -
 apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
@@ -376,7 +415,7 @@ metadata:
   namespace: openshift-marketplace
 spec:
   sourceType: grpc
-  image: quay.io/jooholee/lws-operator-index:llmd
+  image: brew.registry.redhat.io/rh-osbs/iib@sha256:8d69ca9a5337ba486e6a197ce24327d7bc833ebdcf993d99c90bc69a2d0e186c
 EOF
 
 sleep 10
@@ -402,7 +441,7 @@ metadata:
   name: leader-worker-set
   namespace: openshift-lws-operator
 spec:
-  channel: stable
+  channel: stable-v1.0                         ## This need to be updated
   installPlanApproval: Automatic
   name: leader-worker-set
   source: lws-operator
