@@ -99,7 +99,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                 {
                     "name": "main",
                     "env": [
-                        {"name": "VLLM_LOGGING_LEVEL", "value": "INFO"},
+                        {"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"},
                         {"name": "TRITON_LIBCUDA_PATH", "value": "/usr/lib64"},
                         {"name": "HF_HUB_DISABLE_XET", "value": "1"},
                         {"name": "VLLM_SKIP_P2P_CHECK", "value": "1"},
@@ -139,7 +139,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                 {
                     "name": "main",
                     "env": [
-                        {"name": "VLLM_LOGGING_LEVEL", "value": "INFO"},
+                        {"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"},
                         {"name": "TRITON_LIBCUDA_PATH", "value": "/usr/lib64"},
                         {"name": "HF_HUB_DISABLE_XET", "value": "1"},
                         {"name": "VLLM_SKIP_P2P_CHECK", "value": "1"},
@@ -325,6 +325,18 @@ LLMINFERENCESERVICE_CONFIGS = {
 }
 
 
+class SequentialGenerator:
+    def __init__(self, start=0):
+        self.__seq = start
+
+    def next(self):
+        self.__seq = self.__seq + 1
+        return self.__seq
+
+
+seq = SequentialGenerator()
+
+
 @pytest.fixture(scope="function")
 def test_case(request):
     tc = request.param
@@ -336,6 +348,10 @@ def test_case(request):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config"),
         client_configuration=client.Configuration(),
     )
+
+    namespace = f"{KSERVE_TEST_NAMESPACE}-{seq.next()}"
+
+    create_namespace(namespace)
 
     try:
         # Validate base_refs defined in the test fixture exist in LLMINFERENCESERVICE_CONFIGS
@@ -363,13 +379,13 @@ def test_case(request):
                 "kind": "LLMInferenceServiceConfig",
                 "metadata": {
                     "name": unique_config_name,
-                    "namespace": KSERVE_TEST_NAMESPACE,
+                    "namespace": namespace,
                 },
                 "spec": original_spec,
             }
 
             _create_or_update_llmisvc_config(
-                kserve_client, unique_config_body, KSERVE_TEST_NAMESPACE
+                kserve_client, unique_config_body, namespace
             )
             created_configs.append(unique_config_name)
 
@@ -377,7 +393,8 @@ def test_case(request):
             api_version="serving.kserve.io/v1alpha1",
             kind="LLMInferenceService",
             metadata=client.V1ObjectMeta(
-                name=service_name, namespace=KSERVE_TEST_NAMESPACE
+                name=service_name,
+                namespace=namespace,
             ),
             spec={
                 "baseRefs": [{"name": base_ref} for base_ref in unique_base_refs],
@@ -398,14 +415,39 @@ def test_case(request):
                     "0",
                     "f",
                 ):
-                    _delete_llmisvc_config(
-                        kserve_client, config_name, KSERVE_TEST_NAMESPACE
-                    )
+                    _delete_llmisvc_config(kserve_client, config_name, namespace)
                 logger.info(f"✓ Deleted unique LLMInferenceServiceConfig {config_name}")
             except Exception as e:
                 logger.warning(
                     f"Failed to cleanup LLMInferenceServiceConfig {config_name}: {e}"
                 )
+
+
+def create_namespace(namespace):
+    v1 = client.CoreV1Api()
+    try:
+        namespace_body = client.V1Namespace(
+            metadata=client.V1ObjectMeta(name=namespace)
+        )
+        v1.create_namespace(namespace_body)
+        logger.info(f"✓ Created namespace {namespace}")
+    except ApiException as e:
+        if e.status == 409:  # Already exists
+            logger.info(f"Namespace {namespace} already exists")
+        else:
+            raise RuntimeError(f"Failed to create namespace {namespace}: {e}") from e
+
+
+def delete_namespace(namespace):
+    v1 = client.CoreV1Api()
+    try:
+        v1.delete_namespace(namespace)
+        logger.info(f"✓ Deleted namespace {namespace}")
+    except ApiException as e:
+        if e.status == 404:  # Not Found
+            logger.info(f"Namespace {namespace} not found")
+        else:
+            raise RuntimeError(f"Failed to create namespace {namespace}: {e}") from e
 
 
 def _get_model_name_from_configs(config_names):

@@ -30,8 +30,9 @@ from .diagnostic import (
 from .fixtures import (
     generate_test_id,
     # Factory functions are not called explicitly, but they need to be imported to work
-    test_case,
-    inject_k8s_proxy,  # noqa: F401,F811
+    test_case,  # noqa: F401,F811
+    inject_k8s_proxy,
+    delete_namespace,
 )
 from .logging import log_execution
 
@@ -204,6 +205,7 @@ def test_llm_inference_service(test_case: TestCase):
                 "f",
             ):
                 delete_llmisvc(kserve_client, test_case.llm_service)
+                delete_namespace(test_case.llm_service.metadata.namespace)
         except Exception as e:
             print(f"⚠️ Warning: Failed to cleanup service {service_name}: {e}")
 
