@@ -30,8 +30,8 @@ from .diagnostic import (
 from .fixtures import (
     generate_test_id,
     # Factory functions are not called explicitly, but they need to be imported to work
-    test_case,
-    inject_k8s_proxy,  # noqa: F401,F811
+    test_case,  # noqa: F401,F811
+    inject_k8s_proxy,
 )
 from .logging import log_execution
 
