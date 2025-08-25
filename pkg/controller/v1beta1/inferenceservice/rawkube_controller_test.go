@@ -10897,7 +10897,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					Name:      serviceKey.Name,
 					Namespace: serviceKey.Namespace,
 					Annotations: map[string]string{
-						"serving.kserve.io/deploymentMode": "RawDeployment",
+						"serving.kserve.io/deploymentMode": "Standard",
 						constants.ODHKserveRawAuth:         "true",
 					},
 					Labels: map[string]string{
@@ -10970,7 +10970,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 							},
 							Annotations: map[string]string{
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
-								"serving.kserve.io/deploymentMode":                         "RawDeployment",
+								"serving.kserve.io/deploymentMode":                         "Standard",
 								constants.ODHKserveRawAuth:                                 "true",
 								"service.beta.openshift.io/serving-cert-secret-name":       predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
@@ -11276,7 +11276,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode:     "RawDeployment",
+				DeploymentMode:     "Standard",
 				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
@@ -12323,7 +12323,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					Name:      serviceKey.Name,
 					Namespace: serviceKey.Namespace,
 					Annotations: map[string]string{
-						"serving.kserve.io/deploymentMode":              "RawDeployment",
+						"serving.kserve.io/deploymentMode":              "Standard",
 						"serving.kserve.io/autoscalerClass":             "hpa",
 						"serving.kserve.io/metrics":                     "cpu",
 						"serving.kserve.io/targetUtilizationPercentage": "75",
