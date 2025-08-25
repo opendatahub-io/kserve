@@ -31,7 +31,9 @@ def log_execution(func):
         func_name = func.__name__
 
         timestamp_start = datetime.now().isoformat()
-        logger.info(f"[{func_name}] [{timestamp_start}] start")
+        logger.info(
+            f"[{func_name}] [{timestamp_start}] start - args={args}, kwargs={kwargs}"
+        )
         start_time = time.time()
 
         try:
