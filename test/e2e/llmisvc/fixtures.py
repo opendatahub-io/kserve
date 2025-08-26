@@ -83,6 +83,15 @@ LLMINFERENCESERVICE_CONFIGS = {
     "router-managed": {
         "router": {"scheduler": {}, "route": {}, "gateway": {}},
     },
+    "router-custom-route": {
+        "router": {"scheduler": {}, "route": {"http": {"spec": {}}}, "gateway": {}},
+    },
+    "router-existing-route": {
+        "router": {"scheduler": {}, "route": {"http": {"refs": [{"name": ""}, {"name": ""}]}}},
+    },
+    "router-existing-gateway": {
+        "router": {"scheduler": {}, "route": {}, "gateway": {"refs": [{"name": "", "namespace": ""}]}},
+    },
 }
 
 

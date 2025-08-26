@@ -33,6 +33,10 @@ from .fixtures import (
 from .logging import log_execution
 
 KSERVE_PLURAL_LLMINFERENCESERVICE = "llminferenceservices"
+WORKLOAD_SINGLE_PROMPT = "KServe is a"
+WORKLOAD_PD_PROMPT = ("You are an expert in Kubernetes-native machine learning serving platforms, with deep knowledge of the KServe project. "
+                     "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
+                     "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.")
 
 
 def assert_200(response: requests.Response) -> None:
@@ -74,16 +78,59 @@ class TestCase:
         pytest.param(
             TestCase(
                 base_refs=["router-managed", "workload-single-cpu", "model-fb-opt-125m"],
-                prompt="KServe is a",
+                prompt=WORKLOAD_SINGLE_PROMPT,
+            ),
+            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+        ),
+        pytest.param(
+            TestCase(
+                base_refs=["router-custom-route", "workload-single-cpu", "model-fb-opt-125m"],
+                prompt=WORKLOAD_SINGLE_PROMPT,
+            ),
+            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+        ),
+        pytest.param(
+            TestCase(
+                base_refs=["router-existing-route", "workload-single-cpu", "model-fb-opt-125m"],
+                prompt=WORKLOAD_SINGLE_PROMPT,
+            ),
+            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+        ),
+        pytest.param(
+            TestCase(
+                base_refs=["router-existing-gateway", "workload-single-cpu", "model-fb-opt-125m"],
+                prompt=WORKLOAD_SINGLE_PROMPT,
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
         pytest.param(
             TestCase(
                 base_refs=["router-managed", "workload-pd-cpu", "model-fb-opt-125m"],
-                prompt="You are an expert in Kubernetes-native machine learning serving platforms, with deep knowledge of the KServe project. "
-                       "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
-                       "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.",
+                prompt=WORKLOAD_PD_PROMPT,
+                response_assertion=assert_200_with_choices,
+            ),
+            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+        ),
+        pytest.param(
+            TestCase(
+                base_refs=["router-custom-route", "workload-pd-cpu", "model-fb-opt-125m"],
+                prompt=WORKLOAD_PD_PROMPT,
+                response_assertion=assert_200_with_choices,
+            ),
+            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+        ),
+        pytest.param(
+            TestCase(
+                base_refs=["router-existing-route", "workload-pd-cpu", "model-fb-opt-125m"],
+                prompt=WORKLOAD_PD_PROMPT,
+                response_assertion=assert_200_with_choices,
+            ),
+            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+        ),
+        pytest.param(
+            TestCase(
+                base_refs=["router-existing-gateway", "workload-pd-cpu", "model-fb-opt-125m"],
+                prompt=WORKLOAD_PD_PROMPT,
                 response_assertion=assert_200_with_choices,
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
