@@ -263,6 +263,7 @@ LLMINFERENCESERVICE_CONFIGS = {
     },
     "router-references": {
         "router": {"scheduler": {}, "route": {"http": {"refs": [{"name": "llmisvc-route-1"}, {"name": "llmisvc-route-2"}]}}, "gateway": {"refs": [{"name": "llmisvc-gateway", "namespace": KSERVE_TEST_NAMESPACE}]}},
+    },
     "router-no-scheduler": {
         "router": {"route": {}},
     },
