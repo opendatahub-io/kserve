@@ -15,7 +15,7 @@
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, List
+from typing import Any, Callable, List, Dict
 import pytest
 import requests
 from kubernetes import client
@@ -35,8 +35,8 @@ from .logging import log_execution
 KSERVE_PLURAL_LLMINFERENCESERVICE = "llminferenceservices"
 WORKLOAD_SINGLE_PROMPT = "KServe is a"
 WORKLOAD_PD_PROMPT = ("You are an expert in Kubernetes-native machine learning serving platforms, with deep knowledge of the KServe project. "
-                     "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
-                     "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.")
+                      "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
+                      "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.")
 
 
 def assert_200(response: requests.Response) -> None:
@@ -53,6 +53,14 @@ def assert_200_with_choices(response: requests.Response) -> None:
         and response.json().get("choices") is not None
         and len(response.json().get("choices", [])) > 0
     ), f"Expected 200 with choices, got {response.status_code}: {response.text}"
+
+
+@dataclass
+class RouterResources:
+    __test__ = False  # So pytest will not try to execute it.
+    """Router referenced resources for LLM inference service tests."""
+    gateways: List[Dict[str, Any]] = []
+    routes: List[Dict[str, Any]] = []
 
 
 @dataclass
@@ -73,9 +81,10 @@ class TestCase:
 @pytest.mark.llminferenceservice
 @pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.parametrize(
-    "test_case",
+    "router_resources, test_case",
     [
         pytest.param(
+            RouterResources(),
             TestCase(
                 base_refs=["router-managed", "workload-single-cpu", "model-fb-opt-125m"],
                 prompt=WORKLOAD_SINGLE_PROMPT,
@@ -83,6 +92,7 @@ class TestCase:
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
         pytest.param(
+            RouterResources(),
             TestCase(
                 base_refs=["router-custom-route", "workload-single-cpu", "model-fb-opt-125m"],
                 prompt=WORKLOAD_SINGLE_PROMPT,
@@ -90,20 +100,15 @@ class TestCase:
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
         pytest.param(
+            RouterResources(routes=[{}, {}], gateways=[{}]),
             TestCase(
-                base_refs=["router-existing-route", "workload-single-cpu", "model-fb-opt-125m"],
+                base_refs=["router-references", "workload-single-cpu", "model-fb-opt-125m"],
                 prompt=WORKLOAD_SINGLE_PROMPT,
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
         pytest.param(
-            TestCase(
-                base_refs=["router-existing-gateway", "workload-single-cpu", "model-fb-opt-125m"],
-                prompt=WORKLOAD_SINGLE_PROMPT,
-            ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
-        ),
-        pytest.param(
+            RouterResources(),
             TestCase(
                 base_refs=["router-managed", "workload-pd-cpu", "model-fb-opt-125m"],
                 prompt=WORKLOAD_PD_PROMPT,
@@ -112,6 +117,7 @@ class TestCase:
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
         pytest.param(
+            RouterResources(),
             TestCase(
                 base_refs=["router-custom-route", "workload-pd-cpu", "model-fb-opt-125m"],
                 prompt=WORKLOAD_PD_PROMPT,
@@ -120,16 +126,9 @@ class TestCase:
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
         pytest.param(
+            RouterResources(routes=[{}, {}], gateways=[{}]),
             TestCase(
-                base_refs=["router-existing-route", "workload-pd-cpu", "model-fb-opt-125m"],
-                prompt=WORKLOAD_PD_PROMPT,
-                response_assertion=assert_200_with_choices,
-            ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
-        ),
-        pytest.param(
-            TestCase(
-                base_refs=["router-existing-gateway", "workload-pd-cpu", "model-fb-opt-125m"],
+                base_refs=["router-references", "workload-pd-cpu", "model-fb-opt-125m"],
                 prompt=WORKLOAD_PD_PROMPT,
                 response_assertion=assert_200_with_choices,
             ),
