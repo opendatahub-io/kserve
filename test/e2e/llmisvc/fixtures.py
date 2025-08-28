@@ -77,15 +77,6 @@ LLMINFERENCESERVICE_CONFIGS = {
             }
         },
     },
-    "model-fb-opt-125m": {
-        "model": {"uri": "hf://facebook/opt-125m", "name": "facebook/opt-125m"},
-    },
-    "model-deepseek-v2-lite": {
-        "model": {
-            "uri": "hf://deepseek-ai/DeepSeek-V2-Lite-Chat",
-            "name": "deepseek-ai/DeepSeek-V2-Lite-Chat",
-        },
-    },
     "workload-dp-ep-gpu": {
         "replicas": 2,
         "parallelism": {
@@ -255,18 +246,6 @@ LLMINFERENCESERVICE_CONFIGS = {
             },
         },
     },
-    "router-managed": {
-        "router": {"scheduler": {}, "route": {}, "gateway": {}},
-    },
-    "router-custom-route": {
-        "router": {"scheduler": {}, "route": {"http": {"spec": {"rules": [{"timeouts": {"request": "30s", "backendRequest": "30s"}, "retry": {"codes": [500, 502, 503, 504], "attempts": 3, "backoff": "10s"}}]}}}, "gateway": {}},
-    },
-    "router-references": {
-        "router": {"scheduler": {}, "route": {"http": {"refs": [{"name": "llmisvc-route-1"}, {"name": "llmisvc-route-2"}]}}, "gateway": {"refs": [{"name": "llmisvc-gateway", "namespace": KSERVE_TEST_NAMESPACE}]}},
-    },
-    "router-no-scheduler": {
-        "router": {"route": {}},
-    },
     # This preset simulates DP+EP that can run on CPU, the idea is to test the LWS-based deployment
     # but without the resources requirements for DP+EP (GPUs and ROCe/IB)
     "workload-simulated-dp-ep-cpu": {
@@ -328,6 +307,27 @@ LLMINFERENCESERVICE_CONFIGS = {
             ]
         },
     },
+    "router-managed": {
+        "router": {"scheduler": {}, "route": {}, "gateway": {}},
+    },
+    "router-custom-route": {
+        "router": {"scheduler": {}, "route": {"http": {"spec": {"rules": [{"timeouts": {"request": "30s", "backendRequest": "30s"}, "retry": {"codes": [500, 502, 503, 504], "attempts": 3, "backoff": "10s"}}]}}}, "gateway": {}},
+    },
+    "router-references": {
+        "router": {"scheduler": {}, "route": {"http": {"refs": [{"name": "llmisvc-route-1"}, {"name": "llmisvc-route-2"}]}}, "gateway": {"refs": [{"name": "llmisvc-gateway", "namespace": KSERVE_TEST_NAMESPACE}]}},
+    },
+    "router-no-scheduler": {
+        "router": {"route": {}},
+    },
+    "model-fb-opt-125m": {
+        "model": {"uri": "hf://facebook/opt-125m", "name": "facebook/opt-125m"},
+    },
+    "model-deepseek-v2-lite": {
+        "model": {
+            "uri": "hf://deepseek-ai/DeepSeek-V2-Lite-Chat",
+            "name": "deepseek-ai/DeepSeek-V2-Lite-Chat",
+        },
+    },
 }
 
 
@@ -346,9 +346,10 @@ def router_resources(request):
         for route in rr.routes:
             _create_or_update_route(kserve_client, rr.route)
             routes_created.append(route)
-        yield
+        yield rr
     except Exception as e:
         logger.warning(f"Failed to create LLMInferenceService router dependencies: {e}")
+        raise e
     finally:
         for route in routes_created:
             try:
