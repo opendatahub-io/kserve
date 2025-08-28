@@ -314,7 +314,10 @@ LLMINFERENCESERVICE_CONFIGS = {
         "router": {"scheduler": {}, "route": {"http": {"spec": {"rules": [{"timeouts": {"request": "30s", "backendRequest": "30s"}, "retry": {"codes": [500, 502, 503, 504], "attempts": 3, "backoff": "10s"}}]}}}, "gateway": {}},
     },
     "router-references": {
-        "router": {"scheduler": {}, "route": {"http": {"refs": [{"name": "llmisvc-route-1"}, {"name": "llmisvc-route-2"}]}}, "gateway": {"refs": [{"name": "llmisvc-gateway", "namespace": KSERVE_TEST_NAMESPACE}]}},
+        "router": {"scheduler": {}, "route": {"http": {"refs": [{"name": "router-route-1"}, {"name": "router-route-2"}]}}, "gateway": {"refs": [{"name": "router-gateway-1", "namespace": KSERVE_TEST_NAMESPACE}]}},
+    },
+    "router-references-pd": {
+        "router": {"scheduler": {}, "route": {"http": {"refs": [{"name": "router-route-3"}, {"name": "router-route-4"}]}}, "gateway": {"refs": [{"name": "router-gateway-2", "namespace": KSERVE_TEST_NAMESPACE}]}},
     },
     "router-no-scheduler": {
         "router": {"route": {}},
@@ -389,14 +392,14 @@ def test_case(request):
             raise ValueError(
                 f"Missing base_refs in LLMINFERENCESERVICE_CONFIGS: {missing_refs}"
             )
-
-        service_name = generate_service_name(request.node.name, tc.base_refs)
+        if not tc.service_name:
+            tc.service_name = generate_service_name(request.node.name, tc.base_refs)
         tc.model_name = _get_model_name_from_configs(tc.base_refs)
 
         # Create unique configs for this test
         unique_base_refs = []
         for base_ref in tc.base_refs:
-            unique_config_name = generate_k8s_safe_suffix(base_ref, [service_name])
+            unique_config_name = generate_k8s_safe_suffix(base_ref, [tc.service_name])
             unique_base_refs.append(unique_config_name)
 
             original_spec = LLMINFERENCESERVICE_CONFIGS[base_ref]
@@ -420,7 +423,7 @@ def test_case(request):
             api_version="serving.kserve.io/v1alpha1",
             kind="LLMInferenceService",
             metadata=client.V1ObjectMeta(
-                name=service_name, namespace=KSERVE_TEST_NAMESPACE
+                name=tc.service_name, namespace=KSERVE_TEST_NAMESPACE
             ),
             spec={
                 "baseRefs": [{"name": base_ref} for base_ref in unique_base_refs],

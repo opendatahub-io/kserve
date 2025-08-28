@@ -21,7 +21,7 @@ import yaml
 from dataclasses import dataclass
 from kserve import KServeClient, V1alpha1LLMInferenceService, constants
 from kubernetes import client
-from typing import Any, Callable, List, Dict
+from typing import Any, Callable, List, Dict, Optional
 
 from .diagnostic import (
     print_all_events_table,
@@ -33,6 +33,10 @@ from .fixtures import (
     # Factory functions are not called explicitly, but they need to be imported to work
     router_resources,  # noqa: F401,F811
     test_case,  # noqa: F401,F811
+)
+from .test_resources import (
+    ROUTER_GATEWAYS,
+    ROUTER_ROUTES,
 )
 from .logging import log_execution
 
@@ -108,6 +112,7 @@ class TestCase:
     """Test case configuration for LLM inference service tests."""
     base_refs: List[str]
     prompt: str
+    service_name: Optional[str] = None
     max_tokens: int = 100
     response_assertion: Callable[[requests.Response], None] = assert_200
     wait_timeout: int = 600
@@ -143,10 +148,11 @@ class TestCase:
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
         pytest.param(
-            RouterResources(routes=[{}, {}], gateways=[{}]),
+            RouterResources(gateways=[ROUTER_GATEWAYS[0]], routes=[ROUTER_ROUTES[0], ROUTER_ROUTES[1]]),
             TestCase(
                 base_refs=["router-references", "workload-single-cpu", "model-fb-opt-125m"],
                 prompt=WORKLOAD_SINGLE_PROMPT,
+                service_name="router-references-test",
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
@@ -169,10 +175,11 @@ class TestCase:
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
         pytest.param(
-            RouterResources(routes=[{}, {}], gateways=[{}]),
+            RouterResources(gateways=[ROUTER_GATEWAYS[1]], routes=[ROUTER_ROUTES[2], ROUTER_ROUTES[3]]),
             TestCase(
-                base_refs=["router-references", "workload-pd-cpu", "model-fb-opt-125m"],
+                base_refs=["router-references-pd", "workload-pd-cpu", "model-fb-opt-125m"],
                 prompt=WORKLOAD_PD_PROMPT,
+                service_name="router-references-pd-test",
                 response_assertion=assert_200_with_choices,
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
