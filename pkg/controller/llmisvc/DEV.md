@@ -476,6 +476,20 @@ EOF
 ```
 
 **Create a default GatewayClass**
+
+- OpenShift 4.19.9+
+```shell
+cat<<EOF|oc create -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: openshift-default
+spec:
+  controllerName: "openshift.io/gateway-controller/v1"
+EOF
+```
+
+- Others
 ```shell
 cat<<EOF|oc create -f -
 apiVersion: gateway.networking.k8s.io/v1
