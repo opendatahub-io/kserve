@@ -77,6 +77,15 @@ LLMINFERENCESERVICE_CONFIGS = {
             }
         },
     },
+    "model-fb-opt-125m": {
+        "model": {"uri": "hf://facebook/opt-125m", "name": "facebook/opt-125m"},
+    },
+    "model-deepseek-v2-lite": {
+        "model": {
+            "uri": "hf://deepseek-ai/DeepSeek-V2-Lite-Chat",
+            "name": "deepseek-ai/DeepSeek-V2-Lite-Chat",
+        },
+    },
     "workload-dp-ep-gpu": {
         "replicas": 2,
         "parallelism": {
@@ -246,6 +255,12 @@ LLMINFERENCESERVICE_CONFIGS = {
             },
         },
     },
+    "router-managed": {
+        "router": {"scheduler": {}, "route": {}, "gateway": {}},
+    },
+    "router-no-scheduler": {
+        "router": {"route": {}},
+    },
     # This preset simulates DP+EP that can run on CPU, the idea is to test the LWS-based deployment
     # but without the resources requirements for DP+EP (GPUs and ROCe/IB)
     "workload-simulated-dp-ep-cpu": {
@@ -307,28 +322,65 @@ LLMINFERENCESERVICE_CONFIGS = {
             ]
         },
     },
-    "router-managed": {
-        "router": {"scheduler": {}, "route": {}, "gateway": {}},
-    },
     "router-custom-route": {
-        "router": {"scheduler": {}, "route": {"http": {"spec": {"rules": [{"timeouts": {"request": "30s", "backendRequest": "30s"}, "retry": {"codes": [500, 502, 503, 504], "attempts": 3, "backoff": "10s"}}]}}}, "gateway": {}},
+        "router": {
+            "scheduler": {},
+            "route": {
+                "http": {
+                    "spec": {
+                        "rules": [
+                            {
+                                "timeouts": {
+                                    "request": "30s",
+                                    "backendRequest": "30s",
+                                },
+                                "retry": {
+                                    "codes": [500, 502, 503, 504],
+                                    "attempts": 3,
+                                    "backoff": "10s",
+                                },
+                            },
+                        ],
+                    },
+                },
+            },
+            "gateway": {},
+        },
     },
     "router-references": {
-        "router": {"scheduler": {}, "route": {"http": {"refs": [{"name": "router-route-1"}, {"name": "router-route-2"}]}}, "gateway": {"refs": [{"name": "router-gateway-1", "namespace": KSERVE_TEST_NAMESPACE}]}},
+        "router": {
+            "scheduler": {},
+            "route": {
+                "http": {
+                    "refs": [
+                        {"name": "router-route-1"},
+                        {"name": "router-route-2"},
+                    ],
+                },
+            },
+            "gateway": {
+                "refs": [
+                    {"name": "router-gateway-1", "namespace": KSERVE_TEST_NAMESPACE},
+                ],
+            },
+        },
     },
     "router-references-pd": {
-        "router": {"scheduler": {}, "route": {"http": {"refs": [{"name": "router-route-3"}, {"name": "router-route-4"}]}}, "gateway": {"refs": [{"name": "router-gateway-2", "namespace": KSERVE_TEST_NAMESPACE}]}},
-    },
-    "router-no-scheduler": {
-        "router": {"route": {}},
-    },
-    "model-fb-opt-125m": {
-        "model": {"uri": "hf://facebook/opt-125m", "name": "facebook/opt-125m"},
-    },
-    "model-deepseek-v2-lite": {
-        "model": {
-            "uri": "hf://deepseek-ai/DeepSeek-V2-Lite-Chat",
-            "name": "deepseek-ai/DeepSeek-V2-Lite-Chat",
+        "router": {
+            "scheduler": {},
+            "route": {
+                "http": {
+                    "refs": [
+                        {"name": "router-route-3"},
+                        {"name": "router-route-4"},
+                    ],
+                },
+            },
+            "gateway": {
+                "refs": [
+                    {"name": "router-gateway-2", "namespace": KSERVE_TEST_NAMESPACE},
+                ],
+            },
         },
     },
 }

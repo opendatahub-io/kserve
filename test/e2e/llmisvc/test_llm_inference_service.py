@@ -41,45 +41,6 @@ from .test_resources import (
 from .logging import log_execution
 
 KSERVE_PLURAL_LLMINFERENCESERVICE = "llminferenceservices"
-WORKLOAD_SINGLE_PROMPT = "KServe is a"
-WORKLOAD_SIMULATED_DP_EP_CPU_PROMPT = ("This test simulates DP+EP that can run on CPU, the idea is to test the LWS-based deployment, "
-                                       "but without the resources requirements for DP+EP (GPUs and ROCe/IB).")
-WORKLOAD_PD_PROMPT = ("You are an expert in Kubernetes-native machine learning serving platforms, with deep knowledge of the KServe project. "
-                      "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
-                      "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.")
-WORKLOAD_DP_EP_GPU_PROMPT = ("Delve into the multifaceted implications of a fully disaggregated cloud architecture, specifically "
-                             "where the compute plane (P) and the data plane (D) are independently deployed and managed for a "
-                             "geographically distributed, high-throughput, low-latency microservices ecosystem. Beyond the "
-                             "fundamental challenges of network latency and data consistency, elaborate on the advanced "
-                             "considerations and trade-offs inherent in such a setup: 1. Network Architecture and Protocols: "
-                             "How would the network fabric and underlying protocols (e.g., RDMA, custom transport layers) need to "
-                             "evolve to support optimal performance and minimize inter-plane communication overhead, especially for "
-                             "synchronous operations? Discuss the role of network programmability (e.g., SDN, P4) in dynamically "
-                             "optimizing routing and traffic flow between P and D. 2. Advanced Data Consistency and Durability: "
-                             "Explore sophisticated data consistency models (e.g., causal consistency, strong eventual consistency) "
-                             "and their applicability in balancing performance and data integrity across a globally distributed data plane. "
-                             "Detail strategies for ensuring data durability and fault tolerance, including multi-region replication, "
-                             "intelligent partitioning, and recovery mechanisms in the event of partial or full plane failures. "
-                             "3. Dynamic Resource Orchestration and Cost Optimization: Analyze how an orchestration layer would intelligently "
-                             "manage the independent scaling of compute (P) and data (D) resources, considering fluctuating workloads, "
-                             "cost efficiency, and performance targets (e.g., using predictive analytics for resource provisioning). "
-                             "Discuss mechanisms for dynamically reallocating compute nodes to different data partitions based on "
-                             "workload patterns and data locality, potentially involving live migration strategies. "
-                             "4. Security and Compliance in a Distributed Landscape: Address the enhanced security perimeter "
-                             "challenges, including securing communication channels between P and D (encryption in transit, mutual TLS), "
-                             "fine-grained access control to data at rest and in motion, and identity management across disaggregated "
-                             "components. Discuss how such an architecture impacts compliance with regulatory frameworks (e.g., GDPR, HIPAA) "
-                             "concerning data sovereignty, privacy, and auditability. 5. Operational Complexity and Observability: "
-                             "Examine the increased complexity in monitoring, logging, and tracing across highly decoupled compute and "
-                             "data planes. What specialized tooling and practices (e.g., distributed tracing with OpenTelemetry, advanced AIOps) "
-                             "would be essential? How would incident response and troubleshooting differ in this disaggregated environment "
-                             "compared to traditional integrated systems? Consider the challenges of pinpointing root causes across "
-                             "independent failures. 6. Real-world Applicability and Future Trends: Identify specific industries "
-                             "or use cases (e.g., high-frequency trading, IoT edge processing, large language model inference) "
-                             "where the benefits of P/D disaggregation would strongly outweigh its complexities. "
-                             "Conclude by speculating on emerging technologies or paradigms (e.g., serverless compute functions "
-                             "directly interacting with object storage, in-memory disaggregation) that could further drive or "
-                             "transform P/D disaggregation in cloud computing.")
 
 
 def assert_200(response: requests.Response) -> None:
@@ -135,7 +96,7 @@ class TestCase:
                     "workload-single-cpu",
                     "model-fb-opt-125m",
                 ],
-                prompt=WORKLOAD_SINGLE_PROMPT,
+                prompt="KServe is a",
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
@@ -143,7 +104,7 @@ class TestCase:
             RouterResources(),
             TestCase(
                 base_refs=["router-custom-route", "workload-single-cpu", "model-fb-opt-125m"],
-                prompt=WORKLOAD_SINGLE_PROMPT,
+                prompt="KServe is a",
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
@@ -151,7 +112,7 @@ class TestCase:
             RouterResources(gateways=[ROUTER_GATEWAYS[0]], routes=[ROUTER_ROUTES[0], ROUTER_ROUTES[1]]),
             TestCase(
                 base_refs=["router-references", "workload-single-cpu", "model-fb-opt-125m"],
-                prompt=WORKLOAD_SINGLE_PROMPT,
+                prompt="KServe is a",
                 service_name="router-references-test",
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
@@ -160,7 +121,9 @@ class TestCase:
             RouterResources(),
             TestCase(
                 base_refs=["router-managed", "workload-pd-cpu", "model-fb-opt-125m"],
-                prompt=WORKLOAD_PD_PROMPT,
+                prompt="You are an expert in Kubernetes-native machine learning serving platforms, with deep knowledge of the KServe project. "
+                "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
+                "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.",
                 response_assertion=assert_200_with_choices,
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
@@ -169,7 +132,9 @@ class TestCase:
             RouterResources(),
             TestCase(
                 base_refs=["router-custom-route", "workload-pd-cpu", "model-fb-opt-125m"],
-                prompt=WORKLOAD_PD_PROMPT,
+                prompt="You are an expert in Kubernetes-native machine learning serving platforms, with deep knowledge of the KServe project. "
+                "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
+                "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.",
                 response_assertion=assert_200_with_choices,
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
@@ -178,7 +143,9 @@ class TestCase:
             RouterResources(gateways=[ROUTER_GATEWAYS[1]], routes=[ROUTER_ROUTES[2], ROUTER_ROUTES[3]]),
             TestCase(
                 base_refs=["router-references-pd", "workload-pd-cpu", "model-fb-opt-125m"],
-                prompt=WORKLOAD_PD_PROMPT,
+                prompt="You are an expert in Kubernetes-native machine learning serving platforms, with deep knowledge of the KServe project. "
+                "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
+                "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.",
                 service_name="router-references-pd-test",
                 response_assertion=assert_200_with_choices,
             ),
@@ -193,7 +160,39 @@ class TestCase:
                     "workload-dp-ep-prefill-gpu",
                     "model-deepseek-v2-lite",
                 ],
-                prompt=WORKLOAD_DP_EP_GPU_PROMPT ,
+                prompt="Delve into the multifaceted implications of a fully disaggregated cloud architecture, specifically "
+                "where the compute plane (P) and the data plane (D) are independently deployed and managed for a "
+                "geographically distributed, high-throughput, low-latency microservices ecosystem. Beyond the "
+                "fundamental challenges of network latency and data consistency, elaborate on the advanced "
+                "considerations and trade-offs inherent in such a setup: 1. Network Architecture and Protocols: "
+                "How would the network fabric and underlying protocols (e.g., RDMA, custom transport layers) need to "
+                "evolve to support optimal performance and minimize inter-plane communication overhead, especially for "
+                "synchronous operations? Discuss the role of network programmability (e.g., SDN, P4) in dynamically "
+                "optimizing routing and traffic flow between P and D. 2. Advanced Data Consistency and Durability: "
+                "Explore sophisticated data consistency models (e.g., causal consistency, strong eventual consistency) "
+                "and their applicability in balancing performance and data integrity across a globally distributed data plane. "
+                "Detail strategies for ensuring data durability and fault tolerance, including multi-region replication, "
+                "intelligent partitioning, and recovery mechanisms in the event of partial or full plane failures. "
+                "3. Dynamic Resource Orchestration and Cost Optimization: Analyze how an orchestration layer would intelligently "
+                "manage the independent scaling of compute (P) and data (D) resources, considering fluctuating workloads, "
+                "cost efficiency, and performance targets (e.g., using predictive analytics for resource provisioning). "
+                "Discuss mechanisms for dynamically reallocating compute nodes to different data partitions based on "
+                "workload patterns and data locality, potentially involving live migration strategies. "
+                "4. Security and Compliance in a Distributed Landscape: Address the enhanced security perimeter "
+                "challenges, including securing communication channels between P and D (encryption in transit, mutual TLS), "
+                "fine-grained access control to data at rest and in motion, and identity management across disaggregated "
+                "components. Discuss how such an architecture impacts compliance with regulatory frameworks (e.g., GDPR, HIPAA) "
+                "concerning data sovereignty, privacy, and auditability. 5. Operational Complexity and Observability: "
+                "Examine the increased complexity in monitoring, logging, and tracing across highly decoupled compute and "
+                "data planes. What specialized tooling and practices (e.g., distributed tracing with OpenTelemetry, advanced AIOps) "
+                "would be essential? How would incident response and troubleshooting differ in this disaggregated environment "
+                "compared to traditional integrated systems? Consider the challenges of pinpointing root causes across "
+                "independent failures. 6. Real-world Applicability and Future Trends: Identify specific industries "
+                "or use cases (e.g., high-frequency trading, IoT edge processing, large language model inference) "
+                "where the benefits of P/D disaggregation would strongly outweigh its complexities. "
+                "Conclude by speculating on emerging technologies or paradigms (e.g., serverless compute functions "
+                "directly interacting with object storage, in-memory disaggregation) that could further drive or "
+                "transform P/D disaggregation in cloud computing.",
                 max_tokens=2000,
             ),
             marks=[
@@ -210,7 +209,7 @@ class TestCase:
                     "workload-single-cpu",
                     "model-fb-opt-125m",
                 ],
-                prompt=WORKLOAD_SINGLE_PROMPT,
+                prompt="What is KServe?",
             ),
             marks=[
                 pytest.mark.cluster_cpu,
@@ -226,7 +225,8 @@ class TestCase:
                     "workload-simulated-dp-ep-cpu",
                     "model-fb-opt-125m",
                 ],
-                prompt=WORKLOAD_SIMULATED_DP_EP_CPU_PROMPT,
+                prompt="This test simulates DP+EP that can run on CPU, the idea is to test the LWS-based deployment, "
+                "but without the resources requirements for DP+EP (GPUs and ROCe/IB).",
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_multi_node],
         ),
