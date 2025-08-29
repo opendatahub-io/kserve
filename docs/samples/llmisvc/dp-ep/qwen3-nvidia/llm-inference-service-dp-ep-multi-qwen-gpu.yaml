@@ -3,7 +3,13 @@ kind: LLMInferenceService
 metadata:
   name: qwen3-coder-30b-a3b-instruct
   annotations:
-    leaderworkerset.sigs.k8s.io/subgroup-exclusive-topology: kubernetes.io/hostname
+    k8s.v1.cni.cncf.io/networks: |
+      [
+        {
+          "name": "multi-nic-compute",
+          "namespace": "openshift-sriov-network-operator"
+        }
+      ]
 spec:
   model:
     uri: hf://Qwen/Qwen3-Coder-30B-A3B-Instruct
@@ -19,6 +25,8 @@ spec:
     route: { }
     gateway: { }
   template:
+    nodeSelector:
+      kubernetes.io/hostname: pokprod-b93r38s0
     serviceAccountName: hfsa
     containers:
       - name: main
@@ -42,11 +50,13 @@ spec:
           - name: NVSHMEM_REMOTE_TRANSPORT
             value: ibgda
           - name: NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME
-            value: eth0
-#          - name: GLOO_SOCKET_IFNAME
-#            value: eth0
+            value: net1-15
+          - name: GLOO_LOG_LEVEL
+            value: DEBUG
+          - name: GLOO_SOCKET_IFNAME
+            value: net1-15
           - name: NCCL_SOCKET_IFNAME
-            value: eth0
+            value: net1-15
           - name: NCCL_DEBUG
             value: INFO
           - name: NCCL_TIMEOUT
@@ -57,36 +67,16 @@ spec:
             value: "23"
           - name: NCCL_IB_RETRY_CNT
             value: "7"
-          - name: NCCL_IB_HCA
-            value: mlx5_0,mlx5_1,mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_7,mlx5_11,mlx5_12,mlx5_14,mlx5_16,mlx5_18,mlx5_20,mlx5_21,mlx5_22,mlx5_23,mlx5_24,mlx5_25
           - name: NVSHMEM_IB_ENABLE_IBGDA
             value: "true"
-          - name: HF_HUB_CACHE
-            value: /huggingface-cache
           - name: VLLM_NIXL_SIDE_CHANNEL_HOST
             valueFrom:
               fieldRef:
                 fieldPath: status.podIP
-          - name: UCX_NET_DEVICES
-            value: "mlx5_0:1,mlx5_1:1,mlx5_2:1,mlx5_3:1,mlx5_4:1,mlx5_5:1,mlx5_7:1,mlx5_11:1"
-          - name: UCX_IB_GID_INDEX
-            value: "auto"
-          - name: UCX_PROTO_INFO
-            value: "y"
-          - name: UCX_LOG_LEVEL
-            value: "INFO"
-          - name: UCX_TLS
-            value: "rc_x,ud_x,dc_x,self"
-          - name: UCX_IB_ADDR_TYPE
-            value: "ib_global"
-          - name: NCCL_IB_DISABLE
-            value: "0"
-          - name: NCCL_NET_GDR_LEVEL
-            value: "SYS"
-          - name: NCCL_P2P_DISABLE
-            value: "1"
-          - name: NCCL_SHM_DISABLE
-            value: "1"
+          - name: NCCL_IB_GID_INDEX
+            value: "3"
+          - name: NCCL_IB_HCA
+            value: "^=mlx5_9,mlx5_8,mlx5_6,mlx5_19,mlx5_17,mlx5_15,mlx5_13,mlx5_10,mlx5_20,mlx5_16,mlx5_12,mlx5_22,mlx5_4,mlx5_0,mlx5_16,mlx5_12,mlx5_5,mlx5_2,mlx5_1,mlx5_23,mlx5_24,mlx5_14,mlx5_3"
         resources:
           limits:
             cpu: 16
@@ -110,6 +100,8 @@ spec:
           timeoutSeconds: 10
           failureThreshold: 3
   worker:
+    nodeSelector:
+      kubernetes.io/hostname: pokprod-b93r38s2
     serviceAccountName: hfsa
     containers:
       - name: main
@@ -135,11 +127,13 @@ spec:
           - name: NVSHMEM_REMOTE_TRANSPORT
             value: ibgda
           - name: NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME
-            value: eth0
-#          - name: GLOO_SOCKET_IFNAME
-#            value: eth0
+            value: net1-15
+          - name: GLOO_LOG_LEVEL
+            value: DEBUG
+          - name: GLOO_SOCKET_IFNAME
+            value: net1-15
           - name: NCCL_SOCKET_IFNAME
-            value: eth0
+            value: net1-15
           - name: NCCL_DEBUG
             value: INFO
           - name: NCCL_TIMEOUT
@@ -150,36 +144,16 @@ spec:
             value: "23"
           - name: NCCL_IB_RETRY_CNT
             value: "7"
-          - name: NCCL_IB_HCA
-            value: mlx5_0,mlx5_1,mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_7,mlx5_11,mlx5_12,mlx5_14,mlx5_16,mlx5_18,mlx5_20,mlx5_21,mlx5_22,mlx5_23,mlx5_24,mlx5_25
           - name: NVSHMEM_IB_ENABLE_IBGDA
             value: "true"
-          - name: HF_HUB_CACHE
-            value: /huggingface-cache
           - name: VLLM_NIXL_SIDE_CHANNEL_HOST
             valueFrom:
               fieldRef:
                 fieldPath: status.podIP
-          - name: UCX_NET_DEVICES
-            value: "mlx5_0:1,mlx5_1:1,mlx5_2:1,mlx5_3:1,mlx5_4:1,mlx5_5:1,mlx5_7:1,mlx5_11:1"
-          - name: UCX_IB_GID_INDEX
-            value: "auto"
-          - name: UCX_PROTO_INFO
-            value: "y"
-          - name: UCX_LOG_LEVEL
-            value: "INFO"
-          - name: UCX_TLS
-            value: "rc_x,ud_x,dc_x,self"
-          - name: UCX_IB_ADDR_TYPE
-            value: "ib_global"
-          - name: NCCL_IB_DISABLE
-            value: "0"
-          - name: NCCL_NET_GDR_LEVEL
-            value: "SYS"
-          - name: NCCL_P2P_DISABLE
-            value: "1"
-          - name: NCCL_SHM_DISABLE
-            value: "1"
+          - name: NCCL_IB_GID_INDEX
+            value: "3"
+          - name: NCCL_IB_HCA
+            value: "^=mlx5_2,mlx5_11,mlx5_19,mlx5_3,mlx5_4,mlx5_0,mlx5_8,mlx5_1,mlx5_5,mlx5_13,mlx5_9,mlx5_25,mlx5_21,mlx5_17,mlx5_15,mlx5_23"
         resources:
           limits:
             cpu: 16
