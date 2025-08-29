@@ -1,0 +1,204 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: qwen3-coder-30b-a3b-instruct
+  annotations:
+    leaderworkerset.sigs.k8s.io/subgroup-exclusive-topology: kubernetes.io/hostname
+spec:
+  model:
+    uri: hf://Qwen/Qwen3-Coder-30B-A3B-Instruct
+    name: Qwen/Qwen3-Coder-30B-A3B-Instruct
+  replicas: 1
+  parallelism:
+    data: 16
+    dataLocal: 8
+    expert: true
+    tensor: 1
+  router:
+    scheduler: { }
+    route: { }
+    gateway: { }
+  template:
+    serviceAccountName: hfsa
+    containers:
+      - name: main
+        env:
+          - name: VLLM_LOGGING_LEVEL
+            value: DEBUG
+          - name: TRITON_LIBCUDA_PATH
+            value: /usr/lib64
+          - name: VLLM_SKIP_P2P_CHECK
+            value: "1"
+          - name: VLLM_RANDOMIZE_DP_DUMMY_INPUTS
+            value: "1"
+          - name: VLLM_USE_DEEP_GEMM
+            value: "1"
+          - name: VLLM_ALL2ALL_BACKEND
+            value: deepep_high_throughput
+          - name: NVIDIA_GDRCOPY
+            value: enabled
+          - name: NVSHMEM_DEBUG
+            value: INFO
+          - name: NVSHMEM_REMOTE_TRANSPORT
+            value: ibgda
+          - name: NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME
+            value: eth0
+#          - name: GLOO_SOCKET_IFNAME
+#            value: eth0
+          - name: NCCL_SOCKET_IFNAME
+            value: eth0
+          - name: NCCL_DEBUG
+            value: INFO
+          - name: NCCL_TIMEOUT
+            value: "1800"
+          - name: NCCL_ASYNC_ERROR_HANDLING
+            value: "1"
+          - name: NCCL_IB_TIMEOUT
+            value: "23"
+          - name: NCCL_IB_RETRY_CNT
+            value: "7"
+          - name: NCCL_IB_HCA
+            value: mlx5_0,mlx5_1,mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_7,mlx5_11,mlx5_12,mlx5_14,mlx5_16,mlx5_18,mlx5_20,mlx5_21,mlx5_22,mlx5_23,mlx5_24,mlx5_25
+          - name: NVSHMEM_IB_ENABLE_IBGDA
+            value: "true"
+          - name: HF_HUB_CACHE
+            value: /huggingface-cache
+          - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: UCX_NET_DEVICES
+            value: "mlx5_0:1,mlx5_1:1,mlx5_2:1,mlx5_3:1,mlx5_4:1,mlx5_5:1,mlx5_7:1,mlx5_11:1"
+          - name: UCX_IB_GID_INDEX
+            value: "auto"
+          - name: UCX_PROTO_INFO
+            value: "y"
+          - name: UCX_LOG_LEVEL
+            value: "INFO"
+          - name: UCX_TLS
+            value: "rc_x,ud_x,dc_x,self"
+          - name: UCX_IB_ADDR_TYPE
+            value: "ib_global"
+          - name: NCCL_IB_DISABLE
+            value: "0"
+          - name: NCCL_NET_GDR_LEVEL
+            value: "SYS"
+          - name: NCCL_P2P_DISABLE
+            value: "1"
+          - name: NCCL_SHM_DISABLE
+            value: "1"
+        resources:
+          limits:
+            cpu: 16
+            ephemeral-storage: 64Gi
+            memory: 512Gi
+            nvidia.com/gpu: "8"
+            rdma/roce_gdr: 1 # rdma/ib for IB
+          requests:
+            cpu: 8
+            ephemeral-storage: 32Gi
+            memory: 256Gi
+            nvidia.com/gpu: "8"
+            rdma/roce_gdr: 1 # rdma/ib for IB
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+            scheme: HTTPS
+          initialDelaySeconds: 600
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 3
+  worker:
+    serviceAccountName: hfsa
+    containers:
+      - name: main
+        env:
+          - name: VLLM_LOGGING_LEVEL
+            value: DEBUG
+          - name: TRITON_LIBCUDA_PATH
+            value: /usr/lib64
+          - name: HF_HUB_DISABLE_XET
+            value: "1"
+          - name: VLLM_SKIP_P2P_CHECK
+            value: "1"
+          - name: VLLM_RANDOMIZE_DP_DUMMY_INPUTS
+            value: "1"
+          - name: VLLM_USE_DEEP_GEMM
+            value: "1"
+          - name: VLLM_ALL2ALL_BACKEND
+            value: deepep_high_throughput
+          - name: NVIDIA_GDRCOPY
+            value: enabled
+          - name: NVSHMEM_DEBUG
+            value: INFO
+          - name: NVSHMEM_REMOTE_TRANSPORT
+            value: ibgda
+          - name: NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME
+            value: eth0
+#          - name: GLOO_SOCKET_IFNAME
+#            value: eth0
+          - name: NCCL_SOCKET_IFNAME
+            value: eth0
+          - name: NCCL_DEBUG
+            value: INFO
+          - name: NCCL_TIMEOUT
+            value: "1800"
+          - name: NCCL_ASYNC_ERROR_HANDLING
+            value: "1"
+          - name: NCCL_IB_TIMEOUT
+            value: "23"
+          - name: NCCL_IB_RETRY_CNT
+            value: "7"
+          - name: NCCL_IB_HCA
+            value: mlx5_0,mlx5_1,mlx5_2,mlx5_3,mlx5_4,mlx5_5,mlx5_7,mlx5_11,mlx5_12,mlx5_14,mlx5_16,mlx5_18,mlx5_20,mlx5_21,mlx5_22,mlx5_23,mlx5_24,mlx5_25
+          - name: NVSHMEM_IB_ENABLE_IBGDA
+            value: "true"
+          - name: HF_HUB_CACHE
+            value: /huggingface-cache
+          - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: UCX_NET_DEVICES
+            value: "mlx5_0:1,mlx5_1:1,mlx5_2:1,mlx5_3:1,mlx5_4:1,mlx5_5:1,mlx5_7:1,mlx5_11:1"
+          - name: UCX_IB_GID_INDEX
+            value: "auto"
+          - name: UCX_PROTO_INFO
+            value: "y"
+          - name: UCX_LOG_LEVEL
+            value: "INFO"
+          - name: UCX_TLS
+            value: "rc_x,ud_x,dc_x,self"
+          - name: UCX_IB_ADDR_TYPE
+            value: "ib_global"
+          - name: NCCL_IB_DISABLE
+            value: "0"
+          - name: NCCL_NET_GDR_LEVEL
+            value: "SYS"
+          - name: NCCL_P2P_DISABLE
+            value: "1"
+          - name: NCCL_SHM_DISABLE
+            value: "1"
+        resources:
+          limits:
+            cpu: 16
+            ephemeral-storage: 64Gi
+            memory: 512Gi
+            nvidia.com/gpu: "8"
+            rdma/roce_gdr: 1 # rdma/ib for IB
+          requests:
+            cpu: 8
+            ephemeral-storage: 32Gi
+            memory: 256Gi
+            nvidia.com/gpu: "8"
+            rdma/roce_gdr: 1 # rdma/ib for IB
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+            scheme: HTTPS
+          initialDelaySeconds: 600
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 3

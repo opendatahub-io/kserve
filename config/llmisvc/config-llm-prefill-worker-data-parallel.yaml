@@ -27,12 +27,11 @@ spec:
                 --disable-log-requests \
                 {{- if .Spec.Prefill.Parallelism.Expert -}}--enable-expert-parallel{{- end }} \
                 {{- if .Spec.Prefill.Parallelism.Tensor -}}--tensor-parallel-size {{ .Spec.Prefill.Parallelism.Tensor }}{{- end }} \
-                --data-parallel-size $(( {{ or .Spec.Prefill.Parallelism.DataLocal 1 }} * {{ or .Spec.Prefill.Parallelism.Data 1 }} )) \
+                --data-parallel-size {{ or .Spec.Prefill.Parallelism.Data 1 }} \
                 --data-parallel-size-local {{ or .Spec.Prefill.Parallelism.DataLocal 1 }} \
                 --data-parallel-address $(LWS_LEADER_ADDRESS) \
                 --data-parallel-rpc-port {{ if .Spec.Prefill.Parallelism.DataRPCPort }}{{ .Spec.Prefill.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
                 --data-parallel-start-rank $START_RANK \
-                --data-parallel-hybrid-lb \
                 ${VLLM_ADDITIONAL_ARGS} \
                 --trust-remote-code \
                 --enable-ssl-refresh \
@@ -124,12 +123,11 @@ spec:
                 --disable-log-requests \
                 {{- if .Spec.Prefill.Parallelism.Expert }}--enable-expert-parallel{{- end }} \
                 {{- if .Spec.Prefill.Parallelism.Tensor }}--tensor-parallel-size {{ .Spec.Prefill.Parallelism.Tensor }}{{- end }} \
-                --data-parallel-size $(( {{ or .Spec.Prefill.Parallelism.DataLocal 1 }} * {{ or .Spec.Prefill.Parallelism.Data 1 }} )) \
+                --data-parallel-size {{ or .Spec.Prefill.Parallelism.Data 1 }} \
                 --data-parallel-size-local {{ or .Spec.Prefill.Parallelism.DataLocal 1 }} \
                 --data-parallel-address $(LWS_LEADER_ADDRESS) \
                 --data-parallel-rpc-port {{ if .Spec.Prefill.Parallelism.DataRPCPort }}{{ .Spec.Prefill.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
                 --data-parallel-start-rank $START_RANK \
-                --data-parallel-hybrid-lb \
                 ${VLLM_ADDITIONAL_ARGS} \
                 --trust-remote-code \
                 --headless \

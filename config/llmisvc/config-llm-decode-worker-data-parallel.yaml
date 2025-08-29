@@ -82,12 +82,11 @@ spec:
               --disable-log-requests \
               {{- if .Spec.Parallelism.Expert -}}--enable-expert-parallel{{- end }} \
               {{- if .Spec.Parallelism.Tensor -}}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
-              --data-parallel-size $(( {{ or .Spec.Parallelism.DataLocal 1 }} * {{ or .Spec.Parallelism.Data 1 }} )) \
+              --data-parallel-size {{ or .Spec.Parallelism.Data 1 }} \
               --data-parallel-size-local {{ or .Spec.Parallelism.DataLocal 1 }} \
               --data-parallel-address $(LWS_LEADER_ADDRESS) \
               --data-parallel-rpc-port {{ if .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
               --data-parallel-start-rank $START_RANK \
-              --data-parallel-hybrid-lb \
               ${VLLM_ADDITIONAL_ARGS} \
               --trust-remote-code \
               --enable-ssl-refresh \
@@ -178,12 +177,11 @@ spec:
               --disable-log-requests \
               {{- if .Spec.Parallelism.Expert }}--enable-expert-parallel{{- end }} \
               {{- if .Spec.Parallelism.Tensor }}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
-              --data-parallel-size $(( {{ or .Spec.Parallelism.DataLocal 1 }} * {{ or .Spec.Parallelism.Data 1 }} )) \
+              --data-parallel-size {{ or .Spec.Parallelism.Data 1 }} \
               --data-parallel-size-local {{ or .Spec.Parallelism.DataLocal 1 }} \
               --data-parallel-address $(LWS_LEADER_ADDRESS) \
               --data-parallel-rpc-port {{ if .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
               --data-parallel-start-rank $START_RANK \
-              --data-parallel-hybrid-lb \
               ${VLLM_ADDITIONAL_ARGS} \
               --trust-remote-code \
               --headless \
