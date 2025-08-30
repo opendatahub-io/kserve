@@ -17,6 +17,7 @@ limitations under the License.
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodegroups,verbs=get;list;watch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=clusterstoragecontainers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodes/finalizers,verbs=update
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
@@ -149,6 +150,8 @@ func (c *LocalModelNodeReconciler) launchJob(ctx context.Context, localModelNode
 							},
 						},
 					},
+					// TODO: should not need elevated permissions https://issues.redhat.com/browse/RHOAIENG-33247
+					ServiceAccountName: "kserve-localmodelnode-agent",
 					SecurityContext: &corev1.PodSecurityContext{
 						FSGroup: FSGroup,
 					},
