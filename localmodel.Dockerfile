@@ -13,6 +13,7 @@ COPY cmd/    cmd/
 COPY pkg/    pkg/
 
 # Build
+USER root
 RUN CGO_ENABLED=0 GOOS=linux go build -a -o localmodel-manager ./cmd/localmodel
 
 # Generate third-party licenses
@@ -26,4 +27,6 @@ RUN /opt/app-root/src/go/bin/go-licenses save --save_path third_party/library ./
 FROM gcr.io/distroless/static:nonroot
 COPY --from=builder /go/src/github.com/kserve/kserve/third_party /third_party
 COPY --from=builder /go/src/github.com/kserve/kserve/localmodel-manager /manager
+USER 1000:1000
+
 ENTRYPOINT ["/manager"]
