@@ -22,6 +22,7 @@ allowedCapabilities:
   - "IPC_LOCK"
   - "SYS_RAWIO"
   - "NET_BIND_SERVICE"
+  - "NET_RAW"
 requiredDropCapabilities:
 - ALL
 seccompProfiles:

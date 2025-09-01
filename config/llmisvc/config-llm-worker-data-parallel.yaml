@@ -53,6 +53,7 @@ spec:
             add:
               - "IPC_LOCK"
               - "SYS_RAWIO"
+              - "NET_RAW"
             drop:
               - ALL
           seccompProfile:
@@ -150,6 +151,7 @@ spec:
             add:
               - "IPC_LOCK"
               - "SYS_RAWIO"
+              - "NET_RAW"
             drop:
               - ALL
           seccompProfile:

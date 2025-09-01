@@ -526,7 +526,6 @@ func (r *LLMInferenceServiceReconciler) expectedMultiNodeRoleBinding(llmSvc *v1a
 func (r *LLMInferenceServiceReconciler) propagateLeaderWorkerSetMetadata(llmSvc *v1alpha1.LLMInferenceService, expected *lwsapi.LeaderWorkerSet) {
 	ann := make(map[string]string, len(expected.Annotations))
 	for k, v := range llmSvc.GetAnnotations() {
-
 		if strings.HasPrefix(k, "leaderworkerset.sigs.k8s.io") {
 			ann[k] = v
 			if expected.Annotations == nil {
