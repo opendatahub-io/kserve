@@ -203,7 +203,6 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 func (r *LLMInferenceServiceReconciler) propagateDeploymentMetadata(llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) {
 	ann := make(map[string]string, len(expected.Annotations))
 	for k, v := range llmSvc.GetAnnotations() {
-
 		if strings.HasPrefix(k, "k8s.v1.cni.cncf.io") {
 			ann[k] = v
 			if expected.Annotations == nil {
