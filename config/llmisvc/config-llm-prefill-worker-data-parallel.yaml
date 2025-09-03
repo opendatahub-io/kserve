@@ -17,7 +17,45 @@ spec:
             - "-c"
           args:
             - |-
-              grep -H . /sys/class/infiniband/*/ports/1/gid_attrs/types/* 2>/dev/null
+
+              if [ "$KSERVE_INFER_ROCE" = "true" ]; then
+                echo "Trying to infer RoCE configs ... "
+                grep -H . /sys/class/infiniband/*/ports/*/gid_attrs/types/* 2>/dev/null
+              
+                KSERVE_INFER_IB_GID_INDEX_GREP=${KSERVE_INFER_IB_GID_INDEX_GREP:-"RoCE v2"}
+                KSERVE_INFER_IB_GID_INDEX_INFINIBAND=${KSERVE_INFER_IB_GID_INDEX_INFINIBAND:-${NCCL_IB_HCA}}
+
+                GID_DIR="/sys/class/infiniband/${KSERVE_INFER_IB_GID_INDEX_INFINIBAND}/ports/1"
+                GID_INDEX=""
+              
+                # Prefer IPv4
+                for tpath in ${GID_DIR}/gid_attrs/types/*; do
+                  idx=$(basename "$tpath")
+                  typ=$(cat "$tpath" 2>/dev/null || true)
+                  if [ "$typ" = "${KSERVE_INFER_IB_GID_INDEX_GREP}" ]; then
+                    gid=$(cat ${GID_DIR}/gids/$idx 2>/dev/null || true)
+                    echo "[Infer RoCE] Evaluating ${tpath} with IP=${gid}"
+                    if echo "$gid" | grep -q ':ffff:'; then
+                      GID_INDEX="$idx"; break
+                    fi
+                  fi
+                done
+              
+                # Pick the first one if IPv4 is not found
+                if [ -z "$GID_INDEX" ]; then
+                  echo "[Infer RoCE] No IPv4 GID_INDEX found for ${GID_DIR}, using the first one available ... "
+                  GID_INDEX=$(grep -H . ${GID_DIR}/gid_attrs/types/* 2>/dev/null | grep "${KSERVE_INFER_IB_GID_INDEX_GREP}" | awk -F'[/:]' '{print $10; exit}')
+                fi
+
+                if [ -n "$GID_INDEX" ]; then
+                  echo "[Infer RoCE] Setting inferred *_IB_GID_INDEX=${GID_INDEX}"
+                  export NCCL_IB_GID_INDEX=${NCCL_IB_GID_INDEX:-$GID_INDEX}
+                  export NVSHMEM_IB_GID_INDEX=${NVSHMEM_IB_GID_INDEX:-$GID_INDEX}
+                  export UCX_IB_GID_INDEX=${UCX_IB_GID_INDEX:-$GID_INDEX}
+                else
+                  echo "[Infer RoCE] Skipping RoCE infer export, no GID_INDEX found."
+                fi
+              fi
 
               START_RANK=0
               eval "vllm serve \
@@ -116,7 +154,45 @@ spec:
             - "-c"
           args:
             - |-
-              grep -H . /sys/class/infiniband/*/ports/*/gid_attrs/types/* 2>/dev/null
+
+              if [ "$KSERVE_INFER_ROCE" = "true" ]; then
+                echo "Trying to infer RoCE configs ... "
+                grep -H . /sys/class/infiniband/*/ports/*/gid_attrs/types/* 2>/dev/null
+              
+                KSERVE_INFER_IB_GID_INDEX_GREP=${KSERVE_INFER_IB_GID_INDEX_GREP:-"RoCE v2"}
+                KSERVE_INFER_IB_GID_INDEX_INFINIBAND=${KSERVE_INFER_IB_GID_INDEX_INFINIBAND:-${NCCL_IB_HCA}}
+
+                GID_DIR="/sys/class/infiniband/${KSERVE_INFER_IB_GID_INDEX_INFINIBAND}/ports/1"
+                GID_INDEX=""
+              
+                # Prefer IPv4
+                for tpath in ${GID_DIR}/gid_attrs/types/*; do
+                  idx=$(basename "$tpath")
+                  typ=$(cat "$tpath" 2>/dev/null || true)
+                  if [ "$typ" = "${KSERVE_INFER_IB_GID_INDEX_GREP}" ]; then
+                    gid=$(cat ${GID_DIR}/gids/$idx 2>/dev/null || true)
+                    echo "[Infer RoCE] Evaluating ${tpath} with IP=${gid}"
+                    if echo "$gid" | grep -q ':ffff:'; then
+                      GID_INDEX="$idx"; break
+                    fi
+                  fi
+                done
+              
+                # Pick the first one if IPv4 is not found
+                if [ -z "$GID_INDEX" ]; then
+                  echo "[Infer RoCE] No IPv4 GID_INDEX found for ${GID_DIR}, using the first one available ... "
+                  GID_INDEX=$(grep -H . ${GID_DIR}/gid_attrs/types/* 2>/dev/null | grep "${KSERVE_INFER_IB_GID_INDEX_GREP}" | awk -F'[/:]' '{print $10; exit}')
+                fi
+
+                if [ -n "$GID_INDEX" ]; then
+                  echo "[Infer RoCE] Setting inferred *_IB_GID_INDEX=${GID_INDEX}"
+                  export NCCL_IB_GID_INDEX=${NCCL_IB_GID_INDEX:-$GID_INDEX}
+                  export NVSHMEM_IB_GID_INDEX=${NVSHMEM_IB_GID_INDEX:-$GID_INDEX}
+                  export UCX_IB_GID_INDEX=${UCX_IB_GID_INDEX:-$GID_INDEX}
+                else
+                  echo "[Infer RoCE] Skipping RoCE infer export, no GID_INDEX found."
+                fi
+              fi
 
               START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or .Spec.Prefill.Parallelism.DataLocal 1 }} ))
               eval "vllm serve \
