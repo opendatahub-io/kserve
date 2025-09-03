@@ -10,8 +10,8 @@ server_version=$(get_openshift_server_version)
 echo "Checking OpenShift server version...($server_version)"
 
 # Execute script based on version comparison
-if version_compare "$server_version" "4.19.0"; then
-  echo "🎯 Server version ($server_version) is 4.19.0 or higher - continue with the script"
+if version_compare "$server_version" "4.19.9"; then
+  echo "🎯 Server version ($server_version) is 4.19.9 or higher - continue with the script"
 else
   echo "🎯 Server version ($server_version) is not supported so stop the script"
   exit 1
@@ -22,9 +22,6 @@ $SCRIPT_DIR/infra/deploy.cert-manager.sh
 
 # Installing LWS Operator" 
 $SCRIPT_DIR/infra/deploy.lws.sh
-
-# Installing RHCL(Kuadrant) operator
-$SCRIPT_DIR/infra/deploy.kudrant.sh
 
 # Installing KServe
 kubectl create ns opendatahub || true
@@ -37,3 +34,6 @@ wait_for_pod_ready "opendatahub" "control-plane=kserve-controller-manager" 300s
 
 # Installing Gateway Ingress 
 $SCRIPT_DIR/infra/deploy.gateway.ingress.sh
+
+# Installing RHCL(Kuadrant) operator
+$SCRIPT_DIR/infra/deploy.kudrant.sh
