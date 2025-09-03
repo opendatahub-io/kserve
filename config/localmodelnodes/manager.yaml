@@ -25,49 +25,46 @@ spec:
         kserve/localmodel: worker
       serviceAccountName: kserve-localmodelnode-agent
       securityContext:
-        runAsUser: 0 # TODO: remove this to run as non-root https://issues.redhat.com/browse/RHOAIENG-33247
-#        seccompProfile:
-#          type: RuntimeDefault
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
       containers:
-      - command:
-        - /manager
-        image: ko://github.com/kserve/kserve/cmd/localmodelnode
-        imagePullPolicy: Always
-        name: manager
-        securityContext:
-          allowPrivilegeEscalation: true
-#          TODO: remove this to run as non-root https://issues.redhat.com/browse/RHOAIENG-33247
-#          capabilities:
-#            drop:
-#              - ALL
-          privileged: true
-          readOnlyRootFilesystem: false
-          runAsUser: 0
-        env:
-          - name: POD_NAMESPACE
-            valueFrom:
-              fieldRef:
-                fieldPath: metadata.namespace
-          - name: NODE_NAME
-            valueFrom:
-              fieldRef:
-                fieldPath: spec.nodeName
-        volumeMounts:
-          - mountPath: /mnt/models
-            name: models
-            readOnly: false
-        resources:
-          limits:
-            cpu: 100m
-            memory: 300Mi
-          requests:
-            cpu: 100m
-            memory: 200Mi
+        - command:
+            - /manager
+          image: ko://github.com/kserve/kserve/cmd/localmodelnode
+          imagePullPolicy: Always
+          name: manager
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          volumeMounts:
+            - mountPath: /mnt/models
+              name: models
+              readOnly: false
+          resources:
+            limits:
+              cpu: 100m
+              memory: 300Mi
+            requests:
+              cpu: 100m
+              memory: 200Mi
       volumes:
         - name: models
           hostPath:
-#            path: /models
-#            changed to work with Openshift permissions, re-evaluate as a part of https://issues.redhat.com/browse/RHOAIENG-33247
-            path: /var/lib/models
+            path: /models
             type: DirectoryOrCreate
       terminationGracePeriodSeconds: 10

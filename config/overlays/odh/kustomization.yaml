@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
 - ../../default
 - user-cluster-roles.yaml
+- localmodelnode-pv-pvc.yaml
 
 namespace: opendatahub
 
@@ -11,6 +12,19 @@ patches:
 - path: remove-namespace.yaml
 - path: inferenceservice-config-patch.yaml
 - path: set-resources-manager-patch.yaml
+- patch: |-
+    - op: replace
+      path: /spec/template/spec/containers/0/volumeMounts/0/mountPath
+      value: /var/lib/kserve
+    - op: replace
+      path: /spec/template/spec/volumes/0
+      value:
+        name: models
+        persistentVolumeClaim:
+          claimName: kserve-localmodelnode-pvc
+  target:
+    kind: DaemonSet
+    name: kserve-localmodelnode-agent
 
 replacements:
 - source:

@@ -63,7 +63,7 @@ type LocalModelNodeReconciler struct {
 }
 
 const (
-	MountPath             = "/mnt/models" // Volume mount path for models, must be the same as the value in the DaemonSet spec
+	MountPath             = "/var/lib/kserve" // Volume mount path for models, must be the same as the value in the DaemonSet spec
 	DownloadContainerName = "kserve-localmodel-download"
 	PvcSourceMountName    = "kserve-pvc-source"
 )
@@ -150,15 +150,17 @@ func (c *LocalModelNodeReconciler) launchJob(ctx context.Context, localModelNode
 							},
 						},
 					},
-					// TODO: should not need elevated permissions https://issues.redhat.com/browse/RHOAIENG-33247
 					ServiceAccountName: "kserve-localmodelnode-agent",
-					SecurityContext: &corev1.PodSecurityContext{
-						FSGroup: FSGroup,
-					},
 				},
 			},
 		},
 	}
+	if FSGroup != nil {
+		job.Spec.Template.Spec.SecurityContext = &corev1.PodSecurityContext{
+			FSGroup: FSGroup,
+		}
+	}
+
 	if err := controllerutil.SetControllerReference(&localModelNode, job, c.Scheme); err != nil {
 		c.Log.Error(err, "Failed to set controller reference", "name", modelInfo.ModelName)
 		return nil, err
