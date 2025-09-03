@@ -13,6 +13,10 @@ metadata:
   name: rhcl-operator
   namespace: kuadrant-system
 spec:
+  config:
+    env:
+      - name: ISTIO_GATEWAY_CONTROLLER_NAMES
+        value: openshift.io/gateway-controller/v1
   channel: stable
   installPlanApproval: Automatic
   name: rhcl-operator
