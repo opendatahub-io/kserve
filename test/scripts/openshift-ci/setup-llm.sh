@@ -23,9 +23,6 @@ $SCRIPT_DIR/infra/deploy.cert-manager.sh
 # Installing LWS Operator" 
 $SCRIPT_DIR/infra/deploy.lws.sh
 
-# Installing Gateway Ingress
-$SCRIPT_DIR/infra/deploy.gateway.ingress.sh
-
 # Installing RHCL(Kuadrant) operator
 $SCRIPT_DIR/infra/deploy.kudrant.sh
 
@@ -38,3 +35,5 @@ wait_for_crd  llminferenceserviceconfigs.serving.kserve.io  90s
 kustomize build config/overlays/odh | kubectl apply  --server-side=true --force-conflicts -f -
 wait_for_pod_ready "opendatahub" "control-plane=kserve-controller-manager" 300s
 
+# Installing Gateway Ingress 
+$SCRIPT_DIR/infra/deploy.gateway.ingress.sh
