@@ -13,10 +13,11 @@ spec:
             - containerPort: 8000
               protocol: TCP
           command:
-            - "/bin/sh"
+            - "/bin/bash"
             - "-c"
           args:
             - |-
+              grep -H . /sys/class/infiniband/*/ports/1/gid_attrs/types/* 2>/dev/null
 
               START_RANK=0
               eval "vllm serve \
@@ -111,10 +112,11 @@ spec:
             - containerPort: 8000
               protocol: TCP
           command:
-            - "/bin/sh"
+            - "/bin/bash"
             - "-c"
           args:
             - |-
+              grep -H . /sys/class/infiniband/*/ports/*/gid_attrs/types/* 2>/dev/null
 
               START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or .Spec.Prefill.Parallelism.DataLocal 1 }} ))
               eval "vllm serve \

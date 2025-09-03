@@ -42,60 +42,84 @@ spec:
           - name: VLLM_USE_DEEP_GEMM
             value: "1"
           - name: VLLM_ALL2ALL_BACKEND
-            value: deepep_high_throughput
+            value: pplx
+          - name: VLLM_ADDITIONAL_ARGS
+            value: "--enforce-eager"
           - name: NVIDIA_GDRCOPY
             value: enabled
           - name: NVSHMEM_DEBUG
-            value: INFO
+            value: WARN
           - name: NVSHMEM_REMOTE_TRANSPORT
-            value: ibgda
+            value: ibrc
+          - name: NVSHMEM_IB_ENABLE_IBGDA
+            value: "0"
+          - name: NVSHMEM_IBGDA_NIC_HANDLER
+            value: "auto"
           - name: NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME
             value: net1-15
+          - name: UCX_LOG_LEVEL
+            value: trace
+          - name: UCX_NET_DEVICES
+            value: net1-15
+          - name: UCX_PROTO_INFO
+            value: "y"
           - name: GLOO_LOG_LEVEL
             value: DEBUG
           - name: GLOO_SOCKET_IFNAME
             value: net1-15
           - name: NCCL_SOCKET_IFNAME
             value: net1-15
+          - name: PRIMARY_IFNAME
+            value: net1-15
+          - name: UCX_TLS
+            value: "rc,sm,cuda_copy,cuda_ipc"
+          - name: UCX_SOCKADDR_TLS_PRIORITY
+            value: "tcp"
           - name: NCCL_DEBUG
-            value: INFO
-          - name: NCCL_TIMEOUT
-            value: "1800"
-          - name: NCCL_ASYNC_ERROR_HANDLING
-            value: "1"
-          - name: NCCL_IB_TIMEOUT
-            value: "23"
-          - name: NCCL_IB_RETRY_CNT
-            value: "7"
-          - name: NVSHMEM_IB_ENABLE_IBGDA
-            value: "true"
+            value: WARN # TRACE
+#          - name: NCCL_DEBUG_SUBSYS
+#            value: "ALL"
+#          - name: NVSHMEM_DISABLE
+#            value: "1"
+#          - name: NCCL_IB_GDR_LEVEL
+#            value: "0"
+#          - name: NCCL_NET_GDR_LEVEL
+#            value: "LOC"
           - name: VLLM_NIXL_SIDE_CHANNEL_HOST
             valueFrom:
               fieldRef:
                 fieldPath: status.podIP
-          - name: NCCL_IB_GID_INDEX
-            value: "3"
+          - name: KSERVE_INFER_ROCE
+            value: "true"
+          - name: KSERVE_INFER_IB_GID_INDEX_INFINIBAND
+            value: "mlx5_25"
+#          - name: CUDA_VISIBLE_DEVICES
+#            value: "7"
           - name: NCCL_IB_HCA
-            value: "^=mlx5_9,mlx5_8,mlx5_6,mlx5_19,mlx5_17,mlx5_15,mlx5_13,mlx5_10,mlx5_20,mlx5_16,mlx5_12,mlx5_22,mlx5_4,mlx5_0,mlx5_16,mlx5_12,mlx5_5,mlx5_2,mlx5_1,mlx5_23,mlx5_24,mlx5_14,mlx5_3"
+            value: "mlx5_25"
+          - name: NVSHMEM_HCA_LIST
+            value: "mlx5_25"
+          - name: NVSHMEM_ENABLE_NIC_PE_MAPPING
+            value: "1"
         resources:
           limits:
             cpu: 16
             ephemeral-storage: 64Gi
             memory: 512Gi
             nvidia.com/gpu: "8"
-            rdma/roce_gdr: 1 # rdma/ib for IB
+            rdma/roce_gdr: 8 # rdma/ib for IB
           requests:
             cpu: 8
             ephemeral-storage: 32Gi
             memory: 256Gi
             nvidia.com/gpu: "8"
-            rdma/roce_gdr: 1 # rdma/ib for IB
+            rdma/roce_gdr: 8 # rdma/ib for IB
         livenessProbe:
           httpGet:
             path: /health
             port: 8000
             scheme: HTTPS
-          initialDelaySeconds: 600
+          initialDelaySeconds: 700
           periodSeconds: 10
           timeoutSeconds: 10
           failureThreshold: 3
@@ -110,8 +134,6 @@ spec:
             value: DEBUG
           - name: TRITON_LIBCUDA_PATH
             value: /usr/lib64
-          - name: HF_HUB_DISABLE_XET
-            value: "1"
           - name: VLLM_SKIP_P2P_CHECK
             value: "1"
           - name: VLLM_RANDOMIZE_DP_DUMMY_INPUTS
@@ -119,60 +141,73 @@ spec:
           - name: VLLM_USE_DEEP_GEMM
             value: "1"
           - name: VLLM_ALL2ALL_BACKEND
-            value: deepep_high_throughput
+            value: pplx
           - name: NVIDIA_GDRCOPY
             value: enabled
           - name: NVSHMEM_DEBUG
-            value: INFO
+            value: WARN
+          - name: VLLM_ADDITIONAL_ARGS
+            value: "--enforce-eager"
           - name: NVSHMEM_REMOTE_TRANSPORT
-            value: ibgda
+            value: ibrc
+          - name: NVSHMEM_IB_ENABLE_IBGDA
+            value: "0"
+          - name: NVSHMEM_IBGDA_NIC_HANDLER
+            value: "auto"
           - name: NVSHMEM_BOOTSTRAP_UID_SOCK_IFNAME
             value: net1-15
+          - name: UCX_LOG_LEVEL
+            value: trace
+          - name: UCX_NET_DEVICES
+            value: net1-15
+          - name: UCX_PROTO_INFO
+            value: "y"
           - name: GLOO_LOG_LEVEL
             value: DEBUG
           - name: GLOO_SOCKET_IFNAME
             value: net1-15
           - name: NCCL_SOCKET_IFNAME
             value: net1-15
+          - name: PRIMARY_IFNAME
+            value: net1-15
+          - name: UCX_TLS
+            value: "rc,sm,cuda_copy,cuda_ipc"
+          - name: UCX_SOCKADDR_TLS_PRIORITY
+            value: "tcp"
           - name: NCCL_DEBUG
-            value: INFO
-          - name: NCCL_TIMEOUT
-            value: "1800"
-          - name: NCCL_ASYNC_ERROR_HANDLING
-            value: "1"
-          - name: NCCL_IB_TIMEOUT
-            value: "23"
-          - name: NCCL_IB_RETRY_CNT
-            value: "7"
-          - name: NVSHMEM_IB_ENABLE_IBGDA
-            value: "true"
+            value: WARN # TRACE
+#          - name: NCCL_DEBUG_SUBSYS
+#            value: "ALL"
+#          - name: NVSHMEM_DISABLE
+#            value: "1"
+#          - name: NCCL_IB_GDR_LEVEL
+#            value: "0"
+#          - name: NCCL_NET_GDR_LEVEL
+#            value: "LOC"
           - name: VLLM_NIXL_SIDE_CHANNEL_HOST
             valueFrom:
               fieldRef:
                 fieldPath: status.podIP
-          - name: NCCL_IB_GID_INDEX
-            value: "3"
+          - name: KSERVE_INFER_ROCE
+            value: "true"
+#          - name: CUDA_VISIBLE_DEVICES
+#            value: "7"
           - name: NCCL_IB_HCA
-            value: "^=mlx5_2,mlx5_11,mlx5_19,mlx5_3,mlx5_4,mlx5_0,mlx5_8,mlx5_1,mlx5_5,mlx5_13,mlx5_9,mlx5_25,mlx5_21,mlx5_17,mlx5_15,mlx5_23"
+            value: "mlx5_25"
+          - name: NVSHMEM_HCA_LIST
+            value: "mlx5_25"
+          - name: NVSHMEM_ENABLE_NIC_PE_MAPPING
+            value: "1"
         resources:
           limits:
             cpu: 16
             ephemeral-storage: 64Gi
             memory: 512Gi
             nvidia.com/gpu: "8"
-            rdma/roce_gdr: 1 # rdma/ib for IB
+            rdma/roce_gdr: 8 # rdma/ib for IB
           requests:
             cpu: 8
             ephemeral-storage: 32Gi
             memory: 256Gi
             nvidia.com/gpu: "8"
-            rdma/roce_gdr: 1 # rdma/ib for IB
-        livenessProbe:
-          httpGet:
-            path: /health
-            port: 8000
-            scheme: HTTPS
-          initialDelaySeconds: 600
-          periodSeconds: 10
-          timeoutSeconds: 10
-          failureThreshold: 3
+            rdma/roce_gdr: 8 # rdma/ib for IB
