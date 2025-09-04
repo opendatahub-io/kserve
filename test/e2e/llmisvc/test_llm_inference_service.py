@@ -18,7 +18,7 @@ import os
 import pytest
 import requests
 import yaml
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from kserve import KServeClient, V1alpha1LLMInferenceService, constants
 from kubernetes import client
 from typing import Any, Callable, List, Dict, Optional
@@ -63,8 +63,8 @@ def assert_200_with_choices(response: requests.Response) -> None:
 class RouterResources:
     __test__ = False  # So pytest will not try to execute it.
     """Router referenced resources for LLM inference service tests."""
-    gateways: List[Dict[str, Any]] = []
-    routes: List[Dict[str, Any]] = []
+    gateways: List[Dict[str, Any]] = field(default_factory=list)
+    routes: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -232,7 +232,6 @@ class TestCase:
         ),
     ],
     indirect=["router_resources", "test_case"],
-    ids=generate_test_id,
 )
 @log_execution
 def test_llm_inference_service(router_resources: RouterResources, test_case: TestCase):

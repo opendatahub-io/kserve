@@ -396,10 +396,10 @@ def router_resources(request):
 
     try:
         for gateway in rr.gateways:
-            _create_or_update_gateway(kserve_client, rr.gateway)
+            _create_or_update_gateway(kserve_client, gateway)
             gateways_created.append(gateway)
         for route in rr.routes:
-            _create_or_update_route(kserve_client, rr.route)
+            _create_or_update_route(kserve_client, route)
             routes_created.append(route)
         yield rr
     except Exception as e:
@@ -408,19 +408,19 @@ def router_resources(request):
     finally:
         for route in routes_created:
             try:
-                logger.info(f"Cleaning up HttpRoute {route.get("metadata", {}).get("name")}")
+                logger.info(f"Cleaning up HttpRoute {route.get('metadata', {}).get('name')}")
                 _delete_route(kserve_client, route.get("metadata", {}).get("name"), route.get("metadata", {}).get("namespace", "default"))
-                logger.info(f"✓ Deleted HttpRoute {route.get("metadata", {}).get("name")}")
+                logger.info(f"✓ Deleted HttpRoute {route.get('metadata', {}).get('name')}")
             except Exception as e:
-                logger.warning(f"Failed to cleanup HttpRoute {route.get("metadata", {}).get("name")}: {e}")
+                logger.warning(f"Failed to cleanup HttpRoute {route.get('metadata', {}).get('name')}: {e}")
 
         for gateway in gateways_created:
             try:
-                logger.info(f"Cleaning up Gateway {gateway.get("metadata", {}).get("name")}")
+                logger.info(f"Cleaning up Gateway {gateway.get('metadata', {}).get('name')}")
                 _delete_gateway(kserve_client, gateway.get("metadata", {}).get("name"), gateway.get("metadata", {}).get("namespace", "default"))
-                logger.info(f"✓ Deleted Gateway {gateway.get("metadata", {}).get("name")}")
+                logger.info(f"✓ Deleted Gateway {gateway.get('metadata', {}).get('name')}")
             except Exception as e:
-                logger.warning(f"Failed to cleanup Gateway {gateway.get("metadata", {}).get("name")}: {e}")
+                logger.warning(f"Failed to cleanup Gateway {gateway.get('metadata', {}).get('name')}: {e}")
 
 
 @pytest.fixture(scope="function")
@@ -586,7 +586,7 @@ def _create_or_update_route(kserve_client, route, namespace=None):
         try:
             if update_error.status == 404:  # Not found - create it
                 logger.info(f"Resource not found, creating HttpRoute {name}")
-                kserve_client.api_instance.create_namespaced_custom_object(
+                outputs = kserve_client.api_instance.create_namespaced_custom_object(
                     "gateway.networking.k8s.io",
                     version,
                     namespace,
@@ -676,7 +676,7 @@ def _create_or_update_gateway(kserve_client, gateway, namespace=None):
         try:
             if update_error.status == 404:  # Not found - create it
                 logger.info(f"Resource not found, creating Gateway {name}")
-                kserve_client.api_instance.create_namespaced_custom_object(
+                outputs = kserve_client.api_instance.create_namespaced_custom_object(
                     "gateway.networking.k8s.io",
                     version,
                     namespace,
