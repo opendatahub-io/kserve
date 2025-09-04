@@ -35,5 +35,8 @@ wait_for_pod_ready "opendatahub" "control-plane=kserve-controller-manager" 300s
 # Installing Gateway Ingress 
 $SCRIPT_DIR/infra/deploy.gateway.ingress.sh
 
+# Check if RHCL_DEPLOY is set to true
 # Installing RHCL(Kuadrant) operator
-$SCRIPT_DIR/infra/deploy.kudrant.sh
+if [ "${RHCL_DEPLOY:-false}" == "true" ]; then
+  $SCRIPT_DIR/infra/deploy.kuadrant.sh
+fi
