@@ -36,6 +36,10 @@ metadata:
   name: rhcl-operator
   namespace: kuadrant-system
 spec:
+  config:
+    env:
+      - name: ISTIO_GATEWAY_CONTROLLER_NAMES
+        value: openshift.io/gateway-controller/v1
   channel: stable
   installPlanApproval: Automatic
   name: rhcl-operator
@@ -71,13 +75,9 @@ EOF
 
 Refer to [this doc](https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.0/html-single/installing_connectivity_link_on_openshift/index#auth-registry-wasm-plugin)
 
-You can get the secret from [this site](https://access.redhat.com/terms-based-registry/) and create it in `api-gateway` namespace and gateway namespace(`openshift-ingress`)
+You can get the secret from [this site](https://access.redhat.com/terms-based-registry/) and gateway namespace(`openshift-ingress`)
 
 ```shell
-kubectl create ns api-gateway
-
-kubectl create secret docker-registry wasm-plugin-pull-secret -n api-gateway \ --docker-server=registry.redhat.io \ --docker-username=<your-registry-service-account-username> \ --docker-password=<your-registry-service-account-password>
-
 kubectl create secret docker-registry wasm-plugin-pull-secret -n openshift-ingress \ --docker-server=registry.redhat.io \ --docker-username=<your-registry-service-account-username >\ --docker-password=<your-registry-service-account-password>
 
 ```
@@ -90,6 +90,19 @@ kubectl label gateway openshift-ai-inference -n openshift-ingress kuadrant.io/ga
 **Authentication with KubernetesTokenReview**
 
 ```shell
+
+# Set default audience
+export AUDIENCE="https://kubernetes.default.svc"
+
+# Check if OpenShift cluster has custom service account issuer
+SA_ISSUER=$(oc get authentication cluster -o jsonpath='{.spec.serviceAccountIssuer}' -n openshift-authentication 2>/dev/null)
+
+# Update AUDIENCE if custom issuer is found
+if [[ -n "$SA_ISSUER" ]]; then
+  # For ROSA cluster
+  export AUDIENCE="$SA_ISSUER"
+fi  
+
 kubectl apply -f - <<EOF
 apiVersion: kuadrant.io/v1
 kind: AuthPolicy
@@ -110,7 +123,7 @@ spec:
             authorizationHeader: {}
           kubernetesTokenReview:
             audiences:
-            - https://kubernetes.default.svc
+            - $AUDIENCE
           metrics: false
           priority: 0
       authorization:
@@ -118,13 +131,13 @@ spec:
           kubernetesSubjectAccessReview:
             resourceAttributes:
               group:
-                value: gateway.networking.k8s.io/v1
+                value: serving.kserve.io/v1alpha1
               name:
-                value: $LLM_ISVC_NAME-kserve-route
+                value: $LLM_ISVC_NAME
               namespace:
                 value: $TEST_NS
               resource:
-                value: httproutes
+                value: LLMInferenceService
               subresource:
                 value: ""
               verb:
