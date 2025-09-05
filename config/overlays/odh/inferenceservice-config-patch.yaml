@@ -102,3 +102,16 @@ data:
     {
       "autoMountServiceAccountToken": false
     }
+
+  localModel: |-
+    {
+      "enabled": true,
+      "jobNamespace": "opendatahub",
+      "defaultJobImage" : "$(kserve-storage-initializer)",
+      "fsGroup": 1000,
+      "localModelAgentImage": "$(kserve-localmodelnode-agent)",
+      "localModelAgentCpuRequest": "100m",
+      "localModelAgentMemoryRequest": "200Mi",
+      "localModelAgentCpuLimit": "100m",
+      "localModelAgentMemoryLimit": "300Mi"
+    }
