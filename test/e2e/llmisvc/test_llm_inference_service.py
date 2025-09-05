@@ -18,10 +18,10 @@ import os
 import pytest
 import requests
 import yaml
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from kserve import KServeClient, V1alpha1LLMInferenceService, constants
 from kubernetes import client
-from typing import Any, Callable, List
+from typing import Any, Callable, List, Dict, Optional
 
 from .diagnostic import (
     print_all_events_table,
@@ -29,9 +29,14 @@ from .diagnostic import (
 )
 from .fixtures import (
     generate_test_id,
-    # Factory functions are not called explicitly, but they need to be imported to work
-    test_case,  # noqa: F401,F811
     inject_k8s_proxy,
+    # Factory functions are not called explicitly, but they need to be imported to work
+    router_resources,  # noqa: F401,F811
+    test_case,  # noqa: F401,F811
+)
+from .test_resources import (
+    ROUTER_GATEWAYS,
+    ROUTER_ROUTES,
 )
 from .logging import log_execution
 
@@ -55,11 +60,20 @@ def assert_200_with_choices(response: requests.Response) -> None:
 
 
 @dataclass
+class RouterResources:
+    __test__ = False  # So pytest will not try to execute it.
+    """Router referenced resources for LLM inference service tests."""
+    gateways: List[Dict[str, Any]] = field(default_factory=list)
+    routes: List[Dict[str, Any]] = field(default_factory=list)
+
+
+@dataclass
 class TestCase:
     __test__ = False  # So pytest will not try to execute it.
     """Test case configuration for LLM inference service tests."""
     base_refs: List[str]
     prompt: str
+    service_name: Optional[str] = None
     max_tokens: int = 100
     response_assertion: Callable[[requests.Response], None] = assert_200
     wait_timeout: int = 600
@@ -72,9 +86,10 @@ class TestCase:
 @pytest.mark.llminferenceservice
 @pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.parametrize(
-    "test_case",
+    "router_resources, test_case",
     [
         pytest.param(
+            RouterResources(),
             TestCase(
                 base_refs=[
                     "router-managed",
@@ -86,6 +101,24 @@ class TestCase:
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
         pytest.param(
+            RouterResources(),
+            TestCase(
+                base_refs=["router-custom-route", "workload-single-cpu", "model-fb-opt-125m"],
+                prompt="KServe is a",
+            ),
+            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+        ),
+        pytest.param(
+            RouterResources(gateways=[ROUTER_GATEWAYS[0]], routes=[ROUTER_ROUTES[0], ROUTER_ROUTES[1]]),
+            TestCase(
+                base_refs=["router-references", "workload-single-cpu", "model-fb-opt-125m"],
+                prompt="KServe is a",
+                service_name="router-references-test",
+            ),
+            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+        ),
+        pytest.param(
+            RouterResources(),
             TestCase(
                 base_refs=["router-managed", "workload-pd-cpu", "model-fb-opt-125m"],
                 prompt="You are an expert in Kubernetes-native machine learning serving platforms, with deep knowledge of the KServe project. "
@@ -96,6 +129,30 @@ class TestCase:
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
         pytest.param(
+            RouterResources(),
+            TestCase(
+                base_refs=["router-custom-route", "workload-pd-cpu", "model-fb-opt-125m"],
+                prompt="You are an expert in Kubernetes-native machine learning serving platforms, with deep knowledge of the KServe project. "
+                "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
+                "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.",
+                response_assertion=assert_200_with_choices,
+            ),
+            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+        ),
+        pytest.param(
+            RouterResources(gateways=[ROUTER_GATEWAYS[1]], routes=[ROUTER_ROUTES[2], ROUTER_ROUTES[3]]),
+            TestCase(
+                base_refs=["router-references-pd", "workload-pd-cpu", "model-fb-opt-125m"],
+                prompt="You are an expert in Kubernetes-native machine learning serving platforms, with deep knowledge of the KServe project. "
+                "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
+                "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.",
+                service_name="router-references-pd-test",
+                response_assertion=assert_200_with_choices,
+            ),
+            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+        ),
+        pytest.param(
+            RouterResources(),
             TestCase(
                 base_refs=[
                     "router-managed",
@@ -145,6 +202,7 @@ class TestCase:
             ],
         ),
         pytest.param(
+            RouterResources(),
             TestCase(
                 base_refs=[
                     "router-no-scheduler",
@@ -160,6 +218,7 @@ class TestCase:
             ],
         ),
         pytest.param(
+            RouterResources(),
             TestCase(
                 base_refs=[
                     "router-managed",
@@ -172,11 +231,10 @@ class TestCase:
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_multi_node],
         ),
     ],
-    indirect=["test_case"],
-    ids=generate_test_id,
+    indirect=["router_resources", "test_case"],
 )
 @log_execution
-def test_llm_inference_service(test_case: TestCase):
+def test_llm_inference_service(router_resources: RouterResources, test_case: TestCase):
     inject_k8s_proxy()
 
     kserve_client = KServeClient(
