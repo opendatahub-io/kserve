@@ -4,6 +4,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 PROJECT_ROOT="$(find_project_root "$SCRIPT_DIR")"
+KSERVE_DEPLOY="${1:-true}"
 
 # Get OpenShift server version and execute appropriate script
 server_version=$(get_openshift_server_version)
@@ -24,13 +25,15 @@ $SCRIPT_DIR/infra/deploy.cert-manager.sh
 $SCRIPT_DIR/infra/deploy.lws.sh
 
 # Installing KServe
-kubectl create ns opendatahub || true
+if [ "${KSERVE_DEPLOY}" == "true" ]; then
+  kubectl create ns opendatahub || true
 
-kubectl kustomize config/crd/ | kubectl apply --server-side=true -f -
-wait_for_crd  llminferenceserviceconfigs.serving.kserve.io  90s
+  kubectl kustomize config/crd/ | kubectl apply --server-side=true -f -
+  wait_for_crd  llminferenceserviceconfigs.serving.kserve.io  90s
 
-kustomize build config/overlays/odh | kubectl apply  --server-side=true --force-conflicts -f -
-wait_for_pod_ready "opendatahub" "control-plane=kserve-controller-manager" 300s
+  kustomize build config/overlays/odh | kubectl apply  --server-side=true --force-conflicts -f -
+  wait_for_pod_ready "opendatahub" "control-plane=kserve-controller-manager" 300s
+fi
 
 # Installing Gateway Ingress 
 $SCRIPT_DIR/infra/deploy.gateway.ingress.sh
