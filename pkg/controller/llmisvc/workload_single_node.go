@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -27,12 +28,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/credentials"
@@ -127,6 +127,8 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx con
 		}
 	}
 
+	r.propagateDeploymentMetadata(llmSvc, d)
+
 	log.FromContext(ctx).V(2).Info("Expected main deployment", "deployment", d)
 
 	return d, nil
@@ -191,9 +193,32 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 		}
 	}
 
+	r.propagateDeploymentMetadata(llmSvc, d)
+
 	log.FromContext(ctx).V(2).Info("Expected prefill deployment", "deployment", d)
 
 	return d, nil
+}
+
+func (r *LLMInferenceServiceReconciler) propagateDeploymentMetadata(llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) {
+	ann := make(map[string]string, len(expected.Annotations))
+	for k, v := range llmSvc.GetAnnotations() {
+		if strings.HasPrefix(k, "k8s.v1.cni.cncf.io") {
+			ann[k] = v
+			if expected.Annotations == nil {
+				expected.Annotations = make(map[string]string, 1)
+			}
+			expected.Annotations[k] = v
+		}
+	}
+
+	if expected.Spec.Template.Annotations == nil {
+		expected.Spec.Template.Annotations = ann
+	} else {
+		for k, v := range ann {
+			expected.Spec.Template.Annotations[k] = v
+		}
+	}
 }
 
 func (r *LLMInferenceServiceReconciler) propagateDeploymentStatus(ctx context.Context, expected *appsv1.Deployment, ready func(), notReady func(reason, messageFormat string, messageA ...interface{})) error {
