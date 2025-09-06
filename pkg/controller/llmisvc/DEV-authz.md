@@ -193,6 +193,16 @@ curl -v http://$LB_HOST/$NS/$LLM_ISVC_NAME/v1/completions  \
         "prompt": "San Francisco is a"
     }'    
 
+# Expected - HTTP/1.1 403 Forbidden 
+# if `oc whoami -t`(sha256~01oK_xaLJij6kVmxIRkj8c5glnvNpnac4WiWmg315vk) is not JWT format.
+curl http://$LB_HOST/$NS/$LLM_ISVC_NAME/v1/completions  \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $(oc whoami -t)"  \
+    -d '{
+        "model":"'"$MODEL_ID"'",
+        "prompt": "San Francisco is a"
+    }'       
+
 # Expected - HTTP/1.1 200 OK
 curl http://$LB_HOST/$NS/$LLM_ISVC_NAME/v1/completions  \
     -H "Content-Type: application/json" \
@@ -202,6 +212,43 @@ curl http://$LB_HOST/$NS/$LLM_ISVC_NAME/v1/completions  \
         "prompt": "San Francisco is a"
     }'           
 ```
+
+Tip) ServiceAccount Creation 
+```
+SA_NAME=right-user
+oc create sa $SA_NAME -n $TEST_NS
+
+cat <<EOF |oc apply -f -
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: llm-inferenceservice-reader
+  namespace: $TEST_NS
+rules:
+  - apiGroups: ["serving.kserve.io/v1alpha1"]
+    resources: ["LLMInferenceService"]
+    verbs: ["get"] 
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: llm-inferenceservice-reader-binding
+  namespace: $TEST_NS
+subjects:
+  - kind: ServiceAccount
+    name: $SA_NAME
+    namespace: $TEST_NS
+roleRef:
+  kind: Role
+  name: llm-inferenceservice-reader
+  apiGroup: rbac.authorization.k8s.io    
+EOF
+
+oc auth can-i get LLMInferenceService -n $TEST_NS --as=system:serviceaccount:$TEST_NS:$SA_NAME 
+ 
+oc create token $SA_NAME
+```
+
 - Using internal hostname
 
 

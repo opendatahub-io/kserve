@@ -90,10 +90,7 @@ fi
 
 if [[ "${DEPLOYMENT_PROFILE}" == "llm-d" ]]; then
   echo "⏳ Installing llm-d prerequisites"
-  $SCRIPT_DIR/infra/deploy.cert-manager.sh
-  $SCRIPT_DIR/infra/deploy.lws.sh
-  source $SCRIPT_DIR/infra/deploy.istio-exp.sh
-  install_upstream_istio "${PROJECT_ROOT}"
+  $SCRIPT_DIR/setup-llm.sh false
 fi
 
 echo "⏳ Waiting for KServe CRDs"
