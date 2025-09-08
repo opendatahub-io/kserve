@@ -458,46 +458,15 @@ LLMINFERENCESERVICE_CONFIGS = {
 
 
 @pytest.fixture(scope="function")
-def router_resources(request):
-    kserve_client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
-    rr = request.param
-
-    gateways_created = []
-    routes_created = []
-
-    try:
-        for gateway in rr.gateways:
-            _create_or_update_gateway(kserve_client, gateway)
-            gateways_created.append(gateway)
-        for route in rr.routes:
-            _create_or_update_route(kserve_client, route)
-            routes_created.append(route)
-        yield rr
-    except Exception as e:
-        logger.warning(f"Failed to create LLMInferenceService router dependencies: {e}")
-        raise e
-    finally:
-        for route in routes_created:
-            try:
-                logger.info(f"Cleaning up HttpRoute {route.get('metadata', {}).get('name')}")
-                _delete_route(kserve_client, route.get("metadata", {}).get("name"), route.get("metadata", {}).get("namespace", "default"))
-                logger.info(f"✓ Deleted HttpRoute {route.get('metadata', {}).get('name')}")
-            except Exception as e:
-                logger.warning(f"Failed to cleanup HttpRoute {route.get('metadata', {}).get('name')}: {e}")
-
-        for gateway in gateways_created:
-            try:
-                logger.info(f"Cleaning up Gateway {gateway.get('metadata', {}).get('name')}")
-                _delete_gateway(kserve_client, gateway.get("metadata", {}).get("name"), gateway.get("metadata", {}).get("namespace", "default"))
-                logger.info(f"✓ Deleted Gateway {gateway.get('metadata', {}).get('name')}")
-            except Exception as e:
-                logger.warning(f"Failed to cleanup Gateway {gateway.get('metadata', {}).get('name')}: {e}")
-
-
-@pytest.fixture(scope="function")
 def test_case(request):
     tc = request.param
     created_configs = []
+
+    if len(tc.before_test) != len(tc.before_test_inputs):
+        raise ValueError("The number of functions passed to before_test must equal the number of input param dicts passed to before_test_input")
+
+    if len(tc.after_test) != len(tc.after_test_inputs):
+        raise ValueError("The number of functions passed to after_test must equal the number of input param dicts passed to after_test_input")
 
     inject_k8s_proxy()
 
@@ -505,6 +474,13 @@ def test_case(request):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config"),
         client_configuration=client.Configuration(),
     )
+
+    # Execute before test dependencies
+    try:
+        for index, func in enumerate(tc.before_test):
+            func(**tc.before_test_inputs[index])
+    except Exception as before_test_error:
+        raise RuntimeError(f"Failed to execute before test dependency {func.__name__}: {before_test_error}") from before_test_error
 
     try:
         # Validate base_refs defined in the test fixture exist in LLMINFERENCESERVICE_CONFIGS
@@ -556,6 +532,16 @@ def test_case(request):
         yield tc
 
     finally:
+        # Execute after test dependencies
+        for index, func in enumerate(tc.after_test):
+            try:
+                func(**tc.after_test_inputs[index])
+            except Exception as after_test_error:
+                logger.warning(
+                    f"Failed to execute after test dependency {func.__name__}: {after_test_error}"
+                )
+
+        # Cleanup created configs
         for config_name in created_configs:
             try:
                 logger.info(
@@ -616,6 +602,47 @@ def generate_service_name(test_name: str, base_refs: List[str]) -> str:
 def generate_test_id(test_case) -> str:
     """Generate a test ID from base refs."""
     return "-".join(test_case.base_refs)
+
+
+def create_router_resources(gateways, routes, kserve_client=None):
+    if not kserve_client:
+        kserve_client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
+
+    gateways_created = []
+    routes_created = []
+
+    try:
+        for gateway in gateways:
+            _create_or_update_gateway(kserve_client, gateway)
+            gateways_created.append(gateway)
+        for route in routes:
+            _create_or_update_route(kserve_client, route)
+            routes_created.append(route)
+    except Exception as e:
+        logger.warning(f"Failed to create LLMInferenceService router dependencies: {e}")
+        delete_router_resources(gateways_created, routes_created, kserve_client)
+        raise e
+
+
+def delete_router_resources(gateways, routes, kserve_client=None):
+    if not kserve_client:
+        kserve_client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
+
+    for route in routes:
+        try:
+            logger.info(f"Cleaning up HttpRoute {route.get('metadata', {}).get('name')}")
+            _delete_route(kserve_client, route.get("metadata", {}).get("name"), route.get("metadata", {}).get("namespace", "default"))
+            logger.info(f"✓ Deleted HttpRoute {route.get('metadata', {}).get('name')}")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup HttpRoute {route.get('metadata', {}).get('name')}: {e}")
+
+    for gateway in gateways:
+        try:
+            logger.info(f"Cleaning up Gateway {gateway.get('metadata', {}).get('name')}")
+            _delete_gateway(kserve_client, gateway.get("metadata", {}).get("name"), gateway.get("metadata", {}).get("namespace", "default"))
+            logger.info(f"✓ Deleted Gateway {gateway.get('metadata', {}).get('name')}")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup Gateway {gateway.get('metadata', {}).get('name')}: {e}")
 
 
 def _create_or_update_route(kserve_client, route, namespace=None):
