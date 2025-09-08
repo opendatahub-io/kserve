@@ -103,8 +103,9 @@ class TestCase:
         pytest.param(
             RouterResources(),
             TestCase(
-                base_refs=["router-custom-route", "workload-single-cpu", "model-fb-opt-125m"],
+                base_refs=["router-custom-route-timeout", "workload-single-cpu", "model-fb-opt-125m"],
                 prompt="KServe is a",
+                service_name="custom-route-timeout-test",
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
@@ -131,10 +132,11 @@ class TestCase:
         pytest.param(
             RouterResources(),
             TestCase(
-                base_refs=["router-custom-route", "workload-pd-cpu", "model-fb-opt-125m"],
+                base_refs=["router-custom-route-timeout-pd", "workload-pd-cpu", "model-fb-opt-125m"],
                 prompt="You are an expert in Kubernetes-native machine learning serving platforms, with deep knowledge of the KServe project. "
                 "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
                 "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.",
+                service_name="custom-route-timeout-pd-test",
                 response_assertion=assert_200_with_choices,
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],

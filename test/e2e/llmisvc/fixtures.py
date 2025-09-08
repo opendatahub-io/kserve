@@ -322,7 +322,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             ]
         },
     },
-    "router-custom-route": {
+    "router-custom-route-timeout": {
         "router": {
             "scheduler": {},
             "route": {
@@ -334,11 +334,82 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     "request": "30s",
                                     "backendRequest": "30s",
                                 },
-                                "retry": {
-                                    "codes": [500, 502, 503, 504],
-                                    "attempts": 3,
-                                    "backoff": "10s",
+                                "matches": [
+                                    {
+                                        "path": {
+                                            "type": "PathPrefix",
+                                            "value": "/kserve-ci-e2e-test/custom-route-timeout-test",
+                                        },
+                                    },
+                                ],
+                                "filters": [
+                                    {
+                                        "type": "URLRewrite",
+                                        "urlRewrite": {
+                                            "path": {
+                                                "replacePrefixMatch": "/",
+                                                "type": "ReplacePrefixMatch",
+                                            },
+                                        },
+                                    },
+                                ],
+                                "backendRefs": [
+                                    {
+                                        "group": "inference.networking.x-k8s.io",
+                                        "kind": "InferencePool",
+                                        "name": "custom-route-timeout-test-inference-pool",
+                                        "namespace": KSERVE_TEST_NAMESPACE,
+                                        "port": 8000,
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                },
+            },
+            "gateway": {},
+        },
+    },
+    "router-custom-route-timeout-pd": {
+        "router": {
+            "scheduler": {},
+            "route": {
+                "http": {
+                    "spec": {
+                        "rules": [
+                            {
+                                "timeouts": {
+                                    "request": "30s",
+                                    "backendRequest": "30s",
                                 },
+                                "matches": [
+                                    {
+                                        "path": {
+                                            "type": "PathPrefix",
+                                            "value": "/kserve-ci-e2e-test/custom-route-timeout-pd-test",
+                                        },
+                                    },
+                                ],
+                                "filters": [
+                                    {
+                                        "type": "URLRewrite",
+                                        "urlRewrite": {
+                                            "path": {
+                                                "replacePrefixMatch": "/",
+                                                "type": "ReplacePrefixMatch",
+                                            },
+                                        },
+                                    },
+                                ],
+                                "backendRefs": [
+                                    {
+                                        "group": "inference.networking.x-k8s.io",
+                                        "kind": "InferencePool",
+                                        "name": "custom-route-timeout-pd-test-inference-pool",
+                                        "namespace": KSERVE_TEST_NAMESPACE,
+                                        "port": 8000,
+                                    }
+                                ],
                             },
                         ],
                     },
