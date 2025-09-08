@@ -225,6 +225,8 @@ func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Con
 		}
 	}
 
+	r.propagateLeaderWorkerSetMetadata(llmSvc, expected)
+
 	log.FromContext(ctx).V(2).Info("Expected main LWS", "leaderworkerset", expected)
 
 	return expected, nil
@@ -524,7 +526,8 @@ func (r *LLMInferenceServiceReconciler) expectedMultiNodeRoleBinding(llmSvc *v1a
 func (r *LLMInferenceServiceReconciler) propagateLeaderWorkerSetMetadata(llmSvc *v1alpha1.LLMInferenceService, expected *lwsapi.LeaderWorkerSet) {
 	ann := make(map[string]string, len(expected.Annotations))
 	for k, v := range llmSvc.GetAnnotations() {
-		if strings.HasPrefix(k, "leaderworkerset.sigs.k8s.io") {
+		if strings.HasPrefix(k, "leaderworkerset.sigs.k8s.io") ||
+			strings.HasPrefix(k, "k8s.v1.cni.cncf.io") {
 			ann[k] = v
 			if expected.Annotations == nil {
 				expected.Annotations = make(map[string]string, 1)
@@ -533,9 +536,22 @@ func (r *LLMInferenceServiceReconciler) propagateLeaderWorkerSetMetadata(llmSvc 
 		}
 	}
 
-	expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations = ann
 	if expected.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-		expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations = ann
+		if expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations == nil {
+			expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations = ann
+		} else {
+			for k, v := range ann {
+				expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations[k] = v
+			}
+		}
+	}
+
+	if expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations == nil {
+		expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations = ann
+	} else {
+		for k, v := range ann {
+			expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations[k] = v
+		}
 	}
 }
 
