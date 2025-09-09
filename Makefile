@@ -268,7 +268,7 @@ deploy-dev-llm:
 	./hack/deploy_dev_llm.sh
 
 deploy-dev-llm-ocp:
-	./test/scripts/openshift-ci/setup-llm.sh
+	./test/scripts/openshift-ci/setup-llm.sh --deploy-kuadrant
 
 deploy-ci: manifests
 	kubectl apply --server-side=true --force-conflicts -k config/crd

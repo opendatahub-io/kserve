@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -eu
+set -euo pipefail
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 source "${SCRIPT_DIR}/../common.sh"
 
-# Execute script based on version comparison
 cat <<EOF | oc apply -f -
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
