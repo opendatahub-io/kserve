@@ -23,11 +23,12 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/credentials"
-	"github.com/kserve/kserve/pkg/types"
+	kserveTypes "github.com/kserve/kserve/pkg/types"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
@@ -46,7 +47,7 @@ import (
 // Returns:
 //
 //	An error if the configuration fails, otherwise nil.
-func (r *LLMInferenceServiceReconciler) attachModelArtifacts(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
+func (r *LLMInferenceServiceReconciler) attachModelArtifacts(ctx context.Context, serviceAccount *corev1.ServiceAccount, llmSvc *v1alpha1.LLMInferenceService, podSpec *corev1.PodSpec, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	modelUri := llmSvc.Spec.Model.URI.String()
 	schema, _, sepFound := strings.Cut(modelUri, "://")
 
@@ -67,10 +68,10 @@ func (r *LLMInferenceServiceReconciler) attachModelArtifacts(ctx context.Context
 		return r.attachOciModelArtifact(modelUri, podSpec, storageConfig)
 
 	case constants.HfURIPrefix:
-		return r.attachHfModelArtifact(ctx, llmSvc.Namespace, llmSvc.Annotations, modelUri, podSpec, storageConfig, credentialConfig)
+		return r.attachHfModelArtifact(ctx, serviceAccount, llmSvc, modelUri, podSpec, storageConfig, credentialConfig)
 
 	case constants.S3URIPrefix:
-		return r.attachS3ModelArtifact(ctx, llmSvc.Namespace, llmSvc.Annotations, modelUri, podSpec, storageConfig, credentialConfig)
+		return r.attachS3ModelArtifact(ctx, serviceAccount, llmSvc, modelUri, podSpec, storageConfig, credentialConfig)
 	}
 
 	return fmt.Errorf("unsupported schema in model URI: %s", modelUri)
@@ -88,7 +89,7 @@ func (r *LLMInferenceServiceReconciler) attachModelArtifacts(ctx context.Context
 // Returns:
 //
 //	An error if the configuration fails, otherwise nil.
-func (r *LLMInferenceServiceReconciler) attachOciModelArtifact(modelUri string, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
+func (r *LLMInferenceServiceReconciler) attachOciModelArtifact(modelUri string, podSpec *corev1.PodSpec, storageConfig *kserveTypes.StorageInitializerConfig) error {
 	if err := utils.ConfigureModelcarToContainer(modelUri, podSpec, "main", storageConfig); err != nil {
 		return err
 	}
@@ -132,18 +133,25 @@ func (r *LLMInferenceServiceReconciler) attachPVCModelArtifact(modelUri string, 
 // Returns:
 //
 //	An error if the configuration fails, otherwise nil.
-func (r *LLMInferenceServiceReconciler) attachS3ModelArtifact(ctx context.Context, podNamespace string, podAnnotations map[string]string, modelUri string, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
+func (r *LLMInferenceServiceReconciler) attachS3ModelArtifact(ctx context.Context, serviceAccount *corev1.ServiceAccount, llmSvc *v1alpha1.LLMInferenceService, modelUri string, podSpec *corev1.PodSpec, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	if err := r.attachStorageInitializer(modelUri, podSpec, storageConfig); err != nil {
 		return err
 	}
 	if initContainer := utils.GetInitContainerWithName(podSpec, constants.StorageInitializerContainerName); initContainer != nil {
+		// If service account is nil, fetch the default service account
+		if serviceAccount == nil {
+			serviceAccount = &corev1.ServiceAccount{}
+			err := r.Client.Get(ctx, types.NamespacedName{Name: "default", Namespace: llmSvc.Namespace}, serviceAccount)
+			if err != nil {
+				return fmt.Errorf("failed to fetch default service account %s/default: %w", llmSvc.Namespace, err)
+			}
+		}
 		// Check for AWS IAM Role for Service Account or AWS IAM User Credentials
 		credentialBuilder := credentials.NewCredentialBuilderFromConfig(r.Client, r.Clientset, *credentialConfig)
-		if err := credentialBuilder.CreateSecretVolumeAndEnv(
+		if err := credentialBuilder.CreateSecretVolumeAndEnvFromServiceAccount(
 			ctx,
-			podNamespace,
-			podAnnotations,
-			podSpec.ServiceAccountName,
+			serviceAccount,
+			llmSvc.Annotations,
 			initContainer,
 			&podSpec.Volumes,
 		); err != nil {
@@ -169,18 +177,25 @@ func (r *LLMInferenceServiceReconciler) attachS3ModelArtifact(ctx context.Contex
 // Returns:
 //
 //	An error if the configuration fails, otherwise nil.
-func (r *LLMInferenceServiceReconciler) attachHfModelArtifact(ctx context.Context, podNamespace string, podAnnotations map[string]string, modelUri string, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
+func (r *LLMInferenceServiceReconciler) attachHfModelArtifact(ctx context.Context, serviceAccount *corev1.ServiceAccount, llmSvc *v1alpha1.LLMInferenceService, modelUri string, podSpec *corev1.PodSpec, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	if err := r.attachStorageInitializer(modelUri, podSpec, storageConfig); err != nil {
 		return err
 	}
 	if initContainer := utils.GetInitContainerWithName(podSpec, constants.StorageInitializerContainerName); initContainer != nil {
+		// If service account is nil, fetch the default service account
+		if serviceAccount == nil {
+			serviceAccount = &corev1.ServiceAccount{}
+			err := r.Client.Get(ctx, types.NamespacedName{Name: "default", Namespace: llmSvc.Namespace}, serviceAccount)
+			if err != nil {
+				return fmt.Errorf("failed to fetch default service account %s/default: %w", llmSvc.Namespace, err)
+			}
+		}
 		// Check for service account with secret ref
 		credentialBuilder := credentials.NewCredentialBuilderFromConfig(r.Client, r.Clientset, *credentialConfig)
-		if err := credentialBuilder.CreateSecretVolumeAndEnv(
+		if err := credentialBuilder.CreateSecretVolumeAndEnvFromServiceAccount(
 			ctx,
-			podNamespace,
-			podAnnotations,
-			podSpec.ServiceAccountName,
+			serviceAccount,
+			llmSvc.Annotations,
 			initContainer,
 			&podSpec.Volumes,
 		); err != nil {
@@ -201,7 +216,7 @@ func (r *LLMInferenceServiceReconciler) attachHfModelArtifact(ctx context.Contex
 // Returns:
 //
 //	An error if the configuration fails, otherwise nil.
-func (r *LLMInferenceServiceReconciler) attachStorageInitializer(modelUri string, podSpec *corev1.PodSpec, storageConfig *types.StorageInitializerConfig) error {
+func (r *LLMInferenceServiceReconciler) attachStorageInitializer(modelUri string, podSpec *corev1.PodSpec, storageConfig *kserveTypes.StorageInitializerConfig) error {
 	utils.AddStorageInitializerContainer(podSpec, "main", modelUri, true, storageConfig)
 
 	return nil
