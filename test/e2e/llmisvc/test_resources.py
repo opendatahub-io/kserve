@@ -84,7 +84,7 @@ ROUTER_ROUTES = [
                         {
                             "path": {
                                 "type": "PathPrefix",
-                                "value": "/kserve-ci-e2e-test/router-references-test",
+                                "value": "/kserve-ci-e2e-test/router-with-refs-test",
                             },
                         },
                     ],
@@ -103,7 +103,7 @@ ROUTER_ROUTES = [
                         {
                             "group": "inference.networking.x-k8s.io",
                             "kind": "InferencePool",
-                            "name": "router-references-test-inference-pool",
+                            "name": "router-with-refs-test-inference-pool",
                             "namespace": KSERVE_TEST_NAMESPACE,
                             "port": 8000,
                         }
@@ -132,7 +132,7 @@ ROUTER_ROUTES = [
                         {
                             "path": {
                                 "type": "PathPrefix",
-                                "value": "/kserve-ci-e2e-test/router-references-test/health",
+                                "value": "/kserve-ci-e2e-test/router-with-refs-test/health",
                             },
                         },
                     ],
@@ -151,7 +151,7 @@ ROUTER_ROUTES = [
                         {
                             "group": "inference.networking.x-k8s.io",
                             "kind": "InferencePool",
-                            "name": "router-references-test-inference-pool",
+                            "name": "router-with-refs-test-inference-pool",
                             "namespace": KSERVE_TEST_NAMESPACE,
                             "port": 8000,
                         }
@@ -180,7 +180,7 @@ ROUTER_ROUTES = [
                         {
                             "path": {
                                 "type": "PathPrefix",
-                                "value": "/kserve-ci-e2e-test/router-references-pd-test",
+                                "value": "/kserve-ci-e2e-test/router-with-refs-pd-test",
                             },
                         },
                     ],
@@ -199,7 +199,7 @@ ROUTER_ROUTES = [
                         {
                             "group": "inference.networking.x-k8s.io",
                             "kind": "InferencePool",
-                            "name": "router-references-pd-test-inference-pool",
+                            "name": "router-with-refs-pd-test-inference-pool",
                             "namespace": KSERVE_TEST_NAMESPACE,
                             "port": 8000,
                         }
@@ -228,7 +228,7 @@ ROUTER_ROUTES = [
                         {
                             "path": {
                                 "type": "PathPrefix",
-                                "value": "/kserve-ci-e2e-test/router-references-pd-test/health",
+                                "value": "/kserve-ci-e2e-test/router-with-refs-pd-test/health",
                             },
                         },
                     ],
@@ -247,7 +247,7 @@ ROUTER_ROUTES = [
                         {
                             "group": "inference.networking.x-k8s.io",
                             "kind": "InferencePool",
-                            "name": "router-references-pd-test-inference-pool",
+                            "name": "router-with-refs-pd-test-inference-pool",
                             "namespace": KSERVE_TEST_NAMESPACE,
                             "port": 8000,
                         }

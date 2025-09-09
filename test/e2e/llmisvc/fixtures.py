@@ -15,6 +15,12 @@
 import hashlib
 import os
 import pytest
+from ..common.gw_api import (
+    create_or_update_gateway,
+    create_or_update_route,
+    delete_gateway,
+    delete_route,
+)
 from kserve import KServeClient, constants, V1alpha1LLMInferenceService
 from kubernetes import client, config
 from kubernetes.client.rest import ApiException
@@ -324,7 +330,6 @@ LLMINFERENCESERVICE_CONFIGS = {
     },
     "router-custom-route-timeout": {
         "router": {
-            "scheduler": {},
             "route": {
                 "http": {
                     "spec": {
@@ -372,7 +377,6 @@ LLMINFERENCESERVICE_CONFIGS = {
     },
     "router-custom-route-timeout-pd": {
         "router": {
-            "scheduler": {},
             "route": {
                 "http": {
                     "spec": {
@@ -418,9 +422,8 @@ LLMINFERENCESERVICE_CONFIGS = {
             "gateway": {},
         },
     },
-    "router-references": {
+    "router-with-refs": {
         "router": {
-            "scheduler": {},
             "route": {
                 "http": {
                     "refs": [
@@ -436,9 +439,8 @@ LLMINFERENCESERVICE_CONFIGS = {
             },
         },
     },
-    "router-references-pd": {
+    "router-with-refs-pd": {
         "router": {
-            "scheduler": {},
             "route": {
                 "http": {
                     "refs": [
@@ -454,6 +456,11 @@ LLMINFERENCESERVICE_CONFIGS = {
             },
         },
     },
+    "scheduler-managed": {
+        "router": {
+            "scheduler": {},
+        },
+    }
 }
 
 
@@ -461,12 +468,6 @@ LLMINFERENCESERVICE_CONFIGS = {
 def test_case(request):
     tc = request.param
     created_configs = []
-
-    if len(tc.before_test) != len(tc.before_test_inputs):
-        raise ValueError("The number of functions passed to before_test must equal the number of input param dicts passed to before_test_input")
-
-    if len(tc.after_test) != len(tc.after_test_inputs):
-        raise ValueError("The number of functions passed to after_test must equal the number of input param dicts passed to after_test_input")
 
     inject_k8s_proxy()
 
@@ -477,10 +478,10 @@ def test_case(request):
 
     # Execute before test dependencies
     try:
-        for index, func in enumerate(tc.before_test):
-            func(**tc.before_test_inputs[index])
+        for func in tc.before_test:
+            func()
     except Exception as before_test_error:
-        raise RuntimeError(f"Failed to execute before test dependency {func.__name__}: {before_test_error}") from before_test_error
+        raise RuntimeError(f"Failed to execute before test dependency: {before_test_error}") from before_test_error
 
     try:
         # Validate base_refs defined in the test fixture exist in LLMINFERENCESERVICE_CONFIGS
@@ -533,12 +534,12 @@ def test_case(request):
 
     finally:
         # Execute after test dependencies
-        for index, func in enumerate(tc.after_test):
+        for func in tc.after_test:
             try:
-                func(**tc.after_test_inputs[index])
+                func()
             except Exception as after_test_error:
                 logger.warning(
-                    f"Failed to execute after test dependency {func.__name__}: {after_test_error}"
+                    f"Failed to execute after test dependency: {after_test_error}"
                 )
 
         # Cleanup created configs
@@ -613,10 +614,10 @@ def create_router_resources(gateways, routes, kserve_client=None):
 
     try:
         for gateway in gateways:
-            _create_or_update_gateway(kserve_client, gateway)
+            create_or_update_gateway(kserve_client, gateway)
             gateways_created.append(gateway)
         for route in routes:
-            _create_or_update_route(kserve_client, route)
+            create_or_update_route(kserve_client, route)
             routes_created.append(route)
     except Exception as e:
         logger.warning(f"Failed to create LLMInferenceService router dependencies: {e}")
@@ -631,7 +632,7 @@ def delete_router_resources(gateways, routes, kserve_client=None):
     for route in routes:
         try:
             logger.info(f"Cleaning up HttpRoute {route.get('metadata', {}).get('name')}")
-            _delete_route(kserve_client, route.get("metadata", {}).get("name"), route.get("metadata", {}).get("namespace", "default"))
+            delete_route(kserve_client, route.get("metadata", {}).get("name"), route.get("metadata", {}).get("namespace", "default"))
             logger.info(f"✓ Deleted HttpRoute {route.get('metadata', {}).get('name')}")
         except Exception as e:
             logger.warning(f"Failed to cleanup HttpRoute {route.get('metadata', {}).get('name')}: {e}")
@@ -639,190 +640,10 @@ def delete_router_resources(gateways, routes, kserve_client=None):
     for gateway in gateways:
         try:
             logger.info(f"Cleaning up Gateway {gateway.get('metadata', {}).get('name')}")
-            _delete_gateway(kserve_client, gateway.get("metadata", {}).get("name"), gateway.get("metadata", {}).get("namespace", "default"))
+            delete_gateway(kserve_client, gateway.get("metadata", {}).get("name"), gateway.get("metadata", {}).get("namespace", "default"))
             logger.info(f"✓ Deleted Gateway {gateway.get('metadata', {}).get('name')}")
         except Exception as e:
             logger.warning(f"Failed to cleanup Gateway {gateway.get('metadata', {}).get('name')}: {e}")
-
-
-def _create_or_update_route(kserve_client, route, namespace=None):
-    """Create or update a HttpRoute resource."""
-    version = route["apiVersion"].split("/")[1]
-
-    if namespace is None:
-        namespace = route.get("metadata", {}).get("namespace", "default")
-
-    name = route.get("metadata", {}).get("name")
-    if not name:
-        raise ValueError("HttpRoute must have a name in metadata")
-
-    logger.info(f"Checking HttpRoute {name} in namespace {namespace}")
-
-    try:
-        existing_route = kserve_client.api_instance.get_namespaced_custom_object(
-            "gateway.networking.k8s.io",
-            version,
-            namespace,
-            "httproutes",
-            name,
-        )
-
-        route["metadata"] = existing_route["metadata"]
-
-        outputs = kserve_client.api_instance.replace_namespaced_custom_object(
-            "gateway.networking.k8s.io",
-            version,
-            namespace,
-            "httproutes",
-            name,
-            route,
-        )
-        logger.info(f"✓ Successfully updated HttpRoute {name}")
-        return outputs
-
-    except client.rest.ApiException as update_error:
-        try:
-            if update_error.status == 404:  # Not found - create it
-                logger.info(f"Resource not found, creating HttpRoute {name}")
-                outputs = kserve_client.api_instance.create_namespaced_custom_object(
-                    "gateway.networking.k8s.io",
-                    version,
-                    namespace,
-                    "httproutes",
-                    route,
-                )
-                logger.info(f"✓ Successfully created HttpRoute {name}")
-                return outputs
-        except Exception as create_error:
-            update_error = create_error
-        raise RuntimeError(f"Failed to create or update HttpRoute {name}: {update_error}") from update_error
-
-
-def _delete_route(
-    kserve_client, name, namespace, version="v1"
-):
-    try:
-        logger.info(f"Deleting HttpRoute {name} in namespace {namespace}")
-        return kserve_client.api_instance.delete_namespaced_custom_object(
-            "gateway.networking.k8s.io",
-            version,
-            namespace,
-            "httproutes",
-            name,
-        )
-    except client.rest.ApiException as e:
-        raise RuntimeError(
-            f"Exception when calling CustomObjectsApi->"
-            f"delete_namespaced_custom_object for HttpRoute: {e}"
-        ) from e
-
-
-def _get_route(
-    kserve_client, name, namespace, version="v1"
-):
-    try:
-        return kserve_client.api_instance.get_namespaced_custom_object(
-            "gateway.networking.k8s.io",
-            version,
-            namespace,
-            "httproutes",
-            name,
-        )
-    except client.rest.ApiException as e:
-        raise RuntimeError(
-            f"Exception when calling CustomObjectsApi->"
-            f"get_namespaced_custom_object for HttpRoute: {e}"
-        ) from e
-
-
-def _create_or_update_gateway(kserve_client, gateway, namespace=None):
-    """Create or update a Gateway resource."""
-    version = gateway["apiVersion"].split("/")[1]
-
-    if namespace is None:
-        namespace = gateway.get("metadata", {}).get("namespace", "default")
-
-    name = gateway.get("metadata", {}).get("name")
-    if not name:
-        raise ValueError("Gateway must have a name in metadata")
-
-    logger.info(f"Checking Gateway {name} in namespace {namespace}")
-
-    try:
-        existing_route = kserve_client.api_instance.get_namespaced_custom_object(
-            "gateway.networking.k8s.io",
-            version,
-            namespace,
-            "gateways",
-            name,
-        )
-
-        gateway["metadata"] = existing_route["metadata"]
-
-        outputs = kserve_client.api_instance.replace_namespaced_custom_object(
-            "gateway.networking.k8s.io",
-            version,
-            namespace,
-            "gateways",
-            name,
-            gateway,
-        )
-        logger.info(f"✓ Successfully updated Gateway {name}")
-        return outputs
-
-    except client.rest.ApiException as update_error:
-        try:
-            if update_error.status == 404:  # Not found - create it
-                logger.info(f"Resource not found, creating Gateway {name}")
-                outputs = kserve_client.api_instance.create_namespaced_custom_object(
-                    "gateway.networking.k8s.io",
-                    version,
-                    namespace,
-                    "gateways",
-                    gateway,
-                )
-                logger.info(f"✓ Successfully created Gateway {name}")
-                return outputs
-        except Exception as create_error:
-            update_error = create_error
-        raise RuntimeError(f"Failed to create or update Gateway {name}: {update_error}") from update_error
-
-
-def _delete_gateway(
-    kserve_client, name, namespace, version="v1"
-):
-    try:
-        logger.info(f"Deleting Gateway {name} in namespace {namespace}")
-        return kserve_client.api_instance.delete_namespaced_custom_object(
-            "gateway.networking.k8s.io",
-            version,
-            namespace,
-            "gateways",
-            name,
-        )
-    except client.rest.ApiException as e:
-        raise RuntimeError(
-            f"Exception when calling CustomObjectsApi->"
-            f"delete_namespaced_custom_object for Gateway: {e}"
-        ) from e
-
-
-def _get_gateway(
-    kserve_client, name, namespace, version="v1"
-):
-    try:
-        return kserve_client.api_instance.get_namespaced_custom_object(
-            "gateway.networking.k8s.io",
-            version,
-            namespace,
-            "gateways",
-            name,
-        )
-    except client.rest.ApiException as e:
-        raise RuntimeError(
-            f"Exception when calling CustomObjectsApi->"
-            f"get_namespaced_custom_object for Gateway: {e}"
-        ) from e
 
 
 def _create_or_update_llmisvc_config(kserve_client, llm_config, namespace=None):
