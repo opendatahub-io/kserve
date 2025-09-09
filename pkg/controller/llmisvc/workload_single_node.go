@@ -106,16 +106,15 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx con
 		d.Spec.Template.Spec = *llmSvc.Spec.Template.DeepCopy()
 
 		var serviceAccount *corev1.ServiceAccount = nil
-		expectedServiceAccount, err := r.expectedSingleNodeMainServiceAccount(ctx, llmSvc)
-		if err != nil {
-			return nil, fmt.Errorf("failed to created expected single node service account: %w", err)
-		}
-
 		if hasRoutingSidecar(d.Spec.Template.Spec) {
 			log.FromContext(ctx).Info("Main container has a routing sidecar")
 
-			serviceAccount = expectedServiceAccount
-			d.Spec.Template.Spec.ServiceAccountName = expectedServiceAccount.GetName()
+			var err error
+			serviceAccount, err = r.expectedSingleNodeMainServiceAccount(ctx, llmSvc)
+			if err != nil {
+				return nil, fmt.Errorf("failed to created expected single node service account: %w", err)
+			}
+			d.Spec.Template.Spec.ServiceAccountName = serviceAccount.GetName()
 			s := routingSidecar(&d.Spec.Template.Spec)
 			if llmSvc.Spec.Router != nil {
 				s.Env = append(s.Env, corev1.EnvVar{
@@ -124,10 +123,7 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx con
 					ValueFrom: nil,
 				})
 			}
-		}
-
-		// If a service acount other than the expected service account is defined in the spec, retrieve it.
-		if llmSvc.Spec.Template.ServiceAccountName != "" && llmSvc.Spec.Template.ServiceAccountName != expectedServiceAccount.GetName() {
+		} else if llmSvc.Spec.Template.ServiceAccountName != "" {
 			serviceAccount = &corev1.ServiceAccount{}
 			err := r.Client.Get(ctx, types.NamespacedName{Name: llmSvc.Spec.Template.ServiceAccountName, Namespace: llmSvc.Namespace}, serviceAccount)
 			if err != nil {
