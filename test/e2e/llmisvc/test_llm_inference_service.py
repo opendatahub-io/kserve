@@ -113,14 +113,14 @@ class TestCase:
                 before_test_inputs=[
                     {
                         "gateways": [ROUTER_GATEWAYS[0]],
-                        "routes": [ROUTER_ROUTES[0], ROUTER_ROUTES[1]]
+                        "routes": [ROUTER_ROUTES[0], ROUTER_ROUTES[1]],
                     },
                 ],
                 after_test=[delete_router_resources],
                 after_test_inputs=[
                     {
                         "gateways": [ROUTER_GATEWAYS[0]],
-                        "routes": [ROUTER_ROUTES[0], ROUTER_ROUTES[1]]
+                        "routes": [ROUTER_ROUTES[0], ROUTER_ROUTES[1]],
                     },
                 ],
             ),
@@ -158,15 +158,15 @@ class TestCase:
                 before_test=[create_router_resources],
                 before_test_inputs=[
                     {
-                        "gateways": ROUTER_GATEWAYS[1],
-                        "routes": [ROUTER_ROUTES[2], ROUTER_ROUTES[3]]
+                        "gateways": [ROUTER_GATEWAYS[1]],
+                        "routes": [ROUTER_ROUTES[2], ROUTER_ROUTES[3]],
                     },
                 ],
                 after_test=[delete_router_resources],
                 after_test_inputs=[
                     {
-                        "gateways": ROUTER_GATEWAYS[1],
-                        "routes": [ROUTER_ROUTES[2], ROUTER_ROUTES[3]]
+                        "gateways": [ROUTER_GATEWAYS[1]],
+                        "routes": [ROUTER_ROUTES[2], ROUTER_ROUTES[3]],
                     },
                 ],
             ),
