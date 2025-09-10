@@ -372,6 +372,20 @@ deploy-dev-storageInitializer: docker-push-storageInitializer
 deploy-helm:
 	USE_LOCAL_CHARTS=true ./hack/setup/infra/manage.kserve-helm.sh
 
+deploy-dev-llm: 	
+	./hack/deploy_dev_llm.sh
+
+deploy-dev-llm-ocp:
+	./test/scripts/openshift-ci/setup-llm.sh --deploy-kuadrant
+
+deploy-ci: manifests
+	kubectl apply --server-side=true --force-conflicts -k config/crd
+	kubectl wait --for=condition=established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
+	kubectl apply --server-side=true -k config/overlays/test
+	# TODO: Add runtimes as part of default deployment
+	kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n kserve --timeout=300s
+	kubectl apply --server-side=true -k config/overlays/test/clusterresources
+
 undeploy:
 	kubectl delete -k config/default
 
