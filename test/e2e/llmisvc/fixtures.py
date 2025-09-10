@@ -23,7 +23,6 @@ from ..common.gw_api import (
 )
 from kserve import KServeClient, constants, V1alpha1LLMInferenceService
 from kubernetes import client, config
-from kubernetes.client.rest import ApiException
 from typing import List
 
 from .logging import logger
@@ -476,12 +475,12 @@ def test_case(request):
         client_configuration=client.Configuration(),
     )
 
-    # Execute before test dependencies
+    # Execute before test hooks
     try:
         for func in tc.before_test:
             func()
     except Exception as before_test_error:
-        raise RuntimeError(f"Failed to execute before test dependency: {before_test_error}") from before_test_error
+        raise RuntimeError(f"Failed to execute before test hook: {before_test_error}") from before_test_error
 
     try:
         # Validate base_refs defined in the test fixture exist in LLMINFERENCESERVICE_CONFIGS
@@ -533,13 +532,17 @@ def test_case(request):
         yield tc
 
     finally:
-        # Execute after test dependencies
+        if os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in ("true", "1", "t"):
+            logger.info("Skipping resource deletion after test execution.")
+            return
+
+        # Execute after test hooks
         for func in tc.after_test:
             try:
                 func()
             except Exception as after_test_error:
                 logger.warning(
-                    f"Failed to execute after test dependency: {after_test_error}"
+                    f"Failed to execute after test hook: {after_test_error}"
                 )
 
         # Cleanup created configs
@@ -620,9 +623,9 @@ def create_router_resources(gateways, routes, kserve_client=None):
             create_or_update_route(kserve_client, route)
             routes_created.append(route)
     except Exception as e:
-        logger.warning(f"Failed to create LLMInferenceService router dependencies: {e}")
+        logger.warning(f"Failed to create LLMInferenceService router resources: {e}")
         delete_router_resources(gateways_created, routes_created, kserve_client)
-        raise e
+        raise
 
 
 def delete_router_resources(gateways, routes, kserve_client=None):

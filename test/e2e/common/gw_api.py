@@ -15,9 +15,13 @@
 from kubernetes import client
 from kserve.logging import trace_logger as logger
 
+import copy
+
 
 def create_or_update_gateway(kserve_client, gateway, namespace=None):
     """Create or update a Gateway resource."""
+    gateway = copy.deepcopy(gateway)
+
     version = gateway["apiVersion"].split("/")[1]
 
     if namespace is None:
@@ -30,7 +34,7 @@ def create_or_update_gateway(kserve_client, gateway, namespace=None):
     logger.info(f"Checking Gateway {name} in namespace {namespace}")
 
     try:
-        existing_route = kserve_client.api_instance.get_namespaced_custom_object(
+        existing_gateway = kserve_client.api_instance.get_namespaced_custom_object(
             "gateway.networking.k8s.io",
             version,
             namespace,
@@ -38,7 +42,9 @@ def create_or_update_gateway(kserve_client, gateway, namespace=None):
             name,
         )
 
-        gateway["metadata"] = existing_route["metadata"]
+        gateway.setdefault("metadata", {})["resourceVersion"] = (
+            existing_gateway["metadata"]["resourceVersion"]
+        )
 
         outputs = kserve_client.api_instance.replace_namespaced_custom_object(
             "gateway.networking.k8s.io",
@@ -51,22 +57,19 @@ def create_or_update_gateway(kserve_client, gateway, namespace=None):
         logger.info(f"✓ Successfully updated Gateway {name}")
         return outputs
 
-    except client.rest.ApiException as update_error:
-        try:
-            if update_error.status == 404:  # Not found - create it
-                logger.info(f"Resource not found, creating Gateway {name}")
-                outputs = kserve_client.api_instance.create_namespaced_custom_object(
-                    "gateway.networking.k8s.io",
-                    version,
-                    namespace,
-                    "gateways",
-                    gateway,
-                )
-                logger.info(f"✓ Successfully created Gateway {name}")
-                return outputs
-        except Exception as create_error:
-            update_error = create_error
-        raise RuntimeError(f"Failed to create or update Gateway {name}: {update_error}") from update_error
+    except client.rest.ApiException as e:
+        if e.status == 404:  # Not found - create it
+            logger.info(f"Resource not found, creating Gateway {name}")
+            outputs = kserve_client.api_instance.create_namespaced_custom_object(
+                "gateway.networking.k8s.io",
+                version,
+                namespace,
+                "gateways",
+                gateway,
+            )
+            logger.info(f"✓ Successfully created Gateway {name}")
+            return outputs
+        raise
 
 
 def delete_gateway(
@@ -108,6 +111,8 @@ def get_gateway(
 
 def create_or_update_route(kserve_client, route, namespace=None):
     """Create or update a HttpRoute resource."""
+    route = copy.deepcopy(route)
+
     version = route["apiVersion"].split("/")[1]
 
     if namespace is None:
@@ -128,7 +133,9 @@ def create_or_update_route(kserve_client, route, namespace=None):
             name,
         )
 
-        route["metadata"] = existing_route["metadata"]
+        route.setdefault("metadata", {})["resourceVersion"] = (
+            existing_route["metadata"]["resourceVersion"]
+        )
 
         outputs = kserve_client.api_instance.replace_namespaced_custom_object(
             "gateway.networking.k8s.io",
@@ -141,22 +148,19 @@ def create_or_update_route(kserve_client, route, namespace=None):
         logger.info(f"✓ Successfully updated HttpRoute {name}")
         return outputs
 
-    except client.rest.ApiException as update_error:
-        try:
-            if update_error.status == 404:  # Not found - create it
-                logger.info(f"Resource not found, creating HttpRoute {name}")
-                outputs = kserve_client.api_instance.create_namespaced_custom_object(
-                    "gateway.networking.k8s.io",
-                    version,
-                    namespace,
-                    "httproutes",
-                    route,
-                )
-                logger.info(f"✓ Successfully created HttpRoute {name}")
-                return outputs
-        except Exception as create_error:
-            update_error = create_error
-        raise RuntimeError(f"Failed to create or update HttpRoute {name}: {update_error}") from update_error
+    except client.rest.ApiException as e:
+        if e.status == 404:  # Not found - create it
+            logger.info(f"Resource not found, creating HttpRoute {name}")
+            outputs = kserve_client.api_instance.create_namespaced_custom_object(
+                "gateway.networking.k8s.io",
+                version,
+                namespace,
+                "httproutes",
+                route,
+            )
+            logger.info(f"✓ Successfully created HttpRoute {name}")
+            return outputs
+        raise
 
 
 def delete_route(

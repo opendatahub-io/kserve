@@ -21,7 +21,7 @@ import yaml
 from dataclasses import dataclass, field
 from kserve import KServeClient, V1alpha1LLMInferenceService, constants
 from kubernetes import client
-from typing import Any, Callable, List, Dict, Optional
+from typing import Any, Callable, List, Optional
 
 from .diagnostic import (
     print_all_events_table,
@@ -29,12 +29,11 @@ from .diagnostic import (
 )
 from .fixtures import (
     generate_test_id,
-    inject_k8s_proxy,
     create_router_resources,
     delete_router_resources,
-    # Factory functions are not called explicitly, but they need to be imported to work
-    test_case,  # noqa: F401,F811
 )
+# Ensure pytest discovers fixture definitions
+from . import fixtures as _fixtures  # noqa: F401
 from .test_resources import (
     ROUTER_GATEWAYS,
     ROUTER_ROUTES,
@@ -240,8 +239,6 @@ class TestCase:
 )
 @log_execution
 def test_llm_inference_service(test_case: TestCase):
-    inject_k8s_proxy()
-
     kserve_client = KServeClient(
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config"),
         client_configuration=client.Configuration(),

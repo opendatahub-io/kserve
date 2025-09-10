@@ -23,7 +23,7 @@ ROUTER_GATEWAYS = [
             "namespace": KSERVE_TEST_NAMESPACE,
         },
         "spec": {
-            "gatewayClassName": "istio",
+            "gatewayClassName": "openshift-default",
             "listeners": [
                 {
                     "name": "http",
@@ -46,7 +46,7 @@ ROUTER_GATEWAYS = [
             "namespace": KSERVE_TEST_NAMESPACE,
         },
         "spec": {
-            "gatewayClassName": "istio",
+            "gatewayClassName": "openshift-default",
             "listeners": [
                 {
                     "name": "http",
