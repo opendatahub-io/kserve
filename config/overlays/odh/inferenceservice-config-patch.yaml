@@ -21,7 +21,9 @@ data:
         "cpuRequest": "100m",
         "cpuLimit": "1",
         "enableDirectPvcVolumeMount": true,
-        "enableModelcar": true
+        "enableModelcar": true,
+        "cpuModelcar": "10m",
+        "memoryModelcar": "15Mi"
     }
   ingress: |-
     {
@@ -101,4 +103,16 @@ data:
   security: |-
     {
       "autoMountServiceAccountToken": false
+    }
+
+  localModel: |-
+    {
+      "enabled": true,
+      "jobNamespace": "opendatahub",
+      "defaultJobImage" : "$(kserve-storage-initializer)",
+      "localModelAgentImage": "$(kserve-localmodelnode-agent)",
+      "localModelAgentCpuRequest": "100m",
+      "localModelAgentMemoryRequest": "200Mi",
+      "localModelAgentCpuLimit": "100m",
+      "localModelAgentMemoryLimit": "300Mi"
     }

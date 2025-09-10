@@ -62,6 +62,12 @@ rules:
 - apiGroups:
   - serving.kserve.io
   resources:
+  - localmodelcaches/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - serving.kserve.io
+  resources:
   - localmodelcaches/status
   verbs:
   - get

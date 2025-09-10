@@ -17,6 +17,7 @@ limitations under the License.
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodegroups,verbs=get;list;watch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=clusterstoragecontainers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodes/finalizers,verbs=update
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodes/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
@@ -62,7 +63,7 @@ type LocalModelNodeReconciler struct {
 }
 
 const (
-	MountPath             = "/mnt/models" // Volume mount path for models, must be the same as the value in the DaemonSet spec
+	MountPath             = "/var/lib/kserve" // Volume mount path for models, must be the same as the value in the DaemonSet spec
 	DownloadContainerName = "kserve-localmodel-download"
 	PvcSourceMountName    = "kserve-pvc-source"
 )
@@ -149,13 +150,17 @@ func (c *LocalModelNodeReconciler) launchJob(ctx context.Context, localModelNode
 							},
 						},
 					},
-					SecurityContext: &corev1.PodSecurityContext{
-						FSGroup: FSGroup,
-					},
+					ServiceAccountName: "kserve-localmodelnode-agent",
 				},
 			},
 		},
 	}
+	if FSGroup != nil {
+		job.Spec.Template.Spec.SecurityContext = &corev1.PodSecurityContext{
+			FSGroup: FSGroup,
+		}
+	}
+
 	if err := controllerutil.SetControllerReference(&localModelNode, job, c.Scheme); err != nil {
 		c.Log.Error(err, "Failed to set controller reference", "name", modelInfo.ModelName)
 		return nil, err
