@@ -25,6 +25,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
+	"sigs.k8s.io/controller-runtime/pkg/log"
+
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/credentials"
@@ -143,7 +145,8 @@ func (r *LLMInferenceServiceReconciler) attachS3ModelArtifact(ctx context.Contex
 			serviceAccount = &corev1.ServiceAccount{}
 			err := r.Client.Get(ctx, types.NamespacedName{Name: "default", Namespace: llmSvc.Namespace}, serviceAccount)
 			if err != nil {
-				return fmt.Errorf("failed to fetch default service account %s/default: %w", llmSvc.Namespace, err)
+				log.FromContext(ctx).Error(err, "Failed to find default service account", "namespace", llmSvc.Namespace)
+				return nil
 			}
 		}
 		// Check for AWS IAM Role for Service Account or AWS IAM User Credentials
@@ -187,7 +190,8 @@ func (r *LLMInferenceServiceReconciler) attachHfModelArtifact(ctx context.Contex
 			serviceAccount = &corev1.ServiceAccount{}
 			err := r.Client.Get(ctx, types.NamespacedName{Name: "default", Namespace: llmSvc.Namespace}, serviceAccount)
 			if err != nil {
-				return fmt.Errorf("failed to fetch default service account %s/default: %w", llmSvc.Namespace, err)
+				log.FromContext(ctx).Error(err, "Failed to find default service account", "namespace", llmSvc.Namespace)
+				return nil
 			}
 		}
 		// Check for service account with secret ref
