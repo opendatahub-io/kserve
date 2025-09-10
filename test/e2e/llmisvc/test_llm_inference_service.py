@@ -28,9 +28,10 @@ from .diagnostic import (
     kinds_matching_by_labels,
 )
 from .fixtures import (
-    generate_test_id,
     create_router_resources,
     delete_router_resources,
+    generate_test_id,
+    inject_k8s_proxy,
 )
 # Ensure pytest discovers fixture definitions
 from . import fixtures as _fixtures  # noqa: F401
@@ -239,6 +240,8 @@ class TestCase:
 )
 @log_execution
 def test_llm_inference_service(test_case: TestCase):
+    inject_k8s_proxy()
+
     kserve_client = KServeClient(
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config"),
         client_configuration=client.Configuration(),
