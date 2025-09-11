@@ -21,19 +21,33 @@ import (
 	"knative.dev/pkg/kmeta"
 )
 
-func (s *SchedulerSpec) InferencePoolName(llmSvc *LLMInferenceService) string {
-	if s == nil || s.Pool == nil || !s.Pool.HasRef() {
+func (in *LLMInferenceService) InferencePoolName() string {
+	s := &SchedulerSpec{}
+	if in.Spec.Router != nil && in.Spec.Router.Scheduler != nil {
+		s = in.Spec.Router.Scheduler
+	}
+
+	if s.Pool == nil || !s.Pool.HasRef() {
 		// This default MUST match the default value set in the well-known presets.
-		return kmeta.ChildName(llmSvc.GetName(), "-inference-pool")
+		return in.DefaultInferencePoolName()
 	}
 	return s.Pool.Ref.Name
 }
 
-func (r *RouterSpec) EPPServiceName(llmSvc *LLMInferenceService) string {
-	if r == nil || r.Route == nil || r.Scheduler == nil || r.Scheduler.Pool == nil || !r.Scheduler.Pool.HasRef() || r.Scheduler.Pool.Spec == nil || r.Scheduler.Pool.Spec.ExtensionRef == nil {
-		return kmeta.ChildName(llmSvc.GetName(), "-epp-service")
+func (in *LLMInferenceService) DefaultInferencePoolName() string {
+	return kmeta.ChildName(in.GetName(), "-inference-pool")
+}
+
+func (in *LLMInferenceService) EPPServiceName() string {
+	s := &SchedulerSpec{}
+	if in.Spec.Router != nil && in.Spec.Router.Scheduler != nil {
+		s = in.Spec.Router.Scheduler
 	}
-	return string(r.Scheduler.Pool.Spec.ExtensionRef.Name)
+
+	if s.Pool == nil || !s.Pool.HasRef() || s.Pool.Spec == nil || s.Pool.Spec.ExtensionRef == nil {
+		return kmeta.ChildName(in.GetName(), "-epp-service")
+	}
+	return string(s.Pool.Spec.ExtensionRef.Name)
 }
 
 func (in *GatewaySpec) HasRefs() bool {
