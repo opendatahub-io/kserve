@@ -72,22 +72,20 @@ else
   exit 1
 fi
 
-
-$SCRIPT_DIR/infra/deploy.cert-manager.sh
-$SCRIPT_DIR/infra/deploy.lws.sh
+"$SCRIPT_DIR/infra/deploy.cert-manager.sh"
+"$SCRIPT_DIR/infra/deploy.lws.sh"
 
 if [ "${WITH_KSERVE}" == "true" ]; then
   kubectl create ns opendatahub || true
-
-  kubectl kustomize config/crd/ | kubectl apply --server-side=true -f -
+  kubectl kustomize "$PROJECT_ROOT/config/crd/" | kubectl apply --server-side=true -f -
   wait_for_crd  llminferenceserviceconfigs.serving.kserve.io  90s
 
-  kustomize build config/overlays/odh | kubectl apply  --server-side=true --force-conflicts -f -
+  kustomize build "$PROJECT_ROOT/config/overlays/odh" | kubectl apply --server-side=true --force-conflicts -f -
   wait_for_pod_ready "opendatahub" "control-plane=kserve-controller-manager" 300s
 fi
 
-$SCRIPT_DIR/infra/deploy.gateway.ingress.sh
+"$SCRIPT_DIR/infra/deploy.gateway.ingress.sh"
 
 if [ "${WITH_KUADRANT}" == "true" ]; then
-  $SCRIPT_DIR/infra/deploy.kuadrant.sh
+  "$SCRIPT_DIR/infra/deploy.kuadrant.sh"
 fi
