@@ -27,9 +27,7 @@ source "$SCRIPT_DIR/common.sh"
 PROJECT_ROOT="$(find_project_root "$SCRIPT_DIR")"
 
 readonly MARKERS="${1:-raw}"
-readonly PARALLELISM="${2:-1}"
-
-readonly DEPLOYMENT_PROFILE="${3:-serverless}"
+readonly DEPLOYMENT_PROFILE="${2:-serverless}"
 validate_deployment_profile "${DEPLOYMENT_PROFILE}"
 
 : "${NS:=opendatahub}"
@@ -90,7 +88,7 @@ fi
 
 if [[ "${DEPLOYMENT_PROFILE}" == "llm-d" ]]; then
   echo "⏳ Installing llm-d prerequisites"
-  $SCRIPT_DIR/setup-llm.sh --skip-kserve
+  $SCRIPT_DIR/setup-llm-d.sh --with-kserve=false
 fi
 
 echo "⏳ Waiting for KServe CRDs"
