@@ -250,14 +250,13 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			}()
 
 			secretName := kmeta.ChildName(svcName, "-secret")
-			hfTokenValue := "test-token"
 			credentialSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      secretName,
 					Namespace: nsName,
 				},
 				StringData: map[string]string{
-					hf.HFTokenKey: hfTokenValue,
+					hf.HFTokenKey: "test-token",
 				},
 			}
 			Expect(envTest.Client.Create(ctx, credentialSecret)).To(Succeed())
@@ -337,8 +336,19 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			// validate the storage initializer credentials are properly set
 			expectedEnvVars := []corev1.EnvVar{
 				{
-					Name:  hf.HFTokenKey,
-					Value: hfTokenValue,
+					Name: hf.HFTokenKey,
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: secretName,
+							},
+							Key: hf.HFTokenKey,
+						},
+					},
+				},
+				{
+					Name:  hf.HFTransfer,
+					Value: "1",
 				},
 			}
 			validateStorageInitializerCredentials(expectedMainDeployment, expectedEnvVars)
@@ -951,14 +961,13 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			}()
 
 			secretName := kmeta.ChildName(svcName, "-secret")
-			hfTokenValue := "test-token"
 			credentialSecret := &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      secretName,
 					Namespace: nsName,
 				},
 				StringData: map[string]string{
-					hf.HFTokenKey: hfTokenValue,
+					hf.HFTokenKey: "test-token",
 				},
 			}
 			Expect(envTest.Client.Create(ctx, credentialSecret)).To(Succeed())
@@ -1056,8 +1065,19 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			// validate the storage initializer credentials in the leader worker sets
 			expectedEnvVars := []corev1.EnvVar{
 				{
-					Name:  hf.HFTokenKey,
-					Value: hfTokenValue,
+					Name: hf.HFTokenKey,
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: secretName,
+							},
+							Key: hf.HFTokenKey,
+						},
+					},
+				},
+				{
+					Name:  hf.HFTransfer,
+					Value: "1",
 				},
 			}
 			validateStorageInitializerCredentialsForLWS(expectedMainLWS, expectedEnvVars)

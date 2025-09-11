@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-set -eu # Exit on error and undefined variables
+set -euo pipefail # Exit on error, undefined variables, and pipeline failures
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 source "${SCRIPT_DIR}/../common.sh"

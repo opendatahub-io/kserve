@@ -267,6 +267,9 @@ deploy-dev-storageInitializer: docker-push-storageInitializer
 deploy-dev-llm: 	
 	./hack/deploy_dev_llm.sh
 
+deploy-dev-llm-ocp:
+	./test/scripts/openshift-ci/setup-llm.sh --deploy-kuadrant
+
 deploy-ci: manifests
 	kubectl apply --server-side=true --force-conflicts -k config/crd
 	kubectl wait --for=condition=established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
