@@ -39,10 +39,10 @@ get_openshift_server_version() {
   return 1
 }
 
-# version_compare <version1> <version2>
+# is_version_newer <version1> <version2>
 #   Compares two version strings in semantic version format (e.g., "4.19.9")
 #   Returns 0 if version1 >= version2, 1 otherwise
-version_compare() {
+is_version_newer() {
   local version1="$1"
   local version2="$2"
   
