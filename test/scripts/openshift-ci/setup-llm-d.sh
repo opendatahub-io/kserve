@@ -72,7 +72,6 @@ else
   exit 1
 fi
 
-exit 0
 
 $SCRIPT_DIR/infra/deploy.cert-manager.sh
 $SCRIPT_DIR/infra/deploy.lws.sh
