@@ -32,9 +32,9 @@ from .fixtures import (
     delete_router_resources,
     generate_test_id,
     inject_k8s_proxy,
+    # Factory functions are not called explicitly, but they need to be imported to work
+    test_case,  # noqa: F401,F811
 )
-# Ensure pytest discovers fixture definitions
-from . import fixtures as _fixtures  # noqa: F401
 from .test_resources import (
     ROUTER_GATEWAYS,
     ROUTER_ROUTES,
