@@ -749,7 +749,7 @@ INGRESS_NS=openshift-ingress
 GW_CLASS_NAME=openshift-default
 
 #If you install OSSM 3.1 manually, use this
-#GW_CLASS_NAME=istio
+GW_CLASS_NAME=istio
 
 kubectl create namespace ${INGRESS_NS} || true
 
