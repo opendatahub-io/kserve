@@ -1,0 +1,125 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: qwen2-7b-instruct-pd
+spec:
+  replicas: 3
+  model:
+    uri: hf://Qwen/Qwen2.5-7B-Instruct
+    name: Qwen/Qwen2.5-7B-Instruct
+  router:
+    scheduler:
+      template:
+        containers:
+        # ALWAYS DO PD IN THIS EXAMPLE (THRESHOLD 0)
+        - name: main
+          args:
+          - -v=4 # Debug level
+          - --poolName
+          - qwen2-7b-instruct-pd-inference-pool
+          - --poolNamespace
+          - llm-test
+          - --zap-encoder
+          - json
+          - --grpcPort
+          - "9002"
+          - --grpcHealthPort
+          - "9003"
+          - --secureServing
+          - --modelServerMetricsScheme
+          - https
+          - --modelServerMetricsHttpsInsecureSkipVerify
+          - --certPath
+          - /etc/ssl/certs
+          - --configText
+          - |2
+
+            apiVersion: inference.networking.x-k8s.io/v1alpha1
+            kind: EndpointPickerConfig
+            plugins:
+            - type: pd-profile-handler
+              parameters:
+                threshold: 0
+            - type: prefill-header-handler
+            - type: prefill-filter
+            - type: decode-filter
+            - type: prefix-cache-scorer
+            - type: load-aware-scorer
+            - type: max-score-picker
+            schedulingProfiles:
+            - name: prefill
+              plugins:
+              - pluginRef: prefill-filter
+              - pluginRef: prefix-cache-scorer
+                weight: 2.0
+              - pluginRef: load-aware-scorer
+                weight: 1.0
+              - pluginRef: max-score-picker
+            - name: decode
+              plugins:
+              - pluginRef: decode-filter
+              - pluginRef: prefix-cache-scorer
+                weight: 2.0
+              - pluginRef: load-aware-scorer
+                weight: 1.0
+              - pluginRef: max-score-picker
+    route: { }
+    gateway: { }
+  template:
+    containers:
+      - name: main
+        env:
+          - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: VLLM_ADDITIONAL_ARGS
+            value: "--kv_transfer_config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_both\"}'"
+        resources:
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            nvidia.com/gpu: "1"
+          requests:
+            cpu: '2'
+            memory: 16Gi
+            nvidia.com/gpu: "1"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+            scheme: HTTPS
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 30
+          failureThreshold: 5
+  prefill:
+    replicas: 2
+    template:
+      containers:
+        - name: main
+          env:
+            - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: VLLM_ADDITIONAL_ARGS
+              value: "--kv_transfer_config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_both\"}'"
+          resources:
+            limits:
+              cpu: '4'
+              memory: 32Gi
+              nvidia.com/gpu: "1"
+            requests:
+              cpu: '2'
+              memory: 16Gi
+              nvidia.com/gpu: "1"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+              scheme: HTTPS
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 30
+            failureThreshold: 5

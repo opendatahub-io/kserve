@@ -23,6 +23,8 @@ spec:
                 grep -H . /sys/class/infiniband/*/ports/*/gids/* 2>/dev/null
                 grep -H . /sys/class/infiniband/*/ports/*/gid_attrs/types/* 2>/dev/null
               
+                cat /proc/driver/nvidia/params
+              
                 KSERVE_INFER_IB_GID_INDEX_GREP=${KSERVE_INFER_IB_GID_INDEX_GREP:-"RoCE v2"}
               
                 echo "[Infer RoCE] Discovering active HCAs ..."
@@ -56,7 +58,7 @@ spec:
                     hcas=$(IFS=,; echo "${active_hcas[*]}")
                     echo "[Infer RoCE] Setting active HCAs: ${hcas}"
                     export NCCL_IB_HCA=${NCCL_IB_HCA:-${hcas}}
-                    export NVSHMEM_HCA_LIST=${NVSHMEM_HCA_LIST:-${hcas}}
+                    export NVSHMEM_HCA_LIST=${NVSHMEM_HCA_LIST:-${ucx_hcas}}
                     export UCX_NET_DEVICES=${UCX_NET_DEVICES:-${ucx_hcas}}
 
                     echo "[Infer RoCE] NCCL_IB_HCA=${NCCL_IB_HCA}"
@@ -239,6 +241,8 @@ spec:
                 grep -H . /sys/class/infiniband/*/ports/*/gids/* 2>/dev/null
                 grep -H . /sys/class/infiniband/*/ports/*/gid_attrs/types/* 2>/dev/null
               
+                cat /proc/driver/nvidia/params
+              
                 KSERVE_INFER_IB_GID_INDEX_GREP=${KSERVE_INFER_IB_GID_INDEX_GREP:-"RoCE v2"}
               
                 echo "[Infer RoCE] Discovering active HCAs ..."
@@ -272,7 +276,7 @@ spec:
                     hcas=$(IFS=,; echo "${active_hcas[*]}")
                     echo "[Infer RoCE] Setting active HCAs: ${hcas}"
                     export NCCL_IB_HCA=${NCCL_IB_HCA:-${hcas}}
-                    export NVSHMEM_HCA_LIST=${NVSHMEM_HCA_LIST:-${hcas}}
+                    export NVSHMEM_HCA_LIST=${NVSHMEM_HCA_LIST:-${ucx_hcas}}
                     export UCX_NET_DEVICES=${UCX_NET_DEVICES:-${ucx_hcas}}
 
                     echo "[Infer RoCE] NCCL_IB_HCA=${NCCL_IB_HCA}"
