@@ -134,6 +134,8 @@ type OauthConfig struct {
 	CpuRequest    string `json:"cpuRequest"`
 	MemoryLimit   string `json:"memoryLimit"`
 	MemoryRequest string `json:"memoryRequest"`
+	// +listType=atomic
+	SkipAuthRegex []string `json:"skipAuthRegex,omitempty"`
 }
 
 // +kubebuilder:object:generate=false
