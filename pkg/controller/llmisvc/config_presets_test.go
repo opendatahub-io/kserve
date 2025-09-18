@@ -76,7 +76,7 @@ func TestPresetFiles(t *testing.T) {
 									VolumeSource: corev1.VolumeSource{
 										EmptyDir: &corev1.EmptyDirVolumeSource{
 											Medium:    corev1.StorageMediumMemory,
-											SizeLimit: ptr.To(resource.MustParse("1Gi")),
+											SizeLimit: ptr.To(resource.MustParse("8Gi")),
 										},
 									},
 								},
@@ -279,7 +279,7 @@ func TestPresetFiles(t *testing.T) {
 									VolumeSource: corev1.VolumeSource{
 										EmptyDir: &corev1.EmptyDirVolumeSource{
 											Medium:    corev1.StorageMediumMemory,
-											SizeLimit: ptr.To(resource.MustParse("1Gi")),
+											SizeLimit: ptr.To(resource.MustParse("8Gi")),
 										},
 									},
 								},
