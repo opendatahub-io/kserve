@@ -73,6 +73,9 @@ spec:
           - "-c"
         args:
           - |-
+            # In some versions, ZMQ bind doesn't resolve the address through DNS
+            DP_ADDRESS=$(getent hosts ${LWS_LEADER_ADDRESS} | cut -d' ' -f1)
+            echo "DP_ADDRESS=${DP_ADDRESS}"
             
             if [ "$KSERVE_INFER_ROCE" = "true" ]; then
               echo "Trying to infer RoCE configs ... "
@@ -205,7 +208,7 @@ spec:
               {{- if .Spec.Parallelism.Tensor -}}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
               --data-parallel-size {{ or .Spec.Parallelism.Data 1 }} \
               --data-parallel-size-local {{ or .Spec.Parallelism.DataLocal 1 }} \
-              --data-parallel-address $(LWS_LEADER_ADDRESS) \
+              --data-parallel-address ${DP_ADDRESS} \
               --data-parallel-rpc-port {{ if .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
               --data-parallel-start-rank $START_RANK \
               ${VLLM_ADDITIONAL_ARGS} \
@@ -271,7 +274,7 @@ spec:
         name: home
       - emptyDir:
           medium: Memory
-          sizeLimit: 1Gi
+          sizeLimit: 8Gi
         name: dshm
       - emptyDir: { }
         name: model-cache
@@ -291,6 +294,9 @@ spec:
           - "-c"
         args:
           - |-
+            # In some versions, ZMQ bind doesn't resolve the address through DNS
+            DP_ADDRESS=$(getent hosts ${LWS_LEADER_ADDRESS} | cut -d' ' -f1)
+            echo "DP_ADDRESS=${DP_ADDRESS}"
             
             if [ "$KSERVE_INFER_ROCE" = "true" ]; then
               echo "Trying to infer RoCE configs ... "
@@ -422,7 +428,7 @@ spec:
               {{- if .Spec.Parallelism.Tensor }}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
               --data-parallel-size {{ or .Spec.Parallelism.Data 1 }} \
               --data-parallel-size-local {{ or .Spec.Parallelism.DataLocal 1 }} \
-              --data-parallel-address $(LWS_LEADER_ADDRESS) \
+              --data-parallel-address ${DP_ADDRESS} \
               --data-parallel-rpc-port {{ if .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
               --data-parallel-start-rank $START_RANK \
               ${VLLM_ADDITIONAL_ARGS} \
@@ -473,7 +479,7 @@ spec:
         name: home
       - emptyDir:
           medium: Memory
-          sizeLimit: 1Gi
+          sizeLimit: 8Gi
         name: dshm
       - emptyDir: { }
         name: model-cache
