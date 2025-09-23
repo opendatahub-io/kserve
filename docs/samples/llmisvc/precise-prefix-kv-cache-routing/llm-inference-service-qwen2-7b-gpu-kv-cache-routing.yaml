@@ -10,8 +10,11 @@ spec:
   router:
     scheduler:
       template:
+        imagePullSecrets:
+          - name: "quay-rhoai"
         containers:
           - name: main
+            image: quay.io/rhoai/odh-llm-d-inference-scheduler-rhel9:rhoai-2.25
             args:
               - -v=4 # Debug level
               - --poolName
