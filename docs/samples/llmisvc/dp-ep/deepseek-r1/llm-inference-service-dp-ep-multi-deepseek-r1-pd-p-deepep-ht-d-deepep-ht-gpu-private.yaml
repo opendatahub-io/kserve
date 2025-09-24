@@ -3,11 +3,12 @@ kind: LLMInferenceService
 metadata:
   name: deepseek-r1-0528-pd
   annotations:
+    # See network-roce-p2.yaml as an example (cluster and hardware specific)
     k8s.v1.cni.cncf.io/networks: roce-p2
-#    k8s.v1.cni.cncf.io/networks: multi-nic-compute
-
 spec:
   model:
+    # Initialize PVC following the example in /docs/samples/storage/pvc-init (recommended) or use the HuggingFace
+    # alternative
     uri: pvc://llm-test-pvc
     #    uri: hf://deepseek-ai/DeepSeek-R1-0528
     name: deepseek-ai/DeepSeek-R1-0528
@@ -25,6 +26,7 @@ spec:
         containers:
           - name: main
             image: quay.io/rhoai/odh-llm-d-inference-scheduler-rhel9:rhoai-2.25
+            # ALWAYS DO PD IN THIS EXAMPLE (THRESHOLD 0)
             args:
               - -v=4 # Debug level
               - --poolName
@@ -78,6 +80,8 @@ spec:
     route: { }
     gateway: { }
   template:
+    # Select specific healthy nodes to run the workload. This is useful if there are hardware failures (broken NVLinks, etc)
+    # that are not visible to the k8s scheduler, and we want to reduce the possible nodes to schedule the pods to.
     affinity:
       nodeAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
@@ -105,8 +109,13 @@ spec:
           - name: CUDA_DEVICE_ORDER
             value: "PCI_BUS_ID"
           # Memory optimizations
-#          - name: VLLM_MOE_DP_CHUNK_SIZE
-#            value: "32"
+          # In the context of executing MoE models with Data-Parallel, Expert-Parallel
+          # and Batched All-to-All dispatch/combine kernels, VLLM_MOE_DP_CHUNK_SIZE
+          # dictates the quantum of tokens that can be dispatched from a DP
+          # rank. All DP ranks process the activations in VLLM_MOE_DP_CHUNK_SIZE
+          # units. The default is 256, reducing it will reduce VRAM requirements.
+          #- name: VLLM_MOE_DP_CHUNK_SIZE
+          #  value: "32"
           - name: VLLM_ADDITIONAL_ARGS
             value: "--gpu-memory-utilization 0.99 --max-model-len 4096 --enforce-eager --kv_transfer_config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_both\"}'"
           - name: VLLM_NIXL_SIDE_CHANNEL_HOST
@@ -114,8 +123,7 @@ spec:
               fieldRef:
                 fieldPath: status.podIP
           - name: VLLM_ALL2ALL_BACKEND
-            value: pplx
-#            value: deepep_high_throughput
+            value: deepep_high_throughput
 #            value: deepep_low_latency
           - name: PYTORCH_CUDA_ALLOC_CONF
             value: "expandable_segments:True"
@@ -205,6 +213,8 @@ spec:
           seccompProfile:
             type: RuntimeDefault
   worker:
+    # Select specific healthy nodes to run the workload. This is useful if there are hardware failures (broken NVLinks, etc)
+    # that are not visible to the k8s scheduler, and we want to reduce the possible nodes to schedule the pods to.
     affinity:
       nodeAffinity:
         requiredDuringSchedulingIgnoredDuringExecution:
@@ -232,8 +242,13 @@ spec:
           - name: CUDA_DEVICE_ORDER
             value: "PCI_BUS_ID"
           # Memory optimizations
-#          - name: VLLM_MOE_DP_CHUNK_SIZE
-#            value: "32"
+          # In the context of executing MoE models with Data-Parallel, Expert-Parallel
+          # and Batched All-to-All dispatch/combine kernels, VLLM_MOE_DP_CHUNK_SIZE
+          # dictates the quantum of tokens that can be dispatched from a DP
+          # rank. All DP ranks process the activations in VLLM_MOE_DP_CHUNK_SIZE
+          # units. The default is 256, reducing it will reduce VRAM requirements.
+          #- name: VLLM_MOE_DP_CHUNK_SIZE
+          #  value: "32"
           - name: VLLM_ADDITIONAL_ARGS
             value: "--gpu-memory-utilization 0.99 --max-model-len 4096 --enforce-eager --kv_transfer_config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_both\"}'"
           - name: VLLM_NIXL_SIDE_CHANNEL_HOST
@@ -241,8 +256,7 @@ spec:
               fieldRef:
                 fieldPath: status.podIP
           - name: VLLM_ALL2ALL_BACKEND
-            value: pplx
-#            value: deepep_high_throughput
+            value: deepep_high_throughput
 #            value: deepep_low_latency
           - name: PYTORCH_CUDA_ALLOC_CONF
             value: "expandable_segments:True"
@@ -276,12 +290,6 @@ spec:
             value: "1"
           - name: NVSHMEM_IBGDA_NIC_HANDLER
             value: "gpu"
-          #          - name: NVSHMEM_IBGDA_RC_MAP_BY
-          #            value: "warp"
-          #          - name: NVSHMEM_IBGDA_DCI_MAP_BY
-          #            value: "cta"
-          #          - name: NVSHMEM_IBGDA_NUM_REQUESTS_IN_BATCH
-          #            value: "32"
           - name: NVSHMEM_DEBUG
             value: WARN
           # UCX configuration for NVSHMEM
@@ -330,6 +338,8 @@ spec:
       expert: true
       tensor: 1
     template:
+      # Select specific healthy nodes to run the workload. This is useful if there are hardware failures (broken NVLinks, etc)
+      # that are not visible to the k8s scheduler, and we want to reduce the possible nodes to schedule the pods to.
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -397,12 +407,6 @@ spec:
               value: "1"
             - name: NVSHMEM_IBGDA_NIC_HANDLER
               value: "gpu"
-            # - name: NVSHMEM_IBGDA_RC_MAP_BY
-            #   value: "warp"
-            # - name: NVSHMEM_IBGDA_DCI_MAP_BY
-            #   value: "cta"
-            # - name: NVSHMEM_IBGDA_NUM_REQUESTS_IN_BATCH
-            #   value: "32"
             - name: NVSHMEM_DEBUG
               value: WARN
             # UCX configuration for NVSHMEM
@@ -453,6 +457,8 @@ spec:
             seccompProfile:
               type: RuntimeDefault
     worker:
+      # Select specific healthy nodes to run the workload. This is useful if there are hardware failures (broken NVLinks, etc)
+      # that are not visible to the k8s scheduler, and we want to reduce the possible nodes to schedule the pods to.
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -520,12 +526,6 @@ spec:
               value: "1"
             - name: NVSHMEM_IBGDA_NIC_HANDLER
               value: "gpu"
-            #          - name: NVSHMEM_IBGDA_RC_MAP_BY
-            #            value: "warp"
-            #          - name: NVSHMEM_IBGDA_DCI_MAP_BY
-            #            value: "cta"
-            #          - name: NVSHMEM_IBGDA_NUM_REQUESTS_IN_BATCH
-            #            value: "32"
             - name: NVSHMEM_DEBUG
               value: WARN
             # UCX configuration for NVSHMEM
