@@ -2,8 +2,10 @@ apiVersion: serving.kserve.io/v1alpha1
 kind: LLMInferenceService
 metadata:
   name: qwen2-7b-instruct-pd
+  annotations:
+    k8s.v1.cni.cncf.io/networks: roce-p2
 spec:
-  replicas: 3
+  replicas: 1
   model:
     uri: hf://Qwen/Qwen2.5-7B-Instruct
     name: Qwen/Qwen2.5-7B-Instruct
@@ -69,21 +71,27 @@ spec:
     containers:
       - name: main
         env:
+          - name: KSERVE_INFER_ROCE
+            value: "true"
           - name: VLLM_NIXL_SIDE_CHANNEL_HOST
             valueFrom:
               fieldRef:
                 fieldPath: status.podIP
           - name: VLLM_ADDITIONAL_ARGS
             value: "--kv_transfer_config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_both\"}'"
+          - name: UCX_PROTO_INFO
+            value: "y"
         resources:
           limits:
             cpu: '4'
             memory: 32Gi
             nvidia.com/gpu: "1"
+            rdma/roce_gdr: 1
           requests:
             cpu: '2'
             memory: 16Gi
             nvidia.com/gpu: "1"
+            rdma/roce_gdr: 1
         livenessProbe:
           httpGet:
             path: /health
@@ -94,26 +102,32 @@ spec:
           timeoutSeconds: 30
           failureThreshold: 5
   prefill:
-    replicas: 2
+    replicas: 1
     template:
       containers:
         - name: main
           env:
+            - name: KSERVE_INFER_ROCE
+              value: "true"
             - name: VLLM_NIXL_SIDE_CHANNEL_HOST
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
             - name: VLLM_ADDITIONAL_ARGS
               value: "--kv_transfer_config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_both\"}'"
+            - name: UCX_PROTO_INFO
+              value: "y"
           resources:
             limits:
               cpu: '4'
               memory: 32Gi
               nvidia.com/gpu: "1"
+              rdma/roce_gdr: 1
             requests:
               cpu: '2'
               memory: 16Gi
               nvidia.com/gpu: "1"
+              rdma/roce_gdr: 1
           livenessProbe:
             httpGet:
               path: /health

@@ -2,7 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-- generated-manifest.yaml
+- generated-manifest.yaml # ./test/scripts/gh-actions/setup-deps.sh updates manifests on the fly
 
 patches:
 - path: istio_ingressgateway_patch.yaml
