@@ -138,7 +138,7 @@ func getEnvValue(annotations map[string]string, secretData *map[string][]byte, a
 	if annotationValue, ok := annotations[annotationKey]; ok {
 		envValue = annotationValue
 	} else if secretValue, ok := getSecretValueFromPtr(secretData, secretDataKey); ok {
-		envValue = string(secretValue)
+		envValue = secretValue
 	} else {
 		envValue = s3ConfigValue
 	}
