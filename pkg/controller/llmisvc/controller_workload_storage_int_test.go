@@ -391,6 +391,10 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 						},
 					},
 				},
+				{
+					Name:  hf.HFTransfer,
+					Value: "1",
+				},
 			}
 			validateStorageInitializerCredentials(expectedMainDeployment, expectedEnvVars)
 			validateStorageInitializerCredentials(expectedPrefillDeployment, expectedEnvVars)
@@ -1345,6 +1349,10 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 							Key: hf.HFTokenKey,
 						},
 					},
+				},
+				{
+					Name:  hf.HFTransfer,
+					Value: "1",
 				},
 			}
 			validateStorageInitializerCredentialsForLWS(expectedMainLWS, expectedEnvVars)

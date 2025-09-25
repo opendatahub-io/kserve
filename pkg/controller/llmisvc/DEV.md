@@ -914,27 +914,6 @@ curl -v -X POST "${LB_URL}/v1/chat/completions" \
 }' | jq
 ```
 
-```shell
-curl -v -X POST "${LB_URL}/v1/chat/completions" \
--H "Content-Type: application/json" \
--d '{
-    "model": "deepseek-ai/DeepSeek-R1-0528",
-    "messages": [
-        {
-            "role": "system",
-            "content": "You are DevBot Pro, a highly sophisticated AI developer assistant. Your purpose is to provide detailed, accurate, and educational information about software design and development."
-        },
-        {
-            "role": "user",
-            "content": "How do I implement AllReduce with Nvidia NCCL?"
-        }
-    ],
-    "max_tokens": 2048,
-    "temperature": 0.4,
-    "top_p": 0.9
-}' | jq
-```
-
 #### Example evaluation
 
 ##### Using lm_eval directory
