@@ -1,0 +1,105 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: qwen2-7b-kv-cache-routing
+spec:
+  model:
+    uri: hf://Qwen/Qwen2.5-7B-Instruct
+    name: Qwen/Qwen2.5-7B-Instruct
+  replicas: 2
+  router:
+    scheduler:
+      template:
+        imagePullSecrets:
+          - name: "quay-rhoai"
+        containers:
+          - name: main
+            image: quay.io/rhoai/odh-llm-d-inference-scheduler-rhel9:rhoai-2.25
+            args:
+              - -v=4 # Debug level
+              - --poolName
+              - qwen2-7b-kv-cache-routing-inference-pool
+              - --poolNamespace
+              - llm-test
+              - --zap-encoder
+              - json
+              - --grpcPort
+              - "9002"
+              - --grpcHealthPort
+              - "9003"
+              - --secureServing
+              - --modelServerMetricsScheme
+              - https
+              - --modelServerMetricsHttpsInsecureSkipVerify
+              - --certPath
+              - /etc/ssl/certs
+              - --configText
+              - |2
+              
+                apiVersion: inference.networking.x-k8s.io/v1alpha1
+                kind: EndpointPickerConfig
+                plugins:
+                - type: single-profile-handler
+                - type: prefix-cache-scorer
+                  parameters:
+                    mode: cache_tracking
+                    indexerConfig:
+                      tokenProcessorConfig:
+                        blockSize: 64                         # must match vLLM block size if not default (16)
+                        hashSeed: "42"                        # must match PYTHONHASHSEED in vLLM pods
+                      kvBlockIndexConfig:
+                        enableMetrics: true                   # enable kv-block index metrics (prometheus)
+                        metricsLoggingInterval: 60000000000   # log kv-block metrics as well (1m in nanoseconds)
+                - type: load-aware-scorer
+                - type: max-score-picker
+                schedulingProfiles:
+                  - name: default
+                    plugins:
+                      - pluginRef: prefix-cache-scorer
+                        weight: 2.0
+                      - pluginRef: load-aware-scorer
+                        weight: 1.0
+                      - pluginRef: max-score-picker
+    route: { }
+    gateway: { }
+  template:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values:
+                    - pokprod-b93r39s1
+                    - pokprod-b93r38s1
+    containers:
+      - name: main
+        env:
+          - name: VLLM_ADDITIONAL_ARGS
+            value: "--prefix-caching-hash-algo sha256_cbor_64bit --block-size 64 --kv_transfer_config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_both\"}' --kv-events-config '{\"enable_kv_cache_events\":true,\"publisher\":\"zmq\",\"endpoint\":\"tcp://{{ ChildName .ObjectMeta.Name `-epp-service` }}:5557\",\"topic\":\"kv@${POD_IP}@Qwen/Qwen3-0.6B\"}'"
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.podIP
+          - name: PYTHONHASHSEED
+            value: "42"
+        resources:
+          limits:
+            cpu: '4'
+            memory: 32Gi
+            nvidia.com/gpu: "1"
+          requests:
+            cpu: '2'
+            memory: 16Gi
+            nvidia.com/gpu: "1"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+            scheme: HTTPS
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          timeoutSeconds: 30
+          failureThreshold: 5

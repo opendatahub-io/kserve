@@ -36,7 +36,7 @@ func TestBuildSecretEnvs_WithToken(t *testing.T) {
 
 	envs := BuildSecretEnvs(secret)
 
-	assert.Len(t, envs, 2)
+	assert.Len(t, envs, 1)
 	assert.Equal(t, HFTokenKey, envs[0].Name)
 	assert.Equal(t, HFTokenKey, envs[0].ValueFrom.SecretKeyRef.Key)
 	assert.Equal(t, secret.Name, envs[0].ValueFrom.SecretKeyRef.LocalObjectReference.Name)

@@ -2,15 +2,10 @@ apiVersion: serving.kserve.io/v1alpha1
 kind: LLMInferenceService
 metadata:
   name: qwen2-7b-instruct-pd
-<<<<<<< HEAD
-spec:
-  replicas: 3
-=======
   annotations:
     k8s.v1.cni.cncf.io/networks: roce-p2
 spec:
   replicas: 1
->>>>>>> odh/release-v0.15
   model:
     uri: hf://Qwen/Qwen2.5-7B-Instruct
     name: Qwen/Qwen2.5-7B-Instruct
@@ -23,9 +18,9 @@ spec:
           args:
           - -v=4 # Debug level
           - --poolName
-          - qwen2-7b-instruct-pd-inference-pool
+          - "{{ ChildName .ObjectMeta.Name `-inference-pool` }}"
           - --poolNamespace
-          - llm-test
+          - "{{ .ObjectMeta.Namespace }}"
           - --zap-encoder
           - json
           - --grpcPort
@@ -73,42 +68,42 @@ spec:
     route: { }
     gateway: { }
   template:
+    affinity:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+            - matchExpressions:
+                - key: kubernetes.io/hostname
+                  operator: In
+                  values:
+                    - pokprod-b93r38s1
+    imagePullSecrets:
+    - name: "quay-registry-wseaton"
     containers:
       - name: main
+        image: quay.io/aipcc/rhaiis/cuda-ubi9:3.2.2-1757699034
         env:
-<<<<<<< HEAD
-=======
           - name: KSERVE_INFER_ROCE
             value: "true"
->>>>>>> odh/release-v0.15
           - name: VLLM_NIXL_SIDE_CHANNEL_HOST
             valueFrom:
               fieldRef:
                 fieldPath: status.podIP
           - name: VLLM_ADDITIONAL_ARGS
             value: "--kv_transfer_config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_both\"}'"
-<<<<<<< HEAD
-=======
           - name: UCX_PROTO_INFO
             value: "y"
->>>>>>> odh/release-v0.15
         resources:
           limits:
             cpu: '4'
             memory: 32Gi
             nvidia.com/gpu: "1"
-<<<<<<< HEAD
-=======
             rdma/roce_gdr: 1
->>>>>>> odh/release-v0.15
           requests:
             cpu: '2'
             memory: 16Gi
             nvidia.com/gpu: "1"
-<<<<<<< HEAD
-=======
             rdma/roce_gdr: 1
->>>>>>> odh/release-v0.15
         livenessProbe:
           httpGet:
             path: /health
@@ -119,48 +114,44 @@ spec:
           timeoutSeconds: 30
           failureThreshold: 5
   prefill:
-<<<<<<< HEAD
-    replicas: 2
-=======
     replicas: 1
->>>>>>> odh/release-v0.15
     template:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - key: kubernetes.io/hostname
+                    operator: In
+                    values:
+                      - pokprod-b93r39s1
+      imagePullSecrets:
+        - name: "quay-registry-wseaton"
       containers:
         - name: main
+          image: quay.io/aipcc/rhaiis/cuda-ubi9:3.2.2-1757699034
           env:
-<<<<<<< HEAD
-=======
             - name: KSERVE_INFER_ROCE
               value: "true"
->>>>>>> odh/release-v0.15
             - name: VLLM_NIXL_SIDE_CHANNEL_HOST
               valueFrom:
                 fieldRef:
                   fieldPath: status.podIP
             - name: VLLM_ADDITIONAL_ARGS
               value: "--kv_transfer_config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_both\"}'"
-<<<<<<< HEAD
-=======
             - name: UCX_PROTO_INFO
               value: "y"
->>>>>>> odh/release-v0.15
           resources:
             limits:
               cpu: '4'
               memory: 32Gi
               nvidia.com/gpu: "1"
-<<<<<<< HEAD
-=======
               rdma/roce_gdr: 1
->>>>>>> odh/release-v0.15
             requests:
               cpu: '2'
               memory: 16Gi
               nvidia.com/gpu: "1"
-<<<<<<< HEAD
-=======
               rdma/roce_gdr: 1
->>>>>>> odh/release-v0.15
           livenessProbe:
             httpGet:
               path: /health

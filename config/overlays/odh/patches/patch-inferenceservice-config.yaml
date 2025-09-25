@@ -17,7 +17,7 @@ data:
     {
         "image" : "$(kserve-storage-initializer)",
         "memoryRequest": "100Mi",
-        "memoryLimit": "200Gi",
+        "memoryLimit": "24Gi",
         "cpuRequest": "100m",
         "cpuLimit": "1",
         "enableDirectPvcVolumeMount": true,

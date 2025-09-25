@@ -74,8 +74,24 @@ spec:
         args:
           - |-
             # In some versions, ZMQ bind doesn't resolve the address through DNS
-            DP_ADDRESS=$(getent hosts ${LWS_LEADER_ADDRESS} | cut -d' ' -f1)
-            echo "DP_ADDRESS=${DP_ADDRESS}"
+            # Retry DP_ADDRESS resolution (configurable attempts, default 30)
+            RESOLVE_ATTEMPTS=${DP_ADDRESS_RESOLVE_ATTEMPTS:-30}
+            for ((i=1; i<=RESOLVE_ATTEMPTS; i++)); do
+              DP_ADDRESS=$(getent hosts ${LWS_LEADER_ADDRESS} | cut -d' ' -f1)
+              if [ -n "$DP_ADDRESS" ]; then
+                echo "DP_ADDRESS=${DP_ADDRESS} (resolved on attempt $i)"
+                break
+              else
+                echo "DP_ADDRESS resolution failed on attempt $i, retrying..."
+                sleep 1
+              fi
+            done
+
+            if [ -z "$DP_ADDRESS" ]; then
+              echo "WARNING: Failed to resolve DP_ADDRESS after ${RESOLVE_ATTEMPTS} attempts, falling back to LWS_LEADER_ADDRESS"
+              DP_ADDRESS=${LWS_LEADER_ADDRESS}
+              echo "DP_ADDRESS=${DP_ADDRESS} (fallback)"
+            fi
             
             if [ "$KSERVE_INFER_ROCE" = "true" ]; then
               echo "Trying to infer RoCE configs ... "
@@ -295,8 +311,24 @@ spec:
         args:
           - |-
             # In some versions, ZMQ bind doesn't resolve the address through DNS
-            DP_ADDRESS=$(getent hosts ${LWS_LEADER_ADDRESS} | cut -d' ' -f1)
-            echo "DP_ADDRESS=${DP_ADDRESS}"
+            # Retry DP_ADDRESS resolution (configurable attempts, default 30)
+            RESOLVE_ATTEMPTS=${DP_ADDRESS_RESOLVE_ATTEMPTS:-30}
+            for ((i=1; i<=RESOLVE_ATTEMPTS; i++)); do
+              DP_ADDRESS=$(getent hosts ${LWS_LEADER_ADDRESS} | cut -d' ' -f1)
+              if [ -n "$DP_ADDRESS" ]; then
+                echo "DP_ADDRESS=${DP_ADDRESS} (resolved on attempt $i)"
+                break
+              else
+                echo "DP_ADDRESS resolution failed on attempt $i, retrying..."
+                sleep 1
+              fi
+            done
+
+            if [ -z "$DP_ADDRESS" ]; then
+              echo "WARNING: Failed to resolve DP_ADDRESS after ${RESOLVE_ATTEMPTS} attempts, falling back to LWS_LEADER_ADDRESS"
+              DP_ADDRESS=${LWS_LEADER_ADDRESS}
+              echo "DP_ADDRESS=${DP_ADDRESS} (fallback)"
+            fi
             
             if [ "$KSERVE_INFER_ROCE" = "true" ]; then
               echo "Trying to infer RoCE configs ... "

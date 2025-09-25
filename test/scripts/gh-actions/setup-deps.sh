@@ -76,7 +76,10 @@ if [[ $NETWORK_LAYER == "istio-ingress" || $NETWORK_LAYER == "istio-gatewayapi" 
   curl -L https://istio.io/downloadIstio | ISTIO_VERSION=${ISTIO_VERSION} sh -
   cd istio-${ISTIO_VERSION}
   export PATH=$PWD/bin:$PATH
-  istioctl manifest generate --set meshConfig.accessLogFile=/dev/stdout >${SCRIPT_DIR}/../../overlays/istio/generated-manifest.yaml
+  { 
+    printf "## GENERATED - DO NOT EDIT\n## istioctl manifest generate --set meshConfig.accessLogFile=/dev/stdout > test/overlays/istio/generated-manifest.yaml\n"; 
+    istioctl manifest generate --set meshConfig.accessLogFile=/dev/stdout; 
+  } > ${SCRIPT_DIR}/../../overlays/istio/generated-manifest.yaml
   popd
   kubectl create ns istio-system
   for i in {1..3}; do kubectl apply -k test/overlays/istio && break || sleep 15; done

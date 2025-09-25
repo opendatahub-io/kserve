@@ -195,6 +195,18 @@ func AddStorageInitializerContainer(podSpec *corev1.PodSpec, mainContainerName, 
 					Name:  "HF_HOME",
 					Value: "/tmp",
 				},
+				{
+					Name:  "HF_HUB_ENABLE_HF_TRANSFER",
+					Value: "1",
+				},
+				{
+					Name:  "HF_XET_HIGH_PERFORMANCE",
+					Value: "1",
+				},
+				{
+					Name:  "HF_XET_NUM_CONCURRENT_RANGE_GETS",
+					Value: "8",
+				},
 			},
 			Resources: corev1.ResourceRequirements{
 				Limits: map[corev1.ResourceName]resource.Quantity{
