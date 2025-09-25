@@ -42,6 +42,7 @@ const (
 	AWSAnonymousCredential = "awsAnonymousCredential"
 	AWSCABundle            = "AWS_CA_BUNDLE"
 	AWSCABundleConfigMap   = "AWS_CA_BUNDLE_CONFIGMAP"
+	ODHS3Endpoint          = "AWS_S3_ENDPOINT" // ODH only
 )
 
 type S3Config struct {
@@ -105,7 +106,7 @@ func BuildSecretEnvs(secret *corev1.Secret, s3Config *S3Config) []corev1.EnvVar 
 		},
 	}
 
-	envs = append(envs, BuildS3EnvVars(secret.Annotations, s3Config)...)
+	envs = append(envs, BuildS3EnvVars(secret.Annotations, &secret.Data, s3Config)...)
 
 	return envs
 }

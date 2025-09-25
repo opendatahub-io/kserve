@@ -242,6 +242,22 @@ func WithManagedScheduler() LLMInferenceServiceOption {
 	}
 }
 
+func WithInferencePoolRef(poolName string) LLMInferenceServiceOption {
+	return func(llmSvc *v1alpha1.LLMInferenceService) {
+		if llmSvc.Spec.Router == nil {
+			llmSvc.Spec.Router = &v1alpha1.RouterSpec{}
+		}
+		if llmSvc.Spec.Router.Scheduler == nil {
+			llmSvc.Spec.Router.Scheduler = &v1alpha1.SchedulerSpec{}
+		}
+		llmSvc.Spec.Router.Scheduler.Pool = &v1alpha1.InferencePoolSpec{
+			Ref: &corev1.LocalObjectReference{
+				Name: poolName,
+			},
+		}
+	}
+}
+
 func SimpleWorkerPodSpec() *corev1.PodSpec {
 	return &corev1.PodSpec{
 		Containers: []corev1.Container{

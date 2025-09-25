@@ -10,7 +10,7 @@ spec:
     name: deepseek-ai/DeepSeek-V2-Lite-Chat
   replicas: 2
   parallelism:
-    data: 1
+    data: 8
     dataLocal: 8
     expert: true
     tensor: 1
@@ -29,7 +29,7 @@ spec:
         - name: main
           env:
             - name: VLLM_LOGGING_LEVEL
-              value: DEBUG
+              value: INFO
             - name: TRITON_LIBCUDA_PATH
               value: /usr/lib64
             - name: HF_HUB_DISABLE_XET
@@ -102,7 +102,7 @@ spec:
         - name: main
           env:
             - name: VLLM_LOGGING_LEVEL
-              value: DEBUG
+              value: INFO
             - name: TRITON_LIBCUDA_PATH
               value: /usr/lib64
             - name: HF_HUB_DISABLE_XET

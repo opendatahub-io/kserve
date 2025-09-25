@@ -794,8 +794,8 @@ func TestMergeSpecs(t *testing.T) {
 					Model: v1alpha1.LLMModelSpec{
 						URI: apis.URL{Path: "base-model"},
 						LoRA: &v1alpha1.LoRASpec{
-							Adapters: []v1alpha1.ModelSpec{
-								{StorageURI: "s3://bucket/adapter1", Framework: "pytorch", Memory: resource.MustParse("1Gi")},
+							Adapters: []v1alpha1.LLMModelSpec{
+								{URI: apis.URL{Path: "lora-model"}},
 							},
 						},
 					},
@@ -803,8 +803,8 @@ func TestMergeSpecs(t *testing.T) {
 				{
 					Model: v1alpha1.LLMModelSpec{
 						LoRA: &v1alpha1.LoRASpec{
-							Adapters: []v1alpha1.ModelSpec{
-								{StorageURI: "s3://bucket/adapter2", Framework: "pytorch", Memory: resource.MustParse("512Mi")},
+							Adapters: []v1alpha1.LLMModelSpec{
+								{URI: apis.URL{Path: "lora-model2"}},
 							},
 						},
 					},
@@ -814,8 +814,8 @@ func TestMergeSpecs(t *testing.T) {
 				Model: v1alpha1.LLMModelSpec{
 					URI: apis.URL{Path: "base-model"},
 					LoRA: &v1alpha1.LoRASpec{
-						Adapters: []v1alpha1.ModelSpec{
-							{StorageURI: "s3://bucket/adapter2", Framework: "pytorch", Memory: resource.MustParse("512Mi")},
+						Adapters: []v1alpha1.LLMModelSpec{
+							{URI: apis.URL{Path: "lora-model2"}},
 						},
 					},
 				},
@@ -956,8 +956,8 @@ func TestMergeSpecs(t *testing.T) {
 						Name:        ptr.To("base-name"),
 						Criticality: ptr.To(igwapi.Sheddable),
 						LoRA: &v1alpha1.LoRASpec{
-							Adapters: []v1alpha1.ModelSpec{
-								{StorageURI: "base-adapter", Framework: "pytorch", Memory: resource.MustParse("1Gi")},
+							Adapters: []v1alpha1.LLMModelSpec{
+								{URI: apis.URL{Path: "lora-model"}},
 							},
 						},
 					},
@@ -978,8 +978,8 @@ func TestMergeSpecs(t *testing.T) {
 						Name:        ptr.To("override-name"),
 						Criticality: ptr.To(igwapi.Critical),
 						LoRA: &v1alpha1.LoRASpec{
-							Adapters: []v1alpha1.ModelSpec{
-								{StorageURI: "override-adapter", Framework: "tensorflow", Memory: resource.MustParse("2Gi")},
+							Adapters: []v1alpha1.LLMModelSpec{
+								{URI: apis.URL{Path: "lora-model2"}},
 							},
 						},
 					},
@@ -1004,8 +1004,8 @@ func TestMergeSpecs(t *testing.T) {
 					Name:        ptr.To("override-name"),      // Override name
 					Criticality: ptr.To(igwapi.Critical),
 					LoRA: &v1alpha1.LoRASpec{
-						Adapters: []v1alpha1.ModelSpec{
-							{StorageURI: "override-adapter", Framework: "tensorflow", Memory: resource.MustParse("2Gi")},
+						Adapters: []v1alpha1.LLMModelSpec{
+							{URI: apis.URL{Path: "lora-model2"}},
 						},
 					},
 				},

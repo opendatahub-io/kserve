@@ -368,6 +368,45 @@ kubectl wait pod -l name=cert-manager-operator -n cert-manager-operator --for=co
 This step should be changed when official lws-operator is released.
 
 ```shell
+# Update PULL SECRET
+export BREW_PULL_SECRET_FILE="path/to/file"
+export REGISTRY_PULL_SECRET_FILE="path/to/file"
+
+kubectl get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > /tmp/pull-secret.json 
+jq -s '.[0].auths += .[1].auths | {auths: .[0].auths}' /tmp/pull-secret.json $BREW_PULL_SECRET_FILE > /tmp/new-pull-secret.json    
+jq -s '.[0].auths += .[1].auths | {auths: .[0].auths}' /tmp/new-pull-secret.json  $REGISTRY_PULL_SECRET_FILE > /tmp/final-pull-secret.json    
+oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/tmp/final-pull-secret.json  
+
+# Create MirrorSet to pull prebuilt images 
+cat <<EOF| kubectl create -f -
+apiVersion: config.openshift.io/v1
+kind: ImageTagMirrorSet
+metadata:
+    name: stage-registry
+spec:
+    imageTagMirrors:
+    - mirrors:
+        - registry.stage.redhat.io/leader-worker-set/lws-operator-bundle
+      source: registry.redhat.io/leader-worker-set/lws-operator-bundle
+    - mirrors:
+        - registry.stage.redhat.io/leader-worker-set/lws-rhel9-operator
+      source: registry.redhat.io/leader-worker-set/lws-rhel9-operator
+---
+apiVersion: config.openshift.io/v1
+kind: ImageDigestMirrorSet
+metadata:
+    name: stage-registry
+spec:
+    imageDigestMirrors:
+    - mirrors:
+        - registry.stage.redhat.io/leader-worker-set/lws-operator-bundle
+      source: registry.redhat.io/leader-worker-set/lws-operator-bundle
+    - mirrors:
+        - registry.stage.redhat.io/leader-worker-set/lws-rhel9-operator
+      source: registry.redhat.io/leader-worker-set/lws-rhel9-operator
+EOF
+
+
 cat <<EOF | kubectl create -f -
 apiVersion: operators.coreos.com/v1alpha1
 kind: CatalogSource
@@ -376,7 +415,7 @@ metadata:
   namespace: openshift-marketplace
 spec:
   sourceType: grpc
-  image: quay.io/jooholee/lws-operator-index:llmd
+  image: brew.registry.redhat.io/rh-osbs/iib@sha256:8d69ca9a5337ba486e6a197ce24327d7bc833ebdcf993d99c90bc69a2d0e186c
 EOF
 
 sleep 10
@@ -402,7 +441,7 @@ metadata:
   name: leader-worker-set
   namespace: openshift-lws-operator
 spec:
-  channel: stable
+  channel: stable-v1.0                         ## This need to be updated
   installPlanApproval: Automatic
   name: leader-worker-set
   source: lws-operator
@@ -436,21 +475,6 @@ spec:
 EOF
 ```
 
-**Create a default GatewayClass**
-```shell
-cat<<EOF|oc create -f -
-apiVersion: gateway.networking.k8s.io/v1
-kind: GatewayClass
-metadata:
-  name: openshift-default
-  annotations:
-    unsupported.do-not-use.openshift.io/ossm-channel: stable
-    unsupported.do-not-use.openshift.io/ossm-version: servicemeshoperator3.v3.1.0 
-    unsupported.do-not-use.openshift.io/istio-version: v1.26.2
-spec:
-  controllerName: "openshift.io/gateway-controller/v1"
-EOF
-```
 
 **Deploy Kserve** 
 *- option 1 - through custom opendatahub-operator catalogsource*
@@ -607,9 +631,40 @@ until kubectl get crd llminferenceserviceconfigs.serving.kserve.io &> /dev/null;
 done
 kubectl wait --for=condition=Established --timeout=60s crd/llminferenceserviceconfigs.serving.kserve.io
 
-kubectl kustomize config/overlays/odh | kubectl apply  --server-side=true -f -
+# Use Kustomize 5.7+
+kustomize build config/overlays/odh | kubectl apply  --server-side=true --force-conflicts -f -
 
 kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n opendatahub  --timeout=300s
+```
+
+**Create a default GatewayClass**
+
+- OpenShift 4.19.9+
+```shell
+cat<<EOF|oc create -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: openshift-default
+spec:
+  controllerName: "openshift.io/gateway-controller/v1"
+EOF
+```
+
+- Others
+```shell
+cat<<EOF|oc create -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: openshift-default
+  annotations:
+    unsupported.do-not-use.openshift.io/ossm-channel: stable
+    unsupported.do-not-use.openshift.io/ossm-version: servicemeshoperator3.v3.1.0 
+    unsupported.do-not-use.openshift.io/istio-version: v1.26.2
+spec:
+  controllerName: "openshift.io/gateway-controller/v1"
+EOF
 ```
 
 **Install OSSM by OCP**
@@ -694,7 +749,7 @@ INGRESS_NS=openshift-ingress
 GW_CLASS_NAME=openshift-default
 
 #If you install OSSM 3.1 manually, use this
-#GW_CLASS_NAME=istio
+GW_CLASS_NAME=istio
 
 kubectl create namespace ${INGRESS_NS} || true
 
@@ -717,6 +772,9 @@ spec:
     labels:
       serving.kserve.io/gateway: kserve-ingress-gateway
 EOF
+
+# If LoadBalancer IP is not available, annotate the Gateway to use a NodePort Service
+# kubectl annotate gateways.gateway.networking.k8s.io -n openshift-ingress openshift-ai-inference networking.istio.io/service-type=NodePort --overwrite
 
 kubectl wait gateways.gateway.networking.k8s.io -n openshift-ingress openshift-ai-inference --timeout=5m --for=condition=programmed
 ```
@@ -827,6 +885,48 @@ curl -v -X POST "${LB_URL}/v1/chat/completions" \
         {
             "role": "user",
             "content": "I need a comprehensive analysis of my retirement planning situation. I am 35 years old and plan to retire at 65. My current retirement savings are $250,000, all in a traditional 401(k). I contribute $22,500 annually. My risk tolerance is moderately aggressive. \n\nPlease address the following points:\n1.  Project the future value of my 401(k) at retirement. Use a reasonable annual growth rate for a moderately aggressive portfolio and show the formula you used.\n2.  Suggest a sample asset allocation for my portfolio (e.g., percentage in domestic stocks, international stocks, bonds, etc.) that aligns with my age and risk tolerance. Explain the rationale behind this allocation.\n3.  I am considering opening a Roth IRA in addition to my 401(k). Explain the key differences in tax treatment between my traditional 401(k) and a Roth IRA, especially concerning contributions and withdrawals in retirement.\n4.  My employer'\''s 401(k) plan offers a target-date fund, a large-cap US equity index fund, and an aggregate bond index fund. How could I use these three options to implement the asset allocation you suggested? What is portfolio rebalancing and why would it be important in this context?"
+        }
+    ],
+    "max_tokens": 2048,
+    "temperature": 0.4,
+    "top_p": 0.9
+}' | jq
+```
+
+```shell
+curl -v -X POST "${LB_URL}/v1/chat/completions" \
+-H "Content-Type: application/json" \
+-d '{
+    "model": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "messages": [
+        {
+            "role": "system",
+            "content": "You are DevBot Pro, a highly sophisticated AI developer assistant. Your purpose is to provide detailed, accurate, and educational information about software design and development."
+        },
+        {
+            "role": "user",
+            "content": "How do I implement AllReduce with Nvidia NCCL?"
+        }
+    ],
+    "max_tokens": 2048,
+    "temperature": 0.4,
+    "top_p": 0.9
+}' | jq
+```
+
+```shell
+curl -v -X POST "${LB_URL}/v1/chat/completions" \
+-H "Content-Type: application/json" \
+-d '{
+    "model": "deepseek-ai/DeepSeek-R1-0528",
+    "messages": [
+        {
+            "role": "system",
+            "content": "You are DevBot Pro, a highly sophisticated AI developer assistant. Your purpose is to provide detailed, accurate, and educational information about software design and development."
+        },
+        {
+            "role": "user",
+            "content": "How do I implement AllReduce with Nvidia NCCL?"
         }
     ],
     "max_tokens": 2048,

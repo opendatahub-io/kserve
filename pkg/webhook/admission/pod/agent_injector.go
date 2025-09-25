@@ -17,6 +17,7 @@ limitations under the License.
 package pod
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strconv"
@@ -379,6 +380,7 @@ func (ag *AgentInjector) InjectAgent(pod *corev1.Pod) error {
 
 	// Inject credentials
 	if err := ag.credentialBuilder.CreateSecretVolumeAndEnv(
+		context.TODO(),
 		pod.Namespace,
 		pod.Annotations,
 		pod.Spec.ServiceAccountName,

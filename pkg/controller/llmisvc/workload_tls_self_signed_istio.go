@@ -57,6 +57,9 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRules(ctx conte
 		if err := r.reconcileIstioDestinationRuleForWorkload(ctx, llmSvc); err != nil {
 			return fmt.Errorf("failed to reconcile Istio destination rule for workload: %w", err)
 		}
+		if err := r.reconcileIstioDestinationRuleForShadowService(ctx, llmSvc); err != nil {
+			return fmt.Errorf("failed to reconcile Istio destination rule for workload: %w", err)
+		}
 	}
 
 	routes, err := r.collectReferencedRoutes(ctx, llmSvc)
@@ -86,6 +89,9 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRules(ctx conte
 				if err := r.reconcileIstioDestinationRuleForWorkload(ctx, llmSvc); err != nil {
 					return fmt.Errorf("failed to reconcile Istio destination rule for workload: %w", err)
 				}
+				if err := r.reconcileIstioDestinationRuleForShadowService(ctx, llmSvc); err != nil {
+					return fmt.Errorf("failed to reconcile Istio destination rule for workload: %w", err)
+				}
 				return nil
 			}
 		}
@@ -94,12 +100,12 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRules(ctx conte
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	expected, err := r.expectedIstioDestinationRuleForWorkload(ctx, llmSvc)
+func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForShadowService(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	expected, err := r.expectedIstioDestinationRuleForShadowService(ctx, llmSvc)
 	if err != nil {
 		return fmt.Errorf("failed to get expected Istio destination rule for workload: %w", err)
 	}
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
+	if llmSvc.Spec.Router == nil {
 		return Delete(ctx, r, llmSvc, expected)
 	}
 	if expected.Spec.GetHost() == "" {
@@ -108,6 +114,14 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForWorkload
 		// events that are temporary and will not make sense for users just return without reconciling. The resource
 		// will get re-queued once the shadow service is created.
 		return nil
+	}
+	return Reconcile(ctx, r, llmSvc, &istioapi.DestinationRule{}, expected, semanticDestinationRuleIsEqual)
+}
+
+func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	expected := r.expectedIstioDestinationRuleForWorkload(ctx, llmSvc)
+	if llmSvc.Spec.Router == nil {
+		return Delete(ctx, r, llmSvc, expected)
 	}
 	return Reconcile(ctx, r, llmSvc, &istioapi.DestinationRule{}, expected, semanticDestinationRuleIsEqual)
 }
@@ -169,7 +183,7 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForScheduler
 	return dr, nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*istioapi.DestinationRule, error) {
+func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForShadowService(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*istioapi.DestinationRule, error) {
 	shadowSvc, err := r.getIstioShadowInferencePoolService(ctx, llmSvc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get istio inference pool service: %w", err)
@@ -204,9 +218,42 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForWorkload(
 		dr.Spec.Host = network.GetServiceHostname(shadowSvc.GetName(), shadowSvc.GetNamespace())
 	}
 
-	log.FromContext(ctx).V(2).Info("Expected destination rule for workload", "destinationrule", dr)
+	log.FromContext(ctx).V(2).Info("Expected destination rule for workload shadow service", "destinationrule", dr)
 
 	return dr, nil
+}
+
+func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *istioapi.DestinationRule {
+	dr := &istioapi.DestinationRule{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"),
+			Namespace: llmSvc.GetNamespace(),
+			Labels: map[string]string{
+				"app.kubernetes.io/component": "llminferenceservice-workload",
+				"app.kubernetes.io/name":      llmSvc.GetName(),
+				"app.kubernetes.io/part-of":   "llminferenceservice",
+				"llm-d.ai/managed":            "true",
+			},
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+			},
+		},
+		Spec: istionetworking.DestinationRule{
+			Host: network.GetServiceHostname(kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"), llmSvc.GetNamespace()),
+			TrafficPolicy: &istionetworking.TrafficPolicy{
+				Tls: &istionetworking.ClientTLSSettings{
+					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
+					InsecureSkipVerify: &pbwrappers.BoolValue{Value: true},
+				},
+			},
+			// Export to all namespaces, this is the default, however, we keep the configuration explicit.
+			ExportTo: []string{"*"},
+		},
+	}
+
+	log.FromContext(ctx).V(2).Info("Expected destination rule for workload service", "destinationrule", dr)
+
+	return dr
 }
 
 func (r *LLMInferenceServiceReconciler) getIstioShadowInferencePoolService(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*corev1.Service, error) {

@@ -71,19 +71,30 @@ type CredentialBuilder struct {
 
 var log = logf.Log.WithName("CredentialBuilder")
 
-func NewCredentialBuilder(client client.Client, clientset kubernetes.Interface, config *corev1.ConfigMap) *CredentialBuilder {
+func GetCredentialConfig(configMap *corev1.ConfigMap) (CredentialConfig, error) {
 	credentialConfig := CredentialConfig{}
-	if credential, ok := config.Data[CredentialConfigKeyName]; ok {
+	if credential, ok := configMap.Data[CredentialConfigKeyName]; ok {
 		err := json.Unmarshal([]byte(credential), &credentialConfig)
 		if err != nil {
-			panic(fmt.Errorf("Unable to unmarshall json string due to %w ", err))
+			return credentialConfig, fmt.Errorf("unable to parse credential config json: %w", err)
 		}
 	}
+	return credentialConfig, nil
+}
 
+func NewCredentialBuilder(client client.Client, clientset kubernetes.Interface, configMap *corev1.ConfigMap) *CredentialBuilder {
+	credentialConfig, err := GetCredentialConfig(configMap)
+	if err != nil {
+		panic(err)
+	}
+	return NewCredentialBuilderFromConfig(client, clientset, credentialConfig)
+}
+
+func NewCredentialBuilderFromConfig(client client.Client, clientset kubernetes.Interface, config CredentialConfig) *CredentialBuilder {
 	return &CredentialBuilder{
 		client:    client,
 		clientset: clientset,
-		config:    credentialConfig,
+		config:    config,
 	}
 }
 
@@ -195,22 +206,38 @@ func (c *CredentialBuilder) CreateStorageSpecSecretEnvs(namespace string, annota
 	return nil
 }
 
-func (c *CredentialBuilder) CreateSecretVolumeAndEnv(namespace string, annotations map[string]string, serviceAccountName string,
+func (c *CredentialBuilder) CreateSecretVolumeAndEnv(ctx context.Context, namespace string, annotations map[string]string, serviceAccountName string,
 	container *corev1.Container, volumes *[]corev1.Volume,
 ) error {
 	if serviceAccountName == "" {
 		serviceAccountName = "default"
 	}
-	serviceAccount, err := c.clientset.CoreV1().ServiceAccounts(namespace).Get(context.TODO(), serviceAccountName, metav1.GetOptions{})
+	serviceAccount, err := c.clientset.CoreV1().ServiceAccounts(namespace).Get(ctx, serviceAccountName, metav1.GetOptions{})
 	if err != nil {
 		log.Error(err, "Failed to find service account", "ServiceAccountName", serviceAccountName,
 			"Namespace", namespace)
 		return nil
 	}
 
+	err = c.CreateSecretVolumeAndEnvFromServiceAccount(ctx, serviceAccount, annotations, container, volumes)
+	if err != nil {
+		log.Error(err, "Failed to create secret volume and env from service account %s in namespace %s", serviceAccountName, namespace)
+		return err
+	}
+
+	return nil
+}
+
+func (c *CredentialBuilder) CreateSecretVolumeAndEnvFromServiceAccount(ctx context.Context, serviceAccount *corev1.ServiceAccount, annotations map[string]string,
+	container *corev1.Container, volumes *[]corev1.Volume,
+) error {
+	if serviceAccount == nil || serviceAccount.Name == "" || serviceAccount.Namespace == "" {
+		log.Error(nil, "Invalid service account spec received. Missing name and/or namespace.")
+		return errors.New("invalid service account spec received. Missing name and/or namespace")
+	}
 	for annotationKey := range serviceAccount.Annotations {
 		if annotationKey == AwsIrsaAnnotationKey {
-			log.Info("AWS IAM Role annotation found, setting service account envs for s3", "ServiceAccountName", serviceAccountName)
+			log.Info("AWS IAM Role annotation found, setting service account envs for s3", "ServiceAccountName", serviceAccount.Name)
 			envs := s3.BuildServiceAccountEnvs(serviceAccount, &c.config.S3)
 			container.Env = append(container.Env, envs...)
 		}
@@ -219,7 +246,7 @@ func (c *CredentialBuilder) CreateSecretVolumeAndEnv(namespace string, annotatio
 	// secret name annotation takes precedence
 	if annotations != nil && c.config.StorageSecretNameAnnotation != "" {
 		if secretName, ok := annotations[c.config.StorageSecretNameAnnotation]; ok {
-			err := c.mountSecretCredential(secretName, namespace, container, volumes)
+			err := c.mountSecretCredential(ctx, secretName, serviceAccount.Namespace, container, volumes)
 			if err != nil {
 				log.Error(err, "Failed to amount the secret credentials", "secretName", secretName)
 				return err
@@ -230,7 +257,7 @@ func (c *CredentialBuilder) CreateSecretVolumeAndEnv(namespace string, annotatio
 
 	// Find the secret references from service account
 	for _, secretRef := range serviceAccount.Secrets {
-		err := c.mountSecretCredential(secretRef.Name, namespace, container, volumes)
+		err := c.mountSecretCredential(ctx, secretRef.Name, serviceAccount.Namespace, container, volumes)
 		if err != nil {
 			return err
 		}
@@ -239,10 +266,10 @@ func (c *CredentialBuilder) CreateSecretVolumeAndEnv(namespace string, annotatio
 	return nil
 }
 
-func (c *CredentialBuilder) mountSecretCredential(secretName string, namespace string,
+func (c *CredentialBuilder) mountSecretCredential(ctx context.Context, secretName string, namespace string,
 	container *corev1.Container, volumes *[]corev1.Volume,
 ) error {
-	secret, err := c.clientset.CoreV1().Secrets(namespace).Get(context.TODO(), secretName, metav1.GetOptions{})
+	secret, err := c.clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
 		log.Error(err, "Failed to find secret", "SecretName", secretName)
 		return err
