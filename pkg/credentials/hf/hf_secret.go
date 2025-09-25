@@ -40,10 +40,6 @@ func BuildSecretEnvs(secret *corev1.Secret) []corev1.EnvVar {
 					},
 				},
 			},
-			{
-				Name:  HFTransfer,
-				Value: "1",
-			},
 		}...)
 	}
 	return envs
