@@ -300,6 +300,142 @@ func TestIsGatewayReady(t *testing.T) {
 	}
 }
 
+func TestHTTPRouteConditionsEvaluation(t *testing.T) {
+	tests := []struct {
+		name             string
+		llmSvc           *v1alpha1.LLMInferenceService
+		httpRoutes       []*gatewayapi.HTTPRoute
+		expectedErrorMsg string
+		createAssertion  func(routerCondition, httpRouteCondition *apis.Condition) assertConditionsFunc
+	}{
+		{
+			name: "HTTPRoute with multiple controllers - should be ready",
+			llmSvc: LLMInferenceService("test-llm",
+				InNamespace[*v1alpha1.LLMInferenceService]("llm"),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithHTTPRouteRefs(HTTPRouteRef("facebook-opt-125m-single-simulated-kserve-route")),
+			),
+			httpRoutes: []*gatewayapi.HTTPRoute{
+				HTTPRoute("facebook-opt-125m-single-simulated-kserve-route",
+					InNamespace[*gatewayapi.HTTPRoute]("llm"),
+					WithParentRefs(GatewayParentRef("openshift-ai-inference", "openshift-ingress")),
+					WithHTTPRule(
+						Matches(PathPrefixMatch("/llm/facebook-opt-125m-single-simulated")),
+						BackendRefs(ServiceRef("facebook-opt-125m-single-simulated-kserve-workload-svc", 8000, 1)),
+						Timeouts("0s", "0s"),
+						Filters(gatewayapi.HTTPRouteFilter{
+							Type: gatewayapi.HTTPRouteFilterURLRewrite,
+							URLRewrite: &gatewayapi.HTTPURLRewriteFilter{
+								Path: &gatewayapi.HTTPPathModifier{
+									Type:               gatewayapi.PrefixMatchHTTPPathModifier,
+									ReplacePrefixMatch: ptr.To("/"),
+								},
+							},
+						}),
+					),
+					WithHTTPRouteMultipleControllerStatus(
+						GatewayParentRef("openshift-ai-inference", "openshift-ingress"),
+						KuadrantControllerStatus,
+						GatewayAPIControllerStatus,
+					),
+				),
+			},
+			createAssertion: assertRouterReady,
+		},
+		{
+			name: "HTTPRoute with standard controller only - should be ready",
+			llmSvc: LLMInferenceService("test-llm",
+				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
+				WithModelURI("hf://test/model"),
+				WithHTTPRouteRefs(HTTPRouteRef("test-route")),
+			),
+			httpRoutes: []*gatewayapi.HTTPRoute{
+				HTTPRoute("test-route",
+					InNamespace[*gatewayapi.HTTPRoute]("test-ns"),
+					WithParentRefs(GatewayParentRef("test-gateway", "test-ns")),
+					WithHTTPRouteReadyStatus("openshift.io/gateway-controller/v1"),
+				),
+			},
+			createAssertion: assertRouterReady,
+		},
+		{
+			name: "HTTPRoute not ready - should not be ready",
+			llmSvc: LLMInferenceService("test-llm",
+				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
+				WithModelURI("hf://test/model"),
+				WithHTTPRouteRefs(HTTPRouteRef("not-ready-route")),
+			),
+			httpRoutes: []*gatewayapi.HTTPRoute{
+				HTTPRoute("not-ready-route",
+					InNamespace[*gatewayapi.HTTPRoute]("test-ns"),
+					WithParentRefs(GatewayParentRef("test-gateway", "test-ns")),
+					WithHTTPRouteNotReadyStatus("openshift.io/gateway-controller/v1", "NotAccepted", "Route was not accepted"),
+				),
+			},
+			createAssertion: func(routerCondition, httpRouteCondition *apis.Condition) assertConditionsFunc {
+				return assertRouterNotReadyWithReason(routerCondition, httpRouteCondition, "HTTPRoutesNotReady")
+			},
+		},
+		{
+			name: "no HTTPRoute refs - should skip evaluation",
+			llmSvc: LLMInferenceService("test-llm",
+				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
+				WithModelURI("hf://test/model"),
+				// No HTTPRoute refs
+			),
+			httpRoutes:      []*gatewayapi.HTTPRoute{},
+			createAssertion: assertHTTPRouteConditionUnset,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewGomegaWithT(t)
+			ctx := t.Context()
+
+			scheme := runtime.NewScheme()
+			err := v1alpha1.AddToScheme(scheme)
+			g.Expect(err).ToNot(HaveOccurred())
+			err = gatewayapi.Install(scheme)
+			g.Expect(err).ToNot(HaveOccurred())
+
+			var objects []client.Object
+			objects = append(objects, tt.llmSvc)
+			for _, route := range tt.httpRoutes {
+				objects = append(objects, route)
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(objects...).
+				Build()
+
+			reconciler := &llmisvc.LLMInferenceServiceReconciler{
+				Client: fakeClient,
+			}
+
+			err = reconciler.EvaluateHTTPRouteConditions(ctx, tt.llmSvc)
+
+			if tt.expectedErrorMsg != "" {
+				g.Expect(err).To(HaveOccurred())
+				g.Expect(err.Error()).To(ContainSubstring(tt.expectedErrorMsg))
+				return
+			}
+
+			g.Expect(err).ToNot(HaveOccurred())
+
+			tt.llmSvc.DetermineRouterReadiness()
+
+			routerCondition := tt.llmSvc.GetStatus().GetCondition(v1alpha1.RouterReady)
+			httpRouteCondition := tt.llmSvc.GetStatus().GetCondition(v1alpha1.HTTPRoutesReady)
+
+			if tt.createAssertion != nil {
+				tt.createAssertion(routerCondition, httpRouteCondition)(g)
+			}
+		})
+	}
+}
+
 func TestFetchReferencedGateways(t *testing.T) {
 	tests := []struct {
 		name          string

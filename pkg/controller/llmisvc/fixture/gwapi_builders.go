@@ -479,29 +479,77 @@ func WithGatewayReadyStatus() GatewayOption {
 
 // Advanced fixture patterns for custom conditions
 
-// WithCustomHTTPRouteConditions allows setting custom conditions on HTTPRoute parent status
-func WithCustomHTTPRouteConditions(parentRef gatewayapi.ParentReference, controllerName string, conditions ...metav1.Condition) HTTPRouteOption {
-	return WithHTTPRouteParentStatus(parentRef, controllerName, conditions...)
-}
-
-// WithGatewayNotReadyStatus sets the Gateway status to not ready (for negative testing)
-func WithGatewayNotReadyStatus(reason, message string) GatewayOption {
-	return func(gw *gatewayapi.Gateway) {
-		gw.Status.Conditions = []metav1.Condition{
+// KuadrantControllerStatus creates a RouteParentStatus for Kuadrant policy controller
+func KuadrantControllerStatus(parentRef gatewayapi.ParentReference, generation int64) gatewayapi.RouteParentStatus {
+	return gatewayapi.RouteParentStatus{
+		ParentRef:      parentRef,
+		ControllerName: "kuadrant.io/policy-controller",
+		Conditions: []metav1.Condition{
 			{
-				Type:               string(gatewayapi.GatewayConditionAccepted),
+				Type:               "kuadrant.io/AuthPolicyAffected",
 				Status:             metav1.ConditionTrue,
 				Reason:             "Accepted",
-				Message:            "Gateway accepted",
+				Message:            "Object affected by AuthPolicy [openshift-ingress/gateway-auth-policy]",
 				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: generation,
 			},
 			{
-				Type:               string(gatewayapi.GatewayConditionProgrammed),
-				Status:             metav1.ConditionFalse,
-				Reason:             reason,
-				Message:            message,
+				Type:               "kuadrant.io/RateLimitPolicyAffected",
+				Status:             metav1.ConditionTrue,
+				Reason:             "Accepted",
+				Message:            "Object affected by RateLimitPolicy [openshift-ingress/gateway-rate-limits]",
 				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: generation,
 			},
+			{
+				Type:               "kuadrant.io/TokenRateLimitPolicyAffected",
+				Status:             metav1.ConditionTrue,
+				Reason:             "Accepted",
+				Message:            "Object affected by TokenRateLimitPolicy [openshift-ingress/gateway-token-rate-limits]",
+				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: generation,
+			},
+		},
+	}
+}
+
+// GatewayAPIControllerStatus creates a RouteParentStatus for Gateway API controller
+func GatewayAPIControllerStatus(parentRef gatewayapi.ParentReference, generation int64) gatewayapi.RouteParentStatus {
+	return gatewayapi.RouteParentStatus{
+		ParentRef:      parentRef,
+		ControllerName: "openshift.io/gateway-controller/v1",
+		Conditions: []metav1.Condition{
+			{
+				Type:               string(gatewayapi.RouteConditionAccepted),
+				Status:             metav1.ConditionTrue,
+				Reason:             "Accepted",
+				Message:            "Route was valid",
+				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: generation,
+			},
+			{
+				Type:               string(gatewayapi.RouteConditionResolvedRefs),
+				Status:             metav1.ConditionTrue,
+				Reason:             "ResolvedRefs",
+				Message:            "All references resolved",
+				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: generation,
+			},
+		},
+	}
+}
+
+// StatusFunc is a function that creates a RouteParentStatus for a given parent ref and generation
+type StatusFunc func(parentRef gatewayapi.ParentReference, generation int64) gatewayapi.RouteParentStatus
+
+// WithHTTPRouteMultipleControllerStatus sets HTTPRoute status with multiple controllers
+// This simulates real-world scenarios where policy controllers and gateway controllers
+// both add status entries for the same parent ref
+func WithHTTPRouteMultipleControllerStatus(parentRef gatewayapi.ParentReference, statusFuncs ...StatusFunc) HTTPRouteOption {
+	return func(route *gatewayapi.HTTPRoute) {
+		for _, statusFunc := range statusFuncs {
+			status := statusFunc(parentRef, route.Generation)
+			route.Status.RouteStatus.Parents = append(route.Status.RouteStatus.Parents, status)
 		}
 	}
 }
