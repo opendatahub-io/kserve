@@ -22,4 +22,3 @@ spec:
   name: leader-worker-set
   source: redhat-operators
   sourceNamespace: openshift-marketplace
-  startingCSV: leader-worker-set.v1.0.0
