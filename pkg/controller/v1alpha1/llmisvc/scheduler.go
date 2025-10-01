@@ -30,8 +30,9 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -46,9 +47,11 @@ import (
 )
 
 const (
-	// AnnotationInferencePoolMigrated records when the LLMInferenceService has migrated to v1 InferencePool.
+	// AnnotationInferencePoolMigrated records when the HTTPRoute has migrated to v1 InferencePool.
 	// Once set to "v1", traffic will never fall back to v1alpha2 even during transient failures.
 	// This implements a one-way migration strategy to prevent oscillation.
+	// This annotation is stored on child objects (HTTPRoute) rather than the parent LLMInferenceService
+	// to follow the pattern of never modifying user-managed objects.
 	AnnotationInferencePoolMigrated = "serving.kserve.io/inference-pool-migrated"
 )
 
@@ -202,7 +205,6 @@ func (r *LLMISVCReconciler) reconcileSchedulerInferencePool(ctx context.Context,
 		return err
 	}
 
-	// ---- Readiness aggregation (prefer v1; fallback to v1alpha2) ----
 	// Fetch current v1 to read Status (expected has no Status).
 	cur := &igwv1.InferencePool{}
 	if err := r.Client.Get(ctx, crclient.ObjectKey{
@@ -231,25 +233,84 @@ func (r *LLMISVCReconciler) reconcileSchedulerInferencePool(ctx context.Context,
 }
 
 // reconcileInferencePoolMigration implements one-way migration from v1alpha2 to v1 InferencePool.
-// Once v1 becomes ready for the first time, traffic permanently switches to v1 and never falls back
-// to v1alpha2, even during transient failures. This prevents flapping and makes a more predictable migration.
+//
+// Migration Strategy:
+// - Initially, traffic goes to v1alpha2 while v1 is being set up
+// - Once v1 becomes ready for the first time, we permanently switch all traffic to v1
+// - We NEVER fall back to v1alpha2, even during transient v1 failures
+// - This prevents flapping between versions and makes migration predictable
+//
+// The migration state is stored in an annotation on the HTTPRoute (not the LLMInferenceService),
+// following the pattern of not modifying user-managed objects.
 func (r *LLMISVCReconciler) reconcileInferencePoolMigration(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, v1Ready, alpha2Ready bool) error {
-	logger := log.FromContext(ctx)
+	// Skip if this service doesn't have a managed HTTPRoute
+	if !shouldReconcileMigration(llmSvc) {
+		return nil
+	}
 
-	// Only update weights if HTTPRoute is managed by the controller
+	// Get the HTTPRoute we need to update
+	route, err := r.getHTTPRoute(ctx, llmSvc)
+	if err != nil {
+		return err
+	}
+	if route == nil {
+		// Route doesn't exist yet, will be created in next reconcile
+		return nil
+	}
+
+	// Calculate which pool(s) should receive traffic based on readiness and migration state
+	weights, needsAnnotationUpdate := determineMigrationWeights(ctx, route, v1Ready, alpha2Ready)
+	if weights == nil {
+		// Neither pool ready yet - don't change anything
+		return nil
+	}
+
+	// Update the backend weights in the HTTPRoute spec
+	modified := applyWeightsToHTTPRoute(ctx, route, weights.v1Weight, weights.alpha2Weight)
+
+	// Mark that we've migrated to v1 (one-time annotation update)
+	if needsAnnotationUpdate {
+		if route.Annotations == nil {
+			route.Annotations = make(map[string]string)
+		}
+		route.Annotations[AnnotationInferencePoolMigrated] = "v1"
+		modified = true
+		log.FromContext(ctx).Info("Marking migration to v1 in HTTPRoute annotation")
+	}
+
+	// Save changes to the HTTPRoute
+	if modified {
+		log.FromContext(ctx).V(1).Info("Updating HTTPRoute with new traffic weights and/or migration state",
+			"v1Weight", weights.v1Weight, "alpha2Weight", weights.alpha2Weight)
+		if err := r.Client.Update(ctx, route); err != nil {
+			return fmt.Errorf("failed to update HTTPRoute: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// shouldReconcileMigration checks if migration reconciliation should proceed.
+// We only manage migration for controller-managed HTTPRoutes (not user-provided ones).
+func shouldReconcileMigration(llmSvc *v1alpha1.LLMInferenceService) bool {
+	// Check if routing is configured at all
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || llmSvc.Spec.Router.Route.HTTP == nil {
-		return nil
+		return false
 	}
+	// Don't touch user-managed routes
 	if llmSvc.Spec.Router.Route.HTTP.HasRefs() {
-		// User-managed routes - don't modify weights
-		return nil
+		return false
 	}
+	// Only proceed if we have a spec to manage
 	if !llmSvc.Spec.Router.Route.HTTP.HasSpec() {
-		// No spec means no managed route
-		return nil
+		return false
 	}
+	return true
+}
 
-	// Fetch current HTTPRoute
+// getHTTPRoute fetches the HTTPRoute associated with this LLMInferenceService.
+// Returns nil if the route doesn't exist yet (will be created later).
+func (r *LLMISVCReconciler) getHTTPRoute(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*gwapiv1.HTTPRoute, error) {
 	route := &gwapiv1.HTTPRoute{}
 	key := crclient.ObjectKey{
 		Namespace: llmSvc.GetNamespace(),
@@ -257,60 +318,85 @@ func (r *LLMISVCReconciler) reconcileInferencePoolMigration(ctx context.Context,
 	}
 	if err := r.Client.Get(ctx, key, route); err != nil {
 		if apierrors.IsNotFound(err) {
-			// Route doesn't exist yet, will be created in next reconcile
-			return nil
+			// Not an error - route just hasn't been created yet
+			return nil, nil
 		}
-		return fmt.Errorf("failed to get HTTPRoute: %w", err)
+		return nil, fmt.Errorf("failed to get HTTPRoute: %w", err)
+	}
+	return route, nil
+}
+
+// migrationWeights holds the calculated traffic distribution between v1 and v1alpha2 InferencePools.
+// Weights are in the range [0, 100] and should sum to 100 when both are present.
+type migrationWeights struct {
+	v1Weight      int32  // Percentage of traffic to v1 InferencePool (0-100)
+	alpha2Weight  int32  // Percentage of traffic to v1alpha2 InferencePool (0-100)
+}
+
+// determineMigrationWeights calculates traffic weights based on pool readiness and migration state.
+//
+// Decision flow:
+// 1. If already migrated (annotation present) -> always use v1 (100/0)
+// 2. If v1 is ready for first time -> migrate to v1 permanently (100/0) and mark annotation
+// 3. If only v1alpha2 is ready -> use v1alpha2 temporarily (0/100)
+// 4. If neither ready -> return nil to keep existing weights
+//
+// Returns: (weights, needsAnnotationUpdate)
+func determineMigrationWeights(ctx context.Context, route *gwapiv1.HTTPRoute, v1Ready, alpha2Ready bool) (*migrationWeights, bool) {
+	logger := log.FromContext(ctx)
+
+	// Check if migration is already complete (one-way decision stored in annotation)
+	if route.Annotations != nil && route.Annotations[AnnotationInferencePoolMigrated] == "v1" {
+		// Already migrated - stick with v1 even if it's temporarily not ready
+		logger.V(2).Info("Using v1 InferencePool (migration complete, no fallback)")
+		return &migrationWeights{v1Weight: 100, alpha2Weight: 0}, false
 	}
 
-	// One-way migration logic: once migrated to v1, never fall back
-	var v1Weight, alpha2Weight int32
-	var needsAnnotationUpdate bool
-
-	// Check if we've already committed to v1
-	if llmSvc.Annotations != nil && llmSvc.Annotations[AnnotationInferencePoolMigrated] == "v1" {
-		// Already migrated - always use v1, never fall back to v1alpha2
-		v1Weight, alpha2Weight = 100, 0
-		logger.V(1).Info("Using v1 InferencePool (migration complete, no fallback)")
-	} else {
-		// Not yet migrated - decide based on v1 readiness
-		if v1Ready {
-			// v1 is ready for the first time - commit to v1 permanently
-			v1Weight, alpha2Weight = 100, 0
-			needsAnnotationUpdate = true
-			logger.Info("Migrating to v1 InferencePool permanently (first time v1 ready)")
-		} else if alpha2Ready {
-			// v1 not ready yet - use v1alpha2 temporarily
-			v1Weight, alpha2Weight = 0, 100
-			logger.V(1).Info("Using v1alpha2 InferencePool (v1 not ready yet)")
-		} else {
-			// Neither pool ready - keep existing weights to avoid changes during startup
-			logger.V(1).Info("Neither pool ready yet, keeping existing weights")
-			return nil
-		}
+	// Migration not complete yet - decide based on current readiness
+	if v1Ready {
+		// v1 is ready for the first time - make the one-time migration decision
+		logger.Info("Migrating to v1 InferencePool permanently (first time v1 ready)")
+		return &migrationWeights{v1Weight: 100, alpha2Weight: 0}, true
 	}
 
-	// Update backendRef weights in route.Spec.Rules
+	if alpha2Ready {
+		// v1 not ready yet - use v1alpha2 as temporary fallback
+		logger.V(2).Info("Using v1alpha2 InferencePool (v1 not ready yet)")
+		return &migrationWeights{v1Weight: 0, alpha2Weight: 100}, false
+	}
+
+	// Neither pool ready yet - don't change weights (avoid thrashing during startup)
+	logger.V(2).Info("Neither pool ready yet, keeping existing weights")
+	return nil, false
+}
+
+// applyWeightsToHTTPRoute updates the backendRef weights in the HTTPRoute.
+// It iterates through all backend refs and updates the weight for v1 and v1alpha2 InferencePools.
+// Returns true if any weights were changed.
+func applyWeightsToHTTPRoute(ctx context.Context, route *gwapiv1.HTTPRoute, v1Weight, alpha2Weight int32) bool {
+	logger := log.FromContext(ctx)
 	modified := false
+
+	// Iterate through all rules and their backend refs
 	for i := range route.Spec.Rules {
 		for j := range route.Spec.Rules[i].BackendRefs {
 			ref := &route.Spec.Rules[i].BackendRefs[j]
 
-			// Match v1 InferencePool (inference.networking.k8s.io)
+			// Update v1 InferencePool weight (inference.networking.k8s.io)
 			if ref.Group != nil && string(*ref.Group) == "inference.networking.k8s.io" &&
 				ref.Kind != nil && string(*ref.Kind) == "InferencePool" {
 				if ref.Weight == nil || *ref.Weight != v1Weight {
-					logger.Info("Updating v1 InferencePool weight", "old", ptr.Deref(ref.Weight, 0), "new", v1Weight)
+					logger.V(1).Info("Updating v1 InferencePool weight", "old", ptr.Deref(ref.Weight, 0), "new", v1Weight)
 					ref.Weight = &v1Weight
 					modified = true
 				}
 			}
 
-			// Match v1alpha2 InferencePool (inference.networking.x-k8s.io)
+			// Update v1alpha2 InferencePool weight (inference.networking.x-k8s.io)
 			if ref.Group != nil && string(*ref.Group) == "inference.networking.x-k8s.io" &&
 				ref.Kind != nil && string(*ref.Kind) == "InferencePool" {
 				if ref.Weight == nil || *ref.Weight != alpha2Weight {
-					logger.Info("Updating v1alpha2 InferencePool weight", "old", ptr.Deref(ref.Weight, 0), "new", alpha2Weight)
+					logger.V(1).Info("Updating v1alpha2 InferencePool weight", "old", ptr.Deref(ref.Weight, 0), "new", alpha2Weight)
 					ref.Weight = &alpha2Weight
 					modified = true
 				}
@@ -318,27 +404,7 @@ func (r *LLMISVCReconciler) reconcileInferencePoolMigration(ctx context.Context,
 		}
 	}
 
-	if modified {
-		logger.Info("Updating HTTPRoute with new traffic weights", "v1Weight", v1Weight, "alpha2Weight", alpha2Weight)
-		if err := r.Client.Update(ctx, route); err != nil {
-			return fmt.Errorf("failed to update HTTPRoute weights: %w", err)
-		}
-	}
-
-	// Persist migration decision if this is the first time v1 is ready
-	if needsAnnotationUpdate {
-		if llmSvc.Annotations == nil {
-			llmSvc.Annotations = make(map[string]string)
-		}
-		llmSvc.Annotations[AnnotationInferencePoolMigrated] = "v1"
-
-		if err := r.Client.Update(ctx, llmSvc); err != nil {
-			return fmt.Errorf("failed to update LLMInferenceService migration annotation: %w", err)
-		}
-		logger.Info("Persisted v1 migration decision to LLMInferenceService annotation")
-	}
-
-	return nil
+	return modified
 }
 
 func (r *LLMISVCReconciler) reconcileSchedulerService(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
@@ -354,24 +420,56 @@ func (r *LLMISVCReconciler) reconcileSchedulerService(ctx context.Context, llmSv
 	return nil
 }
 
+// reconcileSchedulerInferenceModel manages the v1alpha2 InferenceModel resource using the dynamic client.
+// This follows the same Reconcile pattern as reconcileAlpha2Pool: Get -> Create if missing, or Update if different.
+// The InferenceModel tells the scheduler which model to route requests for.
 func (r *LLMISVCReconciler) reconcileSchedulerInferenceModel(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	// If scheduler disabled, best-effort delete v1alpha2 InferenceModel and return.
+	// Clean up InferenceModel if scheduler is disabled
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
 		return r.deleteAlpha2InferenceModelIfExists(ctx, llmSvc)
 	}
 
-	u := r.expectedAlpha2InferenceModel(llmSvc)
-	res := r.DynamicClient.Resource(gvrInferenceModelV1Alpha2).Namespace(u.GetNamespace())
+	expected := r.expectedAlpha2InferenceModel(llmSvc)
+	res := r.DynamicClient.Resource(gvrInferenceModelV1Alpha2).Namespace(expected.GetNamespace())
 
-	// Upsert pattern using dynamic client.
-	cur, err := res.Get(ctx, u.GetName(), metav1.GetOptions{})
-	if err == nil {
-		u.SetResourceVersion(cur.GetResourceVersion())
-		_, err = res.Update(ctx, u, metav1.UpdateOptions{})
-		return err
+	// Try to fetch the existing v1alpha2 InferenceModel
+	curr, err := res.Get(ctx, expected.GetName(), metav1.GetOptions{})
+	if err != nil {
+		// If not found or CRD not installed, create it
+		if !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
+			return fmt.Errorf("failed to get v1alpha2 InferenceModel %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+		}
+		// Create new v1alpha2 InferenceModel
+		if _, err := res.Create(ctx, expected, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("failed to create v1alpha2 InferenceModel %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+		}
+		r.Eventf(llmSvc, corev1.EventTypeNormal, "Created", "Created v1alpha2 InferenceModel %s/%s", expected.GetNamespace(), expected.GetName())
+		return nil
 	}
-	_, err = res.Create(ctx, u, metav1.CreateOptions{})
-	return err
+
+	// Verify this model is owned by our LLMInferenceService
+	if !metav1.IsControlledBy(curr, llmSvc) {
+		return fmt.Errorf("failed to update v1alpha2 InferenceModel %s/%s: it is not controlled by LLMInferenceService %s/%s",
+			curr.GetNamespace(), curr.GetName(),
+			llmSvc.GetNamespace(), llmSvc.GetName(),
+		)
+	}
+
+	// Copy resource version for update
+	expected.SetResourceVersion(curr.GetResourceVersion())
+
+	// Skip update if nothing has changed
+	if semanticUnstructuredInferenceModelIsEqual(expected, curr) {
+		return nil
+	}
+
+	// Update the v1alpha2 InferenceModel with new spec/labels/annotations
+	if _, err := res.Update(ctx, expected, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("failed to update v1alpha2 InferenceModel %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+	}
+
+	r.Eventf(llmSvc, corev1.EventTypeNormal, "Updated", "Updated v1alpha2 InferenceModel %s/%s", expected.GetNamespace(), expected.GetName())
+	return nil
 }
 
 // Build v1alpha2 InferenceModel unstructured.
@@ -751,6 +849,22 @@ func semanticInferencePoolIsEqual(expected *igwv1.InferencePool, curr *igwv1.Inf
 		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)
 }
 
+func semanticUnstructuredInferencePoolIsEqual(expected, curr *unstructured.Unstructured) bool {
+	expectedSpec, _, _ := unstructured.NestedMap(expected.Object, "spec")
+	currSpec, _, _ := unstructured.NestedMap(curr.Object, "spec")
+	return equality.Semantic.DeepDerivative(expectedSpec, currSpec) &&
+		equality.Semantic.DeepDerivative(expected.GetLabels(), curr.GetLabels()) &&
+		equality.Semantic.DeepDerivative(expected.GetAnnotations(), curr.GetAnnotations())
+}
+
+func semanticUnstructuredInferenceModelIsEqual(expected, curr *unstructured.Unstructured) bool {
+	expectedSpec, _, _ := unstructured.NestedMap(expected.Object, "spec")
+	currSpec, _, _ := unstructured.NestedMap(curr.Object, "spec")
+	return equality.Semantic.DeepDerivative(expectedSpec, currSpec) &&
+		equality.Semantic.DeepDerivative(expected.GetLabels(), curr.GetLabels()) &&
+		equality.Semantic.DeepDerivative(expected.GetAnnotations(), curr.GetAnnotations())
+}
+
 func semanticServiceAccountIsEqual(expected *corev1.ServiceAccount, current *corev1.ServiceAccount) bool {
 	return equality.Semantic.DeepDerivative(expected.Secrets, current.Secrets) &&
 		equality.Semantic.DeepDerivative(expected.ImagePullSecrets, current.ImagePullSecrets) &&
@@ -798,20 +912,56 @@ var gvrInferenceModelV1Alpha2 = schema.GroupVersionResource{
 	Resource: "inferencemodels",
 }
 
+// reconcileAlpha2Pool manages the v1alpha2 InferencePool resource using the dynamic client.
+// This follows the standard Reconcile pattern: Get -> Create if missing, or Update if different.
+// It ensures ownership and only updates when there are actual changes (semantic equality check).
 func (r *LLMISVCReconciler) reconcileAlpha2Pool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, v1pool *igwv1.InferencePool) error {
-	u, err := v1ToAlpha2Unstructured(v1pool)
+	// Convert v1 typed pool to v1alpha2 unstructured format
+	expected, err := v1ToAlpha2Unstructured(v1pool)
 	if err != nil {
 		return err
 	}
-	res := r.DynamicClient.Resource(gvrInferencePoolV1Alpha2).Namespace(u.GetNamespace())
-	cur, err := res.Get(ctx, u.GetName(), metav1.GetOptions{})
-	if err == nil {
-		u.SetResourceVersion(cur.GetResourceVersion())
-		_, err = res.Update(ctx, u, metav1.UpdateOptions{})
-		return err
+
+	res := r.DynamicClient.Resource(gvrInferencePoolV1Alpha2).Namespace(expected.GetNamespace())
+
+	// Try to fetch the existing v1alpha2 InferencePool
+	curr, err := res.Get(ctx, expected.GetName(), metav1.GetOptions{})
+	if err != nil {
+		// If not found or CRD not installed, create it
+		if !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
+			return fmt.Errorf("failed to get v1alpha2 InferencePool %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+		}
+		// Create new v1alpha2 InferencePool
+		if _, err := res.Create(ctx, expected, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("failed to create v1alpha2 InferencePool %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+		}
+		r.Eventf(llmSvc, corev1.EventTypeNormal, "Created", "Created v1alpha2 InferencePool %s/%s", expected.GetNamespace(), expected.GetName())
+		return nil
 	}
-	_, err = res.Create(ctx, u, metav1.CreateOptions{})
-	return err
+
+	// Verify this pool is owned by our LLMInferenceService (prevents accidental overwrites)
+	if !metav1.IsControlledBy(curr, llmSvc) {
+		return fmt.Errorf("failed to update v1alpha2 InferencePool %s/%s: it is not controlled by LLMInferenceService %s/%s",
+			curr.GetNamespace(), curr.GetName(),
+			llmSvc.GetNamespace(), llmSvc.GetName(),
+		)
+	}
+
+	// Copy resource version so we can update the existing object
+	expected.SetResourceVersion(curr.GetResourceVersion())
+
+	// Skip update if nothing has changed (avoids unnecessary API calls and reconciles)
+	if semanticUnstructuredInferencePoolIsEqual(expected, curr) {
+		return nil
+	}
+
+	// Update the v1alpha2 InferencePool with new spec/labels/annotations
+	if _, err := res.Update(ctx, expected, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("failed to update v1alpha2 InferencePool %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+	}
+
+	r.Eventf(llmSvc, corev1.EventTypeNormal, "Updated", "Updated v1alpha2 InferencePool %s/%s", expected.GetNamespace(), expected.GetName())
+	return nil
 }
 
 func (r *LLMISVCReconciler) deleteAlpha2PoolIfExists(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
