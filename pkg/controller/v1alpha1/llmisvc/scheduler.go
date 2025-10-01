@@ -30,6 +30,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -38,9 +39,17 @@ import (
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
+	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+)
+
+const (
+	// AnnotationInferencePoolMigrated records when the LLMInferenceService has migrated to v1 InferencePool.
+	// Once set to "v1", traffic will never fall back to v1alpha2 even during transient failures.
+	// This implements a one-way migration strategy to prevent oscillation.
+	AnnotationInferencePoolMigrated = "serving.kserve.io/inference-pool-migrated"
 )
 
 func (r *LLMISVCReconciler) reconcileScheduler(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
@@ -211,6 +220,122 @@ func (r *LLMISVCReconciler) reconcileSchedulerInferencePool(ctx context.Context,
 		llmSvc.MarkRouterReady()
 	} else {
 		llmSvc.MarkRouterNotReady("InferencePoolNotReady", "Neither v1 nor v1alpha2 InferencePool reports Accepted=True and ResolvedRefs=True")
+	}
+
+	// Reconcile one-way migration from v1alpha2 to v1 InferencePool
+	if err := r.reconcileInferencePoolMigration(ctx, llmSvc, v1Ready, alpha2Ready); err != nil {
+		return fmt.Errorf("failed to reconcile InferencePool migration: %w", err)
+	}
+
+	return nil
+}
+
+// reconcileInferencePoolMigration implements one-way migration from v1alpha2 to v1 InferencePool.
+// Once v1 becomes ready for the first time, traffic permanently switches to v1 and never falls back
+// to v1alpha2, even during transient failures. This prevents flapping and makes a more predictable migration.
+func (r *LLMISVCReconciler) reconcileInferencePoolMigration(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, v1Ready, alpha2Ready bool) error {
+	logger := log.FromContext(ctx)
+
+	// Only update weights if HTTPRoute is managed by the controller
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || llmSvc.Spec.Router.Route.HTTP == nil {
+		return nil
+	}
+	if llmSvc.Spec.Router.Route.HTTP.HasRefs() {
+		// User-managed routes - don't modify weights
+		return nil
+	}
+	if !llmSvc.Spec.Router.Route.HTTP.HasSpec() {
+		// No spec means no managed route
+		return nil
+	}
+
+	// Fetch current HTTPRoute
+	route := &gwapiv1.HTTPRoute{}
+	key := crclient.ObjectKey{
+		Namespace: llmSvc.GetNamespace(),
+		Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-route"),
+	}
+	if err := r.Client.Get(ctx, key, route); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Route doesn't exist yet, will be created in next reconcile
+			return nil
+		}
+		return fmt.Errorf("failed to get HTTPRoute: %w", err)
+	}
+
+	// One-way migration logic: once migrated to v1, never fall back
+	var v1Weight, alpha2Weight int32
+	var needsAnnotationUpdate bool
+
+	// Check if we've already committed to v1
+	if llmSvc.Annotations != nil && llmSvc.Annotations[AnnotationInferencePoolMigrated] == "v1" {
+		// Already migrated - always use v1, never fall back to v1alpha2
+		v1Weight, alpha2Weight = 100, 0
+		logger.V(1).Info("Using v1 InferencePool (migration complete, no fallback)")
+	} else {
+		// Not yet migrated - decide based on v1 readiness
+		if v1Ready {
+			// v1 is ready for the first time - commit to v1 permanently
+			v1Weight, alpha2Weight = 100, 0
+			needsAnnotationUpdate = true
+			logger.Info("Migrating to v1 InferencePool permanently (first time v1 ready)")
+		} else if alpha2Ready {
+			// v1 not ready yet - use v1alpha2 temporarily
+			v1Weight, alpha2Weight = 0, 100
+			logger.V(1).Info("Using v1alpha2 InferencePool (v1 not ready yet)")
+		} else {
+			// Neither pool ready - keep existing weights to avoid changes during startup
+			logger.V(1).Info("Neither pool ready yet, keeping existing weights")
+			return nil
+		}
+	}
+
+	// Update backendRef weights in route.Spec.Rules
+	modified := false
+	for i := range route.Spec.Rules {
+		for j := range route.Spec.Rules[i].BackendRefs {
+			ref := &route.Spec.Rules[i].BackendRefs[j]
+
+			// Match v1 InferencePool (inference.networking.k8s.io)
+			if ref.Group != nil && string(*ref.Group) == "inference.networking.k8s.io" &&
+				ref.Kind != nil && string(*ref.Kind) == "InferencePool" {
+				if ref.Weight == nil || *ref.Weight != v1Weight {
+					logger.Info("Updating v1 InferencePool weight", "old", ptr.Deref(ref.Weight, 0), "new", v1Weight)
+					ref.Weight = &v1Weight
+					modified = true
+				}
+			}
+
+			// Match v1alpha2 InferencePool (inference.networking.x-k8s.io)
+			if ref.Group != nil && string(*ref.Group) == "inference.networking.x-k8s.io" &&
+				ref.Kind != nil && string(*ref.Kind) == "InferencePool" {
+				if ref.Weight == nil || *ref.Weight != alpha2Weight {
+					logger.Info("Updating v1alpha2 InferencePool weight", "old", ptr.Deref(ref.Weight, 0), "new", alpha2Weight)
+					ref.Weight = &alpha2Weight
+					modified = true
+				}
+			}
+		}
+	}
+
+	if modified {
+		logger.Info("Updating HTTPRoute with new traffic weights", "v1Weight", v1Weight, "alpha2Weight", alpha2Weight)
+		if err := r.Client.Update(ctx, route); err != nil {
+			return fmt.Errorf("failed to update HTTPRoute weights: %w", err)
+		}
+	}
+
+	// Persist migration decision if this is the first time v1 is ready
+	if needsAnnotationUpdate {
+		if llmSvc.Annotations == nil {
+			llmSvc.Annotations = make(map[string]string)
+		}
+		llmSvc.Annotations[AnnotationInferencePoolMigrated] = "v1"
+
+		if err := r.Client.Update(ctx, llmSvc); err != nil {
+			return fmt.Errorf("failed to update LLMInferenceService migration annotation: %w", err)
+		}
+		logger.Info("Persisted v1 migration decision to LLMInferenceService annotation")
 	}
 
 	return nil
