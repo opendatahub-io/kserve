@@ -7,13 +7,14 @@ spec:
     scheduler:
       pool:
         spec:
-          extensionRef:
-            failureMode: FailOpen
+          endpointPickerRef:
             kind: Service
             name: |-
               {{ ChildName .ObjectMeta.Name `-epp-service` }}
-          selector: { }
-          targetPortNumber: 8000
+          selector:
+            matchLabels: { }
+          targetPorts:
+            - number: 8000
       template:
         containers:
           - name: main

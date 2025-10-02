@@ -27,12 +27,9 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
-	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
-	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
+	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
@@ -75,8 +72,6 @@ var WellKnownDefaultConfigs = sets.New[string](
 // enabled. These LLMInferenceServiceConfig resources must exist in either resource namespace (prioritized) or
 // SystemNamespace (e.g. `kserve`).
 func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, reconcilerConfig *Config) (*v1alpha1.LLMInferenceServiceConfig, error) {
-	logger := log.FromContext(ctx).WithName("combineBaseRefsConfig")
-
 	// Creates the initial spec with the merged BaseRefs, so that we know what's "Enabled".
 	resolvedSpec := *llmSvc.Spec.DeepCopy()
 	for _, ref := range llmSvc.Spec.BaseRefs {
@@ -86,7 +81,7 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		}
 		if cfg != nil {
 			var resolvedErr error
-			resolvedSpec, resolvedErr = mergeSpecs(ctx, resolvedSpec, cfg.Spec)
+			resolvedSpec, resolvedErr = mergeSpecs(resolvedSpec, cfg.Spec)
 			if resolvedErr != nil {
 				return nil, fmt.Errorf("failed to merge specs: %w", resolvedErr)
 			}
@@ -98,8 +93,6 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		llmSvc.Spec.Model.Name = resolvedSpec.Model.Name
 	}
 
-	logger.V(2).Info("Resolved spec", "spec", resolvedSpec)
-
 	refs := make([]corev1.LocalObjectReference, 0, len(llmSvc.Spec.BaseRefs))
 	if resolvedSpec.Router != nil && resolvedSpec.Router.Scheduler != nil && !resolvedSpec.Router.Scheduler.Pool.HasRef() {
 		refs = append(refs, corev1.LocalObjectReference{Name: configRouterSchedulerName})
@@ -107,50 +100,30 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 	if resolvedSpec.Router != nil && resolvedSpec.Router.Route != nil && !resolvedSpec.Router.Route.HTTP.HasRefs() {
 		refs = append(refs, corev1.LocalObjectReference{Name: configRouterRouteName})
 	}
-
-	if resolvedSpec.Prefill != nil { // P/D
-		// Prefill
-		switch {
-		case resolvedSpec.Prefill.Worker == nil:
-			// single-node prefill
-			refs = append(refs, corev1.LocalObjectReference{Name: configPrefillTemplateName})
-		case resolvedSpec.Prefill.Worker != nil && resolvedSpec.Prefill.Parallelism.IsDataParallel():
-			// multi-node Data Parallel prefill
-			refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerDataParallelName})
-		case resolvedSpec.Prefill.Worker != nil && resolvedSpec.Prefill.Parallelism.IsPipelineParallel():
-			// multi-node Pipeline Parallel prefill
-			refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerPipelineParallelName})
-		}
-		// Decode
-		switch {
-		case resolvedSpec.Worker == nil:
-			// single-node decode
-			refs = append(refs, corev1.LocalObjectReference{Name: configDecodeTemplateName})
-		case resolvedSpec.Worker != nil && resolvedSpec.Parallelism.IsDataParallel():
-			// multi-node Data Parallel decode
-			refs = append(refs, corev1.LocalObjectReference{Name: configDecodeWorkerDataParallelName})
-		case resolvedSpec.Worker != nil && resolvedSpec.Parallelism.IsPipelineParallel():
-			// multi-node Pipeline Parallel decode
-			refs = append(refs, corev1.LocalObjectReference{Name: configDecodeWorkerPipelineParallelName})
-		}
-	} else { // Non P/D
-		switch {
-		case resolvedSpec.Worker == nil:
-			// single-node
-			refs = append(refs, corev1.LocalObjectReference{Name: configTemplateName})
-		case resolvedSpec.Worker != nil && resolvedSpec.Parallelism.IsDataParallel():
-			// multi-node Data Parallel
-			refs = append(refs, corev1.LocalObjectReference{Name: configWorkerDataParallelName})
-		case resolvedSpec.Worker != nil && resolvedSpec.Parallelism.IsPipelineParallel():
-			// multi-node Pipeline Parallel
-			refs = append(refs, corev1.LocalObjectReference{Name: configWorkerPipelineParallelName})
-		}
+	switch {
+	// Disaggregated prefill and decode (P/D) cases.
+	case resolvedSpec.Prefill != nil && resolvedSpec.Prefill.Worker == nil:
+		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillTemplateName})
+		refs = append(refs, corev1.LocalObjectReference{Name: configDecodeTemplateName})
+	case resolvedSpec.Prefill != nil && resolvedSpec.Prefill.Worker != nil && resolvedSpec.Prefill.Parallelism.IsPipelineParallel():
+		refs = append(refs, corev1.LocalObjectReference{Name: configDecodeWorkerPipelineParallelName})
+		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerPipelineParallelName})
+	case resolvedSpec.Prefill != nil && resolvedSpec.Prefill.Worker != nil && resolvedSpec.Prefill.Parallelism.IsDataParallel():
+		refs = append(refs, corev1.LocalObjectReference{Name: configDecodeWorkerDataParallelName})
+		refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerDataParallelName})
+	// Multi Node without Disaggregated prefill and decode (P/D) cases.
+	case resolvedSpec.Worker != nil && resolvedSpec.Parallelism.IsPipelineParallel():
+		refs = append(refs, corev1.LocalObjectReference{Name: configWorkerPipelineParallelName})
+	case resolvedSpec.Worker != nil && resolvedSpec.Parallelism.IsDataParallel():
+		refs = append(refs, corev1.LocalObjectReference{Name: configWorkerDataParallelName})
+	default:
+		// Single Node case.
+		refs = append(refs, corev1.LocalObjectReference{Name: configTemplateName})
 	}
-
 	// Append explicit base refs to override well know configs.
 	refs = append(refs, llmSvc.Spec.BaseRefs...)
 
-	specs := make([]v1alpha1.LLMInferenceServiceSpec, 0, len(refs))
+	specs := make([]v1alpha1.LLMInferenceServiceSpec, 0, len(llmSvc.Spec.BaseRefs)+1)
 	for _, ref := range refs {
 		cfg, err := r.getConfig(ctx, llmSvc, ref.Name)
 		if err != nil {
@@ -160,7 +133,7 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 			specs = append(specs, cfg.Spec)
 		}
 	}
-	spec, err := MergeSpecs(ctx, append(specs, llmSvc.Spec)...)
+	spec, err := MergeSpecs(append(specs, llmSvc.Spec)...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to merge specs: %w", err)
 	}
@@ -171,18 +144,28 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 	}
 
 	if llmSvcCfg.Spec.Router != nil &&
-		llmSvcCfg.Spec.Router.Scheduler != nil &&
-		llmSvcCfg.Spec.Router.Scheduler.Pool != nil &&
-		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec != nil &&
-		len(llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector) == 0 {
-		selector := GetWorkloadLabelSelector(llmSvc.ObjectMeta, &llmSvcCfg.Spec)
-
-		gieSelector := make(map[igwapi.LabelKey]igwapi.LabelValue, len(selector))
-		for k, v := range selector {
-			gieSelector[igwapi.LabelKey(k)] = igwapi.LabelValue(v)
-		}
-		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector = gieSelector
+	llmSvcCfg.Spec.Router.Scheduler != nil &&
+	llmSvcCfg.Spec.Router.Scheduler.Pool != nil &&
+	llmSvcCfg.Spec.Router.Scheduler.Pool.Spec != nil {
+	// Start with any existing matchLabels (typed in v1).
+	dst := make(map[igwv1.LabelKey]igwv1.LabelValue, len(llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector.MatchLabels))
+	for k, v := range llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector.MatchLabels {
+		dst[k] = v
 	}
+
+	// Merge in the controller's workload labels (plain strings) as typed keys/values.
+	// GetWorkloadLabelSelector returns map[string]string.
+	if extra := GetWorkloadLabelSelector(llmSvc.ObjectMeta, &llmSvcCfg.Spec); len(extra) > 0 {
+		for k, v := range extra {
+			dst[igwv1.LabelKey(k)] = igwv1.LabelValue(v)
+		}
+	}
+
+	// v1 uses igwv1.LabelSelector{ MatchLabels map[LabelKey]LabelValue } (typed), not map[string]string.
+	llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector = igwv1.LabelSelector{
+		MatchLabels: dst,
+	}
+}
 
 	if llmSvcCfg.Spec.Router != nil &&
 		llmSvcCfg.Spec.Router.Scheduler != nil &&
@@ -194,38 +177,6 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 	llmSvcCfg, err = ReplaceVariables(llmSvc, llmSvcCfg, reconcilerConfig)
 	if err != nil {
 		return llmSvcCfg, err
-	}
-
-	// Point HTTPRoute to a Service if there is no Scheduler or InferencePool, and the HTTPRoute uses the default
-	// InferencePool (to handle cases where the HTTPRoute Spec uses a custom BackendRef).
-	if llmSvcCfg.Spec.Router != nil &&
-		llmSvcCfg.Spec.Router.Route != nil &&
-		llmSvcCfg.Spec.Router.Route.HTTP.HasSpec() &&
-		llmSvcCfg.Spec.Router.Scheduler == nil {
-		for i := range llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules {
-			for j := range llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs {
-				if isDefaultBackendRef(llmSvc, llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].BackendRef) {
-					llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].Group = ptr.To[gatewayapi.Group]("")
-					llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].Kind = ptr.To[gatewayapi.Kind]("Service")
-					llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].Name = gatewayapi.ObjectName(kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"))
-				}
-			}
-		}
-	}
-
-	// Point HTTPRoute to InferencePool reference if specified.
-	if llmSvcCfg.Spec.Router != nil &&
-		llmSvcCfg.Spec.Router.Route != nil &&
-		llmSvcCfg.Spec.Router.Route.HTTP.HasSpec() &&
-		llmSvcCfg.Spec.Router.Scheduler != nil &&
-		llmSvcCfg.Spec.Router.Scheduler.Pool.HasRef() {
-		for i := range llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules {
-			for j := range llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs {
-				if isDefaultBackendRef(llmSvc, llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].BackendRef) {
-					llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].Name = gatewayapi.ObjectName(llmSvcCfg.Spec.Router.Scheduler.Pool.Ref.Name)
-				}
-			}
-		}
 	}
 
 	return llmSvcCfg, nil
@@ -280,7 +231,7 @@ func (r *LLMInferenceServiceReconciler) getConfig(ctx context.Context, llmSvc *v
 	return cfg, nil
 }
 
-func MergeSpecs(ctx context.Context, cfgs ...v1alpha1.LLMInferenceServiceSpec) (v1alpha1.LLMInferenceServiceSpec, error) {
+func MergeSpecs(cfgs ...v1alpha1.LLMInferenceServiceSpec) (v1alpha1.LLMInferenceServiceSpec, error) {
 	if len(cfgs) == 0 {
 		return v1alpha1.LLMInferenceServiceSpec{}, nil
 	}
@@ -289,7 +240,7 @@ func MergeSpecs(ctx context.Context, cfgs ...v1alpha1.LLMInferenceServiceSpec) (
 	for i := 1; i < len(cfgs); i++ {
 		cfg := cfgs[i]
 		var err error
-		out, err = mergeSpecs(ctx, out, cfg)
+		out, err = mergeSpecs(out, cfg)
 		if err != nil {
 			return v1alpha1.LLMInferenceServiceSpec{}, fmt.Errorf("failed to merge specs: %w", err)
 		}
@@ -299,7 +250,7 @@ func MergeSpecs(ctx context.Context, cfgs ...v1alpha1.LLMInferenceServiceSpec) (
 
 // mergeSpecs performs a strategic merge by creating a clean patch from the override
 // object and applying it to the base object.
-func mergeSpecs(ctx context.Context, base, override v1alpha1.LLMInferenceServiceSpec) (v1alpha1.LLMInferenceServiceSpec, error) {
+func mergeSpecs(base, override v1alpha1.LLMInferenceServiceSpec) (v1alpha1.LLMInferenceServiceSpec, error) {
 	baseJSON, err := json.Marshal(base)
 	if err != nil {
 		return v1alpha1.LLMInferenceServiceSpec{}, fmt.Errorf("could not marshal base spec: %w", err)
@@ -315,22 +266,16 @@ func mergeSpecs(ctx context.Context, base, override v1alpha1.LLMInferenceService
 		return v1alpha1.LLMInferenceServiceSpec{}, fmt.Errorf("could not marshal zero spec: %w", err)
 	}
 
-	override.SetDefaults(ctx)
-
 	overrideJSON, err := json.Marshal(override)
 	if err != nil {
 		return v1alpha1.LLMInferenceServiceSpec{}, fmt.Errorf("could not marshal override spec: %w", err)
 	}
-
-	logger := log.FromContext(ctx)
 
 	// Create the patch. It will only contain the non-default fields from the override.
 	patch, err := strategicpatch.CreateTwoWayMergePatch(zeroJSON, overrideJSON, v1alpha1.LLMInferenceServiceSpec{})
 	if err != nil {
 		return v1alpha1.LLMInferenceServiceSpec{}, fmt.Errorf("could not create merge patch from override: %w", err)
 	}
-
-	logger.V(2).Info("merging specs (patch)", "patch", string(patch), "base", string(baseJSON), "override", string(overrideJSON), "zero", string(zeroJSON))
 
 	// Apply this "clean" patch to the base JSON. The strategic merge logic will correctly
 	// merge lists and objects based on their Kubernetes patch strategy annotations.
@@ -345,11 +290,4 @@ func mergeSpecs(ctx context.Context, base, override v1alpha1.LLMInferenceService
 		return v1alpha1.LLMInferenceServiceSpec{}, fmt.Errorf("could not unmarshal merged spec: %w", err)
 	}
 	return finalSpec, nil
-}
-
-func isDefaultBackendRef(llmSvc *v1alpha1.LLMInferenceService, ref gatewayapi.BackendRef) bool {
-	defaultInfPoolName := (&v1alpha1.SchedulerSpec{}).InferencePoolName(llmSvc)
-	return ptr.Deref[gatewayapi.Group](ref.Group, "") == igwapi.GroupName &&
-		ptr.Deref[gatewayapi.Kind](ref.Kind, "") == "InferencePool" &&
-		string(ref.Name) == defaultInfPoolName
 }
