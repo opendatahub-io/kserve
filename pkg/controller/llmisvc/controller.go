@@ -23,6 +23,7 @@ import (
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -53,7 +54,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/utils"
@@ -73,7 +74,8 @@ type LLMInferenceServiceReconciler struct {
 	client.Client
 	Config *rest.Config
 	record.EventRecorder
-	Clientset kubernetes.Interface
+	Clientset     kubernetes.Interface
+	DynamicClient dynamic.Interface
 }
 
 //+kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;create;update;patch;delete
@@ -258,16 +260,6 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 		b = b.Owns(&istioapi.DestinationRule{}, builder.WithPredicates(childResourcesPredicate))
 	}
 
-	if err := igwapi.Install(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("failed to add GIE APIs to scheme: %w", err)
-	}
-	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwapi.GroupVersion.String(), "InferencePool"); ok && err == nil {
-		b = b.Owns(&igwapi.InferencePool{}, builder.WithPredicates(childResourcesPredicate))
-	}
-	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwapi.GroupVersion.String(), "InferenceModel"); ok && err == nil {
-		b = b.Owns(&igwapi.InferenceModel{}, builder.WithPredicates(childResourcesPredicate))
-	}
-
 	if err := lwsapi.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("failed to add LeaderWorkerSet APIs to scheme: %w", err)
 	}
@@ -449,12 +441,12 @@ func (r *LLMInferenceServiceReconciler) enqueueOnIstioShadowServiceChange(mgr ct
 			return nil
 		}
 
-		if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwapi.GroupVersion.String(), "InferencePool"); err != nil || !ok {
+		if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwv1.GroupVersion.String(), "InferencePool"); err != nil || !ok {
 			logger.V(2).Error(err, "failed to get InferencePool", "name", poolName, "namespace", sub.GetNamespace())
 			return nil
 		}
 
-		pool := &igwapi.InferencePool{}
+		pool := &igwv1.InferencePool{}
 		err := r.Get(ctx, client.ObjectKey{Name: poolName, Namespace: sub.GetNamespace()}, pool)
 		if err != nil {
 			if !apierrors.IsNotFound(err) {

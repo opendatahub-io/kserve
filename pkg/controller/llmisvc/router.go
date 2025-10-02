@@ -34,7 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/kmeta"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -421,7 +421,7 @@ func (r *LLMInferenceServiceReconciler) EvaluateInferencePoolConditions(ctx cont
 		return nil
 	}
 
-	curr := &igwapi.InferencePool{}
+	curr := &igwv1.InferencePool{}
 
 	if llmSvc.Spec.Router.Scheduler.Pool != nil && llmSvc.Spec.Router.Scheduler.Pool.Ref != nil && llmSvc.Spec.Router.Scheduler.Pool.Ref.Name != "" {
 		poolRef := llmSvc.Spec.Router.Scheduler.Pool.Ref
@@ -446,15 +446,15 @@ func (r *LLMInferenceServiceReconciler) EvaluateInferencePoolConditions(ctx cont
 		if topLevelCondition != nil {
 			llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady", fmt.Sprintf(
 				"%s/%s: %v=%#v (reason %q, message %q)",
-				curr.Namespace,
-				curr.Name,
+				curr.ObjectMeta.Namespace,
+				curr.ObjectMeta.Name,
 				topLevelCondition.Type,
 				topLevelCondition.Status,
 				topLevelCondition.Reason,
 				topLevelCondition.Message,
 			))
 		} else {
-			llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady", fmt.Sprintf("The inference pool %s/%s is not ready", curr.Namespace, curr.Name))
+			llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady", fmt.Sprintf("The inference pool %s/%s is not ready", curr.ObjectMeta.Namespace, curr.ObjectMeta.Name))
 		}
 		return nil
 	}
