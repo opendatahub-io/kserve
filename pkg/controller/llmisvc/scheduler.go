@@ -187,12 +187,12 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerInferencePool(ctx cont
 
 	// Fetch current v1 to read Status (expected has no Status).
 	cur := &igwv1.InferencePool{}
-	if err := r.Client.Get(ctx, crclient.ObjectKey{
+	// Intentionally ignore error - if v1 pool doesn't exist or can't be fetched,
+	// cur remains empty and isV1PoolReady will return false, allowing fallback to alpha2
+	_ = r.Client.Get(ctx, crclient.ObjectKey{
 		Namespace: expected.Namespace,
-		Name: expected.Name,
-	}, cur); err != nil {
-		// If we can't fetch v1, treat v1 as not ready and rely on alpha2 below.
-	}
+		Name:      expected.Name,
+	}, cur)
 
 	v1Ready := isV1PoolReady(cur)
 	alpha2Ready := r.isAlpha2PoolReady(ctx, llmSvc.GetNamespace(), expected.GetName())
@@ -659,10 +659,11 @@ func isV1PoolReady(p *igwv1.InferencePool) bool {
 	for _, ps := range p.Status.Parents {
 		accepted, resolved := false, false
 		for _, c := range ps.Conditions {
-			if string(c.Type) == "Accepted" && string(c.Status) == "True" {
+			// c.Type is string, c.Status is ConditionStatus (string alias) - no conversion needed
+			if c.Type == "Accepted" && c.Status == "True" {
 				accepted = true
 			}
-			if string(c.Type) == "ResolvedRefs" && string(c.Status) == "True" {
+			if c.Type == "ResolvedRefs" && c.Status == "True" {
 				resolved = true
 			}
 		}
@@ -932,7 +933,12 @@ func (r *LLMInferenceServiceReconciler) deleteAlpha2PoolIfExists(ctx context.Con
 	res := r.DynamicClient.Resource(GVRInferencePoolV1Alpha2).Namespace(llmSvc.Namespace)
 	_, err := res.Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return nil // nothing to delete or not found
+		// If resource doesn't exist (NotFound), that's fine - nothing to delete
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		// For other errors, propagate them
+		return err
 	}
 	return res.Delete(ctx, name, metav1.DeleteOptions{})
 }
@@ -942,7 +948,12 @@ func (r *LLMInferenceServiceReconciler) deleteAlpha2InferenceModelIfExists(ctx c
 	res := r.DynamicClient.Resource(GVRInferenceModelV1Alpha2).Namespace(llmSvc.Namespace)
 	_, err := res.Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		return nil // not found or not installed so ignore
+		// If resource doesn't exist (NotFound) or CRD not installed, that's fine
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		// For other errors, propagate them
+		return err
 	}
 	return res.Delete(ctx, name, metav1.DeleteOptions{})
 }
