@@ -144,28 +144,28 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 	}
 
 	if llmSvcCfg.Spec.Router != nil &&
-	llmSvcCfg.Spec.Router.Scheduler != nil &&
-	llmSvcCfg.Spec.Router.Scheduler.Pool != nil &&
-	llmSvcCfg.Spec.Router.Scheduler.Pool.Spec != nil {
-	// Start with any existing matchLabels (typed in v1).
-	dst := make(map[igwv1.LabelKey]igwv1.LabelValue, len(llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector.MatchLabels))
-	for k, v := range llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector.MatchLabels {
-		dst[k] = v
-	}
+		llmSvcCfg.Spec.Router.Scheduler != nil &&
+		llmSvcCfg.Spec.Router.Scheduler.Pool != nil &&
+		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec != nil {
+		// Start with any existing matchLabels (typed in v1).
+		dst := make(map[igwv1.LabelKey]igwv1.LabelValue, len(llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector.MatchLabels))
+		for k, v := range llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector.MatchLabels {
+			dst[k] = v
+		}
 
-	// Merge in the controller's workload labels (plain strings) as typed keys/values.
-	// GetWorkloadLabelSelector returns map[string]string.
-	if extra := GetWorkloadLabelSelector(llmSvc.ObjectMeta, &llmSvcCfg.Spec); len(extra) > 0 {
-		for k, v := range extra {
-			dst[igwv1.LabelKey(k)] = igwv1.LabelValue(v)
+		// Merge in the controller's workload labels (plain strings) as typed keys/values.
+		// GetWorkloadLabelSelector returns map[string]string.
+		if extra := GetWorkloadLabelSelector(llmSvc.ObjectMeta, &llmSvcCfg.Spec); len(extra) > 0 {
+			for k, v := range extra {
+				dst[igwv1.LabelKey(k)] = igwv1.LabelValue(v)
+			}
+		}
+
+		// v1 uses igwv1.LabelSelector{ MatchLabels map[LabelKey]LabelValue } (typed), not map[string]string.
+		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector = igwv1.LabelSelector{
+			MatchLabels: dst,
 		}
 	}
-
-	// v1 uses igwv1.LabelSelector{ MatchLabels map[LabelKey]LabelValue } (typed), not map[string]string.
-	llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector = igwv1.LabelSelector{
-		MatchLabels: dst,
-	}
-}
 
 	if llmSvcCfg.Spec.Router != nil &&
 		llmSvcCfg.Spec.Router.Scheduler != nil &&

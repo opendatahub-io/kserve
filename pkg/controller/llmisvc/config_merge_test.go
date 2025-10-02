@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/yaml"
 
 	ktesting "github.com/kserve/kserve/pkg/testing"
@@ -37,7 +36,6 @@ import (
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	pkgtest "github.com/kserve/kserve/pkg/testing"
 )
 
 func TestMergeSpecs(t *testing.T) {
@@ -1310,9 +1308,7 @@ func TestMergeSpecs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ctx := t.Context()
-			ctx = log.IntoContext(ctx, pkgtest.NewTestLogger(t))
-
+			// Remove unused context assignment - MergeSpecs doesn't need context
 			got, err := llmisvc.MergeSpecs(tt.cfgs...)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("MergeSpecs() error = %v, wantErr %v", err, tt.wantErr)
