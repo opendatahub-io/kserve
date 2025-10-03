@@ -79,7 +79,7 @@ go-lint: golangci-lint
 py-lint: $(FLAKE8_LINT)
 	$(FLAKE8_LINT) --config=.flake8 .
 
-GIE_VERSION=v0.5.0
+GIE_VERSION=v1.0.1
 # Generate manifests e.g. CRD, RBAC etc.
 manifests: controller-gen yq
 	@$(CONTROLLER_GEN) $(CRD_OPTIONS) paths=./pkg/apis/serving/... output:crd:dir=config/crd/full
