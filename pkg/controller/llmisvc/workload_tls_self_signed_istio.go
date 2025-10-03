@@ -165,7 +165,7 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForScheduler
 	}
 
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil {
-		name := llmSvc.Spec.Router.EPPServiceName(llmSvc)
+		name := llmSvc.EPPServiceName()
 		if llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
 			pool := igwapi.InferencePool{}
 			if err := r.Client.Get(ctx, client.ObjectKey{Name: llmSvc.Spec.Router.Scheduler.Pool.Ref.Name, Namespace: llmSvc.GetNamespace()}, &pool); err != nil {
@@ -263,7 +263,7 @@ func (r *LLMInferenceServiceReconciler) getIstioShadowInferencePoolService(ctx c
 
 	svcs := &corev1.ServiceList{}
 	err := r.Client.List(ctx, svcs, client.InNamespace(llmSvc.GetNamespace()), client.MatchingLabels{
-		istioInferencePoolLabelName: llmSvc.Spec.Router.Scheduler.InferencePoolName(llmSvc),
+		istioInferencePoolLabelName: llmSvc.InferencePoolName(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list services in namespace %q: %w", llmSvc.GetNamespace(), err)

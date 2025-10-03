@@ -119,7 +119,7 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx con
 			if llmSvc.Spec.Router != nil {
 				s.Env = append(s.Env, corev1.EnvVar{
 					Name:      "INFERENCE_POOL_NAME",
-					Value:     llmSvc.Spec.Router.Scheduler.InferencePoolName(llmSvc),
+					Value:     llmSvc.InferencePoolName(),
 					ValueFrom: nil,
 				})
 			}
