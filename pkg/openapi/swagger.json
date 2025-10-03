@@ -4187,6 +4187,9 @@
         "memoryRequest": {
           "type": "string",
           "default": ""
+        },
+        "timeoutSeconds": {
+          "type": "string"
         }
       }
     },
