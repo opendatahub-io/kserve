@@ -1,13 +1,15 @@
 apiVersion: serving.kserve.io/v1alpha1
 kind: LLMInferenceService
 metadata:
-  name: qwen2-7b-instruct-single
+  name: qwen2-7b-instruct-single-no-scheduler
 spec:
   model:
     uri: hf://Qwen/Qwen2.5-7B-Instruct
     name: Qwen/Qwen2.5-7B-Instruct
-  replicas: 1
+  # Three replicas for load balancing
+  replicas: 3
   router:
+    # No scheduler - routing handled by Kubernetes service
     route: { }
   template:
     containers:
