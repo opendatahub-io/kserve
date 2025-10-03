@@ -65,7 +65,7 @@ spec:
               - https
               - --model-server-metrics-https-insecure-skip-verify
               - --cert-path
-              - /etc/ssl/certs              
+              - /etc/ssl/certs
             resources:
               requests:
                 cpu: 256m
