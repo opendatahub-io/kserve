@@ -3,7 +3,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.2
+    controller-gen.kubebuilder.io/version: v0.17.2
   name: llminferenceserviceconfigs.serving.kserve.io
 spec:
   group: serving.kserve.io
@@ -38,10 +38,6 @@ spec:
                 model:
                   properties:
                     criticality:
-                      enum:
-                        - Critical
-                        - Standard
-                        - Sheddable
                       type: string
                     lora:
                       properties:
@@ -7482,6 +7478,65 @@ spec:
                                             filters:
                                               items:
                                                 properties:
+                                                  cors:
+                                                    properties:
+                                                      allowCredentials:
+                                                        enum:
+                                                          - true
+                                                        type: boolean
+                                                      allowHeaders:
+                                                        items:
+                                                          maxLength: 256
+                                                          minLength: 1
+                                                          pattern: ^[A-Za-z0-9!#$%&'*+\-.^_\x60|~]+$
+                                                          type: string
+                                                        maxItems: 64
+                                                        type: array
+                                                        x-kubernetes-list-type: set
+                                                      allowMethods:
+                                                        items:
+                                                          enum:
+                                                            - GET
+                                                            - HEAD
+                                                            - POST
+                                                            - PUT
+                                                            - DELETE
+                                                            - CONNECT
+                                                            - OPTIONS
+                                                            - TRACE
+                                                            - PATCH
+                                                            - '*'
+                                                          type: string
+                                                        maxItems: 9
+                                                        type: array
+                                                        x-kubernetes-list-type: set
+                                                        x-kubernetes-validations:
+                                                          - message: AllowMethods cannot contain '*' alongside other methods
+                                                            rule: '!(''*'' in self && self.size() > 1)'
+                                                      allowOrigins:
+                                                        items:
+                                                          maxLength: 253
+                                                          minLength: 1
+                                                          pattern: ^(([^:/?#]+):)(//([^/?#]*))([^?#]*)(\?([^#]*))?(#(.*))?
+                                                          type: string
+                                                        maxItems: 64
+                                                        type: array
+                                                        x-kubernetes-list-type: set
+                                                      exposeHeaders:
+                                                        items:
+                                                          maxLength: 256
+                                                          minLength: 1
+                                                          pattern: ^[A-Za-z0-9!#$%&'*+\-.^_\x60|~]+$
+                                                          type: string
+                                                        maxItems: 64
+                                                        type: array
+                                                        x-kubernetes-list-type: set
+                                                      maxAge:
+                                                        default: 5
+                                                        format: int32
+                                                        minimum: 1
+                                                        type: integer
+                                                    type: object
                                                   extensionRef:
                                                     properties:
                                                       group:
@@ -7613,6 +7668,9 @@ spec:
                                                     required:
                                                       - backendRef
                                                     type: object
+                                                    x-kubernetes-validations:
+                                                      - message: Only one of percent or fraction may be specified in HTTPRequestMirrorFilter
+                                                        rule: '!(has(self.percent) && has(self.fraction))'
                                                   requestRedirect:
                                                     properties:
                                                       hostname:
@@ -7840,6 +7898,65 @@ spec:
                                       filters:
                                         items:
                                           properties:
+                                            cors:
+                                              properties:
+                                                allowCredentials:
+                                                  enum:
+                                                    - true
+                                                  type: boolean
+                                                allowHeaders:
+                                                  items:
+                                                    maxLength: 256
+                                                    minLength: 1
+                                                    pattern: ^[A-Za-z0-9!#$%&'*+\-.^_\x60|~]+$
+                                                    type: string
+                                                  maxItems: 64
+                                                  type: array
+                                                  x-kubernetes-list-type: set
+                                                allowMethods:
+                                                  items:
+                                                    enum:
+                                                      - GET
+                                                      - HEAD
+                                                      - POST
+                                                      - PUT
+                                                      - DELETE
+                                                      - CONNECT
+                                                      - OPTIONS
+                                                      - TRACE
+                                                      - PATCH
+                                                      - '*'
+                                                    type: string
+                                                  maxItems: 9
+                                                  type: array
+                                                  x-kubernetes-list-type: set
+                                                  x-kubernetes-validations:
+                                                    - message: AllowMethods cannot contain '*' alongside other methods
+                                                      rule: '!(''*'' in self && self.size() > 1)'
+                                                allowOrigins:
+                                                  items:
+                                                    maxLength: 253
+                                                    minLength: 1
+                                                    pattern: ^(([^:/?#]+):)(//([^/?#]*))([^?#]*)(\?([^#]*))?(#(.*))?
+                                                    type: string
+                                                  maxItems: 64
+                                                  type: array
+                                                  x-kubernetes-list-type: set
+                                                exposeHeaders:
+                                                  items:
+                                                    maxLength: 256
+                                                    minLength: 1
+                                                    pattern: ^[A-Za-z0-9!#$%&'*+\-.^_\x60|~]+$
+                                                    type: string
+                                                  maxItems: 64
+                                                  type: array
+                                                  x-kubernetes-list-type: set
+                                                maxAge:
+                                                  default: 5
+                                                  format: int32
+                                                  minimum: 1
+                                                  type: integer
+                                              type: object
                                             extensionRef:
                                               properties:
                                                 group:
@@ -7971,6 +8088,9 @@ spec:
                                               required:
                                                 - backendRef
                                               type: object
+                                              x-kubernetes-validations:
+                                                - message: Only one of percent or fraction may be specified in HTTPRequestMirrorFilter
+                                                  rule: '!(has(self.percent) && has(self.fraction))'
                                             requestRedirect:
                                               properties:
                                                 hostname:
@@ -8332,7 +8452,7 @@ spec:
                               x-kubernetes-map-type: atomic
                             spec:
                               properties:
-                                extensionRef:
+                                endpointPickerRef:
                                   properties:
                                     failureMode:
                                       default: FailClose
@@ -8343,6 +8463,7 @@ spec:
                                     group:
                                       default: ""
                                       maxLength: 253
+                                      minLength: 0
                                       pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                                       type: string
                                     kind:
@@ -8355,30 +8476,55 @@ spec:
                                       maxLength: 253
                                       minLength: 1
                                       type: string
-                                    portNumber:
-                                      format: int32
-                                      maximum: 65535
-                                      minimum: 1
-                                      type: integer
+                                    port:
+                                      properties:
+                                        number:
+                                          format: int32
+                                          maximum: 65535
+                                          minimum: 1
+                                          type: integer
+                                      required:
+                                        - number
+                                      type: object
                                   required:
                                     - name
                                   type: object
+                                  x-kubernetes-validations:
+                                    - message: port is required when kind is 'Service' or unspecified (defaults to 'Service')
+                                      rule: self.kind != 'Service' || has(self.port)
                                 selector:
-                                  additionalProperties:
-                                    maxLength: 63
-                                    minLength: 0
-                                    pattern: ^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$
-                                    type: string
+                                  properties:
+                                    matchLabels:
+                                      additionalProperties:
+                                        maxLength: 63
+                                        minLength: 0
+                                        pattern: ^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$
+                                        type: string
+                                      maxProperties: 64
+                                      minProperties: 1
+                                      type: object
+                                  required:
+                                    - matchLabels
                                   type: object
-                                targetPortNumber:
-                                  format: int32
-                                  maximum: 65535
-                                  minimum: 1
-                                  type: integer
+                                targetPorts:
+                                  items:
+                                    properties:
+                                      number:
+                                        format: int32
+                                        maximum: 65535
+                                        minimum: 1
+                                        type: integer
+                                    required:
+                                      - number
+                                    type: object
+                                  maxItems: 1
+                                  minItems: 1
+                                  type: array
+                                  x-kubernetes-list-type: atomic
                               required:
-                                - extensionRef
+                                - endpointPickerRef
                                 - selector
-                                - targetPortNumber
+                                - targetPorts
                               type: object
                           type: object
                         template:
