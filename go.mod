@@ -199,5 +199,9 @@ require (
 // This avoids "module used for two different module paths" error
 exclude google.golang.org/grpc/stats/opentelemetry v0.0.0-00010101000000-000000000000
 
+// Temporary fork with fix for upstream GIE v1.0.0 validation markers bug
+// See: https://github.com/kubernetes-sigs/gateway-api-inference-extension/issues/1678
+replace sigs.k8s.io/gateway-api-inference-extension => github.com/KillianGolds/gateway-api-inference-extension v1.0.2-0.20251006160352-99ca1d6c30cc
+
 // Currently, KEDA requires 0.19 but GIE uses 0.21
 replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.19.7
