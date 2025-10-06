@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
-	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
+	apiv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	apisv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -386,7 +386,7 @@ func (in *InferencePoolSpec) DeepCopyInto(out *InferencePoolSpec) {
 	*out = *in
 	if in.Spec != nil {
 		in, out := &in.Spec, &out.Spec
-		*out = new(igwv1.InferencePoolSpec)
+		*out = new(apiv1.InferencePoolSpec)
 		(*in).DeepCopyInto(*out)
 	}
 	if in.Ref != nil {

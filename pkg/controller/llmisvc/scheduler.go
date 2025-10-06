@@ -18,6 +18,7 @@ package llmisvc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -963,7 +964,7 @@ func (r *LLMInferenceServiceReconciler) deleteAlpha2InferenceModelIfExists(ctx c
 // We convert keys/values to strings and use "" / >0 checks instead of nil checks.
 func v1ToAlpha2Unstructured(v1p *igwv1.InferencePool) (*unstructured.Unstructured, error) {
 	if v1p == nil {
-		return nil, fmt.Errorf("nil v1 pool")
+		return nil, errors.New("nil v1 pool")
 	}
 
 	// selector: v1 -> v1alpha2 (string map)
@@ -976,7 +977,7 @@ func v1ToAlpha2Unstructured(v1p *igwv1.InferencePool) (*unstructured.Unstructure
 
 	// target port: v1 TargetPorts[0].Number -> alpha2 targetPortNumber (int)
 	if len(v1p.Spec.TargetPorts) == 0 {
-		return nil, fmt.Errorf("spec.targetPorts[0] required")
+		return nil, errors.New("spec.targetPorts[0] required")
 	}
 	tp := int(v1p.Spec.TargetPorts[0].Number) // Number is a non-pointer alias (int32)
 
