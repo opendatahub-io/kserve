@@ -493,7 +493,7 @@ func TestDiscoverURLs(t *testing.T) {
 				WithObjects(objects...).
 				Build()
 
-			urls, err := llmisvc.DiscoverURLs(ctx, fakeClient, tt.route)
+			urls, audiences, err := llmisvc.DiscoverURLs(ctx, fakeClient, tt.route)
 
 			if tt.expectedErrorCheck != nil {
 				g.Expect(err).To(HaveOccurred())
@@ -501,6 +501,7 @@ func TestDiscoverURLs(t *testing.T) {
 			} else {
 				g.Expect(err).ToNot(HaveOccurred())
 				g.Expect(urls).To(HaveLen(len(tt.expectedURLs)))
+				g.Expect(audiences).To(HaveLen(len(tt.expectedURLs)))
 
 				// Convert to strings for easier comparison
 				var actualURLs []string

@@ -65,12 +65,13 @@ func DiscoverGateways(ctx context.Context, c client.Client, route *gatewayapi.HT
 	return gateways, nil
 }
 
-func DiscoverURLs(ctx context.Context, c client.Client, route *gatewayapi.HTTPRoute) ([]*apis.URL, error) {
+func DiscoverURLs(ctx context.Context, c client.Client, route *gatewayapi.HTTPRoute) ([]*apis.URL, []string, error) {
 	var urls []*apis.URL
+	var audiences []string
 
 	gateways, err := DiscoverGateways(ctx, c, route)
 	if err != nil {
-		return nil, fmt.Errorf("failed to discover gateways: %w", err)
+		return nil, nil, fmt.Errorf("failed to discover gateways: %w", err)
 	}
 
 	for _, g := range gateways {
@@ -80,7 +81,7 @@ func DiscoverURLs(ctx context.Context, c client.Client, route *gatewayapi.HTTPRo
 
 		addresses := g.gateway.Status.Addresses
 		if len(addresses) == 0 {
-			return nil, &ExternalAddressNotFoundError{
+			return nil, nil, &ExternalAddressNotFoundError{
 				GatewayNamespace: g.gateway.Namespace,
 				GatewayName:      g.gateway.Name,
 			}
@@ -95,13 +96,18 @@ func DiscoverURLs(ctx context.Context, c client.Client, route *gatewayapi.HTTPRo
 
 		gatewayURLs, err := combineIntoURLs(hostnames, scheme, port, path)
 		if err != nil {
-			return nil, fmt.Errorf("failed to combine URLs for Gateway %s/%s: %w", g.gateway.Namespace, g.gateway.Name, err)
+			return nil, nil, fmt.Errorf("failed to combine URLs for Gateway %s/%s: %w", g.gateway.Namespace, g.gateway.Name, err)
 		}
 
+		audience := gatewayServiceAudience(g.gateway)
+
 		urls = append(urls, gatewayURLs...)
+		for range gatewayURLs {
+			audiences = append(audiences, audience)
+		}
 	}
 
-	return urls, nil
+	return urls, audiences, nil
 }
 
 func extractRoutePath(route *gatewayapi.HTTPRoute) string {
@@ -110,6 +116,10 @@ func extractRoutePath(route *gatewayapi.HTTPRoute) string {
 		return ptr.Deref(route.Spec.Rules[0].Matches[0].Path.Value, "/")
 	}
 	return "/"
+}
+
+func gatewayServiceAudience(gateway *gatewayapi.Gateway) string {
+	return fmt.Sprintf("%s.%s.svc", gateway.Name, gateway.Namespace)
 }
 
 func selectListener(gateway *gatewayapi.Gateway, sectionName *gatewayapi.SectionName) *gatewayapi.Listener {

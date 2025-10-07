@@ -178,15 +178,20 @@ func (r *LLMInferenceServiceReconciler) updateRoutingStatus(ctx context.Context,
 	logger := log.FromContext(ctx)
 
 	var urls []*apis.URL
+	var audiences []string
 	for _, route := range routes {
-		discoverURL, err := DiscoverURLs(ctx, r.Client, route)
+		discoverURL, discoverAud, err := DiscoverURLs(ctx, r.Client, route)
 		if IgnoreExternalAddressNotFound(err) != nil {
 			return fmt.Errorf("failed to discover URL for route %s/%s: %w", route.GetNamespace(), route.GetName(), err)
 		}
 		if discoverURL != nil {
 			urls = append(urls, discoverURL...)
+			audiences = append(audiences, discoverAud...)
 		}
 	}
+
+	urlsForAddresses := make([]*apis.URL, len(urls))
+	copy(urlsForAddresses, urls)
 
 	slices.SortStableFunc(urls, func(a, b *apis.URL) int {
 		return cmp.Compare(a.String(), b.String())
@@ -199,10 +204,12 @@ func (r *LLMInferenceServiceReconciler) updateRoutingStatus(ctx context.Context,
 		llmSvc.Status.URL = externalURLs[0]
 	}
 
-	llmSvc.Status.Addresses = make([]duckv1.Addressable, 0, len(urls))
-	for _, url := range urls {
+	// Use original order to maintain URL-audience pairing
+	llmSvc.Status.Addresses = make([]duckv1.Addressable, 0, len(urlsForAddresses))
+	for i, url := range urlsForAddresses {
 		llmSvc.Status.Addresses = append(llmSvc.Status.Addresses, duckv1.Addressable{
-			URL: url,
+			URL:      url,
+			Audience: &audiences[i],
 		})
 	}
 
