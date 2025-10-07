@@ -21,17 +21,17 @@ spec:
               - llm-test
               - --zap-encoder
               - json
-              - --grpcPort
+              - --grpc-port
               - "9002"
-              - --grpcHealthPort
+              - --grpc-health-port
               - "9003"
-              - --secureServing
-              - --modelServerMetricsScheme
+              - --secure-serving
+              - --model-server-metrics-scheme
               - https
-              - --modelServerMetricsHttpsInsecureSkipVerify
-              - --certPath
+              - --model-server-metrics-https-insecure-skip-verify
+              - --cert-path
               - /etc/ssl/certs
-              - --configText
+              - --config-text
               - |2
               
                 apiVersion: inference.networking.x-k8s.io/v1alpha1
