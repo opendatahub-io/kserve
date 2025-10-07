@@ -12,7 +12,8 @@ spec:
             name: |-
               {{ ChildName .ObjectMeta.Name `-epp-service` }}
           selector:
-            matchLabels: { }
+            matchLabels:
+              app.kubernetes.io/part-of: llminferenceservice
           targetPorts:
             - number: 8000
       template:
