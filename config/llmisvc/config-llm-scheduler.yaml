@@ -11,6 +11,8 @@ spec:
             kind: Service
             name: |-
               {{ ChildName .ObjectMeta.Name `-epp-service` }}
+            port:
+              number: 9002
           selector:
             matchLabels:
               app.kubernetes.io/part-of: llminferenceservice
