@@ -15,9 +15,14 @@
 import hashlib
 import os
 import pytest
+from ..common.gw_api import (
+    create_or_update_gateway,
+    create_or_update_route,
+    delete_gateway,
+    delete_route,
+)
 from kserve import KServeClient, constants, V1alpha1LLMInferenceService
 from kubernetes import client, config
-from kubernetes.client.rest import ApiException
 from typing import List
 
 from .logging import logger
@@ -322,6 +327,182 @@ LLMINFERENCESERVICE_CONFIGS = {
             ]
         },
     },
+    "router-custom-route-timeout": {
+        "router": {
+            "route": {
+                "http": {
+                    "spec": {
+                        "rules": [
+                            {
+                                "timeouts": {
+                                    "request": "30s",
+                                    "backendRequest": "30s",
+                                },
+                                "matches": [
+                                    {
+                                        "path": {
+                                            "type": "PathPrefix",
+                                            "value": "/kserve-ci-e2e-test/custom-route-timeout-test",
+                                        },
+                                    },
+                                ],
+                                "filters": [
+                                    {
+                                        "type": "URLRewrite",
+                                        "urlRewrite": {
+                                            "path": {
+                                                "replacePrefixMatch": "/",
+                                                "type": "ReplacePrefixMatch",
+                                            },
+                                        },
+                                    },
+                                ],
+                                "backendRefs": [
+                                    {
+                                        "group": "inference.networking.x-k8s.io",
+                                        "kind": "InferencePool",
+                                        "name": "custom-route-timeout-test-inference-pool",
+                                        "namespace": KSERVE_TEST_NAMESPACE,
+                                        "port": 8000,
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                },
+            },
+            "gateway": {},
+        },
+    },
+    "router-custom-route-timeout-pd": {
+        "router": {
+            "route": {
+                "http": {
+                    "spec": {
+                        "rules": [
+                            {
+                                "timeouts": {
+                                    "request": "30s",
+                                    "backendRequest": "30s",
+                                },
+                                "matches": [
+                                    {
+                                        "path": {
+                                            "type": "PathPrefix",
+                                            "value": "/kserve-ci-e2e-test/custom-route-timeout-pd-test",
+                                        },
+                                    },
+                                ],
+                                "filters": [
+                                    {
+                                        "type": "URLRewrite",
+                                        "urlRewrite": {
+                                            "path": {
+                                                "replacePrefixMatch": "/",
+                                                "type": "ReplacePrefixMatch",
+                                            },
+                                        },
+                                    },
+                                ],
+                                "backendRefs": [
+                                    {
+                                        "group": "inference.networking.x-k8s.io",
+                                        "kind": "InferencePool",
+                                        "name": "custom-route-timeout-pd-test-inference-pool",
+                                        "namespace": KSERVE_TEST_NAMESPACE,
+                                        "port": 8000,
+                                    }
+                                ],
+                            },
+                        ],
+                    },
+                },
+            },
+            "gateway": {},
+        },
+    },
+    "router-with-refs": {
+        "router": {
+            "route": {
+                "http": {
+                    "refs": [
+                        {"name": "router-route-1"},
+                        {"name": "router-route-2"},
+                    ],
+                },
+            },
+            "gateway": {
+                "refs": [
+                    {"name": "router-gateway-1", "namespace": KSERVE_TEST_NAMESPACE},
+                ],
+            },
+        },
+    },
+    "router-with-refs-pd": {
+        "router": {
+            "route": {
+                "http": {
+                    "refs": [
+                        {"name": "router-route-3"},
+                        {"name": "router-route-4"},
+                    ],
+                },
+            },
+            "gateway": {
+                "refs": [
+                    {"name": "router-gateway-2", "namespace": KSERVE_TEST_NAMESPACE},
+                ],
+            },
+        },
+    },
+    "scheduler-managed": {
+        "router": {
+            "scheduler": {},
+        },
+    },
+    "router-with-gateway-ref": {
+        "router": {
+            "gateway": {
+                "refs": [
+                    {"name": "router-gateway-1", "namespace": KSERVE_TEST_NAMESPACE},
+                ],
+            },
+        },
+    },
+    "router-with-managed-route": {
+        "router": {
+            "route": {}
+        },
+    },
+    "workload-llmd-simulator": {
+        "replicas": 1,
+        "model": {"uri": "hf://facebook/opt-125m", "name": "facebook/opt-125m"},
+        "template": {
+            "containers": [
+                {
+                    "name": "main",
+                    "image": "ghcr.io/llm-d/llm-d-inference-sim:v0.5.1",
+                    "command": ["/app/llm-d-inference-sim"],
+                    "args": [
+                        "--port",
+                        "8000",
+                        "--model",
+                        "{{ .Spec.Model.Name }}",
+                        "--mode",
+                        "random",
+                        "--ssl-certfile",
+                        "/etc/ssl/certs/tls.crt",
+                        "--ssl-keyfile",
+                        "/etc/ssl/certs/tls.key"
+                    ],
+                    "resources": {
+                        "limits": {"cpu": "1", "memory": "2Gi"},
+                        "requests": {"cpu": "1", "memory": "2Gi"},
+                    },
+                }
+            ]
+        },
+    },
 }
 
 
@@ -337,6 +518,13 @@ def test_case(request):
         client_configuration=client.Configuration(),
     )
 
+    # Execute before test hooks
+    try:
+        for func in tc.before_test:
+            func()
+    except Exception as before_test_error:
+        raise RuntimeError(f"Failed to execute before test hook: {before_test_error}") from before_test_error
+
     try:
         # Validate base_refs defined in the test fixture exist in LLMINFERENCESERVICE_CONFIGS
         missing_refs = [
@@ -346,14 +534,14 @@ def test_case(request):
             raise ValueError(
                 f"Missing base_refs in LLMINFERENCESERVICE_CONFIGS: {missing_refs}"
             )
-
-        service_name = generate_service_name(request.node.name, tc.base_refs)
+        if not tc.service_name:
+            tc.service_name = generate_service_name(request.node.name, tc.base_refs)
         tc.model_name = _get_model_name_from_configs(tc.base_refs)
 
         # Create unique configs for this test
         unique_base_refs = []
         for base_ref in tc.base_refs:
-            unique_config_name = generate_k8s_safe_suffix(base_ref, [service_name])
+            unique_config_name = generate_k8s_safe_suffix(base_ref, [tc.service_name])
             unique_base_refs.append(unique_config_name)
 
             original_spec = LLMINFERENCESERVICE_CONFIGS[base_ref]
@@ -377,7 +565,7 @@ def test_case(request):
             api_version="serving.kserve.io/v1alpha1",
             kind="LLMInferenceService",
             metadata=client.V1ObjectMeta(
-                name=service_name, namespace=KSERVE_TEST_NAMESPACE
+                name=tc.service_name, namespace=KSERVE_TEST_NAMESPACE
             ),
             spec={
                 "baseRefs": [{"name": base_ref} for base_ref in unique_base_refs],
@@ -387,6 +575,20 @@ def test_case(request):
         yield tc
 
     finally:
+        if os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in ("true", "1", "t"):
+            logger.info("Skipping resource deletion after test execution.")
+            return
+
+        # Execute after test hooks
+        for func in tc.after_test:
+            try:
+                func()
+            except Exception as after_test_error:
+                logger.warning(
+                    f"Failed to execute after test hook: {after_test_error}"
+                )
+
+        # Cleanup created configs
         for config_name in created_configs:
             try:
                 logger.info(
@@ -415,7 +617,7 @@ def _get_model_name_from_configs(config_names):
             config = LLMINFERENCESERVICE_CONFIGS[config_name]
             if "model" in config and "name" in config["model"]:
                 return config["model"]["name"]
-    return "default-model"
+    return "default/model"
 
 
 def generate_k8s_safe_suffix(base_name: str, extra_parts: List[str] = None) -> str:
@@ -447,6 +649,47 @@ def generate_service_name(test_name: str, base_refs: List[str]) -> str:
 def generate_test_id(test_case) -> str:
     """Generate a test ID from base refs."""
     return "-".join(test_case.base_refs)
+
+
+def create_router_resources(gateways, routes=None, kserve_client=None):
+    if not kserve_client:
+        kserve_client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
+
+    gateways_created = []
+    routes_created = []
+
+    try:
+        for gateway in gateways:
+            create_or_update_gateway(kserve_client, gateway)
+            gateways_created.append(gateway)
+        for route in routes or []:
+            create_or_update_route(kserve_client, route)
+            routes_created.append(route)
+    except Exception as e:
+        logger.warning(f"Failed to create LLMInferenceService router resources: {e}")
+        delete_router_resources(gateways_created, routes_created, kserve_client)
+        raise
+
+
+def delete_router_resources(gateways, routes=None, kserve_client=None):
+    if not kserve_client:
+        kserve_client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
+
+    for route in routes or []:
+        try:
+            logger.info(f"Cleaning up HttpRoute {route.get('metadata', {}).get('name')}")
+            delete_route(kserve_client, route.get("metadata", {}).get("name"), route.get("metadata", {}).get("namespace", "default"))
+            logger.info(f"✓ Deleted HttpRoute {route.get('metadata', {}).get('name')}")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup HttpRoute {route.get('metadata', {}).get('name')}: {e}")
+
+    for gateway in gateways:
+        try:
+            logger.info(f"Cleaning up Gateway {gateway.get('metadata', {}).get('name')}")
+            delete_gateway(kserve_client, gateway.get("metadata", {}).get("name"), gateway.get("metadata", {}).get("namespace", "default"))
+            logger.info(f"✓ Deleted Gateway {gateway.get('metadata', {}).get('name')}")
+        except Exception as e:
+            logger.warning(f"Failed to cleanup Gateway {gateway.get('metadata', {}).get('name')}: {e}")
 
 
 def _create_or_update_llmisvc_config(kserve_client, llm_config, namespace=None):

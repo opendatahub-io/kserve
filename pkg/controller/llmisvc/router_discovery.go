@@ -206,16 +206,6 @@ func IsExternalAddressNotFound(err error) bool {
 	return errors.As(err, &externalAddrNotFoundErr)
 }
 
-func filter[T any](s []T, predicateFn func(T) bool) []T {
-	out := make([]T, 0, len(s))
-	for _, x := range s {
-		if predicateFn(x) {
-			out = append(out, x)
-		}
-	}
-	return out
-}
-
 // EvaluateGatewayReadiness checks the readiness status of Gateways and returns those that are not ready
 func EvaluateGatewayReadiness(ctx context.Context, gateways []*gatewayapi.Gateway) []*gatewayapi.Gateway {
 	logger := log.FromContext(ctx)
@@ -269,11 +259,6 @@ func IsHTTPRouteReady(route *gatewayapi.HTTPRoute) bool {
 		return false
 	}
 
-	if len(route.Status.RouteStatus.Parents) != len(route.Spec.ParentRefs) {
-		// HTTPRoute is ready only when _all_ parents have accepted the route.
-		return false
-	}
-
 	if cond, missing := nonReadyHTTPRouteTopLevelCondition(route); cond != nil || missing {
 		return false
 	}
@@ -286,18 +271,24 @@ func nonReadyHTTPRouteTopLevelCondition(route *gatewayapi.HTTPRoute) (*metav1.Co
 		return nil, true
 	}
 
+	routeConditionAcceptedMissing := true
+
 	for _, parent := range route.Status.RouteStatus.Parents {
 		cond := meta.FindStatusCondition(parent.Conditions, string(gatewayapi.RouteConditionAccepted))
 		if cond == nil {
-			return nil, true
+			// This can happen when multiple controllers write to the status, e.g., besides the gateway controller, there
+			// are conditions reported from the policy controller.
+			// See example https://gist.github.com/bartoszmajsak/4329206afe107357afdcb9b92ed778bd
+			continue
 		}
+		routeConditionAcceptedMissing = false
 		staleCondition := cond.ObservedGeneration > 0 && cond.ObservedGeneration < route.Generation
 		if cond.Status != metav1.ConditionTrue || staleCondition {
 			return cond, false
 		}
 	}
 
-	return nil, false
+	return nil, routeConditionAcceptedMissing
 }
 
 // IsInferencePoolReady checks if an InferencePool has been accepted by all parents.

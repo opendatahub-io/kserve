@@ -104,7 +104,10 @@ func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context,
 	route := llmSvc.Spec.Router.Route
 
 	if route.HTTP.HasRefs() {
-		return Delete(ctx, r, llmSvc, expectedHTTPRoute)
+		err = Delete(ctx, r, llmSvc, expectedHTTPRoute)
+		if err != nil {
+			return fmt.Errorf("failed to delete expected HTTPRoute %s/%s: %w", expectedHTTPRoute.GetNamespace(), expectedHTTPRoute.GetName(), err)
+		}
 	}
 
 	if route.HTTP.HasSpec() {

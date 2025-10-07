@@ -352,7 +352,6 @@ spec:
   name: openshift-cert-manager-operator
   source: redhat-operators
   sourceNamespace: openshift-marketplace
-  startingCSV: cert-manager-operator.v1.16.1
 EOF
 
 while [ $(kubectl get pod -n cert-manager-operator  | wc -l) -le 1 ]; 
@@ -365,75 +364,20 @@ kubectl wait pod -l name=cert-manager-operator -n cert-manager-operator --for=co
 
 **Install LWS Operator**
 
-This step should be changed when official lws-operator is released.
+Install the official Leader Worker Set operator from the Red Hat Operators catalog:
 
 ```shell
-# Update PULL SECRET
-export BREW_PULL_SECRET_FILE="path/to/file"
-export REGISTRY_PULL_SECRET_FILE="path/to/file"
-
-kubectl get secret pull-secret -n openshift-config -o jsonpath='{.data.\.dockerconfigjson}' | base64 -d > /tmp/pull-secret.json 
-jq -s '.[0].auths += .[1].auths | {auths: .[0].auths}' /tmp/pull-secret.json $BREW_PULL_SECRET_FILE > /tmp/new-pull-secret.json    
-jq -s '.[0].auths += .[1].auths | {auths: .[0].auths}' /tmp/new-pull-secret.json  $REGISTRY_PULL_SECRET_FILE > /tmp/final-pull-secret.json    
-oc set data secret/pull-secret -n openshift-config --from-file=.dockerconfigjson=/tmp/final-pull-secret.json  
-
-# Create MirrorSet to pull prebuilt images 
-cat <<EOF| kubectl create -f -
-apiVersion: config.openshift.io/v1
-kind: ImageTagMirrorSet
-metadata:
-    name: stage-registry
-spec:
-    imageTagMirrors:
-    - mirrors:
-        - registry.stage.redhat.io/leader-worker-set/lws-operator-bundle
-      source: registry.redhat.io/leader-worker-set/lws-operator-bundle
-    - mirrors:
-        - registry.stage.redhat.io/leader-worker-set/lws-rhel9-operator
-      source: registry.redhat.io/leader-worker-set/lws-rhel9-operator
----
-apiVersion: config.openshift.io/v1
-kind: ImageDigestMirrorSet
-metadata:
-    name: stage-registry
-spec:
-    imageDigestMirrors:
-    - mirrors:
-        - registry.stage.redhat.io/leader-worker-set/lws-operator-bundle
-      source: registry.redhat.io/leader-worker-set/lws-operator-bundle
-    - mirrors:
-        - registry.stage.redhat.io/leader-worker-set/lws-rhel9-operator
-      source: registry.redhat.io/leader-worker-set/lws-rhel9-operator
-EOF
-
-
-cat <<EOF | kubectl create -f -
-apiVersion: operators.coreos.com/v1alpha1
-kind: CatalogSource
-metadata:
-  name: lws-operator
-  namespace: openshift-marketplace
-spec:
-  sourceType: grpc
-  image: brew.registry.redhat.io/rh-osbs/iib@sha256:8d69ca9a5337ba486e6a197ce24327d7bc833ebdcf993d99c90bc69a2d0e186c
-EOF
-
-sleep 10
-
-kubectl wait pod -l olm.catalogSource=lws-operator -n openshift-marketplace --for=condition=Ready --timeout=180s
-
 kubectl create ns openshift-lws-operator || true
 
 cat <<EOF | kubectl create -f -
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
-  name: openshift-lws-operator-jw944
+  name: leader-worker-set
   namespace: openshift-lws-operator
 spec:
   targetNamespaces:
   - openshift-lws-operator
-  upgradeStrategy: Default
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
@@ -441,12 +385,11 @@ metadata:
   name: leader-worker-set
   namespace: openshift-lws-operator
 spec:
-  channel: stable-v1.0                         ## This need to be updated
+  channel: stable-v1.0
   installPlanApproval: Automatic
   name: leader-worker-set
-  source: lws-operator
+  source: redhat-operators
   sourceNamespace: openshift-marketplace
-  startingCSV: leader-worker-set.v1.0.0
 EOF
 
 until kubectl get crd leaderworkersetoperators.operator.openshift.io &> /dev/null; do
@@ -461,7 +404,7 @@ kubectl wait \
   --for=condition=Established \
   --timeout=60s \
   crd/leaderworkersetoperators.operator.openshift.io
-  
+
 cat <<EOF | kubectl create -f -
 apiVersion: operator.openshift.io/v1
 kind: LeaderWorkerSetOperator
@@ -475,21 +418,6 @@ spec:
 EOF
 ```
 
-**Create a default GatewayClass**
-```shell
-cat<<EOF|oc create -f -
-apiVersion: gateway.networking.k8s.io/v1
-kind: GatewayClass
-metadata:
-  name: openshift-default
-  annotations:
-    unsupported.do-not-use.openshift.io/ossm-channel: stable
-    unsupported.do-not-use.openshift.io/ossm-version: servicemeshoperator3.v3.1.0 
-    unsupported.do-not-use.openshift.io/istio-version: v1.26.2
-spec:
-  controllerName: "openshift.io/gateway-controller/v1"
-EOF
-```
 
 **Deploy Kserve** 
 *- option 1 - through custom opendatahub-operator catalogsource*
@@ -650,6 +578,36 @@ kubectl wait --for=condition=Established --timeout=60s crd/llminferenceserviceco
 kustomize build config/overlays/odh | kubectl apply  --server-side=true --force-conflicts -f -
 
 kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n opendatahub  --timeout=300s
+```
+
+**Create a default GatewayClass**
+
+- OpenShift 4.19.9+
+```shell
+cat<<EOF|oc create -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: openshift-default
+spec:
+  controllerName: "openshift.io/gateway-controller/v1"
+EOF
+```
+
+- Others
+```shell
+cat<<EOF|oc create -f -
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: openshift-default
+  annotations:
+    unsupported.do-not-use.openshift.io/ossm-channel: stable
+    unsupported.do-not-use.openshift.io/ossm-version: servicemeshoperator3.v3.1.0 
+    unsupported.do-not-use.openshift.io/istio-version: v1.26.2
+spec:
+  controllerName: "openshift.io/gateway-controller/v1"
+EOF
 ```
 
 **Install OSSM by OCP**
@@ -870,6 +828,48 @@ curl -v -X POST "${LB_URL}/v1/chat/completions" \
         {
             "role": "user",
             "content": "I need a comprehensive analysis of my retirement planning situation. I am 35 years old and plan to retire at 65. My current retirement savings are $250,000, all in a traditional 401(k). I contribute $22,500 annually. My risk tolerance is moderately aggressive. \n\nPlease address the following points:\n1.  Project the future value of my 401(k) at retirement. Use a reasonable annual growth rate for a moderately aggressive portfolio and show the formula you used.\n2.  Suggest a sample asset allocation for my portfolio (e.g., percentage in domestic stocks, international stocks, bonds, etc.) that aligns with my age and risk tolerance. Explain the rationale behind this allocation.\n3.  I am considering opening a Roth IRA in addition to my 401(k). Explain the key differences in tax treatment between my traditional 401(k) and a Roth IRA, especially concerning contributions and withdrawals in retirement.\n4.  My employer'\''s 401(k) plan offers a target-date fund, a large-cap US equity index fund, and an aggregate bond index fund. How could I use these three options to implement the asset allocation you suggested? What is portfolio rebalancing and why would it be important in this context?"
+        }
+    ],
+    "max_tokens": 2048,
+    "temperature": 0.4,
+    "top_p": 0.9
+}' | jq
+```
+
+```shell
+curl -v -X POST "${LB_URL}/v1/chat/completions" \
+-H "Content-Type: application/json" \
+-d '{
+    "model": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "messages": [
+        {
+            "role": "system",
+            "content": "You are DevBot Pro, a highly sophisticated AI developer assistant. Your purpose is to provide detailed, accurate, and educational information about software design and development."
+        },
+        {
+            "role": "user",
+            "content": "How do I implement AllReduce with Nvidia NCCL?"
+        }
+    ],
+    "max_tokens": 2048,
+    "temperature": 0.4,
+    "top_p": 0.9
+}' | jq
+```
+
+```shell
+curl -v -X POST "${LB_URL}/v1/chat/completions" \
+-H "Content-Type: application/json" \
+-d '{
+    "model": "deepseek-ai/DeepSeek-R1-0528",
+    "messages": [
+        {
+            "role": "system",
+            "content": "You are DevBot Pro, a highly sophisticated AI developer assistant. Your purpose is to provide detailed, accurate, and educational information about software design and development."
+        },
+        {
+            "role": "user",
+            "content": "How do I implement AllReduce with Nvidia NCCL?"
         }
     ],
     "max_tokens": 2048,

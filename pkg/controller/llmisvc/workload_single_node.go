@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -27,12 +28,11 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/credentials"
@@ -104,10 +104,13 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx con
 
 	if llmSvc.Spec.Template != nil {
 		d.Spec.Template.Spec = *llmSvc.Spec.Template.DeepCopy()
+
+		var serviceAccount *corev1.ServiceAccount = nil
 		if hasRoutingSidecar(d.Spec.Template.Spec) {
 			log.FromContext(ctx).Info("Main container has a routing sidecar")
 
-			serviceAccount, err := r.expectedSingleNodeMainServiceAccount(ctx, llmSvc)
+			var err error
+			serviceAccount, err = r.expectedSingleNodeMainServiceAccount(ctx, llmSvc)
 			if err != nil {
 				return nil, fmt.Errorf("failed to created expected single node service account: %w", err)
 			}
@@ -120,12 +123,20 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx con
 					ValueFrom: nil,
 				})
 			}
+		} else if llmSvc.Spec.Template.ServiceAccountName != "" {
+			serviceAccount = &corev1.ServiceAccount{}
+			err := r.Client.Get(ctx, types.NamespacedName{Name: llmSvc.Spec.Template.ServiceAccountName, Namespace: llmSvc.Namespace}, serviceAccount)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch existing single node main service account %s/%s: %w", llmSvc.Namespace, llmSvc.Spec.Template.ServiceAccountName, err)
+			}
 		}
 
-		if err := r.attachModelArtifacts(ctx, llmSvc, &d.Spec.Template.Spec, storageConfig, credentialConfig); err != nil {
+		if err := r.attachModelArtifacts(ctx, serviceAccount, llmSvc, &d.Spec.Template.Spec, storageConfig, credentialConfig); err != nil {
 			return nil, fmt.Errorf("failed to attach model artifacts to main deployment: %w", err)
 		}
 	}
+
+	r.propagateDeploymentMetadata(llmSvc, d)
 
 	log.FromContext(ctx).V(2).Info("Expected main deployment", "deployment", d)
 
@@ -186,14 +197,46 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 	if llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Template != nil {
 		d.Spec.Template.Spec = *llmSvc.Spec.Prefill.Template.DeepCopy()
 
-		if err := r.attachModelArtifacts(ctx, llmSvc, &d.Spec.Template.Spec, storageConfig, credentialConfig); err != nil {
+		var existingServiceAccount *corev1.ServiceAccount = nil
+		if llmSvc.Spec.Prefill.Template.ServiceAccountName != "" {
+			existingServiceAccount = &corev1.ServiceAccount{}
+			err := r.Client.Get(ctx, types.NamespacedName{Name: llmSvc.Spec.Prefill.Template.ServiceAccountName, Namespace: llmSvc.Namespace}, existingServiceAccount)
+			if err != nil {
+				return nil, fmt.Errorf("failed to fetch existing single node prefill service account %s/%s: %w", llmSvc.Namespace, llmSvc.Spec.Prefill.Template.ServiceAccountName, err)
+			}
+		}
+
+		if err := r.attachModelArtifacts(ctx, existingServiceAccount, llmSvc, &d.Spec.Template.Spec, storageConfig, credentialConfig); err != nil {
 			return nil, fmt.Errorf("failed to attach model artifacts to prefill deployment: %w", err)
 		}
 	}
 
+	r.propagateDeploymentMetadata(llmSvc, d)
+
 	log.FromContext(ctx).V(2).Info("Expected prefill deployment", "deployment", d)
 
 	return d, nil
+}
+
+func (r *LLMInferenceServiceReconciler) propagateDeploymentMetadata(llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) {
+	ann := make(map[string]string, len(expected.Annotations))
+	for k, v := range llmSvc.GetAnnotations() {
+		if strings.HasPrefix(k, "k8s.v1.cni.cncf.io") {
+			ann[k] = v
+			if expected.Annotations == nil {
+				expected.Annotations = make(map[string]string, 1)
+			}
+			expected.Annotations[k] = v
+		}
+	}
+
+	if expected.Spec.Template.Annotations == nil {
+		expected.Spec.Template.Annotations = ann
+	} else {
+		for k, v := range ann {
+			expected.Spec.Template.Annotations[k] = v
+		}
+	}
 }
 
 func (r *LLMInferenceServiceReconciler) propagateDeploymentStatus(ctx context.Context, expected *appsv1.Deployment, ready func(), notReady func(reason, messageFormat string, messageA ...interface{})) error {
@@ -306,7 +349,7 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainServiceAccount(ctx
 		existingServiceAccount := &corev1.ServiceAccount{}
 		err := r.Client.Get(ctx, types.NamespacedName{Name: llmSvc.Spec.Template.ServiceAccountName, Namespace: llmSvc.Namespace}, existingServiceAccount)
 		if err != nil {
-			return nil, fmt.Errorf("failed to fetch existing single node service account %s/%s: %w", llmSvc.Spec.Template.ServiceAccountName, llmSvc.Namespace, err)
+			return nil, fmt.Errorf("failed to fetch existing single node main service account %s/%s: %w", llmSvc.Namespace, llmSvc.Spec.Template.ServiceAccountName, err)
 		}
 		expectedServiceAccount.Annotations = existingServiceAccount.Annotations
 		expectedServiceAccount.Labels = existingServiceAccount.Labels
