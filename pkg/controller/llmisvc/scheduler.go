@@ -1004,10 +1004,11 @@ func v1ToAlpha2Unstructured(v1p *igwv1.InferencePool) (*unstructured.Unstructure
 			"apiVersion": "inference.networking.x-k8s.io/v1alpha2",
 			"kind":       "InferencePool",
 			"metadata": map[string]any{
-				"name":        v1p.ObjectMeta.Name,
-				"namespace":   v1p.ObjectMeta.Namespace,
-				"labels":      v1p.ObjectMeta.Labels,
-				"annotations": v1p.ObjectMeta.Annotations,
+				"name":            v1p.ObjectMeta.Name,
+				"namespace":       v1p.ObjectMeta.Namespace,
+				"labels":          v1p.ObjectMeta.Labels,
+				"annotations":     v1p.ObjectMeta.Annotations,
+				"ownerReferences": v1p.ObjectMeta.OwnerReferences,
 			},
 			"spec": map[string]any{
 				"selector":         selector,
