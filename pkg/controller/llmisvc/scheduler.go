@@ -975,11 +975,11 @@ func v1ToAlpha2Unstructured(v1p *igwv1.InferencePool) (*unstructured.Unstructure
 		}
 	}
 
-	// target port: v1 TargetPorts[0].Number -> alpha2 targetPortNumber (int)
+	// target port: v1 TargetPorts[0].Number -> alpha2 targetPortNumber (int64)
 	if len(v1p.Spec.TargetPorts) == 0 {
 		return nil, errors.New("spec.targetPorts[0] required")
 	}
-	tp := int(v1p.Spec.TargetPorts[0].Number) // Number is a non-pointer alias (int32)
+	tp := int64(v1p.Spec.TargetPorts[0].Number) // Number is a non-pointer alias (int32)
 
 	// endpointPickerRef -> extensionRef
 	// IMPORTANT: Kind/Group/FailureMode are value types in v1, not pointers.
@@ -993,23 +993,49 @@ func v1ToAlpha2Unstructured(v1p *igwv1.InferencePool) (*unstructured.Unstructure
 		ext["kind"] = s
 	}
 	if v1p.Spec.EndpointPickerRef.Port != nil && v1p.Spec.EndpointPickerRef.Port.Number > 0 {
-		ext["portNumber"] = int(v1p.Spec.EndpointPickerRef.Port.Number)
+		ext["portNumber"] = int64(v1p.Spec.EndpointPickerRef.Port.Number)
 	}
 	if s := string(v1p.Spec.EndpointPickerRef.FailureMode); s != "" {
 		ext["failureMode"] = s
+	}
+
+	metadata := map[string]any{
+		"name":      v1p.ObjectMeta.Name,
+		"namespace": v1p.ObjectMeta.Namespace,
+	}
+	if v1p.ObjectMeta.Labels != nil {
+		metadata["labels"] = v1p.ObjectMeta.Labels
+	}
+	if v1p.ObjectMeta.Annotations != nil {
+		metadata["annotations"] = v1p.ObjectMeta.Annotations
+	}
+
+	// Convert ownerReferences to unstructured format
+	if len(v1p.ObjectMeta.OwnerReferences) > 0 {
+		ownerRefs := make([]any, len(v1p.ObjectMeta.OwnerReferences))
+		for i, ref := range v1p.ObjectMeta.OwnerReferences {
+			ownerRef := map[string]any{
+				"apiVersion": ref.APIVersion,
+				"kind":       ref.Kind,
+				"name":       ref.Name,
+				"uid":        string(ref.UID),
+			}
+			if ref.Controller != nil {
+				ownerRef["controller"] = *ref.Controller
+			}
+			if ref.BlockOwnerDeletion != nil {
+				ownerRef["blockOwnerDeletion"] = *ref.BlockOwnerDeletion
+			}
+			ownerRefs[i] = ownerRef
+		}
+		metadata["ownerReferences"] = ownerRefs
 	}
 
 	u := &unstructured.Unstructured{
 		Object: map[string]any{
 			"apiVersion": "inference.networking.x-k8s.io/v1alpha2",
 			"kind":       "InferencePool",
-			"metadata": map[string]any{
-				"name":            v1p.ObjectMeta.Name,
-				"namespace":       v1p.ObjectMeta.Namespace,
-				"labels":          v1p.ObjectMeta.Labels,
-				"annotations":     v1p.ObjectMeta.Annotations,
-				"ownerReferences": v1p.ObjectMeta.OwnerReferences,
-			},
+			"metadata":   metadata,
 			"spec": map[string]any{
 				"selector":         selector,
 				"targetPortNumber": tp,
