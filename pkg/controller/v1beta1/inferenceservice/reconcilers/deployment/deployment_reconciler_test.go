@@ -17,12 +17,15 @@ package deployment
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	errors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 
 	"k8s.io/client-go/kubernetes"
+	fakeclientset "k8s.io/client-go/kubernetes/fake"
 
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -1227,4 +1231,122 @@ func deepCopyDeploymentList(src []*appsv1.Deployment) []*appsv1.Deployment {
 		}
 	}
 	return copied
+}
+
+func TestGenerateOauthProxyContainerWithSkipAuthRegex(t *testing.T) {
+	// Base OAuth proxy configuration
+	baseOAuthConfig := map[string]interface{}{
+		"image":         "oauth-proxy:latest",
+		"cpuLimit":      "200m",
+		"cpuRequest":    "100m",
+		"memoryLimit":   "128Mi",
+		"memoryRequest": "64Mi",
+	}
+
+	tests := []struct {
+		name          string
+		skipAuthRegex []string
+		expectedRegex []string
+		expectedError bool
+	}{
+		{
+			name:          "OAuth proxy with SkipAuthRegex patterns",
+			skipAuthRegex: []string{"^/health$", "^/metrics$", "^/ready$"},
+			expectedRegex: []string{"^/health$", "^/metrics$", "^/ready$"},
+			expectedError: false,
+		},
+		{
+			name:          "OAuth proxy without SkipAuthRegex",
+			skipAuthRegex: nil,
+			expectedRegex: []string{},
+			expectedError: false,
+		},
+		{
+			name:          "OAuth proxy with empty SkipAuthRegex",
+			skipAuthRegex: []string{},
+			expectedRegex: []string{},
+			expectedError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create OAuth config with optional SkipAuthRegex
+			oauthConfig := make(map[string]interface{})
+			for k, v := range baseOAuthConfig {
+				oauthConfig[k] = v
+			}
+			if tt.skipAuthRegex != nil {
+				oauthConfig["skipAuthRegex"] = tt.skipAuthRegex
+			}
+
+			// Convert to JSON string
+			oauthConfigJSON, err := json.Marshal(oauthConfig)
+			require.NoError(t, err)
+
+			// Create a mock clientset with the test configmap
+			clientset := fakeclientset.NewSimpleClientset(&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: map[string]string{
+					"oauthProxy": string(oauthConfigJSON),
+				},
+			})
+
+			ctx := t.Context()
+			container, err := generateOauthProxyContainer(ctx, clientset, "test-isvc", "test-namespace", "8080", "test-sa")
+
+			if tt.expectedError {
+				require.Error(t, err)
+				assert.Nil(t, container)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.NotNil(t, container)
+			assert.Equal(t, "oauth-proxy", container.Name)
+
+			// Verify skip-auth-regex arguments are present
+			skipAuthRegexArgs := []string{}
+			for _, arg := range container.Args {
+				if strings.HasPrefix(arg, "--skip-auth-regex=") {
+					regex := strings.TrimPrefix(arg, "--skip-auth-regex=")
+					skipAuthRegexArgs = append(skipAuthRegexArgs, regex)
+				}
+			}
+
+			assert.Equal(t, len(tt.expectedRegex), len(skipAuthRegexArgs))
+			for _, expectedRegex := range tt.expectedRegex {
+				assert.Contains(t, skipAuthRegexArgs, expectedRegex)
+			}
+		})
+	}
+
+	// Test invalid JSON separately
+	t.Run("OAuth proxy with invalid JSON", func(t *testing.T) {
+		clientset := fakeclientset.NewSimpleClientset(&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      constants.InferenceServiceConfigMapName,
+				Namespace: constants.KServeNamespace,
+			},
+			Data: map[string]string{
+				"oauthProxy": `{
+					"image": "oauth-proxy:latest",
+					"cpuLimit": "200m",
+					"cpuRequest": "100m",
+					"memoryLimit": "128Mi",
+					"memoryRequest": "64Mi",
+					"skipAuthRegex": ["^/health$"
+				}`,
+			},
+		})
+
+		ctx := t.Context()
+		container, err := generateOauthProxyContainer(ctx, clientset, "test-isvc", "test-namespace", "8080", "test-sa")
+
+		require.Error(t, err)
+		assert.Nil(t, container)
+	})
 }

@@ -4291,6 +4291,14 @@
         "memoryRequest": {
           "type": "string",
           "default": ""
+        },
+        "skipAuthRegex": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "default": ""
+          },
+          "x-kubernetes-list-type": "atomic"
         }
       }
     },

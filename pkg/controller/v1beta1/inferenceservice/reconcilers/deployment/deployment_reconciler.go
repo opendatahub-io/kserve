@@ -380,20 +380,28 @@ func generateOauthProxyContainer(ctx context.Context, clientset kubernetes.Inter
 		return nil, err
 	}
 
+	// Build the base arguments
+	args := []string{
+		`--https-address=:` + strconv.Itoa(constants.OauthProxyPort),
+		`--provider=openshift`,
+		`--skip-provider-button`,
+		`--openshift-service-account=` + sa,
+		`--upstream=http://localhost:` + upstreamPort,
+		`--tls-cert=/etc/tls/private/tls.crt`,
+		`--tls-key=/etc/tls/private/tls.key`,
+		`--cookie-secret=` + cookieSecret,
+		`--openshift-delegate-urls={"/": {"namespace": "` + namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + isvc + `", "verb": "get"}}`,
+		`--openshift-sar={"namespace": "` + namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + isvc + `", "verb": "get"}`,
+	}
+
+	// Append skip auth regex arguments from configuration
+	for _, regex := range oauthProxyConfig.SkipAuthRegex {
+		args = append(args, `--skip-auth-regex=`+regex)
+	}
+
 	return &corev1.Container{
-		Name: "oauth-proxy",
-		Args: []string{
-			`--https-address=:` + strconv.Itoa(constants.OauthProxyPort),
-			`--provider=openshift`,
-			`--skip-provider-button`,
-			`--openshift-service-account=` + sa,
-			`--upstream=http://localhost:` + upstreamPort,
-			`--tls-cert=/etc/tls/private/tls.crt`,
-			`--tls-key=/etc/tls/private/tls.key`,
-			`--cookie-secret=` + cookieSecret,
-			`--openshift-delegate-urls={"/": {"namespace": "` + namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + isvc + `", "verb": "get"}}`,
-			`--openshift-sar={"namespace": "` + namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + isvc + `", "verb": "get"}`,
-		},
+		Name:  "oauth-proxy",
+		Args:  args,
 		Image: oauthImage,
 		Ports: []corev1.ContainerPort{
 			{
