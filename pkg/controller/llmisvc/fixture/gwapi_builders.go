@@ -670,11 +670,23 @@ func WithInferencePoolReadyStatus() InferencePoolOption {
 	return func(pool *igwv1.InferencePool) {
 		pool.Status.Parents = []igwv1.ParentStatus{
 			{
+				ParentRef: igwv1.ParentReference{
+					Group:     ptr.To(igwv1.Group("gateway.networking.k8s.io")),
+					Kind:      igwv1.Kind("Gateway"),
+					Name:      igwv1.ObjectName("kserve-ingress-gateway"),
+					Namespace: igwv1.Namespace("kserve"),
+				},
 				Conditions: []metav1.Condition{
 					{
 						Type:               string(igwv1.InferencePoolConditionAccepted),
 						Status:             metav1.ConditionTrue,
 						Reason:             string(igwv1.InferencePoolReasonAccepted),
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               string(igwv1.InferencePoolConditionResolvedRefs),
+						Status:             metav1.ConditionTrue,
+						Reason:             string(igwv1.InferencePoolReasonResolvedRefs),
 						LastTransitionTime: metav1.Now(),
 					},
 				},
