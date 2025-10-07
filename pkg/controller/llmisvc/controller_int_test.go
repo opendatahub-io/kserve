@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -71,6 +72,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 			defer func() {
 				envTest.DeleteAll(namespace)
 			}()
@@ -255,6 +257,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				}
 				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+				Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 				defer func() {
 					envTest.DeleteAll(namespace)
 				}()
@@ -313,6 +316,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				}
 				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+				Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 				defer func() {
 					envTest.DeleteAll(namespace)
 				}()
@@ -379,6 +383,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				}
 				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 				Expect(envTest.Client.Create(ctx, IstioShadowService(llmSvcName, nsName))).To(Succeed())
+				Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 				defer func() {
 					envTest.DeleteAll(namespace)
 				}()
@@ -448,6 +453,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				}
 				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+				Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 				defer func() {
 					envTest.DeleteAll(namespace)
 				}()
@@ -503,6 +509,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				}
 				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+				Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 				defer func() {
 					envTest.DeleteAll(namespace)
 				}()
@@ -591,6 +598,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				}
 				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+				Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 				defer func() {
 					envTest.DeleteAll(namespace)
 				}()
@@ -660,6 +668,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					}
 					Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 					Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+					Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 					defer func() {
 						envTest.DeleteAll(namespace)
 					}()
@@ -1079,6 +1088,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 			defer func() { envTest.DeleteAll(namespace) }()
 
 			llmSvc := LLMInferenceService(svcName,
@@ -1121,6 +1131,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 			defer func() { envTest.DeleteAll(namespace) }()
 
 			llmSvc := LLMInferenceService(svcName,
@@ -1172,6 +1183,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 			defer func() { envTest.DeleteAll(namespace) }()
 
 			llmSvc := LLMInferenceService(svcName,
@@ -1205,6 +1217,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 			defer func() { envTest.DeleteAll(namespace) }()
 
 			llmSvc := LLMInferenceService(svcName,
@@ -1443,6 +1456,51 @@ func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, 
 			updatedPool := pool.DeepCopy()
 			WithInferencePoolReadyStatus()(updatedPool)
 			g.Expect(c.Status().Update(ctx, updatedPool)).To(gomega.Succeed())
+		}
+
+		// Also mark v1alpha2 InferencePools as ready using dynamic client
+		dynamicClient, err := dynamic.NewForConfig(envTest.Config)
+		if err != nil {
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		// List v1alpha2 pools with the same label selector
+		v1alpha2Pools, err := dynamicClient.Resource(llmisvc.GVRInferencePoolV1Alpha2).
+			Namespace(llmSvc.Namespace).
+			List(ctx, metav1.ListOptions{
+				LabelSelector: infPoolsListOpts.LabelSelector.String(),
+			})
+		if err != nil && !errors.IsNotFound(err) {
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		logf.FromContext(ctx).Info("Marking v1alpha2 InferencePool resources ready", "count", len(v1alpha2Pools.Items))
+		for i := range v1alpha2Pools.Items {
+			poolUnstructured := &v1alpha2Pools.Items[i]
+			// Set ready status on v1alpha2 pool
+			status := map[string]interface{}{
+				"parents": []interface{}{
+					map[string]interface{}{
+						"conditions": []interface{}{
+							map[string]interface{}{
+								"type":               "Accepted",
+								"status":             "True",
+								"reason":             "Accepted",
+								"lastTransitionTime": metav1.Now().Format(time.RFC3339),
+							},
+						},
+					},
+				},
+			}
+			if err := unstructured.SetNestedField(poolUnstructured.Object, status, "status"); err != nil {
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			_, err := dynamicClient.Resource(llmisvc.GVRInferencePoolV1Alpha2).
+				Namespace(llmSvc.Namespace).
+				UpdateStatus(ctx, poolUnstructured, metav1.UpdateOptions{})
+			if err != nil {
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}
 
 		ensureSchedulerDeploymentReady(ctx, c, llmSvc)
