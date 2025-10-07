@@ -52,6 +52,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 			defer func() {
 				envTest.DeleteAll(namespace)
 			}()
@@ -117,6 +118,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 			defer func() {
 				envTest.DeleteAll(namespace)
 			}()
@@ -189,6 +191,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 			defer func() {
 				envTest.DeleteAll(namespace)
 			}()
@@ -279,6 +282,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 			defer func() {
 				envTest.DeleteAll(namespace)
 			}()
@@ -348,6 +352,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 			defer func() {
 				envTest.DeleteAll(namespace)
 			}()
@@ -416,6 +421,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 			defer func() {
 				envTest.DeleteAll(namespace)
 			}()
