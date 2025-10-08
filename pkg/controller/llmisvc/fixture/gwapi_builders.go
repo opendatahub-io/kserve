@@ -348,6 +348,21 @@ func BackendRefService(name string) gatewayapi.HTTPBackendRef {
 	}
 }
 
+// BackendRefServiceWithWeight creates a Service backend ref with configurable weight
+func BackendRefServiceWithWeight(name string, weight int32) gatewayapi.HTTPBackendRef {
+	return gatewayapi.HTTPBackendRef{
+		BackendRef: gatewayapi.BackendRef{
+			BackendObjectReference: gatewayapi.BackendObjectReference{
+				Group: ptr.To(gatewayapi.Group("")),
+				Kind:  ptr.To(gatewayapi.Kind("Service")),
+				Name:  gatewayapi.ObjectName(name),
+				Port:  ptr.To(gatewayapi.PortNumber(8000)),
+			},
+			Weight: ptr.To(weight),
+		},
+	}
+}
+
 func WithTimeouts(backendTimeout, requestTimeout string) HTTPRouteRuleOption {
 	return func(rule *gatewayapi.HTTPRouteRule) {
 		rule.Timeouts = &gatewayapi.HTTPRouteTimeouts{
@@ -662,6 +677,7 @@ func WithExtensionRef(group, kind, name string) InferencePoolOption {
 			Group: ptr.To(igwv1.Group(group)),
 			Kind:  igwv1.Kind(kind),
 			Name:  igwv1.ObjectName(name),
+			Port:  ptr.To(igwv1.Port{Number: igwv1.PortNumber(8000)}), // GIE v1 requires port when kind is Service
 		}
 	}
 }
