@@ -34,6 +34,8 @@ from .fixtures import (
     inject_k8s_proxy,
     # Factory functions are not called explicitly, but they need to be imported to work
     test_case,  # noqa: F401,F811
+    test_case_chat,  # noqa: F401,F811
+    test_case_models,  # noqa: F401,F811
 )
 from .test_resources import (
     ROUTER_GATEWAYS,
@@ -92,14 +94,22 @@ class TestCase:
                     "workload-llmd-simulator",
                 ],
                 prompt="KServe is a",
-                before_test=[lambda: create_router_resources(
-                    gateways=[ROUTER_GATEWAYS[0]],
-                )],
-                after_test=[lambda: delete_router_resources(
-                    gateways=[ROUTER_GATEWAYS[0]],
-                )],
+                before_test=[
+                    lambda: create_router_resources(
+                        gateways=[ROUTER_GATEWAYS[0]],
+                    )
+                ],
+                after_test=[
+                    lambda: delete_router_resources(
+                        gateways=[ROUTER_GATEWAYS[0]],
+                    )
+                ],
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node, pytest.mark.llmd_simulator],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                pytest.mark.llmd_simulator,
+            ],
         ),
         pytest.param(
             TestCase(
@@ -114,7 +124,12 @@ class TestCase:
         ),
         pytest.param(
             TestCase(
-                base_refs=["router-custom-route-timeout", "scheduler-managed", "workload-single-cpu", "model-fb-opt-125m"],
+                base_refs=[
+                    "router-custom-route-timeout",
+                    "scheduler-managed",
+                    "workload-single-cpu",
+                    "model-fb-opt-125m",
+                ],
                 prompt="KServe is a",
                 service_name="custom-route-timeout-test",
             ),
@@ -122,17 +137,26 @@ class TestCase:
         ),
         pytest.param(
             TestCase(
-                base_refs=["router-with-refs", "scheduler-managed", "workload-single-cpu", "model-fb-opt-125m"],
+                base_refs=[
+                    "router-with-refs",
+                    "scheduler-managed",
+                    "workload-single-cpu",
+                    "model-fb-opt-125m",
+                ],
                 prompt="KServe is a",
                 service_name="router-with-refs-test",
-                before_test=[lambda: create_router_resources(
-                    gateways=[ROUTER_GATEWAYS[0]],
-                    routes=[ROUTER_ROUTES[0], ROUTER_ROUTES[1]],
-                )],
-                after_test=[lambda: delete_router_resources(
-                    gateways=[ROUTER_GATEWAYS[0]],
-                    routes=[ROUTER_ROUTES[0], ROUTER_ROUTES[1]],
-                )],
+                before_test=[
+                    lambda: create_router_resources(
+                        gateways=[ROUTER_GATEWAYS[0]],
+                        routes=[ROUTER_ROUTES[0], ROUTER_ROUTES[1]],
+                    )
+                ],
+                after_test=[
+                    lambda: delete_router_resources(
+                        gateways=[ROUTER_GATEWAYS[0]],
+                        routes=[ROUTER_ROUTES[0], ROUTER_ROUTES[1]],
+                    )
+                ],
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
@@ -148,7 +172,12 @@ class TestCase:
         ),
         pytest.param(
             TestCase(
-                base_refs=["router-custom-route-timeout-pd", "scheduler-managed", "workload-pd-cpu", "model-fb-opt-125m"],
+                base_refs=[
+                    "router-custom-route-timeout-pd",
+                    "scheduler-managed",
+                    "workload-pd-cpu",
+                    "model-fb-opt-125m",
+                ],
                 prompt="You are an expert in Kubernetes-native machine learning serving platforms, with deep knowledge of the KServe project. "
                 "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
                 "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.",
@@ -159,20 +188,29 @@ class TestCase:
         ),
         pytest.param(
             TestCase(
-                base_refs=["router-with-refs-pd", "scheduler-managed", "workload-pd-cpu", "model-fb-opt-125m"],
+                base_refs=[
+                    "router-with-refs-pd",
+                    "scheduler-managed",
+                    "workload-pd-cpu",
+                    "model-fb-opt-125m",
+                ],
                 prompt="You are an expert in Kubernetes-native machine learning serving platforms, with deep knowledge of the KServe project. "
                 "Explain the challenges of serving large-scale models, GPU scheduling, and how KServe integrates with capabilities like multi-model serving. "
                 "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.",
                 service_name="router-with-refs-pd-test",
                 response_assertion=assert_200_with_choices,
-                before_test=[lambda: create_router_resources(
-                    gateways=[ROUTER_GATEWAYS[1]],
-                    routes=[ROUTER_ROUTES[2], ROUTER_ROUTES[3]],
-                )],
-                after_test=[lambda: delete_router_resources(
-                    gateways=[ROUTER_GATEWAYS[1]],
-                    routes=[ROUTER_ROUTES[2], ROUTER_ROUTES[3]],
-                )],
+                before_test=[
+                    lambda: create_router_resources(
+                        gateways=[ROUTER_GATEWAYS[1]],
+                        routes=[ROUTER_ROUTES[2], ROUTER_ROUTES[3]],
+                    )
+                ],
+                after_test=[
+                    lambda: delete_router_resources(
+                        gateways=[ROUTER_GATEWAYS[1]],
+                        routes=[ROUTER_ROUTES[2], ROUTER_ROUTES[3]],
+                    )
+                ],
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
@@ -256,6 +294,210 @@ class TestCase:
     indirect=["test_case"],
     ids=generate_test_id,
 )
+def assert_200_chat_completions(response: requests.Response) -> None:
+    """Assert 200 status code with choices in response for chat completions."""
+    assert (
+        response.status_code == 200
+        and response.json().get("choices") is not None
+        and len(response.json().get("choices", [])) > 0
+    ), f"Expected 200 with choices for chat completions, got {response.status_code}: {response.text}"
+
+
+@pytest.mark.llminferenceservice
+@pytest.mark.asyncio(loop_scope="session")
+@pytest.mark.parametrize(
+    "test_case_chat",
+    [
+        pytest.param(
+            TestCase(
+                base_refs=[
+                    "router-managed",
+                    "workload-single-cpu",
+                    "model-fb-opt-125m",
+                ],
+                prompt="KServe is a",
+                service_name="chat-completions-single",
+            ),
+            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+        ),
+    ],
+    indirect=["test_case_chat"],
+    ids=generate_test_id,
+)
+@log_execution
+def test_llm_chat_completions(test_case_chat: TestCase):
+    """Test /v1/chat/completions endpoint routing through IGW."""
+    inject_k8s_proxy()
+
+    kserve_client = KServeClient(
+        config_file=os.environ.get("KUBECONFIG", "~/.kube/config"),
+        client_configuration=client.Configuration(),
+    )
+
+    service_name = test_case_chat.llm_service.metadata.name
+
+    try:
+        create_llmisvc(kserve_client, test_case_chat.llm_service)
+        wait_for_llm_isvc_ready(
+            kserve_client, test_case_chat.llm_service, test_case_chat.wait_timeout
+        )
+        wait_for_chat_completions_response(
+            kserve_client, test_case_chat, test_case_chat.wait_timeout
+        )
+    except Exception as e:
+        print(f"❌ ERROR: Failed to call llm inference service {service_name}: {e}")
+        _collect_diagnostics(kserve_client, test_case_chat.llm_service)
+        raise
+    finally:
+        try:
+            if os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in (
+                "false",
+                "0",
+                "f",
+            ):
+                delete_llmisvc(kserve_client, test_case_chat.llm_service)
+        except Exception as e:
+            print(f"⚠️ Warning: Failed to cleanup service {service_name}: {e}")
+
+
+@log_execution
+def wait_for_chat_completions_response(
+    kserve_client: KServeClient,
+    test_case: TestCase,
+    timeout_seconds: int = 600,
+) -> str:
+    """Wait for /v1/chat/completions endpoint to respond successfully."""
+
+    def assert_chat_completions_responds():
+        try:
+            service_url = get_llm_service_url(kserve_client, test_case.llm_service)
+        except Exception as e:
+            raise AssertionError(f"❌ Failed to get service URL: {e}") from e
+
+        chat_completions_url = f"{service_url}/v1/chat/completions"
+        test_payload = {
+            "model": test_case.model_name,
+            "messages": [{"role": "user", "content": test_case.prompt}],
+            "max_tokens": test_case.max_tokens,
+        }
+        print(
+            f"Calling LLM service at {chat_completions_url} with payload {test_payload}"
+        )
+        try:
+            response = requests.post(
+                chat_completions_url,
+                headers={"Content-Type": "application/json"},
+                json=test_payload,
+                timeout=test_case.response_timeout,
+            )
+        except Exception as e:
+            raise AssertionError(f"❌ Failed to call model: {e}") from e
+
+        assert_200_chat_completions(response)
+        return response.text[: test_case.max_tokens]
+
+    return wait_for(
+        assert_chat_completions_responds, timeout=timeout_seconds, interval=5.0
+    )
+
+
+def assert_200_models(response: requests.Response) -> None:
+    """Assert 200 status code with models data in response."""
+    assert (
+        response.status_code == 200
+        and response.json().get("data") is not None
+        and len(response.json().get("data", [])) > 0
+    ), f"Expected 200 with models data, got {response.status_code}: {response.text}"
+
+
+@pytest.mark.llminferenceservice
+@pytest.mark.asyncio(loop_scope="session")
+@pytest.mark.parametrize(
+    "test_case_models",
+    [
+        pytest.param(
+            TestCase(
+                base_refs=[
+                    "router-managed",
+                    "workload-single-cpu",
+                    "model-fb-opt-125m",
+                ],
+                prompt="",  # Not needed for /v1/models endpoint
+                service_name="models-endpoint-test",
+            ),
+            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+        ),
+    ],
+    indirect=["test_case_models"],
+    ids=generate_test_id,
+)
+@log_execution
+def test_llm_models_endpoint(test_case_models: TestCase):
+    """Test /v1/models endpoint routing through Service (catch-all rule)."""
+    inject_k8s_proxy()
+
+    kserve_client = KServeClient(
+        config_file=os.environ.get("KUBECONFIG", "~/.kube/config"),
+        client_configuration=client.Configuration(),
+    )
+
+    service_name = test_case_models.llm_service.metadata.name
+
+    try:
+        create_llmisvc(kserve_client, test_case_models.llm_service)
+        wait_for_llm_isvc_ready(
+            kserve_client, test_case_models.llm_service, test_case_models.wait_timeout
+        )
+        wait_for_models_response(
+            kserve_client, test_case_models, test_case_models.wait_timeout
+        )
+    except Exception as e:
+        print(f"❌ ERROR: Failed to call llm inference service {service_name}: {e}")
+        _collect_diagnostics(kserve_client, test_case_models.llm_service)
+        raise
+    finally:
+        try:
+            if os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in (
+                "false",
+                "0",
+                "f",
+            ):
+                delete_llmisvc(kserve_client, test_case_models.llm_service)
+        except Exception as e:
+            print(f"⚠️ Warning: Failed to cleanup service {service_name}: {e}")
+
+
+@log_execution
+def wait_for_models_response(
+    kserve_client: KServeClient,
+    test_case: TestCase,
+    timeout_seconds: int = 600,
+) -> str:
+    """Wait for /v1/models endpoint to respond successfully."""
+
+    def assert_models_responds():
+        try:
+            service_url = get_llm_service_url(kserve_client, test_case.llm_service)
+        except Exception as e:
+            raise AssertionError(f"❌ Failed to get service URL: {e}") from e
+
+        models_url = f"{service_url}/v1/models"
+        print(f"Calling LLM service at {models_url}")
+        try:
+            response = requests.get(
+                models_url,
+                headers={"Content-Type": "application/json"},
+                timeout=test_case.response_timeout,
+            )
+        except Exception as e:
+            raise AssertionError(f"❌ Failed to call /v1/models: {e}") from e
+
+        assert_200_models(response)
+        return response.text
+
+    return wait_for(assert_models_responds, timeout=timeout_seconds, interval=5.0)
+
+
 @log_execution
 def test_llm_inference_service(test_case: TestCase):
     inject_k8s_proxy()

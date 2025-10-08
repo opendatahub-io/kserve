@@ -470,9 +470,7 @@ LLMINFERENCESERVICE_CONFIGS = {
         },
     },
     "router-with-managed-route": {
-        "router": {
-            "route": {}
-        },
+        "router": {"route": {}},
     },
     "workload-llmd-simulator": {
         "replicas": 1,
@@ -493,7 +491,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "--ssl-certfile",
                         "/etc/ssl/certs/tls.crt",
                         "--ssl-keyfile",
-                        "/etc/ssl/certs/tls.key"
+                        "/etc/ssl/certs/tls.key",
                     ],
                     "resources": {
                         "limits": {"cpu": "1", "memory": "2Gi"},
@@ -523,7 +521,9 @@ def test_case(request):
         for func in tc.before_test:
             func()
     except Exception as before_test_error:
-        raise RuntimeError(f"Failed to execute before test hook: {before_test_error}") from before_test_error
+        raise RuntimeError(
+            f"Failed to execute before test hook: {before_test_error}"
+        ) from before_test_error
 
     try:
         # Validate base_refs defined in the test fixture exist in LLMINFERENCESERVICE_CONFIGS
@@ -584,9 +584,7 @@ def test_case(request):
             try:
                 func()
             except Exception as after_test_error:
-                logger.warning(
-                    f"Failed to execute after test hook: {after_test_error}"
-                )
+                logger.warning(f"Failed to execute after test hook: {after_test_error}")
 
         # Cleanup created configs
         for config_name in created_configs:
@@ -653,7 +651,9 @@ def generate_test_id(test_case) -> str:
 
 def create_router_resources(gateways, routes=None, kserve_client=None):
     if not kserve_client:
-        kserve_client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
+        kserve_client = KServeClient(
+            config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        )
 
     gateways_created = []
     routes_created = []
@@ -673,23 +673,41 @@ def create_router_resources(gateways, routes=None, kserve_client=None):
 
 def delete_router_resources(gateways, routes=None, kserve_client=None):
     if not kserve_client:
-        kserve_client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
+        kserve_client = KServeClient(
+            config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+        )
 
     for route in routes or []:
         try:
-            logger.info(f"Cleaning up HttpRoute {route.get('metadata', {}).get('name')}")
-            delete_route(kserve_client, route.get("metadata", {}).get("name"), route.get("metadata", {}).get("namespace", "default"))
+            logger.info(
+                f"Cleaning up HttpRoute {route.get('metadata', {}).get('name')}"
+            )
+            delete_route(
+                kserve_client,
+                route.get("metadata", {}).get("name"),
+                route.get("metadata", {}).get("namespace", "default"),
+            )
             logger.info(f"✓ Deleted HttpRoute {route.get('metadata', {}).get('name')}")
         except Exception as e:
-            logger.warning(f"Failed to cleanup HttpRoute {route.get('metadata', {}).get('name')}: {e}")
+            logger.warning(
+                f"Failed to cleanup HttpRoute {route.get('metadata', {}).get('name')}: {e}"
+            )
 
     for gateway in gateways:
         try:
-            logger.info(f"Cleaning up Gateway {gateway.get('metadata', {}).get('name')}")
-            delete_gateway(kserve_client, gateway.get("metadata", {}).get("name"), gateway.get("metadata", {}).get("namespace", "default"))
+            logger.info(
+                f"Cleaning up Gateway {gateway.get('metadata', {}).get('name')}"
+            )
+            delete_gateway(
+                kserve_client,
+                gateway.get("metadata", {}).get("name"),
+                gateway.get("metadata", {}).get("namespace", "default"),
+            )
             logger.info(f"✓ Deleted Gateway {gateway.get('metadata', {}).get('name')}")
         except Exception as e:
-            logger.warning(f"Failed to cleanup Gateway {gateway.get('metadata', {}).get('name')}: {e}")
+            logger.warning(
+                f"Failed to cleanup Gateway {gateway.get('metadata', {}).get('name')}: {e}"
+            )
 
 
 def _create_or_update_llmisvc_config(kserve_client, llm_config, namespace=None):
@@ -782,6 +800,218 @@ def _get_llmisvc_config(
             f"Exception when calling CustomObjectsApi->"
             f"get_namespaced_custom_object for LLMInferenceServiceConfig: {e}"
         ) from e
+
+
+@pytest.fixture(scope="function")
+def test_case_chat(request):
+    """Fixture for chat completions tests - alias of test_case."""
+    # Reuse the same test_case fixture logic
+    tc = request.param
+    created_configs = []
+
+    inject_k8s_proxy()
+
+    kserve_client = KServeClient(
+        config_file=os.environ.get("KUBECONFIG", "~/.kube/config"),
+        client_configuration=client.Configuration(),
+    )
+
+    # Execute before test hooks
+    try:
+        for func in tc.before_test:
+            func()
+    except Exception as before_test_error:
+        raise RuntimeError(
+            f"Failed to execute before test hook: {before_test_error}"
+        ) from before_test_error
+
+    try:
+        # Validate base_refs defined in the test fixture exist in LLMINFERENCESERVICE_CONFIGS
+        missing_refs = [
+            ref for ref in tc.base_refs if ref not in LLMINFERENCESERVICE_CONFIGS
+        ]
+        if missing_refs:
+            raise ValueError(
+                f"Missing base_refs in LLMINFERENCESERVICE_CONFIGS: {missing_refs}"
+            )
+        if not tc.service_name:
+            tc.service_name = generate_service_name(request.node.name, tc.base_refs)
+        tc.model_name = _get_model_name_from_configs(tc.base_refs)
+
+        # Create unique configs for this test
+        unique_base_refs = []
+        for base_ref in tc.base_refs:
+            unique_config_name = generate_k8s_safe_suffix(base_ref, [tc.service_name])
+            unique_base_refs.append(unique_config_name)
+
+            original_spec = LLMINFERENCESERVICE_CONFIGS[base_ref]
+
+            unique_config_body = {
+                "apiVersion": "serving.kserve.io/v1alpha1",
+                "kind": "LLMInferenceServiceConfig",
+                "metadata": {
+                    "name": unique_config_name,
+                    "namespace": KSERVE_TEST_NAMESPACE,
+                },
+                "spec": original_spec,
+            }
+
+            _create_or_update_llmisvc_config(
+                kserve_client, unique_config_body, KSERVE_TEST_NAMESPACE
+            )
+            created_configs.append(unique_config_name)
+
+        tc.llm_service = V1alpha1LLMInferenceService(
+            api_version="serving.kserve.io/v1alpha1",
+            kind="LLMInferenceService",
+            metadata=client.V1ObjectMeta(
+                name=tc.service_name, namespace=KSERVE_TEST_NAMESPACE
+            ),
+            spec={
+                "baseRefs": [{"name": base_ref} for base_ref in unique_base_refs],
+            },
+        )
+
+        yield tc
+
+    finally:
+        if os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in ("true", "1", "t"):
+            logger.info("Skipping resource deletion after test execution.")
+            return
+
+        # Execute after test hooks
+        for func in tc.after_test:
+            try:
+                func()
+            except Exception as after_test_error:
+                logger.warning(f"Failed to execute after test hook: {after_test_error}")
+
+        # Cleanup created configs
+        for config_name in created_configs:
+            try:
+                logger.info(
+                    f"Cleaning up unique LLMInferenceServiceConfig {config_name}"
+                )
+
+                if os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in (
+                    "false",
+                    "0",
+                    "f",
+                ):
+                    _delete_llmisvc_config(
+                        kserve_client, config_name, KSERVE_TEST_NAMESPACE
+                    )
+                logger.info(f"✓ Deleted unique LLMInferenceServiceConfig {config_name}")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to cleanup LLMInferenceServiceConfig {config_name}: {e}"
+                )
+
+
+@pytest.fixture(scope="function")
+def test_case_models(request):
+    """Fixture for /v1/models endpoint tests - alias of test_case."""
+    # Reuse the same test_case fixture logic
+    tc = request.param
+    created_configs = []
+
+    inject_k8s_proxy()
+
+    kserve_client = KServeClient(
+        config_file=os.environ.get("KUBECONFIG", "~/.kube/config"),
+        client_configuration=client.Configuration(),
+    )
+
+    # Execute before test hooks
+    try:
+        for func in tc.before_test:
+            func()
+    except Exception as before_test_error:
+        raise RuntimeError(
+            f"Failed to execute before test hook: {before_test_error}"
+        ) from before_test_error
+
+    try:
+        # Validate base_refs defined in the test fixture exist in LLMINFERENCESERVICE_CONFIGS
+        missing_refs = [
+            ref for ref in tc.base_refs if ref not in LLMINFERENCESERVICE_CONFIGS
+        ]
+        if missing_refs:
+            raise ValueError(
+                f"Missing base_refs in LLMINFERENCESERVICE_CONFIGS: {missing_refs}"
+            )
+        if not tc.service_name:
+            tc.service_name = generate_service_name(request.node.name, tc.base_refs)
+        tc.model_name = _get_model_name_from_configs(tc.base_refs)
+
+        # Create unique configs for this test
+        unique_base_refs = []
+        for base_ref in tc.base_refs:
+            unique_config_name = generate_k8s_safe_suffix(base_ref, [tc.service_name])
+            unique_base_refs.append(unique_config_name)
+
+            original_spec = LLMINFERENCESERVICE_CONFIGS[base_ref]
+
+            unique_config_body = {
+                "apiVersion": "serving.kserve.io/v1alpha1",
+                "kind": "LLMInferenceServiceConfig",
+                "metadata": {
+                    "name": unique_config_name,
+                    "namespace": KSERVE_TEST_NAMESPACE,
+                },
+                "spec": original_spec,
+            }
+
+            _create_or_update_llmisvc_config(
+                kserve_client, unique_config_body, KSERVE_TEST_NAMESPACE
+            )
+            created_configs.append(unique_config_name)
+
+        tc.llm_service = V1alpha1LLMInferenceService(
+            api_version="serving.kserve.io/v1alpha1",
+            kind="LLMInferenceService",
+            metadata=client.V1ObjectMeta(
+                name=tc.service_name, namespace=KSERVE_TEST_NAMESPACE
+            ),
+            spec={
+                "baseRefs": [{"name": base_ref} for base_ref in unique_base_refs],
+            },
+        )
+
+        yield tc
+
+    finally:
+        if os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in ("true", "1", "t"):
+            logger.info("Skipping resource deletion after test execution.")
+            return
+
+        # Execute after test hooks
+        for func in tc.after_test:
+            try:
+                func()
+            except Exception as after_test_error:
+                logger.warning(f"Failed to execute after test hook: {after_test_error}")
+
+        # Cleanup created configs
+        for config_name in created_configs:
+            try:
+                logger.info(
+                    f"Cleaning up unique LLMInferenceServiceConfig {config_name}"
+                )
+
+                if os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in (
+                    "false",
+                    "0",
+                    "f",
+                ):
+                    _delete_llmisvc_config(
+                        kserve_client, config_name, KSERVE_TEST_NAMESPACE
+                    )
+                logger.info(f"✓ Deleted unique LLMInferenceServiceConfig {config_name}")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to cleanup LLMInferenceServiceConfig {config_name}: {e}"
+                )
 
 
 def inject_k8s_proxy():
