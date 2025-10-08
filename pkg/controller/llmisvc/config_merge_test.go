@@ -1308,8 +1308,8 @@ func TestMergeSpecs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Remove unused context assignment - MergeSpecs doesn't need context
-			got, err := llmisvc.MergeSpecs(tt.cfgs...)
+			ctx := t.Context()
+			got, err := llmisvc.MergeSpecs(ctx, tt.cfgs...)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("MergeSpecs() error = %v, wantErr %v", err, tt.wantErr)
 				return
