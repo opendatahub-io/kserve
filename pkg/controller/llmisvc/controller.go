@@ -246,6 +246,13 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 		b = b.Watches(&gatewayapi.Gateway{}, r.enqueueOnGatewayChange(logger))
 	}
 
+	if err := igwv1.Install(mgr.GetScheme()); err != nil {
+		return fmt.Errorf("failed to add GIE v1 APIs to scheme: %w", err)
+	}
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwv1.GroupVersion.String(), "InferencePool"); ok && err == nil {
+		b = b.Owns(&igwv1.InferencePool{}, builder.WithPredicates(childResourcesPredicate))
+	}
+
 	if err := istioapi.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("failed to add Istio APIs to scheme: %w", err)
 	}
