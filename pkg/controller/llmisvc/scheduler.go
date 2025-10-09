@@ -338,36 +338,33 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerDeployment(ctx context.
 func schedulerConfigText(llmSvc *v1alpha1.LLMInferenceService) string {
 	switch {
 	case llmSvc.Spec.Prefill != nil:
+		// Always do P/D by default (threshold 0)
 		return `
 apiVersion: inference.networking.x-k8s.io/v1alpha1
 kind: EndpointPickerConfig
 plugins:
-- type: pd-profile-handler
-  parameters:
-    threshold: 100
-- type: prefill-header-handler
-- type: prefill-filter
-- type: decode-filter
-- type: prefix-cache-scorer
-- type: load-aware-scorer
-- type: max-score-picker
+  - type: prefill-header-handler
+  - type: prefill-filter
+  - type: decode-filter
+  - type: max-score-picker
+  - type: prefix-cache-scorer
+  - type: queue-scorer
+  - type: pd-profile-handler
+    parameters:
+      threshold: 0
 schedulingProfiles:
-- name: prefill
-  plugins:
-  - pluginRef: prefill-filter
-  - pluginRef: prefix-cache-scorer
-    weight: 2.0
-  - pluginRef: load-aware-scorer
-    weight: 1.0
-  - pluginRef: max-score-picker
-- name: decode
-  plugins:
-  - pluginRef: decode-filter
-  - pluginRef: prefix-cache-scorer
-    weight: 2.0
-  - pluginRef: load-aware-scorer
-    weight: 1.0
-  - pluginRef: max-score-picker
+  - name: prefill
+    plugins:
+      - pluginRef: prefill-filter
+      - pluginRef: queue-scorer
+        weight: 1.0
+      - pluginRef: max-score-picker
+  - name: decode
+    plugins:
+      - pluginRef: decode-filter
+      - pluginRef: queue-scorer
+        weight: 1.0
+      - pluginRef: max-score-picker
 `
 	default:
 		return `
