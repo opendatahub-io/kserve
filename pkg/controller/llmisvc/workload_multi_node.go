@@ -34,6 +34,7 @@ import (
 	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/credentials"
 	kserveTypes "github.com/kserve/kserve/pkg/types"
 )
@@ -527,7 +528,8 @@ func (r *LLMInferenceServiceReconciler) propagateLeaderWorkerSetMetadata(llmSvc 
 	ann := make(map[string]string, len(expected.Annotations))
 	for k, v := range llmSvc.GetAnnotations() {
 		if strings.HasPrefix(k, "leaderworkerset.sigs.k8s.io") ||
-			strings.HasPrefix(k, "k8s.v1.cni.cncf.io") {
+			strings.HasPrefix(k, "k8s.v1.cni.cncf.io") ||
+			strings.HasPrefix(k, constants.KueueAPIGroupName) {
 			ann[k] = v
 			if expected.Annotations == nil {
 				expected.Annotations = make(map[string]string, 1)

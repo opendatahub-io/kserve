@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/credentials"
 	kserveTypes "github.com/kserve/kserve/pkg/types"
 )
@@ -221,7 +222,8 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 func (r *LLMInferenceServiceReconciler) propagateDeploymentMetadata(llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) {
 	ann := make(map[string]string, len(expected.Annotations))
 	for k, v := range llmSvc.GetAnnotations() {
-		if strings.HasPrefix(k, "k8s.v1.cni.cncf.io") {
+		if strings.HasPrefix(k, "k8s.v1.cni.cncf.io") ||
+			strings.HasPrefix(k, constants.KueueAPIGroupName) {
 			ann[k] = v
 			if expected.Annotations == nil {
 				expected.Annotations = make(map[string]string, 1)
