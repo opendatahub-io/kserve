@@ -100,10 +100,10 @@ wait_for_crd llminferenceserviceconfigs.serving.kserve.io 90s
 
 echo "⏳ Installing KServe with Minio"
 kustomize build $PROJECT_ROOT/config/overlays/odh-test |
-  sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
-  sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
-  sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
-  sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
+  sed "s|[^[:space:]]*/storage-initializer:[^[:space:]]*|${STORAGE_INITIALIZER_IMAGE}|" |
+  sed "s|[^[:space:]]*/agent:[^[:space:]]*|${KSERVE_AGENT_IMAGE}|" |
+  sed "s|[^[:space:]]*/router:[^[:space:]]*|${KSERVE_ROUTER_IMAGE}|" |
+  sed "s|[^[:space:]]*/kserve-controller:[^[:space:]]*|${KSERVE_CONTROLLER_IMAGE}|" |
   oc apply --server-side=true -f -
 
 wait_for_crd datascienceclusters.datasciencecluster.opendatahub.io 90s
@@ -145,7 +145,7 @@ fi
 # TODO can be moved to odh-test overlays
 echo "⏳ Installing ODH Model Controller"
 kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
-    sed "s|quay.io/opendatahub/odh-model-controller:fast|${ODH_MODEL_CONTROLLER_IMAGE}|" |
+    sed "s|[^[:space:]]*/odh-model-controller:[^[:space:]]*|${ODH_MODEL_CONTROLLER_IMAGE}|" |
     oc apply -n ${NS} -f -
 
 wait_for_pod_ready "${NS}" "app=odh-model-controller"
@@ -194,8 +194,8 @@ oc apply -n kserve-ci-e2e-test -f <(
 )
 
 kustomize build $PROJECT_ROOT/config/overlays/odh-test/clusterresources |
-  sed "s|kserve/sklearnserver:latest|${SKLEARN_IMAGE}|" |
-  sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
+  sed "s|[^[:space:]]*/sklearnserver:[^[:space:]]*|${SKLEARN_IMAGE}|" |
+  sed "s|[^[:space:]]*/storage-initializer:[^[:space:]]*|${STORAGE_INITIALIZER_IMAGE}|" |
   oc apply -n kserve-ci-e2e-test -f -
 
 # Add the enablePassthrough annotation to the ServingRuntimes, to let Knative to

@@ -69,10 +69,10 @@ fi
 
 echo "Installing KServe with Minio"
 kustomize build $PROJECT_ROOT/config/overlays/test |
-  sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
-  sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
-  sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
-  sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
+  sed "s|[^[:space:]]*/storage-initializer:[^[:space:]]*|${STORAGE_INITIALIZER_IMAGE}|" |
+  sed "s|[^[:space:]]*/agent:[^[:space:]]*|${KSERVE_AGENT_IMAGE}|" |
+  sed "s|[^[:space:]]*/router:[^[:space:]]*|${KSERVE_ROUTER_IMAGE}|" |
+  sed "s|[^[:space:]]*/kserve-controller:[^[:space:]]*|${KSERVE_CONTROLLER_IMAGE}|" |
   oc delete --server-side=true -f -
 
 # Install DSC/DSCI for test. (sometimes there is timing issue when it is under the same kustomization so it is separated)
@@ -97,7 +97,7 @@ fi
 
 echo "Deleting ODH Model Controller"
 kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
-    sed "s|quay.io/opendatahub/odh-model-controller:fast|${ODH_MODEL_CONTROLLER_IMAGE}|" |
+    sed "s|[^[:space:]]*/odh-model-controller:[^[:space:]]*|${ODH_MODEL_CONTROLLER_IMAGE}|" |
     oc delete -n kserve -f -
   oc wait --for=condition=ready pod -l app=odh-model-controller -n kserve --timeout=300s
 
@@ -128,8 +128,8 @@ oc delete -f $PROJECT_ROOT/config/overlays/test/minio/minio-user-secret.yaml -n 
 
 kustomize build $PROJECT_ROOT/config/overlays/test/clusterresources |
   sed 's/ClusterServingRuntime/ServingRuntime/' |
-  sed "s|kserve/sklearnserver:latest|${SKLEARN_IMAGE}|" |
-  sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
+  sed "s|[^[:space:]]*/sklearnserver:[^[:space:]]*|${SKLEARN_IMAGE}|" |
+  sed "s|[^[:space:]]*/storage-initializer:[^[:space:]]*|${STORAGE_INITIALIZER_IMAGE}|" |
   oc delete -n kserve-ci-e2e-test -f -
 
 
