@@ -169,7 +169,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 		It("should propagate kueue labels and annotations to the deployment", func(ctx SpecContext) {
 			// given
-			svcName := "test-llm"
+			svcName := "test-llm-kueue"
 			nsName := kmeta.ChildName(svcName, "-test")
 			namespace := &corev1.Namespace{
 				ObjectMeta: metav1.ObjectMeta{
@@ -183,27 +183,27 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				envTest.DeleteAll(namespace)
 			}()
 
+			localQueueName := "test-local-q"
+			preemptPriority := "0"
+			testValue := "test"
+
 			llmSvc := LLMInferenceService(svcName,
 				InNamespace[*v1alpha1.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 				WithManagedRoute(),
 				WithManagedGateway(),
 				WithManagedScheduler(),
+				// Add a kueue label and annotation to ensure value propagation to the deployment
+				// the kueue functionality itself will not be tested here
+				WithAnnotations(map[string]string{
+					constants.PreemptionReclaimAnnotationKey: preemptPriority,
+					testValue:                                testValue, // dummy value, should not be propagated
+				}),
+				WithLabels(map[string]string{
+					constants.LocalQueueNameLabelKey: localQueueName,
+					testValue:                        testValue, // dummy value, should not be propagated
+				}),
 			)
-
-			// Add a kueue label and annotation to ensure value propagation to the deployment and pods
-			// the kueue functionality itself will not be tested here
-			localQueueName := "test-local-q"
-			preemptPriority := "0"
-			testValue := "test"
-			llmSvc.Annotations = map[string]string{
-				constants.PreemptionReclaimAnnotationKey: preemptPriority,
-				testValue:                                testValue, // dummy value, should not be propagated
-			}
-			llmSvc.Labels = map[string]string{
-				constants.LocalQueueNameLabelKey: localQueueName,
-				testValue:                        testValue, // dummy value, should not be propagated
-			}
 
 			// when
 			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
@@ -223,21 +223,21 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			Expect(expectedDeployment.Spec.Replicas).To(Equal(ptr.To[int32](1)))
 			Expect(expectedDeployment).To(BeOwnedBy(llmSvc))
 
+			By("checking the Deployment's top-level metadata")
 			// Check that the kueue label/annotation was propagated
-			Expect(expectedDeployment.Labels).
-				To(HaveKeyWithValue(constants.LocalQueueNameLabelKey, localQueueName),
-					"The kueue label should be propagated to the deployment")
-			Expect(expectedDeployment.Annotations).
-				To(gomega.HaveKeyWithValue(constants.PreemptionReclaimAnnotationKey, preemptPriority),
-					"The kueue annotation should be propagated to the deployment")
-			// Check that the test label/annotation was not propagated as it is
-			// not in the approved prefixes for propagation
-			Expect(expectedDeployment.Labels).
-				ToNot(HaveKeyWithValue(testValue, testValue),
-					"The test label should not be propagated to the deployment")
-			Expect(expectedDeployment.Annotations).
-				ToNot(HaveKeyWithValue(testValue, testValue),
-					"The test annotation should not be propagated to the deployment")
+			Expect(expectedDeployment.Labels).To(HaveKeyWithValue(constants.LocalQueueNameLabelKey, localQueueName))
+			Expect(expectedDeployment.Annotations).To(gomega.HaveKeyWithValue(constants.PreemptionReclaimAnnotationKey, preemptPriority))
+			// Check that the test label/annotation was not propagated as it is not in the approved prefixes for propagation
+			Expect(expectedDeployment.Labels).ToNot(HaveKeyWithValue(testValue, testValue))
+			Expect(expectedDeployment.Annotations).ToNot(HaveKeyWithValue(testValue, testValue))
+
+			By("checking the Deployment's pod template metadata")
+			// Check that the kueue label/annotation was propagated
+			Expect(expectedDeployment.Spec.Template.Labels).To(HaveKeyWithValue(constants.LocalQueueNameLabelKey, localQueueName))
+			Expect(expectedDeployment.Spec.Template.Annotations).To(gomega.HaveKeyWithValue(constants.PreemptionReclaimAnnotationKey, preemptPriority))
+			// Check that the test label/annotation was not propagated as it is not in the approved prefixes for propagation
+			Expect(expectedDeployment.Spec.Template.Labels).ToNot(HaveKeyWithValue(testValue, testValue))
+			Expect(expectedDeployment.Spec.Template.Annotations).ToNot(HaveKeyWithValue(testValue, testValue))
 		})
 	})
 
