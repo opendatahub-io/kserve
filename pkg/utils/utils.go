@@ -90,6 +90,21 @@ func IsPrefixSupported(input string, prefixes []string) bool {
 	return false
 }
 
+// IsPrefixSupported Check if a given string contains one of the prefixes in the provided list.
+// And if so, propagates the key, value pair to dest
+func PropagatePrefixedMap(source map[string]string, dest *map[string]string, prefixes ...string) {
+	for k, v := range source {
+		// The nested loop and if statement are replaced with a single, clear function call.
+		if IsPrefixSupported(k, prefixes) {
+			// Initialize the destination map if it's nil
+			if *dest == nil {
+				*dest = make(map[string]string)
+			}
+			(*dest)[k] = v
+		}
+	}
+}
+
 // MergeEnvs Merge a slice of EnvVars (`O`) into another slice of EnvVars (`B`), which does the following:
 // 1. If an EnvVar is present in B but not in O, value remains unchanged in the result
 // 2. If an EnvVar is present in `O` but not in `B`, appends to the result
