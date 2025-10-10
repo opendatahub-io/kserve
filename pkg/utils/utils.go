@@ -90,8 +90,8 @@ func IsPrefixSupported(input string, prefixes []string) bool {
 	return false
 }
 
-// IsPrefixSupported Check if a given string contains one of the prefixes in the provided list.
-// And if so, propagates the key, value pair to dest
+// PropagatePrefixedMap filters keys in source by the provided prefixes and propagates matching key-value pairs to dest.
+// Initializes dest if nil.
 func PropagatePrefixedMap(source map[string]string, dest *map[string]string, prefixes ...string) {
 	for k, v := range source {
 		// The nested loop and if statement are replaced with a single, clear function call.
