@@ -489,7 +489,6 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			Expect(expectedLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels).ToNot(HaveKeyWithValue(testValue, testValue))
 
 			Expect(expectedLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Annotations).To(HaveKeyWithValue(constants.PreemptionReclaimAnnotationKey, preemptPriority))
-
 		})
 	})
 })
