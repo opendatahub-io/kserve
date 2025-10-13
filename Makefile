@@ -79,7 +79,7 @@ go-lint: golangci-lint
 py-lint: $(FLAKE8_LINT)
 	$(FLAKE8_LINT) --config=.flake8 .
 
-GIE_VERSION=v0.5.0
+GIE_VERSION=v1.0.1
 # Generate manifests e.g. CRD, RBAC etc.
 manifests: controller-gen yq
 	@$(CONTROLLER_GEN) $(CRD_OPTIONS) paths=./pkg/apis/serving/... output:crd:dir=config/crd/full
@@ -146,7 +146,9 @@ manifests: controller-gen yq
 	rm charts/kserve-crd-minimal/templates/kustomization.yaml
 
 	kubectl kustomize https://github.com/kubernetes-sigs/gateway-api-inference-extension/config/crd?ref=$(GIE_VERSION) > config/crd/external/gateway-inference-extension/gateway-inference-extension.yaml
-
+	
+	# InferenceModels is needed for now but after we start to use inferenceObjectives, we can remove this.
+	curl https://raw.githubusercontent.com/kubernetes-sigs/gateway-api-inference-extension/refs/tags/v0.5.1/config/crd/bases/inference.networking.x-k8s.io_inferencemodels.yaml  >> config/crd/external/gateway-inference-extension/gateway-inference-extension.yaml
 # Generate code
 generate: controller-gen helm-docs
 	hack/update-codegen.sh
