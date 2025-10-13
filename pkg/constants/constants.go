@@ -47,12 +47,6 @@ const (
 	KueueAPIGroupName = "kueue.x-k8s.io"
 )
 
-var (
-	LocalQueueNameLabelKey         = KueueAPIGroupName + "/queue-name"
-	AdmissionCheckAnnotationKey    = KueueAPIGroupName + "/admission-check"
-	PreemptionReclaimAnnotationKey = KueueAPIGroupName + "/preemption-reclaim-if-below-priority"
-)
-
 // InferenceService Constants
 var (
 	InferenceServiceName                  = "inferenceservice"
