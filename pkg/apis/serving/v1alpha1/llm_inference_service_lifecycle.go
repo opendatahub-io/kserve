@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 )
@@ -45,9 +46,21 @@ const (
 )
 
 var llmInferenceServiceCondSet = apis.NewLivingConditionSet(
+	PresetsCombined,
 	WorkloadReady,
 	RouterReady,
 )
+
+var llmInferenceServiceSubCondSet = []apis.ConditionType{
+	MainWorkloadReady,
+	WorkerWorkloadReady,
+	PrefillWorkloadReady,
+	PrefillWorkerWorkloadReady,
+	SchedulerWorkloadReady,
+	GatewaysReady,
+	HTTPRoutesReady,
+	InferencePoolReady,
+}
 
 func (in *LLMInferenceService) GetStatus() *duckv1.Status {
 	return &in.Status.Status
@@ -55,6 +68,24 @@ func (in *LLMInferenceService) GetStatus() *duckv1.Status {
 
 func (in *LLMInferenceService) GetConditionSet() apis.ConditionSet {
 	return llmInferenceServiceCondSet
+}
+
+func (in *LLMInferenceService) InitializeSubConditions() {
+	subCondSet := apis.NewLivingConditionSet(llmInferenceServiceSubCondSet...)
+	manager := subCondSet.Manage(in.GetStatus())
+	for _, cond := range llmInferenceServiceSubCondSet {
+		manager.SetCondition(apis.Condition{
+			Type:   cond,
+			Status: corev1.ConditionUnknown,
+		})
+	}
+}
+
+func (in *LLMInferenceService) ClearSubConditions() {
+	manager := in.GetConditionSet().Manage(in.GetStatus())
+	for _, cond := range llmInferenceServiceSubCondSet {
+		_ = manager.ClearCondition(cond)
+	}
 }
 
 func (in *LLMInferenceService) MarkMainWorkloadReady() {
