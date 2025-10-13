@@ -140,7 +140,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	resource.ClearSubConditions()
 	reconciler.PostProcessReconcile(ctx, resource, original)
 
-	logger.Info("Reconciliation complete", "status", resource.Status)
+	logger.V(2).Info("Reconciliation complete", "status", resource.Status)
 
 	if reconcileErr != nil {
 		logger.Error(reconcileErr, "Failed to reconcile LLMInferenceService")
