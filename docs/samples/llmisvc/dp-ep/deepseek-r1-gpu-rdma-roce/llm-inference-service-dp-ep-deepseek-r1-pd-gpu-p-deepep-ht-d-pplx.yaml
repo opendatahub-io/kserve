@@ -26,9 +26,9 @@ spec:
             # ALWAYS DO PD IN THIS EXAMPLE (THRESHOLD 0)
             args:
               - -v=4 # Debug level
-              - --poolName
+              - --pool-name
               - "{{ ChildName .ObjectMeta.Name `-inference-pool` }}"
-              - --poolNamespace
+              - --pool-namespace
               - "{{ .ObjectMeta.Namespace }}"
               - --zap-encoder
               - json

@@ -26,9 +26,9 @@ spec:
           - name: main
             args:
               - -v=4 # Debug level
-              - --poolName
+              - --pool-name
               - "{{ ChildName .ObjectMeta.Name `-inference-pool` }}"
-              - --poolNamespace
+              - --pool-namespace
               - "{{ .ObjectMeta.Namespace }}"
               - --zap-encoder
               - json

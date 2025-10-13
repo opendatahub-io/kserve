@@ -20,9 +20,9 @@ spec:
           - name: main
             # Threshold 0 means always use prefill-decode separation
             args:
-              - --poolName
+              - --pool-name
               - "{{ ChildName .ObjectMeta.Name `-inference-pool` }}"
-              - --poolNamespace
+              - --pool-namespace
               - "{{ .ObjectMeta.Namespace }}"
               - --zap-encoder
               - json

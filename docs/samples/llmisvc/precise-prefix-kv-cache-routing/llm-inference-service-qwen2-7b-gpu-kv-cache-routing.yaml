@@ -22,9 +22,9 @@ spec:
                 name: tokenizers
                 readOnly: false
             args:
-              - --poolName
+              - --pool-name
               - "{{ ChildName .ObjectMeta.Name `-inference-pool` }}"
-              - --poolNamespace
+              - --pool-namespace
               - "{{ .ObjectMeta.Namespace }}"
               - --zap-encoder
               - json
