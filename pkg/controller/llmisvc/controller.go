@@ -253,6 +253,28 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 		b = b.Owns(&igwv1.InferencePool{}, builder.WithPredicates(childResourcesPredicate))
 	}
 
+	// Watch v1alpha2 InferencePool and InferenceModel resources for state changes (using unstructured since there's no typed API)
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), "inference.networking.x-k8s.io/v1alpha2", "InferencePool"); ok && err == nil {
+		b = b.Watches(
+			&metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{
+				APIVersion: "inference.networking.x-k8s.io/v1alpha2",
+				Kind:       "InferencePool",
+			}},
+			r.enqueueOnV1Alpha2ResourceChange(logger),
+			builder.WithPredicates(childResourcesPredicate),
+		)
+	}
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), "inference.networking.x-k8s.io/v1alpha2", "InferenceModel"); ok && err == nil {
+		b = b.Watches(
+			&metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{
+				APIVersion: "inference.networking.x-k8s.io/v1alpha2",
+				Kind:       "InferenceModel",
+			}},
+			r.enqueueOnV1Alpha2ResourceChange(logger),
+			builder.WithPredicates(childResourcesPredicate),
+		)
+	}
+
 	if err := istioapi.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("failed to add Istio APIs to scheme: %w", err)
 	}
@@ -430,6 +452,44 @@ func (r *LLMInferenceServiceReconciler) enqueueOnIstioShadowServiceChange(mgr ct
 
 		return []reconcile.Request{{NamespacedName: types.NamespacedName{
 			Namespace: sub.GetNamespace(),
+			Name:      controller.Name,
+		}}}
+	})
+}
+// enqueueOnV1Alpha2ResourceChange watches for changes in v1alpha2 InferencePool and InferenceModel resources.
+func (r *LLMInferenceServiceReconciler) enqueueOnV1Alpha2ResourceChange(logger logr.Logger) handler.EventHandler {
+	logger = logger.WithName("enqueueOnV1Alpha2ResourceChange")
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		// Get the owner reference from the v1alpha2 resource
+		controller := metav1.GetControllerOf(object)
+		if controller == nil {
+			logger.V(2).Info("v1alpha2 resource has no controller", "resource", object.GetName(), "namespace", object.GetNamespace())
+			return nil
+		}
+
+		// Parse the API version to get group and version
+		gv, err := schema.ParseGroupVersion(controller.APIVersion)
+		if err != nil {
+			logger.V(2).Error(err, "failed to parse GroupVersion", "apiVersion", controller.APIVersion)
+			return nil
+		}
+
+		// Check if the owner is an LLMInferenceService
+		if controller.Kind != v1alpha1.LLMInferenceServiceGVK.Kind || gv.Group != v1alpha1.LLMInferenceServiceGVK.Group {
+			logger.V(2).Info("v1alpha2 resource is not controlled by LLMInferenceService",
+				"resource", object.GetName(),
+				"owner.kind", controller.Kind,
+				"owner.group", gv.Group)
+			return nil
+		}
+
+		logger.V(1).Info("Enqueuing LLMInferenceService due to v1alpha2 resource change",
+			"llmisvc", controller.Name,
+			"resource", object.GetName(),
+			"kind", object.GetObjectKind().GroupVersionKind().Kind)
+
+		return []reconcile.Request{{NamespacedName: types.NamespacedName{
+			Namespace: object.GetNamespace(),
 			Name:      controller.Name,
 		}}}
 	})
