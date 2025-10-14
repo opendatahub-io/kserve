@@ -48,7 +48,6 @@ jobs:
 
     runs-on: ubuntu-latest
     if: github.event_name == 'push'
-
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -91,14 +90,18 @@ jobs:
 
           echo CONTAINER_TAGS=$TAGS >> $GITHUB_ENV
 
-      - name: Build and push
+      - name: Free-up disk space
+        uses: ./.github/actions/free-up-disk-space
+                  
+      - name: Build and push multi-arch image
         uses: docker/build-push-action@v6
         with:
-          platforms: linux/amd64,linux/arm64/v8,linux/ppc64le,linux/s390x
           context: .
           file: Dockerfile
           push: true
+          platforms: linux/amd64,linux/arm64/v8,linux/ppc64le,linux/s390x
           tags: ${{ env.CONTAINER_TAGS }}
           # https://github.com/docker/buildx/issues/1533
+          load: false
+          sbom: false
           provenance: false
-          sbom: true
