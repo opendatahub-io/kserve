@@ -313,6 +313,7 @@ func main() {
 	llmEventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: clientSet.CoreV1().Events("")})
 	if err = (&llmisvc.LLMInferenceServiceReconciler{
 		Client:        mgr.GetClient(),
+		Config:        mgr.GetConfig(),
 		Clientset:     clientSet,
 		EventRecorder: llmEventBroadcaster.NewRecorder(scheme, corev1.EventSource{Component: "LLMInferenceServiceController"}),
 	}).SetupWithManager(mgr); err != nil {

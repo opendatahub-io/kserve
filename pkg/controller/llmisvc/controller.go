@@ -24,6 +24,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -69,6 +70,7 @@ var childResourcesPredicate, _ = predicate.LabelSelectorPredicate(metav1.LabelSe
 // It orchestrates the reconciliation of child resources based on the spec.
 type LLMInferenceServiceReconciler struct {
 	client.Client
+	Config *rest.Config
 	record.EventRecorder
 	Clientset kubernetes.Interface
 }
@@ -239,6 +241,7 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), gatewayapi.GroupVersion.String(), "HTTPRoute"); ok && err == nil {
 		b = b.Owns(&gatewayapi.HTTPRoute{}, builder.WithPredicates(childResourcesPredicate))
+		b = b.Watches(&gatewayapi.HTTPRoute{}, r.enqueueOnHttpRouteChange(logger))
 	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), gatewayapi.GroupVersion.String(), "Gateway"); ok && err == nil {
 		b = b.Watches(&gatewayapi.Gateway{}, r.enqueueOnGatewayChange(logger))
@@ -318,6 +321,49 @@ func (r *LLMInferenceServiceReconciler) enqueueOnGatewayChange(logger logr.Logge
 
 				for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
 					if string(ref.Name) == sub.Name && string(ref.Namespace) == sub.Namespace {
+						reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
+							Namespace: llmSvc.Namespace,
+							Name:      llmSvc.Name,
+						}})
+					}
+				}
+			}
+
+			if llmSvcList.Continue == "" {
+				break
+			}
+			continueToken = llmSvcList.Continue
+		}
+
+		return reqs
+	})
+}
+
+func (r *LLMInferenceServiceReconciler) enqueueOnHttpRouteChange(logger logr.Logger) handler.EventHandler {
+	logger = logger.WithName("enqueueOnHttpRouteChange")
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		sub := object.(*gatewayapi.HTTPRoute)
+		reqs := make([]reconcile.Request, 0, 2)
+
+		listNamespace := sub.GetNamespace()
+
+		// When an HTTPRoute is modified, we need to find all LLMInferenceService instances that might
+		// depend on it and trigger their reconciliation.
+		continueToken := ""
+		for {
+			llmSvcList := &v1alpha1.LLMInferenceServiceList{}
+			if err := r.Client.List(ctx, llmSvcList, &client.ListOptions{Namespace: listNamespace, Continue: continueToken}); err != nil {
+				logger.Error(err, "Failed to list LLMInferenceService")
+				return reqs
+			}
+			for _, llmSvc := range llmSvcList.Items {
+				// If it's not using the router or gateway, skip the resource.
+				if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || llmSvc.Spec.Router.Route.HTTP == nil {
+					continue
+				}
+
+				for _, ref := range llmSvc.Spec.Router.Route.HTTP.Refs {
+					if ref.Name == sub.Name && llmSvc.GetNamespace() == sub.Namespace {
 						reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
 							Namespace: llmSvc.Namespace,
 							Name:      llmSvc.Name,

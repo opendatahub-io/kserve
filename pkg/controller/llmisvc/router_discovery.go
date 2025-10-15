@@ -25,6 +25,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -289,12 +290,12 @@ func IsGatewayReady(gateway *gatewayapi.Gateway) bool {
 }
 
 // EvaluateHTTPRouteReadiness checks the readiness status of HTTPRoutes and returns those that are not ready
-func EvaluateHTTPRouteReadiness(ctx context.Context, routes []*gatewayapi.HTTPRoute) []*gatewayapi.HTTPRoute {
+func EvaluateHTTPRouteReadiness(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, routes []*gatewayapi.HTTPRoute) []*gatewayapi.HTTPRoute {
 	logger := log.FromContext(ctx)
 	notReadyRoutes := make([]*gatewayapi.HTTPRoute, 0)
 
 	for _, route := range routes {
-		ready := IsHTTPRouteReady(route)
+		ready := IsHTTPRouteReady(llmSvc, route)
 		logger.Info("HTTPRoute readiness evaluated", "route", fmt.Sprintf("%s/%s", route.Namespace, route.Name), "ready", ready)
 
 		if !ready {
@@ -306,26 +307,39 @@ func EvaluateHTTPRouteReadiness(ctx context.Context, routes []*gatewayapi.HTTPRo
 }
 
 // IsHTTPRouteReady determines if an HTTPRoute is ready based on its status conditions.
-func IsHTTPRouteReady(route *gatewayapi.HTTPRoute) bool {
+func IsHTTPRouteReady(llmSvc *v1alpha1.LLMInferenceService, route *gatewayapi.HTTPRoute) bool {
 	if route == nil || len(route.Spec.ParentRefs) == 0 {
 		return false
 	}
 
-	if cond, missing := nonReadyHTTPRouteTopLevelCondition(route); cond != nil || missing {
+	if cond, missing := nonReadyHTTPRouteTopLevelCondition(llmSvc, route); cond != nil || missing {
 		return false
 	}
 
 	return true
 }
 
-func nonReadyHTTPRouteTopLevelCondition(route *gatewayapi.HTTPRoute) (*metav1.Condition, bool) {
+func nonReadyHTTPRouteTopLevelCondition(llmSvc *v1alpha1.LLMInferenceService, route *gatewayapi.HTTPRoute) (*metav1.Condition, bool) {
 	if route == nil {
 		return nil, true
 	}
 
 	routeConditionAcceptedMissing := true
+	routeAuthEnforced := false
 
 	for _, parent := range route.Status.RouteStatus.Parents {
+		if parent.ControllerName == "kuadrant.io/policy-controller" && llmSvc.IsAuthEnabled() {
+			cond := meta.FindStatusCondition(parent.Conditions, "kuadrant.io/AuthPolicyAffected")
+			if cond == nil {
+				continue
+			}
+			if cond.Status != metav1.ConditionTrue {
+				return cond, false
+			}
+			routeAuthEnforced = true
+			continue
+		}
+
 		cond := meta.FindStatusCondition(parent.Conditions, string(gatewayapi.RouteConditionAccepted))
 		if cond == nil {
 			// This can happen when multiple controllers write to the status, e.g., besides the gateway controller, there
@@ -338,6 +352,15 @@ func nonReadyHTTPRouteTopLevelCondition(route *gatewayapi.HTTPRoute) (*metav1.Co
 		if cond.Status != metav1.ConditionTrue || staleCondition {
 			return cond, false
 		}
+	}
+
+	if llmSvc.IsAuthEnabled() && !routeAuthEnforced {
+		return &metav1.Condition{
+			Type:    "kuadrant.io/AuthPolicyAffected",
+			Status:  metav1.ConditionFalse,
+			Reason:  "Authentication is not enforced",
+			Message: "Either disable authentication with security.opendatahub.io/enable-auth=false annotation or install Red Hat Connectivity Link",
+		}, false
 	}
 
 	return nil, routeConditionAcceptedMissing
