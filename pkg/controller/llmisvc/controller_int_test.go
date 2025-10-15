@@ -212,8 +212,13 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
-				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefInferencePool(svcName + "-inference-pool")))
-				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefService(svcName + "-kserve-workload-svc")))
+				Expect(expectedHTTPRoute).To(
+					HaveBackendRefs(
+						BackendRefInferencePool(svcName+"-inference-pool"),
+						BackendRefInferencePool(svcName+"-inference-pool"),
+						BackendRefService(svcName+"-kserve-workload-svc"),
+					),
+				)
 
 				ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
 
@@ -282,8 +287,13 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
-				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefInferencePool(infPoolName)))
-				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefService(svcName + "-kserve-workload-svc")))
+				Expect(expectedHTTPRoute).To(
+					HaveBackendRefs(
+						BackendRefInferencePool(infPoolName),
+						BackendRefInferencePool(infPoolName),
+						BackendRefService(svcName+"-kserve-workload-svc"),
+					),
+				)
 
 				ensureInferencePoolReady(ctx, envTest.Client, infPool)
 				ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
@@ -337,8 +347,13 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
-				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefService(svcName)))
-				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefInferencePool(kmeta.ChildName(llmSvcName, "-inference-pool")))))
+				Expect(expectedHTTPRoute).To(
+					HaveBackendRefs(
+						BackendRefService(svcName),
+						BackendRefService(svcName),
+						BackendRefService(svcName),
+					),
+				)
 
 				Eventually(func(g Gomega, ctx context.Context) error {
 					svc := &corev1.Service{}
