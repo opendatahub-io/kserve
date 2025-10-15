@@ -251,7 +251,9 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			}
 			return reconcile.Result{}, errors.Wrapf(err, "fails to reconcile component")
 		}
-		if result.Requeue || result.RequeueAfter > 0 {
+		// controller-runtime v0.22+: result.Requeue is deprecated in favor of RequeueAfter.
+		// Checking RequeueAfter > 0 is sufficient to determine if a requeue is needed.
+		if result.RequeueAfter > 0 {
 			return result, nil
 		}
 	}

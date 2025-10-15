@@ -456,6 +456,7 @@ func (r *LLMInferenceServiceReconciler) enqueueOnIstioShadowServiceChange(mgr ct
 		}}}
 	})
 }
+
 // enqueueOnV1Alpha2ResourceChange watches for changes in v1alpha2 InferencePool and InferenceModel resources.
 func (r *LLMInferenceServiceReconciler) enqueueOnV1Alpha2ResourceChange(logger logr.Logger) handler.EventHandler {
 	logger = logger.WithName("enqueueOnV1Alpha2ResourceChange")
