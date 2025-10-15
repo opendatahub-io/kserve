@@ -403,13 +403,15 @@ func PathPrefixMatch(path string) gatewayapi.HTTPRouteMatch {
 	}
 }
 
+// ServiceRef creates a Service backend reference for HTTPRoute rules.
+// Gateway API v1.4+: port can be passed directly as int32 because PortNumber is a type alias.
 func ServiceRef(name string, port int32, weight int32) gatewayapi.HTTPBackendRef {
 	return gatewayapi.HTTPBackendRef{
 		BackendRef: gatewayapi.BackendRef{
 			BackendObjectReference: gatewayapi.BackendObjectReference{
 				Kind: ptr.To(gatewayapi.Kind("Service")),
 				Name: gatewayapi.ObjectName(name),
-				Port: ptr.To(gatewayapi.PortNumber(port)),
+				Port: ptr.To(port),
 			},
 			Weight: ptr.To(weight),
 		},
