@@ -323,7 +323,6 @@ oc login -u kubeadmin https://api.crc.testing:6443
 *Pre-requisites*
 - Install Cert-Manager
 - Install LWS operator (This should be installed by user)
-- Install istio operator (This is not needed when openshift has all capability of GIE)
 
 **Install Cert-Manager**
 
@@ -418,29 +417,8 @@ spec:
 EOF
 ```
 
-
 **Deploy Kserve** 
-*- option 1 - through custom opendatahub-operator catalogsource*
-
-Create a catalogsource
-```shell
-cat <<EOF| kubectl create -f -
-apiVersion: operators.coreos.com/v1alpha1
-kind: CatalogSource
-metadata:
-  name: odh-catalog-dev
-  namespace: openshift-marketplace  
-spec:
-  displayName: custom catalogsource
-  image: quay.io/jooholee/opendatahub-operator-index:2.33.0
-  publisher: custom catalogsource
-  sourceType: grpc
-EOF
-
-sleep 5
-
-kubectl wait pod -l olm.catalogSource=odh-catalog-dev -n openshift-marketplace --for=condition=Ready --timeout=180s
-```
+*- option 1 - through opendatahub-operator catalogsource*
 
 Create OpenDataHub subscription
 ```shell
@@ -457,7 +435,7 @@ spec:
   channel: fast
   installPlanApproval: Automatic
   name: opendatahub-operator
-  source: odh-catalog-dev
+  source: community-operators
   sourceNamespace: openshift-marketplace
 EOF
 
@@ -594,107 +572,9 @@ spec:
 EOF
 ```
 
-- Others
-```shell
-cat<<EOF|oc create -f -
-apiVersion: gateway.networking.k8s.io/v1
-kind: GatewayClass
-metadata:
-  name: openshift-default
-  annotations:
-    unsupported.do-not-use.openshift.io/ossm-channel: stable
-    unsupported.do-not-use.openshift.io/ossm-version: servicemeshoperator3.v3.1.0 
-    unsupported.do-not-use.openshift.io/istio-version: v1.26.2
-spec:
-  controllerName: "openshift.io/gateway-controller/v1"
-EOF
-```
-
-**Install OSSM by OCP**
-
-You have to add pullsecret for brew image on your cluster.
-
-*If you use OCP 4.19.8*, follow this steps
-```shell
-
-while [ $(kubectl get pod -l control-plane=servicemesh-operator3 -n openshift-operators  | wc -l) -le 1 ]; 
-do
-  echo "⏳ waiting for OSSM Pod to appear…"
-  sleep 10
-done
-kubectl wait --for=condition=ready pod -l control-plane=servicemesh-operator3 -n openshift-operators --timeout=300s
-
-# You need to install GIE CRD --> This will be done by installing Kserve.
-```
-
-**Install OSSM manually(Optional)**
-*If you don't use OCP 4.19.2 with fix(openshift/cluster-ingress-operator#1249)*, you should install OSSM3 manually
-
-```shell
-cat<<EOF|kubectl create -f -
-apiVersion: operators.coreos.com/v1alpha1
-kind: Subscription
-metadata:
-  name: servicemeshoperator3
-  namespace: openshift-operators
-spec:
-  channel: stable
-  installPlanApproval: Automatic
-  name: servicemeshoperator3
-  source: redhat-operators
-  sourceNamespace: openshift-marketplace
-  startingCSV: servicemeshoperator3.v3.1.0
-EOF
-
-
-while [ $(kubectl get pod -l control-plane=servicemesh-operator3 -n openshift-operators  | wc -l) -le 1 ]; 
-do
-  echo "⏳ waiting for OSSM Pod to appear…"
-  sleep 10
-done
-kubectl wait --for=condition=ready pod -l control-plane=servicemesh-operator3 -n openshift-operators --timeout=300s
-
-kubectl create ns istio-cni  
-cat<<EOF|kubectl create -f -
-kind: IstioCNI
-apiVersion: sailoperator.io/v1
-metadata:
-  name: default
-spec:
-  namespace: istio-cni
-  version: v1.26.2
-EOF
-
-kubectl create ns istio-system
-
-cat<<EOF|kubectl create -f -
-apiVersion: sailoperator.io/v1
-kind: Istio
-metadata:
-  name: default
-spec:
-  namespace: istio-system
-  updateStrategy:
-    type: InPlace
-    inactiveRevisionDeletionGracePeriodSeconds: 30
-  version: v1.26.2
-  values:
-    pilot:
-      env:
-        SUPPORT_GATEWAY_API_INFERENCE_EXTENSION: "true"    # TO-DO: This need to be removed soon [istio issue](https://github.com/istio/istio/pull/57099)
-        ENABLE_GATEWAY_API_INFERENCE_EXTENSION: "true"
-EOF
-```
-
 **Create a gateway**
 ```shell
-INGRESS_NS=openshift-ingress
-GW_CLASS_NAME=openshift-default
-
-#If you install OSSM 3.1 manually, use this
-GW_CLASS_NAME=istio
-
-kubectl create namespace ${INGRESS_NS} || true
+Ikubectl create namespace ${INGRESS_NS} || true
 
 kubectl apply -f - <<EOF
 apiVersion: gateway.networking.k8s.io/v1
@@ -703,7 +583,7 @@ metadata:
   name: openshift-ai-inference
   namespace: openshift-ingress
 spec:
-  gatewayClassName: $GW_CLASS_NAME
+  gatewayClassName: openshift-default
   listeners:
    - name: http
      port: 80
@@ -721,6 +601,7 @@ EOF
 
 kubectl wait gateways.gateway.networking.k8s.io -n openshift-ingress openshift-ai-inference --timeout=5m --for=condition=programmed
 ```
+
 You can verify if istiod pod is running in openshift-ingress namespace.
 ```shell
 oc get pod -n openshift-ingress -l operator.istio.io/component=Pilot
@@ -732,7 +613,7 @@ oc get pod -n openshift-ingress -l operator.istio.io/component=Pilot
 NS=llm-test
 oc new-project "${NS}" || true
 
-LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-facebook-opt-125m-cpu.yaml
+LLM_ISVC=docs/samples/llmisvc/opt-125m-cpu/llm-inference-service-facebook-opt-125m-cpu.yaml
 LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
 
 kubectl get ns $NS||kubectl create ns $NS
