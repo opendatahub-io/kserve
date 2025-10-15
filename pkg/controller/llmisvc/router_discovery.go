@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net"
 	"slices"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
@@ -105,11 +106,45 @@ func DiscoverURLs(ctx context.Context, c client.Client, route *gatewayapi.HTTPRo
 }
 
 func extractRoutePath(route *gatewayapi.HTTPRoute) string {
-	if len(route.Spec.Rules) > 0 && len(route.Spec.Rules[0].Matches) > 0 {
-		// TODO how do we deal with regexp
-		return ptr.Deref(route.Spec.Rules[0].Matches[0].Path.Value, "/")
+	serviceKind := gatewayapi.Kind("Service")
+	servicePaths := []string{}
+	paths := []string{}
+	for _, rule := range route.Spec.Rules {
+		serviceFound := false
+		for _, backendRef := range rule.BackendRefs {
+			if backendRef.Kind == &serviceKind {
+				serviceFound = true
+				break
+			}
+		}
+		for _, match := range rule.Matches {
+			if serviceFound {
+				servicePaths = append(servicePaths, ptr.Deref(match.Path.Value, "/"))
+			} else {
+				paths = append(paths, ptr.Deref(match.Path.Value, "/"))
+			}
+		}
 	}
-	return "/"
+
+	// Paths set in rules referencing a Service as the backend will take priority
+	if len(servicePaths) > 0 {
+		paths = servicePaths
+	}
+
+	// If any paths are set in rules for the route, return the highest level path with the shortest length
+	// TODO how do we deal with regexp
+	// TODO how do we intelligently handle multiple rules
+	shortestPath := "/"
+	minSlashes := -1
+	for _, path := range paths {
+		pathSlashes := strings.Count(path, "/")
+		if minSlashes == -1 || pathSlashes < minSlashes || (pathSlashes == minSlashes && len(path) < len(shortestPath)) {
+			shortestPath = path
+			minSlashes = pathSlashes
+		}
+	}
+
+	return shortestPath
 }
 
 func selectListener(gateway *gatewayapi.Gateway, sectionName *gatewayapi.SectionName) *gatewayapi.Listener {
