@@ -171,6 +171,104 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 		}
 	}
 
+	// Auto-inject dual InferencePool backend refs for scheduler-managed routes
+	// This ensures both v1 and v1alpha2 pools are referenced with proper initial weights
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil &&
+		llmSvc.Spec.Router.Route != nil && llmSvc.Spec.Router.Route.HTTP != nil &&
+		!llmSvc.Spec.Router.Route.HTTP.HasRefs() {
+
+		poolName := llmSvc.Spec.Router.Scheduler.InferencePoolName(llmSvc)
+
+		// Only inject backend refs if they haven't been explicitly provided by the user
+		if llmSvc.Spec.Router.Route.HTTP.Spec == nil || len(httpRoute.Spec.Rules) == 0 {
+			// Create a default rule with both InferencePool backend refs
+			// Initial weights: v1alpha2=100% (active), v1=0% (until controller is ready)
+			httpRoute.Spec.Rules = []gatewayapi.HTTPRouteRule{
+				{
+					BackendRefs: []gatewayapi.HTTPBackendRef{
+						{
+							BackendRef: gatewayapi.BackendRef{
+								BackendObjectReference: gatewayapi.BackendObjectReference{
+									Group: ptr.To(gatewayapi.Group("inference.networking.k8s.io")),
+									Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
+									Name:  gatewayapi.ObjectName(poolName),
+									Port:  ptr.To(gatewayapi.PortNumber(8000)),
+								},
+								Weight: ptr.To(int32(0)), // v1 starts at 0% (no controller yet)
+							},
+						},
+						{
+							BackendRef: gatewayapi.BackendRef{
+								BackendObjectReference: gatewayapi.BackendObjectReference{
+									Group: ptr.To(gatewayapi.Group("inference.networking.x-k8s.io")),
+									Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
+									Name:  gatewayapi.ObjectName(poolName),
+									Port:  ptr.To(gatewayapi.PortNumber(8000)),
+								},
+								Weight: ptr.To(int32(100)), // v1alpha2 starts at 100% (active fallback)
+							},
+						},
+					},
+				},
+			}
+		} else {
+			// User provided a route spec - ensure both v1 and v1alpha2 backend refs are present
+			// Iterate through rules and inject missing backend refs
+			for i := range httpRoute.Spec.Rules {
+				rule := &httpRoute.Spec.Rules[i]
+
+				hasV1 := false
+				hasV1Alpha2 := false
+				v1Alpha2Index := -1
+
+				// Check which backend refs are already present
+				for j, ref := range rule.BackendRefs {
+					if ref.Group != nil && ref.Kind != nil && string(*ref.Kind) == "InferencePool" {
+						if string(*ref.Group) == "inference.networking.k8s.io" && string(ref.Name) == poolName {
+							hasV1 = true
+						} else if string(*ref.Group) == "inference.networking.x-k8s.io" && string(ref.Name) == poolName {
+							hasV1Alpha2 = true
+							v1Alpha2Index = j
+						}
+					}
+				}
+
+				// Inject missing backend refs with appropriate weights
+				if hasV1Alpha2 && !hasV1 {
+					// Only v1alpha2 exists - ensure it has weight=100 and add v1 with weight=0
+					if rule.BackendRefs[v1Alpha2Index].Weight == nil {
+						rule.BackendRefs[v1Alpha2Index].Weight = ptr.To(int32(100))
+					}
+					rule.BackendRefs = append(rule.BackendRefs, gatewayapi.HTTPBackendRef{
+						BackendRef: gatewayapi.BackendRef{
+							BackendObjectReference: gatewayapi.BackendObjectReference{
+								Group: ptr.To(gatewayapi.Group("inference.networking.k8s.io")),
+								Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
+								Name:  gatewayapi.ObjectName(poolName),
+								Port:  ptr.To(gatewayapi.PortNumber(8000)),
+							},
+							Weight: ptr.To(int32(0)), // v1 starts at 0% (no controller yet)
+						},
+					})
+				} else if hasV1 && !hasV1Alpha2 {
+					// Only v1 exists - add v1alpha2 with weight=100
+					rule.BackendRefs = append(rule.BackendRefs, gatewayapi.HTTPBackendRef{
+						BackendRef: gatewayapi.BackendRef{
+							BackendObjectReference: gatewayapi.BackendObjectReference{
+								Group: ptr.To(gatewayapi.Group("inference.networking.x-k8s.io")),
+								Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
+								Name:  gatewayapi.ObjectName(poolName),
+								Port:  ptr.To(gatewayapi.PortNumber(8000)),
+							},
+							Weight: ptr.To(int32(100)), // v1alpha2 starts at 100%
+						},
+					})
+				}
+				// If neither or both exist, don't modify (user has full control)
+			}
+		}
+	}
+
 	return httpRoute
 }
 
