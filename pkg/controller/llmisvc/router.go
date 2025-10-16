@@ -410,7 +410,11 @@ func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.
 }
 
 // EvaluateInferencePoolConditions evaluates the readiness of all Inference Pools in the LLMInferenceService
-// and updates the InferencePoolReady condition accordingly
+// and updates the InferencePoolReady condition accordingly.
+//
+// This function implements the dual-pool fallback strategy: it checks both v1 and v1alpha2 InferencePools
+// and marks the service as ready if EITHER pool is ready. This allows the service to work with v1alpha2
+// until the GIE v1 controller is available (e.g., in OpenShift environments without v1 integration yet).
 func (r *LLMInferenceServiceReconciler) EvaluateInferencePoolConditions(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("EvaluateInferencePoolConditions")
 
@@ -421,45 +425,66 @@ func (r *LLMInferenceServiceReconciler) EvaluateInferencePoolConditions(ctx cont
 		return nil
 	}
 
-	curr := &igwv1.InferencePool{}
-
+	// Determine the pool name to check
+	var poolName string
 	if llmSvc.Spec.Router.Scheduler.Pool != nil && llmSvc.Spec.Router.Scheduler.Pool.Ref != nil && llmSvc.Spec.Router.Scheduler.Pool.Ref.Name != "" {
-		poolRef := llmSvc.Spec.Router.Scheduler.Pool.Ref
-		err := r.Client.Get(ctx, types.NamespacedName{Namespace: llmSvc.Namespace, Name: poolRef.Name}, curr)
-		if err != nil {
-			err := fmt.Errorf("failed to fetch referenced Inference Pool %s/%s: %w", llmSvc.Namespace, poolRef.Name, err)
-			llmSvc.MarkInferencePoolNotReady("InferencePoolFetchError", err.Error())
-			return err
-		}
+		poolName = llmSvc.Spec.Router.Scheduler.Pool.Ref.Name
 	} else {
 		expected := r.expectedSchedulerInferencePool(ctx, llmSvc)
-		err := r.Client.Get(ctx, types.NamespacedName{Namespace: expected.Namespace, Name: expected.Name}, curr)
-		if err != nil {
-			err := fmt.Errorf("failed to fetch embedded Inference Pool %s/%s: %w", llmSvc.Namespace, llmSvc.Name, err)
-			llmSvc.MarkInferencePoolNotReady("InferencePoolFetchError", err.Error())
-			return err
-		}
+		poolName = expected.Name
 	}
 
-	if !IsInferencePoolReady(curr) {
-		topLevelCondition, _ := nonReadyInferencePoolTopLevelCondition(curr)
-		if topLevelCondition != nil {
-			llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady", fmt.Sprintf(
-				"%s/%s: %v=%#v (reason %q, message %q)",
-				curr.ObjectMeta.Namespace,
-				curr.ObjectMeta.Name,
-				topLevelCondition.Type,
-				topLevelCondition.Status,
-				topLevelCondition.Reason,
-				topLevelCondition.Message,
-			))
-		} else {
-			llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady", fmt.Sprintf("The inference pool %s/%s is not ready", curr.ObjectMeta.Namespace, curr.ObjectMeta.Name))
+	// Check v1 InferencePool readiness
+	v1Pool := &igwv1.InferencePool{}
+	v1Ready := false
+	v1Err := r.Client.Get(ctx, types.NamespacedName{Namespace: llmSvc.Namespace, Name: poolName}, v1Pool)
+	if v1Err == nil {
+		v1Ready = IsInferencePoolReady(v1Pool)
+		if v1Ready {
+			logger.V(2).Info("v1 InferencePool is ready", "pool", poolName)
 		}
+	} else if !apierrors.IsNotFound(v1Err) {
+		// Log non-NotFound errors but don't fail - v1alpha2 might still work
+		logger.V(2).Info("Failed to fetch v1 InferencePool, will check v1alpha2 fallback", "error", v1Err)
+	}
+
+	// Check v1alpha2 InferencePool readiness (fallback for environments without GIE v1 controller)
+	alpha2Ready := r.isAlpha2PoolReady(ctx, llmSvc.Namespace, poolName)
+	if alpha2Ready {
+		logger.V(2).Info("v1alpha2 InferencePool is ready", "pool", poolName)
+	}
+
+	// Mark ready if EITHER v1 or v1alpha2 pool is ready (dual-pool fallback strategy)
+	if v1Ready || alpha2Ready {
+		llmSvc.MarkInferencePoolReady()
+		logger.Info("InferencePool is ready", "pool", poolName, "v1Ready", v1Ready, "alpha2Ready", alpha2Ready)
 		return nil
 	}
 
-	llmSvc.MarkInferencePoolReady()
-	logger.V(2).Info("Inference Pool is ready", "pool", curr)
+	// Neither pool is ready - provide detailed error message
+	if v1Err != nil && !apierrors.IsNotFound(v1Err) {
+		// If we couldn't fetch v1 pool due to an error (not just NotFound)
+		err := fmt.Errorf("failed to fetch v1 InferencePool %s/%s: %w", llmSvc.Namespace, poolName, v1Err)
+		llmSvc.MarkInferencePoolNotReady("InferencePoolFetchError", err.Error())
+		return err
+	}
+
+	// Both pools exist but neither is ready - report v1 pool status if available
+	topLevelCondition, _ := nonReadyInferencePoolTopLevelCondition(v1Pool)
+	if topLevelCondition != nil {
+		llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady", fmt.Sprintf(
+			"Neither v1 nor v1alpha2 InferencePool is ready. v1 status: %s/%s: %v=%#v (reason %q, message %q)",
+			v1Pool.ObjectMeta.Namespace,
+			v1Pool.ObjectMeta.Name,
+			topLevelCondition.Type,
+			topLevelCondition.Status,
+			topLevelCondition.Reason,
+			topLevelCondition.Message,
+		))
+	} else {
+		llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady",
+			fmt.Sprintf("Neither v1 nor v1alpha2 InferencePool %s/%s is ready", llmSvc.Namespace, poolName))
+	}
+	logger.V(2).Info("Neither v1 nor v1alpha2 InferencePool is ready", "pool", poolName)
 	return nil
 }
