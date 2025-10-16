@@ -141,7 +141,7 @@ curl -v $(kubectl get llmisvc -n $TEST_NS -o=jsonpath='{.items[0].status.address
 
 ```bash
 # Expected - HTTP/1.1 200 OK
-curl $(kubectl get llmisvc -n $TEST_NS -o=jsonpath='{.items[0].status.addresses[0].url}')/v1/completions \
+curl -v $(kubectl get llmisvc -n $TEST_NS -o=jsonpath='{.items[0].status.addresses[0].url}')/v1/completions \
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer ${TEST_TOKEN}" \
     -d '{

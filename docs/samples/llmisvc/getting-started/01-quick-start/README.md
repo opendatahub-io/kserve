@@ -34,12 +34,13 @@ export LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
 
 # Deploy the service
 kubectl apply -n ${TEST_NS} -f ${LLM_ISVC}
+oc annotate llmisvc/facebook-opt-125m-single security.opendatahub.io/enable-auth=false -n $TEST_NS
 ```
 
 This creates an LLM Inference Service with the following configuration:
 - **Model**: Facebook OPT-125M (downloaded from Hugging Face)
 - **Runtime**: vLLM CPU backend
-- **Resources**: 1 CPU core, 10Gi memory limit
+- **Resources**: 1 CPU core, 8Gi memory request
 - **Replicas**: 1 instance
 
 ## Step 3: Verify Deployment
@@ -64,7 +65,7 @@ Once deployed, test your LLM service using the OpenAI-compatible API:
 
 ```bash
 # Get the load balancer URL (for cloud environments)
-LB_URL=$(kubectl get llmisvc facebook-opt-125m-single -n ${TEST_NS} -o=jsonpath='{.status.url}')
+export LB_URL=$(kubectl get llmisvc facebook-opt-125m-single -n ${TEST_NS} -o=jsonpath='{.status.url}')
 
 ```
 

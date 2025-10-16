@@ -16,6 +16,14 @@ The overall architecture is illustrated below.
 ### Cluster
 - OpenShift Version: 4.19.9+
 
+### Gateway API Ingress
+- **GatewayClass**: A cluster-scoped resource that defines a class of Gateways with shared configuration and controller behavior.
+- **Gateway**: A namespaced resource that defines how traffic is accepted and routed based on the rules of its associated GatewayClass.
+
+For more information, see [Configuring Ingress Cluster Traffic](https://docs.redhat.com/en/documentation/openshift_container_platform/4.19/html/ingress_and_load_balancing/configuring-ingress-cluster-traffic#nw-ingress-gateway-api-enable_ingress-gateway-api) in the OpenShift documentation.
+
+> **Note**: It is recommended to install GatewayClass before other components. If the gateway provider is installed later than Kuadrant (RHCL), you may need to restart the kuadrant-operator and recreate the AuthPolicy.
+
 ### Operators
 - **Cert-Manager v1.17.0**: Certificate management for Kubernetes (required by LWS operator)
 - **Leader Worker Set Operator v1.0.0**: Enables deploying pods as a unit of replication for AI/ML inference workloads
