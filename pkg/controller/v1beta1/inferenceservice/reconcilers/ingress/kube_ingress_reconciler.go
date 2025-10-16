@@ -143,7 +143,7 @@ func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Infe
 	internalHost := getRawServiceHost(isvc)
 	url := &apis.URL{
 		Host:   internalHost,
-		Scheme: r.ingressConfig.UrlScheme,
+		Scheme: "http",
 		Path:   "",
 	}
 
