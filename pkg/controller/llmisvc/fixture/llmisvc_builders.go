@@ -295,6 +295,17 @@ func WithBaseRefs(refs ...corev1.LocalObjectReference) LLMInferenceServiceOption
 	}
 }
 
+func WithAnnotations(annotations map[string]string) LLMInferenceServiceOption {
+	return func(llmSvc *v1alpha1.LLMInferenceService) {
+		if llmSvc.ObjectMeta.Annotations == nil {
+			llmSvc.ObjectMeta.Annotations = make(map[string]string)
+		}
+		for k, v := range annotations {
+			llmSvc.ObjectMeta.Annotations[k] = v
+		}
+	}
+}
+
 type LLMInferenceServiceConfigOption ObjectOption[*v1alpha1.LLMInferenceServiceConfig]
 
 func LLMInferenceServiceConfig(name string, opts ...LLMInferenceServiceConfigOption) *v1alpha1.LLMInferenceServiceConfig {

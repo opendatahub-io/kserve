@@ -1183,7 +1183,7 @@ func ensureHTTPRouteReady(ctx context.Context, c client.Client, llmSvc *v1alpha1
 	// Set the status conditions to simulate the Gateway controller making the HTTPRoute ready
 	// HTTPRoute readiness is determined by parent status conditions
 	if len(createdRoute.Spec.ParentRefs) > 0 {
-		createdRoute.Status.RouteStatus.Parents = make([]gatewayapi.RouteParentStatus, len(createdRoute.Spec.ParentRefs))
+		createdRoute.Status.RouteStatus.Parents = make([]gatewayapi.RouteParentStatus, len(createdRoute.Spec.ParentRefs)*2)
 		for i, parentRef := range createdRoute.Spec.ParentRefs {
 			createdRoute.Status.RouteStatus.Parents[i] = gatewayapi.RouteParentStatus{
 				ParentRef:      parentRef,
@@ -1201,6 +1201,18 @@ func ensureHTTPRouteReady(ctx context.Context, c client.Client, llmSvc *v1alpha1
 						Status:             metav1.ConditionTrue,
 						Reason:             "ResolvedRefs",
 						Message:            "HTTPRoute references resolved",
+						LastTransitionTime: metav1.Now(),
+					},
+				},
+			}
+			createdRoute.Status.RouteStatus.Parents[len(createdRoute.Spec.ParentRefs)+i] = gatewayapi.RouteParentStatus{
+				ParentRef:      parentRef,
+				ControllerName: "kuadrant.io/policy-controller",
+				Conditions: []metav1.Condition{
+					{
+						Type:               "kuadrant.io/AuthPolicyAffected",
+						Status:             metav1.ConditionTrue,
+						Reason:             "Accepted",
 						LastTransitionTime: metav1.Now(),
 					},
 				},
