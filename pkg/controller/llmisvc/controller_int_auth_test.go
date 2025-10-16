@@ -78,7 +78,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				}).WithContext(ctx).Should(Succeed())
 
 				// Simulate HTTPRoute with only gateway controller status (no AuthPolicy)
-				ensureHTTPRouteReadyWithoutAuth(ctx, envTest.Client, llmSvc, createdRoute)
+				ensureHTTPRouteReadyWithoutAuth(ctx, envTest.Client, createdRoute)
 
 				// then - LLMInferenceService should mark HTTPRoutes as NOT ready
 				// because AuthPolicy enforcement is missing
@@ -191,7 +191,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				}).WithContext(ctx).Should(Succeed())
 
 				// Simulate HTTPRoute ready WITHOUT AuthPolicy (auth is disabled)
-				ensureHTTPRouteReadyWithoutAuth(ctx, envTest.Client, llmSvc, createdRoute)
+				ensureHTTPRouteReadyWithoutAuth(ctx, envTest.Client, createdRoute)
 				ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
 
 				// then - LLMInferenceService should be ready (no AuthPolicy required)
@@ -246,7 +246,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				}).WithContext(ctx).Should(Succeed())
 
 				// Simulate HTTPRoute without AuthPolicy
-				ensureHTTPRouteReadyWithoutAuth(ctx, envTest.Client, llmSvc, createdRoute)
+				ensureHTTPRouteReadyWithoutAuth(ctx, envTest.Client, createdRoute)
 
 				// then - HTTPRoutes should be marked as NOT ready
 				Eventually(func(g Gomega, ctx context.Context) error {
@@ -305,7 +305,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				}).WithContext(ctx).Should(Succeed())
 
 				// Simulate HTTPRoute with AuthPolicy condition = False
-				ensureHTTPRouteWithAuthPolicyFalse(ctx, envTest.Client, llmSvc, createdRoute)
+				ensureHTTPRouteWithAuthPolicyFalse(ctx, envTest.Client, createdRoute)
 
 				// then - HTTPRoutes should be marked as NOT ready
 				Eventually(func(g Gomega, ctx context.Context) error {
@@ -446,7 +446,7 @@ func ensureHTTPRouteReadyWithAuth(ctx context.Context, c client.Client, llmSvc *
 
 // ensureHTTPRouteReadyWithoutAuth sets up HTTPRoute status with only gateway controller
 // (no Kuadrant policy controller)
-func ensureHTTPRouteReadyWithoutAuth(ctx context.Context, c client.Client, llmSvc *v1alpha1.LLMInferenceService, route *gatewayapi.HTTPRoute) {
+func ensureHTTPRouteReadyWithoutAuth(ctx context.Context, c client.Client, route *gatewayapi.HTTPRoute) {
 	if envTest.UsingExistingCluster() {
 		return
 	}
@@ -477,7 +477,7 @@ func ensureHTTPRouteReadyWithoutAuth(ctx context.Context, c client.Client, llmSv
 }
 
 // ensureHTTPRouteWithAuthPolicyFalse sets up HTTPRoute with AuthPolicy condition = False
-func ensureHTTPRouteWithAuthPolicyFalse(ctx context.Context, c client.Client, llmSvc *v1alpha1.LLMInferenceService, route *gatewayapi.HTTPRoute) {
+func ensureHTTPRouteWithAuthPolicyFalse(ctx context.Context, c client.Client, route *gatewayapi.HTTPRoute) {
 	if envTest.UsingExistingCluster() {
 		return
 	}

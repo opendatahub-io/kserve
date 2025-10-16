@@ -18,21 +18,21 @@ package llmisvc
 
 import (
 	"context"
+	"errors"
 	"fmt"
+
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/utils"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-var (
-	authPolicyGVK = schema.GroupVersionKind{
-		Group:   "kuadrant.io",
-		Version: "v1",
-		Kind:    "AuthPolicy",
-	}
-)
+var authPolicyGVK = schema.GroupVersionKind{
+	Group:   "kuadrant.io",
+	Version: "v1",
+	Kind:    "AuthPolicy",
+}
 
 // validateGatewayOCP checks if Gateway on OCP can be configured correctly.
 func (r *LLMInferenceServiceReconciler) validateGatewayOCP(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
@@ -47,7 +47,7 @@ func (r *LLMInferenceServiceReconciler) validateGatewayOCP(ctx context.Context, 
 		if err := Delete(ctx, r, llmSvc, route); err != nil {
 			return fmt.Errorf("AuthPolicy CRD is not available, please install Red Hat Connectivity Link: %w", err)
 		}
-		return fmt.Errorf("AuthPolicy CRD is not available, please install Red Hat Connectivity Link")
+		return errors.New("AuthPolicy CRD is not available, please install Red Hat Connectivity Link")
 	}
 
 	logger.Info("Connectivity Link is installed or Auth is disabled", "authEnabled", llmSvc.IsAuthEnabled())
