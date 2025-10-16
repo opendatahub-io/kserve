@@ -82,6 +82,8 @@ fi
 $SCRIPT_DIR/infra/deploy.cert-manager.sh
 $SCRIPT_DIR/infra/deploy.lws.sh
 
+$SCRIPT_DIR/infra/deploy.gateway.ingress.sh
+
 if [ "${RHCL_DEPLOY}" == "true" ]; then
   $SCRIPT_DIR/infra/deploy.kuadrant.sh
 fi
@@ -95,6 +97,4 @@ if [ "${KSERVE_DEPLOY}" == "true" ]; then
   kustomize build config/overlays/odh | kubectl apply  --server-side=true --force-conflicts -f -
   wait_for_pod_ready "opendatahub" "control-plane=kserve-controller-manager" 300s
 fi
-
-$SCRIPT_DIR/infra/deploy.gateway.ingress.sh
 

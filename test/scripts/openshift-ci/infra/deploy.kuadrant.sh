@@ -62,6 +62,7 @@ EOF
 } || true
 
 echo "⏳ waiting for authorino-operator to be ready.…"
-wait_for_pod_ready "${KUADRANT_NS}" "authorino-resource=authorino"
+oc wait Kuadrant -n "${KUADRANT_NS}" --for=condition=Ready --timeout=10m
+wait_for_pod_ready "${KUADRANT_NS}" "control-plane=authorino-operator"
 
 echo "✅ kuadrant(authorino) installed"
