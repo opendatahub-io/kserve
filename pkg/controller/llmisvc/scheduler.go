@@ -807,7 +807,7 @@ type migrationWeights struct {
 //
 // Decision flow:
 // 1. If already migrated (annotation present) -> always use v1 (100/0)
-// 2. If v1 is ready for first time -> migrate to v1 permanently (100/0) and mark annotation
+// 2. If v1 is ready for first time AND Gateway Controller supports it -> migrate to v1 permanently (100/0) and mark annotation
 // 3. If only v1alpha2 is ready -> use v1alpha2 temporarily (0/100)
 // 4. If neither ready -> return nil to keep existing weights
 //
@@ -822,22 +822,56 @@ func determineMigrationWeights(ctx context.Context, route *gwapiv1.HTTPRoute, v1
 		return &migrationWeights{v1Weight: 100, alpha2Weight: 0}, false
 	}
 
+	// Check if the Gateway Controller can actually resolve v1 backend refs
+	v1ResolvableByGateway := isV1BackendResolvable(route)
+
 	// Migration not complete yet - decide based on current readiness
-	if v1Ready {
-		// v1 is ready for the first time - make the one-time migration decision
-		logger.Info("Migrating to v1 InferencePool permanently (first time v1 ready)")
+	if v1Ready && v1ResolvableByGateway {
+		// v1 is ready AND Gateway Controller supports it - make the one-time migration decision
+		logger.Info("Migrating to v1 InferencePool permanently (first time v1 ready and Gateway Controller supports it)")
 		return &migrationWeights{v1Weight: 100, alpha2Weight: 0}, true
 	}
 
 	if alpha2Ready {
-		// v1 not ready yet - use v1alpha2 as temporary fallback
-		logger.V(2).Info("Using v1alpha2 InferencePool (v1 not ready yet)")
+		// v1 not ready yet or Gateway Controller doesn't support it - use v1alpha2 as fallback
+		if v1Ready && !v1ResolvableByGateway {
+			logger.Info("v1 InferencePool ready but Gateway Controller doesn't support it yet, using v1alpha2")
+		} else {
+			logger.V(2).Info("Using v1alpha2 InferencePool (v1 not ready yet)")
+		}
 		return &migrationWeights{v1Weight: 0, alpha2Weight: 100}, false
 	}
 
 	// Neither pool ready yet - don't change weights (avoid thrashing during startup)
 	logger.V(2).Info("Neither pool ready yet, keeping existing weights")
 	return nil, false
+}
+
+// isV1BackendResolvable checks if the Gateway Controller can resolve v1 InferencePool backend refs.
+// This is important because the InferencePool resource itself might be ready (Accepted=True),
+// but the Gateway Controller might not support the v1 API version yet (e.g., in OpenShift).
+// We check the HTTPRoute's parent status to see if ResolvedRefs=True.
+func isV1BackendResolvable(route *gwapiv1.HTTPRoute) bool {
+	// Check all parent statuses in the HTTPRoute
+	for _, parent := range route.Status.RouteStatus.Parents {
+		// Look for ResolvedRefs condition
+		for _, cond := range parent.Conditions {
+			if cond.Type == "ResolvedRefs" {
+				// If ResolvedRefs is False with reason InvalidKind, the Gateway Controller doesn't support v1
+				if cond.Status == "False" && cond.Reason == "InvalidKind" {
+					return false
+				}
+				// If ResolvedRefs is True, the Gateway Controller can resolve all backend refs
+				if cond.Status == "True" {
+					return true
+				}
+			}
+		}
+	}
+
+	// If no ResolvedRefs condition found or status is unclear, be conservative and assume not resolvable
+	// This prevents premature migration before the Gateway Controller has evaluated the route
+	return false
 }
 
 // applyWeightsToHTTPRoute updates the backendRef weights in the HTTPRoute.
