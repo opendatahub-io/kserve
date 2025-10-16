@@ -176,7 +176,6 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil &&
 		llmSvc.Spec.Router.Route != nil && llmSvc.Spec.Router.Route.HTTP != nil &&
 		!llmSvc.Spec.Router.Route.HTTP.HasRefs() {
-
 		poolName := llmSvc.Spec.Router.Scheduler.InferencePoolName(llmSvc)
 
 		// Only inject backend refs if they haven't been explicitly provided by the user
