@@ -107,7 +107,7 @@ def create_service_account_with_get_access(
             name=role_name,
         ),
         subjects=[
-            client.V1Subject(
+            client.RbacV1Subject(
                 kind="ServiceAccount",
                 name=sa_name,
                 namespace=namespace,

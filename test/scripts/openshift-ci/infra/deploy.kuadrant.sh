@@ -62,9 +62,14 @@ EOF
 } || true
 
 echo "⏳ waiting for authorino-operator to be ready.…"
-wait_for_pod_ready "${KUADRANT_NS}" "control-plane=authorino-operator"
 
-oc wait Kuadrant -n "${KUADRANT_NS}" kuadrant --for=condition=Ready --timeout=20m || oc get Kuadrant -n "${KUADRANT_NS}" kuadrant -oyaml
+oc wait Kuadrant -n "${KUADRANT_NS}" kuadrant --for=condition=Ready --timeout=20m || {
+  oc get Kuadrant -n "${KUADRANT_NS}" kuadrant -oyaml
+  oc get pods -n "${KUADRANT_NS}"
+  exit 1
+}
+
+wait_for_pod_ready "${KUADRANT_NS}" "control-plane=authorino-operator"
 
 # Wait for service to be created
 echo "⏳ waiting for authorino service to be created..."
