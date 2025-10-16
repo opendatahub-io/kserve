@@ -90,7 +90,7 @@ fi
 
 if [[ "${DEPLOYMENT_PROFILE}" == "llm-d" ]]; then
   echo "⏳ Installing llm-d prerequisites"
-  $SCRIPT_DIR/setup-llm.sh --skip-kserve
+  $SCRIPT_DIR/setup-llm.sh --skip-kserve --deploy-kuadrant
 fi
 
 echo "⏳ Waiting for KServe CRDs"

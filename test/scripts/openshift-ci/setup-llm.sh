@@ -82,6 +82,10 @@ fi
 $SCRIPT_DIR/infra/deploy.cert-manager.sh
 $SCRIPT_DIR/infra/deploy.lws.sh
 
+if [ "${RHCL_DEPLOY}" == "true" ]; then
+  $SCRIPT_DIR/infra/deploy.kuadrant.sh
+fi
+
 if [ "${KSERVE_DEPLOY}" == "true" ]; then
   kubectl create ns opendatahub || true
 
@@ -94,6 +98,3 @@ fi
 
 $SCRIPT_DIR/infra/deploy.gateway.ingress.sh
 
-if [ "${RHCL_DEPLOY}" == "true" ]; then
-  $SCRIPT_DIR/infra/deploy.kuadrant.sh
-fi

@@ -22,5 +22,5 @@ import (
 
 func (s *LLMInferenceService) IsAuthEnabled() bool {
 	v, ok := s.Annotations["security.opendatahub.io/enable-auth"]
-	return !ok || strings.EqualFold(v, "true")
+	return !ok || !strings.EqualFold(v, "false")
 }
