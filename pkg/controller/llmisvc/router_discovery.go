@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"slices"
 	"strings"
@@ -135,10 +136,10 @@ func extractRoutePath(route *gatewayapi.HTTPRoute) string {
 	// TODO how do we deal with regexp
 	// TODO how do we intelligently handle multiple rules
 	shortestPath := "/"
-	minSlashes := -1
+	minSlashes := math.MaxInt
 	for _, path := range paths {
 		pathSlashes := strings.Count(path, "/")
-		if minSlashes == -1 || pathSlashes < minSlashes || (pathSlashes == minSlashes && len(path) < len(shortestPath)) {
+		if pathSlashes < minSlashes || (pathSlashes == minSlashes && len(path) < len(shortestPath)) {
 			shortestPath = path
 			minSlashes = pathSlashes
 		}
