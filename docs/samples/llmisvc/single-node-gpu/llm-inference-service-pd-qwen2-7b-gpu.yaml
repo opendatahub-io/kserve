@@ -12,63 +12,63 @@ spec:
     uri: hf://Qwen/Qwen2.5-7B-Instruct
     name: Qwen/Qwen2.5-7B-Instruct
   router:
+    route: { }
+    gateway: { }
     scheduler:
       template:
         containers:
           - name: main
             # Threshold 0 means always use prefill-decode separation
             args:
-              - -v=4 # Debug level
-              - --poolName
+              - --pool-name
               - "{{ ChildName .ObjectMeta.Name `-inference-pool` }}"
-              - --poolNamespace
+              - --pool-namespace
               - "{{ .ObjectMeta.Namespace }}"
               - --zap-encoder
               - json
-              - --grpcPort
+              - --grpc-port
               - "9002"
-              - --grpcHealthPort
+              - --grpc-health-port
               - "9003"
-              - --secureServing
-              - --modelServerMetricsScheme
+              - --secure-serving
+              - --model-server-metrics-scheme
               - https
-              - --modelServerMetricsHttpsInsecureSkipVerify
-              - --certPath
+              - --model-server-metrics-https-insecure-skip-verify
+              - --cert-path
               - /etc/ssl/certs
-              - --configText
-              - |2
-              
+              - --config-text
+              - |
+                # Always do P/D in this example (threshold 0)
                 apiVersion: inference.networking.x-k8s.io/v1alpha1
                 kind: EndpointPickerConfig
                 plugins:
-                - type: pd-profile-handler  # Separates prefill and decode requests
-                  parameters:
-                    threshold: 0  # Always separate (0 = all requests use PD separation)
-                - type: prefill-header-handler
-                - type: prefill-filter
-                - type: decode-filter
-                - type: prefix-cache-scorer
-                - type: load-aware-scorer
-                - type: max-score-picker
+                  - type: prefill-header-handler
+                  - type: prefill-filter
+                  - type: decode-filter
+                  - type: max-score-picker
+                  - type: queue-scorer
+                    parameters:
+                      hashBlockSize: 5
+                      maxPrefixBlocksToMatch: 256
+                      lruCapacityPerServer: 31250
+                  - type: pd-profile-handler
+                    parameters:
+                      threshold: 0
+                      hashBlockSize: 5
                 schedulingProfiles:
-                - name: prefill
-                  plugins:
-                  - pluginRef: prefill-filter
-                  - pluginRef: prefix-cache-scorer
-                    weight: 2.0
-                  - pluginRef: load-aware-scorer
-                    weight: 1.0
-                  - pluginRef: max-score-picker
-                - name: decode
-                  plugins:
-                  - pluginRef: decode-filter
-                  - pluginRef: prefix-cache-scorer
-                    weight: 2.0
-                  - pluginRef: load-aware-scorer
-                    weight: 1.0
-                  - pluginRef: max-score-picker
-    route: { }
-    gateway: { }
+                  - name: prefill
+                    plugins:
+                      - pluginRef: prefill-filter
+                      - pluginRef: queue-scorer
+                        weight: 1.0
+                      - pluginRef: max-score-picker
+                  - name: decode
+                    plugins:
+                      - pluginRef: decode-filter
+                      - pluginRef: queue-scorer
+                        weight: 1.0
+                      - pluginRef: max-score-picker
+
   template:
     # This affinity rule ensures that the KV transfer happens over the RDMA network because if the pods are placed
     # on the same node it will go over NVLink.

@@ -37,6 +37,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                 {
                     "name": "main",
                     "image": "quay.io/pierdipi/vllm-cpu:latest",
+                    "securityContext": {
+                        # The image is not built in a way that can run as non-root
+                        "runAsNonRoot": False,
+                    },
                     "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
                     "resources": {
                         "limits": {"cpu": "2", "memory": "10Gi"},
@@ -58,6 +62,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                 {
                     "name": "main",
                     "image": "quay.io/pierdipi/vllm-cpu:latest",
+                    "securityContext": {
+                        # The image is not built in a way that can run as non-root
+                        "runAsNonRoot": False,
+                    },
                     "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
                     "resources": {
                         "limits": {"cpu": "2", "memory": "10Gi"},
@@ -72,6 +80,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                     {
                         "name": "main",
                         "image": "quay.io/pierdipi/vllm-cpu:latest",
+                        "securityContext": {
+                            # The image is not built in a way that can run as non-root
+                            "runAsNonRoot": False,
+                        },
                         "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
                         "resources": {
                             "limits": {"cpu": "2", "memory": "10Gi"},
@@ -284,6 +296,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                 {
                     "name": "main",
                     "image": "quay.io/pierdipi/vllm-cpu:latest",
+                    "securityContext": {
+                        # The image is not built in a way that can run as non-root
+                        "runAsNonRoot": False,
+                    },
                     "command": ["vllm", "serve", "/mnt/models"],
                     "args": [
                         "--served-model-name",
@@ -309,6 +325,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                 {
                     "name": "main",
                     "image": "quay.io/pierdipi/vllm-cpu:latest",
+                    "securityContext": {
+                        # The image is not built in a way that can run as non-root
+                        "runAsNonRoot": False,
+                    },
                     "command": ["vllm", "serve", "/mnt/models"],
                     "args": [
                         "--served-model-name",

@@ -35,7 +35,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/kserve/kserve/pkg/constants"
 )
+
+var wildcardHostname = constants.GetEnvOrDefault("GATEWAY_API_WILDCARD_HOSTNAME", "inference")
 
 type resolvedGateway struct {
 	gateway      *gatewayapi.Gateway
@@ -89,6 +93,18 @@ func DiscoverURLs(ctx context.Context, c client.Client, route *gatewayapi.HTTPRo
 		}
 
 		hostnames := extractRouteHostnames(route)
+		// If Hostname is set in the spec, use the Hostname specified.
+		// Using the LoadBalancer addresses in `Gateway.Status.Addresses` will return 404 in those cases.
+		if len(hostnames) == 0 && listener.Hostname != nil && *listener.Hostname != "" {
+			if host, isWildcard := strings.CutPrefix(string(*listener.Hostname), "*."); isWildcard {
+				// Hostnames that are prefixed with a wildcard label (`*.`) are interpreted
+				// as a suffix match. That means that a match for `*.example.com` would match
+				// both `test.example.com`, and `foo.test.example.com`, but not `example.com`.
+				hostnames = append(hostnames, fmt.Sprintf("%s.%s", wildcardHostname, host))
+			} else {
+				hostnames = []string{host}
+			}
+		}
 		if len(hostnames) == 0 {
 			hostnames = extractAddressValues(addresses)
 		}
