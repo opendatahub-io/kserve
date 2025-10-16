@@ -25,6 +25,10 @@ echo "Starting E2E functional tests ..."
 MARKER="${1}"
 PARALLELISM="${2:-1}"
 NETWORK_LAYER="${3:-'istio'}"
+export TOKEN_AUDIENCES="${TOKEN_AUDIENCES:-https://kubernetes.default.svc}"
+
+: "${SKIP_DELETION_ON_FAILURE:=true}"
+export SKIP_DELETION_ON_FAILURE
 
 echo "Parallelism requested for pytest is ${PARALLELISM}"
 
@@ -33,8 +37,8 @@ source python/kserve/.venv/bin/activate
 pushd test/e2e >/dev/null
   if [[ $MARKER == "raw" && $NETWORK_LAYER == "istio-ingress" ]]; then
     echo "Skipping explainer tests for raw deployment with ingress"
-    pytest -m "$MARKER" --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --network-layer $NETWORK_LAYER --ignore=explainer/
+    pytest --capture=tee-sys -m "$MARKER" --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --exitfirst --network-layer $NETWORK_LAYER --ignore=explainer/
   else
-    pytest -m "$MARKER" --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --network-layer $NETWORK_LAYER
+    pytest --capture=tee-sys -m "$MARKER" --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --exitfirst --network-layer $NETWORK_LAYER
   fi
 popd

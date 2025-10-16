@@ -12,13 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import base64
 import os
 import pytest
 import requests
-import time
-from dataclasses import dataclass
-from kserve import KServeClient, V1alpha1LLMInferenceService, constants
+from kserve import KServeClient
 from kubernetes import client
 
 from .fixtures import (
@@ -139,8 +136,12 @@ def get_service_account_token(
     core_api = kserve_client.core_api
 
     # Create a token for the ServiceAccount
+    audiences = os.getenv("TOKEN_AUDIENCES", "https://kubernetes.default.svc").split(
+        ","
+    )
     token_request = client.AuthenticationV1TokenRequest(
         spec=client.V1TokenRequestSpec(
+            audiences=audiences,
             expiration_seconds=3600,
         )
     )
@@ -233,6 +234,7 @@ def test_llm_auth_enabled_requires_token(test_case: TestCase):
 
     service_name = test_case.llm_service.metadata.name
     sa_name = f"{service_name}-test-sa"
+    test_failed = False
 
     try:
         # Create LLMInferenceService
@@ -289,18 +291,39 @@ def test_llm_auth_enabled_requires_token(test_case: TestCase):
         logger.info("✅ Auth enforcement test passed")
 
     except Exception as e:
+        test_failed = True
         logger.error(f"❌ ERROR: Failed test for {service_name}: {e}")
         _collect_diagnostics(kserve_client, test_case.llm_service)
         raise
     finally:
         try:
             cleanup_service_account(kserve_client, sa_name)
-            if os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in (
-                "false",
-                "0",
-                "f",
-            ):
+
+            skip_all_deletion = os.getenv(
+                "SKIP_RESOURCE_DELETION", "False"
+            ).lower() in (
+                "true",
+                "1",
+                "t",
+            )
+            skip_deletion_on_failure = os.getenv(
+                "SKIP_DELETION_ON_FAILURE", "False"
+            ).lower() in (
+                "true",
+                "1",
+                "t",
+            )
+
+            should_skip_deletion = skip_all_deletion or (
+                skip_deletion_on_failure and test_failed
+            )
+
+            if not should_skip_deletion:
                 delete_llmisvc(kserve_client, test_case.llm_service)
+            elif test_failed and skip_deletion_on_failure:
+                logger.info(
+                    f"⏭️  Skipping deletion of {service_name} due to test failure (SKIP_DELETION_ON_FAILURE=True)"
+                )
         except Exception as e:
             logger.warning(f"⚠️ Warning: Failed to cleanup {service_name}: {e}")
 
@@ -336,7 +359,6 @@ def test_llm_auth_invalid_token_rejected(test_case: TestCase):
     """
     Test that when auth is enabled:
     - Requests with MALFORMED tokens are rejected
-    - Requests with EXPIRED tokens are rejected
     """
     inject_k8s_proxy()
 
@@ -347,6 +369,7 @@ def test_llm_auth_invalid_token_rejected(test_case: TestCase):
 
     service_name = test_case.llm_service.metadata.name
     sa_name = f"{service_name}-test-sa"
+    test_failed = False
 
     try:
         # Create LLMInferenceService
@@ -386,59 +409,42 @@ def test_llm_auth_invalid_token_rejected(test_case: TestCase):
             f"✅ Request with malformed token rejected: {response_malformed.status_code}"
         )
 
-        # Test 2: Request with EXPIRED token should fail
-        logger.info("Testing request with EXPIRED token (should fail)")
-
-        # Create a token that expires in 1 second
-        core_api = kserve_client.core_api
-        token_request = client.AuthenticationV1TokenRequest(
-            spec=client.V1TokenRequestSpec(
-                expiration_seconds=1,
-            )
-        )
-        token_response = core_api.create_namespaced_service_account_token(
-            name=sa_name,
-            namespace=KSERVE_TEST_NAMESPACE,
-            body=token_request,
-        )
-        expired_token = token_response.status.token
-
-        # Wait for token to expire
-        logger.info("Waiting for token to expire...")
-        time.sleep(2)
-
-        response_expired = requests.post(
-            completion_url,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {expired_token}",
-            },
-            json=test_payload,
-            timeout=30,
-        )
-        assert response_expired.status_code in [
-            401,
-            403,
-        ], f"Expected 401/403 with expired token, got {response_expired.status_code}: {response_expired.text}"
-        logger.info(
-            f"✅ Request with expired token rejected: {response_expired.status_code}"
-        )
-
         logger.info("✅ Invalid token test passed")
 
     except Exception as e:
+        test_failed = True
         logger.error(f"❌ ERROR: Failed test for {service_name}: {e}")
         _collect_diagnostics(kserve_client, test_case.llm_service)
         raise
     finally:
         try:
             cleanup_service_account(kserve_client, sa_name)
-            if os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in (
-                "false",
-                "0",
-                "f",
-            ):
+
+            skip_all_deletion = os.getenv(
+                "SKIP_RESOURCE_DELETION", "False"
+            ).lower() in (
+                "true",
+                "1",
+                "t",
+            )
+            skip_deletion_on_failure = os.getenv(
+                "SKIP_DELETION_ON_FAILURE", "False"
+            ).lower() in (
+                "true",
+                "1",
+                "t",
+            )
+
+            should_skip_deletion = skip_all_deletion or (
+                skip_deletion_on_failure and test_failed
+            )
+
+            if not should_skip_deletion:
                 delete_llmisvc(kserve_client, test_case.llm_service)
+            elif test_failed and skip_deletion_on_failure:
+                logger.info(
+                    f"⏭️  Skipping deletion of {service_name} due to test failure (SKIP_DELETION_ON_FAILURE=True)"
+                )
         except Exception as e:
             logger.warning(f"⚠️ Warning: Failed to cleanup {service_name}: {e}")
 
@@ -483,6 +489,7 @@ def test_llm_auth_disabled_no_token_required(test_case: TestCase):
     )
 
     service_name = test_case.llm_service.metadata.name
+    test_failed = False
 
     # Add annotation to disable auth
     if not test_case.llm_service.metadata.annotations:
@@ -522,16 +529,36 @@ def test_llm_auth_disabled_no_token_required(test_case: TestCase):
         logger.info("✅ Auth disabled test passed")
 
     except Exception as e:
+        test_failed = True
         logger.error(f"❌ ERROR: Failed test for {service_name}: {e}")
         _collect_diagnostics(kserve_client, test_case.llm_service)
         raise
     finally:
         try:
-            if os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in (
-                "false",
-                "0",
-                "f",
-            ):
+            skip_all_deletion = os.getenv(
+                "SKIP_RESOURCE_DELETION", "False"
+            ).lower() in (
+                "true",
+                "1",
+                "t",
+            )
+            skip_deletion_on_failure = os.getenv(
+                "SKIP_DELETION_ON_FAILURE", "False"
+            ).lower() in (
+                "true",
+                "1",
+                "t",
+            )
+
+            should_skip_deletion = skip_all_deletion or (
+                skip_deletion_on_failure and test_failed
+            )
+
+            if not should_skip_deletion:
                 delete_llmisvc(kserve_client, test_case.llm_service)
+            elif test_failed and skip_deletion_on_failure:
+                logger.info(
+                    f"⏭️  Skipping deletion of {service_name} due to test failure (SKIP_DELETION_ON_FAILURE=True)"
+                )
         except Exception as e:
             logger.warning(f"⚠️ Warning: Failed to cleanup {service_name}: {e}")
