@@ -176,7 +176,10 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil &&
 		llmSvc.Spec.Router.Route != nil && llmSvc.Spec.Router.Route.HTTP != nil &&
 		!llmSvc.Spec.Router.Route.HTTP.HasRefs() {
-		poolName := llmSvc.Spec.Router.Scheduler.InferencePoolName(llmSvc)
+		// v1 uses the configured pool name (respects external refs)
+		v1PoolName := llmSvc.Spec.Router.Scheduler.InferencePoolName(llmSvc)
+		// v1alpha2 always uses the default auto-generated pool name (fallback)
+		v1alpha2PoolName := kmeta.ChildName(llmSvc.GetName(), "-inference-pool")
 
 		// Only inject backend refs if they haven't been explicitly provided by the user
 		if llmSvc.Spec.Router.Route.HTTP.Spec == nil || len(httpRoute.Spec.Rules) == 0 {
@@ -190,7 +193,7 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 								BackendObjectReference: gatewayapi.BackendObjectReference{
 									Group: ptr.To(gatewayapi.Group("inference.networking.k8s.io")),
 									Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
-									Name:  gatewayapi.ObjectName(poolName),
+									Name:  gatewayapi.ObjectName(v1PoolName),
 									Port:  ptr.To(gatewayapi.PortNumber(8000)),
 								},
 								Weight: ptr.To(int32(0)), // v1 starts at 0% (no controller yet)
@@ -201,7 +204,7 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 								BackendObjectReference: gatewayapi.BackendObjectReference{
 									Group: ptr.To(gatewayapi.Group("inference.networking.x-k8s.io")),
 									Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
-									Name:  gatewayapi.ObjectName(poolName),
+									Name:  gatewayapi.ObjectName(v1alpha2PoolName),
 									Port:  ptr.To(gatewayapi.PortNumber(8000)),
 								},
 								Weight: ptr.To(int32(100)), // v1alpha2 starts at 100% (active fallback)
@@ -223,9 +226,9 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 				// Check which backend refs are already present
 				for j, ref := range rule.BackendRefs {
 					if ref.Group != nil && ref.Kind != nil && string(*ref.Kind) == "InferencePool" {
-						if string(*ref.Group) == "inference.networking.k8s.io" && string(ref.Name) == poolName {
+						if string(*ref.Group) == "inference.networking.k8s.io" && string(ref.Name) == v1PoolName {
 							hasV1 = true
-						} else if string(*ref.Group) == "inference.networking.x-k8s.io" && string(ref.Name) == poolName {
+						} else if string(*ref.Group) == "inference.networking.x-k8s.io" && string(ref.Name) == v1alpha2PoolName {
 							hasV1Alpha2 = true
 							v1Alpha2Index = j
 						}
@@ -243,7 +246,7 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 							BackendObjectReference: gatewayapi.BackendObjectReference{
 								Group: ptr.To(gatewayapi.Group("inference.networking.k8s.io")),
 								Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
-								Name:  gatewayapi.ObjectName(poolName),
+								Name:  gatewayapi.ObjectName(v1PoolName),
 								Port:  ptr.To(gatewayapi.PortNumber(8000)),
 							},
 							Weight: ptr.To(int32(0)), // v1 starts at 0% (no controller yet)
@@ -256,7 +259,7 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 							BackendObjectReference: gatewayapi.BackendObjectReference{
 								Group: ptr.To(gatewayapi.Group("inference.networking.x-k8s.io")),
 								Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
-								Name:  gatewayapi.ObjectName(poolName),
+								Name:  gatewayapi.ObjectName(v1alpha2PoolName),
 								Port:  ptr.To(gatewayapi.PortNumber(8000)),
 							},
 							Weight: ptr.To(int32(100)), // v1alpha2 starts at 100%
