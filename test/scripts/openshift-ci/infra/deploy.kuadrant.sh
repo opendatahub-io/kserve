@@ -65,7 +65,7 @@ echo "⏳ waiting for authorino-operator to be ready.…"
 
 oc wait Kuadrant -n "${KUADRANT_NS}" kuadrant --for=condition=Ready --timeout=20m || {
   oc get Kuadrant -n "${KUADRANT_NS}" kuadrant -oyaml
-  oc get pods -n "${KUADRANT_NS}"
+  oc get pods -n "${KUADRANT_NS}" -oyaml
   exit 1
 }
 
