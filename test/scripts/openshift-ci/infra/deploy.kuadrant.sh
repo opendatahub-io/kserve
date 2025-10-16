@@ -62,7 +62,9 @@ EOF
 } || true
 
 echo "⏳ waiting for authorino-operator to be ready.…"
-oc wait Kuadrant -n "${KUADRANT_NS}" --for=condition=Ready --timeout=10m
+wait_for_pod_ready "${KUADRANT_NS}" "control-plane=authorino-operator"
+
+oc wait Kuadrant -n "${KUADRANT_NS}" kuadrant --for=condition=Ready --timeout=20m || oc get Kuadrant -n "${KUADRANT_NS}" kuadrant -oyaml
 
 # Wait for service to be created
 echo "⏳ waiting for authorino service to be created..."
@@ -72,7 +74,7 @@ oc annotate svc/authorino-authorino-authorization  service.beta.openshift.io/ser
 
 # Wait for creating the Secret
 echo "⏳ waiting for authorino-server-cert secret to be created..."
-oc wait --for=jsonpath='{.metadata.name}'=authorino-server-cert secret/authorino-server-cert -n kuadrant-system --timeout=1m
+oc wait --for=jsonpath='{.metadata.name}'=authorino-server-cert secret/authorino-server-cert -n kuadrant-system --timeout=10m
 
 # Update Authorino to configure SSL
 oc apply -f - <<EOF
