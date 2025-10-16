@@ -42,6 +42,8 @@ export GITHUB_SHA=stable # Need to use stable as this is what the CI tags the im
 : "${BUILD_GRAPH_IMAGES:=true}"
 : "${BUILD_KSERVE_IMAGES:=true}"
 : "${RUNNING_LOCAL:=false}"
+: "${SKIP_DELETION_ON_FAILURE:=true}"
+export SKIP_DELETION_ON_FAILURE
 
 if $RUNNING_LOCAL; then
   export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
