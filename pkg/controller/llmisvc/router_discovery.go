@@ -363,13 +363,26 @@ func nonReadyInferencePoolTopLevelCondition(pool *igwv1.InferencePool) (*metav1.
 	}
 
 	for _, parent := range pool.Status.Parents {
-		cond := meta.FindStatusCondition(parent.Conditions, string(igwv1.InferencePoolConditionAccepted))
-		if cond == nil {
+		// Check Accepted condition
+		acceptedCond := meta.FindStatusCondition(parent.Conditions, string(igwv1.InferencePoolConditionAccepted))
+		if acceptedCond == nil {
 			return nil, true
 		}
-		staleCondition := cond.ObservedGeneration > 0 && cond.ObservedGeneration < pool.ObjectMeta.Generation
-		if cond.Status != metav1.ConditionTrue || staleCondition {
-			return cond, false
+		staleAcceptedCondition := acceptedCond.ObservedGeneration > 0 && acceptedCond.ObservedGeneration < pool.ObjectMeta.Generation
+		if acceptedCond.Status != metav1.ConditionTrue || staleAcceptedCondition {
+			return acceptedCond, false
+		}
+
+		// Check ResolvedRefs condition - critical for ensuring Gateway Controller can route to this pool
+		// Without this check, we might mark a pool as "ready" even though the Gateway Controller
+		// doesn't support the API version yet (e.g., v1 when only v1alpha2 controller is installed)
+		resolvedRefsCond := meta.FindStatusCondition(parent.Conditions, string(igwv1.InferencePoolConditionResolvedRefs))
+		if resolvedRefsCond == nil {
+			return nil, true
+		}
+		staleResolvedRefsCondition := resolvedRefsCond.ObservedGeneration > 0 && resolvedRefsCond.ObservedGeneration < pool.ObjectMeta.Generation
+		if resolvedRefsCond.Status != metav1.ConditionTrue || staleResolvedRefsCondition {
+			return resolvedRefsCond, false
 		}
 	}
 
