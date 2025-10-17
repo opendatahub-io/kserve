@@ -59,6 +59,7 @@ func SetupTestEnv() *pkgtest.Client {
 
 		llmCtrl := llmisvc.LLMInferenceServiceReconciler{
 			Client:        mgr.GetClient(),
+			Config:        cfg,
 			Clientset:     clientSet,
 			DynamicClient: dynamicClient,
 			// TODO fix it to be set up similar to main.go, for now it's stub
