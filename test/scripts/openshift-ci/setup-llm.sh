@@ -92,7 +92,10 @@ if [ "${KSERVE_DEPLOY}" == "true" ]; then
   wait_for_pod_ready "opendatahub" "control-plane=kserve-controller-manager" 300s
 fi
 
-$SCRIPT_DIR/infra/deploy.gateway.ingress.sh
+# Deploy upstream Istio with GIE support instead of standard OpenShift Gateway Controller
+# This is required for LLM E2E tests that use scheduler-managed InferencePools
+source "$SCRIPT_DIR/infra/deploy.istio-exp.sh"
+install_upstream_istio "$PROJECT_ROOT"
 
 if [ "${RHCL_DEPLOY}" == "true" ]; then
   $SCRIPT_DIR/infra/deploy.kuadrant.sh
