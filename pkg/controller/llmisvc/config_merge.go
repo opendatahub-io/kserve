@@ -206,20 +206,49 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		return llmSvcCfg, err
 	}
 
+	// Trim HTTPRoute to only keep the first rule (completions endpoint with dual backend refs)
+	// This is part of the GIE v1 migration - we only need the first rule for both scheduler and no-scheduler cases
+	if llmSvcCfg.Spec.Router != nil &&
+		llmSvcCfg.Spec.Router.Route != nil &&
+		llmSvcCfg.Spec.Router.Route.HTTP.HasSpec() &&
+		len(llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules) > 1 {
+		logger := log.FromContext(ctx)
+		logger.Info("Trimming HTTPRoute to first rule for GIE v1 migration",
+			"llmSvc", llmSvc.Name,
+			"originalNumRules", len(llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules))
+		llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules = llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[:1]
+		logger.Info("After trimming rules", "numRules", len(llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules))
+	}
+
 	// Point HTTPRoute to a Service if there is no Scheduler or InferencePool, and the HTTPRoute uses the default
 	// InferencePool (to handle cases where the HTTPRoute Spec uses a custom BackendRef).
 	if llmSvcCfg.Spec.Router != nil &&
 		llmSvcCfg.Spec.Router.Route != nil &&
 		llmSvcCfg.Spec.Router.Route.HTTP.HasSpec() &&
 		llmSvcCfg.Spec.Router.Scheduler == nil {
+		logger := log.FromContext(ctx)
+		logger.Info("No-scheduler case: replacing v1 InferencePool backend refs with Service",
+			"llmSvc", llmSvc.Name,
+			"numRules", len(llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules))
 		for i := range llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules {
+			logger.Info("Processing rule", "ruleIndex", i, "numBackendRefs", len(llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs))
 			for j := range llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs {
-				if isDefaultBackendRef(llmSvc, llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].BackendRef) {
+				ref := &llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].BackendRef
+				logger.Info("Checking backend ref",
+					"ruleIndex", i,
+					"backendRefIndex", j,
+					"group", ptr.Deref(ref.Group, ""),
+					"kind", ptr.Deref(ref.Kind, ""),
+					"name", string(ref.Name),
+					"weight", ptr.Deref(ref.Weight, 0))
+				if isDefaultBackendRef(llmSvc, *ref) {
+					logger.Info("Replacing v1 InferencePool with Service", "ruleIndex", i, "backendRefIndex", j)
 					llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].Group = ptr.To[gatewayapi.Group]("")
 					llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].Kind = ptr.To[gatewayapi.Kind]("Service")
 					llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs[j].Name = gatewayapi.ObjectName(kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"))
 				}
 			}
+			logger.Info("After processing rule", "ruleIndex", i, "numBackendRefs", len(llmSvcCfg.Spec.Router.Route.HTTP.Spec.Rules[i].BackendRefs))
 		}
 	}
 
@@ -359,7 +388,10 @@ func mergeSpecs(ctx context.Context, base, override v1alpha1.LLMInferenceService
 
 func isDefaultBackendRef(llmSvc *v1alpha1.LLMInferenceService, ref gatewayapi.BackendRef) bool {
 	defaultInfPoolName := (&v1alpha1.SchedulerSpec{}).InferencePoolName(llmSvc)
-	return ptr.Deref[gatewayapi.Group](ref.Group, "") == igwv1.GroupName &&
-		ptr.Deref[gatewayapi.Kind](ref.Kind, "") == "InferencePool" &&
+	group := ptr.Deref(ref.Group, "")
+	// Only replace v1 InferencePool backend refs with Service for no-scheduler case
+	// v1alpha2 backend refs are kept as fallback with weight 0
+	return group == igwv1.GroupName &&
+		ptr.Deref(ref.Kind, "") == "InferencePool" &&
 		string(ref.Name) == defaultInfPoolName
 }
