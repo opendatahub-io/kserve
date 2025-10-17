@@ -289,15 +289,22 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
-				// Dual InferencePool strategy: both v1 and v1alpha2 backends present
-				// After migration, v1 gets 100% traffic, v1alpha2 gets 0%
-				Expect(expectedHTTPRoute).To(HaveBackendRefs(
-					BackendRefInferencePoolV1(svcName+"-inference-pool", 100),
-					BackendRefInferencePoolV1Alpha2(svcName+"-inference-pool", 0),
-				))
-				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefService(svcName + "-kserve-workload-svc"))))
 
 				ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
+
+				// Wait for migration to complete - dual InferencePool strategy
+				// After migration, v1 gets 100% traffic, v1alpha2 gets 0%
+				Eventually(func(g Gomega, ctx context.Context) error {
+					routes, errList := managedRoutes(ctx, llmSvc)
+					g.Expect(errList).ToNot(HaveOccurred())
+					g.Expect(routes).To(HaveLen(1))
+					g.Expect(routes[0]).To(HaveBackendRefs(
+						BackendRefInferencePoolV1(svcName+"-inference-pool", 100),
+						BackendRefInferencePoolV1Alpha2(svcName+"-inference-pool", 0),
+					))
+					g.Expect(routes[0]).To(Not(HaveBackendRefs(BackendRefService(svcName + "-kserve-workload-svc"))))
+					return nil
+				}).WithContext(ctx).Should(Succeed())
 
 				Eventually(func(g Gomega, ctx context.Context) error {
 					ip := igwv1.InferencePool{}
@@ -365,16 +372,23 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
-				// External InferencePool ref - dual backend strategy
-				// v1 points to external pool, v1alpha2 uses auto-generated default name
-				Expect(expectedHTTPRoute).To(HaveBackendRefs(
-					BackendRefInferencePoolV1(infPoolName, 100),
-					BackendRefInferencePoolV1Alpha2(svcName+"-inference-pool", 0),
-				))
-				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefService(svcName + "-kserve-workload-svc"))))
 
 				ensureInferencePoolReady(ctx, envTest.Client, infPool)
 				ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
+
+				// Wait for migration to complete - external InferencePool ref dual backend strategy
+				// v1 points to external pool, v1alpha2 uses auto-generated default name
+				Eventually(func(g Gomega, ctx context.Context) error {
+					routes, errList := managedRoutes(ctx, llmSvc)
+					g.Expect(errList).ToNot(HaveOccurred())
+					g.Expect(routes).To(HaveLen(1))
+					g.Expect(routes[0]).To(HaveBackendRefs(
+						BackendRefInferencePoolV1(infPoolName, 100),
+						BackendRefInferencePoolV1Alpha2(svcName+"-inference-pool", 0),
+					))
+					g.Expect(routes[0]).To(Not(HaveBackendRefs(BackendRefService(svcName + "-kserve-workload-svc"))))
+					return nil
+				}).WithContext(ctx).Should(Succeed())
 
 				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
 					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
