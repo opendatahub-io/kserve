@@ -53,9 +53,9 @@ fi
 
 : "${SETUP_E2E:=true}"
 if [ "$SETUP_E2E" = "true" ]; then
-  echo "Installing on cluster"
+  echo "⏳ Installing on the cluster"
   pushd $PROJECT_ROOT >/dev/null
-  ./test/scripts/openshift-ci/setup-e2e-tests.sh "${MARKERS}" "${PARALLELISM}" "${DEPLOYMENT_PROFILE}" | tee 2>&1 ./test/scripts/openshift-ci/setup-e2e-tests-"${MARKERS// /_}".log
+  ./test/scripts/openshift-ci/setup-e2e-tests.sh "${MARKERS}" "${DEPLOYMENT_PROFILE}" | tee 2>&1 ./test/scripts/openshift-ci/setup-e2e-tests-"${MARKERS// /_}".log
   popd
 fi
 
@@ -63,7 +63,7 @@ fi
 export REQUESTS_CA_BUNDLE="/tmp/ca.crt"
 echo "REQUESTS_CA_BUNDLE=$(cat ${REQUESTS_CA_BUNDLE})"
 
-echo "Run E2E tests: ${MARKERS}"
+echo "⏳ Running E2E tests: ${MARKERS}"
 pushd $PROJECT_ROOT >/dev/null
 ./test/scripts/gh-actions/run-e2e-tests.sh "${MARKERS}" "${PARALLELISM}" "${DEPLOYMENT_PROFILE}" | tee 2>&1 ./test/scripts/openshift-ci/run-e2e-tests-"${MARKERS// /_}".log
 popd
