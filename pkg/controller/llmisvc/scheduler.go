@@ -27,6 +27,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/util/retry"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -712,46 +713,69 @@ func (r *LLMInferenceServiceReconciler) reconcileInferencePoolMigration(ctx cont
 		return nil
 	}
 
-	// Get the HTTPRoute we need to update
-	route, err := r.getHTTPRoute(ctx, llmSvc)
-	if err != nil {
-		return err
-	}
-	if route == nil {
-		// Route doesn't exist yet, will be created in next reconcile
-		return nil
+	// Get the HTTPRoute key for later retries
+	routeKey := crclient.ObjectKey{
+		Namespace: llmSvc.Namespace,
+		Name:      kmeta.ChildName(llmSvc.Name, "-kserve-route"),
 	}
 
-	// Calculate which pool(s) should receive traffic based on readiness and migration state
-	weights, needsAnnotationUpdate := determineMigrationWeights(ctx, route, v1Ready, alpha2Ready)
+	// Initial check: Get the HTTPRoute to see if it exists
+	route := &gwapiv1.HTTPRoute{}
+	if err := r.Client.Get(ctx, routeKey, route); err != nil {
+		if apierrors.IsNotFound(err) {
+			// Route doesn't exist yet, will be created in next reconcile
+			return nil
+		}
+		return fmt.Errorf("failed to get HTTPRoute: %w", err)
+	}
+
+	// Calculate which pool(s) should receive traffic based on readiness and migration state (initial check)
+	weights, _ := determineMigrationWeights(ctx, route, v1Ready, alpha2Ready)
 	if weights == nil {
 		// Neither pool ready yet - don't change anything
 		return nil
 	}
 
-	// Update the backend weights in the HTTPRoute spec
-	modified := applyWeightsToHTTPRoute(ctx, route, weights.v1Weight, weights.alpha2Weight)
-
-	// Mark that we've migrated to v1 (one-time annotation update)
-	if needsAnnotationUpdate {
-		if route.Annotations == nil {
-			route.Annotations = make(map[string]string)
+	// Update the HTTPRoute with retry logic to handle resource version conflicts
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Get the latest version of the HTTPRoute
+		latest := &gwapiv1.HTTPRoute{}
+		if err := r.Client.Get(ctx, routeKey, latest); err != nil {
+			return fmt.Errorf("failed to get latest HTTPRoute: %w", err)
 		}
-		route.Annotations[AnnotationInferencePoolMigrated] = "v1"
-		modified = true
-		log.FromContext(ctx).Info("Marking migration to v1 in HTTPRoute annotation")
-	}
 
-	// Save changes to the HTTPRoute
-	if modified {
-		log.FromContext(ctx).V(1).Info("Updating HTTPRoute with new traffic weights and/or migration state",
-			"v1Weight", weights.v1Weight, "alpha2Weight", weights.alpha2Weight)
-		if err := r.Client.Update(ctx, route); err != nil {
-			return fmt.Errorf("failed to update HTTPRoute: %w", err)
+		// Recalculate migration weights based on the latest HTTPRoute state
+		// This ensures we make the right decision even if the HTTPRoute was modified
+		latestWeights, latestNeedsAnnotation := determineMigrationWeights(ctx, latest, v1Ready, alpha2Ready)
+		if latestWeights == nil {
+			// Neither pool ready yet - don't change anything
+			return nil
 		}
-	}
 
-	return nil
+		// Update the backend weights in the HTTPRoute spec
+		modified := applyWeightsToHTTPRoute(ctx, latest, latestWeights.v1Weight, latestWeights.alpha2Weight)
+
+		// Mark that we've migrated to v1 (one-time annotation update)
+		if latestNeedsAnnotation {
+			if latest.Annotations == nil {
+				latest.Annotations = make(map[string]string)
+			}
+			latest.Annotations[AnnotationInferencePoolMigrated] = "v1"
+			modified = true
+			log.FromContext(ctx).Info("Marking migration to v1 in HTTPRoute annotation")
+		}
+
+		// Save changes to the HTTPRoute if there were any modifications
+		if modified {
+			log.FromContext(ctx).V(1).Info("Updating HTTPRoute with new traffic weights and/or migration state",
+				"v1Weight", latestWeights.v1Weight, "alpha2Weight", latestWeights.alpha2Weight)
+			if err := r.Client.Update(ctx, latest); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
 }
 
 // shouldReconcileMigration checks if migration reconciliation should proceed.
@@ -770,24 +794,6 @@ func shouldReconcileMigration(llmSvc *v1alpha1.LLMInferenceService) bool {
 		return false
 	}
 	return true
-}
-
-// getHTTPRoute fetches the HTTPRoute associated with this LLMInferenceService.
-// Returns nil if the route doesn't exist yet (will be created later).
-func (r *LLMInferenceServiceReconciler) getHTTPRoute(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*gwapiv1.HTTPRoute, error) {
-	route := &gwapiv1.HTTPRoute{}
-	key := crclient.ObjectKey{
-		Namespace: llmSvc.Namespace,
-		Name:      kmeta.ChildName(llmSvc.Name, "-kserve-route"),
-	}
-	if err := r.Client.Get(ctx, key, route); err != nil {
-		if apierrors.IsNotFound(err) {
-			// Not an error - route just hasn't been created yet
-			return nil, nil
-		}
-		return nil, fmt.Errorf("failed to get HTTPRoute: %w", err)
-	}
-	return route, nil
 }
 
 // migrationWeights holds the calculated traffic distribution between v1 and v1alpha2 InferencePools.
