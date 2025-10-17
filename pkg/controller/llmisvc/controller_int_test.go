@@ -1528,17 +1528,25 @@ func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, 
 			status := map[string]interface{}{
 				"parent": []interface{}{
 					map[string]interface{}{
+						"parentRef": map[string]interface{}{
+							"group":     "gateway.networking.k8s.io",
+							"kind":      "Gateway",
+							"name":      "kserve-ingress-gateway",
+							"namespace": "kserve",
+						},
 						"conditions": []interface{}{
 							map[string]interface{}{
 								"type":               "Accepted",
 								"status":             "True",
 								"reason":             "Accepted",
+								"message":            "InferencePool accepted",
 								"lastTransitionTime": metav1.Now().Format(time.RFC3339),
 							},
 							map[string]interface{}{
 								"type":               "ResolvedRefs",
 								"status":             "True",
 								"reason":             "ResolvedRefs",
+								"message":            "All references resolved",
 								"lastTransitionTime": metav1.Now().Format(time.RFC3339),
 							},
 						},
