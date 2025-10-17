@@ -33,8 +33,8 @@ source python/kserve/.venv/bin/activate
 pushd test/e2e >/dev/null
   if [[ $MARKER == "raw" && $NETWORK_LAYER == "istio-ingress" ]]; then
     echo "Skipping explainer tests for raw deployment with ingress"
-    pytest -m "$MARKER" --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --network-layer $NETWORK_LAYER --ignore=explainer/
+    pytest -m "$MARKER" --exitfirst --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --network-layer $NETWORK_LAYER --ignore=explainer/
   else
-    pytest -m "$MARKER" --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --network-layer $NETWORK_LAYER
+    pytest -m "$MARKER" --exitfirst --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --network-layer $NETWORK_LAYER
   fi
 popd

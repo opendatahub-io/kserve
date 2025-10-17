@@ -330,42 +330,69 @@ func (r *LLMInferenceServiceReconciler) enqueueOnGatewayChange(logger logr.Logge
 
 		// When a Gateway is modified, we need to find all LLMInferenceService instances that might
 		// depend on it and trigger their reconciliation.
-		continueToken := ""
-		for {
-			llmSvcList := &v1alpha1.LLMInferenceServiceList{}
-			if err := r.Client.List(ctx, llmSvcList, &client.ListOptions{Namespace: listNamespace, Continue: continueToken}); err != nil {
-				logger.Error(err, "Failed to list LLMInferenceService")
-				return reqs
+		llmSvcList := &v1alpha1.LLMInferenceServiceList{}
+		if err := r.Client.List(ctx, llmSvcList, &client.ListOptions{Namespace: listNamespace}); err != nil {
+			logger.Error(err, "Failed to list LLMInferenceService")
+			return reqs
+		}
+		for _, llmSvc := range llmSvcList.Items {
+			// If it's not using the router or gateway, skip the resource.
+			if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil {
+				continue
 			}
-			for _, llmSvc := range llmSvcList.Items {
-				// If it's not using the router or gateway, skip the resource.
-				if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil {
-					continue
-				}
 
-				// If the LLMInferenceService is using the global gateway, requeue the resource.
-				if !llmSvc.Spec.Router.Gateway.HasRefs() && sub.Name == cfg.IngressGatewayName && sub.Namespace == cfg.IngressGatewayNamespace {
+			// If the LLMInferenceService is using the global gateway, requeue the resource.
+			if !llmSvc.Spec.Router.Gateway.HasRefs() && sub.Name == cfg.IngressGatewayName && sub.Namespace == cfg.IngressGatewayNamespace {
+				reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
+					Namespace: llmSvc.Namespace,
+					Name:      llmSvc.Name,
+				}})
+				continue
+			}
+
+			for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
+				if string(ref.Name) == sub.Name && string(ref.Namespace) == sub.Namespace {
 					reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
 						Namespace: llmSvc.Namespace,
 						Name:      llmSvc.Name,
 					}})
-					continue
-				}
-
-				for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
-					if string(ref.Name) == sub.Name && string(ref.Namespace) == sub.Namespace {
-						reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
-							Namespace: llmSvc.Namespace,
-							Name:      llmSvc.Name,
-						}})
-					}
 				}
 			}
+		}
 
-			if llmSvcList.Continue == "" {
-				break
+		return reqs
+	})
+}
+
+func (r *LLMInferenceServiceReconciler) enqueueOnHttpRouteChange(logger logr.Logger) handler.EventHandler {
+	logger = logger.WithName("enqueueOnHttpRouteChange")
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		sub := object.(*gatewayapi.HTTPRoute)
+		reqs := make([]reconcile.Request, 0, 2)
+
+		listNamespace := sub.GetNamespace()
+
+		// When an HTTPRoute is modified, we need to find all LLMInferenceService instances that might
+		// depend on it and trigger their reconciliation.
+		llmSvcList := &v1alpha1.LLMInferenceServiceList{}
+		if err := r.Client.List(ctx, llmSvcList, &client.ListOptions{Namespace: listNamespace}); err != nil {
+			logger.Error(err, "Failed to list LLMInferenceService")
+			return reqs
+		}
+		for _, llmSvc := range llmSvcList.Items {
+			// If it's not using the router or gateway, skip the resource.
+			if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || llmSvc.Spec.Router.Route.HTTP == nil {
+				continue
 			}
-			continueToken = llmSvcList.Continue
+
+			for _, ref := range llmSvc.Spec.Router.Route.HTTP.Refs {
+				if ref.Name == sub.Name && llmSvc.GetNamespace() == sub.Namespace {
+					reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
+						Namespace: llmSvc.Namespace,
+						Name:      llmSvc.Name,
+					}})
+				}
+			}
 		}
 
 		return reqs
@@ -387,38 +414,30 @@ func (r *LLMInferenceServiceReconciler) enqueueOnLLMInferenceServiceConfigChange
 
 		// When an LLMInferenceServiceConfig is modified, we need to find all LLMInferenceService instances that might
 		// depend on it and trigger their reconciliation.
-		continueToken := ""
-		for {
-			llmSvcList := &v1alpha1.LLMInferenceServiceList{}
-			if err := r.Client.List(ctx, llmSvcList, &client.ListOptions{Namespace: listNamespace, Continue: continueToken}); err != nil {
-				logger.Error(err, "Failed to list LLMInferenceService")
-				return reqs
+		llmSvcList := &v1alpha1.LLMInferenceServiceList{}
+		if err := r.Client.List(ctx, llmSvcList, &client.ListOptions{Namespace: listNamespace}); err != nil {
+			logger.Error(err, "Failed to list LLMInferenceService")
+			return reqs
+		}
+		for _, llmSvc := range llmSvcList.Items {
+			// If the mutated LLMInferenceServiceConfig is a well-known template and is in the system or
+			// LLMInferenceService namespace, we need to re-queue the specific LLMInferenceService.
+			if WellKnownDefaultConfigs.Has(sub.Name) && (sub.Namespace == constants.KServeNamespace || sub.Namespace == llmSvc.Namespace) {
+				reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
+					Namespace: llmSvc.Namespace,
+					Name:      llmSvc.Name,
+				}})
+				continue
 			}
-			for _, llmSvc := range llmSvcList.Items {
-				// If the mutated LLMInferenceServiceConfig is a well-known template and is in the system or
-				// LLMInferenceService namespace, we need to re-queue the specific LLMInferenceService.
-				if WellKnownDefaultConfigs.Has(sub.Name) && (sub.Namespace == constants.KServeNamespace || sub.Namespace == llmSvc.Namespace) {
+
+			for _, ref := range llmSvc.Spec.BaseRefs {
+				if ref.Name == sub.Name {
 					reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
 						Namespace: llmSvc.Namespace,
 						Name:      llmSvc.Name,
 					}})
-					continue
-				}
-
-				for _, ref := range llmSvc.Spec.BaseRefs {
-					if ref.Name == sub.Name {
-						reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
-							Namespace: llmSvc.Namespace,
-							Name:      llmSvc.Name,
-						}})
-					}
 				}
 			}
-
-			if llmSvcList.Continue == "" {
-				break
-			}
-			continueToken = llmSvcList.Continue
 		}
 
 		return reqs

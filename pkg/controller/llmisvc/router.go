@@ -25,6 +25,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"k8s.io/apimachinery/pkg/types"
 
@@ -171,104 +172,37 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 		}
 	}
 
-	// Auto-inject dual InferencePool backend refs for scheduler-managed routes
-	// This ensures both v1 and v1alpha2 pools are referenced with proper initial weights
-	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil &&
-		llmSvc.Spec.Router.Route != nil && llmSvc.Spec.Router.Route.HTTP != nil &&
-		!llmSvc.Spec.Router.Route.HTTP.HasRefs() {
-		// v1 uses the configured pool name (respects external refs)
-		v1PoolName := llmSvc.Spec.Router.Scheduler.InferencePoolName(llmSvc)
-		// v1alpha2 always uses the default auto-generated pool name (fallback)
-		v1alpha2PoolName := kmeta.ChildName(llmSvc.GetName(), "-inference-pool")
+	curr := &gatewayapi.HTTPRoute{}
+	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(httpRoute), curr); err != nil {
+		return httpRoute
+	}
+	const v1MigrationValue = "v1"
+	migrationValue, isMigrated := curr.Annotations[AnnotationInferencePoolMigrated]
+	isMigrated = isMigrated && migrationValue == v1MigrationValue
 
-		// Only inject backend refs if they haven't been explicitly provided by the user
-		if llmSvc.Spec.Router.Route.HTTP.Spec == nil || len(httpRoute.Spec.Rules) == 0 {
-			// Create a default rule with both InferencePool backend refs
-			// Initial weights: v1alpha2=100% (active), v1=0% (until controller is ready)
-			httpRoute.Spec.Rules = []gatewayapi.HTTPRouteRule{
-				{
-					BackendRefs: []gatewayapi.HTTPBackendRef{
-						{
-							BackendRef: gatewayapi.BackendRef{
-								BackendObjectReference: gatewayapi.BackendObjectReference{
-									Group: ptr.To(gatewayapi.Group("inference.networking.k8s.io")),
-									Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
-									Name:  gatewayapi.ObjectName(v1PoolName),
-									Port:  ptr.To(gatewayapi.PortNumber(8000)),
-								},
-								Weight: ptr.To(int32(0)), // v1 starts at 0% (no controller yet)
-							},
-						},
-						{
-							BackendRef: gatewayapi.BackendRef{
-								BackendObjectReference: gatewayapi.BackendObjectReference{
-									Group: ptr.To(gatewayapi.Group("inference.networking.x-k8s.io")),
-									Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
-									Name:  gatewayapi.ObjectName(v1alpha2PoolName),
-									Port:  ptr.To(gatewayapi.PortNumber(8000)),
-								},
-								Weight: ptr.To(int32(100)), // v1alpha2 starts at 100% (active fallback)
-							},
-						},
-					},
-				},
-			}
-		} else {
-			// User provided a route spec - ensure both v1 and v1alpha2 backend refs are present
-			// Iterate through rules and inject missing backend refs
-			for i := range httpRoute.Spec.Rules {
-				rule := &httpRoute.Spec.Rules[i]
+	expectedInfPool := r.expectedSchedulerInferencePool(ctx, llmSvc)
+	ipCurr := &igwv1.InferencePool{}
+	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(expectedInfPool), ipCurr); err != nil {
+		return httpRoute
+	}
 
-				hasV1 := false
-				hasV1Alpha2 := false
-				v1Alpha2Index := -1
-
-				// Check which backend refs are already present
-				for j, ref := range rule.BackendRefs {
-					if ref.Group != nil && ref.Kind != nil && string(*ref.Kind) == "InferencePool" {
-						if string(*ref.Group) == "inference.networking.k8s.io" && string(ref.Name) == v1PoolName {
-							hasV1 = true
-						} else if string(*ref.Group) == "inference.networking.x-k8s.io" && string(ref.Name) == v1alpha2PoolName {
-							hasV1Alpha2 = true
-							v1Alpha2Index = j
-						}
+	// When either the v1 pool is ready or the other the migration was ever done, we will switch traffic to v1.
+	//
+	// Important: once migrated once, we never go back at using the previous v1alpha2 as it might be a temporary
+	// non-ready condition, and we don't want to drop traffic.
+	if IsInferencePoolReady(ipCurr) || isMigrated {
+		for i := range httpRoute.Spec.Rules {
+			for j, b := range httpRoute.Spec.Rules[i].BackendRefs {
+				if isDefaultBackendRef(llmSvc, httpRoute.Spec.Rules[i].BackendRefs[j].BackendRef) {
+					if b.Group != nil && *b.BackendRef.Group == "inference.networking.x-k8s.io" {
+						httpRoute.Spec.Rules[i].BackendRefs[j].Weight = ptr.To[int32](100)
+					} else if b.Group != nil && *b.BackendRef.Group == "inference.networking.k8s.io" {
+						httpRoute.Spec.Rules[i].BackendRefs[j].Weight = ptr.To[int32](0)
 					}
 				}
-
-				// Inject missing backend refs with appropriate weights
-				if hasV1Alpha2 && !hasV1 {
-					// Only v1alpha2 exists - ensure it has weight=100 and add v1 with weight=0
-					if rule.BackendRefs[v1Alpha2Index].Weight == nil {
-						rule.BackendRefs[v1Alpha2Index].Weight = ptr.To(int32(100))
-					}
-					rule.BackendRefs = append(rule.BackendRefs, gatewayapi.HTTPBackendRef{
-						BackendRef: gatewayapi.BackendRef{
-							BackendObjectReference: gatewayapi.BackendObjectReference{
-								Group: ptr.To(gatewayapi.Group("inference.networking.k8s.io")),
-								Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
-								Name:  gatewayapi.ObjectName(v1PoolName),
-								Port:  ptr.To(gatewayapi.PortNumber(8000)),
-							},
-							Weight: ptr.To(int32(0)), // v1 starts at 0% (no controller yet)
-						},
-					})
-				} else if hasV1 && !hasV1Alpha2 {
-					// Only v1 exists - add v1alpha2 with weight=100
-					rule.BackendRefs = append(rule.BackendRefs, gatewayapi.HTTPBackendRef{
-						BackendRef: gatewayapi.BackendRef{
-							BackendObjectReference: gatewayapi.BackendObjectReference{
-								Group: ptr.To(gatewayapi.Group("inference.networking.x-k8s.io")),
-								Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
-								Name:  gatewayapi.ObjectName(v1alpha2PoolName),
-								Port:  ptr.To(gatewayapi.PortNumber(8000)),
-							},
-							Weight: ptr.To(int32(100)), // v1alpha2 starts at 100%
-						},
-					})
-				}
-				// If neither or both exist, don't modify (user has full control)
 			}
 		}
+		httpRoute.Annotations[AnnotationInferencePoolMigrated] = v1MigrationValue
 	}
 
 	return httpRoute
@@ -342,13 +276,6 @@ func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Co
 	// If no router or gateway configuration, skip Gateway evaluation
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
 		logger.Info("No Gateway references found, skipping Gateway condition evaluation")
-		return nil
-	}
-
-	// Check if there's already a validation failure condition set
-	condition := llmSvc.GetStatus().GetCondition(v1alpha1.GatewaysReady)
-	if condition != nil && condition.IsFalse() && condition.Reason == RefsInvalidReason {
-		logger.Info("Gateway validation failed, skipping readiness evaluation", "reason", condition.Reason, "message", condition.Message)
 		return nil
 	}
 

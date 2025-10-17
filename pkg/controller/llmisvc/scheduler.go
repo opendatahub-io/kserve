@@ -26,9 +26,7 @@ import (
 
 	"k8s.io/utils/ptr"
 
-	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/client-go/util/retry"
-
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -39,13 +37,10 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"knative.dev/pkg/kmeta"
-	crclient "sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
-	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
-
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
 
 const (
@@ -185,24 +180,6 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerInferencePool(ctx cont
 	// 2) Ensure v1alpha2 InferencePool (dynamic) exists/updated.
 	if err := r.reconcileAlpha2Pool(ctx, llmSvc, expected); err != nil {
 		return err
-	}
-
-	// Fetch current v1 and v1alpha2 pool readiness for migration logic.
-	cur := &igwv1.InferencePool{}
-	v1Ready := false
-	if err := r.Client.Get(ctx, crclient.ObjectKey{
-		Namespace: expected.Namespace,
-		Name:      expected.Name,
-	}, cur); err == nil {
-		v1Ready = isV1PoolReady(cur)
-	}
-
-	alpha2Ready := r.isAlpha2PoolReady(ctx, llmSvc.GetNamespace(), expected.GetName())
-
-	// Reconcile one-way migration from v1alpha2 to v1 InferencePool
-	// This updates HTTPRoute backend weights based on which pool is ready
-	if err := r.reconcileInferencePoolMigration(ctx, llmSvc, v1Ready, alpha2Ready); err != nil {
-		return fmt.Errorf("failed to reconcile InferencePool migration: %w", err)
 	}
 
 	return nil
@@ -674,10 +651,14 @@ func isV1PoolReady(p *igwv1.InferencePool) bool {
 func (r *LLMInferenceServiceReconciler) isAlpha2PoolReady(ctx context.Context, ns, name string) bool {
 	u, err := r.DynamicClient.Resource(GVRInferencePoolV1Alpha2).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
+		log.FromContext(ctx).Info("Failed to InferencePool v1alpha2", "error", err)
 		return false
 	}
-	parents, _, _ := unstructured.NestedSlice(u.Object, "status", "parents")
-	for _, p := range parents {
+
+	parent, _, _ := unstructured.NestedSlice(u.Object, "status", "parent")
+	log.FromContext(ctx).Info("Got InferencePool v1alpha2", "parent", parent, "object", u.Object)
+
+	for _, p := range parent {
 		pm, _ := p.(map[string]any)
 		conds, _, _ := unstructured.NestedSlice(pm, "conditions")
 		accepted, resolved := false, false
@@ -695,220 +676,6 @@ func (r *LLMInferenceServiceReconciler) isAlpha2PoolReady(ctx context.Context, n
 		}
 	}
 	return false
-}
-
-// reconcileInferencePoolMigration implements one-way migration from v1alpha2 to v1 InferencePool.
-//
-// Migration Strategy:
-// - Initially, traffic goes to v1alpha2 while v1 is being set up
-// - Once v1 becomes ready for the first time, we permanently switch all traffic to v1
-// - We NEVER fall back to v1alpha2, even during transient v1 failures
-// - This prevents flapping between versions and makes migration predictable
-//
-// The migration state is stored in an annotation on the HTTPRoute (not the LLMInferenceService),
-// following the pattern of not modifying user-managed objects.
-func (r *LLMInferenceServiceReconciler) reconcileInferencePoolMigration(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, v1Ready, alpha2Ready bool) error {
-	// Skip if this service doesn't have a managed HTTPRoute
-	if !shouldReconcileMigration(llmSvc) {
-		return nil
-	}
-
-	// Get the HTTPRoute key for later retries
-	routeKey := crclient.ObjectKey{
-		Namespace: llmSvc.Namespace,
-		Name:      kmeta.ChildName(llmSvc.Name, "-kserve-route"),
-	}
-
-	// Initial check: Get the HTTPRoute to see if it exists
-	route := &gwapiv1.HTTPRoute{}
-	if err := r.Client.Get(ctx, routeKey, route); err != nil {
-		if apierrors.IsNotFound(err) {
-			// Route doesn't exist yet, will be created in next reconcile
-			return nil
-		}
-		return fmt.Errorf("failed to get HTTPRoute: %w", err)
-	}
-
-	// Calculate which pool(s) should receive traffic based on readiness and migration state (initial check)
-	weights, _ := determineMigrationWeights(ctx, route, v1Ready, alpha2Ready)
-	if weights == nil {
-		// Neither pool ready yet - don't change anything
-		return nil
-	}
-
-	// Update the HTTPRoute with retry logic to handle resource version conflicts
-	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		// Get the latest version of the HTTPRoute
-		latest := &gwapiv1.HTTPRoute{}
-		if err := r.Client.Get(ctx, routeKey, latest); err != nil {
-			return fmt.Errorf("failed to get latest HTTPRoute: %w", err)
-		}
-
-		// Recalculate migration weights based on the latest HTTPRoute state
-		// This ensures we make the right decision even if the HTTPRoute was modified
-		latestWeights, latestNeedsAnnotation := determineMigrationWeights(ctx, latest, v1Ready, alpha2Ready)
-		if latestWeights == nil {
-			// Neither pool ready yet - don't change anything
-			return nil
-		}
-
-		// Update the backend weights in the HTTPRoute spec
-		modified := applyWeightsToHTTPRoute(ctx, latest, latestWeights.v1Weight, latestWeights.alpha2Weight)
-
-		// Mark that we've migrated to v1 (one-time annotation update)
-		if latestNeedsAnnotation {
-			if latest.Annotations == nil {
-				latest.Annotations = make(map[string]string)
-			}
-			latest.Annotations[AnnotationInferencePoolMigrated] = "v1"
-			modified = true
-			log.FromContext(ctx).Info("Marking migration to v1 in HTTPRoute annotation")
-		}
-
-		// Save changes to the HTTPRoute if there were any modifications
-		if modified {
-			log.FromContext(ctx).V(1).Info("Updating HTTPRoute with new traffic weights and/or migration state",
-				"v1Weight", latestWeights.v1Weight, "alpha2Weight", latestWeights.alpha2Weight)
-			if err := r.Client.Update(ctx, latest); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	})
-}
-
-// shouldReconcileMigration checks if migration reconciliation should proceed.
-// We only manage migration for controller-managed HTTPRoutes (not user-provided ones).
-func shouldReconcileMigration(llmSvc *v1alpha1.LLMInferenceService) bool {
-	// Check if routing is configured at all
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || llmSvc.Spec.Router.Route.HTTP == nil {
-		return false
-	}
-	// Don't touch user-managed routes
-	if llmSvc.Spec.Router.Route.HTTP.HasRefs() {
-		return false
-	}
-	// Only proceed if we have a spec to manage
-	if !llmSvc.Spec.Router.Route.HTTP.HasSpec() {
-		return false
-	}
-	return true
-}
-
-// migrationWeights holds the calculated traffic distribution between v1 and v1alpha2 InferencePools.
-// Weights are in the range [0, 100] and should sum to 100 when both are present.
-type migrationWeights struct {
-	v1Weight     int32 // Percentage of traffic to v1 InferencePool (0-100)
-	alpha2Weight int32 // Percentage of traffic to v1alpha2 InferencePool (0-100)
-}
-
-// determineMigrationWeights calculates traffic weights based on pool readiness and migration state.
-//
-// Decision flow:
-// 1. If already migrated (annotation present) -> always use v1 (100/0)
-// 2. If v1 is ready for first time AND Gateway Controller supports it -> migrate to v1 permanently (100/0) and mark annotation
-// 3. If only v1alpha2 is ready -> use v1alpha2 temporarily (0/100)
-// 4. If neither ready -> return nil to keep existing weights
-//
-// Returns: (weights, needsAnnotationUpdate)
-func determineMigrationWeights(ctx context.Context, route *gwapiv1.HTTPRoute, v1Ready, alpha2Ready bool) (*migrationWeights, bool) {
-	logger := log.FromContext(ctx)
-
-	// Check if migration is already complete (one-way decision stored in annotation)
-	if route.Annotations != nil && route.Annotations[AnnotationInferencePoolMigrated] == "v1" {
-		// Already migrated - stick with v1 even if it's temporarily not ready
-		logger.V(2).Info("Using v1 InferencePool (migration complete, no fallback)")
-		return &migrationWeights{v1Weight: 100, alpha2Weight: 0}, false
-	}
-
-	// Check if the Gateway Controller can actually resolve v1 backend refs
-	v1ResolvableByGateway := isV1BackendResolvable(route)
-
-	// Migration not complete yet - decide based on current readiness
-	if v1Ready && v1ResolvableByGateway {
-		// v1 is ready AND Gateway Controller supports it - make the one-time migration decision
-		logger.Info("Migrating to v1 InferencePool permanently (first time v1 ready and Gateway Controller supports it)")
-		return &migrationWeights{v1Weight: 100, alpha2Weight: 0}, true
-	}
-
-	if alpha2Ready {
-		// v1 not ready yet or Gateway Controller doesn't support it - use v1alpha2 as fallback
-		if v1Ready && !v1ResolvableByGateway {
-			logger.Info("v1 InferencePool ready but Gateway Controller doesn't support it yet, using v1alpha2")
-		} else {
-			logger.V(2).Info("Using v1alpha2 InferencePool (v1 not ready yet)")
-		}
-		return &migrationWeights{v1Weight: 0, alpha2Weight: 100}, false
-	}
-
-	// Neither pool ready yet - don't change weights (avoid thrashing during startup)
-	logger.V(2).Info("Neither pool ready yet, keeping existing weights")
-	return nil, false
-}
-
-// isV1BackendResolvable checks if the Gateway Controller can resolve v1 InferencePool backend refs.
-// This is important because the InferencePool resource itself might be ready (Accepted=True),
-// but the Gateway Controller might not support the v1 API version yet (e.g., in OpenShift).
-// We check the HTTPRoute's parent status to see if ResolvedRefs=True.
-func isV1BackendResolvable(route *gwapiv1.HTTPRoute) bool {
-	// Check all parent statuses in the HTTPRoute
-	for _, parent := range route.Status.RouteStatus.Parents {
-		// Look for ResolvedRefs condition
-		for _, cond := range parent.Conditions {
-			if cond.Type == "ResolvedRefs" {
-				// If ResolvedRefs is False with reason InvalidKind, the Gateway Controller doesn't support v1
-				if cond.Status == "False" && cond.Reason == "InvalidKind" {
-					return false
-				}
-				// If ResolvedRefs is True, the Gateway Controller can resolve all backend refs
-				if cond.Status == "True" {
-					return true
-				}
-			}
-		}
-	}
-
-	// If no ResolvedRefs condition found or status is unclear, be conservative and assume not resolvable
-	// This prevents premature migration before the Gateway Controller has evaluated the route
-	return false
-}
-
-// applyWeightsToHTTPRoute updates the backendRef weights in the HTTPRoute.
-// It iterates through all backend refs and updates the weight for v1 and v1alpha2 InferencePools.
-// Returns true if any weights were changed.
-func applyWeightsToHTTPRoute(ctx context.Context, route *gwapiv1.HTTPRoute, v1Weight, alpha2Weight int32) bool {
-	logger := log.FromContext(ctx)
-	modified := false
-
-	// Iterate through all rules and their backend refs
-	for i := range route.Spec.Rules {
-		for j := range route.Spec.Rules[i].BackendRefs {
-			ref := &route.Spec.Rules[i].BackendRefs[j]
-
-			// Update v1 InferencePool weight (inference.networking.k8s.io)
-			if ref.Group != nil && string(*ref.Group) == "inference.networking.k8s.io" &&
-				ref.Kind != nil && string(*ref.Kind) == "InferencePool" {
-				if ref.Weight == nil || *ref.Weight != v1Weight {
-					logger.V(1).Info("Updating v1 InferencePool weight", "old", ptr.Deref(ref.Weight, 0), "new", v1Weight)
-					ref.Weight = &v1Weight
-					modified = true
-				}
-			}
-
-			// Update v1alpha2 InferencePool weight (inference.networking.x-k8s.io)
-			if ref.Group != nil && string(*ref.Group) == "inference.networking.x-k8s.io" &&
-				ref.Kind != nil && string(*ref.Kind) == "InferencePool" {
-				if ref.Weight == nil || *ref.Weight != alpha2Weight {
-					logger.V(1).Info("Updating v1alpha2 InferencePool weight", "old", ptr.Deref(ref.Weight, 0), "new", alpha2Weight)
-					ref.Weight = &alpha2Weight
-					modified = true
-				}
-			}
-		}
-	}
-
-	return modified
 }
 
 // reconcileAlpha2Pool manages the v1alpha2 InferencePool resource using the dynamic client.

@@ -21,13 +21,13 @@ spec:
                   name: |-
                     {{ ChildName .ObjectMeta.Name `-inference-pool` }}
                   port: 8000
-                  weight: 100
+                  weight: 0
                 - group: inference.networking.x-k8s.io
                   kind: InferencePool
                   name: |-
                     {{ ChildName .ObjectMeta.Name `-inference-pool` }}
                   port: 8000
-                  weight: 0
+                  weight: 100
               matches:
                 - path:
                     type: PathPrefix
@@ -43,12 +43,18 @@ spec:
                 backendRequest: 0s
                 request: 0s
             - backendRefs:
+                - group: inference.networking.k8s.io
+                  kind: InferencePool
+                  name: |-
+                    {{ ChildName .ObjectMeta.Name `-inference-pool` }}
+                  port: 8000
+                  weight: 0
                 - group: inference.networking.x-k8s.io
                   kind: InferencePool
                   name: |-
                     {{ ChildName .ObjectMeta.Name `-inference-pool` }}
                   port: 8000
-                  weight: 1
+                  weight: 100
               matches:
                 - path:
                     type: PathPrefix

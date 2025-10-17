@@ -359,7 +359,6 @@ func mergeSpecs(ctx context.Context, base, override v1alpha1.LLMInferenceService
 
 func isDefaultBackendRef(llmSvc *v1alpha1.LLMInferenceService, ref gatewayapi.BackendRef) bool {
 	defaultInfPoolName := (&v1alpha1.SchedulerSpec{}).InferencePoolName(llmSvc)
-	return ptr.Deref[gatewayapi.Group](ref.Group, "") == igwv1.GroupName &&
-		ptr.Deref[gatewayapi.Kind](ref.Kind, "") == "InferencePool" &&
+	return ptr.Deref[gatewayapi.Kind](ref.Kind, "") == "InferencePool" &&
 		string(ref.Name) == defaultInfPoolName
 }
