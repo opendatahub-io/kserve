@@ -49,7 +49,7 @@ install_upstream_istio() {
 apiVersion: gateway.networking.k8s.io/v1
 kind: GatewayClass
 metadata:
-  name: istio
+  name: openshift-default
 spec:
   controllerName: istio.io/gateway-controller
 EOF
@@ -65,7 +65,7 @@ metadata:
   name: openshift-ai-inference
   namespace: openshift-ingress
 spec:
-  gatewayClassName: istio
+  gatewayClassName: openshift-default
   listeners:
     - name: http
       port: 80
