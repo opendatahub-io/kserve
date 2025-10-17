@@ -31,19 +31,36 @@ For more information, see [Configuring Ingress Cluster Traffic](https://docs.red
 
 *Create Script*
 ~~~
-oc apply -k ./docs/samples/llmisvc/ocp-setup-for-GA/prerequisites/dependent-operators
+oc apply -k docs/samples/llmisvc/ocp-setup-for-GA/prerequisites/dependent-operators
 ~~~
 
 *Verify commands*
 ~~~
 # Wait for cert-manager to be ready
-oc wait --for=condition=CatalogSourcesUnhealthy=false subscription/openshift-cert-manager-operator -n cert-manager-operator --timeout=300s
+while [ $(kubectl get pod -n cert-manager-operator  | wc -l) -le 1 ]; 
+do
+  echo "⏳ waiting for Cert-Manager Pod to appear…"
+  sleep 10
+done
+
+kubectl wait pod -l name=cert-manager-operator -n cert-manager-operator --for=condition=Ready --timeout=120s 
 
 # Wait for Leader Worker Set Operator to be ready
-oc wait --for=condition=CatalogSourcesUnhealthy=false subscription/leader-worker-set -n openshift-lws-operator --timeout=300s
+until kubectl get crd leaderworkersetoperators.operator.openshift.io &> /dev/null; do
+  echo "⏳ waiting for CRD to appear…"
+  sleep 2
+done
+
+oc wait pod -l name=openshift-lws-operator -n openshift-lws-operator --for=condition=Ready --timeout=120s
 
 # Wait for Red Hat Connectivity Link Operator to be ready
-oc wait --for=condition=CatalogSourcesUnhealthy=false subscription/rhcl-operator -n kuadrant-system --timeout=300s
+while [ $(kubectl get pod -n kuadrant-system  | wc -l) -le 1 ]; 
+do
+  echo "⏳ waiting for Kuadrant Pod to appear…"
+  sleep 10
+done
+
+kubectl wait --for=condition=ready pod -l app=kuadrant -n kuadrant-system --timeout 150s
 ~~~
 
 ### Required objects
@@ -125,5 +142,7 @@ oc wait --for=condition=ready pod -l authorino-resource=authorino -n kuadrant-sy
 ## Next steps
 ---
 - [Deploying a model by using the Distributed Inference Server with llm-d [Developer preview]](https://access.redhat.com/articles/7131048)
+- [KServe Installation(Dev)](../../../odh/install-kserve.md)
 - [Quick Start - Deploy Your First LLM Inference Service](../getting-started/01-quick-start/)
+- [LLMInferenceService Authentication](../getting-started/02-authentication/)
 
