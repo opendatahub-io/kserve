@@ -25,6 +25,7 @@ echo "Starting E2E functional tests ..."
 MARKER="${1}"
 PARALLELISM="${2:-1}"
 NETWORK_LAYER="${3:-'istio'}"
+export TOKEN_AUDIENCES="${TOKEN_AUDIENCES:-https://kubernetes.default.svc}"
 
 : "${SKIP_DELETION_ON_FAILURE:=true}"
 export SKIP_DELETION_ON_FAILURE

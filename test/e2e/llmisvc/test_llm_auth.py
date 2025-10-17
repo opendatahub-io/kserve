@@ -136,8 +136,12 @@ def get_service_account_token(
     core_api = kserve_client.core_api
 
     # Create a token for the ServiceAccount
+    audiences = os.getenv("TOKEN_AUDIENCES", "https://kubernetes.default.svc").split(
+        ","
+    )
     token_request = client.AuthenticationV1TokenRequest(
         spec=client.V1TokenRequestSpec(
+            audiences=audiences,
             expiration_seconds=3600,
         )
     )
