@@ -86,14 +86,6 @@ oc wait --for=jsonpath='{.metadata.name}'=authorino-authorino-authorization svc/
 
 oc annotate svc/authorino-authorino-authorization  service.beta.openshift.io/serving-cert-secret-name="${cert_secret}" -n "${KUADRANT_NS}"
 
-# Wait for creating the Secret
-#echo "⏳ waiting for authorino-server-cert secret to be created..."
-#oc wait --for=jsonpath='{.metadata.name}'=authorino-server-cert secret/${cert_secret} -n "${KUADRANT_NS}" --timeout=10m || {
-#  oc get svc/authorino-authorino-authorization -n "${KUADRANT_NS}" -oyaml
-#  oc get secrets -n "${KUADRANT_NS}"
-#  exit 1
-#}
-
 # Update Authorino to configure SSL
 oc apply -f - <<EOF
 apiVersion: operator.authorino.kuadrant.io/v1beta1
