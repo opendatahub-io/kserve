@@ -1526,7 +1526,7 @@ func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, 
 			poolUnstructured := &v1alpha2Pools.Items[i]
 			// Set ready status on v1alpha2 pool
 			status := map[string]interface{}{
-				"parents": []interface{}{
+				"parent": []interface{}{
 					map[string]interface{}{
 						"conditions": []interface{}{
 							map[string]interface{}{
