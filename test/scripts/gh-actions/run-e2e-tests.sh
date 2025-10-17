@@ -39,6 +39,11 @@ pushd test/e2e >/dev/null
     echo "Skipping explainer tests for raw deployment with ingress"
     pytest --capture=tee-sys -m "$MARKER" --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --exitfirst --network-layer $NETWORK_LAYER --ignore=explainer/
   else
-    pytest --capture=tee-sys -m "$MARKER" --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --exitfirst --network-layer $NETWORK_LAYER
+    pytest --capture=tee-sys -m "$MARKER" --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --exitfirst --network-layer $NETWORK_LAYER || {
+      rc=$?
+      oc get authpolicies -A -oyaml
+      oc get llmisvc -A -oyaml
+      exit $rc
+    }
   fi
 popd
