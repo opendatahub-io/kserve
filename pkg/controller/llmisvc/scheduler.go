@@ -186,26 +186,20 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerInferencePool(ctx cont
 		return err
 	}
 
-	// Fetch current v1 to read Status (expected has no Status).
+	// Fetch current v1 and v1alpha2 pool readiness for migration logic.
 	cur := &igwv1.InferencePool{}
-	// Intentionally ignore error - if v1 pool doesn't exist or can't be fetched,
-	// cur remains empty and isV1PoolReady will return false, allowing fallback to alpha2
-	_ = r.Client.Get(ctx, crclient.ObjectKey{
+	v1Ready := false
+	if err := r.Client.Get(ctx, crclient.ObjectKey{
 		Namespace: expected.Namespace,
 		Name:      expected.Name,
-	}, cur)
-
-	v1Ready := isV1PoolReady(cur)
-	alpha2Ready := r.isAlpha2PoolReady(ctx, llmSvc.GetNamespace(), expected.GetName())
-
-	if v1Ready || alpha2Ready {
-		// Prefer v1 but either is acceptable.
-		llmSvc.MarkInferencePoolReady()
-	} else {
-		llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady", "Neither v1 nor v1alpha2 InferencePool reports Accepted=True and ResolvedRefs=True")
+	}, cur); err == nil {
+		v1Ready = isV1PoolReady(cur)
 	}
 
+	alpha2Ready := r.isAlpha2PoolReady(ctx, llmSvc.GetNamespace(), expected.GetName())
+
 	// Reconcile one-way migration from v1alpha2 to v1 InferencePool
+	// This updates HTTPRoute backend weights based on which pool is ready
 	if err := r.reconcileInferencePoolMigration(ctx, llmSvc, v1Ready, alpha2Ready); err != nil {
 		return fmt.Errorf("failed to reconcile InferencePool migration: %w", err)
 	}
