@@ -676,8 +676,8 @@ func (r *LLMInferenceServiceReconciler) isAlpha2PoolReady(ctx context.Context, n
 	if err != nil {
 		return false
 	}
-	parents, _, _ := unstructured.NestedSlice(u.Object, "status", "parents")
-	for _, p := range parents {
+	parent, _, _ := unstructured.NestedSlice(u.Object, "status", "parent")
+	for _, p := range parent {
 		pm, _ := p.(map[string]any)
 		conds, _, _ := unstructured.NestedSlice(pm, "conditions")
 		accepted, resolved := false, false
