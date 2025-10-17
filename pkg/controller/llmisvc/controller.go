@@ -115,7 +115,15 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	finalizerName := constants.KServeAPIGroupName + "/llmisvc-finalizer"
 	if original.DeletionTimestamp.IsZero() {
 		if controllerutil.AddFinalizer(original, finalizerName) {
-			if err := r.Update(ctx, original); err != nil {
+			// Wrap finalizer addition in retry logic to handle resource version conflicts
+			if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				latest := &v1alpha1.LLMInferenceService{}
+				if err := r.Get(ctx, req.NamespacedName, latest); err != nil {
+					return err
+				}
+				controllerutil.AddFinalizer(latest, finalizerName)
+				return r.Update(ctx, latest)
+			}); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -127,8 +135,15 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 				return ctrl.Result{}, cleanupErr
 			}
 
-			controllerutil.RemoveFinalizer(original, finalizerName)
-			if err := r.Update(ctx, original); err != nil {
+			// Wrap finalizer removal in retry logic to handle resource version conflicts
+			if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				latest := &v1alpha1.LLMInferenceService{}
+				if err := r.Get(ctx, req.NamespacedName, latest); err != nil {
+					return err
+				}
+				controllerutil.RemoveFinalizer(latest, finalizerName)
+				return r.Update(ctx, latest)
+			}); err != nil {
 				return ctrl.Result{}, err
 			}
 		}

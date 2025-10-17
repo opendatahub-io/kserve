@@ -440,12 +440,18 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
-				// No scheduler configured - uses Service with dual backend strategy
+				// Wait for migration to complete - no scheduler configured uses Service with dual backend strategy
 				// Service gets 100% traffic, fallback InferencePool gets 0%
-				Expect(expectedHTTPRoute).To(HaveBackendRefs(
-					BackendRefServiceWithWeight(svcName, 100),
-					BackendRefInferencePoolV1Alpha2(kmeta.ChildName(llmSvcName, "-inference-pool"), 0),
-				))
+				Eventually(func(g Gomega, ctx context.Context) error {
+					routes, errList := managedRoutes(ctx, llmSvc)
+					g.Expect(errList).ToNot(HaveOccurred())
+					g.Expect(routes).To(HaveLen(1))
+					g.Expect(routes[0]).To(HaveBackendRefs(
+						BackendRefServiceWithWeight(svcName, 100),
+						BackendRefInferencePoolV1Alpha2(kmeta.ChildName(llmSvcName, "-inference-pool"), 0),
+					))
+					return nil
+				}).WithContext(ctx).Should(Succeed())
 
 				Eventually(func(g Gomega, ctx context.Context) error {
 					svc := &corev1.Service{}
