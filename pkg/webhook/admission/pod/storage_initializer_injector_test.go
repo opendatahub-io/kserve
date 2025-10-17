@@ -212,6 +212,75 @@ func TestStorageInitializerInjector(t *testing.T) {
 			},
 		},
 
+		"StorageInitializerInjectedWithOpenVINOAnnotation": {
+			original: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						constants.StorageInitializerSourceUriInternalAnnotationKey: "gs://foo",
+						constants.StorageOpenVINOAutoVersioningAnnotationKey:       "1",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: constants.InferenceServiceContainerName,
+						},
+					},
+				},
+			},
+			expected: &corev1.Pod{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						constants.StorageInitializerSourceUriInternalAnnotationKey: "gs://foo",
+						constants.StorageOpenVINOAutoVersioningAnnotationKey:       "1",
+					},
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: constants.InferenceServiceContainerName,
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "kserve-provision-location",
+									MountPath: constants.DefaultModelLocalMountPath,
+									ReadOnly:  true,
+								},
+							},
+						},
+					},
+					InitContainers: []corev1.Container{
+						{
+							Name:      "storage-initializer",
+							Image:     constants.StorageInitializerContainerImage + ":" + constants.StorageInitializerContainerImageVersion,
+							Args:      []string{"gs://foo", constants.DefaultModelLocalMountPath + "/1"},
+							Resources: resourceRequirement,
+							Env: []corev1.EnvVar{
+								{Name: "HF_HOME", Value: "/tmp"},
+								{Name: "HF_HUB_ENABLE_HF_TRANSFER", Value: "1"},
+								{Name: "HF_XET_HIGH_PERFORMANCE", Value: "1"},
+								{Name: "HF_XET_NUM_CONCURRENT_RANGE_GETS", Value: "8"},
+							},
+							TerminationMessagePolicy: "FallbackToLogsOnError",
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "kserve-provision-location",
+									MountPath: constants.DefaultModelLocalMountPath,
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "kserve-provision-location",
+							VolumeSource: corev1.VolumeSource{
+								EmptyDir: &corev1.EmptyDirVolumeSource{},
+							},
+						},
+					},
+				},
+			},
+		},
+
 		"StorageInitializerInjectedReadOnlyUnset": {
 			original: &corev1.Pod{
 				ObjectMeta: metav1.ObjectMeta{

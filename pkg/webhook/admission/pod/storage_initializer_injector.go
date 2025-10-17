@@ -340,6 +340,17 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(pod *corev1.Pod) 
 		initContainer.VolumeMounts = append(initContainer.VolumeMounts, caBundleVolumeMount)
 	}
 
+	// For OpenVino models, the auto-configuration for it requires a versioned path, to be backwards compatible
+	// with ModelMesh 	// we support an annotation to enable this feature to auto create the versioned path with
+	// the value passed in the annotation. This value will be used in the storageInitializer container to identify
+	// the need to auto-configure it.
+	value, ok := pod.ObjectMeta.Annotations[constants.StorageOpenVINOAutoVersioningAnnotationKey]
+	if ok {
+		// The storage initializer expects the second parameter to be the target model dir, if the path does not exist,
+		// it will be created.
+		initContainer.Args[1] = initContainer.Args[1] + "/" + value
+	}
+
 	// Update initContainer (container spec) from a storage container CR if there is a match,
 	// otherwise initContainer is not updated.
 	// Priority: CR > configMap
