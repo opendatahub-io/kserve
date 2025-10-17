@@ -36235,6 +36235,9 @@ spec:
                                                       enum:
                                                       - 301
                                                       - 302
+                                                      - 303
+                                                      - 307
+                                                      - 308
                                                       type: integer
                                                   type: object
                                                 responseHeaderModifier:
@@ -36836,6 +36839,9 @@ spec:
                                                 enum:
                                                 - 301
                                                 - 302
+                                                - 303
+                                                - 307
+                                                - 308
                                                 type: integer
                                             type: object
                                           responseHeaderModifier:
@@ -56790,6 +56796,9 @@ spec:
                                                       enum:
                                                       - 301
                                                       - 302
+                                                      - 303
+                                                      - 307
+                                                      - 308
                                                       type: integer
                                                   type: object
                                                 responseHeaderModifier:
@@ -57391,6 +57400,9 @@ spec:
                                                 enum:
                                                 - 301
                                                 - 302
+                                                - 303
+                                                - 307
+                                                - 308
                                                 type: integer
                                             type: object
                                           responseHeaderModifier:
