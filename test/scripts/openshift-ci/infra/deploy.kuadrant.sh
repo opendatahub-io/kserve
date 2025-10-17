@@ -38,6 +38,7 @@ spec:
   name: rhcl-operator
   source: redhat-operators
   sourceNamespace: openshift-marketplace
+  startingCSV: rhcl-operator.v1.1.0
 ---
 kind: OperatorGroup
 apiVersion: operators.coreos.com/v1
@@ -63,24 +64,27 @@ EOF
 
 echo "⏳ waiting for authorino-operator to be ready.…"
 
-oc wait Kuadrant -n "${KUADRANT_NS}" kuadrant --for=condition=Ready --timeout=20m || {
-  oc get Kuadrant -n "${KUADRANT_NS}" kuadrant -oyaml
-  oc get pods -n "${KUADRANT_NS}" -oyaml
-  oc get csv -n "${KUADRANT_NS}" -oyaml
-  exit 1
-}
+#oc wait Kuadrant -n "${KUADRANT_NS}" kuadrant --for=condition=Ready --timeout=20m || {
+#  oc get Kuadrant -n "${KUADRANT_NS}" kuadrant -oyaml
+#  oc get pods -n "${KUADRANT_NS}" -oyaml
+#  oc get csv -n "${KUADRANT_NS}" -oyaml
+#  exit 1
+#}
 
 wait_for_pod_ready "${KUADRANT_NS}" "control-plane=authorino-operator"
 
 # Wait for service to be created
 echo "⏳ waiting for authorino service to be created..."
-oc wait --for=jsonpath='{.metadata.name}'=authorino-authorino-authorization svc/authorino-authorino-authorization -n kuadrant-system --timeout=2m
+oc wait --for=jsonpath='{.metadata.name}'=authorino-authorino-authorization svc/authorino-authorino-authorization -n "${KUADRANT_NS}" --timeout=2m
 
-oc annotate svc/authorino-authorino-authorization  service.beta.openshift.io/serving-cert-secret-name=authorino-server-cert -n kuadrant-system
+oc annotate svc/authorino-authorino-authorization  service.beta.openshift.io/serving-cert-secret-name=authorino-server-cert -n "${KUADRANT_NS}"
 
 # Wait for creating the Secret
 echo "⏳ waiting for authorino-server-cert secret to be created..."
-oc wait --for=jsonpath='{.metadata.name}'=authorino-server-cert secret/authorino-server-cert -n kuadrant-system --timeout=10m
+oc wait --for=jsonpath='{.metadata.name}'=authorino-server-cert secret/authorino-server-cert -n kuadrant-system --timeout=10m || {
+  oc get svc/authorino-authorino-authorization -n "${KUADRANT_NS}" -oyaml
+  exit 1
+}
 
 # Update Authorino to configure SSL
 oc apply -f - <<EOF
