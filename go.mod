@@ -47,7 +47,7 @@ require (
 	knative.dev/networking v0.0.0-20250117155906-67d1c274ba6a
 	knative.dev/pkg v0.0.0-20250326102644-9f3e60a9244c
 	knative.dev/serving v0.44.0
-	sigs.k8s.io/controller-runtime v0.22.1
+	sigs.k8s.io/controller-runtime v0.22.3
 	sigs.k8s.io/gateway-api v1.4.0
 	sigs.k8s.io/gateway-api-inference-extension v1.0.0
 	sigs.k8s.io/lws v0.6.2
@@ -198,9 +198,9 @@ require (
 // This avoids "module used for two different module paths" error
 exclude google.golang.org/grpc/stats/opentelemetry v0.0.0-00010101000000-000000000000
 
-// Temporary workaround for gateway-api v1.4.0 validation markers bug
-// See: https://github.com/kubernetes-sigs/gateway-api/pull/4172
-replace sigs.k8s.io/gateway-api => github.com/KillianGolds/gateway-api v1.4.1-0.20251015000150-07e49fa2e26c
+// Using gateway-api main branch with validation markers bug fix (PR #4178 merged)
+// See: https://github.com/kubernetes-sigs/gateway-api/pull/4178
+replace sigs.k8s.io/gateway-api => sigs.k8s.io/gateway-api v0.0.0-20251017132243-11212e643802
 
 // Using release-1.0 branch with fix for GIE v1.0.0 validation markers bug
 // See: https://github.com/kubernetes-sigs/gateway-api-inference-extension/pull/1679
