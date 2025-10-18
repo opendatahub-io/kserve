@@ -42,6 +42,10 @@ LLMINFERENCESERVICE_CONFIGS["router-auth-disabled"] = {
     "router": {"scheduler": {}, "route": {}, "gateway": {}},
 }
 
+# Auth tests are conditional on RHCL (Red Hat Connectivity Link) availability
+# RHCL is optional per https://github.com/opendatahub-io/kserve/pull/939
+# Tests skip gracefully when RHCL is not installed in the cluster
+
 
 def create_service_account_with_get_access(
     kserve_client: KServeClient,
@@ -218,8 +222,12 @@ def cleanup_service_account(
     indirect=["test_case"],
     ids=generate_test_id,
 )
+@pytest.mark.skipif(
+    "not rhcl_available()",
+    reason="RHCL not installed - skipping auth test"
+)
 @log_execution
-def test_llm_auth_enabled_requires_token(test_case: TestCase):
+def test_llm_auth_enabled_requires_token(rhcl_available, test_case: TestCase):
     """
     Test that when auth is enabled (default):
     - Requests WITH valid token succeed
@@ -354,8 +362,12 @@ def test_llm_auth_enabled_requires_token(test_case: TestCase):
     indirect=["test_case"],
     ids=generate_test_id,
 )
+@pytest.mark.skipif(
+    "not rhcl_available()",
+    reason="RHCL not installed - skipping auth test"
+)
 @log_execution
-def test_llm_auth_invalid_token_rejected(test_case: TestCase):
+def test_llm_auth_invalid_token_rejected(rhcl_available, test_case: TestCase):
     """
     Test that when auth is enabled:
     - Requests with MALFORMED tokens are rejected
@@ -475,8 +487,12 @@ def test_llm_auth_invalid_token_rejected(test_case: TestCase):
     indirect=["test_case"],
     ids=generate_test_id,
 )
+@pytest.mark.skipif(
+    "not rhcl_available()",
+    reason="RHCL not installed - skipping auth test"
+)
 @log_execution
-def test_llm_auth_disabled_no_token_required(test_case: TestCase):
+def test_llm_auth_disabled_no_token_required(rhcl_available, test_case: TestCase):
     """
     Test that when auth is disabled via annotation:
     - Requests WITHOUT token succeed
