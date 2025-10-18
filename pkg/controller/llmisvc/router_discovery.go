@@ -131,7 +131,7 @@ func extractRoutePath(route *gatewayapi.HTTPRoute) string {
 	for _, rule := range route.Spec.Rules {
 		serviceFound := false
 		for _, backendRef := range rule.BackendRefs {
-			if backendRef.Kind == &serviceKind {
+			if backendRef.Kind != nil && *backendRef.Kind == serviceKind {
 				serviceFound = true
 				break
 			}
