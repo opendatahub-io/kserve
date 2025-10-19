@@ -332,6 +332,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerService(ctx context.Con
 
 func (r *LLMInferenceServiceReconciler) expectedSchedulerInferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *igwv1.InferencePool {
 	labels := SchedulerLabels(llmSvc)
+	logger := log.FromContext(ctx)
 
 	ip := &igwv1.InferencePool{
 		ObjectMeta: metav1.ObjectMeta{
@@ -343,11 +344,21 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerInferencePool(ctx conte
 			},
 		},
 	}
+
+	// Convert KServe-native pool spec to GIE v1 spec
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil && llmSvc.Spec.Router.Scheduler.Pool != nil && llmSvc.Spec.Router.Scheduler.Pool.Spec != nil {
-		ip.Spec = *llmSvc.Spec.Router.Scheduler.Pool.Spec.DeepCopy()
+		v1Spec, err := ConvertKServePoolToV1(llmSvc.Spec.Router.Scheduler.Pool.Spec)
+		if err != nil {
+			logger.Error(err, "Failed to convert KServe pool spec to v1", "pool", llmSvc.Spec.Router.Scheduler.Pool.Spec)
+			// Return pool with empty spec rather than nil to avoid panic
+			return ip
+		}
+		if v1Spec != nil {
+			ip.Spec = *v1Spec
+		}
 	}
 
-	log.FromContext(ctx).V(2).Info("Expected router InferencePool", "inferencepool", ip)
+	logger.V(2).Info("Expected router InferencePool", "inferencepool", ip)
 
 	return ip
 }
@@ -1078,4 +1089,64 @@ func v1ToAlpha2Unstructured(v1p *igwv1.InferencePool) (*unstructured.Unstructure
 		},
 	}
 	return u, nil
+}
+
+// ConvertKServePoolToV1 converts KServe-native InferencePoolSpec to GIE v1 InferencePoolSpec.
+// This allows the CRD to use plain string types while the controller creates typed v1 resources.
+func ConvertKServePoolToV1(kservePool *v1alpha1.KServeInferencePoolSpec) (*igwv1.InferencePoolSpec, error) {
+	if kservePool == nil {
+		return nil, nil
+	}
+
+	// Convert selector: map[string]string -> map[LabelKey]LabelValue
+	matchLabels := make(map[igwv1.LabelKey]igwv1.LabelValue)
+	for k, v := range kservePool.Selector.MatchLabels {
+		matchLabels[igwv1.LabelKey(k)] = igwv1.LabelValue(v)
+	}
+
+	// Convert target ports
+	var targetPorts []igwv1.Port
+	for _, p := range kservePool.TargetPorts {
+		targetPorts = append(targetPorts, igwv1.Port{
+			Number: igwv1.PortNumber(p.Number),
+		})
+	}
+
+	// Convert endpoint picker ref
+	eppRef := igwv1.EndpointPickerRef{
+		Name: igwv1.ObjectName(kservePool.EndpointPickerRef.Name),
+	}
+
+	// Group (optional pointer)
+	if kservePool.EndpointPickerRef.Group != nil {
+		group := igwv1.Group(*kservePool.EndpointPickerRef.Group)
+		eppRef.Group = &group
+	}
+
+	// Kind (value type in v1, with default)
+	if kservePool.EndpointPickerRef.Kind != nil {
+		eppRef.Kind = igwv1.Kind(*kservePool.EndpointPickerRef.Kind)
+	} else {
+		eppRef.Kind = "Service" // default
+	}
+
+	// Port (optional)
+	if kservePool.EndpointPickerRef.Port != nil {
+		eppRef.Port = &igwv1.Port{
+			Number: igwv1.PortNumber(kservePool.EndpointPickerRef.Port.Number),
+		}
+	}
+
+	// FailureMode (value type in v1, with default)
+	if kservePool.EndpointPickerRef.FailureMode != nil {
+		eppRef.FailureMode = igwv1.EndpointPickerFailureMode(*kservePool.EndpointPickerRef.FailureMode)
+	} else {
+		eppRef.FailureMode = "FailClose" // default
+	}
+
+	return &igwv1.InferencePoolSpec{
+		Selector:          igwv1.LabelSelector{MatchLabels: matchLabels},
+		TargetPorts:       targetPorts,
+		EndpointPickerRef: eppRef,
+	}, nil
 }

@@ -37269,19 +37269,11 @@ spec:
                                     type: string
                                   group:
                                     default: ""
-                                    maxLength: 253
-                                    minLength: 0
-                                    pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                                     type: string
                                   kind:
                                     default: Service
-                                    maxLength: 63
-                                    minLength: 1
-                                    pattern: ^[a-zA-Z]([-a-zA-Z0-9]*[a-zA-Z0-9])?$
                                     type: string
                                   name:
-                                    maxLength: 253
-                                    minLength: 1
                                     type: string
                                   port:
                                     properties:
@@ -37304,9 +37296,6 @@ spec:
                                 properties:
                                   matchLabels:
                                     additionalProperties:
-                                      maxLength: 63
-                                      minLength: 0
-                                      pattern: ^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$
                                       type: string
                                     maxProperties: 64
                                     minProperties: 1
@@ -37328,7 +37317,6 @@ spec:
                                 maxItems: 1
                                 minItems: 1
                                 type: array
-                                x-kubernetes-list-type: atomic
                             required:
                             - endpointPickerRef
                             - selector
@@ -57906,19 +57894,11 @@ spec:
                                     type: string
                                   group:
                                     default: ""
-                                    maxLength: 253
-                                    minLength: 0
-                                    pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                                     type: string
                                   kind:
                                     default: Service
-                                    maxLength: 63
-                                    minLength: 1
-                                    pattern: ^[a-zA-Z]([-a-zA-Z0-9]*[a-zA-Z0-9])?$
                                     type: string
                                   name:
-                                    maxLength: 253
-                                    minLength: 1
                                     type: string
                                   port:
                                     properties:
@@ -57941,9 +57921,6 @@ spec:
                                 properties:
                                   matchLabels:
                                     additionalProperties:
-                                      maxLength: 63
-                                      minLength: 0
-                                      pattern: ^(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])?$
                                       type: string
                                     maxProperties: 64
                                     minProperties: 1
@@ -57965,7 +57942,6 @@ spec:
                                 maxItems: 1
                                 minItems: 1
                                 type: array
-                                x-kubernetes-list-type: atomic
                             required:
                             - endpointPickerRef
                             - selector

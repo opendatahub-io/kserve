@@ -21,7 +21,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
-	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -236,11 +235,75 @@ type SchedulerSpec struct {
 type InferencePoolSpec struct {
 	// Spec defines an inline InferencePool specification.
 	// +optional
-	Spec *igwv1.InferencePoolSpec `json:"spec,omitempty"`
+	Spec *KServeInferencePoolSpec `json:"spec,omitempty"`
 
 	// Ref is a reference to an existing InferencePool.
 	// +optional
 	Ref *corev1.LocalObjectReference `json:"ref,omitempty"`
+}
+
+// KServeInferencePoolSpec uses plain types for cross-version compatibility.
+// Converted to GIE v1/v1alpha2 types at runtime by the controller.
+type KServeInferencePoolSpec struct {
+	// Selector determines which Pods are members of this pool.
+	// +required
+	Selector KServeLabelSelector `json:"selector"`
+
+	// TargetPorts defines ports exposed by this pool (max 1 port).
+	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:MaxItems=1
+	// +required
+	TargetPorts []KServePort `json:"targetPorts"`
+
+	// EndpointPickerRef references the Endpoint Picker extension.
+	// +required
+	EndpointPickerRef KServeEndpointPickerRef `json:"endpointPickerRef"`
+}
+
+// KServeLabelSelector uses plain string maps for compatibility.
+type KServeLabelSelector struct {
+	// MatchLabels contains required {key,value} pairs.
+	// +required
+	// +kubebuilder:validation:MinProperties=1
+	// +kubebuilder:validation:MaxProperties=64
+	MatchLabels map[string]string `json:"matchLabels"`
+}
+
+// KServePort defines a network port.
+type KServePort struct {
+	// Number is the port number (1-65535).
+	// +required
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	Number int32 `json:"number"`
+}
+
+// KServeEndpointPickerRef references an Endpoint Picker service.
+// +kubebuilder:validation:XValidation:rule="self.kind != 'Service' || has(self.port)",message="port is required when kind is 'Service' or unspecified (defaults to 'Service')"
+type KServeEndpointPickerRef struct {
+	// Group of the referent (default: "").
+	// +optional
+	// +kubebuilder:default=""
+	Group *string `json:"group,omitempty"`
+
+	// Kind of the referent (default: "Service").
+	// +optional
+	// +kubebuilder:default=Service
+	Kind *string `json:"kind,omitempty"`
+
+	// Name of the referent.
+	// +required
+	Name string `json:"name"`
+
+	// Port of the service (required for Service kind).
+	// +optional
+	Port *KServePort `json:"port,omitempty"`
+
+	// FailureMode (default: "FailClose").
+	// +optional
+	// +kubebuilder:default="FailClose"
+	// +kubebuilder:validation:Enum=FailOpen;FailClose
+	FailureMode *string `json:"failureMode,omitempty"`
 }
 
 // ParallelismSpec defines the parallelism parameters for distributed inference.
