@@ -289,21 +289,6 @@ func WithHTTPRouteGatewayRef(references ...gatewayapi.ParentReference) HTTPRoute
 	}
 }
 
-// BackendRefInferencePool creates a v1alpha2 InferencePool backend ref
-func BackendRefInferencePool(name string) gatewayapi.HTTPBackendRef {
-	return gatewayapi.HTTPBackendRef{
-		BackendRef: gatewayapi.BackendRef{
-			BackendObjectReference: gatewayapi.BackendObjectReference{
-				Group: ptr.To(gatewayapi.Group("inference.networking.x-k8s.io")),
-				Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
-				Name:  gatewayapi.ObjectName(name),
-				Port:  ptr.To(gatewayapi.PortNumber(8000)),
-			},
-			Weight: ptr.To(int32(1)),
-		},
-	}
-}
-
 // BackendRefInferencePoolV1 creates a v1 InferencePool backend ref
 func BackendRefInferencePoolV1(name string, weight int32) gatewayapi.HTTPBackendRef {
 	return gatewayapi.HTTPBackendRef{
@@ -330,20 +315,6 @@ func BackendRefInferencePoolV1Alpha2(name string, weight int32) gatewayapi.HTTPB
 				Port:  ptr.To(gatewayapi.PortNumber(8000)),
 			},
 			Weight: ptr.To(weight),
-		},
-	}
-}
-
-func BackendRefService(name string) gatewayapi.HTTPBackendRef {
-	return gatewayapi.HTTPBackendRef{
-		BackendRef: gatewayapi.BackendRef{
-			BackendObjectReference: gatewayapi.BackendObjectReference{
-				Group: ptr.To(gatewayapi.Group("")),
-				Kind:  ptr.To(gatewayapi.Kind("Service")),
-				Name:  gatewayapi.ObjectName(name),
-				Port:  ptr.To(gatewayapi.PortNumber(8000)),
-			},
-			Weight: ptr.To(int32(1)),
 		},
 	}
 }

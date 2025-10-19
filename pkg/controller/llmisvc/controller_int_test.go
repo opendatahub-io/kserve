@@ -300,9 +300,9 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					g.Expect(routes).To(HaveLen(1))
 					g.Expect(routes[0]).To(HaveBackendRefs(
 						BackendRefInferencePoolV1(svcName+"-inference-pool", 100),
-						BackendRefInferencePoolV1Alpha2(svcName+"-inference-pool", 0),
+						BackendRefInferencePoolV1Alpha2(svcName+"-inference-pool", 1),
 					))
-					g.Expect(routes[0]).To(Not(HaveBackendRefs(BackendRefService(svcName + "-kserve-workload-svc"))))
+					g.Expect(routes[0]).To(Not(HaveBackendRefs(BackendRefServiceWithWeight(svcName+"-kserve-workload-svc", 1))))
 					return nil
 				}).WithContext(ctx).Should(Succeed())
 
@@ -386,7 +386,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						BackendRefInferencePoolV1(infPoolName, 100),
 						BackendRefInferencePoolV1Alpha2(svcName+"-inference-pool", 1),
 					))
-					g.Expect(routes[0]).To(Not(HaveBackendRefs(BackendRefService(svcName + "-kserve-workload-svc"))))
+					g.Expect(routes[0]).To(Not(HaveBackendRefs(BackendRefServiceWithWeight(svcName+"-kserve-workload-svc", 1))))
 					return nil
 				}).WithContext(ctx).Should(Succeed())
 
@@ -518,8 +518,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "my-ingress-gateway"}))
 				// llmisvc is created with custom route spec and no scheduler which results in one service backend ref
-				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefService("my-inference-service")))
-				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefInferencePool(kmeta.ChildName(svcName, "-inference-pool")))))
+				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefServiceWithWeight("my-inference-service", 1)))
+				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefInferencePoolV1Alpha2(kmeta.ChildName(svcName, "-inference-pool"), 1))))
 
 				// Advanced fixture pattern: Update the HTTPRoute status using fixture functions
 				updatedRoute := expectedHTTPRoute.DeepCopy()
