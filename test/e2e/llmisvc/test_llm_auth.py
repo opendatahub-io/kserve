@@ -222,12 +222,10 @@ def cleanup_service_account(
     indirect=["test_case"],
     ids=generate_test_id,
 )
-@pytest.mark.skipif(
-    "not rhcl_available()",
-    reason="RHCL not installed - skipping auth test"
-)
 @log_execution
 def test_llm_auth_enabled_requires_token(rhcl_available, test_case: TestCase):
+    if not rhcl_available:
+        pytest.skip("RHCL not installed - skipping auth test")
     """
     Test that when auth is enabled (default):
     - Requests WITH valid token succeed
@@ -362,12 +360,10 @@ def test_llm_auth_enabled_requires_token(rhcl_available, test_case: TestCase):
     indirect=["test_case"],
     ids=generate_test_id,
 )
-@pytest.mark.skipif(
-    "not rhcl_available()",
-    reason="RHCL not installed - skipping auth test"
-)
 @log_execution
 def test_llm_auth_invalid_token_rejected(rhcl_available, test_case: TestCase):
+    if not rhcl_available:
+        pytest.skip("RHCL not installed - skipping auth test")
     """
     Test that when auth is enabled:
     - Requests with MALFORMED tokens are rejected
@@ -487,12 +483,10 @@ def test_llm_auth_invalid_token_rejected(rhcl_available, test_case: TestCase):
     indirect=["test_case"],
     ids=generate_test_id,
 )
-@pytest.mark.skipif(
-    "not rhcl_available()",
-    reason="RHCL not installed - skipping auth test"
-)
 @log_execution
 def test_llm_auth_disabled_no_token_required(rhcl_available, test_case: TestCase):
+    if not rhcl_available:
+        pytest.skip("RHCL not installed - skipping auth test")
     """
     Test that when auth is disabled via annotation:
     - Requests WITHOUT token succeed
