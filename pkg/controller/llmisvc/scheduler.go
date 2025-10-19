@@ -1105,7 +1105,7 @@ func ConvertKServePoolToV1(kservePool *v1alpha1.KServeInferencePoolSpec) (*igwv1
 	}
 
 	// Convert target ports
-	var targetPorts []igwv1.Port
+	targetPorts := make([]igwv1.Port, 0, len(kservePool.TargetPorts))
 	for _, p := range kservePool.TargetPorts {
 		targetPorts = append(targetPorts, igwv1.Port{
 			Number: igwv1.PortNumber(p.Number),

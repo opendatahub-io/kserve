@@ -1807,8 +1807,8 @@ func TestODHModelControllerCompatibility(t *testing.T) {
 						Spec: &v1alpha1.KServeInferencePoolSpec{
 							Selector: v1alpha1.KServeLabelSelector{
 								MatchLabels: map[string]string{
-									"app":                                      "my-model",
-									"serving.kserve.io/llminferenceservice":    "test-llm",
+									"app":                                   "my-model",
+									"serving.kserve.io/llminferenceservice": "test-llm",
 									"serving.kserve.io/llminferenceservice-uid": "test-uid",
 								},
 							},

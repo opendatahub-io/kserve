@@ -43,8 +43,7 @@ func (r *RouterSpec) EPPServiceName(llmSvc *LLMInferenceService) string {
 		return kmeta.ChildName(llmSvc.ObjectMeta.Name, "-epp-service")
 	}
 
-	// In v1, EndpointPickerRef is a value (not a pointer). Its Name is a typed string alias.
-	name := string(r.Scheduler.Pool.Spec.EndpointPickerRef.Name)
+	name := r.Scheduler.Pool.Spec.EndpointPickerRef.Name
 	if name == "" {
 		return kmeta.ChildName(llmSvc.ObjectMeta.Name, "-epp-service")
 	}
