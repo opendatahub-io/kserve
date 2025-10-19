@@ -384,7 +384,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					g.Expect(routes).To(HaveLen(1))
 					g.Expect(routes[0]).To(HaveBackendRefs(
 						BackendRefInferencePoolV1(infPoolName, 100),
-						BackendRefInferencePoolV1Alpha2(svcName+"-inference-pool", 0),
+						BackendRefInferencePoolV1Alpha2(svcName+"-inference-pool", 1),
 					))
 					g.Expect(routes[0]).To(Not(HaveBackendRefs(BackendRefService(svcName + "-kserve-workload-svc"))))
 					return nil
@@ -448,7 +448,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					g.Expect(routes).To(HaveLen(1))
 					g.Expect(routes[0]).To(HaveBackendRefs(
 						BackendRefServiceWithWeight(svcName, 100),
-						BackendRefInferencePoolV1Alpha2(kmeta.ChildName(llmSvcName, "-inference-pool"), 0),
+						BackendRefInferencePoolV1Alpha2(kmeta.ChildName(llmSvcName, "-inference-pool"), 1),
 					))
 					return nil
 				}).WithContext(ctx).Should(Succeed())
