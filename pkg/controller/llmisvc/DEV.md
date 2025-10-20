@@ -334,13 +334,13 @@ apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
   annotations:
-      olm.providedAPIs: CertManager.v1alpha1.operator.openshift.io,Certificate.v1.cert-manager.io,CertificateRequest.v1.cert-manager.io,Challenge.v1.acme.cert-manager.io,ClusterIssuer.v1.cert-manager.io,Issuer.v1.cert-manager.io,IstioCSR.v1alpha1.operator.openshift.io,Order.v1.acme.cert-manager.io
+      olm.providedAPIs: CertManager.v1alpha2.operator.openshift.io,Certificate.v1.cert-manager.io,CertificateRequest.v1.cert-manager.io,Challenge.v1.acme.cert-manager.io,ClusterIssuer.v1.cert-manager.io,Issuer.v1.cert-manager.io,IstioCSR.v1alpha2.operator.openshift.io,Order.v1.acme.cert-manager.io
   name: cert-manager-operator
   namespace: cert-manager-operator
 spec:
   upgradeStrategy: Default
 ---
-apiVersion: operators.coreos.com/v1alpha1
+apiVersion: operators.coreos.com/v1alpha2
 kind: Subscription
 metadata:
   name: openshift-cert-manager-operator
@@ -378,7 +378,7 @@ spec:
   targetNamespaces:
   - openshift-lws-operator
 ---
-apiVersion: operators.coreos.com/v1alpha1
+apiVersion: operators.coreos.com/v1alpha2
 kind: Subscription
 metadata:
   name: leader-worker-set
@@ -423,7 +423,7 @@ EOF
 Create OpenDataHub subscription
 ```shell
 cat <<EOF| kubectl create -f -
-apiVersion: operators.coreos.com/v1alpha1
+apiVersion: operators.coreos.com/v1alpha2
 kind: Subscription
 metadata:
   labels:

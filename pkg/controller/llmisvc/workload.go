@@ -28,7 +28,7 @@ import (
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/credentials"
 	kserveTypes "github.com/kserve/kserve/pkg/types"
 )
@@ -44,7 +44,7 @@ var sidecarSSRFProtectionRules = []rbacv1.PolicyRule{
 
 // reconcileWorkload manages the Deployments and Services for the LLM.
 // It handles standard, multi-node, and disaggregated (prefill/decode) deployment patterns.
-func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
+func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	logger := log.FromContext(ctx).WithName("reconcileWorkload")
 	ctx = log.IntoContext(ctx, logger)
 
@@ -78,7 +78,7 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileWorkloadService(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileWorkloadService(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	expected := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"),
@@ -89,7 +89,7 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkloadService(ctx context.Con
 				"app.kubernetes.io/part-of":   "llminferenceservice",
 			},
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 		},
 		Spec: corev1.ServiceSpec{
@@ -113,7 +113,7 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkloadService(ctx context.Con
 	return Reconcile(ctx, r, llmSvc, &corev1.Service{}, expected, semanticServiceIsEqual)
 }
 
-func GetWorkloadLabelSelector(meta metav1.ObjectMeta, _ *v1alpha1.LLMInferenceServiceSpec) map[string]string {
+func GetWorkloadLabelSelector(meta metav1.ObjectMeta, _ *v1alpha2.LLMInferenceServiceSpec) map[string]string {
 	s := map[string]string{
 		"app.kubernetes.io/part-of": "llminferenceservice",
 		"app.kubernetes.io/name":    meta.GetName(),

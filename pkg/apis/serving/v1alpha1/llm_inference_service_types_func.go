@@ -39,12 +39,12 @@ func (s *SchedulerSpec) InferencePoolName(llmSvc *LLMInferenceService) string {
 
 func (r *RouterSpec) EPPServiceName(llmSvc *LLMInferenceService) string {
 	// If Scheduler/Pool/inline Spec aren't provided, fall back to our managed EPP Service name.
-	if r == nil || r.Scheduler == nil || r.Scheduler.Pool == nil || r.Scheduler.Pool.Spec == nil {
+	if r == nil || r.Scheduler == nil || r.Scheduler.Pool == nil || r.Scheduler.Pool.Spec == nil || r.Scheduler.Pool.Spec.EndpointPickerConfig.ExtensionRef == nil {
 		return kmeta.ChildName(llmSvc.ObjectMeta.Name, "-epp-service")
 	}
 
 	// In v1, EndpointPickerRef is a value (not a pointer). Its Name is a typed string alias.
-	name := string(r.Scheduler.Pool.Spec.EndpointPickerRef.Name)
+	name := string(r.Scheduler.Pool.Spec.EndpointPickerConfig.ExtensionRef.Name)
 	if name == "" {
 		return kmeta.ChildName(llmSvc.ObjectMeta.Name, "-epp-service")
 	}

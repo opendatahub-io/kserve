@@ -32,7 +32,7 @@ import (
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmeta"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 
 	. "github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 	. "github.com/kserve/kserve/pkg/testing"
@@ -58,7 +58,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			}()
 
 			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 				WithReplicas(2),
 				WithParallelism(ParallelismSpec(
@@ -124,7 +124,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			}()
 
 			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 				WithReplicas(1),
 				WithParallelism(ParallelismSpec(
@@ -197,7 +197,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			}()
 
 			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 				WithReplicas(1),
 				WithParallelism(ParallelismSpec(
@@ -294,7 +294,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			parallelismSpec.Expert = true
 
 			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 				WithParallelism(parallelismSpec),
 				WithWorker(&corev1.PodSpec{}),
@@ -358,7 +358,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			}()
 
 			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 				WithPrefillParallelism(ParallelismSpec(
 					WithDataParallelism(2),
@@ -431,7 +431,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			testValue := "test"
 
 			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 				WithParallelism(ParallelismSpec(
 					WithDataParallelism(1),

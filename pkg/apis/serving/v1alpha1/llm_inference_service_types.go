@@ -21,7 +21,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
-	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -29,6 +28,7 @@ import (
 // It orchestrates the creation of underlying Kubernetes resources like Deployments and Services,
 // and configures networking for exposing the model.
 // +k8s:openapi-gen=true
+// +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="URL",type="string",JSONPath=".status.url"
@@ -48,6 +48,7 @@ type LLMInferenceService struct {
 // LLMInferenceServiceConfig is the Schema for the llminferenceserviceconfigs API.
 // It acts as a template to provide base configurations that can be inherited by multiple LLMInferenceService instances.
 // +k8s:openapi-gen=true
+// +genclient
 // +kubebuilder:object:root=true
 type LLMInferenceServiceConfig struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -129,7 +130,7 @@ type LLMModelSpec struct {
 	// Criticality defines how important it is to serve the model compared to other models.
 	// This is used by the Inference Gateway scheduler.
 	// +optional
-	Criticality *ModelCriticality `json:"criticality,omitempty"`
+	Criticality *Criticality `json:"criticality,omitempty"`
 
 	// LoRA (Low-Rank Adaptation) adapters configurations.
 	// Allows for specifying one or more LoRA adapters to be applied to the base model.
@@ -236,7 +237,7 @@ type SchedulerSpec struct {
 type InferencePoolSpec struct {
 	// Spec defines an inline InferencePool specification.
 	// +optional
-	Spec *igwv1.InferencePoolSpec `json:"spec,omitempty"`
+	Spec *GIEInferencePoolSpec `json:"spec,omitempty"`
 
 	// Ref is a reference to an existing InferencePool.
 	// +optional

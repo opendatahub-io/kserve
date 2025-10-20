@@ -37,7 +37,7 @@ import (
 	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
 )
 
@@ -291,7 +291,7 @@ func IsGatewayReady(gateway *gatewayapi.Gateway) bool {
 }
 
 // EvaluateHTTPRouteReadiness checks the readiness status of HTTPRoutes and returns those that are not ready
-func EvaluateHTTPRouteReadiness(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, routes []*gatewayapi.HTTPRoute) []*gatewayapi.HTTPRoute {
+func EvaluateHTTPRouteReadiness(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, routes []*gatewayapi.HTTPRoute) []*gatewayapi.HTTPRoute {
 	logger := log.FromContext(ctx)
 	notReadyRoutes := make([]*gatewayapi.HTTPRoute, 0)
 
@@ -308,7 +308,7 @@ func EvaluateHTTPRouteReadiness(ctx context.Context, llmSvc *v1alpha1.LLMInferen
 }
 
 // IsHTTPRouteReady determines if an HTTPRoute is ready based on its status conditions.
-func IsHTTPRouteReady(llmSvc *v1alpha1.LLMInferenceService, route *gatewayapi.HTTPRoute) bool {
+func IsHTTPRouteReady(llmSvc *v1alpha2.LLMInferenceService, route *gatewayapi.HTTPRoute) bool {
 	if route == nil || len(route.Spec.ParentRefs) == 0 {
 		return false
 	}
@@ -320,7 +320,7 @@ func IsHTTPRouteReady(llmSvc *v1alpha1.LLMInferenceService, route *gatewayapi.HT
 	return true
 }
 
-func nonReadyHTTPRouteTopLevelCondition(llmSvc *v1alpha1.LLMInferenceService, route *gatewayapi.HTTPRoute) (*metav1.Condition, bool) {
+func nonReadyHTTPRouteTopLevelCondition(llmSvc *v1alpha2.LLMInferenceService, route *gatewayapi.HTTPRoute) (*metav1.Condition, bool) {
 	if route == nil {
 		return nil, true
 	}

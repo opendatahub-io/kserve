@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 )
 
 const (
@@ -58,7 +58,7 @@ func IsValidationError(err error) bool {
 // validateRouterReferences performs comprehensive validation of all router-related references
 // including gateway references, HTTPRoute references, managed HTTPRoute specs, and route targets.
 // It handles condition marking internally and returns validation or unexpected errors.
-func (r *LLMInferenceServiceReconciler) validateRouterReferences(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) validateRouterReferences(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("validateRouterReferences")
 
 	if err := r.validateGatewayReferences(ctx, llmSvc); err != nil {
@@ -108,7 +108,7 @@ func (r *LLMInferenceServiceReconciler) validateRouterReferences(ctx context.Con
 }
 
 // validateGatewayReferences checks if all referenced gateways exist
-func (r *LLMInferenceServiceReconciler) validateGatewayReferences(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) validateGatewayReferences(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("validateGatewayReferences")
 
 	// If no router or gateway configuration, skip validation
@@ -149,7 +149,7 @@ func (r *LLMInferenceServiceReconciler) validateGatewayReferences(ctx context.Co
 }
 
 // validateHTTPRouteReferences checks if all referenced HTTPRoutes exist
-func (r *LLMInferenceServiceReconciler) validateHTTPRouteReferences(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) validateHTTPRouteReferences(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	// If no router or route configuration, skip validation
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || !llmSvc.Spec.Router.Route.HTTP.HasRefs() {
 		return nil
@@ -221,7 +221,7 @@ func (r *LLMInferenceServiceReconciler) validateHTTPRouteTargets(ctx context.Con
 }
 
 // validateManagedHTTPRouteSpec checks if managed HTTPRoute spec has valid parent gateway references
-func (r *LLMInferenceServiceReconciler) validateManagedHTTPRouteSpec(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) validateManagedHTTPRouteSpec(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("validateManagedHTTPRouteSpec")
 
 	// Only validate if there's a managed HTTPRoute spec

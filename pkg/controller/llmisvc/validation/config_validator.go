@@ -29,12 +29,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
-// +kubebuilder:webhook:path=/validate-serving-kserve-io-v1alpha1-llminferenceserviceconfig,mutating=false,failurePolicy=fail,sideEffects=None,groups=serving.kserve.io,resources=llminferenceserviceconfigs,verbs=create;update,versions=v1alpha1,name=llminferenceserviceconfigs.kserve-webhook-server.validator,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-serving-kserve-io-v1alpha2-llminferenceserviceconfig,mutating=false,failurePolicy=fail,sideEffects=None,groups=serving.kserve.io,resources=llminferenceserviceconfigs,verbs=create;update,versions=v1alpha2,name=llminferenceserviceconfigs.kserve-webhook-server.validator,admissionReviewVersions=v1
 
 // LLMInferenceServiceConfigValidator is responsible for validating the LLMInferenceServiceConfig resource
 // when it is created, updated, or deleted.
@@ -47,14 +47,14 @@ var _ webhook.CustomValidator = &LLMInferenceServiceConfigValidator{}
 
 func (l *LLMInferenceServiceConfigValidator) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(&v1alpha1.LLMInferenceServiceConfig{}).
+		For(&v1alpha2.LLMInferenceServiceConfig{}).
 		WithValidator(l).
 		Complete()
 }
 
 func (l *LLMInferenceServiceConfigValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	warnings := admission.Warnings{}
-	llmSvcConfig, err := utils.Convert[*v1alpha1.LLMInferenceServiceConfig](obj)
+	llmSvcConfig, err := utils.Convert[*v1alpha2.LLMInferenceServiceConfig](obj)
 	if err != nil {
 		return warnings, err
 	}
@@ -64,11 +64,11 @@ func (l *LLMInferenceServiceConfigValidator) ValidateCreate(ctx context.Context,
 
 func (l *LLMInferenceServiceConfigValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	logger := log.FromContext(ctx)
-	oldConfig, errOld := utils.Convert[*v1alpha1.LLMInferenceServiceConfig](oldObj)
+	oldConfig, errOld := utils.Convert[*v1alpha2.LLMInferenceServiceConfig](oldObj)
 	if errOld != nil {
 		return admission.Warnings{}, errOld
 	}
-	newConfig, errNew := utils.Convert[*v1alpha1.LLMInferenceServiceConfig](newObj)
+	newConfig, errNew := utils.Convert[*v1alpha2.LLMInferenceServiceConfig](newObj)
 	if errNew != nil {
 		return admission.Warnings{}, errNew
 	}
@@ -85,7 +85,7 @@ func (l *LLMInferenceServiceConfigValidator) ValidateUpdate(ctx context.Context,
 
 func (l *LLMInferenceServiceConfigValidator) ValidateDelete(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	logger := log.FromContext(ctx)
-	config, err := utils.Convert[*v1alpha1.LLMInferenceServiceConfig](obj)
+	config, err := utils.Convert[*v1alpha2.LLMInferenceServiceConfig](obj)
 	if err != nil {
 		return admission.Warnings{}, err
 	}
@@ -100,7 +100,7 @@ func (l *LLMInferenceServiceConfigValidator) ValidateDelete(ctx context.Context,
 	return warnings, nil
 }
 
-func (l *LLMInferenceServiceConfigValidator) validate(ctx context.Context, llmSvcConfig *v1alpha1.LLMInferenceServiceConfig) error {
+func (l *LLMInferenceServiceConfigValidator) validate(ctx context.Context, llmSvcConfig *v1alpha2.LLMInferenceServiceConfig) error {
 	logger := log.FromContext(ctx)
 	llmSvcConfig = llmSvcConfig.DeepCopy()
 

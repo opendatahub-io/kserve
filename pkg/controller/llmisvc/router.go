@@ -39,10 +39,10 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 )
 
-func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("reconcileRouter")
 	ctx = log.IntoContext(ctx, logger)
 
@@ -93,7 +93,7 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling HTTPRoute")
 
@@ -127,7 +127,7 @@ func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context,
 	return r.updateRoutingStatus(ctx, llmSvc, referencedRoutes...)
 }
 
-func (r *LLMInferenceServiceReconciler) collectReferencedRoutes(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) ([]*gatewayapi.HTTPRoute, error) {
+func (r *LLMInferenceServiceReconciler) collectReferencedRoutes(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) ([]*gatewayapi.HTTPRoute, error) {
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || !llmSvc.Spec.Router.Route.HTTP.HasRefs() {
 		return nil, nil
 	}
@@ -150,13 +150,13 @@ func (r *LLMInferenceServiceReconciler) collectReferencedRoutes(ctx context.Cont
 	return referencedRoutes, nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *gatewayapi.HTTPRoute {
+func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) *gatewayapi.HTTPRoute {
 	httpRoute := &gatewayapi.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-route"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 			Labels: RouterLabels(llmSvc),
 		},
@@ -199,14 +199,15 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 	if IsInferencePoolReady(ipCurr) || isMigrated {
 		for i := range httpRoute.Spec.Rules {
 			for j, b := range httpRoute.Spec.Rules[i].BackendRefs {
-				if isDefaultBackendRef(llmSvc, httpRoute.Spec.Rules[i].BackendRefs[j].BackendRef) {
-					if b.Group != nil && *b.BackendRef.Group == "inference.networking.x-k8s.io" {
-						httpRoute.Spec.Rules[i].BackendRefs[j].Weight = ptr.To[int32](100)
-					} else if b.Group != nil && *b.BackendRef.Group == "inference.networking.k8s.io" {
-						httpRoute.Spec.Rules[i].BackendRefs[j].Weight = ptr.To[int32](0)
-					}
+				if b.Group != nil && *b.BackendRef.Group == "inference.networking.k8s.io" {
+					httpRoute.Spec.Rules[i].BackendRefs[j].Weight = ptr.To[int32](100)
+				} else if b.Group != nil && *b.BackendRef.Group == "inference.networking.x-k8s.io" {
+					httpRoute.Spec.Rules[i].BackendRefs[j].Weight = ptr.To[int32](0)
 				}
 			}
+		}
+		if httpRoute.Annotations == nil {
+			httpRoute.Annotations = make(map[string]string, 1)
 		}
 		httpRoute.Annotations[AnnotationInferencePoolMigrated] = v1MigrationValue
 	}
@@ -214,7 +215,7 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 	return httpRoute
 }
 
-func (r *LLMInferenceServiceReconciler) updateRoutingStatus(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, routes ...*gatewayapi.HTTPRoute) error {
+func (r *LLMInferenceServiceReconciler) updateRoutingStatus(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, routes ...*gatewayapi.HTTPRoute) error {
 	logger := log.FromContext(ctx)
 
 	var urls []*apis.URL
@@ -249,7 +250,7 @@ func (r *LLMInferenceServiceReconciler) updateRoutingStatus(ctx context.Context,
 	return nil
 }
 
-func toGatewayRef(ref v1alpha1.UntypedObjectReference) gatewayapi.ParentReference {
+func toGatewayRef(ref v1alpha2.UntypedObjectReference) gatewayapi.ParentReference {
 	return gatewayapi.ParentReference{
 		// TODO(api): With this structure we are missing the ability to narrow a section of targeted gateway by the route we are creating
 		// missing SectionName and Port will implicitly bind the route to the first listener in the parent
@@ -260,7 +261,7 @@ func toGatewayRef(ref v1alpha1.UntypedObjectReference) gatewayapi.ParentReferenc
 	}
 }
 
-func RouterLabels(llmSvc *v1alpha1.LLMInferenceService) map[string]string {
+func RouterLabels(llmSvc *v1alpha2.LLMInferenceService) map[string]string {
 	return map[string]string{
 		"app.kubernetes.io/component": "llminferenceservice-router",
 		"app.kubernetes.io/name":      llmSvc.GetName(),
@@ -276,7 +277,7 @@ func semanticHTTPRouteIsEqual(e *gatewayapi.HTTPRoute, c *gatewayapi.HTTPRoute) 
 
 // EvaluateGatewayConditions evaluates the readiness of all Gateways referenced by the LLMInferenceService
 // and updates the GatewaysReady condition accordingly
-func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("evaluateGatewayConditions")
 
 	// If no router or gateway configuration, skip Gateway evaluation
@@ -308,7 +309,7 @@ func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Co
 }
 
 // CollectReferencedGateways retrieves all Gateway objects referenced in the LLMInferenceService spec
-func (r *LLMInferenceServiceReconciler) CollectReferencedGateways(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) ([]*gatewayapi.Gateway, error) {
+func (r *LLMInferenceServiceReconciler) CollectReferencedGateways(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) ([]*gatewayapi.Gateway, error) {
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
 		return nil, nil
 	}
@@ -372,7 +373,7 @@ func (r *LLMInferenceServiceReconciler) CollectReferencedGateways(ctx context.Co
 
 // EvaluateHTTPRouteConditions evaluates the readiness of all HTTPRoutes referenced by the LLMInferenceService
 // and updates the HTTPRoutesReady condition accordingly
-func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("evaluateHTTPRouteConditions")
 
 	// If no router or route configuration, mark HTTPRoutes as ready (no routes to evaluate)
@@ -383,7 +384,7 @@ func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.
 	}
 
 	// Check if there's already a validation failure condition set
-	condition := llmSvc.GetStatus().GetCondition(v1alpha1.HTTPRoutesReady)
+	condition := llmSvc.GetStatus().GetCondition(v1alpha2.HTTPRoutesReady)
 	if condition != nil && condition.IsFalse() && condition.Reason == RefsInvalidReason {
 		logger.Info("HTTPRoute validation failed, skipping readiness evaluation", "reason", condition.Reason, "message", condition.Message)
 		return nil
@@ -448,7 +449,7 @@ func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.
 // This function implements the dual-pool fallback strategy: it checks both v1 and v1alpha2 InferencePools
 // and marks the service as ready if EITHER pool is ready. This allows the service to work with v1alpha2
 // until the GIE v1 controller is available (e.g., in OpenShift environments without v1 integration yet).
-func (r *LLMInferenceServiceReconciler) EvaluateInferencePoolConditions(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) EvaluateInferencePoolConditions(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("EvaluateInferencePoolConditions")
 
 	// If no router or scheduler configuration, mark Inference Pools as ready (no Inference Pools to evaluate)

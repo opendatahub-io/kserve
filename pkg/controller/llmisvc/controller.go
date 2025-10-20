@@ -59,7 +59,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/utils"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 )
 
 var childResourcesPredicate, _ = predicate.LabelSelectorPredicate(metav1.LabelSelector{
@@ -107,7 +107,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	ctx = log.IntoContext(ctx, logger)
 
 	logger.Info("Starting reconciliation")
-	original := &v1alpha1.LLMInferenceService{}
+	original := &v1alpha2.LLMInferenceService{}
 	if err := r.Get(ctx, req.NamespacedName, original); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
@@ -117,7 +117,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 		if controllerutil.AddFinalizer(original, finalizerName) {
 			// Wrap finalizer addition in retry logic to handle resource version conflicts
 			if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-				latest := &v1alpha1.LLMInferenceService{}
+				latest := &v1alpha2.LLMInferenceService{}
 				if err := r.Get(ctx, req.NamespacedName, latest); err != nil {
 					return err
 				}
@@ -137,7 +137,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 
 			// Wrap finalizer removal in retry logic to handle resource version conflicts
 			if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-				latest := &v1alpha1.LLMInferenceService{}
+				latest := &v1alpha2.LLMInferenceService{}
 				if err := r.Get(ctx, req.NamespacedName, latest); err != nil {
 					return err
 				}
@@ -171,7 +171,7 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	return ctrl.Result{}, reconcileErr
 }
 
-func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("reconcile")
 	ctx = log.IntoContext(ctx, logger)
 
@@ -207,7 +207,7 @@ func (r *LLMInferenceServiceReconciler) reconcile(ctx context.Context, llmSvc *v
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) finalize(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) finalize(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	if err := r.reconcileSchedulerServiceAccount(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to finalize scheduler service account: %w", err)
 	}
@@ -219,9 +219,9 @@ func (r *LLMInferenceServiceReconciler) finalize(ctx context.Context, llmSvc *v1
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) updateStatus(ctx context.Context, desired *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) updateStatus(ctx context.Context, desired *v1alpha2.LLMInferenceService) error {
 	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
-		latest := &v1alpha1.LLMInferenceService{}
+		latest := &v1alpha2.LLMInferenceService{}
 		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(desired), latest); err != nil {
 			return err
 		}
@@ -246,11 +246,11 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 	logger := mgr.GetLogger().WithName("LLMInferenceService.SetupWithManager")
 
 	b := ctrl.NewControllerManagedBy(mgr).
-		For(&v1alpha1.LLMInferenceService{}).
+		For(&v1alpha2.LLMInferenceService{}).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: 8, // Reconcile different objects in parallel to increase throughput.
 		}).
-		Watches(&v1alpha1.LLMInferenceServiceConfig{}, r.enqueueOnLLMInferenceServiceConfigChange(logger)).
+		Watches(&v1alpha2.LLMInferenceServiceConfig{}, r.enqueueOnLLMInferenceServiceConfigChange(logger)).
 		Owns(&netv1.Ingress{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&appsv1.Deployment{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&corev1.Secret{}, builder.WithPredicates(childResourcesPredicate)).
@@ -338,7 +338,7 @@ func (r *LLMInferenceServiceReconciler) enqueueOnGatewayChange(logger logr.Logge
 
 		// When a Gateway is modified, we need to find all LLMInferenceService instances that might
 		// depend on it and trigger their reconciliation.
-		llmSvcList := &v1alpha1.LLMInferenceServiceList{}
+		llmSvcList := &v1alpha2.LLMInferenceServiceList{}
 		if err := r.Client.List(ctx, llmSvcList, &client.ListOptions{Namespace: listNamespace}); err != nil {
 			logger.Error(err, "Failed to list LLMInferenceService")
 			return reqs
@@ -382,7 +382,7 @@ func (r *LLMInferenceServiceReconciler) enqueueOnHttpRouteChange(logger logr.Log
 
 		// When an HTTPRoute is modified, we need to find all LLMInferenceService instances that might
 		// depend on it and trigger their reconciliation.
-		llmSvcList := &v1alpha1.LLMInferenceServiceList{}
+		llmSvcList := &v1alpha2.LLMInferenceServiceList{}
 		if err := r.Client.List(ctx, llmSvcList, &client.ListOptions{Namespace: listNamespace}); err != nil {
 			logger.Error(err, "Failed to list LLMInferenceService")
 			return reqs
@@ -410,7 +410,7 @@ func (r *LLMInferenceServiceReconciler) enqueueOnHttpRouteChange(logger logr.Log
 func (r *LLMInferenceServiceReconciler) enqueueOnLLMInferenceServiceConfigChange(logger logr.Logger) handler.EventHandler {
 	logger = logger.WithName("enqueueOnLLMInferenceServiceConfigChange")
 	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
-		sub := object.(*v1alpha1.LLMInferenceServiceConfig)
+		sub := object.(*v1alpha2.LLMInferenceServiceConfig)
 		reqs := make([]reconcile.Request, 0, 2)
 
 		listNamespace := sub.GetNamespace()
@@ -422,7 +422,7 @@ func (r *LLMInferenceServiceReconciler) enqueueOnLLMInferenceServiceConfigChange
 
 		// When an LLMInferenceServiceConfig is modified, we need to find all LLMInferenceService instances that might
 		// depend on it and trigger their reconciliation.
-		llmSvcList := &v1alpha1.LLMInferenceServiceList{}
+		llmSvcList := &v1alpha2.LLMInferenceServiceList{}
 		if err := r.Client.List(ctx, llmSvcList, &client.ListOptions{Namespace: listNamespace}); err != nil {
 			logger.Error(err, "Failed to list LLMInferenceService")
 			return reqs
@@ -487,7 +487,7 @@ func (r *LLMInferenceServiceReconciler) enqueueOnIstioShadowServiceChange(mgr ct
 			logger.V(2).Error(err, "failed to parse GroupVersion", "apiVersion", controller.APIVersion)
 		}
 
-		if controller.Kind != v1alpha1.LLMInferenceServiceGVK.Kind || gv.Group != v1alpha1.LLMInferenceServiceGVK.Group {
+		if controller.Kind != v1alpha2.LLMInferenceServiceGVK.Kind || gv.Group != v1alpha2.LLMInferenceServiceGVK.Group {
 			logger.V(2).Info("InferencePool is not controlled by LLMInferenceService", "pool", pool)
 			return nil
 		}
@@ -518,7 +518,7 @@ func (r *LLMInferenceServiceReconciler) enqueueOnV1Alpha2ResourceChange(logger l
 		}
 
 		// Check if the owner is an LLMInferenceService
-		if controller.Kind != v1alpha1.LLMInferenceServiceGVK.Kind || gv.Group != v1alpha1.LLMInferenceServiceGVK.Group {
+		if controller.Kind != v1alpha2.LLMInferenceServiceGVK.Kind || gv.Group != v1alpha2.LLMInferenceServiceGVK.Group {
 			logger.V(2).Info("v1alpha2 resource is not controlled by LLMInferenceService",
 				"resource", object.GetName(),
 				"owner.kind", controller.Kind,
@@ -559,7 +559,7 @@ func (r *LLMInferenceServiceReconciler) enqueueOnInferencePoolStatusChange(logge
 		}
 
 		// Check if the owner is an LLMInferenceService
-		if controller.Kind != v1alpha1.LLMInferenceServiceGVK.Kind || gv.Group != v1alpha1.LLMInferenceServiceGVK.Group {
+		if controller.Kind != v1alpha2.LLMInferenceServiceGVK.Kind || gv.Group != v1alpha2.LLMInferenceServiceGVK.Group {
 			logger.V(2).Info("v1 InferencePool is not controlled by LLMInferenceService",
 				"resource", object.GetName(),
 				"owner.kind", controller.Kind,

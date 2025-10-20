@@ -30,8 +30,7 @@ import (
 	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	knservingv1 "knative.dev/serving/pkg/apis/serving/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/kserve/kserve/pkg/apis"
 
 	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
@@ -44,8 +43,7 @@ func NewEnvTest(options ...Option) *Config {
 	)
 	schemes := WithScheme(
 		// KServe Schemes
-		v1alpha1.AddToScheme,
-		v1beta1.AddToScheme,
+		apis.AddToScheme,
 		// Kubernetes Schemes
 		corev1.AddToScheme,
 		rbacv1.AddToScheme,

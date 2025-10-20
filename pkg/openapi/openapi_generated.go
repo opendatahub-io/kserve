@@ -33,27 +33,53 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ClusterServingRuntimeList":     schema_pkg_apis_serving_v1alpha1_ClusterServingRuntimeList(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ClusterStorageContainer":       schema_pkg_apis_serving_v1alpha1_ClusterStorageContainer(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ClusterStorageContainerList":   schema_pkg_apis_serving_v1alpha1_ClusterStorageContainerList(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.EndpointPickerConfig":          schema_pkg_apis_serving_v1alpha1_EndpointPickerConfig(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.Extension":                     schema_pkg_apis_serving_v1alpha1_Extension(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ExtensionConnection":           schema_pkg_apis_serving_v1alpha1_ExtensionConnection(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ExtensionReference":            schema_pkg_apis_serving_v1alpha1_ExtensionReference(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.GIEInferencePoolSpec":          schema_pkg_apis_serving_v1alpha1_GIEInferencePoolSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.GatewayRoutesSpec":             schema_pkg_apis_serving_v1alpha1_GatewayRoutesSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.GatewaySpec":                   schema_pkg_apis_serving_v1alpha1_GatewaySpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.HTTPRouteSpec":                 schema_pkg_apis_serving_v1alpha1_HTTPRouteSpec(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.InferenceGraph":                schema_pkg_apis_serving_v1alpha1_InferenceGraph(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.InferenceGraphList":            schema_pkg_apis_serving_v1alpha1_InferenceGraphList(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.InferenceGraphSpec":            schema_pkg_apis_serving_v1alpha1_InferenceGraphSpec(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.InferenceGraphStatus":          schema_pkg_apis_serving_v1alpha1_InferenceGraphStatus(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.InferencePoolSpec":             schema_pkg_apis_serving_v1alpha1_InferencePoolSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.InferencePoolStatus":           schema_pkg_apis_serving_v1alpha1_InferencePoolStatus(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.InferenceRouter":               schema_pkg_apis_serving_v1alpha1_InferenceRouter(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.InferenceStep":                 schema_pkg_apis_serving_v1alpha1_InferenceStep(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.InferenceTarget":               schema_pkg_apis_serving_v1alpha1_InferenceTarget(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.IngressSpec":                   schema_pkg_apis_serving_v1alpha1_IngressSpec(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LLMInferenceService":           schema_pkg_apis_serving_v1alpha1_LLMInferenceService(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LLMInferenceServiceConfig":     schema_pkg_apis_serving_v1alpha1_LLMInferenceServiceConfig(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LLMInferenceServiceConfigList": schema_pkg_apis_serving_v1alpha1_LLMInferenceServiceConfigList(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LLMInferenceServiceList":       schema_pkg_apis_serving_v1alpha1_LLMInferenceServiceList(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LLMInferenceServiceSpec":       schema_pkg_apis_serving_v1alpha1_LLMInferenceServiceSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LLMInferenceServiceStatus":     schema_pkg_apis_serving_v1alpha1_LLMInferenceServiceStatus(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LLMModelSpec":                  schema_pkg_apis_serving_v1alpha1_LLMModelSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LoRASpec":                      schema_pkg_apis_serving_v1alpha1_LoRASpec(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LocalModelCache":               schema_pkg_apis_serving_v1alpha1_LocalModelCache(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LocalModelCacheList":           schema_pkg_apis_serving_v1alpha1_LocalModelCacheList(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LocalModelCacheSpec":           schema_pkg_apis_serving_v1alpha1_LocalModelCacheSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LocalModelCacheStatus":         schema_pkg_apis_serving_v1alpha1_LocalModelCacheStatus(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LocalModelInfo":                schema_pkg_apis_serving_v1alpha1_LocalModelInfo(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LocalModelNode":                schema_pkg_apis_serving_v1alpha1_LocalModelNode(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LocalModelNodeGroup":           schema_pkg_apis_serving_v1alpha1_LocalModelNodeGroup(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LocalModelNodeGroupList":       schema_pkg_apis_serving_v1alpha1_LocalModelNodeGroupList(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LocalModelNodeGroupSpec":       schema_pkg_apis_serving_v1alpha1_LocalModelNodeGroupSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LocalModelNodeGroupStatus":     schema_pkg_apis_serving_v1alpha1_LocalModelNodeGroupStatus(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LocalModelNodeList":            schema_pkg_apis_serving_v1alpha1_LocalModelNodeList(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LocalModelNodeSpec":            schema_pkg_apis_serving_v1alpha1_LocalModelNodeSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LocalModelNodeStatus":          schema_pkg_apis_serving_v1alpha1_LocalModelNodeStatus(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ModelCopies":                   schema_pkg_apis_serving_v1alpha1_ModelCopies(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ModelSpec":                     schema_pkg_apis_serving_v1alpha1_ModelSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.NamespacedName":                schema_pkg_apis_serving_v1alpha1_NamespacedName(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ParallelismSpec":               schema_pkg_apis_serving_v1alpha1_ParallelismSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ParentGatewayReference":        schema_pkg_apis_serving_v1alpha1_ParentGatewayReference(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.PoolStatus":                    schema_pkg_apis_serving_v1alpha1_PoolStatus(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.RouterSpec":                    schema_pkg_apis_serving_v1alpha1_RouterSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.SchedulerSpec":                 schema_pkg_apis_serving_v1alpha1_SchedulerSpec(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ServingRuntime":                schema_pkg_apis_serving_v1alpha1_ServingRuntime(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ServingRuntimeList":            schema_pkg_apis_serving_v1alpha1_ServingRuntimeList(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ServingRuntimePodSpec":         schema_pkg_apis_serving_v1alpha1_ServingRuntimePodSpec(ref),
@@ -62,14 +88,33 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.StorageContainerSpec":          schema_pkg_apis_serving_v1alpha1_StorageContainerSpec(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.StorageHelper":                 schema_pkg_apis_serving_v1alpha1_StorageHelper(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.SupportedModelFormat":          schema_pkg_apis_serving_v1alpha1_SupportedModelFormat(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.SupportedRuntime":              schema_pkg_apis_serving_v1alpha1_SupportedRuntime(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.SupportedUriFormat":            schema_pkg_apis_serving_v1alpha1_SupportedUriFormat(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.TrainedModel":                  schema_pkg_apis_serving_v1alpha1_TrainedModel(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.TrainedModelList":              schema_pkg_apis_serving_v1alpha1_TrainedModelList(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.TrainedModelSpec":              schema_pkg_apis_serving_v1alpha1_TrainedModelSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.TrainedModelStatus":            schema_pkg_apis_serving_v1alpha1_TrainedModelStatus(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.UntypedObjectReference":        schema_pkg_apis_serving_v1alpha1_UntypedObjectReference(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.WorkerSpec":                    schema_pkg_apis_serving_v1alpha1_WorkerSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.WorkloadSpec":                  schema_pkg_apis_serving_v1alpha1_WorkloadSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.GatewayRoutesSpec":             schema_pkg_apis_serving_v1alpha2_GatewayRoutesSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.GatewaySpec":                   schema_pkg_apis_serving_v1alpha2_GatewaySpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.HTTPRouteSpec":                 schema_pkg_apis_serving_v1alpha2_HTTPRouteSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.InferencePoolSpec":             schema_pkg_apis_serving_v1alpha2_InferencePoolSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.IngressSpec":                   schema_pkg_apis_serving_v1alpha2_IngressSpec(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.LLMInferenceService":           schema_pkg_apis_serving_v1alpha2_LLMInferenceService(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.LLMInferenceServiceConfig":     schema_pkg_apis_serving_v1alpha2_LLMInferenceServiceConfig(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.LLMInferenceServiceConfigList": schema_pkg_apis_serving_v1alpha2_LLMInferenceServiceConfigList(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.LLMInferenceServiceList":       schema_pkg_apis_serving_v1alpha2_LLMInferenceServiceList(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.LLMInferenceServiceSpec":       schema_pkg_apis_serving_v1alpha2_LLMInferenceServiceSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.LLMInferenceServiceStatus":     schema_pkg_apis_serving_v1alpha2_LLMInferenceServiceStatus(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.LLMModelSpec":                  schema_pkg_apis_serving_v1alpha2_LLMModelSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.LoRASpec":                      schema_pkg_apis_serving_v1alpha2_LoRASpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.ParallelismSpec":               schema_pkg_apis_serving_v1alpha2_ParallelismSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.RouterSpec":                    schema_pkg_apis_serving_v1alpha2_RouterSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.SchedulerSpec":                 schema_pkg_apis_serving_v1alpha2_SchedulerSpec(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.UntypedObjectReference":        schema_pkg_apis_serving_v1alpha2_UntypedObjectReference(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.WorkloadSpec":                  schema_pkg_apis_serving_v1alpha2_WorkloadSpec(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1beta1.ARTExplainerSpec":               schema_pkg_apis_serving_v1beta1_ARTExplainerSpec(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1beta1.AuthenticationRef":              schema_pkg_apis_serving_v1beta1_AuthenticationRef(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1beta1.AutoScalingSpec":                schema_pkg_apis_serving_v1beta1_AutoScalingSpec(ref),
@@ -379,6 +424,269 @@ func schema_pkg_apis_serving_v1alpha1_ClusterStorageContainerList(ref common.Ref
 	}
 }
 
+func schema_pkg_apis_serving_v1alpha1_EndpointPickerConfig(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "EndpointPickerConfig specifies the configuration needed by the proxy to discover and connect to the endpoint picker extension. This type is intended to be a union of mutually exclusive configuration options that we may add in the future.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"extensionRef": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Extension configures an endpoint picker as an extension service.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.Extension"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.Extension"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_Extension(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "Extension specifies how to configure an extension that runs the endpoint picker.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"group": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Group is the group of the referent. The default value is \"\", representing the Core API group.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is the Kubernetes resource kind of the referent. For example \"Service\".\n\nDefaults to \"Service\" when not specified.\n\nExternalName services can refer to CNAME DNS records that may live outside of the cluster and as such are difficult to reason about in terms of conformance. They also may not be safe to forward to (see CVE-2021-25740 for more information). Implementations MUST NOT support ExternalName Services.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"name": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Name is the name of the referent.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"portNumber": {
+						SchemaProps: spec.SchemaProps{
+							Description: "The port number on the service running the extension. When unspecified, implementations SHOULD infer a default value of 9002 when the Kind is Service.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"failureMode": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Configures how the gateway handles the case when the extension is not responsive. Defaults to failClose.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_ExtensionConnection(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "ExtensionConnection encapsulates options that configures the connection to the extension.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"failureMode": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Configures how the gateway handles the case when the extension is not responsive. Defaults to failClose.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_ExtensionReference(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "ExtensionReference is a reference to the extension.\n\nConnections to this extension MUST use TLS by default. Implementations MAY provide a way to customize this connection to use cleartext, a different protocol, or custom TLS configuration.\n\nIf a reference is invalid, the implementation MUST update the `ResolvedRefs` Condition on the InferencePool's status to `status: False`. A 5XX status code MUST be returned for the request that would have otherwise been routed to the invalid backend.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"group": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Group is the group of the referent. The default value is \"\", representing the Core API group.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is the Kubernetes resource kind of the referent. For example \"Service\".\n\nDefaults to \"Service\" when not specified.\n\nExternalName services can refer to CNAME DNS records that may live outside of the cluster and as such are difficult to reason about in terms of conformance. They also may not be safe to forward to (see CVE-2021-25740 for more information). Implementations MUST NOT support ExternalName Services.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"name": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Name is the name of the referent.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"portNumber": {
+						SchemaProps: spec.SchemaProps{
+							Description: "The port number on the service running the extension. When unspecified, implementations SHOULD infer a default value of 9002 when the Kind is Service.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_GIEInferencePoolSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "GIEInferencePoolSpec defines the desired state of InferencePool",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"selector": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Selector defines a map of labels to watch model server pods that should be included in the InferencePool. In some cases, implementations may translate this field to a Service selector, so this matches the simple map used for Service selectors instead of the full Kubernetes LabelSelector type. If sepecified, it will be applied to match the model server pods in the same namespace as the InferencePool. Cross namesoace selector is not supported.",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Allows: true,
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+					"targetPortNumber": {
+						SchemaProps: spec.SchemaProps{
+							Description: "TargetPortNumber defines the port number to access the selected model servers. The number must be in the range 1 to 65535.",
+							Default:     0,
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"extensionRef": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Extension configures an endpoint picker as an extension service.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.Extension"),
+						},
+					},
+				},
+				Required: []string{"selector", "targetPortNumber"},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.Extension"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_GatewayRoutesSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "GatewayRoutesSpec defines the configuration for a Gateway API route.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"http": {
+						SchemaProps: spec.SchemaProps{
+							Description: "HTTP route configuration.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.HTTPRouteSpec"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.HTTPRouteSpec"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_GatewaySpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "GatewaySpec defines the configuration for a Gateway API Gateway.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"refs": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Refs provides references to existing, user-managed Gateway objects (\"Bring Your Own\" gateway). The controller will use the specified Gateway instead of creating one.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.UntypedObjectReference"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.UntypedObjectReference"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_HTTPRouteSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "HTTPRouteSpec defines configurations for a Gateway API HTTPRoute. 'Spec' and 'Refs' are mutually exclusive and determine whether the route is managed by the controller or user-managed.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"refs": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Refs provides references to existing, user-managed HTTPRoute objects (\"Bring Your Own\" route). The controller will validate the existence of these routes but will not modify them.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("k8s.io/api/core/v1.LocalObjectReference"),
+									},
+								},
+							},
+						},
+					},
+					"spec": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Spec allows for providing a custom specification for an HTTPRoute. If provided, the controller will create and manage an HTTPRoute with this specification.",
+							Ref:         ref("sigs.k8s.io/gateway-api/apis/v1.HTTPRouteSpec"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/api/core/v1.LocalObjectReference", "sigs.k8s.io/gateway-api/apis/v1.HTTPRouteSpec"},
+	}
+}
+
 func schema_pkg_apis_serving_v1alpha1_InferenceGraph(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -672,6 +980,62 @@ func schema_pkg_apis_serving_v1alpha1_InferenceGraphStatus(ref common.ReferenceC
 	}
 }
 
+func schema_pkg_apis_serving_v1alpha1_InferencePoolSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "InferencePoolSpec defines the configuration for an InferencePool. 'Spec' and 'Ref' are mutually exclusive.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"spec": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Spec defines an inline InferencePool specification.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.GIEInferencePoolSpec"),
+						},
+					},
+					"ref": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Ref is a reference to an existing InferencePool.",
+							Ref:         ref("k8s.io/api/core/v1.LocalObjectReference"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.GIEInferencePoolSpec", "k8s.io/api/core/v1.LocalObjectReference"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_InferencePoolStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "InferencePoolStatus defines the observed state of InferencePool.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"parent": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Parents is a list of parent resources (usually Gateways) that are associated with the InferencePool, and the status of the InferencePool with respect to each parent.\n\nA maximum of 32 Gateways will be represented in this list. When the list contains `kind: Status, name: default`, it indicates that the InferencePool is not associated with any Gateway and a controller must perform the following:\n\n - Remove the parent when setting the \"Accepted\" condition.\n - Add the parent when the controller will no longer manage the InferencePool\n   and no other parents exist.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.PoolStatus"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.PoolStatus"},
+	}
+}
+
 func schema_pkg_apis_serving_v1alpha1_InferenceRouter(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -810,6 +1174,35 @@ func schema_pkg_apis_serving_v1alpha1_InferenceTarget(ref common.ReferenceCallba
 				},
 			},
 		},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_IngressSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "IngressSpec defines the configuration for a Kubernetes Ingress.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"refs": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Refs provides a reference to an existing, user-managed Ingress object (\"Bring Your Own\" ingress). The controller will not create an Ingress but will use the referenced one to populate status URLs.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.UntypedObjectReference"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.UntypedObjectReference"},
 	}
 }
 
@@ -999,6 +1392,234 @@ func schema_pkg_apis_serving_v1alpha1_LLMInferenceServiceList(ref common.Referen
 	}
 }
 
+func schema_pkg_apis_serving_v1alpha1_LLMInferenceServiceSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "LLMInferenceServiceSpec defines the desired state of LLMInferenceService.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"model": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Model specification, including its URI, potential LoRA adapters, and storage details. It's optional for `LLMInferenceServiceConfig` kind.",
+							Default:     map[string]interface{}{},
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LLMModelSpec"),
+						},
+					},
+					"replicas": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Number of replicas for the deployment.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"parallelism": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Parallelism configurations for the runtime, such as tensor and pipeline parallelism. These values are used to configure the underlying inference runtime (e.g., vLLM).",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ParallelismSpec"),
+						},
+					},
+					"template": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Template for the main pod spec. In a multi-node deployment, this configures the \"head\" or \"master\" pod. In a disaggregated deployment, this configures the \"decode\" pod if it's the top-level template, or the \"prefill\" pod if it's within the Prefill block.",
+							Ref:         ref("k8s.io/api/core/v1.PodSpec"),
+						},
+					},
+					"worker": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Worker configuration for multi-node deployments. The presence of this field triggers the creation of a multi-node (distributed) setup. This spec defines the configuration for the worker pods, while the main 'Template' field defines the head pod. The controller is responsible for enabling discovery between head and worker pods.",
+							Ref:         ref("k8s.io/api/core/v1.PodSpec"),
+						},
+					},
+					"router": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Router configuration for how the service is exposed. This section dictates the creation and management of networking resources like Ingress or Gateway API objects (HTTPRoute, Gateway).",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.RouterSpec"),
+						},
+					},
+					"prefill": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Prefill configuration for disaggregated serving. When this section is included, the controller creates a separate deployment for prompt processing (prefill) in addition to the main 'decode' deployment, inspired by the llm-d architecture. This allows for independent scaling and hardware allocation for prefill and decode steps.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.WorkloadSpec"),
+						},
+					},
+					"baseRefs": {
+						SchemaProps: spec.SchemaProps{
+							Description: "BaseRefs allows inheriting and overriding configurations from one or more LLMInferenceServiceConfig instances. The controller merges these base configurations, with the current LLMInferenceService spec taking the highest precedence. When multiple baseRefs are provided, the last one in the list overrides previous ones.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("k8s.io/api/core/v1.LocalObjectReference"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LLMModelSpec", "github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ParallelismSpec", "github.com/kserve/kserve/pkg/apis/serving/v1alpha1.RouterSpec", "github.com/kserve/kserve/pkg/apis/serving/v1alpha1.WorkloadSpec", "k8s.io/api/core/v1.LocalObjectReference", "k8s.io/api/core/v1.PodSpec"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_LLMInferenceServiceStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "LLMInferenceServiceStatus defines the observed state of LLMInferenceService.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"url": {
+						SchemaProps: spec.SchemaProps{
+							Description: "URL of the publicly exposed service.",
+							Ref:         ref("knative.dev/pkg/apis.URL"),
+						},
+					},
+					"observedGeneration": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ObservedGeneration is the 'Generation' of the Service that was last processed by the controller.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"conditions": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-patch-merge-key": "type",
+								"x-kubernetes-patch-strategy":  "merge",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "Conditions the latest available observations of a resource's current state.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("knative.dev/pkg/apis.Condition"),
+									},
+								},
+							},
+						},
+					},
+					"annotations": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Annotations is additional Status fields for the Resource to save some additional State as well as convey more information to the user. This is roughly akin to Annotations on any k8s resource, just the reconciler conveying richer information outwards.",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Allows: true,
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+					"address": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Address is a single Addressable address. If Addresses is present, Address will be ignored by clients.",
+							Ref:         ref("knative.dev/pkg/apis/duck/v1.Addressable"),
+						},
+					},
+					"addresses": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Addresses is a list of addresses for different protocols (HTTP and HTTPS) If Addresses is present, Address must be ignored by clients.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("knative.dev/pkg/apis/duck/v1.Addressable"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"knative.dev/pkg/apis.Condition", "knative.dev/pkg/apis.URL", "knative.dev/pkg/apis/duck/v1.Addressable"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_LLMModelSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "LLMModelSpec defines the model source and its characteristics.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"uri": {
+						SchemaProps: spec.SchemaProps{
+							Description: "URI of the model, specifying its location, e.g., hf://meta-llama/Llama-4-Scout-17B-16E-Instruct The storage-initializer init container uses this URI to download the model.",
+							Ref:         ref("knative.dev/pkg/apis.URL"),
+						},
+					},
+					"name": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Name is the name of the model as it will be set in the \"model\" parameter for an incoming request. If omitted, it will default to `metadata.name`. For LoRA adapters, this field is required.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"criticality": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Criticality defines how important it is to serve the model compared to other models. This is used by the Inference Gateway scheduler.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"lora": {
+						SchemaProps: spec.SchemaProps{
+							Description: "LoRA (Low-Rank Adaptation) adapters configurations. Allows for specifying one or more LoRA adapters to be applied to the base model.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LoRASpec"),
+						},
+					},
+				},
+				Required: []string{"uri"},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LoRASpec", "knative.dev/pkg/apis.URL"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_LoRASpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "LoRASpec defines the configuration for LoRA adapters.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"adapters": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Adapters is the static specification for one or more LoRA adapters. Each adapter is defined by its own ModelSpec. This type is recursive https://github.com/kubernetes-sigs/controller-tools/issues/585",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LLMModelSpec"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.LLMModelSpec"},
+	}
+}
+
 func schema_pkg_apis_serving_v1alpha1_LocalModelCache(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -1137,6 +1758,85 @@ func schema_pkg_apis_serving_v1alpha1_LocalModelCacheSpec(ref common.ReferenceCa
 		},
 		Dependencies: []string{
 			"k8s.io/apimachinery/pkg/api/resource.Quantity"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_LocalModelCacheStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"nodeStatus": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Status of the model on a node, like NodeDownloaded or NodeNotReady",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Allows: true,
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+					"copies": {
+						SchemaProps: spec.SchemaProps{
+							Description: "How many nodes have the model available locally",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ModelCopies"),
+						},
+					},
+					"inferenceServices": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Inference services using this local model",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.NamespacedName"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ModelCopies", "github.com/kserve/kserve/pkg/apis/serving/v1alpha1.NamespacedName"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_LocalModelInfo(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"sourceModelUri": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Original StorageUri",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"modelName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Model name. Used as the subdirectory name to store this model on local file system",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+				Required: []string{"sourceModelUri", "modelName"},
+			},
+		},
 	}
 }
 
@@ -1316,6 +2016,32 @@ func schema_pkg_apis_serving_v1alpha1_LocalModelNodeGroupSpec(ref common.Referen
 	}
 }
 
+func schema_pkg_apis_serving_v1alpha1_LocalModelNodeGroupStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"used": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Used storage space on any node for this node group",
+							Ref:         ref("k8s.io/apimachinery/pkg/api/resource.Quantity"),
+						},
+					},
+					"available": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Available storage space on any node for this node group",
+							Ref:         ref("k8s.io/apimachinery/pkg/api/resource.Quantity"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/apimachinery/pkg/api/resource.Quantity"},
+	}
+}
+
 func schema_pkg_apis_serving_v1alpha1_LocalModelNodeList(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -1393,6 +2119,66 @@ func schema_pkg_apis_serving_v1alpha1_LocalModelNodeSpec(ref common.ReferenceCal
 	}
 }
 
+func schema_pkg_apis_serving_v1alpha1_LocalModelNodeStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"modelStatus": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Status of each local model",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Allows: true,
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_ModelCopies(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"available": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"integer"},
+							Format: "int32",
+						},
+					},
+					"total": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Total number of nodes that we expect the model to be downloaded. Including nodes that are not ready",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"failed": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Download Failed",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
 func schema_pkg_apis_serving_v1alpha1_ModelSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
@@ -1428,6 +2214,238 @@ func schema_pkg_apis_serving_v1alpha1_ModelSpec(ref common.ReferenceCallback) co
 		},
 		Dependencies: []string{
 			"k8s.io/apimachinery/pkg/api/resource.Quantity"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_NamespacedName(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Type: []string{"object"},
+				Properties: map[string]spec.Schema{
+					"namespace": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"string"},
+							Format: "",
+						},
+					},
+					"name": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"string"},
+							Format: "",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_ParallelismSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "ParallelismSpec defines the parallelism parameters for distributed inference.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"tensor": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Tensor parallelism size.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"pipeline": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Pipeline parallelism size.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"data": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Data parallelism size.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"dataLocal": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DataLocal data local parallelism size.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"dataRPCPort": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DataRPCPort is the data parallelism RPC port.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"expert": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Expert enables expert parallelism.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_ParentGatewayReference(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "ParentGatewayReference identifies an API object including its namespace, defaulting to Gateway.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"group": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Group is the group of the referent.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"kind": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Kind is kind of the referent. For example \"Gateway\".",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"name": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Name is the name of the referent.",
+							Default:     "",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"namespace": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Namespace is the namespace of the referent.  If not present, the namespace of the referent is assumed to be the same as the namespace of the referring object.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_PoolStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "PoolStatus defines the observed state of InferencePool from a Gateway.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"parentRef": {
+						SchemaProps: spec.SchemaProps{
+							Description: "GatewayRef indicates the gateway that observed state of InferencePool.",
+							Default:     map[string]interface{}{},
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ParentGatewayReference"),
+						},
+					},
+					"conditions": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-list-map-keys": []interface{}{
+									"type",
+								},
+								"x-kubernetes-list-type": "map",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "Conditions track the state of the InferencePool.\n\nKnown condition types are:\n\n* \"Accepted\" * \"ResolvedRefs\"",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("k8s.io/apimachinery/pkg/apis/meta/v1.Condition"),
+									},
+								},
+							},
+						},
+					},
+				},
+				Required: []string{"parentRef"},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ParentGatewayReference", "k8s.io/apimachinery/pkg/apis/meta/v1.Condition"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_RouterSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "RouterSpec defines the routing configuration for exposing the service. It supports Kubernetes Ingress and the Gateway API. The fields are mutually exclusive.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"route": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Route configuration for the Gateway API. If an empty object `{}` is provided, the controller creates and manages a new HTTPRoute.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.GatewayRoutesSpec"),
+						},
+					},
+					"gateway": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Gateway configuration for the Gateway API, mutually exclusive with Ingress. If an empty object `{}` is provided, the controller uses a default Gateway. This must be used in conjunction with the 'Route' field for managed Gateway API resources.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.GatewaySpec"),
+						},
+					},
+					"ingress": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Ingress configuration. This is mutually exclusive with Route and Gateway. If an empty object `{}` is provided, the controller creates and manages a default Ingress resource.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.IngressSpec"),
+						},
+					},
+					"scheduler": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Scheduler configuration for the Inference Gateway extension. If this field is non-empty, an InferenceModel resource will be created to integrate with the gateway's scheduler.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.SchedulerSpec"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.GatewayRoutesSpec", "github.com/kserve/kserve/pkg/apis/serving/v1alpha1.GatewaySpec", "github.com/kserve/kserve/pkg/apis/serving/v1alpha1.IngressSpec", "github.com/kserve/kserve/pkg/apis/serving/v1alpha1.SchedulerSpec"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_SchedulerSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "SchedulerSpec defines the Inference Gateway extension configuration.\n\nThe SchedulerSpec configures the connection from the Gateway to the model deployment leveraging the LLM optimized request Scheduler, also known as the Endpoint Picker (EPP) which determines the exact pod that should handle the request and responds back to Envoy with the target pod, Envoy will then forward the request to the chosen pod.\n\nThe Scheduler is only effective when having multiple inference pod replicas.\n\nStep 1: Gateway (Envoy) <-- ExtProc --> EPP (select the optimal replica to handle the request) Step 2: Gateway (Envoy) <-- forward request --> Inference Pod X",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"pool": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Pool configuration for the InferencePool, which is part of the Inference Gateway extension.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.InferencePoolSpec"),
+						},
+					},
+					"template": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Template for the Inference Gateway Extension pod spec. This configures the Endpoint Picker (EPP) Deployment.",
+							Ref:         ref("k8s.io/api/core/v1.PodSpec"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.InferencePoolSpec", "k8s.io/api/core/v1.PodSpec"},
 	}
 }
 
@@ -2025,9 +3043,37 @@ func schema_pkg_apis_serving_v1alpha1_SupportedModelFormat(ref common.ReferenceC
 						},
 					},
 				},
-				
 			},
 		},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_SupportedRuntime(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "SupportedRuntime is the schema for supported runtime result of automatic selection",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"Name": {
+						SchemaProps: spec.SchemaProps{
+							Default: "",
+							Type:    []string{"string"},
+							Format:  "",
+						},
+					},
+					"Spec": {
+						SchemaProps: spec.SchemaProps{
+							Default: map[string]interface{}{},
+							Ref:     ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ServingRuntimeSpec"),
+						},
+					},
+				},
+				Required: []string{"Name", "Spec"},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ServingRuntimeSpec"},
 	}
 }
 
@@ -2185,6 +3231,449 @@ func schema_pkg_apis_serving_v1alpha1_TrainedModelSpec(ref common.ReferenceCallb
 		},
 		Dependencies: []string{
 			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ModelSpec"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_TrainedModelStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "TrainedModelStatus defines the observed state of TrainedModel",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"observedGeneration": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ObservedGeneration is the 'Generation' of the Service that was last processed by the controller.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"conditions": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-patch-merge-key": "type",
+								"x-kubernetes-patch-strategy":  "merge",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "Conditions the latest available observations of a resource's current state.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("knative.dev/pkg/apis.Condition"),
+									},
+								},
+							},
+						},
+					},
+					"annotations": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Annotations is additional Status fields for the Resource to save some additional State as well as convey more information to the user. This is roughly akin to Annotations on any k8s resource, just the reconciler conveying richer information outwards.",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Allows: true,
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+					"url": {
+						SchemaProps: spec.SchemaProps{
+							Description: "URL holds the url that will distribute traffic over the provided traffic targets. For v1: http[s]://{route-name}.{route-namespace}.{cluster-level-suffix}/v1/models/<trainedmodel>:predict For v2: http[s]://{route-name}.{route-namespace}.{cluster-level-suffix}/v2/models/<trainedmodel>/infer",
+							Ref:         ref("knative.dev/pkg/apis.URL"),
+						},
+					},
+					"address": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Addressable endpoint for the deployed trained model http://<inferenceservice.metadata.name>/v1/models/<trainedmodel>.metadata.name",
+							Ref:         ref("knative.dev/pkg/apis/duck/v1.Addressable"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"knative.dev/pkg/apis.Condition", "knative.dev/pkg/apis.URL", "knative.dev/pkg/apis/duck/v1.Addressable"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_UntypedObjectReference(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "UntypedObjectReference is a reference to an object without a specific Group/Version/Kind. It's used for referencing networking resources like Gateways and Ingresses where the exact type might be inferred or is not strictly required by this controller.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"name": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Name of the referenced object.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"namespace": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Namespace of the referenced object.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_WorkerSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "WorkerSpec is the schema for multi-node/multi-GPU feature",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"containers": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-patch-merge-key": "name",
+								"x-kubernetes-patch-strategy":  "merge",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "List of containers belonging to the pod. Containers cannot currently be added or removed. There must be at least one container in a Pod. Cannot be updated.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("k8s.io/api/core/v1.Container"),
+									},
+								},
+							},
+						},
+					},
+					"volumes": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-patch-merge-key": "name",
+								"x-kubernetes-patch-strategy":  "merge,retainKeys",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "List of volumes that can be mounted by containers belonging to the pod. More info: https://kubernetes.io/docs/concepts/storage/volumes",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("k8s.io/api/core/v1.Volume"),
+									},
+								},
+							},
+						},
+					},
+					"nodeSelector": {
+						SchemaProps: spec.SchemaProps{
+							Description: "NodeSelector is a selector which must be true for the pod to fit on a node. Selector which must match a node's labels for the pod to be scheduled on that node. More info: https://kubernetes.io/docs/concepts/configuration/assign-pod-node/",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Allows: true,
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+					"affinity": {
+						SchemaProps: spec.SchemaProps{
+							Description: "If specified, the pod's scheduling constraints",
+							Ref:         ref("k8s.io/api/core/v1.Affinity"),
+						},
+					},
+					"tolerations": {
+						SchemaProps: spec.SchemaProps{
+							Description: "If specified, the pod's tolerations.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("k8s.io/api/core/v1.Toleration"),
+									},
+								},
+							},
+						},
+					},
+					"labels": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Labels that will be add to the pod. More info: http://kubernetes.io/docs/user-guide/labels",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Allows: true,
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+					"annotations": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Annotations that will be add to the pod. More info: http://kubernetes.io/docs/user-guide/annotations",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Allows: true,
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+					"imagePullSecrets": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-patch-merge-key": "name",
+								"x-kubernetes-patch-strategy":  "merge",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "ImagePullSecrets is an optional list of references to secrets in the same namespace to use for pulling any of the images used by this PodSpec. If specified, these secrets will be passed to individual puller implementations for them to use. For example, in the case of docker, only DockerConfig type secrets are honored. More info: https://kubernetes.io/docs/concepts/containers/images#specifying-imagepullsecrets-on-a-pod",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("k8s.io/api/core/v1.LocalObjectReference"),
+									},
+								},
+							},
+						},
+					},
+					"hostIPC": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Use the host's ipc namespace. Optional: Default to false.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
+					"pipelineParallelSize": {
+						SchemaProps: spec.SchemaProps{
+							Description: "PipelineParallelSize defines the number of parallel workers. It specifies the number of model partitions across multiple devices, allowing large models to be split and processed concurrently across these partitions It also represents the number of replicas in the worker set, where each worker set serves as a scaling unit.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"tensorParallelSize": {
+						SchemaProps: spec.SchemaProps{
+							Description: "TensorParallelSize specifies the number of GPUs to be used per node. It indicates the degree of parallelism for tensor computations across the available GPUs.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+				},
+				Required: []string{"containers"},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/api/core/v1.Affinity", "k8s.io/api/core/v1.Container", "k8s.io/api/core/v1.LocalObjectReference", "k8s.io/api/core/v1.Toleration", "k8s.io/api/core/v1.Volume"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha1_WorkloadSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "WorkloadSpec defines the configuration for a deployment workload, such as replicas and pod specifications.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"replicas": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Number of replicas for the deployment.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"parallelism": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Parallelism configurations for the runtime, such as tensor and pipeline parallelism. These values are used to configure the underlying inference runtime (e.g., vLLM).",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ParallelismSpec"),
+						},
+					},
+					"template": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Template for the main pod spec. In a multi-node deployment, this configures the \"head\" or \"master\" pod. In a disaggregated deployment, this configures the \"decode\" pod if it's the top-level template, or the \"prefill\" pod if it's within the Prefill block.",
+							Ref:         ref("k8s.io/api/core/v1.PodSpec"),
+						},
+					},
+					"worker": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Worker configuration for multi-node deployments. The presence of this field triggers the creation of a multi-node (distributed) setup. This spec defines the configuration for the worker pods, while the main 'Template' field defines the head pod. The controller is responsible for enabling discovery between head and worker pods.",
+							Ref:         ref("k8s.io/api/core/v1.PodSpec"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha1.ParallelismSpec", "k8s.io/api/core/v1.PodSpec"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha2_GatewayRoutesSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "GatewayRoutesSpec defines the configuration for a Gateway API route.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"http": {
+						SchemaProps: spec.SchemaProps{
+							Description: "HTTP route configuration.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha2.HTTPRouteSpec"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.HTTPRouteSpec"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha2_GatewaySpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "GatewaySpec defines the configuration for a Gateway API Gateway.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"refs": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Refs provides references to existing, user-managed Gateway objects (\"Bring Your Own\" gateway). The controller will use the specified Gateway instead of creating one.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha2.UntypedObjectReference"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.UntypedObjectReference"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha2_HTTPRouteSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "HTTPRouteSpec defines configurations for a Gateway API HTTPRoute. 'Spec' and 'Refs' are mutually exclusive and determine whether the route is managed by the controller or user-managed.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"refs": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Refs provides references to existing, user-managed HTTPRoute objects (\"Bring Your Own\" route). The controller will validate the existence of these routes but will not modify them.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("k8s.io/api/core/v1.LocalObjectReference"),
+									},
+								},
+							},
+						},
+					},
+					"spec": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Spec allows for providing a custom specification for an HTTPRoute. If provided, the controller will create and manage an HTTPRoute with this specification.",
+							Ref:         ref("sigs.k8s.io/gateway-api/apis/v1.HTTPRouteSpec"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/api/core/v1.LocalObjectReference", "sigs.k8s.io/gateway-api/apis/v1.HTTPRouteSpec"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha2_InferencePoolSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "InferencePoolSpec defines the configuration for an InferencePool. 'Spec' and 'Ref' are mutually exclusive.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"spec": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Spec defines an inline InferencePool specification.",
+							Ref:         ref("sigs.k8s.io/gateway-api-inference-extension/api/v1.InferencePoolSpec"),
+						},
+					},
+					"ref": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Ref is a reference to an existing InferencePool.",
+							Ref:         ref("k8s.io/api/core/v1.LocalObjectReference"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"k8s.io/api/core/v1.LocalObjectReference", "sigs.k8s.io/gateway-api-inference-extension/api/v1.InferencePoolSpec"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha2_IngressSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "IngressSpec defines the configuration for a Kubernetes Ingress.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"refs": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Refs provides a reference to an existing, user-managed Ingress object (\"Bring Your Own\" ingress). The controller will not create an Ingress but will use the referenced one to populate status URLs.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha2.UntypedObjectReference"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.UntypedObjectReference"},
 	}
 }
 
@@ -2371,6 +3860,415 @@ func schema_pkg_apis_serving_v1alpha2_LLMInferenceServiceList(ref common.Referen
 		},
 		Dependencies: []string{
 			"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.LLMInferenceService", "k8s.io/apimachinery/pkg/apis/meta/v1.ListMeta"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha2_LLMInferenceServiceSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "LLMInferenceServiceSpec defines the desired state of LLMInferenceService.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"model": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Model specification, including its URI, potential LoRA adapters, and storage details. It's optional for `LLMInferenceServiceConfig` kind.",
+							Default:     map[string]interface{}{},
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha2.LLMModelSpec"),
+						},
+					},
+					"replicas": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Number of replicas for the deployment.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"parallelism": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Parallelism configurations for the runtime, such as tensor and pipeline parallelism. These values are used to configure the underlying inference runtime (e.g., vLLM).",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha2.ParallelismSpec"),
+						},
+					},
+					"template": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Template for the main pod spec. In a multi-node deployment, this configures the \"head\" or \"master\" pod. In a disaggregated deployment, this configures the \"decode\" pod if it's the top-level template, or the \"prefill\" pod if it's within the Prefill block.",
+							Ref:         ref("k8s.io/api/core/v1.PodSpec"),
+						},
+					},
+					"worker": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Worker configuration for multi-node deployments. The presence of this field triggers the creation of a multi-node (distributed) setup. This spec defines the configuration for the worker pods, while the main 'Template' field defines the head pod. The controller is responsible for enabling discovery between head and worker pods.",
+							Ref:         ref("k8s.io/api/core/v1.PodSpec"),
+						},
+					},
+					"router": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Router configuration for how the service is exposed. This section dictates the creation and management of networking resources like Ingress or Gateway API objects (HTTPRoute, Gateway).",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha2.RouterSpec"),
+						},
+					},
+					"prefill": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Prefill configuration for disaggregated serving. When this section is included, the controller creates a separate deployment for prompt processing (prefill) in addition to the main 'decode' deployment, inspired by the llm-d architecture. This allows for independent scaling and hardware allocation for prefill and decode steps.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha2.WorkloadSpec"),
+						},
+					},
+					"baseRefs": {
+						SchemaProps: spec.SchemaProps{
+							Description: "BaseRefs allows inheriting and overriding configurations from one or more LLMInferenceServiceConfig instances. The controller merges these base configurations, with the current LLMInferenceService spec taking the highest precedence. When multiple baseRefs are provided, the last one in the list overrides previous ones.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("k8s.io/api/core/v1.LocalObjectReference"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.LLMModelSpec", "github.com/kserve/kserve/pkg/apis/serving/v1alpha2.ParallelismSpec", "github.com/kserve/kserve/pkg/apis/serving/v1alpha2.RouterSpec", "github.com/kserve/kserve/pkg/apis/serving/v1alpha2.WorkloadSpec", "k8s.io/api/core/v1.LocalObjectReference", "k8s.io/api/core/v1.PodSpec"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha2_LLMInferenceServiceStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "LLMInferenceServiceStatus defines the observed state of LLMInferenceService.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"url": {
+						SchemaProps: spec.SchemaProps{
+							Description: "URL of the publicly exposed service.",
+							Ref:         ref("knative.dev/pkg/apis.URL"),
+						},
+					},
+					"observedGeneration": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ObservedGeneration is the 'Generation' of the Service that was last processed by the controller.",
+							Type:        []string{"integer"},
+							Format:      "int64",
+						},
+					},
+					"conditions": {
+						VendorExtensible: spec.VendorExtensible{
+							Extensions: spec.Extensions{
+								"x-kubernetes-patch-merge-key": "type",
+								"x-kubernetes-patch-strategy":  "merge",
+							},
+						},
+						SchemaProps: spec.SchemaProps{
+							Description: "Conditions the latest available observations of a resource's current state.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("knative.dev/pkg/apis.Condition"),
+									},
+								},
+							},
+						},
+					},
+					"annotations": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Annotations is additional Status fields for the Resource to save some additional State as well as convey more information to the user. This is roughly akin to Annotations on any k8s resource, just the reconciler conveying richer information outwards.",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Allows: true,
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: "",
+										Type:    []string{"string"},
+										Format:  "",
+									},
+								},
+							},
+						},
+					},
+					"address": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Address is a single Addressable address. If Addresses is present, Address will be ignored by clients.",
+							Ref:         ref("knative.dev/pkg/apis/duck/v1.Addressable"),
+						},
+					},
+					"addresses": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Addresses is a list of addresses for different protocols (HTTP and HTTPS) If Addresses is present, Address must be ignored by clients.",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("knative.dev/pkg/apis/duck/v1.Addressable"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"knative.dev/pkg/apis.Condition", "knative.dev/pkg/apis.URL", "knative.dev/pkg/apis/duck/v1.Addressable"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha2_LLMModelSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "LLMModelSpec defines the model source and its characteristics.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"uri": {
+						SchemaProps: spec.SchemaProps{
+							Description: "URI of the model, specifying its location, e.g., hf://meta-llama/Llama-4-Scout-17B-16E-Instruct The storage-initializer init container uses this URI to download the model.",
+							Ref:         ref("knative.dev/pkg/apis.URL"),
+						},
+					},
+					"name": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Name is the name of the model as it will be set in the \"model\" parameter for an incoming request. If omitted, it will default to `metadata.name`. For LoRA adapters, this field is required.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"lora": {
+						SchemaProps: spec.SchemaProps{
+							Description: "LoRA (Low-Rank Adaptation) adapters configurations. Allows for specifying one or more LoRA adapters to be applied to the base model.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha2.LoRASpec"),
+						},
+					},
+				},
+				Required: []string{"uri"},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.LoRASpec", "knative.dev/pkg/apis.URL"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha2_LoRASpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "LoRASpec defines the configuration for LoRA adapters.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"adapters": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Adapters is the static specification for one or more LoRA adapters. Each adapter is defined by its own ModelSpec. This type is recursive https://github.com/kubernetes-sigs/controller-tools/issues/585",
+							Type:        []string{"array"},
+							Items: &spec.SchemaOrArray{
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Default: map[string]interface{}{},
+										Ref:     ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha2.LLMModelSpec"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.LLMModelSpec"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha2_ParallelismSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "ParallelismSpec defines the parallelism parameters for distributed inference.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"tensor": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Tensor parallelism size.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"pipeline": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Pipeline parallelism size.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"data": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Data parallelism size.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"dataLocal": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DataLocal data local parallelism size.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"dataRPCPort": {
+						SchemaProps: spec.SchemaProps{
+							Description: "DataRPCPort is the data parallelism RPC port.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"expert": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Expert enables expert parallelism.",
+							Type:        []string{"boolean"},
+							Format:      "",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha2_RouterSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "RouterSpec defines the routing configuration for exposing the service. It supports Kubernetes Ingress and the Gateway API. The fields are mutually exclusive.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"route": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Route configuration for the Gateway API. If an empty object `{}` is provided, the controller creates and manages a new HTTPRoute.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha2.GatewayRoutesSpec"),
+						},
+					},
+					"gateway": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Gateway configuration for the Gateway API, mutually exclusive with Ingress. If an empty object `{}` is provided, the controller uses a default Gateway. This must be used in conjunction with the 'Route' field for managed Gateway API resources.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha2.GatewaySpec"),
+						},
+					},
+					"ingress": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Ingress configuration. This is mutually exclusive with Route and Gateway. If an empty object `{}` is provided, the controller creates and manages a default Ingress resource.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha2.IngressSpec"),
+						},
+					},
+					"scheduler": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Scheduler configuration for the Inference Gateway extension. If this field is non-empty, an InferenceModel resource will be created to integrate with the gateway's scheduler.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha2.SchedulerSpec"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.GatewayRoutesSpec", "github.com/kserve/kserve/pkg/apis/serving/v1alpha2.GatewaySpec", "github.com/kserve/kserve/pkg/apis/serving/v1alpha2.IngressSpec", "github.com/kserve/kserve/pkg/apis/serving/v1alpha2.SchedulerSpec"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha2_SchedulerSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "SchedulerSpec defines the Inference Gateway extension configuration.\n\nThe SchedulerSpec configures the connection from the Gateway to the model deployment leveraging the LLM optimized request Scheduler, also known as the Endpoint Picker (EPP) which determines the exact pod that should handle the request and responds back to Envoy with the target pod, Envoy will then forward the request to the chosen pod.\n\nThe Scheduler is only effective when having multiple inference pod replicas.\n\nStep 1: Gateway (Envoy) <-- ExtProc --> EPP (select the optimal replica to handle the request) Step 2: Gateway (Envoy) <-- forward request --> Inference Pod X",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"pool": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Pool configuration for the InferencePool, which is part of the Inference Gateway extension.",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha2.InferencePoolSpec"),
+						},
+					},
+					"template": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Template for the Inference Gateway Extension pod spec. This configures the Endpoint Picker (EPP) Deployment.",
+							Ref:         ref("k8s.io/api/core/v1.PodSpec"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.InferencePoolSpec", "k8s.io/api/core/v1.PodSpec"},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha2_UntypedObjectReference(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "UntypedObjectReference is a reference to an object without a specific Group/Version/Kind. It's used for referencing networking resources like Gateways and Ingresses where the exact type might be inferred or is not strictly required by this controller.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"name": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Name of the referenced object.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"namespace": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Namespace of the referenced object.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_serving_v1alpha2_WorkloadSpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "WorkloadSpec defines the configuration for a deployment workload, such as replicas and pod specifications.",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"replicas": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Number of replicas for the deployment.",
+							Type:        []string{"integer"},
+							Format:      "int32",
+						},
+					},
+					"parallelism": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Parallelism configurations for the runtime, such as tensor and pipeline parallelism. These values are used to configure the underlying inference runtime (e.g., vLLM).",
+							Ref:         ref("github.com/kserve/kserve/pkg/apis/serving/v1alpha2.ParallelismSpec"),
+						},
+					},
+					"template": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Template for the main pod spec. In a multi-node deployment, this configures the \"head\" or \"master\" pod. In a disaggregated deployment, this configures the \"decode\" pod if it's the top-level template, or the \"prefill\" pod if it's within the Prefill block.",
+							Ref:         ref("k8s.io/api/core/v1.PodSpec"),
+						},
+					},
+					"worker": {
+						SchemaProps: spec.SchemaProps{
+							Description: "Worker configuration for multi-node deployments. The presence of this field triggers the creation of a multi-node (distributed) setup. This spec defines the configuration for the worker pods, while the main 'Template' field defines the head pod. The controller is responsible for enabling discovery between head and worker pods.",
+							Ref:         ref("k8s.io/api/core/v1.PodSpec"),
+						},
+					},
+				},
+			},
+		},
+		Dependencies: []string{
+			"github.com/kserve/kserve/pkg/apis/serving/v1alpha2.ParallelismSpec", "k8s.io/api/core/v1.PodSpec"},
 	}
 }
 
@@ -2751,7 +4649,6 @@ func schema_pkg_apis_serving_v1beta1_AuthenticationRef(ref common.ReferenceCallb
 						},
 					},
 				},
-				
 			},
 		},
 	}
@@ -4911,7 +6808,6 @@ func schema_pkg_apis_serving_v1beta1_ExplainerExtensionSpec(ref common.Reference
 						},
 					},
 				},
-				
 			},
 		},
 		Dependencies: []string{
@@ -6009,7 +7905,6 @@ func schema_pkg_apis_serving_v1beta1_HuggingFaceRuntimeSpec(ref common.Reference
 						},
 					},
 				},
-				
 			},
 		},
 		Dependencies: []string{
@@ -6774,7 +8669,6 @@ func schema_pkg_apis_serving_v1beta1_LightGBMSpec(ref common.ReferenceCallback) 
 						},
 					},
 				},
-				
 			},
 		},
 		Dependencies: []string{
@@ -7030,7 +8924,6 @@ func schema_pkg_apis_serving_v1beta1_ModelFormat(ref common.ReferenceCallback) c
 						},
 					},
 				},
-				
 			},
 		},
 	}
@@ -7826,7 +9719,6 @@ func schema_pkg_apis_serving_v1beta1_ONNXRuntimeSpec(ref common.ReferenceCallbac
 						},
 					},
 				},
-				
 			},
 		},
 		Dependencies: []string{
@@ -8249,7 +10141,6 @@ func schema_pkg_apis_serving_v1beta1_PMMLSpec(ref common.ReferenceCallback) comm
 						},
 					},
 				},
-				
 			},
 		},
 		Dependencies: []string{
@@ -8593,7 +10484,6 @@ func schema_pkg_apis_serving_v1beta1_PaddleServerSpec(ref common.ReferenceCallba
 						},
 					},
 				},
-				
 			},
 		},
 		Dependencies: []string{
@@ -9479,7 +11369,6 @@ func schema_pkg_apis_serving_v1beta1_PredictorExtensionSpec(ref common.Reference
 						},
 					},
 				},
-				
 			},
 		},
 		Dependencies: []string{
@@ -10529,7 +12418,6 @@ func schema_pkg_apis_serving_v1beta1_SKLearnSpec(ref common.ReferenceCallback) c
 						},
 					},
 				},
-				
 			},
 		},
 		Dependencies: []string{
@@ -10962,7 +12850,6 @@ func schema_pkg_apis_serving_v1beta1_TFServingSpec(ref common.ReferenceCallback)
 						},
 					},
 				},
-				
 			},
 		},
 		Dependencies: []string{
@@ -11307,7 +13194,6 @@ func schema_pkg_apis_serving_v1beta1_TorchServeSpec(ref common.ReferenceCallback
 						},
 					},
 				},
-				
 			},
 		},
 		Dependencies: []string{
@@ -12219,7 +14105,6 @@ func schema_pkg_apis_serving_v1beta1_TritonSpec(ref common.ReferenceCallback) co
 						},
 					},
 				},
-				
 			},
 		},
 		Dependencies: []string{
@@ -13032,7 +14917,6 @@ func schema_pkg_apis_serving_v1beta1_XGBoostSpec(ref common.ReferenceCallback) c
 						},
 					},
 				},
-				
 			},
 		},
 		Dependencies: []string{

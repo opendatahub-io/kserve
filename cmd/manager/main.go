@@ -27,6 +27,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/kserve/kserve/pkg/apis"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	istio_networking "istio.io/api/networking/v1alpha3"
@@ -55,7 +58,6 @@ import (
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	llmisvcvalidation "github.com/kserve/kserve/pkg/controller/llmisvc/validation"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	graphcontroller "github.com/kserve/kserve/pkg/controller/v1alpha1/inferencegraph"
@@ -169,14 +171,8 @@ func main() {
 	setupLog.Info("Setting up KServe v1alpha1 scheme")
 	scheme := mgr.GetScheme()
 
-	if err := v1alpha1.AddToScheme(scheme); err != nil {
+	if err := apis.AddToScheme(scheme); err != nil {
 		setupLog.Error(err, "unable to add KServe v1alpha1 to scheme")
-		os.Exit(1)
-	}
-
-	setupLog.Info("Setting up KServe v1beta1 scheme")
-	if err := v1beta1.AddToScheme(scheme); err != nil {
-		setupLog.Error(err, "unable to add KServe v1beta1 to scheme")
 		os.Exit(1)
 	}
 

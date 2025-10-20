@@ -22,7 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/utils/ptr"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 )
@@ -32,7 +32,7 @@ var _ = Describe("Validating config configs", func() {
 		It("should reject config with invalid template fields", func(ctx SpecContext) {
 			// given
 			preset := fixture.LLMInferenceServiceConfig("invalid-template-fields",
-				fixture.InNamespace[*v1alpha1.LLMInferenceServiceConfig](constants.KServeNamespace),
+				fixture.InNamespace[*v1alpha2.LLMInferenceServiceConfig](constants.KServeNamespace),
 				fixture.WithConfigModelName("{{ .NonExisting }}"),
 			)
 
@@ -47,7 +47,7 @@ var _ = Describe("Validating config configs", func() {
 		It("should reject updating config with wrong template syntax", func(ctx SpecContext) {
 			// given
 			preset := fixture.LLMInferenceServiceConfig("invalid-template-fields",
-				fixture.InNamespace[*v1alpha1.LLMInferenceServiceConfig](constants.KServeNamespace),
+				fixture.InNamespace[*v1alpha2.LLMInferenceServiceConfig](constants.KServeNamespace),
 				fixture.WithConfigModelName("{{ ChildName .ObjectMeta.Name `-inference-pool` }}"),
 			)
 			Expect(envTest.Client.Create(ctx, preset)).To(Succeed())
@@ -64,7 +64,7 @@ var _ = Describe("Validating config configs", func() {
 		It("should reject config with baseRefs", func(ctx SpecContext) {
 			// given
 			preset := fixture.LLMInferenceServiceConfig("config-with-baserefs",
-				fixture.InNamespace[*v1alpha1.LLMInferenceServiceConfig](constants.KServeNamespace),
+				fixture.InNamespace[*v1alpha2.LLMInferenceServiceConfig](constants.KServeNamespace),
 				fixture.WithConfigModelName("test-model"),
 			)
 

@@ -144,6 +144,148 @@
         }
       }
     },
+    "v1alpha1.EndpointPickerConfig": {
+      "description": "EndpointPickerConfig specifies the configuration needed by the proxy to discover and connect to the endpoint picker extension. This type is intended to be a union of mutually exclusive configuration options that we may add in the future.",
+      "type": "object",
+      "properties": {
+        "extensionRef": {
+          "description": "Extension configures an endpoint picker as an extension service.",
+          "$ref": "#/definitions/v1alpha1.Extension"
+        }
+      }
+    },
+    "v1alpha1.Extension": {
+      "description": "Extension specifies how to configure an extension that runs the endpoint picker.",
+      "type": "object",
+      "properties": {
+        "failureMode": {
+          "description": "Configures how the gateway handles the case when the extension is not responsive. Defaults to failClose.",
+          "type": "string"
+        },
+        "group": {
+          "description": "Group is the group of the referent. The default value is \"\", representing the Core API group.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Kind is the Kubernetes resource kind of the referent. For example \"Service\".\n\nDefaults to \"Service\" when not specified.\n\nExternalName services can refer to CNAME DNS records that may live outside of the cluster and as such are difficult to reason about in terms of conformance. They also may not be safe to forward to (see CVE-2021-25740 for more information). Implementations MUST NOT support ExternalName Services.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the name of the referent.",
+          "type": "string",
+          "default": ""
+        },
+        "portNumber": {
+          "description": "The port number on the service running the extension. When unspecified, implementations SHOULD infer a default value of 9002 when the Kind is Service.",
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "v1alpha1.ExtensionConnection": {
+      "description": "ExtensionConnection encapsulates options that configures the connection to the extension.",
+      "type": "object",
+      "properties": {
+        "failureMode": {
+          "description": "Configures how the gateway handles the case when the extension is not responsive. Defaults to failClose.",
+          "type": "string"
+        }
+      }
+    },
+    "v1alpha1.ExtensionReference": {
+      "description": "ExtensionReference is a reference to the extension.\n\nConnections to this extension MUST use TLS by default. Implementations MAY provide a way to customize this connection to use cleartext, a different protocol, or custom TLS configuration.\n\nIf a reference is invalid, the implementation MUST update the `ResolvedRefs` Condition on the InferencePool's status to `status: False`. A 5XX status code MUST be returned for the request that would have otherwise been routed to the invalid backend.",
+      "type": "object",
+      "properties": {
+        "group": {
+          "description": "Group is the group of the referent. The default value is \"\", representing the Core API group.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Kind is the Kubernetes resource kind of the referent. For example \"Service\".\n\nDefaults to \"Service\" when not specified.\n\nExternalName services can refer to CNAME DNS records that may live outside of the cluster and as such are difficult to reason about in terms of conformance. They also may not be safe to forward to (see CVE-2021-25740 for more information). Implementations MUST NOT support ExternalName Services.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the name of the referent.",
+          "type": "string",
+          "default": ""
+        },
+        "portNumber": {
+          "description": "The port number on the service running the extension. When unspecified, implementations SHOULD infer a default value of 9002 when the Kind is Service.",
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "v1alpha1.GIEInferencePoolSpec": {
+      "description": "GIEInferencePoolSpec defines the desired state of InferencePool",
+      "type": "object",
+      "required": [
+        "selector",
+        "targetPortNumber"
+      ],
+      "properties": {
+        "extensionRef": {
+          "description": "Extension configures an endpoint picker as an extension service.",
+          "$ref": "#/definitions/v1alpha1.Extension"
+        },
+        "selector": {
+          "description": "Selector defines a map of labels to watch model server pods that should be included in the InferencePool. In some cases, implementations may translate this field to a Service selector, so this matches the simple map used for Service selectors instead of the full Kubernetes LabelSelector type. If sepecified, it will be applied to match the model server pods in the same namespace as the InferencePool. Cross namesoace selector is not supported.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "targetPortNumber": {
+          "description": "TargetPortNumber defines the port number to access the selected model servers. The number must be in the range 1 to 65535.",
+          "type": "integer",
+          "format": "int32",
+          "default": 0
+        }
+      }
+    },
+    "v1alpha1.GatewayRoutesSpec": {
+      "description": "GatewayRoutesSpec defines the configuration for a Gateway API route.",
+      "type": "object",
+      "properties": {
+        "http": {
+          "description": "HTTP route configuration.",
+          "$ref": "#/definitions/v1alpha1.HTTPRouteSpec"
+        }
+      }
+    },
+    "v1alpha1.GatewaySpec": {
+      "description": "GatewaySpec defines the configuration for a Gateway API Gateway.",
+      "type": "object",
+      "properties": {
+        "refs": {
+          "description": "Refs provides references to existing, user-managed Gateway objects (\"Bring Your Own\" gateway). The controller will use the specified Gateway instead of creating one.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1alpha1.UntypedObjectReference"
+          }
+        }
+      }
+    },
+    "v1alpha1.HTTPRouteSpec": {
+      "description": "HTTPRouteSpec defines configurations for a Gateway API HTTPRoute. 'Spec' and 'Refs' are mutually exclusive and determine whether the route is managed by the controller or user-managed.",
+      "type": "object",
+      "properties": {
+        "refs": {
+          "description": "Refs provides references to existing, user-managed HTTPRoute objects (\"Bring Your Own\" route). The controller will validate the existence of these routes but will not modify them.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1.LocalObjectReference"
+          }
+        },
+        "spec": {
+          "description": "Spec allows for providing a custom specification for an HTTPRoute. If provided, the controller will create and manage an HTTPRoute with this specification.",
+          "$ref": "#/definitions/sigs.k8s.io.gateway-api.apis.v1.HTTPRouteSpec"
+        }
+      }
+    },
     "v1alpha1.InferenceGraph": {
       "description": "InferenceGraph is the Schema for the InferenceGraph API for multiple models",
       "type": "object",
@@ -308,6 +450,34 @@
         }
       }
     },
+    "v1alpha1.InferencePoolSpec": {
+      "description": "InferencePoolSpec defines the configuration for an InferencePool. 'Spec' and 'Ref' are mutually exclusive.",
+      "type": "object",
+      "properties": {
+        "ref": {
+          "description": "Ref is a reference to an existing InferencePool.",
+          "$ref": "#/definitions/v1.LocalObjectReference"
+        },
+        "spec": {
+          "description": "Spec defines an inline InferencePool specification.",
+          "$ref": "#/definitions/v1alpha1.GIEInferencePoolSpec"
+        }
+      }
+    },
+    "v1alpha1.InferencePoolStatus": {
+      "description": "InferencePoolStatus defines the observed state of InferencePool.",
+      "type": "object",
+      "properties": {
+        "parent": {
+          "description": "Parents is a list of parent resources (usually Gateways) that are associated with the InferencePool, and the status of the InferencePool with respect to each parent.\n\nA maximum of 32 Gateways will be represented in this list. When the list contains `kind: Status, name: default`, it indicates that the InferencePool is not associated with any Gateway and a controller must perform the following:\n\n - Remove the parent when setting the \"Accepted\" condition.\n - Add the parent when the controller will no longer manage the InferencePool\n   and no other parents exist.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1alpha1.PoolStatus"
+          }
+        }
+      }
+    },
     "v1alpha1.InferenceRouter": {
       "description": "InferenceRouter defines the router for each InferenceGraph node with one or multiple steps\n\n```yaml kind: InferenceGraph metadata:\n\n\tname: canary-route\n\nspec:\n\n\tnodes:\n\t  root:\n\t    routerType: Splitter\n\t    routes:\n\t    - service: mymodel1\n\t      weight: 20\n\t    - service: mymodel2\n\t      weight: 80\n\n```\n\n```yaml kind: InferenceGraph metadata:\n\n\tname: abtest\n\nspec:\n\n\tnodes:\n\t  mymodel:\n\t    routerType: Switch\n\t    routes:\n\t    - service: mymodel1\n\t      condition: \"{ .input.userId == 1 }\"\n\t    - service: mymodel2\n\t      condition: \"{ .input.userId == 2 }\"\n\n```\n\nScoring a case using a model ensemble consists of scoring it using each model separately, then combining the results into a single scoring result using one of the pre-defined combination methods.\n\nTree Ensemble constitutes a case where simple algorithms for combining results of either classification or regression trees are well known. Multiple classification trees, for example, are commonly combined using a \"majority-vote\" method. Multiple regression trees are often combined using various averaging techniques. e.g tagging models with segment identifiers and weights to be used for their combination in these ways. ```yaml kind: InferenceGraph metadata:\n\n\tname: ensemble\n\nspec:\n\n\tnodes:\n\t  root:\n\t    routerType: Sequence\n\t    routes:\n\t    - service: feast\n\t    - nodeName: ensembleModel\n\t      data: $response\n\t  ensembleModel:\n\t    routerType: Ensemble\n\t    routes:\n\t    - service: sklearn-model\n\t    - service: xgboost-model\n\n```\n\nScoring a case using a sequence, or chain of models allows the output of one model to be passed in as input to the subsequent models. ```yaml kind: InferenceGraph metadata:\n\n\tname: model-chainer\n\nspec:\n\n\tnodes:\n\t  root:\n\t    routerType: Sequence\n\t    routes:\n\t    - service: mymodel-s1\n\t    - service: mymodel-s2\n\t      data: $response\n\t    - service: mymodel-s3\n\t      data: $response\n\n```\n\nIn the flow described below, the pre_processing node base64 encodes the image and passes it to two model nodes in the flow. The encoded data is available to both these nodes for classification. The second node i.e. dog-breed-classification takes the original input from the pre_processing node along-with the response from the cat-dog-classification node to do further classification of the dog breed if required. ```yaml kind: InferenceGraph metadata:\n\n\tname: dog-breed-classification\n\nspec:\n\n\tnodes:\n\t  root:\n\t    routerType: Sequence\n\t    routes:\n\t    - service: cat-dog-classifier\n\t    - nodeName: breed-classifier\n\t      data: $request\n\t  breed-classifier:\n\t    routerType: Switch\n\t    routes:\n\t    - service: dog-breed-classifier\n\t      condition: { .predictions.class == \"dog\" }\n\t    - service: cat-breed-classifier\n\t      condition: { .predictions.class == \"cat\" }\n\n```",
       "type": "object",
@@ -384,6 +554,20 @@
         "serviceUrl": {
           "description": "InferenceService URL, mutually exclusive with ServiceName",
           "type": "string"
+        }
+      }
+    },
+    "v1alpha1.IngressSpec": {
+      "description": "IngressSpec defines the configuration for a Kubernetes Ingress.",
+      "type": "object",
+      "properties": {
+        "refs": {
+          "description": "Refs provides a reference to an existing, user-managed Ingress object (\"Bring Your Own\" ingress). The controller will not create an Ingress but will use the referenced one to populate status URLs.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1alpha1.UntypedObjectReference"
+          }
         }
       }
     },
@@ -491,6 +675,134 @@
         }
       }
     },
+    "v1alpha1.LLMInferenceServiceSpec": {
+      "description": "LLMInferenceServiceSpec defines the desired state of LLMInferenceService.",
+      "type": "object",
+      "properties": {
+        "baseRefs": {
+          "description": "BaseRefs allows inheriting and overriding configurations from one or more LLMInferenceServiceConfig instances. The controller merges these base configurations, with the current LLMInferenceService spec taking the highest precedence. When multiple baseRefs are provided, the last one in the list overrides previous ones.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1.LocalObjectReference"
+          }
+        },
+        "model": {
+          "description": "Model specification, including its URI, potential LoRA adapters, and storage details. It's optional for `LLMInferenceServiceConfig` kind.",
+          "default": {},
+          "$ref": "#/definitions/v1alpha1.LLMModelSpec"
+        },
+        "parallelism": {
+          "description": "Parallelism configurations for the runtime, such as tensor and pipeline parallelism. These values are used to configure the underlying inference runtime (e.g., vLLM).",
+          "$ref": "#/definitions/v1alpha1.ParallelismSpec"
+        },
+        "prefill": {
+          "description": "Prefill configuration for disaggregated serving. When this section is included, the controller creates a separate deployment for prompt processing (prefill) in addition to the main 'decode' deployment, inspired by the llm-d architecture. This allows for independent scaling and hardware allocation for prefill and decode steps.",
+          "$ref": "#/definitions/v1alpha1.WorkloadSpec"
+        },
+        "replicas": {
+          "description": "Number of replicas for the deployment.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "router": {
+          "description": "Router configuration for how the service is exposed. This section dictates the creation and management of networking resources like Ingress or Gateway API objects (HTTPRoute, Gateway).",
+          "$ref": "#/definitions/v1alpha1.RouterSpec"
+        },
+        "template": {
+          "description": "Template for the main pod spec. In a multi-node deployment, this configures the \"head\" or \"master\" pod. In a disaggregated deployment, this configures the \"decode\" pod if it's the top-level template, or the \"prefill\" pod if it's within the Prefill block.",
+          "$ref": "#/definitions/v1.PodSpec"
+        },
+        "worker": {
+          "description": "Worker configuration for multi-node deployments. The presence of this field triggers the creation of a multi-node (distributed) setup. This spec defines the configuration for the worker pods, while the main 'Template' field defines the head pod. The controller is responsible for enabling discovery between head and worker pods.",
+          "$ref": "#/definitions/v1.PodSpec"
+        }
+      }
+    },
+    "v1alpha1.LLMInferenceServiceStatus": {
+      "description": "LLMInferenceServiceStatus defines the observed state of LLMInferenceService.",
+      "type": "object",
+      "properties": {
+        "address": {
+          "description": "Address is a single Addressable address. If Addresses is present, Address will be ignored by clients.",
+          "$ref": "#/definitions/knative.Addressable"
+        },
+        "addresses": {
+          "description": "Addresses is a list of addresses for different protocols (HTTP and HTTPS) If Addresses is present, Address must be ignored by clients.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/knative.Addressable"
+          }
+        },
+        "annotations": {
+          "description": "Annotations is additional Status fields for the Resource to save some additional State as well as convey more information to the user. This is roughly akin to Annotations on any k8s resource, just the reconciler conveying richer information outwards.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "conditions": {
+          "description": "Conditions the latest available observations of a resource's current state.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/knative.Condition"
+          },
+          "x-kubernetes-patch-merge-key": "type",
+          "x-kubernetes-patch-strategy": "merge"
+        },
+        "observedGeneration": {
+          "description": "ObservedGeneration is the 'Generation' of the Service that was last processed by the controller.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "url": {
+          "description": "URL of the publicly exposed service.",
+          "$ref": "#/definitions/knative.URL"
+        }
+      }
+    },
+    "v1alpha1.LLMModelSpec": {
+      "description": "LLMModelSpec defines the model source and its characteristics.",
+      "type": "object",
+      "required": [
+        "uri"
+      ],
+      "properties": {
+        "criticality": {
+          "description": "Criticality defines how important it is to serve the model compared to other models. This is used by the Inference Gateway scheduler.",
+          "type": "string"
+        },
+        "lora": {
+          "description": "LoRA (Low-Rank Adaptation) adapters configurations. Allows for specifying one or more LoRA adapters to be applied to the base model.",
+          "$ref": "#/definitions/v1alpha1.LoRASpec"
+        },
+        "name": {
+          "description": "Name is the name of the model as it will be set in the \"model\" parameter for an incoming request. If omitted, it will default to `metadata.name`. For LoRA adapters, this field is required.",
+          "type": "string"
+        },
+        "uri": {
+          "description": "URI of the model, specifying its location, e.g., hf://meta-llama/Llama-4-Scout-17B-16E-Instruct The storage-initializer init container uses this URI to download the model.",
+          "$ref": "#/definitions/knative.URL"
+        }
+      }
+    },
+    "v1alpha1.LoRASpec": {
+      "description": "LoRASpec defines the configuration for LoRA adapters.",
+      "type": "object",
+      "properties": {
+        "adapters": {
+          "description": "Adapters is the static specification for one or more LoRA adapters. Each adapter is defined by its own ModelSpec. This type is recursive https://github.com/kubernetes-sigs/controller-tools/issues/585",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1alpha1.LLMModelSpec"
+          }
+        }
+      }
+    },
     "v1alpha1.LocalModelCache": {
       "description": "LocalModelCache",
       "type": "object",
@@ -565,6 +877,50 @@
             "type": "string",
             "default": ""
           }
+        },
+        "sourceModelUri": {
+          "description": "Original StorageUri",
+          "type": "string",
+          "default": ""
+        }
+      }
+    },
+    "v1alpha1.LocalModelCacheStatus": {
+      "type": "object",
+      "properties": {
+        "copies": {
+          "description": "How many nodes have the model available locally",
+          "$ref": "#/definitions/v1alpha1.ModelCopies"
+        },
+        "inferenceServices": {
+          "description": "Inference services using this local model",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1alpha1.NamespacedName"
+          }
+        },
+        "nodeStatus": {
+          "description": "Status of the model on a node, like NodeDownloaded or NodeNotReady",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "default": ""
+          }
+        }
+      }
+    },
+    "v1alpha1.LocalModelInfo": {
+      "type": "object",
+      "required": [
+        "sourceModelUri",
+        "modelName"
+      ],
+      "properties": {
+        "modelName": {
+          "description": "Model name. Used as the subdirectory name to store this model on local file system",
+          "type": "string",
+          "default": ""
         },
         "sourceModelUri": {
           "description": "Original StorageUri",
@@ -675,6 +1031,19 @@
         }
       }
     },
+    "v1alpha1.LocalModelNodeGroupStatus": {
+      "type": "object",
+      "properties": {
+        "available": {
+          "description": "Available storage space on any node for this node group",
+          "$ref": "#/definitions/resource.Quantity"
+        },
+        "used": {
+          "description": "Used storage space on any node for this node group",
+          "$ref": "#/definitions/resource.Quantity"
+        }
+      }
+    },
     "v1alpha1.LocalModelNodeList": {
       "type": "object",
       "required": [
@@ -718,6 +1087,38 @@
         }
       }
     },
+    "v1alpha1.LocalModelNodeStatus": {
+      "type": "object",
+      "properties": {
+        "modelStatus": {
+          "description": "Status of each local model",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "default": ""
+          }
+        }
+      }
+    },
+    "v1alpha1.ModelCopies": {
+      "type": "object",
+      "properties": {
+        "available": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "failed": {
+          "description": "Download Failed",
+          "type": "integer",
+          "format": "int32"
+        },
+        "total": {
+          "description": "Total number of nodes that we expect the model to be downloaded. Including nodes that are not ready",
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
     "v1alpha1.ModelSpec": {
       "description": "ModelSpec describes a TrainedModel",
       "type": "object",
@@ -740,6 +1141,137 @@
           "description": "Storage URI for the model repository",
           "type": "string",
           "default": ""
+        }
+      }
+    },
+    "v1alpha1.NamespacedName": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "namespace": {
+          "type": "string"
+        }
+      }
+    },
+    "v1alpha1.ParallelismSpec": {
+      "description": "ParallelismSpec defines the parallelism parameters for distributed inference.",
+      "type": "object",
+      "properties": {
+        "data": {
+          "description": "Data parallelism size.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "dataLocal": {
+          "description": "DataLocal data local parallelism size.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "dataRPCPort": {
+          "description": "DataRPCPort is the data parallelism RPC port.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "expert": {
+          "description": "Expert enables expert parallelism.",
+          "type": "boolean"
+        },
+        "pipeline": {
+          "description": "Pipeline parallelism size.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "tensor": {
+          "description": "Tensor parallelism size.",
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "v1alpha1.ParentGatewayReference": {
+      "description": "ParentGatewayReference identifies an API object including its namespace, defaulting to Gateway.",
+      "type": "object",
+      "properties": {
+        "group": {
+          "description": "Group is the group of the referent.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "Kind is kind of the referent. For example \"Gateway\".",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name is the name of the referent.",
+          "type": "string",
+          "default": ""
+        },
+        "namespace": {
+          "description": "Namespace is the namespace of the referent.  If not present, the namespace of the referent is assumed to be the same as the namespace of the referring object.",
+          "type": "string"
+        }
+      }
+    },
+    "v1alpha1.PoolStatus": {
+      "description": "PoolStatus defines the observed state of InferencePool from a Gateway.",
+      "type": "object",
+      "required": [
+        "parentRef"
+      ],
+      "properties": {
+        "conditions": {
+          "description": "Conditions track the state of the InferencePool.\n\nKnown condition types are:\n\n* \"Accepted\" * \"ResolvedRefs\"",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1.Condition"
+          },
+          "x-kubernetes-list-map-keys": [
+            "type"
+          ],
+          "x-kubernetes-list-type": "map"
+        },
+        "parentRef": {
+          "description": "GatewayRef indicates the gateway that observed state of InferencePool.",
+          "default": {},
+          "$ref": "#/definitions/v1alpha1.ParentGatewayReference"
+        }
+      }
+    },
+    "v1alpha1.RouterSpec": {
+      "description": "RouterSpec defines the routing configuration for exposing the service. It supports Kubernetes Ingress and the Gateway API. The fields are mutually exclusive.",
+      "type": "object",
+      "properties": {
+        "gateway": {
+          "description": "Gateway configuration for the Gateway API, mutually exclusive with Ingress. If an empty object `{}` is provided, the controller uses a default Gateway. This must be used in conjunction with the 'Route' field for managed Gateway API resources.",
+          "$ref": "#/definitions/v1alpha1.GatewaySpec"
+        },
+        "ingress": {
+          "description": "Ingress configuration. This is mutually exclusive with Route and Gateway. If an empty object `{}` is provided, the controller creates and manages a default Ingress resource.",
+          "$ref": "#/definitions/v1alpha1.IngressSpec"
+        },
+        "route": {
+          "description": "Route configuration for the Gateway API. If an empty object `{}` is provided, the controller creates and manages a new HTTPRoute.",
+          "$ref": "#/definitions/v1alpha1.GatewayRoutesSpec"
+        },
+        "scheduler": {
+          "description": "Scheduler configuration for the Inference Gateway extension. If this field is non-empty, an InferenceModel resource will be created to integrate with the gateway's scheduler.",
+          "$ref": "#/definitions/v1alpha1.SchedulerSpec"
+        }
+      }
+    },
+    "v1alpha1.SchedulerSpec": {
+      "description": "SchedulerSpec defines the Inference Gateway extension configuration.\n\nThe SchedulerSpec configures the connection from the Gateway to the model deployment leveraging the LLM optimized request Scheduler, also known as the Endpoint Picker (EPP) which determines the exact pod that should handle the request and responds back to Envoy with the target pod, Envoy will then forward the request to the chosen pod.\n\nThe Scheduler is only effective when having multiple inference pod replicas.\n\nStep 1: Gateway (Envoy) \u003c-- ExtProc --\u003e EPP (select the optimal replica to handle the request) Step 2: Gateway (Envoy) \u003c-- forward request --\u003e Inference Pod X",
+      "type": "object",
+      "properties": {
+        "pool": {
+          "description": "Pool configuration for the InferencePool, which is part of the Inference Gateway extension.",
+          "$ref": "#/definitions/v1alpha1.InferencePoolSpec"
+        },
+        "template": {
+          "description": "Template for the Inference Gateway Extension pod spec. This configures the Endpoint Picker (EPP) Deployment.",
+          "$ref": "#/definitions/v1.PodSpec"
         }
       }
     },
@@ -1068,6 +1600,24 @@
         }
       }
     },
+    "v1alpha1.SupportedRuntime": {
+      "description": "SupportedRuntime is the schema for supported runtime result of automatic selection",
+      "type": "object",
+      "required": [
+        "Name",
+        "Spec"
+      ],
+      "properties": {
+        "Name": {
+          "type": "string",
+          "default": ""
+        },
+        "Spec": {
+          "default": {},
+          "$ref": "#/definitions/v1alpha1.ServingRuntimeSpec"
+        }
+      }
+    },
     "v1alpha1.SupportedUriFormat": {
       "description": "SupportedUriFormat can be either prefix or regex. Todo: Add validation that only one of them is set.",
       "type": "object",
@@ -1152,6 +1702,239 @@
           "description": "Predictor model spec",
           "default": {},
           "$ref": "#/definitions/v1alpha1.ModelSpec"
+        }
+      }
+    },
+    "v1alpha1.TrainedModelStatus": {
+      "description": "TrainedModelStatus defines the observed state of TrainedModel",
+      "type": "object",
+      "properties": {
+        "address": {
+          "description": "Addressable endpoint for the deployed trained model http://\u003cinferenceservice.metadata.name\u003e/v1/models/\u003ctrainedmodel\u003e.metadata.name",
+          "$ref": "#/definitions/knative.Addressable"
+        },
+        "annotations": {
+          "description": "Annotations is additional Status fields for the Resource to save some additional State as well as convey more information to the user. This is roughly akin to Annotations on any k8s resource, just the reconciler conveying richer information outwards.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "conditions": {
+          "description": "Conditions the latest available observations of a resource's current state.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/knative.Condition"
+          },
+          "x-kubernetes-patch-merge-key": "type",
+          "x-kubernetes-patch-strategy": "merge"
+        },
+        "observedGeneration": {
+          "description": "ObservedGeneration is the 'Generation' of the Service that was last processed by the controller.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "url": {
+          "description": "URL holds the url that will distribute traffic over the provided traffic targets. For v1: http[s]://{route-name}.{route-namespace}.{cluster-level-suffix}/v1/models/\u003ctrainedmodel\u003e:predict For v2: http[s]://{route-name}.{route-namespace}.{cluster-level-suffix}/v2/models/\u003ctrainedmodel\u003e/infer",
+          "$ref": "#/definitions/knative.URL"
+        }
+      }
+    },
+    "v1alpha1.UntypedObjectReference": {
+      "description": "UntypedObjectReference is a reference to an object without a specific Group/Version/Kind. It's used for referencing networking resources like Gateways and Ingresses where the exact type might be inferred or is not strictly required by this controller.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name of the referenced object.",
+          "type": "string"
+        },
+        "namespace": {
+          "description": "Namespace of the referenced object.",
+          "type": "string"
+        }
+      }
+    },
+    "v1alpha1.WorkerSpec": {
+      "description": "WorkerSpec is the schema for multi-node/multi-GPU feature",
+      "type": "object",
+      "required": [
+        "containers"
+      ],
+      "properties": {
+        "affinity": {
+          "description": "If specified, the pod's scheduling constraints",
+          "$ref": "#/definitions/v1.Affinity"
+        },
+        "annotations": {
+          "description": "Annotations that will be add to the pod. More info: http://kubernetes.io/docs/user-guide/annotations",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "containers": {
+          "description": "List of containers belonging to the pod. Containers cannot currently be added or removed. There must be at least one container in a Pod. Cannot be updated.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1.Container"
+          },
+          "x-kubernetes-patch-merge-key": "name",
+          "x-kubernetes-patch-strategy": "merge"
+        },
+        "hostIPC": {
+          "description": "Use the host's ipc namespace. Optional: Default to false.",
+          "type": "boolean"
+        },
+        "imagePullSecrets": {
+          "description": "ImagePullSecrets is an optional list of references to secrets in the same namespace to use for pulling any of the images used by this PodSpec. If specified, these secrets will be passed to individual puller implementations for them to use. For example, in the case of docker, only DockerConfig type secrets are honored. More info: https://kubernetes.io/docs/concepts/containers/images#specifying-imagepullsecrets-on-a-pod",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1.LocalObjectReference"
+          },
+          "x-kubernetes-patch-merge-key": "name",
+          "x-kubernetes-patch-strategy": "merge"
+        },
+        "labels": {
+          "description": "Labels that will be add to the pod. More info: http://kubernetes.io/docs/user-guide/labels",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "nodeSelector": {
+          "description": "NodeSelector is a selector which must be true for the pod to fit on a node. Selector which must match a node's labels for the pod to be scheduled on that node. More info: https://kubernetes.io/docs/concepts/configuration/assign-pod-node/",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "pipelineParallelSize": {
+          "description": "PipelineParallelSize defines the number of parallel workers. It specifies the number of model partitions across multiple devices, allowing large models to be split and processed concurrently across these partitions It also represents the number of replicas in the worker set, where each worker set serves as a scaling unit.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "tensorParallelSize": {
+          "description": "TensorParallelSize specifies the number of GPUs to be used per node. It indicates the degree of parallelism for tensor computations across the available GPUs.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "tolerations": {
+          "description": "If specified, the pod's tolerations.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1.Toleration"
+          }
+        },
+        "volumes": {
+          "description": "List of volumes that can be mounted by containers belonging to the pod. More info: https://kubernetes.io/docs/concepts/storage/volumes",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1.Volume"
+          },
+          "x-kubernetes-patch-merge-key": "name",
+          "x-kubernetes-patch-strategy": "merge,retainKeys"
+        }
+      }
+    },
+    "v1alpha1.WorkloadSpec": {
+      "description": "WorkloadSpec defines the configuration for a deployment workload, such as replicas and pod specifications.",
+      "type": "object",
+      "properties": {
+        "parallelism": {
+          "description": "Parallelism configurations for the runtime, such as tensor and pipeline parallelism. These values are used to configure the underlying inference runtime (e.g., vLLM).",
+          "$ref": "#/definitions/v1alpha1.ParallelismSpec"
+        },
+        "replicas": {
+          "description": "Number of replicas for the deployment.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "template": {
+          "description": "Template for the main pod spec. In a multi-node deployment, this configures the \"head\" or \"master\" pod. In a disaggregated deployment, this configures the \"decode\" pod if it's the top-level template, or the \"prefill\" pod if it's within the Prefill block.",
+          "$ref": "#/definitions/v1.PodSpec"
+        },
+        "worker": {
+          "description": "Worker configuration for multi-node deployments. The presence of this field triggers the creation of a multi-node (distributed) setup. This spec defines the configuration for the worker pods, while the main 'Template' field defines the head pod. The controller is responsible for enabling discovery between head and worker pods.",
+          "$ref": "#/definitions/v1.PodSpec"
+        }
+      }
+    },
+    "v1alpha2.GatewayRoutesSpec": {
+      "description": "GatewayRoutesSpec defines the configuration for a Gateway API route.",
+      "type": "object",
+      "properties": {
+        "http": {
+          "description": "HTTP route configuration.",
+          "$ref": "#/definitions/v1alpha2.HTTPRouteSpec"
+        }
+      }
+    },
+    "v1alpha2.GatewaySpec": {
+      "description": "GatewaySpec defines the configuration for a Gateway API Gateway.",
+      "type": "object",
+      "properties": {
+        "refs": {
+          "description": "Refs provides references to existing, user-managed Gateway objects (\"Bring Your Own\" gateway). The controller will use the specified Gateway instead of creating one.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1alpha2.UntypedObjectReference"
+          }
+        }
+      }
+    },
+    "v1alpha2.HTTPRouteSpec": {
+      "description": "HTTPRouteSpec defines configurations for a Gateway API HTTPRoute. 'Spec' and 'Refs' are mutually exclusive and determine whether the route is managed by the controller or user-managed.",
+      "type": "object",
+      "properties": {
+        "refs": {
+          "description": "Refs provides references to existing, user-managed HTTPRoute objects (\"Bring Your Own\" route). The controller will validate the existence of these routes but will not modify them.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1.LocalObjectReference"
+          }
+        },
+        "spec": {
+          "description": "Spec allows for providing a custom specification for an HTTPRoute. If provided, the controller will create and manage an HTTPRoute with this specification.",
+          "$ref": "#/definitions/sigs.k8s.io.gateway-api.apis.v1.HTTPRouteSpec"
+        }
+      }
+    },
+    "v1alpha2.InferencePoolSpec": {
+      "description": "InferencePoolSpec defines the configuration for an InferencePool. 'Spec' and 'Ref' are mutually exclusive.",
+      "type": "object",
+      "properties": {
+        "ref": {
+          "description": "Ref is a reference to an existing InferencePool.",
+          "$ref": "#/definitions/v1.LocalObjectReference"
+        },
+        "spec": {
+          "description": "Spec defines an inline InferencePool specification.",
+          "$ref": "#/definitions/sigs.k8s.io.gateway-api-inference-extension.api.v1.InferencePoolSpec"
+        }
+      }
+    },
+    "v1alpha2.IngressSpec": {
+      "description": "IngressSpec defines the configuration for a Kubernetes Ingress.",
+      "type": "object",
+      "properties": {
+        "refs": {
+          "description": "Refs provides a reference to an existing, user-managed Ingress object (\"Bring Your Own\" ingress). The controller will not create an Ingress but will use the referenced one to populate status URLs.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1alpha2.UntypedObjectReference"
+          }
         }
       }
     },
@@ -1256,6 +2039,238 @@
         "metadata": {
           "default": {},
           "$ref": "#/definitions/v1.ListMeta"
+        }
+      }
+    },
+    "v1alpha2.LLMInferenceServiceSpec": {
+      "description": "LLMInferenceServiceSpec defines the desired state of LLMInferenceService.",
+      "type": "object",
+      "properties": {
+        "baseRefs": {
+          "description": "BaseRefs allows inheriting and overriding configurations from one or more LLMInferenceServiceConfig instances. The controller merges these base configurations, with the current LLMInferenceService spec taking the highest precedence. When multiple baseRefs are provided, the last one in the list overrides previous ones.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1.LocalObjectReference"
+          }
+        },
+        "model": {
+          "description": "Model specification, including its URI, potential LoRA adapters, and storage details. It's optional for `LLMInferenceServiceConfig` kind.",
+          "default": {},
+          "$ref": "#/definitions/v1alpha2.LLMModelSpec"
+        },
+        "parallelism": {
+          "description": "Parallelism configurations for the runtime, such as tensor and pipeline parallelism. These values are used to configure the underlying inference runtime (e.g., vLLM).",
+          "$ref": "#/definitions/v1alpha2.ParallelismSpec"
+        },
+        "prefill": {
+          "description": "Prefill configuration for disaggregated serving. When this section is included, the controller creates a separate deployment for prompt processing (prefill) in addition to the main 'decode' deployment, inspired by the llm-d architecture. This allows for independent scaling and hardware allocation for prefill and decode steps.",
+          "$ref": "#/definitions/v1alpha2.WorkloadSpec"
+        },
+        "replicas": {
+          "description": "Number of replicas for the deployment.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "router": {
+          "description": "Router configuration for how the service is exposed. This section dictates the creation and management of networking resources like Ingress or Gateway API objects (HTTPRoute, Gateway).",
+          "$ref": "#/definitions/v1alpha2.RouterSpec"
+        },
+        "template": {
+          "description": "Template for the main pod spec. In a multi-node deployment, this configures the \"head\" or \"master\" pod. In a disaggregated deployment, this configures the \"decode\" pod if it's the top-level template, or the \"prefill\" pod if it's within the Prefill block.",
+          "$ref": "#/definitions/v1.PodSpec"
+        },
+        "worker": {
+          "description": "Worker configuration for multi-node deployments. The presence of this field triggers the creation of a multi-node (distributed) setup. This spec defines the configuration for the worker pods, while the main 'Template' field defines the head pod. The controller is responsible for enabling discovery between head and worker pods.",
+          "$ref": "#/definitions/v1.PodSpec"
+        }
+      }
+    },
+    "v1alpha2.LLMInferenceServiceStatus": {
+      "description": "LLMInferenceServiceStatus defines the observed state of LLMInferenceService.",
+      "type": "object",
+      "properties": {
+        "address": {
+          "description": "Address is a single Addressable address. If Addresses is present, Address will be ignored by clients.",
+          "$ref": "#/definitions/knative.Addressable"
+        },
+        "addresses": {
+          "description": "Addresses is a list of addresses for different protocols (HTTP and HTTPS) If Addresses is present, Address must be ignored by clients.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/knative.Addressable"
+          }
+        },
+        "annotations": {
+          "description": "Annotations is additional Status fields for the Resource to save some additional State as well as convey more information to the user. This is roughly akin to Annotations on any k8s resource, just the reconciler conveying richer information outwards.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "default": ""
+          }
+        },
+        "conditions": {
+          "description": "Conditions the latest available observations of a resource's current state.",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/knative.Condition"
+          },
+          "x-kubernetes-patch-merge-key": "type",
+          "x-kubernetes-patch-strategy": "merge"
+        },
+        "observedGeneration": {
+          "description": "ObservedGeneration is the 'Generation' of the Service that was last processed by the controller.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "url": {
+          "description": "URL of the publicly exposed service.",
+          "$ref": "#/definitions/knative.URL"
+        }
+      }
+    },
+    "v1alpha2.LLMModelSpec": {
+      "description": "LLMModelSpec defines the model source and its characteristics.",
+      "type": "object",
+      "required": [
+        "uri"
+      ],
+      "properties": {
+        "lora": {
+          "description": "LoRA (Low-Rank Adaptation) adapters configurations. Allows for specifying one or more LoRA adapters to be applied to the base model.",
+          "$ref": "#/definitions/v1alpha2.LoRASpec"
+        },
+        "name": {
+          "description": "Name is the name of the model as it will be set in the \"model\" parameter for an incoming request. If omitted, it will default to `metadata.name`. For LoRA adapters, this field is required.",
+          "type": "string"
+        },
+        "uri": {
+          "description": "URI of the model, specifying its location, e.g., hf://meta-llama/Llama-4-Scout-17B-16E-Instruct The storage-initializer init container uses this URI to download the model.",
+          "$ref": "#/definitions/knative.URL"
+        }
+      }
+    },
+    "v1alpha2.LoRASpec": {
+      "description": "LoRASpec defines the configuration for LoRA adapters.",
+      "type": "object",
+      "properties": {
+        "adapters": {
+          "description": "Adapters is the static specification for one or more LoRA adapters. Each adapter is defined by its own ModelSpec. This type is recursive https://github.com/kubernetes-sigs/controller-tools/issues/585",
+          "type": "array",
+          "items": {
+            "default": {},
+            "$ref": "#/definitions/v1alpha2.LLMModelSpec"
+          }
+        }
+      }
+    },
+    "v1alpha2.ParallelismSpec": {
+      "description": "ParallelismSpec defines the parallelism parameters for distributed inference.",
+      "type": "object",
+      "properties": {
+        "data": {
+          "description": "Data parallelism size.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "dataLocal": {
+          "description": "DataLocal data local parallelism size.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "dataRPCPort": {
+          "description": "DataRPCPort is the data parallelism RPC port.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "expert": {
+          "description": "Expert enables expert parallelism.",
+          "type": "boolean"
+        },
+        "pipeline": {
+          "description": "Pipeline parallelism size.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "tensor": {
+          "description": "Tensor parallelism size.",
+          "type": "integer",
+          "format": "int32"
+        }
+      }
+    },
+    "v1alpha2.RouterSpec": {
+      "description": "RouterSpec defines the routing configuration for exposing the service. It supports Kubernetes Ingress and the Gateway API. The fields are mutually exclusive.",
+      "type": "object",
+      "properties": {
+        "gateway": {
+          "description": "Gateway configuration for the Gateway API, mutually exclusive with Ingress. If an empty object `{}` is provided, the controller uses a default Gateway. This must be used in conjunction with the 'Route' field for managed Gateway API resources.",
+          "$ref": "#/definitions/v1alpha2.GatewaySpec"
+        },
+        "ingress": {
+          "description": "Ingress configuration. This is mutually exclusive with Route and Gateway. If an empty object `{}` is provided, the controller creates and manages a default Ingress resource.",
+          "$ref": "#/definitions/v1alpha2.IngressSpec"
+        },
+        "route": {
+          "description": "Route configuration for the Gateway API. If an empty object `{}` is provided, the controller creates and manages a new HTTPRoute.",
+          "$ref": "#/definitions/v1alpha2.GatewayRoutesSpec"
+        },
+        "scheduler": {
+          "description": "Scheduler configuration for the Inference Gateway extension. If this field is non-empty, an InferenceModel resource will be created to integrate with the gateway's scheduler.",
+          "$ref": "#/definitions/v1alpha2.SchedulerSpec"
+        }
+      }
+    },
+    "v1alpha2.SchedulerSpec": {
+      "description": "SchedulerSpec defines the Inference Gateway extension configuration.\n\nThe SchedulerSpec configures the connection from the Gateway to the model deployment leveraging the LLM optimized request Scheduler, also known as the Endpoint Picker (EPP) which determines the exact pod that should handle the request and responds back to Envoy with the target pod, Envoy will then forward the request to the chosen pod.\n\nThe Scheduler is only effective when having multiple inference pod replicas.\n\nStep 1: Gateway (Envoy) \u003c-- ExtProc --\u003e EPP (select the optimal replica to handle the request) Step 2: Gateway (Envoy) \u003c-- forward request --\u003e Inference Pod X",
+      "type": "object",
+      "properties": {
+        "pool": {
+          "description": "Pool configuration for the InferencePool, which is part of the Inference Gateway extension.",
+          "$ref": "#/definitions/v1alpha2.InferencePoolSpec"
+        },
+        "template": {
+          "description": "Template for the Inference Gateway Extension pod spec. This configures the Endpoint Picker (EPP) Deployment.",
+          "$ref": "#/definitions/v1.PodSpec"
+        }
+      }
+    },
+    "v1alpha2.UntypedObjectReference": {
+      "description": "UntypedObjectReference is a reference to an object without a specific Group/Version/Kind. It's used for referencing networking resources like Gateways and Ingresses where the exact type might be inferred or is not strictly required by this controller.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Name of the referenced object.",
+          "type": "string"
+        },
+        "namespace": {
+          "description": "Namespace of the referenced object.",
+          "type": "string"
+        }
+      }
+    },
+    "v1alpha2.WorkloadSpec": {
+      "description": "WorkloadSpec defines the configuration for a deployment workload, such as replicas and pod specifications.",
+      "type": "object",
+      "properties": {
+        "parallelism": {
+          "description": "Parallelism configurations for the runtime, such as tensor and pipeline parallelism. These values are used to configure the underlying inference runtime (e.g., vLLM).",
+          "$ref": "#/definitions/v1alpha2.ParallelismSpec"
+        },
+        "replicas": {
+          "description": "Number of replicas for the deployment.",
+          "type": "integer",
+          "format": "int32"
+        },
+        "template": {
+          "description": "Template for the main pod spec. In a multi-node deployment, this configures the \"head\" or \"master\" pod. In a disaggregated deployment, this configures the \"decode\" pod if it's the top-level template, or the \"prefill\" pod if it's within the Prefill block.",
+          "$ref": "#/definitions/v1.PodSpec"
+        },
+        "worker": {
+          "description": "Worker configuration for multi-node deployments. The presence of this field triggers the creation of a multi-node (distributed) setup. This spec defines the configuration for the worker pods, while the main 'Template' field defines the head pod. The controller is responsible for enabling discovery between head and worker pods.",
+          "$ref": "#/definitions/v1.PodSpec"
         }
       }
     },

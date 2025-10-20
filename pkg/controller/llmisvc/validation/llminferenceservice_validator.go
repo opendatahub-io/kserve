@@ -30,11 +30,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
-// +kubebuilder:webhook:path=/validate-serving-kserve-io-v1alpha1-llminferenceservice,mutating=false,failurePolicy=fail,sideEffects=None,groups=serving.kserve.io,resources=llminferenceservices,verbs=create;update,versions=v1alpha1,name=llminferenceservice.kserve-webhook-server.validator,admissionReviewVersions=v1;v1beta1
+// +kubebuilder:webhook:path=/validate-serving-kserve-io-v1alpha2-llminferenceservice,mutating=false,failurePolicy=fail,sideEffects=None,groups=serving.kserve.io,resources=llminferenceservices,verbs=create;update,versions=v1alpha2,name=llminferenceservice.kserve-webhook-server.validator,admissionReviewVersions=v1;v1beta1
 
 // LLMInferenceServiceValidator is responsible for validating the LLMInferenceService resource
 // when it is created, updated, or deleted.
@@ -45,14 +45,14 @@ var _ webhook.CustomValidator = &LLMInferenceServiceValidator{}
 
 func (l *LLMInferenceServiceValidator) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr).
-		For(&v1alpha1.LLMInferenceService{}).
+		For(&v1alpha2.LLMInferenceService{}).
 		WithValidator(l).
 		Complete()
 }
 
 func (l *LLMInferenceServiceValidator) ValidateCreate(ctx context.Context, obj runtime.Object) (admission.Warnings, error) {
 	warnings := admission.Warnings{}
-	llmSvc, err := utils.Convert[*v1alpha1.LLMInferenceService](obj)
+	llmSvc, err := utils.Convert[*v1alpha2.LLMInferenceService](obj)
 	if err != nil {
 		return warnings, err
 	}
@@ -62,11 +62,11 @@ func (l *LLMInferenceServiceValidator) ValidateCreate(ctx context.Context, obj r
 
 func (l *LLMInferenceServiceValidator) ValidateUpdate(ctx context.Context, oldObj, newObj runtime.Object) (admission.Warnings, error) {
 	warnings := admission.Warnings{}
-	llmSvc, err := utils.Convert[*v1alpha1.LLMInferenceService](newObj)
+	llmSvc, err := utils.Convert[*v1alpha2.LLMInferenceService](newObj)
 	if err != nil {
 		return warnings, err
 	}
-	prev, err := utils.Convert[*v1alpha1.LLMInferenceService](oldObj)
+	prev, err := utils.Convert[*v1alpha2.LLMInferenceService](oldObj)
 	if err != nil {
 		return warnings, err
 	}
@@ -79,7 +79,7 @@ func (l *LLMInferenceServiceValidator) ValidateDelete(_ context.Context, _ runti
 	return admission.Warnings{}, nil
 }
 
-func (l *LLMInferenceServiceValidator) validate(ctx context.Context, prev *v1alpha1.LLMInferenceService, llmSvc *v1alpha1.LLMInferenceService) error {
+func (l *LLMInferenceServiceValidator) validate(ctx context.Context, prev *v1alpha2.LLMInferenceService, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Validating LLMInferenceService", "name", llmSvc.Name, "namespace", llmSvc.Namespace)
 
@@ -95,11 +95,11 @@ func (l *LLMInferenceServiceValidator) validate(ctx context.Context, prev *v1alp
 	}
 
 	return apierrors.NewInvalid(
-		v1alpha1.LLMInferenceServiceGVK.GroupKind(),
+		v1alpha2.LLMInferenceServiceGVK.GroupKind(),
 		llmSvc.Name, allErrs)
 }
 
-func (l *LLMInferenceServiceValidator) validateRouterCrossFieldConstraints(llmSvc *v1alpha1.LLMInferenceService) field.ErrorList {
+func (l *LLMInferenceServiceValidator) validateRouterCrossFieldConstraints(llmSvc *v1alpha2.LLMInferenceService) field.ErrorList {
 	router := llmSvc.Spec.Router
 	if router == nil || router.Route == nil {
 		return field.ErrorList{}
@@ -161,7 +161,7 @@ func (l *LLMInferenceServiceValidator) validateRouterCrossFieldConstraints(llmSv
 	return allErrs
 }
 
-func (l *LLMInferenceServiceValidator) validateParallelismConstraints(llmSvc *v1alpha1.LLMInferenceService) field.ErrorList {
+func (l *LLMInferenceServiceValidator) validateParallelismConstraints(llmSvc *v1alpha2.LLMInferenceService) field.ErrorList {
 	var allErrs field.ErrorList
 
 	allErrs = append(allErrs, l.validateWorkloadParallelism(field.NewPath("spec"), &llmSvc.Spec.WorkloadSpec)...)
@@ -173,7 +173,7 @@ func (l *LLMInferenceServiceValidator) validateParallelismConstraints(llmSvc *v1
 	return allErrs
 }
 
-func (l *LLMInferenceServiceValidator) validateWorkloadParallelism(basePath *field.Path, workload *v1alpha1.WorkloadSpec) field.ErrorList {
+func (l *LLMInferenceServiceValidator) validateWorkloadParallelism(basePath *field.Path, workload *v1alpha2.WorkloadSpec) field.ErrorList {
 	var allErrs field.ErrorList
 
 	if workload.Worker != nil && workload.Parallelism == nil {
@@ -253,7 +253,7 @@ func (l *LLMInferenceServiceValidator) validateWorkloadParallelism(basePath *fie
 	return allErrs
 }
 
-func (l *LLMInferenceServiceValidator) validateImmutable(prev *v1alpha1.LLMInferenceService, curr *v1alpha1.LLMInferenceService) field.ErrorList {
+func (l *LLMInferenceServiceValidator) validateImmutable(prev *v1alpha2.LLMInferenceService, curr *v1alpha2.LLMInferenceService) field.ErrorList {
 	var allErrs field.ErrorList
 	if prev == nil {
 		return allErrs
@@ -269,7 +269,7 @@ func (l *LLMInferenceServiceValidator) validateImmutable(prev *v1alpha1.LLMInfer
 	return allErrs
 }
 
-func (l *LLMInferenceServiceValidator) validateImmutableParallelism(basePath *field.Path, prev *v1alpha1.ParallelismSpec, curr *v1alpha1.ParallelismSpec) field.ErrorList {
+func (l *LLMInferenceServiceValidator) validateImmutableParallelism(basePath *field.Path, prev *v1alpha2.ParallelismSpec, curr *v1alpha2.ParallelismSpec) field.ErrorList {
 	var allErrs field.ErrorList
 	if pSize, cSize := ptr.Deref(prev.GetSize(), 1), ptr.Deref(curr.GetSize(), 1); cSize != pSize {
 		allErrs = append(allErrs, immutable(
