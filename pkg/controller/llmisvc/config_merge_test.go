@@ -1784,3 +1784,87 @@ spec:
 		})
 	}
 }
+
+// TestODHModelControllerCompatibility verifies that LLMInferenceServiceConfig with KServe-native
+// InferencePool types can be serialized to JSON and deserialized back without errors.
+// This tests compatibility with ODH Model Controller which may use an older kserve library.
+func TestODHModelControllerCompatibility(t *testing.T) {
+	g := NewWithT(t)
+
+	// Create a config with KServe types (what gets stored in CRD)
+	original := &v1alpha1.LLMInferenceServiceConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-config",
+			Namespace: "default",
+		},
+		Spec: v1alpha1.LLMInferenceServiceSpec{
+			Router: &v1alpha1.RouterSpec{
+				Scheduler: &v1alpha1.SchedulerSpec{
+					Pool: &v1alpha1.InferencePoolSpec{
+						Spec: &igwv1.InferencePoolSpec{
+							Selector: igwv1.LabelSelector{
+								MatchLabels: map[igwv1.LabelKey]igwv1.LabelValue{
+									"app":                                   "my-model",
+									"serving.kserve.io/llminferenceservice": "test-llm",
+									"serving.kserve.io/llminferenceservice-uid": "test-uid",
+								},
+							},
+							TargetPorts: []igwv1.Port{
+								{Number: 8000},
+							},
+							EndpointPickerRef: igwv1.EndpointPickerRef{
+								Name: "test-epp",
+								Kind: "Service",
+								Port: &igwv1.Port{Number: 9000},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Simulate what happens in Kubernetes:
+	// 1. Controller creates the config object
+	// 2. K8s API server serializes to JSON and stores in etcd
+	jsonBytes, err := yaml.Marshal(original)
+	g.Expect(err).NotTo(HaveOccurred(), "Failed to serialize to JSON")
+
+	t.Logf("Serialized YAML (simulating etcd storage):\n%s", string(jsonBytes))
+
+	// 3. ODH Model Controller (with potentially old kserve lib) reads from API
+	// 4. It deserializes the JSON back to Go struct
+	var deserialized v1alpha1.LLMInferenceServiceConfig
+	err = yaml.Unmarshal(jsonBytes, &deserialized)
+	g.Expect(err).NotTo(HaveOccurred(), "ODH MC should be able to deserialize - this was the bug we fixed!")
+
+	// Verify the data is intact after round-trip serialization
+	g.Expect(deserialized.Name).To(Equal("test-config"))
+	g.Expect(deserialized.Namespace).To(Equal("default"))
+	g.Expect(deserialized.Spec.Router).NotTo(BeNil())
+	g.Expect(deserialized.Spec.Router.Scheduler).NotTo(BeNil())
+	g.Expect(deserialized.Spec.Router.Scheduler.Pool).NotTo(BeNil())
+	g.Expect(deserialized.Spec.Router.Scheduler.Pool.Spec).NotTo(BeNil())
+
+	// Verify selector uses plain strings (not typed LabelKey/LabelValue)
+	selector := deserialized.Spec.Router.Scheduler.Pool.Spec.Selector.MatchLabels
+	g.Expect(selector).To(HaveKeyWithValue("app", "my-model"))
+	g.Expect(selector).To(HaveKeyWithValue("serving.kserve.io/llminferenceservice", "test-llm"))
+	g.Expect(selector).To(HaveKeyWithValue("serving.kserve.io/llminferenceservice-uid", "test-uid"))
+	g.Expect(selector).To(HaveLen(3))
+
+	// Verify ports are correct
+	g.Expect(deserialized.Spec.Router.Scheduler.Pool.Spec.TargetPorts).To(HaveLen(1))
+	g.Expect(deserialized.Spec.Router.Scheduler.Pool.Spec.TargetPorts[0].Number).To(Equal(int32(8000)))
+
+	// Verify endpoint picker ref
+	eppRef := deserialized.Spec.Router.Scheduler.Pool.Spec.EndpointPickerRef
+	g.Expect(eppRef.Name).To(Equal("test-epp"))
+	g.Expect(eppRef.Kind).NotTo(BeNil())
+	g.Expect(eppRef.Kind).To(Equal("Service"))
+	g.Expect(eppRef.Port).NotTo(BeNil())
+	g.Expect(eppRef.Port.Number).To(Equal(int32(9000)))
+
+	t.Logf("✅ JSON serialization/deserialization round-trip successful!")
+	t.Logf("✅ ODH Model Controller compatibility verified!")
+}

@@ -82,6 +82,8 @@ fi
 $SCRIPT_DIR/infra/deploy.cert-manager.sh
 $SCRIPT_DIR/infra/deploy.lws.sh
 
+$SCRIPT_DIR/infra/deploy.gateway.ingress.sh
+
 if [ "${KSERVE_DEPLOY}" == "true" ]; then
   kubectl create ns opendatahub || true
 

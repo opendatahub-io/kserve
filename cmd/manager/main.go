@@ -319,6 +319,7 @@ func main() {
 	}
 	if err = (&llmisvc.LLMInferenceServiceReconciler{
 		Client:        mgr.GetClient(),
+		Config:        mgr.GetConfig(),
 		Clientset:     clientSet,
 		DynamicClient: dynamicClient,
 		EventRecorder: llmEventBroadcaster.NewRecorder(scheme, corev1.EventSource{Component: "LLMInferenceServiceController"}),

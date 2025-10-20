@@ -161,7 +161,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				routes, errList := managedRoutes(ctx, llmSvc)
 				g.Expect(errList).ToNot(HaveOccurred())
 				g.Expect(routes).To(HaveLen(1))
-				g.Expect(llmisvc.IsHTTPRouteReady(&routes[0])).To(BeTrue())
+				g.Expect(llmisvc.IsHTTPRouteReady(llmSvc, &routes[0])).To(BeTrue())
 				return nil
 			}).WithContext(ctx).Should(Succeed())
 
@@ -301,8 +301,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					g.Expect(routes[0]).To(HaveBackendRefs(
 						BackendRefInferencePoolV1(svcName+"-inference-pool", 100),
 						BackendRefInferencePoolV1Alpha2(svcName+"-inference-pool", 0),
+						BackendRefService(svcName+"-kserve-workload-svc", 100),
 					))
-					g.Expect(routes[0]).To(Not(HaveBackendRefs(BackendRefService(svcName + "-kserve-workload-svc"))))
 					return nil
 				}).WithContext(ctx).Should(Succeed())
 
@@ -385,8 +385,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					g.Expect(routes[0]).To(HaveBackendRefs(
 						BackendRefInferencePoolV1(infPoolName, 100),
 						BackendRefInferencePoolV1Alpha2(svcName+"-inference-pool", 0),
-					))
-					g.Expect(routes[0]).To(Not(HaveBackendRefs(BackendRefService(svcName + "-kserve-workload-svc"))))
+						BackendRefService(svcName+"-kserve-workload-svc", 100)),
+					)
 					return nil
 				}).WithContext(ctx).Should(Succeed())
 
@@ -447,8 +447,9 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					g.Expect(errList).ToNot(HaveOccurred())
 					g.Expect(routes).To(HaveLen(1))
 					g.Expect(routes[0]).To(HaveBackendRefs(
-						BackendRefServiceWithWeight(svcName, 100),
-						BackendRefInferencePoolV1Alpha2(kmeta.ChildName(llmSvcName, "-inference-pool"), 0),
+						BackendRefService(svcName, 100),
+						BackendRefInferencePoolV1(kmeta.ChildName(llmSvcName, "-inference-pool"), 0),
+						BackendRefInferencePoolV1Alpha2(kmeta.ChildName(llmSvcName, "-inference-pool"), 1),
 					))
 					return nil
 				}).WithContext(ctx).Should(Succeed())
@@ -496,7 +497,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					InNamespace[*v1alpha1.LLMInferenceService](nsName),
 					WithModelURI("hf://facebook/opt-125m"),
 					WithManagedGateway(),
-					WithHTTPRouteSpec(customRouteSpec(ctx, envTest.Client, nsName, "my-ingress-gateway", "my-inference-service")),
+					WithHTTPRouteSpec(customRouteSpec(ctx, envTest.Client, &v1alpha1.LLMInferenceService{}, nsName, "my-ingress-gateway", "my-inference-service")),
 				)
 
 				// when
@@ -518,8 +519,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "my-ingress-gateway"}))
 				// llmisvc is created with custom route spec and no scheduler which results in one service backend ref
-				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefService("my-inference-service")))
-				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefInferencePool(kmeta.ChildName(svcName, "-inference-pool")))))
+				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefService("my-inference-service", 100)))
+				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefInferencePoolV1Alpha2(kmeta.ChildName(svcName, "-inference-pool"), 1))))
 
 				// Advanced fixture pattern: Update the HTTPRoute status using fixture functions
 				updatedRoute := expectedHTTPRoute.DeepCopy()
@@ -595,7 +596,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, customHTTPRoute)).To(Succeed())
 
 				// Make the HTTPRoute ready
-				ensureHTTPRouteReady(ctx, envTest.Client, customHTTPRoute)
+				ensureHTTPRouteReady(ctx, envTest.Client, llmSvc, customHTTPRoute)
 
 				// when - Update the HTTPRoute spec
 				errRetry := retry.RetryOnConflict(retry.DefaultRetry, func() error {
@@ -656,7 +657,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(envTest.Client.Create(ctx, customHTTPRoute)).To(Succeed())
 
 				// Make the HTTPRoute ready
-				ensureHTTPRouteReady(ctx, envTest.Client, customHTTPRoute)
+				ensureHTTPRouteReady(ctx, envTest.Client, &v1alpha1.LLMInferenceService{}, customHTTPRoute)
 
 				llmSvc := LLMInferenceService(svcName,
 					InNamespace[*v1alpha1.LLMInferenceService](nsName),
@@ -1364,7 +1365,7 @@ func ensureGatewayReady(ctx context.Context, c client.Client, gateway *gatewayap
 
 // ensureHTTPRouteReady sets up HTTPRoute status conditions to simulate a ready HTTPRoute
 // Only runs in non-cluster mode
-func ensureHTTPRouteReady(ctx context.Context, c client.Client, route *gatewayapi.HTTPRoute) {
+func ensureHTTPRouteReady(ctx context.Context, c client.Client, llmSvc *v1alpha1.LLMInferenceService, route *gatewayapi.HTTPRoute) {
 	if envTest.UsingExistingCluster() {
 		return
 	}
@@ -1376,7 +1377,7 @@ func ensureHTTPRouteReady(ctx context.Context, c client.Client, route *gatewayap
 	// Set the status conditions to simulate the Gateway controller making the HTTPRoute ready
 	// HTTPRoute readiness is determined by parent status conditions
 	if len(createdRoute.Spec.ParentRefs) > 0 {
-		createdRoute.Status.RouteStatus.Parents = make([]gatewayapi.RouteParentStatus, len(createdRoute.Spec.ParentRefs))
+		createdRoute.Status.RouteStatus.Parents = make([]gatewayapi.RouteParentStatus, len(createdRoute.Spec.ParentRefs)*2)
 		for i, parentRef := range createdRoute.Spec.ParentRefs {
 			createdRoute.Status.RouteStatus.Parents[i] = gatewayapi.RouteParentStatus{
 				ParentRef:      parentRef,
@@ -1398,6 +1399,18 @@ func ensureHTTPRouteReady(ctx context.Context, c client.Client, route *gatewayap
 					},
 				},
 			}
+			createdRoute.Status.RouteStatus.Parents[len(createdRoute.Spec.ParentRefs)+i] = gatewayapi.RouteParentStatus{
+				ParentRef:      parentRef,
+				ControllerName: "kuadrant.io/policy-controller",
+				Conditions: []metav1.Condition{
+					{
+						Type:               "kuadrant.io/AuthPolicyAffected",
+						Status:             metav1.ConditionTrue,
+						Reason:             "Accepted",
+						LastTransitionTime: metav1.Now(),
+					},
+				},
+			}
 		}
 	}
 
@@ -1408,7 +1421,7 @@ func ensureHTTPRouteReady(ctx context.Context, c client.Client, route *gatewayap
 	Eventually(func(g Gomega, ctx context.Context) bool {
 		updatedRoute := &gatewayapi.HTTPRoute{}
 		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(route), updatedRoute)).To(Succeed())
-		return llmisvc.IsHTTPRouteReady(updatedRoute)
+		return llmisvc.IsHTTPRouteReady(llmSvc, updatedRoute)
 	}).WithContext(ctx).Should(BeTrue())
 }
 
@@ -1514,19 +1527,27 @@ func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, 
 			poolUnstructured := &v1alpha2Pools.Items[i]
 			// Set ready status on v1alpha2 pool
 			status := map[string]interface{}{
-				"parents": []interface{}{
+				"parent": []interface{}{
 					map[string]interface{}{
+						"parentRef": map[string]interface{}{
+							"group":     "gateway.networking.k8s.io",
+							"kind":      "Gateway",
+							"name":      "kserve-ingress-gateway",
+							"namespace": "kserve",
+						},
 						"conditions": []interface{}{
 							map[string]interface{}{
 								"type":               "Accepted",
 								"status":             "True",
 								"reason":             "Accepted",
+								"message":            "InferencePool accepted",
 								"lastTransitionTime": metav1.Now().Format(time.RFC3339),
 							},
 							map[string]interface{}{
 								"type":               "ResolvedRefs",
 								"status":             "True",
 								"reason":             "ResolvedRefs",
+								"message":            "All references resolved",
 								"lastTransitionTime": metav1.Now().Format(time.RFC3339),
 							},
 						},
@@ -1574,7 +1595,7 @@ func ensureSchedulerDeploymentReady(ctx context.Context, c client.Client, llmSvc
 	}
 }
 
-func customRouteSpec(ctx context.Context, c client.Client, nsName, gatewayRefName, backendRefName string) *gatewayapi.HTTPRouteSpec {
+func customRouteSpec(ctx context.Context, c client.Client, llmSvc *v1alpha1.LLMInferenceService, nsName, gatewayRefName, backendRefName string) *gatewayapi.HTTPRouteSpec {
 	customGateway := Gateway(gatewayRefName,
 		InNamespace[*gatewayapi.Gateway](nsName),
 		WithClassName("istio"),
@@ -1606,7 +1627,7 @@ func customRouteSpec(ctx context.Context, c client.Client, nsName, gatewayRefNam
 	Expect(c.Create(ctx, route)).To(Succeed())
 
 	// Ensure the HTTPRoute becomes ready
-	ensureHTTPRouteReady(ctx, c, route)
+	ensureHTTPRouteReady(ctx, c, llmSvc, route)
 
 	httpRouteSpec := &route.Spec
 

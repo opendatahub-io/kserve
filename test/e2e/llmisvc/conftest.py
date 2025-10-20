@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pytest
+from kubernetes import client
+
 
 # This hook is used to ensure that the test names are unique and to ensure that
 # the test names are consistent with the cluster marks.
@@ -41,3 +44,16 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "llminferenceservice: mark test as an LLM inference service test"
     )
+
+
+# RHCL (Red Hat Connectivity Link) is optional per https://github.com/opendatahub-io/kserve/pull/939
+# Auth tests require RHCL to be installed, so this fixture allows conditional test execution
+@pytest.fixture(scope="session")
+def rhcl_available():
+    """Check if RHCL (AuthPolicy CRD) is installed in the cluster."""
+    try:
+        api = client.ApiextensionsV1Api()
+        api.read_custom_resource_definition("authpolicies.kuadrant.io")
+        return True
+    except Exception:
+        return False

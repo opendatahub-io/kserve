@@ -90,7 +90,7 @@ fi
 
 if [[ "${DEPLOYMENT_PROFILE}" == "llm-d" ]]; then
   echo "⏳ Installing llm-d prerequisites"
-  $SCRIPT_DIR/setup-llm.sh --skip-kserve
+  $SCRIPT_DIR/setup-llm.sh --skip-kserve --deploy-kuadrant
 fi
 
 echo "⏳ Waiting for KServe CRDs"
@@ -108,7 +108,7 @@ sed -i "s|^kserve-router=.*$|kserve-router=${KSERVE_ROUTER_IMAGE}|" "$PROJECT_RO
 sed -i "s|^kserve-storage-initializer=.*$|kserve-storage-initializer=${STORAGE_INITIALIZER_IMAGE}|" "$PROJECT_ROOT/config/overlays/odh/params.env"
 sed -i "s|^sklearn=.*$|sklearn=${SKLEARN_IMAGE}|" "$PROJECT_ROOT/config/overlays/odh/params.env"
 
-kustomize build $PROJECT_ROOT/config/overlays/odh-test | oc apply --server-side=true -f -
+kustomize build $PROJECT_ROOT/config/overlays/odh-test | oc apply --force-conflicts --server-side=true -f -
 mv "$PROJECT_ROOT/config/overlays/odh/params.env.bak" "$PROJECT_ROOT/config/overlays/odh/params.env"
 
 wait_for_crd datascienceclusters.datasciencecluster.opendatahub.io 90s

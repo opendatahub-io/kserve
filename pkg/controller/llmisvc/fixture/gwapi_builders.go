@@ -289,21 +289,6 @@ func WithHTTPRouteGatewayRef(references ...gatewayapi.ParentReference) HTTPRoute
 	}
 }
 
-// BackendRefInferencePool creates a v1alpha2 InferencePool backend ref
-func BackendRefInferencePool(name string) gatewayapi.HTTPBackendRef {
-	return gatewayapi.HTTPBackendRef{
-		BackendRef: gatewayapi.BackendRef{
-			BackendObjectReference: gatewayapi.BackendObjectReference{
-				Group: ptr.To(gatewayapi.Group("inference.networking.x-k8s.io")),
-				Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
-				Name:  gatewayapi.ObjectName(name),
-				Port:  ptr.To(gatewayapi.PortNumber(8000)),
-			},
-			Weight: ptr.To(int32(1)),
-		},
-	}
-}
-
 // BackendRefInferencePoolV1 creates a v1 InferencePool backend ref
 func BackendRefInferencePoolV1(name string, weight int32) gatewayapi.HTTPBackendRef {
 	return gatewayapi.HTTPBackendRef{
@@ -334,22 +319,7 @@ func BackendRefInferencePoolV1Alpha2(name string, weight int32) gatewayapi.HTTPB
 	}
 }
 
-func BackendRefService(name string) gatewayapi.HTTPBackendRef {
-	return gatewayapi.HTTPBackendRef{
-		BackendRef: gatewayapi.BackendRef{
-			BackendObjectReference: gatewayapi.BackendObjectReference{
-				Group: ptr.To(gatewayapi.Group("")),
-				Kind:  ptr.To(gatewayapi.Kind("Service")),
-				Name:  gatewayapi.ObjectName(name),
-				Port:  ptr.To(gatewayapi.PortNumber(8000)),
-			},
-			Weight: ptr.To(int32(1)),
-		},
-	}
-}
-
-// BackendRefServiceWithWeight creates a Service backend ref with configurable weight
-func BackendRefServiceWithWeight(name string, weight int32) gatewayapi.HTTPBackendRef {
+func BackendRefService(name string, weight int32) gatewayapi.HTTPBackendRef {
 	return gatewayapi.HTTPBackendRef{
 		BackendRef: gatewayapi.BackendRef{
 			BackendObjectReference: gatewayapi.BackendObjectReference{
@@ -478,7 +448,7 @@ func WithHTTPRouteParentStatus(parentRef gatewayapi.ParentReference, controllerN
 func WithHTTPRouteReadyStatus(controllerName string) HTTPRouteOption {
 	return func(route *gatewayapi.HTTPRoute) {
 		if len(route.Spec.ParentRefs) > 0 {
-			route.Status.RouteStatus.Parents = make([]gatewayapi.RouteParentStatus, len(route.Spec.ParentRefs))
+			route.Status.RouteStatus.Parents = make([]gatewayapi.RouteParentStatus, len(route.Spec.ParentRefs)*2)
 			for i, parentRef := range route.Spec.ParentRefs {
 				route.Status.RouteStatus.Parents[i] = gatewayapi.RouteParentStatus{
 					ParentRef:      parentRef,
@@ -496,6 +466,19 @@ func WithHTTPRouteReadyStatus(controllerName string) HTTPRouteOption {
 							Status:             metav1.ConditionTrue,
 							Reason:             "ResolvedRefs",
 							Message:            "HTTPRoute references resolved",
+							LastTransitionTime: metav1.Now(),
+						},
+					},
+				}
+
+				route.Status.RouteStatus.Parents[len(route.Spec.ParentRefs)+i] = gatewayapi.RouteParentStatus{
+					ParentRef:      parentRef,
+					ControllerName: "kuadrant.io/policy-controller",
+					Conditions: []metav1.Condition{
+						{
+							Type:               "kuadrant.io/AuthPolicyAffected",
+							Status:             metav1.ConditionTrue,
+							Reason:             "Accepted",
 							LastTransitionTime: metav1.Now(),
 						},
 					},
@@ -699,12 +682,14 @@ func WithInferencePoolReadyStatus() InferencePoolOption {
 						Type:               string(igwv1.InferencePoolConditionAccepted),
 						Status:             metav1.ConditionTrue,
 						Reason:             string(igwv1.InferencePoolReasonAccepted),
+						Message:            "InferencePool accepted",
 						LastTransitionTime: metav1.Now(),
 					},
 					{
 						Type:               string(igwv1.InferencePoolConditionResolvedRefs),
 						Status:             metav1.ConditionTrue,
 						Reason:             string(igwv1.InferencePoolReasonResolvedRefs),
+						Message:            "All references resolved",
 						LastTransitionTime: metav1.Now(),
 					},
 				},

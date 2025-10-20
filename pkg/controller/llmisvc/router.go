@@ -50,6 +50,12 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 
 	defer llmSvc.DetermineRouterReadiness()
 
+	if err := r.validateGatewayOCP(ctx, llmSvc); err != nil {
+		err := fmt.Errorf("failed to validate Gateway on OpenShift: %w", err)
+		llmSvc.MarkHTTPRoutesNotReady("HTTPRouteReconcileError", err.Error())
+		return err
+	}
+
 	if err := r.validateRouterReferences(ctx, llmSvc); err != nil {
 		return err
 	}
@@ -313,6 +319,16 @@ func (r *LLMInferenceServiceReconciler) CollectReferencedGateways(ctx context.Co
 	if err != nil {
 		return nil, fmt.Errorf("failed to collect referenced routes: %w", err)
 	}
+
+	if llmSvc.Spec.Router.Route != nil && llmSvc.Spec.Router.Route.HTTP.HasSpec() {
+		expected := r.expectedHTTPRoute(ctx, llmSvc)
+		curr := &gatewayapi.HTTPRoute{}
+		if err := r.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil {
+			return nil, fmt.Errorf("failed to fetch HTTPRoute %s/%s: %w", expected.Namespace, expected.Name, err)
+		}
+		routes = append(routes, curr)
+	}
+
 	for _, route := range routes {
 		discoveredGateways, err := DiscoverGateways(ctx, r.Client, route)
 		if err != nil {
@@ -404,14 +420,14 @@ func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.
 		return nil
 	}
 
-	notReadyRoutes := EvaluateHTTPRouteReadiness(ctx, allRoutes)
+	notReadyRoutes := EvaluateHTTPRouteReadiness(ctx, llmSvc, allRoutes)
 
 	if len(notReadyRoutes) > 0 {
 		nonReadyRouteMessages := make([]string, len(notReadyRoutes))
 		for i, route := range notReadyRoutes {
-			topLevelCondition, _ := nonReadyHTTPRouteTopLevelCondition(route)
+			topLevelCondition, _ := nonReadyHTTPRouteTopLevelCondition(llmSvc, route)
 			if topLevelCondition != nil {
-				nonReadyRouteMessages[i] = fmt.Sprintf("%s/%s: %#v (reason %q, message %q)", route.Namespace, route.Name, topLevelCondition.Status, topLevelCondition.Reason, topLevelCondition.Message)
+				nonReadyRouteMessages[i] = fmt.Sprintf("%s/%s: %v=%#v (reason %q, message %q)", route.Namespace, route.Name, topLevelCondition.Type, topLevelCondition.Status, topLevelCondition.Reason, topLevelCondition.Message)
 			} else {
 				nonReadyRouteMessages[i] = fmt.Sprintf("%s/%s: %#v", route.Namespace, route.Name, route.Status)
 			}

@@ -309,6 +309,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerService(ctx context.Con
 
 func (r *LLMInferenceServiceReconciler) expectedSchedulerInferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *igwv1.InferencePool {
 	labels := SchedulerLabels(llmSvc)
+	logger := log.FromContext(ctx)
 
 	ip := &igwv1.InferencePool{
 		ObjectMeta: metav1.ObjectMeta{
@@ -324,7 +325,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerInferencePool(ctx conte
 		ip.Spec = *llmSvc.Spec.Router.Scheduler.Pool.Spec.DeepCopy()
 	}
 
-	log.FromContext(ctx).V(2).Info("Expected router InferencePool", "inferencepool", ip)
+	logger.V(2).Info("Expected router InferencePool", "inferencepool", ip)
 
 	return ip
 }
@@ -651,13 +652,9 @@ func isV1PoolReady(p *igwv1.InferencePool) bool {
 func (r *LLMInferenceServiceReconciler) isAlpha2PoolReady(ctx context.Context, ns, name string) bool {
 	u, err := r.DynamicClient.Resource(GVRInferencePoolV1Alpha2).Namespace(ns).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
-		log.FromContext(ctx).Info("Failed to InferencePool v1alpha2", "error", err)
 		return false
 	}
-
 	parent, _, _ := unstructured.NestedSlice(u.Object, "status", "parent")
-	log.FromContext(ctx).Info("Got InferencePool v1alpha2", "parent", parent, "object", u.Object)
-
 	for _, p := range parent {
 		pm, _ := p.(map[string]any)
 		conds, _, _ := unstructured.NestedSlice(pm, "conditions")

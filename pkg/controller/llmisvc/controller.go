@@ -25,6 +25,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -70,6 +72,7 @@ var childResourcesPredicate, _ = predicate.LabelSelectorPredicate(metav1.LabelSe
 // It orchestrates the reconciliation of child resources based on the spec.
 type LLMInferenceServiceReconciler struct {
 	client.Client
+	Config *rest.Config
 	record.EventRecorder
 	Clientset     kubernetes.Interface
 	DynamicClient dynamic.Interface
@@ -244,6 +247,9 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.LLMInferenceService{}).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: 8, // Reconcile different objects in parallel to increase throughput.
+		}).
 		Watches(&v1alpha1.LLMInferenceServiceConfig{}, r.enqueueOnLLMInferenceServiceConfigChange(logger)).
 		Owns(&netv1.Ingress{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&appsv1.Deployment{}, builder.WithPredicates(childResourcesPredicate)).
@@ -256,6 +262,7 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), gatewayapi.GroupVersion.String(), "HTTPRoute"); ok && err == nil {
 		b = b.Owns(&gatewayapi.HTTPRoute{}, builder.WithPredicates(childResourcesPredicate))
+		b = b.Watches(&gatewayapi.HTTPRoute{}, r.enqueueOnHttpRouteChange(logger))
 	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), gatewayapi.GroupVersion.String(), "Gateway"); ok && err == nil {
 		b = b.Watches(&gatewayapi.Gateway{}, r.enqueueOnGatewayChange(logger))
@@ -266,6 +273,7 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwv1.GroupVersion.String(), "InferencePool"); ok && err == nil {
 		b = b.Owns(&igwv1.InferencePool{}, builder.WithPredicates(childResourcesPredicate))
+		b = b.Watches(&igwv1.InferencePool{}, r.enqueueOnInferencePoolStatusChange(logger), builder.WithPredicates(childResourcesPredicate))
 	}
 
 	// Watch v1alpha2 InferencePool and InferenceModel resources for state changes (using unstructured since there's no typed API)
@@ -522,6 +530,46 @@ func (r *LLMInferenceServiceReconciler) enqueueOnV1Alpha2ResourceChange(logger l
 			"llmisvc", controller.Name,
 			"resource", object.GetName(),
 			"kind", object.GetObjectKind().GroupVersionKind().Kind)
+
+		return []reconcile.Request{{NamespacedName: types.NamespacedName{
+			Namespace: object.GetNamespace(),
+			Name:      controller.Name,
+		}}}
+	})
+}
+
+// enqueueOnInferencePoolStatusChange watches for v1 InferencePool status changes.
+// This is critical for the migration logic - when v1 pool becomes ready for the first time,
+// we need to trigger reconciliation to set the migration annotation and switch traffic.
+func (r *LLMInferenceServiceReconciler) enqueueOnInferencePoolStatusChange(logger logr.Logger) handler.EventHandler {
+	logger = logger.WithName("enqueueOnInferencePoolStatusChange")
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		// Get the owner reference from the v1 InferencePool
+		controller := metav1.GetControllerOf(object)
+		if controller == nil {
+			logger.V(2).Info("v1 InferencePool has no controller", "resource", object.GetName(), "namespace", object.GetNamespace())
+			return nil
+		}
+
+		// Parse the API version to get group and version
+		gv, err := schema.ParseGroupVersion(controller.APIVersion)
+		if err != nil {
+			logger.V(2).Error(err, "failed to parse GroupVersion", "apiVersion", controller.APIVersion)
+			return nil
+		}
+
+		// Check if the owner is an LLMInferenceService
+		if controller.Kind != v1alpha1.LLMInferenceServiceGVK.Kind || gv.Group != v1alpha1.LLMInferenceServiceGVK.Group {
+			logger.V(2).Info("v1 InferencePool is not controlled by LLMInferenceService",
+				"resource", object.GetName(),
+				"owner.kind", controller.Kind,
+				"owner.group", gv.Group)
+			return nil
+		}
+
+		logger.V(1).Info("Enqueuing LLMInferenceService due to v1 InferencePool status change",
+			"llmisvc", controller.Name,
+			"resource", object.GetName())
 
 		return []reconcile.Request{{NamespacedName: types.NamespacedName{
 			Namespace: object.GetNamespace(),

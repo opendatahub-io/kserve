@@ -15,6 +15,10 @@ spec:
               namespace: |-
                 {{ .GlobalConfig.IngressGatewayNamespace }}
           rules:
+            # Dual-pool strategy for /v1/completions endpoint:
+            # - v1 pool gets priority (weight: 100)
+            # - v1alpha2 pool serves as fallback (weight: 1)
+            # If v1 pool is not ready, Gateway automatically falls back to v1alpha2
             - backendRefs:
                 - group: inference.networking.k8s.io
                   kind: InferencePool
@@ -74,7 +78,7 @@ spec:
                   name: |-
                     {{ ChildName .ObjectMeta.Name `-kserve-workload-svc` }}
                   port: 8000
-                  weight: 1
+                  weight: 100
               matches:
                 - path:
                     type: PathPrefix

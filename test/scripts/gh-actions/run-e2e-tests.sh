@@ -25,6 +25,15 @@ echo "Starting E2E functional tests ..."
 MARKER="${1}"
 PARALLELISM="${2:-1}"
 NETWORK_LAYER="${3:-'istio'}"
+issuer=$(oc get authentication cluster -o jsonpath='{.spec.serviceAccountIssuer}')
+if [ -n "$issuer" ]; then
+  export TOKEN_AUDIENCES="${TOKEN_AUDIENCES:-$issuer}"
+else
+  export TOKEN_AUDIENCES="${TOKEN_AUDIENCES:-https://kubernetes.default.svc}"
+fi
+
+: "${SKIP_DELETION_ON_FAILURE:=true}"
+export SKIP_DELETION_ON_FAILURE
 
 echo "Parallelism requested for pytest is ${PARALLELISM}"
 
@@ -35,6 +44,12 @@ pushd test/e2e >/dev/null
     echo "Skipping explainer tests for raw deployment with ingress"
     pytest -m "$MARKER" --exitfirst --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --network-layer $NETWORK_LAYER --ignore=explainer/
   else
-    pytest -m "$MARKER" --exitfirst --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --network-layer $NETWORK_LAYER
+    rc=0
+    pytest --capture=tee-sys -m "$MARKER" --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --network-layer $NETWORK_LAYER || rc=$?
+    if [ $rc -ne 0 ]; then
+      oc get authpolicies -A -oyaml || true
+      oc get llmisvc -A -oyaml || true
+      exit $rc
+    fi
   fi
 popd
