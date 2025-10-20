@@ -418,7 +418,7 @@ func schedulerConfigText(llmSvc *v1alpha2.LLMInferenceService) string {
 	case llmSvc.Spec.Prefill != nil:
 		// Always do P/D by default (threshold 0)
 		return `
-apiVersion: inference.networking.x-k8s.io/v1alpha2
+apiVersion: inference.networking.x-k8s.io/v1alpha1
 kind: EndpointPickerConfig
 plugins:
   - type: prefill-header-handler
