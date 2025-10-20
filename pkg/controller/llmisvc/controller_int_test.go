@@ -18,6 +18,7 @@ package llmisvc_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -301,6 +302,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					g.Expect(routes[0]).To(HaveBackendRefs(
 						BackendRefInferencePoolV1(svcName+"-inference-pool", 100),
 						BackendRefInferencePoolV1Alpha2(svcName+"-inference-pool", 0),
+						BackendRefInferencePoolV1(svcName+"-inference-pool", 100),
+						BackendRefInferencePoolV1Alpha2(svcName+"-inference-pool", 0),
 						BackendRefService(svcName+"-kserve-workload-svc", 100),
 					))
 					return nil
@@ -383,8 +386,12 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					g.Expect(errList).ToNot(HaveOccurred())
 					g.Expect(routes).To(HaveLen(1))
 					g.Expect(routes[0]).To(HaveBackendRefs(
-						BackendRefService(svcName+"-kserve-workload-svc", 100)),
-					)
+						BackendRefInferencePoolV1(infPoolName, 100),
+						BackendRefInferencePoolV1Alpha2(infPoolName, 0),
+						BackendRefInferencePoolV1(infPoolName, 100),
+						BackendRefInferencePoolV1Alpha2(infPoolName, 0),
+						BackendRefService(svcName+"-kserve-workload-svc", 100),
+					))
 					return nil
 				}).WithContext(ctx).Should(Succeed())
 
@@ -445,11 +452,11 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					g.Expect(errList).ToNot(HaveOccurred())
 					g.Expect(routes).To(HaveLen(1))
 					g.Expect(routes[0]).To(HaveBackendRefs(
-						BackendRefService(svcName+"-kserve-workload-svc", 100),
-						BackendRefService(svcName+"-kserve-workload-svc", 100),
-						BackendRefService(svcName+"-kserve-workload-svc", 100),
-						BackendRefService(svcName+"-kserve-workload-svc", 100),
-						BackendRefService(svcName+"-kserve-workload-svc", 100),
+						BackendRefService(svcName, 100),
+						BackendRefService(svcName, 100),
+						BackendRefService(svcName, 100),
+						BackendRefService(svcName, 100),
+						BackendRefService(svcName, 100),
 					))
 					return nil
 				}).WithContext(ctx).Should(Succeed())
@@ -519,7 +526,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "my-ingress-gateway"}))
 				// llmisvc is created with custom route spec and no scheduler which results in one service backend ref
-				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefService("my-inference-service", 100)))
+				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefService("my-inference-service", 1)))
 				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefInferencePoolV1Alpha2(kmeta.ChildName(svcName, "-inference-pool"), 1))))
 
 				// Advanced fixture pattern: Update the HTTPRoute status using fixture functions
@@ -743,9 +750,14 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 					// then - HTTPRoute with router labels should be deleted
 					Eventually(func(g Gomega, ctx context.Context) error {
+						curr := &v1alpha2.LLMInferenceService{}
+						err := envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), curr)
+						g.Expect(err).ToNot(HaveOccurred())
+						objJson, _ := json.MarshalIndent(curr, "", "  ")
+
 						routes, errList := managedRoutes(ctx, llmSvc)
 						g.Expect(errList).ToNot(HaveOccurred())
-						g.Expect(routes).To(BeEmpty())
+						g.Expect(routes).To(BeEmpty(), fmt.Sprintf("LLMInferenceService.Spec %s", string(objJson)))
 
 						return nil
 					}).WithContext(ctx).Should(Succeed(), "Should have no managed HTTPRoutes with router when ")
