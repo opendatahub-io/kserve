@@ -21,6 +21,7 @@ import (
 	"path/filepath"
 	"time"
 
+	validation2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2/validation"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -31,7 +32,6 @@ import (
 
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
-	"github.com/kserve/kserve/pkg/controller/llmisvc/validation"
 	pkgtest "github.com/kserve/kserve/pkg/testing"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -74,14 +74,14 @@ func SetupTestEnv() *pkgtest.Client {
 		if err != nil {
 			return err
 		}
-		llmInferenceServiceConfigValidator := validation.LLMInferenceServiceConfigValidator{
+		llmInferenceServiceConfigValidator := validation2.LLMInferenceServiceConfigValidator{
 			ClientSet: clientSet,
 		}
 		if err := llmInferenceServiceConfigValidator.SetupWithManager(mgr); err != nil {
 			return err
 		}
 
-		llmInferenceServiceValidator := validation.LLMInferenceServiceValidator{}
+		llmInferenceServiceValidator := validation2.LLMInferenceServiceValidator{}
 		return llmInferenceServiceValidator.SetupWithManager(mgr)
 	}
 
