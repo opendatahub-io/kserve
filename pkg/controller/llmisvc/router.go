@@ -42,6 +42,15 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 )
 
+const (
+	// AnnotationInferencePoolMigrated records when the HTTPRoute has migrated to v1 InferencePool.
+	// Once set to "v1", traffic will never fall back to v1alpha2 even during transient failures.
+	// This implements a one-way migration strategy to prevent oscillation.
+	// This annotation is stored on child objects (HTTPRoute) rather than the parent LLMInferenceService
+	// to follow the pattern of never modifying user-managed objects.
+	AnnotationInferencePoolMigrated = "serving.kserve.io/inference-pool-migrated"
+)
+
 func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("reconcileRouter")
 	ctx = log.IntoContext(ctx, logger)
@@ -187,8 +196,14 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 	isMigrated = isMigrated && migrationValue == v1MigrationValue
 
 	expectedInfPool := r.expectedSchedulerInferencePool(ctx, llmSvc)
+	infPoolName := expectedInfPool.GetName()
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil && llmSvc.Spec.Router.Scheduler.Pool != nil && llmSvc.Spec.Router.Scheduler.Pool.Ref != nil {
+		infPoolName = llmSvc.Spec.Router.Scheduler.Pool.Ref.Name
+		isMigrated = true // For ref, we only support v1 InferencePool
+	}
+
 	ipCurr := &igwv1.InferencePool{}
-	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(expectedInfPool), ipCurr); err != nil {
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: llmSvc.GetNamespace(), Name: infPoolName}, ipCurr); err != nil {
 		return httpRoute
 	}
 

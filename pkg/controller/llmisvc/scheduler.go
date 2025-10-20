@@ -44,15 +44,6 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 )
 
-const (
-	// AnnotationInferencePoolMigrated records when the HTTPRoute has migrated to v1 InferencePool.
-	// Once set to "v1", traffic will never fall back to v1alpha2 even during transient failures.
-	// This implements a one-way migration strategy to prevent oscillation.
-	// This annotation is stored on child objects (HTTPRoute) rather than the parent LLMInferenceService
-	// to follow the pattern of never modifying user-managed objects.
-	AnnotationInferencePoolMigrated = "serving.kserve.io/inference-pool-migrated"
-)
-
 // GVRInferencePoolV1Alpha2 is the GroupVersionResource for v1alpha2 InferencePool
 var GVRInferencePoolV1Alpha2 = schema.GroupVersionResource{
 	Group:    "inference.networking.x-k8s.io",
