@@ -19,18 +19,17 @@ package validation_test
 import (
 	"testing"
 
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1/validation"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	"github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 
 	"github.com/onsi/gomega"
 
-	"github.com/kserve/kserve/pkg/controller/llmisvc/validation"
-
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 	"k8s.io/utils/ptr"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
 )
 
@@ -40,31 +39,31 @@ func TestLLMInferenceServiceConfigValidator_ValidateUpdate_Warnings(t *testing.T
 
 	tests := []struct {
 		name         string
-		oldConfig    *v1alpha2.LLMInferenceServiceConfig
-		newConfig    *v1alpha2.LLMInferenceServiceConfig
+		oldConfig    *v1alpha1.LLMInferenceServiceConfig
+		newConfig    *v1alpha1.LLMInferenceServiceConfig
 		wantWarnings int
 		wantWarning  string
 	}{
 		{
 			name: "updating well-known config should return warning",
-			oldConfig: &v1alpha2.LLMInferenceServiceConfig{
+			oldConfig: &v1alpha1.LLMInferenceServiceConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      wellKnownConfigName,
 					Namespace: constants.KServeNamespace,
 				},
-				Spec: v1alpha2.LLMInferenceServiceSpec{
-					Model: v1alpha2.LLMModelSpec{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
 						Name: ptr.To("original-model"),
 					},
 				},
 			},
-			newConfig: &v1alpha2.LLMInferenceServiceConfig{
+			newConfig: &v1alpha1.LLMInferenceServiceConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      wellKnownConfigName,
 					Namespace: constants.KServeNamespace,
 				},
-				Spec: v1alpha2.LLMInferenceServiceSpec{
-					Model: v1alpha2.LLMModelSpec{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
 						Name: ptr.To("updated-model"),
 					},
 				},
@@ -74,24 +73,24 @@ func TestLLMInferenceServiceConfigValidator_ValidateUpdate_Warnings(t *testing.T
 		},
 		{
 			name: "updating non-well-known config should not return warning",
-			oldConfig: &v1alpha2.LLMInferenceServiceConfig{
+			oldConfig: &v1alpha1.LLMInferenceServiceConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "custom-config",
 					Namespace: constants.KServeNamespace,
 				},
-				Spec: v1alpha2.LLMInferenceServiceSpec{
-					Model: v1alpha2.LLMModelSpec{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
 						Name: ptr.To("original-model"),
 					},
 				},
 			},
-			newConfig: &v1alpha2.LLMInferenceServiceConfig{
+			newConfig: &v1alpha1.LLMInferenceServiceConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "custom-config",
 					Namespace: constants.KServeNamespace,
 				},
-				Spec: v1alpha2.LLMInferenceServiceSpec{
-					Model: v1alpha2.LLMModelSpec{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
 						Name: ptr.To("updated-model"),
 					},
 				},
@@ -100,24 +99,24 @@ func TestLLMInferenceServiceConfigValidator_ValidateUpdate_Warnings(t *testing.T
 		},
 		{
 			name: "updating well-known config with same spec should not return warning",
-			oldConfig: &v1alpha2.LLMInferenceServiceConfig{
+			oldConfig: &v1alpha1.LLMInferenceServiceConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      wellKnownConfigName,
 					Namespace: constants.KServeNamespace,
 				},
-				Spec: v1alpha2.LLMInferenceServiceSpec{
-					Model: v1alpha2.LLMModelSpec{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
 						Name: ptr.To("same-model"),
 					},
 				},
 			},
-			newConfig: &v1alpha2.LLMInferenceServiceConfig{
+			newConfig: &v1alpha1.LLMInferenceServiceConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      wellKnownConfigName,
 					Namespace: constants.KServeNamespace,
 				},
-				Spec: v1alpha2.LLMInferenceServiceSpec{
-					Model: v1alpha2.LLMModelSpec{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
 						Name: ptr.To("same-model"),
 					},
 				},
@@ -151,19 +150,19 @@ func TestLLMInferenceServiceConfigValidator_ValidateDelete_Warnings(t *testing.T
 
 	tests := []struct {
 		name         string
-		config       *v1alpha2.LLMInferenceServiceConfig
+		config       *v1alpha1.LLMInferenceServiceConfig
 		wantWarnings int
 		wantWarning  string
 	}{
 		{
 			name: "deleting well-known config should return warning",
-			config: &v1alpha2.LLMInferenceServiceConfig{
+			config: &v1alpha1.LLMInferenceServiceConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      wellKnownConfigName,
 					Namespace: constants.KServeNamespace,
 				},
-				Spec: v1alpha2.LLMInferenceServiceSpec{
-					Model: v1alpha2.LLMModelSpec{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
 						Name: ptr.To("test-model"),
 					},
 				},
@@ -173,13 +172,13 @@ func TestLLMInferenceServiceConfigValidator_ValidateDelete_Warnings(t *testing.T
 		},
 		{
 			name: "deleting non-well-known config should not return warning",
-			config: &v1alpha2.LLMInferenceServiceConfig{
+			config: &v1alpha1.LLMInferenceServiceConfig{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "custom-config",
 					Namespace: constants.KServeNamespace,
 				},
-				Spec: v1alpha2.LLMInferenceServiceSpec{
-					Model: v1alpha2.LLMModelSpec{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
 						Name: ptr.To("test-model"),
 					},
 				},

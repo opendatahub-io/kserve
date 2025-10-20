@@ -24,6 +24,8 @@ import (
 
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"knative.dev/pkg/apiextensions/storageversion"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -36,6 +38,7 @@ import (
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apixclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -55,11 +58,11 @@ import (
 
 	routev1 "github.com/openshift/api/route/v1"
 
-	"github.com/kserve/kserve/pkg/controller/llmisvc"
-	llmisvcvalidation "github.com/kserve/kserve/pkg/controller/llmisvc/validation"
-
+	v1alpha1validation "github.com/kserve/kserve/pkg/apis/serving/v1alpha1/validation"
+	v1alpha2validation "github.com/kserve/kserve/pkg/apis/serving/v1alpha2/validation"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	graphcontroller "github.com/kserve/kserve/pkg/controller/v1alpha1/inferencegraph"
 	trainedmodelcontroller "github.com/kserve/kserve/pkg/controller/v1alpha1/trainedmodel"
 	"github.com/kserve/kserve/pkg/controller/v1alpha1/trainedmodel/reconcilers/modelconfig"
@@ -405,16 +408,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	llmConfigValidator := &llmisvcvalidation.LLMInferenceServiceConfigValidator{
-		ClientSet: clientSet,
-	}
-	if err = llmConfigValidator.SetupWithManager(mgr); err != nil {
+	if err = (&v1alpha1validation.LLMInferenceServiceConfigValidator{ClientSet: clientSet}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "llminferenceserviceconfig")
 		os.Exit(1)
 	}
-
-	llmInferenceServiceValidator := &llmisvcvalidation.LLMInferenceServiceValidator{}
-	if err = llmInferenceServiceValidator.SetupWithManager(mgr); err != nil {
+	if err = (&v1alpha1validation.LLMInferenceServiceValidator{}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "llminferenceservice")
+		os.Exit(1)
+	}
+	if err = (&v1alpha2validation.LLMInferenceServiceConfigValidator{ClientSet: clientSet}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "llminferenceserviceconfig")
+		os.Exit(1)
+	}
+	if err = (&v1alpha2validation.LLMInferenceServiceValidator{}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "llminferenceservice")
 		os.Exit(1)
 	}
@@ -432,9 +438,25 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctx := signals.SetupSignalHandler()
+
+	resources := []string{
+		"llminferenceserviceconfigs.serving.kserve.io",
+		"llminferenceservices.serving.kserve.io",
+	}
+
+	migrator := storageversion.NewMigrator(dynamicClient, apixclient.NewForConfigOrDie(mgr.GetConfig()))
+
+	for _, resource := range resources {
+		if err := migrator.Migrate(ctx, schema.ParseGroupResource(resource)); err != nil {
+			setupLog.Error(err, "unable to migrate", "resource", resource)
+			os.Exit(1)
+		}
+	}
+
 	// Start the Cmd
 	setupLog.Info("Starting the Cmd.")
-	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "unable to run the manager")
 		os.Exit(1)
 	}
