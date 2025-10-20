@@ -70,9 +70,9 @@ rules:
   - apiextensions.k8s.io
   resources:
   - customresourcedefinitions
+  - customresourcedefinitions/status
   verbs:
   - create
-  - delete
   - get
   - list
   - patch

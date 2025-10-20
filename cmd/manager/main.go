@@ -21,6 +21,7 @@ import (
 	"flag"
 	"net/http"
 	"os"
+	"time"
 
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -445,14 +446,26 @@ func main() {
 		"llminferenceservices.serving.kserve.io",
 	}
 
-	migrator := storageversion.NewMigrator(dynamicClient, apixclient.NewForConfigOrDie(mgr.GetConfig()))
+	go func() {
+		migrator := storageversion.NewMigrator(dynamicClient, apixclient.NewForConfigOrDie(mgr.GetConfig()))
 
-	for _, resource := range resources {
-		if err := migrator.Migrate(ctx, schema.ParseGroupResource(resource)); err != nil {
-			setupLog.Error(err, "unable to migrate", "resource", resource)
-			os.Exit(1)
+		for {
+			time.Sleep(10 * time.Second)
+
+			allMigrated := true
+			for _, resource := range resources {
+				if err := migrator.Migrate(ctx, schema.ParseGroupResource(resource)); err != nil {
+					setupLog.Error(err, "Failed to migrate", "resource", resource)
+					allMigrated = false
+				}
+			}
+			if allMigrated {
+				return
+			}
+
+			setupLog.Info("Failed to migrate all resources, retrying ...", "resources", resources)
 		}
-	}
+	}()
 
 	// Start the Cmd
 	setupLog.Info("Starting the Cmd.")
