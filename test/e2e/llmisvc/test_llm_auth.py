@@ -199,6 +199,7 @@ def cleanup_service_account(
 @pytest.mark.llminferenceservice
 @pytest.mark.auth
 @pytest.mark.asyncio(loop_scope="session")
+@pytest.mark.all_api_versions
 @pytest.mark.parametrize(
     "test_case",
     [
@@ -223,7 +224,12 @@ def cleanup_service_account(
     ids=generate_test_id,
 )
 @log_execution
-def test_llm_auth_enabled_requires_token(rhcl_available, test_case: TestCase):
+def test_llm_auth_enabled_requires_token(
+    rhcl_available, api_version, test_case: TestCase
+):
+    # Update test case with the parameterized API version
+    test_case.api_version = api_version
+
     if not rhcl_available:
         pytest.skip("RHCL not installed - skipping auth test")
     """
@@ -337,6 +343,7 @@ def test_llm_auth_enabled_requires_token(rhcl_available, test_case: TestCase):
 @pytest.mark.llminferenceservice
 @pytest.mark.auth
 @pytest.mark.asyncio(loop_scope="session")
+@pytest.mark.all_api_versions
 @pytest.mark.parametrize(
     "test_case",
     [
@@ -361,7 +368,12 @@ def test_llm_auth_enabled_requires_token(rhcl_available, test_case: TestCase):
     ids=generate_test_id,
 )
 @log_execution
-def test_llm_auth_invalid_token_rejected(rhcl_available, test_case: TestCase):
+def test_llm_auth_invalid_token_rejected(
+    rhcl_available, api_version, test_case: TestCase
+):
+    # Update test case with the parameterized API version
+    test_case.api_version = api_version
+
     if not rhcl_available:
         pytest.skip("RHCL not installed - skipping auth test")
     """
@@ -460,6 +472,7 @@ def test_llm_auth_invalid_token_rejected(rhcl_available, test_case: TestCase):
 @pytest.mark.llminferenceservice
 @pytest.mark.auth
 @pytest.mark.asyncio(loop_scope="session")
+@pytest.mark.all_api_versions
 @pytest.mark.parametrize(
     "test_case",
     [
@@ -484,7 +497,12 @@ def test_llm_auth_invalid_token_rejected(rhcl_available, test_case: TestCase):
     ids=generate_test_id,
 )
 @log_execution
-def test_llm_auth_disabled_no_token_required(rhcl_available, test_case: TestCase):
+def test_llm_auth_disabled_no_token_required(
+    rhcl_available, api_version, test_case: TestCase
+):
+    # Update test case with the parameterized API version
+    test_case.api_version = api_version
+
     if not rhcl_available:
         pytest.skip("RHCL not installed - skipping auth test")
     """
