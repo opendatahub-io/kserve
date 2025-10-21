@@ -20,6 +20,12 @@ from kubernetes import client
 # the test names are consistent with the cluster marks.
 def pytest_collection_modifyitems(config, items):
     for item in items:
+        # Add API version markers to test items dynamically based on their parameters
+        if hasattr(item, "callspec") and "api_version" in item.callspec.params:
+            api_ver = item.callspec.params["api_version"]
+            # Add the corresponding marker (v1alpha1 or v1alpha2)
+            item.add_marker(getattr(pytest.mark, api_ver))
+
         # only touch parameterized tests
         if not hasattr(item, "callspec"):
             continue
