@@ -20,8 +20,9 @@ from ..common.gw_api import (
     create_or_update_route,
 )
 from kserve import KServeClient, constants, V1alpha1LLMInferenceService
+from kserve.models.v1alpha2_llm_inference_service import V1alpha2LLMInferenceService
 from kubernetes import client, config
-from typing import List
+from typing import List, Union
 
 from .logging import logger
 
@@ -694,6 +695,9 @@ def test_case(request):
             tc.service_name = generate_service_name(request.node.name, tc.base_refs)
         tc.model_name = _get_model_name_from_configs(tc.base_refs)
 
+        # Get API version from test case
+        api_version = tc.api_version
+
         # Create unique configs for this test to avoid parallel conflicts
         unique_base_refs = []
         for base_ref in tc.base_refs:
@@ -703,7 +707,7 @@ def test_case(request):
             config_spec = LLMINFERENCESERVICE_CONFIGS[base_ref]
 
             config_body = {
-                "apiVersion": "serving.kserve.io/v1alpha1",
+                "apiVersion": f"serving.kserve.io/{api_version}",
                 "kind": "LLMInferenceServiceConfig",
                 "metadata": {
                     "name": unique_config_name,
@@ -716,8 +720,16 @@ def test_case(request):
                 kserve_client, config_body, KSERVE_TEST_NAMESPACE
             )
 
-        tc.llm_service = V1alpha1LLMInferenceService(
-            api_version="serving.kserve.io/v1alpha1",
+        # Select the appropriate LLMInferenceService class based on API version
+        if api_version == "v1alpha1":
+            LLMInferenceService = V1alpha1LLMInferenceService
+        elif api_version == "v1alpha2":
+            LLMInferenceService = V1alpha2LLMInferenceService
+        else:
+            raise ValueError(f"Unsupported API version: {api_version}")
+
+        tc.llm_service = LLMInferenceService(
+            api_version=f"serving.kserve.io/{api_version}",
             kind="LLMInferenceService",
             metadata=client.V1ObjectMeta(
                 name=tc.service_name, namespace=KSERVE_TEST_NAMESPACE

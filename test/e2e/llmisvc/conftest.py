@@ -44,6 +44,11 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "llminferenceservice: mark test as an LLM inference service test"
     )
+    config.addinivalue_line("markers", "v1alpha1: run test against v1alpha1 API")
+    config.addinivalue_line("markers", "v1alpha2: run test against v1alpha2 API")
+    config.addinivalue_line(
+        "markers", "all_api_versions: run test against all API versions"
+    )
 
 
 # RHCL (Red Hat Connectivity Link) is optional per https://github.com/opendatahub-io/kserve/pull/939
@@ -57,3 +62,9 @@ def rhcl_available():
         return True
     except Exception:
         return False
+
+
+@pytest.fixture(params=["v1alpha1", "v1alpha2"])
+def api_version(request):
+    """Fixture that provides all API versions to test against."""
+    return request.param

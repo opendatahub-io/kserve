@@ -77,7 +77,7 @@ oc wait Kuadrant -n "${KUADRANT_NS}" kuadrant --for=condition=Ready --timeout=10
   exit 1
 }
 
-wait_for_pod_ready "${KUADRANT_NS}" "control-plane=authorino-operator"
+oc wait --for=condition=Available deploy/authorino -n "${KUADRANT_NS}" --timeout=2m
 
 # Wait for service to be created
 echo "⏳ waiting for authorino service to be created..."
@@ -106,6 +106,6 @@ spec:
       enabled: false
 EOF
 
-wait_for_pod_ready "${KUADRANT_NS}" "control-plane=authorino-operator"
+oc wait --for=condition=Available deploy/authorino -n "${KUADRANT_NS}" --timeout=2m
 
 echo "✅ kuadrant(authorino) installed"
