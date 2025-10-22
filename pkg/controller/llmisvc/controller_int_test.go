@@ -26,10 +26,12 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -70,6 +72,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 			defer func() {
 				envTest.DeleteAll(namespace)
 			}()
@@ -254,6 +257,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				}
 				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+				Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 				defer func() {
 					envTest.DeleteAll(namespace)
 				}()
@@ -285,19 +289,25 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
-				// llmisvc is created with the default route and scheduler spec which results in two inference pool and one service backend refs
-				Expect(expectedHTTPRoute).To(
-					HaveBackendRefs(
-						BackendRefInferencePool(svcName+"-inference-pool"),
-						BackendRefInferencePool(svcName+"-inference-pool"),
-						BackendRefService(svcName+"-kserve-workload-svc"),
-					),
-				)
 
 				ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
 
+				// Wait for migration to complete - dual InferencePool strategy
+				// After migration, v1 gets 100% traffic, v1alpha2 gets 0%
 				Eventually(func(g Gomega, ctx context.Context) error {
-					ip := igwapi.InferencePool{}
+					routes, errList := managedRoutes(ctx, llmSvc)
+					g.Expect(errList).ToNot(HaveOccurred())
+					g.Expect(routes).To(HaveLen(1))
+					g.Expect(routes[0]).To(HaveBackendRefs(
+						BackendRefInferencePoolV1(svcName+"-inference-pool", 100),
+						BackendRefInferencePoolV1Alpha2(svcName+"-inference-pool", 1),
+					))
+					g.Expect(routes[0]).To(Not(HaveBackendRefs(BackendRefServiceWithWeight(svcName+"-kserve-workload-svc", 1))))
+					return nil
+				}).WithContext(ctx).Should(Succeed())
+
+				Eventually(func(g Gomega, ctx context.Context) error {
+					ip := igwv1.InferencePool{}
 					return envTest.Client.Get(ctx, client.ObjectKey{Name: svcName + "-inference-pool", Namespace: llmSvc.GetNamespace()}, &ip)
 				}).WithContext(ctx).Should(Succeed())
 
@@ -318,6 +328,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				}
 				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+				Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 				defer func() {
 					envTest.DeleteAll(namespace)
 				}()
@@ -333,7 +344,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				)
 
 				infPool := InferencePool(infPoolName,
-					InNamespace[*igwapi.InferencePool](nsName),
+					InNamespace[*igwv1.InferencePool](nsName),
 					WithSelector("app", "workload"),
 					WithTargetPort(8000),
 					WithExtensionRef("", "Service", kmeta.ChildName(svcName, "-epp-service")),
@@ -361,17 +372,23 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
-				// llmisvc is created with the default route and scheduler spec which results in two inference pool and one service backend refs
-				Expect(expectedHTTPRoute).To(
-					HaveBackendRefs(
-						BackendRefInferencePool(infPoolName),
-						BackendRefInferencePool(infPoolName),
-						BackendRefService(svcName+"-kserve-workload-svc"),
-					),
-				)
 
 				ensureInferencePoolReady(ctx, envTest.Client, infPool)
 				ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
+
+				// Wait for migration to complete - external InferencePool ref dual backend strategy
+				// v1 points to external pool, v1alpha2 uses auto-generated default name
+				Eventually(func(g Gomega, ctx context.Context) error {
+					routes, errList := managedRoutes(ctx, llmSvc)
+					g.Expect(errList).ToNot(HaveOccurred())
+					g.Expect(routes).To(HaveLen(1))
+					g.Expect(routes[0]).To(HaveBackendRefs(
+						BackendRefInferencePoolV1(infPoolName, 100),
+						BackendRefInferencePoolV1Alpha2(svcName+"-inference-pool", 1),
+					))
+					g.Expect(routes[0]).To(Not(HaveBackendRefs(BackendRefServiceWithWeight(svcName+"-kserve-workload-svc", 1))))
+					return nil
+				}).WithContext(ctx).Should(Succeed())
 
 				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
 					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
@@ -390,6 +407,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				}
 				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 				Expect(envTest.Client.Create(ctx, IstioShadowService(llmSvcName, nsName))).To(Succeed())
+				Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 				defer func() {
 					envTest.DeleteAll(namespace)
 				}()
@@ -422,14 +440,18 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "kserve-ingress-gateway"}))
-				// llmisvc is created with the default route spec and no scheduler spec which results in three service backend refs
-				Expect(expectedHTTPRoute).To(
-					HaveBackendRefs(
-						BackendRefService(svcName),
-						BackendRefService(svcName),
-						BackendRefService(svcName),
-					),
-				)
+				// Wait for migration to complete - no scheduler configured uses Service with dual backend strategy
+				// Service gets 100% traffic, fallback InferencePool gets 0%
+				Eventually(func(g Gomega, ctx context.Context) error {
+					routes, errList := managedRoutes(ctx, llmSvc)
+					g.Expect(errList).ToNot(HaveOccurred())
+					g.Expect(routes).To(HaveLen(1))
+					g.Expect(routes[0]).To(HaveBackendRefs(
+						BackendRefServiceWithWeight(svcName, 100),
+						BackendRefInferencePoolV1Alpha2(kmeta.ChildName(llmSvcName, "-inference-pool"), 1),
+					))
+					return nil
+				}).WithContext(ctx).Should(Succeed())
 
 				Eventually(func(g Gomega, ctx context.Context) error {
 					svc := &corev1.Service{}
@@ -446,7 +468,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				})).WithContext(ctx).Should(Succeed())
 
 				Consistently(func(g Gomega, ctx context.Context) error {
-					ip := igwapi.InferencePool{}
+					ip := igwv1.InferencePool{}
 					return envTest.Client.Get(ctx, client.ObjectKey{Name: llmSvcName + "-inference-pool", Namespace: llmSvc.GetNamespace()}, &ip)
 				}).WithContext(ctx).
 					Within(2 * time.Second).
@@ -465,6 +487,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				}
 				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+				Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 				defer func() {
 					envTest.DeleteAll(namespace)
 				}()
@@ -495,8 +518,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(expectedHTTPRoute).To(BeControlledBy(llmSvc))
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "my-ingress-gateway"}))
 				// llmisvc is created with custom route spec and no scheduler which results in one service backend ref
-				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefService("my-inference-service")))
-				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefInferencePool(kmeta.ChildName(svcName, "-inference-pool")))))
+				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefServiceWithWeight("my-inference-service", 1)))
+				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefInferencePoolV1Alpha2(kmeta.ChildName(svcName, "-inference-pool"), 1))))
 
 				// Advanced fixture pattern: Update the HTTPRoute status using fixture functions
 				updatedRoute := expectedHTTPRoute.DeepCopy()
@@ -521,6 +544,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				}
 				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+				Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 				defer func() {
 					envTest.DeleteAll(namespace)
 				}()
@@ -609,6 +633,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				}
 				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+				Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 				defer func() {
 					envTest.DeleteAll(namespace)
 				}()
@@ -678,6 +703,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					}
 					Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
 					Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+					Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 					defer func() {
 						envTest.DeleteAll(namespace)
 					}()
@@ -1086,6 +1112,173 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			}).WithContext(ctx).Should(BeTrue(), "monitoring ServiceMonitor should be deleted")
 		})
 	})
+
+	Context("GIE v1 Migration", func() {
+		It("should create both v1 and v1alpha2 InferencePool objects", func(ctx SpecContext) {
+			svcName := "test-llm-dual-pools"
+			nsName := kmeta.ChildName(svcName, "-test")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: nsName},
+			}
+
+			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
+			defer func() { envTest.DeleteAll(namespace) }()
+
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithManagedRoute(),
+				WithManagedGateway(),
+				WithManagedScheduler(),
+			)
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() { Expect(envTest.Delete(ctx, llmSvc)).To(Succeed()) }()
+
+			poolName := svcName + "-inference-pool"
+
+			// Verify v1 typed InferencePool exists
+			Eventually(func(g Gomega, ctx context.Context) error {
+				v1Pool := &igwv1.InferencePool{}
+				return envTest.Client.Get(ctx, client.ObjectKey{Name: poolName, Namespace: nsName}, v1Pool)
+			}).WithContext(ctx).Should(Succeed(), "v1 InferencePool should exist")
+
+			// Verify v1alpha2 InferencePool exists via dynamic client
+			dynamicClient, err := dynamic.NewForConfig(envTest.Config)
+			Expect(err).ToNot(HaveOccurred())
+
+			Eventually(func(g Gomega, ctx context.Context) error {
+				_, err := dynamicClient.Resource(llmisvc.GVRInferencePoolV1Alpha2).
+					Namespace(nsName).
+					Get(ctx, poolName, metav1.GetOptions{})
+				return err
+			}).WithContext(ctx).Should(Succeed(), "v1alpha2 InferencePool should exist")
+		})
+
+		It("should create HTTPRoute with dual backend refs", func(ctx SpecContext) {
+			svcName := "test-llm-dual-backends"
+			nsName := kmeta.ChildName(svcName, "-test")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: nsName},
+			}
+
+			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
+			defer func() { envTest.DeleteAll(namespace) }()
+
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithManagedRoute(),
+				WithManagedGateway(),
+				WithManagedScheduler(),
+			)
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() { Expect(envTest.Delete(ctx, llmSvc)).To(Succeed()) }()
+
+			poolName := svcName + "-inference-pool"
+
+			Eventually(func(g Gomega, ctx context.Context) error {
+				routes, err := managedRoutes(ctx, llmSvc)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(routes).To(HaveLen(1))
+
+				route := routes[0]
+				g.Expect(route.Spec.Rules).To(HaveLen(1))
+				g.Expect(route.Spec.Rules[0].BackendRefs).To(HaveLen(2))
+
+				hasV1, hasV1Alpha2 := false, false
+				for _, ref := range route.Spec.Rules[0].BackendRefs {
+					if ref.Group != nil && string(*ref.Group) == "inference.networking.k8s.io" &&
+						string(ref.Name) == poolName {
+						hasV1 = true
+					}
+					if ref.Group != nil && string(*ref.Group) == "inference.networking.x-k8s.io" &&
+						string(ref.Name) == poolName {
+						hasV1Alpha2 = true
+					}
+				}
+
+				g.Expect(hasV1).To(BeTrue())
+				g.Expect(hasV1Alpha2).To(BeTrue())
+				return nil
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("should set migration annotation when v1 becomes ready", func(ctx SpecContext) {
+			svcName := "test-llm-migration"
+			nsName := kmeta.ChildName(svcName, "-test")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: nsName},
+			}
+
+			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
+			defer func() { envTest.DeleteAll(namespace) }()
+
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithManagedRoute(),
+				WithManagedGateway(),
+				WithManagedScheduler(),
+			)
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() { Expect(envTest.Delete(ctx, llmSvc)).To(Succeed()) }()
+
+			ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
+
+			Eventually(func(g Gomega, ctx context.Context) {
+				routes, err := managedRoutes(ctx, llmSvc)
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(routes).To(HaveLen(1))
+				g.Expect(routes[0].Annotations).To(HaveKeyWithValue(
+					llmisvc.AnnotationInferencePoolMigrated, "v1"))
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("should report InferencePoolReady when pools become ready", func(ctx SpecContext) {
+			svcName := "test-llm-pool-ready"
+			nsName := kmeta.ChildName(svcName, "-test")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{Name: nsName},
+			}
+
+			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
+			defer func() { envTest.DeleteAll(namespace) }()
+
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithManagedRoute(),
+				WithManagedGateway(),
+				WithManagedScheduler(),
+			)
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() { Expect(envTest.Delete(ctx, llmSvc)).To(Succeed()) }()
+
+			// Make resources ready
+			ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
+
+			// Verify InferencePoolReady becomes true
+			Eventually(func(g Gomega, ctx context.Context) {
+				current := &v1alpha1.LLMInferenceService{}
+				g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), current)).To(Succeed())
+				cond := current.Status.GetCondition(v1alpha1.InferencePoolReady)
+				g.Expect(cond).ToNot(BeNil())
+				g.Expect(cond.IsTrue()).To(BeTrue())
+			}).WithContext(ctx).Should(Succeed())
+		})
+	})
 })
 
 func LLMInferenceServiceIsReady(llmSvc *v1alpha1.LLMInferenceService, assertFns ...func(g Gomega, current *v1alpha1.LLMInferenceService)) func(g Gomega, ctx context.Context) error {
@@ -1232,20 +1425,20 @@ func ensureHTTPRouteReady(ctx context.Context, c client.Client, llmSvc *v1alpha1
 }
 
 // ensureInferencePoolReady sets up InferencePool status conditions to simulate a ready InferencePool
-func ensureInferencePoolReady(ctx context.Context, c client.Client, pool *igwapi.InferencePool) {
+func ensureInferencePoolReady(ctx context.Context, c client.Client, pool *igwv1.InferencePool) {
 	if envTest.UsingExistingCluster() {
 		return
 	}
 
-	createdPool := &igwapi.InferencePool{}
+	createdPool := &igwv1.InferencePool{}
 	Expect(c.Get(ctx, client.ObjectKeyFromObject(pool), createdPool)).To(Succeed())
 	WithInferencePoolReadyStatus()(createdPool)
 	Expect(c.Status().Update(ctx, createdPool)).To(Succeed())
 
 	// Verify the InferencePool is now ready
-	updatedPool := &igwapi.InferencePool{}
+	updatedPool := &igwv1.InferencePool{}
 	Eventually(func(g Gomega, ctx context.Context) bool {
-		updatedPool = &igwapi.InferencePool{}
+		updatedPool = &igwv1.InferencePool{}
 		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(pool), updatedPool)).To(Succeed())
 		return llmisvc.IsInferencePoolReady(updatedPool)
 	}).WithContext(ctx).Should(BeTrue(), fmt.Sprintf("Expected InferencePool to be ready, got: %#v", updatedPool.Status))
@@ -1300,7 +1493,7 @@ func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, 
 			LabelSelector: labels.SelectorFromSet(llmisvc.SchedulerLabels(llmSvc)),
 		}
 
-		infPools := &igwapi.InferencePoolList{}
+		infPools := &igwv1.InferencePoolList{}
 		err = c.List(ctx, infPools, infPoolsListOpts)
 		if err != nil && !errors.IsNotFound(err) {
 			g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1310,6 +1503,65 @@ func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, 
 			updatedPool := pool.DeepCopy()
 			WithInferencePoolReadyStatus()(updatedPool)
 			g.Expect(c.Status().Update(ctx, updatedPool)).To(gomega.Succeed())
+		}
+
+		// Also mark v1alpha2 InferencePools as ready using dynamic client
+		dynamicClient, err := dynamic.NewForConfig(envTest.Config)
+		if err != nil {
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		// List v1alpha2 pools with the same label selector
+		v1alpha2Pools, err := dynamicClient.Resource(llmisvc.GVRInferencePoolV1Alpha2).
+			Namespace(llmSvc.Namespace).
+			List(ctx, metav1.ListOptions{
+				LabelSelector: infPoolsListOpts.LabelSelector.String(),
+			})
+		if err != nil && !errors.IsNotFound(err) {
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+
+		logf.FromContext(ctx).Info("Marking v1alpha2 InferencePool resources ready", "count", len(v1alpha2Pools.Items))
+		for i := range v1alpha2Pools.Items {
+			poolUnstructured := &v1alpha2Pools.Items[i]
+			// Set ready status on v1alpha2 pool
+			status := map[string]interface{}{
+				"parent": []interface{}{
+					map[string]interface{}{
+						"parentRef": map[string]interface{}{
+							"group":     "gateway.networking.k8s.io",
+							"kind":      "Gateway",
+							"name":      "kserve-ingress-gateway",
+							"namespace": "kserve",
+						},
+						"conditions": []interface{}{
+							map[string]interface{}{
+								"type":               "Accepted",
+								"status":             "True",
+								"reason":             "Accepted",
+								"message":            "InferencePool accepted",
+								"lastTransitionTime": metav1.Now().Format(time.RFC3339),
+							},
+							map[string]interface{}{
+								"type":               "ResolvedRefs",
+								"status":             "True",
+								"reason":             "ResolvedRefs",
+								"message":            "All references resolved",
+								"lastTransitionTime": metav1.Now().Format(time.RFC3339),
+							},
+						},
+					},
+				},
+			}
+			if err := unstructured.SetNestedField(poolUnstructured.Object, status, "status"); err != nil {
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+			}
+			_, err := dynamicClient.Resource(llmisvc.GVRInferencePoolV1Alpha2).
+				Namespace(llmSvc.Namespace).
+				UpdateStatus(ctx, poolUnstructured, metav1.UpdateOptions{})
+			if err != nil {
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+			}
 		}
 
 		ensureSchedulerDeploymentReady(ctx, c, llmSvc)

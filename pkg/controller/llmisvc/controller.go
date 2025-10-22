@@ -23,6 +23,7 @@ import (
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -53,7 +54,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/utils"
@@ -73,7 +74,8 @@ type LLMInferenceServiceReconciler struct {
 	client.Client
 	Config *rest.Config
 	record.EventRecorder
-	Clientset kubernetes.Interface
+	Clientset     kubernetes.Interface
+	DynamicClient dynamic.Interface
 }
 
 //+kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;create;update;patch;delete
@@ -88,7 +90,7 @@ type LLMInferenceServiceReconciler struct {
 //+kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes;gateways;gatewayclasses,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=inference.networking.x-k8s.io,resources=inferencepools;inferencemodels;inferenceobjectives,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=inference.networking.k8s.io,resources=inferencepools,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=inference.networking.k8s.io,resources=inferencepools;inferencemodels;inferenceobjectives,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
@@ -113,7 +115,15 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 	finalizerName := constants.KServeAPIGroupName + "/llmisvc-finalizer"
 	if original.DeletionTimestamp.IsZero() {
 		if controllerutil.AddFinalizer(original, finalizerName) {
-			if err := r.Update(ctx, original); err != nil {
+			// Wrap finalizer addition in retry logic to handle resource version conflicts
+			if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				latest := &v1alpha1.LLMInferenceService{}
+				if err := r.Get(ctx, req.NamespacedName, latest); err != nil {
+					return err
+				}
+				controllerutil.AddFinalizer(latest, finalizerName)
+				return r.Update(ctx, latest)
+			}); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -125,8 +135,15 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 				return ctrl.Result{}, cleanupErr
 			}
 
-			controllerutil.RemoveFinalizer(original, finalizerName)
-			if err := r.Update(ctx, original); err != nil {
+			// Wrap finalizer removal in retry logic to handle resource version conflicts
+			if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				latest := &v1alpha1.LLMInferenceService{}
+				if err := r.Get(ctx, req.NamespacedName, latest); err != nil {
+					return err
+				}
+				controllerutil.RemoveFinalizer(latest, finalizerName)
+				return r.Update(ctx, latest)
+			}); err != nil {
 				return ctrl.Result{}, err
 			}
 		}
@@ -251,21 +268,42 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 		b = b.Watches(&gatewayapi.Gateway{}, r.enqueueOnGatewayChange(logger))
 	}
 
+	if err := igwv1.Install(mgr.GetScheme()); err != nil {
+		return fmt.Errorf("failed to add GIE v1 APIs to scheme: %w", err)
+	}
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwv1.GroupVersion.String(), "InferencePool"); ok && err == nil {
+		b = b.Owns(&igwv1.InferencePool{}, builder.WithPredicates(childResourcesPredicate))
+		// Also watch for status changes to trigger reconciliation when pool becomes ready (needed for migration)
+		b = b.Watches(&igwv1.InferencePool{}, r.enqueueOnInferencePoolStatusChange(logger), builder.WithPredicates(childResourcesPredicate))
+	}
+
+	// Watch v1alpha2 InferencePool and InferenceModel resources for state changes (using unstructured since there's no typed API)
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), "inference.networking.x-k8s.io/v1alpha2", "InferencePool"); ok && err == nil {
+		b = b.Watches(
+			&metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{
+				APIVersion: "inference.networking.x-k8s.io/v1alpha2",
+				Kind:       "InferencePool",
+			}},
+			r.enqueueOnV1Alpha2ResourceChange(logger),
+			builder.WithPredicates(childResourcesPredicate),
+		)
+	}
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), "inference.networking.x-k8s.io/v1alpha2", "InferenceModel"); ok && err == nil {
+		b = b.Watches(
+			&metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{
+				APIVersion: "inference.networking.x-k8s.io/v1alpha2",
+				Kind:       "InferenceModel",
+			}},
+			r.enqueueOnV1Alpha2ResourceChange(logger),
+			builder.WithPredicates(childResourcesPredicate),
+		)
+	}
+
 	if err := istioapi.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("failed to add Istio APIs to scheme: %w", err)
 	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), istioapi.SchemeGroupVersion.String(), "DestinationRule"); ok && err == nil {
 		b = b.Owns(&istioapi.DestinationRule{}, builder.WithPredicates(childResourcesPredicate))
-	}
-
-	if err := igwapi.Install(mgr.GetScheme()); err != nil {
-		return fmt.Errorf("failed to add GIE APIs to scheme: %w", err)
-	}
-	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwapi.GroupVersion.String(), "InferencePool"); ok && err == nil {
-		b = b.Owns(&igwapi.InferencePool{}, builder.WithPredicates(childResourcesPredicate))
-	}
-	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwapi.GroupVersion.String(), "InferenceModel"); ok && err == nil {
-		b = b.Owns(&igwapi.InferenceModel{}, builder.WithPredicates(childResourcesPredicate))
 	}
 
 	if err := lwsapi.AddToScheme(mgr.GetScheme()); err != nil {
@@ -449,12 +487,12 @@ func (r *LLMInferenceServiceReconciler) enqueueOnIstioShadowServiceChange(mgr ct
 			return nil
 		}
 
-		if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwapi.GroupVersion.String(), "InferencePool"); err != nil || !ok {
+		if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwv1.GroupVersion.String(), "InferencePool"); err != nil || !ok {
 			logger.V(2).Error(err, "failed to get InferencePool", "name", poolName, "namespace", sub.GetNamespace())
 			return nil
 		}
 
-		pool := &igwapi.InferencePool{}
+		pool := &igwv1.InferencePool{}
 		err := r.Get(ctx, client.ObjectKey{Name: poolName, Namespace: sub.GetNamespace()}, pool)
 		if err != nil {
 			if !apierrors.IsNotFound(err) {
@@ -481,6 +519,85 @@ func (r *LLMInferenceServiceReconciler) enqueueOnIstioShadowServiceChange(mgr ct
 
 		return []reconcile.Request{{NamespacedName: types.NamespacedName{
 			Namespace: sub.GetNamespace(),
+			Name:      controller.Name,
+		}}}
+	})
+}
+
+// enqueueOnV1Alpha2ResourceChange watches for changes in v1alpha2 InferencePool and InferenceModel resources.
+func (r *LLMInferenceServiceReconciler) enqueueOnV1Alpha2ResourceChange(logger logr.Logger) handler.EventHandler {
+	logger = logger.WithName("enqueueOnV1Alpha2ResourceChange")
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		// Get the owner reference from the v1alpha2 resource
+		controller := metav1.GetControllerOf(object)
+		if controller == nil {
+			logger.V(2).Info("v1alpha2 resource has no controller", "resource", object.GetName(), "namespace", object.GetNamespace())
+			return nil
+		}
+
+		// Parse the API version to get group and version
+		gv, err := schema.ParseGroupVersion(controller.APIVersion)
+		if err != nil {
+			logger.V(2).Error(err, "failed to parse GroupVersion", "apiVersion", controller.APIVersion)
+			return nil
+		}
+
+		// Check if the owner is an LLMInferenceService
+		if controller.Kind != v1alpha1.LLMInferenceServiceGVK.Kind || gv.Group != v1alpha1.LLMInferenceServiceGVK.Group {
+			logger.V(2).Info("v1alpha2 resource is not controlled by LLMInferenceService",
+				"resource", object.GetName(),
+				"owner.kind", controller.Kind,
+				"owner.group", gv.Group)
+			return nil
+		}
+
+		logger.V(1).Info("Enqueuing LLMInferenceService due to v1alpha2 resource change",
+			"llmisvc", controller.Name,
+			"resource", object.GetName(),
+			"kind", object.GetObjectKind().GroupVersionKind().Kind)
+
+		return []reconcile.Request{{NamespacedName: types.NamespacedName{
+			Namespace: object.GetNamespace(),
+			Name:      controller.Name,
+		}}}
+	})
+}
+
+// enqueueOnInferencePoolStatusChange watches for v1 InferencePool status changes.
+// This is critical for the migration logic - when v1 pool becomes ready for the first time,
+// we need to trigger reconciliation to set the migration annotation and switch traffic.
+func (r *LLMInferenceServiceReconciler) enqueueOnInferencePoolStatusChange(logger logr.Logger) handler.EventHandler {
+	logger = logger.WithName("enqueueOnInferencePoolStatusChange")
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		// Get the owner reference from the v1 InferencePool
+		controller := metav1.GetControllerOf(object)
+		if controller == nil {
+			logger.V(2).Info("v1 InferencePool has no controller", "resource", object.GetName(), "namespace", object.GetNamespace())
+			return nil
+		}
+
+		// Parse the API version to get group and version
+		gv, err := schema.ParseGroupVersion(controller.APIVersion)
+		if err != nil {
+			logger.V(2).Error(err, "failed to parse GroupVersion", "apiVersion", controller.APIVersion)
+			return nil
+		}
+
+		// Check if the owner is an LLMInferenceService
+		if controller.Kind != v1alpha1.LLMInferenceServiceGVK.Kind || gv.Group != v1alpha1.LLMInferenceServiceGVK.Group {
+			logger.V(2).Info("v1 InferencePool is not controlled by LLMInferenceService",
+				"resource", object.GetName(),
+				"owner.kind", controller.Kind,
+				"owner.group", gv.Group)
+			return nil
+		}
+
+		logger.V(1).Info("Enqueuing LLMInferenceService due to v1 InferencePool status change",
+			"llmisvc", controller.Name,
+			"resource", object.GetName())
+
+		return []reconcile.Request{{NamespacedName: types.NamespacedName{
+			Namespace: object.GetNamespace(),
 			Name:      controller.Name,
 		}}}
 	})

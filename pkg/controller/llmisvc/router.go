@@ -34,7 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/kmeta"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -174,6 +174,106 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 			httpRoute.Spec.CommonRouteSpec.ParentRefs = make([]gatewayapi.ParentReference, 0, len(llmSvc.Spec.Router.Gateway.Refs))
 			for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
 				httpRoute.Spec.CommonRouteSpec.ParentRefs = append(httpRoute.Spec.CommonRouteSpec.ParentRefs, toGatewayRef(ref))
+			}
+		}
+	}
+
+	// Auto-inject dual InferencePool backend refs for scheduler-managed routes
+	// This ensures both v1 and v1alpha2 pools are referenced with proper initial weights
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil &&
+		llmSvc.Spec.Router.Route != nil && llmSvc.Spec.Router.Route.HTTP != nil &&
+		!llmSvc.Spec.Router.Route.HTTP.HasRefs() {
+		// v1 uses the configured pool name (respects external refs)
+		v1PoolName := llmSvc.Spec.Router.Scheduler.InferencePoolName(llmSvc)
+		// v1alpha2 always uses the default auto-generated pool name (fallback)
+		v1alpha2PoolName := kmeta.ChildName(llmSvc.GetName(), "-inference-pool")
+
+		// Only inject backend refs if they haven't been explicitly provided by the user
+		if llmSvc.Spec.Router.Route.HTTP.Spec == nil || len(httpRoute.Spec.Rules) == 0 {
+			// Create a default rule with both InferencePool backend refs
+			// Initial weights: v1alpha2=100% (active), v1=0% (until controller is ready)
+			httpRoute.Spec.Rules = []gatewayapi.HTTPRouteRule{
+				{
+					BackendRefs: []gatewayapi.HTTPBackendRef{
+						{
+							BackendRef: gatewayapi.BackendRef{
+								BackendObjectReference: gatewayapi.BackendObjectReference{
+									Group: ptr.To(gatewayapi.Group("inference.networking.k8s.io")),
+									Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
+									Name:  gatewayapi.ObjectName(v1PoolName),
+									Port:  ptr.To(gatewayapi.PortNumber(8000)),
+								},
+								Weight: ptr.To(int32(0)), // v1 starts at 0% (no controller yet)
+							},
+						},
+						{
+							BackendRef: gatewayapi.BackendRef{
+								BackendObjectReference: gatewayapi.BackendObjectReference{
+									Group: ptr.To(gatewayapi.Group("inference.networking.x-k8s.io")),
+									Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
+									Name:  gatewayapi.ObjectName(v1alpha2PoolName),
+									Port:  ptr.To(gatewayapi.PortNumber(8000)),
+								},
+								Weight: ptr.To(int32(100)), // v1alpha2 starts at 100% (active fallback)
+							},
+						},
+					},
+				},
+			}
+		} else {
+			// User provided a route spec - ensure both v1 and v1alpha2 backend refs are present
+			// Iterate through rules and inject missing backend refs
+			for i := range httpRoute.Spec.Rules {
+				rule := &httpRoute.Spec.Rules[i]
+
+				hasV1 := false
+				hasV1Alpha2 := false
+				v1Alpha2Index := -1
+
+				// Check which backend refs are already present
+				for j, ref := range rule.BackendRefs {
+					if ref.Group != nil && ref.Kind != nil && string(*ref.Kind) == "InferencePool" {
+						if string(*ref.Group) == "inference.networking.k8s.io" && string(ref.Name) == v1PoolName {
+							hasV1 = true
+						} else if string(*ref.Group) == "inference.networking.x-k8s.io" && string(ref.Name) == v1alpha2PoolName {
+							hasV1Alpha2 = true
+							v1Alpha2Index = j
+						}
+					}
+				}
+
+				// Inject missing backend refs with appropriate weights
+				if hasV1Alpha2 && !hasV1 {
+					// Only v1alpha2 exists - ensure it has weight=100 and add v1 with weight=0
+					if rule.BackendRefs[v1Alpha2Index].Weight == nil {
+						rule.BackendRefs[v1Alpha2Index].Weight = ptr.To(int32(100))
+					}
+					rule.BackendRefs = append(rule.BackendRefs, gatewayapi.HTTPBackendRef{
+						BackendRef: gatewayapi.BackendRef{
+							BackendObjectReference: gatewayapi.BackendObjectReference{
+								Group: ptr.To(gatewayapi.Group("inference.networking.k8s.io")),
+								Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
+								Name:  gatewayapi.ObjectName(v1PoolName),
+								Port:  ptr.To(gatewayapi.PortNumber(8000)),
+							},
+							Weight: ptr.To(int32(0)), // v1 starts at 0% (no controller yet)
+						},
+					})
+				} else if hasV1 && !hasV1Alpha2 {
+					// Only v1 exists - add v1alpha2 with weight=100
+					rule.BackendRefs = append(rule.BackendRefs, gatewayapi.HTTPBackendRef{
+						BackendRef: gatewayapi.BackendRef{
+							BackendObjectReference: gatewayapi.BackendObjectReference{
+								Group: ptr.To(gatewayapi.Group("inference.networking.x-k8s.io")),
+								Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
+								Name:  gatewayapi.ObjectName(v1alpha2PoolName),
+								Port:  ptr.To(gatewayapi.PortNumber(8000)),
+							},
+							Weight: ptr.To(int32(100)), // v1alpha2 starts at 100%
+						},
+					})
+				}
+				// If neither or both exist, don't modify (user has full control)
 			}
 		}
 	}
@@ -410,7 +510,11 @@ func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.
 }
 
 // EvaluateInferencePoolConditions evaluates the readiness of all Inference Pools in the LLMInferenceService
-// and updates the InferencePoolReady condition accordingly
+// and updates the InferencePoolReady condition accordingly.
+//
+// This function implements the dual-pool fallback strategy: it checks both v1 and v1alpha2 InferencePools
+// and marks the service as ready if EITHER pool is ready. This allows the service to work with v1alpha2
+// until the GIE v1 controller is available (e.g., in OpenShift environments without v1 integration yet).
 func (r *LLMInferenceServiceReconciler) EvaluateInferencePoolConditions(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("EvaluateInferencePoolConditions")
 
@@ -421,45 +525,66 @@ func (r *LLMInferenceServiceReconciler) EvaluateInferencePoolConditions(ctx cont
 		return nil
 	}
 
-	curr := &igwapi.InferencePool{}
-
+	// Determine the pool name to check
+	var poolName string
 	if llmSvc.Spec.Router.Scheduler.Pool != nil && llmSvc.Spec.Router.Scheduler.Pool.Ref != nil && llmSvc.Spec.Router.Scheduler.Pool.Ref.Name != "" {
-		poolRef := llmSvc.Spec.Router.Scheduler.Pool.Ref
-		err := r.Client.Get(ctx, types.NamespacedName{Namespace: llmSvc.Namespace, Name: poolRef.Name}, curr)
-		if err != nil {
-			err := fmt.Errorf("failed to fetch referenced Inference Pool %s/%s: %w", llmSvc.Namespace, poolRef.Name, err)
-			llmSvc.MarkInferencePoolNotReady("InferencePoolFetchError", err.Error())
-			return err
-		}
+		poolName = llmSvc.Spec.Router.Scheduler.Pool.Ref.Name
 	} else {
 		expected := r.expectedSchedulerInferencePool(ctx, llmSvc)
-		err := r.Client.Get(ctx, types.NamespacedName{Namespace: expected.Namespace, Name: expected.Name}, curr)
-		if err != nil {
-			err := fmt.Errorf("failed to fetch embedded Inference Pool %s/%s: %w", llmSvc.Namespace, llmSvc.Name, err)
-			llmSvc.MarkInferencePoolNotReady("InferencePoolFetchError", err.Error())
-			return err
-		}
+		poolName = expected.Name
 	}
 
-	if !IsInferencePoolReady(curr) {
-		topLevelCondition, _ := nonReadyInferencePoolTopLevelCondition(curr)
-		if topLevelCondition != nil {
-			llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady", fmt.Sprintf(
-				"%s/%s: %v=%#v (reason %q, message %q)",
-				curr.Namespace,
-				curr.Name,
-				topLevelCondition.Type,
-				topLevelCondition.Status,
-				topLevelCondition.Reason,
-				topLevelCondition.Message,
-			))
-		} else {
-			llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady", fmt.Sprintf("The inference pool %s/%s is not ready", curr.Namespace, curr.Name))
+	// Check v1 InferencePool readiness
+	v1Pool := &igwv1.InferencePool{}
+	v1Ready := false
+	v1Err := r.Client.Get(ctx, types.NamespacedName{Namespace: llmSvc.Namespace, Name: poolName}, v1Pool)
+	if v1Err == nil {
+		v1Ready = IsInferencePoolReady(v1Pool)
+		if v1Ready {
+			logger.V(2).Info("v1 InferencePool is ready", "pool", poolName)
 		}
+	} else if !apierrors.IsNotFound(v1Err) {
+		// Log non-NotFound errors but don't fail - v1alpha2 might still work
+		logger.V(2).Info("Failed to fetch v1 InferencePool, will check v1alpha2 fallback", "error", v1Err)
+	}
+
+	// Check v1alpha2 InferencePool readiness (fallback for environments without GIE v1 controller)
+	alpha2Ready := r.isAlpha2PoolReady(ctx, llmSvc.Namespace, poolName)
+	if alpha2Ready {
+		logger.V(2).Info("v1alpha2 InferencePool is ready", "pool", poolName)
+	}
+
+	// Mark ready if EITHER v1 or v1alpha2 pool is ready (dual-pool fallback strategy)
+	if v1Ready || alpha2Ready {
+		llmSvc.MarkInferencePoolReady()
+		logger.Info("InferencePool is ready", "pool", poolName, "v1Ready", v1Ready, "alpha2Ready", alpha2Ready)
 		return nil
 	}
 
-	llmSvc.MarkInferencePoolReady()
-	logger.V(2).Info("Inference Pool is ready", "pool", curr)
+	// Neither pool is ready - provide detailed error message
+	if v1Err != nil && !apierrors.IsNotFound(v1Err) {
+		// If we couldn't fetch v1 pool due to an error (not just NotFound)
+		err := fmt.Errorf("failed to fetch v1 InferencePool %s/%s: %w", llmSvc.Namespace, poolName, v1Err)
+		llmSvc.MarkInferencePoolNotReady("InferencePoolFetchError", err.Error())
+		return err
+	}
+
+	// Both pools exist but neither is ready - report v1 pool status if available
+	topLevelCondition, _ := nonReadyInferencePoolTopLevelCondition(v1Pool)
+	if topLevelCondition != nil {
+		llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady", fmt.Sprintf(
+			"Neither v1 nor v1alpha2 InferencePool is ready. v1 status: %s/%s: %v=%#v (reason %q, message %q)",
+			v1Pool.ObjectMeta.Namespace,
+			v1Pool.ObjectMeta.Name,
+			topLevelCondition.Type,
+			topLevelCondition.Status,
+			topLevelCondition.Reason,
+			topLevelCondition.Message,
+		))
+	} else {
+		llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady",
+			fmt.Sprintf("Neither v1 nor v1alpha2 InferencePool %s/%s is ready", llmSvc.Namespace, poolName))
+	}
+	logger.V(2).Info("Neither v1 nor v1alpha2 InferencePool is ready", "pool", poolName)
 	return nil
 }

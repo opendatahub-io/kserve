@@ -87,6 +87,15 @@ func IstioShadowService(name, ns string) *corev1.Service {
 	}
 }
 
+func DefaultServiceAccount(ns string) *corev1.ServiceAccount {
+	return &corev1.ServiceAccount{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "default",
+			Namespace: ns,
+		},
+	}
+}
+
 func DefaultGateway(ns string) *gatewayapiv1.Gateway {
 	defaultGateway := Gateway(constants.GatewayName,
 		InNamespace[*gatewayapiv1.Gateway](ns),

@@ -7,13 +7,17 @@ spec:
     scheduler:
       pool:
         spec:
-          extensionRef:
-            failureMode: FailOpen
+          endpointPickerRef:
             kind: Service
             name: |-
               {{ ChildName .ObjectMeta.Name `-epp-service` }}
-          selector: { }
-          targetPortNumber: 8000
+            port:
+              number: 9002
+          selector:
+            matchLabels:
+              app.kubernetes.io/part-of: llminferenceservice
+          targetPorts:
+            - number: 8000
       template:
         containers:
           - name: main

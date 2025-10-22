@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -116,6 +117,7 @@ func Update[O client.Object, T client.Object](ctx context.Context, c clientWithR
 		ownerLogLine = logLineForObject(owner)
 	}
 
+	// Perform initial ownership check (this only needs to be done once, not in the retry loop)
 	if isNamespaced, err := apiutil.IsObjectNamespaced(expected, c.Scheme(), c.RESTMapper()); err != nil {
 		return fmt.Errorf("failed to resolve if resource is namespaced %s: %w", typeLogLine, err)
 	} else if isNamespaced && !isOwnerNil {
@@ -129,29 +131,48 @@ func Update[O client.Object, T client.Object](ctx context.Context, c clientWithR
 		}
 	}
 
-	expected.SetResourceVersion(curr.GetResourceVersion())
-	if err := c.Update(ctx, expected, client.DryRunAll); err != nil {
-		return fmt.Errorf("failed to get defaults for %s %s/%s: %w", typeLogLine, expected.GetNamespace(), expected.GetName(), err)
-	}
+	// Get the object key for re-fetching in the retry loop
+	objKey := client.ObjectKeyFromObject(curr)
 
-	if isEqual(expected, curr) {
+	// Wrap the update logic in retry.RetryOnConflict to handle resource version conflicts
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		// Re-fetch the current version of the resource to get the latest state
+		latestCurr := curr.DeepCopyObject().(T)
+		if err := c.Get(ctx, objKey, latestCurr); err != nil {
+			return fmt.Errorf("failed to get latest %s %s/%s: %w", typeLogLine, objKey.Namespace, objKey.Name, err)
+		}
+
+		// Create a fresh copy of expected to avoid mutating the original
+		latestExpected := expected.DeepCopyObject().(T)
+		latestExpected.SetResourceVersion(latestCurr.GetResourceVersion())
+
+		// Use DryRun to get server defaults merged into our expected object
+		if err := c.Update(ctx, latestExpected, client.DryRunAll); err != nil {
+			return err
+		}
+
+		// Check if the current state matches our expected state
+		if isEqual(latestExpected, latestCurr) {
+			return nil
+		}
+
+		log.FromContext(ctx).V(2).Info("Updating "+typeLogLine,
+			"expected", latestExpected,
+			"curr", latestCurr,
+		)
+
+		// Perform the actual update
+		if err := c.Update(ctx, latestExpected); err != nil {
+			return err
+		}
+
+		// Record the update event
+		if !isOwnerNil {
+			c.Eventf(owner, corev1.EventTypeNormal, "Updated", "Updated %s %s/%s", typeLogLine, latestExpected.GetNamespace(), latestExpected.GetName())
+		}
+
 		return nil
-	}
-
-	log.FromContext(ctx).V(2).Info("Updating "+typeLogLine,
-		"expected", expected,
-		"curr", curr,
-	)
-
-	if err := c.Update(ctx, expected); err != nil {
-		return fmt.Errorf("failed to update %s %s/%s: %w", typeLogLine, expected.GetNamespace(), expected.GetName(), err)
-	}
-
-	if !isOwnerNil {
-		c.Eventf(owner, corev1.EventTypeNormal, "Updated", "Updated %s %s/%s", typeLogLine, expected.GetNamespace(), expected.GetName())
-	}
-
-	return nil
+	})
 }
 
 func logLineForObject(obj client.Object) string {

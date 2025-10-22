@@ -198,6 +198,9 @@ test: fmt vet manifests envtest test-qpext
 test-qpext:
 	cd qpext && go test -v ./... -cover
 
+test-llmisvc: fmt vet manifests envtest
+	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test --timeout 20m ./pkg/controller/llmisvc/... -coverprofile coverage.out -coverpkg ./pkg/... ./cmd...
+
 # Build manager binary
 manager: generate fmt vet go-lint
 	go build -o bin/manager ./cmd/manager

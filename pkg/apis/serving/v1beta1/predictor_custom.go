@@ -37,8 +37,10 @@ var (
 	_ PredictorImplementation = &CustomPredictor{}
 )
 
+// NewCustomPredictor creates a CustomPredictor from a KServe PodSpec.
+// Uses ToCorev1PodSpec() for explicit field mapping required by structured-merge-diff v6.
 func NewCustomPredictor(podSpec *PodSpec) *CustomPredictor {
-	return &CustomPredictor{PodSpec: corev1.PodSpec(*podSpec)}
+	return &CustomPredictor{PodSpec: podSpec.ToCorev1PodSpec()}
 }
 
 // Validate returns an error if invalid

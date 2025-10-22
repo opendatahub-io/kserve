@@ -32,7 +32,7 @@ import (
 	"knative.dev/pkg/network"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
@@ -167,12 +167,13 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForScheduler
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil {
 		name := llmSvc.Spec.Router.EPPServiceName(llmSvc)
 		if llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
-			pool := igwapi.InferencePool{}
+			pool := igwv1.InferencePool{}
 			if err := r.Client.Get(ctx, client.ObjectKey{Name: llmSvc.Spec.Router.Scheduler.Pool.Ref.Name, Namespace: llmSvc.GetNamespace()}, &pool); err != nil {
 				return nil, fmt.Errorf("failed to get inference pool %s/%s: %w", llmSvc.GetNamespace(), llmSvc.Spec.Router.Scheduler.Pool.Ref.Name, err)
 			}
-			if pool.Spec.ExtensionRef != nil {
-				name = string(pool.Spec.ExtensionRef.Name)
+			// In v1, EndpointPickerRef is a value (not pointer), with Name as typed string.
+			if pool.Spec.EndpointPickerRef.Name != "" {
+				name = string(pool.Spec.EndpointPickerRef.Name)
 			}
 		}
 		dr.Spec.Host = network.GetServiceHostname(name, llmSvc.GetNamespace())

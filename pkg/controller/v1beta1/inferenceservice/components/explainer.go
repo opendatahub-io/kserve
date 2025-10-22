@@ -142,7 +142,7 @@ func (e *Explainer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 		isvc.Spec.Explainer.PodSpec.Containers[0] = *container
 	}
 
-	podSpec := corev1.PodSpec(isvc.Spec.Explainer.PodSpec)
+	podSpec := isvc.Spec.Explainer.PodSpec.ToCorev1PodSpec()
 
 	// Here we allow switch between knative and vanilla deployment
 	if e.deploymentMode == constants.RawDeployment {

@@ -33,7 +33,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -53,7 +53,7 @@ func NewEnvTest(options ...Option) *Config {
 		apiextv1.AddToScheme,
 		netv1.AddToScheme,
 		gatewayapiv1.Install,
-		igwapi.Install,
+		igwv1.Install,
 		// Other Schemes
 		knservingv1.AddToScheme,
 		istioclientv1beta1.AddToScheme,

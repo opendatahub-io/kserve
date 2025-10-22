@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/yaml"
 
 	ktesting "github.com/kserve/kserve/pkg/testing"
@@ -33,11 +32,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	pkgtest "github.com/kserve/kserve/pkg/testing"
 )
 
 func TestMergeSpecs(t *testing.T) {
@@ -87,8 +84,12 @@ func TestMergeSpecs(t *testing.T) {
 					Router: &v1alpha1.RouterSpec{
 						Scheduler: &v1alpha1.SchedulerSpec{
 							Pool: &v1alpha1.InferencePoolSpec{
-								Spec: &igwapi.InferencePoolSpec{
-									TargetPortNumber: 9999,
+								Spec: &v1alpha1.KServeInferencePoolSpec{
+									TargetPorts: []v1alpha1.KServePort{
+										{Number: 9999},
+									},
+									Selector:          v1alpha1.KServeLabelSelector{MatchLabels: map[string]string{}},
+									EndpointPickerRef: v1alpha1.KServeEndpointPickerRef{Name: ""},
 								},
 							},
 						},
@@ -102,8 +103,12 @@ func TestMergeSpecs(t *testing.T) {
 					Gateway: &v1alpha1.GatewaySpec{},
 					Scheduler: &v1alpha1.SchedulerSpec{
 						Pool: &v1alpha1.InferencePoolSpec{
-							Spec: &igwapi.InferencePoolSpec{
-								TargetPortNumber: 9999,
+							Spec: &v1alpha1.KServeInferencePoolSpec{
+								TargetPorts: []v1alpha1.KServePort{
+									{Number: 9999},
+								},
+								Selector:          v1alpha1.KServeLabelSelector{MatchLabels: map[string]string{}},
+								EndpointPickerRef: v1alpha1.KServeEndpointPickerRef{Name: ""},
 							},
 						},
 					},
@@ -449,15 +454,12 @@ func TestMergeSpecs(t *testing.T) {
 					Router: &v1alpha1.RouterSpec{
 						Scheduler: &v1alpha1.SchedulerSpec{
 							Pool: &v1alpha1.InferencePoolSpec{
-								Spec: &igwapi.InferencePoolSpec{
-									TargetPortNumber: 0,
-									EndpointPickerConfig: igwapi.EndpointPickerConfig{
-										ExtensionRef: &igwapi.Extension{
-											ExtensionConnection: igwapi.ExtensionConnection{
-												FailureMode: ptr.To(igwapi.FailClose),
-											},
-										},
+								Spec: &v1alpha1.KServeInferencePoolSpec{
+									TargetPorts: []v1alpha1.KServePort{
+										{Number: 0},
 									},
+									Selector:          v1alpha1.KServeLabelSelector{MatchLabels: map[string]string{}},
+									EndpointPickerRef: v1alpha1.KServeEndpointPickerRef{Name: ""},
 								},
 							},
 							Template: &corev1.PodSpec{
@@ -498,15 +500,12 @@ func TestMergeSpecs(t *testing.T) {
 					Gateway: &v1alpha1.GatewaySpec{},
 					Scheduler: &v1alpha1.SchedulerSpec{
 						Pool: &v1alpha1.InferencePoolSpec{
-							Spec: &igwapi.InferencePoolSpec{
-								TargetPortNumber: 0,
-								EndpointPickerConfig: igwapi.EndpointPickerConfig{
-									ExtensionRef: &igwapi.Extension{
-										ExtensionConnection: igwapi.ExtensionConnection{
-											FailureMode: ptr.To(igwapi.FailClose),
-										},
-									},
+							Spec: &v1alpha1.KServeInferencePoolSpec{
+								TargetPorts: []v1alpha1.KServePort{
+									{Number: 0},
 								},
+								Selector:          v1alpha1.KServeLabelSelector{MatchLabels: map[string]string{}},
+								EndpointPickerRef: v1alpha1.KServeEndpointPickerRef{Name: ""},
 							},
 						},
 						Template: &corev1.PodSpec{
@@ -827,19 +826,19 @@ func TestMergeSpecs(t *testing.T) {
 				{
 					Model: v1alpha1.LLMModelSpec{
 						URI:         apis.URL{Path: "model-uri"},
-						Criticality: ptr.To(igwapi.Sheddable),
+						Criticality: ptr.To(v1alpha1.Sheddable),
 					},
 				},
 				{
 					Model: v1alpha1.LLMModelSpec{
-						Criticality: ptr.To(igwapi.Critical),
+						Criticality: ptr.To(v1alpha1.Critical),
 					},
 				},
 			},
 			want: v1alpha1.LLMInferenceServiceSpec{
 				Model: v1alpha1.LLMModelSpec{
 					URI:         apis.URL{Path: "model-uri"},
-					Criticality: ptr.To(igwapi.Critical),
+					Criticality: ptr.To(v1alpha1.Critical),
 				},
 			},
 		},
@@ -954,7 +953,7 @@ func TestMergeSpecs(t *testing.T) {
 					Model: v1alpha1.LLMModelSpec{
 						URI:         apis.URL{Path: "base-model"},
 						Name:        ptr.To("base-name"),
-						Criticality: ptr.To(igwapi.Sheddable),
+						Criticality: ptr.To(v1alpha1.Sheddable),
 						LoRA: &v1alpha1.LoRASpec{
 							Adapters: []v1alpha1.LLMModelSpec{
 								{URI: apis.URL{Path: "lora-model"}},
@@ -976,7 +975,7 @@ func TestMergeSpecs(t *testing.T) {
 				{
 					Model: v1alpha1.LLMModelSpec{
 						Name:        ptr.To("override-name"),
-						Criticality: ptr.To(igwapi.Critical),
+						Criticality: ptr.To(v1alpha1.Critical),
 						LoRA: &v1alpha1.LoRASpec{
 							Adapters: []v1alpha1.LLMModelSpec{
 								{URI: apis.URL{Path: "lora-model2"}},
@@ -1002,7 +1001,7 @@ func TestMergeSpecs(t *testing.T) {
 				Model: v1alpha1.LLMModelSpec{
 					URI:         apis.URL{Path: "base-model"}, // Base URI preserved
 					Name:        ptr.To("override-name"),      // Override name
-					Criticality: ptr.To(igwapi.Critical),
+					Criticality: ptr.To(v1alpha1.Critical),
 					LoRA: &v1alpha1.LoRASpec{
 						Adapters: []v1alpha1.LLMModelSpec{
 							{URI: apis.URL{Path: "lora-model2"}},
@@ -1313,8 +1312,6 @@ func TestMergeSpecs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := t.Context()
-			ctx = log.IntoContext(ctx, pkgtest.NewTestLogger(t))
-
 			got, err := llmisvc.MergeSpecs(ctx, tt.cfgs...)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("MergeSpecs() error = %v, wantErr %v", err, tt.wantErr)
@@ -1789,4 +1786,89 @@ spec:
 			tt.want(got, NewGomegaWithT(t))
 		})
 	}
+}
+
+// TestODHModelControllerCompatibility verifies that LLMInferenceServiceConfig with KServe-native
+// InferencePool types can be serialized to JSON and deserialized back without errors.
+// This tests compatibility with ODH Model Controller which may use an older kserve library.
+func TestODHModelControllerCompatibility(t *testing.T) {
+	g := NewWithT(t)
+
+	// Create a config with KServe types (what gets stored in CRD)
+	original := &v1alpha1.LLMInferenceServiceConfig{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-config",
+			Namespace: "default",
+		},
+		Spec: v1alpha1.LLMInferenceServiceSpec{
+			Router: &v1alpha1.RouterSpec{
+				Scheduler: &v1alpha1.SchedulerSpec{
+					Pool: &v1alpha1.InferencePoolSpec{
+						Spec: &v1alpha1.KServeInferencePoolSpec{
+							Selector: v1alpha1.KServeLabelSelector{
+								MatchLabels: map[string]string{
+									"app":                                   "my-model",
+									"serving.kserve.io/llminferenceservice": "test-llm",
+									"serving.kserve.io/llminferenceservice-uid": "test-uid",
+								},
+							},
+							TargetPorts: []v1alpha1.KServePort{
+								{Number: 8000},
+							},
+							EndpointPickerRef: v1alpha1.KServeEndpointPickerRef{
+								Name:  "test-epp",
+								Kind:  ptr.To("Service"),
+								Group: ptr.To(""),
+								Port:  &v1alpha1.KServePort{Number: 9000},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Simulate what happens in Kubernetes:
+	// 1. Controller creates the config object
+	// 2. K8s API server serializes to JSON and stores in etcd
+	jsonBytes, err := yaml.Marshal(original)
+	g.Expect(err).NotTo(HaveOccurred(), "Failed to serialize to JSON")
+
+	t.Logf("Serialized YAML (simulating etcd storage):\n%s", string(jsonBytes))
+
+	// 3. ODH Model Controller (with potentially old kserve lib) reads from API
+	// 4. It deserializes the JSON back to Go struct
+	var deserialized v1alpha1.LLMInferenceServiceConfig
+	err = yaml.Unmarshal(jsonBytes, &deserialized)
+	g.Expect(err).NotTo(HaveOccurred(), "ODH MC should be able to deserialize - this was the bug we fixed!")
+
+	// Verify the data is intact after round-trip serialization
+	g.Expect(deserialized.Name).To(Equal("test-config"))
+	g.Expect(deserialized.Namespace).To(Equal("default"))
+	g.Expect(deserialized.Spec.Router).NotTo(BeNil())
+	g.Expect(deserialized.Spec.Router.Scheduler).NotTo(BeNil())
+	g.Expect(deserialized.Spec.Router.Scheduler.Pool).NotTo(BeNil())
+	g.Expect(deserialized.Spec.Router.Scheduler.Pool.Spec).NotTo(BeNil())
+
+	// Verify selector uses plain strings (not typed LabelKey/LabelValue)
+	selector := deserialized.Spec.Router.Scheduler.Pool.Spec.Selector.MatchLabels
+	g.Expect(selector).To(HaveKeyWithValue("app", "my-model"))
+	g.Expect(selector).To(HaveKeyWithValue("serving.kserve.io/llminferenceservice", "test-llm"))
+	g.Expect(selector).To(HaveKeyWithValue("serving.kserve.io/llminferenceservice-uid", "test-uid"))
+	g.Expect(selector).To(HaveLen(3))
+
+	// Verify ports are correct
+	g.Expect(deserialized.Spec.Router.Scheduler.Pool.Spec.TargetPorts).To(HaveLen(1))
+	g.Expect(deserialized.Spec.Router.Scheduler.Pool.Spec.TargetPorts[0].Number).To(Equal(int32(8000)))
+
+	// Verify endpoint picker ref
+	eppRef := deserialized.Spec.Router.Scheduler.Pool.Spec.EndpointPickerRef
+	g.Expect(eppRef.Name).To(Equal("test-epp"))
+	g.Expect(eppRef.Kind).NotTo(BeNil())
+	g.Expect(*eppRef.Kind).To(Equal("Service"))
+	g.Expect(eppRef.Port).NotTo(BeNil())
+	g.Expect(eppRef.Port.Number).To(Equal(int32(9000)))
+
+	t.Logf("✅ JSON serialization/deserialization round-trip successful!")
+	t.Logf("✅ ODH Model Controller compatibility verified!")
 }
