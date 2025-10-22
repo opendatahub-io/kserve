@@ -11,6 +11,11 @@ on:
         description: 'Next development tag (e.g., odh-v2.36)'
         required: true
         type: string
+      dry_run:
+        description: 'Dry run (show changes without creating PR)'
+        required: false
+        type: boolean
+        default: false
     # Note: This workflow assumes the release tag and image tags are in sync.
     #       'tag_name' is used to create the release and as the value to find in files.
     #       'next_odh_tag' provides the new value to set.
@@ -109,19 +114,47 @@ jobs:
     needs: [fetch-tag, update-params-env, changelog]
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate tag format
+        run: |
+          if [[ ! "${{ github.event.inputs.tag_name }}" =~ ^odh-v[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Invalid current tag format. Expected format: odh-vX.Y (e.g., odh-v2.35)"
+            exit 1
+          fi
+
+          if [[ ! "${{ github.event.inputs.next_odh_tag }}" =~ ^odh-v[0-9]+\.[0-9]+ ]]; then
+            echo "::error::Invalid next tag format. Expected format: odh-vX.Y (e.g., odh-v2.36)"
+            exit 1
+          fi
+
+          # Ensure next tag is different from current tag
+          if [[ "${{ github.event.inputs.next_odh_tag }}" == "${{ github.event.inputs.tag_name }}" ]]; then
+            echo "::error::Next tag must be different from current tag"
+            exit 1
+          fi
+
+          echo "::notice::Tag validation passed"
+
+      - name: Create branch for ODH tag update
+        run: |
+          BRANCH_NAME="chore/bump-odh-tag-${{ github.event.inputs.next_odh_tag }}"
+          git checkout -b "$BRANCH_NAME"
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_ENV
 
       - name: Update KServe konflux files with next ODH tag
         run: |
           CURRENT_TAG="${{ github.event.inputs.tag_name }}"
           NEXT_TAG="${{ github.event.inputs.next_odh_tag }}"
-          
+
           echo "Updating ODH tag from $CURRENT_TAG to $NEXT_TAG..."
-          
+
           # Using sed to replace the current ODH tag with the next one
           # anchored to the image name for all four KServe files.
           sed -i "s|kserve-agent:${CURRENT_TAG}|kserve-agent:${NEXT_TAG}|g" .tekton/kserve-agent-push.yaml
@@ -130,18 +163,81 @@ jobs:
           sed -i "s|kserve-storage-initializer:${CURRENT_TAG}|kserve-storage-initializer:${NEXT_TAG}|g" .tekton/kserve-storage-initializer-push.yaml
 
           echo "Update complete."
-          
-      - name: Commit and Push Changes
+
+      - name: Commit changes and create PR
+        id: create_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git config --global user.email "github-actions@github.com"
           git config --global user.name "GitHub Actions"
           git add -f .tekton/kserve-agent-push.yaml .tekton/kserve-controller-push.yaml .tekton/kserve-router-push.yaml .tekton/kserve-storage-initializer-push.yaml
-          
-          # Check for changes before committing
+
+          # Check if there are any changes to commit
           if [[ -z "$(git status --porcelain)" ]]; then
             echo "No changes to commit. Exiting."
-          else
-            git commit -m "chore(konflux): Bump ODH release tag to ${{ github.event.inputs.next_odh_tag }}"
-            git push
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
+
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+
+          # Dry run mode - show changes without creating PR
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            echo "::notice::DRY RUN MODE - Changes that would be made:"
+            git diff --cached
+            echo "dry_run=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          git commit -m "chore(konflux): Bump ODH release tag to ${{ github.event.inputs.next_odh_tag }}"
+          git push origin "$BRANCH_NAME"
+
+          # Create PR with multi-line body
+          PR_BODY="This PR updates the ODH release tag in the Konflux build configuration from \`${{ github.event.inputs.tag_name }}\` to \`${{ github.event.inputs.next_odh_tag }}\` for the next development cycle.
+
+          **Changes:**
+          - Updated \`.tekton/kserve-agent-push.yaml\` with the new ODH tag
+          - Updated \`.tekton/kserve-controller-push.yaml\` with the new ODH tag
+          - Updated \`.tekton/kserve-router-push.yaml\` with the new ODH tag
+          - Updated \`.tekton/kserve-storage-initializer-push.yaml\` with the new ODH tag
+
+          **Automated by:** Release workflow for ${{ github.event.inputs.tag_name }}"
+
+          PR_URL=$(gh pr create \
+            --title "chore(konflux): Bump ODH release tag to ${{ github.event.inputs.next_odh_tag }}" \
+            --body "$PR_BODY" \
+            --base "${{ github.ref_name }}" \
+            --head "$BRANCH_NAME")
+
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+          echo "::notice::PR created successfully: $PR_URL"
+
+      - name: Create workflow summary
+        if: steps.create_pr.outputs.has_changes == 'true'
+        run: |
+          echo "## ODH Tag Bump Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            echo "### 🧪 Dry Run Mode" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Changes were validated but **no PR was created**." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ✅ PR Created Successfully" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "- **PR URL**: ${{ steps.create_pr.outputs.pr_url }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Tag Information" >> $GITHUB_STEP_SUMMARY
+          echo "- **Current Tag**: \`${{ github.event.inputs.tag_name }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Next Tag**: \`${{ github.event.inputs.next_odh_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: \`$BRANCH_NAME\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Files Updated" >> $GITHUB_STEP_SUMMARY
+          echo "- \`.tekton/kserve-agent-push.yaml\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`.tekton/kserve-controller-push.yaml\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`.tekton/kserve-router-push.yaml\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`.tekton/kserve-storage-initializer-push.yaml\`" >> $GITHUB_STEP_SUMMARY
 
