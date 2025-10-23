@@ -18,15 +18,24 @@ package fixture
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"knative.dev/pkg/kmeta"
+
+	"github.com/kserve/kserve/pkg/controller/llmisvc"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
@@ -51,6 +60,13 @@ func RequiredResources(ctx context.Context, c client.Client, ns string) {
 		},
 	})).To(gomega.Succeed())
 
+	// Create namespace for CA signing secret
+	gomega.Expect(c.Create(ctx, &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: llmisvc.ServiceCASigningSecretNamespace,
+		},
+	})).To(gomega.Succeed())
+
 	gomega.Expect(c.Create(ctx, InferenceServiceCfgMap(ns))).To(gomega.Succeed())
 
 	for _, preset := range SharedConfigPresets(ns) {
@@ -59,6 +75,7 @@ func RequiredResources(ctx context.Context, c client.Client, ns string) {
 
 	gomega.Expect(c.Create(ctx, DefaultGateway(ns))).To(gomega.Succeed())
 	gomega.Expect(c.Create(ctx, DefaultGatewayClass())).To(gomega.Succeed())
+	gomega.Expect(c.Create(ctx, SigningKey(llmisvc.ServiceCASigningSecretNamespace, llmisvc.ServiceCASigningSecretName))).To(gomega.Succeed())
 }
 
 func IstioShadowService(name, ns string) *corev1.Service {
@@ -183,4 +200,66 @@ func SharedConfigPresets(ns string) []*v1alpha1.LLMInferenceServiceConfig {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return configs
+}
+
+// SigningKey generates a mock CA certificate and private key for testing purposes.
+// This creates a self-signed CA certificate that can be used to sign other certificates in envtests.
+func SigningKey(namespace, name string) *corev1.Secret {
+	// Generate CA private key (RSA 4096-bit for FIPS compliance)
+	caPrivateKey, err := rsa.GenerateKey(rand.Reader, 4096)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Generate serial number for CA certificate
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Create CA certificate template
+	now := time.Now()
+	caTemplate := &x509.Certificate{
+		SerialNumber: serialNumber,
+		Subject: pkix.Name{
+			Organization: []string{"Test CA"},
+			CommonName:   "Test CA for KServe",
+		},
+		NotBefore:             now.UTC(),
+		NotAfter:              now.Add(365 * 24 * time.Hour).UTC(), // 1 year validity for test CA
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+		MaxPathLen:            1,
+		SignatureAlgorithm:    x509.SHA256WithRSA, // FIPS-approved signature algorithm
+	}
+
+	// Create self-signed CA certificate
+	caCertDER, err := x509.CreateCertificate(rand.Reader, caTemplate, caTemplate, &caPrivateKey.PublicKey, caPrivateKey)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	// Encode CA certificate to PEM
+	caCertPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "CERTIFICATE",
+		Bytes: caCertDER,
+	})
+
+	// Encode CA private key to PEM (PKCS#8 format for FIPS compliance)
+	caPrivateKeyBytes, err := x509.MarshalPKCS8PrivateKey(caPrivateKey)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	caPrivateKeyPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PRIVATE KEY",
+		Bytes: caPrivateKeyBytes,
+	})
+
+	// Create the secret
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+		},
+		Type: corev1.SecretTypeTLS,
+		Data: map[string][]byte{
+			"tls.crt": caCertPEM,
+			"tls.key": caPrivateKeyPEM,
+		},
+	}
 }

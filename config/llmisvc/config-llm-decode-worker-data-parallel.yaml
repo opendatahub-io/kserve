@@ -48,9 +48,7 @@ spec:
           - "--secure-proxy=true"
           - "--cert-path=/etc/ssl/certs"
           - "--decoder-use-tls=true"
-          - "--decoder-tls-insecure-skip-verify=true"
           - "--prefiller-use-tls=true"
-          - "--prefiller-tls-insecure-skip-verify=true"
           - "--enable-ssrf-protection=true"
         volumeMounts:
           - mountPath: /etc/ssl/certs
@@ -61,6 +59,8 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
+          - name: SSL_CERT_DIR
+            value: "/var/run/secrets/kubernetes.io/serviceaccount:/etc/pki/tls/certs"
     containers:
       - image: ghcr.io/llm-d/llm-d-dev:v0.2.2
         imagePullPolicy: IfNotPresent

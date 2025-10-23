@@ -238,7 +238,8 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 		Owns(&appsv1.Deployment{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&corev1.Secret{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&corev1.Service{}, builder.WithPredicates(childResourcesPredicate)).
-		Watches(&corev1.Service{}, r.enqueueOnIstioShadowServiceChange(mgr, logger))
+		Watches(&corev1.Service{}, r.enqueueOnIstioShadowServiceChange(mgr, logger)).
+		Watches(&corev1.Pod{}, r.enqueueOnLLMInferenceServicePods())
 
 	if err := gatewayapi.Install(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("failed to add GIE APIs to scheme: %w", err)
@@ -483,5 +484,20 @@ func (r *LLMInferenceServiceReconciler) enqueueOnIstioShadowServiceChange(mgr ct
 			Namespace: sub.GetNamespace(),
 			Name:      controller.Name,
 		}}}
+	})
+}
+
+func (r *LLMInferenceServiceReconciler) enqueueOnLLMInferenceServicePods() handler.TypedEventHandler[client.Object, reconcile.Request] {
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		sub := object.(*corev1.Pod)
+		reqs := make([]reconcile.Request, 0, 1)
+
+		if llmSvcName, ok := sub.GetLabels()["app.kubernetes.io/name"]; ok && llmSvcName != "" {
+			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: sub.GetNamespace(),
+				Name:      llmSvcName,
+			}})
+		}
+		return reqs
 	})
 }
