@@ -24,6 +24,7 @@ import (
 
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/fields"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -132,7 +133,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	secretCacheSelector, _ := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
+	llmSvcCacheSelector, _ := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
 		MatchLabels: map[string]string{
 			"app.kubernetes.io/part-of": "llminferenceservice",
 		},
@@ -153,7 +154,19 @@ func main() {
 		Cache: cache.Options{
 			ByObject: map[client.Object]cache.ByObject{
 				&corev1.Secret{}: {
-					Label: secretCacheSelector,
+					Namespaces: map[string]cache.Config{
+						cache.AllNamespaces: {
+							LabelSelector: llmSvcCacheSelector,
+						},
+						llmisvc.ServiceCASigningSecretNamespace: {
+							FieldSelector: fields.SelectorFromSet(map[string]string{
+								"metadata.name": llmisvc.ServiceCASigningSecretName,
+							}),
+						},
+					},
+				},
+				&corev1.Pod{}: {
+					Label: llmSvcCacheSelector,
 				},
 			},
 		},
