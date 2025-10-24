@@ -757,7 +757,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 						routes, errList := managedRoutes(ctx, llmSvc)
 						g.Expect(errList).ToNot(HaveOccurred())
-						g.Expect(routes).To(BeEmpty(), fmt.Sprintf("LLMInferenceService.Spec %s", string(objJson)))
+						g.Expect(routes).To(BeEmpty(), "LLMInferenceService.Spec "+string(objJson))
 
 						return nil
 					}).WithContext(ctx).Should(Succeed(), "Should have no managed HTTPRoutes with router when ")

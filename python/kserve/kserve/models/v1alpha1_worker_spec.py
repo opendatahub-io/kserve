@@ -47,48 +47,34 @@ class V1alpha1WorkerSpec(object):
                             and the value is json key in definition.
     """
     openapi_types = {
-        "affinity": "V1Affinity",
-        "annotations": "dict(str, str)",
-        "containers": "list[V1Container]",
-        "host_ipc": "bool",
-        "image_pull_secrets": "list[V1LocalObjectReference]",
-        "labels": "dict(str, str)",
-        "node_selector": "dict(str, str)",
-        "pipeline_parallel_size": "int",
-        "tensor_parallel_size": "int",
-        "tolerations": "list[V1Toleration]",
-        "volumes": "list[V1Volume]",
+        'affinity': 'V1Affinity',
+        'annotations': 'dict(str, str)',
+        'containers': 'list[V1Container]',
+        'host_ipc': 'bool',
+        'image_pull_secrets': 'list[V1LocalObjectReference]',
+        'labels': 'dict(str, str)',
+        'node_selector': 'dict(str, str)',
+        'pipeline_parallel_size': 'int',
+        'tensor_parallel_size': 'int',
+        'tolerations': 'list[V1Toleration]',
+        'volumes': 'list[V1Volume]'
     }
 
     attribute_map = {
-        "affinity": "affinity",
-        "annotations": "annotations",
-        "containers": "containers",
-        "host_ipc": "hostIPC",
-        "image_pull_secrets": "imagePullSecrets",
-        "labels": "labels",
-        "node_selector": "nodeSelector",
-        "pipeline_parallel_size": "pipelineParallelSize",
-        "tensor_parallel_size": "tensorParallelSize",
-        "tolerations": "tolerations",
-        "volumes": "volumes",
+        'affinity': 'affinity',
+        'annotations': 'annotations',
+        'containers': 'containers',
+        'host_ipc': 'hostIPC',
+        'image_pull_secrets': 'imagePullSecrets',
+        'labels': 'labels',
+        'node_selector': 'nodeSelector',
+        'pipeline_parallel_size': 'pipelineParallelSize',
+        'tensor_parallel_size': 'tensorParallelSize',
+        'tolerations': 'tolerations',
+        'volumes': 'volumes'
     }
 
-    def __init__(
-        self,
-        affinity=None,
-        annotations=None,
-        containers=None,
-        host_ipc=None,
-        image_pull_secrets=None,
-        labels=None,
-        node_selector=None,
-        pipeline_parallel_size=None,
-        tensor_parallel_size=None,
-        tolerations=None,
-        volumes=None,
-        local_vars_configuration=None,
-    ):  # noqa: E501
+    def __init__(self, affinity=None, annotations=None, containers=None, host_ipc=None, image_pull_secrets=None, labels=None, node_selector=None, pipeline_parallel_size=None, tensor_parallel_size=None, tolerations=None, volumes=None, local_vars_configuration=None):  # noqa: E501
         """V1alpha1WorkerSpec - a model defined in OpenAPI"""  # noqa: E501
         if local_vars_configuration is None:
             local_vars_configuration = Configuration()
@@ -193,12 +179,8 @@ class V1alpha1WorkerSpec(object):
         :param containers: The containers of this V1alpha1WorkerSpec.  # noqa: E501
         :type: list[V1Container]
         """
-        if (
-            self.local_vars_configuration.client_side_validation and containers is None
-        ):  # noqa: E501
-            raise ValueError(
-                "Invalid value for `containers`, must not be `None`"
-            )  # noqa: E501
+        if self.local_vars_configuration.client_side_validation and containers is None:  # noqa: E501
+            raise ValueError("Invalid value for `containers`, must not be `None`")  # noqa: E501
 
         self._containers = containers
 
@@ -393,22 +375,18 @@ class V1alpha1WorkerSpec(object):
         for attr, _ in six.iteritems(self.openapi_types):
             value = getattr(self, attr)
             if isinstance(value, list):
-                result[attr] = list(
-                    map(lambda x: x.to_dict() if hasattr(x, "to_dict") else x, value)
-                )
+                result[attr] = list(map(
+                    lambda x: x.to_dict() if hasattr(x, "to_dict") else x,
+                    value
+                ))
             elif hasattr(value, "to_dict"):
                 result[attr] = value.to_dict()
             elif isinstance(value, dict):
-                result[attr] = dict(
-                    map(
-                        lambda item: (
-                            (item[0], item[1].to_dict())
-                            if hasattr(item[1], "to_dict")
-                            else item
-                        ),
-                        value.items(),
-                    )
-                )
+                result[attr] = dict(map(
+                    lambda item: (item[0], item[1].to_dict())
+                    if hasattr(item[1], "to_dict") else item,
+                    value.items()
+                ))
             else:
                 result[attr] = value
 

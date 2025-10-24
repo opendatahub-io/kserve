@@ -30,15 +30,9 @@ from __future__ import absolute_import
 # import models into model package
 from kserve.models.v1alpha1_built_in_adapter import V1alpha1BuiltInAdapter
 from kserve.models.v1alpha1_cluster_serving_runtime import V1alpha1ClusterServingRuntime
-from kserve.models.v1alpha1_cluster_serving_runtime_list import (
-    V1alpha1ClusterServingRuntimeList,
-)
-from kserve.models.v1alpha1_cluster_storage_container import (
-    V1alpha1ClusterStorageContainer,
-)
-from kserve.models.v1alpha1_cluster_storage_container_list import (
-    V1alpha1ClusterStorageContainerList,
-)
+from kserve.models.v1alpha1_cluster_serving_runtime_list import V1alpha1ClusterServingRuntimeList
+from kserve.models.v1alpha1_cluster_storage_container import V1alpha1ClusterStorageContainer
+from kserve.models.v1alpha1_cluster_storage_container_list import V1alpha1ClusterStorageContainerList
 from kserve.models.v1alpha1_endpoint_picker_config import V1alpha1EndpointPickerConfig
 from kserve.models.v1alpha1_extension import V1alpha1Extension
 from kserve.models.v1alpha1_extension_connection import V1alpha1ExtensionConnection
@@ -58,41 +52,23 @@ from kserve.models.v1alpha1_inference_step import V1alpha1InferenceStep
 from kserve.models.v1alpha1_inference_target import V1alpha1InferenceTarget
 from kserve.models.v1alpha1_ingress_spec import V1alpha1IngressSpec
 from kserve.models.v1alpha1_llm_inference_service import V1alpha1LLMInferenceService
-from kserve.models.v1alpha1_llm_inference_service_config import (
-    V1alpha1LLMInferenceServiceConfig,
-)
-from kserve.models.v1alpha1_llm_inference_service_config_list import (
-    V1alpha1LLMInferenceServiceConfigList,
-)
-from kserve.models.v1alpha1_llm_inference_service_list import (
-    V1alpha1LLMInferenceServiceList,
-)
-from kserve.models.v1alpha1_llm_inference_service_spec import (
-    V1alpha1LLMInferenceServiceSpec,
-)
-from kserve.models.v1alpha1_llm_inference_service_status import (
-    V1alpha1LLMInferenceServiceStatus,
-)
+from kserve.models.v1alpha1_llm_inference_service_config import V1alpha1LLMInferenceServiceConfig
+from kserve.models.v1alpha1_llm_inference_service_config_list import V1alpha1LLMInferenceServiceConfigList
+from kserve.models.v1alpha1_llm_inference_service_list import V1alpha1LLMInferenceServiceList
+from kserve.models.v1alpha1_llm_inference_service_spec import V1alpha1LLMInferenceServiceSpec
+from kserve.models.v1alpha1_llm_inference_service_status import V1alpha1LLMInferenceServiceStatus
 from kserve.models.v1alpha1_llm_model_spec import V1alpha1LLMModelSpec
 from kserve.models.v1alpha1_lo_ra_spec import V1alpha1LoRASpec
 from kserve.models.v1alpha1_local_model_cache import V1alpha1LocalModelCache
 from kserve.models.v1alpha1_local_model_cache_list import V1alpha1LocalModelCacheList
 from kserve.models.v1alpha1_local_model_cache_spec import V1alpha1LocalModelCacheSpec
-from kserve.models.v1alpha1_local_model_cache_status import (
-    V1alpha1LocalModelCacheStatus,
-)
+from kserve.models.v1alpha1_local_model_cache_status import V1alpha1LocalModelCacheStatus
 from kserve.models.v1alpha1_local_model_info import V1alpha1LocalModelInfo
 from kserve.models.v1alpha1_local_model_node import V1alpha1LocalModelNode
 from kserve.models.v1alpha1_local_model_node_group import V1alpha1LocalModelNodeGroup
-from kserve.models.v1alpha1_local_model_node_group_list import (
-    V1alpha1LocalModelNodeGroupList,
-)
-from kserve.models.v1alpha1_local_model_node_group_spec import (
-    V1alpha1LocalModelNodeGroupSpec,
-)
-from kserve.models.v1alpha1_local_model_node_group_status import (
-    V1alpha1LocalModelNodeGroupStatus,
-)
+from kserve.models.v1alpha1_local_model_node_group_list import V1alpha1LocalModelNodeGroupList
+from kserve.models.v1alpha1_local_model_node_group_spec import V1alpha1LocalModelNodeGroupSpec
+from kserve.models.v1alpha1_local_model_node_group_status import V1alpha1LocalModelNodeGroupStatus
 from kserve.models.v1alpha1_local_model_node_list import V1alpha1LocalModelNodeList
 from kserve.models.v1alpha1_local_model_node_spec import V1alpha1LocalModelNodeSpec
 from kserve.models.v1alpha1_local_model_node_status import V1alpha1LocalModelNodeStatus
@@ -100,17 +76,13 @@ from kserve.models.v1alpha1_model_copies import V1alpha1ModelCopies
 from kserve.models.v1alpha1_model_spec import V1alpha1ModelSpec
 from kserve.models.v1alpha1_namespaced_name import V1alpha1NamespacedName
 from kserve.models.v1alpha1_parallelism_spec import V1alpha1ParallelismSpec
-from kserve.models.v1alpha1_parent_gateway_reference import (
-    V1alpha1ParentGatewayReference,
-)
+from kserve.models.v1alpha1_parent_gateway_reference import V1alpha1ParentGatewayReference
 from kserve.models.v1alpha1_pool_status import V1alpha1PoolStatus
 from kserve.models.v1alpha1_router_spec import V1alpha1RouterSpec
 from kserve.models.v1alpha1_scheduler_spec import V1alpha1SchedulerSpec
 from kserve.models.v1alpha1_serving_runtime import V1alpha1ServingRuntime
 from kserve.models.v1alpha1_serving_runtime_list import V1alpha1ServingRuntimeList
-from kserve.models.v1alpha1_serving_runtime_pod_spec import (
-    V1alpha1ServingRuntimePodSpec,
-)
+from kserve.models.v1alpha1_serving_runtime_pod_spec import V1alpha1ServingRuntimePodSpec
 from kserve.models.v1alpha1_serving_runtime_spec import V1alpha1ServingRuntimeSpec
 from kserve.models.v1alpha1_storage_container_spec import V1alpha1StorageContainerSpec
 from kserve.models.v1alpha1_storage_helper import V1alpha1StorageHelper
@@ -121,9 +93,7 @@ from kserve.models.v1alpha1_trained_model import V1alpha1TrainedModel
 from kserve.models.v1alpha1_trained_model_list import V1alpha1TrainedModelList
 from kserve.models.v1alpha1_trained_model_spec import V1alpha1TrainedModelSpec
 from kserve.models.v1alpha1_trained_model_status import V1alpha1TrainedModelStatus
-from kserve.models.v1alpha1_untyped_object_reference import (
-    V1alpha1UntypedObjectReference,
-)
+from kserve.models.v1alpha1_untyped_object_reference import V1alpha1UntypedObjectReference
 from kserve.models.v1alpha1_worker_spec import V1alpha1WorkerSpec
 from kserve.models.v1alpha1_workload_spec import V1alpha1WorkloadSpec
 from kserve.models.v1alpha2_gateway_routes_spec import V1alpha2GatewayRoutesSpec
@@ -132,29 +102,17 @@ from kserve.models.v1alpha2_http_route_spec import V1alpha2HTTPRouteSpec
 from kserve.models.v1alpha2_inference_pool_spec import V1alpha2InferencePoolSpec
 from kserve.models.v1alpha2_ingress_spec import V1alpha2IngressSpec
 from kserve.models.v1alpha2_llm_inference_service import V1alpha2LLMInferenceService
-from kserve.models.v1alpha2_llm_inference_service_config import (
-    V1alpha2LLMInferenceServiceConfig,
-)
-from kserve.models.v1alpha2_llm_inference_service_config_list import (
-    V1alpha2LLMInferenceServiceConfigList,
-)
-from kserve.models.v1alpha2_llm_inference_service_list import (
-    V1alpha2LLMInferenceServiceList,
-)
-from kserve.models.v1alpha2_llm_inference_service_spec import (
-    V1alpha2LLMInferenceServiceSpec,
-)
-from kserve.models.v1alpha2_llm_inference_service_status import (
-    V1alpha2LLMInferenceServiceStatus,
-)
+from kserve.models.v1alpha2_llm_inference_service_config import V1alpha2LLMInferenceServiceConfig
+from kserve.models.v1alpha2_llm_inference_service_config_list import V1alpha2LLMInferenceServiceConfigList
+from kserve.models.v1alpha2_llm_inference_service_list import V1alpha2LLMInferenceServiceList
+from kserve.models.v1alpha2_llm_inference_service_spec import V1alpha2LLMInferenceServiceSpec
+from kserve.models.v1alpha2_llm_inference_service_status import V1alpha2LLMInferenceServiceStatus
 from kserve.models.v1alpha2_llm_model_spec import V1alpha2LLMModelSpec
 from kserve.models.v1alpha2_lo_ra_spec import V1alpha2LoRASpec
 from kserve.models.v1alpha2_parallelism_spec import V1alpha2ParallelismSpec
 from kserve.models.v1alpha2_router_spec import V1alpha2RouterSpec
 from kserve.models.v1alpha2_scheduler_spec import V1alpha2SchedulerSpec
-from kserve.models.v1alpha2_untyped_object_reference import (
-    V1alpha2UntypedObjectReference,
-)
+from kserve.models.v1alpha2_untyped_object_reference import V1alpha2UntypedObjectReference
 from kserve.models.v1alpha2_workload_spec import V1alpha2WorkloadSpec
 from kserve.models.v1beta1_art_explainer_spec import V1beta1ARTExplainerSpec
 from kserve.models.v1beta1_authentication_ref import V1beta1AuthenticationRef
@@ -170,22 +128,16 @@ from kserve.models.v1beta1_explainer_config import V1beta1ExplainerConfig
 from kserve.models.v1beta1_explainer_extension_spec import V1beta1ExplainerExtensionSpec
 from kserve.models.v1beta1_explainer_spec import V1beta1ExplainerSpec
 from kserve.models.v1beta1_explainers_config import V1beta1ExplainersConfig
-from kserve.models.v1beta1_ext_metric_authentication import (
-    V1beta1ExtMetricAuthentication,
-)
+from kserve.models.v1beta1_ext_metric_authentication import V1beta1ExtMetricAuthentication
 from kserve.models.v1beta1_external_metric_source import V1beta1ExternalMetricSource
 from kserve.models.v1beta1_external_metrics import V1beta1ExternalMetrics
 from kserve.models.v1beta1_failure_info import V1beta1FailureInfo
-from kserve.models.v1beta1_hugging_face_runtime_spec import (
-    V1beta1HuggingFaceRuntimeSpec,
-)
+from kserve.models.v1beta1_hugging_face_runtime_spec import V1beta1HuggingFaceRuntimeSpec
 from kserve.models.v1beta1_inference_service import V1beta1InferenceService
 from kserve.models.v1beta1_inference_service_list import V1beta1InferenceServiceList
 from kserve.models.v1beta1_inference_service_spec import V1beta1InferenceServiceSpec
 from kserve.models.v1beta1_inference_service_status import V1beta1InferenceServiceStatus
-from kserve.models.v1beta1_inference_services_config import (
-    V1beta1InferenceServicesConfig,
-)
+from kserve.models.v1beta1_inference_services_config import V1beta1InferenceServicesConfig
 from kserve.models.v1beta1_ingress_config import V1beta1IngressConfig
 from kserve.models.v1beta1_light_gbm_spec import V1beta1LightGBMSpec
 from kserve.models.v1beta1_local_model_config import V1beta1LocalModelConfig

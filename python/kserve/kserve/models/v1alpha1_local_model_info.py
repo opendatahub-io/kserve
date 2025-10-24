@@ -46,13 +46,17 @@ class V1alpha1LocalModelInfo(object):
       attribute_map (dict): The key is attribute name
                             and the value is json key in definition.
     """
-    openapi_types = {"model_name": "str", "source_model_uri": "str"}
+    openapi_types = {
+        'model_name': 'str',
+        'source_model_uri': 'str'
+    }
 
-    attribute_map = {"model_name": "modelName", "source_model_uri": "sourceModelUri"}
+    attribute_map = {
+        'model_name': 'modelName',
+        'source_model_uri': 'sourceModelUri'
+    }
 
-    def __init__(
-        self, model_name="", source_model_uri="", local_vars_configuration=None
-    ):  # noqa: E501
+    def __init__(self, model_name='', source_model_uri='', local_vars_configuration=None):  # noqa: E501
         """V1alpha1LocalModelInfo - a model defined in OpenAPI"""  # noqa: E501
         if local_vars_configuration is None:
             local_vars_configuration = Configuration()
@@ -85,12 +89,8 @@ class V1alpha1LocalModelInfo(object):
         :param model_name: The model_name of this V1alpha1LocalModelInfo.  # noqa: E501
         :type: str
         """
-        if (
-            self.local_vars_configuration.client_side_validation and model_name is None
-        ):  # noqa: E501
-            raise ValueError(
-                "Invalid value for `model_name`, must not be `None`"
-            )  # noqa: E501
+        if self.local_vars_configuration.client_side_validation and model_name is None:  # noqa: E501
+            raise ValueError("Invalid value for `model_name`, must not be `None`")  # noqa: E501
 
         self._model_name = model_name
 
@@ -114,13 +114,8 @@ class V1alpha1LocalModelInfo(object):
         :param source_model_uri: The source_model_uri of this V1alpha1LocalModelInfo.  # noqa: E501
         :type: str
         """
-        if (
-            self.local_vars_configuration.client_side_validation
-            and source_model_uri is None
-        ):  # noqa: E501
-            raise ValueError(
-                "Invalid value for `source_model_uri`, must not be `None`"
-            )  # noqa: E501
+        if self.local_vars_configuration.client_side_validation and source_model_uri is None:  # noqa: E501
+            raise ValueError("Invalid value for `source_model_uri`, must not be `None`")  # noqa: E501
 
         self._source_model_uri = source_model_uri
 
@@ -131,22 +126,18 @@ class V1alpha1LocalModelInfo(object):
         for attr, _ in six.iteritems(self.openapi_types):
             value = getattr(self, attr)
             if isinstance(value, list):
-                result[attr] = list(
-                    map(lambda x: x.to_dict() if hasattr(x, "to_dict") else x, value)
-                )
+                result[attr] = list(map(
+                    lambda x: x.to_dict() if hasattr(x, "to_dict") else x,
+                    value
+                ))
             elif hasattr(value, "to_dict"):
                 result[attr] = value.to_dict()
             elif isinstance(value, dict):
-                result[attr] = dict(
-                    map(
-                        lambda item: (
-                            (item[0], item[1].to_dict())
-                            if hasattr(item[1], "to_dict")
-                            else item
-                        ),
-                        value.items(),
-                    )
-                )
+                result[attr] = dict(map(
+                    lambda item: (item[0], item[1].to_dict())
+                    if hasattr(item[1], "to_dict") else item,
+                    value.items()
+                ))
             else:
                 result[attr] = value
 

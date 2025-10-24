@@ -47,39 +47,28 @@ class V1alpha1LLMInferenceServiceSpec(object):
                             and the value is json key in definition.
     """
     openapi_types = {
-        "base_refs": "list[V1LocalObjectReference]",
-        "model": "V1alpha1LLMModelSpec",
-        "parallelism": "V1alpha1ParallelismSpec",
-        "prefill": "V1alpha1WorkloadSpec",
-        "replicas": "int",
-        "router": "V1alpha1RouterSpec",
-        "template": "V1PodSpec",
-        "worker": "V1PodSpec",
+        'base_refs': 'list[V1LocalObjectReference]',
+        'model': 'V1alpha1LLMModelSpec',
+        'parallelism': 'V1alpha1ParallelismSpec',
+        'prefill': 'V1alpha1WorkloadSpec',
+        'replicas': 'int',
+        'router': 'V1alpha1RouterSpec',
+        'template': 'V1PodSpec',
+        'worker': 'V1PodSpec'
     }
 
     attribute_map = {
-        "base_refs": "baseRefs",
-        "model": "model",
-        "parallelism": "parallelism",
-        "prefill": "prefill",
-        "replicas": "replicas",
-        "router": "router",
-        "template": "template",
-        "worker": "worker",
+        'base_refs': 'baseRefs',
+        'model': 'model',
+        'parallelism': 'parallelism',
+        'prefill': 'prefill',
+        'replicas': 'replicas',
+        'router': 'router',
+        'template': 'template',
+        'worker': 'worker'
     }
 
-    def __init__(
-        self,
-        base_refs=None,
-        model=None,
-        parallelism=None,
-        prefill=None,
-        replicas=None,
-        router=None,
-        template=None,
-        worker=None,
-        local_vars_configuration=None,
-    ):  # noqa: E501
+    def __init__(self, base_refs=None, model=None, parallelism=None, prefill=None, replicas=None, router=None, template=None, worker=None, local_vars_configuration=None):  # noqa: E501
         """V1alpha1LLMInferenceServiceSpec - a model defined in OpenAPI"""  # noqa: E501
         if local_vars_configuration is None:
             local_vars_configuration = Configuration()
@@ -291,22 +280,18 @@ class V1alpha1LLMInferenceServiceSpec(object):
         for attr, _ in six.iteritems(self.openapi_types):
             value = getattr(self, attr)
             if isinstance(value, list):
-                result[attr] = list(
-                    map(lambda x: x.to_dict() if hasattr(x, "to_dict") else x, value)
-                )
+                result[attr] = list(map(
+                    lambda x: x.to_dict() if hasattr(x, "to_dict") else x,
+                    value
+                ))
             elif hasattr(value, "to_dict"):
                 result[attr] = value.to_dict()
             elif isinstance(value, dict):
-                result[attr] = dict(
-                    map(
-                        lambda item: (
-                            (item[0], item[1].to_dict())
-                            if hasattr(item[1], "to_dict")
-                            else item
-                        ),
-                        value.items(),
-                    )
-                )
+                result[attr] = dict(map(
+                    lambda item: (item[0], item[1].to_dict())
+                    if hasattr(item[1], "to_dict") else item,
+                    value.items()
+                ))
             else:
                 result[attr] = value
 

@@ -21,7 +21,6 @@ import (
 	"path/filepath"
 	"time"
 
-	validation2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2/validation"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -29,6 +28,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
+
+	validation2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2/validation"
 
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"

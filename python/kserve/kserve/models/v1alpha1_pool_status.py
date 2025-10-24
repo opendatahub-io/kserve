@@ -47,15 +47,16 @@ class V1alpha1PoolStatus(object):
                             and the value is json key in definition.
     """
     openapi_types = {
-        "conditions": "list[V1Condition]",
-        "parent_ref": "V1alpha1ParentGatewayReference",
+        'conditions': 'list[V1Condition]',
+        'parent_ref': 'V1alpha1ParentGatewayReference'
     }
 
-    attribute_map = {"conditions": "conditions", "parent_ref": "parentRef"}
+    attribute_map = {
+        'conditions': 'conditions',
+        'parent_ref': 'parentRef'
+    }
 
-    def __init__(
-        self, conditions=None, parent_ref=None, local_vars_configuration=None
-    ):  # noqa: E501
+    def __init__(self, conditions=None, parent_ref=None, local_vars_configuration=None):  # noqa: E501
         """V1alpha1PoolStatus - a model defined in OpenAPI"""  # noqa: E501
         if local_vars_configuration is None:
             local_vars_configuration = Configuration()
@@ -110,12 +111,8 @@ class V1alpha1PoolStatus(object):
         :param parent_ref: The parent_ref of this V1alpha1PoolStatus.  # noqa: E501
         :type: V1alpha1ParentGatewayReference
         """
-        if (
-            self.local_vars_configuration.client_side_validation and parent_ref is None
-        ):  # noqa: E501
-            raise ValueError(
-                "Invalid value for `parent_ref`, must not be `None`"
-            )  # noqa: E501
+        if self.local_vars_configuration.client_side_validation and parent_ref is None:  # noqa: E501
+            raise ValueError("Invalid value for `parent_ref`, must not be `None`")  # noqa: E501
 
         self._parent_ref = parent_ref
 
@@ -126,22 +123,18 @@ class V1alpha1PoolStatus(object):
         for attr, _ in six.iteritems(self.openapi_types):
             value = getattr(self, attr)
             if isinstance(value, list):
-                result[attr] = list(
-                    map(lambda x: x.to_dict() if hasattr(x, "to_dict") else x, value)
-                )
+                result[attr] = list(map(
+                    lambda x: x.to_dict() if hasattr(x, "to_dict") else x,
+                    value
+                ))
             elif hasattr(value, "to_dict"):
                 result[attr] = value.to_dict()
             elif isinstance(value, dict):
-                result[attr] = dict(
-                    map(
-                        lambda item: (
-                            (item[0], item[1].to_dict())
-                            if hasattr(item[1], "to_dict")
-                            else item
-                        ),
-                        value.items(),
-                    )
-                )
+                result[attr] = dict(map(
+                    lambda item: (item[0], item[1].to_dict())
+                    if hasattr(item[1], "to_dict") else item,
+                    value.items()
+                ))
             else:
                 result[attr] = value
 

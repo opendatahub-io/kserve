@@ -21,7 +21,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -29,6 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
@@ -117,7 +118,7 @@ func (l *LLMInferenceServiceConfigValidator) validate(ctx context.Context, llmSv
 
 	v1alpha2Config := &v1alpha2.LLMInferenceServiceConfig{}
 	if err := llmSvcConfig.ConvertTo(v1alpha2Config); err != nil {
-		return fmt.Errorf("failed to convert LLMInferenceServiceConfig to v1alpha2.LLMInferenceServiceConfig: %v", err)
+		return fmt.Errorf("failed to convert LLMInferenceServiceConfig to v1alpha2.LLMInferenceServiceConfig: %w", err)
 	}
 	_, err = llmisvc.ReplaceVariables(llmisvc.LLMInferenceServiceSample(), v1alpha2Config, config)
 	if err != nil {

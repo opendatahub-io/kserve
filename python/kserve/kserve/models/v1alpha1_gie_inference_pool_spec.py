@@ -47,24 +47,18 @@ class V1alpha1GIEInferencePoolSpec(object):
                             and the value is json key in definition.
     """
     openapi_types = {
-        "extension_ref": "V1alpha1Extension",
-        "selector": "dict(str, str)",
-        "target_port_number": "int",
+        'extension_ref': 'V1alpha1Extension',
+        'selector': 'dict(str, str)',
+        'target_port_number': 'int'
     }
 
     attribute_map = {
-        "extension_ref": "extensionRef",
-        "selector": "selector",
-        "target_port_number": "targetPortNumber",
+        'extension_ref': 'extensionRef',
+        'selector': 'selector',
+        'target_port_number': 'targetPortNumber'
     }
 
-    def __init__(
-        self,
-        extension_ref=None,
-        selector=None,
-        target_port_number=0,
-        local_vars_configuration=None,
-    ):  # noqa: E501
+    def __init__(self, extension_ref=None, selector=None, target_port_number=0, local_vars_configuration=None):  # noqa: E501
         """V1alpha1GIEInferencePoolSpec - a model defined in OpenAPI"""  # noqa: E501
         if local_vars_configuration is None:
             local_vars_configuration = Configuration()
@@ -121,12 +115,8 @@ class V1alpha1GIEInferencePoolSpec(object):
         :param selector: The selector of this V1alpha1GIEInferencePoolSpec.  # noqa: E501
         :type: dict(str, str)
         """
-        if (
-            self.local_vars_configuration.client_side_validation and selector is None
-        ):  # noqa: E501
-            raise ValueError(
-                "Invalid value for `selector`, must not be `None`"
-            )  # noqa: E501
+        if self.local_vars_configuration.client_side_validation and selector is None:  # noqa: E501
+            raise ValueError("Invalid value for `selector`, must not be `None`")  # noqa: E501
 
         self._selector = selector
 
@@ -150,13 +140,8 @@ class V1alpha1GIEInferencePoolSpec(object):
         :param target_port_number: The target_port_number of this V1alpha1GIEInferencePoolSpec.  # noqa: E501
         :type: int
         """
-        if (
-            self.local_vars_configuration.client_side_validation
-            and target_port_number is None
-        ):  # noqa: E501
-            raise ValueError(
-                "Invalid value for `target_port_number`, must not be `None`"
-            )  # noqa: E501
+        if self.local_vars_configuration.client_side_validation and target_port_number is None:  # noqa: E501
+            raise ValueError("Invalid value for `target_port_number`, must not be `None`")  # noqa: E501
 
         self._target_port_number = target_port_number
 
@@ -167,22 +152,18 @@ class V1alpha1GIEInferencePoolSpec(object):
         for attr, _ in six.iteritems(self.openapi_types):
             value = getattr(self, attr)
             if isinstance(value, list):
-                result[attr] = list(
-                    map(lambda x: x.to_dict() if hasattr(x, "to_dict") else x, value)
-                )
+                result[attr] = list(map(
+                    lambda x: x.to_dict() if hasattr(x, "to_dict") else x,
+                    value
+                ))
             elif hasattr(value, "to_dict"):
                 result[attr] = value.to_dict()
             elif isinstance(value, dict):
-                result[attr] = dict(
-                    map(
-                        lambda item: (
-                            (item[0], item[1].to_dict())
-                            if hasattr(item[1], "to_dict")
-                            else item
-                        ),
-                        value.items(),
-                    )
-                )
+                result[attr] = dict(map(
+                    lambda item: (item[0], item[1].to_dict())
+                    if hasattr(item[1], "to_dict") else item,
+                    value.items()
+                ))
             else:
                 result[attr] = value
 
