@@ -1,4 +1,4 @@
-apiVersion: datasciencepipelinesapplications.opendatahub.io/v1alpha1
+apiVersion: datasciencepipelinesapplications.opendatahub.io/v1
 kind: DataSciencePipelinesApplication
 metadata:
   name: pipelines-definition
@@ -10,7 +10,6 @@ spec:
     caBundleFileMountPath: ""
     stripEOF: true
     dbConfigConMaxLifetimeSec: 120
-    applyTektonCustomResource: true
     caBundleFileName: ""
     deploy: true
     artifactSignedURLExpirySeconds: 60
