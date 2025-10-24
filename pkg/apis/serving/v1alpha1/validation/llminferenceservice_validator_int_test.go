@@ -24,6 +24,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
+	"knative.dev/pkg/apis"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -76,17 +77,53 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 	Context("cross-field constraints validation", func() {
 		It("should reject LLMInferenceService with both refs and spec in HTTPRoute", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-both-refs-and-spec",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithHTTPRouteRefs(fixture.HTTPRouteRef("test-route")),
-				fixture.WithHTTPRouteSpec(&fixture.HTTPRoute("test-route",
-					fixture.WithHTTPRule(
-						fixture.Matches(fixture.PathPrefixMatch("/test")),
-						fixture.WithBackendRefs(fixture.ServiceRef("test-service", 80, 1)),
-					),
-				).Spec),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			pathPrefix := gatewayapi.PathMatchPathPrefix
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-both-refs-and-spec",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					Router: &v1alpha1.RouterSpec{
+						Route: &v1alpha1.GatewayRoutesSpec{
+							HTTP: &v1alpha1.HTTPRouteSpec{
+								Refs: []corev1.LocalObjectReference{
+									{Name: "test-route"},
+								},
+								Spec: &gatewayapi.HTTPRouteSpec{
+									Rules: []gatewayapi.HTTPRouteRule{
+										{
+											Matches: []gatewayapi.HTTPRouteMatch{
+												{
+													Path: &gatewayapi.HTTPPathMatch{
+														Type:  &pathPrefix,
+														Value: ptr.To("/test"),
+													},
+												},
+											},
+											BackendRefs: []gatewayapi.HTTPBackendRef{
+												{
+													BackendRef: gatewayapi.BackendRef{
+														BackendObjectReference: gatewayapi.BackendObjectReference{
+															Name: "test-service",
+															Port: ptr.To(gatewayapi.PortNumber(80)),
+														},
+														Weight: ptr.To(int32(1)),
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
 
 			// when
 			errValidation := envTest.Client.Create(ctx, llmSvc)
@@ -98,12 +135,28 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 		It("should reject LLMInferenceService with user-defined routes and managed gateway", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-refs-with-managed-gateway",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithHTTPRouteRefs(fixture.HTTPRouteRef("test-route")),
-				fixture.WithManagedGateway(),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-refs-with-managed-gateway",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					Router: &v1alpha1.RouterSpec{
+						Route: &v1alpha1.GatewayRoutesSpec{
+							HTTP: &v1alpha1.HTTPRouteSpec{
+								Refs: []corev1.LocalObjectReference{
+									{Name: "test-route"},
+								},
+							},
+						},
+						Gateway: &v1alpha1.GatewaySpec{},
+					},
+				},
+			}
 
 			// when
 			errValidation := envTest.Client.Create(ctx, llmSvc)
@@ -115,19 +168,66 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 		It("should reject LLMInferenceService with managed route spec with gateway ref and user-defined gateway refs", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-spec-with-gateway-refs",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithGatewayRefs(fixture.LLMGatewayRef("test-gateway", nsName)),
-				fixture.WithHTTPRouteSpec(&fixture.HTTPRoute("test-route",
-					fixture.WithHTTPRouteGatewayRef(fixture.GatewayParentRef("test-gateway", nsName)),
-					fixture.WithHTTPRule(
-						fixture.Matches(fixture.PathPrefixMatch("/test")),
-						fixture.WithBackendRefs(fixture.ServiceRef("custom-backend", 8080, 1)),
-						fixture.Timeouts("30s", "60s"),
-					),
-				).Spec),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			pathPrefix := gatewayapi.PathMatchPathPrefix
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-spec-with-gateway-refs",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					Router: &v1alpha1.RouterSpec{
+						Gateway: &v1alpha1.GatewaySpec{
+							Refs: []v1alpha1.UntypedObjectReference{
+								{
+									Name:      gatewayapi.ObjectName("test-gateway"),
+									Namespace: gatewayapi.Namespace(nsName),
+								},
+							},
+						},
+						Route: &v1alpha1.GatewayRoutesSpec{
+							HTTP: &v1alpha1.HTTPRouteSpec{
+								Spec: &gatewayapi.HTTPRouteSpec{
+									CommonRouteSpec: gatewayapi.CommonRouteSpec{
+										ParentRefs: []gatewayapi.ParentReference{
+											{
+												Name:      "test-gateway",
+												Namespace: (*gatewayapi.Namespace)(&nsName),
+											},
+										},
+									},
+									Rules: []gatewayapi.HTTPRouteRule{
+										{
+											Matches: []gatewayapi.HTTPRouteMatch{
+												{
+													Path: &gatewayapi.HTTPPathMatch{
+														Type:  &pathPrefix,
+														Value: ptr.To("/test"),
+													},
+												},
+											},
+											BackendRefs: []gatewayapi.HTTPBackendRef{
+												{
+													BackendRef: gatewayapi.BackendRef{
+														BackendObjectReference: gatewayapi.BackendObjectReference{
+															Name: "custom-backend",
+															Port: ptr.To(gatewayapi.PortNumber(8080)),
+														},
+														Weight: ptr.To(int32(1)),
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
 
 			// when
 			errValidation := envTest.Client.Create(ctx, llmSvc)
@@ -141,15 +241,25 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 	Context("parallelism constraints validation", func() {
 		It("should reject LLMInferenceService with both pipeline and data parallelism", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-both-pipeline-and-data",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithPipelineParallelism(2),
-					fixture.WithDataParallelism(4),
-					fixture.WithDataLocalParallelism(2),
-				)),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-both-pipeline-and-data",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Pipeline:  ptr.To(int32(2)),
+							Data:      ptr.To(int32(4)),
+							DataLocal: ptr.To(int32(2)),
+						},
+					},
+				},
+			}
 
 			// when
 			errValidation := envTest.Client.Create(ctx, llmSvc)
@@ -161,13 +271,23 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 		It("should reject LLMInferenceService with data parallelism but missing dataLocal", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-data-without-datalocal",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithDataParallelism(4),
-				)),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-data-without-datalocal",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data: ptr.To(int32(4)),
+						},
+					},
+				},
+			}
 
 			// when
 			errValidation := envTest.Client.Create(ctx, llmSvc)
@@ -179,13 +299,23 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 		It("should reject LLMInferenceService with dataLocal parallelism but missing data", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-datalocal-without-data",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithDataLocalParallelism(2),
-				)),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-datalocal-without-data",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							DataLocal: ptr.To(int32(2)),
+						},
+					},
+				},
+			}
 
 			// when
 			errValidation := envTest.Client.Create(ctx, llmSvc)
@@ -197,11 +327,25 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 		It("should reject LLMInferenceService with worker but no parallelism configuration", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-worker-no-parallelism",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithWorker(fixture.SimpleWorkerPodSpec()),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-worker-no-parallelism",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Worker: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "worker", Image: "test:latest"},
+							},
+						},
+					},
+				},
+			}
 
 			// when
 			errValidation := envTest.Client.Create(ctx, llmSvc)
@@ -213,15 +357,25 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 		It("should reject LLMInferenceService with prefill having both pipeline and data parallelism", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-prefill-both-parallelism",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithPrefillParallelism(fixture.ParallelismSpec(
-					fixture.WithPipelineParallelism(2),
-					fixture.WithDataParallelism(4),
-					fixture.WithDataLocalParallelism(2),
-				)),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-prefill-both-parallelism",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					Prefill: &v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Pipeline:  ptr.To(int32(2)),
+							Data:      ptr.To(int32(4)),
+							DataLocal: ptr.To(int32(2)),
+						},
+					},
+				},
+			}
 
 			// when
 			errValidation := envTest.Client.Create(ctx, llmSvc)
@@ -233,11 +387,25 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 		It("should reject LLMInferenceService with prefill worker but no parallelism configuration", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-prefill-worker-no-parallelism",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithPrefillWorker(fixture.SimpleWorkerPodSpec()),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-prefill-worker-no-parallelism",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					Prefill: &v1alpha1.WorkloadSpec{
+						Worker: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "worker", Image: "test:latest"},
+							},
+						},
+					},
+				},
+			}
 
 			// when
 			errValidation := envTest.Client.Create(ctx, llmSvc)
@@ -249,14 +417,28 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 		It("should accept LLMInferenceService with valid pipeline parallelism", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-valid-pipeline",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithPipelineParallelism(2),
-				)),
-				fixture.WithWorker(fixture.SimpleWorkerPodSpec()),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-valid-pipeline",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Pipeline: ptr.To(int32(2)),
+						},
+						Worker: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "worker", Image: "test:latest"},
+							},
+						},
+					},
+				},
+			}
 
 			// then
 			Expect(envTest.Client.Create(ctx, llmSvc)).To(Succeed())
@@ -264,15 +446,29 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 		It("should accept LLMInferenceService with valid data parallelism", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-valid-data",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithDataParallelism(4),
-					fixture.WithDataLocalParallelism(2),
-				)),
-				fixture.WithWorker(fixture.SimpleWorkerPodSpec()),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-valid-data",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To(int32(4)),
+							DataLocal: ptr.To(int32(2)),
+						},
+						Worker: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "worker", Image: "test:latest"},
+							},
+						},
+					},
+				},
+			}
 
 			// then
 			Expect(envTest.Client.Create(ctx, llmSvc)).To(Succeed())
@@ -280,14 +476,28 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 		It("should accept LLMInferenceService with valid prefill parallelism configuration", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-valid-prefill",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithPrefillParallelism(fixture.ParallelismSpec(
-					fixture.WithPipelineParallelism(2),
-				)),
-				fixture.WithPrefillWorker(fixture.SimpleWorkerPodSpec()),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-valid-prefill",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					Prefill: &v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Pipeline: ptr.To(int32(2)),
+						},
+						Worker: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "worker", Image: "test:latest"},
+							},
+						},
+					},
+				},
+			}
 
 			// then
 			Expect(envTest.Client.Create(ctx, llmSvc)).To(Succeed())
@@ -296,15 +506,29 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 		It("should reject LLMInferenceService update with different decode parallelism 'size'", func(ctx SpecContext) {
 			name := "test-update-decode-parallelism-different-size"
 			// given
-			llmSvc := fixture.LLMInferenceService(name,
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithDataParallelism(1),
-					fixture.WithDataLocalParallelism(8),
-				)),
-				fixture.WithWorker(fixture.SimpleWorkerPodSpec()),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To(int32(1)),
+							DataLocal: ptr.To(int32(8)),
+						},
+						Worker: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "worker", Image: "test:latest"},
+							},
+						},
+					},
+				},
+			}
 
 			// Consistency check
 			Expect(llmSvc.Spec.Parallelism.GetSize()).To(Equal(ptr.To(int32(1))))
@@ -326,15 +550,29 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 		It("should reject LLMInferenceService update with different prefill parallelism 'size'", func(ctx SpecContext) {
 			name := "test-update-prefill-parallelism-different-size"
 			// given
-			llmSvc := fixture.LLMInferenceService(name,
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithPrefillParallelism(fixture.ParallelismSpec(
-					fixture.WithDataParallelism(1),
-					fixture.WithDataLocalParallelism(8),
-				)),
-				fixture.WithPrefillWorker(fixture.SimpleWorkerPodSpec()),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					Prefill: &v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To(int32(1)),
+							DataLocal: ptr.To(int32(8)),
+						},
+						Worker: &corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "worker", Image: "test:latest"},
+							},
+						},
+					},
+				},
+			}
 
 			// Consistency check
 			Expect(llmSvc.Spec.Prefill.Parallelism.GetSize()).To(Equal(ptr.To(int32(1))))
@@ -355,10 +593,18 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 		It("should accept LLMInferenceService without parallelism configuration", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-no-parallelism",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-no-parallelism",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+				},
+			}
 
 			// then
 			Expect(envTest.Client.Create(ctx, llmSvc)).To(Succeed())
@@ -389,11 +635,21 @@ var _ = Describe("LLMInferenceService API validation", func() {
 	Context("Integer value validation", func() {
 		It("should reject LLMInferenceService with negative workload replicas", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-negative-replicas",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithReplicas(-1),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-negative-replicas",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Replicas: ptr.To(int32(-1)),
+					},
+				},
+			}
 
 			// when
 			errValidation := envTest.Client.Create(ctx, llmSvc)
@@ -405,13 +661,23 @@ var _ = Describe("LLMInferenceService API validation", func() {
 
 		It("should reject LLMInferenceService with negative tensor parallelism", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-negative-int-parallelism",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithTensorParallelism(-1),
-				)),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-negative-int-parallelism",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Tensor: ptr.To(int32(-1)),
+						},
+					},
+				},
+			}
 
 			// when
 			errValidation := envTest.Client.Create(ctx, llmSvc)
@@ -423,13 +689,23 @@ var _ = Describe("LLMInferenceService API validation", func() {
 
 		It("should reject LLMInferenceService with negative pipeline parallelism", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-negative-int-pipeline",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithPipelineParallelism(-1),
-				)),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-negative-int-pipeline",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Pipeline: ptr.To(int32(-1)),
+						},
+					},
+				},
+			}
 
 			// when
 			errValidation := envTest.Client.Create(ctx, llmSvc)
@@ -441,14 +717,24 @@ var _ = Describe("LLMInferenceService API validation", func() {
 
 		It("should reject LLMInferenceService with negative data parallelism", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-negative-data",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithDataParallelism(-1),
-					fixture.WithDataLocalParallelism(1),
-				)),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-negative-data",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To(int32(-1)),
+							DataLocal: ptr.To(int32(1)),
+						},
+					},
+				},
+			}
 
 			// when
 			errValidation := envTest.Client.Create(ctx, llmSvc)
@@ -460,14 +746,24 @@ var _ = Describe("LLMInferenceService API validation", func() {
 
 		It("should reject LLMInferenceService with zero dataLocal parallelism", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-negative-datalocal",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithDataParallelism(4),
-					fixture.WithDataLocalParallelism(0),
-				)),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-negative-datalocal",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To(int32(4)),
+							DataLocal: ptr.To(int32(0)),
+						},
+					},
+				},
+			}
 
 			// when
 			errValidation := envTest.Client.Create(ctx, llmSvc)
@@ -479,13 +775,23 @@ var _ = Describe("LLMInferenceService API validation", func() {
 
 		It("should reject LLMInferenceService with zero data parallelism RPC Port", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-zero-data-rpc-port",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithDataRPCPort(0),
-				)),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-zero-data-rpc-port",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							DataRPCPort: ptr.To(int32(0)),
+						},
+					},
+				},
+			}
 
 			// when
 			errValidation := envTest.Client.Create(ctx, llmSvc)
@@ -497,13 +803,23 @@ var _ = Describe("LLMInferenceService API validation", func() {
 
 		It("should reject LLMInferenceService with too large data parallelism RPC Port", func(ctx SpecContext) {
 			// given
-			llmSvc := fixture.LLMInferenceService("test-max-data-rpc-port-exceeded",
-				fixture.InNamespace[*v1alpha1.LLMInferenceService](nsName),
-				fixture.WithModelURI("hf://facebook/opt-125m"),
-				fixture.WithParallelism(fixture.ParallelismSpec(
-					fixture.WithDataRPCPort(99999),
-				)),
-			)
+			modelURL, _ := apis.ParseURL("hf://facebook/opt-125m")
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-max-data-rpc-port-exceeded",
+					Namespace: nsName,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						URI: *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Parallelism: &v1alpha1.ParallelismSpec{
+							DataRPCPort: ptr.To(int32(99999)),
+						},
+					},
+				},
+			}
 
 			// when
 			errValidation := envTest.Client.Create(ctx, llmSvc)
