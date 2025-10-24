@@ -29,6 +29,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 
+	validation1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1/validation"
 	validation2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2/validation"
 
 	"github.com/kserve/kserve/pkg/constants"
@@ -75,6 +76,21 @@ func SetupTestEnv() *pkgtest.Client {
 		if err != nil {
 			return err
 		}
+
+		// Setup v1alpha1 validators
+		v1alpha1ConfigValidator := validation1.LLMInferenceServiceConfigValidator{
+			ClientSet: clientSet,
+		}
+		if err := v1alpha1ConfigValidator.SetupWithManager(mgr); err != nil {
+			return err
+		}
+
+		v1alpha1ServiceValidator := validation1.LLMInferenceServiceValidator{}
+		if err := v1alpha1ServiceValidator.SetupWithManager(mgr); err != nil {
+			return err
+		}
+
+		// Setup v1alpha2 validators
 		llmInferenceServiceConfigValidator := validation2.LLMInferenceServiceConfigValidator{
 			ClientSet: clientSet,
 		}
