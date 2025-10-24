@@ -1,7 +1,34 @@
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
-  name: llminferenceservice.serving.kserve.io
+  name: v1alpha1.llminferenceservice.serving.kserve.io
+webhooks:
+  - admissionReviewVersions:
+      - v1
+      - v1beta1
+    clientConfig:
+      service:
+        name: kserve-webhook-server-service
+        namespace: kserve
+        path: /validate-serving-kserve-io-v1alpha1-llminferenceservice
+    failurePolicy: Fail
+    sideEffects: None
+    name: v1alpha1.llminferenceservice.kserve-webhook-server.validator
+    rules:
+      - apiGroups:
+          - serving.kserve.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - llminferenceservices
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: v1alpha2.llminferenceservice.serving.kserve.io
 webhooks:
   - admissionReviewVersions:
       - v1
@@ -18,7 +45,6 @@ webhooks:
       - apiGroups:
           - serving.kserve.io
         apiVersions:
-          - v1alpha1
           - v1alpha2
         operations:
           - CREATE
@@ -29,11 +55,36 @@ webhooks:
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
-  name: llminferenceserviceconfig.serving.kserve.io
+  name: v1alpha1.llminferenceserviceconfig.serving.kserve.io
 webhooks:
   - admissionReviewVersions:
       - v1
-      - v1beta1
+    clientConfig:
+      service:
+        name: kserve-webhook-server-service
+        namespace: kserve
+        path: /validate-serving-kserve-io-v1alpha1-llminferenceserviceconfig
+    failurePolicy: Fail
+    sideEffects: None
+    name: v1alpha1.llminferenceserviceconfigs.kserve-webhook-server.validator
+    rules:
+      - apiGroups:
+          - serving.kserve.io
+        apiVersions:
+          - v1alpha1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - llminferenceserviceconfigs
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: v1alpha2.llminferenceserviceconfig.serving.kserve.io
+webhooks:
+  - admissionReviewVersions:
+      - v1
     clientConfig:
       service:
         name: kserve-webhook-server-service
@@ -46,11 +97,9 @@ webhooks:
       - apiGroups:
           - serving.kserve.io
         apiVersions:
-          - v1alpha1
           - v1alpha2
         operations:
           - CREATE
           - UPDATE
-          - DELETE
         resources:
           - llminferenceserviceconfigs
