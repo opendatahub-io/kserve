@@ -33,6 +33,9 @@ import kserve
 from kserve.models.v1alpha1_llm_inference_service_status import (
     V1alpha1LLMInferenceServiceStatus,
 )  # noqa: E501
+from kserve.models.v1alpha1_llm_inference_service_status import (
+    V1alpha1LLMInferenceServiceStatus,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 

@@ -31,6 +31,9 @@ import datetime
 
 import kserve
 from kserve.models.v1alpha1_ingress_spec import V1alpha1IngressSpec  # noqa: E501
+from kserve.models.v1alpha1_untyped_object_reference import (
+    V1alpha1UntypedObjectReference,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 
@@ -52,8 +55,7 @@ class TestV1alpha1IngressSpec(unittest.TestCase):
         if include_optional:
             return V1alpha1IngressSpec(
                 refs=[
-                    kserve.models.v1alpha1
-                    / untyped_object_reference.v1alpha1.UntypedObjectReference(
+                    V1alpha1UntypedObjectReference(
                         name="0",
                         namespace="0",
                     )

@@ -31,6 +31,9 @@ import datetime
 
 import kserve
 from kserve.models.v1alpha1_workload_spec import V1alpha1WorkloadSpec  # noqa: E501
+from kserve.models.v1alpha1_parallelism_spec import (
+    V1alpha1ParallelismSpec,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 
@@ -51,8 +54,7 @@ class TestV1alpha1WorkloadSpec(unittest.TestCase):
         # model = kserve.models.v1alpha1_workload_spec.V1alpha1WorkloadSpec()  # noqa: E501
         if include_optional:
             return V1alpha1WorkloadSpec(
-                parallelism=kserve.models.v1alpha1
-                / parallelism_spec.v1alpha1.ParallelismSpec(
+                parallelism=V1alpha1ParallelismSpec(
                     data=56,
                     data_local=56,
                     data_rpc_port=56,

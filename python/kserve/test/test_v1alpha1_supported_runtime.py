@@ -33,6 +33,18 @@ import kserve
 from kserve.models.v1alpha1_supported_runtime import (
     V1alpha1SupportedRuntime,
 )  # noqa: E501
+from kserve.models.v1alpha1_built_in_adapter import V1alpha1BuiltInAdapter  # noqa: E501
+from kserve.models.v1alpha1_serving_runtime_spec import (
+    V1alpha1ServingRuntimeSpec,
+)  # noqa: E501
+from kserve.models.v1alpha1_storage_helper import V1alpha1StorageHelper  # noqa: E501
+from kserve.models.v1alpha1_supported_model_format import (
+    V1alpha1SupportedModelFormat,
+)  # noqa: E501
+from kserve.models.v1alpha1_supported_runtime import (
+    V1alpha1SupportedRuntime,
+)  # noqa: E501
+from kserve.models.v1alpha1_worker_spec import V1alpha1WorkerSpec  # noqa: E501
 from kserve.rest import ApiException
 
 
@@ -54,12 +66,10 @@ class TestV1alpha1SupportedRuntime(unittest.TestCase):
         if include_optional:
             return V1alpha1SupportedRuntime(
                 name="0",
-                spec=kserve.models.v1alpha1
-                / serving_runtime_spec.v1alpha1.ServingRuntimeSpec(
+                spec=V1alpha1ServingRuntimeSpec(
                     affinity=None,
                     annotations={"key": "0"},
-                    built_in_adapter=kserve.models.v1alpha1
-                    / built_in_adapter.v1alpha1.BuiltInAdapter(
+                    built_in_adapter=V1alpha1BuiltInAdapter(
                         env=[None],
                         mem_buffer_bytes=56,
                         model_loading_timeout_millis=56,
@@ -78,13 +88,11 @@ class TestV1alpha1SupportedRuntime(unittest.TestCase):
                     node_selector={"key": "0"},
                     protocol_versions=["0"],
                     replicas=56,
-                    storage_helper=kserve.models.v1alpha1
-                    / storage_helper.v1alpha1.StorageHelper(
+                    storage_helper=V1alpha1StorageHelper(
                         disabled=True,
                     ),
                     supported_model_formats=[
-                        kserve.models.v1alpha1
-                        / supported_model_format.v1alpha1.SupportedModelFormat(
+                        V1alpha1SupportedModelFormat(
                             auto_select=True,
                             name="0",
                             priority=56,
@@ -93,8 +101,7 @@ class TestV1alpha1SupportedRuntime(unittest.TestCase):
                     ],
                     tolerations=[None],
                     volumes=[None],
-                    worker_spec=kserve.models.v1alpha1
-                    / worker_spec.v1alpha1.WorkerSpec(
+                    worker_spec=V1alpha1WorkerSpec(
                         affinity=None,
                         containers=[None],
                         host_ipc=True,
@@ -106,12 +113,10 @@ class TestV1alpha1SupportedRuntime(unittest.TestCase):
         else:
             return V1alpha1SupportedRuntime(
                 name="0",
-                spec=kserve.models.v1alpha1
-                / serving_runtime_spec.v1alpha1.ServingRuntimeSpec(
+                spec=V1alpha1ServingRuntimeSpec(
                     affinity=None,
                     annotations={"key": "0"},
-                    built_in_adapter=kserve.models.v1alpha1
-                    / built_in_adapter.v1alpha1.BuiltInAdapter(
+                    built_in_adapter=V1alpha1BuiltInAdapter(
                         env=[None],
                         mem_buffer_bytes=56,
                         model_loading_timeout_millis=56,
@@ -130,13 +135,11 @@ class TestV1alpha1SupportedRuntime(unittest.TestCase):
                     node_selector={"key": "0"},
                     protocol_versions=["0"],
                     replicas=56,
-                    storage_helper=kserve.models.v1alpha1
-                    / storage_helper.v1alpha1.StorageHelper(
+                    storage_helper=V1alpha1StorageHelper(
                         disabled=True,
                     ),
                     supported_model_formats=[
-                        kserve.models.v1alpha1
-                        / supported_model_format.v1alpha1.SupportedModelFormat(
+                        V1alpha1SupportedModelFormat(
                             auto_select=True,
                             name="0",
                             priority=56,
@@ -145,8 +148,7 @@ class TestV1alpha1SupportedRuntime(unittest.TestCase):
                     ],
                     tolerations=[None],
                     volumes=[None],
-                    worker_spec=kserve.models.v1alpha1
-                    / worker_spec.v1alpha1.WorkerSpec(
+                    worker_spec=V1alpha1WorkerSpec(
                         affinity=None,
                         containers=[None],
                         host_ipc=True,

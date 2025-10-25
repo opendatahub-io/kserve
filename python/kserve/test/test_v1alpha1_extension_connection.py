@@ -33,6 +33,9 @@ import kserve
 from kserve.models.v1alpha1_extension_connection import (
     V1alpha1ExtensionConnection,
 )  # noqa: E501
+from kserve.models.v1alpha1_extension_connection import (
+    V1alpha1ExtensionConnection,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 

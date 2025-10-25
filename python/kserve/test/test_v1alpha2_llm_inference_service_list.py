@@ -33,6 +33,12 @@ import kserve
 from kserve.models.v1alpha2_llm_inference_service_list import (
     V1alpha2LLMInferenceServiceList,
 )  # noqa: E501
+from kserve.models.v1alpha2_llm_inference_service import (
+    V1alpha2LLMInferenceService,
+)  # noqa: E501
+from kserve.models.v1alpha2_llm_inference_service_list import (
+    V1alpha2LLMInferenceServiceList,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 
@@ -55,8 +61,7 @@ class TestV1alpha2LLMInferenceServiceList(unittest.TestCase):
             return V1alpha2LLMInferenceServiceList(
                 api_version="0",
                 items=[
-                    kserve.models.v1alpha2
-                    / llm_inference_service.v1alpha2.LLMInferenceService(
+                    V1alpha2LLMInferenceService(
                         api_version="0",
                         kind="0",
                         metadata=None,
@@ -70,8 +75,7 @@ class TestV1alpha2LLMInferenceServiceList(unittest.TestCase):
         else:
             return V1alpha2LLMInferenceServiceList(
                 items=[
-                    kserve.models.v1alpha2
-                    / llm_inference_service.v1alpha2.LLMInferenceService(
+                    V1alpha2LLMInferenceService(
                         api_version="0",
                         kind="0",
                         metadata=None,

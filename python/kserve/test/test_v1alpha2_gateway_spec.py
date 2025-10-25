@@ -31,6 +31,9 @@ import datetime
 
 import kserve
 from kserve.models.v1alpha2_gateway_spec import V1alpha2GatewaySpec  # noqa: E501
+from kserve.models.v1alpha2_untyped_object_reference import (
+    V1alpha2UntypedObjectReference,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 
@@ -52,8 +55,7 @@ class TestV1alpha2GatewaySpec(unittest.TestCase):
         if include_optional:
             return V1alpha2GatewaySpec(
                 refs=[
-                    kserve.models.v1alpha2
-                    / untyped_object_reference.v1alpha2.UntypedObjectReference(
+                    V1alpha2UntypedObjectReference(
                         name="0",
                         namespace="0",
                     )

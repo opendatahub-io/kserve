@@ -33,6 +33,9 @@ import kserve
 from kserve.models.v1alpha1_parallelism_spec import (
     V1alpha1ParallelismSpec,
 )  # noqa: E501
+from kserve.models.v1alpha1_parallelism_spec import (
+    V1alpha1ParallelismSpec,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 

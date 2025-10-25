@@ -31,6 +31,9 @@ import datetime
 
 import kserve
 from kserve.models.v1alpha2_scheduler_spec import V1alpha2SchedulerSpec  # noqa: E501
+from kserve.models.v1alpha2_inference_pool_spec import (
+    V1alpha2InferencePoolSpec,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 
@@ -51,8 +54,7 @@ class TestV1alpha2SchedulerSpec(unittest.TestCase):
         # model = kserve.models.v1alpha2_scheduler_spec.V1alpha2SchedulerSpec()  # noqa: E501
         if include_optional:
             return V1alpha2SchedulerSpec(
-                pool=kserve.models.v1alpha2
-                / inference_pool_spec.v1alpha2.InferencePoolSpec(
+                pool=V1alpha2InferencePoolSpec(
                     ref=None,
                     spec=None,
                 ),

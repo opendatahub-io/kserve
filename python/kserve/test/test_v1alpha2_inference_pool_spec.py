@@ -33,6 +33,9 @@ import kserve
 from kserve.models.v1alpha2_inference_pool_spec import (
     V1alpha2InferencePoolSpec,
 )  # noqa: E501
+from kserve.models.v1alpha2_inference_pool_spec import (
+    V1alpha2InferencePoolSpec,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 

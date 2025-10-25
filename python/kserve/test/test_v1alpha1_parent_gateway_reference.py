@@ -33,6 +33,9 @@ import kserve
 from kserve.models.v1alpha1_parent_gateway_reference import (
     V1alpha1ParentGatewayReference,
 )  # noqa: E501
+from kserve.models.v1alpha1_parent_gateway_reference import (
+    V1alpha1ParentGatewayReference,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 

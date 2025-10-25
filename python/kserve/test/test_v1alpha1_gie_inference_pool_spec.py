@@ -33,6 +33,10 @@ import kserve
 from kserve.models.v1alpha1_gie_inference_pool_spec import (
     V1alpha1GIEInferencePoolSpec,
 )  # noqa: E501
+from kserve.models.v1alpha1_extension import V1alpha1Extension  # noqa: E501
+from kserve.models.v1alpha1_gie_inference_pool_spec import (
+    V1alpha1GIEInferencePoolSpec,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 
@@ -53,8 +57,7 @@ class TestV1alpha1GIEInferencePoolSpec(unittest.TestCase):
         # model = kserve.models.v1alpha1_gie_inference_pool_spec.V1alpha1GIEInferencePoolSpec()  # noqa: E501
         if include_optional:
             return V1alpha1GIEInferencePoolSpec(
-                extension_ref=kserve.models.v1alpha1
-                / extension.v1alpha1.Extension(
+                extension_ref=V1alpha1Extension(
                     failure_mode="0",
                     group="0",
                     kind="0",

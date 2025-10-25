@@ -31,6 +31,9 @@ import datetime
 
 import kserve
 from kserve.models.v1alpha1_pool_status import V1alpha1PoolStatus  # noqa: E501
+from kserve.models.v1alpha1_parent_gateway_reference import (
+    V1alpha1ParentGatewayReference,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 
@@ -52,8 +55,7 @@ class TestV1alpha1PoolStatus(unittest.TestCase):
         if include_optional:
             return V1alpha1PoolStatus(
                 conditions=[None],
-                parent_ref=kserve.models.v1alpha1
-                / parent_gateway_reference.v1alpha1.ParentGatewayReference(
+                parent_ref=V1alpha1ParentGatewayReference(
                     group="0",
                     kind="0",
                     name="0",
@@ -62,8 +64,7 @@ class TestV1alpha1PoolStatus(unittest.TestCase):
             )
         else:
             return V1alpha1PoolStatus(
-                parent_ref=kserve.models.v1alpha1
-                / parent_gateway_reference.v1alpha1.ParentGatewayReference(
+                parent_ref=V1alpha1ParentGatewayReference(
                     group="0",
                     kind="0",
                     name="0",

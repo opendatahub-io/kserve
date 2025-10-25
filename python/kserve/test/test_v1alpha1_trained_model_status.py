@@ -33,6 +33,9 @@ import kserve
 from kserve.models.v1alpha1_trained_model_status import (
     V1alpha1TrainedModelStatus,
 )  # noqa: E501
+from kserve.models.v1alpha1_trained_model_status import (
+    V1alpha1TrainedModelStatus,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 

@@ -33,6 +33,10 @@ import kserve
 from kserve.models.v1alpha2_gateway_routes_spec import (
     V1alpha2GatewayRoutesSpec,
 )  # noqa: E501
+from kserve.models.v1alpha2_gateway_routes_spec import (
+    V1alpha2GatewayRoutesSpec,
+)  # noqa: E501
+from kserve.models.v1alpha2_http_route_spec import V1alpha2HTTPRouteSpec  # noqa: E501
 from kserve.rest import ApiException
 
 
@@ -53,8 +57,7 @@ class TestV1alpha2GatewayRoutesSpec(unittest.TestCase):
         # model = kserve.models.v1alpha2_gateway_routes_spec.V1alpha2GatewayRoutesSpec()  # noqa: E501
         if include_optional:
             return V1alpha2GatewayRoutesSpec(
-                http=kserve.models.v1alpha2
-                / http_route_spec.v1alpha2.HTTPRouteSpec(
+                http=V1alpha2HTTPRouteSpec(
                     refs=[None],
                     spec=None,
                 )

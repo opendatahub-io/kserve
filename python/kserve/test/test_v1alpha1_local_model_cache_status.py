@@ -33,6 +33,11 @@ import kserve
 from kserve.models.v1alpha1_local_model_cache_status import (
     V1alpha1LocalModelCacheStatus,
 )  # noqa: E501
+from kserve.models.v1alpha1_local_model_cache_status import (
+    V1alpha1LocalModelCacheStatus,
+)  # noqa: E501
+from kserve.models.v1alpha1_model_copies import V1alpha1ModelCopies  # noqa: E501
+from kserve.models.v1alpha1_namespaced_name import V1alpha1NamespacedName  # noqa: E501
 from kserve.rest import ApiException
 
 
@@ -53,15 +58,13 @@ class TestV1alpha1LocalModelCacheStatus(unittest.TestCase):
         # model = kserve.models.v1alpha1_local_model_cache_status.V1alpha1LocalModelCacheStatus()  # noqa: E501
         if include_optional:
             return V1alpha1LocalModelCacheStatus(
-                copies=kserve.models.v1alpha1
-                / model_copies.v1alpha1.ModelCopies(
+                copies=V1alpha1ModelCopies(
                     available=56,
                     failed=56,
                     total=56,
                 ),
                 inference_services=[
-                    kserve.models.v1alpha1
-                    / namespaced_name.v1alpha1.NamespacedName(
+                    V1alpha1NamespacedName(
                         name="0",
                         namespace="0",
                     )

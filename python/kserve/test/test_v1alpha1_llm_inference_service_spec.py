@@ -33,6 +33,33 @@ import kserve
 from kserve.models.v1alpha1_llm_inference_service_spec import (
     V1alpha1LLMInferenceServiceSpec,
 )  # noqa: E501
+from kserve.models.v1alpha1_extension import V1alpha1Extension  # noqa: E501
+from kserve.models.v1alpha1_gie_inference_pool_spec import (
+    V1alpha1GIEInferencePoolSpec,
+)  # noqa: E501
+from kserve.models.v1alpha1_gateway_routes_spec import (
+    V1alpha1GatewayRoutesSpec,
+)  # noqa: E501
+from kserve.models.v1alpha1_gateway_spec import V1alpha1GatewaySpec  # noqa: E501
+from kserve.models.v1alpha1_http_route_spec import V1alpha1HTTPRouteSpec  # noqa: E501
+from kserve.models.v1alpha1_inference_pool_spec import (
+    V1alpha1InferencePoolSpec,
+)  # noqa: E501
+from kserve.models.v1alpha1_ingress_spec import V1alpha1IngressSpec  # noqa: E501
+from kserve.models.v1alpha1_llm_inference_service_spec import (
+    V1alpha1LLMInferenceServiceSpec,
+)  # noqa: E501
+from kserve.models.v1alpha1_llm_model_spec import V1alpha1LLMModelSpec  # noqa: E501
+from kserve.models.v1alpha1_lo_ra_spec import V1alpha1LoRASpec  # noqa: E501
+from kserve.models.v1alpha1_parallelism_spec import (
+    V1alpha1ParallelismSpec,
+)  # noqa: E501
+from kserve.models.v1alpha1_router_spec import V1alpha1RouterSpec  # noqa: E501
+from kserve.models.v1alpha1_scheduler_spec import V1alpha1SchedulerSpec  # noqa: E501
+from kserve.models.v1alpha1_untyped_object_reference import (
+    V1alpha1UntypedObjectReference,
+)  # noqa: E501
+from kserve.models.v1alpha1_workload_spec import V1alpha1WorkloadSpec  # noqa: E501
 from kserve.rest import ApiException
 
 
@@ -54,14 +81,11 @@ class TestV1alpha1LLMInferenceServiceSpec(unittest.TestCase):
         if include_optional:
             return V1alpha1LLMInferenceServiceSpec(
                 base_refs=[None],
-                model=kserve.models.v1alpha1
-                / llm_model_spec.v1alpha1.LLMModelSpec(
+                model=V1alpha1LLMModelSpec(
                     criticality="0",
-                    lora=kserve.models.v1alpha1
-                    / lo_ra_spec.v1alpha1.LoRASpec(
+                    lora=V1alpha1LoRASpec(
                         adapters=[
-                            kserve.models.v1alpha1
-                            / llm_model_spec.v1alpha1.LLMModelSpec(
+                            V1alpha1LLMModelSpec(
                                 criticality="0",
                                 name="0",
                                 uri=None,
@@ -71,8 +95,7 @@ class TestV1alpha1LLMInferenceServiceSpec(unittest.TestCase):
                     name="0",
                     uri=None,
                 ),
-                parallelism=kserve.models.v1alpha1
-                / parallelism_spec.v1alpha1.ParallelismSpec(
+                parallelism=V1alpha1ParallelismSpec(
                     data=56,
                     data_local=56,
                     data_rpc_port=56,
@@ -80,10 +103,8 @@ class TestV1alpha1LLMInferenceServiceSpec(unittest.TestCase):
                     pipeline=56,
                     tensor=56,
                 ),
-                prefill=kserve.models.v1alpha1
-                / workload_spec.v1alpha1.WorkloadSpec(
-                    parallelism=kserve.models.v1alpha1
-                    / parallelism_spec.v1alpha1.ParallelismSpec(
+                prefill=V1alpha1WorkloadSpec(
+                    parallelism=V1alpha1ParallelismSpec(
                         data=56,
                         data_local=56,
                         data_rpc_port=56,
@@ -96,36 +117,26 @@ class TestV1alpha1LLMInferenceServiceSpec(unittest.TestCase):
                     worker=None,
                 ),
                 replicas=56,
-                router=kserve.models.v1alpha1
-                / router_spec.v1alpha1.RouterSpec(
-                    gateway=kserve.models.v1alpha1
-                    / gateway_spec.v1alpha1.GatewaySpec(
+                router=V1alpha1RouterSpec(
+                    gateway=V1alpha1GatewaySpec(
                         refs=[
-                            kserve.models.v1alpha1
-                            / untyped_object_reference.v1alpha1.UntypedObjectReference(
+                            V1alpha1UntypedObjectReference(
                                 name="0",
                                 namespace="0",
                             )
                         ],
                     ),
-                    ingress=kserve.models.v1alpha1
-                    / ingress_spec.v1alpha1.IngressSpec(),
-                    route=kserve.models.v1alpha1
-                    / gateway_routes_spec.v1alpha1.GatewayRoutesSpec(
-                        http=kserve.models.v1alpha1
-                        / http_route_spec.v1alpha1.HTTPRouteSpec(
+                    ingress=V1alpha1IngressSpec(),
+                    route=V1alpha1GatewayRoutesSpec(
+                        http=V1alpha1HTTPRouteSpec(
                             spec=None,
                         ),
                     ),
-                    scheduler=kserve.models.v1alpha1
-                    / scheduler_spec.v1alpha1.SchedulerSpec(
-                        pool=kserve.models.v1alpha1
-                        / inference_pool_spec.v1alpha1.InferencePoolSpec(
+                    scheduler=V1alpha1SchedulerSpec(
+                        pool=V1alpha1InferencePoolSpec(
                             ref=None,
-                            spec=kserve.models.v1alpha1
-                            / gie_inference_pool_spec.v1alpha1.GIEInferencePoolSpec(
-                                extension_ref=kserve.models.v1alpha1
-                                / extension.v1alpha1.Extension(
+                            spec=V1alpha1GIEInferencePoolSpec(
+                                extension_ref=V1alpha1Extension(
                                     failure_mode="0",
                                     group="0",
                                     kind="0",

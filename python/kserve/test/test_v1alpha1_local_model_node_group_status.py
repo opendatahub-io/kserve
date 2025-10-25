@@ -33,6 +33,9 @@ import kserve
 from kserve.models.v1alpha1_local_model_node_group_status import (
     V1alpha1LocalModelNodeGroupStatus,
 )  # noqa: E501
+from kserve.models.v1alpha1_local_model_node_group_status import (
+    V1alpha1LocalModelNodeGroupStatus,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 

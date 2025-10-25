@@ -31,6 +31,7 @@ import datetime
 
 import kserve
 from kserve.models.v1alpha1_lo_ra_spec import V1alpha1LoRASpec  # noqa: E501
+from kserve.models.v1alpha1_llm_model_spec import V1alpha1LLMModelSpec  # noqa: E501
 from kserve.rest import ApiException
 
 
@@ -52,10 +53,9 @@ class TestV1alpha1LoRASpec(unittest.TestCase):
         if include_optional:
             return V1alpha1LoRASpec(
                 adapters=[
-                    kserve.models.v1alpha1
-                    / llm_model_spec.v1alpha1.LLMModelSpec(
+                    V1alpha1LLMModelSpec(
                         criticality="0",
-                        lora=kserve.models.v1alpha1 / lo_ra_spec.v1alpha1.LoRASpec(),
+                        lora=V1alpha1LoRASpec(),
                         name="0",
                         uri=None,
                     )

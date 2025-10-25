@@ -31,6 +31,19 @@ import datetime
 
 import kserve
 from kserve.models.v1alpha2_router_spec import V1alpha2RouterSpec  # noqa: E501
+from kserve.models.v1alpha2_gateway_routes_spec import (
+    V1alpha2GatewayRoutesSpec,
+)  # noqa: E501
+from kserve.models.v1alpha2_gateway_spec import V1alpha2GatewaySpec  # noqa: E501
+from kserve.models.v1alpha2_http_route_spec import V1alpha2HTTPRouteSpec  # noqa: E501
+from kserve.models.v1alpha2_inference_pool_spec import (
+    V1alpha2InferencePoolSpec,
+)  # noqa: E501
+from kserve.models.v1alpha2_ingress_spec import V1alpha2IngressSpec  # noqa: E501
+from kserve.models.v1alpha2_scheduler_spec import V1alpha2SchedulerSpec  # noqa: E501
+from kserve.models.v1alpha2_untyped_object_reference import (
+    V1alpha2UntypedObjectReference,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 
@@ -51,38 +64,30 @@ class TestV1alpha2RouterSpec(unittest.TestCase):
         # model = kserve.models.v1alpha2_router_spec.V1alpha2RouterSpec()  # noqa: E501
         if include_optional:
             return V1alpha2RouterSpec(
-                gateway=kserve.models.v1alpha2
-                / gateway_spec.v1alpha2.GatewaySpec(
+                gateway=V1alpha2GatewaySpec(
                     refs=[
-                        kserve.models.v1alpha2
-                        / untyped_object_reference.v1alpha2.UntypedObjectReference(
+                        V1alpha2UntypedObjectReference(
                             name="0",
                             namespace="0",
                         )
                     ],
                 ),
-                ingress=kserve.models.v1alpha2
-                / ingress_spec.v1alpha2.IngressSpec(
+                ingress=V1alpha2IngressSpec(
                     refs=[
-                        kserve.models.v1alpha2
-                        / untyped_object_reference.v1alpha2.UntypedObjectReference(
+                        V1alpha2UntypedObjectReference(
                             name="0",
                             namespace="0",
                         )
                     ],
                 ),
-                route=kserve.models.v1alpha2
-                / gateway_routes_spec.v1alpha2.GatewayRoutesSpec(
-                    http=kserve.models.v1alpha2
-                    / http_route_spec.v1alpha2.HTTPRouteSpec(
+                route=V1alpha2GatewayRoutesSpec(
+                    http=V1alpha2HTTPRouteSpec(
                         refs=[None],
                         spec=None,
                     ),
                 ),
-                scheduler=kserve.models.v1alpha2
-                / scheduler_spec.v1alpha2.SchedulerSpec(
-                    pool=kserve.models.v1alpha2
-                    / inference_pool_spec.v1alpha2.InferencePoolSpec(
+                scheduler=V1alpha2SchedulerSpec(
+                    pool=V1alpha2InferencePoolSpec(
                         ref=None,
                         spec=None,
                     ),

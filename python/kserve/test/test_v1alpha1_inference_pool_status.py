@@ -33,6 +33,13 @@ import kserve
 from kserve.models.v1alpha1_inference_pool_status import (
     V1alpha1InferencePoolStatus,
 )  # noqa: E501
+from kserve.models.v1alpha1_inference_pool_status import (
+    V1alpha1InferencePoolStatus,
+)  # noqa: E501
+from kserve.models.v1alpha1_parent_gateway_reference import (
+    V1alpha1ParentGatewayReference,
+)  # noqa: E501
+from kserve.models.v1alpha1_pool_status import V1alpha1PoolStatus  # noqa: E501
 from kserve.rest import ApiException
 
 
@@ -54,11 +61,9 @@ class TestV1alpha1InferencePoolStatus(unittest.TestCase):
         if include_optional:
             return V1alpha1InferencePoolStatus(
                 parent=[
-                    kserve.models.v1alpha1
-                    / pool_status.v1alpha1.PoolStatus(
+                    V1alpha1PoolStatus(
                         conditions=[None],
-                        parent_ref=kserve.models.v1alpha1
-                        / parent_gateway_reference.v1alpha1.ParentGatewayReference(
+                        parent_ref=V1alpha1ParentGatewayReference(
                             group="0",
                             kind="0",
                             name="0",
