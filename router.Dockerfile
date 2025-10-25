@@ -6,6 +6,8 @@ WORKDIR /go/src/github.com/kserve/kserve
 COPY go.mod  go.mod
 COPY go.sum  go.sum
 
+# Allow Go to automatically download the required toolchain version
+ENV GOTOOLCHAIN=auto
 RUN go mod download
 
 COPY cmd/    cmd/

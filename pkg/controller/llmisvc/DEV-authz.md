@@ -30,7 +30,7 @@ export LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
 kubectl create ns kuadrant-system
 
 kubectl apply -f - <<EOF
-apiVersion: operators.coreos.com/v1alpha1
+apiVersion: operators.coreos.com/v1alpha2
 kind: Subscription
 metadata:
   name: rhcl-operator
@@ -115,7 +115,7 @@ spec:
           kubernetesSubjectAccessReview:
             resourceAttributes:
               group:
-                value: serving.kserve.io/v1alpha1
+                value: serving.kserve.io/v1alpha2
               name:
                 value: $LLM_ISVC_NAME
               namespace:
@@ -209,7 +209,7 @@ metadata:
   name: llm-inferenceservice-reader
   namespace: $TEST_NS
 rules:
-  - apiGroups: ["serving.kserve.io/v1alpha1"]
+  - apiGroups: ["serving.kserve.io/v1alpha2"]
     resources: ["LLMInferenceService"]
     verbs: ["get"] 
 ---

@@ -39,3 +39,6 @@ patches:
     metadata:
       creationTimestamp: null
       name: inferenceservices.serving.kserve.io
+
+- path: full/llmisvc_conversion_patch.yaml
+- path: full/llmisvcconfig_conversion_patch.yaml

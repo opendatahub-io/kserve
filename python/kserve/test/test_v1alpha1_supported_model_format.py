@@ -33,6 +33,9 @@ import kserve
 from kserve.models.v1alpha1_supported_model_format import (
     V1alpha1SupportedModelFormat,
 )  # noqa: E501
+from kserve.models.v1alpha1_supported_model_format import (
+    V1alpha1SupportedModelFormat,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 

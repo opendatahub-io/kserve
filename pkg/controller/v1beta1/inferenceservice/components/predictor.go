@@ -146,7 +146,7 @@ func (p *Predictor) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 		}
 	} else {
 		predContainer = predictor.GetContainer(isvc.ObjectMeta, isvc.Spec.Predictor.GetExtensions(), p.inferenceServiceConfig)
-		podSpec = corev1.PodSpec(isvc.Spec.Predictor.PodSpec)
+		podSpec = isvc.Spec.Predictor.PodSpec.ToCorev1PodSpec()
 		if len(podSpec.Containers) == 0 {
 			podSpec.Containers = []corev1.Container{
 				*predContainer,

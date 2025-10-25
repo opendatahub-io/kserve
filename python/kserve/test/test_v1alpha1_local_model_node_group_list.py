@@ -32,6 +32,15 @@ import unittest
 from kserve.models.v1alpha1_local_model_node_group_list import (  # noqa: E501
     V1alpha1LocalModelNodeGroupList,
 )
+from kserve.models.v1alpha1_local_model_node_group import (
+    V1alpha1LocalModelNodeGroup,
+)  # noqa: E501
+from kserve.models.v1alpha1_local_model_node_group_list import (
+    V1alpha1LocalModelNodeGroupList,
+)  # noqa: E501
+from kserve.models.v1alpha1_local_model_node_group_spec import (
+    V1alpha1LocalModelNodeGroupSpec,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 import kserve

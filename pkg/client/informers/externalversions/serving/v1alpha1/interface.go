@@ -30,6 +30,10 @@ type Interface interface {
 	ClusterStorageContainers() ClusterStorageContainerInformer
 	// InferenceGraphs returns a InferenceGraphInformer.
 	InferenceGraphs() InferenceGraphInformer
+	// LLMInferenceServices returns a LLMInferenceServiceInformer.
+	LLMInferenceServices() LLMInferenceServiceInformer
+	// LLMInferenceServiceConfigs returns a LLMInferenceServiceConfigInformer.
+	LLMInferenceServiceConfigs() LLMInferenceServiceConfigInformer
 	// LocalModelCaches returns a LocalModelCacheInformer.
 	LocalModelCaches() LocalModelCacheInformer
 	// LocalModelNodes returns a LocalModelNodeInformer.
@@ -66,6 +70,16 @@ func (v *version) ClusterStorageContainers() ClusterStorageContainerInformer {
 // InferenceGraphs returns a InferenceGraphInformer.
 func (v *version) InferenceGraphs() InferenceGraphInformer {
 	return &inferenceGraphInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// LLMInferenceServices returns a LLMInferenceServiceInformer.
+func (v *version) LLMInferenceServices() LLMInferenceServiceInformer {
+	return &lLMInferenceServiceInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// LLMInferenceServiceConfigs returns a LLMInferenceServiceConfigInformer.
+func (v *version) LLMInferenceServiceConfigs() LLMInferenceServiceConfigInformer {
+	return &lLMInferenceServiceConfigInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
 }
 
 // LocalModelCaches returns a LocalModelCacheInformer.

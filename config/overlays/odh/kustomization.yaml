@@ -36,6 +36,24 @@ patches:
       path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
       value: "true"
 - target:
+    kind: CustomResourceDefinition
+    name: llminferenceservices.serving.kserve.io
+  patch: |
+    - op: remove
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+    - op: add
+      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
+      value: "true"
+- target:
+    kind: CustomResourceDefinition
+    name: llminferenceserviceconfigs.serving.kserve.io
+  patch: |
+    - op: remove
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+    - op: add
+      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
+      value: "true"
+- target:
     kind: ValidatingWebhookConfiguration
   patch: |
     - op: remove

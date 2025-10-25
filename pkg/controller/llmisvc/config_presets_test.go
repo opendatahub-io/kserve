@@ -35,7 +35,7 @@ import (
 
 	kservetesting "github.com/kserve/kserve/pkg/testing"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 )
 
 // TODO(webhook): re-use webhook logic to do the spec merge and validation
@@ -50,19 +50,19 @@ func TestPresetFiles(t *testing.T) {
 	}
 
 	tt := map[string]struct {
-		expected *v1alpha1.LLMInferenceServiceConfig
+		expected *v1alpha2.LLMInferenceServiceConfig
 	}{
 		"config-llm-decode-worker-data-parallel.yaml": {
-			expected: &v1alpha1.LLMInferenceServiceConfig{
+			expected: &v1alpha2.LLMInferenceServiceConfig{
 				TypeMeta: metav1.TypeMeta{
-					APIVersion: "serving.kserve.io/v1alpha1",
+					APIVersion: "serving.kserve.io/v1alpha2",
 					Kind:       "LLMInferenceServiceConfig",
 				},
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "kserve-config-llm-decode-worker-data-parallel",
 				},
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Volumes: []corev1.Volume{
 								{
@@ -423,8 +423,8 @@ func TestPresetFiles(t *testing.T) {
 	}
 }
 
-func loadConfig(t *testing.T, data []byte, filePath string) *v1alpha1.LLMInferenceServiceConfig {
-	config := &v1alpha1.LLMInferenceServiceConfig{}
+func loadConfig(t *testing.T, data []byte, filePath string) *v1alpha2.LLMInferenceServiceConfig {
+	config := &v1alpha2.LLMInferenceServiceConfig{}
 	if err := yaml.Unmarshal(data, config); err != nil {
 		t.Errorf("Failed to unmarshal YAML from %s: %v", filePath, err)
 		return nil
@@ -434,12 +434,12 @@ func loadConfig(t *testing.T, data []byte, filePath string) *v1alpha1.LLMInferen
 		return nil
 	}
 
-	expectedGroupVersion := v1alpha1.LLMInferenceServiceConfigGVK.GroupVersion().String()
+	expectedGroupVersion := v1alpha2.LLMInferenceServiceConfigGVK.GroupVersion().String()
 	if config.APIVersion != expectedGroupVersion {
 		t.Errorf("Expected APIVersion to be '%s', got '%s'", expectedGroupVersion, config.APIVersion)
 	}
 
-	expectedKind := v1alpha1.LLMInferenceServiceConfigGVK.Kind
+	expectedKind := v1alpha2.LLMInferenceServiceConfigGVK.Kind
 	if config.Kind != expectedKind {
 		t.Errorf("Expected Kind to be '%s', got %s", expectedKind, config.Kind)
 	}

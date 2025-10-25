@@ -33,6 +33,10 @@ import kserve
 from kserve.models.v1alpha1_trained_model_list import (
     V1alpha1TrainedModelList,
 )  # noqa: E501
+from kserve.models.v1alpha1_trained_model import V1alpha1TrainedModel  # noqa: E501
+from kserve.models.v1alpha1_trained_model_list import (
+    V1alpha1TrainedModelList,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 
