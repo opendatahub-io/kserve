@@ -82,12 +82,12 @@ class TestV1alpha2LLMInferenceServiceSpec(unittest.TestCase):
                         adapters=[
                             V1alpha2LLMModelSpec(
                                 name="0",
-                                uri=None,
+                                uri="http://example.com/model",
                             )
                         ],
                     ),
                     name="0",
-                    uri=None,
+                    uri="http://example.com/model",
                 ),
                 parallelism=V1alpha2ParallelismSpec(
                     data=56,

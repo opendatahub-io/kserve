@@ -56,16 +56,16 @@ class TestV1alpha2LLMModelSpec(unittest.TestCase):
                     adapters=[
                         V1alpha2LLMModelSpec(
                             name="0",
-                            uri=None,
+                            uri="http://example.com/model",
                         )
                     ],
                 ),
                 name="0",
-                uri=None,
+                uri="http://example.com/model",
             )
         else:
             return V1alpha2LLMModelSpec(
-                uri=None,
+                uri="http://example.com/model",
             )
 
     def testV1alpha2LLMModelSpec(self):

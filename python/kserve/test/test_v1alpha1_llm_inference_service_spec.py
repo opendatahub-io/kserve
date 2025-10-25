@@ -88,12 +88,12 @@ class TestV1alpha1LLMInferenceServiceSpec(unittest.TestCase):
                             V1alpha1LLMModelSpec(
                                 criticality="0",
                                 name="0",
-                                uri=None,
+                                uri="http://example.com/model",
                             )
                         ],
                     ),
                     name="0",
-                    uri=None,
+                    uri="http://example.com/model",
                 ),
                 parallelism=V1alpha1ParallelismSpec(
                     data=56,

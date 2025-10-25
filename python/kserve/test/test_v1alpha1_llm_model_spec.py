@@ -58,16 +58,16 @@ class TestV1alpha1LLMModelSpec(unittest.TestCase):
                         V1alpha1LLMModelSpec(
                             criticality="0",
                             name="0",
-                            uri=None,
+                            uri="http://example.com/model",
                         )
                     ],
                 ),
                 name="0",
-                uri=None,
+                uri="http://example.com/model",
             )
         else:
             return V1alpha1LLMModelSpec(
-                uri=None,
+                uri="http://example.com/model",
             )
 
     def testV1alpha1LLMModelSpec(self):

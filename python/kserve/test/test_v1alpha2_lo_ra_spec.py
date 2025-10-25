@@ -56,7 +56,7 @@ class TestV1alpha2LoRASpec(unittest.TestCase):
                     V1alpha2LLMModelSpec(
                         lora=V1alpha2LoRASpec(),
                         name="0",
-                        uri=None,
+                        uri="http://example.com/model",
                     )
                 ]
             )

@@ -57,7 +57,7 @@ class TestV1alpha1LoRASpec(unittest.TestCase):
                         criticality="0",
                         lora=V1alpha1LoRASpec(),
                         name="0",
-                        uri=None,
+                        uri="http://example.com/model",
                     )
                 ]
             )
