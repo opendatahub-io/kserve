@@ -42,8 +42,8 @@ LLMINFERENCESERVICE_CONFIGS = {
                     },
                     "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
                     "resources": {
-                        "limits": {"cpu": "2", "memory": "10Gi"},
-                        "requests": {"cpu": "1", "memory": "8Gi"},
+                        "limits": {"cpu": "2", "memory": "8Gi"},
+                        "requests": {"cpu": "500m", "memory": "4Gi"},
                     },
                     "livenessProbe": {
                         "initialDelaySeconds": 30,
@@ -67,8 +67,8 @@ LLMINFERENCESERVICE_CONFIGS = {
                     },
                     "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
                     "resources": {
-                        "limits": {"cpu": "2", "memory": "10Gi"},
-                        "requests": {"cpu": "1", "memory": "8Gi"},
+                        "limits": {"cpu": "2", "memory": "8Gi"},
+                        "requests": {"cpu": "500m", "memory": "4Gi"},
                     },
                 }
             ]
@@ -85,8 +85,8 @@ LLMINFERENCESERVICE_CONFIGS = {
                         },
                         "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
                         "resources": {
-                            "limits": {"cpu": "2", "memory": "10Gi"},
-                            "requests": {"cpu": "1", "memory": "8Gi"},
+                            "limits": {"cpu": "2", "memory": "8Gi"},
+                            "requests": {"cpu": "500m", "memory": "4Gi"},
                         },
                     }
                 ]
