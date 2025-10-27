@@ -29,7 +29,6 @@ import (
 	"math/big"
 	"net"
 	"sort"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -52,7 +51,6 @@ const (
 	certificateExpirationRenewBufferDuration = certificateDuration / 5
 
 	certificatesExpirationAnnotation = "certificates.kserve.io/expiration-v2"
-	certificatesSANsAnnotation       = "certificates.kserve.io/sans"
 )
 
 var (
@@ -69,18 +67,16 @@ func (r *LLMInferenceServiceReconciler) reconcileSelfSignedCertsSecret(ctx conte
 	}
 	dnsNames := r.collectDNSNames(ctx, llmSvc)
 
-	sans := strings.Join(append(ips, dnsNames...), ",")
-
 	// Generating a new certificate is quite slow and expensive as it generates a new certificate, check if the current
 	// self-signed certificate (if any) is expired before creating a new one.
 	var certFunc createCertFunc = r.createSelfSignedTLSCertificate(ctx, ips, dnsNames)
-	if curr := r.getExistingSelfSignedCertificate(ctx, llmSvc); curr != nil && (!isCertificateExpired(curr) && !isCertificateCorrupted(curr) && isSameSANs(curr, sans)) {
+	if curr := r.getExistingSelfSignedCertificate(ctx, llmSvc); curr != nil && !ShouldRecreateCertificate(curr, dnsNames, ips) {
 		certFunc = func() ([]byte, []byte, error) {
 			return curr.Data["tls.key"], curr.Data["tls.crt"], nil
 		}
 	}
 
-	expected, err := r.expectedSelfSignedCertsSecret(llmSvc, certFunc, sans)
+	expected, err := r.expectedSelfSignedCertsSecret(llmSvc, certFunc)
 	if err != nil {
 		return fmt.Errorf("failed to get expected self-signed certificate secret: %w", err)
 	}
@@ -92,7 +88,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSelfSignedCertsSecret(ctx conte
 
 type createCertFunc func() ([]byte, []byte, error)
 
-func (r *LLMInferenceServiceReconciler) expectedSelfSignedCertsSecret(llmSvc *v1alpha1.LLMInferenceService, certFunc createCertFunc, sans string) (*corev1.Secret, error) {
+func (r *LLMInferenceServiceReconciler) expectedSelfSignedCertsSecret(llmSvc *v1alpha1.LLMInferenceService, certFunc createCertFunc) (*corev1.Secret, error) {
 	keyBytes, certBytes, err := certFunc()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create self-signed TLS certificate: %w", err)
@@ -111,7 +107,6 @@ func (r *LLMInferenceServiceReconciler) expectedSelfSignedCertsSecret(llmSvc *v1
 				certificatesExpirationAnnotation: time.Now().
 					Add(certificateDuration - certificateExpirationRenewBufferDuration).
 					Format(time.RFC3339),
-				certificatesSANsAnnotation: sans,
 			},
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
@@ -277,16 +272,51 @@ func isCertificateExpired(curr *corev1.Secret) bool {
 	return false
 }
 
-func isSameSANs(curr *corev1.Secret, expected string) bool {
-	sans, ok := curr.Annotations[certificatesSANsAnnotation]
-	if ok {
-		return sans == expected
+func ShouldRecreateCertificate(curr *corev1.Secret, expectedDNSNames []string, expectedIPs []string) bool {
+	if curr == nil || isCertificateExpired(curr) || len(curr.Data["tls.key"]) == 0 || len(curr.Data["tls.crt"]) == 0 {
+		return true
 	}
-	return false
-}
 
-func isCertificateCorrupted(curr *corev1.Secret) bool {
-	return len(curr.Data["tls.key"]) == 0 || len(curr.Data["tls.crt"]) == 0
+	// Decode PEM-encoded certificate
+	certBlock, _ := pem.Decode(curr.Data["tls.crt"])
+	if certBlock == nil {
+		return true
+	}
+	cert, certErr := x509.ParseCertificate(certBlock.Bytes)
+
+	// Decode PEM-encoded private key
+	keyBlock, _ := pem.Decode(curr.Data["tls.key"])
+	if keyBlock == nil {
+		return true
+	}
+	_, keyErr := x509.ParsePKCS8PrivateKey(keyBlock.Bytes) // Must match createSelfSignedTLSCertificate form.
+
+	if certErr != nil || keyErr != nil {
+		return true
+	}
+
+	expectedDnsNamesSet := sets.NewString(expectedDNSNames...)
+	currDnsNames := sets.NewString(cert.DNSNames...)
+	if !currDnsNames.IsSuperset(expectedDnsNamesSet) {
+		return true
+	}
+
+	// Only recreate certificates when the current IPs are not covering all possible IPs to account for temporary
+	// changes and avoid too frequent changes [current.IsSuperset(expected)].
+
+	expectedIpSet := sets.NewString(expectedIPs...)
+	currIps := sets.NewString()
+	for _, ip := range cert.IPAddresses {
+		if len(ip) > 0 {
+			currIps.Insert(ip.String())
+		}
+	}
+
+	if !currIps.IsSuperset(expectedIpSet) {
+		return true
+	}
+
+	return time.Now().UTC().After(cert.NotAfter.UTC())
 }
 
 func (r *LLMInferenceServiceReconciler) collectDNSNames(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) []string {
@@ -297,21 +327,21 @@ func (r *LLMInferenceServiceReconciler) collectDNSNames(ctx context.Context, llm
 	}
 
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil && llmSvc.Spec.Router.Scheduler.Pool != nil {
-		ipSpec := llmSvc.Spec.Router.Scheduler.Pool.Spec
+		infPoolSpec := llmSvc.Spec.Router.Scheduler.Pool.Spec
 		if llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
-			ip := &igwapi.InferencePool{
+			infPool := &igwapi.InferencePool{
 				ObjectMeta: metav1.ObjectMeta{Namespace: llmSvc.GetNamespace(), Name: llmSvc.Spec.Router.Scheduler.Pool.Ref.Name},
 			}
 
 			// If there is an error, this will be reported properly as part of the Router reconciliation.
-			if err := r.Client.Get(ctx, client.ObjectKeyFromObject(ip), ip); err == nil {
-				ipSpec = &ip.Spec
+			if err := r.Client.Get(ctx, client.ObjectKeyFromObject(infPool), infPool); err == nil {
+				infPoolSpec = &infPool.Spec
 			}
 		}
 
-		if ipSpec != nil {
-			dnsNames = append(dnsNames, network.GetServiceHostname(string(ipSpec.ExtensionRef.Name), llmSvc.GetNamespace()))
-			dnsNames = append(dnsNames, fmt.Sprintf("%s.%s.svc", string(ipSpec.ExtensionRef.Name), llmSvc.GetNamespace()))
+		if infPoolSpec != nil {
+			dnsNames = append(dnsNames, network.GetServiceHostname(string(infPoolSpec.ExtensionRef.Name), llmSvc.GetNamespace()))
+			dnsNames = append(dnsNames, fmt.Sprintf("%s.%s.svc", string(infPoolSpec.ExtensionRef.Name), llmSvc.GetNamespace()))
 		}
 	}
 
@@ -370,5 +400,6 @@ func semanticCertificateSecretIsEqual(expected *corev1.Secret, curr *corev1.Secr
 	return equality.Semantic.DeepDerivative(expected.Immutable, curr.Immutable) &&
 		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
 		equality.Semantic.DeepDerivative(expectedAnnotations, curr.Annotations) &&
-		equality.Semantic.DeepDerivative(expected.Type, curr.Type)
+		equality.Semantic.DeepDerivative(expected.Type, curr.Type) &&
+		equality.Semantic.DeepDerivative(expected.Data, curr.Data)
 }

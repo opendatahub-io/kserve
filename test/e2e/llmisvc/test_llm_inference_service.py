@@ -31,6 +31,7 @@ from .diagnostic import (
 )
 from .fixtures import (
     create_router_resources,
+    generate_dynamic_marks,
     generate_test_id,
     inject_k8s_proxy,
     # Factory functions are not called explicitly, but they need to be imported to work
@@ -42,12 +43,15 @@ from .test_resources import ROUTER_GATEWAYS, ROUTER_ROUTES
 KSERVE_PLURAL_LLMINFERENCESERVICE = "llminferenceservices"
 
 
-def create_response_assertion(status_code: int = 200, with_field: str = "") -> Callable[[requests.Response], None]:
+def create_response_assertion(
+    status_code: int = 200, with_field: str = ""
+) -> Callable[[requests.Response], None]:
     """Returns a function that checks for the provided response status code and optional response field"""
+
     def response_assertion(response: requests.Response) -> None:
         assert (
             response.status_code == status_code
-        ), f"Expected status code {status_code}, but service returned {response.status_code}: {response.text}"
+        ), f"Expected status code {status_code}, but service returned {response.status_code}: {response.text} - {response.headers}"
         if with_field != "":
             assert (
                 response.json().get(with_field) is not None
@@ -67,7 +71,9 @@ class TestCase:
     prompt: str = ""
     max_tokens: int = 100
     payload_formatter: Optional[Callable[[TestCase], Dict[str, Any]]] = None
-    response_assertion: Callable[[requests.Response], None] = create_response_assertion()
+    response_assertion: Callable[[requests.Response], None] = (
+        create_response_assertion()
+    )
     wait_timeout: int = 600
     response_timeout: int = 60
     before_test: List[Callable[[], Any]] = field(default_factory=list)
@@ -80,19 +86,19 @@ class TestCase:
 def completions_payload(test_case: TestCase) -> Dict[str, Any]:
     """Returns a dictionary in the format of the expected payload for the /v1/completions endpoint."""
     return {
-            "model": test_case.model_name,
-            "prompt": test_case.prompt,
-            "max_tokens": test_case.max_tokens,
-        }
+        "model": test_case.model_name,
+        "prompt": test_case.prompt,
+        "max_tokens": test_case.max_tokens,
+    }
 
 
 def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
     """Returns a dictionary in the format of the expected payload for the /v1/chat/completions endpoint."""
     return {
-            "model": test_case.model_name,
-            "messages": [{"role": "user", "content": test_case.prompt}],
-            "max_tokens": test_case.max_tokens,
-        }
+        "model": test_case.model_name,
+        "messages": [{"role": "user", "content": test_case.prompt}],
+        "max_tokens": test_case.max_tokens,
+    }
 
 
 @pytest.mark.llminferenceservice
@@ -120,6 +126,14 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 pytest.mark.cluster_cpu,
                 pytest.mark.cluster_single_node,
                 pytest.mark.llmd_simulator,
+                *generate_dynamic_marks(
+                    [
+                        "router-with-gateway-ref",
+                        "router-with-managed-route",
+                        "model-fb-opt-125m",
+                        "workload-llmd-simulator",
+                    ]
+                ),
             ],
         ),
         pytest.param(
@@ -134,7 +148,17 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 payload_formatter=completions_payload,
                 response_assertion=create_response_assertion(with_field="choices"),
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                *generate_dynamic_marks(
+                    [
+                        "router-managed",
+                        "workload-single-cpu",
+                        "model-fb-opt-125m",
+                    ]
+                ),
+            ],
         ),
         pytest.param(
             TestCase(
@@ -150,7 +174,18 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 payload_formatter=completions_payload,
                 response_assertion=create_response_assertion(with_field="choices"),
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                *generate_dynamic_marks(
+                    [
+                        "router-custom-route-timeout",
+                        "scheduler-managed",
+                        "workload-single-cpu",
+                        "model-fb-opt-125m",
+                    ]
+                ),
+            ],
         ),
         pytest.param(
             TestCase(
@@ -172,7 +207,18 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                     ),
                 ],
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                *generate_dynamic_marks(
+                    [
+                        "router-with-refs",
+                        "scheduler-managed",
+                        "workload-single-cpu",
+                        "model-fb-opt-125m",
+                    ]
+                ),
+            ],
         ),
         pytest.param(
             TestCase(
@@ -184,7 +230,13 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 payload_formatter=completions_payload,
                 response_assertion=create_response_assertion(with_field="choices"),
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                *generate_dynamic_marks(
+                    ["router-managed", "workload-pd-cpu", "model-fb-opt-125m"]
+                ),
+            ],
         ),
         pytest.param(
             TestCase(
@@ -202,7 +254,18 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 payload_formatter=completions_payload,
                 response_assertion=create_response_assertion(with_field="choices"),
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                *generate_dynamic_marks(
+                    [
+                        "router-custom-route-timeout-pd",
+                        "scheduler-managed",
+                        "workload-pd-cpu",
+                        "model-fb-opt-125m",
+                    ]
+                ),
+            ],
         ),
         pytest.param(
             TestCase(
@@ -226,7 +289,18 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                     ),
                 ],
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                *generate_dynamic_marks(
+                    [
+                        "router-with-refs-pd",
+                        "scheduler-managed",
+                        "workload-pd-cpu",
+                        "model-fb-opt-125m",
+                    ]
+                ),
+            ],
         ),
         pytest.param(
             TestCase(
@@ -278,6 +352,14 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 pytest.mark.cluster_gpu,
                 pytest.mark.cluster_nvidia,
                 pytest.mark.cluster_nvidia_roce,
+                *generate_dynamic_marks(
+                    [
+                        "router-managed",
+                        "workload-dp-ep-gpu",
+                        "workload-dp-ep-prefill-gpu",
+                        "model-deepseek-v2-lite",
+                    ]
+                ),
             ],
         ),
         pytest.param(
@@ -296,6 +378,13 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 pytest.mark.cluster_cpu,
                 pytest.mark.cluster_single_node,
                 pytest.mark.no_scheduler,
+                *generate_dynamic_marks(
+                    [
+                        "router-no-scheduler",
+                        "workload-single-cpu",
+                        "model-fb-opt-125m",
+                    ]
+                ),
             ],
         ),
         pytest.param(
@@ -311,7 +400,17 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 payload_formatter=completions_payload,
                 response_assertion=create_response_assertion(with_field="choices"),
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_multi_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_multi_node,
+                *generate_dynamic_marks(
+                    [
+                        "router-managed",
+                        "workload-simulated-dp-ep-cpu",
+                        "model-fb-opt-125m",
+                    ]
+                ),
+            ],
         ),
         pytest.param(
             TestCase(
@@ -326,7 +425,17 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 payload_formatter=chat_completions_payload,
                 response_assertion=create_response_assertion(with_field="choices"),
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                *generate_dynamic_marks(
+                    [
+                        "router-managed",
+                        "workload-single-cpu",
+                        "model-qwen2.5-0.5b",
+                    ]
+                ),
+            ],
         ),
         pytest.param(
             TestCase(
@@ -338,7 +447,17 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 service_name="models-endpoint-test",
                 response_assertion=create_response_assertion(with_field="data"),
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                *generate_dynamic_marks(
+                    [
+                        "router-managed",
+                        "workload-single-cpu",
+                        "model-fb-opt-125m",
+                    ]
+                ),
+            ],
         ),
     ],
     indirect=["test_case"],
@@ -485,7 +604,9 @@ def wait_for_model_response(
 
         try:
             if test_payload is not None:
-                print(f"Calling LLM service - POST {model_url} with payload {test_payload}")
+                print(
+                    f"Calling LLM service - POST {model_url} with payload {test_payload}"
+                )
                 response = requests.post(
                     model_url,
                     headers={"Content-Type": "application/json"},

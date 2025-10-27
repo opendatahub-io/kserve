@@ -165,6 +165,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
 				g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
 			})).WithContext(ctx).Should(Succeed())
+
+			verifyTLSCertificate(ctx, llmSvc)
 		})
 
 		It("should propagate kueue labels and annotations to the deployment", func(ctx SpecContext) {
@@ -238,6 +240,8 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			// Check that the test label/annotation was not propagated as it is not in the approved prefixes for propagation
 			Expect(expectedDeployment.Spec.Template.Labels).ToNot(HaveKeyWithValue(testValue, testValue))
 			Expect(expectedDeployment.Spec.Template.Annotations).ToNot(HaveKeyWithValue(testValue, testValue))
+
+			verifyTLSCertificate(ctx, llmSvc)
 		})
 	})
 
@@ -1442,4 +1446,15 @@ func waitForAllMonitoringResources(ctx context.Context, nsName string) {
 	waitForMetricsReaderRoleBinding(ctx, nsName)
 	waitForVLLMEnginePodMonitor(ctx, nsName)
 	waitForSchedulerServiceMonitor(ctx, nsName)
+}
+
+func verifyTLSCertificate(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) {
+	tlsSecret := &corev1.Secret{}
+	Expect(envTest.Client.Get(
+		ctx,
+		client.ObjectKey{Namespace: llmSvc.GetNamespace(), Name: kmeta.ChildName(llmSvc.GetName(), "-kserve-self-signed-certs")},
+		tlsSecret,
+	)).To(Succeed())
+
+	Expect(llmisvc.ShouldRecreateCertificate(tlsSecret, []string{}, []string{})).To(BeFalse(), fmt.Sprintf("%#v", tlsSecret))
 }
