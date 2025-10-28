@@ -284,7 +284,7 @@ initialize_backup_directory() {
         echo "📁 Initializing preserve-namespace backup directory: $BACKUP_DIR"
     fi
 
-    mkdir -p "$BACKUP_DIR"/{original-resources,new-resources}/{namespace,servingruntime,inferenceservice,secret,role,rolebinding,serviceaccount}
+    mkdir -p "$BACKUP_DIR"/{original-resources,new-resources}/{namespace,servingruntime,inferenceservice,secret,role,rolebinding,serviceaccount,template}
 
     if [[ "$PRESERVE_NAMESPACE" == "true" ]]; then
         # Create additional rollback-scripts directory for preserve-namespace mode
@@ -1016,8 +1016,8 @@ create_serving_runtimes() {
 
         echo "🏗️ Processing serving runtime for '$isvc_name' using template '$template_name'..."
 
-        # Step 1: Backup original serving runtime (if preserve-namespace mode)
-        if [[ "$PRESERVE_NAMESPACE" == "true" ]]; then
+        # Step 1: Backup original serving runtime (for both dry-run and preserve-namespace modes)
+        if [[ "$DRY_RUN" == "true" || "$PRESERVE_NAMESPACE" == "true" ]]; then
             echo "  💾 Backing up original serving runtime..."
             # Get the runtime name from the InferenceService
             if ! local original_isvc=$(oc get inferenceservice "$isvc_name" -n "$FROM_NS" -o yaml 2>/dev/null); then
@@ -1045,21 +1045,43 @@ create_serving_runtimes() {
         # Get template display name from the template
         local template_display=$(echo "$runtime_template" | yq '.objects[0].metadata.annotations."opendatahub.io/template-display-name" // "Custom Runtime"')
 
-        # Prepare the template to be applied
-        local modified_runtime=$(echo "$runtime_template" | \
-            yq '.objects[0].metadata.name = "'$isvc_name'"' | \
-            yq '.objects[0].metadata.annotations."opendatahub.io/template-name" = "'$template_name'"' | \
-            yq '.objects[0].metadata.annotations."opendatahub.io/serving-runtime-scope" = "global"' | \
-            yq '.objects[0].metadata.annotations."openshift.io/display-name" = "'$isvc_name'"' | \
-            yq '.objects[0].metadata.annotations."opendatahub.io/apiProtocol" = "REST"' | \
-            yq '.objects[0].metadata.annotations."opendatahub.io/hardware-profile-name" = "small-serving-1bmle"' | \
+        # Step 2.1: Backup the selected template (for dry-run and preserve-namespace modes)
+        if [[ "$DRY_RUN" == "true" || "$PRESERVE_NAMESPACE" == "true" ]]; then
+            echo "  💾 Backing up selected template '$template_name'..."
+            save_backup_resource "template" "$template_name" "$runtime_template" "original-resources"
+        fi
+
+        # Step 2.2: Process the template first to generate the ServingRuntime
+        echo "  ⚙️  Processing template '$template_name' to generate ServingRuntime..."
+        if ! local base_runtime=$(echo "$runtime_template" | oc process -f - -o yaml 2>/dev/null); then
+            echo -e "${ERROR_SYMBOL} Failed to process template '$template_name'"
+            echo "    📋 Template processing error. Check template parameters and namespace."
+            exit 1
+        fi
+
+        # Step 2.3: Extract and modify the ServingRuntime from the processed result
+        echo "  🔧 Customizing ServingRuntime for migration..."
+
+        # Extract the ServingRuntime from the processed result (simple approach)
+        local servingruntime_yaml=$(echo "$base_runtime" | yq '.items[0]')
+
+        if [[ -z "$servingruntime_yaml" || "$servingruntime_yaml" == "null" ]]; then
+            echo -e "${ERROR_SYMBOL} No ServingRuntime found in processed template '$template_name'"
+            echo "    📋 Template processing might have failed or template structure is unexpected"
+            exit 1
+        fi
+
+        # Modify the extracted ServingRuntime with migration-specific settings
+        local processed_runtime=$(echo "$servingruntime_yaml" | \
             yq '.metadata.name = "'$isvc_name'"' | \
             yq '.metadata.namespace = "'$TARGET_NS'"' | \
+            yq '.metadata.annotations."opendatahub.io/template-name" = "'$template_name'"' | \
+            yq '.metadata.annotations."opendatahub.io/serving-runtime-scope" = "global"' | \
+            yq '.metadata.annotations."opendatahub.io/apiProtocol" = "REST"' | \
+            yq '.metadata.annotations."opendatahub.io/hardware-profile-name" = "small-serving-1bmle"' | \
             yq '.metadata.labels."opendatahub.io/dashboard" = "true"' | \
-            yq '.metadata.annotations."migration.kserve.io/source" = "modelmesh"' )
-
-        # Step 3: Save new serving runtime (for dry-run and preserve-namespace backup)
-        local processed_runtime=$(echo "$modified_runtime" | oc process -f - -o yaml)
+            yq '.metadata.annotations."migration.kserve.io/source" = "modelmesh"' | \
+            yq '.metadata.annotations."migration.kserve.io/original-namespace" = "'$FROM_NS'"' )
         save_backup_resource "servingruntime" "$isvc_name" "$processed_runtime" "new-resources"
 
         # Step 4: Deploy new serving runtime (old ServingRuntime deletion moved to after authentication resources are created)
@@ -1333,19 +1355,23 @@ copy_authentication_resources() {
     local target_role_name="${isvc_name}-view-role"
     local target_rolebinding_name="${isvc_name}-view"
 
-    # Get InferenceService UID for owner reference
-    local isvc_uid=$(oc get inferenceservice "$isvc_name" -n "$TARGET_NS" -o jsonpath='{.metadata.uid}' 2>/dev/null)
-    if [[ -z "$isvc_uid" ]]; then
-        echo "    ⚠️  Warning: Could not get UID for InferenceService '$isvc_name', creating resources without owner reference"
-        local owner_ref_yaml=""
+    # Get InferenceService UID for owner reference (skip in dry-run mode)
+    local owner_ref_yaml=""
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo "    💾 [DRY-RUN] Skipping owner reference creation (InferenceService not yet applied to cluster)"
     else
-        # used by the role, role_binding and service account
-        local owner_ref_yaml="  ownerReferences:
+        local isvc_uid=$(oc get inferenceservice "$isvc_name" -n "$TARGET_NS" -o jsonpath='{.metadata.uid}' 2>/dev/null)
+        if [[ -z "$isvc_uid" ]]; then
+            echo "    ⚠️  Warning: Could not get UID for InferenceService '$isvc_name', creating resources without owner reference"
+        else
+            # used by the role, role_binding and service account
+            owner_ref_yaml="  ownerReferences:
         - apiVersion: serving.kserve.io/v1beta1
           kind: InferenceService
           name: ${isvc_name}
           uid: ${isvc_uid}
           blockOwnerDeletion: false"
+        fi
     fi
 
     # Create new ServiceAccount (not copied from source namespace)
@@ -1835,6 +1861,41 @@ process_inference_services() {
             fi
 
             echo -e "  ${SUCCESS_SYMBOL} Authentication resources backed up"
+        fi
+
+        # Delete old InferenceService first in preserve-namespace mode
+        if [[ "$PRESERVE_NAMESPACE" == "true" ]]; then
+            echo "🗑️  Deleting old InferenceService '$isvc_name' before creating new one..."
+            if oc get inferenceservice "$isvc_name" -n "$FROM_NS" &> /dev/null; then
+                if oc delete inferenceservice "$isvc_name" -n "$FROM_NS" --timeout=60s; then
+                    echo -e "  ${SUCCESS_SYMBOL} Initiated deletion of old InferenceService '$isvc_name'"
+
+                    # Wait for complete deletion
+                    echo "  ⏳ Waiting for old InferenceService to be completely deleted..."
+                    local max_wait=120
+                    local wait_time=0
+                    while oc get inferenceservice "$isvc_name" -n "$FROM_NS" &> /dev/null; do
+                        if [[ $wait_time -ge $max_wait ]]; then
+                            echo -e "  ${ERROR_SYMBOL} Timeout waiting for old InferenceService deletion"
+                            ERRORS+=("Timeout waiting for old InferenceService '$isvc_name' deletion in namespace '$FROM_NS'")
+                            break
+                        fi
+                        sleep 5
+                        wait_time=$((wait_time + 5))
+                        echo "    ⏳ Still waiting... ($wait_time/${max_wait}s)"
+                    done
+
+                    if ! oc get inferenceservice "$isvc_name" -n "$FROM_NS" &> /dev/null; then
+                        echo -e "  ${SUCCESS_SYMBOL} Old InferenceService '$isvc_name' completely deleted"
+                    fi
+                else
+                    echo -e "  ${ERROR_SYMBOL} Failed to delete old InferenceService '$isvc_name'"
+                    ERRORS+=("Failed to delete old InferenceService '$isvc_name' in namespace '$FROM_NS'")
+                fi
+            else
+                echo "  ℹ️  Old InferenceService '$isvc_name' not found (may already be deleted)"
+            fi
+            echo ""
         fi
 
         # Apply the transformed InferenceService to the target namespace
