@@ -777,19 +777,6 @@ def generate_test_id(test_case) -> str:
     return "-".join(test_case.base_refs)
 
 
-def generate_dynamic_marks(base_refs: List[str]) -> List:
-    """Generate dynamic pytest marks from base_refs for easier test selection.
-
-    This allows running tests with markers like: -m "router_managed and workload_pd_cpu"
-    """
-    marks = [getattr(pytest.mark, "-".join(base_refs))]
-    for ref in base_refs:
-        # Replace hyphens with underscores for valid Python identifiers
-        mark_name = ref.replace("-", "_")
-        marks.append(getattr(pytest.mark, mark_name))
-    return marks
-
-
 def create_router_resources(gateways, routes=None, kserve_client=None):
     """Create router resources (gateways and routes). These resources are shared and not deleted.
 
