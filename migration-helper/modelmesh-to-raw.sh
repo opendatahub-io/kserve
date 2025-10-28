@@ -570,8 +570,8 @@ list_and_select_inference_services() {
     local index=0
     local isvc_count=0
 
-    # Get all InferenceServices in the source namespace
-    if ! local isvc_list=$(oc get inferenceservice -n "$FROM_NS" -o yaml 2>/dev/null); then
+    # Get ModelMesh InferenceServices in the source namespace (filter by deploymentMode annotation)
+    if ! local isvc_list=$(oc get inferenceservice -n "$FROM_NS" -o yaml 2>/dev/null | yq '.items |= map(select(.metadata.annotations."serving.kserve.io/deploymentMode" == "ModelMesh"))'); then
         echo -e "${ERROR_SYMBOL} Failed to retrieve InferenceServices from namespace '$FROM_NS'"
         echo "  📋 Please ensure you have access to the namespace and InferenceServices exist."
         exit 1
@@ -581,8 +581,10 @@ list_and_select_inference_services() {
     local isvc_count=$(echo "$isvc_list" | yq '.items | length')
 
     if [[ "$isvc_count" -eq 0 ]]; then
-        echo -e "${ERROR_SYMBOL} No InferenceServices found in namespace '$FROM_NS'"
-        echo "  📭 There are no models to migrate."
+        echo -e "${ERROR_SYMBOL} No ModelMesh InferenceServices found in namespace '$FROM_NS'"
+        echo "  📭 This script migrates InferenceServices with deploymentMode 'ModelMesh'"
+        echo "  💡 Check if you have ModelMesh InferenceServices with:"
+        echo "      oc get inferenceservice -n $FROM_NS -o jsonpath='{range .items[*]}{.metadata.name}{\"\\t\"}{.metadata.annotations.serving\\.kserve\\.io/deploymentMode}{\"\\n\"}{end}'"
         exit 1
     fi
 
@@ -1903,51 +1905,6 @@ process_inference_services() {
     echo ""
 }
 
-
-echo "ModelMesh to KServe Raw Deployment Migration Helper"
-echo "=================================================="
-echo ""
-echo "Source namespace (ModelMesh): $FROM_NS"
-echo "Target namespace (KServe Raw): $TARGET_NS"
-echo ""
-
-# Migration logic here
-
-# Initialize backup directory if needed (for dry-run or preserve-namespace)
-initialize_backup_directory
-
-# Verify ModelMesh configuration
-verify_modelmesh_namespace
-
-# Create and configure target namespace (skip in preserve-namespace mode)
-if [[ "$PRESERVE_NAMESPACE" != "true" ]]; then
-    create_target_namespace
-else
-    # In preserve-namespace mode, we still need to update the modelmesh-enabled label
-    echo "🏷️  Updating namespace labels for preserve-namespace mode..."
-    if oc label namespace "$TARGET_NS" modelmesh-enabled="false" --overwrite >/dev/null 2>&1; then
-        echo -e "  ${SUCCESS_SYMBOL} ModelMesh disabled in '$TARGET_NS'"
-    else
-        echo -e "  ${ERROR_SYMBOL} Failed to set modelmesh-enabled=false in '$TARGET_NS'"
-        exit 1
-    fi
-    echo ""
-fi
-
-# List InferenceServices and get user selection
-list_and_select_inference_services
-
-# Cache available templates early to avoid repeated API calls
-cache_available_templates
-# Create serving runtimes for migration
-create_serving_runtimes
-
-# Process the models for migration, prepare the InferenceService manifests
-process_inference_services
-
-# Clean up any empty directories that may have been created
-cleanup_empty_directories
-
 # Clean up empty directories in backup directory
 cleanup_empty_directories() {
     # Skip if neither mode is enabled or backup directory doesn't exist
@@ -2027,6 +1984,56 @@ generate_dry_run_summary() {
     echo ""
 }
 
+############################################################################################
+# Function definitions ends here.
+############################################################################################
+
+echo "ModelMesh to KServe Raw Deployment Migration Helper"
+echo "=================================================="
+echo ""
+echo "Source namespace (ModelMesh): $FROM_NS"
+echo "Target namespace (KServe Raw): $TARGET_NS"
+echo ""
+
+# Migration logic here
+
+# Initialize backup directory if needed (for dry-run or preserve-namespace)
+initialize_backup_directory
+
+# Verify ModelMesh configuration
+verify_modelmesh_namespace
+
+# Create and configure target namespace (skip in preserve-namespace mode)
+if [[ "$PRESERVE_NAMESPACE" != "true" ]]; then
+    create_target_namespace
+else
+    # In preserve-namespace mode, we still need to update the modelmesh-enabled label
+    echo "🏷️  Updating namespace labels for preserve-namespace mode..."
+    if oc label namespace "$TARGET_NS" modelmesh-enabled="false" --overwrite >/dev/null 2>&1; then
+        echo -e "  ${SUCCESS_SYMBOL} ModelMesh disabled in '$TARGET_NS'"
+    else
+        echo -e "  ${ERROR_SYMBOL} Failed to set modelmesh-enabled=false in '$TARGET_NS'"
+        exit 1
+    fi
+    echo ""
+fi
+
+# List InferenceServices and get user selection
+list_and_select_inference_services
+
+# Cache available templates early to avoid repeated API calls
+cache_available_templates
+
+# Create serving runtimes for migration
+create_serving_runtimes
+
+# Process the models for migration, prepare the InferenceService manifests
+process_inference_services
+
+# Clean up any empty directories that may have been created
+cleanup_empty_directories
+
+# generate the dry-run summary
 generate_dry_run_summary
 
 echo ""
