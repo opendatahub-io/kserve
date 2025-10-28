@@ -444,7 +444,35 @@ def delete_llmisvc(kserve_client: KServeClient, llm_isvc: Any):
             KSERVE_PLURAL_LLMINFERENCESERVICE,
             llm_isvc.metadata.name,
         )
-        print(f"✅ LLM inference service {llm_isvc.metadata.name} deleted successfully")
+        print(f"✅ LLM inference service {llm_isvc.metadata.name} deletion initiated")
+
+        # Wait for the resource to be fully deleted to avoid HTTP 409 conflicts
+        # when the next test tries to create a resource with the same name
+        import time
+        max_wait = 60  # Wait up to 60 seconds
+        start_time = time.time()
+        while time.time() - start_time < max_wait:
+            try:
+                kserve_client.api_instance.get_namespaced_custom_object(
+                    constants.KSERVE_GROUP,
+                    llm_isvc.api_version.split("/")[1],
+                    llm_isvc.metadata.namespace,
+                    KSERVE_PLURAL_LLMINFERENCESERVICE,
+                    llm_isvc.metadata.name,
+                )
+                # Resource still exists, wait and retry
+                time.sleep(2)
+            except client.rest.ApiException as e:
+                if e.status == 404:
+                    # Resource is gone, deletion complete
+                    print(f"✅ LLM inference service {llm_isvc.metadata.name} fully deleted after {time.time() - start_time:.1f}s")
+                    return result
+                else:
+                    # Unexpected error
+                    raise
+
+        # Timeout reached, resource still exists
+        print(f"⚠️ Warning: LLM inference service {llm_isvc.metadata.name} deletion timed out after {max_wait}s")
         return result
     except client.rest.ApiException as e:
         raise RuntimeError(
