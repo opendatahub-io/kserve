@@ -156,7 +156,8 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForScheduler
 			TrafficPolicy: &istionetworking.TrafficPolicy{
 				Tls: &istionetworking.ClientTLSSettings{
 					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
-					InsecureSkipVerify: &pbwrappers.BoolValue{Value: true},
+					CaCertificates:     "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt",
+					InsecureSkipVerify: &pbwrappers.BoolValue{Value: false},
 				},
 			},
 			// Export to all namespaces, this is the default, however, we keep the configuration explicit.
@@ -176,7 +177,9 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForScheduler
 				name = string(pool.Spec.EndpointPickerRef.Name)
 			}
 		}
-		dr.Spec.Host = network.GetServiceHostname(name, llmSvc.GetNamespace())
+		hostname := network.GetServiceHostname(name, llmSvc.GetNamespace())
+		dr.Spec.Host = hostname
+		dr.Spec.TrafficPolicy.Tls.Sni = hostname
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected destination rule for scheduler", "destinationrule", dr)
@@ -208,7 +211,8 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForShadowSer
 			TrafficPolicy: &istionetworking.TrafficPolicy{
 				Tls: &istionetworking.ClientTLSSettings{
 					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
-					InsecureSkipVerify: &pbwrappers.BoolValue{Value: true},
+					CaCertificates:     "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt",
+					InsecureSkipVerify: &pbwrappers.BoolValue{Value: false},
 				},
 			},
 			// Export to all namespaces, this is the default, however, we keep the configuration explicit.
@@ -216,7 +220,9 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForShadowSer
 		},
 	}
 	if shadowSvc != nil {
-		dr.Spec.Host = network.GetServiceHostname(shadowSvc.GetName(), shadowSvc.GetNamespace())
+		hostname := network.GetServiceHostname(shadowSvc.GetName(), shadowSvc.GetNamespace())
+		dr.Spec.Host = hostname
+		dr.Spec.TrafficPolicy.Tls.Sni = hostname
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected destination rule for workload shadow service", "destinationrule", dr)
@@ -244,7 +250,9 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForWorkload(
 			TrafficPolicy: &istionetworking.TrafficPolicy{
 				Tls: &istionetworking.ClientTLSSettings{
 					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
-					InsecureSkipVerify: &pbwrappers.BoolValue{Value: true},
+					CaCertificates:     "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt",
+					InsecureSkipVerify: &pbwrappers.BoolValue{Value: false},
+					Sni:                network.GetServiceHostname(kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"), llmSvc.GetNamespace()),
 				},
 			},
 			// Export to all namespaces, this is the default, however, we keep the configuration explicit.
