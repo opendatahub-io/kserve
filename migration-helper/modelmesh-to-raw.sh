@@ -118,6 +118,17 @@ parse_arguments() {
         esac
     done
 
+    # Validate conflicting parameters
+    if [[ "$DRY_RUN" == "true" && "$PRESERVE_NAMESPACE" == "true" ]]; then
+        echo -e "${ERROR_SYMBOL} Error: --dry-run and --preserve-namespace cannot be used together"
+        echo "  💡 --dry-run is for safe testing without making changes"
+        echo "  💡 --preserve-namespace performs destructive in-place migration"
+        echo "  💡 Use either:"
+        echo "     • --dry-run with --target-ns for safe preview"
+        echo "     • --preserve-namespace alone for destructive migration"
+        exit 1
+    fi
+
     # Validate required parameters
     if [[ -z "$FROM_NS" ]]; then
         echo -e "${ERROR_SYMBOL} Error: --from-ns parameter is required"
@@ -191,9 +202,15 @@ PARAMETERS:
     --ignore-existing-ns       Skip check if target namespace already exists
     --debug                    Show complete processed resources and wait for user confirmation
     --dry-run                  Save all YAML resources to local directory without applying them
+    --preserve-namespace       Perform destructive in-place migration (migrates within same namespace)
     --odh                      Use OpenDataHub template namespace (opendatahub) instead of RHOAI (redhat-ods-applications)
     --page-size <number>       Number of InferenceServices to display per page (default: 10)
     -h, --help                 Show this help message
+
+IMPORTANT:
+    --dry-run and --preserve-namespace cannot be used together:
+    • --dry-run is for safe testing without making changes
+    • --preserve-namespace performs destructive in-place migration
 
 DESCRIPTION:
     This script migrates InferenceServices from ModelMesh to KServe Raw deployment.
@@ -207,6 +224,7 @@ EXAMPLES:
     $0 --from-ns my-models --target-ns my-models-raw --page-size 5
     $0 --from-ns modelmesh-serving --target-ns kserve-raw --ignore-existing-ns --page-size 20
     $0 --from-ns large-ns --target-ns kserve-raw --dry-run --page-size 50
+    $0 --from-ns modelmesh-serving --preserve-namespace
     $0 --from-ns modelmesh-serving --target-ns kserve-raw --odh
 
 REQUIREMENTS:
@@ -221,7 +239,7 @@ EOF
 check_openshift_login() {
     echo "🔍 Checking OpenShift login status..."
 
-    if ! oc whoami &> /dev/null; then
+    if ! timeout 20 oc whoami &> /dev/null; then
         echo -e "${ERROR_SYMBOL} Error: You are not logged into an OpenShift cluster."
         echo "  Please login using 'oc login' and try again."
         echo "  Example: oc login https://your-cluster-url:6443"
