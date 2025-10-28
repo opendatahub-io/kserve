@@ -1681,7 +1681,7 @@ func waitForAllMonitoringResources(ctx context.Context, nsName string) {
 	waitForSchedulerServiceMonitor(ctx, nsName)
 }
 
-func verifyTLSCertificate(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) {
+func verifyTLSCertificate(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) {
 	tlsSecret := &corev1.Secret{}
 	Expect(envTest.Client.Get(
 		ctx,
