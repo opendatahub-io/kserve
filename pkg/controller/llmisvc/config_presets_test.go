@@ -100,7 +100,7 @@ func TestPresetFiles(t *testing.T) {
 										"--vllm-port=8001",
 										"--connector=nixlv2",
 										"--secure-proxy=true",
-										"--cert-path=/etc/ssl/certs",
+										"--cert-path=/var/run/kserve/tls",
 										"--decoder-use-tls=true",
 										"--prefiller-use-tls=true",
 										"--enable-ssrf-protection=true",
@@ -140,7 +140,7 @@ func TestPresetFiles(t *testing.T) {
 										{
 											Name:      "tls-certs",
 											ReadOnly:  true,
-											MountPath: "/etc/ssl/certs",
+											MountPath: "/var/run/kserve/tls",
 										},
 									},
 									ReadinessProbe: &corev1.Probe{
@@ -212,7 +212,7 @@ func TestPresetFiles(t *testing.T) {
 										{
 											Name:      "tls-certs",
 											ReadOnly:  true,
-											MountPath: "/etc/ssl/certs",
+											MountPath: "/var/run/kserve/tls",
 										},
 									},
 									LivenessProbe: &corev1.Probe{
@@ -320,7 +320,7 @@ func TestPresetFiles(t *testing.T) {
 										{
 											Name:      "tls-certs",
 											ReadOnly:  true,
-											MountPath: "/etc/ssl/certs",
+											MountPath: "/var/run/kserve/tls",
 										},
 									},
 									SecurityContext: &corev1.SecurityContext{

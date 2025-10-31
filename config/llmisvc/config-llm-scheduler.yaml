@@ -68,7 +68,7 @@ spec:
               - --model-server-metrics-scheme
               - https
               - --cert-path
-              - /etc/ssl/certs
+              - /var/run/kserve/tls
             env:
               - name: SSL_CERT_DIR
                 value: "/var/run/secrets/kubernetes.io/serviceaccount:/etc/pki/tls/certs"
@@ -88,7 +88,7 @@ spec:
               seccompProfile:
                 type: RuntimeDefault
             volumeMounts:
-              - mountPath: /etc/ssl/certs
+              - mountPath: /var/run/kserve/tls
                 name: tls-certs
                 readOnly: true
         volumes:
