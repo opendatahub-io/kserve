@@ -16,7 +16,11 @@ limitations under the License.
 
 package s3
 
-import corev1 "k8s.io/api/core/v1"
+import (
+	"strings"
+
+	corev1 "k8s.io/api/core/v1"
+)
 
 // BuildS3EnvVars sets s3 related env variables based on the provided configuration.
 // Env variables will not be set unless their corresponding configured value is a non-empty string.
@@ -32,14 +36,6 @@ import corev1 "k8s.io/api/core/v1"
 func BuildS3EnvVars(annotations map[string]string, secretData *map[string][]byte, s3Config *S3Config) []corev1.EnvVar {
 	envs := []corev1.EnvVar{}
 
-	s3UseHttps := getEnvValue(annotations, secretData, InferenceServiceS3SecretHttpsAnnotation, S3UseHttps, s3Config.S3UseHttps)
-	if s3UseHttps != "" {
-		envs = append(envs, corev1.EnvVar{
-			Name:  S3UseHttps,
-			Value: s3UseHttps,
-		})
-	}
-
 	var s3Endpoint string
 	if odhS3Endpoint, ok := getSecretValueFromPtr(secretData, ODHS3Endpoint); ok {
 		s3Endpoint = odhS3Endpoint // ODH only
@@ -47,9 +43,36 @@ func BuildS3EnvVars(annotations map[string]string, secretData *map[string][]byte
 		s3Endpoint = getEnvValue(annotations, secretData, InferenceServiceS3SecretEndpointAnnotation, S3Endpoint, s3Config.S3Endpoint)
 	}
 	if s3Endpoint != "" {
+		// Default to using https for the full url.
 		s3EndpointUrl := "https://" + s3Endpoint
-		if s3UseHttps == "0" {
-			s3EndpointUrl = "http://" + s3Endpoint
+		// If the configured endpoint contains a protocol prefix override any configured use-https value.
+		// Otherwise use the configured use-https value to form the full url.
+		switch {
+		case strings.HasPrefix(s3Endpoint, "https://"):
+			envs = append(envs, corev1.EnvVar{
+				Name:  S3UseHttps,
+				Value: "1",
+			})
+			s3EndpointUrl = s3Endpoint
+			s3Endpoint = strings.TrimPrefix(s3Endpoint, "https://")
+		case strings.HasPrefix(s3Endpoint, "http://"):
+			envs = append(envs, corev1.EnvVar{
+				Name:  S3UseHttps,
+				Value: "0",
+			})
+			s3EndpointUrl = s3Endpoint
+			s3Endpoint = strings.TrimPrefix(s3Endpoint, "http://")
+		default:
+			s3UseHttps := getEnvValue(annotations, secretData, InferenceServiceS3SecretHttpsAnnotation, S3UseHttps, s3Config.S3UseHttps)
+			if s3UseHttps != "" {
+				envs = append(envs, corev1.EnvVar{
+					Name:  S3UseHttps,
+					Value: s3UseHttps,
+				})
+			}
+			if s3UseHttps == "0" {
+				s3EndpointUrl = "http://" + s3Endpoint
+			}
 		}
 		envs = append(envs, corev1.EnvVar{
 			Name:  S3Endpoint,
