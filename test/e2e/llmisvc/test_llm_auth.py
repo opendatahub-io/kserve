@@ -229,9 +229,6 @@ def test_llm_auth_enabled_requires_token(
 ):
     # Update test case with the parameterized API version
     test_case.api_version = api_version
-
-    if not rhcl_available:
-        pytest.skip("RHCL not installed - skipping auth test")
     """
     Test that when auth is enabled (default):
     - Requests WITH valid token succeed
@@ -373,9 +370,6 @@ def test_llm_auth_invalid_token_rejected(
 ):
     # Update test case with the parameterized API version
     test_case.api_version = api_version
-
-    if not rhcl_available:
-        pytest.skip("RHCL not installed - skipping auth test")
     """
     Test that when auth is enabled:
     - Requests with MALFORMED tokens are rejected
@@ -502,9 +496,6 @@ def test_llm_auth_disabled_no_token_required(
 ):
     # Update test case with the parameterized API version
     test_case.api_version = api_version
-
-    if not rhcl_available:
-        pytest.skip("RHCL not installed - skipping auth test")
     """
     Test that when auth is disabled via annotation:
     - Requests WITHOUT token succeed
