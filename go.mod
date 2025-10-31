@@ -18,7 +18,7 @@ require (
 	github.com/json-iterator/go v1.1.12
 	github.com/kedacore/keda/v2 v2.18.0
 	github.com/kelseyhightower/envconfig v1.4.0
-	github.com/onsi/ginkgo/v2 v2.25.3
+	github.com/onsi/ginkgo/v2 v2.26.0
 	github.com/onsi/gomega v1.38.2
 	github.com/open-telemetry/opentelemetry-operator v0.113.0
 	github.com/openshift/api v0.0.0-20241108213852-e22f17d9b7f5
@@ -31,7 +31,7 @@ require (
 	go.uber.org/zap v1.27.0
 	gomodules.xyz/jsonpatch/v2 v2.5.0
 	google.golang.org/api v0.238.0
-	google.golang.org/protobuf v1.36.9
+	google.golang.org/protobuf v1.36.10
 	gopkg.in/go-playground/validator.v9 v9.31.0
 	istio.io/api v1.24.2
 	istio.io/client-go v1.24.2
@@ -49,7 +49,7 @@ require (
 	knative.dev/serving v0.44.0
 	sigs.k8s.io/controller-runtime v0.22.3
 	sigs.k8s.io/gateway-api v1.4.0
-	sigs.k8s.io/gateway-api-inference-extension v1.0.0
+	sigs.k8s.io/gateway-api-inference-extension v1.1.0
 	sigs.k8s.io/lws v0.6.2
 	sigs.k8s.io/yaml v1.6.0
 )
@@ -69,7 +69,10 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.51.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.51.0 // indirect
 	github.com/Masterminds/semver/v3 v3.4.0 // indirect
-	github.com/alecthomas/units v0.0.0-20240927000941-0f3dac36c52b // indirect
+	github.com/aws/aws-sdk-go-v2 v1.39.5 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.259.1 // indirect
+	github.com/aws/aws-sdk-go-v2/service/lightsail v1.50.3 // indirect
+	github.com/aws/smithy-go v1.23.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blendle/zapdriver v1.3.1 // indirect
 	github.com/census-instrumentation/opencensus-proto v0.4.1 // indirect
@@ -81,13 +84,13 @@ require (
 	github.com/digitalocean/godo v1.152.0 // indirect
 	github.com/docker/docker v28.2.2+incompatible // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
-	github.com/envoyproxy/go-control-plane/envoy v1.32.4 // indirect
+	github.com/envoyproxy/go-control-plane/envoy v1.35.0 // indirect
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
 	github.com/evanphx/json-patch/v5 v5.9.11 // indirect
 	github.com/expr-lang/expr v1.17.6 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.0 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.1 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.2 // indirect
 	github.com/go-kit/log v0.2.1 // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -104,13 +107,13 @@ require (
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/go-containerregistry v0.13.0 // indirect
-	github.com/google/pprof v0.0.0-20250820193118-f64d9cf942d6 // indirect
+	github.com/google/pprof v0.0.0-20250923004556-9e5a51aed1e8 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.6 // indirect
 	github.com/googleapis/gax-go/v2 v2.14.2 // indirect
 	github.com/gophercloud/gophercloud/v2 v2.7.0 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
-	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.1 // indirect
+	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2 // indirect
 	github.com/hashicorp/consul/api v1.32.0 // indirect
 	github.com/hashicorp/go-version v1.7.0 // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
@@ -137,7 +140,8 @@ require (
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
-	github.com/prometheus/common v0.66.1 // indirect
+	github.com/prometheus/common v0.67.1 // indirect
+	github.com/prometheus/otlptranslator v1.0.0 // indirect
 	github.com/prometheus/procfs v0.17.0 // indirect
 	github.com/prometheus/sigv4 v0.2.0 // indirect
 	github.com/prometheus/statsd_exporter v0.27.1 // indirect
@@ -154,19 +158,18 @@ require (
 	go.opentelemetry.io/collector/featuregate v1.34.0 // indirect
 	go.opentelemetry.io/contrib/detectors/gcp v1.36.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.61.0 // indirect
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.61.0 // indirect
-	go.opentelemetry.io/otel v1.37.0 // indirect
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.63.0 // indirect
+	go.opentelemetry.io/otel v1.38.0 // indirect
 	go.opentelemetry.io/otel/exporters/prometheus v0.56.0 // indirect
-	go.opentelemetry.io/otel/metric v1.37.0 // indirect
-	go.opentelemetry.io/otel/sdk v1.37.0 // indirect
-	go.opentelemetry.io/otel/sdk/metric v1.37.0 // indirect
-	go.opentelemetry.io/otel/trace v1.37.0 // indirect
+	go.opentelemetry.io/otel/metric v1.38.0 // indirect
+	go.opentelemetry.io/otel/sdk v1.38.0 // indirect
+	go.opentelemetry.io/otel/sdk/metric v1.38.0 // indirect
+	go.opentelemetry.io/otel/trace v1.38.0 // indirect
 	go.uber.org/automaxprocs v1.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
-	go.yaml.in/yaml/v2 v2.4.2 // indirect
+	go.yaml.in/yaml/v2 v2.4.3 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/crypto v0.42.0 // indirect
-	golang.org/x/exp v0.0.0-20250606033433-dcc06ee1d476 // indirect
 	golang.org/x/mod v0.28.0 // indirect
 	golang.org/x/net v0.44.0 // indirect
 	golang.org/x/oauth2 v0.31.0 // indirect
@@ -177,9 +180,9 @@ require (
 	golang.org/x/time v0.13.0 // indirect
 	golang.org/x/tools v0.37.0 // indirect
 	google.golang.org/genproto v0.0.0-20250505200425-f936aa4a68b2 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20250707201910-8d1bb00bc6a7 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250908214217-97024824d090 // indirect
-	google.golang.org/grpc v1.75.1 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20250929231259-57b25ae835d4 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20250922171735-9219d122eba9 // indirect
+	google.golang.org/grpc v1.76.0 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.13.0 // indirect
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
 	gopkg.in/inf.v0 v0.9.1 // indirect
@@ -201,10 +204,6 @@ exclude google.golang.org/grpc/stats/opentelemetry v0.0.0-00010101000000-0000000
 // Using gateway-api main branch with validation markers bug fix (PR #4178 merged)
 // See: https://github.com/kubernetes-sigs/gateway-api/pull/4178
 replace sigs.k8s.io/gateway-api => sigs.k8s.io/gateway-api v0.0.0-20251017132243-11212e643802
-
-// Using release-1.0 branch with fix for GIE v1.0.0 validation markers bug
-// See: https://github.com/kubernetes-sigs/gateway-api-inference-extension/pull/1679
-replace sigs.k8s.io/gateway-api-inference-extension => github.com/kubernetes-sigs/gateway-api-inference-extension v1.0.2-0.20251014221737-ffb66e1e979c
 
 // Currently, KEDA requires 0.19 but GIE v1 uses 0.22
 replace sigs.k8s.io/controller-runtime => sigs.k8s.io/controller-runtime v0.22.1
