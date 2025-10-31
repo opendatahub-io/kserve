@@ -16,9 +16,9 @@ spec:
                 {{ .GlobalConfig.IngressGatewayNamespace }}
           rules:
             # Dual-pool strategy for /v1/completions endpoint:
-            # - v1 pool gets priority (weight: 100)
-            # - v1alpha2 pool serves as fallback (weight: 1)
-            # If v1 pool is not ready, Gateway automatically falls back to v1alpha2
+            # - v1alpha2 pool gets all traffic initially (weight: 100)
+            # - v1 pool starts with no traffic (weight: 0)
+            # Traffic migrates to v1 pool once it becomes ready
             - backendRefs:
                 - group: inference.networking.k8s.io
                   kind: InferencePool
