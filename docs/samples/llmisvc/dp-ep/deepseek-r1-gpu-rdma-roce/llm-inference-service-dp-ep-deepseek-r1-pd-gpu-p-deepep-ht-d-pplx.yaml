@@ -9,7 +9,7 @@ spec:
   model:
     # Initialize PVC following the example in /docs/samples/storage/pvc-init (recommended) or use the HuggingFace
     # alternative
-    uri: pvc://llm-test-pvc
+    uri: pvc://llm-test-pvc-deepseek
     #    uri: hf://deepseek-ai/DeepSeek-R1-0528
     name: deepseek-ai/DeepSeek-R1-0528
   replicas: 1
@@ -21,31 +21,28 @@ spec:
   router:
     scheduler:
       template:
-        imagePullSecrets:
-          - name: "quay-rhoai"
         containers:
           - name: main
-            image: quay.io/rhoai/odh-llm-d-inference-scheduler-rhel9:rhoai-2.25
             # ALWAYS DO PD IN THIS EXAMPLE (THRESHOLD 0)
             args:
               - -v=4 # Debug level
-              - --poolName
+              - --pool-name
               - "{{ ChildName .ObjectMeta.Name `-inference-pool` }}"
-              - --poolNamespace
+              - --pool-namespace
               - "{{ .ObjectMeta.Namespace }}"
               - --zap-encoder
               - json
-              - --grpcPort
+              - --grpc-port
               - "9002"
-              - --grpcHealthPort
+              - --grpc-health-port
               - "9003"
-              - --secureServing
-              - --modelServerMetricsScheme
+              - --secure-serving
+              - --model-server-metrics-scheme
               - https
-              - --modelServerMetricsHttpsInsecureSkipVerify
-              - --certPath
+              - --model-server-metrics-https-insecure-skip-verify
+              - --cert-path
               - /etc/ssl/certs
-              - --configText
+              - --config-text
               - |2
               
                 apiVersion: inference.networking.x-k8s.io/v1alpha1
@@ -80,25 +77,9 @@ spec:
     route: { }
     gateway: { }
   template:
-    affinity:
-      nodeAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution:
-          nodeSelectorTerms:
-            - matchExpressions:
-                - key: kubernetes.io/hostname
-                  operator: In
-                  values:
-                    - pokprod-b93r38s0
-                    - pokprod-b93r38s1
-                    - pokprod-b93r39s1
-                    - pokprod-b93r38s2
-                    - pokprod-b93r38s3
-    imagePullSecrets:
-      - name: "quay-registry-wseaton"
     serviceAccountName: hfsa
     containers:
       - name: main
-        image: quay.io/aipcc/rhaiis/cuda-ubi9:3.2.2-1757699034
         env:
           - name: VLLM_LOGGING_LEVEL
             value: INFO
@@ -147,12 +128,6 @@ spec:
             value: "1"
           - name: NVSHMEM_IBGDA_NIC_HANDLER
             value: "gpu"
-          # - name: NVSHMEM_IBGDA_RC_MAP_BY
-          #   value: "warp"
-          # - name: NVSHMEM_IBGDA_DCI_MAP_BY
-          #   value: "cta"
-          # - name: NVSHMEM_IBGDA_NUM_REQUESTS_IN_BATCH
-          #   value: "32"
           - name: NVSHMEM_DEBUG
             value: WARN
           # UCX configuration for NVSHMEM
@@ -190,38 +165,10 @@ spec:
           periodSeconds: 10
           timeoutSeconds: 10
           failureThreshold: 3
-        securityContext:
-          runAsNonRoot: true
-          allowPrivilegeEscalation: false
-          capabilities:
-            add:
-              - "IPC_LOCK"
-              - "SYS_RAWIO"
-              - "NET_RAW"
-            drop:
-              - ALL
-          seccompProfile:
-            type: RuntimeDefault
   worker:
-    affinity:
-      nodeAffinity:
-        requiredDuringSchedulingIgnoredDuringExecution:
-          nodeSelectorTerms:
-            - matchExpressions:
-                - key: kubernetes.io/hostname
-                  operator: In
-                  values:
-                    - pokprod-b93r38s0
-                    - pokprod-b93r38s1
-                    - pokprod-b93r39s1
-                    - pokprod-b93r38s2
-                    - pokprod-b93r38s3
-    imagePullSecrets:
-      - name: "quay-registry-wseaton"
     serviceAccountName: hfsa
     containers:
       - name: main
-        image: quay.io/aipcc/rhaiis/cuda-ubi9:3.2.2-1757699034
         env:
           - name: VLLM_LOGGING_LEVEL
             value: INFO
@@ -298,18 +245,6 @@ spec:
             memory: 256Gi
             nvidia.com/gpu: "8"
             rdma/roce_gdr: 1
-        securityContext:
-          runAsNonRoot: true
-          allowPrivilegeEscalation: false
-          capabilities:
-            add:
-              - "IPC_LOCK"
-              - "SYS_RAWIO"
-              - "NET_RAW"
-            drop:
-              - ALL
-          seccompProfile:
-            type: RuntimeDefault
   prefill:
     replicas: 1
     parallelism:
@@ -318,25 +253,9 @@ spec:
       expert: true
       tensor: 1
     template:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: kubernetes.io/hostname
-                    operator: In
-                    values:
-                      - pokprod-b93r38s0
-                      - pokprod-b93r38s1
-                      - pokprod-b93r39s1
-                      - pokprod-b93r38s2
-                      - pokprod-b93r38s3
-      imagePullSecrets:
-        - name: "quay-registry-wseaton"
       serviceAccountName: hfsa
       containers:
         - name: main
-          image: quay.io/aipcc/rhaiis/cuda-ubi9:3.2.2-1757699034
           env:
             - name: VLLM_LOGGING_LEVEL
               value: INFO
@@ -422,38 +341,10 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 10
             failureThreshold: 3
-          securityContext:
-            runAsNonRoot: true
-            allowPrivilegeEscalation: false
-            capabilities:
-              add:
-                - "IPC_LOCK"
-                - "SYS_RAWIO"
-                - "NET_RAW"
-              drop:
-                - ALL
-            seccompProfile:
-              type: RuntimeDefault
     worker:
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: kubernetes.io/hostname
-                    operator: In
-                    values:
-                      - pokprod-b93r38s0
-                      - pokprod-b93r38s1
-                      - pokprod-b93r39s1
-                      - pokprod-b93r38s2
-                      - pokprod-b93r38s3
-      imagePullSecrets:
-        - name: "quay-registry-wseaton"
       serviceAccountName: hfsa
       containers:
         - name: main
-          image: quay.io/aipcc/rhaiis/cuda-ubi9:3.2.2-1757699034
           env:
             - name: VLLM_LOGGING_LEVEL
               value: INFO
@@ -530,32 +421,3 @@ spec:
               memory: 256Gi
               nvidia.com/gpu: "8"
               rdma/roce_gdr: 1
-          securityContext:
-            runAsNonRoot: true
-            allowPrivilegeEscalation: false
-            capabilities:
-              add:
-                - "IPC_LOCK"
-                - "SYS_RAWIO"
-                - "NET_RAW"
-              drop:
-                - ALL
-            seccompProfile:
-              type: RuntimeDefault
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: qwen3-coder-30b-a3b-instruct-kserve-multi-node-scc
-  labels:
-    app.kubernetes.io/name: qwen3-coder-30b-a3b-instruct
-    app.kubernetes.io/part-of: llminferenceservice
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: openshift-ai-llminferenceservice-multi-node-scc
-subjects:
-  - kind: ServiceAccount
-    name: qwen3-coder-30b-a3b-instruct-kserve-mn
-  - kind: ServiceAccount
-    name: qwen3-coder-30b-a3b-instruct-kserve-mn-prefill

@@ -18,18 +18,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../common.sh"
 
 echo "⏳ Installing openshift-lws-operator"
-{
-cat <<EOF | oc create -f -
-apiVersion: operators.coreos.com/v1alpha1
-kind: CatalogSource
-metadata:
-  name: lws-operator
-  namespace: openshift-marketplace
-spec:
-  sourceType: grpc
-  image: quay.io/jooholee/lws-operator-index:llmd
-EOF
-} || true
 
 oc create ns openshift-lws-operator || true
 
@@ -38,12 +26,11 @@ cat <<EOF | oc create -f -
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
-  name: openshift-lws-operator-jw944
+  name: leader-worker-set
   namespace: openshift-lws-operator
 spec:
   targetNamespaces:
   - openshift-lws-operator
-  upgradeStrategy: Default
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
@@ -51,12 +38,11 @@ metadata:
   name: leader-worker-set
   namespace: openshift-lws-operator
 spec:
-  channel: stable
+  channel: stable-v1.0
   installPlanApproval: Automatic
   name: leader-worker-set
-  source: lws-operator
+  source: redhat-operators
   sourceNamespace: openshift-marketplace
-  startingCSV: leader-worker-set.v1.0.0
 EOF
 } || true
 

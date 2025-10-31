@@ -20,7 +20,8 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"strings"
+
+	"github.com/kserve/kserve/pkg/utils"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -35,13 +36,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/credentials"
 	kserveTypes "github.com/kserve/kserve/pkg/types"
 )
 
 func (r *LLMInferenceServiceReconciler) reconcileSingleNodeWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	log.FromContext(ctx).Info("Reconciling single-node workload")
-
 	if err := r.reconcileSingleNodeMainServiceAccount(ctx, llmSvc, storageConfig, credentialConfig); err != nil {
 		return fmt.Errorf("failed to reconcile service account: %w", err)
 	}
@@ -219,24 +220,17 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 }
 
 func (r *LLMInferenceServiceReconciler) propagateDeploymentMetadata(llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) {
-	ann := make(map[string]string, len(expected.Annotations))
-	for k, v := range llmSvc.GetAnnotations() {
-		if strings.HasPrefix(k, "k8s.v1.cni.cncf.io") {
-			ann[k] = v
-			if expected.Annotations == nil {
-				expected.Annotations = make(map[string]string, 1)
-			}
-			expected.Annotations[k] = v
-		}
-	}
+	// Define the prefixes to approve for annotations and labels
+	approvedAnnotationPrefixes := []string{"k8s.v1.cni.cncf.io", constants.KueueAPIGroupName}
+	approvedLabelPrefixes := []string{constants.KueueAPIGroupName}
 
-	if expected.Spec.Template.Annotations == nil {
-		expected.Spec.Template.Annotations = ann
-	} else {
-		for k, v := range ann {
-			expected.Spec.Template.Annotations[k] = v
-		}
-	}
+	// Propagate approved annotations to the Deployment and its Pod template
+	utils.PropagatePrefixedMap(llmSvc.GetAnnotations(), &expected.Annotations, approvedAnnotationPrefixes...)
+	utils.PropagatePrefixedMap(llmSvc.GetAnnotations(), &expected.Spec.Template.Annotations, approvedAnnotationPrefixes...)
+
+	// Propagate approved labels to the Deployment and its Pod template
+	utils.PropagatePrefixedMap(llmSvc.GetLabels(), &expected.Labels, approvedLabelPrefixes...)
+	utils.PropagatePrefixedMap(llmSvc.GetLabels(), &expected.Spec.Template.Labels, approvedLabelPrefixes...)
 }
 
 func (r *LLMInferenceServiceReconciler) propagateDeploymentStatus(ctx context.Context, expected *appsv1.Deployment, ready func(), notReady func(reason, messageFormat string, messageA ...interface{})) error {

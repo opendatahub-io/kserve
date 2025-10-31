@@ -82,6 +82,12 @@ fi
 $SCRIPT_DIR/infra/deploy.cert-manager.sh
 $SCRIPT_DIR/infra/deploy.lws.sh
 
+$SCRIPT_DIR/infra/deploy.gateway.ingress.sh
+
+if [ "${RHCL_DEPLOY}" == "true" ]; then
+  $SCRIPT_DIR/infra/deploy.kuadrant.sh
+fi
+
 if [ "${KSERVE_DEPLOY}" == "true" ]; then
   kubectl create ns opendatahub || true
 
@@ -92,8 +98,3 @@ if [ "${KSERVE_DEPLOY}" == "true" ]; then
   wait_for_pod_ready "opendatahub" "control-plane=kserve-controller-manager" 300s
 fi
 
-$SCRIPT_DIR/infra/deploy.gateway.ingress.sh
-
-if [ "${RHCL_DEPLOY}" == "true" ]; then
-  $SCRIPT_DIR/infra/deploy.kuadrant.sh
-fi

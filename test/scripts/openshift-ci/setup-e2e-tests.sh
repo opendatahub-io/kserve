@@ -90,7 +90,7 @@ fi
 
 if [[ "${DEPLOYMENT_PROFILE}" == "llm-d" ]]; then
   echo "⏳ Installing llm-d prerequisites"
-  $SCRIPT_DIR/setup-llm.sh --skip-kserve
+  $SCRIPT_DIR/setup-llm.sh --skip-kserve --deploy-kuadrant
 fi
 
 echo "⏳ Waiting for KServe CRDs"
@@ -99,18 +99,23 @@ kustomize build $PROJECT_ROOT/config/crd | oc apply --server-side=true -f -
 wait_for_crd llminferenceserviceconfigs.serving.kserve.io 90s
 
 echo "⏳ Installing KServe with Minio"
-kustomize build $PROJECT_ROOT/config/overlays/odh-test |
-  sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
-  sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
-  sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
-  sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
-  oc apply --server-side=true -f -
+
+# Update params.env with current image env variables
+cp "$PROJECT_ROOT/config/overlays/odh/params.env" "$PROJECT_ROOT/config/overlays/odh/params.env.bak"
+sed -i "s|^kserve-controller=.*$|kserve-controller=${KSERVE_CONTROLLER_IMAGE}|" "$PROJECT_ROOT/config/overlays/odh/params.env"
+sed -i "s|^kserve-agent=.*$|kserve-agent=${KSERVE_AGENT_IMAGE}|" "$PROJECT_ROOT/config/overlays/odh/params.env"
+sed -i "s|^kserve-router=.*$|kserve-router=${KSERVE_ROUTER_IMAGE}|" "$PROJECT_ROOT/config/overlays/odh/params.env"
+sed -i "s|^kserve-storage-initializer=.*$|kserve-storage-initializer=${STORAGE_INITIALIZER_IMAGE}|" "$PROJECT_ROOT/config/overlays/odh/params.env"
+sed -i "s|^sklearn=.*$|sklearn=${SKLEARN_IMAGE}|" "$PROJECT_ROOT/config/overlays/odh/params.env"
+
+kustomize build $PROJECT_ROOT/config/overlays/odh-test | oc apply --force-conflicts --server-side=true -f -
+mv "$PROJECT_ROOT/config/overlays/odh/params.env.bak" "$PROJECT_ROOT/config/overlays/odh/params.env"
 
 wait_for_crd datascienceclusters.datasciencecluster.opendatahub.io 90s
 wait_for_crd dscinitializations.dscinitialization.opendatahub.io 90s
              
-oc create -f ${PROJECT_ROOT}/config/overlays/odh-test/dsci.yaml
-oc create -f ${PROJECT_ROOT}/config/overlays/odh-test/dsc.yaml
+oc apply -f ${PROJECT_ROOT}/config/overlays/odh-test/dsci.yaml
+oc apply -f ${PROJECT_ROOT}/config/overlays/odh-test/dsc.yaml
 
 export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
 

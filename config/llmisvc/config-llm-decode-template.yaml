@@ -142,8 +142,8 @@ spec:
               --disable-log-requests \
               ${VLLM_ADDITIONAL_ARGS} \
               --enable-ssl-refresh \
-              --ssl-certfile /etc/ssl/certs/tls.crt \
-              --ssl-keyfile /etc/ssl/certs/tls.key"
+              --ssl-certfile /var/run/kserve/tls/tls.crt \
+              --ssl-keyfile /var/run/kserve/tls/tls.key"
         env:
           - name: HOME
             value: /home
@@ -187,7 +187,7 @@ spec:
             name: dshm
           - mountPath: /models
             name: model-cache
-          - mountPath: /etc/ssl/certs
+          - mountPath: /var/run/kserve/tls
             name: tls-certs
             readOnly: true
     initContainers:
@@ -231,14 +231,12 @@ spec:
           - "--vllm-port=8001"
           - "--connector=nixlv2"
           - "--secure-proxy=true"
-          - "--cert-path=/etc/ssl/certs"
+          - "--cert-path=/var/run/kserve/tls"
           - "--decoder-use-tls=true"
-          - "--decoder-tls-insecure-skip-verify=true"
           - "--prefiller-use-tls=true"
-          - "--prefiller-tls-insecure-skip-verify=true"
           - "--enable-ssrf-protection=true"
         volumeMounts:
-          - mountPath: /etc/ssl/certs
+          - mountPath: /var/run/kserve/tls
             name: tls-certs
             readOnly: true
         env:
@@ -246,6 +244,8 @@ spec:
             valueFrom:
               fieldRef:
                 fieldPath: metadata.namespace
+          - name: SSL_CERT_DIR
+            value: "/var/run/secrets/kubernetes.io/serviceaccount:/etc/pki/tls/certs"
     terminationGracePeriodSeconds: 30
     volumes:
       - emptyDir: { }

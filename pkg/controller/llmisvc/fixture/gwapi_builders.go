@@ -283,6 +283,12 @@ func WithBackendRefs(refs ...gatewayapi.HTTPBackendRef) HTTPRouteRuleOption {
 	}
 }
 
+func WithHTTPRouteGatewayRef(references ...gatewayapi.ParentReference) HTTPRouteOption {
+	return func(route *gatewayapi.HTTPRoute) {
+		route.Spec.ParentRefs = append(route.Spec.ParentRefs, references...)
+	}
+}
+
 func BackendRefInferencePool(name string) gatewayapi.HTTPBackendRef {
 	return gatewayapi.HTTPBackendRef{
 		BackendRef: gatewayapi.BackendRef{
@@ -332,10 +338,6 @@ func WithHTTPRule(ruleOpts ...HTTPRouteRuleOption) HTTPRouteOption {
 
 func Matches(matches ...gatewayapi.HTTPRouteMatch) HTTPRouteRuleOption {
 	return WithMatches(matches...)
-}
-
-func BackendRefs(refs ...gatewayapi.HTTPBackendRef) HTTPRouteRuleOption {
-	return WithBackendRefs(refs...)
 }
 
 func Timeouts(backendTimeout, requestTimeout string) HTTPRouteRuleOption {
@@ -428,7 +430,7 @@ func WithHTTPRouteParentStatus(parentRef gatewayapi.ParentReference, controllerN
 func WithHTTPRouteReadyStatus(controllerName string) HTTPRouteOption {
 	return func(route *gatewayapi.HTTPRoute) {
 		if len(route.Spec.ParentRefs) > 0 {
-			route.Status.RouteStatus.Parents = make([]gatewayapi.RouteParentStatus, len(route.Spec.ParentRefs))
+			route.Status.RouteStatus.Parents = make([]gatewayapi.RouteParentStatus, len(route.Spec.ParentRefs)*2)
 			for i, parentRef := range route.Spec.ParentRefs {
 				route.Status.RouteStatus.Parents[i] = gatewayapi.RouteParentStatus{
 					ParentRef:      parentRef,
@@ -446,6 +448,19 @@ func WithHTTPRouteReadyStatus(controllerName string) HTTPRouteOption {
 							Status:             metav1.ConditionTrue,
 							Reason:             "ResolvedRefs",
 							Message:            "HTTPRoute references resolved",
+							LastTransitionTime: metav1.Now(),
+						},
+					},
+				}
+
+				route.Status.RouteStatus.Parents[len(route.Spec.ParentRefs)+i] = gatewayapi.RouteParentStatus{
+					ParentRef:      parentRef,
+					ControllerName: "kuadrant.io/policy-controller",
+					Conditions: []metav1.Condition{
+						{
+							Type:               "kuadrant.io/AuthPolicyAffected",
+							Status:             metav1.ConditionTrue,
+							Reason:             "Accepted",
 							LastTransitionTime: metav1.Now(),
 						},
 					},

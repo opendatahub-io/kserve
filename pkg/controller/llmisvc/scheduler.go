@@ -315,16 +315,16 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerDeployment(ctx context.
 				continue
 			}
 
-			if slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "--configText") ||
-				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "-configText") ||
-				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "--configFile") ||
-				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "-configFile") {
+			if slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "--config-text") ||
+				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "-config-text") ||
+				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "--config-file") ||
+				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "-config-file") {
 				// When the configuration is overridden, don't add/override it.
 				break
 			}
 
 			d.Spec.Template.Spec.Containers[i].Args = append(d.Spec.Template.Spec.Containers[i].Args,
-				"--configText",
+				"--config-text",
 				schedulerConfigText(llmSvc),
 			)
 		}
@@ -338,36 +338,33 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerDeployment(ctx context.
 func schedulerConfigText(llmSvc *v1alpha1.LLMInferenceService) string {
 	switch {
 	case llmSvc.Spec.Prefill != nil:
+		// Always do P/D by default (threshold 0)
 		return `
 apiVersion: inference.networking.x-k8s.io/v1alpha1
 kind: EndpointPickerConfig
 plugins:
-- type: pd-profile-handler
-  parameters:
-    threshold: 100
-- type: prefill-header-handler
-- type: prefill-filter
-- type: decode-filter
-- type: prefix-cache-scorer
-- type: load-aware-scorer
-- type: max-score-picker
+  - type: prefill-header-handler
+  - type: prefill-filter
+  - type: decode-filter
+  - type: max-score-picker
+  - type: prefix-cache-scorer
+  - type: queue-scorer
+  - type: pd-profile-handler
+    parameters:
+      threshold: 0
 schedulingProfiles:
-- name: prefill
-  plugins:
-  - pluginRef: prefill-filter
-  - pluginRef: prefix-cache-scorer
-    weight: 2.0
-  - pluginRef: load-aware-scorer
-    weight: 1.0
-  - pluginRef: max-score-picker
-- name: decode
-  plugins:
-  - pluginRef: decode-filter
-  - pluginRef: prefix-cache-scorer
-    weight: 2.0
-  - pluginRef: load-aware-scorer
-    weight: 1.0
-  - pluginRef: max-score-picker
+  - name: prefill
+    plugins:
+      - pluginRef: prefill-filter
+      - pluginRef: queue-scorer
+        weight: 1.0
+      - pluginRef: max-score-picker
+  - name: decode
+    plugins:
+      - pluginRef: decode-filter
+      - pluginRef: queue-scorer
+        weight: 1.0
+      - pluginRef: max-score-picker
 `
 	default:
 		return `
@@ -444,7 +441,8 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerRole(llmSvc *v1alpha1.L
 		},
 		Rules: []rbacv1.PolicyRule{
 			{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get", "list", "watch"}},
-			{APIGroups: []string{"inference.networking.x-k8s.io"}, Resources: []string{"inferencepools", "inferencemodels"}, Verbs: []string{"get", "list", "watch"}},
+			{APIGroups: []string{"inference.networking.x-k8s.io"}, Resources: []string{"inferencepools", "inferenceobjectives"}, Verbs: []string{"get", "list", "watch"}},
+			{APIGroups: []string{"inference.networking.k8s.io"}, Resources: []string{"inferencepools"}, Verbs: []string{"get", "list", "watch"}},
 			{APIGroups: []string{"discovery.k8s.io"}, Resources: []string{"endpointslices"}, Verbs: []string{"get", "list", "watch"}},
 		},
 	}

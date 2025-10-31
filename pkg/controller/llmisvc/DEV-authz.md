@@ -17,7 +17,7 @@ export LLMISVC_NAME=facebook-opt-125m-single
 export TEST_NS=llm-test
 
 export NS=llm-test
-export LLM_ISVC=docs/samples/llmisvc/opt-125m/llm-inference-service-facebook-opt-125m-cpu.yaml
+export LLM_ISVC=docs/samples/llmisvc/opt-125m-cpu/llm-inference-service-facebook-opt-125m-cpu.yaml
 export LLM_ISVC_NAME=$(cat $LLM_ISVC | yq .metadata.name)
 
 ```
@@ -69,22 +69,6 @@ metadata:
   name: kuadrant
   namespace: kuadrant-system
 EOF
-```
-
-**Create Pull Secret**
-
-Refer to [this doc](https://docs.redhat.com/en/documentation/red_hat_connectivity_link/1.0/html-single/installing_connectivity_link_on_openshift/index#auth-registry-wasm-plugin)
-
-You can get the secret from [this site](https://access.redhat.com/terms-based-registry/) and gateway namespace(`openshift-ingress`)
-
-```shell
-kubectl create secret docker-registry wasm-plugin-pull-secret -n openshift-ingress \ --docker-server=registry.redhat.io \ --docker-username=<your-registry-service-account-username >\ --docker-password=<your-registry-service-account-password>
-
-```
-
-**Update gateway label**
-```shell
-kubectl label gateway openshift-ai-inference -n openshift-ingress kuadrant.io/gateway="true"
 ```
 
 **Authentication with KubernetesTokenReview**
