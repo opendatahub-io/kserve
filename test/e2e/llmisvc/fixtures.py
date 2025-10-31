@@ -732,7 +732,7 @@ def test_case(request):
             api_version=f"serving.kserve.io/{api_version}",
             kind="LLMInferenceService",
             metadata=client.V1ObjectMeta(
-                name=tc.service_name, namespace=KSERVE_TEST_NAMESPACE
+                name=f"{tc.service_name}-{api_version}", namespace=KSERVE_TEST_NAMESPACE
             ),
             spec={
                 "baseRefs": [{"name": base_ref} for base_ref in unique_base_refs],
