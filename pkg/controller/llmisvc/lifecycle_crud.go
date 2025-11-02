@@ -139,6 +139,9 @@ func Update[O client.Object, T client.Object](ctx context.Context, c clientWithR
 		"curr", curr,
 	)
 
+	// Copy resourceVersion from current object to expected object for optimistic concurrency control
+	expected.SetResourceVersion(curr.GetResourceVersion())
+
 	if err := c.Update(ctx, expected); err != nil {
 		return fmt.Errorf("failed to update %s %s/%s: %w", typeLogLine, expected.GetNamespace(), expected.GetName(), err)
 	}
