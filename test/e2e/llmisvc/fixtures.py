@@ -701,7 +701,8 @@ def test_case(request):
         # Create unique configs for this test to avoid parallel conflicts
         unique_base_refs = []
         for base_ref in tc.base_refs:
-            unique_config_name = generate_k8s_safe_suffix(base_ref, [tc.service_name])
+            # Include API version in config name to avoid collisions between v1alpha1 and v1alpha2 tests
+            unique_config_name = generate_k8s_safe_suffix(base_ref, [tc.service_name, api_version])
             unique_base_refs.append(unique_config_name)
 
             config_spec = LLMINFERENCESERVICE_CONFIGS[base_ref]
