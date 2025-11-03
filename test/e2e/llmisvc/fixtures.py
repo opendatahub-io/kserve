@@ -584,8 +584,8 @@ LLMINFERENCESERVICE_CONFIGS = {
             "route": {
                 "http": {
                     "refs": [
-                        {"name": "router-route-1"},
-                        {"name": "router-route-2"},
+                        {"name": "{service_name}-route-1"},
+                        {"name": "{service_name}-route-2"},
                     ],
                 },
             },
@@ -601,8 +601,8 @@ LLMINFERENCESERVICE_CONFIGS = {
             "route": {
                 "http": {
                     "refs": [
-                        {"name": "router-route-3"},
-                        {"name": "router-route-4"},
+                        {"name": "{service_name}-route-1"},
+                        {"name": "{service_name}-route-2"},
                     ],
                 },
             },
@@ -698,6 +698,25 @@ def test_case(request, api_version):
         # Use api_version parameter from fixture (not from test case)
         # This ensures the correct API version is used when the test is parameterized
 
+        # Generate service name with API version for resource naming
+        service_name_with_version = f"{tc.service_name}-{api_version}"
+
+        # Create dynamic HTTPRoutes if this test uses router-with-refs
+        # This must happen before configs are created since configs reference the route names
+        if "router-with-refs" in tc.base_refs or "router-with-refs-pd" in tc.base_refs:
+            from .test_resources import get_router_routes, ROUTER_GATEWAYS
+
+            # Determine which gateway to use
+            gateway_name = "router-gateway-1" if "router-with-refs" in tc.base_refs else "router-gateway-2"
+            gateway_index = 0 if "router-with-refs" in tc.base_refs else 1
+
+            # Create gateway (idempotent)
+            create_router_resources(gateways=[ROUTER_GATEWAYS[gateway_index]])
+
+            # Create dynamic routes with versioned names
+            dynamic_routes = get_router_routes(service_name_with_version, gateway_name)
+            create_router_resources(gateways=[], routes=dynamic_routes, kserve_client=kserve_client)
+
         # Create unique configs for this test to avoid parallel conflicts
         unique_base_refs = []
         for base_ref in tc.base_refs:
@@ -708,9 +727,8 @@ def test_case(request, api_version):
             config_spec = LLMINFERENCESERVICE_CONFIGS[base_ref]
 
             # Apply template variables (e.g., {service_name}) to config spec
-            # Use base service name without API version for InferencePool references
-            # since InferencePools are shared infrastructure resources across API versions
-            config_spec_resolved = apply_template_variables(config_spec, tc.service_name)
+            # This ensures route refs and pool names use the versioned service name
+            config_spec_resolved = apply_template_variables(config_spec, service_name_with_version)
 
             config_body = {
                 "apiVersion": f"serving.kserve.io/{api_version}",
@@ -738,7 +756,7 @@ def test_case(request, api_version):
             api_version=f"serving.kserve.io/{api_version}",
             kind="LLMInferenceService",
             metadata=client.V1ObjectMeta(
-                name=f"{tc.service_name}-{api_version}", namespace=KSERVE_TEST_NAMESPACE
+                name=service_name_with_version, namespace=KSERVE_TEST_NAMESPACE
             ),
             spec={
                 "baseRefs": [{"name": base_ref} for base_ref in unique_base_refs],

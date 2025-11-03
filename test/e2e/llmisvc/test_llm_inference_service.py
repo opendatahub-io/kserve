@@ -37,7 +37,7 @@ from .fixtures import (
     test_case,  # noqa: F401,F811
 )
 from .logging import log_execution
-from .test_resources import ROUTER_GATEWAYS, ROUTER_ROUTES
+from .test_resources import ROUTER_GATEWAYS
 
 KSERVE_PLURAL_LLMINFERENCESERVICE = "llminferenceservices"
 
@@ -172,12 +172,7 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 prompt="KServe is a",
                 payload_formatter=completions_payload,
                 response_assertion=create_response_assertion(with_field="choices"),
-                before_test=[
-                    lambda: create_router_resources(
-                        gateways=[ROUTER_GATEWAYS[0]],
-                        routes=[ROUTER_ROUTES[0], ROUTER_ROUTES[1]],
-                    ),
-                ],
+                # Routes are now created dynamically in the fixture based on service_name_with_version
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
@@ -226,12 +221,7 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.",
                 payload_formatter=completions_payload,
                 response_assertion=create_response_assertion(with_field="choices"),
-                before_test=[
-                    lambda: create_router_resources(
-                        gateways=[ROUTER_GATEWAYS[1]],
-                        routes=[ROUTER_ROUTES[2], ROUTER_ROUTES[3]],
-                    ),
-                ],
+                # Routes are now created dynamically in the fixture based on service_name_with_version
             ),
             marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
         ),
