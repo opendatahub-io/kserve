@@ -708,9 +708,9 @@ def test_case(request, api_version):
             config_spec = LLMINFERENCESERVICE_CONFIGS[base_ref]
 
             # Apply template variables (e.g., {service_name}) to config spec
-            # This allows configs to reference the actual service name including API version
-            service_name_with_version = f"{tc.service_name}-{api_version}"
-            config_spec_resolved = apply_template_variables(config_spec, service_name_with_version)
+            # Use base service name without API version for InferencePool references
+            # since InferencePools are shared infrastructure resources across API versions
+            config_spec_resolved = apply_template_variables(config_spec, tc.service_name)
 
             config_body = {
                 "apiVersion": f"serving.kserve.io/{api_version}",
