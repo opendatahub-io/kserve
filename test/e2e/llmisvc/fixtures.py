@@ -364,7 +364,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "path": {
                                             "type": "PathPrefix",
-                                            "value": "/kserve-ci-e2e-test/custom-route-timeout-test/v1/completions",
+                                            "value": "/kserve-ci-e2e-test/{service_name}/v1/completions",
                                         },
                                     },
                                 ],
@@ -383,7 +383,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "group": "inference.networking.x-k8s.io",
                                         "kind": "InferencePool",
-                                        "name": "custom-route-timeout-test-inference-pool",
+                                        "name": "{service_name}-inference-pool",
                                         "namespace": KSERVE_TEST_NAMESPACE,
                                         "port": 8000,
                                     }
@@ -398,7 +398,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "path": {
                                             "type": "PathPrefix",
-                                            "value": "/kserve-ci-e2e-test/custom-route-timeout-test/v1/chat/completions",
+                                            "value": "/kserve-ci-e2e-test/{service_name}/v1/chat/completions",
                                         },
                                     },
                                 ],
@@ -417,7 +417,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "group": "inference.networking.x-k8s.io",
                                         "kind": "InferencePool",
-                                        "name": "custom-route-timeout-test-inference-pool",
+                                        "name": "{service_name}-inference-pool",
                                         "namespace": KSERVE_TEST_NAMESPACE,
                                         "port": 8000,
                                     }
@@ -432,7 +432,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "path": {
                                             "type": "PathPrefix",
-                                            "value": "/kserve-ci-e2e-test/custom-route-timeout-test",
+                                            "value": "/kserve-ci-e2e-test/{service_name}",
                                         },
                                     },
                                 ],
@@ -451,7 +451,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "group": "",
                                         "kind": "Service",
-                                        "name": "custom-route-timeout-test-kserve-workload-svc",
+                                        "name": "{service_name}-kserve-workload-svc",
                                         "namespace": KSERVE_TEST_NAMESPACE,
                                         "port": 8000,
                                     }
@@ -479,7 +479,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "path": {
                                             "type": "PathPrefix",
-                                            "value": "/kserve-ci-e2e-test/custom-route-timeout-pd-test/v1/completions",
+                                            "value": "/kserve-ci-e2e-test/{service_name}/v1/completions",
                                         },
                                     },
                                 ],
@@ -498,7 +498,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "group": "inference.networking.x-k8s.io",
                                         "kind": "InferencePool",
-                                        "name": "custom-route-timeout-pd-test-inference-pool",
+                                        "name": "{service_name}-inference-pool",
                                         "namespace": KSERVE_TEST_NAMESPACE,
                                         "port": 8000,
                                     }
@@ -513,7 +513,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "path": {
                                             "type": "PathPrefix",
-                                            "value": "/kserve-ci-e2e-test/custom-route-timeout-pd-test/v1/chat/completions",
+                                            "value": "/kserve-ci-e2e-test/{service_name}/v1/chat/completions",
                                         },
                                     },
                                 ],
@@ -532,7 +532,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "group": "inference.networking.x-k8s.io",
                                         "kind": "InferencePool",
-                                        "name": "custom-route-timeout-pd-test-inference-pool",
+                                        "name": "{service_name}-inference-pool",
                                         "namespace": KSERVE_TEST_NAMESPACE,
                                         "port": 8000,
                                     }
@@ -547,7 +547,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "path": {
                                             "type": "PathPrefix",
-                                            "value": "/kserve-ci-e2e-test/custom-route-timeout-pd-test",
+                                            "value": "/kserve-ci-e2e-test/{service_name}",
                                         },
                                     },
                                 ],
@@ -566,7 +566,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "group": "",
                                         "kind": "Service",
-                                        "name": "custom-route-timeout-pd-test-kserve-workload-svc",
+                                        "name": "{service_name}-kserve-workload-svc",
                                         "namespace": KSERVE_TEST_NAMESPACE,
                                         "port": 8000,
                                     }
@@ -706,6 +706,11 @@ def test_case(request):
 
             config_spec = LLMINFERENCESERVICE_CONFIGS[base_ref]
 
+            # Apply template variables (e.g., {service_name}) to config spec
+            # This allows configs to reference the actual service name including API version
+            service_name_with_version = f"{tc.service_name}-{api_version}"
+            config_spec_resolved = apply_template_variables(config_spec, service_name_with_version)
+
             config_body = {
                 "apiVersion": f"serving.kserve.io/{api_version}",
                 "kind": "LLMInferenceServiceConfig",
@@ -713,7 +718,7 @@ def test_case(request):
                     "name": unique_config_name,
                     "namespace": KSERVE_TEST_NAMESPACE,
                 },
-                "spec": config_spec,
+                "spec": config_spec_resolved,
             }
 
             _create_or_update_llmisvc_config(
@@ -787,6 +792,21 @@ def generate_service_name(test_name: str, base_refs: List[str]) -> str:
 def generate_test_id(test_case) -> str:
     """Generate a test ID from base refs."""
     return "-".join(test_case.base_refs)
+
+
+def apply_template_variables(obj, service_name: str):
+    """Recursively replace {service_name} template variables in nested dicts/lists.
+
+    This allows test fixture configs to use template variables that get replaced
+    with the actual service name (including API version suffix) at runtime.
+    """
+    if isinstance(obj, dict):
+        return {k: apply_template_variables(v, service_name) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [apply_template_variables(item, service_name) for item in obj]
+    elif isinstance(obj, str) and "{service_name}" in obj:
+        return obj.replace("{service_name}", service_name)
+    return obj
 
 
 def create_router_resources(gateways, routes=None, kserve_client=None):
