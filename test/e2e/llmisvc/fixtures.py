@@ -663,7 +663,7 @@ LLMINFERENCESERVICE_CONFIGS = {
 
 
 @pytest.fixture(scope="function")
-def test_case(request):
+def test_case(request, api_version):
     tc = request.param
 
     inject_k8s_proxy()
@@ -695,8 +695,8 @@ def test_case(request):
             tc.service_name = generate_service_name(request.node.name, tc.base_refs)
         tc.model_name = _get_model_name_from_configs(tc.base_refs)
 
-        # Get API version from test case
-        api_version = tc.api_version
+        # Use api_version parameter from fixture (not from test case)
+        # This ensures the correct API version is used when the test is parameterized
 
         # Create unique configs for this test to avoid parallel conflicts
         unique_base_refs = []
