@@ -756,7 +756,11 @@ def test_case(request, api_version):
             api_version=f"serving.kserve.io/{api_version}",
             kind="LLMInferenceService",
             metadata=client.V1ObjectMeta(
-                name=service_name_with_version, namespace=KSERVE_TEST_NAMESPACE
+                name=service_name_with_version,
+                namespace=KSERVE_TEST_NAMESPACE,
+                annotations={
+                    "security.opendatahub.io/enable-auth": "false",
+                },
             ),
             spec={
                 "baseRefs": [{"name": base_ref} for base_ref in unique_base_refs],
