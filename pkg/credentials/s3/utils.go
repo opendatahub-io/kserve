@@ -43,40 +43,16 @@ func BuildS3EnvVars(annotations map[string]string, secretData *map[string][]byte
 		s3Endpoint = getEnvValue(annotations, secretData, InferenceServiceS3SecretEndpointAnnotation, S3Endpoint, s3Config.S3Endpoint)
 	}
 	if s3Endpoint != "" {
-		// Default to using https for the full url.
-		s3EndpointUrl := "https://" + s3Endpoint
-		// If the configured endpoint contains a protocol prefix override any configured use-https value.
-		// Otherwise use the configured use-https value to form the full url.
-		switch {
-		case strings.HasPrefix(s3Endpoint, "https://"):
+		s3UseHttps, formattedS3Endpoint, s3EndpointUrl := getEndpointConfiguration(s3Endpoint, annotations, secretData, s3Config)
+		if s3UseHttps != "" {
 			envs = append(envs, corev1.EnvVar{
 				Name:  S3UseHttps,
-				Value: "1",
+				Value: s3UseHttps,
 			})
-			s3EndpointUrl = s3Endpoint
-			s3Endpoint = strings.TrimPrefix(s3Endpoint, "https://")
-		case strings.HasPrefix(s3Endpoint, "http://"):
-			envs = append(envs, corev1.EnvVar{
-				Name:  S3UseHttps,
-				Value: "0",
-			})
-			s3EndpointUrl = s3Endpoint
-			s3Endpoint = strings.TrimPrefix(s3Endpoint, "http://")
-		default:
-			s3UseHttps := getEnvValue(annotations, secretData, InferenceServiceS3SecretHttpsAnnotation, S3UseHttps, s3Config.S3UseHttps)
-			if s3UseHttps != "" {
-				envs = append(envs, corev1.EnvVar{
-					Name:  S3UseHttps,
-					Value: s3UseHttps,
-				})
-			}
-			if s3UseHttps == "0" {
-				s3EndpointUrl = "http://" + s3Endpoint
-			}
 		}
 		envs = append(envs, corev1.EnvVar{
 			Name:  S3Endpoint,
-			Value: s3Endpoint,
+			Value: formattedS3Endpoint,
 		})
 		envs = append(envs, corev1.EnvVar{
 			Name:  AWSEndpointUrl,
@@ -180,4 +156,36 @@ func getSecretValueFromPtr(secretData *map[string][]byte, secretDataKey string) 
 	}
 
 	return secretValue, found
+}
+
+func getEndpointConfiguration(configuredS3Endpoint string, annotations map[string]string, secretData *map[string][]byte, s3Config *S3Config) (string, string, string) {
+	// Remove any leading or trailing spaces from the configured endpoint.
+	configuredS3Endpoint = strings.TrimSpace(configuredS3Endpoint)
+
+	var s3UseHttps string
+	var s3Endpoint string
+	var s3EndpointUrl string
+	// If the configured endpoint contains a protocol prefix override any configured use-https value.
+	// Otherwise use the configured use-https value to form the full url.
+	switch {
+	case strings.HasPrefix(strings.ToLower(configuredS3Endpoint), "https://"):
+		s3UseHttps = "1"
+		s3Endpoint = configuredS3Endpoint[8:]
+		s3EndpointUrl = configuredS3Endpoint
+	case strings.HasPrefix(strings.ToLower(configuredS3Endpoint), "http://"):
+		s3UseHttps = "0"
+		s3Endpoint = configuredS3Endpoint[7:]
+		s3EndpointUrl = configuredS3Endpoint
+	default:
+		s3UseHttps = getEnvValue(annotations, secretData, InferenceServiceS3SecretHttpsAnnotation, S3UseHttps, s3Config.S3UseHttps)
+		s3Endpoint = configuredS3Endpoint
+		if s3UseHttps == "0" {
+			s3EndpointUrl = "http://" + configuredS3Endpoint
+		} else {
+			// https by default.
+			s3EndpointUrl = "https://" + configuredS3Endpoint
+		}
+	}
+
+	return s3UseHttps, s3Endpoint, s3EndpointUrl
 }
