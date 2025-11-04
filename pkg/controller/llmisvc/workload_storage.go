@@ -232,7 +232,7 @@ func (r *LLMInferenceServiceReconciler) attachStorageInitializer(modelUri string
 	return nil
 }
 
-func injectCaBundle(namespace string, podSpec *corev1.PodSpec, initContainer *corev1.Container, storageConfig *kserveTypes.StorageInitializerConfig) bool {
+func injectCaBundle(namespace string, podSpec *corev1.PodSpec, initContainer *corev1.Container, storageConfig *kserveTypes.StorageInitializerConfig) bool { //nolint:unparam
 	// Inject CA bundle configMap if caBundleConfigMapName or constants.DefaultGlobalCaBundleConfigMapName annotation is set
 	caBundleConfigMapName := storageConfig.CaBundleConfigMapName
 	if ok := needCaBundleMount(caBundleConfigMapName, initContainer); ok {

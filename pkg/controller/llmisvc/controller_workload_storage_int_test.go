@@ -72,7 +72,7 @@ var (
            		"s3CABundleConfigMap": "local-s3-custom-certs",
            		"s3CABundle": "/path/to/localcerts"
        		}
-    	}`
+    	}` // #nosec G101
 )
 
 var _ = Describe("LLMInferenceService Controller - Storage configuration", func() {
