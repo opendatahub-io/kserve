@@ -21,6 +21,9 @@ ROUTER_GATEWAYS = [
         "metadata": {
             "name": "router-gateway-1",
             "namespace": KSERVE_TEST_NAMESPACE,
+            "annotations": {
+                "security.opendatahub.io/enable-auth": "false",
+            },
         },
         "spec": {
             "gatewayClassName": "openshift-default",
@@ -44,6 +47,9 @@ ROUTER_GATEWAYS = [
         "metadata": {
             "name": "router-gateway-2",
             "namespace": KSERVE_TEST_NAMESPACE,
+            "annotations": {
+                "security.opendatahub.io/enable-auth": "false",
+            },
         },
         "spec": {
             "gatewayClassName": "openshift-default",
