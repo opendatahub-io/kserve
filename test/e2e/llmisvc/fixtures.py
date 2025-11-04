@@ -844,6 +844,26 @@ def create_router_resources(gateways, routes=None, kserve_client=None):
         try:
             create_or_update_gateway(kserve_client, gateway)
             logger.info(f"✓ Created/updated Gateway {gateway_name}")
+
+            # Delete AuthPolicy if Gateway has disable-auth annotation
+            # This handles the case where Kuadrant created an AuthPolicy before the annotation was added
+            annotations = gateway.get("metadata", {}).get("annotations", {})
+            if annotations.get("security.opendatahub.io/enable-auth") == "false":
+                auth_policy_name = f"{gateway_name}-authn"
+                try:
+                    kserve_client.api_instance.delete_namespaced_custom_object(
+                        group="kuadrant.io",
+                        version="v1",
+                        namespace=KSERVE_TEST_NAMESPACE,
+                        plural="authpolicies",
+                        name=auth_policy_name,
+                    )
+                    logger.info(f"✓ Deleted AuthPolicy {auth_policy_name} for Gateway with auth disabled")
+                except client.rest.ApiException as e:
+                    if e.status == 404:
+                        logger.debug(f"AuthPolicy {auth_policy_name} does not exist (already deleted or never created)")
+                    else:
+                        logger.warning(f"Failed to delete AuthPolicy {auth_policy_name}: {e}")
         except Exception as e:
             logger.error(f"❌ Failed to create Gateway {gateway_name}: {e}")
             raise
