@@ -464,6 +464,198 @@ func TestBuildS3EnvVars(t *testing.T) {
 				},
 			},
 		},
+		"LocalWithHttpProtocol": {
+			secret: &map[string][]byte{
+				S3Endpoint: []byte("http://localhost:9000"),
+				S3UseHttps: []byte("1"),
+			},
+			config: S3Config{
+				S3Endpoint:               "s3.aws.com-config",
+				S3UseVirtualBucket:       "false",
+				S3UseAccelerate:          "false",
+				S3UseAnonymousCredential: "false",
+				S3CABundleConfigMap:      "value-config",
+				S3CABundle:               "value-config",
+			},
+			expected: []corev1.EnvVar{
+				{
+					Name:  S3UseHttps,
+					Value: "0",
+				},
+				{
+					Name:  S3Endpoint,
+					Value: "localhost:9000",
+				},
+				{
+					Name:  AWSEndpointUrl,
+					Value: "http://localhost:9000",
+				},
+				{
+					Name:  AWSAnonymousCredential,
+					Value: "false",
+				},
+				{
+					Name:  S3UseVirtualBucket,
+					Value: "false",
+				},
+				{
+					Name:  S3UseAccelerate,
+					Value: "false",
+				},
+				{
+					Name:  AWSCABundle,
+					Value: "value-config",
+				},
+				{
+					Name:  AWSCABundleConfigMap,
+					Value: "value-config",
+				},
+			},
+		},
+		"LocalWithoutHttpProtocol": {
+			secret: &map[string][]byte{
+				S3Endpoint: []byte("localhost:9000"),
+				S3UseHttps: []byte("0"),
+			},
+			config: S3Config{
+				S3Endpoint:               "s3.aws.com-config",
+				S3UseVirtualBucket:       "false",
+				S3UseAccelerate:          "false",
+				S3UseAnonymousCredential: "false",
+				S3CABundleConfigMap:      "value-config",
+				S3CABundle:               "value-config",
+			},
+			expected: []corev1.EnvVar{
+				{
+					Name:  S3UseHttps,
+					Value: "0",
+				},
+				{
+					Name:  S3Endpoint,
+					Value: "localhost:9000",
+				},
+				{
+					Name:  AWSEndpointUrl,
+					Value: "http://localhost:9000",
+				},
+				{
+					Name:  AWSAnonymousCredential,
+					Value: "false",
+				},
+				{
+					Name:  S3UseVirtualBucket,
+					Value: "false",
+				},
+				{
+					Name:  S3UseAccelerate,
+					Value: "false",
+				},
+				{
+					Name:  AWSCABundle,
+					Value: "value-config",
+				},
+				{
+					Name:  AWSCABundleConfigMap,
+					Value: "value-config",
+				},
+			},
+		},
+		"LocalWithHttpsProtocol": {
+			secret: &map[string][]byte{
+				S3Endpoint: []byte("https://localhost:9000/path"),
+				S3UseHttps: []byte("0"),
+			},
+			config: S3Config{
+				S3Endpoint:               "s3.aws.com-config",
+				S3UseVirtualBucket:       "false",
+				S3UseAccelerate:          "false",
+				S3UseAnonymousCredential: "false",
+				S3CABundleConfigMap:      "value-config",
+				S3CABundle:               "value-config",
+			},
+			expected: []corev1.EnvVar{
+				{
+					Name:  S3UseHttps,
+					Value: "1",
+				},
+				{
+					Name:  S3Endpoint,
+					Value: "localhost:9000/path",
+				},
+				{
+					Name:  AWSEndpointUrl,
+					Value: "https://localhost:9000/path",
+				},
+				{
+					Name:  AWSAnonymousCredential,
+					Value: "false",
+				},
+				{
+					Name:  S3UseVirtualBucket,
+					Value: "false",
+				},
+				{
+					Name:  S3UseAccelerate,
+					Value: "false",
+				},
+				{
+					Name:  AWSCABundle,
+					Value: "value-config",
+				},
+				{
+					Name:  AWSCABundleConfigMap,
+					Value: "value-config",
+				},
+			},
+		},
+		"LocalWithoutHttpsProtocol": {
+			secret: &map[string][]byte{
+				S3Endpoint: []byte("localhost:9000/path"),
+				S3UseHttps: []byte("1"),
+			},
+			config: S3Config{
+				S3Endpoint:               "s3.aws.com-config",
+				S3UseVirtualBucket:       "false",
+				S3UseAccelerate:          "false",
+				S3UseAnonymousCredential: "false",
+				S3CABundleConfigMap:      "value-config",
+				S3CABundle:               "value-config",
+			},
+			expected: []corev1.EnvVar{
+				{
+					Name:  S3UseHttps,
+					Value: "1",
+				},
+				{
+					Name:  S3Endpoint,
+					Value: "localhost:9000/path",
+				},
+				{
+					Name:  AWSEndpointUrl,
+					Value: "https://localhost:9000/path",
+				},
+				{
+					Name:  AWSAnonymousCredential,
+					Value: "false",
+				},
+				{
+					Name:  S3UseVirtualBucket,
+					Value: "false",
+				},
+				{
+					Name:  S3UseAccelerate,
+					Value: "false",
+				},
+				{
+					Name:  AWSCABundle,
+					Value: "value-config",
+				},
+				{
+					Name:  AWSCABundleConfigMap,
+					Value: "value-config",
+				},
+			},
+		},
 	}
 	for name, scenario := range scenarios {
 		envs := BuildS3EnvVars(scenario.annotations, scenario.secret, &scenario.config)
