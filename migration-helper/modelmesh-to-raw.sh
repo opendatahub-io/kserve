@@ -1930,12 +1930,6 @@ process_inference_services() {
             echo "  🔄 Updated model format version from opset1 to opset13"
         fi
 
-        # Add OpenVINO auto-versioning annotation when keeping current configuration
-        if [[ "$keep_current_config" == "true" ]]; then
-            transformed_isvc=$(echo "$transformed_isvc" | yq '.metadata.annotations."storage.kserve.io/ovms-auto-versioning" = "1"')
-            echo "  🔧 Applied OpenVINO auto-versioning annotation: storage.kserve.io/ovms-auto-versioning=1"
-        fi
-
         # Save original InferenceService for review (both dry-run and preserve-namespace modes)
         save_original_resource "inferenceservice" "$isvc_name" "$FROM_NS"
 
