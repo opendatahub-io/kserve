@@ -317,6 +317,15 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerInferencePool(ctx conte
 		ip.Spec = *llmSvc.Spec.Router.Scheduler.Pool.Spec.DeepCopy()
 	}
 
+	// Ensure endpointPickerRef.port is set (required by GIE v1 API)
+	// If not already set, default to scheduler gRPC port (9002)
+	if ip.Spec.EndpointPickerRef.Port == nil {
+		ip.Spec.EndpointPickerRef.Port = &igwv1.Port{
+			Number: 9002,
+		}
+		logger.V(2).Info("Defaulting endpointPickerRef.port to 9002 for GIE v1 compatibility")
+	}
+
 	logger.V(2).Info("Expected router InferencePool", "inferencepool", ip)
 
 	return ip
