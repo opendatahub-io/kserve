@@ -60,8 +60,15 @@ if [ "$SETUP_E2E" = "true" ]; then
 fi
 
 # Use certify go module to get the CA certs
-export REQUESTS_CA_BUNDLE="/tmp/ca.crt"
-echo "REQUESTS_CA_BUNDLE=$(cat ${REQUESTS_CA_BUNDLE})"
+# For serverless it is configured here: infra/deploy.serverless.sh
+# For Raw: setup-e2e-tests.sh
+if [ ! -s "/tmp/ca.crt" ]; then
+  echo "⚠️  Failed to extract CA certificate, using system defaults... early failing..."
+else
+  echo "✅ CA certificate extracted"
+  export REQUESTS_CA_BUNDLE="/tmp/ca.crt"
+  echo "REQUESTS_CA_BUNDLE=$(cat ${REQUESTS_CA_BUNDLE})"
+fi
 
 echo "Run E2E tests: ${MARKERS}"
 pushd $PROJECT_ROOT >/dev/null
