@@ -35,12 +35,14 @@ install_upstream_istio() {
   oc create namespace openshift-ingress >/dev/null 2>&1 || true
 
   # Install Istio with GIE support
+  # Use 'apply' instead of 'create' to update existing resources in reused CI clusters
   echo "📦 Installing Istio with GIE support..."
-  oc create -f "${PROJECT_ROOT}/test/overlays/llm-istio-experimental" -n istio-system || true
+  oc apply --server-side=true -f "${PROJECT_ROOT}/test/overlays/llm-istio-experimental" -n istio-system
 
   # Wait for Istio to be ready
+  # Removed '|| true' to surface real failures
   echo "⏳ Waiting for Istio pods to be ready..."
-  oc wait --for=condition=Ready pods --all --timeout=240s -n istio-system || true
+  oc wait --for=condition=Ready pods --all --timeout=240s -n istio-system
 
   # Create GatewayClass for Istio controller
   echo "📦 Creating Istio GatewayClass..."
