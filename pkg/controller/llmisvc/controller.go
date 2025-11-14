@@ -256,7 +256,7 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha2.LLMInferenceService{}).
 		WithOptions(controller.Options{
-			MaxConcurrentReconciles: 8, // Reconcile different objects in parallel to increase throughput.
+			MaxConcurrentReconciles: 4, // Reduced from 8 to limit conversion webhook burst load during dual InferencePool creation.
 		}).
 		Watches(&v1alpha2.LLMInferenceServiceConfig{}, r.enqueueOnLLMInferenceServiceConfigChange(logger)).
 		Owns(&netv1.Ingress{}, builder.WithPredicates(childResourcesPredicate)).

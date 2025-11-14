@@ -23,6 +23,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"time"
 
 	"k8s.io/utils/ptr"
 
@@ -168,6 +169,11 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerInferencePool(ctx cont
 	if err := Reconcile(ctx, r, llmSvc, &igwv1.InferencePool{}, expected, semanticInferencePoolIsEqual); err != nil {
 		return err
 	}
+
+	// Small delay to prevent webhook burst load when creating dual InferencePools.
+	// This gives the conversion webhook time to process the v1 pool creation
+	// before attempting the v1alpha2 pool, reducing concurrent webhook load.
+	time.Sleep(100 * time.Millisecond)
 
 	// 2) Ensure v1alpha2 InferencePool (dynamic) exists/updated.
 	if err := r.reconcileAlpha2Pool(ctx, llmSvc, expected); err != nil {
