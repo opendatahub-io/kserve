@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	. "github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 	. "github.com/kserve/kserve/pkg/testing"
@@ -53,7 +53,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				}()
 
 				llmSvc := LLMInferenceService(svcName,
-					InNamespace[*v1alpha1.LLMInferenceService](nsName),
+					InNamespace[*v1alpha2.LLMInferenceService](nsName),
 					WithModelURI("hf://facebook/opt-125m"),
 					WithManagedRoute(),
 					WithManagedGateway(),
@@ -83,10 +83,10 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				// then - LLMInferenceService should mark HTTPRoutes as NOT ready
 				// because AuthPolicy enforcement is missing
 				Eventually(func(g Gomega, ctx context.Context) error {
-					current := &v1alpha1.LLMInferenceService{}
+					current := &v1alpha2.LLMInferenceService{}
 					g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), current)).To(Succeed())
 
-					httpRoutesCondition := current.Status.GetCondition(v1alpha1.HTTPRoutesReady)
+					httpRoutesCondition := current.Status.GetCondition(v1alpha2.HTTPRoutesReady)
 					g.Expect(httpRoutesCondition).ToNot(BeNil(), "HTTPRoutesReady condition should be set")
 					g.Expect(httpRoutesCondition.IsFalse()).To(BeTrue(), "HTTPRoutesReady should be False when AuthPolicy is missing")
 					g.Expect(httpRoutesCondition.Message).To(ContainSubstring("Authentication is not enforced"))
@@ -112,7 +112,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				}()
 
 				llmSvc := LLMInferenceService(svcName,
-					InNamespace[*v1alpha1.LLMInferenceService](nsName),
+					InNamespace[*v1alpha2.LLMInferenceService](nsName),
 					WithModelURI("hf://facebook/opt-125m"),
 					WithManagedRoute(),
 					WithManagedGateway(),
@@ -140,8 +140,8 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
 
 				// then - LLMInferenceService should be ready
-				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
-					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
+				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha2.LLMInferenceService) {
+					g.Expect(current.Status).To(HaveCondition(string(v1alpha2.HTTPRoutesReady), "True"))
 				})).WithContext(ctx).Should(Succeed())
 			})
 		})
@@ -164,7 +164,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				}()
 
 				llmSvc := LLMInferenceService(svcName,
-					InNamespace[*v1alpha1.LLMInferenceService](nsName),
+					InNamespace[*v1alpha2.LLMInferenceService](nsName),
 					WithModelURI("hf://facebook/opt-125m"),
 					WithManagedRoute(),
 					WithManagedGateway(),
@@ -195,8 +195,8 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
 
 				// then - LLMInferenceService should be ready (no AuthPolicy required)
-				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
-					g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
+				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha2.LLMInferenceService) {
+					g.Expect(current.Status).To(HaveCondition(string(v1alpha2.HTTPRoutesReady), "True"))
 				})).WithContext(ctx).Should(Succeed())
 			})
 		})
@@ -219,7 +219,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				}()
 
 				llmSvc := LLMInferenceService(svcName,
-					InNamespace[*v1alpha1.LLMInferenceService](nsName),
+					InNamespace[*v1alpha2.LLMInferenceService](nsName),
 					WithModelURI("hf://facebook/opt-125m"),
 					WithManagedRoute(),
 					WithManagedGateway(),
@@ -250,10 +250,10 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 
 				// then - HTTPRoutes should be marked as NOT ready
 				Eventually(func(g Gomega, ctx context.Context) error {
-					current := &v1alpha1.LLMInferenceService{}
+					current := &v1alpha2.LLMInferenceService{}
 					g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), current)).To(Succeed())
 
-					httpRoutesCondition := current.Status.GetCondition(v1alpha1.HTTPRoutesReady)
+					httpRoutesCondition := current.Status.GetCondition(v1alpha2.HTTPRoutesReady)
 					g.Expect(httpRoutesCondition).ToNot(BeNil())
 					g.Expect(httpRoutesCondition.IsFalse()).To(BeTrue())
 					g.Expect(httpRoutesCondition.Message).To(ContainSubstring("Authentication is not enforced"))
@@ -281,7 +281,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				}()
 
 				llmSvc := LLMInferenceService(svcName,
-					InNamespace[*v1alpha1.LLMInferenceService](nsName),
+					InNamespace[*v1alpha2.LLMInferenceService](nsName),
 					WithModelURI("hf://facebook/opt-125m"),
 					WithManagedRoute(),
 					WithManagedGateway(),
@@ -309,10 +309,10 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 
 				// then - HTTPRoutes should be marked as NOT ready
 				Eventually(func(g Gomega, ctx context.Context) error {
-					current := &v1alpha1.LLMInferenceService{}
+					current := &v1alpha2.LLMInferenceService{}
 					g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), current)).To(Succeed())
 
-					httpRoutesCondition := current.Status.GetCondition(v1alpha1.HTTPRoutesReady)
+					httpRoutesCondition := current.Status.GetCondition(v1alpha2.HTTPRoutesReady)
 					g.Expect(httpRoutesCondition).ToNot(BeNil())
 					g.Expect(httpRoutesCondition.IsFalse()).To(BeTrue())
 
@@ -324,7 +324,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 
 	Context("IsAuthEnabled function", func() {
 		It("should return true when annotation is missing", func() {
-			llmSvc := &v1alpha1.LLMInferenceService{
+			llmSvc := &v1alpha2.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test",
 					Namespace: "default",
@@ -335,7 +335,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 		})
 
 		It("should return true when annotation is 'true'", func() {
-			llmSvc := &v1alpha1.LLMInferenceService{
+			llmSvc := &v1alpha2.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test",
 					Namespace: "default",
@@ -349,7 +349,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 		})
 
 		It("should return true when annotation is 'TRUE' (case insensitive)", func() {
-			llmSvc := &v1alpha1.LLMInferenceService{
+			llmSvc := &v1alpha2.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test",
 					Namespace: "default",
@@ -363,7 +363,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 		})
 
 		It("should return false when annotation is 'false'", func() {
-			llmSvc := &v1alpha1.LLMInferenceService{
+			llmSvc := &v1alpha2.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test",
 					Namespace: "default",
@@ -377,7 +377,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 		})
 
 		It("should return false when annotation is 'FALSE' (case insensitive)", func() {
-			llmSvc := &v1alpha1.LLMInferenceService{
+			llmSvc := &v1alpha2.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test",
 					Namespace: "default",
@@ -394,7 +394,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 
 // ensureHTTPRouteReadyWithAuth sets up HTTPRoute status with both gateway controller
 // AND Kuadrant policy controller conditions
-func ensureHTTPRouteReadyWithAuth(ctx context.Context, c client.Client, llmSvc *v1alpha1.LLMInferenceService, route *gatewayapi.HTTPRoute) {
+func ensureHTTPRouteReadyWithAuth(ctx context.Context, c client.Client, llmSvc *v1alpha2.LLMInferenceService, route *gatewayapi.HTTPRoute) {
 	if envTest.UsingExistingCluster() {
 		return
 	}

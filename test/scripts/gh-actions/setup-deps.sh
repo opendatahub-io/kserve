@@ -43,7 +43,7 @@ wget https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_am
 # For now, it uses helm to install istio but it will be removed once the experimental version is stable
 # ------------------------------------------------------------
 GATEWAY_API_EXPERIMENTAL_VERSION="v1.3.0"
-GATEWAY_API_EXT_VERSION="v0.5.0"
+GATEWAY_API_EXT_VERSION="v1.0.0"
 
 if [[ $NETWORK_LAYER == "istio-gatewayapi" || $NETWORK_LAYER == "envoy-gatewayapi" || $NETWORK_LAYER == "istio-gatewayapi-ext" ]]; then
   echo "Installing Gateway CRDs ..."

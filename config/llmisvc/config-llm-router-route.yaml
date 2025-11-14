@@ -1,4 +1,4 @@
-apiVersion: serving.kserve.io/v1alpha1
+apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
   name: kserve-config-llm-router-route
@@ -15,13 +15,23 @@ spec:
               namespace: |-
                 {{ .GlobalConfig.IngressGatewayNamespace }}
           rules:
+            # Dual-pool strategy for /v1/completions endpoint:
+            # - v1alpha2 pool gets all traffic initially (weight: 100)
+            # - v1 pool starts with no traffic (weight: 0)
+            # Traffic migrates to v1 pool once it becomes ready
             - backendRefs:
+                - group: inference.networking.k8s.io
+                  kind: InferencePool
+                  name: |-
+                    {{ ChildName .ObjectMeta.Name `-inference-pool` }}
+                  port: 8000
+                  weight: 0
                 - group: inference.networking.x-k8s.io
                   kind: InferencePool
                   name: |-
                     {{ ChildName .ObjectMeta.Name `-inference-pool` }}
                   port: 8000
-                  weight: 1
+                  weight: 100
               matches:
                 - path:
                     type: PathPrefix
@@ -37,12 +47,18 @@ spec:
                 backendRequest: 0s
                 request: 0s
             - backendRefs:
+                - group: inference.networking.k8s.io
+                  kind: InferencePool
+                  name: |-
+                    {{ ChildName .ObjectMeta.Name `-inference-pool` }}
+                  port: 8000
+                  weight: 0
                 - group: inference.networking.x-k8s.io
                   kind: InferencePool
                   name: |-
                     {{ ChildName .ObjectMeta.Name `-inference-pool` }}
                   port: 8000
-                  weight: 1
+                  weight: 100
               matches:
                 - path:
                     type: PathPrefix
@@ -62,7 +78,7 @@ spec:
                   name: |-
                     {{ ChildName .ObjectMeta.Name `-kserve-workload-svc` }}
                   port: 8000
-                  weight: 1
+                  weight: 100
               matches:
                 - path:
                     type: PathPrefix

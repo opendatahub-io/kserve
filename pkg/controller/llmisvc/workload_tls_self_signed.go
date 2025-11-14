@@ -40,9 +40,9 @@ import (
 	"knative.dev/pkg/network"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
 )
 
@@ -58,7 +58,7 @@ var (
 	ServiceCASigningSecretNamespace = constants.GetEnvOrDefault("SERVICE_CA_SIGNING_SECRET_NAMESPACE", "openshift-service-ca")
 )
 
-func (r *LLMInferenceServiceReconciler) reconcileSelfSignedCertsSecret(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileSelfSignedCertsSecret(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	log.FromContext(ctx).Info("Reconciling self-signed certificates secret")
 
 	ips, err := r.collectIPAddresses(ctx, llmSvc)
@@ -88,7 +88,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSelfSignedCertsSecret(ctx conte
 
 type createCertFunc func() ([]byte, []byte, error)
 
-func (r *LLMInferenceServiceReconciler) expectedSelfSignedCertsSecret(llmSvc *v1alpha1.LLMInferenceService, certFunc createCertFunc) (*corev1.Secret, error) {
+func (r *LLMInferenceServiceReconciler) expectedSelfSignedCertsSecret(llmSvc *v1alpha2.LLMInferenceService, certFunc createCertFunc) (*corev1.Secret, error) {
 	keyBytes, certBytes, err := certFunc()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create self-signed TLS certificate: %w", err)
@@ -109,7 +109,7 @@ func (r *LLMInferenceServiceReconciler) expectedSelfSignedCertsSecret(llmSvc *v1
 					Format(time.RFC3339),
 			},
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 		},
 		Data: map[string][]byte{
@@ -253,7 +253,7 @@ func (r *LLMInferenceServiceReconciler) loadCAFromSecret(ctx context.Context, se
 	return caCert, caPrivKey, nil
 }
 
-func (r *LLMInferenceServiceReconciler) getExistingSelfSignedCertificate(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *corev1.Secret {
+func (r *LLMInferenceServiceReconciler) getExistingSelfSignedCertificate(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) *corev1.Secret {
 	curr := &corev1.Secret{}
 	key := client.ObjectKey{Namespace: llmSvc.GetNamespace(), Name: kmeta.ChildName(llmSvc.GetName(), "-kserve-self-signed-certs")}
 	err := r.Client.Get(ctx, key, curr)
@@ -319,7 +319,7 @@ func ShouldRecreateCertificate(curr *corev1.Secret, expectedDNSNames []string, e
 	return time.Now().UTC().After(cert.NotAfter.UTC())
 }
 
-func (r *LLMInferenceServiceReconciler) collectDNSNames(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) []string {
+func (r *LLMInferenceServiceReconciler) collectDNSNames(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) []string {
 	dnsNames := []string{
 		"localhost", // P/D sidecar sends requests for decode over localhost
 		network.GetServiceHostname(kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"), llmSvc.GetNamespace()),
@@ -329,7 +329,7 @@ func (r *LLMInferenceServiceReconciler) collectDNSNames(ctx context.Context, llm
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil && llmSvc.Spec.Router.Scheduler.Pool != nil {
 		infPoolSpec := llmSvc.Spec.Router.Scheduler.Pool.Spec
 		if llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
-			infPool := &igwapi.InferencePool{
+			infPool := &igwv1.InferencePool{
 				ObjectMeta: metav1.ObjectMeta{Namespace: llmSvc.GetNamespace(), Name: llmSvc.Spec.Router.Scheduler.Pool.Ref.Name},
 			}
 
@@ -340,8 +340,8 @@ func (r *LLMInferenceServiceReconciler) collectDNSNames(ctx context.Context, llm
 		}
 
 		if infPoolSpec != nil {
-			dnsNames = append(dnsNames, network.GetServiceHostname(string(infPoolSpec.ExtensionRef.Name), llmSvc.GetNamespace()))
-			dnsNames = append(dnsNames, fmt.Sprintf("%s.%s.svc", string(infPoolSpec.ExtensionRef.Name), llmSvc.GetNamespace()))
+			dnsNames = append(dnsNames, network.GetServiceHostname(string(infPoolSpec.EndpointPickerRef.Name), llmSvc.GetNamespace()))
+			dnsNames = append(dnsNames, fmt.Sprintf("%s.%s.svc", string(infPoolSpec.EndpointPickerRef.Name), llmSvc.GetNamespace()))
 		}
 	}
 
@@ -349,7 +349,7 @@ func (r *LLMInferenceServiceReconciler) collectDNSNames(ctx context.Context, llm
 	return dnsNames
 }
 
-func (r *LLMInferenceServiceReconciler) collectIPAddresses(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) ([]string, error) {
+func (r *LLMInferenceServiceReconciler) collectIPAddresses(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) ([]string, error) {
 	pods := &corev1.PodList{}
 	listOptions := &client.ListOptions{
 		Namespace: llmSvc.Namespace,

@@ -14,6 +14,8 @@
 
 set -euo pipefail
 
+GATEWAY_API_EXT_VERSION="v1.0.0"
+
 # install_upstream_istio <project_root>
 install_upstream_istio() {
   local PROJECT_ROOT="$1"
@@ -21,11 +23,42 @@ install_upstream_istio() {
   echo "⚠️  Installing upstream Istio GIE support"
   echo "⚠️  Temporarily until Ingress Operator provides it out of the box"
 
+  # OpenShift 4.19.9+ has Gateway API CRDs managed by Ingress Operator
+  # Skip Gateway API CRD installation - they're already present and protected by admission policy
+  echo "ℹ️  Using OpenShift-managed Gateway API CRDs (GatewayClass, Gateway, HTTPRoute, etc.)"
+
+  # Install Gateway API Inference Extension CRDs only (InferencePool, InferenceModel, etc.)
+  echo "📦 Installing Gateway API Inference Extension CRDs..."
+  oc apply -f "https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/${GATEWAY_API_EXT_VERSION}/manifests.yaml"
+
   oc create namespace istio-system   >/dev/null 2>&1 || true
   oc create namespace openshift-ingress >/dev/null 2>&1 || true
 
-  oc create -f "${PROJECT_ROOT}/test/overlays/llm-istio-experimental" -n istio-system || true
+  # Install Istio with GIE support
+  # Use 'apply' instead of 'create' to update existing resources in reused CI clusters
+  echo "📦 Installing Istio with GIE support..."
+  oc apply --server-side=true -f "${PROJECT_ROOT}/test/overlays/llm-istio-experimental" -n istio-system
 
+  # Wait for Istio to be ready
+  # Removed '|| true' to surface real failures
+  echo "⏳ Waiting for Istio pods to be ready..."
+  oc wait --for=condition=Ready pods --all --timeout=240s -n istio-system
+
+  # Create GatewayClass for Istio controller
+  echo "📦 Creating Istio GatewayClass..."
+  {
+    oc apply -f - <<EOF
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: openshift-default
+spec:
+  controllerName: istio.io/gateway-controller
+EOF
+  } || true
+
+  # Create Gateway with Istio controller
+  echo "📦 Creating Istio Gateway..."
   {
     oc apply -f - <<EOF
 apiVersion: gateway.networking.k8s.io/v1
@@ -34,7 +67,7 @@ metadata:
   name: openshift-ai-inference
   namespace: openshift-ingress
 spec:
-  gatewayClassName: istio
+  gatewayClassName: openshift-default
   listeners:
     - name: http
       port: 80
