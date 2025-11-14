@@ -72,6 +72,28 @@ popd
 
 $MY_PATH/deploy.cma.sh
 
+if [[ "${1}" == "raw" ]]; then
+  #$SCRIPT_DIR/infra/deploy.cma.sh
+  # Add CA certificate extraction for raw deployments
+  echo "⏳ Extracting OpenShift CA certificates for raw deployment"
+  # Get comprehensive CA bundle including both cluster and service CAs
+  {
+    # Cluster root CA bundle
+    oc get configmap kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' 2>/dev/null && echo ""
+
+    # OpenShift service CA
+    oc get configmap openshift-service-ca.crt -n openshift-config-managed -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null || \
+    oc get secret service-ca -n openshift-service-ca -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null | base64 -d || true
+  } > /tmp/ca.crt
+
+  # Verify we got a valid CA bundle
+  if [ -s "/tmp/ca.crt" ] && grep -q "BEGIN CERTIFICATE" "/tmp/ca.crt"; then
+    echo "✅ CA certificate bundle extracted ($(grep -c "BEGIN CERTIFICATE" /tmp/ca.crt) certificates)"
+  else
+    echo "❌ Failed to extract CA certificates"
+  fi
+fi
+
 # Install KServe stack
 if [ "$1" != "raw" ]; then
   echo "Installing OSSM"
@@ -98,7 +120,8 @@ oc create -f config/overlays/test/dsci.yaml
 oc create -f config/overlays/test/dsc.yaml
 
 # Patch the inferenceservice-config ConfigMap, when running RawDeployment tests
-if [ "$1" == "raw" ]; then
+if [[ "${1}" =~ raw || "${1}" =~ graph ]]; then
+  echo "Markers: ${1}"
   export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
   oc patch configmap inferenceservice-config -n kserve --patch-file <(cat config/overlays/test/configmap/inferenceservice-openshift-ci-raw.yaml | envsubst)
   oc delete pod -n kserve -l control-plane=kserve-controller-manager
@@ -106,11 +129,7 @@ if [ "$1" == "raw" ]; then
   oc patch DataScienceCluster test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
 else
   export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
-  if [ "$1" == "graph" ]; then
-    oc patch configmap inferenceservice-config -n kserve --patch-file <(cat config/overlays/test/configmap/inferenceservice-openshift-ci-serverless.yaml | envsubst)
-  else 
-    oc patch configmap inferenceservice-config -n kserve --patch-file <(cat config/overlays/test/configmap/inferenceservice-openshift-ci-serverless-predictor.yaml | envsubst)
-  fi
+  oc patch configmap inferenceservice-config -n kserve --patch-file <(cat config/overlays/test/configmap/inferenceservice-openshift-ci-serverless-predictor.yaml | envsubst)
 fi
 
 # Wait until KServe starts
@@ -121,7 +140,6 @@ if [ "$1" != "raw" ]; then
   # authorino
   curl -sL https://raw.githubusercontent.com/Kuadrant/authorino-operator/main/utils/install.sh | sed "s|kubectl|oc|" | 
     bash -s -- -v 0.16.0
-
 fi
 
 echo "Installing ODH Model Controller"
@@ -144,6 +162,7 @@ oc wait --for=condition=ready pod -l app=minio -n kserve --timeout=300s
 # Expose minio service and get route
 oc expose service minio-service -n kserve
 MINIO_ROUTE=$(oc get routes -n kserve minio-service -o jsonpath="{.spec.host}")
+echo "MinIO route: $MINIO_ROUTE"
 
 # Wait for minio endpoint to be accessible
 echo "Waiting for minio endpoint to be accessible..."
