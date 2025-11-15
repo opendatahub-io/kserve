@@ -46,10 +46,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "requests": {"cpu": "500m", "memory": "4Gi"},
                     },
                     "livenessProbe": {
-                        "initialDelaySeconds": 30,
-                        "periodSeconds": 30,
+                        "initialDelaySeconds": 600,
+                        "periodSeconds": 60,
                         "timeoutSeconds": 30,
-                        "failureThreshold": 5,
+                        "failureThreshold": 3,
                     },
                 }
             ]
@@ -70,6 +70,12 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "limits": {"cpu": "2", "memory": "8Gi"},
                         "requests": {"cpu": "500m", "memory": "4Gi"},
                     },
+                    "livenessProbe": {
+                        "initialDelaySeconds": 600,
+                        "periodSeconds": 60,
+                        "timeoutSeconds": 30,
+                        "failureThreshold": 3,
+                    },
                 }
             ]
         },
@@ -87,6 +93,12 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "resources": {
                             "limits": {"cpu": "2", "memory": "8Gi"},
                             "requests": {"cpu": "500m", "memory": "4Gi"},
+                        },
+                        "livenessProbe": {
+                            "initialDelaySeconds": 600,
+                            "periodSeconds": 60,
+                            "timeoutSeconds": 30,
+                            "failureThreshold": 3,
                         },
                     }
                 ]
