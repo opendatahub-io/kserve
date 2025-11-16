@@ -31,7 +31,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
-	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -83,7 +82,7 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx con
 
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve"),
+			Name:      SafeChildName(llmSvc.GetName(), "-kserve"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
@@ -172,7 +171,7 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-prefill"),
+			Name:      SafeChildName(llmSvc.GetName(), "-kserve-prefill"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
@@ -331,7 +330,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainRoleBinding(ctx c
 func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainServiceAccount(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) (*corev1.ServiceAccount, error) {
 	expectedServiceAccount := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve"),
+			Name:      SafeChildName(llmSvc.GetName(), "-kserve"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
@@ -363,7 +362,7 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainServiceAccount(ctx
 func (r *LLMInferenceServiceReconciler) expectedSingleNodeRole(llmSvc *v1alpha2.LLMInferenceService) *rbacv1.Role {
 	ro := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-role"),
+			Name:      SafeChildName(llmSvc.GetName(), "-kserve-role"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
@@ -378,7 +377,7 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeRole(llmSvc *v1alpha2.
 func (r *LLMInferenceServiceReconciler) expectedSingleNodeRoleBinding(llmSvc *v1alpha2.LLMInferenceService, sa *corev1.ServiceAccount) *rbacv1.RoleBinding {
 	return &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-rb"),
+			Name:      SafeChildName(llmSvc.GetName(), "-kserve-rb"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
@@ -393,7 +392,7 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeRoleBinding(llmSvc *v1
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: "rbac.authorization.k8s.io",
 			Kind:     "Role",
-			Name:     kmeta.ChildName(llmSvc.GetName(), "-kserve-role"),
+			Name:     SafeChildName(llmSvc.GetName(), "-kserve-role"),
 		},
 	}
 }
