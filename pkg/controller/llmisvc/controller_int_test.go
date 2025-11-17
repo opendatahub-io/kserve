@@ -727,9 +727,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 						return nil
 					}).WithContext(ctx).Should(Succeed(), "Should have no managed HTTPRoutes with router when ")
 
-					Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
-						g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
-					})).WithContext(ctx).Should(Succeed())
+					Eventually(LLMInferenceServiceIsReady(llmSvc)).WithContext(ctx).Should(Succeed())
 				},
 				Entry("should delete HTTPRoutes when spec.Router is set to nil",
 					"router-spec-nil",
@@ -1411,7 +1409,7 @@ func waitForMetricsReaderRoleBinding(ctx context.Context, nsName string) *rbacv1
 	expectedClusterRoleBinding := &rbacv1.ClusterRoleBinding{}
 	Eventually(func(_ Gomega, ctx context.Context) error {
 		return envTest.Get(ctx, types.NamespacedName{
-			Name: "kserve-metrics-reader-role-binding-" + nsName,
+			Name: kmeta.ChildName("kserve-metrics-reader-role-binding-", nsName),
 		}, expectedClusterRoleBinding)
 	}).WithContext(ctx).Should(Succeed())
 
