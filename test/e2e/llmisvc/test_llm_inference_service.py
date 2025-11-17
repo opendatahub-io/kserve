@@ -397,6 +397,12 @@ def test_llm_inference_service(api_version, test_case: TestCase):
 
             if not should_skip_deletion:
                 delete_llmisvc(kserve_client, test_case.llm_service)
+
+                # Clean up HTTPRoutes created by router-with-refs tests
+                # These are externally-created HTTPRoutes that the controller doesn't manage
+                if "router-with-refs" in test_case.base_refs or "router-with-refs-pd" in test_case.base_refs:
+                    delete_router_with_refs_httproutes(kserve_client, test_case.llm_service)
+
             elif test_failed and skip_deletion_on_failure:
                 print(
                     f"⏭️  Skipping deletion of {service_name} due to test failure (SKIP_DELETION_ON_FAILURE=True)"
@@ -441,6 +447,37 @@ def delete_llmisvc(kserve_client: KServeClient, llm_isvc: Any):
             f"❌ Exception when calling CustomObjectsApi->"
             f"delete_namespaced_custom_object for LLMInferenceService: {e}"
         ) from e
+
+
+@log_execution
+def delete_router_with_refs_httproutes(kserve_client: KServeClient, llm_isvc: Any):
+    """
+    Delete HTTPRoutes created by router-with-refs tests.
+
+    These are externally-created HTTPRoutes that the controller doesn't manage,
+    so they need explicit cleanup to avoid accumulation across test runs.
+    """
+    service_name = llm_isvc.metadata.name
+    namespace = llm_isvc.metadata.namespace
+
+    # HTTPRoute names follow pattern: {service_name}-route-1, {service_name}-route-2
+    route_names = [f"{service_name}-route-1", f"{service_name}-route-2"]
+
+    for route_name in route_names:
+        try:
+            kserve_client.api_instance.delete_namespaced_custom_object(
+                group="gateway.networking.k8s.io",
+                version="v1",
+                namespace=namespace,
+                plural="httproutes",
+                name=route_name,
+            )
+            print(f"✅ Deleted HTTPRoute {route_name} in namespace {namespace}")
+        except client.rest.ApiException as e:
+            if e.status == 404:
+                print(f"ℹ️  HTTPRoute {route_name} not found (may have been already deleted)")
+            else:
+                print(f"⚠️ Warning: Failed to delete HTTPRoute {route_name}: {e}")
 
 
 @log_execution

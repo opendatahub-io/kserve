@@ -285,9 +285,15 @@ func RouterLabels(llmSvc *v1alpha2.LLMInferenceService) map[string]string {
 }
 
 func semanticHTTPRouteIsEqual(e *gatewayapi.HTTPRoute, c *gatewayapi.HTTPRoute) bool {
+	// Check if owner references differ - explicitly handle nil/empty cases
+	// This ensures HTTPRoutes without owner references get updated for proper garbage collection
+	ownerRefsEqual := len(e.OwnerReferences) == len(c.OwnerReferences) &&
+		equality.Semantic.DeepDerivative(e.OwnerReferences, c.OwnerReferences)
+
 	return equality.Semantic.DeepDerivative(e.Spec, c.Spec) &&
 		equality.Semantic.DeepDerivative(e.Labels, c.Labels) &&
-		equality.Semantic.DeepDerivative(e.Annotations, c.Annotations)
+		equality.Semantic.DeepDerivative(e.Annotations, c.Annotations) &&
+		ownerRefsEqual
 }
 
 // EvaluateGatewayConditions evaluates the readiness of all Gateways referenced by the LLMInferenceService
