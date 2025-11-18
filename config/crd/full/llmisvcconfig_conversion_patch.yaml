@@ -10,7 +10,7 @@ spec:
       clientConfig:
         service:
           name: kserve-webhook-server-service
-          namespace: kserve
+          namespace: opendatahub
           path: /convert
       conversionReviewVersions:
         - v1
