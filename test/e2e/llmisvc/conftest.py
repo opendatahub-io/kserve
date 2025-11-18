@@ -63,6 +63,8 @@ def pytest_configure(config):
 def rhcl_available():
     """Check if RHCL (AuthPolicy CRD) is installed in the cluster."""
     try:
+        from kubernetes import config
+        config.load_kube_config()
         api = client.ApiextensionsV1Api()
         api.read_custom_resource_definition("authpolicies.kuadrant.io")
         return True
