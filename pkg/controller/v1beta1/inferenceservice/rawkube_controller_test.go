@@ -581,7 +581,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -1140,7 +1141,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			// Check that the ISVC was updated
 			actualIsvc := &v1beta1.InferenceService{}
@@ -1695,7 +1697,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -3985,7 +3988,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -4561,7 +4565,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -5404,7 +5409,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -6356,7 +6362,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -7047,7 +7054,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -7910,6 +7918,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						},
 					},
 				},
+				ServingRuntimeName: "tf-serving-raw",
 				URL: &apis.URL{
 					Scheme: "http",
 					Host:   fmt.Sprintf("%s-%s.example.com", serviceKey.Name, serviceKey.Namespace),
@@ -8984,7 +8993,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -9875,7 +9885,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -10458,7 +10469,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: "RawDeployment",
+				DeploymentMode:     "RawDeployment",
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
