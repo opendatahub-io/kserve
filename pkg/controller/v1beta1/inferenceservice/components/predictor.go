@@ -262,7 +262,7 @@ func (p *Predictor) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 	} else {
 		podLabelValue = statusSpec.LatestCreatedRevision
 	}
-	predictorPods, err := isvcutils.ListPodsByLabel(ctx, p.client, isvc.ObjectMeta.Namespace, podLabelKey, podLabelValue)
+	predictorPods, err := isvcutils.ListPodsByLabel(ctx, p.clientset, isvc.ObjectMeta.Namespace, podLabelKey, podLabelValue)
 	if err != nil {
 		return ctrl.Result{}, errors.Wrapf(err, "fails to list inferenceservice pods by label")
 	}

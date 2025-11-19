@@ -28,6 +28,7 @@ import (
 
 	routev1 "github.com/openshift/api/route/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"knative.dev/pkg/apis"
 
 	"github.com/pkg/errors"
@@ -368,13 +369,11 @@ func UpdateImageTag(container *corev1.Container, runtimeVersion *string, serving
 }
 
 // ListPodsByLabel Get a PodList by label.
-func ListPodsByLabel(ctx context.Context, cl client.Client, namespace string, labelKey string, labelVal string) (*corev1.PodList, error) {
-	podList := &corev1.PodList{}
-	opts := []client.ListOption{
-		client.InNamespace(namespace),
-		client.MatchingLabels{labelKey: labelVal},
-	}
-	err := cl.List(ctx, podList, opts...)
+func ListPodsByLabel(ctx context.Context, clientset kubernetes.Interface, namespace string, labelKey string, labelVal string) (*corev1.PodList, error) {
+	labelSelector := fmt.Sprintf("%s=%s", labelKey, labelVal)
+	podList, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
 	if err != nil && !apierrors.IsNotFound(err) {
 		return nil, err
 	}
