@@ -78,6 +78,24 @@ popd
 
 if [[ "${DEPLOYMENT_PROFILE}" == "raw" ]]; then 
   $SCRIPT_DIR/infra/deploy.cma.sh
+  # Add CA certificate extraction for raw deployments
+  echo "⏳ Extracting OpenShift CA certificates for raw deployment"
+  # Get comprehensive CA bundle including both cluster and service CAs
+  {
+    # Cluster root CA bundle
+    oc get configmap kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' 2>/dev/null && echo ""
+
+    # OpenShift service CA
+    oc get configmap openshift-service-ca.crt -n openshift-config-managed -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null || \
+    oc get secret service-ca -n openshift-service-ca -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null | base64 -d || true
+  } > /tmp/ca.crt
+
+  # Verify we got a valid CA bundle
+  if [ -s "/tmp/ca.crt" ] && grep -q "BEGIN CERTIFICATE" "/tmp/ca.crt"; then
+    echo "✅ CA certificate bundle extracted ($(grep -c "BEGIN CERTIFICATE" /tmp/ca.crt) certificates)"
+  else
+    echo "❌ Failed to extract CA certificates"
+  fi
 fi
 
 # Install KServe stack
@@ -120,15 +138,12 @@ oc apply -f ${PROJECT_ROOT}/config/overlays/odh-test/dsc.yaml
 export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
 
 # Patch the inferenceservice-config ConfigMap, when running RawDeployment tests
-if [[ "${MARKERS}" == *"raw"* ]]; then
+if [[ "${MARKERS}" =~ raw || "${MARKERS}" =~ graph ]]; then
+  echo "✅ Patching RAW, markers: ${MARKERS}"
   oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/odh-test/configmap/inferenceservice-openshift-ci-raw.yaml | envsubst)
   oc delete pod -n ${NS} -l control-plane=kserve-controller-manager
 
   oc patch DataScienceCluster test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
-fi
-
-if [[ "${MARKERS}" == *"graph"* ]]; then
-    oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/odh-test/configmap/inferenceservice-openshift-ci-serverless.yaml | envsubst)
 fi
 
 if [[ "${MARKERS}" == *"predictor"* || "${MARKERS}" == *"path"* ]]; then
@@ -155,9 +170,17 @@ kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
 
 wait_for_pod_ready "${NS}" "app=odh-model-controller"
 
-echo "Add testing models to minio storage ..." # Reference: config/overlays/odh-test/minio/minio-init-job.yaml
-oc expose service minio-service -n ${NS} && sleep 5
+echo "Add testing models to minio storage ..." # Reference: config/overlays/test/minio/minio-init-job.yaml
+# Wait for MinIO pod to be ready
+echo "⏳ Waiting for MinIO pod to be ready..."
+
+echo "minio oc get events"
+oc get events
+oc wait --for=condition=ready pod -l app=minio -n ${NS} --timeout=300s
+
+oc expose service minio-service -n ${NS} && sleep 15 # increased from 5 to 15
 MINIO_ROUTE=$(oc get routes -n ${NS} minio-service -o jsonpath="{.spec.host}")
+echo "MinIO route: $MINIO_ROUTE"
 mc alias set storage http://$MINIO_ROUTE minio minio123
 
 if ! mc ls storage/example-models >/dev/null 2>&1; then
