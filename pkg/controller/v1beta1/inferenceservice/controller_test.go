@@ -5382,7 +5382,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			})).NotTo(HaveOccurred())
 
 			r := &InferenceServiceReconciler{
-				Client: k8sClient,
+				Client:    k8sClient,
+				ApiReader: k8sClient,
 			}
 
 			Eventually(func() bool {

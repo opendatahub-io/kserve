@@ -155,6 +155,7 @@ var _ = BeforeSuite(func() {
 	}
 	err = (&InferenceServiceReconciler{
 		Client:    k8sClient,
+		ApiReader: k8sClient,
 		Clientset: clientset,
 		Scheme:    k8sClient.Scheme(),
 		Log:       ctrl.Log.WithName("V1beta1InferenceServiceController"),

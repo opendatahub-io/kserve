@@ -368,7 +368,7 @@ func UpdateImageTag(container *corev1.Container, runtimeVersion *string, serving
 }
 
 // ListPodsByLabel Get a PodList by label.
-func ListPodsByLabel(ctx context.Context, cl client.Client, namespace string, labelKey string, labelVal string) (*corev1.PodList, error) {
+func ListPodsByLabel(ctx context.Context, cl client.Reader, namespace string, labelKey string, labelVal string) (*corev1.PodList, error) {
 	podList := &corev1.PodList{}
 	opts := []client.ListOption{
 		client.InNamespace(namespace),

@@ -108,6 +108,7 @@ const (
 // InferenceServiceReconciler reconciles a InferenceService object
 type InferenceServiceReconciler struct {
 	client.Client
+	ApiReader    client.Reader
 	ClientConfig *rest.Config
 	Clientset    kubernetes.Interface
 	Log          logr.Logger
@@ -232,7 +233,7 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	reconcilers := []components.Component{}
 	if deploymentMode != constants.ModelMeshDeployment {
-		reconcilers = append(reconcilers, components.NewPredictor(r.Client, r.Clientset, r.Scheme, isvcConfig, deploymentMode, allowZeroInitialScale))
+		reconcilers = append(reconcilers, components.NewPredictor(r.Client, r.ApiReader, r.Clientset, r.Scheme, isvcConfig, deploymentMode, allowZeroInitialScale))
 	}
 	if isvc.Spec.Transformer != nil {
 		reconcilers = append(reconcilers, components.NewTransformer(r.Client, r.Clientset, r.Scheme, isvcConfig, deploymentMode, allowZeroInitialScale))
