@@ -764,15 +764,21 @@ def test_case(request, api_version):
         else:
             raise ValueError(f"Unsupported API version: {api_version}")
 
+        # Check if this is an auth test - auth tests should not have auth disabled
+        is_auth_test = request.node.get_closest_marker('auth') is not None
+
+        annotations = {}
+        if not is_auth_test:
+            # Disable auth for non-auth tests (router tests, etc.)
+            annotations["security.opendatahub.io/enable-auth"] = "false"
+
         tc.llm_service = LLMInferenceService(
             api_version=f"serving.kserve.io/{api_version}",
             kind="LLMInferenceService",
             metadata=client.V1ObjectMeta(
                 name=service_name_with_version,
                 namespace=KSERVE_TEST_NAMESPACE,
-                annotations={
-                    "security.opendatahub.io/enable-auth": "false",
-                },
+                annotations=annotations,
             ),
             spec={
                 "baseRefs": [{"name": base_ref} for base_ref in unique_base_refs],
