@@ -26,11 +26,9 @@ const (
 	maxKubernetesNameLength = 63
 	// hashLength is the number of characters from the hash to append when truncating
 	hashLength = 8
-	// kubernetesGeneratedSuffixLength reserves space for suffixes that Kubernetes controllers
-	// add automatically (e.g., StatefulSet pod hash, ReplicaSet hash). This ensures that
-	// child resources created by Kubernetes don't exceed the 63-character limit.
-	// Examples: "-f4b4c86d6" (10 chars), "-0" for StatefulSet pods (2 chars)
-	kubernetesGeneratedSuffixLength = 12
+	// kubernetesGeneratedSuffixLength reserves space for suffixes added by Kubernetes
+	// controllers and LeaderWorkerSet (LWS group index + StatefulSet pod index + pod-template-hash)
+	kubernetesGeneratedSuffixLength = 20
 )
 
 // SafeChildName creates a child resource name by appending a suffix to the parent name.
