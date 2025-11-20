@@ -57,7 +57,7 @@ async def test_tensorflow_kserve(rest_v1_client):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     res = await predict_isvc(rest_v1_client, service_name, "./data/flower_input.json")
     assert np.argmax(res["predictions"][0].get("scores")) == 0
 
@@ -99,7 +99,7 @@ async def test_tensorflow_runtime_kserve(rest_v1_client):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     res = await predict_isvc(rest_v1_client, service_name, "./data/flower_input.json")
     assert np.argmax(res["predictions"][0].get("scores")) == 0
 

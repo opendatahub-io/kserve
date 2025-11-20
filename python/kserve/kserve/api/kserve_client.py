@@ -398,7 +398,7 @@ class KServeClient(object):
             )
 
     def is_isvc_modelstate_loaded(
-            self, name, namespace=None, version=constants.KSERVE_V1BETA1_VERSION
+        self, name, namespace=None, version=constants.KSERVE_V1BETA1_VERSION
     ):  # pylint:disable=inconsistent-return-statements
         """
         Check if the inference service model state is loaded.
@@ -424,7 +424,6 @@ class KServeClient(object):
 
         return active_model_state == "Loaded" and target_model_state == "Loaded"
 
-
     def wait_isvc_ready_modelstate_loaded(
         self,
         name,
@@ -449,8 +448,11 @@ class KServeClient(object):
         else:
             for _ in range(round(timeout_seconds / polling_interval)):
                 time.sleep(polling_interval)
-                if (self.is_isvc_ready(name, namespace=namespace, version=version) and
-                    self.is_isvc_modelstate_loaded(name, namespace=namespace, version=version)):
+                if self.is_isvc_ready(
+                    name, namespace=namespace, version=version
+                ) and self.is_isvc_modelstate_loaded(
+                    name, namespace=namespace, version=version
+                ):
                     return
 
             current_isvc = self.get(name, namespace=namespace, version=version)
