@@ -1,0 +1,454 @@
+controller_runtime_reconcile_time_seconds_bucket{controller="inferencepool",le="5"} 1
+controller_runtime_reconcile_time_seconds_bucket{controller="inferencepool",le="6"} 1
+controller_runtime_reconcile_time_seconds_bucket{controller="inferencepool",le="7"} 1
+controller_runtime_reconcile_time_seconds_bucket{controller="inferencepool",le="8"} 1
+controller_runtime_reconcile_time_seconds_bucket{controller="inferencepool",le="9"} 1
+controller_runtime_reconcile_time_seconds_bucket{controller="inferencepool",le="10"} 1
+controller_runtime_reconcile_time_seconds_bucket{controller="inferencepool",le="15"} 1
+controller_runtime_reconcile_time_seconds_bucket{controller="inferencepool",le="20"} 1
+controller_runtime_reconcile_time_seconds_bucket{controller="inferencepool",le="25"} 1
+controller_runtime_reconcile_time_seconds_bucket{controller="inferencepool",le="30"} 1
+controller_runtime_reconcile_time_seconds_bucket{controller="inferencepool",le="40"} 1
+controller_runtime_reconcile_time_seconds_bucket{controller="inferencepool",le="50"} 1
+controller_runtime_reconcile_time_seconds_bucket{controller="inferencepool",le="60"} 1
+controller_runtime_reconcile_time_seconds_bucket{controller="inferencepool",le="+Inf"} 1
+controller_runtime_reconcile_time_seconds_sum{controller="inferencepool"} 0.000560478
+controller_runtime_reconcile_time_seconds_count{controller="inferencepool"} 1
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.005"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.01"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.025"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.05"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.1"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.15"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.2"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.25"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.3"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.35"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.4"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.45"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.5"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.6"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.7"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.8"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="0.9"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="1"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="1.25"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="1.5"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="1.75"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="2"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="2.5"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="3"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="3.5"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="4"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="4.5"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="5"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="6"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="7"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="8"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="9"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="10"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="15"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="20"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="25"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="30"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="40"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="50"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="60"} 13
+controller_runtime_reconcile_time_seconds_bucket{controller="pod",le="+Inf"} 13
+controller_runtime_reconcile_time_seconds_sum{controller="pod"} 0.001986739
+controller_runtime_reconcile_time_seconds_count{controller="pod"} 13
+# HELP controller_runtime_reconcile_total Total number of reconciliations per controller
+# TYPE controller_runtime_reconcile_total counter
+controller_runtime_reconcile_total{controller="inferencemodel",result="error"} 0
+controller_runtime_reconcile_total{controller="inferencemodel",result="requeue"} 0
+controller_runtime_reconcile_total{controller="inferencemodel",result="requeue_after"} 0
+controller_runtime_reconcile_total{controller="inferencemodel",result="success"} 1
+controller_runtime_reconcile_total{controller="inferencepool",result="error"} 0
+controller_runtime_reconcile_total{controller="inferencepool",result="requeue"} 0
+controller_runtime_reconcile_total{controller="inferencepool",result="requeue_after"} 0
+controller_runtime_reconcile_total{controller="inferencepool",result="success"} 1
+controller_runtime_reconcile_total{controller="pod",result="error"} 0
+controller_runtime_reconcile_total{controller="pod",result="requeue"} 0
+controller_runtime_reconcile_total{controller="pod",result="requeue_after"} 0
+controller_runtime_reconcile_total{controller="pod",result="success"} 13
+# HELP controller_runtime_terminal_reconcile_errors_total Total number of terminal reconciliation errors per controller
+# TYPE controller_runtime_terminal_reconcile_errors_total counter
+controller_runtime_terminal_reconcile_errors_total{controller="inferencemodel"} 0
+controller_runtime_terminal_reconcile_errors_total{controller="inferencepool"} 0
+controller_runtime_terminal_reconcile_errors_total{controller="pod"} 0
+# HELP controller_runtime_webhook_panics_total Total number of webhook panics
+# TYPE controller_runtime_webhook_panics_total counter
+controller_runtime_webhook_panics_total 0
+# HELP go_cgo_go_to_c_calls_calls_total Count of calls made from Go to C by the current process. Sourced from /cgo/go-to-c-calls:calls.
+# TYPE go_cgo_go_to_c_calls_calls_total counter
+go_cgo_go_to_c_calls_calls_total 28
+# HELP go_cpu_classes_gc_mark_assist_cpu_seconds_total Estimated total CPU time goroutines spent performing GC tasks to assist the GC and prevent it from falling behind the application. This metric is an overestimate, and not directly comparable to system CPU time measurements. Compare only with other /cpu/classes metrics. Sourced from /cpu/classes/gc/mark/assist:cpu-seconds.
+# TYPE go_cpu_classes_gc_mark_assist_cpu_seconds_total counter
+go_cpu_classes_gc_mark_assist_cpu_seconds_total 19.476530057
+# HELP go_cpu_classes_gc_mark_dedicated_cpu_seconds_total Estimated total CPU time spent performing GC tasks on processors (as defined by GOMAXPROCS) dedicated to those tasks. This metric is an overestimate, and not directly comparable to system CPU time measurements. Compare only with other /cpu/classes metrics. Sourced from /cpu/classes/gc/mark/dedicated:cpu-seconds.
+# TYPE go_cpu_classes_gc_mark_dedicated_cpu_seconds_total counter
+go_cpu_classes_gc_mark_dedicated_cpu_seconds_total 4339.074341877
+# HELP go_cpu_classes_gc_mark_idle_cpu_seconds_total Estimated total CPU time spent performing GC tasks on spare CPU resources that the Go scheduler could not otherwise find a use for. This should be subtracted from the total GC CPU time to obtain a measure of compulsory GC CPU time. This metric is an overestimate, and not directly comparable to system CPU time measurements. Compare only with other /cpu/classes metrics. Sourced from /cpu/classes/gc/mark/idle:cpu-seconds.
+# TYPE go_cpu_classes_gc_mark_idle_cpu_seconds_total counter
+go_cpu_classes_gc_mark_idle_cpu_seconds_total 10.868935803
+# HELP go_cpu_classes_gc_pause_cpu_seconds_total Estimated total CPU time spent with the application paused by the GC. Even if only one thread is running during the pause, this is computed as GOMAXPROCS times the pause latency because nothing else can be executing. This is the exact sum of samples in /sched/pauses/total/gc:seconds if each sample is multiplied by GOMAXPROCS at the time it is 999999999"} 1.1079291213e+11
+go_gc_heap_frees_by_size_bytes_bucket{le="144.99999999999997"} 1.18068688896e+11
+go_gc_heap_frees_by_size_bytes_bucket{le="320.99999999999994"} 1.21950753785e+11
+go_gc_heap_frees_by_size_bytes_bucket{le="704.9999999999999"} 1.22127415579e+11
+go_gc_heap_frees_by_size_bytes_bucket{le="1536.9999999999998"} 1.22215832561e+11
+go_gc_heap_frees_by_size_bytes_bucket{le="3200.9999999999995"} 1.22217670889e+11
+go_gc_heap_frees_by_size_bytes_bucket{le="6528.999999999999"} 1.22219491803e+11
+go_gc_heap_frees_by_size_bytes_bucket{le="13568.999999999998"} 1.22219515582e+11
+go_gc_heap_frees_by_size_bytes_bucket{le="27264.999999999996"} 1.22219535779e+11
+go_gc_heap_frees_by_size_bytes_bucket{le="+Inf"} 1.22220954332e+11
+go_gc_heap_frees_by_size_bytes_sum 4.765403087032e+12
+go_gc_heap_frees_by_size_bytes_count 1.22220954332e+11
+# HELP go_gc_heap_frees_bytes_total Cumulative sum of heap memory freed by the garbage collector. Sourced from /gc/heap/frees:bytes.
+# TYPE go_gc_heap_frees_bytes_total counter
+go_gc_heap_frees_bytes_total 4.765403087032e+12
+# HELP go_gc_heap_frees_objects_total Cumulative count of heap allocations whose storage was freed by the garbage collector. Note that this does not include tiny objects as defined by /gc/heap/tiny/allocs:objects, only tiny blocks. Sourced from /gc/heap/frees:objects.
+# TYPE go_gc_heap_frees_objects_total counter
+go_gc_heap_frees_objects_total 1.22220954332e+11
+# HELP go_gc_heap_goal_bytes Heap size target for the end of the GC cycle. Sourced from /gc/heap/goal:bytes.
+# TYPE go_gc_heap_goal_bytes gauge
+go_gc_heap_goal_bytes 2.328181e+07
+# HELP go_gc_heap_live_bytes Heap memory occupied by live objects that were marked by the previous GC. Sourced from /gc/heap/live:bytes.
+# TYPE go_gc_heap_live_bytes gauge
+go_gc_heap_live_bytes 1.1321536e+07
+# HELP go_gc_heap_objects_objects Number of objects, live or unswept, occupying heap memory. Sourced from /gc/heap/objects:objects.
+# TYPE go_gc_heap_objects_objects gauge
+go_gc_heap_objects_objects 70052
+# HELP go_gc_heap_tiny_allocs_objects_total Count of small allocations that are packed together into blocks. These allocations are counted separately from other allocations because each individual allocation is not tracked by the runtime, only their block. Each block is already accounted for in allocs-by-size and frees-by-size. Sourced from /gc/heap/tiny/allocs:objects.
+# TYPE go_gc_heap_tiny_allocs_objects_total counter
+go_gc_heap_tiny_allocs_objects_total 1.2263783003e+10
+# HELP go_gc_limiter_last_enabled_gc_cycle GC cycle the last time the GC CPU limiter was enabled. This metric is useful for diagnosing the root cause of an out-of-memory error, because the limiter trades memory for CPU time when the GC's CPU time gets too high. This is most likely to occur with use of SetMemoryLimit. The first GC cycle is cycle 1, so a value of 0 indicates that it was never enabled. Sourced from /gc/limiter/last-enabled:gc-cycle.
+# TYPE go_gc_limiter_last_enabled_gc_cycle gauge
+go_gc_limiter_last_enabled_gc_cycle 448644
+# HELP go_gc_pauses_seconds Deprecated. Prefer the identical /sched/pauses/total/gc:seconds. Sourced from /gc/pauses:seconds.
+# TYPE go_gc_pauses_seconds histogram
+go_gc_pauses_seconds_bucket{le="6.399999999999999e-08"} 0
+go_gc_pauses_seconds_bucket{le="6.399999999999999e-07"} 0
+go_gc_pauses_seconds_bucket{le="7.167999999999999e-06"} 0
+go_gc_pauses_seconds_bucket{le="8.191999999999999e-05"} 449729
+go_gc_pauses_seconds_bucket{le="0.0009175039999999999"} 896655
+go_gc_pauses_seconds_bucket{le="0.010485759999999998"} 897286
+go_gc_pauses_seconds_bucket{le="0.11744051199999998"} 897288
+go_gc_pauses_seconds_bucket{le="+Inf"} 897288
+go_gc_pauses_seconds_sum 40.435751936
+go_gc_pauses_seconds_count 897288
+# HELP go_gc_scan_globals_bytes The total amount of global variable space that is scannable. Sourced from /gc/scan/globals:bytes.
+# TYPE go_gc_scan_globals_bytes gauge
+go_gc_scan_globals_bytes 510530
+# HELP go_gc_scan_heap_bytes The total amount of heap space that is scannable. Sourced from /gc/scan/heap:bytes.
+# TYPE go_gc_scan_heap_bytes gauge
+go_gc_scan_heap_bytes 9.875176e+06
+# HELP go_gc_scan_stack_bytes The number of bytes of stack that were scanned last GC cycle. Sourced from /gc/scan/stack:bytes.
+# TYPE go_gc_scan_stack_bytes gauge
+go_gc_scan_stack_bytes 128208
+# HELP go_gc_scan_total_bytes The total amount space that is scannable. Sum of all metrics in /gc/scan. Sourced from /gc/scan/total:bytes.
+# TYPE go_gc_scan_total_bytes gauge
+go_gc_scan_total_bytes 1.0513914e+07
+# HELP go_gc_stack_starting_size_bytes The stack size of new goroutines. Sourced from /gc/stack/starting-size:bytes.
+# TYPE go_gc_stack_starting_size_bytes gauge
+go_gc_stack_starting_size_bytes 2048
+# HELP go_godebug_non_default_behavior_allowmultiplevcs_events_total The number of non-default behaviors executed by the cmd/go package due to a non-default GODEBUG=allowmultiplevcs=... setting. Sourced from /godebug/non-default-behavior/allowmultiplevcs:events.
+# TYPE go_godebug_non_default_behavior_allowmultiplevcs_events_total counter
+go_godebug_non_default_behavior_allowmultiplevcs_events_total 0
+# HELP go_godebug_non_default_behavior_asynctimerchan_events_total The number of non-default behaviors executed by the time package due to a non-default GODEBUG=asynctimerchan=... setting. Sourced from /godebug/non-default-behavior/asynctimerchan:events.
+# TYPE go_godebug_non_default_behavior_asynctimerchan_events_total counter
+go_godebug_non_default_behavior_asynctimerchan_events_total 0
+# HELP go_godebug_non_default_behavior_execerrdot_events_total The number of non-default behaviors executed by the os/exec package due to a non-default GODEBUG=execerrdot=... setting. Sourced from /godebug/non-default-behavior/execerrdot:events.
+# TYPE go_godebug_non_default_behavior_execerrdot_events_total counter
+go_godebug_non_default_behavior_execerrdot_events_total 0
+# HELP go_godebug_non_default_behavior_gocachehash_events_total The number of non-default behaviors executed by the cmd/go package due to a non-default GODEBUG=gocachehash=... setting. Sourced from /godebug/non-default-behavior/gocachehash:events.
+# TYPE go_godebug_non_default_behavior_gocachehash_events_total counter
+go_godebug_non_default_behavior_gocachehash_events_total 0
+# HELP go_godebug_non_default_behavior_gocachetest_events_total The number of non-default behaviors executed by the cmd/go package due to a non-default GODEBUG=gocachetest=... setting. Sourced from /godebug/non-default-behavior/gocachetest:events.
+# TYPE go_godebug_non_default_behavior_gocachetest_events_total counter
+go_godebug_non_default_behavior_gocachetest_events_total 0
+# HELP go_godebug_non_default_behavior_gocacheverify_events_total The number of non-default behaviors executed by the cmd/go package due to a non-default GODEBUG=gocacheverify=... setting. Sourced from /godebug/non-default-behavior/gocacheverify:events.
+# TYPE go_godebug_non_default_behavior_gocacheverify_events_total counter
+go_godebug_non_default_behavior_gocacheverify_events_total 0
+# HELP go_godebug_non_default_behavior_gotestjsonbuildtext_events_total The number of non-default behaviors executed by the cmd/go package due to a non-default GODEBUG=gotestjsonbuildtext=... setting. Sourced from /godebug/non-default-behavior/gotestjsonbuildtext:events.
+# TYPE go_godebug_non_default_behavior_gotestjsonbuildtext_events_total counter
+go_godebug_non_default_behavior_gotestjsonbuildtext_events_total 0
+# HELP go_godebug_non_default_behavior_gotypesalias_events_total The number of non-default behaviors executed by the go/types package due to a non-default GODEBUG=gotypesalias=... setting. Sourced from /godebug/non-default-behavior/gotypesalias:events.
+# TYPE go_godebug_non_default_behavior_gotypesalias_events_total counter
+go_godebug_non_default_behavior_gotypesalias_events_total 0
+# HELP go_godebug_non_default_behavior_http2client_events_total The number of non-default behaviors executed by the net/http package due to a non-default GODEBUG=http2client=... setting. Sourced from /godebug/non-default-behavior/http2client:events.
+# TYPE go_godebug_non_default_behavior_http2client_events_total counter
+go_godebug_non_default_behavior_http2client_events_total 0
+# HELP go_godebug_non_default_behavior_http2server_events_total The number of non-default behaviors executed by the net/http package due to a non-default GODEBUG=http2server=... setting. Sourced from /godebug/non-default-behavior/http2server:events.
+# TYPE go_godebug_non_default_behavior_http2server_events_total counter
+go_godebug_non_default_behavior_http2server_events_total 0
+# HELP go_godebug_non_default_behavior_httplaxcontentlength_events_total The number of non-default behaviors executed by the net/http package due to a non-default GODEBUG=httplaxcontentlength=... setting. Sourced from /godebug/non-default-behavior/httplaxcontentlength:events.
+# TYPE go_godebug_non_default_behavior_httplaxcontentlength_events_total counter
+go_godebug_non_default_behavior_httplaxcontentlength_events_total 0
+# HELP go_godebug_non_default_behavior_httpmuxgo121_events_total The number of non-default behaviors executed by the net/http package due to a non-default GODEBUG=httpmuxgo121=... setting. Sourced from /godebug/non-default-behavior/httpmuxgo121:events.
+# TYPE go_godebug_non_default_behavior_httpmuxgo121_events_total counter
+go_godebug_non_default_behavior_httpmuxgo121_events_total 0
+# HELP go_godebug_non_default_behavior_httpservecontentkeepheaders_events_total The number of non-default behaviors executed by the net/http package due to a non-default GODEBUG=httpservecontentkeepheaders=... setting. Sourced from /godebug/non-default-behavior/httpservecontentkeepheaders:events.
+# TYPE go_godebug_non_default_behavior_httpservecontentkeepheaders_events_total counter
+go_godebug_non_default_behavior_httpservecontentkeepheaders_events_total 0
+# HELP go_godebug_non_default_behavior_installgoroot_events_total The number of non-default behaviors executed by the go/build package due to a non-default GODEBUG=installgoroot=... setting. Sourced from /godebug/non-default-behavior/installgoroot:events.
+# TYPE go_godebug_non_default_behavior_installgoroot_events_total counter
+go_godebug_non_default_behavior_installgoroot_events_total 0
+# HELP go_godebug_non_default_behavior_multipartmaxheaders_events_total The number of non-default behaviors executed by the mime/multipart package due to a non-default GODEBUG=multipartmaxheaders=... setting. Sourced from /godebug/non-default-behavior/multipartmaxheaders:events.
+# TYPE go_godebug_non_default_behavior_multipartmaxheaders_events_total counter
+go_godebug_non_default_behavior_multipartmaxheaders_events_total 0
+# HELP go_godebug_non_default_behavior_multipartmaxparts_events_total The number of non-default behaviors executed by the mime/multipart package due to a non-default GODEBUG=multipartmaxparts=... setting. Sourced from /godebug/non-default-behavior/multipartmaxparts:events.
+# TYPE go_godebug_non_default_behavior_multipartmaxparts_events_total counter
+go_godebug_non_default_behavior_multipartmaxparts_events_total 0
+# HELP go_godebug_non_default_behavior_multipathtcp_events_total The number of non-default behaviors executed by the net package due to a non-default GODEBUG=multipathtcp=... setting. Sourced from /godebug/non-default-behavior/multipathtcp:events.
+# TYPE go_godebug_non_default_behavior_multipathtcp_events_total counter
+go_godebug_non_default_behavior_multipathtcp_events_total 0
+# HELP go_godebug_non_default_behavior_netedns0_events_total The number of non-default behaviors executed by the net package due to a non-default GODEBUG=netedns0=... setting. Sourced from /godebug/non-default-behavior/netedns0:events.
+# TYPE go_godebug_non_default_behavior_netedns0_events_total counter
+go_godebug_non_default_behavior_netedns0_events_total 0
+# HELP go_godebug_non_default_behavior_panicnil_events_total The number of non-default behaviors executed by the runtime package due to a non-default GODEBUG=panicnil=... setting. Sourced from /godebug/non-default-behavior/panicnil:events.
+# TYPE go_godebug_non_default_behavior_panicnil_events_total counter
+go_godebug_non_default_behavior_panicnil_events_total 0
+# HELP go_godebug_non_default_behavior_randautoseed_events_total The number of non-default behaviors executed by the math/rand package due to a non-default GODEBUG=randautoseed=... setting. Sourced from /godebug/non-default-behavior/randautoseed:events.
+# TYPE go_godebug_non_default_behavior_randautoseed_events_total counter
+go_godebug_non_default_behavior_randautoseed_events_total 0
+# HELP go_godebug_non_default_behavior_randseednop_events_total The number of non-default behaviors executed by the math/rand package due to a non-default GODEBUG=randseednop=... setting. Sourced from /godebug/non-default-behavior/randseednop:events.
+# TYPE go_godebug_non_default_behavior_randseednop_events_total counter
+go_godebug_non_default_behavior_randseednop_events_total 0
+# HELP go_godebug_non_default_behavior_rsa1024min_events_total The number of non-default behaviors executed by the crypto/rsa package due to a non-default GODEBUG=rsa1024min=... setting. Sourced from /godebug/non-default-behavior/rsa1024min:events.
+# TYPE go_godebug_non_default_behavior_rsa1024min_events_total counter
+go_godebug_non_default_behavior_rsa1024min_events_total 0
+# HELP go_godebug_non_default_behavior_tarinsecurepath_events_total The number of non-default behaviors executed by the archive/tar package due to a non-default GODEBUG=tarinsd/latencies:seconds.
+# TYPE go_sched_latencies_seconds histogram
+go_sched_latencies_seconds_bucket{le="6.399999999999999e-08"} 4.383609e+06
+go_sched_latencies_seconds_bucket{le="6.399999999999999e-07"} 5.674959e+06
+go_sched_latencies_seconds_bucket{le="7.167999999999999e-06"} 7.209215e+06
+go_sched_latencies_seconds_bucket{le="8.191999999999999e-05"} 7.425153e+06
+go_sched_latencies_seconds_bucket{le="0.0009175039999999999"} 7.610545e+06
+go_sched_latencies_seconds_bucket{le="0.010485759999999998"} 7.729066e+06
+go_sched_latencies_seconds_bucket{le="0.11744051199999998"} 7.729098e+06
+go_sched_latencies_seconds_bucket{le="+Inf"} 7.729098e+06
+go_sched_latencies_seconds_sum 126.878762368
+go_sched_latencies_seconds_count 7.729098e+06
+# HELP go_sched_pauses_stopping_gc_seconds Distribution of individual GC-related stop-the-world stopping latencies. This is the time it takes from deciding to stop the world until all Ps are stopped. This is a subset of the total GC-related stop-the-world time (/sched/pauses/total/gc:seconds). During this time, some threads may be executing. Bucket counts increase monotonically. Sourced from /sched/pauses/stopping/gc:seconds.
+# TYPE go_sched_pauses_stopping_gc_seconds histogram
+go_sched_pauses_stopping_gc_seconds_bucket{le="6.399999999999999e-08"} 0
+go_sched_pauses_stopping_gc_seconds_bucket{le="6.399999999999999e-07"} 0
+go_sched_pauses_stopping_gc_seconds_bucket{le="7.167999999999999e-06"} 0
+go_sched_pauses_stopping_gc_seconds_bucket{le="8.191999999999999e-05"} 684058
+go_sched_pauses_stopping_gc_seconds_bucket{le="0.0009175039999999999"} 896992
+go_sched_pauses_stopping_gc_seconds_bucket{le="0.010485759999999998"} 897287
+go_sched_pauses_stopping_gc_seconds_bucket{le="0.11744051199999998"} 897288
+go_sched_pauses_stopping_gc_seconds_bucket{le="+Inf"} 897288
+go_sched_pauses_stopping_gc_seconds_sum 22.628030464
+go_sched_pauses_stopping_gc_seconds_count 897288
+# HELP go_sched_pauses_stopping_other_seconds Distribution of individual non-GC-related stop-the-world stopping latencies. This is the time it takes from deciding to stop the world until all Ps are stopped. This is a subset of the total non-GC-related stop-the-world time (/sched/pauses/total/other:seconds). During this time, some threads may be executing. Bucket counts increase monotonically. Sourced from /sched/pauses/stopping/other:seconds.
+# TYPE go_sched_pauses_stopping_other_seconds histogram
+go_sched_pauses_stopping_other_seconds_bucket{le="6.399999999999999e-08"} 0
+go_sched_pauses_stopping_other_seconds_bucket{le="6.399999999999999e-07"} 0
+go_sched_pauses_stopping_other_seconds_bucket{le="7.167999999999999e-06"} 0
+go_sched_pauses_stopping_other_seconds_bucket{le="8.191999999999999e-05"} 0
+go_sched_pauses_stopping_other_seconds_bucket{le="0.0009175039999999999"} 0
+go_sched_pauses_stopping_other_seconds_bucket{le="0.010485759999999998"} 0
+go_sched_pauses_stopping_other_seconds_bucket{le="0.11744051199999998"} 0
+go_sched_pauses_stopping_other_seconds_bucket{le="+Inf"} 0
+go_sched_pauses_stopping_other_seconds_sum 0
+go_sched_pauses_stopping_other_seconds_count 0
+# HELP go_sched_pauses_total_gc_seconds Distribution of individual GC-related stop-the-world pause latencies. This is the time from deciding to stop the world until the world is started again. Some of this time is spent getting all threads to stop (this is measured directly in /sched/pauses/stopping/gc:seconds), during which some threads may still be running. Bucket counts increase monotonically. Sourced from /sched/pauses/total/gc:seconds.
+# TYPE go_sched_pauses_total_gc_seconds histogram
+go_sched_pauses_total_gc_seconds_bucket{le="6.399999999999999e-08"} 0
+go_sched_pauses_total_gc_seconds_bucket{le="6.399999999999999e-07"} 0
+go_sched_pauses_total_gc_seconds_bucket{le="7.167999999999999e-06"} 0
+go_sched_pauses_total_gc_seconds_bucket{le="8.191999999999999e-05"} 449729
+go_sched_pauses_total_gc_seconds_bucket{le="0.0009175039999999999"} 896655
+go_sched_pauses_total_gc_seconds_bucket{le="0.010485759999999998"} 897286
+go_sched_pauses_total_gc_seconds_bucket{le="0.11744051199999998"} 897288
+go_sched_pauses_total_gc_seconds_bucket{le="+Inf"} 897288
+go_sched_pauses_total_gc_seconds_sum 40.435751936
+go_sched_pauses_total_gc_seconds_count 897288
+# HELP go_sched_pauses_total_other_seconds Distribution of individual non-GC-related stop-the-world pause latencies. This is the time from deciding to stop the world until the world is started again. Some of this time is spent getting all threads to stop (measured directly in /sched/pauses/stopping/other:seconds). Bucket counts increase monotonically. Sourced from /sched/pauses/total/other:seconds.
+# TYPE go_sched_pauses_total_other_seconds histogram
+go_sched_pauses_total_other_seconds_bucket{le="6.399999999999999e-08"} 0
+go_sched_pauses_total_other_seconds_bucket{le="6.399999999999999e-07"} 0
+go_sched_pauses_total_other_seconds_bucket{le="7.167999999999999e-06"} 0
+go_sched_pauses_total_other_seconds_bucket{le="8.191999999999999e-05"} 0
+go_sched_pauses_total_other_seconds_bucket{le="0.0009175039999999999"} 0
+go_sched_pauses_total_other_seconds_bucket{le="0.010485759999999998"} 0
+go_sched_pauses_total_other_seconds_bucket{le="0.11744051199999998"} 0
+go_sched_pauses_total_other_seconds_bucket{le="+Inf"} 0
+go_sched_pauses_total_other_seconds_sum 0
+go_sched_pauses_total_other_seconds_count 0
+# HELP go_sync_mutex_wait_total_seconds_total Approximate cumulative time goroutines have spent blocked on a sync.Mutex, sync.RWMutex, or runtime-internal lock. This metric is useful for identifying global changes in lock contention. Collect a mutex or block profile using the runtime/pprof package for more detailed contention data. Sourced from /sync/mutex/wait/total:seconds.
+# TYPE go_sync_mutex_wait_total_seconds_total counter
+go_sync_mutex_wait_total_seconds_total 527.74509848
+# HELP go_threads Number of OS threads created.
+# TYPE go_threads gauge
+go_threads 75
+# HELP inference_extension_info [ALPHA] General information of the current build of Inference Extension.
+# TYPE inference_extension_info gauge
+inference_extension_info{build_ref="",commit=""} 1
+# HELP inference_extension_prefix_indexer_size [ALPHA] Size of the prefix indexer.
+# TYPE inference_extension_prefix_indexer_size gauge
+inference_extension_prefix_indexer_size 0
+# HELP inference_pool_average_kv_cache_utilization [ALPHA] The average kv cache utilization for an inference server pool.
+# TYPE inference_pool_average_kv_cache_utilization gauge
+inference_pool_average_kv_cache_utilization{name="deepseek-r1-0528-pd-inference-pool"} 0.09686208531604196
+# HELP inference_pool_average_queue_size [ALPHA] The average number of requests pending in the model server queue.
+# TYPE inference_pool_average_queue_size gauge
+inference_pool_average_queue_size{name="deepseek-r1-0528-pd-inference-pool"} 0
+# HELP inference_pool_per_pod_queue_size [ALPHA] The total number of requests pending in the model server queue for each underlying pod.
+# TYPE inference_pool_per_pod_queue_size gauge
+inference_pool_per_pod_queue_size{model_server_pod="deepseek-r1-0528-pd-kserve-mn-0",name="deepseek-r1-0528-pd-inference-pool"} 0
+inference_pool_per_pod_queue_size{model_server_pod="deepseek-r1-0528-pd-kserve-mn-prefill-0",name="deepseek-r1-0528-pd-inference-pool"} 0
+# HELP inference_pool_ready_pods [ALPHA] The number of ready pods in the inference server pool.
+# TYPE inference_pool_ready_pods gauge
+inference_pool_ready_pods{name="deepseek-r1-0528-pd-inference-pool"} 2
+# HELP process_cpu_seconds_total Total user and system CPU time spent in seconds.
+# TYPE process_cpu_seconds_total counter
+process_cpu_seconds_total 14239.27
+# HELP process_max_fds Maximum number of open file descriptors.
+# TYPE process_max_fds gauge
+process_max_fds 1.048576e+06
+# HELP process_network_receive_bytes_total Number of bytes received by the process over the network.
+# TYPE process_network_receive_bytes_total counter
+process_network_receive_bytes_total 4.16944551364e+11
+# HELP process_network_transmit_bytes_total Number of bytes sent by the process over the network.
+# TYPE process_network_transmit_bytes_total counter
+process_network_transmit_bytes_total 3.348138e+08
+# HELP process_open_fds Number of open file descriptors.
+# TYPE process_open_fds gauge
+process_open_fds 16
+# HELP process_resident_memory_bytes Resident memory size in bytes.
+# TYPE process_resident_memory_bytes gauge
+process_resident_memory_bytes 7.0746112e+07
+# HELP process_start_time_seconds Start time of the process since unix epoch in seconds.
+# TYPE process_start_time_seconds gauge
+process_start_time_seconds 1.75857125655e+09
+# HELP process_virtual_memory_bytes Virtual memory size in bytes.
+# TYPE process_virtual_memory_bytes gauge
+process_virtual_memory_bytes 6.852972544e+09
+# HELP process_virtual_memory_max_bytes Maximum amount of virtual memory available in bytes.
+# TYPE process_virtual_memory_max_bytes gauge
+process_virtual_memory_max_bytes 1.8446744073709552e+19
+# HELP rest_client_requests_total Number of HTTP requests, partitioned by status code, method, and host.
+# TYPE rest_client_requests_total counter
+rest_client_requests_total{code="200",host="172.30.0.1:443",method="GET"} 288
+rest_client_requests_total{code="201",host="172.30.0.1:443",method="POST"} 718
+# HELP workqueue_adds_total Total number of adds handled by workqueue
+# TYPE workqueue_adds_total counter
+workqueue_adds_total{controller="inferencemodel",name="inferencemodel"} 1
+workqueue_adds_total{controller="inferencepool",name="inferencepool"} 1
+workqueue_adds_total{controller="pod",name="pod"} 13
+# HELP workqueue_depth Current depth of workqueue by workqueue and priority
+# TYPE workqueue_depth gauge
+workqueue_depth{controller="inferencemodel",name="inferencemodel",priority=""} 0
+workqueue_depth{controller="inferencepool",name="inferencepool",priority=""} 0
+workqueue_depth{controller="pod",name="pod",priority=""} 0
+# HELP workqueue_longest_running_processor_seconds How many seconds has the longest running processor for workqueue been running.
+# TYPE workqueue_longest_running_processor_seconds gauge
+workqueue_longest_running_processor_seconds{controller="inferencemodel",name="inferencemodel"} 0
+workqueue_longest_running_processor_seconds{controller="inferencepool",name="inferencepool"} 0
+workqueue_longest_running_processor_seconds{controller="pod",name="pod"} 0
+# HELP workqueue_queue_duration_seconds How long in seconds an item stays in workqueue before being requested
+# TYPE workqueue_queue_duration_seconds histogram
+workqueue_queue_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="1e-08"} 0
+workqueue_queue_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="1e-07"} 0
+workqueue_queue_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="1e-06"} 0
+workqueue_queue_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="9.999999999999999e-06"} 0
+workqueue_queue_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="9.999999999999999e-05"} 0
+workqueue_queue_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="0.001"} 0
+workqueue_queue_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="0.01"} 0
+workqueue_queue_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="0.1"} 0
+workqueue_queue_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="1"} 1
+workqueue_queue_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="10"} 1
+workqueue_queue_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="100"} 1
+workqueue_queue_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="1000"} 1
+workqueue_queue_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="+Inf"} 1
+workqueue_queue_duration_seconds_sum{controller="inferencemodel",name="inferencemodel"} 0.100399313
+workqueue_queue_duration_seconds_count{controller="inferencemodel",name="inferencemodel"} 1
+workqueue_queue_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="1e-08"} 0
+workqueue_queue_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="1e-07"} 0
+workqueue_queue_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="1e-06"} 0
+workqueue_queue_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="9.999999999999999e-06"} 0
+workqueue_queue_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="9.999999999999999e-05"} 1
+workqueue_queue_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="0.001"} 1
+workqueue_queue_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="0.01"} 1
+workqueue_queue_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="0.1"} 1
+workqueue_queue_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="1"} 1
+workqueue_queue_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="10"} 1
+workqueue_queue_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="100"} 1
+workqueue_queue_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="1000"} 1
+workqueue_queue_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="+Inf"} 1
+workqueue_queue_duration_seconds_sum{controller="inferencepool",name="inferencepool"} 1.3997e-05
+workqueue_queue_duration_seconds_count{controller="inferencepool",name="inferencepool"} 1
+workqueue_queue_duration_seconds_bucket{controller="pod",name="pod",le="1e-08"} 0
+workqueue_queue_duration_seconds_bucket{controller="pod",name="pod",le="1e-07"} 0
+workqueue_queue_duration_seconds_bucket{controller="pod",name="pod",le="1e-06"} 0
+workqueue_queue_duration_seconds_bucket{controller="pod",name="pod",le="9.999999999999999e-06"} 12
+workqueue_queue_duration_seconds_bucket{controller="pod",name="pod",le="9.999999999999999e-05"} 13
+workqueue_queue_duration_seconds_bucket{controller="pod",name="pod",le="0.001"} 13
+workqueue_queue_duration_seconds_bucket{controller="pod",name="pod",le="0.01"} 13
+workqueue_queue_duration_seconds_bucket{controller="pod",name="pod",le="0.1"} 13
+workqueue_queue_duration_seconds_bucket{controller="pod",name="pod",le="1"} 13
+workqueue_queue_duration_seconds_bucket{controller="pod",name="pod",le="10"} 13
+workqueue_queue_duration_seconds_bucket{controller="pod",name="pod",le="100"} 13
+workqueue_queue_duration_seconds_bucket{controller="pod",name="pod",le="1000"} 13
+workqueue_queue_duration_seconds_bucket{controller="pod",name="pod",le="+Inf"} 13
+workqueue_queue_duration_seconds_sum{controller="pod",name="pod"} 6.108e-05
+workqueue_queue_duration_seconds_count{controller="pod",name="pod"} 13
+# HELP workqueue_retries_total Total number of retries handled by workqueue
+# TYPE workqueue_retries_total counter
+workqueue_retries_total{controller="inferencemodel",name="inferencemodel"} 0
+workqueue_retries_total{controller="inferencepool",name="inferencepool"} 0
+workqueue_retries_total{controller="pod",name="pod"} 0
+# HELP workqueue_unfinished_work_seconds How many seconds of work has been done that is in progress and hasn't been observed by work_duration. Large values indicate stuck threads. One can deduce the number of stuck threads by observing the rate at which this increases.
+# TYPE workqueue_unfinished_work_seconds gauge
+workqueue_unfinished_work_seconds{controller="inferencemodel",name="inferencemodel"} 0
+workqueue_unfinished_work_seconds{controller="inferencepool",name="inferencepool"} 0
+workqueue_unfinished_work_seconds{controller="pod",name="pod"} 0
+# HELP workqueue_work_duration_seconds How long in seconds processing an item from workqueue takes.
+# TYPE workqueue_work_duration_seconds histogram
+workqueue_work_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="1e-08"} 0
+workqueue_work_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="1e-07"} 0
+workqueue_work_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="1e-06"} 0
+workqueue_work_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="9.999999999999999e-06"} 0
+workqueue_work_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="9.999999999999999e-05"} 0
+workqueue_work_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="0.001"} 1
+workqueue_work_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="0.01"} 1
+workqueue_work_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="0.1"} 1
+workqueue_work_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="1"} 1
+workqueue_work_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="10"} 1
+workqueue_work_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="100"} 1
+workqueue_work_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="1000"} 1
+workqueue_work_duration_seconds_bucket{controller="inferencemodel",name="inferencemodel",le="+Inf"} 1
+workqueue_work_duration_seconds_sum{controller="inferencemodel",name="inferencemodel"} 0.000492836
+workqueue_work_duration_seconds_count{controller="inferencemodel",name="inferencemodel"} 1
+workqueue_work_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="1e-08"} 0
+workqueue_work_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="1e-07"} 0
+workqueue_work_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="1e-06"} 0
+workqueue_work_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="9.999999999999999e-06"} 0
+workqueue_work_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="9.999999999999999e-05"} 0
+workqueue_work_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="0.001"} 1
+workqueue_work_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="0.01"} 1
+workqueue_work_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="0.1"} 1
+workqueue_work_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="1"} 1
+workqueue_work_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="10"} 1
+workqueue_work_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="100"} 1
+workqueue_work_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="1000"} 1
+workqueue_work_duration_seconds_bucket{controller="inferencepool",name="inferencepool",le="+Inf"} 1
+workqueue_work_duration_seconds_sum{controller="inferencepool",name="inferencepool"} 0.000597765
+workqueue_work_duration_seconds_count{controller="inferencepool",name="inferencepool"} 1
+workqueue_work_duration_seconds_bucket{controller="pod",name="pod",le="1e-08"} 0
+workqueue_work_duration_seconds_bucket{controller="pod",name="pod",le="1e-07"} 0
+workqueue_work_duration_seconds_bucket{controller="pod",name="pod",le="1e-06"} 0
+workqueue_work_duration_seconds_bucket{controller="pod",name="pod",le="9.999999999999999e-06"} 0
+workqueue_work_duration_seconds_bucket{controller="pod",name="pod",le="9.999999999999999e-05"} 3
+workqueue_work_duration_seconds_bucket{controller="pod",name="pod",le="0.001"} 13
+workqueue_work_duration_seconds_bucket{controller="pod",name="pod",le="0.01"} 13
+workqueue_work_duration_seconds_bucket{controller="pod",name="pod",le="0.1"} 13
+workqueue_work_duration_seconds_bucket{controller="pod",name="pod",le="1"} 13
+workqueue_work_duration_seconds_bucket{controller="pod",name="pod",le="10"} 13
+workqueue_work_duration_seconds_bucket{controller="pod",name="pod",le="100"} 13
+workqueue_work_duration_seconds_bucket{controller="pod",name="pod",le="1000"} 13
+workqueue_work_duration_seconds_bucket{controller="pod",name="pod",le="+Inf"} 13
+workqueue_work_duration_seconds_sum{controller="pod",name="pod"} 0.002095787
+workqueue_work_duration_seconds_count{controller="pod",name="pod"} 13
