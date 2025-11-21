@@ -44,6 +44,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 const (
@@ -80,6 +81,11 @@ func (r *LLMInferenceServiceReconciler) reconcileSelfSignedCertsSecret(ctx conte
 	if err != nil {
 		return fmt.Errorf("failed to get expected self-signed certificate secret: %w", err)
 	}
+
+	if utils.GetForceStopRuntime(llmSvc) {
+		return Delete(ctx, r, llmSvc, expected)
+	}
+
 	if err := Reconcile(ctx, r, llmSvc, &corev1.Secret{}, expected, semanticCertificateSecretIsEqual); err != nil {
 		return fmt.Errorf("failed to reconcile self-signed TLS certificate: %w", err)
 	}

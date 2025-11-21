@@ -17,6 +17,7 @@ limitations under the License.
 package llmisvc_test
 
 import (
+	"fmt"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -588,7 +589,6 @@ func assertRouterNotReadyWithReason(routerCondition, gatewayCondition *apis.Cond
 func assertHTTPRouteConditionUnset(routerCondition, httpRouteCondition *apis.Condition) assertConditionsFunc {
 	return func(g *WithT) {
 		g.Expect(routerCondition.IsTrue()).To(BeTrue(), "Router should be ready")
-		g.Expect(httpRouteCondition).ToNot(BeNil(), "HTTPRoute condition should be set")
-		g.Expect(httpRouteCondition.IsTrue()).To(BeTrue(), "HTTPRoute condition should be ready when no HTTPRoute refs")
+		g.Expect(httpRouteCondition).To(BeNil(), fmt.Sprintf("HTTPRoute condition should be unset %#v", httpRouteCondition))
 	}
 }
