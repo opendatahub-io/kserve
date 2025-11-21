@@ -61,7 +61,7 @@ async def test_paddle(rest_v1_client):
     )
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(
+        kserve_client.wait_isvc_ready_modelstate_loaded(
             service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=720
         )
     except RuntimeError as e:
@@ -109,7 +109,7 @@ async def test_paddle_runtime(rest_v1_client):
     )
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(
+        kserve_client.wait_isvc_ready_modelstate_loaded(
             service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=720
         )
     except RuntimeError as e:
@@ -158,7 +158,7 @@ async def test_paddle_v2_kserve(rest_v2_client):
     )
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(
+        kserve_client.wait_isvc_ready_modelstate_loaded(
             service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=720
         )
     except RuntimeError as e:
@@ -215,7 +215,7 @@ async def test_paddle_v2_grpc():
     )
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(
+        kserve_client.wait_isvc_ready_modelstate_loaded(
             service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=720
         )
     except RuntimeError as e:

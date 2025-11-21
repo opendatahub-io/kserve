@@ -105,7 +105,7 @@ async def test_transformer_collocation(rest_v1_client):
     )
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     except RuntimeError as e:
         print(
             kserve_client.api_instance.get_namespaced_custom_object(
@@ -189,7 +189,7 @@ async def test_transformer_collocation_runtime(rest_v1_client):
     )
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     except RuntimeError as e:
         print(
             kserve_client.api_instance.get_namespaced_custom_object(
@@ -286,7 +286,7 @@ async def test_raw_transformer_collocation(rest_v1_client, network_layer):
     )
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     except RuntimeError as e:
         print(
             kserve_client.api_instance.get_namespaced_custom_object(
@@ -385,7 +385,7 @@ async def test_raw_transformer_collocation_runtime(rest_v1_client, network_layer
     )
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     except RuntimeError as e:
         print(
             kserve_client.api_instance.get_namespaced_custom_object(
