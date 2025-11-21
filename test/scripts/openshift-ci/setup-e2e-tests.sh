@@ -126,7 +126,16 @@ sed -i "s|^kserve-router=.*$|kserve-router=${KSERVE_ROUTER_IMAGE}|" "$PROJECT_RO
 sed -i "s|^kserve-storage-initializer=.*$|kserve-storage-initializer=${STORAGE_INITIALIZER_IMAGE}|" "$PROJECT_ROOT/config/overlays/odh/params.env"
 sed -i "s|^sklearn=.*$|sklearn=${SKLEARN_IMAGE}|" "$PROJECT_ROOT/config/overlays/odh/params.env"
 
+# Disable namespace removal patch for CI.
+echo "⏳ Temporarily disabling namespace removal patch for CI"
+cp "$PROJECT_ROOT/config/overlays/odh/kustomization.yaml" "$PROJECT_ROOT/config/overlays/odh/kustomization.yaml.bak"
+sed -i 's|^- path: patches/remove-namespace.yaml|# - path: patches/remove-namespace.yaml|' "$PROJECT_ROOT/config/overlays/odh/kustomization.yaml"
+
 kustomize build $PROJECT_ROOT/config/overlays/odh-test | oc apply --force-conflicts --server-side=true -f -
+
+# Restore original files
+echo "⏳ Restoring original configuration files"
+mv "$PROJECT_ROOT/config/overlays/odh/kustomization.yaml.bak" "$PROJECT_ROOT/config/overlays/odh/kustomization.yaml"
 mv "$PROJECT_ROOT/config/overlays/odh/params.env.bak" "$PROJECT_ROOT/config/overlays/odh/params.env"
 
 wait_for_crd datascienceclusters.datasciencecluster.opendatahub.io 90s
