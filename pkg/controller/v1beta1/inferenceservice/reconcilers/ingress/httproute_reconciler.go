@@ -134,7 +134,7 @@ func createHTTPRouteRule(routeMatches []gatewayapiv1.HTTPRouteMatch, filters []g
 						Kind:      ptr.To(gatewayapiv1.Kind(constants.ServiceKind)),
 						Name:      gatewayapiv1.ObjectName(serviceName),
 						Namespace: (*gatewayapiv1.Namespace)(&namespace),
-						Port:      (*gatewayapiv1.PortNumber)(&port),
+						Port:      &port,
 					},
 				},
 			},

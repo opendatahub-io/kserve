@@ -35,6 +35,18 @@ import kserve
 from kserve.models.v1alpha1_cluster_storage_container_list import (
     V1alpha1ClusterStorageContainerList,
 )  # noqa: E501
+from kserve.models.v1alpha1_cluster_storage_container import (
+    V1alpha1ClusterStorageContainer,
+)  # noqa: E501
+from kserve.models.v1alpha1_cluster_storage_container_list import (
+    V1alpha1ClusterStorageContainerList,
+)  # noqa: E501
+from kserve.models.v1alpha1_storage_container_spec import (
+    V1alpha1StorageContainerSpec,
+)  # noqa: E501
+from kserve.models.v1alpha1_supported_uri_format import (
+    V1alpha1SupportedUriFormat,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 

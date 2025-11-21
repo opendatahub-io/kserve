@@ -116,6 +116,7 @@ func Update[O client.Object, T client.Object](ctx context.Context, c clientWithR
 		ownerLogLine = logLineForObject(owner)
 	}
 
+	// Perform initial ownership check (this only needs to be done once, not in the retry loop)
 	if isNamespaced, err := apiutil.IsObjectNamespaced(expected, c.Scheme(), c.RESTMapper()); err != nil {
 		return fmt.Errorf("failed to resolve if resource is namespaced %s: %w", typeLogLine, err)
 	} else if isNamespaced && !isOwnerNil {
@@ -129,11 +130,6 @@ func Update[O client.Object, T client.Object](ctx context.Context, c clientWithR
 		}
 	}
 
-	expected.SetResourceVersion(curr.GetResourceVersion())
-	if err := c.Update(ctx, expected, client.DryRunAll); err != nil {
-		return fmt.Errorf("failed to get defaults for %s %s/%s: %w", typeLogLine, expected.GetNamespace(), expected.GetName(), err)
-	}
-
 	if isEqual(expected, curr) {
 		return nil
 	}
@@ -142,6 +138,9 @@ func Update[O client.Object, T client.Object](ctx context.Context, c clientWithR
 		"expected", expected,
 		"curr", curr,
 	)
+
+	// Copy resourceVersion from current object to expected object for optimistic concurrency control
+	expected.SetResourceVersion(curr.GetResourceVersion())
 
 	if err := c.Update(ctx, expected); err != nil {
 		return fmt.Errorf("failed to update %s %s/%s: %w", typeLogLine, expected.GetNamespace(), expected.GetName(), err)

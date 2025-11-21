@@ -33,6 +33,15 @@ import kserve
 from kserve.models.v1alpha1_serving_runtime_spec import (
     V1alpha1ServingRuntimeSpec,
 )  # noqa: E501
+from kserve.models.v1alpha1_built_in_adapter import V1alpha1BuiltInAdapter  # noqa: E501
+from kserve.models.v1alpha1_container import V1alpha1Container  # noqa: E501
+from kserve.models.v1alpha1_serving_runtime_spec import (
+    V1alpha1ServingRuntimeSpec,
+)  # noqa: E501
+from kserve.models.v1alpha1_storage_helper import V1alpha1StorageHelper  # noqa: E501
+from kserve.models.v1alpha1_supported_model_format import (
+    V1alpha1SupportedModelFormat,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 

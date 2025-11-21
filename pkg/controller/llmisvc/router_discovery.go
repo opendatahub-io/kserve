@@ -23,6 +23,7 @@ import (
 	"math"
 	"net"
 	"slices"
+	"strconv"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -33,10 +34,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
 )
 
@@ -130,7 +131,7 @@ func extractRoutePath(route *gatewayapi.HTTPRoute) string {
 	for _, rule := range route.Spec.Rules {
 		serviceFound := false
 		for _, backendRef := range rule.BackendRefs {
-			if backendRef.Kind == &serviceKind {
+			if backendRef.Kind != nil && *backendRef.Kind == serviceKind {
 				serviceFound = true
 				break
 			}
@@ -233,7 +234,7 @@ func combineIntoURLs(hostnames []string, scheme string, port gatewayapi.PortNumb
 
 func joinHostPort(host string, port *gatewayapi.PortNumber) string {
 	if port != nil && *port != 0 {
-		return net.JoinHostPort(host, fmt.Sprint(*port))
+		return net.JoinHostPort(host, strconv.Itoa(int(*port)))
 	}
 	return host
 }
@@ -290,7 +291,7 @@ func IsGatewayReady(gateway *gatewayapi.Gateway) bool {
 }
 
 // EvaluateHTTPRouteReadiness checks the readiness status of HTTPRoutes and returns those that are not ready
-func EvaluateHTTPRouteReadiness(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, routes []*gatewayapi.HTTPRoute) []*gatewayapi.HTTPRoute {
+func EvaluateHTTPRouteReadiness(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, routes []*gatewayapi.HTTPRoute) []*gatewayapi.HTTPRoute {
 	logger := log.FromContext(ctx)
 	notReadyRoutes := make([]*gatewayapi.HTTPRoute, 0)
 
@@ -307,7 +308,7 @@ func EvaluateHTTPRouteReadiness(ctx context.Context, llmSvc *v1alpha1.LLMInferen
 }
 
 // IsHTTPRouteReady determines if an HTTPRoute is ready based on its status conditions.
-func IsHTTPRouteReady(llmSvc *v1alpha1.LLMInferenceService, route *gatewayapi.HTTPRoute) bool {
+func IsHTTPRouteReady(llmSvc *v1alpha2.LLMInferenceService, route *gatewayapi.HTTPRoute) bool {
 	if route == nil || len(route.Spec.ParentRefs) == 0 {
 		return false
 	}
@@ -319,7 +320,7 @@ func IsHTTPRouteReady(llmSvc *v1alpha1.LLMInferenceService, route *gatewayapi.HT
 	return true
 }
 
-func nonReadyHTTPRouteTopLevelCondition(llmSvc *v1alpha1.LLMInferenceService, route *gatewayapi.HTTPRoute) (*metav1.Condition, bool) {
+func nonReadyHTTPRouteTopLevelCondition(llmSvc *v1alpha2.LLMInferenceService, route *gatewayapi.HTTPRoute) (*metav1.Condition, bool) {
 	if route == nil {
 		return nil, true
 	}
@@ -367,7 +368,7 @@ func nonReadyHTTPRouteTopLevelCondition(llmSvc *v1alpha1.LLMInferenceService, ro
 }
 
 // IsInferencePoolReady checks if an InferencePool has been accepted by all parents.
-func IsInferencePoolReady(pool *igwapi.InferencePool) bool {
+func IsInferencePoolReady(pool *igwv1.InferencePool) bool {
 	if pool == nil || len(pool.Status.Parents) == 0 {
 		return false
 	}
@@ -379,19 +380,32 @@ func IsInferencePoolReady(pool *igwapi.InferencePool) bool {
 	return true
 }
 
-func nonReadyInferencePoolTopLevelCondition(pool *igwapi.InferencePool) (*metav1.Condition, bool) {
+func nonReadyInferencePoolTopLevelCondition(pool *igwv1.InferencePool) (*metav1.Condition, bool) {
 	if pool == nil {
 		return nil, true
 	}
 
 	for _, parent := range pool.Status.Parents {
-		cond := meta.FindStatusCondition(parent.Conditions, string(igwapi.InferencePoolConditionAccepted))
-		if cond == nil {
+		// Check Accepted condition
+		acceptedCond := meta.FindStatusCondition(parent.Conditions, string(igwv1.InferencePoolConditionAccepted))
+		if acceptedCond == nil {
 			return nil, true
 		}
-		staleCondition := cond.ObservedGeneration > 0 && cond.ObservedGeneration < pool.Generation
-		if cond.Status != metav1.ConditionTrue || staleCondition {
-			return cond, false
+		staleAcceptedCondition := acceptedCond.ObservedGeneration > 0 && acceptedCond.ObservedGeneration < pool.ObjectMeta.Generation
+		if acceptedCond.Status != metav1.ConditionTrue || staleAcceptedCondition {
+			return acceptedCond, false
+		}
+
+		// Check ResolvedRefs condition - critical for ensuring Gateway Controller can route to this pool
+		// Without this check, we might mark a pool as "ready" even though the Gateway Controller
+		// doesn't support the API version yet (e.g., v1 when only v1alpha2 controller is installed)
+		resolvedRefsCond := meta.FindStatusCondition(parent.Conditions, string(igwv1.InferencePoolConditionResolvedRefs))
+		if resolvedRefsCond == nil {
+			return nil, true
+		}
+		staleResolvedRefsCondition := resolvedRefsCond.ObservedGeneration > 0 && resolvedRefsCond.ObservedGeneration < pool.ObjectMeta.Generation
+		if resolvedRefsCond.Status != metav1.ConditionTrue || staleResolvedRefsCondition {
+			return resolvedRefsCond, false
 		}
 	}
 

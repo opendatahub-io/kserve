@@ -33,6 +33,10 @@ import kserve
 from kserve.models.v1alpha1_inference_graph_list import (
     V1alpha1InferenceGraphList,
 )  # noqa: E501
+from kserve.models.v1alpha1_inference_graph import V1alpha1InferenceGraph  # noqa: E501
+from kserve.models.v1alpha1_inference_graph_list import (
+    V1alpha1InferenceGraphList,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 

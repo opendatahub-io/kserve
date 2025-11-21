@@ -34,8 +34,10 @@ type CustomExplainer struct {
 
 var _ ComponentImplementation = &CustomExplainer{}
 
+// NewCustomExplainer creates a CustomExplainer from a KServe PodSpec.
+// Uses ToCorev1PodSpec() for explicit field mapping required by structured-merge-diff v6.
 func NewCustomExplainer(podSpec *PodSpec) *CustomExplainer {
-	return &CustomExplainer{PodSpec: corev1.PodSpec(*podSpec)}
+	return &CustomExplainer{PodSpec: podSpec.ToCorev1PodSpec()}
 }
 
 // Validate the spec

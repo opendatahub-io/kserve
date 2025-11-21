@@ -33,6 +33,10 @@ import kserve
 from kserve.models.v1alpha1_serving_runtime_pod_spec import (
     V1alpha1ServingRuntimePodSpec,
 )  # noqa: E501
+from kserve.models.v1alpha1_container import V1alpha1Container  # noqa: E501
+from kserve.models.v1alpha1_serving_runtime_pod_spec import (
+    V1alpha1ServingRuntimePodSpec,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 

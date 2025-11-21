@@ -337,3 +337,64 @@ type PodSpec struct {
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty" protobuf:"bytes,40,opt,name=resources"`
 }
+
+// ToCorev1PodSpec converts KServe PodSpec to corev1.PodSpec with explicit field mapping.
+//
+// This method is required to properly handle the migration from structured-merge-diff/v4 to v6
+// which is included in Kubernetes v0.34+. The structured-merge-diff library is used by Kubernetes
+// Server-Side Apply (SSA) to track field ownership and manage conflicts between multiple controllers.
+//
+// When upgrading from v4 to v6, direct type casts (e.g., corev1.PodSpec(*podSpec)) can cause issues
+// with field ownership tracking because structured-merge-diff v6 requires explicit field mapping to
+// properly track which fields are being set by each manager.
+//
+// Reference: https://github.com/kubernetes-sigs/structured-merge-diff
+// - ReconcileFieldSetWithSchema supports schema evolution and type changes
+// - Explicit field tracking is required for proper APPLY operations
+//
+// This conversion ensures all 40+ PodSpec fields are explicitly mapped, allowing structured-merge-diff
+// to correctly track field ownership during reconciliation.
+func (p *PodSpec) ToCorev1PodSpec() corev1.PodSpec {
+	return corev1.PodSpec{
+		Volumes:                       p.Volumes,
+		InitContainers:                p.InitContainers,
+		Containers:                    p.Containers,
+		EphemeralContainers:           p.EphemeralContainers,
+		RestartPolicy:                 p.RestartPolicy,
+		TerminationGracePeriodSeconds: p.TerminationGracePeriodSeconds,
+		ActiveDeadlineSeconds:         p.ActiveDeadlineSeconds,
+		DNSPolicy:                     p.DNSPolicy,
+		NodeSelector:                  p.NodeSelector,
+		ServiceAccountName:            p.ServiceAccountName,
+		DeprecatedServiceAccount:      p.DeprecatedServiceAccount,
+		AutomountServiceAccountToken:  p.AutomountServiceAccountToken,
+		NodeName:                      p.NodeName,
+		HostNetwork:                   p.HostNetwork,
+		HostPID:                       p.HostPID,
+		HostIPC:                       p.HostIPC,
+		ShareProcessNamespace:         p.ShareProcessNamespace,
+		SecurityContext:               p.SecurityContext,
+		ImagePullSecrets:              p.ImagePullSecrets,
+		Hostname:                      p.Hostname,
+		Subdomain:                     p.Subdomain,
+		Affinity:                      p.Affinity,
+		SchedulerName:                 p.SchedulerName,
+		Tolerations:                   p.Tolerations,
+		HostAliases:                   p.HostAliases,
+		PriorityClassName:             p.PriorityClassName,
+		Priority:                      p.Priority,
+		DNSConfig:                     p.DNSConfig,
+		ReadinessGates:                p.ReadinessGates,
+		RuntimeClassName:              p.RuntimeClassName,
+		EnableServiceLinks:            p.EnableServiceLinks,
+		PreemptionPolicy:              p.PreemptionPolicy,
+		Overhead:                      p.Overhead,
+		TopologySpreadConstraints:     p.TopologySpreadConstraints,
+		SetHostnameAsFQDN:             p.SetHostnameAsFQDN,
+		OS:                            p.OS,
+		HostUsers:                     p.HostUsers,
+		SchedulingGates:               p.SchedulingGates,
+		ResourceClaims:                p.ResourceClaims,
+		Resources:                     p.Resources,
+	}
+}

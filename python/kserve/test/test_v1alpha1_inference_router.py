@@ -33,6 +33,10 @@ import kserve
 from kserve.models.v1alpha1_inference_router import (
     V1alpha1InferenceRouter,
 )  # noqa: E501
+from kserve.models.v1alpha1_inference_router import (
+    V1alpha1InferenceRouter,
+)  # noqa: E501
+from kserve.models.v1alpha1_inference_step import V1alpha1InferenceStep  # noqa: E501
 from kserve.rest import ApiException
 
 

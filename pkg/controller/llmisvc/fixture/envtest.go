@@ -24,13 +24,16 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 
+	validation1 "github.com/kserve/kserve/pkg/apis/serving/v1alpha1/validation"
+	validation2 "github.com/kserve/kserve/pkg/apis/serving/v1alpha2/validation"
+
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
-	"github.com/kserve/kserve/pkg/controller/llmisvc/validation"
 	pkgtest "github.com/kserve/kserve/pkg/testing"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -53,10 +56,14 @@ func SetupTestEnv() *pkgtest.Client {
 		clientSet, err := kubernetes.NewForConfig(cfg)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		dynamicClient, err := dynamic.NewForConfig(cfg)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		llmCtrl := llmisvc.LLMInferenceServiceReconciler{
-			Client:    mgr.GetClient(),
-			Clientset: clientSet,
-			Config:    cfg,
+			Client:        mgr.GetClient(),
+			Config:        cfg,
+			Clientset:     clientSet,
+			DynamicClient: dynamicClient,
 			// TODO fix it to be set up similar to main.go, for now it's stub
 			EventRecorder: eventBroadcaster.NewRecorder(mgr.GetScheme(), corev1.EventSource{Component: "v1beta1Controllers"}),
 		}
@@ -69,14 +76,29 @@ func SetupTestEnv() *pkgtest.Client {
 		if err != nil {
 			return err
 		}
-		llmInferenceServiceConfigValidator := validation.LLMInferenceServiceConfigValidator{
+
+		// Setup v1alpha1 validators
+		v1alpha1ConfigValidator := validation1.LLMInferenceServiceConfigValidator{
+			ClientSet: clientSet,
+		}
+		if err := v1alpha1ConfigValidator.SetupWithManager(mgr); err != nil {
+			return err
+		}
+
+		v1alpha1ServiceValidator := validation1.LLMInferenceServiceValidator{}
+		if err := v1alpha1ServiceValidator.SetupWithManager(mgr); err != nil {
+			return err
+		}
+
+		// Setup v1alpha2 validators
+		llmInferenceServiceConfigValidator := validation2.LLMInferenceServiceConfigValidator{
 			ClientSet: clientSet,
 		}
 		if err := llmInferenceServiceConfigValidator.SetupWithManager(mgr); err != nil {
 			return err
 		}
 
-		llmInferenceServiceValidator := validation.LLMInferenceServiceValidator{}
+		llmInferenceServiceValidator := validation2.LLMInferenceServiceValidator{}
 		return llmInferenceServiceValidator.SetupWithManager(mgr)
 	}
 

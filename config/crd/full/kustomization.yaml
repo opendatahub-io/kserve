@@ -13,3 +13,7 @@ resources:
   - serving.kserve.io_localmodelnodes.yaml
   - serving.kserve.io_llminferenceserviceconfigs.yaml
   - serving.kserve.io_llminferenceservices.yaml
+
+patches:
+  - path: llmisvc_conversion_patch.yaml
+  - path: llmisvcconfig_conversion_patch.yaml

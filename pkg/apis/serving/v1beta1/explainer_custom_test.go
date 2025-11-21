@@ -87,7 +87,7 @@ func TestCustomExplainerDefaulter(t *testing.T) {
 
 	for name, scenario := range scenarios {
 		t.Run(name, func(t *testing.T) {
-			explainer := CustomExplainer{PodSpec: corev1.PodSpec(scenario.spec.PodSpec)}
+			explainer := CustomExplainer{PodSpec: scenario.spec.PodSpec.ToCorev1PodSpec()}
 			explainer.Default(&config)
 			if !g.Expect(scenario.spec).To(gomega.Equal(scenario.expected)) {
 				t.Errorf("got %v, want %v", scenario.spec, scenario.expected)
@@ -279,7 +279,7 @@ func TestCustomExplainerIsMMS(t *testing.T) {
 
 	for name, scenario := range scenarios {
 		t.Run(name, func(t *testing.T) {
-			explainer := CustomExplainer{PodSpec: corev1.PodSpec(scenario.spec.PodSpec)}
+			explainer := CustomExplainer{PodSpec: scenario.spec.PodSpec.ToCorev1PodSpec()}
 			res := explainer.IsMMS(&config)
 			if !g.Expect(res).To(gomega.Equal(scenario.expected)) {
 				t.Errorf("got %t, want %t", res, scenario.expected)

@@ -23,18 +23,18 @@ import (
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 )
 
 // LLMInferenceServiceSample defines a full sample of LLMInferenceService that can be used
 // as a basis to apply LLMInferenceServiceConfigs. It is used for validating templated values
 // in LLMInferenceServiceConfig CR.
-func LLMInferenceServiceSample() *v1alpha1.LLMInferenceService {
+func LLMInferenceServiceSample() *v1alpha2.LLMInferenceService {
 	svcName := "test-llm-preset"
 	nsName := "test-llm-preset-test"
 	modelURL, _ := apis.ParseURL("llama")
 
-	return &v1alpha1.LLMInferenceService{
+	return &v1alpha2.LLMInferenceService{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      svcName,
 			Namespace: nsName,
@@ -47,14 +47,14 @@ func LLMInferenceServiceSample() *v1alpha1.LLMInferenceService {
 				"serving.kserve.io/model-uri": modelURL.String(),
 			},
 		},
-		Spec: v1alpha1.LLMInferenceServiceSpec{
-			Model: v1alpha1.LLMModelSpec{
+		Spec: v1alpha2.LLMInferenceServiceSpec{
+			Model: v1alpha2.LLMModelSpec{
 				Name: ptr.To("llama"),
 				URI:  *modelURL,
 			},
-			WorkloadSpec: v1alpha1.WorkloadSpec{
+			WorkloadSpec: v1alpha2.WorkloadSpec{
 				Replicas: ptr.To[int32](2),
-				Parallelism: &v1alpha1.ParallelismSpec{
+				Parallelism: &v1alpha2.ParallelismSpec{
 					Data:      ptr.To[int32](4),
 					DataLocal: ptr.To[int32](2),
 					Tensor:    ptr.To[int32](1),
@@ -126,9 +126,9 @@ func LLMInferenceServiceSample() *v1alpha1.LLMInferenceService {
 					},
 				},
 			},
-			Prefill: &v1alpha1.WorkloadSpec{
+			Prefill: &v1alpha2.WorkloadSpec{
 				Replicas: ptr.To[int32](1),
-				Parallelism: &v1alpha1.ParallelismSpec{
+				Parallelism: &v1alpha2.ParallelismSpec{
 					Tensor:   ptr.To[int32](1),
 					Pipeline: ptr.To[int32](1),
 				},
@@ -160,24 +160,24 @@ func LLMInferenceServiceSample() *v1alpha1.LLMInferenceService {
 					},
 				},
 			},
-			Router: &v1alpha1.RouterSpec{
-				Route: &v1alpha1.GatewayRoutesSpec{
-					HTTP: &v1alpha1.HTTPRouteSpec{
+			Router: &v1alpha2.RouterSpec{
+				Route: &v1alpha2.GatewayRoutesSpec{
+					HTTP: &v1alpha2.HTTPRouteSpec{
 						Refs: []corev1.LocalObjectReference{
 							{Name: "custom-http-route"},
 						},
 					},
 				},
-				Gateway: &v1alpha1.GatewaySpec{
-					Refs: []v1alpha1.UntypedObjectReference{
+				Gateway: &v1alpha2.GatewaySpec{
+					Refs: []v1alpha2.UntypedObjectReference{
 						{
 							Name:      "kserve-ingress-gateway",
 							Namespace: "kserve",
 						},
 					},
 				},
-				Scheduler: &v1alpha1.SchedulerSpec{
-					Pool: &v1alpha1.InferencePoolSpec{
+				Scheduler: &v1alpha2.SchedulerSpec{
+					Pool: &v1alpha2.InferencePoolSpec{
 						Ref: &corev1.LocalObjectReference{
 							Name: "custom-inference-pool",
 						},

@@ -1,4 +1,4 @@
-apiVersion: serving.kserve.io/v1alpha1
+apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
   name: kserve-config-llm-scheduler
@@ -7,13 +7,17 @@ spec:
     scheduler:
       pool:
         spec:
-          extensionRef:
-            failureMode: FailOpen
+          endpointPickerRef:
             kind: Service
             name: |-
               {{ ChildName .ObjectMeta.Name `-epp-service` }}
-          selector: { }
-          targetPortNumber: 8000
+            port:
+              number: 9002
+          selector:
+            matchLabels:
+              app.kubernetes.io/part-of: llminferenceservice
+          targetPorts:
+            - number: 8000
       template:
         containers:
           - name: main

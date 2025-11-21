@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
@@ -35,7 +35,7 @@ var authPolicyGVK = schema.GroupVersionKind{
 }
 
 // validateGatewayOCP checks if Gateway on OCP can be configured correctly.
-func (r *LLMInferenceServiceReconciler) validateGatewayOCP(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) validateGatewayOCP(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("validateGatewayOCP")
 
 	// If RHCL is not installed, we could end up exposing an LLMInferenceService without authentication, which is a

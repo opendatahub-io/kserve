@@ -32,6 +32,9 @@ import unittest
 from kserve.models.v1alpha1_local_model_cache_spec import (  # noqa: E501
     V1alpha1LocalModelCacheSpec,
 )
+from kserve.models.v1alpha1_local_model_cache_spec import (
+    V1alpha1LocalModelCacheSpec,
+)  # noqa: E501
 from kserve.rest import ApiException
 
 import kserve

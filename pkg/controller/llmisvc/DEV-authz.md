@@ -115,7 +115,7 @@ spec:
           kubernetesSubjectAccessReview:
             resourceAttributes:
               group:
-                value: serving.kserve.io/v1alpha1
+                value: serving.kserve.io
               name:
                 value: $LLM_ISVC_NAME
               namespace:
@@ -209,7 +209,7 @@ metadata:
   name: llm-inferenceservice-reader
   namespace: $TEST_NS
 rules:
-  - apiGroups: ["serving.kserve.io/v1alpha1"]
+  - apiGroups: ["serving.kserve.io"]
     resources: ["LLMInferenceService"]
     verbs: ["get"] 
 ---

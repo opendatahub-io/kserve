@@ -13,12 +13,19 @@
 # limitations under the License.
 
 import pytest
+from kubernetes import client
 
 
 # This hook is used to ensure that the test names are unique and to ensure that
 # the test names are consistent with the cluster marks.
 def pytest_collection_modifyitems(config, items):
     for item in items:
+        # Add API version markers to test items dynamically based on their parameters
+        if hasattr(item, "callspec") and "api_version" in item.callspec.params:
+            api_ver = item.callspec.params["api_version"]
+            # Add the corresponding marker (v1alpha1 or v1alpha2)
+            item.add_marker(getattr(pytest.mark, api_ver))
+
         # only touch parameterized tests
         if not hasattr(item, "callspec"):
             continue
@@ -43,3 +50,29 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "llminferenceservice: mark test as an LLM inference service test"
     )
+    config.addinivalue_line("markers", "v1alpha1: run test against v1alpha1 API")
+    config.addinivalue_line("markers", "v1alpha2: run test against v1alpha2 API")
+    config.addinivalue_line(
+        "markers", "all_api_versions: run test against all API versions"
+    )
+
+
+# RHCL (Red Hat Connectivity Link) is optional per https://github.com/opendatahub-io/kserve/pull/939
+# Auth tests require RHCL to be installed, so this fixture allows conditional test execution
+@pytest.fixture(scope="session")
+def rhcl_available():
+    """Check if RHCL (AuthPolicy CRD) is installed in the cluster."""
+    try:
+        from kubernetes import config
+        config.load_kube_config()
+        api = client.ApiextensionsV1Api()
+        api.read_custom_resource_definition("authpolicies.kuadrant.io")
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture(params=["v1alpha1", "v1alpha2"])
+def api_version(request):
+    """Fixture that provides all API versions to test against."""
+    return request.param
