@@ -33,6 +33,7 @@ import (
 	"knative.dev/pkg/kmeta"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	"github.com/kserve/kserve/pkg/controller/llmisvc"
 
 	. "github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 	. "github.com/kserve/kserve/pkg/testing"
@@ -83,7 +84,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			expectedLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn",
+					Name:      llmisvc.SafeChildName(svcName, "-kserve-mn"),
 					Namespace: nsName,
 				}, expectedLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -154,7 +155,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			expectedMainLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn",
+					Name:      llmisvc.SafeChildName(svcName, "-kserve-mn"),
 					Namespace: nsName,
 				}, expectedMainLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -166,7 +167,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			expectedPrefillLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn-prefill",
+					Name:      llmisvc.SafeChildName(svcName, "-kserve-mn-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -222,7 +223,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			expectedSA := &corev1.ServiceAccount{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn",
+					Name:      llmisvc.SafeChildName(svcName, "-kserve-mn"),
 					Namespace: nsName,
 				}, expectedSA)
 			}).WithContext(ctx).Should(Succeed())
@@ -234,7 +235,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			expectedRole := &rbacv1.Role{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn-role",
+					Name:      llmisvc.SafeChildName(svcName, "-kserve-mn-role"),
 					Namespace: nsName,
 				}, expectedRole)
 			}).WithContext(ctx).Should(Succeed())
@@ -246,7 +247,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			expectedRB := &rbacv1.RoleBinding{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn-rb",
+					Name:      llmisvc.SafeChildName(svcName, "-kserve-mn-rb"),
 					Namespace: nsName,
 				}, expectedRB)
 			}).WithContext(ctx).Should(Succeed())
@@ -260,7 +261,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			expectedLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn",
+					Name:      llmisvc.SafeChildName(svcName, "-kserve-mn"),
 					Namespace: nsName,
 				}, expectedLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -307,7 +308,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
 			}()
 
-			lwsName := svcName + "-kserve-mn"
+			lwsName := llmisvc.SafeChildName(svcName, "-kserve-mn")
 
 			// Verify LWS is created
 			Eventually(func(g Gomega, ctx context.Context) error {
@@ -374,7 +375,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
 			}()
 
-			prefillLWSName := kmeta.ChildName(svcName, "-kserve-mn-prefill")
+			prefillLWSName := llmisvc.SafeChildName(svcName, "-kserve-mn-prefill")
 
 			// Verify prefill LWS is created
 			Eventually(func(g Gomega, ctx context.Context) error {
@@ -466,7 +467,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 			expectedLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn",
+					Name:      llmisvc.SafeChildName(svcName, "-kserve-mn"),
 					Namespace: nsName,
 				}, expectedLWS)
 			}).WithContext(ctx).Should(Succeed())

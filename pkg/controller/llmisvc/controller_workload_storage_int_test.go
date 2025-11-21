@@ -126,7 +126,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedMainDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve",
+					Name:      SafeChildName(svcName, "-kserve"),
 					Namespace: nsName,
 				}, expectedMainDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -134,7 +134,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedPrefillDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-prefill",
+					Name:      SafeChildName(svcName, "-kserve-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -192,7 +192,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedMainDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve",
+					Name:      SafeChildName(svcName, "-kserve"),
 					Namespace: nsName,
 				}, expectedMainDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -200,7 +200,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedPrefillDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-prefill",
+					Name:      SafeChildName(svcName, "-kserve-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -256,7 +256,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedMainDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve",
+					Name:      SafeChildName(svcName, "-kserve"),
 					Namespace: nsName,
 				}, expectedMainDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -264,7 +264,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedPrefillDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-prefill",
+					Name:      SafeChildName(svcName, "-kserve-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -354,7 +354,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedMainDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve",
+					Name:      SafeChildName(svcName, "-kserve"),
 					Namespace: nsName,
 				}, expectedMainDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -362,7 +362,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedPrefillDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-prefill",
+					Name:      SafeChildName(svcName, "-kserve-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -462,7 +462,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedMainDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve",
+					Name:      SafeChildName(svcName, "-kserve"),
 					Namespace: nsName,
 				}, expectedMainDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -470,7 +470,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedPrefillDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-prefill",
+					Name:      SafeChildName(svcName, "-kserve-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -629,7 +629,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedMainDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve",
+					Name:      SafeChildName(svcName, "-kserve"),
 					Namespace: nsName,
 				}, expectedMainDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -637,7 +637,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedPrefillDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-prefill",
+					Name:      SafeChildName(svcName, "-kserve-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -863,7 +863,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedMainDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve",
+					Name:      SafeChildName(svcName, "-kserve"),
 					Namespace: nsName,
 				}, expectedMainDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -871,7 +871,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedPrefillDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-prefill",
+					Name:      SafeChildName(svcName, "-kserve-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -1078,7 +1078,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedMainDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve",
+					Name:      SafeChildName(svcName, "-kserve"),
 					Namespace: nsName,
 				}, expectedMainDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -1086,7 +1086,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedPrefillDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-prefill",
+					Name:      SafeChildName(svcName, "-kserve-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -1168,7 +1168,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedServiceAccount := &corev1.ServiceAccount{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve",
+					Name:      SafeChildName(svcName, "-kserve"),
 					Namespace: nsName,
 				}, expectedServiceAccount)
 			}).WithContext(ctx).Should(Succeed())
@@ -1240,7 +1240,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedMainLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn",
+					Name:      SafeChildName(svcName, "-kserve-mn"),
 					Namespace: nsName,
 				}, expectedMainLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -1248,7 +1248,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedPrefillLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn-prefill",
+					Name:      SafeChildName(svcName, "-kserve-mn-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -1320,7 +1320,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedMainLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn",
+					Name:      SafeChildName(svcName, "-kserve-mn"),
 					Namespace: nsName,
 				}, expectedMainLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -1328,7 +1328,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedPrefillLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn-prefill",
+					Name:      SafeChildName(svcName, "-kserve-mn-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -1400,7 +1400,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedMainLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn",
+					Name:      SafeChildName(svcName, "-kserve-mn"),
 					Namespace: nsName,
 				}, expectedMainLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -1408,7 +1408,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedPrefillLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn-prefill",
+					Name:      SafeChildName(svcName, "-kserve-mn-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -1518,7 +1518,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedMainLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn",
+					Name:      SafeChildName(svcName, "-kserve-mn"),
 					Namespace: nsName,
 				}, expectedMainLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -1526,7 +1526,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedPrefillLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn-prefill",
+					Name:      SafeChildName(svcName, "-kserve-mn-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -1616,7 +1616,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedMainLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn",
+					Name:      SafeChildName(svcName, "-kserve-mn"),
 					Namespace: nsName,
 				}, expectedMainLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -1624,7 +1624,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedPrefillLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn-prefill",
+					Name:      SafeChildName(svcName, "-kserve-mn-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -1745,7 +1745,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedMainLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn",
+					Name:      SafeChildName(svcName, "-kserve-mn"),
 					Namespace: nsName,
 				}, expectedMainLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -1753,7 +1753,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedPrefillLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn-prefill",
+					Name:      SafeChildName(svcName, "-kserve-mn-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -1906,7 +1906,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedMainLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn",
+					Name:      SafeChildName(svcName, "-kserve-mn"),
 					Namespace: nsName,
 				}, expectedMainLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -1914,7 +1914,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedPrefillLWS := &lwsapi.LeaderWorkerSet{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn-prefill",
+					Name:      SafeChildName(svcName, "-kserve-mn-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillLWS)
 			}).WithContext(ctx).Should(Succeed())
@@ -1953,7 +1953,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedMainServiceAccount := &corev1.ServiceAccount{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn",
+					Name:      SafeChildName(svcName, "-kserve-mn"),
 					Namespace: nsName,
 				}, expectedMainServiceAccount)
 			}).WithContext(ctx).Should(Succeed())
@@ -1961,7 +1961,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 			expectedPrefillServiceAccount := &corev1.ServiceAccount{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve-mn-prefill",
+					Name:      SafeChildName(svcName, "-kserve-mn-prefill"),
 					Namespace: nsName,
 				}, expectedPrefillServiceAccount)
 			}).WithContext(ctx).Should(Succeed())

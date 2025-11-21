@@ -147,7 +147,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			expectedDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve",
+					Name:      llmisvc.SafeChildName(svcName, "-kserve"),
 					Namespace: nsName,
 				}, expectedDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -221,7 +221,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			expectedDeployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-kserve",
+					Name:      llmisvc.SafeChildName(svcName, "-kserve"),
 					Namespace: nsName,
 				}, expectedDeployment)
 			}).WithContext(ctx).Should(Succeed())
@@ -315,7 +315,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 				Eventually(func(g Gomega, ctx context.Context) error {
 					ip := igwv1.InferencePool{}
-					return envTest.Client.Get(ctx, client.ObjectKey{Name: svcName + "-inference-pool", Namespace: llmSvc.GetNamespace()}, &ip)
+					return envTest.Client.Get(ctx, client.ObjectKey{Name: llmisvc.SafeChildName(svcName, "-inference-pool"), Namespace: llmSvc.GetNamespace()}, &ip)
 				}).WithContext(ctx).Should(Succeed())
 
 				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha2.LLMInferenceService) {
@@ -531,7 +531,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				Expect(expectedHTTPRoute).To(HaveGatewayRefs(gatewayapi.ParentReference{Name: "my-ingress-gateway"}))
 				// llmisvc is created with custom route spec and no scheduler which results in one service backend ref
 				Expect(expectedHTTPRoute).To(HaveBackendRefs(BackendRefService("my-inference-service", 1)))
-				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefInferencePoolV1Alpha2(kmeta.ChildName(svcName, "-inference-pool"), 1))))
+				Expect(expectedHTTPRoute).To(Not(HaveBackendRefs(BackendRefInferencePoolV1Alpha2(llmisvc.SafeChildName(svcName, "-inference-pool"), 1))))
 
 				// Advanced fixture pattern: Update the HTTPRoute status using fixture functions
 				updatedRoute := expectedHTTPRoute.DeepCopy()
