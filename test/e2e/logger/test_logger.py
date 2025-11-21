@@ -58,7 +58,7 @@ async def test_kserve_logger(rest_v1_client):
     )
 
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(msg_dumper, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(msg_dumper, namespace=KSERVE_TEST_NAMESPACE)
 
     service_name = "isvc-logger"
     predictor = V1beta1PredictorSpec(
@@ -87,7 +87,7 @@ async def test_kserve_logger(rest_v1_client):
 
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     except RuntimeError:
         pods = kserve_client.core_api.list_namespaced_pod(
             KSERVE_TEST_NAMESPACE,

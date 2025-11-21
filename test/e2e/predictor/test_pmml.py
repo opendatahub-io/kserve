@@ -60,7 +60,7 @@ async def test_pmml_kserve(rest_v1_client):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     start = time.perf_counter()
     res = await predict_isvc(rest_v1_client, service_name, "./data/pmml_input.json")
     end = time.perf_counter()
@@ -109,7 +109,7 @@ async def test_pmml_runtime_kserve(rest_v1_client):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     res = await predict_isvc(rest_v1_client, service_name, "./data/pmml_input.json")
     assert res["predictions"] == [
         {
@@ -155,7 +155,7 @@ async def test_pmml_v2_kserve(rest_v2_client):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     res = await predict_isvc(
         rest_v2_client,
         service_name,
@@ -235,7 +235,7 @@ async def test_pmml_v2_grpc():
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     json_file = open("./data/pmml_input_v2_grpc.json")
     payload = json.load(json_file)["inputs"]

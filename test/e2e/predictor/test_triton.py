@@ -60,7 +60,7 @@ async def test_triton(rest_v2_client):
     )
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(
+        kserve_client.wait_isvc_ready_modelstate_loaded(
             service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=800
         )
     except RuntimeError as e:
@@ -142,7 +142,7 @@ async def test_triton_runtime_with_transformer(rest_v1_client):
     )
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(
+        kserve_client.wait_isvc_ready_modelstate_loaded(
             service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=800
         )
     except RuntimeError as e:
