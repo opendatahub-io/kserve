@@ -358,11 +358,15 @@ schedulingProfiles:
       - pluginRef: prefill-filter
       - pluginRef: queue-scorer
         weight: 1.0
+      - pluginRef: prefix-cache-scorer
+        weight: 1.0
       - pluginRef: max-score-picker
   - name: decode
     plugins:
       - pluginRef: decode-filter
       - pluginRef: queue-scorer
+        weight: 1.0
+      - pluginRef: prefix-cache-scorer
         weight: 1.0
       - pluginRef: max-score-picker
 `

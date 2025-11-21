@@ -41,7 +41,7 @@ spec:
               - https
               - --model-server-metrics-https-insecure-skip-verify
               - --cert-path
-              - /etc/ssl/certs
+              - /var/run/kserve/tls
               - --config-text
               - |2
               
