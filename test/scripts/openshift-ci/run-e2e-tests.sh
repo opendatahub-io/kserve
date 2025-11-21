@@ -74,3 +74,4 @@ echo "Run E2E tests: ${MARKERS}"
 pushd $PROJECT_ROOT >/dev/null
 ./test/scripts/gh-actions/run-e2e-tests.sh "${MARKERS}" "${PARALLELISM}" "${DEPLOYMENT_PROFILE}" | tee 2>&1 ./test/scripts/openshift-ci/run-e2e-tests-"${MARKERS// /_}".log
 popd
+

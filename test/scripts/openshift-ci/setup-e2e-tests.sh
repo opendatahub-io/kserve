@@ -76,7 +76,7 @@ pushd $PROJECT_ROOT/python/kserve >/dev/null
   poetry install --with=test --no-interaction
 popd
 
-if [[ "${DEPLOYMENT_PROFILE}" == "raw" ]]; then 
+if [[ "${DEPLOYMENT_PROFILE}" == "raw" ]]; then
   $SCRIPT_DIR/infra/deploy.cma.sh
   # Add CA certificate extraction for raw deployments
   echo "⏳ Extracting OpenShift CA certificates for raw deployment"
@@ -140,7 +140,7 @@ mv "$PROJECT_ROOT/config/overlays/odh/params.env.bak" "$PROJECT_ROOT/config/over
 
 wait_for_crd datascienceclusters.datasciencecluster.opendatahub.io 90s
 wait_for_crd dscinitializations.dscinitialization.opendatahub.io 90s
-             
+
 oc apply -f ${PROJECT_ROOT}/config/overlays/odh-test/dsci.yaml
 oc apply -f ${PROJECT_ROOT}/config/overlays/odh-test/dsc.yaml
 
@@ -167,7 +167,7 @@ wait_for_pod_ready "${NS}" "control-plane=kserve-controller-manager"
 
 if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
   echo "⏳ Installing authorino and kserve gateways"
-  curl -sL https://raw.githubusercontent.com/Kuadrant/authorino-operator/main/utils/install.sh | sed "s|kubectl|oc|" | 
+  curl -sL https://raw.githubusercontent.com/Kuadrant/authorino-operator/main/utils/install.sh | sed "s|kubectl|oc|" |
     bash -s -- -v 0.16.0
 fi
 
@@ -251,11 +251,11 @@ metadata:
   name: allow-all
   namespace: ${NS}
 spec:
-  podSelector: {} 
+  podSelector: {}
   ingress:
-  - {}  
+  - {}
   egress:
-  - {}  
+  - {}
   policyTypes:
   - Ingress
   - Egress
@@ -263,3 +263,4 @@ EOF
 } || true
 
 echo "✅ Setup complete"
+
