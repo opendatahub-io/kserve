@@ -24,7 +24,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/kserve-controller:odh-v3.1
+    value: quay.io/opendatahub/kserve-controller:odh-v3.2
   - name: dockerfile
     value: Dockerfile
   - name: path-context
