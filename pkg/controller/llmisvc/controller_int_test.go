@@ -1644,7 +1644,7 @@ func waitForMetricsReaderRoleBinding(ctx context.Context, nsName string) *rbacv1
 	expectedClusterRoleBinding := &rbacv1.ClusterRoleBinding{}
 	Eventually(func(_ Gomega, ctx context.Context) error {
 		return envTest.Get(ctx, types.NamespacedName{
-			Name: "kserve-metrics-reader-role-binding-" + nsName,
+			Name: kmeta.ChildName("kserve-metrics-reader-role-binding-", nsName),
 		}, expectedClusterRoleBinding)
 	}).WithContext(ctx).Should(Succeed())
 

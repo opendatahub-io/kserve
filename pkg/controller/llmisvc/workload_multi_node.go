@@ -65,7 +65,12 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainWorkload(ctx conte
 		return fmt.Errorf("failed to build the expected main LWS: %w", err)
 	}
 
-	if llmSvc.Spec.Worker == nil {
+	if isStopped := utils.GetForceStopRuntime(llmSvc); isStopped || llmSvc.Spec.Worker == nil {
+		if isStopped {
+			llmSvc.MarkWorkerWorkloadNotReady("Stopped", "Service is stopped")
+		} else {
+			llmSvc.MarkWorkerWorkloadUnset()
+		}
 		if err := Delete(ctx, r, llmSvc, expected); err != nil {
 			return err
 		}
@@ -74,7 +79,7 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainWorkload(ctx conte
 	if err := Reconcile(ctx, r, llmSvc, &lwsapi.LeaderWorkerSet{}, expected, semanticLWSIsEqual); err != nil {
 		return err
 	}
-	return r.propagateLeaderWorkerSetStatus(ctx, expected, llmSvc.MarkMainWorkloadReady, llmSvc.MarkMainWorkloadNotReady)
+	return r.propagateLeaderWorkerSetStatus(ctx, expected, llmSvc.MarkWorkerWorkloadReady, llmSvc.MarkWorkerWorkloadNotReady)
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileMultiNodePrefillWorkload(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
@@ -82,7 +87,13 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodePrefillWorkload(ctx co
 	if err != nil {
 		return fmt.Errorf("failed to build the expected prefill LWS: %w", err)
 	}
-	if llmSvc.Spec.Prefill == nil || llmSvc.Spec.Prefill.Worker == nil {
+	if isStopped := utils.GetForceStopRuntime(llmSvc); isStopped || llmSvc.Spec.Prefill == nil || llmSvc.Spec.Prefill.Worker == nil {
+		if isStopped {
+			llmSvc.MarkPrefillWorkerWorkloadNotReady("Stopped", "Service is stopped")
+		} else {
+			llmSvc.MarkPrefillWorkerWorkloadUnset()
+		}
+
 		if err := Delete(ctx, r, llmSvc, expected); err != nil {
 			return err
 		}
@@ -91,7 +102,7 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodePrefillWorkload(ctx co
 	if err := Reconcile(ctx, r, llmSvc, &lwsapi.LeaderWorkerSet{}, expected, semanticLWSIsEqual); err != nil {
 		return err
 	}
-	return r.propagateLeaderWorkerSetStatus(ctx, expected, llmSvc.MarkPrefillWorkloadReady, llmSvc.MarkPrefillWorkloadNotReady)
+	return r.propagateLeaderWorkerSetStatus(ctx, expected, llmSvc.MarkPrefillWorkerWorkloadReady, llmSvc.MarkPrefillWorkerWorkloadNotReady)
 }
 
 func (r *LLMInferenceServiceReconciler) propagateLeaderWorkerSetStatus(ctx context.Context, expected *lwsapi.LeaderWorkerSet, ready func(), notReady func(reason string, messageFormat string, messageA ...interface{})) error {

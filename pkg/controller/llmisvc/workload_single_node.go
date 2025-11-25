@@ -61,7 +61,12 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainWorkload(ctx cont
 	if err != nil {
 		return fmt.Errorf("failed to get expected main deployment: %w", err)
 	}
-	if llmSvc.Spec.Worker != nil {
+	if isStopped := utils.GetForceStopRuntime(llmSvc); isStopped || llmSvc.Spec.Worker != nil {
+		if isStopped {
+			llmSvc.MarkMainWorkloadNotReady("Stopped", "Service is stopped")
+		} else {
+			llmSvc.MarkMainWorkloadUnset()
+		}
 		return Delete(ctx, r, llmSvc, expected)
 	}
 	if err := Reconcile(ctx, r, llmSvc, &appsv1.Deployment{}, expected, semanticDeploymentIsEqual); err != nil {
@@ -148,7 +153,13 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodePrefill(ctx context.C
 	if err != nil {
 		return fmt.Errorf("failed to get expected prefill deployment: %w", err)
 	}
-	if llmSvc.Spec.Prefill == nil || llmSvc.Spec.Prefill.Worker != nil {
+	if isStopped := utils.GetForceStopRuntime(llmSvc); isStopped || llmSvc.Spec.Prefill == nil || llmSvc.Spec.Prefill.Worker != nil {
+		if isStopped {
+			llmSvc.MarkPrefillWorkloadNotReady("Stopped", "Service is stopped")
+		} else {
+			llmSvc.MarkPrefillWorkloadUnset()
+		}
+
 		if err := Delete(ctx, r, llmSvc, prefill); err != nil {
 			return fmt.Errorf("failed to delete prefill main deployment: %w", err)
 		}
@@ -276,7 +287,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainServiceAccount(ct
 	if err != nil {
 		return fmt.Errorf("failed to created expected single node service account: %w", err)
 	}
-	if !hasRoutingSidecar(expectedDeployment.Spec.Template.Spec) {
+	if utils.GetForceStopRuntime(llmSvc) || !hasRoutingSidecar(expectedDeployment.Spec.Template.Spec) {
 		return Delete(ctx, r, llmSvc, serviceAccount)
 	}
 
@@ -298,7 +309,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainRole(ctx context.
 	}
 
 	role := r.expectedSingleNodeRole(llmSvc)
-	if !hasRoutingSidecar(expectedDeployment.Spec.Template.Spec) {
+	if utils.GetForceStopRuntime(llmSvc) || !hasRoutingSidecar(expectedDeployment.Spec.Template.Spec) {
 		return Delete(ctx, r, llmSvc, role)
 	}
 
@@ -316,7 +327,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainRoleBinding(ctx c
 	}
 
 	roleBinding := r.expectedSingleNodeRoleBinding(llmSvc, sa)
-	if !hasRoutingSidecar(expectedDeployment.Spec.Template.Spec) {
+	if utils.GetForceStopRuntime(llmSvc) || !hasRoutingSidecar(expectedDeployment.Spec.Template.Spec) {
 		return Delete(ctx, r, llmSvc, roleBinding)
 	}
 
