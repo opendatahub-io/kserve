@@ -511,6 +511,16 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, deployCo
 		return err
 	}
 
+	servingRuntimeFound, err := utils.IsCrdAvailable(r.ClientConfig, v1alpha1.SchemeGroupVersion.String(), "ServingRuntime")
+	if err != nil {
+		return err
+	}
+
+	clusterServingRuntimeFound, err := utils.IsCrdAvailable(r.ClientConfig, v1alpha1.SchemeGroupVersion.String(), "ClusterServingRuntime")
+	if err != nil {
+		return err
+	}
+
 	if err := mgr.GetFieldIndexer().IndexField(ctx, &v1beta1.InferenceService{}, "spec.predictor.model.runtime", func(rawObj client.Object) []string {
 		isvc, ok := rawObj.(*v1beta1.InferenceService)
 		if !ok {
@@ -606,9 +616,19 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, deployCo
 		ctrlBuilder = ctrlBuilder.Owns(&netv1.Ingress{})
 	}
 
-	return ctrlBuilder.Watches(&v1alpha1.ServingRuntime{}, handler.EnqueueRequestsFromMapFunc(r.servingRuntimeFunc), builder.WithPredicates(servingRuntimesPredicate)).
-		Watches(&v1alpha1.ClusterServingRuntime{}, handler.EnqueueRequestsFromMapFunc(r.clusterServingRuntimeFunc), builder.WithPredicates(clusterServingRuntimesPredicate)).
-		Complete(r)
+	if servingRuntimeFound {
+		ctrlBuilder = ctrlBuilder.Watches(&v1alpha1.ServingRuntime{}, handler.EnqueueRequestsFromMapFunc(r.servingRuntimeFunc), builder.WithPredicates(servingRuntimesPredicate))
+	} else {
+		r.Log.Info("The InferenceService controller won't watch ServingRuntime resources because the CRD is not available.")
+	}
+
+	if clusterServingRuntimeFound {
+		ctrlBuilder = ctrlBuilder.Watches(&v1alpha1.ClusterServingRuntime{}, handler.EnqueueRequestsFromMapFunc(r.clusterServingRuntimeFunc), builder.WithPredicates(clusterServingRuntimesPredicate))
+	} else {
+		r.Log.Info("The InferenceService controller won't watch ClusterServingRuntime resources because the CRD is not available.")
+	}
+
+	return ctrlBuilder.Complete(r)
 }
 
 func (r *InferenceServiceReconciler) deleteExternalResources(ctx context.Context, isvc *v1beta1.InferenceService) error {
