@@ -38,6 +38,14 @@ RUN cd storage && uv sync --active --no-cache
 COPY storage storage
 RUN cd storage && uv pip install . --no-cache 
 
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libkrb5-dev \
+    krb5-config \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install Kerberos-related packages
 RUN uv pip install --no-cache-dir krbcontext==0.10 hdfs~=2.6.0 requests-kerberos==0.14.0
 
