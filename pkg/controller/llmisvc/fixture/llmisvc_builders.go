@@ -24,17 +24,17 @@ import (
 	"knative.dev/pkg/apis"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 )
 
-type LLMInferenceServiceOption ObjectOption[*v1alpha1.LLMInferenceService]
+type LLMInferenceServiceOption ObjectOption[*v1alpha2.LLMInferenceService]
 
-func LLMInferenceService(name string, opts ...LLMInferenceServiceOption) *v1alpha1.LLMInferenceService {
-	llmSvc := &v1alpha1.LLMInferenceService{
+func LLMInferenceService(name string, opts ...LLMInferenceServiceOption) *v1alpha2.LLMInferenceService {
+	llmSvc := &v1alpha2.LLMInferenceService{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
-		Spec: v1alpha1.LLMInferenceServiceSpec{},
+		Spec: v1alpha2.LLMInferenceServiceSpec{},
 	}
 
 	for _, opt := range opts {
@@ -45,7 +45,7 @@ func LLMInferenceService(name string, opts ...LLMInferenceServiceOption) *v1alph
 }
 
 func WithModelURI(uri string) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		modelURL, err := apis.ParseURL(uri)
 		if err != nil {
 			panic(err) // For test fixtures, panic is acceptable
@@ -55,77 +55,77 @@ func WithModelURI(uri string) LLMInferenceServiceOption {
 }
 
 func WithModelName(name string) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		llmSvc.Spec.Model.Name = &name
 	}
 }
 
-func WithGatewayRefs(refs ...v1alpha1.UntypedObjectReference) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+func WithGatewayRefs(refs ...v1alpha2.UntypedObjectReference) LLMInferenceServiceOption {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		if llmSvc.Spec.Router == nil {
-			llmSvc.Spec.Router = &v1alpha1.RouterSpec{}
+			llmSvc.Spec.Router = &v1alpha2.RouterSpec{}
 		}
 		if llmSvc.Spec.Router.Gateway == nil {
-			llmSvc.Spec.Router.Gateway = &v1alpha1.GatewaySpec{}
+			llmSvc.Spec.Router.Gateway = &v1alpha2.GatewaySpec{}
 		}
 		llmSvc.Spec.Router.Gateway.Refs = refs
 	}
 }
 
 func WithHTTPRouteRefs(refs ...corev1.LocalObjectReference) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		if llmSvc.Spec.Router == nil {
-			llmSvc.Spec.Router = &v1alpha1.RouterSpec{}
+			llmSvc.Spec.Router = &v1alpha2.RouterSpec{}
 		}
 		if llmSvc.Spec.Router.Route == nil {
-			llmSvc.Spec.Router.Route = &v1alpha1.GatewayRoutesSpec{}
+			llmSvc.Spec.Router.Route = &v1alpha2.GatewayRoutesSpec{}
 		}
 		if llmSvc.Spec.Router.Route.HTTP == nil {
-			llmSvc.Spec.Router.Route.HTTP = &v1alpha1.HTTPRouteSpec{}
+			llmSvc.Spec.Router.Route.HTTP = &v1alpha2.HTTPRouteSpec{}
 		}
 		llmSvc.Spec.Router.Route.HTTP.Refs = refs
 	}
 }
 
 func WithHTTPRouteSpec(spec *gatewayapiv1.HTTPRouteSpec) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		if llmSvc.Spec.Router == nil {
-			llmSvc.Spec.Router = &v1alpha1.RouterSpec{}
+			llmSvc.Spec.Router = &v1alpha2.RouterSpec{}
 		}
 		if llmSvc.Spec.Router.Route == nil {
-			llmSvc.Spec.Router.Route = &v1alpha1.GatewayRoutesSpec{}
+			llmSvc.Spec.Router.Route = &v1alpha2.GatewayRoutesSpec{}
 		}
 		if llmSvc.Spec.Router.Route.HTTP == nil {
-			llmSvc.Spec.Router.Route.HTTP = &v1alpha1.HTTPRouteSpec{}
+			llmSvc.Spec.Router.Route.HTTP = &v1alpha2.HTTPRouteSpec{}
 		}
 		llmSvc.Spec.Router.Route.HTTP.Spec = spec
 	}
 }
 
 func WithManagedGateway() LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		if llmSvc.Spec.Router == nil {
-			llmSvc.Spec.Router = &v1alpha1.RouterSpec{}
+			llmSvc.Spec.Router = &v1alpha2.RouterSpec{}
 		}
 		if llmSvc.Spec.Router.Gateway == nil {
-			llmSvc.Spec.Router.Gateway = &v1alpha1.GatewaySpec{}
+			llmSvc.Spec.Router.Gateway = &v1alpha2.GatewaySpec{}
 		}
 	}
 }
 
 func WithManagedRoute() LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		if llmSvc.Spec.Router == nil {
-			llmSvc.Spec.Router = &v1alpha1.RouterSpec{}
+			llmSvc.Spec.Router = &v1alpha2.RouterSpec{}
 		}
 		if llmSvc.Spec.Router.Route == nil {
-			llmSvc.Spec.Router.Route = &v1alpha1.GatewayRoutesSpec{}
+			llmSvc.Spec.Router.Route = &v1alpha2.GatewayRoutesSpec{}
 		}
 	}
 }
 
 func WithAnnotations(annotationsToAdd map[string]string) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		if llmSvc.Annotations == nil {
 			llmSvc.Annotations = make(map[string]string)
 		}
@@ -134,7 +134,7 @@ func WithAnnotations(annotationsToAdd map[string]string) LLMInferenceServiceOpti
 }
 
 func WithLabels(labelsToAdd map[string]string) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		if llmSvc.Labels == nil {
 			llmSvc.Labels = make(map[string]string)
 		}
@@ -142,8 +142,8 @@ func WithLabels(labelsToAdd map[string]string) LLMInferenceServiceOption {
 	}
 }
 
-func LLMGatewayRef(name, namespace string) v1alpha1.UntypedObjectReference {
-	return v1alpha1.UntypedObjectReference{
+func LLMGatewayRef(name, namespace string) v1alpha2.UntypedObjectReference {
+	return v1alpha2.UntypedObjectReference{
 		Name:      gatewayapiv1.ObjectName(name),
 		Namespace: gatewayapiv1.Namespace(namespace),
 	}
@@ -155,122 +155,122 @@ func HTTPRouteRef(name string) corev1.LocalObjectReference {
 	}
 }
 
-func WithParallelism(parallelism *v1alpha1.ParallelismSpec) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+func WithParallelism(parallelism *v1alpha2.ParallelismSpec) LLMInferenceServiceOption {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		llmSvc.Spec.Parallelism = parallelism
 	}
 }
 
-func WithPrefillParallelism(parallelism *v1alpha1.ParallelismSpec) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+func WithPrefillParallelism(parallelism *v1alpha2.ParallelismSpec) LLMInferenceServiceOption {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		if llmSvc.Spec.Prefill == nil {
-			llmSvc.Spec.Prefill = &v1alpha1.WorkloadSpec{}
+			llmSvc.Spec.Prefill = &v1alpha2.WorkloadSpec{}
 		}
 		llmSvc.Spec.Prefill.Parallelism = parallelism
 	}
 }
 
 func WithReplicas(replicas int32) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		llmSvc.Spec.Replicas = &replicas
 	}
 }
 
 func WithPrefillReplicas(replicas int32) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		if llmSvc.Spec.Prefill == nil {
-			llmSvc.Spec.Prefill = &v1alpha1.WorkloadSpec{}
+			llmSvc.Spec.Prefill = &v1alpha2.WorkloadSpec{}
 		}
 		llmSvc.Spec.Prefill.Replicas = &replicas
 	}
 }
 
 func WithTemplate(podSpec *corev1.PodSpec) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		llmSvc.Spec.Template = podSpec
 	}
 }
 
 func WithWorker(worker *corev1.PodSpec) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		llmSvc.Spec.Worker = worker
 	}
 }
 
 func WithPrefill(pod *corev1.PodSpec) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		if llmSvc.Spec.Prefill == nil {
-			llmSvc.Spec.Prefill = &v1alpha1.WorkloadSpec{}
+			llmSvc.Spec.Prefill = &v1alpha2.WorkloadSpec{}
 		}
 		llmSvc.Spec.Prefill.Template = pod
 	}
 }
 
 func WithPrefillWorker(worker *corev1.PodSpec) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		if llmSvc.Spec.Prefill == nil {
-			llmSvc.Spec.Prefill = &v1alpha1.WorkloadSpec{}
+			llmSvc.Spec.Prefill = &v1alpha2.WorkloadSpec{}
 		}
 		llmSvc.Spec.Prefill.Worker = worker
 	}
 }
 
-func ParallelismSpec(opts ...func(*v1alpha1.ParallelismSpec)) *v1alpha1.ParallelismSpec {
-	p := &v1alpha1.ParallelismSpec{}
+func ParallelismSpec(opts ...func(*v1alpha2.ParallelismSpec)) *v1alpha2.ParallelismSpec {
+	p := &v1alpha2.ParallelismSpec{}
 	for _, opt := range opts {
 		opt(p)
 	}
 	return p
 }
 
-func WithTensorParallelism(tensor int32) func(*v1alpha1.ParallelismSpec) {
-	return func(p *v1alpha1.ParallelismSpec) {
+func WithTensorParallelism(tensor int32) func(*v1alpha2.ParallelismSpec) {
+	return func(p *v1alpha2.ParallelismSpec) {
 		p.Tensor = &tensor
 	}
 }
 
-func WithPipelineParallelism(pipeline int32) func(*v1alpha1.ParallelismSpec) {
-	return func(p *v1alpha1.ParallelismSpec) {
+func WithPipelineParallelism(pipeline int32) func(*v1alpha2.ParallelismSpec) {
+	return func(p *v1alpha2.ParallelismSpec) {
 		p.Pipeline = &pipeline
 	}
 }
 
-func WithDataParallelism(data int32) func(*v1alpha1.ParallelismSpec) {
-	return func(p *v1alpha1.ParallelismSpec) {
+func WithDataParallelism(data int32) func(*v1alpha2.ParallelismSpec) {
+	return func(p *v1alpha2.ParallelismSpec) {
 		p.Data = &data
 	}
 }
 
-func WithDataLocalParallelism(dataLocal int32) func(*v1alpha1.ParallelismSpec) {
-	return func(p *v1alpha1.ParallelismSpec) {
+func WithDataLocalParallelism(dataLocal int32) func(*v1alpha2.ParallelismSpec) {
+	return func(p *v1alpha2.ParallelismSpec) {
 		p.DataLocal = &dataLocal
 	}
 }
 
-func WithDataRPCPort(rpcPort int32) func(*v1alpha1.ParallelismSpec) {
-	return func(p *v1alpha1.ParallelismSpec) {
+func WithDataRPCPort(rpcPort int32) func(*v1alpha2.ParallelismSpec) {
+	return func(p *v1alpha2.ParallelismSpec) {
 		p.DataRPCPort = &rpcPort
 	}
 }
 
 func WithManagedScheduler() LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		if llmSvc.Spec.Router == nil {
-			llmSvc.Spec.Router = &v1alpha1.RouterSpec{}
+			llmSvc.Spec.Router = &v1alpha2.RouterSpec{}
 		}
-		llmSvc.Spec.Router.Scheduler = &v1alpha1.SchedulerSpec{}
+		llmSvc.Spec.Router.Scheduler = &v1alpha2.SchedulerSpec{}
 	}
 }
 
 func WithInferencePoolRef(poolName string) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		if llmSvc.Spec.Router == nil {
-			llmSvc.Spec.Router = &v1alpha1.RouterSpec{}
+			llmSvc.Spec.Router = &v1alpha2.RouterSpec{}
 		}
 		if llmSvc.Spec.Router.Scheduler == nil {
-			llmSvc.Spec.Router.Scheduler = &v1alpha1.SchedulerSpec{}
+			llmSvc.Spec.Router.Scheduler = &v1alpha2.SchedulerSpec{}
 		}
-		llmSvc.Spec.Router.Scheduler.Pool = &v1alpha1.InferencePoolSpec{
+		llmSvc.Spec.Router.Scheduler.Pool = &v1alpha2.InferencePoolSpec{
 			Ref: &corev1.LocalObjectReference{
 				Name: poolName,
 			},
@@ -290,19 +290,19 @@ func SimpleWorkerPodSpec() *corev1.PodSpec {
 }
 
 func WithBaseRefs(refs ...corev1.LocalObjectReference) LLMInferenceServiceOption {
-	return func(llmSvc *v1alpha1.LLMInferenceService) {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
 		llmSvc.Spec.BaseRefs = refs
 	}
 }
 
-type LLMInferenceServiceConfigOption ObjectOption[*v1alpha1.LLMInferenceServiceConfig]
+type LLMInferenceServiceConfigOption ObjectOption[*v1alpha2.LLMInferenceServiceConfig]
 
-func LLMInferenceServiceConfig(name string, opts ...LLMInferenceServiceConfigOption) *v1alpha1.LLMInferenceServiceConfig {
-	config := &v1alpha1.LLMInferenceServiceConfig{
+func LLMInferenceServiceConfig(name string, opts ...LLMInferenceServiceConfigOption) *v1alpha2.LLMInferenceServiceConfig {
+	config := &v1alpha2.LLMInferenceServiceConfig{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
-		Spec: v1alpha1.LLMInferenceServiceSpec{},
+		Spec: v1alpha2.LLMInferenceServiceSpec{},
 	}
 
 	for _, opt := range opts {
@@ -313,7 +313,7 @@ func LLMInferenceServiceConfig(name string, opts ...LLMInferenceServiceConfigOpt
 }
 
 func WithConfigModelURI(uri string) LLMInferenceServiceConfigOption {
-	return func(config *v1alpha1.LLMInferenceServiceConfig) {
+	return func(config *v1alpha2.LLMInferenceServiceConfig) {
 		modelURL, err := apis.ParseURL(uri)
 		if err != nil {
 			panic(err) // For test fixtures, panic is acceptable
@@ -323,23 +323,23 @@ func WithConfigModelURI(uri string) LLMInferenceServiceConfigOption {
 }
 
 func WithConfigModelName(name string) LLMInferenceServiceConfigOption {
-	return func(config *v1alpha1.LLMInferenceServiceConfig) {
+	return func(config *v1alpha2.LLMInferenceServiceConfig) {
 		config.Spec.Model.Name = &name
 	}
 }
 
 func WithConfigManagedRouter() LLMInferenceServiceConfigOption {
-	return func(config *v1alpha1.LLMInferenceServiceConfig) {
-		config.Spec.Router = &v1alpha1.RouterSpec{
-			Gateway:   &v1alpha1.GatewaySpec{},
-			Route:     &v1alpha1.GatewayRoutesSpec{},
-			Scheduler: &v1alpha1.SchedulerSpec{},
+	return func(config *v1alpha2.LLMInferenceServiceConfig) {
+		config.Spec.Router = &v1alpha2.RouterSpec{
+			Gateway:   &v1alpha2.GatewaySpec{},
+			Route:     &v1alpha2.GatewayRoutesSpec{},
+			Scheduler: &v1alpha2.SchedulerSpec{},
 		}
 	}
 }
 
 func WithConfigWorkloadTemplate(podSpec *corev1.PodSpec) LLMInferenceServiceConfigOption {
-	return func(config *v1alpha1.LLMInferenceServiceConfig) {
+	return func(config *v1alpha2.LLMInferenceServiceConfig) {
 		config.Spec.Template = podSpec
 	}
 }

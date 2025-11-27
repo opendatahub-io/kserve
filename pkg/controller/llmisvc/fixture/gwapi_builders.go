@@ -20,7 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -289,7 +289,23 @@ func WithHTTPRouteGatewayRef(references ...gatewayapi.ParentReference) HTTPRoute
 	}
 }
 
-func BackendRefInferencePool(name string) gatewayapi.HTTPBackendRef {
+// BackendRefInferencePoolV1 creates a v1 InferencePool backend ref
+func BackendRefInferencePoolV1(name string, weight int32) gatewayapi.HTTPBackendRef {
+	return gatewayapi.HTTPBackendRef{
+		BackendRef: gatewayapi.BackendRef{
+			BackendObjectReference: gatewayapi.BackendObjectReference{
+				Group: ptr.To(gatewayapi.Group("inference.networking.k8s.io")),
+				Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
+				Name:  gatewayapi.ObjectName(name),
+				Port:  ptr.To(gatewayapi.PortNumber(8000)),
+			},
+			Weight: ptr.To(weight),
+		},
+	}
+}
+
+// BackendRefInferencePoolV1Alpha2 creates a v1alpha2 InferencePool backend ref with configurable weight
+func BackendRefInferencePoolV1Alpha2(name string, weight int32) gatewayapi.HTTPBackendRef {
 	return gatewayapi.HTTPBackendRef{
 		BackendRef: gatewayapi.BackendRef{
 			BackendObjectReference: gatewayapi.BackendObjectReference{
@@ -298,12 +314,12 @@ func BackendRefInferencePool(name string) gatewayapi.HTTPBackendRef {
 				Name:  gatewayapi.ObjectName(name),
 				Port:  ptr.To(gatewayapi.PortNumber(8000)),
 			},
-			Weight: ptr.To(int32(1)),
+			Weight: ptr.To(weight),
 		},
 	}
 }
 
-func BackendRefService(name string) gatewayapi.HTTPBackendRef {
+func BackendRefService(name string, weight int32) gatewayapi.HTTPBackendRef {
 	return gatewayapi.HTTPBackendRef{
 		BackendRef: gatewayapi.BackendRef{
 			BackendObjectReference: gatewayapi.BackendObjectReference{
@@ -312,7 +328,7 @@ func BackendRefService(name string) gatewayapi.HTTPBackendRef {
 				Name:  gatewayapi.ObjectName(name),
 				Port:  ptr.To(gatewayapi.PortNumber(8000)),
 			},
-			Weight: ptr.To(int32(1)),
+			Weight: ptr.To(weight),
 		},
 	}
 }
@@ -357,13 +373,15 @@ func PathPrefixMatch(path string) gatewayapi.HTTPRouteMatch {
 	}
 }
 
+// ServiceRef creates a Service backend reference for HTTPRoute rules.
+// Gateway API v1.4+: port can be passed directly as int32 because PortNumber is a type alias.
 func ServiceRef(name string, port int32, weight int32) gatewayapi.HTTPBackendRef {
 	return gatewayapi.HTTPBackendRef{
 		BackendRef: gatewayapi.BackendRef{
 			BackendObjectReference: gatewayapi.BackendObjectReference{
 				Kind: ptr.To(gatewayapi.Kind("Service")),
 				Name: gatewayapi.ObjectName(name),
-				Port: ptr.To(gatewayapi.PortNumber(port)),
+				Port: ptr.To(port),
 			},
 			Weight: ptr.To(weight),
 		},
@@ -593,19 +611,24 @@ func WithHTTPRouteNotReadyStatus(controllerName, reason, message string) HTTPRou
 	}
 }
 
-type InferencePoolOption ObjectOption[*igwapi.InferencePool]
+type InferencePoolOption ObjectOption[*igwv1.InferencePool]
 
-func InferencePool(name string, opts ...InferencePoolOption) *igwapi.InferencePool {
-	pool := &igwapi.InferencePool{
+func InferencePool(name string, opts ...InferencePoolOption) *igwv1.InferencePool {
+	pool := &igwv1.InferencePool{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
-		Spec: igwapi.InferencePoolSpec{
-			Selector:         make(map[igwapi.LabelKey]igwapi.LabelValue),
-			TargetPortNumber: 8000,
+		Spec: igwv1.InferencePoolSpec{
+			Selector: igwv1.LabelSelector{
+				MatchLabels: make(map[igwv1.LabelKey]igwv1.LabelValue),
+			},
+			TargetPorts: []igwv1.Port{
+				{Number: igwv1.PortNumber(8000)},
+			},
+			EndpointPickerRef: igwv1.EndpointPickerRef{},
 		},
-		Status: igwapi.InferencePoolStatus{
-			Parents: []igwapi.PoolStatus{},
+		Status: igwv1.InferencePoolStatus{
+			Parents: []igwv1.ParentStatus{},
 		},
 	}
 
@@ -617,46 +640,56 @@ func InferencePool(name string, opts ...InferencePoolOption) *igwapi.InferencePo
 }
 
 func WithSelector(key, value string) InferencePoolOption {
-	return func(pool *igwapi.InferencePool) {
-		if pool.Spec.Selector == nil {
-			pool.Spec.Selector = make(map[igwapi.LabelKey]igwapi.LabelValue)
+	return func(pool *igwv1.InferencePool) {
+		if pool.Spec.Selector.MatchLabels == nil {
+			pool.Spec.Selector.MatchLabels = make(map[igwv1.LabelKey]igwv1.LabelValue)
 		}
-		pool.Spec.Selector[igwapi.LabelKey(key)] = igwapi.LabelValue(value)
+		pool.Spec.Selector.MatchLabels[igwv1.LabelKey(key)] = igwv1.LabelValue(value)
 	}
 }
 
 func WithTargetPort(port int32) InferencePoolOption {
-	return func(pool *igwapi.InferencePool) {
-		pool.Spec.TargetPortNumber = port
+	return func(pool *igwv1.InferencePool) {
+		pool.Spec.TargetPorts = []igwv1.Port{
+			{Number: igwv1.PortNumber(port)},
+		}
 	}
 }
 
 func WithExtensionRef(group, kind, name string) InferencePoolOption {
-	return func(pool *igwapi.InferencePool) {
-		pool.Spec.EndpointPickerConfig = igwapi.EndpointPickerConfig{
-			ExtensionRef: &igwapi.Extension{
-				ExtensionReference: igwapi.ExtensionReference{
-					Group: ptr.To(igwapi.Group(group)),
-					Kind:  ptr.To(igwapi.Kind(kind)),
-					Name:  igwapi.ObjectName(name),
-				},
-				ExtensionConnection: igwapi.ExtensionConnection{
-					FailureMode: ptr.To(igwapi.FailOpen),
-				},
-			},
+	return func(pool *igwv1.InferencePool) {
+		pool.Spec.EndpointPickerRef = igwv1.EndpointPickerRef{
+			Group: ptr.To(igwv1.Group(group)),
+			Kind:  igwv1.Kind(kind),
+			Name:  igwv1.ObjectName(name),
+			Port:  ptr.To(igwv1.Port{Number: igwv1.PortNumber(8000)}), // GIE v1 requires port when kind is Service
 		}
 	}
 }
 
 func WithInferencePoolReadyStatus() InferencePoolOption {
-	return func(pool *igwapi.InferencePool) {
-		pool.Status.Parents = []igwapi.PoolStatus{
+	return func(pool *igwv1.InferencePool) {
+		pool.Status.Parents = []igwv1.ParentStatus{
 			{
+				ParentRef: igwv1.ParentReference{
+					Group:     ptr.To(igwv1.Group("gateway.networking.k8s.io")),
+					Kind:      igwv1.Kind("Gateway"),
+					Name:      igwv1.ObjectName("kserve-ingress-gateway"),
+					Namespace: igwv1.Namespace("kserve"),
+				},
 				Conditions: []metav1.Condition{
 					{
-						Type:               string(igwapi.InferencePoolConditionAccepted),
+						Type:               string(igwv1.InferencePoolConditionAccepted),
 						Status:             metav1.ConditionTrue,
-						Reason:             string(igwapi.InferencePoolReasonAccepted),
+						Reason:             string(igwv1.InferencePoolReasonAccepted),
+						Message:            "InferencePool accepted",
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               string(igwv1.InferencePoolConditionResolvedRefs),
+						Status:             metav1.ConditionTrue,
+						Reason:             string(igwv1.InferencePoolReasonResolvedRefs),
+						Message:            "All references resolved",
 						LastTransitionTime: metav1.Now(),
 					},
 				},
