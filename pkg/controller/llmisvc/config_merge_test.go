@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/yaml"
 
 	ktesting "github.com/kserve/kserve/pkg/testing"
@@ -33,77 +32,82 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	pkgtest "github.com/kserve/kserve/pkg/testing"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 )
 
 func TestMergeSpecs(t *testing.T) {
 	tests := []struct {
 		name    string
-		cfgs    []v1alpha1.LLMInferenceServiceSpec
-		want    v1alpha1.LLMInferenceServiceSpec
+		cfgs    []v1alpha2.LLMInferenceServiceSpec
+		want    v1alpha2.LLMInferenceServiceSpec
 		wantErr bool
 	}{
 		{
 			name:    "no configs",
-			cfgs:    []v1alpha1.LLMInferenceServiceSpec{},
-			want:    v1alpha1.LLMInferenceServiceSpec{},
+			cfgs:    []v1alpha2.LLMInferenceServiceSpec{},
+			want:    v1alpha2.LLMInferenceServiceSpec{},
 			wantErr: false,
 		},
 		{
 			name: "single config",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
-				{Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
+				{Model: v1alpha2.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
 			},
-			want:    v1alpha1.LLMInferenceServiceSpec{Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
+			want:    v1alpha2.LLMInferenceServiceSpec{Model: v1alpha2.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
 			wantErr: false,
 		},
 		{
 			name: "two configs simple merge",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
-				{Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
+				{Model: v1alpha2.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
+			want: v1alpha2.LLMInferenceServiceSpec{
+				Model: v1alpha2.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
 			},
 			wantErr: false,
 		},
 		{
 			name: "two configs simple merge with sub-field override",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
-					Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
-					Router: &v1alpha1.RouterSpec{
-						Route:     &v1alpha1.GatewayRoutesSpec{},
-						Gateway:   &v1alpha1.GatewaySpec{},
-						Scheduler: &v1alpha1.SchedulerSpec{},
+					Model: v1alpha2.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
+					Router: &v1alpha2.RouterSpec{
+						Route:     &v1alpha2.GatewayRoutesSpec{},
+						Gateway:   &v1alpha2.GatewaySpec{},
+						Scheduler: &v1alpha2.SchedulerSpec{},
 					},
 				},
 				{
-					Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
-					Router: &v1alpha1.RouterSpec{
-						Scheduler: &v1alpha1.SchedulerSpec{
-							Pool: &v1alpha1.InferencePoolSpec{
-								Spec: &igwapi.InferencePoolSpec{
-									TargetPortNumber: 9999,
+					Model: v1alpha2.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
+					Router: &v1alpha2.RouterSpec{
+						Scheduler: &v1alpha2.SchedulerSpec{
+							Pool: &v1alpha2.InferencePoolSpec{
+								Spec: &igwv1.InferencePoolSpec{
+									TargetPorts: []igwv1.Port{
+										{Number: 9999},
+									},
+									EndpointPickerRef: igwv1.EndpointPickerRef{},
 								},
 							},
 						},
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
-				Router: &v1alpha1.RouterSpec{
-					Route:   &v1alpha1.GatewayRoutesSpec{},
-					Gateway: &v1alpha1.GatewaySpec{},
-					Scheduler: &v1alpha1.SchedulerSpec{
-						Pool: &v1alpha1.InferencePoolSpec{
-							Spec: &igwapi.InferencePoolSpec{
-								TargetPortNumber: 9999,
+			want: v1alpha2.LLMInferenceServiceSpec{
+				Model: v1alpha2.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
+				Router: &v1alpha2.RouterSpec{
+					Route:   &v1alpha2.GatewayRoutesSpec{},
+					Gateway: &v1alpha2.GatewaySpec{},
+					Scheduler: &v1alpha2.SchedulerSpec{
+						Pool: &v1alpha2.InferencePoolSpec{
+							Spec: &igwv1.InferencePoolSpec{
+								TargetPorts: []igwv1.Port{
+									{Number: 9999},
+								},
+								EndpointPickerRef: igwv1.EndpointPickerRef{},
 							},
 						},
 					},
@@ -113,23 +117,23 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "two configs with override",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
-					Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					Model: v1alpha2.LLMModelSpec{URI: apis.URL{Path: "model-a"}},
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Replicas: ptr.To[int32](1),
 					},
 				},
 				{
-					Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					Model: v1alpha2.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Replicas: ptr.To[int32](2),
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
-				WorkloadSpec: v1alpha1.WorkloadSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				Model: v1alpha2.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
+				WorkloadSpec: v1alpha2.WorkloadSpec{
 					Replicas: ptr.To[int32](2),
 				},
 			},
@@ -137,23 +141,23 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "three configs chained merge",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
-				{Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
+				{Model: v1alpha2.LLMModelSpec{URI: apis.URL{Path: "model-a"}}},
 				{
-					Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
+					Model: v1alpha2.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				Model: v1alpha1.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
+			want: v1alpha2.LLMInferenceServiceSpec{
+				Model: v1alpha2.LLMModelSpec{URI: apis.URL{Path: "model-b"}},
 			},
 			wantErr: false,
 		},
 		{
 			name: "deep merge with podspec template",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				// Base configuration
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Replicas: ptr.To[int32](1),
 						Template: &corev1.PodSpec{
 							InitContainers: []corev1.Container{
@@ -186,7 +190,7 @@ func TestMergeSpecs(t *testing.T) {
 				},
 				// Override configuration
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Replicas: ptr.To[int32](2),
 						Template: &corev1.PodSpec{
 							InitContainers: []corev1.Container{
@@ -229,8 +233,8 @@ func TestMergeSpecs(t *testing.T) {
 				},
 			},
 			// Expected result of the merge
-			want: v1alpha1.LLMInferenceServiceSpec{
-				WorkloadSpec: v1alpha1.WorkloadSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				WorkloadSpec: v1alpha2.WorkloadSpec{
 					Replicas: ptr.To[int32](2),
 					Template: &corev1.PodSpec{
 						InitContainers: []corev1.Container{
@@ -274,30 +278,30 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "merge with prefill spec",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				// Base has only a decode workload
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Replicas: ptr.To[int32](1),
 						Template: &corev1.PodSpec{Containers: []corev1.Container{{Name: "kserve-container", Image: "decode:0.1"}}},
 					},
 				},
 				// Override adds a prefill workload
 				{
-					Prefill: &v1alpha1.WorkloadSpec{
+					Prefill: &v1alpha2.WorkloadSpec{
 						Replicas: ptr.To[int32](4),
 						Template: &corev1.PodSpec{Containers: []corev1.Container{{Name: "kserve-container", Image: "prefill:0.1"}}},
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
 				// Base workload spec is preserved
-				WorkloadSpec: v1alpha1.WorkloadSpec{
+				WorkloadSpec: v1alpha2.WorkloadSpec{
 					Replicas: ptr.To[int32](1),
 					Template: &corev1.PodSpec{Containers: []corev1.Container{{Name: "kserve-container", Image: "decode:0.1"}}},
 				},
 				// Prefill spec is added
-				Prefill: &v1alpha1.WorkloadSpec{
+				Prefill: &v1alpha2.WorkloadSpec{
 					Replicas: ptr.To[int32](4),
 					Template: &corev1.PodSpec{Containers: []corev1.Container{{Name: "kserve-container", Image: "prefill:0.1"}}},
 				},
@@ -305,22 +309,22 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "merge with worker spec",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				// Base has the main head/decode template
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{Containers: []corev1.Container{{Name: "kserve-container", Image: "head:0.1"}}},
 					},
 				},
 				// Override adds a worker spec
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Worker: &corev1.PodSpec{Containers: []corev1.Container{{Name: "kserve-container", Image: "worker:0.1"}}},
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				WorkloadSpec: v1alpha1.WorkloadSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				WorkloadSpec: v1alpha2.WorkloadSpec{
 					// Head template is preserved
 					Template: &corev1.PodSpec{Containers: []corev1.Container{{Name: "kserve-container", Image: "head:0.1"}}},
 					// Worker spec is added
@@ -330,28 +334,28 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "merge with parallelism spec",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				// Base defines tensor parallelism
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
-						Parallelism: &v1alpha1.ParallelismSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
+						Parallelism: &v1alpha2.ParallelismSpec{
 							Tensor: ptr.To[int32](2),
 						},
 					},
 				},
 				// Override defines pipeline parallelism
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
-						Parallelism: &v1alpha1.ParallelismSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
+						Parallelism: &v1alpha2.ParallelismSpec{
 							Pipeline: ptr.To[int32](4),
 						},
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				WorkloadSpec: v1alpha1.WorkloadSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				WorkloadSpec: v1alpha2.WorkloadSpec{
 					// Both parallelism values should be present
-					Parallelism: &v1alpha1.ParallelismSpec{
+					Parallelism: &v1alpha2.ParallelismSpec{
 						Tensor:   ptr.To[int32](2),
 						Pipeline: ptr.To[int32](4),
 					},
@@ -360,10 +364,10 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "deep merge of prefill spec",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				// Base defines a prefill workload with replicas and a container with a resource request
 				{
-					Prefill: &v1alpha1.WorkloadSpec{
+					Prefill: &v1alpha2.WorkloadSpec{
 						Replicas: ptr.To[int32](2),
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
@@ -380,7 +384,7 @@ func TestMergeSpecs(t *testing.T) {
 				},
 				// Override changes replica count and adds an environment variable to the container
 				{
-					Prefill: &v1alpha1.WorkloadSpec{
+					Prefill: &v1alpha2.WorkloadSpec{
 						Replicas: ptr.To[int32](4),
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
@@ -395,8 +399,8 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				Prefill: &v1alpha1.WorkloadSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				Prefill: &v1alpha2.WorkloadSpec{
 					Replicas: ptr.To[int32](4), // Replicas are overridden
 					Template: &corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -417,16 +421,16 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "4 chained merge router, epp, multi node",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
-					Router: &v1alpha1.RouterSpec{
-						Route:   &v1alpha1.GatewayRoutesSpec{},
-						Gateway: &v1alpha1.GatewaySpec{},
+					Router: &v1alpha2.RouterSpec{
+						Route:   &v1alpha2.GatewayRoutesSpec{},
+						Gateway: &v1alpha2.GatewaySpec{},
 					},
 				},
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
-						Parallelism: &v1alpha1.ParallelismSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
+						Parallelism: &v1alpha2.ParallelismSpec{
 							Tensor:   ptr.To[int32](1),
 							Pipeline: ptr.To[int32](1),
 						},
@@ -446,18 +450,14 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 				{
-					Router: &v1alpha1.RouterSpec{
-						Scheduler: &v1alpha1.SchedulerSpec{
-							Pool: &v1alpha1.InferencePoolSpec{
-								Spec: &igwapi.InferencePoolSpec{
-									TargetPortNumber: 0,
-									EndpointPickerConfig: igwapi.EndpointPickerConfig{
-										ExtensionRef: &igwapi.Extension{
-											ExtensionConnection: igwapi.ExtensionConnection{
-												FailureMode: ptr.To(igwapi.FailClose),
-											},
-										},
+					Router: &v1alpha2.RouterSpec{
+						Scheduler: &v1alpha2.SchedulerSpec{
+							Pool: &v1alpha2.InferencePoolSpec{
+								Spec: &igwv1.InferencePoolSpec{
+									TargetPorts: []igwv1.Port{
+										{Number: 0},
 									},
+									EndpointPickerRef: igwv1.EndpointPickerRef{},
 								},
 							},
 							Template: &corev1.PodSpec{
@@ -471,8 +471,8 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
-						Parallelism: &v1alpha1.ParallelismSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
+						Parallelism: &v1alpha2.ParallelismSpec{
 							Tensor:   ptr.To[int32](4),
 							Pipeline: ptr.To[int32](2),
 						},
@@ -492,21 +492,17 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				Router: &v1alpha1.RouterSpec{
-					Route:   &v1alpha1.GatewayRoutesSpec{},
-					Gateway: &v1alpha1.GatewaySpec{},
-					Scheduler: &v1alpha1.SchedulerSpec{
-						Pool: &v1alpha1.InferencePoolSpec{
-							Spec: &igwapi.InferencePoolSpec{
-								TargetPortNumber: 0,
-								EndpointPickerConfig: igwapi.EndpointPickerConfig{
-									ExtensionRef: &igwapi.Extension{
-										ExtensionConnection: igwapi.ExtensionConnection{
-											FailureMode: ptr.To(igwapi.FailClose),
-										},
-									},
+			want: v1alpha2.LLMInferenceServiceSpec{
+				Router: &v1alpha2.RouterSpec{
+					Route:   &v1alpha2.GatewayRoutesSpec{},
+					Gateway: &v1alpha2.GatewaySpec{},
+					Scheduler: &v1alpha2.SchedulerSpec{
+						Pool: &v1alpha2.InferencePoolSpec{
+							Spec: &igwv1.InferencePoolSpec{
+								TargetPorts: []igwv1.Port{
+									{Number: 0},
 								},
+								EndpointPickerRef: igwv1.EndpointPickerRef{},
 							},
 						},
 						Template: &corev1.PodSpec{
@@ -518,8 +514,8 @@ func TestMergeSpecs(t *testing.T) {
 						},
 					},
 				},
-				WorkloadSpec: v1alpha1.WorkloadSpec{
-					Parallelism: &v1alpha1.ParallelismSpec{
+				WorkloadSpec: v1alpha2.WorkloadSpec{
+					Parallelism: &v1alpha2.ParallelismSpec{
 						Tensor:   ptr.To[int32](4),
 						Pipeline: ptr.To[int32](2),
 					},
@@ -541,11 +537,11 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "4 chained merge router with scheduler, http route and gateway ref, multi node",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
-					Router: &v1alpha1.RouterSpec{
-						Route: &v1alpha1.GatewayRoutesSpec{
-							HTTP: &v1alpha1.HTTPRouteSpec{
+					Router: &v1alpha2.RouterSpec{
+						Route: &v1alpha2.GatewayRoutesSpec{
+							HTTP: &v1alpha2.HTTPRouteSpec{
 								Spec: &gatewayapi.HTTPRouteSpec{
 									CommonRouteSpec: gatewayapi.CommonRouteSpec{
 										ParentRefs: []gatewayapi.ParentReference{
@@ -560,26 +556,26 @@ func TestMergeSpecs(t *testing.T) {
 								Refs: []corev1.LocalObjectReference{{Name: "my-route"}},
 							},
 						},
-						Gateway: &v1alpha1.GatewaySpec{
-							Refs: []v1alpha1.UntypedObjectReference{{Name: "my-gateway"}},
+						Gateway: &v1alpha2.GatewaySpec{
+							Refs: []v1alpha2.UntypedObjectReference{{Name: "my-gateway"}},
 						},
 					},
 				},
 				{
-					Router: &v1alpha1.RouterSpec{
-						Route: &v1alpha1.GatewayRoutesSpec{
-							HTTP: &v1alpha1.HTTPRouteSpec{
+					Router: &v1alpha2.RouterSpec{
+						Route: &v1alpha2.GatewayRoutesSpec{
+							HTTP: &v1alpha2.HTTPRouteSpec{
 								Refs: []corev1.LocalObjectReference{{Name: "my-second-route"}},
 							},
 						},
-						Gateway: &v1alpha1.GatewaySpec{
-							Refs: []v1alpha1.UntypedObjectReference{{Name: "my-second-gateway"}},
+						Gateway: &v1alpha2.GatewaySpec{
+							Refs: []v1alpha2.UntypedObjectReference{{Name: "my-second-gateway"}},
 						},
 					},
 				},
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
-						Parallelism: &v1alpha1.ParallelismSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
+						Parallelism: &v1alpha2.ParallelismSpec{
 							Tensor:   ptr.To[int32](1),
 							Pipeline: ptr.To[int32](1),
 						},
@@ -599,9 +595,9 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 				{
-					Router: &v1alpha1.RouterSpec{
-						Scheduler: &v1alpha1.SchedulerSpec{
-							Pool: &v1alpha1.InferencePoolSpec{
+					Router: &v1alpha2.RouterSpec{
+						Scheduler: &v1alpha2.SchedulerSpec{
+							Pool: &v1alpha2.InferencePoolSpec{
 								Ref: &corev1.LocalObjectReference{
 									Name: "my-pool",
 								},
@@ -610,8 +606,8 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
-						Parallelism: &v1alpha1.ParallelismSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
+						Parallelism: &v1alpha2.ParallelismSpec{
 							Tensor:   ptr.To[int32](4),
 							Pipeline: ptr.To[int32](2),
 						},
@@ -631,10 +627,10 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				Router: &v1alpha1.RouterSpec{
-					Route: &v1alpha1.GatewayRoutesSpec{
-						HTTP: &v1alpha1.HTTPRouteSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				Router: &v1alpha2.RouterSpec{
+					Route: &v1alpha2.GatewayRoutesSpec{
+						HTTP: &v1alpha2.HTTPRouteSpec{
 							Spec: &gatewayapi.HTTPRouteSpec{
 								CommonRouteSpec: gatewayapi.CommonRouteSpec{
 									ParentRefs: []gatewayapi.ParentReference{
@@ -649,19 +645,19 @@ func TestMergeSpecs(t *testing.T) {
 							Refs: []corev1.LocalObjectReference{{Name: "my-second-route"}},
 						},
 					},
-					Gateway: &v1alpha1.GatewaySpec{
-						Refs: []v1alpha1.UntypedObjectReference{{Name: "my-second-gateway"}},
+					Gateway: &v1alpha2.GatewaySpec{
+						Refs: []v1alpha2.UntypedObjectReference{{Name: "my-second-gateway"}},
 					},
-					Scheduler: &v1alpha1.SchedulerSpec{
-						Pool: &v1alpha1.InferencePoolSpec{
+					Scheduler: &v1alpha2.SchedulerSpec{
+						Pool: &v1alpha2.InferencePoolSpec{
 							Ref: &corev1.LocalObjectReference{
 								Name: "my-pool",
 							},
 						},
 					},
 				},
-				WorkloadSpec: v1alpha1.WorkloadSpec{
-					Parallelism: &v1alpha1.ParallelismSpec{
+				WorkloadSpec: v1alpha2.WorkloadSpec{
+					Parallelism: &v1alpha2.ParallelismSpec{
 						Tensor:   ptr.To[int32](4),
 						Pipeline: ptr.To[int32](2),
 					},
@@ -683,16 +679,16 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "merge requests and limits",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
-					Router: &v1alpha1.RouterSpec{
-						Route:   &v1alpha1.GatewayRoutesSpec{},
-						Gateway: &v1alpha1.GatewaySpec{},
+					Router: &v1alpha2.RouterSpec{
+						Route:   &v1alpha2.GatewayRoutesSpec{},
+						Gateway: &v1alpha2.GatewaySpec{},
 					},
 				},
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
-						Parallelism: &v1alpha1.ParallelismSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
+						Parallelism: &v1alpha2.ParallelismSpec{
 							Tensor:   ptr.To[int32](1),
 							Pipeline: ptr.To[int32](1),
 						},
@@ -722,7 +718,7 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Worker: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{
@@ -748,13 +744,13 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				Router: &v1alpha1.RouterSpec{
-					Route:   &v1alpha1.GatewayRoutesSpec{},
-					Gateway: &v1alpha1.GatewaySpec{},
+			want: v1alpha2.LLMInferenceServiceSpec{
+				Router: &v1alpha2.RouterSpec{
+					Route:   &v1alpha2.GatewayRoutesSpec{},
+					Gateway: &v1alpha2.GatewaySpec{},
 				},
-				WorkloadSpec: v1alpha1.WorkloadSpec{
-					Parallelism: &v1alpha1.ParallelismSpec{
+				WorkloadSpec: v1alpha2.WorkloadSpec{
+					Parallelism: &v1alpha2.ParallelismSpec{
 						Tensor:   ptr.To[int32](1),
 						Pipeline: ptr.To[int32](1),
 					},
@@ -789,32 +785,32 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "merge LoRA adapters",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
-					Model: v1alpha1.LLMModelSpec{
+					Model: v1alpha2.LLMModelSpec{
 						URI: apis.URL{Path: "base-model"},
-						LoRA: &v1alpha1.LoRASpec{
-							Adapters: []v1alpha1.LLMModelSpec{
+						LoRA: &v1alpha2.LoRASpec{
+							Adapters: []v1alpha2.LLMModelSpec{
 								{URI: apis.URL{Path: "lora-model"}},
 							},
 						},
 					},
 				},
 				{
-					Model: v1alpha1.LLMModelSpec{
-						LoRA: &v1alpha1.LoRASpec{
-							Adapters: []v1alpha1.LLMModelSpec{
+					Model: v1alpha2.LLMModelSpec{
+						LoRA: &v1alpha2.LoRASpec{
+							Adapters: []v1alpha2.LLMModelSpec{
 								{URI: apis.URL{Path: "lora-model2"}},
 							},
 						},
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				Model: v1alpha1.LLMModelSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				Model: v1alpha2.LLMModelSpec{
 					URI: apis.URL{Path: "base-model"},
-					LoRA: &v1alpha1.LoRASpec{
-						Adapters: []v1alpha1.LLMModelSpec{
+					LoRA: &v1alpha2.LoRASpec{
+						Adapters: []v1alpha2.LLMModelSpec{
 							{URI: apis.URL{Path: "lora-model2"}},
 						},
 					},
@@ -822,50 +818,28 @@ func TestMergeSpecs(t *testing.T) {
 			},
 		},
 		{
-			name: "merge model criticality",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
-				{
-					Model: v1alpha1.LLMModelSpec{
-						URI:         apis.URL{Path: "model-uri"},
-						Criticality: ptr.To(igwapi.Sheddable),
-					},
-				},
-				{
-					Model: v1alpha1.LLMModelSpec{
-						Criticality: ptr.To(igwapi.Critical),
-					},
-				},
-			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				Model: v1alpha1.LLMModelSpec{
-					URI:         apis.URL{Path: "model-uri"},
-					Criticality: ptr.To(igwapi.Critical),
-				},
-			},
-		},
-		{
 			name: "merge model URI",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
-					Model: v1alpha1.LLMModelSpec{
+					Model: v1alpha2.LLMModelSpec{
 						URI: apis.URL{Scheme: "hf", Host: "hub.com", Path: "/model-a"},
 					},
 				},
 				{
-					Model: v1alpha1.LLMModelSpec{
+					Model: v1alpha2.LLMModelSpec{
 						URI: apis.URL{Scheme: "s3", Host: "bucket.com", Path: "/model-b"},
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				Model: v1alpha1.LLMModelSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				Model: v1alpha2.LLMModelSpec{
 					URI: apis.URL{Scheme: "s3", Host: "bucket.com", Path: "/model-b"},
 				},
 			},
 		},
 		{
 			name: "merge baseRefs",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
 					BaseRefs: []corev1.LocalObjectReference{
 						{Name: "base-config-1"},
@@ -878,7 +852,7 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
 				BaseRefs: []corev1.LocalObjectReference{
 					{Name: "override-config-1"},
 				},
@@ -886,30 +860,30 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "merge ingress spec",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
-					Router: &v1alpha1.RouterSpec{
-						Ingress: &v1alpha1.IngressSpec{
-							Refs: []v1alpha1.UntypedObjectReference{
+					Router: &v1alpha2.RouterSpec{
+						Ingress: &v1alpha2.IngressSpec{
+							Refs: []v1alpha2.UntypedObjectReference{
 								{Name: "base-ingress", Namespace: "base-ns"},
 							},
 						},
 					},
 				},
 				{
-					Router: &v1alpha1.RouterSpec{
-						Ingress: &v1alpha1.IngressSpec{
-							Refs: []v1alpha1.UntypedObjectReference{
+					Router: &v1alpha2.RouterSpec{
+						Ingress: &v1alpha2.IngressSpec{
+							Refs: []v1alpha2.UntypedObjectReference{
 								{Name: "override-ingress", Namespace: "override-ns"},
 							},
 						},
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				Router: &v1alpha1.RouterSpec{
-					Ingress: &v1alpha1.IngressSpec{
-						Refs: []v1alpha1.UntypedObjectReference{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				Router: &v1alpha2.RouterSpec{
+					Ingress: &v1alpha2.IngressSpec{
+						Refs: []v1alpha2.UntypedObjectReference{
 							{Name: "override-ingress", Namespace: "override-ns"},
 						},
 					},
@@ -918,110 +892,107 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "merge with nil pointer handling",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
-					Model: v1alpha1.LLMModelSpec{
+					Model: v1alpha2.LLMModelSpec{
 						URI:  apis.URL{Path: "model-uri"},
 						Name: ptr.To("base-name"),
 					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Replicas: ptr.To[int32](1),
 					},
 				},
 				{
-					Model: v1alpha1.LLMModelSpec{
+					Model: v1alpha2.LLMModelSpec{
 						Name: nil, // nil pointer should not override non-nil base
 					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Replicas: ptr.To[int32](3),
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				Model: v1alpha1.LLMModelSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				Model: v1alpha2.LLMModelSpec{
 					URI:  apis.URL{Path: "model-uri"},
 					Name: ptr.To("base-name"), // Base value should be preserved
 				},
-				WorkloadSpec: v1alpha1.WorkloadSpec{
+				WorkloadSpec: v1alpha2.WorkloadSpec{
 					Replicas: ptr.To[int32](3),
 				},
 			},
 		},
 		{
 			name: "merge complex nested structures",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
-					Model: v1alpha1.LLMModelSpec{
-						URI:         apis.URL{Path: "base-model"},
-						Name:        ptr.To("base-name"),
-						Criticality: ptr.To(igwapi.Sheddable),
-						LoRA: &v1alpha1.LoRASpec{
-							Adapters: []v1alpha1.LLMModelSpec{
+					Model: v1alpha2.LLMModelSpec{
+						URI:  apis.URL{Path: "base-model"},
+						Name: ptr.To("base-name"),
+						LoRA: &v1alpha2.LoRASpec{
+							Adapters: []v1alpha2.LLMModelSpec{
 								{URI: apis.URL{Path: "lora-model"}},
 							},
 						},
 					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Replicas: ptr.To[int32](1),
-						Parallelism: &v1alpha1.ParallelismSpec{
+						Parallelism: &v1alpha2.ParallelismSpec{
 							Tensor: ptr.To[int32](2),
 						},
 					},
-					Router: &v1alpha1.RouterSpec{
-						Gateway: &v1alpha1.GatewaySpec{
-							Refs: []v1alpha1.UntypedObjectReference{{Name: "base-gw"}},
+					Router: &v1alpha2.RouterSpec{
+						Gateway: &v1alpha2.GatewaySpec{
+							Refs: []v1alpha2.UntypedObjectReference{{Name: "base-gw"}},
 						},
 					},
 				},
 				{
-					Model: v1alpha1.LLMModelSpec{
-						Name:        ptr.To("override-name"),
-						Criticality: ptr.To(igwapi.Critical),
-						LoRA: &v1alpha1.LoRASpec{
-							Adapters: []v1alpha1.LLMModelSpec{
+					Model: v1alpha2.LLMModelSpec{
+						Name: ptr.To("override-name"),
+						LoRA: &v1alpha2.LoRASpec{
+							Adapters: []v1alpha2.LLMModelSpec{
 								{URI: apis.URL{Path: "lora-model2"}},
 							},
 						},
 					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Replicas: ptr.To[int32](5),
-						Parallelism: &v1alpha1.ParallelismSpec{
+						Parallelism: &v1alpha2.ParallelismSpec{
 							Pipeline: ptr.To[int32](4),
 						},
 					},
-					Router: &v1alpha1.RouterSpec{
-						Route: &v1alpha1.GatewayRoutesSpec{
-							HTTP: &v1alpha1.HTTPRouteSpec{
+					Router: &v1alpha2.RouterSpec{
+						Route: &v1alpha2.GatewayRoutesSpec{
+							HTTP: &v1alpha2.HTTPRouteSpec{
 								Refs: []corev1.LocalObjectReference{{Name: "override-route"}},
 							},
 						},
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				Model: v1alpha1.LLMModelSpec{
-					URI:         apis.URL{Path: "base-model"}, // Base URI preserved
-					Name:        ptr.To("override-name"),      // Override name
-					Criticality: ptr.To(igwapi.Critical),
-					LoRA: &v1alpha1.LoRASpec{
-						Adapters: []v1alpha1.LLMModelSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				Model: v1alpha2.LLMModelSpec{
+					URI:  apis.URL{Path: "base-model"}, // Base URI preserved
+					Name: ptr.To("override-name"),      // Override name
+					LoRA: &v1alpha2.LoRASpec{
+						Adapters: []v1alpha2.LLMModelSpec{
 							{URI: apis.URL{Path: "lora-model2"}},
 						},
 					},
 				},
-				WorkloadSpec: v1alpha1.WorkloadSpec{
+				WorkloadSpec: v1alpha2.WorkloadSpec{
 					Replicas: ptr.To[int32](5),
-					Parallelism: &v1alpha1.ParallelismSpec{
+					Parallelism: &v1alpha2.ParallelismSpec{
 						Tensor:   ptr.To[int32](2), // Base tensor preserved
 						Pipeline: ptr.To[int32](4), // Override pipeline
 					},
 				},
-				Router: &v1alpha1.RouterSpec{
-					Gateway: &v1alpha1.GatewaySpec{
-						Refs: []v1alpha1.UntypedObjectReference{{Name: "base-gw"}},
+				Router: &v1alpha2.RouterSpec{
+					Gateway: &v1alpha2.GatewaySpec{
+						Refs: []v1alpha2.UntypedObjectReference{{Name: "base-gw"}},
 					},
-					Route: &v1alpha1.GatewayRoutesSpec{
-						HTTP: &v1alpha1.HTTPRouteSpec{
+					Route: &v1alpha2.GatewayRoutesSpec{
+						HTTP: &v1alpha2.HTTPRouteSpec{
 							Refs: []corev1.LocalObjectReference{{Name: "override-route"}},
 						},
 					},
@@ -1030,47 +1001,47 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "merge empty structures",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
-					Model: v1alpha1.LLMModelSpec{},
+					Model: v1alpha2.LLMModelSpec{},
 				},
 				{
-					Model: v1alpha1.LLMModelSpec{
+					Model: v1alpha2.LLMModelSpec{
 						URI: apis.URL{Path: "populated-model"},
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				Model: v1alpha1.LLMModelSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				Model: v1alpha2.LLMModelSpec{
 					URI: apis.URL{Path: "populated-model"},
 				},
 			},
 		},
 		{
 			name: "merge with zero values vs nil pointers",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Replicas: ptr.To[int32](0), // Zero value, but non-nil pointer
 					},
 				},
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Replicas: nil, // Nil pointer should not override zero value
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				WorkloadSpec: v1alpha1.WorkloadSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				WorkloadSpec: v1alpha2.WorkloadSpec{
 					Replicas: ptr.To[int32](0), // Zero value should be preserved
 				},
 			},
 		},
 		{
 			name: "merge pod spec with nil containers",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{
@@ -1094,14 +1065,14 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{},
 						Replicas: nil,
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				WorkloadSpec: v1alpha1.WorkloadSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				WorkloadSpec: v1alpha2.WorkloadSpec{
 					Template: &corev1.PodSpec{
 						Containers: []corev1.Container{
 							{
@@ -1127,9 +1098,9 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "merge pod spec with empty containers",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{
@@ -1153,7 +1124,7 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{},
 						},
@@ -1161,8 +1132,8 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				WorkloadSpec: v1alpha1.WorkloadSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				WorkloadSpec: v1alpha2.WorkloadSpec{
 					Template: &corev1.PodSpec{
 						Containers: []corev1.Container{
 							{
@@ -1188,9 +1159,9 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "merge pod spec, add container",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{
@@ -1209,7 +1180,7 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{
@@ -1223,8 +1194,8 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				WorkloadSpec: v1alpha1.WorkloadSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				WorkloadSpec: v1alpha2.WorkloadSpec{
 					Template: &corev1.PodSpec{
 						Containers: []corev1.Container{
 							{
@@ -1249,9 +1220,9 @@ func TestMergeSpecs(t *testing.T) {
 		},
 		{
 			name: "merge pod spec, add container",
-			cfgs: []v1alpha1.LLMInferenceServiceSpec{
+			cfgs: []v1alpha2.LLMInferenceServiceSpec{
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{
@@ -1270,7 +1241,7 @@ func TestMergeSpecs(t *testing.T) {
 					},
 				},
 				{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{
@@ -1285,8 +1256,8 @@ func TestMergeSpecs(t *testing.T) {
 				},
 				{},
 			},
-			want: v1alpha1.LLMInferenceServiceSpec{
-				WorkloadSpec: v1alpha1.WorkloadSpec{
+			want: v1alpha2.LLMInferenceServiceSpec{
+				WorkloadSpec: v1alpha2.WorkloadSpec{
 					Template: &corev1.PodSpec{
 						Containers: []corev1.Container{
 							{
@@ -1313,8 +1284,6 @@ func TestMergeSpecs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := t.Context()
-			ctx = log.IntoContext(ctx, pkgtest.NewTestLogger(t))
-
 			got, err := llmisvc.MergeSpecs(ctx, tt.cfgs...)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("MergeSpecs() error = %v, wantErr %v", err, tt.wantErr)
@@ -1330,20 +1299,20 @@ func TestMergeSpecs(t *testing.T) {
 func TestReplaceVariables(t *testing.T) {
 	tests := []struct {
 		name    string
-		llmSvc  *v1alpha1.LLMInferenceService
-		cfg     *v1alpha1.LLMInferenceServiceConfig
+		llmSvc  *v1alpha2.LLMInferenceService
+		cfg     *v1alpha2.LLMInferenceServiceConfig
 		extra   *llmisvc.Config
-		want    *v1alpha1.LLMInferenceServiceConfig
+		want    *v1alpha2.LLMInferenceServiceConfig
 		wantErr bool
 	}{
 		{
 			name: "Replace model name",
-			cfg: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
+			cfg: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					Model: v1alpha2.LLMModelSpec{
 						Name: ptr.To("{{ .Spec.Model.Name }}"),
 					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{Args: []string{
@@ -1355,19 +1324,19 @@ func TestReplaceVariables(t *testing.T) {
 					},
 				},
 			},
-			llmSvc: &v1alpha1.LLMInferenceService{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
+			llmSvc: &v1alpha2.LLMInferenceService{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					Model: v1alpha2.LLMModelSpec{
 						Name: ptr.To("meta-llama/Llama-3.2-3B-Instruct"),
 					},
 				},
 			},
-			want: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
+			want: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					Model: v1alpha2.LLMModelSpec{
 						Name: ptr.To("meta-llama/Llama-3.2-3B-Instruct"),
 					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{Args: []string{
@@ -1382,9 +1351,9 @@ func TestReplaceVariables(t *testing.T) {
 		},
 		{
 			name: "template with ChildName function",
-			cfg: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+			cfg: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							ServiceAccountName: "{{ ChildName .Name `-sa` }}",
 							Containers: []corev1.Container{
@@ -1399,15 +1368,15 @@ func TestReplaceVariables(t *testing.T) {
 					},
 				},
 			},
-			llmSvc: &v1alpha1.LLMInferenceService{
+			llmSvc: &v1alpha2.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-llm",
 					Namespace: "test-ns",
 				},
 			},
-			want: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+			want: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							ServiceAccountName: "test-llm-sa",
 							Containers: []corev1.Container{
@@ -1425,9 +1394,9 @@ func TestReplaceVariables(t *testing.T) {
 		},
 		{
 			name: "template in arrays",
-			cfg: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+			cfg: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{
@@ -1447,15 +1416,15 @@ func TestReplaceVariables(t *testing.T) {
 					},
 				},
 			},
-			llmSvc: &v1alpha1.LLMInferenceService{
+			llmSvc: &v1alpha2.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "gpt-model",
 					Namespace: "ml-team",
 				},
 			},
-			want: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+			want: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{
@@ -1478,12 +1447,12 @@ func TestReplaceVariables(t *testing.T) {
 		},
 		{
 			name: "template with complex nested model spec",
-			cfg: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
+			cfg: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					Model: v1alpha2.LLMModelSpec{
 						Name: ptr.To("{{ .Spec.Model.Name }}"),
 					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{
@@ -1498,20 +1467,20 @@ func TestReplaceVariables(t *testing.T) {
 					},
 				},
 			},
-			llmSvc: &v1alpha1.LLMInferenceService{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
+			llmSvc: &v1alpha2.LLMInferenceService{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					Model: v1alpha2.LLMModelSpec{
 						Name: ptr.To("meta-llama/Llama-3.2-3B-Instruct"),
 						URI:  mustParseURL("hf://meta-llama/Llama-3.2-3B-Instruct"),
 					},
 				},
 			},
-			want: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
+			want: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					Model: v1alpha2.LLMModelSpec{
 						Name: ptr.To("meta-llama/Llama-3.2-3B-Instruct"),
 					},
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{
@@ -1529,23 +1498,23 @@ func TestReplaceVariables(t *testing.T) {
 		},
 		{
 			name: "template with nil pointer access should not error if default value is provided",
-			cfg: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
+			cfg: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					Model: v1alpha2.LLMModelSpec{
 						Name: ptr.To(`{{ if .Spec.Model.Name }}{{ .Spec.Model.Name }}{{ else }}default-model{{ end }}`),
 					},
 				},
 			},
-			llmSvc: &v1alpha1.LLMInferenceService{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
+			llmSvc: &v1alpha2.LLMInferenceService{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					Model: v1alpha2.LLMModelSpec{
 						Name: nil, // Nil pointer
 					},
 				},
 			},
-			want: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
+			want: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					Model: v1alpha2.LLMModelSpec{
 						Name: ptr.To("default-model"),
 					},
 				},
@@ -1553,42 +1522,42 @@ func TestReplaceVariables(t *testing.T) {
 		},
 		{
 			name: "template with router configurations",
-			cfg: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Router: &v1alpha1.RouterSpec{
-						Route: &v1alpha1.GatewayRoutesSpec{
-							HTTP: &v1alpha1.HTTPRouteSpec{
+			cfg: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					Router: &v1alpha2.RouterSpec{
+						Route: &v1alpha2.GatewayRoutesSpec{
+							HTTP: &v1alpha2.HTTPRouteSpec{
 								Refs: []corev1.LocalObjectReference{
 									{Name: "{{ .Name }}-route"},
 								},
 							},
 						},
-						Gateway: &v1alpha1.GatewaySpec{
-							Refs: []v1alpha1.UntypedObjectReference{
+						Gateway: &v1alpha2.GatewaySpec{
+							Refs: []v1alpha2.UntypedObjectReference{
 								{Name: "{{ .Name }}-gateway", Namespace: "{{ .Namespace }}"},
 							},
 						},
 					},
 				},
 			},
-			llmSvc: &v1alpha1.LLMInferenceService{
+			llmSvc: &v1alpha2.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "router-test",
 					Namespace: "routing-ns",
 				},
 			},
-			want: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Router: &v1alpha1.RouterSpec{
-						Route: &v1alpha1.GatewayRoutesSpec{
-							HTTP: &v1alpha1.HTTPRouteSpec{
+			want: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					Router: &v1alpha2.RouterSpec{
+						Route: &v1alpha2.GatewayRoutesSpec{
+							HTTP: &v1alpha2.HTTPRouteSpec{
 								Refs: []corev1.LocalObjectReference{
 									{Name: "router-test-route"},
 								},
 							},
 						},
-						Gateway: &v1alpha1.GatewaySpec{
-							Refs: []v1alpha1.UntypedObjectReference{
+						Gateway: &v1alpha2.GatewaySpec{
+							Refs: []v1alpha2.UntypedObjectReference{
 								{Name: "router-test-gateway", Namespace: "routing-ns"},
 							},
 						},
@@ -1598,9 +1567,9 @@ func TestReplaceVariables(t *testing.T) {
 		},
 		{
 			name: "template with multiple variables in single string",
-			cfg: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+			cfg: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{
@@ -1615,15 +1584,15 @@ func TestReplaceVariables(t *testing.T) {
 					},
 				},
 			},
-			llmSvc: &v1alpha1.LLMInferenceService{
+			llmSvc: &v1alpha2.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "multi-var",
 					Namespace: "test-ns",
 				},
 			},
-			want: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					WorkloadSpec: v1alpha1.WorkloadSpec{
+			want: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
 								{
@@ -1641,50 +1610,50 @@ func TestReplaceVariables(t *testing.T) {
 		},
 		{
 			name: "template with invalid syntax should error",
-			cfg: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
+			cfg: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					Model: v1alpha2.LLMModelSpec{
 						Name: ptr.To("{{ .Name"), // Invalid template syntax - missing closing brace
 					},
 				},
 			},
-			llmSvc: &v1alpha1.LLMInferenceService{
+			llmSvc: &v1alpha2.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{Name: "test"},
 			},
 			wantErr: true,
 		},
 		{
 			name: "template with non-existent field should error",
-			cfg: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
-					Model: v1alpha1.LLMModelSpec{
+			cfg: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
+					Model: v1alpha2.LLMModelSpec{
 						Name: ptr.To("{{ .NonExistentField }}"),
 					},
 				},
 			},
-			llmSvc: &v1alpha1.LLMInferenceService{
+			llmSvc: &v1alpha2.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{Name: "test"},
 			},
 			wantErr: true,
 		},
 		{
 			name: "template in baseRefs",
-			cfg: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
+			cfg: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
 					BaseRefs: []corev1.LocalObjectReference{
 						{Name: "{{ .Name }}-base-config"},
 						{Name: "{{ .Namespace }}-shared-config"},
 					},
 				},
 			},
-			llmSvc: &v1alpha1.LLMInferenceService{
+			llmSvc: &v1alpha2.LLMInferenceService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "base-ref-test",
 					Namespace: "template-ns",
 				},
 			},
-			want: &v1alpha1.LLMInferenceServiceConfig{
-				Spec: v1alpha1.LLMInferenceServiceSpec{
+			want: &v1alpha2.LLMInferenceServiceConfig{
+				Spec: v1alpha2.LLMInferenceServiceSpec{
 					BaseRefs: []corev1.LocalObjectReference{
 						{Name: "base-ref-test-base-config"},
 						{Name: "template-ns-shared-config"},
@@ -1723,11 +1692,11 @@ func TestAdditionalData(t *testing.T) {
 		config           string
 		reconcilerConfig llmisvc.Config
 		wantErr          bool
-		want             func(llmSvc *v1alpha1.LLMInferenceServiceConfig, g *GomegaWithT)
+		want             func(llmSvc *v1alpha2.LLMInferenceServiceConfig, g *GomegaWithT)
 	}{
 		{
 			name: "additional structs replacements",
-			config: `apiVersion: serving.kserve.io/v1alpha1
+			config: `apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
   name: test-config
@@ -1747,7 +1716,7 @@ spec:
 				IngressGatewayName:      "my-gateway",
 				IngressGatewayNamespace: "my-ns",
 			},
-			want: func(llmSvc *v1alpha1.LLMInferenceServiceConfig, g *GomegaWithT) {
+			want: func(llmSvc *v1alpha2.LLMInferenceServiceConfig, g *GomegaWithT) {
 				httpRouteSpec := llmSvc.Spec.Router.Route.HTTP.Spec
 				expectedGatewayRef := gatewayapi.ParentReference{
 					Name:      "my-gateway",
@@ -1759,7 +1728,7 @@ spec:
 		},
 		{
 			name: "template with non-existing key should error",
-			config: `apiVersion: serving.kserve.io/v1alpha1
+			config: `apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
   name: "{{ .GlobalConfig.NonExistentConfig.SomeField }}"
@@ -1767,19 +1736,19 @@ spec:
   model:
     name: "static-model"`,
 			wantErr: true,
-			want:    func(llmSvc *v1alpha1.LLMInferenceServiceConfig, g *GomegaWithT) {},
+			want:    func(llmSvc *v1alpha2.LLMInferenceServiceConfig, g *GomegaWithT) {},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			preset := &v1alpha1.LLMInferenceServiceConfig{}
+			preset := &v1alpha2.LLMInferenceServiceConfig{}
 			if err := yaml.Unmarshal([]byte(tt.config), preset); err != nil {
 				t.Errorf("Failed to unmarshal YAML: %v", err)
 				return
 			}
 
-			llmSvc := &v1alpha1.LLMInferenceService{}
+			llmSvc := &v1alpha2.LLMInferenceService{}
 			got, err := llmisvc.ReplaceVariables(llmSvc, preset, &tt.reconcilerConfig)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("ReplaceVariables() error = %v, wantErr %v", err, tt.wantErr)
