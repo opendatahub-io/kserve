@@ -451,12 +451,8 @@ func TestMergeSpecs(t *testing.T) {
 							Pool: &v1alpha1.InferencePoolSpec{
 								Spec: &igwapi.InferencePoolSpec{
 									TargetPortNumber: 0,
-									EndpointPickerConfig: igwapi.EndpointPickerConfig{
-										ExtensionRef: &igwapi.Extension{
-											ExtensionConnection: igwapi.ExtensionConnection{
-												FailureMode: ptr.To(igwapi.FailClose),
-											},
-										},
+									ExtensionRef: igwapi.Extension{
+										FailureMode: ptr.To(igwapi.FailClose),
 									},
 								},
 							},
@@ -500,12 +496,8 @@ func TestMergeSpecs(t *testing.T) {
 						Pool: &v1alpha1.InferencePoolSpec{
 							Spec: &igwapi.InferencePoolSpec{
 								TargetPortNumber: 0,
-								EndpointPickerConfig: igwapi.EndpointPickerConfig{
-									ExtensionRef: &igwapi.Extension{
-										ExtensionConnection: igwapi.ExtensionConnection{
-											FailureMode: ptr.To(igwapi.FailClose),
-										},
-									},
+								ExtensionRef: igwapi.Extension{
+									FailureMode: ptr.To(igwapi.FailClose),
 								},
 							},
 						},

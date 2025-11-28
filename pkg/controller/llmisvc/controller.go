@@ -272,9 +272,6 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwapi.GroupVersion.String(), "InferencePool"); ok && err == nil {
 		b = b.Owns(&igwapi.InferencePool{}, builder.WithPredicates(childResourcesPredicate))
 	}
-	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwapi.GroupVersion.String(), "InferenceModel"); ok && err == nil {
-		b = b.Owns(&igwapi.InferenceModel{}, builder.WithPredicates(childResourcesPredicate))
-	}
 
 	if err := lwsapi.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("failed to add LeaderWorkerSet APIs to scheme: %w", err)

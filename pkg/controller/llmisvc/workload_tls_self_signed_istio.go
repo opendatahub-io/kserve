@@ -173,9 +173,7 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForScheduler
 			if err := r.Client.Get(ctx, client.ObjectKey{Name: llmSvc.Spec.Router.Scheduler.Pool.Ref.Name, Namespace: llmSvc.GetNamespace()}, &pool); err != nil {
 				return nil, fmt.Errorf("failed to get inference pool %s/%s: %w", llmSvc.GetNamespace(), llmSvc.Spec.Router.Scheduler.Pool.Ref.Name, err)
 			}
-			if pool.Spec.ExtensionRef != nil {
-				name = string(pool.Spec.ExtensionRef.Name)
-			}
+			name = string(pool.Spec.ExtensionRef.Name)
 		}
 		hostname := network.GetServiceHostname(name, llmSvc.GetNamespace())
 		dr.Spec.Host = hostname
