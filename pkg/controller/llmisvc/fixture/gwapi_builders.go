@@ -20,7 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/apix/v1alpha2"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 )
 

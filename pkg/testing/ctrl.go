@@ -33,7 +33,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/apix/v1alpha2"
 	gatewayapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 )
 

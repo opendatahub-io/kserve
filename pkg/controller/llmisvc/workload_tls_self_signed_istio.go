@@ -32,7 +32,7 @@ import (
 	"knative.dev/pkg/network"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/apix/v1alpha2"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/utils"

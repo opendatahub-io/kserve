@@ -35,7 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/apix/v1alpha2"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/utils"
@@ -283,7 +283,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerInferenceModel(ctx cont
 		},
 	}
 	if im.Spec.Criticality == nil {
-		im.Spec.Criticality = ptr.To(igwapi.Critical)
+		im.Spec.Criticality = ptr.To(v1alpha1.Critical)
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected InferenceModel", "inferencemodel", im)
