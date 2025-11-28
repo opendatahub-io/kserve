@@ -206,7 +206,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 					WithDataLocalParallelism(1),
 					WithTensorParallelism(4),
 				)),
-				WithWorker(&corev1.PodSpec{}),
+				WithWorker(SimpleWorkerPodSpec()),
 				WithManagedRoute(),
 				WithManagedScheduler(),
 				WithManagedGateway(),
@@ -298,7 +298,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 				WithParallelism(parallelismSpec),
-				WithWorker(&corev1.PodSpec{}),
+				WithWorker(SimpleWorkerPodSpec()),
 				WithManagedRoute(),
 				WithManagedGateway(),
 			)
@@ -365,7 +365,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 					WithDataParallelism(2),
 					WithDataLocalParallelism(1),
 				)),
-				WithPrefillWorker(&corev1.PodSpec{}),
+				WithPrefillWorker(SimpleWorkerPodSpec()),
 				WithManagedRoute(),
 				WithManagedGateway(),
 			)
@@ -438,7 +438,7 @@ var _ = Describe("LLMInferenceService Multi-Node Controller", func() {
 					WithDataParallelism(1),
 					WithDataLocalParallelism(1),
 				)),
-				WithWorker(&corev1.PodSpec{}),
+				WithWorker(SimpleWorkerPodSpec()),
 				WithManagedRoute(),
 				WithManagedGateway(),
 				// Add a kueue label and annotation to ensure value propagation to the LWS

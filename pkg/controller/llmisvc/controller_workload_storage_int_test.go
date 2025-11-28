@@ -330,6 +330,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{{Name: "main", Image: "test"}},
 						},
 					},
 					Router: &v1alpha2.RouterSpec{
@@ -340,6 +341,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 					Prefill: &v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{{Name: "main", Image: "test"}},
 						},
 					},
 				},
@@ -606,6 +608,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{{Name: "main", Image: "test"}},
 						},
 					},
 					Router: &v1alpha2.RouterSpec{
@@ -616,6 +619,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 					Prefill: &v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{{Name: "main", Image: "test"}},
 						},
 					},
 				},
@@ -840,6 +844,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{{Name: "main", Image: "test"}},
 						},
 					},
 					Router: &v1alpha2.RouterSpec{
@@ -850,6 +855,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 					Prefill: &v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{{Name: "main", Image: "test"}},
 						},
 					},
 				},
@@ -1055,6 +1061,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{{Name: "main", Image: "test"}},
 						},
 					},
 					Router: &v1alpha2.RouterSpec{
@@ -1065,6 +1072,7 @@ var _ = Describe("LLMInferenceService Controller - Storage configuration", func(
 					Prefill: &v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							ServiceAccountName: serviceAccountName,
+							Containers:         []corev1.Container{{Name: "main", Image: "test"}},
 						},
 					},
 				},

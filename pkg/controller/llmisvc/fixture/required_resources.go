@@ -80,7 +80,7 @@ func RequiredResources(ctx context.Context, c client.Client, ns string) {
 func IstioShadowService(name, ns string) *corev1.Service {
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(name, "istio-shadow"),
+			Name:      "istio-shadow",
 			Namespace: ns,
 			Labels: map[string]string{
 				"istio.io/inferencepool-name": kmeta.ChildName(name, "-inference-pool"),
@@ -174,8 +174,16 @@ func InferenceServiceCfgMap(ns string) *corev1.ConfigMap {
 	return configMap
 }
 
+// testGlobalConfig provides test values for GlobalConfig template variables.
+var testGlobalConfig = &llmisvc.Config{
+	SystemNamespace:         constants.KServeNamespace,
+	IngressGatewayName:      constants.GatewayName,
+	IngressGatewayNamespace: constants.KServeNamespace,
+}
+
 // SharedConfigPresets loads preset files shared as kustomize manifests that are stored in projects config.
-// Every file prefixed with `config-` is treated as such
+// Every file prefixed with `config-` is treated as such.
+// Templates are processed with test values to pass CRD validation in envtest.
 func SharedConfigPresets(ns string) []*v1alpha2.LLMInferenceServiceConfig {
 	configDir := filepath.Join(testing.ProjectRoot(), "config", "llmisvc")
 	var configs []*v1alpha2.LLMInferenceServiceConfig
@@ -192,12 +200,15 @@ func SharedConfigPresets(ns string) []*v1alpha2.LLMInferenceServiceConfig {
 			return err
 		}
 
+		// Process Go templates with test values
+		processedData := processConfigTemplates(data)
+
 		config := &v1alpha2.LLMInferenceServiceConfig{
 			ObjectMeta: metav1.ObjectMeta{
 				Namespace: ns,
 			},
 		}
-		if err := yaml.Unmarshal(data, config); err != nil {
+		if err := yaml.Unmarshal(processedData, config); err != nil {
 			return err
 		}
 
@@ -208,6 +219,79 @@ func SharedConfigPresets(ns string) []*v1alpha2.LLMInferenceServiceConfig {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return configs
+}
+
+// testServiceData provides placeholder values for service-specific templates during test setup.
+// These values are used to pass CRD validation when loading shared config presets.
+// The controller will NOT call ReplaceVariables on these already-processed configs,
+// but tests verify the controller's behavior through actual reconciliation outcomes.
+var testServiceData = struct {
+	*v1alpha2.LLMInferenceService
+	GlobalConfig *llmisvc.Config
+}{
+	LLMInferenceService: &v1alpha2.LLMInferenceService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-service",
+			Namespace: "test-namespace",
+		},
+		Spec: v1alpha2.LLMInferenceServiceSpec{
+			Model: v1alpha2.LLMModelSpec{
+				Name: ptr.To("test-model"),
+			},
+			WorkloadSpec: v1alpha2.WorkloadSpec{
+				Parallelism: &v1alpha2.ParallelismSpec{
+					Tensor:      ptr.To(int32(1)),
+					Data:        ptr.To(int32(1)),
+					DataLocal:   ptr.To(int32(1)),
+					DataRPCPort: ptr.To(int32(8080)),
+					Expert:      false,
+				},
+			},
+			Prefill: &v1alpha2.WorkloadSpec{
+				Parallelism: &v1alpha2.ParallelismSpec{
+					Tensor:      ptr.To(int32(1)),
+					Data:        ptr.To(int32(1)),
+					DataLocal:   ptr.To(int32(1)),
+					DataRPCPort: ptr.To(int32(8080)),
+					Expert:      false,
+				},
+			},
+		},
+	},
+	GlobalConfig: testGlobalConfig,
+}
+
+// processConfigTemplates processes ONLY templates that would fail CRD validation.
+// The HTTPRoute path.value fields have regex validation that disallows {{ }} characters,
+// so we must process templates in those fields. Other templates (like backendRefs.name)
+// are preserved for the controller's ReplaceVariables function to process at runtime.
+//
+// Fields processed:
+// - spec.router.route.http.spec.parentRefs[*].name
+// - spec.router.route.http.spec.parentRefs[*].namespace
+// - spec.router.route.http.spec.rules[*].matches[*].path.value
+//
+// Fields preserved for ReplaceVariables:
+// - spec.router.route.http.spec.rules[*].backendRefs[*].name
+func processConfigTemplates(data []byte) []byte {
+	if !strings.Contains(string(data), "{{") {
+		return data
+	}
+
+	// Only process specific templates that fail CRD validation
+	// GlobalConfig templates (gateway name/namespace) and path.value templates
+	result := string(data)
+
+	// Process GlobalConfig templates for parentRefs
+	result = strings.ReplaceAll(result, "{{ .GlobalConfig.IngressGatewayName }}", testGlobalConfig.IngressGatewayName)
+	result = strings.ReplaceAll(result, "{{ .GlobalConfig.IngressGatewayNamespace }}", testGlobalConfig.IngressGatewayNamespace)
+
+	// Process path.value templates - these have CRD regex validation
+	// Pattern: /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }}/...
+	result = strings.ReplaceAll(result, "{{ .ObjectMeta.Namespace }}", testServiceData.ObjectMeta.Namespace)
+	result = strings.ReplaceAll(result, "{{ .ObjectMeta.Name }}", testServiceData.ObjectMeta.Name)
+
+	return []byte(result)
 }
 
 // SigningKey generates a mock CA certificate and private key for testing purposes.

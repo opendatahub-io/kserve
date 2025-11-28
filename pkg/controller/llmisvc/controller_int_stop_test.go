@@ -511,6 +511,8 @@ var _ = Describe("LLMInferenceService Stop Feature", func() {
 			}
 
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 			defer func() {
 				envTest.DeleteAll(namespace)
 			}()
@@ -520,7 +522,6 @@ var _ = Describe("LLMInferenceService Stop Feature", func() {
 				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 			)
-			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName+"-1", nsName))).To(Succeed())
 			Expect(envTest.Create(ctx, llmSvc1)).To(Succeed())
 			defer func() {
 				Expect(envTest.Delete(ctx, llmSvc1)).To(Succeed())
@@ -531,7 +532,6 @@ var _ = Describe("LLMInferenceService Stop Feature", func() {
 				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 			)
-			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName+"-2", nsName))).To(Succeed())
 			Expect(envTest.Create(ctx, llmSvc2)).To(Succeed())
 			defer func() {
 				Expect(envTest.Delete(ctx, llmSvc2)).To(Succeed())
