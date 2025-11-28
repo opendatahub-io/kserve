@@ -1672,15 +1672,15 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						},
 					},
 				},
-				URL: &apis.URL{
-					Scheme: "http",
-					Host:   "raw-foo-2-default.example.com",
-				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
 						Scheme: "http",
 						Host:   fmt.Sprintf("%s-predictor.%s.svc.cluster.local", serviceKey.Name, serviceKey.Namespace),
 					},
+				},
+				URL: &apis.URL{
+					Scheme: "http",
+					Host:   "raw-foo-2-default.example.com",
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
@@ -10446,15 +10446,15 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						},
 					},
 				},
-				URL: &apis.URL{
-					Scheme: "https",
-					Host:   "raw-auth-default.example.com",
-				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
 						Scheme: "https",
 						Host:   fmt.Sprintf("%s-predictor.%s.svc.cluster.local:8443", serviceKey.Name, serviceKey.Namespace),
 					},
+				},
+				URL: &apis.URL{
+					Scheme: "https",
+					Host:   "raw-auth-default.example.com",
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
