@@ -31,17 +31,16 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
-	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/credentials"
 	kserveTypes "github.com/kserve/kserve/pkg/types"
 )
 
-func (r *LLMInferenceServiceReconciler) reconcileSingleNodeWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
+func (r *LLMInferenceServiceReconciler) reconcileSingleNodeWorkload(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	log.FromContext(ctx).Info("Reconciling single-node workload")
 	if err := r.reconcileSingleNodeMainServiceAccount(ctx, llmSvc, storageConfig, credentialConfig); err != nil {
 		return fmt.Errorf("failed to reconcile service account: %w", err)
@@ -57,7 +56,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodeWorkload(ctx context.
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
+func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainWorkload(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	expected, err := r.expectedSingleNodeMainDeployment(ctx, llmSvc, storageConfig, credentialConfig)
 	if err != nil {
 		return fmt.Errorf("failed to get expected main deployment: %w", err)
@@ -76,7 +75,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainWorkload(ctx cont
 	return r.propagateDeploymentStatus(ctx, expected, llmSvc.MarkMainWorkloadReady, llmSvc.MarkMainWorkloadNotReady)
 }
 
-func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) (*appsv1.Deployment, error) {
+func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) (*appsv1.Deployment, error) {
 	role := "decode"
 	if llmSvc.Spec.Prefill == nil {
 		role = "both"
@@ -88,10 +87,10 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx con
 
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve"),
+			Name:      SafeChildName(llmSvc.GetName(), "-kserve"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 			Labels: labels,
 		},
@@ -149,7 +148,7 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainDeployment(ctx con
 	return d, nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileSingleNodePrefill(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
+func (r *LLMInferenceServiceReconciler) reconcileSingleNodePrefill(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	prefill, err := r.expectedPrefillMainDeployment(ctx, llmSvc, storageConfig, credentialConfig)
 	if err != nil {
 		return fmt.Errorf("failed to get expected prefill deployment: %w", err)
@@ -172,7 +171,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodePrefill(ctx context.C
 	return r.propagateDeploymentStatus(ctx, prefill, llmSvc.MarkPrefillWorkloadReady, llmSvc.MarkPrefillWorkloadNotReady)
 }
 
-func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) (*appsv1.Deployment, error) {
+func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) (*appsv1.Deployment, error) {
 	labels := map[string]string{
 		"app.kubernetes.io/component": "llminferenceservice-workload-prefill",
 		"app.kubernetes.io/name":      llmSvc.GetName(),
@@ -183,10 +182,10 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-prefill"),
+			Name:      SafeChildName(llmSvc.GetName(), "-kserve-prefill"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 			Labels: labels,
 		},
@@ -230,7 +229,7 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMainDeployment(ctx contex
 	return d, nil
 }
 
-func (r *LLMInferenceServiceReconciler) propagateDeploymentMetadata(llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) {
+func (r *LLMInferenceServiceReconciler) propagateDeploymentMetadata(llmSvc *v1alpha2.LLMInferenceService, expected *appsv1.Deployment) {
 	// Define the prefixes to approve for annotations and labels
 	approvedAnnotationPrefixes := []string{"k8s.v1.cni.cncf.io", constants.KueueAPIGroupName}
 	approvedLabelPrefixes := []string{constants.KueueAPIGroupName}
@@ -278,7 +277,7 @@ func semanticDeploymentIsEqual(expected *appsv1.Deployment, curr *appsv1.Deploym
 		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainServiceAccount(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
+func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainServiceAccount(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	expectedDeployment, err := r.expectedSingleNodeMainDeployment(ctx, llmSvc, storageConfig, credentialConfig)
 	if err != nil {
 		return fmt.Errorf("failed to get expected main deployment: %w", err)
@@ -303,7 +302,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainServiceAccount(ct
 	return r.reconcileSingleNodeMainRoleBinding(ctx, llmSvc, serviceAccount, storageConfig, credentialConfig)
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainRole(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
+func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainRole(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	expectedDeployment, err := r.expectedSingleNodeMainDeployment(ctx, llmSvc, storageConfig, credentialConfig)
 	if err != nil {
 		return fmt.Errorf("failed to get expected main deployment: %w", err)
@@ -321,7 +320,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainRole(ctx context.
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainRoleBinding(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, sa *corev1.ServiceAccount, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
+func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainRoleBinding(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, sa *corev1.ServiceAccount, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	expectedDeployment, err := r.expectedSingleNodeMainDeployment(ctx, llmSvc, storageConfig, credentialConfig)
 	if err != nil {
 		return fmt.Errorf("failed to get expected main deployment: %w", err)
@@ -339,13 +338,13 @@ func (r *LLMInferenceServiceReconciler) reconcileSingleNodeMainRoleBinding(ctx c
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainServiceAccount(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*corev1.ServiceAccount, error) {
+func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainServiceAccount(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) (*corev1.ServiceAccount, error) {
 	expectedServiceAccount := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve"),
+			Name:      SafeChildName(llmSvc.GetName(), "-kserve"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 		},
 	}
@@ -371,13 +370,13 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeMainServiceAccount(ctx
 	return expectedServiceAccount, nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedSingleNodeRole(llmSvc *v1alpha1.LLMInferenceService) *rbacv1.Role {
+func (r *LLMInferenceServiceReconciler) expectedSingleNodeRole(llmSvc *v1alpha2.LLMInferenceService) *rbacv1.Role {
 	ro := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-role"),
+			Name:      SafeChildName(llmSvc.GetName(), "-kserve-role"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 			Labels: r.singleNodeLabels(llmSvc),
 		},
@@ -386,13 +385,13 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeRole(llmSvc *v1alpha1.
 	return ro
 }
 
-func (r *LLMInferenceServiceReconciler) expectedSingleNodeRoleBinding(llmSvc *v1alpha1.LLMInferenceService, sa *corev1.ServiceAccount) *rbacv1.RoleBinding {
+func (r *LLMInferenceServiceReconciler) expectedSingleNodeRoleBinding(llmSvc *v1alpha2.LLMInferenceService, sa *corev1.ServiceAccount) *rbacv1.RoleBinding {
 	return &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-rb"),
+			Name:      SafeChildName(llmSvc.GetName(), "-kserve-rb"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 			Labels: r.singleNodeLabels(llmSvc),
 		},
@@ -404,12 +403,12 @@ func (r *LLMInferenceServiceReconciler) expectedSingleNodeRoleBinding(llmSvc *v1
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: "rbac.authorization.k8s.io",
 			Kind:     "Role",
-			Name:     kmeta.ChildName(llmSvc.GetName(), "-kserve-role"),
+			Name:     SafeChildName(llmSvc.GetName(), "-kserve-role"),
 		},
 	}
 }
 
-func (r *LLMInferenceServiceReconciler) singleNodeLabels(llmSvc *v1alpha1.LLMInferenceService) map[string]string {
+func (r *LLMInferenceServiceReconciler) singleNodeLabels(llmSvc *v1alpha2.LLMInferenceService) map[string]string {
 	return map[string]string{
 		"app.kubernetes.io/component": "llminferenceservice-workload",
 		"app.kubernetes.io/name":      llmSvc.GetName(),

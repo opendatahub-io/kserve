@@ -29,12 +29,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
-// +kubebuilder:webhook:path=/validate-serving-kserve-io-v1alpha1-llminferenceserviceconfig,mutating=false,failurePolicy=fail,sideEffects=None,groups=serving.kserve.io,resources=llminferenceserviceconfigs,verbs=create;update,versions=v1alpha1,name=llminferenceserviceconfigs.kserve-webhook-server.validator,admissionReviewVersions=v1
+// +kubebuilder:webhook:path=/validate-serving-kserve-io-v1alpha1-llminferenceserviceconfig,mutating=false,failurePolicy=fail,sideEffects=None,groups=serving.kserve.io,resources=llminferenceserviceconfigs,verbs=create;update,versions=v1alpha1,name=llminferenceserviceconfig.kserve-webhook-server.validator,admissionReviewVersions=v1
 
 // LLMInferenceServiceConfigValidator is responsible for validating the LLMInferenceServiceConfig resource
 // when it is created, updated, or deleted.
@@ -114,7 +116,16 @@ func (l *LLMInferenceServiceConfigValidator) validate(ctx context.Context, llmSv
 		return err
 	}
 
-	_, err = llmisvc.ReplaceVariables(llmisvc.LLMInferenceServiceSample(), llmSvcConfig, config)
+	// Convert v1alpha1 to v1alpha2 for validation.
+	// v1alpha2 is the storage version (Hub) where all validation logic is implemented.
+	// This follows the Hub-and-Spoke pattern where served versions (v1alpha1) delegate
+	// to the storage version (v1alpha2) rather than duplicating validation logic.
+	// ReplaceVariables also requires v1alpha2 types.
+	v1alpha2Config := &v1alpha2.LLMInferenceServiceConfig{}
+	if err := llmSvcConfig.ConvertTo(v1alpha2Config); err != nil {
+		return fmt.Errorf("failed to convert LLMInferenceServiceConfig to v1alpha2.LLMInferenceServiceConfig: %w", err)
+	}
+	_, err = llmisvc.ReplaceVariables(llmisvc.LLMInferenceServiceSample(), v1alpha2Config, config)
 	if err != nil {
 		logger.Error(err, "failed to process the template")
 	}

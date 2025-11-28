@@ -35,16 +35,25 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"knative.dev/pkg/kmeta"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
-func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+const (
+	// AnnotationInferencePoolMigrated records when the HTTPRoute has migrated to v1 InferencePool.
+	// Once set to "v1", traffic will never fall back to v1alpha2 even during transient failures.
+	// This implements a one-way migration strategy to prevent oscillation.
+	// This annotation is stored on child objects (HTTPRoute) rather than the parent LLMInferenceService
+	// to follow the pattern of never modifying user-managed objects.
+	AnnotationInferencePoolMigrated = "serving.kserve.io/inference-pool-migrated"
+)
+
+func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("reconcileRouter")
 	ctx = log.IntoContext(ctx, logger)
 
@@ -95,7 +104,7 @@ func (r *LLMInferenceServiceReconciler) reconcileRouter(ctx context.Context, llm
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx)
 	logger.Info("Reconciling HTTPRoute")
 
@@ -130,7 +139,7 @@ func (r *LLMInferenceServiceReconciler) reconcileHTTPRoutes(ctx context.Context,
 	return r.updateRoutingStatus(ctx, llmSvc, referencedRoutes...)
 }
 
-func (r *LLMInferenceServiceReconciler) collectReferencedRoutes(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) ([]*gatewayapi.HTTPRoute, error) {
+func (r *LLMInferenceServiceReconciler) collectReferencedRoutes(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) ([]*gatewayapi.HTTPRoute, error) {
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || !llmSvc.Spec.Router.Route.HTTP.HasRefs() {
 		return nil, nil
 	}
@@ -153,13 +162,13 @@ func (r *LLMInferenceServiceReconciler) collectReferencedRoutes(ctx context.Cont
 	return referencedRoutes, nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *gatewayapi.HTTPRoute {
+func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) *gatewayapi.HTTPRoute {
 	httpRoute := &gatewayapi.HTTPRoute{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-route"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 			Labels: RouterLabels(llmSvc),
 		},
@@ -181,10 +190,50 @@ func (r *LLMInferenceServiceReconciler) expectedHTTPRoute(ctx context.Context, l
 		}
 	}
 
+	curr := &gatewayapi.HTTPRoute{}
+	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(httpRoute), curr); err != nil {
+		return httpRoute
+	}
+	const v1MigrationValue = "v1"
+	migrationValue, isMigrated := curr.Annotations[AnnotationInferencePoolMigrated]
+	isMigrated = isMigrated && migrationValue == v1MigrationValue
+
+	expectedInfPool := r.expectedSchedulerInferencePool(ctx, llmSvc)
+	infPoolName := expectedInfPool.GetName()
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil && llmSvc.Spec.Router.Scheduler.Pool != nil && llmSvc.Spec.Router.Scheduler.Pool.Ref != nil {
+		infPoolName = llmSvc.Spec.Router.Scheduler.Pool.Ref.Name
+		isMigrated = true // For ref, we only support v1 InferencePool
+	}
+
+	ipCurr := &igwv1.InferencePool{}
+	if err := r.Client.Get(ctx, client.ObjectKey{Namespace: llmSvc.GetNamespace(), Name: infPoolName}, ipCurr); err != nil {
+		return httpRoute
+	}
+
+	// When either the v1 pool is ready or the other the migration was ever done, we will switch traffic to v1.
+	//
+	// Important: once migrated once, we never go back at using the previous v1alpha2 as it might be a temporary
+	// non-ready condition, and we don't want to drop traffic.
+	if IsInferencePoolReady(ipCurr) || isMigrated {
+		for i := range httpRoute.Spec.Rules {
+			for j, b := range httpRoute.Spec.Rules[i].BackendRefs {
+				if b.Group != nil && *b.BackendRef.Group == "inference.networking.k8s.io" {
+					httpRoute.Spec.Rules[i].BackendRefs[j].Weight = ptr.To[int32](100)
+				} else if b.Group != nil && *b.BackendRef.Group == "inference.networking.x-k8s.io" {
+					httpRoute.Spec.Rules[i].BackendRefs[j].Weight = ptr.To[int32](0)
+				}
+			}
+		}
+		if httpRoute.Annotations == nil {
+			httpRoute.Annotations = make(map[string]string, 1)
+		}
+		httpRoute.Annotations[AnnotationInferencePoolMigrated] = v1MigrationValue
+	}
+
 	return httpRoute
 }
 
-func (r *LLMInferenceServiceReconciler) updateRoutingStatus(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, routes ...*gatewayapi.HTTPRoute) error {
+func (r *LLMInferenceServiceReconciler) updateRoutingStatus(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, routes ...*gatewayapi.HTTPRoute) error {
 	logger := log.FromContext(ctx)
 
 	if utils.GetForceStopRuntime(llmSvc) {
@@ -237,7 +286,7 @@ func (r *LLMInferenceServiceReconciler) updateRoutingStatus(ctx context.Context,
 	return nil
 }
 
-func toGatewayRef(ref v1alpha1.UntypedObjectReference) gatewayapi.ParentReference {
+func toGatewayRef(ref v1alpha2.UntypedObjectReference) gatewayapi.ParentReference {
 	return gatewayapi.ParentReference{
 		// TODO(api): With this structure we are missing the ability to narrow a section of targeted gateway by the route we are creating
 		// missing SectionName and Port will implicitly bind the route to the first listener in the parent
@@ -248,7 +297,7 @@ func toGatewayRef(ref v1alpha1.UntypedObjectReference) gatewayapi.ParentReferenc
 	}
 }
 
-func RouterLabels(llmSvc *v1alpha1.LLMInferenceService) map[string]string {
+func RouterLabels(llmSvc *v1alpha2.LLMInferenceService) map[string]string {
 	return map[string]string{
 		"app.kubernetes.io/component": "llminferenceservice-router",
 		"app.kubernetes.io/name":      llmSvc.GetName(),
@@ -264,7 +313,7 @@ func semanticHTTPRouteIsEqual(e *gatewayapi.HTTPRoute, c *gatewayapi.HTTPRoute) 
 
 // EvaluateGatewayConditions evaluates the readiness of all Gateways referenced by the LLMInferenceService
 // and updates the GatewaysReady condition accordingly
-func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("evaluateGatewayConditions")
 
 	if utils.GetForceStopRuntime(llmSvc) {
@@ -302,7 +351,7 @@ func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Co
 }
 
 // CollectReferencedGateways retrieves all Gateway objects referenced in the LLMInferenceService spec
-func (r *LLMInferenceServiceReconciler) CollectReferencedGateways(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) ([]*gatewayapi.Gateway, error) {
+func (r *LLMInferenceServiceReconciler) CollectReferencedGateways(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) ([]*gatewayapi.Gateway, error) {
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
 		return nil, nil
 	}
@@ -366,7 +415,7 @@ func (r *LLMInferenceServiceReconciler) CollectReferencedGateways(ctx context.Co
 
 // EvaluateHTTPRouteConditions evaluates the readiness of all HTTPRoutes referenced by the LLMInferenceService
 // and updates the HTTPRoutesReady condition accordingly
-func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("evaluateHTTPRouteConditions")
 
 	if utils.GetForceStopRuntime(llmSvc) {
@@ -382,7 +431,7 @@ func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.
 	}
 
 	// Check if there's already a validation failure condition set
-	condition := llmSvc.GetStatus().GetCondition(v1alpha1.HTTPRoutesReady)
+	condition := llmSvc.GetStatus().GetCondition(v1alpha2.HTTPRoutesReady)
 	if condition != nil && condition.IsFalse() && condition.Reason == RefsInvalidReason {
 		logger.Info("HTTPRoute validation failed, skipping readiness evaluation", "reason", condition.Reason, "message", condition.Message)
 		return nil
@@ -442,8 +491,12 @@ func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.
 }
 
 // EvaluateInferencePoolConditions evaluates the readiness of all Inference Pools in the LLMInferenceService
-// and updates the InferencePoolReady condition accordingly
-func (r *LLMInferenceServiceReconciler) EvaluateInferencePoolConditions(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+// and updates the InferencePoolReady condition accordingly.
+//
+// This function implements the dual-pool fallback strategy: it checks both v1 and v1alpha2 InferencePools
+// and marks the service as ready if EITHER pool is ready. This allows the service to work with v1alpha2
+// until the GIE v1 controller is available (e.g., in OpenShift environments without v1 integration yet).
+func (r *LLMInferenceServiceReconciler) EvaluateInferencePoolConditions(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("EvaluateInferencePoolConditions")
 
 	if utils.GetForceStopRuntime(llmSvc) {
@@ -458,45 +511,66 @@ func (r *LLMInferenceServiceReconciler) EvaluateInferencePoolConditions(ctx cont
 		return nil
 	}
 
-	curr := &igwapi.InferencePool{}
-
+	// Determine the pool name to check
+	var poolName string
 	if llmSvc.Spec.Router.Scheduler.Pool != nil && llmSvc.Spec.Router.Scheduler.Pool.Ref != nil && llmSvc.Spec.Router.Scheduler.Pool.Ref.Name != "" {
-		poolRef := llmSvc.Spec.Router.Scheduler.Pool.Ref
-		err := r.Client.Get(ctx, types.NamespacedName{Namespace: llmSvc.Namespace, Name: poolRef.Name}, curr)
-		if err != nil {
-			err := fmt.Errorf("failed to fetch referenced Inference Pool %s/%s: %w", llmSvc.Namespace, poolRef.Name, err)
-			llmSvc.MarkInferencePoolNotReady("InferencePoolFetchError", err.Error())
-			return err
-		}
+		poolName = llmSvc.Spec.Router.Scheduler.Pool.Ref.Name
 	} else {
 		expected := r.expectedSchedulerInferencePool(ctx, llmSvc)
-		err := r.Client.Get(ctx, types.NamespacedName{Namespace: expected.Namespace, Name: expected.Name}, curr)
-		if err != nil {
-			err := fmt.Errorf("failed to fetch embedded Inference Pool %s/%s: %w", llmSvc.Namespace, llmSvc.Name, err)
-			llmSvc.MarkInferencePoolNotReady("InferencePoolFetchError", err.Error())
-			return err
-		}
+		poolName = expected.Name
 	}
 
-	if !IsInferencePoolReady(curr) {
-		topLevelCondition, _ := nonReadyInferencePoolTopLevelCondition(curr)
-		if topLevelCondition != nil {
-			llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady", fmt.Sprintf(
-				"%s/%s: %v=%#v (reason %q, message %q)",
-				curr.Namespace,
-				curr.Name,
-				topLevelCondition.Type,
-				topLevelCondition.Status,
-				topLevelCondition.Reason,
-				topLevelCondition.Message,
-			))
-		} else {
-			llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady", fmt.Sprintf("The inference pool %s/%s is not ready", curr.Namespace, curr.Name))
+	// Check v1 InferencePool readiness
+	v1Pool := &igwv1.InferencePool{}
+	v1Ready := false
+	v1Err := r.Client.Get(ctx, types.NamespacedName{Namespace: llmSvc.Namespace, Name: poolName}, v1Pool)
+	if v1Err == nil {
+		v1Ready = IsInferencePoolReady(v1Pool)
+		if v1Ready {
+			logger.V(2).Info("v1 InferencePool is ready", "pool", poolName)
 		}
+	} else if !apierrors.IsNotFound(v1Err) {
+		// Log non-NotFound errors but don't fail - v1alpha2 might still work
+		logger.V(2).Info("Failed to fetch v1 InferencePool, will check v1alpha2 fallback", "error", v1Err)
+	}
+
+	// Check v1alpha2 InferencePool readiness (fallback for environments without GIE v1 controller)
+	alpha2Ready := r.isAlpha2PoolReady(ctx, llmSvc.Namespace, poolName)
+	if alpha2Ready {
+		logger.V(2).Info("v1alpha2 InferencePool is ready", "pool", poolName)
+	}
+
+	// Mark ready if EITHER v1 or v1alpha2 pool is ready (dual-pool fallback strategy)
+	if v1Ready || alpha2Ready {
+		llmSvc.MarkInferencePoolReady()
+		logger.Info("InferencePool is ready", "pool", poolName, "v1Ready", v1Ready, "alpha2Ready", alpha2Ready)
 		return nil
 	}
 
-	llmSvc.MarkInferencePoolReady()
-	logger.V(2).Info("Inference Pool is ready", "pool", curr)
+	// Neither pool is ready - provide detailed error message
+	if v1Err != nil && !apierrors.IsNotFound(v1Err) {
+		// If we couldn't fetch v1 pool due to an error (not just NotFound)
+		err := fmt.Errorf("failed to fetch v1 InferencePool %s/%s: %w", llmSvc.Namespace, poolName, v1Err)
+		llmSvc.MarkInferencePoolNotReady("InferencePoolFetchError", err.Error())
+		return err
+	}
+
+	// Both pools exist but neither is ready - report v1 pool status if available
+	topLevelCondition, _ := nonReadyInferencePoolTopLevelCondition(v1Pool)
+	if topLevelCondition != nil {
+		llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady", fmt.Sprintf(
+			"Neither v1 nor v1alpha2 InferencePool is ready. v1 status: %s/%s: %v=%#v (reason %q, message %q)",
+			v1Pool.ObjectMeta.Namespace,
+			v1Pool.ObjectMeta.Name,
+			topLevelCondition.Type,
+			topLevelCondition.Status,
+			topLevelCondition.Reason,
+			topLevelCondition.Message,
+		))
+	} else {
+		llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady",
+			fmt.Sprintf("Neither v1 nor v1alpha2 InferencePool %s/%s is ready", llmSvc.Namespace, poolName))
+	}
+	logger.V(2).Info("Neither v1 nor v1alpha2 InferencePool is ready", "pool", poolName)
 	return nil
 }

@@ -16,8 +16,9 @@ from __future__ import annotations
 
 import os
 import pytest
-from kserve import KServeClient, V1alpha1LLMInferenceService, constants
+from kserve import KServeClient, constants
 from kubernetes import client
+from typing import Any
 
 from .fixtures import (
     generate_test_id,
@@ -40,6 +41,7 @@ STOP_ANNOTATION_KEY = "serving.kserve.io/stop"
 
 @pytest.mark.llminferenceservice
 @pytest.mark.asyncio(loop_scope="session")
+@pytest.mark.all_api_versions
 @pytest.mark.parametrize(
     "test_case",
     [
@@ -59,8 +61,11 @@ STOP_ANNOTATION_KEY = "serving.kserve.io/stop"
     ids=generate_test_id,
 )
 @log_execution
-def test_llm_stop_feature(test_case: TestCase):
+def test_llm_stop_feature(api_version, test_case: TestCase):
     """Test that stopping an LLMInferenceService sets the Ready condition to False with reason Stopped."""
+    # Update test case with the parameterized API version
+    test_case.api_version = api_version
+
     inject_k8s_proxy()
 
     kserve_client = KServeClient(
@@ -155,7 +160,7 @@ def test_llm_stop_feature(test_case: TestCase):
 
 
 @log_execution
-def stop_llmisvc(kserve_client: KServeClient, llm_isvc: V1alpha1LLMInferenceService):
+def stop_llmisvc(kserve_client: KServeClient, llm_isvc: Any):
     """Add the stop annotation to the LLMInferenceService."""
     try:
         # Get the current service
@@ -193,7 +198,7 @@ def stop_llmisvc(kserve_client: KServeClient, llm_isvc: V1alpha1LLMInferenceServ
 
 
 @log_execution
-def restart_llmisvc(kserve_client: KServeClient, llm_isvc: V1alpha1LLMInferenceService):
+def restart_llmisvc(kserve_client: KServeClient, llm_isvc: Any):
     """Remove the stop annotation from the LLMInferenceService."""
     try:
         # Get the current service
@@ -235,7 +240,7 @@ def restart_llmisvc(kserve_client: KServeClient, llm_isvc: V1alpha1LLMInferenceS
 @log_execution
 def wait_for_llm_isvc_stopped(
     kserve_client: KServeClient,
-    given: V1alpha1LLMInferenceService,
+    given: Any,
     timeout_seconds: int = 120,
 ) -> bool:
     """Wait for the LLMInferenceService to be marked as stopped."""
@@ -309,7 +314,7 @@ def wait_for_llm_isvc_stopped(
 @log_execution
 def verify_workload_resources_deleted(
     kserve_client: KServeClient,
-    llm_isvc: V1alpha1LLMInferenceService,
+    llm_isvc: Any,
     timeout_seconds: int = 120,
 ) -> bool:
     """Verify that workload resources (deployments) are deleted when service is stopped."""

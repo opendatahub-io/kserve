@@ -20,8 +20,9 @@ from ..common.gw_api import (
     create_or_update_route,
 )
 from kserve import KServeClient, constants, V1alpha1LLMInferenceService
+from kserve.models.v1alpha2_llm_inference_service import V1alpha2LLMInferenceService
 from kubernetes import client, config
-from typing import List
+from typing import List, Union
 
 from .logging import logger
 
@@ -41,14 +42,14 @@ LLMINFERENCESERVICE_CONFIGS = {
                     },
                     "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
                     "resources": {
-                        "limits": {"cpu": "2", "memory": "10Gi"},
-                        "requests": {"cpu": "1", "memory": "8Gi"},
+                        "limits": {"cpu": "2", "memory": "8Gi"},
+                        "requests": {"cpu": "500m", "memory": "4Gi"},
                     },
                     "livenessProbe": {
-                        "initialDelaySeconds": 30,
-                        "periodSeconds": 30,
+                        "initialDelaySeconds": 600,
+                        "periodSeconds": 60,
                         "timeoutSeconds": 30,
-                        "failureThreshold": 5,
+                        "failureThreshold": 3,
                     },
                 }
             ]
@@ -66,8 +67,14 @@ LLMINFERENCESERVICE_CONFIGS = {
                     },
                     "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
                     "resources": {
-                        "limits": {"cpu": "2", "memory": "10Gi"},
-                        "requests": {"cpu": "1", "memory": "8Gi"},
+                        "limits": {"cpu": "2", "memory": "8Gi"},
+                        "requests": {"cpu": "500m", "memory": "4Gi"},
+                    },
+                    "livenessProbe": {
+                        "initialDelaySeconds": 600,
+                        "periodSeconds": 60,
+                        "timeoutSeconds": 30,
+                        "failureThreshold": 3,
                     },
                 }
             ]
@@ -84,8 +91,14 @@ LLMINFERENCESERVICE_CONFIGS = {
                         },
                         "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
                         "resources": {
-                            "limits": {"cpu": "2", "memory": "10Gi"},
-                            "requests": {"cpu": "1", "memory": "8Gi"},
+                            "limits": {"cpu": "2", "memory": "8Gi"},
+                            "requests": {"cpu": "500m", "memory": "4Gi"},
+                        },
+                        "livenessProbe": {
+                            "initialDelaySeconds": 600,
+                            "periodSeconds": 60,
+                            "timeoutSeconds": 30,
+                            "failureThreshold": 3,
                         },
                     }
                 ]
@@ -363,7 +376,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "path": {
                                             "type": "PathPrefix",
-                                            "value": "/kserve-ci-e2e-test/custom-route-timeout-test/v1/completions",
+                                            "value": "/kserve-ci-e2e-test/{service_name}/v1/completions",
                                         },
                                     },
                                 ],
@@ -382,7 +395,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "group": "inference.networking.x-k8s.io",
                                         "kind": "InferencePool",
-                                        "name": "custom-route-timeout-test-inference-pool",
+                                        "name": "{service_name}-inference-pool",
                                         "namespace": KSERVE_TEST_NAMESPACE,
                                         "port": 8000,
                                     }
@@ -397,7 +410,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "path": {
                                             "type": "PathPrefix",
-                                            "value": "/kserve-ci-e2e-test/custom-route-timeout-test/v1/chat/completions",
+                                            "value": "/kserve-ci-e2e-test/{service_name}/v1/chat/completions",
                                         },
                                     },
                                 ],
@@ -416,7 +429,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "group": "inference.networking.x-k8s.io",
                                         "kind": "InferencePool",
-                                        "name": "custom-route-timeout-test-inference-pool",
+                                        "name": "{service_name}-inference-pool",
                                         "namespace": KSERVE_TEST_NAMESPACE,
                                         "port": 8000,
                                     }
@@ -431,7 +444,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "path": {
                                             "type": "PathPrefix",
-                                            "value": "/kserve-ci-e2e-test/custom-route-timeout-test",
+                                            "value": "/kserve-ci-e2e-test/{service_name}",
                                         },
                                     },
                                 ],
@@ -450,7 +463,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "group": "",
                                         "kind": "Service",
-                                        "name": "custom-route-timeout-test-kserve-workload-svc",
+                                        "name": "{service_name}-kserve-workload-svc",
                                         "namespace": KSERVE_TEST_NAMESPACE,
                                         "port": 8000,
                                     }
@@ -478,7 +491,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "path": {
                                             "type": "PathPrefix",
-                                            "value": "/kserve-ci-e2e-test/custom-route-timeout-pd-test/v1/completions",
+                                            "value": "/kserve-ci-e2e-test/{service_name}/v1/completions",
                                         },
                                     },
                                 ],
@@ -497,7 +510,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "group": "inference.networking.x-k8s.io",
                                         "kind": "InferencePool",
-                                        "name": "custom-route-timeout-pd-test-inference-pool",
+                                        "name": "{service_name}-inference-pool",
                                         "namespace": KSERVE_TEST_NAMESPACE,
                                         "port": 8000,
                                     }
@@ -512,7 +525,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "path": {
                                             "type": "PathPrefix",
-                                            "value": "/kserve-ci-e2e-test/custom-route-timeout-pd-test/v1/chat/completions",
+                                            "value": "/kserve-ci-e2e-test/{service_name}/v1/chat/completions",
                                         },
                                     },
                                 ],
@@ -531,7 +544,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "group": "inference.networking.x-k8s.io",
                                         "kind": "InferencePool",
-                                        "name": "custom-route-timeout-pd-test-inference-pool",
+                                        "name": "{service_name}-inference-pool",
                                         "namespace": KSERVE_TEST_NAMESPACE,
                                         "port": 8000,
                                     }
@@ -546,7 +559,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "path": {
                                             "type": "PathPrefix",
-                                            "value": "/kserve-ci-e2e-test/custom-route-timeout-pd-test",
+                                            "value": "/kserve-ci-e2e-test/{service_name}",
                                         },
                                     },
                                 ],
@@ -565,7 +578,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                     {
                                         "group": "",
                                         "kind": "Service",
-                                        "name": "custom-route-timeout-pd-test-kserve-workload-svc",
+                                        "name": "{service_name}-kserve-workload-svc",
                                         "namespace": KSERVE_TEST_NAMESPACE,
                                         "port": 8000,
                                     }
@@ -583,8 +596,8 @@ LLMINFERENCESERVICE_CONFIGS = {
             "route": {
                 "http": {
                     "refs": [
-                        {"name": "router-route-1"},
-                        {"name": "router-route-2"},
+                        {"name": "{service_name}-route-1"},
+                        {"name": "{service_name}-route-2"},
                     ],
                 },
             },
@@ -600,8 +613,8 @@ LLMINFERENCESERVICE_CONFIGS = {
             "route": {
                 "http": {
                     "refs": [
-                        {"name": "router-route-3"},
-                        {"name": "router-route-4"},
+                        {"name": "{service_name}-route-1"},
+                        {"name": "{service_name}-route-2"},
                     ],
                 },
             },
@@ -662,7 +675,7 @@ LLMINFERENCESERVICE_CONFIGS = {
 
 
 @pytest.fixture(scope="function")
-def test_case(request):
+def test_case(request, api_version):
     tc = request.param
 
     inject_k8s_proxy()
@@ -694,33 +707,78 @@ def test_case(request):
             tc.service_name = generate_service_name(request.node.name, tc.base_refs)
         tc.model_name = _get_model_name_from_configs(tc.base_refs)
 
+        # Use api_version parameter from fixture (not from test case)
+        # This ensures the correct API version is used when the test is parameterized
+
+        # Generate service name with API version for resource naming
+        service_name_with_version = f"{tc.service_name}-{api_version}"
+
+        # Create dynamic HTTPRoutes if this test uses router-with-refs
+        # This must happen before configs are created since configs reference the route names
+        if "router-with-refs" in tc.base_refs or "router-with-refs-pd" in tc.base_refs:
+            from .test_resources import get_router_routes, ROUTER_GATEWAYS
+
+            # Determine which gateway to use
+            gateway_name = "router-gateway-1" if "router-with-refs" in tc.base_refs else "router-gateway-2"
+            gateway_index = 0 if "router-with-refs" in tc.base_refs else 1
+
+            # Create gateway (idempotent)
+            create_router_resources(gateways=[ROUTER_GATEWAYS[gateway_index]])
+
+            # Create dynamic routes with versioned names
+            dynamic_routes = get_router_routes(service_name_with_version, gateway_name)
+            create_router_resources(gateways=[], routes=dynamic_routes, kserve_client=kserve_client)
+
         # Create unique configs for this test to avoid parallel conflicts
         unique_base_refs = []
         for base_ref in tc.base_refs:
-            unique_config_name = generate_k8s_safe_suffix(base_ref, [tc.service_name])
+            # Include API version in config name to avoid collisions between v1alpha1 and v1alpha2 tests
+            unique_config_name = generate_k8s_safe_suffix(base_ref, [tc.service_name, api_version])
             unique_base_refs.append(unique_config_name)
 
             config_spec = LLMINFERENCESERVICE_CONFIGS[base_ref]
 
+            # Apply template variables (e.g., {service_name}) to config spec
+            # This ensures route refs and pool names use the versioned service name
+            config_spec_resolved = apply_template_variables(config_spec, service_name_with_version)
+
             config_body = {
-                "apiVersion": "serving.kserve.io/v1alpha1",
+                "apiVersion": f"serving.kserve.io/{api_version}",
                 "kind": "LLMInferenceServiceConfig",
                 "metadata": {
                     "name": unique_config_name,
                     "namespace": KSERVE_TEST_NAMESPACE,
                 },
-                "spec": config_spec,
+                "spec": config_spec_resolved,
             }
 
             _create_or_update_llmisvc_config(
                 kserve_client, config_body, KSERVE_TEST_NAMESPACE
             )
 
-        tc.llm_service = V1alpha1LLMInferenceService(
-            api_version="serving.kserve.io/v1alpha1",
+        # Select the appropriate LLMInferenceService class based on API version
+        if api_version == "v1alpha1":
+            LLMInferenceService = V1alpha1LLMInferenceService
+        elif api_version == "v1alpha2":
+            LLMInferenceService = V1alpha2LLMInferenceService
+        else:
+            raise ValueError(f"Unsupported API version: {api_version}")
+
+        # Check if this is an auth test - auth tests should not have auth disabled
+        is_auth_test = request.node.get_closest_marker('auth') is not None
+
+        annotations = {}
+        if not is_auth_test:
+            # Disable auth for non-auth tests (router tests, etc.)
+            annotations["security.opendatahub.io/enable-auth"] = "false"
+
+        tc.llm_service = LLMInferenceService(
+            api_version=f"serving.kserve.io/{api_version}",
             kind="LLMInferenceService",
             metadata=client.V1ObjectMeta(
-                name=tc.service_name, namespace=KSERVE_TEST_NAMESPACE
+                name=service_name_with_version,
+                namespace=KSERVE_TEST_NAMESPACE,
+                annotations=annotations,
             ),
             spec={
                 "baseRefs": [{"name": base_ref} for base_ref in unique_base_refs],
@@ -777,6 +835,21 @@ def generate_test_id(test_case) -> str:
     return "-".join(test_case.base_refs)
 
 
+def apply_template_variables(obj, service_name: str):
+    """Recursively replace {service_name} template variables in nested dicts/lists.
+
+    This allows test fixture configs to use template variables that get replaced
+    with the actual service name (including API version suffix) at runtime.
+    """
+    if isinstance(obj, dict):
+        return {k: apply_template_variables(v, service_name) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [apply_template_variables(item, service_name) for item in obj]
+    elif isinstance(obj, str) and "{service_name}" in obj:
+        return obj.replace("{service_name}", service_name)
+    return obj
+
+
 def create_router_resources(gateways, routes=None, kserve_client=None):
     """Create router resources (gateways and routes). These resources are shared and not deleted.
 
@@ -793,6 +866,26 @@ def create_router_resources(gateways, routes=None, kserve_client=None):
         try:
             create_or_update_gateway(kserve_client, gateway)
             logger.info(f"✓ Created/updated Gateway {gateway_name}")
+
+            # Delete AuthPolicy if Gateway has disable-auth annotation
+            # This handles the case where Kuadrant created an AuthPolicy before the annotation was added
+            annotations = gateway.get("metadata", {}).get("annotations", {})
+            if annotations.get("security.opendatahub.io/enable-auth") == "false":
+                auth_policy_name = f"{gateway_name}-authn"
+                try:
+                    kserve_client.api_instance.delete_namespaced_custom_object(
+                        group="kuadrant.io",
+                        version="v1",
+                        namespace=KSERVE_TEST_NAMESPACE,
+                        plural="authpolicies",
+                        name=auth_policy_name,
+                    )
+                    logger.info(f"✓ Deleted AuthPolicy {auth_policy_name} for Gateway with auth disabled")
+                except client.rest.ApiException as e:
+                    if e.status == 404:
+                        logger.debug(f"AuthPolicy {auth_policy_name} does not exist (already deleted or never created)")
+                    else:
+                        logger.warning(f"Failed to delete AuthPolicy {auth_policy_name}: {e}")
         except Exception as e:
             logger.error(f"❌ Failed to create Gateway {gateway_name}: {e}")
             raise

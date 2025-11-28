@@ -38,8 +38,10 @@ var customTransformerLogger = logf.Log.WithName("inferenceservice-v1beta1-custom
 
 var _ ComponentImplementation = &CustomTransformer{}
 
+// NewCustomTransformer creates a CustomTransformer from a KServe PodSpec.
+// Uses ToCorev1PodSpec() for explicit field mapping required by structured-merge-diff v6.
 func NewCustomTransformer(podSpec *PodSpec) *CustomTransformer {
-	return &CustomTransformer{PodSpec: corev1.PodSpec(*podSpec)}
+	return &CustomTransformer{PodSpec: podSpec.ToCorev1PodSpec()}
 }
 
 // Validate returns an error if invalid

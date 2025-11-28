@@ -9,3 +9,22 @@ kserve/__init__.py
 test/__init__.py
 setup.py
 requirements.txt
+
+# Ignore broken auto-generated test stubs for LLMInferenceService types
+# These produce invalid Python syntax due to OpenAPI generator bug
+test/test_v1alpha1_endpoint_picker_config.py
+test/test_v1alpha1_gateway_routes_spec.py
+test/test_v1alpha1_gateway_spec.py
+test/test_v1alpha1_gie_inference_pool_spec.py
+test/test_v1alpha1_inference_pool_spec.py
+test/test_v1alpha1_inference_pool_status.py
+test/test_v1alpha1_ingress_spec.py
+test/test_v1alpha1_llm_inference_service_spec.py
+test/test_v1alpha1_llm_model_spec.py
+test/test_v1alpha1_lo_ra_spec.py
+test/test_v1alpha1_local_model_cache_status.py
+test/test_v1alpha1_pool_status.py
+test/test_v1alpha1_router_spec.py
+test/test_v1alpha1_scheduler_spec.py
+test/test_v1alpha1_supported_runtime.py
+test/test_v1alpha1_workload_spec.py

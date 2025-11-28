@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	. "github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 )
@@ -37,7 +37,7 @@ import (
 func TestGatewayConditionsEvaluation(t *testing.T) {
 	tests := []struct {
 		name             string
-		llmSvc           *v1alpha1.LLMInferenceService
+		llmSvc           *v1alpha2.LLMInferenceService
 		gateways         []*gatewayapi.Gateway
 		expectedErrorMsg string
 		assertCondition  func(routerCondition, gatewayCondition *apis.Condition) assertConditionsFunc
@@ -45,9 +45,9 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 		{
 			name: "single ready gateway - router should be ready",
 			llmSvc: LLMInferenceService("test-llm",
-				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
+				InNamespace[*v1alpha2.LLMInferenceService]("test-ns"),
 				WithModelURI("hf://test/model"),
-				WithGatewayRefs(v1alpha1.UntypedObjectReference{
+				WithGatewayRefs(v1alpha2.UntypedObjectReference{
 					Name:      "ready-gateway",
 					Namespace: "test-ns",
 				}),
@@ -65,9 +65,9 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 		{
 			name: "single not ready gateway - router should not be ready",
 			llmSvc: LLMInferenceService("test-llm",
-				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
+				InNamespace[*v1alpha2.LLMInferenceService]("test-ns"),
 				WithModelURI("hf://test/model"),
-				WithGatewayRefs(v1alpha1.UntypedObjectReference{
+				WithGatewayRefs(v1alpha2.UntypedObjectReference{
 					Name:      "not-ready-gateway",
 					Namespace: "test-ns",
 				}),
@@ -87,11 +87,11 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 		{
 			name: "multiple gateways - all ready",
 			llmSvc: LLMInferenceService("test-llm",
-				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
+				InNamespace[*v1alpha2.LLMInferenceService]("test-ns"),
 				WithModelURI("hf://test/model"),
 				WithGatewayRefs(
-					v1alpha1.UntypedObjectReference{Name: "gateway-1", Namespace: "test-ns"},
-					v1alpha1.UntypedObjectReference{Name: "gateway-2", Namespace: "test-ns"},
+					v1alpha2.UntypedObjectReference{Name: "gateway-1", Namespace: "test-ns"},
+					v1alpha2.UntypedObjectReference{Name: "gateway-2", Namespace: "test-ns"},
 				),
 			),
 			gateways: []*gatewayapi.Gateway{
@@ -111,11 +111,11 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 		{
 			name: "multiple gateways - some not ready",
 			llmSvc: LLMInferenceService("test-llm",
-				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
+				InNamespace[*v1alpha2.LLMInferenceService]("test-ns"),
 				WithModelURI("hf://test/model"),
 				WithGatewayRefs(
-					v1alpha1.UntypedObjectReference{Name: "ready-gateway", Namespace: "test-ns"},
-					v1alpha1.UntypedObjectReference{Name: "not-ready-gateway", Namespace: "test-ns"},
+					v1alpha2.UntypedObjectReference{Name: "ready-gateway", Namespace: "test-ns"},
+					v1alpha2.UntypedObjectReference{Name: "not-ready-gateway", Namespace: "test-ns"},
 				),
 			),
 			gateways: []*gatewayapi.Gateway{
@@ -137,9 +137,9 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 		{
 			name: "gateway with no programmed condition - should be not ready",
 			llmSvc: LLMInferenceService("test-llm",
-				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
+				InNamespace[*v1alpha2.LLMInferenceService]("test-ns"),
 				WithModelURI("hf://test/model"),
-				WithGatewayRefs(v1alpha1.UntypedObjectReference{
+				WithGatewayRefs(v1alpha2.UntypedObjectReference{
 					Name:      "no-condition-gateway",
 					Namespace: "test-ns",
 				}),
@@ -158,9 +158,9 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 		{
 			name: "gateway not found - should return error",
 			llmSvc: LLMInferenceService("test-llm",
-				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
+				InNamespace[*v1alpha2.LLMInferenceService]("test-ns"),
 				WithModelURI("hf://test/model"),
-				WithGatewayRefs(v1alpha1.UntypedObjectReference{
+				WithGatewayRefs(v1alpha2.UntypedObjectReference{
 					Name:      "missing-gateway",
 					Namespace: "test-ns",
 				}),
@@ -171,7 +171,7 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 		{
 			name: "no gateway refs - should skip evaluation",
 			llmSvc: LLMInferenceService("test-llm",
-				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
+				InNamespace[*v1alpha2.LLMInferenceService]("test-ns"),
 				WithModelURI("hf://test/model"),
 				// No gateway refs
 			),
@@ -181,9 +181,9 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 		{
 			name: "gateway without namespace uses LLMInferenceService namespace",
 			llmSvc: LLMInferenceService("test-llm",
-				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
+				InNamespace[*v1alpha2.LLMInferenceService]("test-ns"),
 				WithModelURI("hf://test/model"),
-				WithGatewayRefs(v1alpha1.UntypedObjectReference{
+				WithGatewayRefs(v1alpha2.UntypedObjectReference{
 					Name: "same-ns-gateway",
 					// Namespace omitted - should use test-ns
 				}),
@@ -205,7 +205,7 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 			ctx := t.Context()
 
 			scheme := runtime.NewScheme()
-			err := v1alpha1.AddToScheme(scheme)
+			err := v1alpha2.AddToScheme(scheme)
 			g.Expect(err).ToNot(HaveOccurred())
 			err = gatewayapi.Install(scheme)
 			g.Expect(err).ToNot(HaveOccurred())
@@ -237,8 +237,8 @@ func TestGatewayConditionsEvaluation(t *testing.T) {
 
 			tt.llmSvc.DetermineRouterReadiness()
 
-			routerCondition := tt.llmSvc.GetStatus().GetCondition(v1alpha1.RouterReady)
-			gatewayCondition := tt.llmSvc.GetStatus().GetCondition(v1alpha1.GatewaysReady)
+			routerCondition := tt.llmSvc.GetStatus().GetCondition(v1alpha2.RouterReady)
+			gatewayCondition := tt.llmSvc.GetStatus().GetCondition(v1alpha2.GatewaysReady)
 
 			if tt.assertCondition != nil {
 				tt.assertCondition(routerCondition, gatewayCondition)(g)
@@ -304,7 +304,7 @@ func TestIsGatewayReady(t *testing.T) {
 func TestHTTPRouteConditionsEvaluation(t *testing.T) {
 	tests := []struct {
 		name             string
-		llmSvc           *v1alpha1.LLMInferenceService
+		llmSvc           *v1alpha2.LLMInferenceService
 		httpRoutes       []*gatewayapi.HTTPRoute
 		expectedErrorMsg string
 		createAssertion  func(routerCondition, httpRouteCondition *apis.Condition) assertConditionsFunc
@@ -312,7 +312,7 @@ func TestHTTPRouteConditionsEvaluation(t *testing.T) {
 		{
 			name: "HTTPRoute with multiple controllers - should be ready",
 			llmSvc: LLMInferenceService("test-llm",
-				InNamespace[*v1alpha1.LLMInferenceService]("llm"),
+				InNamespace[*v1alpha2.LLMInferenceService]("llm"),
 				WithModelURI("hf://facebook/opt-125m"),
 				WithHTTPRouteRefs(HTTPRouteRef("facebook-opt-125m-single-simulated-kserve-route")),
 			),
@@ -346,7 +346,7 @@ func TestHTTPRouteConditionsEvaluation(t *testing.T) {
 		{
 			name: "HTTPRoute with standard controller only - should be ready",
 			llmSvc: LLMInferenceService("test-llm",
-				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
+				InNamespace[*v1alpha2.LLMInferenceService]("test-ns"),
 				WithModelURI("hf://test/model"),
 				WithHTTPRouteRefs(HTTPRouteRef("test-route")),
 			),
@@ -362,7 +362,7 @@ func TestHTTPRouteConditionsEvaluation(t *testing.T) {
 		{
 			name: "HTTPRoute not ready - should not be ready",
 			llmSvc: LLMInferenceService("test-llm",
-				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
+				InNamespace[*v1alpha2.LLMInferenceService]("test-ns"),
 				WithModelURI("hf://test/model"),
 				WithHTTPRouteRefs(HTTPRouteRef("not-ready-route")),
 			),
@@ -380,7 +380,7 @@ func TestHTTPRouteConditionsEvaluation(t *testing.T) {
 		{
 			name: "no HTTPRoute refs - should skip evaluation",
 			llmSvc: LLMInferenceService("test-llm",
-				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
+				InNamespace[*v1alpha2.LLMInferenceService]("test-ns"),
 				WithModelURI("hf://test/model"),
 				// No HTTPRoute refs
 			),
@@ -395,7 +395,7 @@ func TestHTTPRouteConditionsEvaluation(t *testing.T) {
 			ctx := t.Context()
 
 			scheme := runtime.NewScheme()
-			err := v1alpha1.AddToScheme(scheme)
+			err := v1alpha2.AddToScheme(scheme)
 			g.Expect(err).ToNot(HaveOccurred())
 			err = gatewayapi.Install(scheme)
 			g.Expect(err).ToNot(HaveOccurred())
@@ -427,8 +427,8 @@ func TestHTTPRouteConditionsEvaluation(t *testing.T) {
 
 			tt.llmSvc.DetermineRouterReadiness()
 
-			routerCondition := tt.llmSvc.GetStatus().GetCondition(v1alpha1.RouterReady)
-			httpRouteCondition := tt.llmSvc.GetStatus().GetCondition(v1alpha1.HTTPRoutesReady)
+			routerCondition := tt.llmSvc.GetStatus().GetCondition(v1alpha2.RouterReady)
+			httpRouteCondition := tt.llmSvc.GetStatus().GetCondition(v1alpha2.HTTPRoutesReady)
 
 			if tt.createAssertion != nil {
 				tt.createAssertion(routerCondition, httpRouteCondition)(g)
@@ -440,7 +440,7 @@ func TestHTTPRouteConditionsEvaluation(t *testing.T) {
 func TestFetchReferencedGateways(t *testing.T) {
 	tests := []struct {
 		name          string
-		llmSvc        *v1alpha1.LLMInferenceService
+		llmSvc        *v1alpha2.LLMInferenceService
 		gateways      []*gatewayapi.Gateway
 		expectedCount int
 		expectedError string
@@ -448,8 +448,8 @@ func TestFetchReferencedGateways(t *testing.T) {
 		{
 			name: "fetch single gateway successfully",
 			llmSvc: LLMInferenceService("test-llm",
-				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
-				WithGatewayRefs(v1alpha1.UntypedObjectReference{
+				InNamespace[*v1alpha2.LLMInferenceService]("test-ns"),
+				WithGatewayRefs(v1alpha2.UntypedObjectReference{
 					Name:      "test-gateway",
 					Namespace: "test-ns",
 				}),
@@ -462,10 +462,10 @@ func TestFetchReferencedGateways(t *testing.T) {
 		{
 			name: "fetch multiple gateways successfully",
 			llmSvc: LLMInferenceService("test-llm",
-				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
+				InNamespace[*v1alpha2.LLMInferenceService]("test-ns"),
 				WithGatewayRefs(
-					v1alpha1.UntypedObjectReference{Name: "gateway-1", Namespace: "test-ns"},
-					v1alpha1.UntypedObjectReference{Name: "gateway-2", Namespace: "other-ns"},
+					v1alpha2.UntypedObjectReference{Name: "gateway-1", Namespace: "test-ns"},
+					v1alpha2.UntypedObjectReference{Name: "gateway-2", Namespace: "other-ns"},
 				),
 			),
 			gateways: []*gatewayapi.Gateway{
@@ -477,8 +477,8 @@ func TestFetchReferencedGateways(t *testing.T) {
 		{
 			name: "gateway not found - should return error",
 			llmSvc: LLMInferenceService("test-llm",
-				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
-				WithGatewayRefs(v1alpha1.UntypedObjectReference{
+				InNamespace[*v1alpha2.LLMInferenceService]("test-ns"),
+				WithGatewayRefs(v1alpha2.UntypedObjectReference{
 					Name:      "missing-gateway",
 					Namespace: "test-ns",
 				}),
@@ -490,7 +490,7 @@ func TestFetchReferencedGateways(t *testing.T) {
 		{
 			name: "no gateway refs - should return empty slice",
 			llmSvc: LLMInferenceService("test-llm",
-				InNamespace[*v1alpha1.LLMInferenceService]("test-ns"),
+				InNamespace[*v1alpha2.LLMInferenceService]("test-ns"),
 				// No gateway refs
 			),
 			gateways:      []*gatewayapi.Gateway{},
@@ -505,7 +505,7 @@ func TestFetchReferencedGateways(t *testing.T) {
 
 			// Setup scheme and fake client
 			scheme := runtime.NewScheme()
-			err := v1alpha1.AddToScheme(scheme)
+			err := v1alpha2.AddToScheme(scheme)
 			g.Expect(err).ToNot(HaveOccurred())
 			err = gatewayapi.Install(scheme)
 			g.Expect(err).ToNot(HaveOccurred())

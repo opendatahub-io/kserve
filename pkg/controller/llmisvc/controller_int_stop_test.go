@@ -21,6 +21,8 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -32,10 +34,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/kmeta"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	leaderworkerset "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
 	. "github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 )
@@ -59,7 +61,7 @@ var _ = Describe("LLMInferenceService Stop Feature", func() {
 			}()
 
 			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 			)
 
@@ -117,7 +119,7 @@ var _ = Describe("LLMInferenceService Stop Feature", func() {
 				}, llmSvc)
 				g.Expect(err).ToNot(HaveOccurred())
 
-				mainWorkloadCondition := llmSvc.Status.GetCondition(v1alpha1.MainWorkloadReady)
+				mainWorkloadCondition := llmSvc.Status.GetCondition(v1alpha2.MainWorkloadReady)
 				g.Expect(mainWorkloadCondition).ToNot(BeNil())
 				g.Expect(mainWorkloadCondition.Status).To(Equal(corev1.ConditionFalse))
 				g.Expect(mainWorkloadCondition.Reason).To(Equal("Stopped"))
@@ -169,7 +171,7 @@ var _ = Describe("LLMInferenceService Stop Feature", func() {
 			}()
 
 			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 				WithManagedRoute(),
 				WithManagedGateway(),
@@ -228,7 +230,7 @@ var _ = Describe("LLMInferenceService Stop Feature", func() {
 			}()
 
 			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 				WithManagedRoute(),
 				WithManagedGateway(),
@@ -271,8 +273,13 @@ var _ = Describe("LLMInferenceService Stop Feature", func() {
 				}, inferencePool)
 			}).WithContext(ctx).Should(Succeed())
 
-			// verify InferenceModel is created
-			inferenceModel := &igwapi.InferenceModel{}
+			// verify InferenceModel is created (v1alpha2 unstructured)
+			inferenceModel := &unstructured.Unstructured{}
+			inferenceModel.SetGroupVersionKind(schema.GroupVersionKind{
+				Group:   "inference.networking.x-k8s.io",
+				Version: "v1alpha2",
+				Kind:    "InferenceModel",
+			})
 			Eventually(func(g Gomega, ctx context.Context) error {
 				return envTest.Get(ctx, types.NamespacedName{
 					Name:      svcName + "-inference-model",
@@ -365,7 +372,7 @@ var _ = Describe("LLMInferenceService Stop Feature", func() {
 			}()
 
 			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 			)
 
@@ -442,7 +449,7 @@ var _ = Describe("LLMInferenceService Stop Feature", func() {
 			}()
 
 			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 			)
 
@@ -504,16 +511,17 @@ var _ = Describe("LLMInferenceService Stop Feature", func() {
 			}
 
 			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			Expect(envTest.Client.Create(ctx, DefaultServiceAccount(nsName))).To(Succeed())
 			defer func() {
 				envTest.DeleteAll(namespace)
 			}()
 
 			// Create first service
 			llmSvc1 := LLMInferenceService(svcName+"-1",
-				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 			)
-			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName+"-1", nsName))).To(Succeed())
 			Expect(envTest.Create(ctx, llmSvc1)).To(Succeed())
 			defer func() {
 				Expect(envTest.Delete(ctx, llmSvc1)).To(Succeed())
@@ -521,10 +529,9 @@ var _ = Describe("LLMInferenceService Stop Feature", func() {
 
 			// Create second service
 			llmSvc2 := LLMInferenceService(svcName+"-2",
-				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 			)
-			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName+"-2", nsName))).To(Succeed())
 			Expect(envTest.Create(ctx, llmSvc2)).To(Succeed())
 			defer func() {
 				Expect(envTest.Delete(ctx, llmSvc2)).To(Succeed())
@@ -620,7 +627,7 @@ var _ = Describe("LLMInferenceService Stop Feature", func() {
 			}()
 
 			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				InNamespace[*v1alpha2.LLMInferenceService](nsName),
 				WithModelURI("hf://facebook/opt-125m"),
 				WithReplicas(1),
 				WithParallelism(ParallelismSpec(
@@ -667,7 +674,7 @@ var _ = Describe("LLMInferenceService Stop Feature", func() {
 				}, llmSvc)
 				g.Expect(err).ToNot(HaveOccurred())
 
-				mainWorkloadCondition := llmSvc.Status.GetCondition(v1alpha1.MainWorkloadReady)
+				mainWorkloadCondition := llmSvc.Status.GetCondition(v1alpha2.MainWorkloadReady)
 				g.Expect(mainWorkloadCondition).ToNot(BeNil())
 				g.Expect(mainWorkloadCondition.Status).To(Equal(corev1.ConditionFalse))
 				g.Expect(mainWorkloadCondition.Reason).To(Equal("Stopped"))

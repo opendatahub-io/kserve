@@ -19,12 +19,11 @@ package validation_test
 import (
 	"testing"
 
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1/validation"
 	"github.com/kserve/kserve/pkg/controller/llmisvc"
 	"github.com/kserve/kserve/pkg/controller/llmisvc/fixture"
 
 	"github.com/onsi/gomega"
-
-	"github.com/kserve/kserve/pkg/controller/llmisvc/validation"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"

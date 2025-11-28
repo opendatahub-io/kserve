@@ -32,9 +32,9 @@ import (
 	"knative.dev/pkg/network"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwv1 "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
@@ -46,7 +46,7 @@ const (
 
 // reconcileIstioDestinationRules configures Istio to allow the Gateway to communicate with the scheduler and the
 // workload pods with TLS using self-signed certificates without injected sidecars.
-func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRules(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRules(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	log.FromContext(ctx).Info("Reconciling Istio Destination Rules")
 
 	if llmSvc.Spec.Router == nil {
@@ -101,7 +101,7 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRules(ctx conte
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForShadowService(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForShadowService(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	expected, err := r.expectedIstioDestinationRuleForShadowService(ctx, llmSvc)
 	if err != nil {
 		return fmt.Errorf("failed to get expected Istio destination rule for workload: %w", err)
@@ -119,7 +119,7 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForShadowSe
 	return Reconcile(ctx, r, llmSvc, &istioapi.DestinationRule{}, expected, semanticDestinationRuleIsEqual)
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForWorkload(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	expected := r.expectedIstioDestinationRuleForWorkload(ctx, llmSvc)
 	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil {
 		return Delete(ctx, r, llmSvc, expected)
@@ -127,7 +127,7 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForWorkload
 	return Reconcile(ctx, r, llmSvc, &istioapi.DestinationRule{}, expected, semanticDestinationRuleIsEqual)
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForScheduler(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForScheduler(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	expected, err := r.expectedIstioDestinationRuleForScheduler(ctx, llmSvc)
 	if err != nil {
 		return fmt.Errorf("failed to get expected Istio destination rule for scheduler: %w", err)
@@ -138,7 +138,7 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForSchedule
 	return Reconcile(ctx, r, llmSvc, &istioapi.DestinationRule{}, expected, semanticDestinationRuleIsEqual)
 }
 
-func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForScheduler(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*istioapi.DestinationRule, error) {
+func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForScheduler(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) (*istioapi.DestinationRule, error) {
 	dr := &istioapi.DestinationRule{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-scheduler"),
@@ -150,7 +150,7 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForScheduler
 				"llm-d.ai/managed":            "true",
 			},
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 		},
 		Spec: istionetworking.DestinationRule{
@@ -169,12 +169,13 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForScheduler
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil {
 		name := llmSvc.Spec.Router.EPPServiceName(llmSvc)
 		if llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
-			pool := igwapi.InferencePool{}
+			pool := igwv1.InferencePool{}
 			if err := r.Client.Get(ctx, client.ObjectKey{Name: llmSvc.Spec.Router.Scheduler.Pool.Ref.Name, Namespace: llmSvc.GetNamespace()}, &pool); err != nil {
 				return nil, fmt.Errorf("failed to get inference pool %s/%s: %w", llmSvc.GetNamespace(), llmSvc.Spec.Router.Scheduler.Pool.Ref.Name, err)
 			}
-			if pool.Spec.ExtensionRef != nil {
-				name = string(pool.Spec.ExtensionRef.Name)
+			// In v1, EndpointPickerRef is a value (not pointer), with Name as typed string.
+			if pool.Spec.EndpointPickerRef.Name != "" {
+				name = string(pool.Spec.EndpointPickerRef.Name)
 			}
 		}
 		hostname := network.GetServiceHostname(name, llmSvc.GetNamespace())
@@ -187,7 +188,7 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForScheduler
 	return dr, nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForShadowService(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*istioapi.DestinationRule, error) {
+func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForShadowService(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) (*istioapi.DestinationRule, error) {
 	shadowSvc, err := r.getIstioShadowInferencePoolService(ctx, llmSvc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get istio inference pool service: %w", err)
@@ -204,7 +205,7 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForShadowSer
 				"llm-d.ai/managed":            "true",
 			},
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 		},
 		Spec: istionetworking.DestinationRule{
@@ -230,7 +231,7 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForShadowSer
 	return dr, nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *istioapi.DestinationRule {
+func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForWorkload(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) *istioapi.DestinationRule {
 	dr := &istioapi.DestinationRule{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"),
@@ -242,7 +243,7 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForWorkload(
 				"llm-d.ai/managed":            "true",
 			},
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 		},
 		Spec: istionetworking.DestinationRule{
@@ -265,7 +266,7 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForWorkload(
 	return dr
 }
 
-func (r *LLMInferenceServiceReconciler) getIstioShadowInferencePoolService(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*corev1.Service, error) {
+func (r *LLMInferenceServiceReconciler) getIstioShadowInferencePoolService(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) (*corev1.Service, error) {
 	if llmSvc.Spec.Router == nil {
 		return nil, nil
 	}

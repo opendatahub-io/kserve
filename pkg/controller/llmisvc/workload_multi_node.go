@@ -27,19 +27,18 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
-	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/credentials"
 	kserveTypes "github.com/kserve/kserve/pkg/types"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
-func (r *LLMInferenceServiceReconciler) reconcileMultiNodeWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
+func (r *LLMInferenceServiceReconciler) reconcileMultiNodeWorkload(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	log.FromContext(ctx).Info("Reconciling multi-node workload")
 
 	if err := r.reconcileMultiNodeMainServiceAccount(ctx, llmSvc, storageConfig, credentialConfig); err != nil {
@@ -60,7 +59,7 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodeWorkload(ctx context.C
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
+func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainWorkload(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	expected, err := r.expectedMainMultiNodeLWS(ctx, llmSvc, storageConfig, credentialConfig)
 	if err != nil {
 		return fmt.Errorf("failed to build the expected main LWS: %w", err)
@@ -83,7 +82,7 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainWorkload(ctx conte
 	return r.propagateLeaderWorkerSetStatus(ctx, expected, llmSvc.MarkWorkerWorkloadReady, llmSvc.MarkWorkerWorkloadNotReady)
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileMultiNodePrefillWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
+func (r *LLMInferenceServiceReconciler) reconcileMultiNodePrefillWorkload(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	expected, err := r.expectedPrefillMultiNodeLWS(ctx, llmSvc, storageConfig, credentialConfig)
 	if err != nil {
 		return fmt.Errorf("failed to build the expected prefill LWS: %w", err)
@@ -131,7 +130,7 @@ func (r *LLMInferenceServiceReconciler) propagateLeaderWorkerSetStatus(ctx conte
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) (*lwsapi.LeaderWorkerSet, error) {
+func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) (*lwsapi.LeaderWorkerSet, error) {
 	workerLabels := map[string]string{
 		"app.kubernetes.io/component": "llminferenceservice-workload-worker",
 		"app.kubernetes.io/name":      llmSvc.GetName(),
@@ -156,10 +155,10 @@ func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Con
 
 	expected := &lwsapi.LeaderWorkerSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-mn"),
+			Name:      SafeChildName(llmSvc.GetName(), "-kserve-mn"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 			Labels: workerLabels,
 		},
@@ -244,7 +243,7 @@ func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Con
 	return expected, nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedPrefillMultiNodeLWS(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) (*lwsapi.LeaderWorkerSet, error) {
+func (r *LLMInferenceServiceReconciler) expectedPrefillMultiNodeLWS(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) (*lwsapi.LeaderWorkerSet, error) {
 	workerLabels := map[string]string{
 		"app.kubernetes.io/component": "llminferenceservice-workload-worker-prefill",
 		"app.kubernetes.io/name":      llmSvc.GetName(),
@@ -265,10 +264,10 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMultiNodeLWS(ctx context.
 
 	expected := &lwsapi.LeaderWorkerSet{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-mn-prefill"),
+			Name:      SafeChildName(llmSvc.GetName(), "-kserve-mn-prefill"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 			Labels: workerLabels,
 		},
@@ -333,7 +332,7 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMultiNodeLWS(ctx context.
 	return expected, nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainServiceAccount(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
+func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainServiceAccount(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	serviceAccount, err := r.expectedMultiNodeMainServiceAccount(ctx, llmSvc)
 	if err != nil {
 		return fmt.Errorf("failed to create expected multi node service account: %w", err)
@@ -353,7 +352,7 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainServiceAccount(ctx
 	return r.reconcileMultiNodeMainRoleBinding(ctx, llmSvc, serviceAccount, storageConfig, credentialConfig)
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileMultiNodePrefillServiceAccount(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+func (r *LLMInferenceServiceReconciler) reconcileMultiNodePrefillServiceAccount(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	serviceAccount, err := r.expectedMultiNodePrefillServiceAccount(ctx, llmSvc)
 	if err != nil {
 		return fmt.Errorf("failed to create expected multi node service account: %w", err)
@@ -369,7 +368,7 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodePrefillServiceAccount(
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainRole(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
+func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainRole(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	lws, err := r.expectedMainMultiNodeLWS(ctx, llmSvc, storageConfig, credentialConfig)
 	if err != nil {
 		return fmt.Errorf("failed to build the expected main LWS for building the Role: %w", err)
@@ -387,7 +386,7 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainRole(ctx context.C
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainRoleBinding(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, sa *corev1.ServiceAccount, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
+func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainRoleBinding(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, sa *corev1.ServiceAccount, storageConfig *kserveTypes.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig) error {
 	lws, err := r.expectedMainMultiNodeLWS(ctx, llmSvc, storageConfig, credentialConfig)
 	if err != nil {
 		return fmt.Errorf("failed to build the expected main LWS for building the RoleBinding: %w", err)
@@ -405,13 +404,13 @@ func (r *LLMInferenceServiceReconciler) reconcileMultiNodeMainRoleBinding(ctx co
 	return nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedMultiNodeMainServiceAccount(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*corev1.ServiceAccount, error) {
+func (r *LLMInferenceServiceReconciler) expectedMultiNodeMainServiceAccount(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) (*corev1.ServiceAccount, error) {
 	expectedServiceAccount := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-mn"),
+			Name:      SafeChildName(llmSvc.GetName(), "-kserve-mn"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 		},
 	}
@@ -448,13 +447,13 @@ func (r *LLMInferenceServiceReconciler) expectedMultiNodeMainServiceAccount(ctx 
 	return expectedServiceAccount, nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedMultiNodePrefillServiceAccount(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*corev1.ServiceAccount, error) {
+func (r *LLMInferenceServiceReconciler) expectedMultiNodePrefillServiceAccount(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) (*corev1.ServiceAccount, error) {
 	expectedServiceAccount := &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-mn-prefill"),
+			Name:      SafeChildName(llmSvc.GetName(), "-kserve-mn-prefill"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 		},
 	}
@@ -491,13 +490,13 @@ func (r *LLMInferenceServiceReconciler) expectedMultiNodePrefillServiceAccount(c
 	return expectedServiceAccount, nil
 }
 
-func (r *LLMInferenceServiceReconciler) expectedMultiNodeMainRole(llmSvc *v1alpha1.LLMInferenceService) *rbacv1.Role {
+func (r *LLMInferenceServiceReconciler) expectedMultiNodeMainRole(llmSvc *v1alpha2.LLMInferenceService) *rbacv1.Role {
 	ro := &rbacv1.Role{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-mn-role"),
+			Name:      SafeChildName(llmSvc.GetName(), "-kserve-mn-role"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 			Labels: map[string]string{
 				"app.kubernetes.io/name":    llmSvc.GetName(),
@@ -509,13 +508,13 @@ func (r *LLMInferenceServiceReconciler) expectedMultiNodeMainRole(llmSvc *v1alph
 	return ro
 }
 
-func (r *LLMInferenceServiceReconciler) expectedMultiNodeRoleBinding(llmSvc *v1alpha1.LLMInferenceService, sa *corev1.ServiceAccount) *rbacv1.RoleBinding {
+func (r *LLMInferenceServiceReconciler) expectedMultiNodeRoleBinding(llmSvc *v1alpha2.LLMInferenceService, sa *corev1.ServiceAccount) *rbacv1.RoleBinding {
 	return &rbacv1.RoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-mn-rb"),
+			Name:      SafeChildName(llmSvc.GetName(), "-kserve-mn-rb"),
 			Namespace: llmSvc.GetNamespace(),
 			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 			Labels: map[string]string{
 				"app.kubernetes.io/name":    llmSvc.GetName(),
@@ -530,12 +529,12 @@ func (r *LLMInferenceServiceReconciler) expectedMultiNodeRoleBinding(llmSvc *v1a
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: "rbac.authorization.k8s.io",
 			Kind:     "Role",
-			Name:     kmeta.ChildName(llmSvc.GetName(), "-kserve-mn-role"),
+			Name:     SafeChildName(llmSvc.GetName(), "-kserve-mn-role"),
 		},
 	}
 }
 
-func (r *LLMInferenceServiceReconciler) propagateLeaderWorkerSetMetadata(llmSvc *v1alpha1.LLMInferenceService, expected *lwsapi.LeaderWorkerSet) {
+func (r *LLMInferenceServiceReconciler) propagateLeaderWorkerSetMetadata(llmSvc *v1alpha2.LLMInferenceService, expected *lwsapi.LeaderWorkerSet) {
 	// Define the prefixes to approve for annotations and labels
 	approvedAnnotationPrefixes := []string{
 		"leaderworkerset.sigs.k8s.io",

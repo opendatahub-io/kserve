@@ -170,7 +170,7 @@ func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServ
 		isvc.Spec.Transformer.PodSpec.Containers[0] = *container
 	}
 
-	podSpec := corev1.PodSpec(isvc.Spec.Transformer.PodSpec)
+	podSpec := isvc.Spec.Transformer.PodSpec.ToCorev1PodSpec()
 
 	// Here we allow switch between knative and vanilla deployment
 	if p.deploymentMode == constants.RawDeployment {
