@@ -30,8 +30,11 @@ import unittest
 import datetime
 
 import kserve
-from kserve.models.v1alpha1_local_model_node_group_status import V1alpha1LocalModelNodeGroupStatus  # noqa: E501
+from kserve.models.v1alpha1_local_model_node_group_status import (
+    V1alpha1LocalModelNodeGroupStatus,
+)  # noqa: E501
 from kserve.rest import ApiException
+
 
 class TestV1alpha1LocalModelNodeGroupStatus(unittest.TestCase):
     """V1alpha1LocalModelNodeGroupStatus unit test stubs"""
@@ -44,18 +47,14 @@ class TestV1alpha1LocalModelNodeGroupStatus(unittest.TestCase):
 
     def make_instance(self, include_optional):
         """Test V1alpha1LocalModelNodeGroupStatus
-            include_option is a boolean, when False only required
-            params are included, when True both required and
-            optional params are included """
+        include_option is a boolean, when False only required
+        params are included, when True both required and
+        optional params are included"""
         # model = kserve.models.v1alpha1_local_model_node_group_status.V1alpha1LocalModelNodeGroupStatus()  # noqa: E501
-        if include_optional :
-            return V1alpha1LocalModelNodeGroupStatus(
-                available = None, 
-                used = None
-            )
-        else :
-            return V1alpha1LocalModelNodeGroupStatus(
-        )
+        if include_optional:
+            return V1alpha1LocalModelNodeGroupStatus(available=None, used=None)
+        else:
+            return V1alpha1LocalModelNodeGroupStatus()
 
     def testV1alpha1LocalModelNodeGroupStatus(self):
         """Test V1alpha1LocalModelNodeGroupStatus"""
@@ -63,5 +62,5 @@ class TestV1alpha1LocalModelNodeGroupStatus(unittest.TestCase):
         inst_req_and_optional = self.make_instance(include_optional=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

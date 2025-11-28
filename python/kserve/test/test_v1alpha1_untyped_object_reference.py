@@ -30,8 +30,11 @@ import unittest
 import datetime
 
 import kserve
-from kserve.models.v1alpha1_untyped_object_reference import V1alpha1UntypedObjectReference  # noqa: E501
+from kserve.models.v1alpha1_untyped_object_reference import (
+    V1alpha1UntypedObjectReference,
+)  # noqa: E501
 from kserve.rest import ApiException
+
 
 class TestV1alpha1UntypedObjectReference(unittest.TestCase):
     """V1alpha1UntypedObjectReference unit test stubs"""
@@ -44,18 +47,14 @@ class TestV1alpha1UntypedObjectReference(unittest.TestCase):
 
     def make_instance(self, include_optional):
         """Test V1alpha1UntypedObjectReference
-            include_option is a boolean, when False only required
-            params are included, when True both required and
-            optional params are included """
+        include_option is a boolean, when False only required
+        params are included, when True both required and
+        optional params are included"""
         # model = kserve.models.v1alpha1_untyped_object_reference.V1alpha1UntypedObjectReference()  # noqa: E501
-        if include_optional :
-            return V1alpha1UntypedObjectReference(
-                name = '0', 
-                namespace = '0'
-            )
-        else :
-            return V1alpha1UntypedObjectReference(
-        )
+        if include_optional:
+            return V1alpha1UntypedObjectReference(name="0", namespace="0")
+        else:
+            return V1alpha1UntypedObjectReference()
 
     def testV1alpha1UntypedObjectReference(self):
         """Test V1alpha1UntypedObjectReference"""
@@ -63,5 +62,5 @@ class TestV1alpha1UntypedObjectReference(unittest.TestCase):
         inst_req_and_optional = self.make_instance(include_optional=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

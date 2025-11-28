@@ -33,6 +33,7 @@ import kserve
 from kserve.models.v1alpha1_worker_spec import V1alpha1WorkerSpec  # noqa: E501
 from kserve.rest import ApiException
 
+
 class TestV1alpha1WorkerSpec(unittest.TestCase):
     """V1alpha1WorkerSpec unit test stubs"""
 
@@ -44,44 +45,28 @@ class TestV1alpha1WorkerSpec(unittest.TestCase):
 
     def make_instance(self, include_optional):
         """Test V1alpha1WorkerSpec
-            include_option is a boolean, when False only required
-            params are included, when True both required and
-            optional params are included """
+        include_option is a boolean, when False only required
+        params are included, when True both required and
+        optional params are included"""
         # model = kserve.models.v1alpha1_worker_spec.V1alpha1WorkerSpec()  # noqa: E501
-        if include_optional :
+        if include_optional:
             return V1alpha1WorkerSpec(
-                affinity = None, 
-                annotations = {
-                    'key' : '0'
-                    }, 
-                containers = [
-                    None
-                    ], 
-                host_ipc = True, 
-                image_pull_secrets = [
-                    None
-                    ], 
-                labels = {
-                    'key' : '0'
-                    }, 
-                node_selector = {
-                    'key' : '0'
-                    }, 
-                pipeline_parallel_size = 56, 
-                tensor_parallel_size = 56, 
-                tolerations = [
-                    None
-                    ], 
-                volumes = [
-                    None
-                    ]
+                affinity=None,
+                annotations={"key": "0"},
+                containers=[None],
+                host_ipc=True,
+                image_pull_secrets=[None],
+                labels={"key": "0"},
+                node_selector={"key": "0"},
+                pipeline_parallel_size=56,
+                tensor_parallel_size=56,
+                tolerations=[None],
+                volumes=[None],
             )
-        else :
+        else:
             return V1alpha1WorkerSpec(
-                containers = [
-                    None
-                    ],
-        )
+                containers=[None],
+            )
 
     def testV1alpha1WorkerSpec(self):
         """Test V1alpha1WorkerSpec"""
@@ -89,5 +74,5 @@ class TestV1alpha1WorkerSpec(unittest.TestCase):
         inst_req_and_optional = self.make_instance(include_optional=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

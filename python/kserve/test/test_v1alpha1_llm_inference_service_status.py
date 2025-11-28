@@ -30,8 +30,11 @@ import unittest
 import datetime
 
 import kserve
-from kserve.models.v1alpha1_llm_inference_service_status import V1alpha1LLMInferenceServiceStatus  # noqa: E501
+from kserve.models.v1alpha1_llm_inference_service_status import (
+    V1alpha1LLMInferenceServiceStatus,
+)  # noqa: E501
 from kserve.rest import ApiException
+
 
 class TestV1alpha1LLMInferenceServiceStatus(unittest.TestCase):
     """V1alpha1LLMInferenceServiceStatus unit test stubs"""
@@ -44,28 +47,21 @@ class TestV1alpha1LLMInferenceServiceStatus(unittest.TestCase):
 
     def make_instance(self, include_optional):
         """Test V1alpha1LLMInferenceServiceStatus
-            include_option is a boolean, when False only required
-            params are included, when True both required and
-            optional params are included """
+        include_option is a boolean, when False only required
+        params are included, when True both required and
+        optional params are included"""
         # model = kserve.models.v1alpha1_llm_inference_service_status.V1alpha1LLMInferenceServiceStatus()  # noqa: E501
-        if include_optional :
+        if include_optional:
             return V1alpha1LLMInferenceServiceStatus(
-                address = None, 
-                addresses = [
-                    None
-                    ], 
-                annotations = {
-                    'key' : '0'
-                    }, 
-                conditions = [
-                    None
-                    ], 
-                observed_generation = 56, 
-                url = None
+                address=None,
+                addresses=[None],
+                annotations={"key": "0"},
+                conditions=[None],
+                observed_generation=56,
+                url=None,
             )
-        else :
-            return V1alpha1LLMInferenceServiceStatus(
-        )
+        else:
+            return V1alpha1LLMInferenceServiceStatus()
 
     def testV1alpha1LLMInferenceServiceStatus(self):
         """Test V1alpha1LLMInferenceServiceStatus"""
@@ -73,5 +69,5 @@ class TestV1alpha1LLMInferenceServiceStatus(unittest.TestCase):
         inst_req_and_optional = self.make_instance(include_optional=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

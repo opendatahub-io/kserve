@@ -33,6 +33,7 @@ import kserve
 from kserve.models.v1alpha1_gateway_spec import V1alpha1GatewaySpec  # noqa: E501
 from kserve.rest import ApiException
 
+
 class TestV1alpha1GatewaySpec(unittest.TestCase):
     """V1alpha1GatewaySpec unit test stubs"""
 
@@ -44,21 +45,22 @@ class TestV1alpha1GatewaySpec(unittest.TestCase):
 
     def make_instance(self, include_optional):
         """Test V1alpha1GatewaySpec
-            include_option is a boolean, when False only required
-            params are included, when True both required and
-            optional params are included """
+        include_option is a boolean, when False only required
+        params are included, when True both required and
+        optional params are included"""
         # model = kserve.models.v1alpha1_gateway_spec.V1alpha1GatewaySpec()  # noqa: E501
-        if include_optional :
+        if include_optional:
             return V1alpha1GatewaySpec(
-                refs = [
-                    kserve.models.v1alpha1/untyped_object_reference.v1alpha1.UntypedObjectReference(
-                        name = '0', 
-                        namespace = '0', )
-                    ]
+                refs=[
+                    kserve.models.v1alpha1
+                    / untyped_object_reference.v1alpha1.UntypedObjectReference(
+                        name="0",
+                        namespace="0",
+                    )
+                ]
             )
-        else :
-            return V1alpha1GatewaySpec(
-        )
+        else:
+            return V1alpha1GatewaySpec()
 
     def testV1alpha1GatewaySpec(self):
         """Test V1alpha1GatewaySpec"""
@@ -66,5 +68,5 @@ class TestV1alpha1GatewaySpec(unittest.TestCase):
         inst_req_and_optional = self.make_instance(include_optional=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

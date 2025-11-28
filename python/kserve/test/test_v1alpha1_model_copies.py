@@ -33,6 +33,7 @@ import kserve
 from kserve.models.v1alpha1_model_copies import V1alpha1ModelCopies  # noqa: E501
 from kserve.rest import ApiException
 
+
 class TestV1alpha1ModelCopies(unittest.TestCase):
     """V1alpha1ModelCopies unit test stubs"""
 
@@ -44,19 +45,14 @@ class TestV1alpha1ModelCopies(unittest.TestCase):
 
     def make_instance(self, include_optional):
         """Test V1alpha1ModelCopies
-            include_option is a boolean, when False only required
-            params are included, when True both required and
-            optional params are included """
+        include_option is a boolean, when False only required
+        params are included, when True both required and
+        optional params are included"""
         # model = kserve.models.v1alpha1_model_copies.V1alpha1ModelCopies()  # noqa: E501
-        if include_optional :
-            return V1alpha1ModelCopies(
-                available = 56, 
-                failed = 56, 
-                total = 56
-            )
-        else :
-            return V1alpha1ModelCopies(
-        )
+        if include_optional:
+            return V1alpha1ModelCopies(available=56, failed=56, total=56)
+        else:
+            return V1alpha1ModelCopies()
 
     def testV1alpha1ModelCopies(self):
         """Test V1alpha1ModelCopies"""
@@ -64,5 +60,5 @@ class TestV1alpha1ModelCopies(unittest.TestCase):
         inst_req_and_optional = self.make_instance(include_optional=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

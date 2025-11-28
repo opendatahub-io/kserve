@@ -30,8 +30,11 @@ import unittest
 import datetime
 
 import kserve
-from kserve.models.v1alpha1_inference_pool_status import V1alpha1InferencePoolStatus  # noqa: E501
+from kserve.models.v1alpha1_inference_pool_status import (
+    V1alpha1InferencePoolStatus,
+)  # noqa: E501
 from kserve.rest import ApiException
+
 
 class TestV1alpha1InferencePoolStatus(unittest.TestCase):
     """V1alpha1InferencePoolStatus unit test stubs"""
@@ -44,27 +47,28 @@ class TestV1alpha1InferencePoolStatus(unittest.TestCase):
 
     def make_instance(self, include_optional):
         """Test V1alpha1InferencePoolStatus
-            include_option is a boolean, when False only required
-            params are included, when True both required and
-            optional params are included """
+        include_option is a boolean, when False only required
+        params are included, when True both required and
+        optional params are included"""
         # model = kserve.models.v1alpha1_inference_pool_status.V1alpha1InferencePoolStatus()  # noqa: E501
-        if include_optional :
+        if include_optional:
             return V1alpha1InferencePoolStatus(
-                parent = [
-                    kserve.models.v1alpha1/pool_status.v1alpha1.PoolStatus(
-                        conditions = [
-                            None
-                            ], 
-                        parent_ref = kserve.models.v1alpha1/parent_gateway_reference.v1alpha1.ParentGatewayReference(
-                            group = '0', 
-                            kind = '0', 
-                            name = '0', 
-                            namespace = '0', ), )
-                    ]
+                parent=[
+                    kserve.models.v1alpha1
+                    / pool_status.v1alpha1.PoolStatus(
+                        conditions=[None],
+                        parent_ref=kserve.models.v1alpha1
+                        / parent_gateway_reference.v1alpha1.ParentGatewayReference(
+                            group="0",
+                            kind="0",
+                            name="0",
+                            namespace="0",
+                        ),
+                    )
+                ]
             )
-        else :
-            return V1alpha1InferencePoolStatus(
-        )
+        else:
+            return V1alpha1InferencePoolStatus()
 
     def testV1alpha1InferencePoolStatus(self):
         """Test V1alpha1InferencePoolStatus"""
@@ -72,5 +76,5 @@ class TestV1alpha1InferencePoolStatus(unittest.TestCase):
         inst_req_and_optional = self.make_instance(include_optional=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

@@ -33,6 +33,7 @@ import kserve
 from kserve.models.v1alpha1_namespaced_name import V1alpha1NamespacedName  # noqa: E501
 from kserve.rest import ApiException
 
+
 class TestV1alpha1NamespacedName(unittest.TestCase):
     """V1alpha1NamespacedName unit test stubs"""
 
@@ -44,18 +45,14 @@ class TestV1alpha1NamespacedName(unittest.TestCase):
 
     def make_instance(self, include_optional):
         """Test V1alpha1NamespacedName
-            include_option is a boolean, when False only required
-            params are included, when True both required and
-            optional params are included """
+        include_option is a boolean, when False only required
+        params are included, when True both required and
+        optional params are included"""
         # model = kserve.models.v1alpha1_namespaced_name.V1alpha1NamespacedName()  # noqa: E501
-        if include_optional :
-            return V1alpha1NamespacedName(
-                name = '0', 
-                namespace = '0'
-            )
-        else :
-            return V1alpha1NamespacedName(
-        )
+        if include_optional:
+            return V1alpha1NamespacedName(name="0", namespace="0")
+        else:
+            return V1alpha1NamespacedName()
 
     def testV1alpha1NamespacedName(self):
         """Test V1alpha1NamespacedName"""
@@ -63,5 +60,5 @@ class TestV1alpha1NamespacedName(unittest.TestCase):
         inst_req_and_optional = self.make_instance(include_optional=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

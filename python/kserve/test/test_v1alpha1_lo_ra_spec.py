@@ -33,6 +33,7 @@ import kserve
 from kserve.models.v1alpha1_lo_ra_spec import V1alpha1LoRASpec  # noqa: E501
 from kserve.rest import ApiException
 
+
 class TestV1alpha1LoRASpec(unittest.TestCase):
     """V1alpha1LoRASpec unit test stubs"""
 
@@ -44,23 +45,24 @@ class TestV1alpha1LoRASpec(unittest.TestCase):
 
     def make_instance(self, include_optional):
         """Test V1alpha1LoRASpec
-            include_option is a boolean, when False only required
-            params are included, when True both required and
-            optional params are included """
+        include_option is a boolean, when False only required
+        params are included, when True both required and
+        optional params are included"""
         # model = kserve.models.v1alpha1_lo_ra_spec.V1alpha1LoRASpec()  # noqa: E501
-        if include_optional :
+        if include_optional:
             return V1alpha1LoRASpec(
-                adapters = [
-                    kserve.models.v1alpha1/llm_model_spec.v1alpha1.LLMModelSpec(
-                        criticality = '0', 
-                        lora = kserve.models.v1alpha1/lo_ra_spec.v1alpha1.LoRASpec(), 
-                        name = '0', 
-                        uri = None, )
-                    ]
+                adapters=[
+                    kserve.models.v1alpha1
+                    / llm_model_spec.v1alpha1.LLMModelSpec(
+                        criticality="0",
+                        lora=kserve.models.v1alpha1 / lo_ra_spec.v1alpha1.LoRASpec(),
+                        name="0",
+                        uri=None,
+                    )
+                ]
             )
-        else :
-            return V1alpha1LoRASpec(
-        )
+        else:
+            return V1alpha1LoRASpec()
 
     def testV1alpha1LoRASpec(self):
         """Test V1alpha1LoRASpec"""
@@ -68,5 +70,5 @@ class TestV1alpha1LoRASpec(unittest.TestCase):
         inst_req_and_optional = self.make_instance(include_optional=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

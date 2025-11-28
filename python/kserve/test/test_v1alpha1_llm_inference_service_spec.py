@@ -30,8 +30,11 @@ import unittest
 import datetime
 
 import kserve
-from kserve.models.v1alpha1_llm_inference_service_spec import V1alpha1LLMInferenceServiceSpec  # noqa: E501
+from kserve.models.v1alpha1_llm_inference_service_spec import (
+    V1alpha1LLMInferenceServiceSpec,
+)  # noqa: E501
 from kserve.rest import ApiException
+
 
 class TestV1alpha1LLMInferenceServiceSpec(unittest.TestCase):
     """V1alpha1LLMInferenceServiceSpec unit test stubs"""
@@ -44,77 +47,103 @@ class TestV1alpha1LLMInferenceServiceSpec(unittest.TestCase):
 
     def make_instance(self, include_optional):
         """Test V1alpha1LLMInferenceServiceSpec
-            include_option is a boolean, when False only required
-            params are included, when True both required and
-            optional params are included """
+        include_option is a boolean, when False only required
+        params are included, when True both required and
+        optional params are included"""
         # model = kserve.models.v1alpha1_llm_inference_service_spec.V1alpha1LLMInferenceServiceSpec()  # noqa: E501
-        if include_optional :
+        if include_optional:
             return V1alpha1LLMInferenceServiceSpec(
-                base_refs = [
-                    None
-                    ], 
-                model = kserve.models.v1alpha1/llm_model_spec.v1alpha1.LLMModelSpec(
-                    criticality = '0', 
-                    lora = kserve.models.v1alpha1/lo_ra_spec.v1alpha1.LoRASpec(
-                        adapters = [
-                            kserve.models.v1alpha1/llm_model_spec.v1alpha1.LLMModelSpec(
-                                criticality = '0', 
-                                name = '0', 
-                                uri = None, )
-                            ], ), 
-                    name = '0', 
-                    uri = None, ), 
-                parallelism = kserve.models.v1alpha1/parallelism_spec.v1alpha1.ParallelismSpec(
-                    data = 56, 
-                    data_local = 56, 
-                    data_rpc_port = 56, 
-                    expert = True, 
-                    pipeline = 56, 
-                    tensor = 56, ), 
-                prefill = kserve.models.v1alpha1/workload_spec.v1alpha1.WorkloadSpec(
-                    parallelism = kserve.models.v1alpha1/parallelism_spec.v1alpha1.ParallelismSpec(
-                        data = 56, 
-                        data_local = 56, 
-                        data_rpc_port = 56, 
-                        expert = True, 
-                        pipeline = 56, 
-                        tensor = 56, ), 
-                    replicas = 56, 
-                    template = None, 
-                    worker = None, ), 
-                replicas = 56, 
-                router = kserve.models.v1alpha1/router_spec.v1alpha1.RouterSpec(
-                    gateway = kserve.models.v1alpha1/gateway_spec.v1alpha1.GatewaySpec(
-                        refs = [
-                            kserve.models.v1alpha1/untyped_object_reference.v1alpha1.UntypedObjectReference(
-                                name = '0', 
-                                namespace = '0', )
-                            ], ), 
-                    ingress = kserve.models.v1alpha1/ingress_spec.v1alpha1.IngressSpec(), 
-                    route = kserve.models.v1alpha1/gateway_routes_spec.v1alpha1.GatewayRoutesSpec(
-                        http = kserve.models.v1alpha1/http_route_spec.v1alpha1.HTTPRouteSpec(
-                            spec = None, ), ), 
-                    scheduler = kserve.models.v1alpha1/scheduler_spec.v1alpha1.SchedulerSpec(
-                        pool = kserve.models.v1alpha1/inference_pool_spec.v1alpha1.InferencePoolSpec(
-                            ref = None, 
-                            spec = kserve.models.v1alpha1/gie_inference_pool_spec.v1alpha1.GIEInferencePoolSpec(
-                                extension_ref = kserve.models.v1alpha1/extension.v1alpha1.Extension(
-                                    failure_mode = '0', 
-                                    group = '0', 
-                                    kind = '0', 
-                                    name = '0', 
-                                    port_number = 56, ), 
-                                selector = {
-                                    'key' : '0'
-                                    }, 
-                                target_port_number = 56, ), ), 
-                        template = None, ), ), 
-                template = None, 
-                worker = None
+                base_refs=[None],
+                model=kserve.models.v1alpha1
+                / llm_model_spec.v1alpha1.LLMModelSpec(
+                    criticality="0",
+                    lora=kserve.models.v1alpha1
+                    / lo_ra_spec.v1alpha1.LoRASpec(
+                        adapters=[
+                            kserve.models.v1alpha1
+                            / llm_model_spec.v1alpha1.LLMModelSpec(
+                                criticality="0",
+                                name="0",
+                                uri=None,
+                            )
+                        ],
+                    ),
+                    name="0",
+                    uri=None,
+                ),
+                parallelism=kserve.models.v1alpha1
+                / parallelism_spec.v1alpha1.ParallelismSpec(
+                    data=56,
+                    data_local=56,
+                    data_rpc_port=56,
+                    expert=True,
+                    pipeline=56,
+                    tensor=56,
+                ),
+                prefill=kserve.models.v1alpha1
+                / workload_spec.v1alpha1.WorkloadSpec(
+                    parallelism=kserve.models.v1alpha1
+                    / parallelism_spec.v1alpha1.ParallelismSpec(
+                        data=56,
+                        data_local=56,
+                        data_rpc_port=56,
+                        expert=True,
+                        pipeline=56,
+                        tensor=56,
+                    ),
+                    replicas=56,
+                    template=None,
+                    worker=None,
+                ),
+                replicas=56,
+                router=kserve.models.v1alpha1
+                / router_spec.v1alpha1.RouterSpec(
+                    gateway=kserve.models.v1alpha1
+                    / gateway_spec.v1alpha1.GatewaySpec(
+                        refs=[
+                            kserve.models.v1alpha1
+                            / untyped_object_reference.v1alpha1.UntypedObjectReference(
+                                name="0",
+                                namespace="0",
+                            )
+                        ],
+                    ),
+                    ingress=kserve.models.v1alpha1
+                    / ingress_spec.v1alpha1.IngressSpec(),
+                    route=kserve.models.v1alpha1
+                    / gateway_routes_spec.v1alpha1.GatewayRoutesSpec(
+                        http=kserve.models.v1alpha1
+                        / http_route_spec.v1alpha1.HTTPRouteSpec(
+                            spec=None,
+                        ),
+                    ),
+                    scheduler=kserve.models.v1alpha1
+                    / scheduler_spec.v1alpha1.SchedulerSpec(
+                        pool=kserve.models.v1alpha1
+                        / inference_pool_spec.v1alpha1.InferencePoolSpec(
+                            ref=None,
+                            spec=kserve.models.v1alpha1
+                            / gie_inference_pool_spec.v1alpha1.GIEInferencePoolSpec(
+                                extension_ref=kserve.models.v1alpha1
+                                / extension.v1alpha1.Extension(
+                                    failure_mode="0",
+                                    group="0",
+                                    kind="0",
+                                    name="0",
+                                    port_number=56,
+                                ),
+                                selector={"key": "0"},
+                                target_port_number=56,
+                            ),
+                        ),
+                        template=None,
+                    ),
+                ),
+                template=None,
+                worker=None,
             )
-        else :
-            return V1alpha1LLMInferenceServiceSpec(
-        )
+        else:
+            return V1alpha1LLMInferenceServiceSpec()
 
     def testV1alpha1LLMInferenceServiceSpec(self):
         """Test V1alpha1LLMInferenceServiceSpec"""
@@ -122,5 +151,5 @@ class TestV1alpha1LLMInferenceServiceSpec(unittest.TestCase):
         inst_req_and_optional = self.make_instance(include_optional=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

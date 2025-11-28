@@ -30,8 +30,11 @@ import unittest
 import datetime
 
 import kserve
-from kserve.models.v1alpha1_local_model_cache_status import V1alpha1LocalModelCacheStatus  # noqa: E501
+from kserve.models.v1alpha1_local_model_cache_status import (
+    V1alpha1LocalModelCacheStatus,
+)  # noqa: E501
 from kserve.rest import ApiException
+
 
 class TestV1alpha1LocalModelCacheStatus(unittest.TestCase):
     """V1alpha1LocalModelCacheStatus unit test stubs"""
@@ -44,28 +47,29 @@ class TestV1alpha1LocalModelCacheStatus(unittest.TestCase):
 
     def make_instance(self, include_optional):
         """Test V1alpha1LocalModelCacheStatus
-            include_option is a boolean, when False only required
-            params are included, when True both required and
-            optional params are included """
+        include_option is a boolean, when False only required
+        params are included, when True both required and
+        optional params are included"""
         # model = kserve.models.v1alpha1_local_model_cache_status.V1alpha1LocalModelCacheStatus()  # noqa: E501
-        if include_optional :
+        if include_optional:
             return V1alpha1LocalModelCacheStatus(
-                copies = kserve.models.v1alpha1/model_copies.v1alpha1.ModelCopies(
-                    available = 56, 
-                    failed = 56, 
-                    total = 56, ), 
-                inference_services = [
-                    kserve.models.v1alpha1/namespaced_name.v1alpha1.NamespacedName(
-                        name = '0', 
-                        namespace = '0', )
-                    ], 
-                node_status = {
-                    'key' : '0'
-                    }
+                copies=kserve.models.v1alpha1
+                / model_copies.v1alpha1.ModelCopies(
+                    available=56,
+                    failed=56,
+                    total=56,
+                ),
+                inference_services=[
+                    kserve.models.v1alpha1
+                    / namespaced_name.v1alpha1.NamespacedName(
+                        name="0",
+                        namespace="0",
+                    )
+                ],
+                node_status={"key": "0"},
             )
-        else :
-            return V1alpha1LocalModelCacheStatus(
-        )
+        else:
+            return V1alpha1LocalModelCacheStatus()
 
     def testV1alpha1LocalModelCacheStatus(self):
         """Test V1alpha1LocalModelCacheStatus"""
@@ -73,5 +77,5 @@ class TestV1alpha1LocalModelCacheStatus(unittest.TestCase):
         inst_req_and_optional = self.make_instance(include_optional=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

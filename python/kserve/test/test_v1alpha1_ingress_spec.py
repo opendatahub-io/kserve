@@ -33,6 +33,7 @@ import kserve
 from kserve.models.v1alpha1_ingress_spec import V1alpha1IngressSpec  # noqa: E501
 from kserve.rest import ApiException
 
+
 class TestV1alpha1IngressSpec(unittest.TestCase):
     """V1alpha1IngressSpec unit test stubs"""
 
@@ -44,21 +45,22 @@ class TestV1alpha1IngressSpec(unittest.TestCase):
 
     def make_instance(self, include_optional):
         """Test V1alpha1IngressSpec
-            include_option is a boolean, when False only required
-            params are included, when True both required and
-            optional params are included """
+        include_option is a boolean, when False only required
+        params are included, when True both required and
+        optional params are included"""
         # model = kserve.models.v1alpha1_ingress_spec.V1alpha1IngressSpec()  # noqa: E501
-        if include_optional :
+        if include_optional:
             return V1alpha1IngressSpec(
-                refs = [
-                    kserve.models.v1alpha1/untyped_object_reference.v1alpha1.UntypedObjectReference(
-                        name = '0', 
-                        namespace = '0', )
-                    ]
+                refs=[
+                    kserve.models.v1alpha1
+                    / untyped_object_reference.v1alpha1.UntypedObjectReference(
+                        name="0",
+                        namespace="0",
+                    )
+                ]
             )
-        else :
-            return V1alpha1IngressSpec(
-        )
+        else:
+            return V1alpha1IngressSpec()
 
     def testV1alpha1IngressSpec(self):
         """Test V1alpha1IngressSpec"""
@@ -66,5 +68,5 @@ class TestV1alpha1IngressSpec(unittest.TestCase):
         inst_req_and_optional = self.make_instance(include_optional=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

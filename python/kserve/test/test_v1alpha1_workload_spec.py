@@ -33,6 +33,7 @@ import kserve
 from kserve.models.v1alpha1_workload_spec import V1alpha1WorkloadSpec  # noqa: E501
 from kserve.rest import ApiException
 
+
 class TestV1alpha1WorkloadSpec(unittest.TestCase):
     """V1alpha1WorkloadSpec unit test stubs"""
 
@@ -44,26 +45,27 @@ class TestV1alpha1WorkloadSpec(unittest.TestCase):
 
     def make_instance(self, include_optional):
         """Test V1alpha1WorkloadSpec
-            include_option is a boolean, when False only required
-            params are included, when True both required and
-            optional params are included """
+        include_option is a boolean, when False only required
+        params are included, when True both required and
+        optional params are included"""
         # model = kserve.models.v1alpha1_workload_spec.V1alpha1WorkloadSpec()  # noqa: E501
-        if include_optional :
+        if include_optional:
             return V1alpha1WorkloadSpec(
-                parallelism = kserve.models.v1alpha1/parallelism_spec.v1alpha1.ParallelismSpec(
-                    data = 56, 
-                    data_local = 56, 
-                    data_rpc_port = 56, 
-                    expert = True, 
-                    pipeline = 56, 
-                    tensor = 56, ), 
-                replicas = 56, 
-                template = None, 
-                worker = None
+                parallelism=kserve.models.v1alpha1
+                / parallelism_spec.v1alpha1.ParallelismSpec(
+                    data=56,
+                    data_local=56,
+                    data_rpc_port=56,
+                    expert=True,
+                    pipeline=56,
+                    tensor=56,
+                ),
+                replicas=56,
+                template=None,
+                worker=None,
             )
-        else :
-            return V1alpha1WorkloadSpec(
-        )
+        else:
+            return V1alpha1WorkloadSpec()
 
     def testV1alpha1WorkloadSpec(self):
         """Test V1alpha1WorkloadSpec"""
@@ -71,5 +73,5 @@ class TestV1alpha1WorkloadSpec(unittest.TestCase):
         inst_req_and_optional = self.make_instance(include_optional=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

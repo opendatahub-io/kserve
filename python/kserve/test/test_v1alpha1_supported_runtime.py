@@ -30,8 +30,11 @@ import unittest
 import datetime
 
 import kserve
-from kserve.models.v1alpha1_supported_runtime import V1alpha1SupportedRuntime  # noqa: E501
+from kserve.models.v1alpha1_supported_runtime import (
+    V1alpha1SupportedRuntime,
+)  # noqa: E501
 from kserve.rest import ApiException
+
 
 class TestV1alpha1SupportedRuntime(unittest.TestCase):
     """V1alpha1SupportedRuntime unit test stubs"""
@@ -44,134 +47,114 @@ class TestV1alpha1SupportedRuntime(unittest.TestCase):
 
     def make_instance(self, include_optional):
         """Test V1alpha1SupportedRuntime
-            include_option is a boolean, when False only required
-            params are included, when True both required and
-            optional params are included """
+        include_option is a boolean, when False only required
+        params are included, when True both required and
+        optional params are included"""
         # model = kserve.models.v1alpha1_supported_runtime.V1alpha1SupportedRuntime()  # noqa: E501
-        if include_optional :
+        if include_optional:
             return V1alpha1SupportedRuntime(
-                name = '0', 
-                spec = kserve.models.v1alpha1/serving_runtime_spec.v1alpha1.ServingRuntimeSpec(
-                    affinity = None, 
-                    annotations = {
-                        'key' : '0'
-                        }, 
-                    built_in_adapter = kserve.models.v1alpha1/built_in_adapter.v1alpha1.BuiltInAdapter(
-                        env = [
-                            None
-                            ], 
-                        mem_buffer_bytes = 56, 
-                        model_loading_timeout_millis = 56, 
-                        runtime_management_port = 56, 
-                        server_type = '0', ), 
-                    containers = [
-                        None
-                        ], 
-                    disabled = True, 
-                    grpc_data_endpoint = '0', 
-                    grpc_endpoint = '0', 
-                    host_ipc = True, 
-                    http_data_endpoint = '0', 
-                    image_pull_secrets = [
-                        None
-                        ], 
-                    labels = {
-                        'key' : '0'
-                        }, 
-                    multi_model = True, 
-                    node_selector = {
-                        'key' : '0'
-                        }, 
-                    protocol_versions = [
-                        '0'
-                        ], 
-                    replicas = 56, 
-                    storage_helper = kserve.models.v1alpha1/storage_helper.v1alpha1.StorageHelper(
-                        disabled = True, ), 
-                    supported_model_formats = [
-                        kserve.models.v1alpha1/supported_model_format.v1alpha1.SupportedModelFormat(
-                            auto_select = True, 
-                            name = '0', 
-                            priority = 56, 
-                            version = '0', )
-                        ], 
-                    tolerations = [
-                        None
-                        ], 
-                    volumes = [
-                        None
-                        ], 
-                    worker_spec = kserve.models.v1alpha1/worker_spec.v1alpha1.WorkerSpec(
-                        affinity = None, 
-                        containers = [
-                            None
-                            ], 
-                        host_ipc = True, 
-                        pipeline_parallel_size = 56, 
-                        tensor_parallel_size = 56, ), )
+                name="0",
+                spec=kserve.models.v1alpha1
+                / serving_runtime_spec.v1alpha1.ServingRuntimeSpec(
+                    affinity=None,
+                    annotations={"key": "0"},
+                    built_in_adapter=kserve.models.v1alpha1
+                    / built_in_adapter.v1alpha1.BuiltInAdapter(
+                        env=[None],
+                        mem_buffer_bytes=56,
+                        model_loading_timeout_millis=56,
+                        runtime_management_port=56,
+                        server_type="0",
+                    ),
+                    containers=[None],
+                    disabled=True,
+                    grpc_data_endpoint="0",
+                    grpc_endpoint="0",
+                    host_ipc=True,
+                    http_data_endpoint="0",
+                    image_pull_secrets=[None],
+                    labels={"key": "0"},
+                    multi_model=True,
+                    node_selector={"key": "0"},
+                    protocol_versions=["0"],
+                    replicas=56,
+                    storage_helper=kserve.models.v1alpha1
+                    / storage_helper.v1alpha1.StorageHelper(
+                        disabled=True,
+                    ),
+                    supported_model_formats=[
+                        kserve.models.v1alpha1
+                        / supported_model_format.v1alpha1.SupportedModelFormat(
+                            auto_select=True,
+                            name="0",
+                            priority=56,
+                            version="0",
+                        )
+                    ],
+                    tolerations=[None],
+                    volumes=[None],
+                    worker_spec=kserve.models.v1alpha1
+                    / worker_spec.v1alpha1.WorkerSpec(
+                        affinity=None,
+                        containers=[None],
+                        host_ipc=True,
+                        pipeline_parallel_size=56,
+                        tensor_parallel_size=56,
+                    ),
+                ),
             )
-        else :
+        else:
             return V1alpha1SupportedRuntime(
-                name = '0',
-                spec = kserve.models.v1alpha1/serving_runtime_spec.v1alpha1.ServingRuntimeSpec(
-                    affinity = None, 
-                    annotations = {
-                        'key' : '0'
-                        }, 
-                    built_in_adapter = kserve.models.v1alpha1/built_in_adapter.v1alpha1.BuiltInAdapter(
-                        env = [
-                            None
-                            ], 
-                        mem_buffer_bytes = 56, 
-                        model_loading_timeout_millis = 56, 
-                        runtime_management_port = 56, 
-                        server_type = '0', ), 
-                    containers = [
-                        None
-                        ], 
-                    disabled = True, 
-                    grpc_data_endpoint = '0', 
-                    grpc_endpoint = '0', 
-                    host_ipc = True, 
-                    http_data_endpoint = '0', 
-                    image_pull_secrets = [
-                        None
-                        ], 
-                    labels = {
-                        'key' : '0'
-                        }, 
-                    multi_model = True, 
-                    node_selector = {
-                        'key' : '0'
-                        }, 
-                    protocol_versions = [
-                        '0'
-                        ], 
-                    replicas = 56, 
-                    storage_helper = kserve.models.v1alpha1/storage_helper.v1alpha1.StorageHelper(
-                        disabled = True, ), 
-                    supported_model_formats = [
-                        kserve.models.v1alpha1/supported_model_format.v1alpha1.SupportedModelFormat(
-                            auto_select = True, 
-                            name = '0', 
-                            priority = 56, 
-                            version = '0', )
-                        ], 
-                    tolerations = [
-                        None
-                        ], 
-                    volumes = [
-                        None
-                        ], 
-                    worker_spec = kserve.models.v1alpha1/worker_spec.v1alpha1.WorkerSpec(
-                        affinity = None, 
-                        containers = [
-                            None
-                            ], 
-                        host_ipc = True, 
-                        pipeline_parallel_size = 56, 
-                        tensor_parallel_size = 56, ), ),
-        )
+                name="0",
+                spec=kserve.models.v1alpha1
+                / serving_runtime_spec.v1alpha1.ServingRuntimeSpec(
+                    affinity=None,
+                    annotations={"key": "0"},
+                    built_in_adapter=kserve.models.v1alpha1
+                    / built_in_adapter.v1alpha1.BuiltInAdapter(
+                        env=[None],
+                        mem_buffer_bytes=56,
+                        model_loading_timeout_millis=56,
+                        runtime_management_port=56,
+                        server_type="0",
+                    ),
+                    containers=[None],
+                    disabled=True,
+                    grpc_data_endpoint="0",
+                    grpc_endpoint="0",
+                    host_ipc=True,
+                    http_data_endpoint="0",
+                    image_pull_secrets=[None],
+                    labels={"key": "0"},
+                    multi_model=True,
+                    node_selector={"key": "0"},
+                    protocol_versions=["0"],
+                    replicas=56,
+                    storage_helper=kserve.models.v1alpha1
+                    / storage_helper.v1alpha1.StorageHelper(
+                        disabled=True,
+                    ),
+                    supported_model_formats=[
+                        kserve.models.v1alpha1
+                        / supported_model_format.v1alpha1.SupportedModelFormat(
+                            auto_select=True,
+                            name="0",
+                            priority=56,
+                            version="0",
+                        )
+                    ],
+                    tolerations=[None],
+                    volumes=[None],
+                    worker_spec=kserve.models.v1alpha1
+                    / worker_spec.v1alpha1.WorkerSpec(
+                        affinity=None,
+                        containers=[None],
+                        host_ipc=True,
+                        pipeline_parallel_size=56,
+                        tensor_parallel_size=56,
+                    ),
+                ),
+            )
 
     def testV1alpha1SupportedRuntime(self):
         """Test V1alpha1SupportedRuntime"""
@@ -179,5 +162,5 @@ class TestV1alpha1SupportedRuntime(unittest.TestCase):
         inst_req_and_optional = self.make_instance(include_optional=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
