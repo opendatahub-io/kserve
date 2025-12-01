@@ -19,6 +19,7 @@ package llmisvc_test
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/kserve/kserve/pkg/constants"
@@ -164,6 +165,13 @@ var _ = Describe("LLMInferenceService Controller", func() {
 
 			Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
 				g.Expect(current.Status).To(HaveCondition(string(v1alpha1.HTTPRoutesReady), "True"))
+
+				// They map the config suffix to the actual config name used
+				g.Expect(current.Status.Annotations).NotTo(BeNil())
+
+				for _, name := range llmisvc.WellKnownDefaultConfigs.UnsortedList() {
+					g.Expect(current.Status.Annotations).To(HaveKeyWithValue(strings.Replace(name, "kserve-", "", 1), name))
+				}
 			})).WithContext(ctx).Should(Succeed())
 
 			verifyTLSCertificate(ctx, llmSvc)
