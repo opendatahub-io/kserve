@@ -377,6 +377,10 @@ func isDefaultBackendRef(llmSvc *v1alpha1.LLMInferenceService, ref gatewayapi.Ba
 		string(ref.Name) == defaultInfPoolName
 }
 
+const (
+	StaticWellKnownConfigResolverPrefix = "serving.kserve.io/"
+)
+
 type WellKnownConfigResolver struct{}
 
 func (w *WellKnownConfigResolver) Capture(llmSvc *v1alpha1.LLMInferenceService) {
@@ -385,15 +389,16 @@ func (w *WellKnownConfigResolver) Capture(llmSvc *v1alpha1.LLMInferenceService) 
 	}
 	for _, t := range WellKnownDefaultConfigs.Union(unimplementedWellKnownDefaultConfigs).UnsortedList() {
 		suffix, _ := strings.CutPrefix(t, configPrefix)
+		key := StaticWellKnownConfigResolverPrefix + suffix
 
-		if v, ok := llmSvc.Status.Annotations[suffix]; ok && v != "" {
+		if v, ok := llmSvc.Status.Annotations[key]; ok && v != "" {
 			continue
 		}
 
 		if llmSvc.Status.Annotations == nil {
 			llmSvc.Status.Annotations = map[string]string{}
 		}
-		llmSvc.Status.Annotations[suffix] = t
+		llmSvc.Status.Annotations[key] = t
 	}
 }
 
@@ -403,7 +408,8 @@ func (w *WellKnownConfigResolver) Resolve(llmSvc *v1alpha1.LLMInferenceService, 
 	}
 
 	suffix, _ := strings.CutPrefix(name, configPrefix)
-	if v, ok := llmSvc.Status.Annotations[suffix]; ok {
+	key := StaticWellKnownConfigResolverPrefix + suffix
+	if v, ok := llmSvc.Status.Annotations[key]; ok {
 		return v
 	}
 	return name

@@ -170,7 +170,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				g.Expect(current.Status.Annotations).NotTo(BeNil())
 
 				for _, name := range llmisvc.WellKnownDefaultConfigs.UnsortedList() {
-					g.Expect(current.Status.Annotations).To(HaveKeyWithValue(strings.Replace(name, "kserve-", "", 1), name))
+					g.Expect(current.Status.Annotations).To(HaveKeyWithValue(llmisvc.StaticWellKnownConfigResolverPrefix+strings.Replace(name, "kserve-", "", 1), name))
 				}
 			})).WithContext(ctx).Should(Succeed())
 
