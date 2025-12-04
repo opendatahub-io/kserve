@@ -9,6 +9,7 @@ requires-python = "<3.13,>=3.9"
 dependencies = [
     "uvicorn[standard]<1.0.0,>=0.30.6",
     "fastapi>=0.115.3",
+    "starlette==0.49.1",
     "cloudevents<2.0.0,>=1.6.2",
     "six<2.0.0,>=1.16.0",
     "kubernetes>=23.3.0",
@@ -29,7 +30,7 @@ dependencies = [
     "pyyaml<7.0.0,>=6.0.0",
 ]
 name = "kserve"
-version = "0.15.2"
+version = "0.16.0"
 description = "KServe Python SDK"
 readme = "README.md"
 classifiers = [
@@ -55,13 +56,7 @@ repository = "https://github.com/kserve/kserve/tree/master/python/kserve"
 
 [project.optional-dependencies]
 storage = [
-    "requests<3.0.0,>=2.32.2",
-    "google-cloud-storage<3.0.0,>=2.14.0",
-    "azure-storage-blob<13.0.0,>=12.20.0",
-    "azure-storage-file-share<13.0.0,>=12.16.0",
-    "azure-identity<2.0.0,>=1.15.0",
-    "boto3<2.0.0,>=1.29.0",
-    "huggingface-hub[hf-transfer]>=0.32.0",
+    "kserve-storage==0.16.0"
 ]
 logging = [
     "asgi-logger<1.0.0,>=0.1.0",
@@ -71,7 +66,6 @@ ray = [
 ]
 llm = [
     "vllm==0.9.2",
-    "transformers<4.54.0"
 ]
 
 [dependency-groups]
@@ -87,11 +81,16 @@ test = [
     "tomlkit<1.0.0,>=0.12.0",
     "jinja2<4.0.0,>=3.1.4",
     "grpcio-testing<2.0.0,>=1.60.0",
-    "timeout-sampler<2.0.0,>=1.0.0", 
 ]
 dev = [
     "black[colorama]~=24.3.0",
 ]
+
+[tool.uv]
+# TODO remove later
+index-url = "https://test.pypi.org/simple/"
+extra-index-url = ["https://pypi.org/simple"]
+index-strategy = "unsafe-best-match"
 
 [build-system]
 requires = ["setuptools>=61.0"]

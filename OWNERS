@@ -1,31 +1,28 @@
+owners:
+  - terrytangyuan
+  - yuzisun
+
 approvers:
-  - andresllh
-  - bartoszmajsak
-  - brettmthompson
-  - danielezonca
-  - hdefazio
-  - israel-hdez
   - Jooho
-  - mholder6
-  - mwaykole
-  - pierDipi
-  - rnetser
-  - spolti
+  - lizzzcai
+  - rachitchauhan43
+  - sivanantha321
   - terrytangyuan
-  - VedantMahabaleshwarkar
-  - vivekk16
+  - yuzisun
+
 reviewers:
-  - andresllh
-  - bartoszmajsak
-  - brettmthompson
-  - hdefazio
+  - andyi2it
+  - cjohannsen-cloudera
+  - cmaddalozzo
+  - Datta0
+  - gavrissh
+  - greenmoon55
   - israel-hdez
+  - johnugeorge
   - Jooho
-  - mholder6
-  - mwaykole
-  - pierDipi
-  - rnetser
+  - lizzzcai
+  - rachitchauhan43
+  - sivanantha321
   - spolti
   - terrytangyuan
-  - VedantMahabaleshwarkar
-  - vivekk16
+  - yuzisun

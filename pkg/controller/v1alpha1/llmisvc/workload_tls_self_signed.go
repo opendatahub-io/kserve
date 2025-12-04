@@ -36,17 +36,21 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 const (
+	// Certificate validity period and renewal settings
 	certificateDuration                      = time.Hour * 24 * 365 * 10 // 10 years
 	certificateExpirationRenewBufferDuration = certificateDuration / 5
 
+	// Annotation to track certificate expiration
 	certificatesExpirationAnnotation = "certificates.kserve.io/expiration"
 )
 
 // reconcileSelfSignedCertsSecret reconciles the secret containing self-signed certs used by the server to serve TLS.
 // These self signed certs are used for cluster internal communication encryption by the workload and the scheduler.
+// The certificates are automatically renewed before expiration to ensure continuous secure communication.
 func (r *LLMISVCReconciler) reconcileSelfSignedCertsSecret(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	log.FromContext(ctx).Info("Reconciling self-signed certificates secret")
 
@@ -63,6 +67,11 @@ func (r *LLMISVCReconciler) reconcileSelfSignedCertsSecret(ctx context.Context, 
 	if err != nil {
 		return fmt.Errorf("failed to get expected self-signed certificate secret: %w", err)
 	}
+
+	if utils.GetForceStopRuntime(llmSvc) {
+		return Delete(ctx, r, llmSvc, expected)
+	}
+
 	if err := Reconcile(ctx, r, llmSvc, &corev1.Secret{}, expected, semanticCertificateSecretIsEqual); err != nil {
 		return fmt.Errorf("failed to reconcile self-signed TLS certificate: %w", err)
 	}

@@ -29,6 +29,7 @@ import (
 // It orchestrates the creation of underlying Kubernetes resources like Deployments and Services,
 // and configures networking for exposing the model.
 // +k8s:openapi-gen=true
+// +genclient
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="URL",type="string",JSONPath=".status.url"
@@ -92,6 +93,7 @@ type LLMInferenceServiceSpec struct {
 type WorkloadSpec struct {
 	// Number of replicas for the deployment.
 	// +optional
+	// +kubebuilder:validation:Minimum=0
 	Replicas *int32 `json:"replicas,omitempty"`
 
 	// Parallelism configurations for the runtime, such as tensor and pipeline parallelism.
@@ -214,8 +216,8 @@ type IngressSpec struct {
 //
 // The Scheduler is only effective when having multiple inference pod replicas.
 //
-// Step 1: Gateway (Envoy) <-- ExtProc --> EPP (select the optimal replica to handle the request)
-// Step 2: Gateway (Envoy) <-- forward request --> Inference Pod X
+// Step 1: Gateway (Envoy) &lt;-- ExtProc --&gt; EPP (select the optimal replica to handle the request)
+// Step 2: Gateway (Envoy) &lt;-- forward request --&gt; Inference Pod X
 type SchedulerSpec struct {
 	// Pool configuration for the InferencePool, which is part of the Inference Gateway extension.
 	// +optional
@@ -243,18 +245,24 @@ type InferencePoolSpec struct {
 type ParallelismSpec struct {
 	// Tensor parallelism size.
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	Tensor *int32 `json:"tensor,omitempty"`
 	// Pipeline parallelism size.
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	Pipeline *int32 `json:"pipeline,omitempty"`
 	// Data parallelism size.
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	Data *int32 `json:"data,omitempty"`
 	// DataLocal data local parallelism size.
 	// +optional
+	// +kubebuilder:validation:Minimum=1
 	DataLocal *int32 `json:"dataLocal,omitempty"`
 	// DataRPCPort is the data parallelism RPC port.
 	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
 	DataRPCPort *int32 `json:"dataRPCPort,omitempty"`
 	// Expert enables expert parallelism.
 	// +optional

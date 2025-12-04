@@ -4,6 +4,24 @@ kind: ClusterRole
 metadata:
   name: llmisvc-manager-role
 rules:
+- nonResourceURLs:
+  - /metrics
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+  - update
 - apiGroups:
   - ""
   resources:
@@ -43,6 +61,12 @@ rules:
   resources:
   - subjectaccessreviews
   - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
   verbs:
   - create
 - apiGroups:

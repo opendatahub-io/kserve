@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/autoscaler"
@@ -27,6 +28,9 @@ import (
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/ingress"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/otel"
 	service "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/service"
+	"github.com/kserve/kserve/pkg/credentials"
+	kserveTypes "github.com/kserve/kserve/pkg/types"
+	"github.com/kserve/kserve/pkg/webhook/admission/pod"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -56,11 +60,16 @@ func NewRawKubeReconciler(ctx context.Context,
 	client client.Client,
 	clientset kubernetes.Interface,
 	scheme *runtime.Scheme,
-	resourceType constants.ResourceType,
 	componentMeta metav1.ObjectMeta,
 	workerComponentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
-	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec,
+	podSpec *corev1.PodSpec,
+	workerPodSpec *corev1.PodSpec,
+	storageUris *[]v1beta1.StorageUri,
+	storageInitializerConfig *kserveTypes.StorageInitializerConfig,
+	storageSpec *v1beta1.StorageSpec,
+	credentialBuilder *credentials.CredentialBuilder,
+	storageContainerSpec *v1alpha1.StorageContainerSpec,
 ) (*RawKubeReconciler, error) {
 	var otelCollector *otel.OtelReconciler
 	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(ctx, clientset)
@@ -69,7 +78,7 @@ func NewRawKubeReconciler(ctx context.Context,
 		return nil, err
 	}
 	// create OTel Collector if pod metrics is enabled for auto-scaling
-	if componentExt.AutoScaling != nil {
+	if componentExt != nil && componentExt.AutoScaling != nil {
 		var metricNames []string
 		metrics := componentExt.AutoScaling.Metrics
 		for _, metric := range metrics {
@@ -115,7 +124,57 @@ func NewRawKubeReconciler(ctx context.Context,
 		log.Error(err1, "failed to get service config")
 	}
 
-	depl, err := deployment.NewDeploymentReconciler(ctx, client, clientset, scheme, resourceType, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec)
+	if storageUris != nil && len(*storageUris) > 0 {
+		isvcReadonlyStringFlag := pod.GetStorageInitializerReadOnlyFlag(componentMeta.Annotations)
+
+		storageInitializerParams := &pod.StorageInitializerParams{
+			Namespace:            componentMeta.Namespace,
+			StorageURIs:          *storageUris,
+			IsReadOnly:           isvcReadonlyStringFlag,
+			PodSpec:              podSpec,
+			CredentialBuilder:    credentialBuilder,
+			Client:               client,
+			Config:               storageInitializerConfig,
+			IsvcAnnotations:      componentMeta.Annotations,
+			StorageSpec:          storageSpec,
+			StorageContainerSpec: storageContainerSpec,
+			IsLegacyURI:          false,
+		}
+
+		err := pod.CommonStorageInitialization(ctx, storageInitializerParams)
+		if err != nil {
+			return nil, err
+		}
+
+		if workerPodSpec != nil {
+			workerStorageInitializerParams := &pod.StorageInitializerParams{
+				Namespace:            workerComponentMeta.Namespace,
+				StorageURIs:          *storageUris,
+				IsReadOnly:           isvcReadonlyStringFlag,
+				PodSpec:              workerPodSpec,
+				CredentialBuilder:    credentialBuilder,
+				Client:               client,
+				Config:               storageInitializerConfig,
+				IsvcAnnotations:      workerComponentMeta.Annotations,
+				StorageSpec:          storageSpec,
+				StorageContainerSpec: storageContainerSpec,
+				IsLegacyURI:          false,
+			}
+			err := pod.CommonStorageInitialization(ctx, workerStorageInitializerParams)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Get deploy config
+	deployConfig, err := v1beta1.NewDeployConfig(isvcConfigMap)
+	if err != nil {
+		log.Error(err, "failed to get deploy config")
+		deployConfig = nil // Use nil if config is not available
+	}
+
+	deployment, err := deployment.NewDeploymentReconciler(client, scheme, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec, deployConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -123,8 +182,8 @@ func NewRawKubeReconciler(ctx context.Context,
 	return &RawKubeReconciler{
 		client:        client,
 		scheme:        scheme,
-		Deployment:    depl,
-		Service:       service.NewServiceReconciler(client, scheme, resourceType, componentMeta, componentExt, podSpec, multiNodeEnabled, serviceConfig),
+		Deployment:    deployment,
+		Service:       service.NewServiceReconciler(client, scheme, componentMeta, componentExt, podSpec, multiNodeEnabled, serviceConfig),
 		Scaler:        as,
 		OtelCollector: otelCollector,
 		URL:           url,
@@ -143,13 +202,6 @@ func createRawURL(ingressConfig *v1beta1.IngressConfig, metadata metav1.ObjectMe
 
 // Reconcile ...
 func (r *RawKubeReconciler) Reconcile(ctx context.Context) ([]*appsv1.Deployment, error) {
-	// reconciling service before deployment because we want to use "service.beta.openshift.io/serving-cert-secret-name"
-	// reconcile Service
-	_, err := r.Service.Reconcile(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	// reconcile OTel Collector
 	if r.OtelCollector != nil {
 		err := r.OtelCollector.Reconcile(ctx)
@@ -157,9 +209,14 @@ func (r *RawKubeReconciler) Reconcile(ctx context.Context) ([]*appsv1.Deployment
 			return nil, err
 		}
 	}
-
 	// reconcile Deployment
 	deploymentList, err := r.Deployment.Reconcile(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	// reconcile Service
+	_, err = r.Service.Reconcile(ctx)
 	if err != nil {
 		return nil, err
 	}

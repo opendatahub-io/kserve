@@ -19,7 +19,6 @@ package inferenceservice
 import (
 	"fmt"
 	"maps"
-	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -44,7 +43,7 @@ const (
 	GRACE_PERIOD                int64 = 30
 
 	fastTimeout = time.Second * 3
-	timeout     = time.Second * 6
+	timeout     = time.Second * 60
 	interval    = time.Millisecond * 250
 	domain      = "example.com"
 )
@@ -147,15 +146,7 @@ func getExectedService(predictorServiceKey types.NamespacedName, serviceName str
 	}
 }
 
-func getExpectedIsvcStatus(serviceKey types.NamespacedName, protocol, host, componentHost, port string) v1beta1.InferenceServiceStatus {
-	predTrans := "predictor"
-	if strings.Contains(componentHost, "trans") {
-		predTrans = "transformer"
-	}
-	if len(port) > 0 {
-		port = ":" + port
-	}
-
+func getExpectedIsvcStatus(serviceKey types.NamespacedName) v1beta1.InferenceServiceStatus {
 	return v1beta1.InferenceServiceStatus{
 		Status: duckv1.Status{
 			Conditions: duckv1.Conditions{
@@ -179,28 +170,28 @@ func getExpectedIsvcStatus(serviceKey types.NamespacedName, protocol, host, comp
 			},
 		},
 		URL: &apis.URL{
-			Scheme: protocol,
-			Host:   host,
+			Scheme: "http",
+			Host:   "raw-foo-default.example.com",
 		},
 		Address: &duckv1.Addressable{
 			URL: &apis.URL{
-				Scheme: protocol,
-				Host:   fmt.Sprintf("%s-%s.%s.svc.cluster.local%s", serviceKey.Name, predTrans, serviceKey.Namespace, port),
+				Scheme: "http",
+				Host:   fmt.Sprintf("%s-predictor.%s.svc.cluster.local", serviceKey.Name, serviceKey.Namespace),
 			},
 		},
 		Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 			v1beta1.PredictorComponent: {
 				LatestCreatedRevision: "",
-				// uncomment when the status improvement from upstream is synced.
-				// URL: &apis.URL{
-				//	Scheme: compProto,
-				//	Host:   componentHost,
-				// },
+				URL: &apis.URL{
+					Scheme: "http",
+					Host:   "raw-foo-predictor-default.example.com",
+				},
 			},
 		},
 		ModelStatus: v1beta1.ModelStatus{
 			TransitionStatus:    "InProgress",
 			ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
+			ModelCopies:         &v1beta1.ModelCopies{},
 		},
 		DeploymentMode:     string(constants.Standard),
 		ServingRuntimeName: "tf-serving-raw",
@@ -239,7 +230,7 @@ func getDefaultMetrics() []v1beta1.MetricsSpec {
 				},
 				Target: v1beta1.MetricTarget{
 					Type:  v1beta1.ValueMetricType,
-					Value: &resource.Quantity{},
+					Value: v1beta1.NewMetricQuantity(""),
 				},
 			},
 		},
