@@ -92,7 +92,19 @@ func (mi *StorageInitializerInjector) InjectModelcar(pod *corev1.Pod) error {
 		return nil
 	}
 
-	if err := utils.ConfigureModelcarToContainer(srcURI, &pod.Spec, constants.InferenceServiceContainerName, mi.config); err != nil {
+	// Find the user container (inference server) or worker container
+	userContainer := utils.GetContainerWithName(&pod.Spec, constants.InferenceServiceContainerName)
+	workerContainer := utils.GetContainerWithName(&pod.Spec, constants.WorkerContainerName)
+
+	if userContainer == nil {
+		if workerContainer == nil {
+			return fmt.Errorf("Invalid configuration: cannot find container: %s", constants.InferenceServiceContainerName)
+		} else {
+			userContainer = workerContainer
+		}
+	}
+
+	if err := utils.ConfigureModelcarToContainer(srcURI, &pod.Spec, userContainer.Name, mi.config); err != nil {
 		return err
 	}
 
