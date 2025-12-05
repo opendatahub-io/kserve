@@ -377,15 +377,18 @@ func (r *InferenceServiceReconciler) updateStatus(ctx context.Context, desiredSe
 		// This is important because the copy we loaded from the informer's
 		// cache may be stale and we don't want to overwrite a prior update
 		// to status with this stale state.
-	} else if err := r.Status().Update(ctx, desiredService); err != nil {
-		r.Log.Error(err, "Failed to update InferenceService status", "InferenceService", desiredService.Name)
-		r.Recorder.Eventf(desiredService, corev1.EventTypeWarning, "UpdateFailed",
-			"Failed to update status for InferenceService %q: %v", desiredService.Name, err)
-		return errors.Wrapf(err, "fails to update InferenceService status")
 	} else {
+		// Copy the desired status to the fresh existingService to preserve the latest resourceVersion
+		existingService.Status = desiredService.Status
+		if err := r.Status().Update(ctx, existingService); err != nil {
+			r.Log.Error(err, "Failed to update InferenceService status", "InferenceService", desiredService.Name)
+			r.Recorder.Eventf(desiredService, corev1.EventTypeWarning, "UpdateFailed",
+				"Failed to update status for InferenceService %q: %v", desiredService.Name, err)
+			return errors.Wrapf(err, "fails to update InferenceService status")
+		}
 		// If there was a difference and there was no error.
-		isReady := inferenceServiceReadiness(desiredService.Status)
-		isReadyFalse := inferenceServiceReadinessFalse(desiredService.Status)
+		isReady := inferenceServiceReadiness(existingService.Status)
+		isReadyFalse := inferenceServiceReadinessFalse(existingService.Status)
 		if wasReady && isReadyFalse { // Moved to NotReady State
 			r.Recorder.Eventf(desiredService, corev1.EventTypeWarning, string(InferenceServiceNotReadyState),
 				fmt.Sprintf("InferenceService [%v] is no longer Ready because of: %v", desiredService.GetName(), r.GetFailConditions(desiredService)))
