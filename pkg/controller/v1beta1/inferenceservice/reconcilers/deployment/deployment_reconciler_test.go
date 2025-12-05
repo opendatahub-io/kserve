@@ -972,16 +972,13 @@ func TestOauthProxyUpstreamTimeout(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			deployments, err := createRawDeploymentODH(
-				t.Context(),
-				tt.args.client,
-				tt.args.clientset,
-				constants.InferenceServiceResource,
+			deployments, err := createRawDeployment(
 				tt.args.objectMeta,
 				tt.args.workerObjectMeta,
 				tt.args.componentExt,
 				tt.args.podSpec,
 				tt.args.workerPodSpec,
+				nil, // deployConfig - using nil for test
 			)
 			require.NoError(t, err)
 			require.NotEmpty(t, deployments)
@@ -1267,11 +1264,8 @@ func TestNewDeploymentReconciler(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := NewDeploymentReconciler(
-				t.Context(),
 				tt.fields.client,
-				tt.fields.clientset,
 				tt.fields.scheme,
-				tt.fields.resourceType,
 				tt.fields.objectMeta,
 				tt.fields.workerMeta,
 				tt.fields.componentExt,

@@ -213,7 +213,7 @@ func (p *Transformer) reconcileTransformerRawDeployment(ctx context.Context, isv
 		storageSpec = &modelStorageSpec.StorageSpec
 	}
 
-	r, err := raw.NewRawKubeReconciler(ctx, p.client, p.clientset, p.scheme, *objectMeta, metav1.ObjectMeta{},
+	r, err := raw.NewRawKubeReconciler(ctx, p.client, p.clientset, p.scheme, constants.InferenceServiceResource, *objectMeta, metav1.ObjectMeta{},
 		&isvc.Spec.Transformer.ComponentExtensionSpec, podSpec, nil, &isvc.Spec.Transformer.StorageUris, storageInitializerConfig, storageSpec, credentialBuilder, storageContainerSpec)
 	if err != nil {
 		return errors.Wrapf(err, "fails to create NewRawKubeReconciler for transformer")
