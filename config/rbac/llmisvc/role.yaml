@@ -105,9 +105,9 @@ rules:
   - update
   - watch
 - apiGroups:
-  - leaderworkerset.x-k8s.io
+  - networking.istio.io
   resources:
-  - leaderworkersets
+  - destinationrules
   verbs:
   - create
   - delete
@@ -117,9 +117,9 @@ rules:
   - update
   - watch
 - apiGroups:
-  - networking.istio.io
+  - leaderworkerset.x-k8s.io
   resources:
-  - destinationrules
+  - leaderworkersets
   verbs:
   - create
   - delete
