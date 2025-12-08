@@ -68,6 +68,7 @@ func createInferenceGraphPodSpec(graph *v1alpha1.InferenceGraph, config *RouterC
 				Image:           config.Image,
 				ImagePullPolicy: corev1.PullPolicy(config.ImagePullPolicy),
 				Args: []string{
+					"--enable-tls",
 					"--graph-json",
 					string(bytes),
 				},
@@ -82,27 +83,77 @@ func createInferenceGraphPodSpec(graph *v1alpha1.InferenceGraph, config *RouterC
 						Drop: []corev1.Capability{corev1.Capability("ALL")},
 					},
 				},
+				VolumeMounts: []corev1.VolumeMount{
+					{
+						Name:      "openshift-service-ca-bundle",
+						MountPath: "/etc/odh/openshift-service-ca-bundle",
+					},
+				},
+				Env: []corev1.EnvVar{
+					{
+						Name:  "SSL_CERT_FILE",
+						Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+					},
+				},
+			},
+		},
+		Volumes: []corev1.Volume{
+			{
+				Name: "openshift-service-ca-bundle",
+				VolumeSource: corev1.VolumeSource{
+					ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: constants.OpenShiftServiceCaConfigMapName,
+						},
+					},
+				},
 			},
 		},
 		Affinity:                     graph.Spec.Affinity,
+		ServiceAccountName:           "default",
 		AutomountServiceAccountToken: proto.Bool(false), // Inference graph does not need access to api server
 		Tolerations:                  graph.Spec.Tolerations,
 		ImagePullSecrets:             config.GetImagePullSecrets(),
 		NodeSelector:                 graph.Spec.NodeSelector,
 		NodeName:                     graph.Spec.NodeName,
-		ServiceAccountName:           graph.Spec.ServiceAccountName,
+		// ServiceAccountName:           graph.Spec.ServiceAccountName,
 	}
 
 	// Only adding this env variable "PROPAGATE_HEADERS" if router's headers config has the key "propagate"
 	value, exists := config.Headers["propagate"]
 	if exists {
-		podSpec.Containers[0].Env = []corev1.EnvVar{
-			{
-				Name:  constants.RouterHeadersPropagateEnvVar,
-				Value: strings.Join(value, ","),
-			},
+		propagateEnv := corev1.EnvVar{
+			Name:  constants.RouterHeadersPropagateEnvVar,
+			Value: strings.Join(value, ","),
 		}
+
+		podSpec.Containers[0].Env = append(podSpec.Containers[0].Env, propagateEnv)
 	}
+
+	// If auth is enabled for the InferenceGraph:
+	// * Add --enable-auth argument, to properly secure kserve-router
+	// * Add the --inferencegraph-name argument, so that the router is aware of its name
+	// * Enable auto-mount of the ServiceAccount, because it is required for validating tokens
+	// * Set a non-default ServiceAccount with enough privileges to verify auth
+	if graph.GetAnnotations()[constants.ODHKserveRawAuth] == "true" {
+		podSpec.Containers[0].Args = append(podSpec.Containers[0].Args, "--enable-auth")
+
+		podSpec.Containers[0].Args = append(podSpec.Containers[0].Args, "--inferencegraph-name")
+		podSpec.Containers[0].Args = append(podSpec.Containers[0].Args, graph.GetName())
+
+		podSpec.AutomountServiceAccountToken = proto.Bool(true)
+
+		// In ODH, when auth is enabled, it is required to have the InferenceGraph running
+		// with a ServiceAccount that can query the Kubernetes API to validate tokens
+		// and privileges.
+		// In KServe v0.14 there is no way for users to set the ServiceAccount for an
+		// InferenceGraph. In ODH this is used at our advantage to set a non-default SA
+		// and bind needed privileges for the auth verification.
+		podSpec.ServiceAccountName = graph.GetName() + "-auth-verifier"
+	}
+
+	// In ODH, the readiness probe is using HTTPS
+	podSpec.Containers[0].ReadinessProbe.ProbeHandler.HTTPGet.Scheme = corev1.URISchemeHTTPS
 
 	return podSpec
 }
