@@ -42506,6 +42506,10 @@ data:
     {
       "autoMountServiceAccountToken": true
     }
+  service: |-
+    {
+        "serviceClusterIPNone": true
+    }
   storageInitializer: |-
     {
         "image" : "kserve/storage-initializer:latest",

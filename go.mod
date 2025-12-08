@@ -1,6 +1,6 @@
 module github.com/kserve/kserve
 
-go 1.25.4
+go 1.24.1
 
 require (
 	cloud.google.com/go/storage v1.50.0
@@ -187,7 +187,6 @@ require (
 	sigs.k8s.io/apiserver-network-proxy/konnectivity-client v0.31.2 // indirect
 	sigs.k8s.io/json v0.0.0-20241014173422-cfa47c3a1cc8 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
-	sigs.k8s.io/structured-merge-diff/v4 v4.6.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect
 )
 

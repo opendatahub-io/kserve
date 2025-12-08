@@ -741,6 +741,11 @@ data:
       "autoMountServiceAccountToken": true
     }
 
+  service: |-
+    {
+        "serviceClusterIPNone": true
+    }
+
   inferenceService: |-
     {
       "resource": {
