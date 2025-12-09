@@ -96,7 +96,7 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 	logger := log.FromContext(ctx).WithName("combineBaseRefsConfig")
 
 	wr := &WellKnownConfigResolver{}
-	wr.Capture(llmSvc)
+	wr.Attach(llmSvc)
 
 	// Creates the initial spec with the merged BaseRefs, so that we know what's "Enabled".
 	resolvedSpec := *llmSvc.Spec.DeepCopy()
@@ -383,11 +383,11 @@ const (
 
 type WellKnownConfigResolver struct{}
 
-func (w *WellKnownConfigResolver) Capture(llmSvc *v1alpha1.LLMInferenceService) {
+func (w *WellKnownConfigResolver) Attach(llmSvc *v1alpha1.LLMInferenceService) {
 	if !useVersionedConfig {
 		return
 	}
-	for _, t := range WellKnownDefaultConfigs.Union(unimplementedWellKnownDefaultConfigs).UnsortedList() {
+	for _, t := range WellKnownDefaultConfigs.UnsortedList() {
 		suffix, _ := strings.CutPrefix(t, configPrefix)
 		key := StaticWellKnownConfigResolverPrefix + suffix
 
