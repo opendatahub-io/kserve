@@ -57,6 +57,8 @@ kustomize build $PROJECT_ROOT/test/overlays/openshift-ci/minio-tls-serving-cert 
 
 # Wait for minio pod to be ready
 echo "Waiting for minio-tls-serving pod to be ready..."
+echo "Serving TLS MinIO oc get events"
+oc get events
 oc wait --for=condition=ready pod -l app=minio-tls-serving -n ${NS} --timeout=300s
 
 echo "Configuring MinIO for TLS with Openshift serving certificate and adding models to storage"
@@ -70,25 +72,26 @@ fi
 oc create route reencrypt minio-tls-serving-service \
   --service=minio-tls-serving-service \
   --dest-ca-cert="${TLS_DIR}/certs/serving/tls.crt" \
-  -n ${NS} && sleep 5
+  -n ${NS} && sleep 15
 MINIO_TLS_SERVING_ROUTE=$(oc get routes -n ${NS} minio-tls-serving-service -o jsonpath="{.spec.host}")
+echo "Serving TLS MinIO route: $MINIO_TLS_SERVING_ROUTE"
 
-# Wait for minio TLS endpoint to be accessible
-echo "Waiting for minio TLS endpoint to be accessible..."
+# Wait for serving TLS minio endpoint to be accessible
+echo "Waiting for serving TLS minio endpoint to be accessible..."
 timeout=60
 counter=0
 while [ $counter -lt $timeout ]; do
   if curl -f -s -k "https://$MINIO_TLS_SERVING_ROUTE/minio/health/live" >/dev/null 2>&1; then
-    echo "Minio TLS serving is ready!"
+    echo "Serving TLS Minio is ready!"
     break
   fi
-  echo "Waiting for minio TLS serving to be ready... ($counter/$timeout)"
+  echo "Waiting for serving TLS minio to be ready... ($counter/$timeout)"
   sleep 2
   counter=$((counter + 2))
 done
 
 if [ $counter -ge $timeout ]; then
-  echo "Timeout waiting for minio TLS serving to be ready"
+  echo "Timeout waiting for serving TLS minio to be ready"
   exit 1
 fi
 

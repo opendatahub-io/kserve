@@ -63,6 +63,8 @@ kustomize build $PROJECT_ROOT/test/overlays/openshift-ci/minio-tls-custom-cert |
 
 # Wait for minio pod to be ready
 echo "Waiting for minio-tls-custom pod to be ready..."
+echo "Custom TLS MinIO oc get events"
+oc get events
 oc wait --for=condition=ready pod -l app=minio-tls-custom -n ${NS} --timeout=300s
 
 echo "Configuring MinIO for TLS with custom certificate and adding models to storage ..."
@@ -84,25 +86,26 @@ oc rollout status deployment/minio-tls-custom -n ${NS} --timeout=300s
 oc create route reencrypt minio-tls-custom-service \
   --service=minio-tls-custom-service \
   --dest-ca-cert="${TLS_DIR}/certs/custom/root.crt" \
-  -n ${NS} && sleep 5
+  -n ${NS} && sleep 15
 MINIO_TLS_CUSTOM_ROUTE=$(oc get routes -n ${NS} minio-tls-custom-service -o jsonpath="{.spec.host}")
+echo "Custom TLS MinIO route: $MINIO_TLS_CUSTOM_ROUTE"
 
-# Wait for minio TLS endpoint to be accessible
-echo "Waiting for minio TLS custom endpoint to be accessible..."
+# Wait for custom TLS minio endpoint to be accessible
+echo "Waiting for custom TLS minio endpoint to be accessible..."
 timeout=60
 counter=0
 while [ $counter -lt $timeout ]; do
   if curl -f -s -k "https://$MINIO_TLS_CUSTOM_ROUTE/minio/health/live" >/dev/null 2>&1; then
-    echo "Minio TLS custom is ready!"
+    echo "Custom TLS Minio is ready!"
     break
   fi
-  echo "Waiting for minio TLS custom to be ready... ($counter/$timeout)"
+  echo "Waiting for custom TLS minio to be ready... ($counter/$timeout)"
   sleep 2
   counter=$((counter + 2))
 done
 
 if [ $counter -ge $timeout ]; then
-  echo "Timeout waiting for minio TLS custom to be ready"
+  echo "Timeout waiting for custom TLS minio to be ready"
   exit 1
 fi
 
