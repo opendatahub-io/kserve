@@ -5987,6 +5987,20 @@ func schema_pkg_apis_serving_v1beta1_InferenceServiceStatus(ref common.Reference
 							Format:      "",
 						},
 					},
+					"servingRuntimeName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ServingRuntimeName is the name of the ServingRuntime that the InferenceService is using",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"clusterServingRuntimeName": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ClusterServingRuntimeName is the name of the ClusterServingRuntime that the InferenceService is using",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
 				},
 			},
 		},
@@ -7548,6 +7562,12 @@ func schema_pkg_apis_serving_v1beta1_OauthConfig(ref common.ReferenceCallback) c
 							Default: "",
 							Type:    []string{"string"},
 							Format:  "",
+						},
+					},
+					"upstreamTimeoutSeconds": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"string"},
+							Format: "",
 						},
 					},
 				},

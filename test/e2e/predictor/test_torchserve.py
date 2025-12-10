@@ -63,7 +63,7 @@ async def test_torchserve_kserve(rest_v1_client):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     res = await predict_isvc(
         rest_v1_client, service_name, "./data/torchserve_input.json"
@@ -101,7 +101,7 @@ async def test_torchserve_v2_kserve(rest_v2_client):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     res = await predict_isvc(
         rest_v2_client,
@@ -145,7 +145,7 @@ async def test_torchserve_grpc_v2():
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     json_file = open("./data/torchserve_input.json")
     data = json.load(json_file)
@@ -199,7 +199,7 @@ async def test_torchserve_runtime_kserve(rest_v1_client):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     res = await predict_isvc(
         rest_v1_client, service_name, "./data/torchserve_input.json", model_name="mnist"

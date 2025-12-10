@@ -20,8 +20,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"slices"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/types"
@@ -33,7 +35,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/constants"
 )
+
+var wildcardHostname = constants.GetEnvOrDefault("GATEWAY_API_WILDCARD_HOSTNAME", "inference")
 
 type resolvedGateway struct {
 	gateway      *gatewayapi.Gateway
@@ -87,6 +94,18 @@ func DiscoverURLs(ctx context.Context, c client.Client, route *gatewayapi.HTTPRo
 		}
 
 		hostnames := extractRouteHostnames(route)
+		// If Hostname is set in the spec, use the Hostname specified.
+		// Using the LoadBalancer addresses in `Gateway.Status.Addresses` will return 404 in those cases.
+		if len(hostnames) == 0 && listener.Hostname != nil && *listener.Hostname != "" {
+			if host, isWildcard := strings.CutPrefix(string(*listener.Hostname), "*."); isWildcard {
+				// Hostnames that are prefixed with a wildcard label (`*.`) are interpreted
+				// as a suffix match. That means that a match for `*.example.com` would match
+				// both `test.example.com`, and `foo.test.example.com`, but not `example.com`.
+				hostnames = append(hostnames, fmt.Sprintf("%s.%s", wildcardHostname, host))
+			} else {
+				hostnames = []string{host}
+			}
+		}
 		if len(hostnames) == 0 {
 			hostnames = extractAddressValues(addresses)
 		}
@@ -105,11 +124,45 @@ func DiscoverURLs(ctx context.Context, c client.Client, route *gatewayapi.HTTPRo
 }
 
 func extractRoutePath(route *gatewayapi.HTTPRoute) string {
-	if len(route.Spec.Rules) > 0 && len(route.Spec.Rules[0].Matches) > 0 {
-		// TODO how do we deal with regexp
-		return ptr.Deref(route.Spec.Rules[0].Matches[0].Path.Value, "/")
+	serviceKind := gatewayapi.Kind("Service")
+	servicePaths := []string{}
+	paths := []string{}
+	for _, rule := range route.Spec.Rules {
+		serviceFound := false
+		for _, backendRef := range rule.BackendRefs {
+			if backendRef.Kind == &serviceKind {
+				serviceFound = true
+				break
+			}
+		}
+		for _, match := range rule.Matches {
+			if serviceFound {
+				servicePaths = append(servicePaths, ptr.Deref(match.Path.Value, "/"))
+			} else {
+				paths = append(paths, ptr.Deref(match.Path.Value, "/"))
+			}
+		}
 	}
-	return "/"
+
+	// Paths set in rules referencing a Service as the backend will take priority
+	if len(servicePaths) > 0 {
+		paths = servicePaths
+	}
+
+	// If any paths are set in rules for the route, return the highest level path with the shortest length
+	// TODO how do we deal with regexp
+	// TODO how do we intelligently handle multiple rules
+	shortestPath := "/"
+	minSlashes := math.MaxInt
+	for _, path := range paths {
+		pathSlashes := strings.Count(path, "/")
+		if pathSlashes < minSlashes || (pathSlashes == minSlashes && len(path) < len(shortestPath)) {
+			shortestPath = path
+			minSlashes = pathSlashes
+		}
+	}
+
+	return shortestPath
 }
 
 func selectListener(gateway *gatewayapi.Gateway, sectionName *gatewayapi.SectionName) *gatewayapi.Listener {
@@ -237,12 +290,12 @@ func IsGatewayReady(gateway *gatewayapi.Gateway) bool {
 }
 
 // EvaluateHTTPRouteReadiness checks the readiness status of HTTPRoutes and returns those that are not ready
-func EvaluateHTTPRouteReadiness(ctx context.Context, routes []*gatewayapi.HTTPRoute) []*gatewayapi.HTTPRoute {
+func EvaluateHTTPRouteReadiness(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, routes []*gatewayapi.HTTPRoute) []*gatewayapi.HTTPRoute {
 	logger := log.FromContext(ctx)
 	notReadyRoutes := make([]*gatewayapi.HTTPRoute, 0)
 
 	for _, route := range routes {
-		ready := IsHTTPRouteReady(route)
+		ready := IsHTTPRouteReady(llmSvc, route)
 		logger.Info("HTTPRoute readiness evaluated", "route", fmt.Sprintf("%s/%s", route.Namespace, route.Name), "ready", ready)
 
 		if !ready {
@@ -254,26 +307,39 @@ func EvaluateHTTPRouteReadiness(ctx context.Context, routes []*gatewayapi.HTTPRo
 }
 
 // IsHTTPRouteReady determines if an HTTPRoute is ready based on its status conditions.
-func IsHTTPRouteReady(route *gatewayapi.HTTPRoute) bool {
+func IsHTTPRouteReady(llmSvc *v1alpha1.LLMInferenceService, route *gatewayapi.HTTPRoute) bool {
 	if route == nil || len(route.Spec.ParentRefs) == 0 {
 		return false
 	}
 
-	if cond, missing := nonReadyHTTPRouteTopLevelCondition(route); cond != nil || missing {
+	if cond, missing := nonReadyHTTPRouteTopLevelCondition(llmSvc, route); cond != nil || missing {
 		return false
 	}
 
 	return true
 }
 
-func nonReadyHTTPRouteTopLevelCondition(route *gatewayapi.HTTPRoute) (*metav1.Condition, bool) {
+func nonReadyHTTPRouteTopLevelCondition(llmSvc *v1alpha1.LLMInferenceService, route *gatewayapi.HTTPRoute) (*metav1.Condition, bool) {
 	if route == nil {
 		return nil, true
 	}
 
 	routeConditionAcceptedMissing := true
+	routeAuthEnforced := false
 
 	for _, parent := range route.Status.RouteStatus.Parents {
+		if parent.ControllerName == "kuadrant.io/policy-controller" && llmSvc.IsAuthEnabled() {
+			cond := meta.FindStatusCondition(parent.Conditions, "kuadrant.io/AuthPolicyAffected")
+			if cond == nil {
+				continue
+			}
+			if cond.Status != metav1.ConditionTrue {
+				return cond, false
+			}
+			routeAuthEnforced = true
+			continue
+		}
+
 		cond := meta.FindStatusCondition(parent.Conditions, string(gatewayapi.RouteConditionAccepted))
 		if cond == nil {
 			// This can happen when multiple controllers write to the status, e.g., besides the gateway controller, there
@@ -286,6 +352,15 @@ func nonReadyHTTPRouteTopLevelCondition(route *gatewayapi.HTTPRoute) (*metav1.Co
 		if cond.Status != metav1.ConditionTrue || staleCondition {
 			return cond, false
 		}
+	}
+
+	if llmSvc.IsAuthEnabled() && !routeAuthEnforced {
+		return &metav1.Condition{
+			Type:    "kuadrant.io/AuthPolicyAffected",
+			Status:  metav1.ConditionFalse,
+			Reason:  "Authentication is not enforced",
+			Message: "Either disable authentication with security.opendatahub.io/enable-auth=false annotation or install Red Hat Connectivity Link",
+		}, false
 	}
 
 	return nil, routeConditionAcceptedMissing

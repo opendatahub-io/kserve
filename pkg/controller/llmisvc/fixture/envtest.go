@@ -56,6 +56,7 @@ func SetupTestEnv() *pkgtest.Client {
 		llmCtrl := llmisvc.LLMInferenceServiceReconciler{
 			Client:    mgr.GetClient(),
 			Clientset: clientSet,
+			Config:    cfg,
 			// TODO fix it to be set up similar to main.go, for now it's stub
 			EventRecorder: eventBroadcaster.NewRecorder(mgr.GetScheme(), corev1.EventSource{Component: "v1beta1Controllers"}),
 		}

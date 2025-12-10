@@ -105,7 +105,7 @@ async def test_transformer_collocation(rest_v1_client):
     )
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     except RuntimeError as e:
         print(
             kserve_client.api_instance.get_namespaced_custom_object(
@@ -189,7 +189,7 @@ async def test_transformer_collocation_runtime(rest_v1_client):
     )
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     except RuntimeError as e:
         print(
             kserve_client.api_instance.get_namespaced_custom_object(
@@ -286,7 +286,7 @@ async def test_raw_transformer_collocation(rest_v1_client, network_layer):
     )
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     except RuntimeError as e:
         print(
             kserve_client.api_instance.get_namespaced_custom_object(
@@ -324,6 +324,9 @@ async def test_raw_transformer_collocation(rest_v1_client, network_layer):
 
 @pytest.mark.raw
 @pytest.mark.asyncio(scope="session")
+@pytest.mark.skip(
+    "The torchserve container fails in OpenShift with permission denied errors and needs the policy add-scc-to-user anyuid to run (RHOAIENG-28459)"
+)
 async def test_raw_transformer_collocation_runtime(rest_v1_client, network_layer):
     suffix = str(uuid.uuid4())[1:5]
     service_name = "raw-custom-pred-collocation-" + suffix
@@ -382,7 +385,7 @@ async def test_raw_transformer_collocation_runtime(rest_v1_client, network_layer
     )
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     except RuntimeError as e:
         print(
             kserve_client.api_instance.get_namespaced_custom_object(

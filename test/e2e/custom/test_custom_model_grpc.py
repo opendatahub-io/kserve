@@ -77,7 +77,7 @@ async def test_custom_model_grpc():
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     json_file = open("./data/custom_model_input.json")
     data = json.load(json_file)
@@ -158,7 +158,7 @@ async def test_predictor_grpc_with_transformer_grpc():
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     json_file = open("./data/custom_model_input.json")
     data = json.load(json_file)
@@ -241,7 +241,7 @@ async def test_predictor_grpc_with_transformer_http(rest_v2_client):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     is_ready = await is_model_ready(rest_v2_client, service_name, model_name) is True
     assert is_ready is True
@@ -335,7 +335,7 @@ async def test_predictor_rest_with_transformer_rest(rest_v2_client):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     is_ready = await is_model_ready(rest_v2_client, service_name, model_name) is True
     assert is_ready is True
@@ -436,7 +436,7 @@ async def test_predictor_grpc_with_transformer_grpc_raw(network_layer):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     json_file = open("./data/custom_model_input.json")
     data = json.load(json_file)

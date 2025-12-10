@@ -58,7 +58,7 @@ def test_canary_rollout():
     )
 
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     # define canary endpoint spec, and then rollout 10% traffic to the canary version
     canary_endpoint_spec = V1beta1InferenceServiceSpec(
@@ -83,7 +83,7 @@ def test_canary_rollout():
     )
 
     kserve_client.patch(service_name, isvc, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     canary_isvc = kserve_client.get(service_name, namespace=KSERVE_TEST_NAMESPACE)
     for traffic in canary_isvc["status"]["components"]["predictor"]["traffic"]:
@@ -124,7 +124,7 @@ def test_canary_rollout_runtime():
     )
 
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     # define canary endpoint spec, and then rollout 10% traffic to the canary version
     canary_endpoint_spec = V1beta1InferenceServiceSpec(
@@ -152,7 +152,7 @@ def test_canary_rollout_runtime():
     )
 
     kserve_client.patch(service_name, isvc, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     canary_isvc = kserve_client.get(service_name, namespace=KSERVE_TEST_NAMESPACE)
     for traffic in canary_isvc["status"]["components"]["predictor"]["traffic"]:

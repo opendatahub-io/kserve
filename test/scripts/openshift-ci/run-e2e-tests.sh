@@ -36,6 +36,8 @@ export CI_USE_ISVC_HOST="1"
 export GITHUB_SHA=stable # Need to use stable as this is what the CI tags the images to for success-200 and error-404
 : "${BUILD_GRAPH_IMAGES:=true}"
 : "${RUNNING_LOCAL:=false}"
+: "${SKIP_DELETION_ON_FAILURE:=true}"
+export SKIP_DELETION_ON_FAILURE
 
 if $RUNNING_LOCAL; then
   export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
@@ -58,8 +60,15 @@ if [ "$SETUP_E2E" = "true" ]; then
 fi
 
 # Use certify go module to get the CA certs
-export REQUESTS_CA_BUNDLE="/tmp/ca.crt"
-echo "REQUESTS_CA_BUNDLE=$(cat ${REQUESTS_CA_BUNDLE})"
+# For serverless it is configured here: infra/deploy.serverless.sh
+# For Raw: setup-e2e-tests.sh
+if [ ! -s "/tmp/ca.crt" ]; then
+  echo "⚠️  Failed to extract CA certificate, using system defaults... early failing..."
+else
+  echo "✅ CA certificate extracted"
+  export REQUESTS_CA_BUNDLE="/tmp/ca.crt"
+  echo "REQUESTS_CA_BUNDLE=$(cat ${REQUESTS_CA_BUNDLE})"
+fi
 
 echo "Run E2E tests: ${MARKERS}"
 pushd $PROJECT_ROOT >/dev/null

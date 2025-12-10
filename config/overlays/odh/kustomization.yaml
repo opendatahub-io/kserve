@@ -8,6 +8,7 @@ resources:
 - llm-svc-scc.yaml
 - network-policies.yaml
 - user-cluster-roles.yaml
+- accelerators/
 
 namespace: opendatahub
 
@@ -18,6 +19,7 @@ patches:
 - path: patches/patch-webhook-svc-openshift-cert-injection.yaml
 - path: patches/patch-inferenceservice-config.yaml
 - path: patches/patch-set-resources-manager.yaml
+- path: patches/remove-namespace.yaml
 - target:
     kind: MutatingWebhookConfiguration
   patch: |
@@ -64,6 +66,12 @@ patches:
     - op: replace
       path: /spec/template/initContainers/0/image
       value: "$(kserve-llm-d-routing-sidecar)"
+- target:
+    kind: LLMInferenceServiceConfig
+  patch: |
+    - op: add
+      path: /metadata/annotations/serving.kserve.io~1well-known-config
+      value: "true"
 
 replacements:
 - source:
@@ -114,6 +122,16 @@ replacements:
       fieldPaths:
         - spec.template.containers.[name=main].image
         - spec.worker.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-amd-rocm
+  targets:
+    - select:
+        kind: LLMInferenceServiceConfig
+        name: kserve-config-llm-template-amd-rocm
+      fieldPaths:
+        - spec.template.containers.[name=main].image
 
 configMapGenerator:
 - envs:
@@ -146,8 +164,8 @@ vars:
     kind: ConfigMap
     name: kserve-parameters
 - fieldref:
-    fieldpath: data.oauth-proxy
-  name: oauth-proxy
+    fieldpath: data.kube-rbac-proxy
+  name: kube-rbac-proxy
   objref:
     apiVersion: v1
     kind: ConfigMap

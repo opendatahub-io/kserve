@@ -27,6 +27,8 @@ import (
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	apierr "k8s.io/apimachinery/pkg/api/errors"
 
+	"github.com/kserve/kserve/pkg/utils"
+
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	. "github.com/onsi/ginkgo/v2"
@@ -51,16 +53,15 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/components"
-	v1beta1utils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
-	"github.com/kserve/kserve/pkg/utils"
 )
 
 var _ = Describe("v1beta1 inference service controller", func() {
 	// Define utility constants for object names and testing timeouts/durations and intervals.
 	const (
-		timeout  = time.Second * 60
-		interval = time.Millisecond * 250
-		domain   = "example.com"
+		consistentlyTimeout = time.Second * 5
+		timeout             = time.Second * 60
+		interval            = time.Millisecond * 250
+		domain              = "example.com"
 	)
 	defaultResource := corev1.ResourceRequirements{
 		Limits: corev1.ResourceList{
@@ -580,7 +581,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -1139,7 +1141,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			// Check that the ISVC was updated
 			actualIsvc := &v1beta1.InferenceService{}
@@ -1669,15 +1672,15 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						},
 					},
 				},
-				URL: &apis.URL{
-					Scheme: "http",
-					Host:   "raw-foo-2-default.example.com",
-				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
 						Scheme: "http",
 						Host:   fmt.Sprintf("%s-predictor.%s.svc.cluster.local", serviceKey.Name, serviceKey.Namespace),
 					},
+				},
+				URL: &apis.URL{
+					Scheme: "http",
+					Host:   "raw-foo-2-default.example.com",
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
@@ -1694,7 +1697,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -2933,6 +2937,715 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}, timeout, interval).Should(BeTrue(), "The stopped condition should be set to true")
 		})
 	})
+
+	Context("When Updating a Serving Runtime", func() {
+		configs := map[string]string{
+			"explainers": `{
+				"alibi": {
+					"image": "kserve/alibi-explainer",
+					"defaultImageVersion": "latest"
+				}
+			}`,
+			"ingress": `{
+				"enableGatewayApi": true,
+				"kserveIngressGateway": "kserve/kserve-ingress-gateway",
+				"ingressGateway": "knative-serving/knative-ingress-gateway",
+				"localGateway": "knative-serving/knative-local-gateway",
+				"localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local",
+				"additionalIngressDomains": ["additional.example.com"]
+			}`,
+			"storageInitializer": `{
+				"image" : "kserve/storage-initializer:latest",
+				"memoryRequest": "100Mi",
+				"memoryLimit": "1Gi",
+				"cpuRequest": "100m",
+				"cpuLimit": "1",
+				"CaBundleConfigMapName": "",
+				"caBundleVolumeMountPath": "/etc/ssl/custom-certs",
+				"enableDirectPvcVolumeMount": false
+			}`,
+		}
+		ctx := context.Background()
+		It("InferenceService should reconcile the deployment if auto-update annotation is not present", func() {
+			// Create configmap
+			isvcNamespace := constants.KServeNamespace
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			Eventually(func() error {
+				cm := &corev1.ConfigMap{}
+				return k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.InferenceServiceConfigMapName, Namespace: isvcNamespace}, cm)
+			}, timeout, interval).Should(Succeed())
+			isvcName := "isvc-enable-auto-update-missing"
+			serviceKey := types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
+			storageUri := "s3://test/mnist/export"
+			servingRuntimeName := "pytorch-serving-auto-update-missing"
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      servingRuntimeName,
+					Namespace: isvcNamespace,
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "pytorch",
+							Version:    proto.String("1"),
+							AutoSelect: proto.Bool(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Labels: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Annotations: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Containers: []corev1.Container{
+							{
+								Name:    constants.InferenceServiceContainerName,
+								Image:   "pytorch/serving:1.14.0",
+								Command: []string{"/usr/bin/pytorch_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+						ImagePullSecrets: []corev1.LocalObjectReference{
+							{Name: "sr-image-pull-secret"},
+						},
+					},
+					Disabled: proto.Bool(false),
+				},
+			}
+			Expect(k8sClient.Create(ctx, servingRuntime)).Should(Succeed())
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, &v1alpha1.ServingRuntime{})
+			}, timeout, interval).Should(Succeed())
+			defer k8sClient.Delete(ctx, servingRuntime)
+
+			// Define InferenceService with auto-update disabled.
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: isvcNamespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode":              "RawDeployment",
+						"serving.kserve.io/autoscalerClass":             "hpa",
+						"serving.kserve.io/metrics":                     "cpu",
+						"serving.kserve.io/targetUtilizationPercentage": "75",
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						PyTorch: &v1beta1.TorchServeSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI:     &storageUri,
+								RuntimeVersion: proto.String("1.14.0"),
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+
+			createdConfigMap := &corev1.ConfigMap{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.InferenceServiceConfigMapName, Namespace: isvcNamespace}, createdConfigMap)
+			}, timeout, interval).Should(Succeed())
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+			defer k8sClient.Delete(ctx, isvc)
+
+			originalDeployment := &appsv1.Deployment{}
+			deploymentName := constants.PredictorServiceName(serviceKey.Name)
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, originalDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			// Update the ServingRuntime spec
+			servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
+			servingRuntimeToUpdate.Spec.ServingRuntimePodSpec.Labels["key1"] = "updatedServingRuntime"
+			Eventually(func() error {
+				return k8sClient.Update(ctx, servingRuntimeToUpdate)
+			}, timeout, interval).Should(Succeed())
+
+			// Wait until the ServingRuntime reflects the updated spec.
+			servingRuntimeAfterUpdate := &v1alpha1.ServingRuntime{}
+			Eventually(func() (string, error) {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeAfterUpdate)
+				if err != nil {
+					return "", err
+				}
+				return servingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
+			deploymentAfterUpdate := &appsv1.Deployment{}
+			Eventually(func() (string, error) {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate)
+				if err != nil {
+					return "", err
+				}
+				return deploymentAfterUpdate.Spec.Template.ObjectMeta.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
+		})
+
+		It("InferenceService should reconcile the deployment if auto-update is enabled ", func() {
+			// Create configmap
+			isvcNamespace := constants.KServeNamespace
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: isvcNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			Eventually(func() error {
+				cm := &corev1.ConfigMap{}
+				return k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.InferenceServiceConfigMapName, Namespace: isvcNamespace}, cm)
+			}, timeout, interval).Should(Succeed())
+			isvcName := "isvc-enable-auto-update-true"
+			serviceKey := types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
+			storageUri := "s3://test/mnist/export"
+			servingRuntimeName := "pytorch-serving-auto-update-true"
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      servingRuntimeName,
+					Namespace: isvcNamespace,
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "pytorch",
+							Version:    proto.String("1"),
+							AutoSelect: proto.Bool(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Labels: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Annotations: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Containers: []corev1.Container{
+							{
+								Name:    constants.InferenceServiceContainerName,
+								Image:   "pytorch/serving:1.14.0",
+								Command: []string{"/usr/bin/pytorch_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+						ImagePullSecrets: []corev1.LocalObjectReference{
+							{Name: "sr-image-pull-secret"},
+						},
+					},
+					Disabled: proto.Bool(false),
+				},
+			}
+			Expect(k8sClient.Create(ctx, servingRuntime)).Should(Succeed())
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, &v1alpha1.ServingRuntime{})
+			}, timeout, interval).Should(Succeed())
+			defer k8sClient.Delete(ctx, servingRuntime)
+			// Define InferenceService with auto-update disabled.
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: isvcNamespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode":       "RawDeployment",
+						"serving.kserve.io/autoscalerClass":      "external",
+						constants.DisableAutoUpdateAnnotationKey: "false",
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						PyTorch: &v1beta1.TorchServeSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI:     &storageUri,
+								RuntimeVersion: proto.String("1.14.0"),
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+			defer k8sClient.Delete(ctx, isvc)
+
+			originalDeployment := &appsv1.Deployment{}
+			deploymentName := constants.PredictorServiceName(serviceKey.Name)
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, originalDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			// Update the ServingRuntime spec
+			servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
+			servingRuntimeToUpdate.Spec.ServingRuntimePodSpec.Labels["key1"] = "updatedServingRuntime"
+			Eventually(func() error {
+				return k8sClient.Update(ctx, servingRuntimeToUpdate)
+			}, timeout, interval).Should(Succeed())
+
+			// Wait until the ServingRuntime reflects the updated spec.
+			servingRuntimeAfterUpdate := &v1alpha1.ServingRuntime{}
+			Eventually(func() (string, error) {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeAfterUpdate)
+				if err != nil {
+					return "", err
+				}
+				return servingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
+			// Wait until the Deployment reflects the update
+			deploymentAfterUpdate := &appsv1.Deployment{}
+			Eventually(func() (string, error) {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate)
+				if err != nil {
+					return "", err
+				}
+				return deploymentAfterUpdate.Spec.Template.ObjectMeta.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
+		})
+
+		It("InferenceService should not reconcile the deployment if auto-update is disabled", func() {
+			// Create configmap
+			isvcNamespace := constants.KServeNamespace
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: isvcNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			Eventually(func() error {
+				cm := &corev1.ConfigMap{}
+				return k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.InferenceServiceConfigMapName, Namespace: isvcNamespace}, cm)
+			}, timeout, interval).Should(Succeed())
+			isvcName := "isvc-enable-auto-update-false"
+			serviceKey := types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
+			storageUri := "s3://test/mnist/export"
+			servingRuntimeName := "pytorch-serving-auto-update-false"
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      servingRuntimeName,
+					Namespace: isvcNamespace,
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "pytorch",
+							Version:    proto.String("1"),
+							AutoSelect: proto.Bool(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Labels: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Annotations: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Containers: []corev1.Container{
+							{
+								Name:    constants.InferenceServiceContainerName,
+								Image:   "pytorch/serving:1.14.0",
+								Command: []string{"/usr/bin/pytorch_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+						ImagePullSecrets: []corev1.LocalObjectReference{
+							{Name: "sr-image-pull-secret"},
+						},
+					},
+					Disabled: proto.Bool(false),
+				},
+			}
+			Expect(k8sClient.Create(ctx, servingRuntime)).Should(Succeed())
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, &v1alpha1.ServingRuntime{})
+			}, timeout, interval).Should(Succeed())
+			defer k8sClient.Delete(ctx, servingRuntime)
+
+			// Define InferenceService with auto-update disabled.
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: isvcNamespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode":       "RawDeployment",
+						"serving.kserve.io/autoscalerClass":      "external",
+						constants.DisableAutoUpdateAnnotationKey: "true",
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						PyTorch: &v1beta1.TorchServeSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI:     &storageUri,
+								RuntimeVersion: proto.String("1.14.0"),
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+			defer k8sClient.Delete(ctx, isvc)
+
+			originalDeployment := &appsv1.Deployment{}
+			deploymentName := constants.PredictorServiceName(serviceKey.Name)
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, originalDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			predictorReadyCondition := &apis.Condition{
+				Type:   v1beta1.PredictorReady,
+				Status: corev1.ConditionTrue,
+			}
+			ingressReadyCondition := &apis.Condition{
+				Type:   v1beta1.IngressReady,
+				Status: corev1.ConditionTrue,
+			}
+			Expect(k8sClient.Get(ctx, serviceKey, inferenceService)).Should(Succeed())
+			inferenceService.Status.SetCondition(v1beta1.PredictorReady, predictorReadyCondition)
+			inferenceService.Status.SetCondition(v1beta1.IngressReady, ingressReadyCondition)
+			Expect(k8sClient.Status().Update(ctx, inferenceService)).Should(Succeed())
+
+			updatedIsvc := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, updatedIsvc)
+				if err != nil {
+					return false
+				}
+				return updatedIsvc.Status.IsReady()
+			}, timeout, interval).Should(BeTrue(), "The InferenceService should be ready")
+
+			// Update the ServingRuntime spec
+			servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
+			servingRuntimeToUpdate.Spec.ServingRuntimePodSpec.Labels["key1"] = "updatedServingRuntime"
+			Expect(k8sClient.Update(ctx, servingRuntimeToUpdate)).Should(Succeed())
+
+			// Wait until the ServingRuntime reflects the updated spec.
+			servingRuntimeAfterUpdate := &v1alpha1.ServingRuntime{}
+			Eventually(func() (string, error) {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeAfterUpdate)
+				if err != nil {
+					return "", err
+				}
+				return servingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
+			// Check to make sure deployment didn't update
+			deploymentAfterUpdate := &appsv1.Deployment{}
+			Consistently(func() (string, error) {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate); err != nil {
+					return "", err
+				}
+				return deploymentAfterUpdate.Spec.Template.ObjectMeta.Labels["key1"], nil
+			}, consistentlyTimeout, interval).Should(Equal("val1FromSR"))
+		})
+		It("InferenceService should reconcile only if the matching serving runtime was updated even if multiple exist", func() {
+			// Create configmap
+			isvcNamespace := constants.KServeNamespace
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: isvcNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			Eventually(func() error {
+				cm := &corev1.ConfigMap{}
+				return k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.InferenceServiceConfigMapName, Namespace: isvcNamespace}, cm)
+			}, timeout, interval).Should(Succeed())
+			isvcNamePytorch := "isvc-enable-auto-update-multiple-pytorch"
+			serviceKeyPytorch := types.NamespacedName{Name: isvcNamePytorch, Namespace: isvcNamespace}
+			isvcNameTensorflow := "isvc-enable-auto-update-multiple-tensorflow"
+			serviceKeyTensorflow := types.NamespacedName{Name: isvcNameTensorflow, Namespace: isvcNamespace}
+			storageUri := "s3://test/mnist/export"
+			servingRuntimePytorchName := "pytorch-serving-auto-update-true-multiple"
+			servingRuntimeTensorflowName := "tensorflow-serving-auto-update-true-multiple"
+			pytorchServingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      servingRuntimePytorchName,
+					Namespace: isvcNamespace,
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "pytorch",
+							Version:    proto.String("1"),
+							AutoSelect: proto.Bool(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Labels: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Annotations: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Containers: []corev1.Container{
+							{
+								Name:    constants.InferenceServiceContainerName,
+								Image:   "pytorch/serving:1.14.0",
+								Command: []string{"/usr/bin/pytorch_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+						ImagePullSecrets: []corev1.LocalObjectReference{
+							{Name: "sr-image-pull-secret"},
+						},
+					},
+					Disabled: proto.Bool(false),
+				},
+			}
+			Expect(k8sClient.Create(ctx, pytorchServingRuntime)).Should(Succeed())
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimePytorchName, Namespace: isvcNamespace}, &v1alpha1.ServingRuntime{})
+			}, timeout, interval).Should(Succeed())
+			defer k8sClient.Delete(ctx, pytorchServingRuntime)
+
+			tensorflowServingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      servingRuntimeTensorflowName,
+					Namespace: isvcNamespace,
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "tensorflow",
+							Version:    proto.String("1"),
+							AutoSelect: proto.Bool(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Labels: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Annotations: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Containers: []corev1.Container{
+							{
+								Name:    constants.InferenceServiceContainerName,
+								Image:   "tensorflow/serving:1.14.0",
+								Command: []string{"/usr/bin/tensorflow_server_model"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+						ImagePullSecrets: []corev1.LocalObjectReference{
+							{Name: "sr-image-pull-secret"},
+						},
+					},
+					Disabled: proto.Bool(false),
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, tensorflowServingRuntime)).Should(Succeed())
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeTensorflowName, Namespace: isvcNamespace}, &v1alpha1.ServingRuntime{})
+			}, timeout, interval).Should(Succeed())
+			defer k8sClient.Delete(ctx, tensorflowServingRuntime)
+			// Define InferenceService with auto-update disabled.
+			pytorchIsvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKeyPytorch.Name,
+					Namespace: isvcNamespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode":       "RawDeployment",
+						"serving.kserve.io/autoscalerClass":      "external",
+						constants.DisableAutoUpdateAnnotationKey: "false",
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						PyTorch: &v1beta1.TorchServeSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI:     &storageUri,
+								RuntimeVersion: proto.String("1.14.0"),
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+			pytorchIsvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil)
+			Expect(k8sClient.Create(ctx, pytorchIsvc)).Should(Succeed())
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKeyPytorch, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+			defer k8sClient.Delete(ctx, pytorchIsvc)
+
+			tensorflowIsvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKeyTensorflow.Name,
+					Namespace: isvcNamespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode":       "RawDeployment",
+						"serving.kserve.io/autoscalerClass":      "external",
+						constants.DisableAutoUpdateAnnotationKey: "false",
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI:     &storageUri,
+								RuntimeVersion: proto.String("1.14.0"),
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+			tensorflowIsvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil)
+			Expect(k8sClient.Create(ctx, tensorflowIsvc)).Should(Succeed())
+
+			inferenceServiceTensorflow := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKeyTensorflow, inferenceServiceTensorflow)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+			defer k8sClient.Delete(ctx, tensorflowIsvc)
+
+			// Update the ServingRuntime spec
+			servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimePytorchName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
+			servingRuntimeToUpdate.Spec.ServingRuntimePodSpec.Labels["key1"] = "updatedServingRuntime"
+			Eventually(func() error {
+				return k8sClient.Update(ctx, servingRuntimeToUpdate)
+			}, timeout, interval).Should(Succeed())
+
+			// Wait until the ServingRuntime reflects the updated spec.
+			pytorchServingRuntimeAfterUpdate := &v1alpha1.ServingRuntime{}
+			Eventually(func() (string, error) {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimePytorchName, Namespace: isvcNamespace}, pytorchServingRuntimeAfterUpdate)
+				if err != nil {
+					return "", err
+				}
+				return pytorchServingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
+			// Wait until the Deployment reflects the update
+			pytorchDeploymentAfterUpdate := &appsv1.Deployment{}
+			deploymentName := constants.PredictorServiceName(serviceKeyPytorch.Name)
+			Eventually(func() (string, error) {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKeyPytorch.Namespace}, pytorchDeploymentAfterUpdate)
+				if err != nil {
+					return "", err
+				}
+				return pytorchDeploymentAfterUpdate.Spec.Template.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
+
+			tensorFlowDeploymentAfterUpdate := &appsv1.Deployment{}
+			tensorflowDeploymentName := constants.PredictorServiceName(serviceKeyTensorflow.Name)
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: tensorflowDeploymentName, Namespace: serviceKeyTensorflow.Namespace}, tensorFlowDeploymentAfterUpdate)).Should(Succeed())
+			Expect(tensorFlowDeploymentAfterUpdate.Spec.Template.ObjectMeta.Labels["key1"]).Should(Equal("val1FromSR"))
+		})
+	})
+
 	Context("When creating inference service with raw kube predictor and ingress creation disabled", func() {
 		configs := map[string]string{
 			"explainers": `{
@@ -3275,7 +3988,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -3851,7 +4565,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -4694,7 +5409,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -5646,7 +6362,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -6337,7 +7054,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -7200,6 +7918,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						},
 					},
 				},
+				ServingRuntimeName: "tf-serving-raw",
 				URL: &apis.URL{
 					Scheme: "http",
 					Host:   fmt.Sprintf("%s-%s.example.com", serviceKey.Name, serviceKey.Namespace),
@@ -8274,7 +8993,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -9165,7 +9885,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: string(constants.RawDeployment),
+				DeploymentMode:     string(constants.RawDeployment),
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -9245,12 +9966,12 @@ var _ = Describe("v1beta1 inference service controller", func() {
 	})
 	Context("When creating an inferenceservice with raw kube predictor and ODH auth enabled", func() {
 		configs := map[string]string{
-			"oauthProxy":         `{"image": "registry.redhat.io/openshift4/ose-oauth-proxy@sha256:8507daed246d4d367704f7d7193233724acf1072572e1226ca063c066b858ecf", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+			"oauthProxy":         `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
 			"ingress":            `{"ingressGateway": "knative-serving/knative-ingress-gateway", "ingressService": "test-destination", "localGateway": "knative-serving/knative-local-gateway", "localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"}`,
 			"storageInitializer": `{"image": "kserve/storage-initializer:latest", "memoryRequest": "100Mi", "memoryLimit": "1Gi", "cpuRequest": "100m", "cpuLimit": "1", "CaBundleConfigMapName": "", "caBundleVolumeMountPath": "/etc/ssl/custom-certs", "enableDirectPvcVolumeMount": false}`,
 		}
 
-		It("Should have ingress/service/deployment/hpa created", func() {
+		It("Should have ingress/service/deployment/hpa/configMap SAR created", func() {
 			By("By creating a new InferenceService")
 			// Create configmap
 			configMap := &corev1.ConfigMap{
@@ -9424,20 +10145,17 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									ImagePullPolicy:          "IfNotPresent",
 								},
 								{
-									Name:  "oauth-proxy",
+									Name:  constants.KubeRbacContainerName,
 									Image: constants.OauthProxyImage,
 									Args: []string{
-										`--https-address=:8443`,
-										`--provider=openshift`,
-										`--skip-provider-button`,
-										`--openshift-service-account=default`,
+										`--secure-listen-address=:8443`,
+										`--proxy-endpoints-port=8643`,
 										`--upstream=http://localhost:8080`,
-										`--tls-cert=/etc/tls/private/tls.crt`,
-										`--tls-key=/etc/tls/private/tls.key`,
-										// omit cookie secret arg in unit test as it is generated randomly
-										// `--cookie-secret=SECRET`,
-										`--openshift-delegate-urls={"/": {"namespace": "` + serviceKey.Namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + serviceName + `", "verb": "get"}}`,
-										`--openshift-sar={"namespace": "` + serviceKey.Namespace + `", "resource": "inferenceservices", "group": "serving.kserve.io", "name": "` + serviceName + `", "verb": "get"}`,
+										`--auth-header-fields-enabled=true`,
+										`--tls-cert-file=/etc/tls/private/tls.crt`,
+										`--tls-private-key-file=/etc/tls/private/tls.key`,
+										`--config-file=/etc/kube-rbac-proxy/config-file.yaml`,
+										`--v=4`,
 									},
 									Ports: []corev1.ContainerPort{
 										{
@@ -9445,12 +10163,17 @@ var _ = Describe("v1beta1 inference service controller", func() {
 											Name:          "https",
 											Protocol:      corev1.ProtocolTCP,
 										},
+										{
+											ContainerPort: constants.OauthProxyProbePort,
+											Name:          "proxy",
+											Protocol:      corev1.ProtocolTCP,
+										},
 									},
 									LivenessProbe: &corev1.Probe{
 										ProbeHandler: corev1.ProbeHandler{
 											HTTPGet: &corev1.HTTPGetAction{
-												Path:   "/oauth/healthz",
-												Port:   intstr.FromInt(constants.OauthProxyPort),
+												Path:   "/healthz",
+												Port:   intstr.FromInt32(constants.OauthProxyProbePort),
 												Scheme: corev1.URISchemeHTTPS,
 											},
 										},
@@ -9463,8 +10186,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									ReadinessProbe: &corev1.Probe{
 										ProbeHandler: corev1.ProbeHandler{
 											HTTPGet: &corev1.HTTPGetAction{
-												Path:   "/oauth/healthz",
-												Port:   intstr.FromInt(constants.OauthProxyPort),
+												Path:   "/healthz",
+												Port:   intstr.FromInt32(constants.OauthProxyProbePort),
 												Scheme: corev1.URISchemeHTTPS,
 											},
 										},
@@ -9489,6 +10212,11 @@ var _ = Describe("v1beta1 inference service controller", func() {
 											Name:      "proxy-tls",
 											MountPath: "/etc/tls/private",
 										},
+										{
+											Name:      fmt.Sprintf("%s-%s", serviceKey.Name, constants.OauthProxySARCMName),
+											MountPath: "/etc/kube-rbac-proxy",
+											ReadOnly:  true,
+										},
 									},
 									TerminationMessagePath:   "/dev/termination-log",
 									TerminationMessagePolicy: "File",
@@ -9501,6 +10229,17 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									VolumeSource: corev1.VolumeSource{
 										Secret: &corev1.SecretVolumeSource{
 											SecretName:  predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
+											DefaultMode: func(i int32) *int32 { return &i }(420),
+										},
+									},
+								},
+								{
+									Name: fmt.Sprintf("%s-%s", serviceKey.Name, constants.OauthProxySARCMName),
+									VolumeSource: corev1.VolumeSource{
+										ConfigMap: &corev1.ConfigMapVolumeSource{
+											LocalObjectReference: corev1.LocalObjectReference{
+												Name: fmt.Sprintf("%s-%s", serviceKey.Name, constants.OauthProxySARCMName),
+											},
 											DefaultMode: func(i int32) *int32 { return &i }(420),
 										},
 									},
@@ -9537,10 +10276,54 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: &progressDeadlineSeconds,
 				},
 			}
-			// remove the cookie-secret arg from the generated deployment for comparison
-			cleanedDep := actualDeployment.DeepCopy()
-			actualDep := v1beta1utils.RemoveCookieSecretArg(*cleanedDep)
-			Expect(actualDep.Spec).To(Equal(expectedDeployment.Spec))
+
+			// Use cmpopts.SortMaps for consistent comparison that ignores map key ordering
+			Expect(actualDeployment.Spec).To(Equal(expectedDeployment.Spec),
+				cmp.Diff(expectedDeployment.Spec, actualDeployment.Spec, cmpopts.SortMaps(func(a, b string) bool { return a < b })))
+
+			// check the SAR configMap
+			actualCM := &corev1.ConfigMap{}
+			predictorCMKey := types.NamespacedName{
+				Name:      fmt.Sprintf("%s-%s", serviceKey.Name, constants.OauthProxySARCMName),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorCMKey, actualCM) }, timeout).
+				Should(Succeed())
+
+			expectedCM := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName),
+					Namespace: serviceKey.Namespace,
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion:         "serving.kserve.io/v1beta1",
+							Kind:               "InferenceService",
+							Name:               serviceKey.Name,
+							UID:                isvc.GetUID(),
+							Controller:         ptr.To(true),
+							BlockOwnerDeletion: ptr.To(true),
+						},
+					},
+				},
+				Data: map[string]string{
+					"config-file.yaml": fmt.Sprintf(`authorization:
+  resourceAttributes:
+    namespace: "%s"
+    apiGroup: "serving.kserve.io"
+    apiVersion: "v1beta1"
+    resource: "inferenceservices"
+    name: "%s"
+    verb: "get"`, serviceKey.Namespace, serviceKey.Name),
+				},
+				Immutable: ptr.To(true),
+			}
+
+			// Compare the actual ConfigMap with expected (excluding UID which is generated)
+			Expect(actualCM.ObjectMeta.Name).To(Equal(expectedCM.ObjectMeta.Name))
+			Expect(actualCM.ObjectMeta.Namespace).To(Equal(expectedCM.ObjectMeta.Namespace))
+			Expect(actualCM.Data).To(Equal(expectedCM.Data))
+			Expect(actualCM.Immutable).To(Equal(expectedCM.Immutable))
+			Expect(actualCM.UID).NotTo(BeEmpty())
 
 			// check service
 			actualService := &corev1.Service{}
@@ -9663,15 +10446,15 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						},
 					},
 				},
-				URL: &apis.URL{
-					Scheme: "https",
-					Host:   "raw-auth-default.example.com",
-				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
 						Scheme: "https",
 						Host:   fmt.Sprintf("%s-predictor.%s.svc.cluster.local:8443", serviceKey.Name, serviceKey.Namespace),
 					},
+				},
+				URL: &apis.URL{
+					Scheme: "https",
+					Host:   "raw-auth-default.example.com",
 				},
 				Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 					v1beta1.PredictorComponent: {
@@ -9686,7 +10469,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					TransitionStatus:    "InProgress",
 					ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 				},
-				DeploymentMode: "RawDeployment",
+				DeploymentMode:     "RawDeployment",
+				ServingRuntimeName: "tf-serving-raw",
 			}
 			Eventually(func() string {
 				isvc := &v1beta1.InferenceService{}
@@ -9696,7 +10480,169 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
 			}, timeout).Should(BeEmpty())
 		})
+
+		It("Should recreate configMapSAR when deleted", func() {
+			By("By creating a new InferenceService with auth enabled")
+			// Create configmap
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+
+			// Create ServingRuntime
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "tf-serving-raw",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "tensorflow",
+							Version:    proto.String("1"),
+							AutoSelect: proto.Bool(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:    "kserve-container",
+								Image:   "tensorflow/serving:1.14.0",
+								Command: []string{"/usr/bin/tensorflow_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+					},
+					Disabled: proto.Bool(false),
+				},
+			}
+			k8sClient.Create(context.TODO(), servingRuntime)
+			defer k8sClient.Delete(context.TODO(), servingRuntime)
+
+			serviceName := "raw-auth-recreate"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+			storageUri := "s3://test/mnist/export"
+			ctx := context.Background()
+
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode": "RawDeployment",
+						constants.ODHKserveRawAuth:         "true",
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI:     &storageUri,
+								RuntimeVersion: proto.String("1.14.0"),
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			// Wait for the InferenceService to be created
+			inferenceService := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify the SAR configMap is created initially
+			actualCM := &corev1.ConfigMap{}
+			predictorCMKey := types.NamespacedName{
+				Name:      fmt.Sprintf("%s-%s", serviceKey.Name, constants.OauthProxySARCMName),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorCMKey, actualCM)
+			}, timeout).Should(Succeed())
+
+			// Verify the initial content
+			expectedContent := fmt.Sprintf(`authorization:
+  resourceAttributes:
+    namespace: "%s"
+    apiGroup: "serving.kserve.io"
+    apiVersion: "v1beta1"
+    resource: "inferenceservices"
+    name: "%s"
+    verb: "get"`, serviceKey.Namespace, serviceKey.Name)
+			Expect(actualCM.Data["config-file.yaml"]).To(Equal(expectedContent))
+
+			By("Deleting the SAR configMap")
+			Expect(k8sClient.Delete(ctx, actualCM)).Should(Succeed())
+
+			// Verify configMap is deleted
+			Eventually(func() bool {
+				err := k8sClient.Get(context.TODO(), predictorCMKey, actualCM)
+				return apierr.IsNotFound(err)
+			}, timeout, interval).Should(BeTrue())
+
+			By("Triggering reconciliation by updating the InferenceService")
+			// Update the InferenceService to trigger reconciliation
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, serviceKey, inferenceService); err != nil {
+					return err
+				}
+				if inferenceService.Annotations == nil {
+					inferenceService.Annotations = make(map[string]string)
+				}
+				inferenceService.Annotations["test-reconcile"] = "trigger-recreation"
+				return k8sClient.Update(ctx, inferenceService)
+			}, timeout, interval).Should(Succeed())
+
+			By("Verifying the SAR configMap is recreated")
+			newCM := &corev1.ConfigMap{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorCMKey, newCM)
+			}, timeout, interval).Should(Succeed())
+
+			// Verify the recreated configMap has the correct content
+			Expect(newCM.Data["config-file.yaml"]).To(Equal(expectedContent))
+			Expect(newCM.ObjectMeta.Name).To(Equal(fmt.Sprintf("%s-%s", serviceKey.Name, constants.OauthProxySARCMName)))
+			Expect(newCM.ObjectMeta.Namespace).To(Equal(serviceKey.Namespace))
+
+			// Verify owner reference is set correctly
+			ownerFound := false
+			for _, owner := range newCM.OwnerReferences {
+				if owner.Kind == "InferenceService" && owner.Name == serviceKey.Name {
+					ownerFound = true
+					Expect(owner.Controller).To(Equal(ptr.To(true)))
+					Expect(owner.BlockOwnerDeletion).To(Equal(ptr.To(true)))
+					break
+				}
+			}
+			Expect(ownerFound).To(BeTrue(), "Owner reference should be set correctly")
+		})
 	})
+
 	Context("When creating inference service with raw kube predictor with workerSpec", func() {
 		var (
 			serviceKey types.NamespacedName

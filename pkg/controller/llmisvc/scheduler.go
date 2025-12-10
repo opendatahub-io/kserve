@@ -38,6 +38,7 @@ import (
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 func (r *LLMInferenceServiceReconciler) reconcileScheduler(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
@@ -58,12 +59,17 @@ func (r *LLMInferenceServiceReconciler) reconcileScheduler(ctx context.Context, 
 	if err := r.reconcileSchedulerInferencePool(ctx, llmSvc); err != nil {
 		return err
 	}
+
+	if utils.GetForceStopRuntime(llmSvc) {
+		llmSvc.MarkInferencePoolNotReady("Stopped", "Service is stopped")
+	}
+
 	return nil
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerAuthDelegatorBinding(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, sa *corev1.ServiceAccount) error {
 	authDelegatorBinding := r.expectedSchedulerAuthDelegatorBinding(llmSvc, sa)
-	if !llmSvc.DeletionTimestamp.IsZero() || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
+	if utils.GetForceStopRuntime(llmSvc) || !llmSvc.DeletionTimestamp.IsZero() || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
 		return Delete(ctx, r, llmSvc, authDelegatorBinding)
 	}
 
@@ -76,7 +82,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerAuthDelegatorBinding(c
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerRole(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	role := r.expectedSchedulerRole(llmSvc)
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
+	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
 		return Delete(ctx, r, llmSvc, role)
 	}
 	if err := Reconcile(ctx, r, llmSvc, &rbacv1.Role{}, role, semanticRoleIsEqual); err != nil {
@@ -88,7 +94,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerRole(ctx context.Conte
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerRoleBinding(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, sa *corev1.ServiceAccount) error {
 	roleBinding := r.expectedSchedulerRoleBinding(llmSvc, sa)
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
+	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
 		return Delete(ctx, r, llmSvc, roleBinding)
 	}
 
@@ -106,7 +112,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerServiceAccount(ctx con
 		return r.reconcileSchedulerAuthDelegatorBinding(ctx, llmSvc, serviceAccount)
 	}
 
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
+	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
 		return Delete(ctx, r, llmSvc, serviceAccount)
 	}
 
@@ -127,7 +133,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerServiceAccount(ctx con
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	scheduler := r.expectedSchedulerDeployment(ctx, llmSvc)
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
+	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
 		return Delete(ctx, r, llmSvc, scheduler)
 	}
 	if err := Reconcile(ctx, r, llmSvc, &appsv1.Deployment{}, scheduler, semanticDeploymentIsEqual); err != nil {
@@ -138,7 +144,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerDeployment(ctx context
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerInferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	expected := r.expectedSchedulerInferencePool(ctx, llmSvc)
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
+	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
 		return Delete(ctx, r, llmSvc, expected)
 	}
 
@@ -151,7 +157,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerInferencePool(ctx cont
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerService(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	expected := r.expectedSchedulerService(ctx, llmSvc)
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
+	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
 		return Delete(ctx, r, llmSvc, expected)
 	}
 
@@ -164,7 +170,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerService(ctx context.Co
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerInferenceModel(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	expected := r.expectedSchedulerInferenceModel(ctx, llmSvc)
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
+	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
 		return Delete(ctx, r, llmSvc, expected)
 	}
 
@@ -315,16 +321,16 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerDeployment(ctx context.
 				continue
 			}
 
-			if slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "--configText") ||
-				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "-configText") ||
-				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "--configFile") ||
-				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "-configFile") {
+			if slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "--config-text") ||
+				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "-config-text") ||
+				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "--config-file") ||
+				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "-config-file") {
 				// When the configuration is overridden, don't add/override it.
 				break
 			}
 
 			d.Spec.Template.Spec.Containers[i].Args = append(d.Spec.Template.Spec.Containers[i].Args,
-				"--configText",
+				"--config-text",
 				schedulerConfigText(llmSvc),
 			)
 		}
@@ -338,36 +344,37 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerDeployment(ctx context.
 func schedulerConfigText(llmSvc *v1alpha1.LLMInferenceService) string {
 	switch {
 	case llmSvc.Spec.Prefill != nil:
+		// Always do P/D by default (threshold 0)
 		return `
 apiVersion: inference.networking.x-k8s.io/v1alpha1
 kind: EndpointPickerConfig
 plugins:
-- type: pd-profile-handler
-  parameters:
-    threshold: 100
-- type: prefill-header-handler
-- type: prefill-filter
-- type: decode-filter
-- type: prefix-cache-scorer
-- type: load-aware-scorer
-- type: max-score-picker
+  - type: prefill-header-handler
+  - type: prefill-filter
+  - type: decode-filter
+  - type: max-score-picker
+  - type: prefix-cache-scorer
+  - type: queue-scorer
+  - type: pd-profile-handler
+    parameters:
+      threshold: 0
 schedulingProfiles:
-- name: prefill
-  plugins:
-  - pluginRef: prefill-filter
-  - pluginRef: prefix-cache-scorer
-    weight: 2.0
-  - pluginRef: load-aware-scorer
-    weight: 1.0
-  - pluginRef: max-score-picker
-- name: decode
-  plugins:
-  - pluginRef: decode-filter
-  - pluginRef: prefix-cache-scorer
-    weight: 2.0
-  - pluginRef: load-aware-scorer
-    weight: 1.0
-  - pluginRef: max-score-picker
+  - name: prefill
+    plugins:
+      - pluginRef: prefill-filter
+      - pluginRef: queue-scorer
+        weight: 1.0
+      - pluginRef: prefix-cache-scorer
+        weight: 1.0
+      - pluginRef: max-score-picker
+  - name: decode
+    plugins:
+      - pluginRef: decode-filter
+      - pluginRef: queue-scorer
+        weight: 1.0
+      - pluginRef: prefix-cache-scorer
+        weight: 1.0
+      - pluginRef: max-score-picker
 `
 	default:
 		return `
@@ -444,7 +451,8 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerRole(llmSvc *v1alpha1.L
 		},
 		Rules: []rbacv1.PolicyRule{
 			{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get", "list", "watch"}},
-			{APIGroups: []string{"inference.networking.x-k8s.io"}, Resources: []string{"inferencepools", "inferencemodels"}, Verbs: []string{"get", "list", "watch"}},
+			{APIGroups: []string{"inference.networking.x-k8s.io"}, Resources: []string{"inferencepools", "inferenceobjectives"}, Verbs: []string{"get", "list", "watch"}},
+			{APIGroups: []string{"inference.networking.k8s.io"}, Resources: []string{"inferencepools"}, Verbs: []string{"get", "list", "watch"}},
 			{APIGroups: []string{"discovery.k8s.io"}, Resources: []string{"endpointslices"}, Verbs: []string{"get", "list", "watch"}},
 		},
 	}
