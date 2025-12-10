@@ -78,7 +78,7 @@ async def test_tabular_explainer(rest_v1_client):
 
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(
+        kserve_client.wait_isvc_ready_modelstate_loaded(
             service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=720
         )
     except RuntimeError as e:
@@ -154,7 +154,7 @@ async def test_raw_tabular_explainer(rest_v1_client, network_layer):
 
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(
+        kserve_client.wait_isvc_ready_modelstate_loaded(
             service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=720
         )
     except RuntimeError as e:

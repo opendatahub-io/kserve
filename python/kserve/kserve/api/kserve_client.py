@@ -397,6 +397,72 @@ class KServeClient(object):
                 )
             )
 
+    def is_isvc_modelstate_loaded(
+        self, name, namespace=None, version=constants.KSERVE_V1BETA1_VERSION
+    ):  # pylint:disable=inconsistent-return-statements
+        """
+        Check if the inference service model state is loaded.
+        :param version:
+        :param name: inference service name
+        :param namespace: defaults to current or default namespace
+        :return: True if both activeModelState and targetModelState are Loaded, False otherwise
+        """
+        kfsvc_status = self.get(name, namespace=namespace, version=version)
+        if "status" not in kfsvc_status:
+            return False
+
+        model_status = kfsvc_status["status"].get("modelStatus", {})
+        if not model_status:
+            return False
+
+        states = model_status.get("states", {})
+        if not states:
+            return False
+
+        active_model_state = states.get("activeModelState", "")
+        target_model_state = states.get("targetModelState", "")
+
+        return active_model_state == "Loaded" and target_model_state == "Loaded"
+
+    def wait_isvc_ready_modelstate_loaded(
+        self,
+        name,
+        namespace=None,  # pylint:disable=too-many-arguments
+        watch=False,
+        timeout_seconds=600,
+        polling_interval=10,
+        version=constants.KSERVE_V1BETA1_VERSION,
+    ):
+        """
+        Waiting for inference service to be ready and model state to be loaded, print out the inference service if timeout.
+        :param name: inference service name
+        :param namespace: defaults to current or default namespace
+        :param watch: True to watch the service until timeout elapsed or status is ready
+        :param timeout_seconds: timeout seconds for waiting, default to 600s.
+        :param polling_interval: The time interval to poll status
+        :param version: api group version
+        :return:
+        """
+        if watch:
+            isvc_watch(name=name, namespace=namespace, timeout_seconds=timeout_seconds)
+        else:
+            for _ in range(round(timeout_seconds / polling_interval)):
+                time.sleep(polling_interval)
+                if self.is_isvc_ready(
+                    name, namespace=namespace, version=version
+                ) and self.is_isvc_modelstate_loaded(
+                    name, namespace=namespace, version=version
+                ):
+                    return
+
+            current_isvc = self.get(name, namespace=namespace, version=version)
+            raise RuntimeError(
+                "Timeout waiting for InferenceService {} to be ready and modelState to be Loaded. \
+                               The InferenceService is as following: {}".format(
+                    name, current_isvc
+                )
+            )
+
     def create_trained_model(self, trainedmodel, namespace):
         """
         Create a trained model

@@ -73,7 +73,7 @@ def test_predictor_headers_v1():
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     isvc = kserve_client.get(
         service_name,
@@ -159,7 +159,7 @@ def test_predictor_headers_v2():
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     isvc = kserve_client.get(
         service_name,
         namespace=KSERVE_TEST_NAMESPACE,
