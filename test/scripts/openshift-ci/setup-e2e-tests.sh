@@ -15,11 +15,7 @@
 # This is a helper script to run E2E tests on the openshift-ci operator.
 # This script assumes to be run inside a container/machine that has
 # python pre-installed and the `oc` command available. Additional tooling,
-<<<<<<< HEAD
-# like kustomize are installed by the script if not available.
-=======
 # like kustomize and the minio client are installed by the script if not available.
->>>>>>> be632fe21 (feat(e2e): installs llm-d specific infra stack (#833))
 # The oc CLI is assumed to be configured with the credentials of the
 # target cluster. The target cluster is assumed to be a clean cluster.
 set -o errexit
@@ -27,24 +23,6 @@ set -o nounset
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-<<<<<<< HEAD
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-
-source "$SCRIPT_DIR/common.sh"
-
-# Parse command line options
-: "${INSTALL_ODH_OPERATOR:=false}"
-
-# Set the applications namespace based on installation method
-# ODH operator uses 'opendatahub', manual installation uses 'kserve'
-if [[ "$INSTALL_ODH_OPERATOR" == "true" ]]; then
-  KSERVE_NAMESPACE="opendatahub"
-else
-  KSERVE_NAMESPACE="kserve"
-fi
-
-echo "Using namespace: $KSERVE_NAMESPACE for KServe components"
-=======
 source "$SCRIPT_DIR/common.sh"
 PROJECT_ROOT="$(find_project_root "$SCRIPT_DIR")"
 
@@ -55,7 +33,6 @@ readonly DEPLOYMENT_PROFILE="${3:-serverless}"
 validate_deployment_profile "${DEPLOYMENT_PROFILE}"
 
 : "${NS:=kserve}"
->>>>>>> be632fe21 (feat(e2e): installs llm-d specific infra stack (#833))
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
 : "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:latest}"
 : "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
@@ -108,20 +85,6 @@ if [[ "${DEPLOYMENT_PROFILE}" == "raw" ]]; then
   $SCRIPT_DIR/infra/deploy.cma.sh
 fi
 
-<<<<<<< HEAD
-# Install ODH operator if requested
-if [[ "$INSTALL_ODH_OPERATOR" == "true" ]]; then
-  $SCRIPT_DIR/deploy.odh.sh
-fi
-
-# Add CA certificate extraction for raw deployments
-if [[ "$1" =~ raw ]]; then
-  echo "⏳ Extracting OpenShift CA certificates for raw deployment"
-  # Get comprehensive CA bundle including both cluster and service CAs
-  {
-    # Cluster root CA bundle
-    oc get configmap kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' 2>/dev/null && echo ""
-=======
 # Install KServe stack
 if [[ "${DEPLOYMENT_PROFILE}" == "serverless" ]]; then
   echo "⏳ Installing OSSM"
@@ -146,7 +109,8 @@ kustomize build $PROJECT_ROOT/config/overlays/test |
   sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
   sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
   sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
-  oc apply --server-side=true -f -
+  sed "s|kserve/llmisvc-controller:latest|${LLMISVC_CONTROLLER_IMAGE}|" |
+  oc apply --server-side=true --force-conflicts -f -
 
 kustomize build $PROJECT_ROOT/config/crd/external/opendatahub-operator | oc apply --server-side=true -f -
 
@@ -155,7 +119,6 @@ wait_for_crd dscinitializations.dscinitialization.opendatahub.io 90s
              
 oc create -f ${PROJECT_ROOT}/config/overlays/test/dsci.yaml
 oc create -f ${PROJECT_ROOT}/config/overlays/test/dsc.yaml
->>>>>>> be632fe21 (feat(e2e): installs llm-d specific infra stack (#833))
 
 export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
 

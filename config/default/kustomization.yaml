@@ -15,6 +15,11 @@ resources:
 - ../rbac
 - ../manager
 - ../webhook
+# - ../certmanager # not needed, because ODH is using OpenShift's serving certificates for WebHooks
+# - ../localmodels # This is commented out for 2.16
+# - ../localmodelnodes
+- ../llmisvc
+- network-policies.yaml # ODH specific
 
 generatorOptions:
   disableNameSuffixHash: true
@@ -190,3 +195,27 @@ patches:
 - path: servingruntime_validationwebhook_cainjection_patch.yaml
 - path: manager_resources_patch.yaml
 - path: cainjection_conversion_webhook.yaml
+- path: llmisvc_validatingwebhook_cainjection_patch.yaml
+- path: llmisvc_manager_image_patch.yaml
+# - path: localmodel_manager_image_patch.yaml
+# - path: localmodelnode_agent_image_patch.yaml
+# Since OpenShift serving-certificates are being used,
+# remove CA bundle placeholders
+# - patch: |-
+#     - op: remove
+#       path: "/spec/conversion/webhook/clientConfig/caBundle"
+#   target:
+#     kind: CustomResourceDefinition
+#     name: inferenceservices.serving.kserve.io
+# - patch: |-
+#     - op: remove
+#       path: "/webhooks/0/clientConfig/caBundle"
+#     - op: remove
+#       path: "/webhooks/1/clientConfig/caBundle"
+#   target:
+#     kind: MutatingWebhookConfiguration
+# - patch: |-
+#     - op: remove
+#       path: "/webhooks/0/clientConfig/caBundle"
+#   target:
+#     kind: ValidatingWebhookConfiguration
