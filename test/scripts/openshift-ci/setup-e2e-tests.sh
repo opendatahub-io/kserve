@@ -200,15 +200,6 @@ fi
 
 mc alias set storage http://$MINIO_ROUTE minio minio123
 
-oc delete route -n kserve minio-service
-
-# Configure minio TLS if needed
-if [[ "$1" =~ "kserve_on_openshift" ]]; then
-  echo "Configuring minio TLS"
-  "$PROJECT_ROOT/test/scripts/openshift-ci/tls/setup-minio-tls.sh" custom
-  "$PROJECT_ROOT/test/scripts/openshift-ci/tls/setup-minio-tls.sh" serving
-fi
-
 if ! mc ls storage/example-models >/dev/null 2>&1; then
   mc mb storage/example-models
 else
