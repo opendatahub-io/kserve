@@ -562,7 +562,6 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(ctx context.Conte
 		IsLegacyURI:          true,
 	}
 
-
 	if err := CommonStorageInitialization(ctx, storageInitializerParams); err != nil {
 		return err
 	}
