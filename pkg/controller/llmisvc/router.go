@@ -381,13 +381,6 @@ func (r *LLMInferenceServiceReconciler) EvaluateHTTPRouteConditions(ctx context.
 		return nil
 	}
 
-	// Check if there's already a validation failure condition set
-	condition := llmSvc.GetStatus().GetCondition(v1alpha1.HTTPRoutesReady)
-	if condition != nil && condition.IsFalse() && condition.Reason == RefsInvalidReason {
-		logger.Info("HTTPRoute validation failed, skipping readiness evaluation", "reason", condition.Reason, "message", condition.Message)
-		return nil
-	}
-
 	// Collect all HTTPRoutes (both referenced and managed)
 	var allRoutes []*gatewayapi.HTTPRoute
 
