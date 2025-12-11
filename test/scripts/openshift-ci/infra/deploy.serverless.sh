@@ -180,12 +180,19 @@ oc get secret -n openshift-ingress
 oc get IngressController -n openshift-ingress-operator default -o yaml
 export tls_cert=$(oc get secret $secret_name -n openshift-ingress -o=jsonpath='{.data.tls\.crt}')
 export CA_CERT_PATH="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-# This is for local testing
-oc exec deploy/istio-ingressgateway -n istio-system -- cat $CA_CERT_PATH > /tmp/ca.crt
 
-if [ -f "$CA_CERT_PATH" ]; then
-  # This is for python requests to work
-  export REQUESTS_CA_BUNDLE=$CA_CERT_PATH
+# Create comprehensive CA bundle including external CAs (Let's Encrypt, etc.) for certificate validation
+{
+    # Include ODH trusted CA bundle (contains Let's Encrypt, Amazon, and other external CAs)
+    oc get configmap odh-trusted-ca-bundle -n dedicated-admin -o jsonpath='{.data.ca-bundle\.crt}' 2>/dev/null || true
+    # Include cluster internal CAs
+    oc exec deploy/istio-ingressgateway -n istio-system -- cat $CA_CERT_PATH 2>/dev/null
+    oc get configmap kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' 2>/dev/null || true
+    oc get configmap openshift-service-ca.crt -n openshift-config-managed -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null || true
+} > /tmp/ca.crt
+
+if [ -s "/tmp/ca.crt" ]; then
+  export REQUESTS_CA_BUNDLE="/tmp/ca.crt"
 fi
 export tls_key=$(oc get secret $secret_name -n openshift-ingress -o=jsonpath='{.data.tls\.key}')
 {

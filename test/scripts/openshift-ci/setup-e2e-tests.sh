@@ -34,11 +34,12 @@ validate_deployment_profile "${DEPLOYMENT_PROFILE}"
 
 : "${NS:=opendatahub}"
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
-: "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:latest}"
+: "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:stable-2.x}"
 : "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
 : "${KSERVE_ROUTER_IMAGE:=quay.io/opendatahub/kserve-router:latest}"
 : "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
-: "${ODH_MODEL_CONTROLLER_IMAGE:=quay.io/opendatahub/odh-model-controller:fast}"
+: "${ODH_MODEL_CONTROLLER_IMAGE:=quay.io/opendatahub/odh-model-controller:stable-2.x}"
+: "${IMAGE_TRANSFORMER_IMG_TAG:=kserve/image-transformer}"
 : "${ERROR_404_ISVC_IMAGE:=error-404-isvc:latest}"
 : "${SUCCESS_200_ISVC_IMAGE:=success-200-isvc:latest}"
 
@@ -50,10 +51,15 @@ echo "KSERVE_ROUTER_IMAGE=$KSERVE_ROUTER_IMAGE"
 echo "STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_IMAGE"
 echo "ERROR_404_ISVC_IMAGE=$ERROR_404_ISVC_IMAGE"
 echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
+echo "ODH_MODEL_CONTROLLER_IMAGE=$ODH_MODEL_CONTROLLER_IMAGE"
+echo "IMAGE_TRANSFORMER_IMG_TAG=$IMAGE_TRANSFORMER_IMG_TAG "
 
 # Create directory for installing tooling
 mkdir -p $HOME/.local/bin
 export PATH="$HOME/.local/bin:$PATH"
+
+# Force KServe client to use external hostnames instead of cluster IPs
+export CI_USE_ISVC_HOST=1
 
 # If Kustomize is not installed, install it
 if ! command -v kustomize &>/dev/null; then
@@ -122,7 +128,7 @@ kustomize build $PROJECT_ROOT/config/overlays/odh-test |
   sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
   sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
   sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
-  oc apply --server-side=true -f -
+  oc apply --server-side=true --force-conflicts -f -
 
 wait_for_crd datascienceclusters.datasciencecluster.opendatahub.io 90s
 wait_for_crd dscinitializations.dscinitialization.opendatahub.io 90s
@@ -142,7 +148,8 @@ if [[ "${MARKERS}" =~ raw || "${MARKERS}" =~ graph ]]; then
 fi
 
 if [[ "${MARKERS}" == *"predictor"* || "${MARKERS}" == *"path"* ]]; then
-    oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/odh-test/configmap/inferenceservice-openshift-ci-serverless-predictor.yaml | envsubst)
+    echo "✅ Patching Serverless, markers: ${MARKERS}"
+    oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/odh-test/configmap/inferenceservice-openshift-ci-serverless.yaml | envsubst)
 fi
 
 if [[ "${DEPLOYMENT_PROFILE}" == "llm-d" ]]; then
@@ -160,7 +167,7 @@ fi
 # TODO can be moved to odh-test overlays
 echo "⏳ Installing ODH Model Controller"
 kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
-    sed "s|quay.io/opendatahub/odh-model-controller:fast|${ODH_MODEL_CONTROLLER_IMAGE}|" |
+    sed "s|quay.io/opendatahub/odh-model-controller:stable|${ODH_MODEL_CONTROLLER_IMAGE}|" |
     oc apply -n ${NS} -f -
 
 wait_for_pod_ready "${NS}" "app=odh-model-controller"

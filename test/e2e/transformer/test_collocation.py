@@ -324,6 +324,9 @@ async def test_raw_transformer_collocation(rest_v1_client, network_layer):
 
 @pytest.mark.raw
 @pytest.mark.asyncio(scope="session")
+@pytest.mark.skip(
+    "The torchserve container fails in OpenShift with permission denied errors"
+)
 async def test_raw_transformer_collocation_runtime(rest_v1_client, network_layer):
     suffix = str(uuid.uuid4())[1:5]
     service_name = "raw-custom-pred-collocation-" + suffix
@@ -349,7 +352,8 @@ async def test_raw_transformer_collocation_runtime(rest_v1_client, network_layer
                     f"--model_name={model_name}",
                     "--http_port=8090",
                     "--grpc_port=8091",
-                    "--predictor_host=localhost:8085",
+                    "--predictor_host=localhost:8080",
+                    "--predictor_protocol=v1",
                     "--enable_predictor_health_check",
                 ],
                 ports=[V1ContainerPort(container_port=8090, protocol="TCP")],
@@ -373,6 +377,7 @@ async def test_raw_transformer_collocation_runtime(rest_v1_client, network_layer
             name=service_name,
             namespace=KSERVE_TEST_NAMESPACE,
             annotations={"serving.kserve.io/deploymentMode": "RawDeployment"},
+            labels={"networking.kserve.io/visibility": "exposed"},
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -384,15 +389,12 @@ async def test_raw_transformer_collocation_runtime(rest_v1_client, network_layer
     try:
         kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
     except RuntimeError as e:
-        print(
-            kserve_client.api_instance.get_namespaced_custom_object(
-                "serving.knative.dev",
-                "v1",
-                KSERVE_TEST_NAMESPACE,
-                "services",
-                service_name + "-predictor",
-            )
+        deployments = kserve_client.app_api.list_namespaced_deployment(
+            KSERVE_TEST_NAMESPACE,
+            label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
         )
+        for deployment in deployments.items:
+            print(deployment)
         pods = kserve_client.core_api.list_namespaced_pod(
             KSERVE_TEST_NAMESPACE,
             label_selector="serving.kserve.io/inferenceservice={}".format(service_name),

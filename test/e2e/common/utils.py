@@ -474,7 +474,7 @@ def completion_stream(
     return full_content, chunks
 
 
-def is_model_ready(
+async def is_model_ready(
     rest_client,
     service_name,
     model_name,
@@ -494,7 +494,11 @@ def is_model_ready(
         model_name = service_name
     base_url = f"{scheme}://{cluster_ip}{path}"
     headers = {"Host": host}
-    return rest_client.is_model_ready(base_url, model_name, headers=headers)
+    ready_response = await rest_client.is_model_ready(base_url, model_name, headers=headers)
+    # Handle both boolean True and string "True" responses from KServe inference client
+    if isinstance(ready_response, str):
+        return ready_response.lower() == "true"
+    return bool(ready_response)
 
 
 def extract_process_ids_from_logs(logs: str) -> set[int]:
