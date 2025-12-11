@@ -52,6 +52,8 @@ spec:
               - '{{ "{{" }} ChildName .ObjectMeta.Name `-inference-pool` {{ "}}" }}'
               - --poolNamespace
               - "{{`{{ .ObjectMeta.Namespace }}`}}"
+              - --pool-group
+              - '{{ "{{" }} SplitAPIGroup .Spec.Router.Scheduler.Pool.APIVersion {{ "}}" }}'
               - --zap-encoder
               - json
               - --grpcPort

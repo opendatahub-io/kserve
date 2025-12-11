@@ -17,6 +17,7 @@ limitations under the License.
 package v1beta1
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -35,7 +36,11 @@ type CustomExplainer struct {
 var _ ComponentImplementation = &CustomExplainer{}
 
 func NewCustomExplainer(podSpec *PodSpec) *CustomExplainer {
-	return &CustomExplainer{PodSpec: corev1.PodSpec(*podSpec)}
+	// Convert custom PodSpec to corev1.PodSpec via JSON marshaling
+	data, _ := json.Marshal(podSpec)
+	var coreSpec corev1.PodSpec
+	json.Unmarshal(data, &coreSpec)
+	return &CustomExplainer{PodSpec: coreSpec}
 }
 
 // Validate the spec
