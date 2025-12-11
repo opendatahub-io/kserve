@@ -76,7 +76,6 @@ invalid_data_connection = (
 ssl_error = "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"
 
 
-
 @pytest.fixture(scope="session")
 def kserve_client():
     return KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
@@ -142,7 +141,7 @@ def create_odh_trusted_ca_bundle_configmap(kserve_client: KServeClient, data_key
     # Mimic the RHOAI/ODH operators by creating the odh-trusted-ca-bundle configmap containing the custom cert as a global cert
     configmap_name = "odh-trusted-ca-bundle"
     namespace = KSERVE_TEST_NAMESPACE
-    
+
     minio_tls_custom_certs = kserve_client.core_api.read_namespaced_secret(
         "minio-tls-custom", KSERVE_NAMESPACE
     ).data
@@ -157,9 +156,9 @@ def create_odh_trusted_ca_bundle_configmap(kserve_client: KServeClient, data_key
     kserve_client.core_api.create_namespaced_config_map(
         namespace=namespace, body=odh_trusted_ca_configmap
     )
-    
+
     yield configmap_name
-    
+
     try:
         kserve_client.core_api.delete_namespaced_config_map(
             name=configmap_name, namespace=namespace
@@ -259,6 +258,7 @@ def test_s3_tls_serving_cert_storagespec_kserve(kserve_client):
         namespace=KSERVE_TEST_NAMESPACE,
         body={"data": {"localTLSMinIOServing": original_data_connection}},
     )
+
 
 def check_model_status(
     kserve_client: KServeClient,
