@@ -30,6 +30,8 @@ ERROR_404_ISVC_IMG ?= error-404-isvc
 CRD_OPTIONS ?= "crd:maxDescLen=0"
 KSERVE_ENABLE_SELF_SIGNED_CA ?= false
 
+GIE_VERSION ?= v0.5.0
+
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
@@ -96,10 +98,7 @@ manifests: controller-gen yq
 	echo '{{- if .Values.kserve.localmodel.enabled }}'> charts/kserve-resources/templates/localmodelnode/role.yaml
 	cat config/rbac/localmodelnode/role.yaml >> charts/kserve-resources/templates/localmodelnode/role.yaml
 	echo '{{- end }}' >> charts/kserve-resources/templates/localmodelnode/role.yaml
-	# Copy the llmisvc templates 
-	cp config/llmisvc/* charts/llmisvc-resources/templates/ 
-	rm charts/llmisvc-resources/templates/kustomization.yaml
-	
+
 	@$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths=./pkg/apis/serving/v1alpha1
 	@$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths=./pkg/apis/serving/v1beta1
 
@@ -107,6 +106,22 @@ manifests: controller-gen yq
 	@$(YQ) 'del(.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.router.properties.route.properties.http.properties.spec.properties.rules.items.properties.matches.items.properties.path.x-kubernetes-validations)' -i config/crd/full/serving.kserve.io_llminferenceserviceconfigs.yaml
 	@$(YQ) 'del(.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.router.properties.route.properties.http.properties.spec.properties.rules.items.properties.filters.items.properties.urlRewrite.properties.path.x-kubernetes-validations)' -i config/crd/full/serving.kserve.io_llminferenceserviceconfigs.yaml
 	@$(YQ) 'del(.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.router.properties.route.properties.http.properties.spec.properties.parentRefs.items.properties.namespace.pattern)' -i config/crd/full/serving.kserve.io_llminferenceserviceconfigs.yaml
+	# Remove validation for the LLMInferenceServiceConfig API so that we can override only specific values.
+	@$(YQ) 'del(.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.worker.required)' -i config/crd/full/serving.kserve.io_llminferenceserviceconfigs.yaml
+	@$(YQ) 'del(.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.template.required)' -i config/crd/full/serving.kserve.io_llminferenceserviceconfigs.yaml
+	@$(YQ) 'del(.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.prefill.properties.template.required)' -i config/crd/full/serving.kserve.io_llminferenceserviceconfigs.yaml
+	@$(YQ) 'del(.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.prefill.properties.worker.required)' -i config/crd/full/serving.kserve.io_llminferenceserviceconfigs.yaml
+	@$(YQ) 'del(.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.router.properties.scheduler.properties.template.required)' -i config/crd/full/serving.kserve.io_llminferenceserviceconfigs.yaml
+	# Remove validation for the LLMInferenceService API so that we can override only specific values.
+	@$(YQ) 'del(.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.worker.required)' -i config/crd/full/serving.kserve.io_llminferenceservices.yaml
+	@$(YQ) 'del(.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.template.required)' -i config/crd/full/serving.kserve.io_llminferenceservices.yaml
+	@$(YQ) 'del(.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.prefill.properties.template.required)' -i config/crd/full/serving.kserve.io_llminferenceservices.yaml
+	@$(YQ) 'del(.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.prefill.properties.worker.required)' -i config/crd/full/serving.kserve.io_llminferenceservices.yaml
+	@$(YQ) 'del(.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.router.properties.scheduler.properties.template.required)' -i config/crd/full/serving.kserve.io_llminferenceservices.yaml
+
+	kubectl kustomize https://github.com/kubernetes-sigs/gateway-api-inference-extension.git/config/crd?ref=$(GIE_VERSION) > charts/llmisvc-resources/templates/gateway-inference-extension.yaml
+	cp charts/llmisvc-resources/templates/gateway-inference-extension.yaml test/crds/gateway-inference-extension.yaml
+	cp charts/llmisvc-resources/templates/gateway-inference-extension.yaml config/llmisvc/gateway-inference-extension.yaml
 
 	#remove the required property on framework as name field needs to be optional
 	@$(YQ) 'del(.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties.*.properties.*.required)' -i config/crd/full/serving.kserve.io_inferenceservices.yaml
@@ -139,6 +154,7 @@ manifests: controller-gen yq
 	@$(CONTROLLER_GEN) rbac:roleName=llmisvc-manager-role paths={./pkg/controller/v1alpha1/llmisvc} output:rbac:artifacts:config=config/rbac/llmisvc
 	# Copy the cluster role to the helm chart
 	cat config/rbac/llmisvc/role.yaml > charts/llmisvc-resources/templates/clusterrole.yaml
+	cat config/rbac/llmisvc/leader_election_role.yaml > charts/llmisvc-resources/templates/leader_election_role.yaml
 	# Copy llmisvc crd
 	cp config/crd/full/serving.kserve.io_llminferenceservices.yaml charts/llmisvc-crd/templates/
 	cp config/crd/full/serving.kserve.io_llminferenceserviceconfigs.yaml charts/llmisvc-crd/templates/
@@ -223,6 +239,7 @@ deploy: manifests
 	kubectl apply --server-side=true -k config/default
 	if [ ${KSERVE_ENABLE_SELF_SIGNED_CA} != false ]; then ./hack/self-signed-ca.sh; fi;
 	kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n kserve --timeout=300s
+	kubectl wait --for=condition=ready pod -l control-plane=llmisvc-controller-manager -n kserve --timeout=300s
 	kubectl apply  --server-side=true  -k config/clusterresources
 	git checkout HEAD -- config/certmanager/certificate.yaml
 
@@ -242,6 +259,7 @@ deploy-dev: manifests
 	if [ ${KSERVE_ENABLE_SELF_SIGNED_CA} != false ]; then ./hack/self-signed-ca.sh; fi;
 	# TODO: Add runtimes as part of default deployment
 	kubectl wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n kserve --timeout=300s
+	kubectl wait --for=condition=ready pod -l control-plane=llmisvc-controller-manager -n kserve --timeout=300s
 	kubectl apply --server-side=true --force-conflicts -k config/clusterresources
 	git checkout HEAD -- config/certmanager/certificate.yaml
 
