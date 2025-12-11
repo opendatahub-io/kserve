@@ -64,7 +64,7 @@ NAMESPACE="kserve-ci-e2e-test"
 echo "Setting up CI namespace: $NAMESPACE"
 
 # Delete namespace if it exists for idempotency
-"$SCRIPT_DIR/teardown-ci-namespace.sh" "$DEPLOYMENT_TYPE"
+"$SCRIPT_DIR/teardown-ci-namespace.sh" "$DEPLOYMENT_TYPE" "$NAMESPACE"
 
 # Create namespace
 echo "Creating namespace $NAMESPACE"
