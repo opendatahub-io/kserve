@@ -22,6 +22,8 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+## TODO
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 PROJECT_ROOT="$(find_project_root "$SCRIPT_DIR")"
