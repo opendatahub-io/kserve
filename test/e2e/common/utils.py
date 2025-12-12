@@ -19,10 +19,12 @@ import time
 from concurrent import futures
 from typing import Union, List, Dict
 from urllib.parse import urlparse
+from timeout_sampler import TimeoutSampler
 
 import portforward
 import requests
 from kubernetes import client as k8s_client
+from kubernetes.client.rest import ApiException
 from orjson import orjson
 
 from kserve import KServeClient, InferResponse, InferRequest
@@ -507,3 +509,50 @@ def extract_process_ids_from_logs(logs: str) -> set[int]:
             process_ids.add(int(tokens[2]))
     logger.info("Extracted process ids: %s", process_ids)
     return process_ids
+
+
+def wait_for_resource_deletion(
+    read_func,
+    wait_timeout: int = 30,
+    sleep: int = 1,
+):
+    """
+    Wait for a Kubernetes resource to be deleted.
+
+    This function polls the Kubernetes API until the resource is no longer found
+    (404 status), indicating successful deletion. Works with any Kubernetes resource
+    type (ConfigMap, Secret, Deployment, Service, Pod, InferenceService, etc.).
+
+    Args:
+        read_func: Callable function that attempts to read the resource.
+                   Should raise ApiException with status 404 when resource is not found.
+                   Example: lambda: core_api.read_namespaced_config_map(name=name, namespace=namespace)
+        wait_timeout: Maximum time in seconds to wait for deletion (default: 30)
+        sleep: Time in seconds between polling attempts (default: 1)
+
+    Raises:
+        TimeoutExpiredError: If the resource is not deleted within wait_timeout seconds
+        ApiException: If there's an API error other than 404 (resource not found)
+    """
+    def _check_deleted():
+        try:
+            read_func()
+            # If we can read it, it still exists - return False to continue polling
+            return False
+        except ApiException as e:
+            if e.status == 404:
+                # 404 means it's deleted - return True to stop polling
+                return True
+            # Other errors should be raised and will propagate through TimeoutSampler
+            raise
+
+    # Use TimeoutSampler - it will keep calling _check_deleted until it returns True
+    # or timeout is reached. When _check_deleted returns True (404 received), we break.
+    # Other ApiExceptions will propagate and be raised immediately.
+    for is_deleted in TimeoutSampler(
+        wait_timeout=wait_timeout,
+        sleep=sleep,
+        func=_check_deleted,
+    ):
+        if is_deleted:
+            break

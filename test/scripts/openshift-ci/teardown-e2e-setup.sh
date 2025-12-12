@@ -12,12 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# This is a helper script to run E2E tests on the openshift-ci operator.
-# This script assumes to be run inside a container/machine that has
-# python pre-installed and the `oc` command available. Additional tooling,
-# like kustomize and the mc client are installed by the script if not available.
-# The oc CLI is assumed to be configured with the credentials of the
-# target cluster. The target cluster is assumed to be a clean cluster.
+# This is a helper script to remove the E2E in local test execution environments.
+# Only works for raw deployment mode.
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -45,102 +41,53 @@ mkdir -p $HOME/.local/bin
 MY_PATH=$(dirname "$0")
 PROJECT_ROOT=$MY_PATH/../../../
 
-# Install KServe stack
-if [ "$1" != "raw" ]; then
-  echo "Deleting OSSM"
-  oc delete servicemeshcontrolplane basic -n istio-system --ignore-not-found
-  SMO_VERSION=$(oc get subscription servicemeshoperator -n openshift-operators -o jsonpath='{.status.currentCSV}')
-  oc delete subscription -n openshift-operators servicemeshoperator --ignore-not-found
-  oc delete csv -n openshift-operators $SMO_VERSION --ignore-not-found
-  oc delete project istio-system --ignore-not-found
-  echo "Deleting Serverless"
-  SERVERLESS_VERSION=$(oc get subscription serverless-operator -n openshift-serverless -o jsonpath='{.status.currentCSV}')
-  oc delete service knative-local-gateway -n istio-system --ignore-not-found
-  oc delete gateway knative-ingress-gateway -n knative-serving --ignore-not-found
-  oc delete gateway knative-local-gateway -n knative-serving --ignore-not-found
-  oc delete KnativeServing knative-serving -n knative-serving --ignore-not-found
-  oc delete ServiceMeshMember default -n knative-serving --ignore-not-found
-  oc delete project knative-serving --ignore-not-found
-  oc delete subscription serverless-operator -n openshift-serverless --ignore-not-found
-  oc delete operatorgroup serverless-operators -n openshift-serverless --ignore-not-found
-  oc delete csv $SERVERLESS_VERSION -n openshift-serverless --ignore-not-found
-  oc delete namespace openshift-serverless --ignore-not-found
-fi
-
 echo "Deleting KServe with Minio"
 kustomize build $PROJECT_ROOT/config/overlays/test |
   sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
   sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
   sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
   sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
-  oc delete --server-side=true -f -
+  oc delete -f - --ignore-not-found || true
 
-if [ "$1" =~ "kserve_on_openshift" ]; then
+if [[ "${1:-}" =~ kserve_on_openshift ]]; then
   echo "Deleting TLS MinIO resources and generated certificates"
   kustomize build $PROJECT_ROOT/test/overlays/openshift-ci |
-    oc delete -n kserve -f -
-  oc delete secret minio-tls-custom -n kserve --ignore-not-found
+    oc delete -n kserve -f - --ignore-not-found || true
+  oc delete secret minio-tls-custom -n kserve --ignore-not-found || true
+  oc delete secret minio-tls-serving -n kserve --ignore-not-found || true
+  # Clean up storage-config secret entries for TLS MinIO
+  if oc get secret storage-config -n kserve-ci-e2e-test > /dev/null 2>&1; then
+    oc patch secret storage-config -n kserve-ci-e2e-test --type=json \
+      -p='[{"op": "remove", "path": "/data/localTLSMinIOServing"}, {"op": "remove", "path": "/data/localTLSMinIOCustom"}]' 2>/dev/null || true
+  fi
   rm -rf $PROJECT_ROOT/test/scripts/openshift-ci/tls/certs
 fi
 # Install DSC/DSCI for test. (sometimes there is timing issue when it is under the same kustomization so it is separated)
-oc delete -f config/overlays/test/dsci.yaml
-oc delete -f config/overlays/test/dsc.yaml
+oc delete -f config/overlays/test/dsci.yaml --ignore-not-found || true
+oc delete -f config/overlays/test/dsc.yaml --ignore-not-found || true
 
-if [ "$1" != "raw" ]; then
-  echo "Deleting authorino and kserve gateways"
-  # TODO: authorino
-  curl -sL https://raw.githubusercontent.com/Kuadrant/authorino-operator/main/utils/install.sh | sed "s|kubectl|oc|" |
-    bash -s -- -v 0.16.0
-
-  # kserve-local-gateway
-  curl https://raw.githubusercontent.com/opendatahub-io/opendatahub-operator/bde4b4e8478b5d03195e2777b9d550922e3cdcbc/components/kserve/resources/servicemesh/routing/istio-kserve-local-gateway.tmpl.yaml |
-    sed "s/{{ .ControlPlane.Namespace }}/istio-system/g" |
-    oc delete -f -
-
-  curl https://raw.githubusercontent.com/opendatahub-io/opendatahub-operator/bde4b4e8478b5d03195e2777b9d550922e3cdcbc/components/kserve/resources/servicemesh/routing/kserve-local-gateway-svc.tmpl.yaml |
-    sed "s/{{ .ControlPlane.Namespace }}/istio-system/g" |
-    oc delete -f -
-fi
 
 echo "Deleting ODH Model Controller"
 kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
     sed "s|quay.io/opendatahub/odh-model-controller:fast|${ODH_MODEL_CONTROLLER_IMAGE}|" |
-    oc delete -n kserve -f -
-  oc wait --for=condition=ready pod -l app=odh-model-controller -n kserve --timeout=300s
+    oc delete -f - --ignore-not-found || true
+  oc wait --for=delete pod -l app=odh-model-controller -n kserve --timeout=30s 2>/dev/null || true
 
 
-echo "Delete CI namespace and  ServingRuntimes"
-cat <<EOF | oc delete -f -
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: kserve-ci-e2e-test
-EOF
+echo "Delete CI namespace and ServingRuntimes"
+# Tear down the CI namespace (Kubernetes will automatically clean up all resources including ServiceMeshMember)
+"$MY_PATH/teardown-ci-namespace.sh" "${1:-}" "kserve-ci-e2e-test"
 
-if [ "$1" != "raw" ]; then
-  cat <<EOF | oc delete -f -
-apiVersion: maistra.io/v1
-kind: ServiceMeshMember
-metadata:
-  name: default
-  namespace: kserve-ci-e2e-test
-spec:
-  controlPlaneRef:
-    namespace: istio-system
-    name: basic
-EOF
-fi
-
-oc delete -f $PROJECT_ROOT/config/overlays/test/minio/minio-user-secret.yaml -n kserve-ci-e2e-test
+oc delete -f $PROJECT_ROOT/config/overlays/test/minio/minio-user-secret.yaml -n kserve-ci-e2e-test --ignore-not-found || true
 
 kustomize build $PROJECT_ROOT/config/overlays/test/clusterresources |
   sed 's/ClusterServingRuntime/ServingRuntime/' |
   sed "s|kserve/sklearnserver:latest|${SKLEARN_IMAGE}|" |
   sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
-  oc delete -n kserve-ci-e2e-test -f -
+  oc delete -n kserve-ci-e2e-test -f - --ignore-not-found || true
 
 
-cat <<EOF | oc delete -f -
+cat <<EOF | oc delete -f - --ignore-not-found || true
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -158,8 +105,8 @@ spec:
 EOF
 
 echo "Delete CMA / KEDA operator"
-oc delete kedacontroller -n openshift-keda keda --ignore-not-found
-oc delete subscription -n openshift-keda openshift-custom-metrics-autoscaler-operator --ignore-not-found
-oc delete namespace openshift-keda --ignore-not-found
+oc delete kedacontroller -n openshift-keda keda --ignore-not-found || true
+oc delete subscription -n openshift-keda openshift-custom-metrics-autoscaler-operator --ignore-not-found || true
+oc delete namespace openshift-keda --ignore-not-found || true
 
 echo "Teardown complete"

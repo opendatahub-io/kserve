@@ -60,3 +60,17 @@ wait_for_crd() {
   echo "CRD ${crd} detected — waiting for it to become Established (timeout: ${timeout})…"
   oc wait --for=condition=Established --timeout="$timeout" "crd/$crd"
 }
+
+# Define deployment types that skip serverless installation
+MARKERS_SKIP_SERVERLESS=("raw" "graph" "predictor" "path_based_routing" "kserve_on_openshift")
+
+# Helper function to check if deployment type should skip serverless
+skip_serverless() {
+  local deployment_type="$1"
+  for type in "${MARKERS_SKIP_SERVERLESS[@]}"; do
+    if [[ "$deployment_type" =~ $type ]]; then
+      return 0
+    fi
+  done
+  return 1
+}

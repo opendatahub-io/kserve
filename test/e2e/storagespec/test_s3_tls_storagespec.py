@@ -11,9 +11,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from typing import Any, Optional
+import json
 import os
 import time
 from base64 import b64decode, b64encode
+from contextlib import contextmanager
 from kubernetes import client
 from kserve import (
     constants,
@@ -25,10 +28,14 @@ from kserve import (
     V1beta1StorageSpec,
 )
 from kubernetes.client import V1ResourceRequirements
-from typing import Optional
 import pytest
 
-from ..common.utils import KSERVE_NAMESPACE, KSERVE_TEST_NAMESPACE
+from ..common.utils import (
+    KSERVE_NAMESPACE,
+    KSERVE_TEST_NAMESPACE,
+    wait_for_resource_deletion,
+)
+
 
 invalid_cert = """
 -----BEGIN CERTIFICATE-----
@@ -62,249 +69,222 @@ TbVunBmL9HUClHgUc2B0NSfNyqXSwo+Gp5Kg4iYIw4hJw2EPwilUFafcM8uVDktK
 5kwH30e7WUlkXz+j8p1UIuFM5kKHW/OwPBdLU/1Pl5ts
 -----END CERTIFICATE-----
 """
-invalid_data_connection = (
-    '{"type": "s3","access_key_id":"minio","secret_access_key":"minio123",'
-    '"endpoint_url":"https://minio-tls-serving-service.kserve.svc:9000",'
-    '"bucket":"mlpipeline","region":"us-south","anonymous":"False"}'
-)
 ssl_error = "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"
 
 
-@pytest.mark.kserve_on_openshift
-@pytest.mark.asyncio(scope="session")
-@pytest.mark.skip("Will be fixed as part of RHOAIENG-39707")
-async def test_s3_tls_global_custom_cert_storagespec_kserve():
-    kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+def create_storage_config_json(
+    service_name: str = "minio-tls-serving-service",
+    cabundle_configmap: Optional[str] = "odh-kserve-custom-ca-bundle",
+) -> dict[str, Any]:
+    config: dict[str, Any] = {
+        "type": "s3",
+        "access_key_id": "minio",
+        "secret_access_key": "minio123",
+        "endpoint_url": f"https://{service_name}.kserve.svc:9000",
+        "bucket": "mlpipeline",
+        "region": "us-south",
+        "anonymous": "False",
+    }
+    if cabundle_configmap is not None:
+        config["cabundle_configmap"] = cabundle_configmap
+    return config
+
+
+@pytest.fixture(scope="session")
+def kserve_client():
+    return KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
+
+
+def create_isvc_resource(
+    name: str,
+    storage_key: str = "localTLSMinIOCustom",
+) -> V1beta1InferenceService:
+    predictor = V1beta1PredictorSpec(
+        min_replicas=1,
+        sklearn=V1beta1SKLearnSpec(
+            storage=V1beta1StorageSpec(
+                key=storage_key,
+                path="sklearn",
+                parameters={"bucket": "example-models"},
+            ),
+            resources=V1ResourceRequirements(
+                requests={"cpu": "50m", "memory": "128Mi"},
+                limits={"cpu": "100m", "memory": "256Mi"},
+            ),
+        ),
+    )
+    return V1beta1InferenceService(
+        api_version=constants.KSERVE_V1BETA1,
+        kind=constants.KSERVE_KIND_INFERENCESERVICE,
+        metadata=client.V1ObjectMeta(
+            name=name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            labels={
+                constants.KSERVE_LABEL_NETWORKING_VISIBILITY: constants.KSERVE_LABEL_NETWORKING_VISIBILITY_EXPOSED,
+            },
+        ),
+        spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
 
+
+@contextmanager
+def managed_isvc(
+    kserve_client: KServeClient,
+    isvc: V1beta1InferenceService,
+):
+    service_name = isvc.metadata.name
+    kserve_client.create(isvc)
+    yield service_name
+    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
+    wait_for_resource_deletion(
+        read_func=lambda: kserve_client.api_instance.get_namespaced_custom_object(
+            constants.KSERVE_GROUP,
+            constants.KSERVE_V1BETA1_VERSION,
+            KSERVE_TEST_NAMESPACE,
+            constants.KSERVE_PLURAL_INFERENCESERVICE,
+            service_name,
+        ),
+    )
+
+
+@contextmanager
+def managed_storage_config(
+    kserve_client: KServeClient,
+    storage_key: str,
+    storage_config: dict[str, Any],
+    namespace: str = KSERVE_TEST_NAMESPACE,
+):
+    secret_name = "storage-config"
+    encoded_value = b64encode(json.dumps(storage_config).encode()).decode()
+    kserve_client.core_api.replace_namespaced_secret(
+        "storage-config",
+        namespace=namespace,
+        body=client.V1Secret(
+            api_version="v1",
+            kind="Secret",
+            metadata=client.V1ObjectMeta(name=secret_name),
+            data={storage_key: encoded_value},
+        ),
+    )
+    try:
+        yield storage_key
+    finally:  # Other tests can rely on the storage config secret being in the original value
+        kserve_client.core_api.replace_namespaced_secret(
+            "storage-config",
+            namespace=namespace,
+            body=client.V1Secret(
+                api_version="v1",
+                kind="Secret",
+                metadata=client.V1ObjectMeta(name=secret_name),
+                data={"localMinIO": b64encode(json.dumps(create_storage_config_json("minio-service")).encode()).decode()},
+            ),
+        )
+
+
+def create_odh_trusted_ca_bundle_configmap(kserve_client: KServeClient, data_key: str):
     # Mimic the RHOAI/ODH operators by creating the odh-trusted-ca-bundle configmap containing the custom cert as a global cert
+    configmap_name = "odh-trusted-ca-bundle"
+    namespace = KSERVE_TEST_NAMESPACE
     minio_tls_custom_certs = kserve_client.core_api.read_namespaced_secret(
         "minio-tls-custom", KSERVE_NAMESPACE
     ).data
     odh_trusted_ca_configmap = client.V1ConfigMap(
         api_version="v1",
         kind="ConfigMap",
-        metadata=client.V1ObjectMeta(name="odh-trusted-ca-bundle"),
+        metadata=client.V1ObjectMeta(name=configmap_name),
         data={
-            "ca-bundle.crt": b64decode(minio_tls_custom_certs["root.crt"]).decode()
+            data_key: b64decode(minio_tls_custom_certs["root.crt"]).decode()
         },
     )
     kserve_client.core_api.create_namespaced_config_map(
-        namespace=KSERVE_TEST_NAMESPACE, body=odh_trusted_ca_configmap
+        namespace=namespace, body=odh_trusted_ca_configmap
     )
-
-    # Validate that the model is successfully loaded when the global custom cert is present
-    service_name = "isvc-sklearn-s3-tls-global-pass"
-    predictor = V1beta1PredictorSpec(
-        min_replicas=1,
-        sklearn=V1beta1SKLearnSpec(
-            storage=V1beta1StorageSpec(
-                key="localTLSMinIOCustom",
-                path="sklearn",
-                parameters={"bucket": "example-models"},
-            ),
-            resources=V1ResourceRequirements(
-                requests={"cpu": "50m", "memory": "128Mi"},
-                limits={"cpu": "100m", "memory": "256Mi"},
-            ),
-        ),
-    )
-    isvc = V1beta1InferenceService(
-        api_version=constants.KSERVE_V1BETA1,
-        kind=constants.KSERVE_KIND_INFERENCESERVICE,
-        metadata=client.V1ObjectMeta(
-            name=service_name,
-            namespace=KSERVE_TEST_NAMESPACE,
-            labels={
-                constants.KSERVE_LABEL_NETWORKING_VISIBILITY: constants.KSERVE_LABEL_NETWORKING_VISIBILITY_EXPOSED,
-            },
-        ),
-        spec=V1beta1InferenceServiceSpec(predictor=predictor),
-    )
-    kserve_client.create(isvc)
-    check_model_status(kserve_client, service_name, KSERVE_TEST_NAMESPACE, "UpToDate")
-    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
-
-    # Patch the odh-trusted-ca-bundle configmap to replace the global custom cert with an invalid cert
-    kserve_client.core_api.patch_namespaced_config_map(
-        name="odh-trusted-ca-bundle",
-        namespace=KSERVE_TEST_NAMESPACE,
-        body={"data": {"ca-bundle.crt": invalid_cert.strip()}},
-    )
-
-    # Validate that the model fails to load when the global custom cert is not present
-    service_name = "isvc-sklearn-s3-tls-global-fail"
-    isvc.metadata.name = service_name
-    kserve_client.create(isvc)
-    check_model_status(
-        kserve_client,
-        service_name,
-        KSERVE_TEST_NAMESPACE,
-        "BlockedByFailedLoad",
-        ssl_error,
-    )
-    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
-
-    # Cleanup the configmap
+    yield configmap_name
     kserve_client.core_api.delete_namespaced_config_map(
-        name="odh-trusted-ca-bundle", namespace=KSERVE_TEST_NAMESPACE
+        name=configmap_name, namespace=namespace
     )
+    wait_for_resource_deletion(
+        read_func=lambda: kserve_client.core_api.read_namespaced_config_map(
+            name=configmap_name, namespace=namespace
+        ),
+    )
+
+
+@pytest.fixture(scope="function")
+def odh_trusted_ca_bundle_configmap_global(kserve_client):
+    yield from create_odh_trusted_ca_bundle_configmap(kserve_client, "ca-bundle.crt")
+
+
+@pytest.fixture(scope="function")
+def odh_trusted_ca_bundle_configmap_custom(kserve_client):
+    yield from create_odh_trusted_ca_bundle_configmap(kserve_client, "odh-ca-bundle.crt")
 
 
 @pytest.mark.kserve_on_openshift
-@pytest.mark.asyncio(scope="session")
-@pytest.mark.skip("Will be fixed as part of RHOAIENG-39707")
-async def test_s3_tls_custom_cert_storagespec_kserve():
-    kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
-    )
+def test_s3_tls_global_custom_cert_storagespec_kserve(kserve_client, odh_trusted_ca_bundle_configmap_global):
+    storage_config = create_storage_config_json("minio-tls-custom-service")
+    with managed_storage_config(kserve_client, "localTLSMinIOCustom", storage_config):
+        # Validate that the model is successfully loaded when the global custom cert is valid
+        pass_service_name = "isvc-sklearn-s3-tls-global-pass"
+        pass_isvc = create_isvc_resource(pass_service_name)
+        with managed_isvc(kserve_client, pass_isvc):
+            check_model_status(kserve_client, pass_service_name, KSERVE_TEST_NAMESPACE, "UpToDate")
 
-    # Mimic the RHOAI/ODH operators by creating the odh-trusted-ca-bundle configmap containing the custom cert
-    minio_tls_custom_certs = kserve_client.core_api.read_namespaced_secret(
-        "minio-tls-custom", KSERVE_NAMESPACE
-    ).data
-    odh_trusted_ca_configmap = client.V1ConfigMap(
-        api_version="v1",
-        kind="ConfigMap",
-        metadata=client.V1ObjectMeta(name="odh-trusted-ca-bundle"),
-        data={
-            "odh-ca-bundle.crt": b64decode(minio_tls_custom_certs["root.crt"]).decode()
-        },
-    )
-    kserve_client.core_api.create_namespaced_config_map(
-        namespace=KSERVE_TEST_NAMESPACE, body=odh_trusted_ca_configmap
-    )
-
-    # Validate that the model is successfully loaded when the custom cert is present
-    service_name = "isvc-sklearn-s3-tls-custom-pass"
-    predictor = V1beta1PredictorSpec(
-        min_replicas=1,
-        sklearn=V1beta1SKLearnSpec(
-            storage=V1beta1StorageSpec(
-                key="localTLSMinIOCustom",
-                path="sklearn",
-                parameters={"bucket": "example-models"},
-            ),
-            resources=V1ResourceRequirements(
-                requests={"cpu": "50m", "memory": "128Mi"},
-                limits={"cpu": "100m", "memory": "256Mi"},
-            ),
-        ),
-    )
-    isvc = V1beta1InferenceService(
-        api_version=constants.KSERVE_V1BETA1,
-        kind=constants.KSERVE_KIND_INFERENCESERVICE,
-        metadata=client.V1ObjectMeta(
-            name=service_name,
+        # Patch the odh-trusted-ca-bundle configmap to replace the global custom cert with an invalid cert
+        kserve_client.core_api.patch_namespaced_config_map(
+            name="odh-trusted-ca-bundle",
             namespace=KSERVE_TEST_NAMESPACE,
-            labels={
-                constants.KSERVE_LABEL_NETWORKING_VISIBILITY: constants.KSERVE_LABEL_NETWORKING_VISIBILITY_EXPOSED,
-            },
-        ),
-        spec=V1beta1InferenceServiceSpec(predictor=predictor),
-    )
-    kserve_client.create(isvc)
-    check_model_status(kserve_client, service_name, KSERVE_TEST_NAMESPACE, "UpToDate")
-    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
+            body={"data": {"ca-bundle.crt": invalid_cert.strip()}},
+        )
 
-    # Patch the odh-trusted-ca-bundle configmap to replace the custom cert with an invalid cert
-    kserve_client.core_api.patch_namespaced_config_map(
-        name="odh-trusted-ca-bundle",
-        namespace=KSERVE_TEST_NAMESPACE,
-        body={"data": {"odh-ca-bundle.crt": invalid_cert.strip()}},
-    )
-
-    # Validate that the model fails to load when the custom cert is not present
-    service_name = "isvc-sklearn-s3-tls-custom-fail"
-    isvc.metadata.name = service_name
-    kserve_client.create(isvc)
-    check_model_status(
-        kserve_client,
-        service_name,
-        KSERVE_TEST_NAMESPACE,
-        "BlockedByFailedLoad",
-        ssl_error,
-    )
-    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
-
-    # Cleanup the configmap
-    kserve_client.core_api.delete_namespaced_config_map(
-        name="odh-trusted-ca-bundle", namespace=KSERVE_TEST_NAMESPACE
-    )
+        # Validate that the model fails to load when the global custom cert is invalid
+        fail_service_name = "isvc-sklearn-s3-tls-global-fail"
+        fail_isvc = create_isvc_resource(fail_service_name)
+        with managed_isvc(kserve_client, fail_isvc):
+            check_model_status(kserve_client, fail_service_name, KSERVE_TEST_NAMESPACE, "BlockedByFailedLoad", ssl_error)
 
 
 @pytest.mark.kserve_on_openshift
-@pytest.mark.asyncio(scope="session")
-@pytest.mark.skip("Will be fixed as part of RHOAIENG-39707")
-async def test_s3_tls_serving_cert_storagespec_kserve():
-    kserve_client = KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
-    )
+def test_s3_tls_custom_cert_storagespec_kserve(kserve_client, odh_trusted_ca_bundle_configmap_custom):
+    storage_config = create_storage_config_json("minio-tls-custom-service")
+    with managed_storage_config(kserve_client, "localTLSMinIOCustom", storage_config):
+        # Validate that the model is successfully loaded when the custom cert is valid
+        pass_service_name = "isvc-sklearn-s3-tls-custom-pass"
+        pass_isvc = create_isvc_resource(pass_service_name)
+        with managed_isvc(kserve_client, pass_isvc):
+            check_model_status(kserve_client, pass_service_name, KSERVE_TEST_NAMESPACE, "UpToDate")
 
-    # Validate that the model is successfully loaded using the serving cert
-    service_name = "isvc-sklearn-s3-tls-serving-pass"
-    predictor = V1beta1PredictorSpec(
-        min_replicas=1,
-        sklearn=V1beta1SKLearnSpec(
-            storage=V1beta1StorageSpec(
-                key="localTLSMinIOServing",
-                path="sklearn",
-                parameters={"bucket": "example-models"},
-            ),
-            resources=V1ResourceRequirements(
-                requests={"cpu": "50m", "memory": "128Mi"},
-                limits={"cpu": "100m", "memory": "256Mi"},
-            ),
-        ),
-    )
-    isvc = V1beta1InferenceService(
-        api_version=constants.KSERVE_V1BETA1,
-        kind=constants.KSERVE_KIND_INFERENCESERVICE,
-        metadata=client.V1ObjectMeta(
-            name=service_name,
+        # Patch the odh-trusted-ca-bundle configmap to replace the custom cert with an invalid cert
+        kserve_client.core_api.patch_namespaced_config_map(
+            name="odh-trusted-ca-bundle",
             namespace=KSERVE_TEST_NAMESPACE,
-            labels={
-                constants.KSERVE_LABEL_NETWORKING_VISIBILITY: constants.KSERVE_LABEL_NETWORKING_VISIBILITY_EXPOSED,
-            },
-        ),
-        spec=V1beta1InferenceServiceSpec(predictor=predictor),
-    )
-    kserve_client.create(isvc)
-    check_model_status(kserve_client, service_name, KSERVE_TEST_NAMESPACE, "UpToDate")
-    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
+            body={"data": {"odh-ca-bundle.crt": invalid_cert.strip()}},
+        )
 
-    # Remove the cabundle configmap reference containing the serving certificate from the storage config secret
-    storage_config_data = kserve_client.core_api.read_namespaced_secret(
-        "storage-config", KSERVE_TEST_NAMESPACE
-    ).data
-    original_data_connection = storage_config_data["localTLSMinIOServing"]
+        # Validate that the model fails to load when the custom cert is invalid
+        fail_service_name = "isvc-sklearn-s3-tls-custom-fail"
+        fail_isvc = create_isvc_resource(fail_service_name)
+        with managed_isvc(kserve_client, fail_isvc):
+            check_model_status(kserve_client, fail_service_name, KSERVE_TEST_NAMESPACE, "BlockedByFailedLoad", ssl_error)
 
-    kserve_client.core_api.patch_namespaced_secret(
-        name="storage-config",
-        namespace=KSERVE_TEST_NAMESPACE,
-        body={"data": {"localTLSMinIOServing": b64encode(invalid_data_connection.encode()).decode()}},
-    )
 
-    # Validate that the model fails to load when the serving cert is not present
-    service_name = "isvc-sklearn-s3-tls-serving-fail"
-    isvc.metadata.name = service_name
-    kserve_client.create(isvc)
-    check_model_status(
-        kserve_client,
-        service_name,
-        KSERVE_TEST_NAMESPACE,
-        "BlockedByFailedLoad",
-        ssl_error,
-    )
-    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
+@pytest.mark.kserve_on_openshift
+def test_s3_tls_serving_cert_storagespec_kserve(kserve_client):
+    # Validate that the model is successfully loaded when the serving cert is valid
+    pass_storage_config = create_storage_config_json("minio-tls-serving-service")
+    pass_service_name = "isvc-sklearn-s3-tls-serving-pass"
+    pass_isvc = create_isvc_resource(pass_service_name, storage_key="localTLSMinIOServing")
+    with managed_storage_config(kserve_client, "localTLSMinIOServing", pass_storage_config):
+        with managed_isvc(kserve_client, pass_isvc):
+            check_model_status(kserve_client, pass_service_name, KSERVE_TEST_NAMESPACE, "UpToDate")
 
-    # Restore the storage config secret
-    kserve_client.core_api.patch_namespaced_secret(
-        name="storage-config",
-        namespace=KSERVE_TEST_NAMESPACE,
-        body={"data": {"localTLSMinIOServing": original_data_connection}},
-    )
+    # Validate that the model fails to load when the serving cert is not referenced in the storage config
+    fail_storage_config = create_storage_config_json("minio-tls-serving-service", cabundle_configmap=None)
+    fail_service_name = "isvc-sklearn-s3-tls-serving-fail"
+    fail_isvc = create_isvc_resource(fail_service_name, storage_key="localTLSMinIOServing")
+    with managed_storage_config(kserve_client, "localTLSMinIOServing", fail_storage_config):
+        with managed_isvc(kserve_client, fail_isvc):
+            check_model_status(kserve_client, fail_service_name, KSERVE_TEST_NAMESPACE, "BlockedByFailedLoad", ssl_error)
 
 
 def check_model_status(
@@ -313,9 +293,10 @@ def check_model_status(
     isvc_namespace: str,
     expected_status: str,
     expected_failure_message: Optional[str] = None,
-    timeout_seconds: int = 600,
+    timeout_seconds: int = 660,  # Default progressDeadlineSeconds + 60 seconds
     polling_interval: int = 10,
 ):
+    model_status = {}
     for _ in range(round(timeout_seconds / polling_interval)):
         time.sleep(polling_interval)
         isvc = kserve_client.get(
@@ -323,23 +304,22 @@ def check_model_status(
             namespace=isvc_namespace,
             version=constants.KSERVE_V1BETA1_VERSION,
         )
+        model_status = isvc.get("status", {}).get("modelStatus", {})
 
         failure_message_match = True
         if expected_failure_message is not None:
-            failure_message_match = expected_failure_message in isvc["status"][
-                "modelStatus"
-            ].get("lastFailureInfo", {}).get("message", "")
+            failure_message_match = expected_failure_message in model_status.get("lastFailureInfo", {}).get("message", "")
 
         if (
-            isvc["status"]["modelStatus"]["transitionStatus"] == expected_status
+            model_status.get("transitionStatus") == expected_status
             and failure_message_match
         ):
             return
 
-    actual_status = isvc["status"]["modelStatus"]["transitionStatus"]
+    actual_status = model_status.get("transitionStatus")
     if expected_failure_message is not None:
         actual_failure_message = (
-            isvc["status"]["modelStatus"].get("lastFailureInfo", {}).get("message", "")
+            model_status.get("lastFailureInfo", {}).get("message", "")
         )
         raise RuntimeError(
             f"Expected inferenceservice {isvc_name} to have model transition status '{expected_status}' "
