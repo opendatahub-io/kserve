@@ -21,6 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"text/template"
 
 	corev1 "k8s.io/api/core/v1"
@@ -31,7 +32,7 @@ import (
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -184,14 +185,14 @@ func (r *LLMISVCReconciler) combineBaseRefsConfig(ctx context.Context, llmSvc *v
 		llmSvcCfg.Spec.Router.Scheduler != nil &&
 		llmSvcCfg.Spec.Router.Scheduler.Pool != nil &&
 		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec != nil &&
-		len(llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector) == 0 {
+		len(llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector.MatchLabels) == 0 {
 		selector := GetWorkloadLabelSelector(llmSvc.ObjectMeta, &llmSvcCfg.Spec)
 
 		gieSelector := make(map[igwapi.LabelKey]igwapi.LabelValue, len(selector))
 		for k, v := range selector {
 			gieSelector[igwapi.LabelKey(k)] = igwapi.LabelValue(v)
 		}
-		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector = gieSelector
+		llmSvcCfg.Spec.Router.Scheduler.Pool.Spec.Selector = igwapi.LabelSelector{MatchLabels: gieSelector}
 	}
 
 	if llmSvcCfg.Spec.Router != nil &&
@@ -241,6 +242,34 @@ func (r *LLMISVCReconciler) combineBaseRefsConfig(ctx context.Context, llmSvc *v
 	return llmSvcCfg, nil
 }
 
+// splitAPIGroup extracts the API group from an apiVersion string.
+// For example: "inference.networking.k8s.io/v1" -> "inference.networking.k8s.io"
+// Defaults to "inference.networking.k8s.io" if the input is nil or doesn't contain a "/".
+func splitAPIGroup(apiVersion *string) string {
+	defaultGroup := "inference.networking.k8s.io"
+	if apiVersion == nil {
+		return defaultGroup
+	}
+	if group, _, found := strings.Cut(*apiVersion, "/"); found {
+		return group
+	}
+	return defaultGroup
+}
+
+// splitAPIVersion extracts the API version from an apiVersion string.
+// For example: "inference.networking.k8s.io/v1" -> "v1"
+// Defaults to "v1" if the input is nil or doesn't contain a "/".
+func splitAPIVersion(apiVersion *string) string {
+	defaultVersion := "v1"
+	if apiVersion == nil {
+		return defaultVersion
+	}
+	if _, version, found := strings.Cut(*apiVersion, "/"); found {
+		return version
+	}
+	return defaultVersion
+}
+
 // ReplaceVariables processes the configuration as a Go template to substitute
 // variables with values from the LLM service and global configuration
 func ReplaceVariables(llmSvc *v1alpha1.LLMInferenceService, llmSvcCfg *v1alpha1.LLMInferenceServiceConfig, reconcilerConfig *Config) (*v1alpha1.LLMInferenceServiceConfig, error) {
@@ -255,7 +284,9 @@ func ReplaceVariables(llmSvc *v1alpha1.LLMInferenceService, llmSvcCfg *v1alpha1.
 	}
 	t, err := template.New("config").
 		Funcs(map[string]any{
-			"ChildName": kmeta.ChildName,
+			"ChildName":        kmeta.ChildName,
+			"SplitAPIGroup":    splitAPIGroup,
+			"SplitAPIVersion":  splitAPIVersion,
 		}).
 		Option("missingkey=error").
 		Parse(string(templateBytes))
