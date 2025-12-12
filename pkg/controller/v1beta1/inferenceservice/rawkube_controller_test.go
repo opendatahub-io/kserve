@@ -243,6 +243,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 								constants.DeploymentMode:                                   string(constants.Standard),
 								constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: corev1.PodSpec{
@@ -802,6 +803,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 								constants.DeploymentMode:                                   string(constants.Standard),
 								constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: corev1.PodSpec{
@@ -1353,6 +1355,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 								constants.DeploymentMode:                                   string(constants.Standard),
 								constants.AutoscalerClass:                                  string(constants.AutoscalerClassNone),
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: corev1.PodSpec{
@@ -4644,6 +4647,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 								constants.DeploymentMode:                                   string(constants.Standard),
 								constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: corev1.PodSpec{
@@ -5073,6 +5077,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 								constants.DeploymentMode:                                   string(constants.Standard),
 								constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: corev1.PodSpec{
@@ -5694,6 +5699,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 								constants.DeploymentMode:                                   string(constants.Standard),
 								constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: corev1.PodSpec{
@@ -5793,8 +5799,9 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.InferenceServicePodLabelKey: serviceName,
 							},
 							Annotations: map[string]string{
-								constants.DeploymentMode:  string(constants.Standard),
-								constants.AutoscalerClass: string(constants.AutoscalerClassHPA),
+								constants.DeploymentMode:                 string(constants.Standard),
+								constants.AutoscalerClass:                string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation: transformerDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: corev1.PodSpec{
@@ -6601,6 +6608,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 								constants.DeploymentMode:                                   string(constants.Standard),
 								constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: corev1.PodSpec{
@@ -6700,8 +6708,9 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.InferenceServicePodLabelKey: serviceName,
 							},
 							Annotations: map[string]string{
-								constants.DeploymentMode:  string(constants.Standard),
-								constants.AutoscalerClass: string(constants.AutoscalerClassHPA),
+								constants.DeploymentMode:                 string(constants.Standard),
+								constants.AutoscalerClass:                string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation: explainerDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: corev1.PodSpec{
@@ -7518,6 +7527,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 								constants.DeploymentMode:                                   string(constants.Standard),
 								constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: corev1.PodSpec{
@@ -8189,6 +8199,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 								constants.DeploymentMode:                                   string(constants.Standard),
 								constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: corev1.PodSpec{
@@ -8288,8 +8299,9 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.InferenceServicePodLabelKey: serviceName,
 							},
 							Annotations: map[string]string{
-								constants.DeploymentMode:  string(constants.Standard),
-								constants.AutoscalerClass: string(constants.AutoscalerClassHPA),
+								constants.DeploymentMode:                 string(constants.Standard),
+								constants.AutoscalerClass:                string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation: transformerDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: corev1.PodSpec{
@@ -9143,6 +9155,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 								constants.DeploymentMode:                                   string(constants.Standard),
 								constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: corev1.PodSpec{
@@ -9242,8 +9255,9 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.InferenceServicePodLabelKey: serviceName,
 							},
 							Annotations: map[string]string{
-								constants.DeploymentMode:  string(constants.Standard),
-								constants.AutoscalerClass: string(constants.AutoscalerClassHPA),
+								constants.DeploymentMode:                 string(constants.Standard),
+								constants.AutoscalerClass:                string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation: explainerDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: corev1.PodSpec{
@@ -10526,6 +10540,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 								constants.DeploymentMode:                                   string(constants.Standard),
 								constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
 						},
 						Spec: corev1.PodSpec{

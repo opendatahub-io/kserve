@@ -361,6 +361,7 @@ func getDeploymentWithKServiceLabel(predictorDeploymentKey types.NamespacedName,
 						constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 						constants.DeploymentMode:                                   string(constants.Standard),
 						constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+						constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 					},
 				},
 				Spec: corev1.PodSpec{
