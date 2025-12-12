@@ -528,7 +528,7 @@ def wait_for_resource_deletion(
                    Should raise ApiException with status 404 when resource is not found.
                    Example: lambda: core_api.read_namespaced_config_map(name=name, namespace=namespace)
         wait_timeout: Maximum time in seconds to wait for deletion (default: 30)
-        sleep: Time in seconds between polling attempts (default: 2)
+        sleep: Time in seconds between polling attempts (default: 1)
 
     Raises:
         TimeoutExpiredError: If the resource is not deleted within wait_timeout seconds

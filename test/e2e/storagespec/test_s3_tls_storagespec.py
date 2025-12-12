@@ -135,20 +135,16 @@ def managed_isvc(
     service_name = isvc.metadata.name
     kserve_client.create(isvc)
     yield service_name
-    try:  # Cleanup if the context is exited without an error or failure
-        kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
-        wait_for_resource_deletion(
-            read_func=lambda: kserve_client.api_instance.get_namespaced_custom_object(
-                constants.KSERVE_GROUP,
-                constants.KSERVE_V1BETA1_VERSION,
-                KSERVE_TEST_NAMESPACE,
-                constants.KSERVE_PLURAL_INFERENCESERVICE,
-                service_name,
-            ),
-        )
-    except Exception:
-        # Ignore errors during cleanup (e.g., service already deleted)
-        pass
+    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
+    wait_for_resource_deletion(
+        read_func=lambda: kserve_client.api_instance.get_namespaced_custom_object(
+            constants.KSERVE_GROUP,
+            constants.KSERVE_V1BETA1_VERSION,
+            KSERVE_TEST_NAMESPACE,
+            constants.KSERVE_PLURAL_INFERENCESERVICE,
+            service_name,
+        ),
+    )
 
 
 @contextmanager
@@ -172,7 +168,7 @@ def managed_storage_config(
     )
     try:
         yield storage_key
-    except Exception:  # Other tests can rely on the storage config secret being in the original value
+    finally:  # Other tests can rely on the storage config secret being in the original value
         kserve_client.core_api.replace_namespaced_secret(
             "storage-config",
             namespace=namespace,
