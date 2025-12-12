@@ -135,7 +135,7 @@ func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Infe
 		authEnabled = true
 	}
 
-	isvc.Status.URL, err = createRawURLODH(ctx, r.client, isvc, authEnabled)
+	isvc.Status.URL, err = createRawURLODH(ctx, r.client, isvc, authEnabled, r.ingressConfig)
 	if err != nil {
 		return err
 	}
@@ -165,20 +165,7 @@ func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Infe
 	return nil
 }
 
-func createRawURLODH(ctx context.Context, client client.Client, isvc *v1beta1.InferenceService, authEnabled bool) (*knapis.URL, error) {
-	// upstream implementation
-	// var err error
-	// url := &knapis.URL{}
-	// url.Scheme = ingressConfig.UrlScheme
-	// url.Host, err = GenerateDomainName(isvc.Name, isvc.ObjectMeta, ingressConfig)
-	// if err != nil {
-	//	return nil, err
-	// }
-	// if authEnabled {
-	//	url.Host += ":" + strconv.Itoa(constants.OauthProxyPort)
-	// }
-	// return url, nil
-
+func createRawURLODH(ctx context.Context, client client.Client, isvc *v1beta1.InferenceService, authEnabled bool, ingressConfig *v1beta1.IngressConfig) (*knapis.URL, error) {
 	// ODH changes
 	var url *knapis.URL
 	if val, ok := isvc.Labels[constants.NetworkVisibility]; ok && val == constants.ODHRouteEnabled {
@@ -188,10 +175,13 @@ func createRawURLODH(ctx context.Context, client client.Client, isvc *v1beta1.In
 			return nil, err
 		}
 	} else {
-		url = &apis.URL{
-			Host:   getRawServiceHost(isvc),
-			Scheme: "http",
-			Path:   "",
+		// Use upstream implementation to generate external domain name (batch 3 change)
+		var err error
+		url = &knapis.URL{}
+		url.Scheme = ingressConfig.UrlScheme
+		url.Host, err = GenerateDomainName(isvc.Name, isvc.ObjectMeta, ingressConfig)
+		if err != nil {
+			return nil, err
 		}
 		if authEnabled {
 			url.Host += ":" + strconv.Itoa(constants.OauthProxyPort)
