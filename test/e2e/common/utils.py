@@ -514,7 +514,7 @@ def extract_process_ids_from_logs(logs: str) -> set[int]:
 def wait_for_resource_deletion(
     read_func,
     wait_timeout: int = 30,
-    sleep: int = 2,
+    sleep: int = 1,
 ):
     """
     Wait for a Kubernetes resource to be deleted.

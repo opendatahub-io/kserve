@@ -23,35 +23,6 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 source "$SCRIPT_DIR/common.sh"
 
-# Helper function to add storage-config entry for TLS MinIO
-add_storage_config_for_tls_minio() {
-  local cert_type="$1"
-  local storage_config_key
-  local service_name
-  
-  if [[ "$cert_type" == "serving" ]]; then
-    storage_config_key="localTLSMinIOServing"
-    service_name="minio-tls-serving-service"
-  elif [[ "$cert_type" == "custom" ]]; then
-    storage_config_key="localTLSMinIOCustom"
-    service_name="minio-tls-custom-service"
-  else
-    echo "Error: Invalid certificate type: $cert_type"
-    return 1
-  fi
-  
-  echo "Adding $storage_config_key configuration to storage-config secret"
-  local local_tls_minio="{\"type\": \"s3\",\"access_key_id\":\"minio\",\"secret_access_key\":\"minio123\",\"endpoint_url\":\"https://${service_name}.kserve.svc:9000\",\"bucket\":\"mlpipeline\",\"region\":\"us-south\",\"cabundle_configmap\":\"odh-kserve-custom-ca-bundle\",\"anonymous\":\"False\"}"
-  local local_tls_minio_base64
-  local_tls_minio_base64=$(echo "${local_tls_minio}" | base64 -w 0)
-  
-  if oc get secret storage-config -n "$NAMESPACE" >/dev/null 2>&1; then
-    oc patch secret storage-config -n "$NAMESPACE" -p "{\"data\":{\"${storage_config_key}\":\"${local_tls_minio_base64}\"}}"
-  else
-    oc create secret generic storage-config --from-literal="${storage_config_key}=${local_tls_minio}" -n "$NAMESPACE"
-  fi
-}
-
 # Get deployment type from first argument, default to empty string
 DEPLOYMENT_TYPE="${1:-}"
 
@@ -113,13 +84,6 @@ if ! skip_serverless "$DEPLOYMENT_TYPE"; then
   else
     echo "Warning: No ServingRuntimes found to annotate"
   fi
-fi
-
-# Configure namespace-specific minio TLS storage-config if needed
-if [[ "$DEPLOYMENT_TYPE" =~ "kserve_on_openshift" ]]; then
-  echo "Configuring namespace-specific minio TLS storage-config"
-  add_storage_config_for_tls_minio custom
-  add_storage_config_for_tls_minio serving
 fi
 
 echo "CI namespace setup complete"
