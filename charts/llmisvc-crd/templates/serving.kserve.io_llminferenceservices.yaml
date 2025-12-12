@@ -8375,6 +8375,12 @@ spec:
                       properties:
                         pool:
                           properties:
+                            apiVersion:
+                              default: inference.networking.k8s.io/v1
+                              enum:
+                                - inference.networking.x-k8s.io/v1alpha2
+                                - inference.networking.k8s.io/v1
+                              type: string
                             ref:
                               properties:
                                 name:

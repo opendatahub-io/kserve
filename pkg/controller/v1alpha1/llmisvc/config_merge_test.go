@@ -943,9 +943,8 @@ func TestMergeSpecs(t *testing.T) {
 			cfgs: []v1alpha1.LLMInferenceServiceSpec{
 				{
 					Model: v1alpha1.LLMModelSpec{
-						URI:         apis.URL{Path: "base-model"},
-						Name:        ptr.To("base-name"),
-						Criticality: ptr.To(igwapi.Sheddable),
+						URI:  apis.URL{Path: "base-model"},
+						Name: ptr.To("base-name"),
 						LoRA: &v1alpha1.LoRASpec{
 							Adapters: []v1alpha1.LLMModelSpec{
 								{URI: apis.URL{Path: "lora-model"}},
@@ -966,8 +965,7 @@ func TestMergeSpecs(t *testing.T) {
 				},
 				{
 					Model: v1alpha1.LLMModelSpec{
-						Name:        ptr.To("override-name"),
-						Criticality: ptr.To(igwapi.Critical),
+						Name: ptr.To("override-name"),
 						LoRA: &v1alpha1.LoRASpec{
 							Adapters: []v1alpha1.LLMModelSpec{
 								{URI: apis.URL{Path: "lora-model2"}},
@@ -991,9 +989,8 @@ func TestMergeSpecs(t *testing.T) {
 			},
 			want: v1alpha1.LLMInferenceServiceSpec{
 				Model: v1alpha1.LLMModelSpec{
-					URI:         apis.URL{Path: "base-model"}, // Base URI preserved
-					Name:        ptr.To("override-name"),      // Override name
-					Criticality: ptr.To(igwapi.Critical),
+					URI:  apis.URL{Path: "base-model"}, // Base URI preserved
+					Name: ptr.To("override-name"),      // Override name
 					LoRA: &v1alpha1.LoRASpec{
 						Adapters: []v1alpha1.LLMModelSpec{
 							{URI: apis.URL{Path: "lora-model2"}},
@@ -1793,7 +1790,7 @@ func TestReplaceVariables(t *testing.T) {
 					Router: &v1alpha1.RouterSpec{
 						Scheduler: &v1alpha1.SchedulerSpec{
 							Pool: &v1alpha1.InferencePoolSpec{
-								APIVersion: ptr.To("inference.networking.x-k8s.io/v1alpha2"),
+								APIVersion: ptr.To("inference.networking.k8s.io/v1alpha2"),
 							},
 						},
 					},

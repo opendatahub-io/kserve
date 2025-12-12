@@ -150,27 +150,20 @@ func (r *LLMISVCReconciler) reconcileSchedulerDeployment(ctx context.Context, ll
 func (r *LLMISVCReconciler) reconcileSchedulerInferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	// Determine which API version to use
 	apiVersion := r.getInferencePoolAPIVersion(llmSvc)
-
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
-		// Clean up both possible API versions
+	if apiVersion == "inference.networking.k8s.io/v1" {
 		expectedV1 := r.expectedSchedulerInferencePool(ctx, llmSvc)
+		if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
+			return Delete(ctx, r, llmSvc, expectedV1)
+		}
+		if err := Reconcile(ctx, r, llmSvc, &igwapi.InferencePool{}, expectedV1, semanticInferencePoolIsEqual); err != nil {
+			return err
+		}
+	} else if apiVersion == "inference.networking.x-k8s.io/v1alpha2" {
 		expectedV1alpha2 := r.expectedSchedulerInferencePoolV1Alpha2(ctx, llmSvc)
-		if err := Delete(ctx, r, llmSvc, expectedV1); err != nil && !client.IgnoreNotFound(err) != nil {
-			return err
+		if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
+			return Delete(ctx, r, llmSvc, expectedV1alpha2)
 		}
-		return Delete(ctx, r, llmSvc, expectedV1alpha2)
-	}
-
-	// Reconcile based on the API version
-	if apiVersion == "inference.networking.x-k8s.io/v1alpha2" {
-		expected := r.expectedSchedulerInferencePoolV1Alpha2(ctx, llmSvc)
-		if err := Reconcile(ctx, r, llmSvc, &igwapix.InferencePool{}, expected, semanticInferencePoolV1Alpha2IsEqual); err != nil {
-			return err
-		}
-	} else {
-		// Default to v1
-		expected := r.expectedSchedulerInferencePool(ctx, llmSvc)
-		if err := Reconcile(ctx, r, llmSvc, &igwapi.InferencePool{}, expected, semanticInferencePoolIsEqual); err != nil {
+		if err := Reconcile(ctx, r, llmSvc, &igwapix.InferencePool{}, expectedV1alpha2, semanticInferencePoolV1Alpha2IsEqual); err != nil {
 			return err
 		}
 	}
