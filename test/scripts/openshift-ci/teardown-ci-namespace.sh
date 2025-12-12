@@ -17,7 +17,6 @@
 set -o errexit
 set -o nounset
 set -o pipefail
-set -x
 
 # Deployment type (if "raw", skip ServiceMeshMember deletion)
 DEPLOYMENT_TYPE="${1:-}"
