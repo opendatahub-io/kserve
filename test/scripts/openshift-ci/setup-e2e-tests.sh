@@ -29,8 +29,9 @@ PROJECT_ROOT="$(find_project_root "$SCRIPT_DIR")"
 readonly MARKERS="${1:-raw}"
 readonly PARALLELISM="${2:-1}"
 
-readonly DEPLOYMENT_PROFILE="${3:-serverless}"
+readonly DEPLOYMENT_PROFILE="${3:-raw}"
 validate_deployment_profile "${DEPLOYMENT_PROFILE}"
+
 
 : "${NS:=opendatahub}"
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
@@ -80,7 +81,8 @@ if [[ "${DEPLOYMENT_PROFILE}" == "raw" ]]; then
   $SCRIPT_DIR/infra/deploy.cma.sh
   # Add CA certificate extraction for raw deployments
   echo "⏳ Extracting OpenShift CA certificates for raw deployment"
-  # Get comprehensive CA bundle including both cluster and service CAs
+
+  # Create minimal cluster CA bundle for internal communications
   {
     # Cluster root CA bundle
     oc get configmap kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' 2>/dev/null && echo ""
@@ -88,11 +90,24 @@ if [[ "${DEPLOYMENT_PROFILE}" == "raw" ]]; then
     # OpenShift service CA
     oc get configmap openshift-service-ca.crt -n openshift-config-managed -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null || \
     oc get secret service-ca -n openshift-service-ca -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null | base64 -d || true
+  } > /tmp/ca_cluster.crt
+
+  # Create comprehensive CA bundle for external routes
+  {
+    # System trusted CA bundle (includes public CAs like Let's Encrypt, Amazon Root CAs, etc.)
+    oc get configmap trusted-ca-bundle -n openshift-config-managed -o jsonpath='{.data.ca-bundle\.crt}' 2>/dev/null && echo ""
+
+    # Add cluster CAs to ensure internal communications still work
+    cat /tmp/ca_cluster.crt
   } > /tmp/ca.crt
 
-  # Verify we got a valid CA bundle
+  # Verify we got valid CA bundles
   if [ -s "/tmp/ca.crt" ] && grep -q "BEGIN CERTIFICATE" "/tmp/ca.crt"; then
-    echo "✅ CA certificate bundle extracted ($(grep -c "BEGIN CERTIFICATE" /tmp/ca.crt) certificates)"
+    total_certs=$(grep -c "BEGIN CERTIFICATE" /tmp/ca.crt)
+    cluster_certs=$(grep -c "BEGIN CERTIFICATE" /tmp/ca_cluster.crt)
+    echo "✅ CA certificate bundles created:"
+    echo "   - Comprehensive bundle: $total_certs certificates (system + cluster CAs)"
+    echo "   - Cluster-only bundle: $cluster_certs certificates"
   else
     echo "❌ Failed to extract CA certificates"
   fi
@@ -147,7 +162,7 @@ oc apply -f ${PROJECT_ROOT}/config/overlays/odh-test/dsc.yaml
 export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
 
 # Patch the inferenceservice-config ConfigMap, when running RawDeployment tests
-if [[ "${MARKERS}" =~ raw || "${MARKERS}" =~ graph ]]; then
+if [ "${DEPLOYMENT_PROFILE}" == "raw" ]; then
   echo "✅ Patching RAW, markers: ${MARKERS}"
   oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/odh-test/configmap/inferenceservice-openshift-ci-raw.yaml | envsubst)
   oc delete pod -n ${NS} -l control-plane=kserve-controller-manager
@@ -155,7 +170,7 @@ if [[ "${MARKERS}" =~ raw || "${MARKERS}" =~ graph ]]; then
   oc patch DataScienceCluster test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
 fi
 
-if [[ "${MARKERS}" == *"predictor"* || "${MARKERS}" == *"path"* ]]; then
+if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
     oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/odh-test/configmap/inferenceservice-openshift-ci-serverless-predictor.yaml | envsubst)
 fi
 

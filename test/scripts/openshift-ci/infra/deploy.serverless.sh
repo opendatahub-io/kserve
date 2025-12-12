@@ -186,6 +186,7 @@ oc get IngressController -n openshift-ingress-operator default -o yaml
 export tls_cert=$(oc get secret $secret_name -n openshift-ingress -o=jsonpath='{.data.tls\.crt}')
 export CA_CERT_PATH="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 # This is for local testing
+echo "Obtaining certificates from Istio System"
 oc exec deploy/istio-ingressgateway -n istio-system -- cat $CA_CERT_PATH > /tmp/ca.crt
 
 if [ -f "$CA_CERT_PATH" ]; then
