@@ -37,6 +37,7 @@ MODEL_CLASS_NAME = "modelClass"
 INFERENCESERVICE_CONTAINER = "kserve-container"
 TRANSFORMER_CONTAINER = "transformer-container"
 STORAGE_URI_ENV = "STORAGE_URI"
+OPENDATAHUB_NAMESPACE = "opendatahub"
 
 
 def grpc_client(host, cluster_ip):
