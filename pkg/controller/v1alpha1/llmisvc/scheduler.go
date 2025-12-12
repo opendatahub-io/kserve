@@ -148,14 +148,33 @@ func (r *LLMISVCReconciler) reconcileSchedulerDeployment(ctx context.Context, ll
 }
 
 func (r *LLMISVCReconciler) reconcileSchedulerInferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	expected := r.expectedSchedulerInferencePool(ctx, llmSvc)
+	// Determine which API version to use
+	apiVersion := r.getInferencePoolAPIVersion(llmSvc)
+
 	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
-		return Delete(ctx, r, llmSvc, expected)
+		// Clean up both possible API versions
+		expectedV1 := r.expectedSchedulerInferencePool(ctx, llmSvc)
+		expectedV1alpha2 := r.expectedSchedulerInferencePoolV1Alpha2(ctx, llmSvc)
+		if err := Delete(ctx, r, llmSvc, expectedV1); err != nil && !client.IgnoreNotFound(err) != nil {
+			return err
+		}
+		return Delete(ctx, r, llmSvc, expectedV1alpha2)
 	}
 
-	if err := Reconcile(ctx, r, llmSvc, &igwapi.InferencePool{}, expected, semanticInferencePoolIsEqual); err != nil {
-		return err
+	// Reconcile based on the API version
+	if apiVersion == "inference.networking.x-k8s.io/v1alpha2" {
+		expected := r.expectedSchedulerInferencePoolV1Alpha2(ctx, llmSvc)
+		if err := Reconcile(ctx, r, llmSvc, &igwapix.InferencePool{}, expected, semanticInferencePoolV1Alpha2IsEqual); err != nil {
+			return err
+		}
+	} else {
+		// Default to v1
+		expected := r.expectedSchedulerInferencePool(ctx, llmSvc)
+		if err := Reconcile(ctx, r, llmSvc, &igwapi.InferencePool{}, expected, semanticInferencePoolIsEqual); err != nil {
+			return err
+		}
 	}
+
 	// TODO add inference pool condition propagation and then aggregate it into "RouterReady" similar to WorkloadReady.
 	return nil
 }
@@ -263,6 +282,51 @@ func (r *LLMISVCReconciler) expectedSchedulerInferencePool(ctx context.Context, 
 	log.FromContext(ctx).V(2).Info("Expected router InferencePool", "inferencepool", ip)
 
 	return ip
+}
+
+func (r *LLMISVCReconciler) expectedSchedulerInferencePoolV1Alpha2(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *igwapix.InferencePool {
+	labels := SchedulerLabels(llmSvc)
+
+	// Create v1 InferencePool first
+	v1Pool := r.expectedSchedulerInferencePool(ctx, llmSvc)
+
+	// Convert to v1alpha2
+	v1alpha2Pool := &igwapix.InferencePool{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      v1Pool.Name,
+			Namespace: v1Pool.Namespace,
+			Labels:    labels,
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(llmSvc, v1alpha1.LLMInferenceServiceGVK),
+			},
+		},
+	}
+
+	// Convert from v1 to v1alpha2 using the conversion function
+	if err := v1alpha2Pool.ConvertFrom(v1Pool); err != nil {
+		log.FromContext(ctx).Error(err, "Failed to convert InferencePool from v1 to v1alpha2, using empty spec")
+	}
+
+	log.FromContext(ctx).V(2).Info("Expected router InferencePool v1alpha2", "inferencepool", v1alpha2Pool)
+
+	return v1alpha2Pool
+}
+
+// getInferencePoolAPIVersion determines which API version to use for InferencePool
+// based on the configuration in the LLMInferenceService spec
+func (r *LLMISVCReconciler) getInferencePoolAPIVersion(llmSvc *v1alpha1.LLMInferenceService) string {
+	// Default to v1 (stable)
+	defaultAPIVersion := "inference.networking.k8s.io/v1"
+
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Pool == nil {
+		return defaultAPIVersion
+	}
+
+	if llmSvc.Spec.Router.Scheduler.Pool.APIVersion == nil {
+		return defaultAPIVersion
+	}
+
+	return *llmSvc.Spec.Router.Scheduler.Pool.APIVersion
 }
 
 func (r *LLMISVCReconciler) expectedSchedulerInferenceObjective(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *igwapix.InferenceObjective {
@@ -505,6 +569,12 @@ func semanticInferenceObjectiveIsEqual(expected *igwapix.InferenceObjective, cur
 }
 
 func semanticInferencePoolIsEqual(expected *igwapi.InferencePool, curr *igwapi.InferencePool) bool {
+	return equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
+		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
+		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)
+}
+
+func semanticInferencePoolV1Alpha2IsEqual(expected *igwapix.InferencePool, curr *igwapix.InferencePool) bool {
 	return equality.Semantic.DeepDerivative(expected.Spec, curr.Spec) &&
 		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
 		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)

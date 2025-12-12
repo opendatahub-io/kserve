@@ -264,6 +264,10 @@ func (r *LLMISVCReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwapi.GroupVersion.String(), "InferencePool"); ok && err == nil {
 		b = b.Owns(&igwapi.InferencePool{}, builder.WithPredicates(childResourcesPredicate))
 	}
+	// Also watch for v1alpha2 InferencePool for backwards compatibility
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwapix.GroupVersion.String(), "InferencePool"); ok && err == nil {
+		b = b.Owns(&igwapix.InferencePool{}, builder.WithPredicates(childResourcesPredicate))
+	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwapix.GroupVersion.String(), "InferenceObjective"); ok && err == nil {
 		b = b.Owns(&igwapix.InferenceObjective{}, builder.WithPredicates(childResourcesPredicate))
 	}
