@@ -26858,6 +26858,8 @@ spec:
                 additionalProperties:
                   type: string
                 type: object
+              clusterServingRuntimeName:
+                type: string
               components:
                 additionalProperties:
                   properties:
@@ -27004,6 +27006,8 @@ spec:
               observedGeneration:
                 format: int64
                 type: integer
+              servingRuntimeName:
+                type: string
               url:
                 type: string
             type: object

@@ -163,7 +163,6 @@ spec:
                 --served-model-name "{{ .Spec.Model.Name }}" \
                 --port 8000 \
                 --api-server-count ${VLLM_API_SERVER_COUNT:-8} \
-                --disable-log-requests \
                 {{- if .Spec.Prefill.Parallelism.Expert -}}--enable-expert-parallel{{- end }} \
                 {{- if .Spec.Prefill.Parallelism.Tensor -}}--tensor-parallel-size {{ .Spec.Prefill.Parallelism.Tensor }}{{- end }} \
                 --data-parallel-size {{ or .Spec.Prefill.Parallelism.Data 1 }} \
@@ -175,9 +174,9 @@ spec:
                 --trust-remote-code \
                 --enable-ssl-refresh \
                 --ssl-certfile \
-                /etc/ssl/certs/tls.crt \
+                /var/run/kserve/tls/tls.crt \
                 --ssl-keyfile \
-                /etc/ssl/certs/tls.key"
+                /var/run/kserve/tls/tls.key"
           env:
             - name: HOME
               value: /home
@@ -225,7 +224,7 @@ spec:
               name: dshm
             - mountPath: /models
               name: model-cache
-            - mountPath: /etc/ssl/certs
+            - mountPath: /var/run/kserve/tls
               name: tls-certs
               readOnly: true
       terminationGracePeriodSeconds: 30
@@ -399,7 +398,6 @@ spec:
                 /mnt/models \
                 --served-model-name "{{ .Spec.Model.Name }}" \
                 --port 8000 \
-                --disable-log-requests \
                 {{- if .Spec.Prefill.Parallelism.Expert }}--enable-expert-parallel{{- end }} \
                 {{- if .Spec.Prefill.Parallelism.Tensor }}--tensor-parallel-size {{ .Spec.Prefill.Parallelism.Tensor }}{{- end }} \
                 --data-parallel-size {{ or .Spec.Prefill.Parallelism.Data 1 }} \
@@ -412,9 +410,9 @@ spec:
                 --headless \
                 --enable-ssl-refresh \
                 --ssl-certfile \
-                /etc/ssl/certs/tls.crt \
+                /var/run/kserve/tls/tls.crt \
                 --ssl-keyfile \
-                /etc/ssl/certs/tls.key"
+                /var/run/kserve/tls/tls.key"
           env:
             - name: HOME
               value: /home
@@ -444,7 +442,7 @@ spec:
               name: dshm
             - mountPath: /models
               name: model-cache
-            - mountPath: /etc/ssl/certs
+            - mountPath: /var/run/kserve/tls
               name: tls-certs
               readOnly: true
       terminationGracePeriodSeconds: 30

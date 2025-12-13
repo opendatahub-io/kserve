@@ -29,8 +29,9 @@ PROJECT_ROOT="$(find_project_root "$SCRIPT_DIR")"
 readonly MARKERS="${1:-raw}"
 readonly PARALLELISM="${2:-1}"
 
-readonly DEPLOYMENT_PROFILE="${3:-serverless}"
+readonly DEPLOYMENT_PROFILE="${3:-raw}"
 validate_deployment_profile "${DEPLOYMENT_PROFILE}"
+
 
 : "${NS:=opendatahub}"
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
@@ -76,8 +77,40 @@ pushd $PROJECT_ROOT/python/kserve >/dev/null
   poetry install --with=test --no-interaction
 popd
 
-if [[ "${DEPLOYMENT_PROFILE}" == "raw" ]]; then 
+if [[ "${DEPLOYMENT_PROFILE}" == "raw" ]]; then
   $SCRIPT_DIR/infra/deploy.cma.sh
+  # Add CA certificate extraction for raw deployments
+  echo "⏳ Extracting OpenShift CA certificates for raw deployment"
+
+  # Create minimal cluster CA bundle for internal communications
+  {
+    # Cluster root CA bundle
+    oc get configmap kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' 2>/dev/null && echo ""
+
+    # OpenShift service CA
+    oc get configmap openshift-service-ca.crt -n openshift-config-managed -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null || \
+    oc get secret service-ca -n openshift-service-ca -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null | base64 -d || true
+  } > /tmp/ca_cluster.crt
+
+  # Create comprehensive CA bundle for external routes
+  {
+    # System trusted CA bundle (includes public CAs like Let's Encrypt, Amazon Root CAs, etc.)
+    oc get configmap trusted-ca-bundle -n openshift-config-managed -o jsonpath='{.data.ca-bundle\.crt}' 2>/dev/null && echo ""
+
+    # Add cluster CAs to ensure internal communications still work
+    cat /tmp/ca_cluster.crt
+  } > /tmp/ca.crt
+
+  # Verify we got valid CA bundles
+  if [ -s "/tmp/ca.crt" ] && grep -q "BEGIN CERTIFICATE" "/tmp/ca.crt"; then
+    total_certs=$(grep -c "BEGIN CERTIFICATE" /tmp/ca.crt)
+    cluster_certs=$(grep -c "BEGIN CERTIFICATE" /tmp/ca_cluster.crt)
+    echo "✅ CA certificate bundles created:"
+    echo "   - Comprehensive bundle: $total_certs certificates (system + cluster CAs)"
+    echo "   - Cluster-only bundle: $cluster_certs certificates"
+  else
+    echo "❌ Failed to extract CA certificates"
+  fi
 fi
 
 # Install KServe stack
@@ -90,7 +123,7 @@ fi
 
 if [[ "${DEPLOYMENT_PROFILE}" == "llm-d" ]]; then
   echo "⏳ Installing llm-d prerequisites"
-  $SCRIPT_DIR/setup-llm.sh --skip-kserve
+  $SCRIPT_DIR/setup-llm.sh --skip-kserve --deploy-kuadrant
 fi
 
 echo "⏳ Waiting for KServe CRDs"
@@ -99,34 +132,45 @@ kustomize build $PROJECT_ROOT/config/crd | oc apply --server-side=true -f -
 wait_for_crd llminferenceserviceconfigs.serving.kserve.io 90s
 
 echo "⏳ Installing KServe with Minio"
-kustomize build $PROJECT_ROOT/config/overlays/odh-test |
-  sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
-  sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
-  sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
-  sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
-  oc apply --server-side=true -f -
+
+# Update params.env with current image env variables
+cp "$PROJECT_ROOT/config/overlays/odh/params.env" "$PROJECT_ROOT/config/overlays/odh/params.env.bak"
+sed -i "s|^kserve-controller=.*$|kserve-controller=${KSERVE_CONTROLLER_IMAGE}|" "$PROJECT_ROOT/config/overlays/odh/params.env"
+sed -i "s|^kserve-agent=.*$|kserve-agent=${KSERVE_AGENT_IMAGE}|" "$PROJECT_ROOT/config/overlays/odh/params.env"
+sed -i "s|^kserve-router=.*$|kserve-router=${KSERVE_ROUTER_IMAGE}|" "$PROJECT_ROOT/config/overlays/odh/params.env"
+sed -i "s|^kserve-storage-initializer=.*$|kserve-storage-initializer=${STORAGE_INITIALIZER_IMAGE}|" "$PROJECT_ROOT/config/overlays/odh/params.env"
+sed -i "s|^sklearn=.*$|sklearn=${SKLEARN_IMAGE}|" "$PROJECT_ROOT/config/overlays/odh/params.env"
+
+# Disable namespace removal patch for CI.
+echo "⏳ Temporarily disabling namespace removal patch for CI"
+cp "$PROJECT_ROOT/config/overlays/odh/kustomization.yaml" "$PROJECT_ROOT/config/overlays/odh/kustomization.yaml.bak"
+sed -i 's|^- path: patches/remove-namespace.yaml|# - path: patches/remove-namespace.yaml|' "$PROJECT_ROOT/config/overlays/odh/kustomization.yaml"
+
+kustomize build $PROJECT_ROOT/config/overlays/odh-test | oc apply --force-conflicts --server-side=true -f -
+
+# Restore original files
+echo "⏳ Restoring original configuration files"
+mv "$PROJECT_ROOT/config/overlays/odh/kustomization.yaml.bak" "$PROJECT_ROOT/config/overlays/odh/kustomization.yaml"
+mv "$PROJECT_ROOT/config/overlays/odh/params.env.bak" "$PROJECT_ROOT/config/overlays/odh/params.env"
 
 wait_for_crd datascienceclusters.datasciencecluster.opendatahub.io 90s
 wait_for_crd dscinitializations.dscinitialization.opendatahub.io 90s
-             
-oc create -f ${PROJECT_ROOT}/config/overlays/odh-test/dsci.yaml
-oc create -f ${PROJECT_ROOT}/config/overlays/odh-test/dsc.yaml
+
+oc apply -f ${PROJECT_ROOT}/config/overlays/odh-test/dsci.yaml
+oc apply -f ${PROJECT_ROOT}/config/overlays/odh-test/dsc.yaml
 
 export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
 
 # Patch the inferenceservice-config ConfigMap, when running RawDeployment tests
-if [[ "${MARKERS}" == *"raw"* ]]; then
+if [ "${DEPLOYMENT_PROFILE}" == "raw" ]; then
+  echo "✅ Patching RAW, markers: ${MARKERS}"
   oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/odh-test/configmap/inferenceservice-openshift-ci-raw.yaml | envsubst)
   oc delete pod -n ${NS} -l control-plane=kserve-controller-manager
 
   oc patch DataScienceCluster test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
 fi
 
-if [[ "${MARKERS}" == *"graph"* ]]; then
-    oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/odh-test/configmap/inferenceservice-openshift-ci-serverless.yaml | envsubst)
-fi
-
-if [[ "${MARKERS}" == *"predictor"* || "${MARKERS}" == *"path"* ]]; then
+if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
     oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/odh-test/configmap/inferenceservice-openshift-ci-serverless-predictor.yaml | envsubst)
 fi
 
@@ -138,7 +182,7 @@ wait_for_pod_ready "${NS}" "control-plane=kserve-controller-manager"
 
 if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
   echo "⏳ Installing authorino and kserve gateways"
-  curl -sL https://raw.githubusercontent.com/Kuadrant/authorino-operator/main/utils/install.sh | sed "s|kubectl|oc|" | 
+  curl -sL https://raw.githubusercontent.com/Kuadrant/authorino-operator/main/utils/install.sh | sed "s|kubectl|oc|" |
     bash -s -- -v 0.16.0
 fi
 
@@ -150,9 +194,17 @@ kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
 
 wait_for_pod_ready "${NS}" "app=odh-model-controller"
 
-echo "Add testing models to minio storage ..." # Reference: config/overlays/odh-test/minio/minio-init-job.yaml
-oc expose service minio-service -n ${NS} && sleep 5
+echo "Add testing models to minio storage ..." # Reference: config/overlays/test/minio/minio-init-job.yaml
+# Wait for MinIO pod to be ready
+echo "⏳ Waiting for MinIO pod to be ready..."
+
+echo "minio oc get events"
+oc get events
+oc wait --for=condition=ready pod -l app=minio -n ${NS} --timeout=300s
+
+oc expose service minio-service -n ${NS} && sleep 15 # increased from 5 to 15
 MINIO_ROUTE=$(oc get routes -n ${NS} minio-service -o jsonpath="{.spec.host}")
+echo "MinIO route: $MINIO_ROUTE"
 mc alias set storage http://$MINIO_ROUTE minio minio123
 
 if ! mc ls storage/example-models >/dev/null 2>&1; then
@@ -214,11 +266,11 @@ metadata:
   name: allow-all
   namespace: ${NS}
 spec:
-  podSelector: {} 
+  podSelector: {}
   ingress:
-  - {}  
+  - {}
   egress:
-  - {}  
+  - {}
   policyTypes:
   - Ingress
   - Egress
@@ -226,3 +278,4 @@ EOF
 } || true
 
 echo "✅ Setup complete"
+

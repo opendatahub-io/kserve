@@ -24,12 +24,15 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/cabundleconfigmap"
 
 	"knative.dev/pkg/reconciler"
 
@@ -69,6 +72,7 @@ var childResourcesPredicate, _ = predicate.LabelSelectorPredicate(metav1.LabelSe
 // It orchestrates the reconciliation of child resources based on the spec.
 type LLMInferenceServiceReconciler struct {
 	client.Client
+	Config *rest.Config
 	record.EventRecorder
 	Clientset kubernetes.Interface
 }
@@ -84,7 +88,8 @@ type LLMInferenceServiceReconciler struct {
 //+kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes;gateways;gatewayclasses,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=inference.networking.x-k8s.io,resources=inferencepools;inferencemodels;,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=inference.networking.x-k8s.io,resources=inferencepools;inferencemodels;inferenceobjectives,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=inference.networking.k8s.io,resources=inferencepools,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
@@ -129,6 +134,12 @@ func (r *LLMInferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.
 
 		// Do not reconcile, because llmisvc is being deleted.
 		return ctrl.Result{}, nil
+	}
+
+	// Reconcile cabundleConfigMap
+	caBundleConfigMapReconciler := cabundleconfigmap.NewCaBundleConfigMapReconciler(r.Client, r.Clientset)
+	if err := caBundleConfigMapReconciler.Reconcile(ctx, original.Namespace); err != nil {
+		return reconcile.Result{}, err
 	}
 
 	resource := original.DeepCopy()
@@ -226,18 +237,23 @@ func (r *LLMInferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager) error
 
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.LLMInferenceService{}).
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: 8, // Reconcile different objects in parallel to increase throughput.
+		}).
 		Watches(&v1alpha1.LLMInferenceServiceConfig{}, r.enqueueOnLLMInferenceServiceConfigChange(logger)).
 		Owns(&netv1.Ingress{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&appsv1.Deployment{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&corev1.Secret{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&corev1.Service{}, builder.WithPredicates(childResourcesPredicate)).
-		Watches(&corev1.Service{}, r.enqueueOnIstioShadowServiceChange(mgr, logger))
+		Watches(&corev1.Service{}, r.enqueueOnIstioShadowServiceChange(mgr, logger)).
+		Watches(&corev1.Pod{}, r.enqueueOnLLMInferenceServicePods())
 
 	if err := gatewayapi.Install(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("failed to add GIE APIs to scheme: %w", err)
 	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), gatewayapi.GroupVersion.String(), "HTTPRoute"); ok && err == nil {
 		b = b.Owns(&gatewayapi.HTTPRoute{}, builder.WithPredicates(childResourcesPredicate))
+		b = b.Watches(&gatewayapi.HTTPRoute{}, r.enqueueOnHttpRouteChange(logger))
 	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), gatewayapi.GroupVersion.String(), "Gateway"); ok && err == nil {
 		b = b.Watches(&gatewayapi.Gateway{}, r.enqueueOnGatewayChange(logger))
@@ -335,6 +351,49 @@ func (r *LLMInferenceServiceReconciler) enqueueOnGatewayChange(logger logr.Logge
 	})
 }
 
+func (r *LLMInferenceServiceReconciler) enqueueOnHttpRouteChange(logger logr.Logger) handler.EventHandler {
+	logger = logger.WithName("enqueueOnHttpRouteChange")
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		sub := object.(*gatewayapi.HTTPRoute)
+		reqs := make([]reconcile.Request, 0, 2)
+
+		listNamespace := sub.GetNamespace()
+
+		// When an HTTPRoute is modified, we need to find all LLMInferenceService instances that might
+		// depend on it and trigger their reconciliation.
+		continueToken := ""
+		for {
+			llmSvcList := &v1alpha1.LLMInferenceServiceList{}
+			if err := r.Client.List(ctx, llmSvcList, &client.ListOptions{Namespace: listNamespace, Continue: continueToken}); err != nil {
+				logger.Error(err, "Failed to list LLMInferenceService")
+				return reqs
+			}
+			for _, llmSvc := range llmSvcList.Items {
+				// If it's not using the router or gateway, skip the resource.
+				if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || llmSvc.Spec.Router.Route.HTTP == nil {
+					continue
+				}
+
+				for _, ref := range llmSvc.Spec.Router.Route.HTTP.Refs {
+					if ref.Name == sub.Name && llmSvc.GetNamespace() == sub.Namespace {
+						reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
+							Namespace: llmSvc.Namespace,
+							Name:      llmSvc.Name,
+						}})
+					}
+				}
+			}
+
+			if llmSvcList.Continue == "" {
+				break
+			}
+			continueToken = llmSvcList.Continue
+		}
+
+		return reqs
+	})
+}
+
 func (r *LLMInferenceServiceReconciler) enqueueOnLLMInferenceServiceConfigChange(logger logr.Logger) handler.EventHandler {
 	logger = logger.WithName("enqueueOnLLMInferenceServiceConfigChange")
 	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
@@ -368,13 +427,12 @@ func (r *LLMInferenceServiceReconciler) enqueueOnLLMInferenceServiceConfigChange
 					continue
 				}
 
-				for _, ref := range llmSvc.Spec.BaseRefs {
-					if ref.Name == sub.Name {
-						reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
-							Namespace: llmSvc.Namespace,
-							Name:      llmSvc.Name,
-						}})
-					}
+				if llmSvc.IsUsingLLMInferenceServiceConfig(sub.Name) {
+					reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
+						Namespace: llmSvc.Namespace,
+						Name:      llmSvc.Name,
+					}})
+					continue
 				}
 			}
 
@@ -432,5 +490,20 @@ func (r *LLMInferenceServiceReconciler) enqueueOnIstioShadowServiceChange(mgr ct
 			Namespace: sub.GetNamespace(),
 			Name:      controller.Name,
 		}}}
+	})
+}
+
+func (r *LLMInferenceServiceReconciler) enqueueOnLLMInferenceServicePods() handler.TypedEventHandler[client.Object, reconcile.Request] {
+	return handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
+		sub := object.(*corev1.Pod)
+		reqs := make([]reconcile.Request, 0, 1)
+
+		if llmSvcName, ok := sub.GetLabels()["app.kubernetes.io/name"]; ok && llmSvcName != "" {
+			reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: sub.GetNamespace(),
+				Name:      llmSvcName,
+			}})
+		}
+		return reqs
 	})
 }

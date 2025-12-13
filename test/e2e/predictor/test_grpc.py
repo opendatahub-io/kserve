@@ -67,7 +67,7 @@ async def test_custom_model_grpc():
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(logger_isvc)
-    kserve_client.wait_isvc_ready(msg_dumper, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(msg_dumper, namespace=KSERVE_TEST_NAMESPACE)
 
     predictor = V1beta1PredictorSpec(
         logger=V1beta1LoggerSpec(
@@ -100,7 +100,7 @@ async def test_custom_model_grpc():
     )
 
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     json_file = open("./data/custom_model_input.json")
     data = json.load(json_file)

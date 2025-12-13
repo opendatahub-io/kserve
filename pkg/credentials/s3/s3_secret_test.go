@@ -162,6 +162,62 @@ func TestS3Secret(t *testing.T) {
 			},
 		},
 
+		"S3SecretODHS3EndpointWithProtocol": {
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "s3-secret",
+					Annotations: map[string]string{
+						InferenceServiceS3SecretEndpointAnnotation: "s3.aws.com",
+					},
+				},
+				Data: map[string][]byte{
+					ODHS3Endpoint: []byte("https://odh-s3.aws.com"),
+					S3UseHttps:    []byte("0"),
+					S3VerifySSL:   []byte("1"),
+				},
+			},
+			expected: []corev1.EnvVar{
+				{
+					Name: AWSAccessKeyId,
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "s3-secret",
+							},
+							Key: AWSAccessKeyIdName,
+						},
+					},
+				},
+				{
+					Name: AWSSecretAccessKey,
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "s3-secret",
+							},
+							Key: AWSSecretAccessKeyName,
+						},
+					},
+				},
+				{
+					Name:  S3UseHttps,
+					Value: "1",
+				},
+				{
+					Name:  S3Endpoint,
+					Value: "odh-s3.aws.com",
+				},
+				{
+					Name:  AWSEndpointUrl,
+					Value: "https://odh-s3.aws.com",
+				},
+				{
+					Name:  S3VerifySSL,
+					Value: "1",
+				},
+			},
+		},
+
 		"S3SecretAnnotationHttpsOverrideEnvs": {
 			secret: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
@@ -224,6 +280,114 @@ func TestS3Secret(t *testing.T) {
 				Data: map[string][]byte{
 					S3Endpoint:  []byte("s3.aws.com"),
 					S3UseHttps:  []byte("0"),
+					S3VerifySSL: []byte("0"),
+				},
+			},
+
+			expected: []corev1.EnvVar{
+				{
+					Name: AWSAccessKeyId,
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "s3-secret",
+							},
+							Key: AWSAccessKeyIdName,
+						},
+					},
+				},
+				{
+					Name: AWSSecretAccessKey,
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "s3-secret",
+							},
+							Key: AWSSecretAccessKeyName,
+						},
+					},
+				},
+				{
+					Name:  S3UseHttps,
+					Value: "0",
+				},
+				{
+					Name:  S3Endpoint,
+					Value: "s3.aws.com",
+				},
+				{
+					Name:  AWSEndpointUrl,
+					Value: "http://s3.aws.com",
+				},
+				{
+					Name:  S3VerifySSL,
+					Value: "0",
+				},
+			},
+		},
+
+		"S3SecretAnnotationEndpointWithProtocol": {
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "s3-secret",
+					Annotations: map[string]string{
+						InferenceServiceS3SecretEndpointAnnotation: "https://s3.aws.com",
+						InferenceServiceS3SecretHttpsAnnotation:    "0",
+						InferenceServiceS3SecretSSLAnnotation:      "1",
+					},
+				},
+			},
+
+			expected: []corev1.EnvVar{
+				{
+					Name: AWSAccessKeyId,
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "s3-secret",
+							},
+							Key: AWSAccessKeyIdName,
+						},
+					},
+				},
+				{
+					Name: AWSSecretAccessKey,
+					ValueFrom: &corev1.EnvVarSource{
+						SecretKeyRef: &corev1.SecretKeySelector{
+							LocalObjectReference: corev1.LocalObjectReference{
+								Name: "s3-secret",
+							},
+							Key: AWSSecretAccessKeyName,
+						},
+					},
+				},
+				{
+					Name:  S3UseHttps,
+					Value: "1",
+				},
+				{
+					Name:  S3Endpoint,
+					Value: "s3.aws.com",
+				},
+				{
+					Name:  AWSEndpointUrl,
+					Value: "https://s3.aws.com",
+				},
+				{
+					Name:  S3VerifySSL,
+					Value: "1",
+				},
+			},
+		},
+
+		"S3SecretDataEndpointWithProtocol": {
+			secret: &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "s3-secret",
+				},
+				Data: map[string][]byte{
+					S3Endpoint:  []byte("http://s3.aws.com"),
+					S3UseHttps:  []byte("1"),
 					S3VerifySSL: []byte("0"),
 				},
 			},

@@ -50,6 +50,7 @@ INPUT = "./data/iris_input.json"
 
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")
+@pytest.mark.skip("We do not test anymore with Knative")
 async def test_sklearn_kserve_concurrency(rest_v1_client):
     service_name = "isvc-sklearn-scale-concurrency"
     predictor = V1beta1PredictorSpec(
@@ -68,7 +69,8 @@ async def test_sklearn_kserve_concurrency(rest_v1_client):
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -77,7 +79,7 @@ async def test_sklearn_kserve_concurrency(rest_v1_client):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     pods = kserve_client.core_api.list_namespaced_pod(
         KSERVE_TEST_NAMESPACE,
         label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
@@ -94,6 +96,7 @@ async def test_sklearn_kserve_concurrency(rest_v1_client):
 
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")
+@pytest.mark.skip("We do not test anymore with Knative")
 async def test_sklearn_kserve_rps(rest_v1_client):
     service_name = "isvc-sklearn-scale-rps"
     predictor = V1beta1PredictorSpec(
@@ -113,7 +116,8 @@ async def test_sklearn_kserve_rps(rest_v1_client):
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -122,7 +126,7 @@ async def test_sklearn_kserve_rps(rest_v1_client):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     pods = kserve_client.core_api.list_namespaced_pod(
         KSERVE_TEST_NAMESPACE,
         label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
@@ -137,7 +141,7 @@ async def test_sklearn_kserve_rps(rest_v1_client):
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 
-@pytest.mark.skip()
+@pytest.mark.skip("Not needed to test with knative")
 @pytest.mark.asyncio(scope="session")
 async def test_sklearn_kserve_cpu(rest_v1_client):
     service_name = "isvc-sklearn-scale-cpu"
@@ -169,7 +173,7 @@ async def test_sklearn_kserve_cpu(rest_v1_client):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     pods = kserve_client.core_api.list_namespaced_pod(
         KSERVE_TEST_NAMESPACE,
         label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
@@ -223,7 +227,7 @@ async def test_sklearn_scale_raw(rest_v1_client, network_layer):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     api_instance = kserve_client.api_instance
     hpa_resp = api_instance.list_namespaced_custom_object(
         group="autoscaling",
@@ -297,10 +301,10 @@ async def test_sklearn_rolling_update():
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     kserve_client.patch(service_name, updated_isvc)
-    kserve_client.wait_isvc_ready(
+    kserve_client.wait_isvc_ready_modelstate_loaded(
         service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=600
     )
 
@@ -388,14 +392,14 @@ async def test_sklearn_env_update():
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     kserve_client.patch(service_name, updated_isvc)
     deployment = kserve_client.app_api.list_namespaced_deployment(
         namespace=KSERVE_TEST_NAMESPACE,
         label_selector="serving.kserve.io/test=env-update",
     )
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     # Check if the deployment replicas still remain the same as min_replicas
     assert deployment.items[0].spec.replicas == min_replicas
@@ -445,11 +449,18 @@ async def test_sklearn_keda_scale_resource_memory(rest_v1_client, network_layer)
         "serving.kserve.io/autoscalerClass": "keda",
     }
 
+    labels = {
+        "networking.kserve.io/visibility": "exposed",
+    }
+
     isvc = V1beta1InferenceService(
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE, annotations=annotations
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            annotations=annotations,
+            labels=labels,
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -458,7 +469,7 @@ async def test_sklearn_keda_scale_resource_memory(rest_v1_client, network_layer)
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     api_instance = kserve_client.api_instance
 
     scaledobject_resp = api_instance.list_namespaced_custom_object(
@@ -529,11 +540,18 @@ async def test_sklearn_keda_scale_new_spec_external(rest_v1_client, network_laye
         "serving.kserve.io/autoscalerClass": "keda",
     }
 
+    labels = {
+        "networking.kserve.io/visibility": "exposed",
+    }
+
     isvc = V1beta1InferenceService(
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE, annotations=annotations
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            annotations=annotations,
+            labels=labels,
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -542,7 +560,7 @@ async def test_sklearn_keda_scale_new_spec_external(rest_v1_client, network_laye
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     api_instance = kserve_client.api_instance
 
     scaledobject_resp = api_instance.list_namespaced_custom_object(
@@ -612,11 +630,18 @@ async def test_scaling_sklearn_with_keda_otel_add_on(rest_v1_client, network_lay
         "sidecar.opentelemetry.io/inject": f"{service_name}-predictor",
     }
 
+    labels = {
+        "networking.kserve.io/visibility": "exposed",
+    }
+
     isvc = V1beta1InferenceService(
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE, annotations=annotations
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            annotations=annotations,
+            labels=labels,
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -625,7 +650,7 @@ async def test_scaling_sklearn_with_keda_otel_add_on(rest_v1_client, network_lay
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     api_instance = kserve_client.api_instance
 
     otelp_collector_resp = api_instance.list_namespaced_custom_object(
