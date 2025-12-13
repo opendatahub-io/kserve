@@ -21,6 +21,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"text/template"
 
 	corev1 "k8s.io/api/core/v1"
@@ -39,22 +41,36 @@ import (
 )
 
 const (
-	configPrefix                            = "kserve-"
-	configTemplateName                      = configPrefix + "config-llm-template"
-	configDecodeTemplateName                = configPrefix + "config-llm-decode-template"
-	configDecodeWorkerPipelineParallelName  = configPrefix + "config-llm-decode-worker-pipeline-parallel"
-	configWorkerPipelineParallelName        = configPrefix + "config-llm-worker-pipeline-parallel"
-	configWorkerDataParallelName            = configPrefix + "config-llm-worker-data-parallel"
-	configDecodeWorkerDataParallelName      = configPrefix + "config-llm-decode-worker-data-parallel"
-	configPrefillTemplateName               = configPrefix + "config-llm-prefill-template"
-	configPrefillWorkerPipelineParallelName = configPrefix + "config-llm-prefill-worker-pipeline-parallel"
-	configPrefillWorkerDataParallelName     = configPrefix + "config-llm-prefill-worker-data-parallel"
-	configRouterSchedulerName               = configPrefix + "config-llm-scheduler"
-	configRouterRouteName                   = configPrefix + "config-llm-router-route"
+	configTemplateNameSuffix                      = "config-llm-template"
+	configDecodeTemplateNameSuffix                = "config-llm-decode-template"
+	configDecodeWorkerPipelineParallelNameSuffix  = "config-llm-decode-worker-pipeline-parallel"
+	configWorkerPipelineParallelNameSuffix        = "config-llm-worker-pipeline-parallel"
+	configWorkerDataParallelNameSuffix            = "config-llm-worker-data-parallel"
+	configDecodeWorkerDataParallelNameSuffix      = "config-llm-decode-worker-data-parallel"
+	configPrefillTemplateNameSuffix               = "config-llm-prefill-template"
+	configPrefillWorkerPipelineParallelNameSuffix = "config-llm-prefill-worker-pipeline-parallel"
+	configPrefillWorkerDataParallelNameSuffix     = "config-llm-prefill-worker-data-parallel"
+	configRouterSchedulerNameSuffix               = "config-llm-scheduler"
+	configRouterRouteNameSuffix                   = "config-llm-router-route"
+)
+
+var (
+	configPrefix                            = constants.GetEnvOrDefault("LLM_INFERENCE_SERVICE_CONFIG_PREFIX", "kserve-")
+	configTemplateName                      = configPrefix + configTemplateNameSuffix
+	configDecodeTemplateName                = configPrefix + configDecodeTemplateNameSuffix
+	configDecodeWorkerPipelineParallelName  = configPrefix + configDecodeWorkerPipelineParallelNameSuffix
+	configWorkerPipelineParallelName        = configPrefix + configWorkerPipelineParallelNameSuffix
+	configWorkerDataParallelName            = configPrefix + configWorkerDataParallelNameSuffix
+	configDecodeWorkerDataParallelName      = configPrefix + configDecodeWorkerDataParallelNameSuffix
+	configPrefillTemplateName               = configPrefix + configPrefillTemplateNameSuffix
+	configPrefillWorkerPipelineParallelName = configPrefix + configPrefillWorkerPipelineParallelNameSuffix
+	configPrefillWorkerDataParallelName     = configPrefix + configPrefillWorkerDataParallelNameSuffix
+	configRouterSchedulerName               = configPrefix + configRouterSchedulerNameSuffix
+	configRouterRouteName                   = configPrefix + configRouterRouteNameSuffix
 )
 
 // FIXME move those presets to well-known when they're finally known :)
-var _ = sets.New[string](
+var unimplementedWellKnownDefaultConfigs = sets.New[string](
 	configPrefillWorkerPipelineParallelName,
 	configDecodeWorkerPipelineParallelName,
 	configWorkerPipelineParallelName,
@@ -71,11 +87,16 @@ var WellKnownDefaultConfigs = sets.New[string](
 	configRouterRouteName,
 )
 
+var useVersionedConfig, _ = strconv.ParseBool(constants.GetEnvOrDefault("LLM_INFERENCE_SERVICE_VERSIONED_CONFIG_PREFIX", "true"))
+
 // combineBaseRefsConfig applies well-known config overlays to inject default values for various components, when some components are
 // enabled. These LLMInferenceServiceConfig resources must exist in either resource namespace (prioritized) or
 // SystemNamespace (e.g. `kserve`).
 func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, reconcilerConfig *Config) (*v1alpha1.LLMInferenceServiceConfig, error) {
 	logger := log.FromContext(ctx).WithName("combineBaseRefsConfig")
+
+	wr := &WellKnownConfigResolver{}
+	wr.Attach(llmSvc)
 
 	// Creates the initial spec with the merged BaseRefs, so that we know what's "Enabled".
 	resolvedSpec := *llmSvc.Spec.DeepCopy()
@@ -102,9 +123,11 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 
 	refs := make([]corev1.LocalObjectReference, 0, len(llmSvc.Spec.BaseRefs))
 	if resolvedSpec.Router != nil && resolvedSpec.Router.Scheduler != nil && !resolvedSpec.Router.Scheduler.Pool.HasRef() {
-		refs = append(refs, corev1.LocalObjectReference{Name: configRouterSchedulerName})
+		refs = append(refs, corev1.LocalObjectReference{Name: wr.Resolve(llmSvc, configRouterSchedulerName)})
 	}
 	if resolvedSpec.Router != nil && resolvedSpec.Router.Route != nil && !resolvedSpec.Router.Route.HTTP.HasRefs() {
+		// For the HTTP route configuration we don't use versioned defaults since this configuration depends on the
+		// GW API provider version.
 		refs = append(refs, corev1.LocalObjectReference{Name: configRouterRouteName})
 	}
 
@@ -113,37 +136,37 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		switch {
 		case resolvedSpec.Prefill.Worker == nil:
 			// single-node prefill
-			refs = append(refs, corev1.LocalObjectReference{Name: configPrefillTemplateName})
+			refs = append(refs, corev1.LocalObjectReference{Name: wr.Resolve(llmSvc, configPrefillTemplateName)})
 		case resolvedSpec.Prefill.Worker != nil && resolvedSpec.Prefill.Parallelism.IsDataParallel():
 			// multi-node Data Parallel prefill
-			refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerDataParallelName})
+			refs = append(refs, corev1.LocalObjectReference{Name: wr.Resolve(llmSvc, configPrefillWorkerDataParallelName)})
 		case resolvedSpec.Prefill.Worker != nil && resolvedSpec.Prefill.Parallelism.IsPipelineParallel():
 			// multi-node Pipeline Parallel prefill
-			refs = append(refs, corev1.LocalObjectReference{Name: configPrefillWorkerPipelineParallelName})
+			refs = append(refs, corev1.LocalObjectReference{Name: wr.Resolve(llmSvc, configPrefillWorkerPipelineParallelName)})
 		}
 		// Decode
 		switch {
 		case resolvedSpec.Worker == nil:
 			// single-node decode
-			refs = append(refs, corev1.LocalObjectReference{Name: configDecodeTemplateName})
+			refs = append(refs, corev1.LocalObjectReference{Name: wr.Resolve(llmSvc, configDecodeTemplateName)})
 		case resolvedSpec.Worker != nil && resolvedSpec.Parallelism.IsDataParallel():
 			// multi-node Data Parallel decode
-			refs = append(refs, corev1.LocalObjectReference{Name: configDecodeWorkerDataParallelName})
+			refs = append(refs, corev1.LocalObjectReference{Name: wr.Resolve(llmSvc, configDecodeWorkerDataParallelName)})
 		case resolvedSpec.Worker != nil && resolvedSpec.Parallelism.IsPipelineParallel():
 			// multi-node Pipeline Parallel decode
-			refs = append(refs, corev1.LocalObjectReference{Name: configDecodeWorkerPipelineParallelName})
+			refs = append(refs, corev1.LocalObjectReference{Name: wr.Resolve(llmSvc, configDecodeWorkerPipelineParallelName)})
 		}
 	} else { // Non P/D
 		switch {
 		case resolvedSpec.Worker == nil:
 			// single-node
-			refs = append(refs, corev1.LocalObjectReference{Name: configTemplateName})
+			refs = append(refs, corev1.LocalObjectReference{Name: wr.Resolve(llmSvc, configTemplateName)})
 		case resolvedSpec.Worker != nil && resolvedSpec.Parallelism.IsDataParallel():
 			// multi-node Data Parallel
-			refs = append(refs, corev1.LocalObjectReference{Name: configWorkerDataParallelName})
+			refs = append(refs, corev1.LocalObjectReference{Name: wr.Resolve(llmSvc, configWorkerDataParallelName)})
 		case resolvedSpec.Worker != nil && resolvedSpec.Parallelism.IsPipelineParallel():
 			// multi-node Pipeline Parallel
-			refs = append(refs, corev1.LocalObjectReference{Name: configWorkerPipelineParallelName})
+			refs = append(refs, corev1.LocalObjectReference{Name: wr.Resolve(llmSvc, configWorkerPipelineParallelName)})
 		}
 	}
 
@@ -352,4 +375,42 @@ func isDefaultBackendRef(llmSvc *v1alpha1.LLMInferenceService, ref gatewayapi.Ba
 	return ptr.Deref[gatewayapi.Group](ref.Group, "") == igwapi.GroupName &&
 		ptr.Deref[gatewayapi.Kind](ref.Kind, "") == "InferencePool" &&
 		string(ref.Name) == defaultInfPoolName
+}
+
+const (
+	StaticWellKnownConfigResolverPrefix = "serving.kserve.io/"
+)
+
+type WellKnownConfigResolver struct{}
+
+func (w *WellKnownConfigResolver) Attach(llmSvc *v1alpha1.LLMInferenceService) {
+	if !useVersionedConfig {
+		return
+	}
+	for _, t := range WellKnownDefaultConfigs.UnsortedList() {
+		suffix, _ := strings.CutPrefix(t, configPrefix)
+		key := StaticWellKnownConfigResolverPrefix + suffix
+
+		if v, ok := llmSvc.Status.Annotations[key]; ok && v != "" {
+			continue
+		}
+
+		if llmSvc.Status.Annotations == nil {
+			llmSvc.Status.Annotations = map[string]string{}
+		}
+		llmSvc.Status.Annotations[key] = t
+	}
+}
+
+func (w *WellKnownConfigResolver) Resolve(llmSvc *v1alpha1.LLMInferenceService, name string) string {
+	if !useVersionedConfig || llmSvc.Status.Annotations == nil {
+		return name
+	}
+
+	suffix, _ := strings.CutPrefix(name, configPrefix)
+	key := StaticWellKnownConfigResolverPrefix + suffix
+	if v, ok := llmSvc.Status.Annotations[key]; ok {
+		return v
+	}
+	return name
 }

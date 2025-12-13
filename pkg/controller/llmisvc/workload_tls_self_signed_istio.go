@@ -35,6 +35,7 @@ import (
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 const (
@@ -105,7 +106,7 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForShadowSe
 	if err != nil {
 		return fmt.Errorf("failed to get expected Istio destination rule for workload: %w", err)
 	}
-	if llmSvc.Spec.Router == nil {
+	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil {
 		return Delete(ctx, r, llmSvc, expected)
 	}
 	if expected.Spec.GetHost() == "" {
@@ -120,7 +121,7 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForShadowSe
 
 func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	expected := r.expectedIstioDestinationRuleForWorkload(ctx, llmSvc)
-	if llmSvc.Spec.Router == nil {
+	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil {
 		return Delete(ctx, r, llmSvc, expected)
 	}
 	return Reconcile(ctx, r, llmSvc, &istioapi.DestinationRule{}, expected, semanticDestinationRuleIsEqual)
@@ -131,7 +132,7 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRuleForSchedule
 	if err != nil {
 		return fmt.Errorf("failed to get expected Istio destination rule for scheduler: %w", err)
 	}
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
+	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
 		return Delete(ctx, r, llmSvc, expected)
 	}
 	return Reconcile(ctx, r, llmSvc, &istioapi.DestinationRule{}, expected, semanticDestinationRuleIsEqual)

@@ -123,7 +123,7 @@ def before(msg_dumper):
     )
 
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(msg_dumper, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(msg_dumper, namespace=KSERVE_TEST_NAMESPACE)
 
 
 async def base_test(msg_dumper, service_name, predictor, rest_v1_client, network_layer):
@@ -141,7 +141,7 @@ async def base_test(msg_dumper, service_name, predictor, rest_v1_client, network
 
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
     except RuntimeError:
         pods = kserve_client.core_api.list_namespaced_pod(
             KSERVE_TEST_NAMESPACE,

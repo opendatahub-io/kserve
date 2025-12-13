@@ -31,6 +31,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/credentials"
 	kserveTypes "github.com/kserve/kserve/pkg/types"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 const (
@@ -39,7 +40,7 @@ const (
 
 var sidecarSSRFProtectionRules = []rbacv1.PolicyRule{
 	{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get", "list", "watch"}},
-	{APIGroups: []string{"inference.networking.x-k8s.io"}, Resources: []string{"inferencepools"}, Verbs: []string{"get", "list", "watch"}},
+	{APIGroups: []string{"inference.networking.x-k8s.io", "inference.networking.k8s.io"}, Resources: []string{"inferencepools"}, Verbs: []string{"get", "list", "watch"}},
 }
 
 // reconcileWorkload manages the Deployments and Services for the LLM.
@@ -52,6 +53,10 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 
 	defer llmSvc.DetermineWorkloadReadiness()
 
+	if utils.GetForceStopRuntime(llmSvc) {
+		llmSvc.MarkMainWorkloadNotReady("Stopped", "Service is stopped")
+	}
+
 	if err := r.reconcileSelfSignedCertsSecret(ctx, llmSvc); err != nil {
 		llmSvc.MarkMainWorkloadNotReady("ReconcileCertsError", err.Error())
 		return fmt.Errorf("failed to reconcile self-signed certificates secret: %w", err)
@@ -61,7 +66,7 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkload(ctx context.Context, l
 	// finalizing superfluous workloads).
 
 	if err := r.reconcileMultiNodeWorkload(ctx, llmSvc, storageConfig, credentialConfig); err != nil {
-		llmSvc.MarkMainWorkloadNotReady("ReconcileMultiNodeWorkloadError", err.Error())
+		llmSvc.MarkWorkerWorkloadNotReady("ReconcileMultiNodeWorkloadError", err.Error())
 		return fmt.Errorf("failed to reconcile multi node workload: %w", err)
 	}
 
@@ -108,6 +113,10 @@ func (r *LLMInferenceServiceReconciler) reconcileWorkloadService(ctx context.Con
 			Selector: GetWorkloadLabelSelector(llmSvc.ObjectMeta, &llmSvc.Spec),
 			Type:     corev1.ServiceTypeClusterIP,
 		},
+	}
+
+	if utils.GetForceStopRuntime(llmSvc) {
+		return Delete(ctx, r, llmSvc, expected)
 	}
 
 	return Reconcile(ctx, r, llmSvc, &corev1.Service{}, expected, semanticServiceIsEqual)

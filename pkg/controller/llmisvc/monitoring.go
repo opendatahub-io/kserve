@@ -32,6 +32,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 // reconcileMonitoringResources reconciles all monitoring-related resources for an LLMInferenceService,
@@ -62,6 +63,13 @@ func (r *LLMInferenceServiceReconciler) reconcileMonitoringResources(ctx context
 func (r *LLMInferenceServiceReconciler) reconcileMetricsReaderRBAC(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	log.FromContext(ctx).Info("Reconciling LLMInferenceService metrics reader RBAC for namespace")
 
+	if utils.GetForceStopRuntime(llmSvc) {
+		// Note: We don't delete these resources when service is stopped because they are shared across
+		// all LLMInferenceServices in the namespace and are cleaned up in cleanupMonitoringResources
+		// when the last service in the namespace is deleted
+		return nil
+	}
+
 	serviceAccount := r.expectedMetricsReaderServiceAccount(llmSvc)
 	if err := Reconcile[*v1alpha1.LLMInferenceService](ctx, r, nil, &corev1.ServiceAccount{}, serviceAccount, semanticServiceAccountIsEqual); err != nil {
 		return fmt.Errorf("failed to reconcile metrics reader service account %s/%s: %w", serviceAccount.GetNamespace(), serviceAccount.GetName(), err)
@@ -85,6 +93,13 @@ func (r *LLMInferenceServiceReconciler) reconcileMetricsReaderRBAC(ctx context.C
 func (r *LLMInferenceServiceReconciler) reconcileVLLMEngineMonitor(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	log.FromContext(ctx).Info("Reconciling LLMInferenceService engine monitor")
 
+	if utils.GetForceStopRuntime(llmSvc) {
+		// Note: We don't delete these resources when service is stopped because they are shared across
+		// all LLMInferenceServices in the namespace and are cleaned up in cleanupMonitoringResources
+		// when the last service in the namespace is deleted
+		return nil
+	}
+
 	monitor := r.expectedVLLMEngineMonitor(llmSvc)
 	if err := Reconcile[*v1alpha1.LLMInferenceService](ctx, r, nil, &monitoringv1.PodMonitor{}, monitor, semanticPodMonitorIsEqual); err != nil {
 		return fmt.Errorf("failed to reconcile vLLM engine monitor %s/%s: %w", monitor.GetNamespace(), monitor.GetName(), err)
@@ -96,6 +111,13 @@ func (r *LLMInferenceServiceReconciler) reconcileVLLMEngineMonitor(ctx context.C
 // from the scheduler service of the LLMInferenceService.
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerMonitor(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	log.FromContext(ctx).Info("Reconciling LLMInferenceService scheduler monitor")
+
+	if utils.GetForceStopRuntime(llmSvc) {
+		// Note: We don't delete these resources when service is stopped because they are shared across
+		// all LLMInferenceServices in the namespace and are cleaned up in cleanupMonitoringResources
+		// when the last service in the namespace is deleted
+		return nil
+	}
 
 	monitor := r.expectedSchedulerMonitor(llmSvc)
 	if err := Reconcile[*v1alpha1.LLMInferenceService](ctx, r, nil, &monitoringv1.ServiceMonitor{}, monitor, semanticServiceMonitorIsEqual); err != nil {
@@ -312,7 +334,7 @@ func (r *LLMInferenceServiceReconciler) cleanupMonitoringResources(ctx context.C
 
 	namespaceHasLlmIsvcs := false
 	for _, svc := range llmSvcList.Items {
-		if svc.DeletionTimestamp.IsZero() {
+		if svc.DeletionTimestamp.IsZero() && !utils.GetForceStopRuntime(&svc) {
 			namespaceHasLlmIsvcs = true
 			break
 		}

@@ -29,7 +29,7 @@ PROJECT_ROOT="$(find_project_root "$SCRIPT_DIR")"
 readonly MARKERS="${1:-raw}"
 readonly PARALLELISM="${2:-1}"
 
-readonly DEPLOYMENT_PROFILE="${3:-serverless}"
+readonly DEPLOYMENT_PROFILE="${3:-raw}"
 validate_deployment_profile "${DEPLOYMENT_PROFILE}"
 
 export CI_USE_ISVC_HOST="1"
@@ -74,3 +74,4 @@ echo "Run E2E tests: ${MARKERS}"
 pushd $PROJECT_ROOT >/dev/null
 ./test/scripts/gh-actions/run-e2e-tests.sh "${MARKERS}" "${PARALLELISM}" "${DEPLOYMENT_PROFILE}" | tee 2>&1 ./test/scripts/openshift-ci/run-e2e-tests-"${MARKERS// /_}".log
 popd
+
