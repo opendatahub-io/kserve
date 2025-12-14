@@ -3,8 +3,10 @@ kind: LLMInferenceService
 metadata:
   name: qwen2-7b-instruct-pd
   annotations:
+    # RoCE network required for KV cache transfer via RDMA
     k8s.v1.cni.cncf.io/networks: roce-p2
 spec:
+  # Main/decode pool replica count
   replicas: 1
   model:
     uri: hf://Qwen/Qwen2.5-7B-Instruct
@@ -13,74 +15,94 @@ spec:
     scheduler:
       template:
         containers:
-        # ALWAYS DO PD IN THIS EXAMPLE (THRESHOLD 0)
-        - name: main
-          args:
-          - -v=4 # Debug level
-          - --poolName
-          - qwen2-7b-instruct-pd-inference-pool
-          - --poolNamespace
-          - llm-test
-          - --zap-encoder
-          - json
-          - --grpcPort
-          - "9002"
-          - --grpcHealthPort
-          - "9003"
-          - --secureServing
-          - --modelServerMetricsScheme
-          - https
-          - --modelServerMetricsHttpsInsecureSkipVerify
-          - --certPath
-          - /etc/ssl/certs
-          - --configText
-          - |2
-
-            apiVersion: inference.networking.x-k8s.io/v1alpha1
-            kind: EndpointPickerConfig
-            plugins:
-            - type: pd-profile-handler
-              parameters:
-                threshold: 0
-            - type: prefill-header-handler
-            - type: prefill-filter
-            - type: decode-filter
-            - type: prefix-cache-scorer
-            - type: load-aware-scorer
-            - type: max-score-picker
-            schedulingProfiles:
-            - name: prefill
-              plugins:
-              - pluginRef: prefill-filter
-              - pluginRef: prefix-cache-scorer
-                weight: 2.0
-              - pluginRef: load-aware-scorer
-                weight: 1.0
-              - pluginRef: max-score-picker
-            - name: decode
-              plugins:
-              - pluginRef: decode-filter
-              - pluginRef: prefix-cache-scorer
-                weight: 2.0
-              - pluginRef: load-aware-scorer
-                weight: 1.0
-              - pluginRef: max-score-picker
+          - name: main
+            # Threshold 0 means always use prefill-decode separation
+            args:
+              - -v=4 # Debug level
+              - --poolName
+              - "{{ ChildName .ObjectMeta.Name `-inference-pool` }}"
+              - --poolNamespace
+              - "{{ .ObjectMeta.Namespace }}"
+              - --zap-encoder
+              - json
+              - --grpcPort
+              - "9002"
+              - --grpcHealthPort
+              - "9003"
+              - --secureServing
+              - --modelServerMetricsScheme
+              - https
+              - --modelServerMetricsHttpsInsecureSkipVerify
+              - --certPath
+              - /etc/ssl/certs
+              - --configText
+              - |2
+              
+                apiVersion: inference.networking.x-k8s.io/v1alpha1
+                kind: EndpointPickerConfig
+                plugins:
+                - type: pd-profile-handler  # Separates prefill and decode requests
+                  parameters:
+                    threshold: 0  # Always separate (0 = all requests use PD separation)
+                - type: prefill-header-handler
+                - type: prefill-filter
+                - type: decode-filter
+                - type: prefix-cache-scorer
+                - type: load-aware-scorer
+                - type: max-score-picker
+                schedulingProfiles:
+                - name: prefill
+                  plugins:
+                  - pluginRef: prefill-filter
+                  - pluginRef: prefix-cache-scorer
+                    weight: 2.0
+                  - pluginRef: load-aware-scorer
+                    weight: 1.0
+                  - pluginRef: max-score-picker
+                - name: decode
+                  plugins:
+                  - pluginRef: decode-filter
+                  - pluginRef: prefix-cache-scorer
+                    weight: 2.0
+                  - pluginRef: load-aware-scorer
+                    weight: 1.0
+                  - pluginRef: max-score-picker
     route: { }
     gateway: { }
   template:
+    # This affinity rule ensures that the KV transfer happens over the RDMA network because if the pods are placed
+    # on the same node it will go over NVLink.
+    #affinity:
+    #  podAntiAffinity:
+    #    preferredDuringSchedulingIgnoredDuringExecution:
+    #    - weight: 100
+    #      podAffinityTerm:
+    #        labelSelector:
+    #          matchExpressions:
+    #          - key: app.kubernetes.io/component
+    #            operator: In
+    #            values:
+    #            - llminferenceservice-workload-prefill
+    #        topologyKey: kubernetes.io/hostname
     containers:
       - name: main
         env:
+          # Enable RDMA for KV cache transfer
           - name: KSERVE_INFER_ROCE
             value: "true"
+          # Pod IP for KV transfer side channel
           - name: VLLM_NIXL_SIDE_CHANNEL_HOST
             valueFrom:
               fieldRef:
                 fieldPath: status.podIP
+          # Enable KV cache transfer via NixlConnector (RDMA-based)
           - name: VLLM_ADDITIONAL_ARGS
             value: "--kv_transfer_config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_both\"}'"
+          # UCX configuration for RDMA transport
           - name: UCX_PROTO_INFO
             value: "y"
+          - name: UCX_TLS
+            value: "rc,sm,self,cuda_copy,cuda_ipc"
         resources:
           limits:
             cpu: '4'
@@ -102,8 +124,23 @@ spec:
           timeoutSeconds: 30
           failureThreshold: 5
   prefill:
-    replicas: 1
+    # Prefill pool replica count (higher for concurrent prefill requests)
+    replicas: 2
     template:
+      # This affinity rule ensures that the KV transfer happens over the RDMA network because if the pods are placed
+      # on the same node it will go over NVLink
+      #affinity:
+      #  podAntiAffinity:
+      #    preferredDuringSchedulingIgnoredDuringExecution:
+      #    - weight: 100
+      #      podAffinityTerm:
+      #        labelSelector:
+      #          matchExpressions:
+      #          - key: app.kubernetes.io/component
+      #            operator: In
+      #            values:
+      #            - llminferenceservice-workload
+      #        topologyKey: kubernetes.io/hostname
       containers:
         - name: main
           env:
@@ -117,6 +154,8 @@ spec:
               value: "--kv_transfer_config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_both\"}'"
             - name: UCX_PROTO_INFO
               value: "y"
+            - name: UCX_TLS
+              value: "rc,sm,self,cuda_copy,cuda_ipc"
           resources:
             limits:
               cpu: '4'
