@@ -283,6 +283,12 @@ func WithBackendRefs(refs ...gatewayapi.HTTPBackendRef) HTTPRouteRuleOption {
 	}
 }
 
+func WithHTTPRouteGatewayRef(references ...gatewayapi.ParentReference) HTTPRouteOption {
+	return func(route *gatewayapi.HTTPRoute) {
+		route.Spec.ParentRefs = append(route.Spec.ParentRefs, references...)
+	}
+}
+
 func BackendRefInferencePool(name string) gatewayapi.HTTPBackendRef {
 	return gatewayapi.HTTPBackendRef{
 		BackendRef: gatewayapi.BackendRef{
@@ -332,10 +338,6 @@ func WithHTTPRule(ruleOpts ...HTTPRouteRuleOption) HTTPRouteOption {
 
 func Matches(matches ...gatewayapi.HTTPRouteMatch) HTTPRouteRuleOption {
 	return WithMatches(matches...)
-}
-
-func BackendRefs(refs ...gatewayapi.HTTPBackendRef) HTTPRouteRuleOption {
-	return WithBackendRefs(refs...)
 }
 
 func Timeouts(backendTimeout, requestTimeout string) HTTPRouteRuleOption {
