@@ -64,6 +64,8 @@ spec:
               - --modelServerMetricsHttpsInsecureSkipVerify
               - --certPath
               - "/etc/ssl/certs"
+              - --kv-cache-usage-percentage-metric
+              - "vllm:kv_cache_usage_perc"
             resources:
               requests:
                 cpu: 256m
