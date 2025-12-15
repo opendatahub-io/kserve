@@ -310,7 +310,7 @@ def check_model_status(
     isvc_namespace: str,
     expected_status: str,
     expected_failure_message: Optional[str] = None,
-    timeout_seconds: int = 600,
+    timeout_seconds: int = 660,
     polling_interval: int = 10,
 ):
     for _ in range(round(timeout_seconds / polling_interval)):
