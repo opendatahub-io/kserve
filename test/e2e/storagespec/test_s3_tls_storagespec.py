@@ -156,28 +156,21 @@ def managed_storage_config(
 ):
     secret_name = "storage-config"
     encoded_value = b64encode(json.dumps(storage_config).encode()).decode()
-    kserve_client.core_api.replace_namespaced_secret(
-        "storage-config",
+    # Patch to ADD the key (preserves other keys)
+    kserve_client.core_api.patch_namespaced_secret(
+        secret_name,
         namespace=namespace,
-        body=client.V1Secret(
-            api_version="v1",
-            kind="Secret",
-            metadata=client.V1ObjectMeta(name=secret_name),
-            data={storage_key: encoded_value},
-        ),
+        body={"data": {storage_key: encoded_value}},
     )
     try:
         yield storage_key
-    finally:  # Other tests can rely on the storage config secret being in the original value
-        kserve_client.core_api.replace_namespaced_secret(
-            "storage-config",
+    finally:
+        # Patch to REMOVE only our key using JSON Patch
+        kserve_client.core_api.patch_namespaced_secret(
+            secret_name,
             namespace=namespace,
-            body=client.V1Secret(
-                api_version="v1",
-                kind="Secret",
-                metadata=client.V1ObjectMeta(name=secret_name),
-                data={"localMinIO": b64encode(json.dumps(create_storage_config_json("minio-service")).encode()).decode()},
-            ),
+            body=[{"op": "remove", "path": f"/data/{storage_key}"}],
+            _content_type="application/json-patch+json",
         )
 
 
