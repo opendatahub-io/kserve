@@ -19,6 +19,10 @@ MY_PATH=$(dirname "$0")
 PROJECT_ROOT=$MY_PATH/../../../../
 TLS_DIR=$PROJECT_ROOT/test/scripts/openshift-ci/tls
 
+: "${NS:=opendatahub}"
+
+echo "NS=$NS"
+
 if [ ! -x "$(command -v openssl)" ]; then
   echo "openssl not found"
   exit 1
@@ -28,6 +32,10 @@ echo "Generating Custom CA cert and secret"
 if ! [ -d $TLS_DIR/certs/custom ]; then
     mkdir -p $TLS_DIR/certs/custom
 fi
+
+# Edit the namespace present in openssl-san.config
+sed -i "s/minio-tls-custom-service\.opendatahub\.svc/minio-tls-custom-service.${NS}.svc/" ${TLS_DIR}/openssl-san.config
+
 openssl req -x509 -sha256 -nodes -days 365 -newkey rsa:4096 -subj "/O=Red Hat/CN=root" -keyout ${TLS_DIR}/certs/custom/root.key -out ${TLS_DIR}/certs/custom/root.crt 
 openssl req -nodes --newkey rsa:4096 -subj "/CN=custom/O=Red Hat" --keyout ${TLS_DIR}/certs/custom/custom.key -out ${TLS_DIR}/certs/custom/custom.csr -config ${TLS_DIR}/openssl-san.config
 openssl x509 -req -in ${TLS_DIR}/certs/custom/custom.csr -CA ${TLS_DIR}/certs/custom/root.crt -CAkey ${TLS_DIR}/certs/custom/root.key -CAcreateserial -out ${TLS_DIR}/certs/custom/custom.crt -days 365 -sha256 -extfile ${TLS_DIR}/openssl-san.config -extensions v3_req
