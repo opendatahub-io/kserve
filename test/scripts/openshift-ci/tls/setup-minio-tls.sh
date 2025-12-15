@@ -19,7 +19,6 @@
 set -o errexit
 set -o nounset
 set -o pipefail
-set +x
 
 CERT_TYPE="${1:-serving}"
 if [[ "$CERT_TYPE" != "serving" && "$CERT_TYPE" != "custom" ]]; then
