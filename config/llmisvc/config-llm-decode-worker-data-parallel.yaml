@@ -50,6 +50,7 @@ spec:
           - "--decoder-use-tls=true"
           - "--prefiller-use-tls=true"
           - "--enable-ssrf-protection=true"
+          - "--pool-group=inference.networking.x-k8s.io"
         volumeMounts:
           - mountPath: /var/run/kserve/tls
             name: tls-certs

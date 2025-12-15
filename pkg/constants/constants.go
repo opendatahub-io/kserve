@@ -111,6 +111,7 @@ var (
 	PrometheusPortAnnotationKey                 = "prometheus.io/port"
 	PrometheusPathAnnotationKey                 = "prometheus.io/path"
 	StorageReadonlyAnnotationKey                = "storage.kserve.io/readonly"
+	OVMSAutoVersioningAnnotationKey             = "storage.kserve.io/ovms-auto-versioning"
 	DefaultPrometheusPath                       = "/metrics"
 	QueueProxyAggregatePrometheusMetricsPort    = "9088"
 	DefaultPodPrometheusPort                    = "9091"
@@ -396,8 +397,9 @@ const (
 	WorkerContainerName     = "worker-container"
 	QueueProxyContainerName = "queue-proxy"
 
-	ModelcarContainerName     = "modelcar"
-	ModelcarInitContainerName = "modelcar-init"
+	ModelcarContainerName       = "modelcar"
+	ModelcarInitContainerName   = "modelcar-init"
+	OVMSVersioningContainerName = "ovms-auto-versioning"
 )
 
 // DefaultModelLocalMountPath is where models will be mounted by the storage-initializer
