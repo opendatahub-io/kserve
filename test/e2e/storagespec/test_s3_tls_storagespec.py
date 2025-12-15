@@ -316,7 +316,7 @@ def check_model_status(
         ):
             return
 
-    actual_status = model_status.get("transitionStatus")
+    actual_status = model_status.get("transitionStatus", "")
     if expected_failure_message is not None:
         actual_failure_message = (
             model_status.get("lastFailureInfo", {}).get("message", "")
