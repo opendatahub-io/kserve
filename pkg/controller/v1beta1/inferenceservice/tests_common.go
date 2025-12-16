@@ -242,7 +242,7 @@ func getDefaultMetrics() []v1beta1.MetricsSpec {
 				},
 				Target: v1beta1.MetricTarget{
 					Type:  v1beta1.ValueMetricType,
-					Value: &resource.Quantity{},
+					Value: &v1beta1.MetricQuantity{Quantity: resource.Quantity{}},
 				},
 			},
 		},
@@ -361,6 +361,7 @@ func getDeploymentWithKServiceLabel(predictorDeploymentKey types.NamespacedName,
 						constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 						constants.DeploymentMode:                                   string(constants.Standard),
 						constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+						constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 					},
 				},
 				Spec: corev1.PodSpec{
