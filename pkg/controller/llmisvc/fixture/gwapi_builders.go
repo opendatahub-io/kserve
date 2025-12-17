@@ -20,7 +20,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/apix/v1alpha2"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 )
 
@@ -633,17 +633,11 @@ func WithTargetPort(port int32) InferencePoolOption {
 
 func WithExtensionRef(group, kind, name string) InferencePoolOption {
 	return func(pool *igwapi.InferencePool) {
-		pool.Spec.EndpointPickerConfig = igwapi.EndpointPickerConfig{
-			ExtensionRef: &igwapi.Extension{
-				ExtensionReference: igwapi.ExtensionReference{
-					Group: ptr.To(igwapi.Group(group)),
-					Kind:  ptr.To(igwapi.Kind(kind)),
-					Name:  igwapi.ObjectName(name),
-				},
-				ExtensionConnection: igwapi.ExtensionConnection{
-					FailureMode: ptr.To(igwapi.FailOpen),
-				},
-			},
+		pool.Spec.ExtensionRef = igwapi.Extension{
+			Group:       ptr.To(igwapi.Group(group)),
+			Kind:        ptr.To(igwapi.Kind(kind)),
+			Name:        igwapi.ObjectName(name),
+			FailureMode: ptr.To(igwapi.FailOpen),
 		}
 	}
 }
