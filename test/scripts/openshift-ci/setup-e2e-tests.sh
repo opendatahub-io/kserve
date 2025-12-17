@@ -27,20 +27,6 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 source "$SCRIPT_DIR/common.sh"
 
-# Define deployment types that skip serverless installation
-MARKERS_SKIP_SERVERLESS=("raw" "graph" "predictor" "path_based_routing")
-
-# Helper function to check if deployment type should skip serverless
-skip_serverless() {
-  local deployment_type="$1"
-  for type in "${MARKERS_SKIP_SERVERLESS[@]}"; do
-    if [[ "$deployment_type" =~ $type ]]; then
-      return 0
-    fi
-  done
-  return 1
-}
-
 # Parse command line options
 : "${INSTALL_ODH_OPERATOR:=false}"
 
