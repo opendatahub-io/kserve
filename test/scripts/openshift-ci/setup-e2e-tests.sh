@@ -27,6 +27,41 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 source "$SCRIPT_DIR/common.sh"
 
+# Define deployment types that skip serverless installation
+MARKERS_SKIP_SERVERLESS=("raw" "graph" "predictor" "path_based_routing")
+
+# Helper function to check if deployment type should skip serverless
+skip_serverless() {
+  local deployment_type="$1"
+  for type in "${MARKERS_SKIP_SERVERLESS[@]}"; do
+    if [[ "$deployment_type" =~ $type ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# Parse command line options
+: "${INSTALL_ODH_OPERATOR:=false}"
+
+# Check for --install-odh-operator flag
+for arg in "$@"; do
+  case $arg in
+    --install-odh-operator)
+      INSTALL_ODH_OPERATOR=true
+      ;;
+  esac
+done
+
+# Set the applications namespace based on installation method
+# ODH operator uses 'opendatahub', manual installation uses 'kserve'
+if [[ "$INSTALL_ODH_OPERATOR" == "true" ]]; then
+  KSERVE_NAMESPACE="opendatahub"
+else
+  KSERVE_NAMESPACE="kserve"
+fi
+
+echo "Using namespace: $KSERVE_NAMESPACE for KServe components"
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
 : "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:latest}"
 : "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
@@ -72,7 +107,15 @@ pushd $PROJECT_ROOT/python/kserve >/dev/null
   uv pip install timeout-sampler
 popd
 
-$SCRIPT_DIR/deploy.cma.sh
+# Install autoscaler only if NOT using ODH operator (operator handles it)
+if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
+  $SCRIPT_DIR/deploy.cma.sh
+fi
+
+# Install ODH operator if requested
+if [[ "$INSTALL_ODH_OPERATOR" == "true" ]]; then
+  $SCRIPT_DIR/deploy.odh.sh
+fi
 
 # Add CA certificate extraction for raw deployments
 if [[ "$1" =~ raw ]]; then
@@ -95,48 +138,88 @@ if [[ "$1" =~ raw ]]; then
   fi
 fi
 
-# Install KServe stack - skip serverless for raw, graph and predictor deployments
-if ! skip_serverless "$1"; then
+# Install KServe stack - skip serverless for raw, graph, predictor, and path_based_routing deployments
+# Also skip if using ODH operator (it installs them)
+if ! skip_serverless "$1" && [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
   echo "Installing OSSM"
   $SCRIPT_DIR/deploy.ossm.sh
   echo "Installing Serverless"
   $SCRIPT_DIR/deploy.serverless.sh
 fi
 
-echo "⏳ Waiting for KServe CRDs"
-kustomize build $PROJECT_ROOT/config/crd | oc apply --server-side=true -f -
+# Install KServe components based on method
+if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
+  # Manual installation: Install KServe directly with PR images
+  echo "⏳ Installing KServe manually with PR images"
+  echo "⏳ Waiting for KServe CRDs"
+  kustomize build $PROJECT_ROOT/config/crd | oc apply --server-side=true -f -
 
-wait_for_crd llminferenceserviceconfigs.serving.kserve.io 90s
+  wait_for_crd llminferenceserviceconfigs.serving.kserve.io 90s
 
-echo "Installing KServe with Minio"
-kustomize build $PROJECT_ROOT/config/overlays/test |
-  sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
-  sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
-  sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
-  sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
-  sed "s|kserve/llmisvc-controller:latest|${LLMISVC_CONTROLLER_IMAGE}|" |
-  oc apply --server-side=true --force-conflicts -f -
+  echo "Installing KServe with Minio"
+  kustomize build $PROJECT_ROOT/config/overlays/test |
+    sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
+    sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
+    sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
+    sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
+    sed "s|kserve/llmisvc-controller:latest|${LLMISVC_CONTROLLER_IMAGE}|" |
+    oc apply --server-side=true --force-conflicts -f -
 
-# Install DSC/DSCI for test. (sometimes there is timing issue when it is under the same kustomization so it is separated)
-oc apply -f config/overlays/test/dsci.yaml
-oc apply -f config/overlays/test/dsc.yaml
+  # Install DSC/DSCI for manual installation
+  echo "Installing DSC/DSCI resources..."
+  oc apply -f config/overlays/test/dsci.yaml
+  oc apply -f config/overlays/test/dsc.yaml
+else
+  # ODH operator path: Apply DSC/DSCI to trigger operator deployment
+  echo "Applying DSC/DSCI to trigger ODH operator deployment..."
+  oc apply -f config/overlays/test/odh-operator/dsci.yaml
+  oc apply -f config/overlays/test/odh-operator/dsc.yaml
+
+  # Wait for KServe controller to be deployed by the operator
+  echo "Waiting for ODH operator to deploy KServe components..."
+  wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=kserve-controller-manager" 600s
+
+  # Deploy Minio for operator mode (manual mode gets it from kustomize overlay)
+  echo "Deploying Minio..."
+  kustomize build $PROJECT_ROOT/config/overlays/test/minio | \
+    sed "s/namespace: kserve/namespace: ${KSERVE_NAMESPACE}/" | \
+    oc apply -f -
+
+  # Patch KServe controller deployment with PR images
+  echo "Patching KServe controller with PR images..."
+  oc set image deployment/kserve-controller-manager \
+    manager=${KSERVE_CONTROLLER_IMAGE} \
+    -n ${KSERVE_NAMESPACE}
+
+  echo "Waiting for KServe controller to restart with PR image..."
+  oc rollout status deployment/kserve-controller-manager -n ${KSERVE_NAMESPACE} --timeout=300s
+fi
 
 # Patch the inferenceservice-config ConfigMap, when running RawDeployment tests
 if skip_serverless "$1"; then
   echo "Patching RAW deployment, markers: $1"
   export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
-  oc patch configmap inferenceservice-config -n kserve --patch-file <(cat config/overlays/test/configmap/inferenceservice-openshift-ci-raw.yaml | envsubst)
-  oc delete pod -n kserve -l control-plane=kserve-controller-manager
+  cat config/overlays/test/configmap/inferenceservice-openshift-ci-raw.yaml | \
+    sed "s/namespace: kserve/namespace: ${KSERVE_NAMESPACE}/" | \
+    envsubst | \
+    oc apply -f -
+  oc delete pod -n ${KSERVE_NAMESPACE} -l control-plane=kserve-controller-manager
 
-  oc patch DataScienceCluster test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
+  # Patch DSC only in manual mode (operator mode uses yaml files directly)
+  if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
+    oc patch DataScienceCluster test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
+  fi
 else
   export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
-  oc patch configmap inferenceservice-config -n kserve --patch-file <(cat config/overlays/test/configmap/inferenceservice-openshift-ci-serverless-predictor.yaml | envsubst)
+  cat config/overlays/test/configmap/inferenceservice-openshift-ci-serverless-predictor.yaml | \
+    sed "s/namespace: kserve/namespace: ${KSERVE_NAMESPACE}/" | \
+    envsubst | \
+    oc apply -f -
 fi
 
 # Wait until KServe starts
 echo "waiting kserve-controller get ready..."
-oc rollout status deployment/kserve-controller-manager -n kserve --timeout=300s
+oc wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n ${KSERVE_NAMESPACE} --timeout=300s
 
 if ! skip_serverless "$1"; then
   echo "Installing authorino and kserve gateways"
@@ -146,27 +229,40 @@ if ! skip_serverless "$1"; then
 
 fi
 
-echo "Installing ODH Model Controller"
-kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
-    sed "s|quay.io/opendatahub/odh-model-controller:fast|${ODH_MODEL_CONTROLLER_IMAGE}|" |
-    oc apply -n kserve -f -
-  echo "Waiting for the odh-model-controller deployment to become ready... (300s)"
-  oc rollout status deployment/odh-model-controller -n kserve --timeout=300s
+# Wait for/Install ODH Model Controller based on method
+if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
+  echo "Installing ODH Model Controller manually with PR images"
+  kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
+      sed "s|quay.io/opendatahub/odh-model-controller:fast|${ODH_MODEL_CONTROLLER_IMAGE}|" |
+      oc apply -n ${KSERVE_NAMESPACE} -f -
+  oc rollout status deployment/odh-model-controller -n ${KSERVE_NAMESPACE} --timeout=300s
+else
+  echo "Waiting for ODH operator to deploy ODH Model Controller..."
+  wait_for_pod_ready "${KSERVE_NAMESPACE}" "app=odh-model-controller" 600s
 
-# Configure certs for the python requests by getting the CA cert from the kserve controller pod 
+  echo "Patching ODH Model Controller with PR image..."
+  oc set image deployment/odh-model-controller \
+    manager=${ODH_MODEL_CONTROLLER_IMAGE} \
+    -n ${KSERVE_NAMESPACE}
+
+  echo "Waiting for ODH Model Controller to restart with PR image..."
+  oc rollout status deployment/odh-model-controller -n ${KSERVE_NAMESPACE} --timeout=300s
+fi
+
+# Configure certs for the python requests by getting the CA cert from the kserve controller pod
 export CA_CERT_PATH="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 # The run-e2e-tests script expects the CA cert to be in /tmp/ca.crt
-oc exec deploy/kserve-controller-manager -n kserve -- cat $CA_CERT_PATH > /tmp/ca.crt
+oc exec deploy/kserve-controller-manager -n ${KSERVE_NAMESPACE} -- cat $CA_CERT_PATH > /tmp/ca.crt
 
 echo "Add testing models to minio storage ..." # Reference: config/overlays/test/minio/minio-init-job.yaml
 
 # Wait for minio deployment to be ready
 echo "Waiting for minio deployment to be ready..."
-oc rollout status deployment/minio -n kserve --timeout=300s
+oc rollout status deployment/minio -n ${KSERVE_NAMESPACE} --timeout=300s
 
 # Expose minio service and get route
-oc expose service minio-service -n kserve
-MINIO_ROUTE=$(oc get routes -n kserve minio-service -o jsonpath="{.spec.host}")
+oc expose service minio-service -n ${KSERVE_NAMESPACE}
+MINIO_ROUTE=$(oc get routes -n ${KSERVE_NAMESPACE} minio-service -o jsonpath="{.spec.host}")
 
 # Wait for minio endpoint to be accessible
 echo "Waiting for minio endpoint to be accessible..."
@@ -203,7 +299,7 @@ else
   mc cp /tmp/sklearn-model.joblib storage/example-models/sklearn/model.joblib
 fi
 
-oc delete route -n kserve minio-service
+oc delete route -n ${KSERVE_NAMESPACE} minio-service
 
 # Configure minio TLS if needed
 if [[ "$1" =~ "kserve_on_openshift" ]]; then
@@ -212,20 +308,20 @@ if [[ "$1" =~ "kserve_on_openshift" ]]; then
   "$PROJECT_ROOT/test/scripts/openshift-ci/tls/setup-minio-tls.sh" serving
 fi
 
-# Allow all traffic to the kserve namespace. Without this networkpolicy, webhook will return 500
+# Allow all traffic to the KServe namespace. Without this networkpolicy, webhook will return 500
 # error msg: 'http: server gave HTTP response to HTTPS client"}]},"code":500}'
 cat <<EOF | oc apply -f -
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: allow-all
-  namespace: kserve
+  namespace: ${KSERVE_NAMESPACE}
 spec:
-  podSelector: {} 
+  podSelector: {}
   ingress:
-  - {}  
+  - {}
   egress:
-  - {}  
+  - {}
   policyTypes:
   - Ingress
   - Egress
