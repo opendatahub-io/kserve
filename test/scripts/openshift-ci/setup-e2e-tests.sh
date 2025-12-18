@@ -156,13 +156,20 @@ if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
   oc apply -f config/overlays/test/dsci.yaml
   oc apply -f config/overlays/test/dsc.yaml
 else
-  # ODH operator path: Apply DSC/DSCI to trigger operator deployment
-  echo "Applying DSC/DSCI to trigger ODH operator deployment..."
+  # ODH operator path: Copy full kustomize directory structure to operator PVC
+  echo "⏳ Preparing PR manifests for ODH operator..."
+
+  # Copy PR manifests into ODH operator PVC using the helper script
+  echo "Copying PR manifests into ODH operator PVC..."
+  $SCRIPT_DIR/copy-kserve-manifests-to-pvc.sh
+
+  # Apply DSC/DSCI to trigger deployment with custom manifests
+  echo "Applying DSC/DSCI to trigger ODH operator deployment with PR manifests..."
   oc apply -f config/overlays/test/odh-operator/dsci.yaml
   oc apply -f config/overlays/test/odh-operator/dsc.yaml
 
   # Wait for KServe controller to be deployed by the operator
-  echo "Waiting for ODH operator to deploy KServe components..."
+  echo "Waiting for ODH operator to deploy KServe components with PR manifests..."
   wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=kserve-controller-manager" 600s
 
   # Deploy Minio for operator mode (manual mode gets it from kustomize overlay)
@@ -171,14 +178,7 @@ else
     sed "s/namespace: kserve/namespace: ${KSERVE_NAMESPACE}/" | \
     oc apply -f -
 
-  # Patch KServe controller deployment with PR images
-  echo "Patching KServe controller with PR images..."
-  oc set image deployment/kserve-controller-manager \
-    manager=${KSERVE_CONTROLLER_IMAGE} \
-    -n ${KSERVE_NAMESPACE}
-
-  echo "Waiting for KServe controller to restart with PR image..."
-  oc rollout status deployment/kserve-controller-manager -n ${KSERVE_NAMESPACE} --timeout=300s
+  echo "ODH operator deployed KServe using PR manifests and images"
 fi
 
 # Patch the inferenceservice-config ConfigMap, when running RawDeployment tests

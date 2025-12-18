@@ -26,13 +26,14 @@ echo "Installing OpenShift Serverless operator..."
 oc create namespace openshift-serverless --dry-run=client -o yaml | oc apply -f -
 
 # Check if OperatorGroup already exists, if not create one
-if ! oc get operatorgroup -n openshift-serverless &>/dev/null; then
+OG_COUNT=$(oc get operatorgroup -n openshift-serverless --no-headers 2>/dev/null | wc -l)
+if [ "$OG_COUNT" -eq 0 ]; then
   echo "Creating OperatorGroup for openshift-serverless..."
   cat <<EOF | oc apply -f -
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
-  generateName: openshift-serverless-
+  name: openshift-serverless-og
   namespace: openshift-serverless
 spec:
   upgradeStrategy: Default
@@ -49,7 +50,7 @@ metadata:
   name: serverless-operator
   namespace: openshift-serverless
 spec:
-  channel: stable
+  channel: stable-1.37
   name: serverless-operator
   source: redhat-operators
   sourceNamespace: openshift-marketplace

@@ -22,8 +22,14 @@ source "${SCRIPT_DIR}/common.sh"
 
 echo "Installing Red Hat Authorino operator..."
 
-# Install Authorino operator in openshift-operators namespace (cluster-wide)
-cat <<EOF | oc apply -f -
+# Check if Authorino operator is already installed
+csv_status=$(oc get csv -n openshift-operators -o json 2>/dev/null | jq -r '.items[] | select(.metadata.name | startswith("authorino-operator")) | .status.phase' 2>/dev/null || echo "")
+
+if [ "$csv_status" = "Succeeded" ]; then
+  echo "Authorino operator already installed and ready, skipping installation"
+else
+  # Install Authorino operator in openshift-operators namespace (cluster-wide)
+  cat <<EOF | oc apply -f -
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
@@ -37,44 +43,45 @@ spec:
   sourceNamespace: openshift-marketplace
 EOF
 
-# Wait for install plan and approve it
-echo "Waiting for Authorino install plan to be created..."
-timeout=60
-counter=0
-install_plan=""
-while [ $counter -lt $timeout ]; do
-  install_plan=$(oc get installplan -n openshift-operators -o json | jq -r '.items[] | select(.spec.clusterServiceVersionNames[]? | contains("authorino-operator")) | select(.spec.approved == false) | .metadata.name' 2>/dev/null | head -1)
+  # Wait for install plan and approve it
+  echo "Waiting for Authorino install plan to be created..."
+  timeout=60
+  counter=0
+  install_plan=""
+  while [ $counter -lt $timeout ]; do
+    install_plan=$(oc get installplan -n openshift-operators -o json | jq -r '.items[] | select(.spec.clusterServiceVersionNames[]? | contains("authorino-operator")) | select(.spec.approved == false) | .metadata.name' 2>/dev/null | head -1)
+    if [ -n "$install_plan" ]; then
+      echo "Found install plan: $install_plan"
+      break
+    fi
+    sleep 2
+    counter=$((counter + 2))
+  done
+
   if [ -n "$install_plan" ]; then
-    echo "Found install plan: $install_plan"
-    break
+    echo "Approving install plan $install_plan..."
+    oc patch installplan $install_plan -n openshift-operators --type merge --patch '{"spec":{"approved":true}}'
   fi
-  sleep 2
-  counter=$((counter + 2))
-done
 
-if [ -n "$install_plan" ]; then
-  echo "Approving install plan $install_plan..."
-  oc patch installplan $install_plan -n openshift-operators --type merge --patch '{"spec":{"approved":true}}'
-fi
+  # Wait for Authorino operator CSV to be ready
+  echo "Waiting for Authorino operator CSV to be installed..."
+  timeout=300
+  counter=0
+  while [ $counter -lt $timeout ]; do
+    csv_status=$(oc get csv -n openshift-operators -o json | jq -r '.items[] | select(.metadata.name | startswith("authorino-operator")) | .status.phase' 2>/dev/null || echo "")
+    if [ "$csv_status" = "Succeeded" ]; then
+      echo "Authorino operator CSV is ready"
+      break
+    fi
+    echo "Waiting for CSV to be ready... (current status: ${csv_status:-NotFound}, $counter/$timeout)"
+    sleep 5
+    counter=$((counter + 5))
+  done
 
-# Wait for Authorino operator CSV to be ready
-echo "Waiting for Authorino operator CSV to be installed..."
-timeout=300
-counter=0
-while [ $counter -lt $timeout ]; do
-  csv_status=$(oc get csv -n openshift-operators -o json | jq -r '.items[] | select(.metadata.name | startswith("authorino-operator")) | .status.phase' 2>/dev/null || echo "")
-  if [ "$csv_status" = "Succeeded" ]; then
-    echo "Authorino operator CSV is ready"
-    break
+  if [ $counter -ge $timeout ]; then
+    echo "Timeout waiting for Authorino operator CSV to be ready"
+    exit 1
   fi
-  echo "Waiting for CSV to be ready... (current status: ${csv_status:-NotFound}, $counter/$timeout)"
-  sleep 5
-  counter=$((counter + 5))
-done
-
-if [ $counter -ge $timeout ]; then
-  echo "Timeout waiting for Authorino operator CSV to be ready"
-  exit 1
 fi
 
 # Wait for Authorino operator pod to be ready
