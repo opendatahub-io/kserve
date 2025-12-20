@@ -51,14 +51,29 @@ if $RUNNING_LOCAL; then
 fi
 
 : "${SETUP_E2E:=true}"
+
+# Parse arguments to separate flags from positional args
+POSITIONAL_ARGS=()
+for arg in "$@"; do
+  case $arg in
+    --*)
+      # This is a flag, it will be passed through to setup script
+      ;;
+    *)
+      # This is a positional argument
+      POSITIONAL_ARGS+=("$arg")
+      ;;
+  esac
+done
+
 if [ "$SETUP_E2E" = "true" ]; then
   echo "Installing on cluster"
   pushd $PROJECT_ROOT >/dev/null
-  ./test/scripts/openshift-ci/setup-e2e-tests.sh "$1" | tee 2>&1 "./test/scripts/openshift-ci/setup-e2e-tests-${1// /-}.log"
+  ./test/scripts/openshift-ci/setup-e2e-tests.sh "$@" | tee 2>&1 "./test/scripts/openshift-ci/setup-e2e-tests-${POSITIONAL_ARGS[0]// /-}.log"
   popd
 fi
 
-PARALLELISM="${2:-1}"
+PARALLELISM="${POSITIONAL_ARGS[1]:-1}"
 
 # Use certify go module to get the CA certs
 if [ ! -f "/tmp/ca.crt" ]; then
@@ -69,8 +84,8 @@ fi
 export REQUESTS_CA_BUNDLE="/tmp/ca.crt"
 echo "REQUESTS_CA_BUNDLE=$(cat ${REQUESTS_CA_BUNDLE})"
 
-echo "Run E2E tests: $1"
+echo "Run E2E tests: ${POSITIONAL_ARGS[0]}"
 pushd $PROJECT_ROOT >/dev/null
-./test/scripts/gh-actions/run-e2e-tests.sh "$1" $PARALLELISM | tee 2>&1 "./test/scripts/openshift-ci/run-e2e-tests-${1// /-}.log"
+./test/scripts/gh-actions/run-e2e-tests.sh "${POSITIONAL_ARGS[0]}" $PARALLELISM | tee 2>&1 "./test/scripts/openshift-ci/run-e2e-tests-${POSITIONAL_ARGS[0]// /-}.log"
 popd
 cp ./test/e2e/conftest.py.bak ./test/e2e/conftest.py
