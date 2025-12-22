@@ -17,6 +17,7 @@ limitations under the License.
 package v1beta1
 
 import (
+	"encoding/json"
 	"fmt"
 	"strconv"
 
@@ -39,7 +40,11 @@ var customTransformerLogger = logf.Log.WithName("inferenceservice-v1beta1-custom
 var _ ComponentImplementation = &CustomTransformer{}
 
 func NewCustomTransformer(podSpec *PodSpec) *CustomTransformer {
-	return &CustomTransformer{PodSpec: corev1.PodSpec(*podSpec)}
+	// Convert custom PodSpec to corev1.PodSpec via JSON marshaling
+	data, _ := json.Marshal(podSpec)
+	var coreSpec corev1.PodSpec
+	json.Unmarshal(data, &coreSpec)
+	return &CustomTransformer{PodSpec: coreSpec}
 }
 
 // Validate returns an error if invalid

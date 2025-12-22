@@ -33,7 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -88,7 +88,7 @@ func TestMergeSpecs(t *testing.T) {
 						Scheduler: &v1alpha1.SchedulerSpec{
 							Pool: &v1alpha1.InferencePoolSpec{
 								Spec: &igwapi.InferencePoolSpec{
-									TargetPortNumber: 9999,
+									TargetPorts: []igwapi.Port{{Number: 9999}},
 								},
 							},
 						},
@@ -103,7 +103,7 @@ func TestMergeSpecs(t *testing.T) {
 					Scheduler: &v1alpha1.SchedulerSpec{
 						Pool: &v1alpha1.InferencePoolSpec{
 							Spec: &igwapi.InferencePoolSpec{
-								TargetPortNumber: 9999,
+								TargetPorts: []igwapi.Port{{Number: 9999}},
 							},
 						},
 					},
@@ -450,13 +450,8 @@ func TestMergeSpecs(t *testing.T) {
 						Scheduler: &v1alpha1.SchedulerSpec{
 							Pool: &v1alpha1.InferencePoolSpec{
 								Spec: &igwapi.InferencePoolSpec{
-									TargetPortNumber: 0,
-									EndpointPickerConfig: igwapi.EndpointPickerConfig{
-										ExtensionRef: &igwapi.Extension{
-											ExtensionConnection: igwapi.ExtensionConnection{
-												FailureMode: ptr.To(igwapi.FailClose),
-											},
-										},
+									EndpointPickerRef: igwapi.EndpointPickerRef{
+										Name: "epp-service",
 									},
 								},
 							},
@@ -499,13 +494,9 @@ func TestMergeSpecs(t *testing.T) {
 					Scheduler: &v1alpha1.SchedulerSpec{
 						Pool: &v1alpha1.InferencePoolSpec{
 							Spec: &igwapi.InferencePoolSpec{
-								TargetPortNumber: 0,
-								EndpointPickerConfig: igwapi.EndpointPickerConfig{
-									ExtensionRef: &igwapi.Extension{
-										ExtensionConnection: igwapi.ExtensionConnection{
-											FailureMode: ptr.To(igwapi.FailClose),
-										},
-									},
+								TargetPorts: []igwapi.Port{{Number: 8000}},
+								EndpointPickerRef: igwapi.EndpointPickerRef{
+									Name: "epp-service",
 								},
 							},
 						},
@@ -822,24 +813,24 @@ func TestMergeSpecs(t *testing.T) {
 			},
 		},
 		{
-			name: "merge model criticality",
+			name: "merge model priority",
 			cfgs: []v1alpha1.LLMInferenceServiceSpec{
 				{
 					Model: v1alpha1.LLMModelSpec{
-						URI:         apis.URL{Path: "model-uri"},
-						Criticality: ptr.To(igwapi.Sheddable),
+						URI:      apis.URL{Path: "model-uri"},
+						Priority: ptr.To[int](0),
 					},
 				},
 				{
 					Model: v1alpha1.LLMModelSpec{
-						Criticality: ptr.To(igwapi.Critical),
+						Priority: ptr.To[int](1),
 					},
 				},
 			},
 			want: v1alpha1.LLMInferenceServiceSpec{
 				Model: v1alpha1.LLMModelSpec{
-					URI:         apis.URL{Path: "model-uri"},
-					Criticality: ptr.To(igwapi.Critical),
+					URI:      apis.URL{Path: "model-uri"},
+					Priority: ptr.To[int](1),
 				},
 			},
 		},
@@ -952,9 +943,8 @@ func TestMergeSpecs(t *testing.T) {
 			cfgs: []v1alpha1.LLMInferenceServiceSpec{
 				{
 					Model: v1alpha1.LLMModelSpec{
-						URI:         apis.URL{Path: "base-model"},
-						Name:        ptr.To("base-name"),
-						Criticality: ptr.To(igwapi.Sheddable),
+						URI:  apis.URL{Path: "base-model"},
+						Name: ptr.To("base-name"),
 						LoRA: &v1alpha1.LoRASpec{
 							Adapters: []v1alpha1.LLMModelSpec{
 								{URI: apis.URL{Path: "lora-model"}},
@@ -975,8 +965,7 @@ func TestMergeSpecs(t *testing.T) {
 				},
 				{
 					Model: v1alpha1.LLMModelSpec{
-						Name:        ptr.To("override-name"),
-						Criticality: ptr.To(igwapi.Critical),
+						Name: ptr.To("override-name"),
 						LoRA: &v1alpha1.LoRASpec{
 							Adapters: []v1alpha1.LLMModelSpec{
 								{URI: apis.URL{Path: "lora-model2"}},
@@ -1000,9 +989,8 @@ func TestMergeSpecs(t *testing.T) {
 			},
 			want: v1alpha1.LLMInferenceServiceSpec{
 				Model: v1alpha1.LLMModelSpec{
-					URI:         apis.URL{Path: "base-model"}, // Base URI preserved
-					Name:        ptr.To("override-name"),      // Override name
-					Criticality: ptr.To(igwapi.Critical),
+					URI:  apis.URL{Path: "base-model"}, // Base URI preserved
+					Name: ptr.To("override-name"),      // Override name
 					LoRA: &v1alpha1.LoRASpec{
 						Adapters: []v1alpha1.LLMModelSpec{
 							{URI: apis.URL{Path: "lora-model2"}},
@@ -1688,6 +1676,384 @@ func TestReplaceVariables(t *testing.T) {
 					BaseRefs: []corev1.LocalObjectReference{
 						{Name: "base-ref-test-base-config"},
 						{Name: "template-ns-shared-config"},
+					},
+				},
+			},
+		},
+		{
+			name: "template with SplitAPIGroup function - k8s.io version",
+			cfg: &v1alpha1.LLMInferenceServiceConfig{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Route: &v1alpha1.GatewayRoutesSpec{
+							HTTP: &v1alpha1.HTTPRouteSpec{
+								Spec: &gwapiv1.HTTPRouteSpec{
+									Rules: []gwapiv1.HTTPRouteRule{
+										{
+											BackendRefs: []gwapiv1.HTTPBackendRef{
+												{
+													BackendRef: gwapiv1.BackendRef{
+														BackendObjectReference: gwapiv1.BackendObjectReference{
+															Group: ptr.To[gwapiv1.Group]("{{ SplitAPIGroup .Spec.Router.Scheduler.Pool.APIVersion }}"),
+															Kind:  ptr.To[gwapiv1.Kind]("InferencePool"),
+															Name:  "test-pool",
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			llmSvc: &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "api-group-test",
+					Namespace: "test-ns",
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Pool: &v1alpha1.InferencePoolSpec{
+								APIVersion: ptr.To("inference.networking.k8s.io/v1"),
+							},
+						},
+					},
+				},
+			},
+			want: &v1alpha1.LLMInferenceServiceConfig{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Route: &v1alpha1.GatewayRoutesSpec{
+							HTTP: &v1alpha1.HTTPRouteSpec{
+								Spec: &gwapiv1.HTTPRouteSpec{
+									Rules: []gwapiv1.HTTPRouteRule{
+										{
+											BackendRefs: []gwapiv1.HTTPBackendRef{
+												{
+													BackendRef: gwapiv1.BackendRef{
+														BackendObjectReference: gwapiv1.BackendObjectReference{
+															Group: ptr.To[gwapiv1.Group]("inference.networking.k8s.io"),
+															Kind:  ptr.To[gwapiv1.Kind]("InferencePool"),
+															Name:  "test-pool",
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "template with SplitAPIGroup function - x-k8s.io version",
+			cfg: &v1alpha1.LLMInferenceServiceConfig{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Route: &v1alpha1.GatewayRoutesSpec{
+							HTTP: &v1alpha1.HTTPRouteSpec{
+								Spec: &gwapiv1.HTTPRouteSpec{
+									Rules: []gwapiv1.HTTPRouteRule{
+										{
+											BackendRefs: []gwapiv1.HTTPBackendRef{
+												{
+													BackendRef: gwapiv1.BackendRef{
+														BackendObjectReference: gwapiv1.BackendObjectReference{
+															Group: ptr.To[gwapiv1.Group]("{{ SplitAPIGroup .Spec.Router.Scheduler.Pool.APIVersion }}"),
+															Kind:  ptr.To[gwapiv1.Kind]("InferencePool"),
+															Name:  "test-pool",
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			llmSvc: &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "api-group-test",
+					Namespace: "test-ns",
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Pool: &v1alpha1.InferencePoolSpec{
+								APIVersion: ptr.To("inference.networking.k8s.io/v1alpha2"),
+							},
+						},
+					},
+				},
+			},
+			want: &v1alpha1.LLMInferenceServiceConfig{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Route: &v1alpha1.GatewayRoutesSpec{
+							HTTP: &v1alpha1.HTTPRouteSpec{
+								Spec: &gwapiv1.HTTPRouteSpec{
+									Rules: []gwapiv1.HTTPRouteRule{
+										{
+											BackendRefs: []gwapiv1.HTTPBackendRef{
+												{
+													BackendRef: gwapiv1.BackendRef{
+														BackendObjectReference: gwapiv1.BackendObjectReference{
+															Group: ptr.To[gwapiv1.Group]("inference.networking.x-k8s.io"),
+															Kind:  ptr.To[gwapiv1.Kind]("InferencePool"),
+															Name:  "test-pool",
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "template with SplitAPIVersion function - k8s.io version",
+			cfg: &v1alpha1.LLMInferenceServiceConfig{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Template: &corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name: "main",
+										Args: []string{
+											"--api-version={{ SplitAPIVersion .Spec.Router.Scheduler.Pool.APIVersion }}",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			llmSvc: &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "api-version-test",
+					Namespace: "test-ns",
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Pool: &v1alpha1.InferencePoolSpec{
+								APIVersion: ptr.To("inference.networking.k8s.io/v1"),
+							},
+						},
+					},
+				},
+			},
+			want: &v1alpha1.LLMInferenceServiceConfig{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Template: &corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name: "main",
+										Args: []string{
+											"--api-version=v1",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "template with SplitAPIVersion function - x-k8s.io version",
+			cfg: &v1alpha1.LLMInferenceServiceConfig{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Template: &corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name: "main",
+										Args: []string{
+											"--api-version={{ SplitAPIVersion .Spec.Router.Scheduler.Pool.APIVersion }}",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			llmSvc: &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "api-version-test",
+					Namespace: "test-ns",
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Pool: &v1alpha1.InferencePoolSpec{
+								APIVersion: ptr.To("inference.networking.x-k8s.io/v1alpha2"),
+							},
+						},
+					},
+				},
+			},
+			want: &v1alpha1.LLMInferenceServiceConfig{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Template: &corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name: "main",
+										Args: []string{
+											"--api-version=v1alpha2",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "template with SplitAPIVersion function - nil APIVersion defaults to v1",
+			cfg: &v1alpha1.LLMInferenceServiceConfig{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Template: &corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name: "main",
+										Args: []string{
+											"--api-version={{ SplitAPIVersion .Spec.Router.Scheduler.Pool.APIVersion }}",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			llmSvc: &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "api-version-test",
+					Namespace: "test-ns",
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Pool: &v1alpha1.InferencePoolSpec{
+								APIVersion: nil,
+							},
+						},
+					},
+				},
+			},
+			want: &v1alpha1.LLMInferenceServiceConfig{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Template: &corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name: "main",
+										Args: []string{
+											"--api-version=v1",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			name: "template with SplitAPIGroup function - nil APIVersion defaults to k8s.io",
+			cfg: &v1alpha1.LLMInferenceServiceConfig{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Route: &v1alpha1.GatewayRoutesSpec{
+							HTTP: &v1alpha1.HTTPRouteSpec{
+								Spec: &gwapiv1.HTTPRouteSpec{
+									Rules: []gwapiv1.HTTPRouteRule{
+										{
+											BackendRefs: []gwapiv1.HTTPBackendRef{
+												{
+													BackendRef: gwapiv1.BackendRef{
+														BackendObjectReference: gwapiv1.BackendObjectReference{
+															Group: ptr.To[gwapiv1.Group]("{{ SplitAPIGroup .Spec.Router.Scheduler.Pool.APIVersion }}"),
+															Kind:  ptr.To[gwapiv1.Kind]("InferencePool"),
+															Name:  "test-pool",
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			llmSvc: &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "api-group-test",
+					Namespace: "test-ns",
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Pool: &v1alpha1.InferencePoolSpec{
+								APIVersion: nil, // Test default behavior
+							},
+						},
+					},
+				},
+			},
+			want: &v1alpha1.LLMInferenceServiceConfig{
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Route: &v1alpha1.GatewayRoutesSpec{
+							HTTP: &v1alpha1.HTTPRouteSpec{
+								Spec: &gwapiv1.HTTPRouteSpec{
+									Rules: []gwapiv1.HTTPRouteRule{
+										{
+											BackendRefs: []gwapiv1.HTTPBackendRef{
+												{
+													BackendRef: gwapiv1.BackendRef{
+														BackendObjectReference: gwapiv1.BackendObjectReference{
+															Group: ptr.To[gwapiv1.Group]("inference.networking.k8s.io"),
+															Kind:  ptr.To[gwapiv1.Kind]("InferencePool"),
+															Name:  "test-pool",
+														},
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
 					},
 				},
 			},

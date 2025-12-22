@@ -18,6 +18,7 @@ package components
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/go-logr/logr"
@@ -142,7 +143,10 @@ func (e *Explainer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 		isvc.Spec.Explainer.PodSpec.Containers[0] = *container
 	}
 
-	podSpec := corev1.PodSpec(isvc.Spec.Explainer.PodSpec)
+	// Convert custom PodSpec to corev1.PodSpec via JSON marshaling
+	var podSpec corev1.PodSpec
+	data, _ := json.Marshal(isvc.Spec.Explainer.PodSpec)
+	json.Unmarshal(data, &podSpec)
 
 	// Here we allow switch between knative and vanilla deployment
 	if e.deploymentMode == constants.Standard {
