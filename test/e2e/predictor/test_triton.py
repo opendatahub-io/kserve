@@ -95,7 +95,6 @@ async def test_triton(rest_v2_client):
 @pytest.mark.transformer
 @pytest.mark.path_based_routing
 @pytest.mark.asyncio(scope="session")
-@pytest.mark.skip(reason="Reactivate after https://github.com/opendatahub-io/odh-model-controller/pull/601 is merged")
 async def test_triton_runtime_with_transformer(rest_v1_client):
     service_name = "isvc-triton-runtime"
     predictor = V1beta1PredictorSpec(
