@@ -143,12 +143,8 @@ func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Infe
 	internalHost := getRawServiceHost(isvc)
 	url := &apis.URL{
 		Host:   internalHost,
-		Scheme: r.ingressConfig.UrlScheme,
+		Scheme: "http", // odh specific change, scheme is decided based on auth annotation
 		Path:   "",
-	}
-
-	isvc.Status.Address = &duckv1.Addressable{
-		URL: url,
 	}
 
 	if authEnabled {
