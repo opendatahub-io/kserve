@@ -156,7 +156,13 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 			// then
 			Expect(errValidation).To(HaveOccurred())
-			Expect(errValidation.Error()).To(ContainSubstring("cannot set both pipeline parallelism and data parallelism"))
+			Expect(errValidation.Error()).To(SatisfyAll(
+				ContainSubstring("spec.parallelism"),
+				ContainSubstring(`"pipeline":2`),
+				ContainSubstring(`"data":4`),
+				ContainSubstring(`"dataLocal":2`),
+				ContainSubstring("cannot set both pipeline parallelism and data parallelism"),
+			))
 		})
 
 		It("should reject LLMInferenceService with data parallelism but missing dataLocal", func(ctx SpecContext) {
@@ -228,7 +234,13 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 
 			// then
 			Expect(errValidation).To(HaveOccurred())
-			Expect(errValidation.Error()).To(ContainSubstring("cannot set both pipeline parallelism and data parallelism"))
+			Expect(errValidation.Error()).To(SatisfyAll(
+				ContainSubstring("spec.prefill.parallelism"),
+				ContainSubstring(`"pipeline":2`),
+				ContainSubstring(`"data":4`),
+				ContainSubstring(`"dataLocal":2`),
+				ContainSubstring("cannot set both pipeline parallelism and data parallelism"),
+			))
 		})
 
 		It("should reject LLMInferenceService with prefill worker but no parallelism configuration", func(ctx SpecContext) {
