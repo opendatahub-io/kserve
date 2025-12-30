@@ -753,6 +753,116 @@ var _ = Describe("LLMInferenceService Controller", func() {
 		})
 	})
 
+	Context("Custom Gateway Reference", func() {
+		It("should not require default gateway when custom gateway is specified", func(ctx SpecContext) {
+			// given - remove the default gateway
+			defaultGateway := &gatewayapi.Gateway{}
+			Expect(envTest.Client.Get(ctx, types.NamespacedName{
+				Name:      constants.GatewayName,
+				Namespace: constants.KServeNamespace,
+			}, defaultGateway)).To(Succeed())
+
+			gatewayToRestore := defaultGateway.DeepCopy()
+			gatewayToRestore.ResourceVersion = "" // Clear for re-creation
+
+			DeferCleanup(func(ctx context.Context) {
+				// Restore the default gateway after the test (pass or fail)
+				existing := &gatewayapi.Gateway{}
+				err := envTest.Client.Get(ctx, types.NamespacedName{
+					Name:      constants.GatewayName,
+					Namespace: constants.KServeNamespace,
+				}, existing)
+				if errors.IsNotFound(err) {
+					Expect(envTest.Client.Create(ctx, gatewayToRestore)).To(Succeed())
+				}
+			})
+
+			Expect(envTest.Client.Delete(ctx, defaultGateway)).To(Succeed())
+
+			// Ensure the default gateway is actually deleted
+			Eventually(func(g Gomega, ctx context.Context) bool {
+				err := envTest.Client.Get(ctx, types.NamespacedName{
+					Name:      constants.GatewayName,
+					Namespace: constants.KServeNamespace,
+				}, &gatewayapi.Gateway{})
+				return errors.IsNotFound(err)
+			}).WithContext(ctx).Should(BeTrue(), "default gateway should be deleted")
+
+			// Create test namespace
+			svcName := "test-llm-custom-gateway"
+			nsName := kmeta.ChildName(svcName, "-test")
+			namespace := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: nsName,
+				},
+			}
+			Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
+			Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
+			defer func() {
+				envTest.DeleteAll(namespace)
+			}()
+
+			customGatewayName := "my-custom-gateway"
+			customGateway := Gateway(customGatewayName,
+				InNamespace[*gatewayapi.Gateway](nsName),
+				WithListener(gatewayapi.HTTPProtocolType),
+				WithAddresses("203.0.113.42"),
+			)
+			Expect(envTest.Client.Create(ctx, customGateway)).To(Succeed())
+			ensureGatewayReady(ctx, envTest.Client, customGateway)
+
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha1.LLMInferenceService](nsName),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithManagedRoute(),
+				WithGatewayRefs(LLMGatewayRef(customGatewayName, nsName)),
+			)
+
+			// when
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+			}()
+
+			// Wait for HTTPRoute to be created and verify it references the custom gateway
+			var createdRoute *gatewayapi.HTTPRoute
+			Eventually(func(g Gomega, ctx context.Context) error {
+				routes, errList := managedRoutes(ctx, llmSvc)
+				g.Expect(errList).ToNot(HaveOccurred())
+				g.Expect(routes).To(HaveLen(1))
+
+				g.Expect(&routes[0]).To(HaveGatewayRefs(gatewayapi.ParentReference{
+					Name:      gatewayapi.ObjectName(customGatewayName),
+					Namespace: ptr.To(gatewayapi.Namespace(nsName)),
+				}))
+
+				createdRoute = &routes[0]
+				return nil
+			}).WithContext(ctx).Should(Succeed(), "HTTPRoute should reference the custom gateway")
+
+			// Simulate gateway controller setting HTTPRoute status
+			ensureHTTPRouteReady(ctx, envTest.Client, llmSvc, createdRoute)
+
+			// then - inspect status
+			Eventually(func(g Gomega, ctx context.Context) error {
+				current := &v1alpha1.LLMInferenceService{}
+				g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), current)).To(Succeed())
+
+				// Check that RouterReady condition exists and is True
+				routerCondition := current.Status.GetCondition(v1alpha1.RouterReady)
+				g.Expect(routerCondition).ToNot(BeNil(), "RouterReady condition should be set")
+				g.Expect(routerCondition.IsTrue()).To(BeTrue(), "RouterReady condition should be True")
+
+				// Check that HTTPRoutesReady condition exists and is True
+				httpRoutesCondition := current.Status.GetCondition(v1alpha1.HTTPRoutesReady)
+				g.Expect(httpRoutesCondition).ToNot(BeNil(), "HTTPRoutesReady condition should be set")
+				g.Expect(httpRoutesCondition.IsTrue()).To(BeTrue(), "HTTPRoutesReady condition should be True")
+
+				return nil
+			}).WithContext(ctx).Should(Succeed(), "LLMInferenceService should become ready with custom gateway")
+		})
+	})
+
 	Context("Reference validation", func() {
 		When("referenced Gateway does not exist", func() {
 			It("should mark RouterReady condition as False with InvalidRefs reason", func(ctx SpecContext) {
