@@ -43,7 +43,7 @@ func (r *LLMInferenceServiceReconciler) validateGatewayOCP(ctx context.Context, 
 	//
 	// if it gets installed after Kserve startup, the controller needs to be restarted.
 	if ok, _ := utils.IsCrdAvailable(r.Config, authPolicyGVK.GroupVersion().String(), authPolicyGVK.Kind); !ok && llmSvc.IsAuthEnabled() {
-		route := r.expectedHTTPRoute(ctx, llmSvc)
+		route := r.expectedHTTPRoute(llmSvc)
 		if err := Delete(ctx, r, llmSvc, route); err != nil {
 			return fmt.Errorf("AuthPolicy CRD is not available, please install Red Hat Connectivity Link: %w", err)
 		}
