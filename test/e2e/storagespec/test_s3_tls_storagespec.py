@@ -28,7 +28,7 @@ from kubernetes.client import V1ResourceRequirements
 from typing import Optional
 import pytest
 
-from ..common.utils import KSERVE_NAMESPACE, KSERVE_TEST_NAMESPACE
+from ..common.utils import OPENDATAHUB_NAMESPACE, KSERVE_TEST_NAMESPACE
 
 invalid_cert = """
 -----BEGIN CERTIFICATE-----
@@ -64,7 +64,7 @@ TbVunBmL9HUClHgUc2B0NSfNyqXSwo+Gp5Kg4iYIw4hJw2EPwilUFafcM8uVDktK
 """
 invalid_data_connection = (
     '{"type": "s3","access_key_id":"minio","secret_access_key":"minio123",'
-    '"endpoint_url":"https://minio-tls-serving-service.kserve.svc:9000",'
+    '"endpoint_url":"https://minio-tls-serving-service.opendatahub.svc:9000",'
     '"bucket":"mlpipeline","region":"us-south","anonymous":"False"}'
 )
 ssl_error = "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"
@@ -72,7 +72,6 @@ ssl_error = "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"
 
 @pytest.mark.kserve_on_openshift
 @pytest.mark.asyncio(scope="session")
-@pytest.mark.skip("Will be fixed as part of RHOAIENG-39707")
 async def test_s3_tls_global_custom_cert_storagespec_kserve():
     kserve_client = KServeClient(
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
@@ -80,7 +79,7 @@ async def test_s3_tls_global_custom_cert_storagespec_kserve():
 
     # Mimic the RHOAI/ODH operators by creating the odh-trusted-ca-bundle configmap containing the custom cert as a global cert
     minio_tls_custom_certs = kserve_client.core_api.read_namespaced_secret(
-        "minio-tls-custom", KSERVE_NAMESPACE
+        "minio-tls-custom", OPENDATAHUB_NAMESPACE
     ).data
     odh_trusted_ca_configmap = client.V1ConfigMap(
         api_version="v1",
@@ -154,7 +153,6 @@ async def test_s3_tls_global_custom_cert_storagespec_kserve():
 
 @pytest.mark.kserve_on_openshift
 @pytest.mark.asyncio(scope="session")
-@pytest.mark.skip("Will be fixed as part of RHOAIENG-39707")
 async def test_s3_tls_custom_cert_storagespec_kserve():
     kserve_client = KServeClient(
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
@@ -162,7 +160,7 @@ async def test_s3_tls_custom_cert_storagespec_kserve():
 
     # Mimic the RHOAI/ODH operators by creating the odh-trusted-ca-bundle configmap containing the custom cert
     minio_tls_custom_certs = kserve_client.core_api.read_namespaced_secret(
-        "minio-tls-custom", KSERVE_NAMESPACE
+        "minio-tls-custom", OPENDATAHUB_NAMESPACE
     ).data
     odh_trusted_ca_configmap = client.V1ConfigMap(
         api_version="v1",
@@ -236,7 +234,6 @@ async def test_s3_tls_custom_cert_storagespec_kserve():
 
 @pytest.mark.kserve_on_openshift
 @pytest.mark.asyncio(scope="session")
-@pytest.mark.skip("Will be fixed as part of RHOAIENG-39707")
 async def test_s3_tls_serving_cert_storagespec_kserve():
     kserve_client = KServeClient(
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
@@ -313,7 +310,7 @@ def check_model_status(
     isvc_namespace: str,
     expected_status: str,
     expected_failure_message: Optional[str] = None,
-    timeout_seconds: int = 600,
+    timeout_seconds: int = 660,
     polling_interval: int = 10,
 ):
     for _ in range(round(timeout_seconds / polling_interval)):

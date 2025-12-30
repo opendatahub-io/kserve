@@ -202,9 +202,30 @@ echo "minio oc get events"
 oc get events
 oc wait --for=condition=ready pod -l app=minio -n ${NS} --timeout=300s
 
+# Expose minio service and get route
 oc expose service minio-service -n ${NS} && sleep 15 # increased from 5 to 15
 MINIO_ROUTE=$(oc get routes -n ${NS} minio-service -o jsonpath="{.spec.host}")
 echo "MinIO route: $MINIO_ROUTE"
+
+# Wait for minio endpoint to be accessible
+echo "Waiting for minio endpoint to be accessible..."
+timeout=60
+counter=0
+while [ $counter -lt $timeout ]; do
+  if curl -f -s "http://$MINIO_ROUTE/minio/health/live" >/dev/null 2>&1; then
+    echo "Minio is ready!"
+    break
+  fi
+  echo "Waiting for minio to be ready... ($counter/$timeout)"
+  sleep 2
+  counter=$((counter + 2))
+done
+
+if [ $counter -ge $timeout ]; then
+  echo "Timeout waiting for minio to be ready"
+  exit 1
+fi
+
 mc alias set storage http://$MINIO_ROUTE minio minio123
 
 if ! mc ls storage/example-models >/dev/null 2>&1; then
@@ -276,6 +297,12 @@ spec:
   - Egress
 EOF
 } || true
+
+if [[ $1 =~ "kserve_on_openshift" ]]; then
+  echo "Configuring minio tls"
+  ${PROJECT_ROOT}/test/scripts/openshift-ci/tls/setup-minio-tls-custom-cert.sh
+  ${PROJECT_ROOT}/test/scripts/openshift-ci/tls/setup-minio-tls-serving-cert.sh
+fi
 
 echo "✅ Setup complete"
 
