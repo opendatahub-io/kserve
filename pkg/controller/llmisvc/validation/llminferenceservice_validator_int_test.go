@@ -17,6 +17,7 @@ limitations under the License.
 package validation_test
 
 import (
+	"context"
 	"fmt"
 	"time"
 
@@ -65,11 +66,11 @@ var _ = Describe("LLMInferenceService webhook validation", func() {
 		)
 		Expect(envTest.Client.Create(ctx, httpRoute)).To(Succeed())
 
-		DeferCleanup(func() {
+		DeferCleanup(func(ctx context.Context) {
 			httpRoute := httpRoute
 			gateway := gateway
 			ns := ns
-			envTest.DeleteAll(httpRoute, gateway, ns)
+			envTest.DeleteAll(ctx, httpRoute, gateway, ns)
 		})
 	})
 
@@ -381,9 +382,9 @@ var _ = Describe("LLMInferenceService API validation", func() {
 		}
 		Expect(envTest.Client.Create(ctx, ns)).To(Succeed())
 
-		DeferCleanup(func() {
+		DeferCleanup(func(ctx context.Context) {
 			ns := ns
-			envTest.DeleteAll(ns)
+			envTest.DeleteAll(ctx, ns)
 		})
 	})
 	Context("Integer value validation", func() {
