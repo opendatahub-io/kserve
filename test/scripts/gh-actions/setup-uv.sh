@@ -24,6 +24,5 @@ echo "Installing uv..."
 pip install uv
 
 echo "Creating virtual environment..."
-uv venv
+uv venv --clear
 source .venv/bin/activate
-
