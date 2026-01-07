@@ -23,21 +23,9 @@ set -o nounset
 set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
 source "$SCRIPT_DIR/common.sh"
-
-# Define deployment types that skip serverless installation
-MARKERS_SKIP_SERVERLESS=("raw" "graph" "predictor" "path_based_routing")
-
-# Helper function to check if deployment type should skip serverless
-skip_serverless() {
-  local deployment_type="$1"
-  for type in "${MARKERS_SKIP_SERVERLESS[@]}"; do
-    if [[ "$deployment_type" =~ $type ]]; then
-      return 0
-    fi
-  done
-  return 1
-}
 
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
 : "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:latest}"
@@ -61,8 +49,6 @@ echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
 # Create directory for installing tooling
 # It is assumed that $HOME/.local/bin is in the $PATH
 mkdir -p $HOME/.local/bin
-MY_PATH=$(dirname "$0")
-PROJECT_ROOT=$MY_PATH/../../../
 
 # If Kustomize is not installed, install it
 if ! command -v kustomize &>/dev/null; then
@@ -86,7 +72,7 @@ pushd $PROJECT_ROOT/python/kserve >/dev/null
   uv pip install timeout-sampler
 popd
 
-$MY_PATH/deploy.cma.sh
+$SCRIPT_DIR/deploy.cma.sh
 
 # Add CA certificate extraction for raw deployments
 if [[ "$1" =~ raw ]]; then
@@ -112,9 +98,9 @@ fi
 # Install KServe stack - skip serverless for raw, graph and predictor deployments
 if ! skip_serverless "$1"; then
   echo "Installing OSSM"
-  $MY_PATH/deploy.ossm.sh
+  $SCRIPT_DIR/deploy.ossm.sh
   echo "Installing Serverless"
-  $MY_PATH/deploy.serverless.sh
+  $SCRIPT_DIR/deploy.serverless.sh
 fi
 
 echo "⏳ Waiting for KServe CRDs"
@@ -150,7 +136,7 @@ fi
 
 # Wait until KServe starts
 echo "waiting kserve-controller get ready..."
-oc wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n kserve --timeout=300s
+oc rollout status deployment/kserve-controller-manager -n kserve --timeout=300s
 
 if ! skip_serverless "$1"; then
   echo "Installing authorino and kserve gateways"
@@ -164,8 +150,8 @@ echo "Installing ODH Model Controller"
 kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
     sed "s|quay.io/opendatahub/odh-model-controller:fast|${ODH_MODEL_CONTROLLER_IMAGE}|" |
     oc apply -n kserve -f -
-  echo "Waiting for the odh-model-controller pod to become ready... (300s)"
-  oc wait --for=condition=ready pod -l app=odh-model-controller -n kserve --timeout=300s
+  echo "Waiting for the odh-model-controller deployment to become ready... (300s)"
+  oc rollout status deployment/odh-model-controller -n kserve --timeout=300s
 
 # Configure certs for the python requests by getting the CA cert from the kserve controller pod 
 export CA_CERT_PATH="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
@@ -174,9 +160,9 @@ oc exec deploy/kserve-controller-manager -n kserve -- cat $CA_CERT_PATH > /tmp/c
 
 echo "Add testing models to minio storage ..." # Reference: config/overlays/test/minio/minio-init-job.yaml
 
-# Wait for minio pod to be ready
-echo "Waiting for minio pod to be ready..."
-oc wait --for=condition=ready pod -l app=minio -n kserve --timeout=300s
+# Wait for minio deployment to be ready
+echo "Waiting for minio deployment to be ready..."
+oc rollout status deployment/minio -n kserve --timeout=300s
 
 # Expose minio service and get route
 oc expose service minio-service -n kserve
@@ -219,40 +205,11 @@ fi
 
 oc delete route -n kserve minio-service
 
-echo "Prepare CI namespace and install ServingRuntimes"
-cat <<EOF | oc apply -f -
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: kserve-ci-e2e-test
-EOF
-
-if ! skip_serverless "$1"; then
-  cat <<EOF | oc apply -f -
-apiVersion: maistra.io/v1
-kind: ServiceMeshMember
-metadata:
-  name: default
-  namespace: kserve-ci-e2e-test
-spec:
-  controlPlaneRef:
-    namespace: istio-system
-    name: basic
-EOF
-fi
-
-oc apply -f $PROJECT_ROOT/config/overlays/test/minio/minio-user-secret.yaml -n kserve-ci-e2e-test
-
-kustomize build $PROJECT_ROOT/config/overlays/test/clusterresources |
-  sed 's/ClusterServingRuntime/ServingRuntime/' |
-  sed "s|kserve/sklearnserver:latest|${SKLEARN_IMAGE}|" |
-  sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
-  oc apply -n kserve-ci-e2e-test -f -
-
-# Add the enablePassthrough annotation to the ServingRuntimes, to let Knative to
-# generate passthrough routes.
-if ! skip_serverless "$1"; then
-  oc annotate servingruntimes -n kserve-ci-e2e-test --all serving.knative.openshift.io/enablePassthrough=true
+# Configure minio TLS if needed
+if [[ "$1" =~ "kserve_on_openshift" ]]; then
+  echo "Configuring minio TLS"
+  "$PROJECT_ROOT/test/scripts/openshift-ci/tls/setup-minio-tls.sh" custom
+  "$PROJECT_ROOT/test/scripts/openshift-ci/tls/setup-minio-tls.sh" serving
 fi
 
 # Allow all traffic to the kserve namespace. Without this networkpolicy, webhook will return 500
@@ -274,10 +231,7 @@ spec:
   - Egress
 EOF
 
-if [[ $1 =~ "kserve_on_openshift" ]]; then
-  echo "Configuring minio tls"
-  ${PROJECT_ROOT}/test/scripts/openshift-ci/tls/setup-minio-tls-custom-cert.sh
-  ${PROJECT_ROOT}/test/scripts/openshift-ci/tls/setup-minio-tls-serving-cert.sh
-fi
+echo "Prepare CI namespace and install ServingRuntimes"
+$SCRIPT_DIR/setup-ci-namespace.sh "$1"
 
 echo "Setup complete"
