@@ -122,7 +122,11 @@ manifests: controller-gen yq
 
 	# DO NOT COPY to helm chart. It needs to be created before the Envoy Gateway or you will need to restart the Envoy Gateway controller.
 	# The llmisvc helm chart needs to be installed after the Envoy Gateway as well, so it needs to be created before the llmisvc helm chart.
-	kubectl kustomize https://github.com/kubernetes-sigs/gateway-api-inference-extension.git/config/crd?ref=$(GIE_VERSION) > config/llmisvc/gateway-inference-extension.yaml
+	@TMP_DIR=$$(mktemp -d) && \
+	trap "rm -rf $$TMP_DIR" EXIT && \
+	git clone --depth 1 --branch $(GIE_VERSION) https://github.com/kubernetes-sigs/gateway-api-inference-extension.git $$TMP_DIR/gateway-api-inference-extension && \
+	kubectl kustomize $$TMP_DIR/gateway-api-inference-extension/config/crd > config/llmisvc/gateway-inference-extension.yaml && \
+	rm -rf $$TMP_DIR
 	cp config/llmisvc/gateway-inference-extension.yaml test/crds/gateway-inference-extension.yaml
 
 	#remove the required property on framework as name field needs to be optional
