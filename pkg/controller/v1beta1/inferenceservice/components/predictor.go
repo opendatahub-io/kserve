@@ -18,6 +18,7 @@ package components
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -146,7 +147,9 @@ func (p *Predictor) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 		}
 	} else {
 		predContainer = predictor.GetContainer(isvc.ObjectMeta, isvc.Spec.Predictor.GetExtensions(), p.inferenceServiceConfig)
-		podSpec = corev1.PodSpec(isvc.Spec.Predictor.PodSpec)
+		// Convert custom PodSpec to corev1.PodSpec via JSON marshaling
+		data, _ := json.Marshal(isvc.Spec.Predictor.PodSpec)
+		json.Unmarshal(data, &podSpec)
 		if len(podSpec.Containers) == 0 {
 			podSpec.Containers = []corev1.Container{
 				*predContainer,

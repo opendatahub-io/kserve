@@ -17,6 +17,7 @@ limitations under the License.
 package v1beta1
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -38,7 +39,11 @@ var (
 )
 
 func NewCustomPredictor(podSpec *PodSpec) *CustomPredictor {
-	return &CustomPredictor{PodSpec: corev1.PodSpec(*podSpec)}
+	// Convert custom PodSpec to corev1.PodSpec via JSON marshaling
+	data, _ := json.Marshal(podSpec)
+	var coreSpec corev1.PodSpec
+	json.Unmarshal(data, &coreSpec)
+	return &CustomPredictor{PodSpec: coreSpec}
 }
 
 // Validate returns an error if invalid

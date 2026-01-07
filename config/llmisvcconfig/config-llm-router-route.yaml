@@ -16,7 +16,8 @@ spec:
                 {{ .GlobalConfig.IngressGatewayNamespace }}
           rules:
             - backendRefs:
-                - group: inference.networking.x-k8s.io
+                - group: |-
+                    {{ SplitAPIGroup .Spec.Router.Scheduler.Pool.APIVersion }}
                   kind: InferencePool
                   name: |-
                     {{ ChildName .ObjectMeta.Name `-inference-pool` }}

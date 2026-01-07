@@ -18,6 +18,7 @@ package components
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/url"
 	"time"
@@ -170,7 +171,10 @@ func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServ
 		isvc.Spec.Transformer.PodSpec.Containers[0] = *container
 	}
 
-	podSpec := corev1.PodSpec(isvc.Spec.Transformer.PodSpec)
+	// Convert custom PodSpec to corev1.PodSpec via JSON marshaling
+	var podSpec corev1.PodSpec
+	data, _ := json.Marshal(isvc.Spec.Transformer.PodSpec)
+	json.Unmarshal(data, &podSpec)
 
 	// Here we allow switch between knative and vanilla deployment
 	if p.deploymentMode == constants.Standard {

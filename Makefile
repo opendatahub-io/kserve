@@ -30,7 +30,7 @@ ERROR_404_ISVC_IMG ?= error-404-isvc
 CRD_OPTIONS ?= "crd:maxDescLen=0"
 KSERVE_ENABLE_SELF_SIGNED_CA ?= false
 
-GIE_VERSION ?= v0.5.0
+GIE_VERSION ?= v1.2.0
 
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
