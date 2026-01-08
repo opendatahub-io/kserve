@@ -317,13 +317,20 @@ func (r *LLMInferenceServiceReconciler) enqueueOnGatewayChange(logger logr.Logge
 				return reqs
 			}
 			for _, llmSvc := range llmSvcList.Items {
-				// If it's not using the router or gateway, skip the resource.
-				if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil {
+				// Resolve baseRefs to get the combined spec
+				combinedSpec, err := r.resolveCombinedSpec(ctx, &llmSvc)
+				if err != nil {
+					logger.Error(err, "Failed to resolve combined spec", "llmSvc", llmSvc.Name)
+					continue
+				}
+
+				// Check if the combined spec uses the router/gateway
+				if combinedSpec.Router == nil || combinedSpec.Router.Gateway == nil {
 					continue
 				}
 
 				// If the LLMInferenceService is using the global gateway, requeue the resource.
-				if !llmSvc.Spec.Router.Gateway.HasRefs() && sub.Name == cfg.IngressGatewayName && sub.Namespace == cfg.IngressGatewayNamespace {
+				if !combinedSpec.Router.Gateway.HasRefs() && sub.Name == cfg.IngressGatewayName && sub.Namespace == cfg.IngressGatewayNamespace {
 					reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
 						Namespace: llmSvc.Namespace,
 						Name:      llmSvc.Name,
@@ -331,7 +338,7 @@ func (r *LLMInferenceServiceReconciler) enqueueOnGatewayChange(logger logr.Logge
 					continue
 				}
 
-				for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
+				for _, ref := range combinedSpec.Router.Gateway.Refs {
 					if string(ref.Name) == sub.Name && string(ref.Namespace) == sub.Namespace {
 						reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
 							Namespace: llmSvc.Namespace,
@@ -369,12 +376,19 @@ func (r *LLMInferenceServiceReconciler) enqueueOnHttpRouteChange(logger logr.Log
 				return reqs
 			}
 			for _, llmSvc := range llmSvcList.Items {
-				// If it's not using the router or gateway, skip the resource.
-				if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil || llmSvc.Spec.Router.Route.HTTP == nil {
+				// Resolve baseRefs to get the combined spec
+				combinedSpec, err := r.resolveCombinedSpec(ctx, &llmSvc)
+				if err != nil {
+					logger.Error(err, "Failed to resolve combined spec", "llmSvc", llmSvc.Name)
 					continue
 				}
 
-				for _, ref := range llmSvc.Spec.Router.Route.HTTP.Refs {
+				// Check if the combined spec uses the router/route
+				if combinedSpec.Router == nil || combinedSpec.Router.Route == nil || combinedSpec.Router.Route.HTTP == nil {
+					continue
+				}
+
+				for _, ref := range combinedSpec.Router.Route.HTTP.Refs {
 					if ref.Name == sub.Name && llmSvc.GetNamespace() == sub.Namespace {
 						reqs = append(reqs, reconcile.Request{NamespacedName: types.NamespacedName{
 							Namespace: llmSvc.Namespace,
@@ -506,4 +520,28 @@ func (r *LLMInferenceServiceReconciler) enqueueOnLLMInferenceServicePods() handl
 		}
 		return reqs
 	})
+}
+
+// resolveCombinedSpec resolves and merges all baseRefs to get the combined spec
+// that includes gateway and route references from base configs.
+func (r *LLMInferenceServiceReconciler) resolveCombinedSpec(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*v1alpha1.LLMInferenceServiceSpec, error) {
+	// Start with a copy of the LLMInferenceService spec
+	combinedSpec := llmSvc.Spec.DeepCopy()
+
+	// Resolve and merge all baseRefs
+	for _, ref := range llmSvc.Spec.BaseRefs {
+		cfg, err := r.getConfig(ctx, llmSvc, ref.Name)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get config %q: %w", ref.Name, err)
+		}
+		if cfg != nil {
+			mergedSpec, err := mergeSpecs(ctx, *combinedSpec, cfg.Spec)
+			if err != nil {
+				return nil, fmt.Errorf("failed to merge specs: %w", err)
+			}
+			combinedSpec = &mergedSpec
+		}
+	}
+
+	return combinedSpec, nil
 }
