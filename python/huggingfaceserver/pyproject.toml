@@ -8,7 +8,7 @@ readme = "README.md"
 packages = [{ include = "huggingfaceserver" }]
 
 [tool.poetry.dependencies]
-python = ">=3.9,<3.13"
+python = ">=3.10,<3.13"
 kserve = { path = "../kserve", extras = ["storage", "llm"], develop = true }
 transformers = ">=4.51.2"
 accelerate = "^1.6.0"
