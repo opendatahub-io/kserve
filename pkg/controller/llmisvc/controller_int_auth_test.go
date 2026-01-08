@@ -21,9 +21,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
@@ -39,21 +37,12 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 			It("should require AuthPolicyAffected condition on HTTPRoute", func(ctx SpecContext) {
 				// given
 				svcName := "test-llm-auth-enabled-default"
-				nsName := kmeta.ChildName(svcName, "-test")
-				namespace := &corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: nsName,
-					},
-				}
-
-				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
-				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
-				defer func() {
-					envTest.DeleteAll(namespace)
-				}()
+				testNs := NewTestNamespace(ctx, envTest,
+					WithIstioShadowService(svcName),
+				)
 
 				llmSvc := LLMInferenceService(svcName,
-					InNamespace[*v1alpha1.LLMInferenceService](nsName),
+					InNamespace[*v1alpha1.LLMInferenceService](testNs.Name),
 					WithModelURI("hf://facebook/opt-125m"),
 					WithManagedRoute(),
 					WithManagedGateway(),
@@ -64,7 +53,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				// when
 				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
 				defer func() {
-					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+					testNs.DeleteAndWait(ctx, llmSvc)
 				}()
 
 				// then - HTTPRoute should be created
@@ -98,21 +87,12 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 			It("should be ready when AuthPolicyAffected condition is present and True", func(ctx SpecContext) {
 				// given
 				svcName := "test-llm-auth-enforced"
-				nsName := kmeta.ChildName(svcName, "-test")
-				namespace := &corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: nsName,
-					},
-				}
-
-				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
-				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
-				defer func() {
-					envTest.DeleteAll(namespace)
-				}()
+				testNs := NewTestNamespace(ctx, envTest,
+					WithIstioShadowService(svcName),
+				)
 
 				llmSvc := LLMInferenceService(svcName,
-					InNamespace[*v1alpha1.LLMInferenceService](nsName),
+					InNamespace[*v1alpha1.LLMInferenceService](testNs.Name),
 					WithModelURI("hf://facebook/opt-125m"),
 					WithManagedRoute(),
 					WithManagedGateway(),
@@ -122,7 +102,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				// when
 				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
 				defer func() {
-					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+					testNs.DeleteAndWait(ctx, llmSvc)
 				}()
 
 				// then - HTTPRoute should be created
@@ -150,21 +130,12 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 			It("should not require AuthPolicyAffected condition on HTTPRoute", func(ctx SpecContext) {
 				// given
 				svcName := "test-llm-auth-disabled"
-				nsName := kmeta.ChildName(svcName, "-test")
-				namespace := &corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: nsName,
-					},
-				}
-
-				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
-				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
-				defer func() {
-					envTest.DeleteAll(namespace)
-				}()
+				testNs := NewTestNamespace(ctx, envTest,
+					WithIstioShadowService(svcName),
+				)
 
 				llmSvc := LLMInferenceService(svcName,
-					InNamespace[*v1alpha1.LLMInferenceService](nsName),
+					InNamespace[*v1alpha1.LLMInferenceService](testNs.Name),
 					WithModelURI("hf://facebook/opt-125m"),
 					WithManagedRoute(),
 					WithManagedGateway(),
@@ -177,7 +148,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				// when
 				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
 				defer func() {
-					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+					testNs.DeleteAndWait(ctx, llmSvc)
 				}()
 
 				// then - HTTPRoute should be created
@@ -205,21 +176,12 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 			It("should require AuthPolicyAffected condition on HTTPRoute", func(ctx SpecContext) {
 				// given
 				svcName := "test-llm-auth-explicit-enabled"
-				nsName := kmeta.ChildName(svcName, "-test")
-				namespace := &corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: nsName,
-					},
-				}
-
-				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
-				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
-				defer func() {
-					envTest.DeleteAll(namespace)
-				}()
+				testNs := NewTestNamespace(ctx, envTest,
+					WithIstioShadowService(svcName),
+				)
 
 				llmSvc := LLMInferenceService(svcName,
-					InNamespace[*v1alpha1.LLMInferenceService](nsName),
+					InNamespace[*v1alpha1.LLMInferenceService](testNs.Name),
 					WithModelURI("hf://facebook/opt-125m"),
 					WithManagedRoute(),
 					WithManagedGateway(),
@@ -232,7 +194,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				// when
 				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
 				defer func() {
-					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+					testNs.DeleteAndWait(ctx, llmSvc)
 				}()
 
 				// then - HTTPRoute should be created
@@ -267,21 +229,12 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 			It("should mark HTTPRoutes as not ready", func(ctx SpecContext) {
 				// given
 				svcName := "test-llm-auth-policy-false"
-				nsName := kmeta.ChildName(svcName, "-test")
-				namespace := &corev1.Namespace{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: nsName,
-					},
-				}
-
-				Expect(envTest.Client.Create(ctx, namespace)).To(Succeed())
-				Expect(envTest.Client.Create(ctx, IstioShadowService(svcName, nsName))).To(Succeed())
-				defer func() {
-					envTest.DeleteAll(namespace)
-				}()
+				testNs := NewTestNamespace(ctx, envTest,
+					WithIstioShadowService(svcName),
+				)
 
 				llmSvc := LLMInferenceService(svcName,
-					InNamespace[*v1alpha1.LLMInferenceService](nsName),
+					InNamespace[*v1alpha1.LLMInferenceService](testNs.Name),
 					WithModelURI("hf://facebook/opt-125m"),
 					WithManagedRoute(),
 					WithManagedGateway(),
@@ -291,7 +244,7 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 				// when
 				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
 				defer func() {
-					Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+					testNs.DeleteAndWait(ctx, llmSvc)
 				}()
 
 				// then - HTTPRoute should be created

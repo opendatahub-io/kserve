@@ -219,6 +219,26 @@ func (r *LLMInferenceServiceReconciler) combineBaseRefsConfig(ctx context.Contex
 		return llmSvcCfg, err
 	}
 
+	// Update HTTPRoute parentRefs to point to the custom gateway if Gateway.Refs is specified.
+	// This ensures the managed HTTPRoute references the correct gateway instead of the default one from presets.
+	if llmSvcCfg.Spec.Router != nil &&
+		llmSvcCfg.Spec.Router.Route != nil &&
+		llmSvcCfg.Spec.Router.Route.HTTP.HasSpec() &&
+		llmSvcCfg.Spec.Router.Gateway.HasRefs() {
+		llmSvcCfg.Spec.Router.Route.HTTP.Spec.CommonRouteSpec.ParentRefs = make([]gatewayapi.ParentReference, 0, len(llmSvcCfg.Spec.Router.Gateway.Refs))
+		for _, ref := range llmSvcCfg.Spec.Router.Gateway.Refs {
+			llmSvcCfg.Spec.Router.Route.HTTP.Spec.CommonRouteSpec.ParentRefs = append(
+				llmSvcCfg.Spec.Router.Route.HTTP.Spec.CommonRouteSpec.ParentRefs,
+				gatewayapi.ParentReference{
+					Name:      ref.Name,
+					Namespace: &ref.Namespace,
+					Group:     ptr.To(gatewayapi.Group("gateway.networking.k8s.io")),
+					Kind:      ptr.To(gatewayapi.Kind("Gateway")),
+				},
+			)
+		}
+	}
+
 	// Point HTTPRoute to a Service if there is no Scheduler or InferencePool, and the HTTPRoute uses the default
 	// InferencePool (to handle cases where the HTTPRoute Spec uses a custom BackendRef).
 	if llmSvcCfg.Spec.Router != nil &&

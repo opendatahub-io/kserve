@@ -69,7 +69,7 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRules(ctx conte
 	}
 
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Route != nil && !llmSvc.Spec.Router.Route.HTTP.HasRefs() {
-		routes = append(routes, r.expectedHTTPRoute(ctx, llmSvc))
+		routes = append(routes, r.expectedHTTPRoute(llmSvc))
 	}
 
 	cfg, err := LoadConfig(ctx, r.Clientset)
