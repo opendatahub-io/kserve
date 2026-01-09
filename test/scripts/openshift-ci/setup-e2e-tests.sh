@@ -58,6 +58,14 @@ echo "Using namespace: $KSERVE_NAMESPACE for KServe components"
 : "${SUCCESS_200_ISVC_IMAGE:=success-200-isvc:latest}"
 : "${LLMISVC_CONTROLLER_IMAGE:=kserve/llmisvc-controller:latest}"
 
+# Export image variables so they're available to child scripts
+export KSERVE_CONTROLLER_IMAGE
+export KSERVE_AGENT_IMAGE
+export KSERVE_ROUTER_IMAGE
+export STORAGE_INITIALIZER_IMAGE
+export LLMISVC_CONTROLLER_IMAGE
+export ODH_MODEL_CONTROLLER_IMAGE
+
 echo "SKLEARN_IMAGE=$SKLEARN_IMAGE"
 echo "KSERVE_CONTROLLER_IMAGE=$KSERVE_CONTROLLER_IMAGE"
 echo "LLMISVC_CONTROLLER_IMAGE=$LLMISVC_CONTROLLER_IMAGE"
@@ -124,14 +132,7 @@ if [[ "$1" =~ raw ]]; then
   fi
 fi
 
-# Install KServe stack - skip serverless for raw, graph, predictor, and path_based_routing deployments
-# Also skip if using ODH operator (it installs them)
-if ! skip_serverless "$1" && [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
-  echo "Installing OSSM"
-  $SCRIPT_DIR/deploy.ossm.sh
-  echo "Installing Serverless"
-  $SCRIPT_DIR/deploy.serverless.sh
-fi
+# Install prerequisite operators
 
 # Install KServe components based on method
 if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
@@ -164,9 +165,10 @@ else
   $SCRIPT_DIR/copy-kserve-manifests-to-pvc.sh
 
   # Apply DSC/DSCI to trigger deployment with custom manifests
+  # Sed the DSCI to use opendatahub namespace for ODH operator mode
   echo "Applying DSC/DSCI to trigger ODH operator deployment with PR manifests..."
-  oc apply -f config/overlays/test/odh-operator/dsci.yaml
-  oc apply -f config/overlays/test/odh-operator/dsc.yaml
+  sed 's/applicationsNamespace:  kserve/applicationsNamespace: opendatahub/' config/overlays/test/dsci.yaml | oc apply -f -
+  oc apply -f config/overlays/test/dsc.yaml
 
   # Wait for KServe controller to be deployed by the operator
   echo "Waiting for ODH operator to deploy KServe components with PR manifests..."
@@ -223,16 +225,17 @@ if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
       oc apply -n ${KSERVE_NAMESPACE} -f -
   oc rollout status deployment/odh-model-controller -n ${KSERVE_NAMESPACE} --timeout=300s
 else
-  echo "Waiting for ODH operator to deploy ODH Model Controller..."
+  # ODH operator deploys odh-model-controller using custom manifests from PVC
+  # The image was already configured in copy-kserve-manifests-to-pvc.sh via params.env
+  echo "Waiting for ODH operator to deploy ODH Model Controller with PR image..."
   wait_for_pod_ready "${KSERVE_NAMESPACE}" "app=odh-model-controller" 600s
 
-  echo "Patching ODH Model Controller with PR image..."
-  oc set image deployment/odh-model-controller \
-    manager=${ODH_MODEL_CONTROLLER_IMAGE} \
-    -n ${KSERVE_NAMESPACE}
-
-  echo "Waiting for ODH Model Controller to restart with PR image..."
+  echo "Verifying ODH Model Controller deployment..."
   oc rollout status deployment/odh-model-controller -n ${KSERVE_NAMESPACE} --timeout=300s
+
+  # Verify the correct image is being used
+  ACTUAL_IMAGE=$(oc get deployment odh-model-controller -n ${KSERVE_NAMESPACE} -o jsonpath='{.spec.template.spec.containers[0].image}')
+  echo "ODH Model Controller deployed with image: $ACTUAL_IMAGE"
 fi
 
 # Configure certs for the python requests by getting the CA cert from the kserve controller pod

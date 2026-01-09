@@ -38,11 +38,7 @@ echo "  Source: ${ODH_OPERATOR_SOURCE}"
 echo "Installing Red Hat Authorino Operator..."
 ${SCRIPT_DIR}/deploy.authorino-operator.sh
 
-# Step 2: Install Serverless
-echo "Installing OpenShift Serverless..."
-${SCRIPT_DIR}/deploy.serverless-operator.sh
-
-# Step 3: Check if ODH operator is already installed
+# Step 2: Check if ODH operator is already installed
 csv_status=$(oc get csv -n ${ODH_OPERATOR_NAMESPACE} -o json 2>/dev/null | jq -r '.items[] | select(.metadata.name | startswith("opendatahub-operator")) | .status.phase' 2>/dev/null || echo "")
 
 if [ "$csv_status" = "Succeeded" ]; then
@@ -67,7 +63,7 @@ spec:
   sourceNamespace: ${ODH_OPERATOR_SOURCE_NAMESPACE}
 EOF
 
-  # Step 4: Wait for install plan and approve it
+  # Step 3: Wait for install plan and approve it
   echo "Waiting for ODH operator install plan to be created..."
   timeout=60
   counter=0
@@ -87,7 +83,7 @@ EOF
     oc patch installplan $install_plan -n ${ODH_OPERATOR_NAMESPACE} --type merge --patch '{"spec":{"approved":true}}'
   fi
 
-  # Step 5: Wait for ODH operator CSV to be ready
+  # Step 4: Wait for ODH operator CSV to be ready
   echo "Waiting for ODH operator CSV to be installed..."
   timeout=300
   counter=0
@@ -108,16 +104,16 @@ EOF
   fi
 fi
 
-# Step 6: Wait for ODH operator pod to be ready
+# Step 5: Wait for ODH operator pod to be ready
 echo "Waiting for ODH operator to be ready..."
 wait_for_pod_ready "${ODH_OPERATOR_NAMESPACE}" "control-plane=controller-manager"
 
-# Step 7: Wait for CRDs to be established
+# Step 6: Wait for CRDs to be established
 echo "Waiting for ODH CRDs to be established..."
 wait_for_crd "dscinitializations.dscinitialization.opendatahub.io" 90s
 wait_for_crd "datascienceclusters.datasciencecluster.opendatahub.io" 90s
 
-# Step 8: Configure operator to use custom KServe manifests from PR
+# Step 7: Configure operator to use custom KServe manifests from PR
 echo "Configuring ODH operator to use custom KServe manifests from PR..."
 
 # Create PVC for custom manifests
