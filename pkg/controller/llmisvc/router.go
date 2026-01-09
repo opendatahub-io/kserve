@@ -190,10 +190,15 @@ func (r *LLMInferenceServiceReconciler) updateRoutingStatus(ctx context.Context,
 		return nil
 	}
 
+	cfg, err := LoadConfig(ctx, r.Clientset)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
 	var urls []*apis.URL
 	for _, route := range routes {
-		discoverURL, err := DiscoverURLs(ctx, r.Client, route)
-		if IgnoreExternalAddressNotFound(err) != nil {
+		discoverURL, err := DiscoverURLs(ctx, r.Client, route, cfg.UrlScheme)
+		if IgnoreNoURLsDiscovered(err) != nil {
 			return fmt.Errorf("failed to discover URL for route %s/%s: %w", route.GetNamespace(), route.GetName(), err)
 		}
 		if discoverURL != nil {
@@ -215,8 +220,10 @@ func (r *LLMInferenceServiceReconciler) updateRoutingStatus(ctx context.Context,
 
 	llmSvc.Status.Addresses = make([]duckv1.Addressable, 0, len(urls))
 	for _, url := range urls {
+		addressType := AddressTypeName(url)
 		llmSvc.Status.Addresses = append(llmSvc.Status.Addresses, duckv1.Addressable{
-			URL: url,
+			Name: &addressType,
+			URL:  url,
 		})
 	}
 
@@ -248,7 +255,7 @@ func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Co
 	}
 
 	// If no router or gateway configuration, mark as ready to clear any previous stopped state
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
+	if llmSvc.Spec.Router == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
 		logger.Info("No Gateway references found, skipping Gateway condition evaluation")
 		llmSvc.MarkGatewaysReadyUnset()
 		return nil
@@ -278,7 +285,7 @@ func (r *LLMInferenceServiceReconciler) EvaluateGatewayConditions(ctx context.Co
 
 // CollectReferencedGateways retrieves all Gateway objects referenced in the LLMInferenceService spec
 func (r *LLMInferenceServiceReconciler) CollectReferencedGateways(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) ([]*gatewayapi.Gateway, error) {
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
+	if llmSvc.Spec.Router == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
 		return nil, nil
 	}
 

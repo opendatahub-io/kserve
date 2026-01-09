@@ -136,6 +136,14 @@ func DefaultGatewayClass() *gatewayapiv1.GatewayClass {
 }
 
 func InferenceServiceCfgMap(ns string) *corev1.ConfigMap {
+	return InferenceServiceCfgMapWithUrlScheme(ns, "")
+}
+
+func InferenceServiceCfgMapWithUrlScheme(ns, urlScheme string) *corev1.ConfigMap {
+	urlSchemeConfig := ""
+	if urlScheme != "" {
+		urlSchemeConfig = `,"urlScheme": "` + urlScheme + `"`
+	}
 	configs := map[string]string{
 		"ingress": `{
 				"enableGatewayApi": true,
@@ -143,7 +151,7 @@ func InferenceServiceCfgMap(ns string) *corev1.ConfigMap {
 				"ingressGateway": "knative-serving/knative-ingress-gateway",
 				"localGateway": "knative-serving/knative-local-gateway",
 				"localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local",
-				"additionalIngressDomains": ["additional.example.com"]
+				"additionalIngressDomains": ["additional.example.com"]` + urlSchemeConfig + `
 			}`,
 		"storageInitializer": `{
 				"memoryRequest": "100Mi",

@@ -35,6 +35,7 @@ type Config struct {
 	IngressGatewayName          string   `json:"ingressGatewayName,omitempty"`
 	IngressGatewayNamespace     string   `json:"ingressGatewayNamespace,omitempty"`
 	IstioGatewayControllerNames []string `json:"istioGatewayControllerNames,omitempty"`
+	UrlScheme                   string   `json:"urlScheme,omitempty"`
 
 	StorageConfig    *types.StorageInitializerConfig `json:"-"`
 	CredentialConfig *credentials.CredentialConfig   `json:"-"`
@@ -61,6 +62,7 @@ func NewConfig(ingressConfig *v1beta1.IngressConfig, storageConfig *types.Storag
 			"istio.io/unmanaged-gateway",
 			"openshift.io/gateway-controller/v1",
 		},
+		UrlScheme:        ingressConfig.UrlScheme,
 		StorageConfig:    storageConfig,
 		CredentialConfig: credentialConfig,
 	}
