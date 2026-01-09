@@ -32,7 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/kmeta"
-	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/apix/v1alpha2"
 	leaderworkerset "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -271,15 +271,6 @@ var _ = Describe("LLMInferenceService Stop Feature", func() {
 				}, inferencePool)
 			}).WithContext(ctx).Should(Succeed())
 
-			// verify InferenceModel is created
-			inferenceModel := &igwapi.InferenceModel{}
-			Eventually(func(g Gomega, ctx context.Context) error {
-				return envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-inference-model",
-					Namespace: nsName,
-				}, inferenceModel)
-			}).WithContext(ctx).Should(Succeed())
-
 			// verify scheduler ServiceAccount is created
 			schedulerSA := &corev1.ServiceAccount{}
 			Eventually(func(g Gomega, ctx context.Context) error {
@@ -328,15 +319,6 @@ var _ = Describe("LLMInferenceService Stop Feature", func() {
 				}, inferencePool)
 				return err != nil && errors.IsNotFound(err)
 			}).WithContext(ctx).Should(BeTrue(), "InferencePool should be deleted when service is stopped")
-
-			// verify InferenceModel is deleted
-			Eventually(func(g Gomega, ctx context.Context) bool {
-				err := envTest.Get(ctx, types.NamespacedName{
-					Name:      svcName + "-inference-model",
-					Namespace: nsName,
-				}, inferenceModel)
-				return err != nil && errors.IsNotFound(err)
-			}).WithContext(ctx).Should(BeTrue(), "InferenceModel should be deleted when service is stopped")
 
 			// verify scheduler ServiceAccount is deleted
 			Eventually(func(g Gomega, ctx context.Context) bool {
