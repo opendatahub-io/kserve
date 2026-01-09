@@ -53,6 +53,8 @@ pydantic = "^2.5.0"
 pyyaml = "^6.0.0"
 # CVE-2025-66418 urllib3: Unbounded decompression chain leads to resource exhaustion
 urllib3 = ">=2.6.0"
+# CVE-2025-69223 AIOHTTP's HTTP Parser auto_decompress feature is vulnerable to zip bomb
+aiohttp = ">=3.13.3"
 
 # Storage dependencies. They can be opted into by apps.
 requests = { version = "^2.32.2", optional = true }
