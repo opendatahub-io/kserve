@@ -114,8 +114,13 @@ fi
 # Add CA certificate extraction for raw deployments
 if [[ "$1" =~ raw ]]; then
   echo "⏳ Extracting OpenShift CA certificates for raw deployment"
-  # Get comprehensive CA bundle including both cluster and service CAs
+  # Get comprehensive CA bundle including cluster CAs, service CAs, and system CAs
   {
+    # System CA bundle (includes public CAs like Let's Encrypt)
+    cat /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem 2>/dev/null || \
+    cat /etc/ssl/certs/ca-certificates.crt 2>/dev/null || true
+    echo ""
+
     # Cluster root CA bundle
     oc get configmap kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' 2>/dev/null && echo ""
 
@@ -238,10 +243,9 @@ else
   echo "ODH Model Controller deployed with image: $ACTUAL_IMAGE"
 fi
 
-# Configure certs for the python requests by getting the CA cert from the kserve controller pod
-export CA_CERT_PATH="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
-# The run-e2e-tests script expects the CA cert to be in /tmp/ca.crt
-oc exec deploy/kserve-controller-manager -n ${KSERVE_NAMESPACE} -- cat $CA_CERT_PATH > /tmp/ca.crt
+# CA certificate bundle is already extracted earlier for raw deployments (lines 115-133)
+# The comprehensive bundle includes both cluster and service CAs needed for HTTPS routes
+export CA_CERT_PATH="/tmp/ca.crt"
 
 echo "Add testing models to minio storage ..." # Reference: config/overlays/test/minio/minio-init-job.yaml
 

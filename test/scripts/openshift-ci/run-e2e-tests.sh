@@ -82,6 +82,7 @@ if [ ! -f "/tmp/ca.crt" ]; then
 fi
 
 export REQUESTS_CA_BUNDLE="/tmp/ca.crt"
+export SSL_CERT_FILE="/tmp/ca.crt"
 echo "REQUESTS_CA_BUNDLE=$(cat ${REQUESTS_CA_BUNDLE})"
 
 echo "Run E2E tests: ${POSITIONAL_ARGS[0]}"
