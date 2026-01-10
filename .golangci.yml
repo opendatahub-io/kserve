@@ -192,6 +192,12 @@ linters:
     - whitespace
 
 linters-settings:
+  recvcheck:
+    # Allow String() methods to use value receivers even when other methods use pointer receivers.
+    # This is intentional for implementing fmt.Stringer on both value and pointer types,
+    # which is required by K8s validation library that dereferences pointers before type-switching.
+    exclusions:
+      - "*.String"
   goimports:
     local-prefixes: "github.com/kserve/kserve"
   gosec:
