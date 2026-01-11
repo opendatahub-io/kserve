@@ -45,7 +45,7 @@ spec:
     - name: revision
       value: main
     - name: pathInRepo
-      value: pipeline/multi-archcontainer-build.yaml
+      value: pipeline/multi-arch-container-build.yaml
   taskRunTemplate:
     serviceAccountName: build-pipeline-kserve-controller
   workspaces:
