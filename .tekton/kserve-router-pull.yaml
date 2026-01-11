@@ -15,7 +15,7 @@ metadata:
     appstudio.openshift.io/application: opendatahub-release
     appstudio.openshift.io/component: kserve-router
     pipelines.appstudio.openshift.io/type: build
-  name: kserve-router-on-pull_request
+  name: kserve-router-on-pull-request
   namespace: open-data-hub-tenant
 spec:
   params:
