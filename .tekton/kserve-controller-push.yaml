@@ -34,6 +34,7 @@ spec:
   - name: additional-tags
     value:
     - '{{target_branch}}-{{revision}}'
+    - 'odh-stable'
   pipelineRef:
     resolver: git
     params:
