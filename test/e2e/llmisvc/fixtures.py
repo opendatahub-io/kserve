@@ -459,7 +459,50 @@ LLMINFERENCESERVICE_CONFIGS = {
         "router": {
             "scheduler": {},
         },
-    }
+    },
+    "router-with-gateway-ref": {
+        "router": {
+            "gateway": {
+                "refs": [
+                    {"name": "router-gateway-1", "namespace": KSERVE_TEST_NAMESPACE},
+                ],
+            },
+        },
+    },
+    "router-with-managed-route": {
+        "router": {
+            "route": {}
+        },
+    },
+    "workload-llmd-simulator": {
+        "replicas": 1,
+        "model": {"uri": "hf://facebook/opt-125m", "name": "facebook/opt-125m"},
+        "template": {
+            "containers": [
+                {
+                    "name": "main",
+                    "image": "ghcr.io/llm-d/llm-d-inference-sim:v0.5.1",
+                    "command": ["/app/llm-d-inference-sim"],
+                    "args": [
+                        "--port",
+                        "8000",
+                        "--model",
+                        "{{ .Spec.Model.Name }}",
+                        "--mode",
+                        "random",
+                        "--ssl-certfile",
+                        "/etc/ssl/certs/tls.crt",
+                        "--ssl-keyfile",
+                        "/etc/ssl/certs/tls.key"
+                    ],
+                    "resources": {
+                        "limits": {"cpu": "1", "memory": "2Gi"},
+                        "requests": {"cpu": "1", "memory": "2Gi"},
+                    },
+                }
+            ]
+        },
+    },
 }
 
 
@@ -574,7 +617,7 @@ def _get_model_name_from_configs(config_names):
             config = LLMINFERENCESERVICE_CONFIGS[config_name]
             if "model" in config and "name" in config["model"]:
                 return config["model"]["name"]
-    return "default-model"
+    return "default/model"
 
 
 def generate_k8s_safe_suffix(base_name: str, extra_parts: List[str] = None) -> str:
@@ -608,7 +651,7 @@ def generate_test_id(test_case) -> str:
     return "-".join(test_case.base_refs)
 
 
-def create_router_resources(gateways, routes, kserve_client=None):
+def create_router_resources(gateways, routes=None, kserve_client=None):
     if not kserve_client:
         kserve_client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
 
@@ -619,7 +662,7 @@ def create_router_resources(gateways, routes, kserve_client=None):
         for gateway in gateways:
             create_or_update_gateway(kserve_client, gateway)
             gateways_created.append(gateway)
-        for route in routes:
+        for route in routes or []:
             create_or_update_route(kserve_client, route)
             routes_created.append(route)
     except Exception as e:
@@ -628,11 +671,11 @@ def create_router_resources(gateways, routes, kserve_client=None):
         raise
 
 
-def delete_router_resources(gateways, routes, kserve_client=None):
+def delete_router_resources(gateways, routes=None, kserve_client=None):
     if not kserve_client:
         kserve_client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
 
-    for route in routes:
+    for route in routes or []:
         try:
             logger.info(f"Cleaning up HttpRoute {route.get('metadata', {}).get('name')}")
             delete_route(kserve_client, route.get("metadata", {}).get("name"), route.get("metadata", {}).get("namespace", "default"))

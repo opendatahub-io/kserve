@@ -22,22 +22,32 @@ Tests are marked with both general and cluster-specific capability markers:
 - `@pytest.mark.cluster_nvidia` - NVIDIA GPU tests
 - `@pytest.mark.cluster_nvidia_roce` - NVIDIA ROCe tests
 - `@pytest.mark.cluster_intel` - Intel GPU tests
+- `@pytest.mark.llmd_simulator` - Tests using llm-d simulator instead of real model
 
-Examples:
-```bash
-# Run all LLM inference service tests
+## Examples
+
+### Run all LLM inference service tests 
+
+```shell
 pytest -m "llminferenceservice" test/e2e/llmisvc/
+```
 
-# Run only CPU tests
+### Run only CPU tests
+```shell
 pytest -m "llminferenceservice and cluster_cpu" test/e2e/llmisvc/
+```
 
-# Run only NVIDIA GPU tests
+### Run only NVIDIA GPU tests
+```shell
 pytest -m "llminferenceservice and cluster_nvidia" test/e2e/llmisvc/
+```
 
-# Run all GPU tests (any vendor)
+### Run all GPU tests (any vendor)
+```shell
 pytest -m "llminferenceservice and (cluster_amd or cluster_nvidia or cluster_intel)" test/e2e/llmisvc/
-
-# Run CPU and AMD GPU tests only
+```
+### Run CPU and AMD GPU tests only
+```shell
 pytest -m "llminferenceservice and (cluster_cpu or cluster_amd)" test/e2e/llmisvc/
 ```
 
