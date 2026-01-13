@@ -55,7 +55,7 @@ func Delete[O client.Object, T client.Object](ctx context.Context, c clientWithR
 
 	existing := expected.DeepCopyObject().(T)
 	if err := c.Get(ctx, client.ObjectKeyFromObject(expected), existing); err != nil {
-		if apierrors.IsNotFound(err) {
+		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
 			return nil
 		}
 		return fmt.Errorf("failed to get %s %s/%s: %w", typeLogLine, expected.GetNamespace(), expected.GetName(), err)
