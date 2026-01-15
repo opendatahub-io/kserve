@@ -56,15 +56,7 @@ echo "Using namespace: $KSERVE_NAMESPACE for KServe components"
 : "${ODH_MODEL_CONTROLLER_IMAGE:=quay.io/opendatahub/odh-model-controller:fast}"
 : "${ERROR_404_ISVC_IMAGE:=error-404-isvc:latest}"
 : "${SUCCESS_200_ISVC_IMAGE:=success-200-isvc:latest}"
-: "${LLMISVC_CONTROLLER_IMAGE:=kserve/llmisvc-controller:latest}"
-
-# Export image variables so they're available to child scripts
-export KSERVE_CONTROLLER_IMAGE
-export KSERVE_AGENT_IMAGE
-export KSERVE_ROUTER_IMAGE
-export STORAGE_INITIALIZER_IMAGE
-export LLMISVC_CONTROLLER_IMAGE
-export ODH_MODEL_CONTROLLER_IMAGE
+: "${LLMISVC_CONTROLLER_IMAGE:=quay.io/opendatahub/llmisvc-controller:latest}"
 
 echo "SKLEARN_IMAGE=$SKLEARN_IMAGE"
 echo "KSERVE_CONTROLLER_IMAGE=$KSERVE_CONTROLLER_IMAGE"

@@ -27,7 +27,7 @@ PROJECT_ROOT="${SCRIPT_DIR}/../../../"
 : "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
 : "${KSERVE_ROUTER_IMAGE:=quay.io/opendatahub/kserve-router:latest}"
 : "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
-: "${LLMISVC_CONTROLLER_IMAGE:=kserve/llmisvc-controller:latest}"
+: "${LLMISVC_CONTROLLER_IMAGE:=quay.io/opendatahub/llmisvc-controller:latest}"
 : "${ODH_MODEL_CONTROLLER_IMAGE:=quay.io/opendatahub/odh-model-controller:fast}"
 : "${ODH_MODEL_CONTROLLER_REF:=incubating}"
 
@@ -58,9 +58,9 @@ oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "rm -rf /opt/manifes
 echo "Copying config directory to PVC..."
 oc cp "${PROJECT_ROOT}/config/." ${ODH_OPERATOR_NAMESPACE}/${POD_NAME}:/opt/manifests/kserve
 
-# Update params.env with PR images
+# Updating params.env
 echo ""
-echo "Updating params.env with PR images..."
+echo "Updating params.envs..."
 oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "
   sed -i 's|kserve-controller=.*|kserve-controller=${KSERVE_CONTROLLER_IMAGE}|' /opt/manifests/kserve/overlays/odh/params.env
   sed -i 's|llmisvc-controller=.*|llmisvc-controller=${LLMISVC_CONTROLLER_IMAGE}|' /opt/manifests/kserve/overlays/odh/params.env

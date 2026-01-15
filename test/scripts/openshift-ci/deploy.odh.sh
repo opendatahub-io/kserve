@@ -64,44 +64,10 @@ spec:
 EOF
 
   # Step 3: Wait for install plan and approve it
-  echo "Waiting for ODH operator install plan to be created..."
-  timeout=60
-  counter=0
-  install_plan=""
-  while [ $counter -lt $timeout ]; do
-    install_plan=$(oc get installplan -n ${ODH_OPERATOR_NAMESPACE} -o json | jq -r '.items[] | select(.spec.clusterServiceVersionNames[]? | contains("opendatahub-operator")) | select(.spec.approved == false) | .metadata.name' 2>/dev/null | head -1)
-    if [ -n "$install_plan" ]; then
-      echo "Found install plan: $install_plan"
-      break
-    fi
-    sleep 2
-    counter=$((counter + 2))
-  done
-
-  if [ -n "$install_plan" ]; then
-    echo "Approving install plan $install_plan..."
-    oc patch installplan $install_plan -n ${ODH_OPERATOR_NAMESPACE} --type merge --patch '{"spec":{"approved":true}}'
-  fi
+  wait_for_installplan_and_approve "${ODH_OPERATOR_NAMESPACE}" "opendatahub-operator" 60
 
   # Step 4: Wait for ODH operator CSV to be ready
-  echo "Waiting for ODH operator CSV to be installed..."
-  timeout=300
-  counter=0
-  while [ $counter -lt $timeout ]; do
-    csv_status=$(oc get csv -n ${ODH_OPERATOR_NAMESPACE} -o json | jq -r '.items[] | select(.metadata.name | startswith("opendatahub-operator")) | .status.phase' 2>/dev/null || echo "")
-    if [ "$csv_status" = "Succeeded" ]; then
-      echo "ODH operator CSV is ready"
-      break
-    fi
-    echo "Waiting for CSV to be ready... (current status: ${csv_status:-NotFound}, $counter/$timeout)"
-    sleep 5
-    counter=$((counter + 5))
-  done
-
-  if [ $counter -ge $timeout ]; then
-    echo "Timeout waiting for ODH operator CSV to be ready"
-    exit 1
-  fi
+  wait_for_csv_ready "${ODH_OPERATOR_NAMESPACE}" "opendatahub-operator" 300
 fi
 
 # Step 5: Wait for ODH operator pod to be ready
