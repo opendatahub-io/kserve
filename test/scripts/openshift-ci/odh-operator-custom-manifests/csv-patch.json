@@ -1,0 +1,39 @@
+[
+  {
+    "op": "replace",
+    "path": "/spec/install/spec/deployments/0/spec/replicas",
+    "value": 1
+  },
+  {
+    "op": "add",
+    "path": "/spec/install/spec/deployments/0/spec/strategy",
+    "value": {
+      "type": "Recreate"
+    }
+  },
+  {
+    "op": "add",
+    "path": "/spec/install/spec/deployments/0/spec/template/spec/securityContext",
+    "value": {
+      "fsGroup": 65532
+    }
+  },
+  {
+    "op": "add",
+    "path": "/spec/install/spec/deployments/0/spec/template/spec/containers/0/volumeMounts/-",
+    "value": {
+      "mountPath": "/opt/manifests/kserve",
+      "name": "kserve-custom-manifests"
+    }
+  },
+  {
+    "op": "add",
+    "path": "/spec/install/spec/deployments/0/spec/template/spec/volumes/-",
+    "value": {
+      "name": "kserve-custom-manifests",
+      "persistentVolumeClaim": {
+        "claimName": "kserve-custom-manifests"
+      }
+    }
+  }
+]
