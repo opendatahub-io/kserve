@@ -17,6 +17,8 @@ limitations under the License.
 package v1alpha1
 
 import (
+	"encoding/json"
+	"fmt"
 	"strings"
 
 	"k8s.io/utils/ptr"
@@ -106,4 +108,27 @@ func (s *LLMInferenceService) IsUsingLLMInferenceServiceConfig(name string) bool
 	}
 
 	return false
+}
+
+// String returns a human-readable representation of ParallelismSpec as JSON.
+//
+// Uses value receiver intentionally (unlike other methods) so both ParallelismSpec and
+// *ParallelismSpec implement fmt.Stringer. This is required because K8s validation library
+// (k8s.io/apimachinery/pkg/util/validation/field) dereferences pointers before checking
+// for Stringer interface. With a pointer receiver, only *ParallelismSpec would implement
+// Stringer, and after dereferencing, the Stringer check would fail, falling back to %#v
+// which produces unhelpful output with pointer addresses.
+//
+// The recvcheck linter is configured to allow this exception in .golangci.yml.
+// This method can be removed when upgrading to apimachinery v0.34+ which handles
+// this by marshalling to JSON automatically.
+func (p ParallelismSpec) String() string {
+	if ptr.AllPtrFieldsNil(&p) && !p.Expert {
+		return "{}"
+	}
+	b, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Sprintf("%#v", p)
+	}
+	return string(b)
 }
