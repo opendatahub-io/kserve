@@ -30,15 +30,6 @@ source "$SCRIPT_DIR/common.sh"
 # Parse command line options
 : "${INSTALL_ODH_OPERATOR:=false}"
 
-# Check for --install-odh-operator flag
-for arg in "$@"; do
-  case $arg in
-    --install-odh-operator)
-      INSTALL_ODH_OPERATOR=true
-      ;;
-  esac
-done
-
 # Set the applications namespace based on installation method
 # ODH operator uses 'opendatahub', manual installation uses 'kserve'
 if [[ "$INSTALL_ODH_OPERATOR" == "true" ]]; then
