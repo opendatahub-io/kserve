@@ -23,18 +23,11 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/kserve-agent:{{revision}}
+    value: quay.io/opendatahub/kserve-agent:odh-stable
   - name: dockerfile
     value: agent.Dockerfile
   - name: path-context
     value: .
-  - name: build-platforms
-    value:
-    - linux/x86_64
-  - name: additional-tags
-    value:
-    - '{{target_branch}}-{{revision}}'
-    - 'odh-stable'
   pipelineRef:
     resolver: git
     params:
