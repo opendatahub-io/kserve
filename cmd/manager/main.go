@@ -24,10 +24,7 @@ import (
 
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/utils/env"
-	"sigs.k8s.io/controller-runtime/pkg/cache"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
@@ -150,6 +147,17 @@ func main() {
 
 	// Create a new Cmd to provide shared dependencies and start components
 	setupLog.Info("Setting up manager")
+
+	cacheOpts, err := v1beta1controller.NewCacheOptionsWithLLMSvc(
+		llmSvcCacheSelector,
+		llmisvc.ServiceCASigningSecretNamespace,
+		llmisvc.ServiceCASigningSecretName,
+	)
+	if err != nil {
+		setupLog.Error(err, "unable to create cache options")
+		os.Exit(1)
+	}
+
 	mgr, err := manager.New(cfg, manager.Options{
 		Metrics: metricsserver.Options{
 			BindAddress: options.metricsAddr,
@@ -160,25 +168,7 @@ func main() {
 		LeaderElection:         options.enableLeaderElection,
 		LeaderElectionID:       LeaderLockName,
 		HealthProbeBindAddress: options.probeAddr,
-		Cache: cache.Options{
-			ByObject: map[client.Object]cache.ByObject{
-				&corev1.Secret{}: {
-					Namespaces: map[string]cache.Config{
-						cache.AllNamespaces: {
-							LabelSelector: llmSvcCacheSelector,
-						},
-						llmisvc.ServiceCASigningSecretNamespace: {
-							FieldSelector: fields.SelectorFromSet(map[string]string{
-								"metadata.name": llmisvc.ServiceCASigningSecretName,
-							}),
-						},
-					},
-				},
-				&corev1.Pod{}: {
-					Label: llmSvcCacheSelector,
-				},
-			},
-		},
+		Cache:                  cacheOpts,
 	})
 	if err != nil {
 		setupLog.Error(err, "unable to set up overall controller manager")
