@@ -139,6 +139,95 @@ async def test_raw_deployment_runtime_kserve(rest_v1_client, network_layer):
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 
+@pytest.mark.rawcipn
+@pytest.mark.asyncio(scope="session")
+async def test_headless_service_address_includes_port():
+    """
+    Test that status.address.url includes port 8080 when using headless service mode.
+
+    When ServiceClusterIPNone is true (headless mode), the Kubernetes service has
+    ClusterIP: None, which means DNS resolves directly to pod IPs without port
+    mapping. Users must connect to the container port (8080) directly, not the
+    service port (80).
+
+    This test verifies that the InferenceService status.address.url includes
+    the :8080 port so that the Dashboard displays the correct internal URL.
+
+    See: RHOAIENG-39715
+    """
+    suffix = str(uuid.uuid4())[1:6]
+    service_name = "raw-headless-port-" + suffix
+    annotations = dict()
+    annotations["serving.kserve.io/deploymentMode"] = "Standard"
+    labels = dict()
+    labels["networking.kserve.io/visibility"] = "exposed"
+
+    predictor = V1beta1PredictorSpec(
+        min_replicas=1,
+        containers=[
+            V1Container(
+                name="kserve-container",
+                image="docker.io/seldonio/mlserver:1.3.2-sklearn",
+                ports=[
+                    V1ContainerPort(container_port=8080, name="http", protocol="TCP"),
+                ],
+                args=["mlserver", "start", "/mnt/models"],
+                resources=V1ResourceRequirements(
+                    requests={"cpu": "50m", "memory": "128Mi"},
+                    limits={"cpu": "100m", "memory": "256Mi"},
+                ),
+            )
+        ],
+    )
+
+    isvc = V1beta1InferenceService(
+        api_version=constants.KSERVE_V1BETA1,
+        kind=constants.KSERVE_KIND_INFERENCESERVICE,
+        metadata=client.V1ObjectMeta(
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            annotations=annotations,
+            labels=labels,
+        ),
+        spec=V1beta1InferenceServiceSpec(predictor=predictor),
+    )
+
+    kserve_client = KServeClient(
+        config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
+    )
+    kserve_client.create(isvc)
+    try:
+        kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+
+        # Get the InferenceService and check the status.address.url
+        isvc_status = kserve_client.get(
+            service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            version=constants.KSERVE_V1BETA1_VERSION,
+        )
+
+        # Verify the service is headless (ClusterIP: None)
+        core_api = client.CoreV1Api()
+        svc = core_api.read_namespaced_service(
+            name=f"{service_name}-predictor",
+            namespace=KSERVE_TEST_NAMESPACE,
+        )
+        assert (
+            svc.spec.cluster_ip == "None"
+        ), f"Expected headless service (ClusterIP: None), got: {svc.spec.cluster_ip}"
+
+        # Verify that status.address.url includes port 8080
+        address_url = isvc_status.get("status", {}).get("address", {}).get("url", "")
+        assert ":8080" in address_url, (
+            f"Expected status.address.url to include ':8080' for headless service, "
+            f"got: {address_url}. "
+            f"When using headless mode (ServiceClusterIPNone: true), the internal URL "
+            f"must include the container port since there's no service port mapping."
+        )
+    finally:
+        kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
+
+
 @pytest.mark.grpc
 @pytest.mark.raw
 @pytest.mark.asyncio(scope="session")

@@ -151,6 +151,24 @@ func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Infe
 		internalHost += ":" + strconv.Itoa(constants.OauthProxyPort)
 		url.Host = internalHost
 		url.Scheme = "https"
+	} else {
+		// Check if the entry point service is headless (ClusterIP: None).
+		// When headless, the service port mapping (80 -> 8080) doesn't apply,
+		// so we must include the container port in the URL.
+		// If a transformer exists, it becomes the entry point; otherwise, the predictor is.
+		entryPointSvcName := constants.PredictorServiceName(isvc.Name)
+		if isvc.Spec.Transformer != nil {
+			entryPointSvcName = constants.TransformerServiceName(isvc.Name)
+		}
+		entryPointSvc := &corev1.Service{}
+		if err := r.client.Get(ctx, types.NamespacedName{
+			Namespace: isvc.Namespace,
+			Name:      entryPointSvcName,
+		}, entryPointSvc); err == nil {
+			if entryPointSvc.Spec.ClusterIP == corev1.ClusterIPNone {
+				url.Host = internalHost + ":" + constants.InferenceServiceDefaultHttpPort
+			}
+		}
 	}
 
 	isvc.Status.Address = &duckv1.Addressable{
