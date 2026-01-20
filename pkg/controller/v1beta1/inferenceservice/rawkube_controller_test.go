@@ -491,7 +491,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
 			}, timeout).Should(BeEmpty())
 
 			// check HPA
@@ -942,7 +942,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				}
 				return actualIsvc.Status.IsConditionReady(v1beta1.IngressReady)
 			}, timeout, interval).Should(BeTrue(), "The ingress should be ready")
-			diff := cmp.Diff(expectedIsvcStatus, &actualIsvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+			diff := cmp.Diff(&expectedIsvcStatus, &actualIsvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
 			Expect(diff).To(BeEmpty())
 
 			// check HPA
@@ -1366,7 +1366,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}), cmpopts.IgnoreFields(v1beta1.InferenceServiceStatus{}, "DeploymentMode"))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}), cmpopts.IgnoreFields(v1beta1.InferenceServiceStatus{}, "DeploymentMode"))
 			}, timeout, interval).Should(BeEmpty())
 
 			// check HPA is not created
@@ -3925,6 +3925,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			   "additionalIngressDomains": ["additional.example.com"],
 			   "disableIngressCreation": true
             }`,
+			"service": `{"serviceClusterIPNone": false}`,
 		}
 
 		It("Should have service/deployment/hpa created and http route should not be created", func() {
@@ -4044,7 +4045,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
 			}, timeout, interval).Should(BeEmpty())
 
 			// check HPA
@@ -4423,7 +4424,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
 			}, timeout, interval).Should(BeEmpty())
 
 			// check HPA
@@ -5146,7 +5147,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
 			}, timeout, interval).Should(BeEmpty())
 
 			// check predictor HPA
@@ -5918,7 +5919,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
 			}, timeout).Should(BeEmpty())
 
 			// check predictor HPA
@@ -6413,7 +6414,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
 			}, timeout, interval).Should(BeEmpty())
 
 			// check HPA
@@ -7187,7 +7188,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
 			}, timeout, interval).Should(BeEmpty())
 
 			// check predictor HPA
@@ -8058,7 +8059,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
 			}, timeout).Should(BeEmpty())
 
 			// check predictor HPA
@@ -8219,6 +8220,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				"metricReceiverEndpoint": "keda-otel-scaler.keda.svc:4317",
 				"metricScalerEndpoint": "keda-otel-scaler.keda.svc:4318"
 			}`,
+			"service": `{"serviceClusterIPNone": false}`,
 		}
 		It("Should have KEDA ScaledObject created", func() {
 			By("By creating a new InferenceService")
@@ -8646,7 +8648,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
 			}, timeout, interval).Should(BeEmpty())
 
 			// check HPA
@@ -9186,7 +9188,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
 					return err.Error()
 				}
-				return cmp.Diff(expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
 			}, timeout, interval).Should(BeEmpty())
 		})
 
@@ -9431,7 +9433,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					Name:      serviceKey.Name,
 					Namespace: serviceKey.Namespace,
 					Annotations: map[string]string{
-						"serving.kserve.io/deploymentMode": "Standard",
+						constants.DeploymentMode: string(constants.RawDeployment),
 					},
 				},
 				Spec: v1beta1.InferenceServiceSpec{

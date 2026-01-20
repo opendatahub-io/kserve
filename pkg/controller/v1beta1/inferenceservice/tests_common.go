@@ -147,7 +147,7 @@ func getExectedService(predictorServiceKey types.NamespacedName, serviceName str
 	}
 }
 
-func getExpectedIsvcStatus(serviceKey types.NamespacedName, protocol, host, componentHost, port string) *v1beta1.InferenceServiceStatus {
+func getExpectedIsvcStatus(serviceKey types.NamespacedName, protocol, host, componentHost, port string) v1beta1.InferenceServiceStatus {
 	predTrans := "predictor"
 	if strings.Contains(componentHost, "trans") {
 		predTrans = "transformer"
@@ -156,7 +156,7 @@ func getExpectedIsvcStatus(serviceKey types.NamespacedName, protocol, host, comp
 		port = ":" + port
 	}
 
-	return &v1beta1.InferenceServiceStatus{
+	return v1beta1.InferenceServiceStatus{
 		Status: duckv1.Status{
 			Conditions: duckv1.Conditions{
 				{
@@ -191,9 +191,10 @@ func getExpectedIsvcStatus(serviceKey types.NamespacedName, protocol, host, comp
 		Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 			v1beta1.PredictorComponent: {
 				LatestCreatedRevision: "",
-				// uncomment when the status improvement from upstream is synced.
+				// Note: Component URL is not populated in ODH 0.15
+				// Uncomment when the status improvement from upstream is synced.
 				// URL: &apis.URL{
-				//	Scheme: protocol,
+				//	Scheme: "http",
 				//	Host:   componentHost,
 				// },
 			},
@@ -201,9 +202,11 @@ func getExpectedIsvcStatus(serviceKey types.NamespacedName, protocol, host, comp
 		ModelStatus: v1beta1.ModelStatus{
 			TransitionStatus:    "InProgress",
 			ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
+			// Note: ModelCopies is not populated in ODH 0.15
 		},
 		DeploymentMode:     string(constants.RawDeployment),
 		ServingRuntimeName: "tf-serving-raw",
+		// Note: ClusterServingRuntimeName is not populated in ODH 0.15
 	}
 }
 
