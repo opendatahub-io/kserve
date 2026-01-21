@@ -35,6 +35,7 @@ import (
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
@@ -43,6 +44,10 @@ const (
 	// associated InferencePool.
 	istioInferencePoolLabelName = "istio.io/inferencepool-name"
 )
+
+// IstioCACertificatePath is the path to the CA certificate used by Istio DestinationRules for TLS verification.
+// Default is the OpenShift service-ca path. Override via ISTIO_CA_CERTIFICATE_PATH environment variable.
+var IstioCACertificatePath = constants.GetEnvOrDefault("ISTIO_CA_CERTIFICATE_PATH", "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt")
 
 // reconcileIstioDestinationRules configures Istio to allow the Gateway to communicate with the scheduler and the
 // workload pods with TLS using self-signed certificates without injected sidecars.
@@ -157,7 +162,7 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForScheduler
 			TrafficPolicy: &istionetworking.TrafficPolicy{
 				Tls: &istionetworking.ClientTLSSettings{
 					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
-					CaCertificates:     "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt",
+					CaCertificates:     IstioCACertificatePath,
 					InsecureSkipVerify: &pbwrappers.BoolValue{Value: false},
 				},
 			},
@@ -211,7 +216,7 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForShadowSer
 			TrafficPolicy: &istionetworking.TrafficPolicy{
 				Tls: &istionetworking.ClientTLSSettings{
 					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
-					CaCertificates:     "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt",
+					CaCertificates:     IstioCACertificatePath,
 					InsecureSkipVerify: &pbwrappers.BoolValue{Value: false},
 				},
 			},
@@ -250,7 +255,7 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForWorkload(
 			TrafficPolicy: &istionetworking.TrafficPolicy{
 				Tls: &istionetworking.ClientTLSSettings{
 					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
-					CaCertificates:     "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt",
+					CaCertificates:     IstioCACertificatePath,
 					InsecureSkipVerify: &pbwrappers.BoolValue{Value: false},
 					Sni:                network.GetServiceHostname(kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"), llmSvc.GetNamespace()),
 				},

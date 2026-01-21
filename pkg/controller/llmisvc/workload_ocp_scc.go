@@ -30,7 +30,16 @@ import (
 
 // +kubebuilder:rbac:groups="security.openshift.io",resources=securitycontextconstraints,verbs=use,resourceNames=openshift-ai-llminferenceservice-scc
 
+// sccDisabled indicates whether SCC role binding reconciliation is globally disabled for LLMInferenceService.
+// When set to "true", the controller will skip creating SCC RoleBinding resources,
+// useful for non-OpenShift Kubernetes clusters where SecurityContextConstraints don't exist.
+var sccDisabled = getBoolEnvOrDefault("LLMISVC_SCC_DISABLED", false)
+
 func (r *LLMInferenceServiceReconciler) reconcileMultiNodeOCPRoleBinding(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	if sccDisabled {
+		log.FromContext(ctx).Info("SCC is disabled via LLMISVC_SCC_DISABLED, skipping SCC role binding reconciliation")
+		return nil
+	}
 	if err := r.reconcileMultiNodeSCCRoleBinding(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to reconcile multi-node SCC role binding: %w", err)
 	}

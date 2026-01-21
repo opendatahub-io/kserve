@@ -72,8 +72,8 @@ func (r *LLMInferenceServiceReconciler) reconcileSelfSignedCertsSecret(ctx conte
 	// self-signed certificate (if any) is expired before creating a new one.
 	var certFunc createCertFunc = r.createSelfSignedTLSCertificate(ctx, ips, dnsNames)
 	if curr := r.getExistingSelfSignedCertificate(ctx, llmSvc); curr != nil && !ShouldRecreateCertificate(curr, dnsNames, ips) {
-		certFunc = func() ([]byte, []byte, error) {
-			return curr.Data["tls.key"], curr.Data["tls.crt"], nil
+		certFunc = func() ([]byte, []byte, []byte, error) {
+			return curr.Data["tls.key"], curr.Data["tls.crt"], curr.Data["ca.crt"], nil
 		}
 	}
 
@@ -92,10 +92,10 @@ func (r *LLMInferenceServiceReconciler) reconcileSelfSignedCertsSecret(ctx conte
 	return nil
 }
 
-type createCertFunc func() ([]byte, []byte, error)
+type createCertFunc func() (keyBytes []byte, certBytes []byte, caCertBytes []byte, err error)
 
 func (r *LLMInferenceServiceReconciler) expectedSelfSignedCertsSecret(llmSvc *v1alpha1.LLMInferenceService, certFunc createCertFunc) (*corev1.Secret, error) {
-	keyBytes, certBytes, err := certFunc()
+	keyBytes, certBytes, caCertBytes, err := certFunc()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create self-signed TLS certificate: %w", err)
 	}
@@ -121,6 +121,7 @@ func (r *LLMInferenceServiceReconciler) expectedSelfSignedCertsSecret(llmSvc *v1
 		Data: map[string][]byte{
 			"tls.crt": certBytes,
 			"tls.key": keyBytes,
+			"ca.crt":  caCertBytes,
 		},
 		Type: corev1.SecretTypeTLS,
 	}
@@ -136,20 +137,20 @@ func (r *LLMInferenceServiceReconciler) expectedSelfSignedCertsSecret(llmSvc *v1
 // - Uses crypto/rand for random number generation (FIPS-approved CSPRNG)
 // - Encodes keys in PKCS#8 format (FIPS-compliant)
 // Note: CA certificate FIPS compliance is ensured by OpenShift service-ca operator
-func (r *LLMInferenceServiceReconciler) createSelfSignedTLSCertificate(ctx context.Context, ips []string, dnsNames []string) func() ([]byte, []byte, error) {
-	return func() ([]byte, []byte, error) {
+func (r *LLMInferenceServiceReconciler) createSelfSignedTLSCertificate(ctx context.Context, ips []string, dnsNames []string) func() ([]byte, []byte, []byte, error) {
+	return func() ([]byte, []byte, []byte, error) {
 		// Load CA certificate from OpenShift service-ca secret (required)
 		// Note: CA FIPS compliance is ensured by OpenShift service-ca operator
-		caCert, caPrivKey, err := r.loadCAFromSecret(ctx, ServiceCASigningSecretName, ServiceCASigningSecretNamespace)
+		caCert, caPrivKey, caCertPEM, err := r.loadCAFromSecret(ctx, ServiceCASigningSecretName, ServiceCASigningSecretNamespace)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to load CA certificate (required for signing): %w", err)
+			return nil, nil, nil, fmt.Errorf("failed to load CA certificate (required for signing): %w", err)
 		}
 
 		// FIPS Compliance: Use crypto/rand (FIPS-approved CSPRNG) for serial number
 		serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 		serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
 		if err != nil {
-			return nil, nil, fmt.Errorf("error creating serial number: %w", err)
+			return nil, nil, nil, fmt.Errorf("error creating serial number: %w", err)
 		}
 		ipAddresses := make([]net.IP, 0, len(ips))
 		for _, ip := range ips {
@@ -183,31 +184,32 @@ func (r *LLMInferenceServiceReconciler) createSelfSignedTLSCertificate(ctx conte
 		// Using crypto/rand (FIPS-approved CSPRNG)
 		priv, err := rsa.GenerateKey(rand.Reader, 4096)
 		if err != nil {
-			return nil, nil, fmt.Errorf("error generating key: %w", err)
+			return nil, nil, nil, fmt.Errorf("error generating key: %w", err)
 		}
 
 		// Sign the certificate with the CA
 		// KEY: template is the cert to create, caCert is the parent, priv.PublicKey is the new cert's public key, caPrivKey signs it
 		derBytes, err := x509.CreateCertificate(rand.Reader, &template, caCert, &priv.PublicKey, caPrivKey)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create CA-signed TLS certificate: %w", err)
+			return nil, nil, nil, fmt.Errorf("failed to create CA-signed TLS certificate: %w", err)
 		}
 		certBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derBytes})
 
 		// FIPS Compliance: Encode private key in PKCS#8 format (FIPS-compliant)
 		privBytes, err := x509.MarshalPKCS8PrivateKey(priv)
 		if err != nil {
-			return nil, nil, fmt.Errorf("failed to marshall TLS private key: %w", err)
+			return nil, nil, nil, fmt.Errorf("failed to marshall TLS private key: %w", err)
 		}
 		keyBytes := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privBytes})
 
-		return keyBytes, certBytes, nil
+		return keyBytes, certBytes, caCertPEM, nil
 	}
 }
 
 // loadCAFromSecret loads a CA certificate and private key from a Kubernetes secret.
 // The secret is expected to have "tls.crt" and "tls.key" fields.
-func (r *LLMInferenceServiceReconciler) loadCAFromSecret(ctx context.Context, secretName, secretNamespace string) (*x509.Certificate, *rsa.PrivateKey, error) {
+// Returns the parsed certificate, private key, and raw CA certificate PEM bytes.
+func (r *LLMInferenceServiceReconciler) loadCAFromSecret(ctx context.Context, secretName, secretNamespace string) (*x509.Certificate, *rsa.PrivateKey, []byte, error) {
 	secret := &corev1.Secret{}
 	key := client.ObjectKey{
 		Namespace: secretNamespace,
@@ -215,31 +217,31 @@ func (r *LLMInferenceServiceReconciler) loadCAFromSecret(ctx context.Context, se
 	}
 
 	if err := r.Client.Get(ctx, key, secret); err != nil {
-		return nil, nil, fmt.Errorf("failed to get CA secret %s/%s: %w", secretNamespace, secretName, err)
+		return nil, nil, nil, fmt.Errorf("failed to get CA secret %s/%s: %w", secretNamespace, secretName, err)
 	}
 
 	// Decode certificate
 	certPEM, ok := secret.Data["tls.crt"]
 	if !ok {
-		return nil, nil, fmt.Errorf("CA secret %s/%s does not contain tls.crt", secretNamespace, secretName)
+		return nil, nil, nil, fmt.Errorf("CA secret %s/%s does not contain tls.crt", secretNamespace, secretName)
 	}
 	certBlock, _ := pem.Decode(certPEM)
 	if certBlock == nil {
-		return nil, nil, errors.New("failed to decode certificate PEM from CA secret")
+		return nil, nil, nil, errors.New("failed to decode certificate PEM from CA secret")
 	}
 	caCert, err := x509.ParseCertificate(certBlock.Bytes)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse CA certificate: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to parse CA certificate: %w", err)
 	}
 
 	// Decode private key
 	keyPEM, ok := secret.Data["tls.key"]
 	if !ok {
-		return nil, nil, fmt.Errorf("CA secret %s/%s does not contain tls.key", secretNamespace, secretName)
+		return nil, nil, nil, fmt.Errorf("CA secret %s/%s does not contain tls.key", secretNamespace, secretName)
 	}
 	keyBlock, _ := pem.Decode(keyPEM)
 	if keyBlock == nil {
-		return nil, nil, errors.New("failed to decode private key PEM from CA secret")
+		return nil, nil, nil, errors.New("failed to decode private key PEM from CA secret")
 	}
 
 	// Try PKCS8 first, then PKCS1
@@ -248,15 +250,19 @@ func (r *LLMInferenceServiceReconciler) loadCAFromSecret(ctx context.Context, se
 		var ok bool
 		caPrivKey, ok = key.(*rsa.PrivateKey)
 		if !ok {
-			return nil, nil, errors.New("CA private key is not an RSA key")
+			return nil, nil, nil, errors.New("CA private key is not an RSA key")
 		}
 	} else if key, err := x509.ParsePKCS1PrivateKey(keyBlock.Bytes); err == nil {
 		caPrivKey = key
 	} else {
-		return nil, nil, fmt.Errorf("failed to parse CA private key: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to parse CA private key: %w", err)
+	}
+	caCertPEM := certPEM
+	if v, ok := secret.Data["ca.crt"]; ok && len(v) > 0 {
+		caCertPEM = v
 	}
 
-	return caCert, caPrivKey, nil
+	return caCert, caPrivKey, caCertPEM, nil
 }
 
 func (r *LLMInferenceServiceReconciler) getExistingSelfSignedCertificate(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *corev1.Secret {
@@ -279,7 +285,7 @@ func isCertificateExpired(curr *corev1.Secret) bool {
 }
 
 func ShouldRecreateCertificate(curr *corev1.Secret, expectedDNSNames []string, expectedIPs []string) bool {
-	if curr == nil || isCertificateExpired(curr) || len(curr.Data["tls.key"]) == 0 || len(curr.Data["tls.crt"]) == 0 {
+	if curr == nil || isCertificateExpired(curr) || len(curr.Data["tls.key"]) == 0 || len(curr.Data["tls.crt"]) == 0 || len(curr.Data["ca.crt"]) == 0 {
 		return true
 	}
 

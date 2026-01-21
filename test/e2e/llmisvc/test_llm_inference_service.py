@@ -42,8 +42,11 @@ from .test_resources import ROUTER_GATEWAYS, ROUTER_ROUTES
 KSERVE_PLURAL_LLMINFERENCESERVICE = "llminferenceservices"
 
 
-def create_response_assertion(status_code: int = 200, with_field: str = "") -> Callable[[requests.Response], None]:
+def create_response_assertion(
+    status_code: int = 200, with_field: str = ""
+) -> Callable[[requests.Response], None]:
     """Returns a function that checks for the provided response status code and optional response field"""
+
     def response_assertion(response: requests.Response) -> None:
         assert (
             response.status_code == status_code
@@ -67,7 +70,9 @@ class TestCase:
     prompt: str = ""
     max_tokens: int = 100
     payload_formatter: Optional[Callable[[TestCase], Dict[str, Any]]] = None
-    response_assertion: Callable[[requests.Response], None] = create_response_assertion()
+    response_assertion: Callable[[requests.Response], None] = (
+        create_response_assertion()
+    )
     wait_timeout: int = 600
     response_timeout: int = 60
     before_test: List[Callable[[], Any]] = field(default_factory=list)
@@ -80,19 +85,19 @@ class TestCase:
 def completions_payload(test_case: TestCase) -> Dict[str, Any]:
     """Returns a dictionary in the format of the expected payload for the /v1/completions endpoint."""
     return {
-            "model": test_case.model_name,
-            "prompt": test_case.prompt,
-            "max_tokens": test_case.max_tokens,
-        }
+        "model": test_case.model_name,
+        "prompt": test_case.prompt,
+        "max_tokens": test_case.max_tokens,
+    }
 
 
 def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
     """Returns a dictionary in the format of the expected payload for the /v1/chat/completions endpoint."""
     return {
-            "model": test_case.model_name,
-            "messages": [{"role": "user", "content": test_case.prompt}],
-            "max_tokens": test_case.max_tokens,
-        }
+        "model": test_case.model_name,
+        "messages": [{"role": "user", "content": test_case.prompt}],
+        "max_tokens": test_case.max_tokens,
+    }
 
 
 @pytest.mark.llminferenceservice
@@ -120,6 +125,7 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 pytest.mark.cluster_cpu,
                 pytest.mark.cluster_single_node,
                 pytest.mark.llmd_simulator,
+                pytest.mark.custom_gateway,
             ],
         ),
         pytest.param(
@@ -172,7 +178,11 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                     ),
                 ],
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                pytest.mark.custom_gateway,
+            ],
         ),
         pytest.param(
             TestCase(
@@ -226,7 +236,11 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                     ),
                 ],
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                pytest.mark.custom_gateway,
+            ],
         ),
         pytest.param(
             TestCase(
@@ -485,7 +499,9 @@ def wait_for_model_response(
 
         try:
             if test_payload is not None:
-                print(f"Calling LLM service - POST {model_url} with payload {test_payload}")
+                print(
+                    f"Calling LLM service - POST {model_url} with payload {test_payload}"
+                )
                 response = requests.post(
                     model_url,
                     headers={"Content-Type": "application/json"},

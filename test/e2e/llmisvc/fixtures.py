@@ -42,7 +42,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                     "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
                     "resources": {
                         "limits": {"cpu": "2", "memory": "10Gi"},
-                        "requests": {"cpu": "1", "memory": "8Gi"},
+                        "requests": {"cpu": "100m", "memory": "1Gi"},
                     },
                     "livenessProbe": {
                         "initialDelaySeconds": 30,
@@ -67,7 +67,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                     "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
                     "resources": {
                         "limits": {"cpu": "2", "memory": "10Gi"},
-                        "requests": {"cpu": "1", "memory": "8Gi"},
+                        "requests": {"cpu": "100m", "memory": "1Gi"},
                     },
                 }
             ]
@@ -85,7 +85,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
                         "resources": {
                             "limits": {"cpu": "2", "memory": "10Gi"},
-                            "requests": {"cpu": "1", "memory": "8Gi"},
+                            "requests": {"cpu": "100m", "memory": "1Gi"},
                         },
                     }
                 ]
@@ -282,7 +282,7 @@ LLMINFERENCESERVICE_CONFIGS = {
     # This preset simulates DP+EP that can run on CPU, the idea is to test the LWS-based deployment
     # but without the resources requirements for DP+EP (GPUs and ROCe/IB)
     "workload-simulated-dp-ep-cpu": {
-        "replicas": 2,
+        "replicas": 1,
         "parallelism": {
             "data": 2,
             "dataLocal": 1,
@@ -312,7 +312,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                     ],
                     "resources": {
                         "limits": {"cpu": "2", "memory": "16Gi"},
-                        "requests": {"cpu": "1", "memory": "8Gi"},
+                        "requests": {"cpu": "100m", "memory": "1Gi"},
                     },
                 }
             ]
@@ -340,7 +340,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                     ],
                     "resources": {
                         "limits": {"cpu": "2", "memory": "16Gi"},
-                        "requests": {"cpu": "1", "memory": "8Gi"},
+                        "requests": {"cpu": "100m", "memory": "1Gi"},
                     },
                 }
             ]
@@ -649,8 +649,8 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "/var/run/kserve/tls/tls.key",
                     ],
                     "resources": {
-                        "limits": {"cpu": "1", "memory": "2Gi"},
-                        "requests": {"cpu": "1", "memory": "2Gi"},
+                        "limits": {"cpu": "100m", "memory": "2Gi"},
+                        "requests": {"cpu": "100m", "memory": "2Gi"},
                     },
                 }
             ]
