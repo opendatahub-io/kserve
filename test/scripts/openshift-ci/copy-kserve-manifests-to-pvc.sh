@@ -54,6 +54,10 @@ echo "Found ODH operator pod: $POD_NAME"
 echo "Cleaning up existing manifests in PVC..."
 oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "rm -rf /opt/manifests/kserve/* /opt/manifests/odh-model-controller/*" || true
 
+# Create subdirectories (mount point should already exist from volume mount)
+echo "Creating subdirectories in PVC..."
+oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- mkdir -p /opt/manifests/kserve /opt/manifests/odh-model-controller
+
 # Copy config directory to PVC using oc cp
 echo "Copying config directory to PVC..."
 oc cp "${PROJECT_ROOT}/config/." ${ODH_OPERATOR_NAMESPACE}/${POD_NAME}:/opt/manifests/kserve
@@ -95,7 +99,6 @@ echo "Found odh-model-controller at: $ODH_MC_DIR"
 
 # Copy the config directory to the PVC
 echo "Copying odh-model-controller config to PVC..."
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- mkdir -p /opt/manifests/odh-model-controller
 oc cp "${ODH_MC_DIR}/config/." ${ODH_OPERATOR_NAMESPACE}/${POD_NAME}:/opt/manifests/odh-model-controller/
 
 # Update params.env with PR image
@@ -113,6 +116,7 @@ oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- cat /opt/manifests/odh-model
 # Verify the copy
 echo ""
 echo "Verifying manifest structure..."
+echo "Checking kserve directory..."
 oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/kserve/
 echo ""
 echo "Checking kserve overlays/odh directory..."
@@ -126,5 +130,5 @@ oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/odh-mo
 
 echo ""
 echo "Manifests successfully copied to PVC!"
-echo "  - KServe: /opt/manifests/kserve/"
-echo "  - odh-model-controller: /opt/manifests/odh-model-controller/"
+echo "  - KServe manifests mounted at: /opt/manifests/kserve/ (from PVC subPath: kserve)"
+echo "  - odh-model-controller manifests mounted at: /opt/manifests/odh-model-controller/ (from PVC subPath: odh-model-controller)"

@@ -23,7 +23,17 @@
     "path": "/spec/install/spec/deployments/0/spec/template/spec/containers/0/volumeMounts/-",
     "value": {
       "mountPath": "/opt/manifests/kserve",
-      "name": "kserve-custom-manifests"
+      "name": "kserve-custom-manifests",
+      "subPath": "kserve"
+    }
+  },
+  {
+    "op": "add",
+    "path": "/spec/install/spec/deployments/0/spec/template/spec/containers/0/volumeMounts/-",
+    "value": {
+      "mountPath": "/opt/manifests/odh-model-controller",
+      "name": "kserve-custom-manifests",
+      "subPath": "odh-model-controller"
     }
   },
   {
