@@ -14,7 +14,9 @@
   {
     "op": "add",
     "path": "/spec/install/spec/deployments/0/spec/template/spec/securityContext",
-    "value": 1001
+    "value": {
+      "fsGroup": 1001
+    }
   },
   {
     "op": "add",
