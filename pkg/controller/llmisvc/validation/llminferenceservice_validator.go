@@ -211,16 +211,14 @@ func (l *LLMInferenceServiceValidator) validateWorkloadParallelism(basePath *fie
 	// Data and DataLocal must always be set together
 	if (parallelism.Data != nil) != (parallelism.DataLocal != nil) {
 		if parallelism.Data != nil && parallelism.DataLocal == nil {
-			allErrs = append(allErrs, field.Invalid(
+			allErrs = append(allErrs, field.Required(
 				parallelismPath.Child("dataLocal"),
-				parallelism.DataLocal,
 				"dataLocal must be set when data is set",
 			))
 		}
 		if parallelism.DataLocal != nil && parallelism.Data == nil {
-			allErrs = append(allErrs, field.Invalid(
+			allErrs = append(allErrs, field.Required(
 				parallelismPath.Child("data"),
-				parallelism.Data,
 				"data must be set when dataLocal is set",
 			))
 		}
