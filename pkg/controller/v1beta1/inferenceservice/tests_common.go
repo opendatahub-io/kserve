@@ -242,7 +242,7 @@ func getDefaultMetrics() []v1beta1.MetricsSpec {
 				},
 				Target: v1beta1.MetricTarget{
 					Type:  v1beta1.ValueMetricType,
-					Value: &resource.Quantity{},
+					Value: &v1beta1.MetricQuantity{},
 				},
 			},
 		},
