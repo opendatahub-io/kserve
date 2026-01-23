@@ -17,8 +17,9 @@ limitations under the License.
 package llmisvc
 
 import (
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"k8s.io/utils/env"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
 
 // authDisabled indicates whether authentication is globally disabled for LLMInferenceService.
