@@ -86,6 +86,19 @@ for pod in $(kubectl get pods -l 'serving.kserve.io/inferencegraph=model-chainer
 done
 echo "::endgroup::"
 
+echo "::group::=== LLMInferenceServices ==="
+kubectl get llmisvc -A -o yaml 2>/dev/null || echo "No LLMISvc resources found"
+echo "::endgroup::"
+echo "::group::=== Gateways ==="
+kubectl get gateway -A 2>/dev/null || echo "No Gateway resources found"
+echo "::endgroup::"
+echo "::group::=== HTTPRoutes ==="
+kubectl get httproute -A 2>/dev/null || echo "No HTTPRoute resources found"
+echo "::endgroup::"
+echo "::group::=== Services with LoadBalancer ==="
+kubectl get svc -A | grep -E "LoadBalancer|TYPE" || true
+echo "::endgroup::"
+
 echo "::group::envoy gateway"
 kubectl describe pods -l serving.kserve.io/gateway=kserve-ingress-gateway -n envoy-gateway-system
 kubectl describe svc -l gateway.envoyproxy.io/owning-gateway-name=kserve-ingress-gateway -n envoy-gateway-system
@@ -94,6 +107,10 @@ echo "::endgroup::"
 echo "::group::istio gateway"
 kubectl describe pods -l serving.kserve.io/gateway=kserve-ingress-gateway -n kserve
 kubectl describe svc -l serving.kserve.io/gateway=kserve-ingress-gateway -n kserve
+echo "::endgroup::"
+
+echo "::group::=== Recent Events ==="
+kubectl get events -A --sort-by='.lastTimestamp' | tail -50
 echo "::endgroup::"
 
 shopt -s nocasematch

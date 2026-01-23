@@ -112,23 +112,7 @@ jobs:
       - name: Check system status
         if: always()
         run: |
-          echo "=== Pods in all namespaces ==="
-          kubectl get pods -A
-          echo ""
-          echo "=== LLMInferenceServices ==="
-          kubectl get llmisvc -A -o yaml 2>/dev/null || echo "No LLMISvc resources found"
-          echo ""
-          echo "=== Gateways ==="
-          kubectl get gateway -A 2>/dev/null || echo "No Gateway resources found"
-          echo ""
-          echo "=== HTTPRoutes ==="
-          kubectl get httproute -A 2>/dev/null || echo "No HTTPRoute resources found"
-          echo ""
-          echo "=== Services with LoadBalancer ==="
-          kubectl get svc -A | grep -E "LoadBalancer|TYPE" || true
-          echo ""
-          echo "=== Recent Events ==="
-          kubectl get events -A --sort-by='.lastTimestamp' | tail -50
+          ./test/scripts/gh-actions/status-check.sh
 
       - name: Collect logs on failure
         if: failure()
