@@ -12,7 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 from .fixtures import KSERVE_TEST_NAMESPACE
+
+# GatewayClass name - defaults to "openshift-default" for OpenShift,
+# can be overridden via GATEWAY_CLASS_NAME env var (e.g., "istio" for KinD)
+GATEWAY_CLASS_NAME = os.environ.get("GATEWAY_CLASS_NAME", "openshift-default")
 
 ROUTER_GATEWAYS = [
     {
@@ -23,7 +29,7 @@ ROUTER_GATEWAYS = [
             "namespace": KSERVE_TEST_NAMESPACE,
         },
         "spec": {
-            "gatewayClassName": "openshift-default",
+            "gatewayClassName": GATEWAY_CLASS_NAME,
             "listeners": [
                 {
                     "name": "http",
@@ -46,7 +52,7 @@ ROUTER_GATEWAYS = [
             "namespace": KSERVE_TEST_NAMESPACE,
         },
         "spec": {
-            "gatewayClassName": "openshift-default",
+            "gatewayClassName": GATEWAY_CLASS_NAME,
             "listeners": [
                 {
                     "name": "http",
@@ -60,7 +66,7 @@ ROUTER_GATEWAYS = [
                 },
             ],
         },
-    }
+    },
 ]
 
 ROUTER_ROUTES = [
@@ -435,5 +441,5 @@ ROUTER_ROUTES = [
                 },
             ],
         },
-    }
+    },
 ]

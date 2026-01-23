@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/env"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -35,11 +36,21 @@ import (
 	"github.com/kserve/kserve/pkg/utils"
 )
 
+// monitoringDisabled indicates whether monitoring is globally disabled for LLMInferenceService.
+// When set to "true", the controller will skip creating PodMonitor/ServiceMonitor resources,
+// useful for clusters without the Prometheus Operator installed.
+var monitoringDisabled, _ = env.GetBool("LLMISVC_MONITORING_DISABLED", false)
+
 // reconcileMonitoringResources reconciles all monitoring-related resources for an LLMInferenceService,
 // including RBAC permissions, Prometheus operator monitors for the llm-d scheduler and the vLLM engine.
 func (r *LLMInferenceServiceReconciler) reconcileMonitoringResources(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("reconcileMonitoring")
 	ctx = log.IntoContext(ctx, logger)
+
+	if monitoringDisabled {
+		logger.Info("Monitoring is disabled via LLMISVC_MONITORING_DISABLED, skipping monitoring reconciliation")
+		return nil
+	}
 
 	logger.Info("Reconciling Monitoring Resources for LLMInferenceService")
 
@@ -326,6 +337,11 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerMonitor(llmSvc *v1alpha
 func (r *LLMInferenceServiceReconciler) cleanupMonitoringResources(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("cleanupMonitoring")
 	ctx = log.IntoContext(ctx, logger)
+
+	if monitoringDisabled {
+		// No monitoring resources to clean up when monitoring is disabled
+		return nil
+	}
 
 	llmSvcList := &v1alpha1.LLMInferenceServiceList{}
 	if err := r.List(ctx, llmSvcList, &client.ListOptions{Namespace: llmSvc.GetNamespace()}); err != nil {

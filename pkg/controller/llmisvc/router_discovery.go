@@ -455,7 +455,7 @@ func nonReadyHTTPRouteTopLevelCondition(llmSvc *v1alpha1.LLMInferenceService, ro
 	routeAuthEnforced := false
 
 	for _, parent := range route.Status.RouteStatus.Parents {
-		if parent.ControllerName == "kuadrant.io/policy-controller" && llmSvc.IsAuthEnabled() {
+		if parent.ControllerName == "kuadrant.io/policy-controller" && isAuthEnabledForService(llmSvc) {
 			cond := meta.FindStatusCondition(parent.Conditions, "kuadrant.io/AuthPolicyAffected")
 			if cond == nil {
 				continue
@@ -481,12 +481,12 @@ func nonReadyHTTPRouteTopLevelCondition(llmSvc *v1alpha1.LLMInferenceService, ro
 		}
 	}
 
-	if llmSvc.IsAuthEnabled() && !routeAuthEnforced {
+	if isAuthEnabledForService(llmSvc) && !routeAuthEnforced {
 		return &metav1.Condition{
 			Type:    "kuadrant.io/AuthPolicyAffected",
 			Status:  metav1.ConditionFalse,
 			Reason:  "Authentication is not enforced",
-			Message: "Either disable authentication with security.opendatahub.io/enable-auth=false annotation or install Red Hat Connectivity Link",
+			Message: "Either disable authentication with security.opendatahub.io/enable-auth=false annotation, or install Red Hat Connectivity Link",
 		}, false
 	}
 
