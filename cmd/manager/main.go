@@ -21,11 +21,11 @@ import (
 	"flag"
 	"net/http"
 	"os"
-	"strconv"
 
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/utils/env"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -82,19 +82,6 @@ const (
 	EnvEnableTrainedModelController   = "ENABLE_TRAINED_MODEL_CONTROLLER"
 	EnvEnableInferenceGraphController = "ENABLE_INFERENCE_GRAPH_CONTROLLER"
 )
-
-// getEnvBoolDefaultTrue returns the boolean value of an environment variable, or true if not set or invalid.
-func getEnvBoolDefaultTrue(envVar string) bool {
-	val := os.Getenv(envVar)
-	if val == "" {
-		return true
-	}
-	boolVal, err := strconv.ParseBool(val)
-	if err != nil {
-		return true
-	}
-	return boolVal
-}
 
 // Options defines the program configurable options that may be passed on the command line.
 type Options struct {
@@ -332,7 +319,7 @@ func main() {
 	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: clientSet.CoreV1().Events("")})
 
 	// Setup InferenceService controller (enabled by default)
-	if getEnvBoolDefaultTrue(EnvEnableISVCController) {
+	if isEnabled, _ := env.GetBool(EnvEnableISVCController, true); isEnabled {
 		setupLog.Info("Setting up v1beta1 InferenceService controller")
 		if err = (&v1beta1controller.InferenceServiceReconciler{
 			Client:    mgr.GetClient(),
@@ -350,7 +337,7 @@ func main() {
 	}
 
 	// Setup LLMInferenceService controller (enabled by default)
-	if getEnvBoolDefaultTrue(EnvEnableLLMISVCController) {
+	if isEnabled, _ := env.GetBool(EnvEnableLLMISVCController, true); isEnabled {
 		setupLog.Info("Setting up LLMInferenceService controller")
 		llmEventBroadcaster := record.NewBroadcaster()
 		llmEventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: clientSet.CoreV1().Events("")})
@@ -368,7 +355,7 @@ func main() {
 	}
 
 	// Setup TrainedModel controller (enabled by default)
-	if getEnvBoolDefaultTrue(EnvEnableTrainedModelController) {
+	if isEnabled, _ := env.GetBool(EnvEnableTrainedModelController, true); isEnabled {
 		setupLog.Info("Setting up TrainedModel controller")
 		trainedModelEventBroadcaster := record.NewBroadcaster()
 		trainedModelEventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: clientSet.CoreV1().Events("")})
@@ -387,7 +374,7 @@ func main() {
 	}
 
 	// Setup InferenceGraph controller (enabled by default)
-	if getEnvBoolDefaultTrue(EnvEnableInferenceGraphController) {
+	if isEnabled, _ := env.GetBool(EnvEnableInferenceGraphController, true); isEnabled {
 		setupLog.Info("Setting up InferenceGraph controller")
 		inferenceGraphEventBroadcaster := record.NewBroadcaster()
 		inferenceGraphEventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: clientSet.CoreV1().Events("")})

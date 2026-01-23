@@ -17,124 +17,12 @@ limitations under the License.
 package llmisvc
 
 import (
-	"os"
 	"testing"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
-
-func TestGetBoolEnvOrDefault(t *testing.T) {
-	tests := []struct {
-		name     string
-		key      string
-		envValue string
-		fallback bool
-		want     bool
-	}{
-		{
-			name:     "empty string returns fallback true",
-			key:      "TEST_BOOL_ENV_EMPTY_TRUE",
-			envValue: "",
-			fallback: true,
-			want:     true,
-		},
-		{
-			name:     "empty string returns fallback false",
-			key:      "TEST_BOOL_ENV_EMPTY_FALSE",
-			envValue: "",
-			fallback: false,
-			want:     false,
-		},
-		{
-			name:     "unset env returns fallback true",
-			key:      "TEST_BOOL_ENV_UNSET_TRUE",
-			envValue: "",
-			fallback: true,
-			want:     true,
-		},
-		{
-			name:     "true returns true",
-			key:      "TEST_BOOL_ENV_TRUE_LOWER",
-			envValue: "true",
-			fallback: false,
-			want:     true,
-		},
-		{
-			name:     "TRUE returns true (case insensitive)",
-			key:      "TEST_BOOL_ENV_TRUE_UPPER",
-			envValue: "TRUE",
-			fallback: false,
-			want:     true,
-		},
-		{
-			name:     "True returns true (case insensitive)",
-			key:      "TEST_BOOL_ENV_TRUE_MIXED",
-			envValue: "True",
-			fallback: false,
-			want:     true,
-		},
-		{
-			name:     "1 returns true",
-			key:      "TEST_BOOL_ENV_ONE",
-			envValue: "1",
-			fallback: false,
-			want:     true,
-		},
-		{
-			name:     "false returns false",
-			key:      "TEST_BOOL_ENV_FALSE_LOWER",
-			envValue: "false",
-			fallback: true,
-			want:     false,
-		},
-		{
-			name:     "FALSE returns false",
-			key:      "TEST_BOOL_ENV_FALSE_UPPER",
-			envValue: "FALSE",
-			fallback: true,
-			want:     false,
-		},
-		{
-			name:     "0 returns false",
-			key:      "TEST_BOOL_ENV_ZERO",
-			envValue: "0",
-			fallback: true,
-			want:     false,
-		},
-		{
-			name:     "invalid value returns fallback",
-			key:      "TEST_BOOL_ENV_INVALID",
-			envValue: "invalid",
-			fallback: true,
-			want:     false,
-		},
-		{
-			name:     "yes returns false (not true/1)",
-			key:      "TEST_BOOL_ENV_YES",
-			envValue: "yes",
-			fallback: true,
-			want:     false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Set up environment
-			if tt.envValue != "" {
-				t.Setenv(tt.key, tt.envValue)
-			} else {
-				os.Unsetenv(tt.key)
-			}
-
-			got := getBoolEnvOrDefault(tt.key, tt.fallback)
-			if got != tt.want {
-				t.Errorf("getBoolEnvOrDefault(%q, %v) = %v, want %v", tt.key, tt.fallback, got, tt.want)
-			}
-		})
-	}
-}
 
 func TestIsAuthEnabledForService(t *testing.T) {
 	// Save original value and restore after test

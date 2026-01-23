@@ -22,6 +22,7 @@ import (
 
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/env"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -33,7 +34,7 @@ import (
 // sccDisabled indicates whether SCC role binding reconciliation is globally disabled for LLMInferenceService.
 // When set to "true", the controller will skip creating SCC RoleBinding resources,
 // useful for non-OpenShift Kubernetes clusters where SecurityContextConstraints don't exist.
-var sccDisabled = getBoolEnvOrDefault("LLMISVC_SCC_DISABLED", false)
+var sccDisabled, _ = env.GetBool("LLMISVC_SCC_DISABLED", false)
 
 func (r *LLMInferenceServiceReconciler) reconcileMultiNodeOCPRoleBinding(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	if sccDisabled {

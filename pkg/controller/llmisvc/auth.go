@@ -17,23 +17,13 @@ limitations under the License.
 package llmisvc
 
 import (
-	"strings"
-
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
-	"github.com/kserve/kserve/pkg/constants"
+	"k8s.io/utils/env"
 )
 
 // authDisabled indicates whether authentication is globally disabled for LLMInferenceService.
 // When set to "true", all LLMInferenceService resources will skip auth checks.
-var authDisabled = getBoolEnvOrDefault("LLMISVC_AUTH_DISABLED", false)
-
-func getBoolEnvOrDefault(key string, fallback bool) bool {
-	val := constants.GetEnvOrDefault(key, "")
-	if val == "" {
-		return fallback
-	}
-	return strings.EqualFold(val, "true") || val == "1"
-}
+var authDisabled, _ = env.GetBool("LLMISVC_AUTH_DISABLED", false)
 
 // isAuthEnabledForService checks if authentication is enabled for the given LLMInferenceService.
 // It first checks the global LLMISVC_AUTH_DISABLED environment variable, then falls back to

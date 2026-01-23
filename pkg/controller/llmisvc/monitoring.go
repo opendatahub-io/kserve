@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/env"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,7 +39,7 @@ import (
 // monitoringDisabled indicates whether monitoring is globally disabled for LLMInferenceService.
 // When set to "true", the controller will skip creating PodMonitor/ServiceMonitor resources,
 // useful for clusters without the Prometheus Operator installed.
-var monitoringDisabled = getBoolEnvOrDefault("LLMISVC_MONITORING_DISABLED", false)
+var monitoringDisabled, _ = env.GetBool("LLMISVC_MONITORING_DISABLED", false)
 
 // reconcileMonitoringResources reconciles all monitoring-related resources for an LLMInferenceService,
 // including RBAC permissions, Prometheus operator monitors for the llm-d scheduler and the vLLM engine.
