@@ -46,8 +46,6 @@ KSERVE_CONTROLLER_IMAGE="${KSERVE_CONTROLLER_IMAGE:-kserve-controller:dev}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
-source "${PROJECT_ROOT}/test/scripts/openshift-ci/common.sh"
-
 # -----------------------------------------------------------------------------
 # Helper Functions
 # -----------------------------------------------------------------------------
@@ -66,6 +64,21 @@ log_error() {
 
 log_wait() {
   echo "⏳ $*"
+}
+
+# wait_for_crd <crd-name> [timeout]
+wait_for_crd() {
+  local crd="$1"
+  local timeout="${2:-120s}"
+
+  log_wait "Waiting for CRD ${crd} to appear (timeout: ${timeout})..."
+  if ! timeout "$timeout" bash -c 'until kubectl get crd "$1" &>/dev/null; do sleep 2; done' _ "$crd"; then
+    log_error "Timed out after $timeout waiting for CRD $crd to appear."
+    return 1
+  fi
+
+  log_wait "CRD ${crd} detected — waiting for it to become Established..."
+  kubectl wait --for=condition=Established --timeout="$timeout" "crd/$crd"
 }
 
 # wait_for_pods <namespace> <label-selector> [timeout]
