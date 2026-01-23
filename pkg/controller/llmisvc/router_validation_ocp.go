@@ -50,7 +50,7 @@ func (r *LLMInferenceServiceReconciler) validateGatewayOCP(ctx context.Context, 
 		return errors.New("AuthPolicy CRD is not available, please install Red Hat Connectivity Link")
 	}
 
-	logger.Info("Connectivity Link is installed or Auth is disabled", "authEnabled", isAuthEnabledForService(llmSvc))
+	logger.Info("Red Hat Connectivity Link (Kuadrant) is installed or Auth is disabled", "authEnabled", isAuthEnabledForService(llmSvc))
 
 	return nil
 }
