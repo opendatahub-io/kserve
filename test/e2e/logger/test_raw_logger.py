@@ -68,9 +68,22 @@ async def test_kserve_logger(rest_v1_client, network_layer):
 
 
 @pytest.mark.rawcipn
+@pytest.mark.asyncio(scope="session")
 async def test_kserve_logger_cipn(rest_v1_client, network_layer):
     msg_dumper = "message-dumper-raw-cipn"
     before(msg_dumper)
+
+    # Verify msg_dumper's status.address.url includes :8080 for headless mode
+    isvc_status = kserve_client.get(
+        msg_dumper,
+        namespace=KSERVE_TEST_NAMESPACE,
+        version=constants.KSERVE_V1BETA1_VERSION,
+    )
+    address_url = isvc_status.get("status", {}).get("address", {}).get("url", "")
+    assert ":8080" in address_url, (
+        f"Expected status.address.url to include ':8080' for headless service, "
+        f"got: {address_url}"
+    )
 
     service_name = "isvc-logger-raw-cipn"
     predictor = V1beta1PredictorSpec(
@@ -123,7 +136,9 @@ def before(msg_dumper):
     )
 
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready_modelstate_loaded(msg_dumper, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready_modelstate_loaded(
+        msg_dumper, namespace=KSERVE_TEST_NAMESPACE
+    )
 
 
 async def base_test(msg_dumper, service_name, predictor, rest_v1_client, network_layer):
@@ -141,7 +156,9 @@ async def base_test(msg_dumper, service_name, predictor, rest_v1_client, network
 
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready_modelstate_loaded(service_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready_modelstate_loaded(
+            service_name, namespace=KSERVE_TEST_NAMESPACE
+        )
     except RuntimeError:
         pods = kserve_client.core_api.list_namespaced_pod(
             KSERVE_TEST_NAMESPACE,
