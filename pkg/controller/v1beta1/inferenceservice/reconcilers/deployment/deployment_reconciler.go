@@ -86,8 +86,6 @@ const (
 	KubeRbacContainerName = "kube-rbac-proxy"
 	// OauthProxySARCMName is the suffix for the SAR ConfigMap name
 	OauthProxySARCMName = "kube-rbac-proxy-sar-config"
-	// KubeRbacProxyImage is the default kube-rbac-proxy image
-	KubeRbacProxyImage = "quay.io/opendatahub/odh-kube-auth-proxy:latest"
 )
 
 // PATCH: Modified to pass client for SAR ConfigMap creation
@@ -385,25 +383,27 @@ func generateKubeRbacProxyContainer(ctx context.Context, client kclient.Client, 
 	if err != nil {
 		return nil, err
 	}
-	oauthProxyJSON := strings.TrimSpace(isvcConfigMap.Data["oauthProxy"])
-	oauthProxyConfig := v1beta1.OauthConfig{}
-	if err := json.Unmarshal([]byte(oauthProxyJSON), &oauthProxyConfig); err != nil {
-		return nil, err
+
+	// PATCH: Read from kubeRbacProxy config section (separate from oauthProxy)
+	kubeRbacProxyJSON := strings.TrimSpace(isvcConfigMap.Data["kubeRbacProxy"])
+	kubeRbacProxyConfig := v1beta1.OauthConfig{}
+	if err := json.Unmarshal([]byte(kubeRbacProxyJSON), &kubeRbacProxyConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse kubeRbacProxy config: %w", err)
 	}
-	if oauthProxyConfig.MemoryRequest == "" || oauthProxyConfig.MemoryLimit == "" ||
-		oauthProxyConfig.CpuRequest == "" || oauthProxyConfig.CpuLimit == "" {
-		return nil, errors.New("one or more required oauthProxyConfig fields are empty")
+	if kubeRbacProxyConfig.Image == "" || kubeRbacProxyConfig.MemoryRequest == "" || kubeRbacProxyConfig.MemoryLimit == "" ||
+		kubeRbacProxyConfig.CpuRequest == "" || kubeRbacProxyConfig.CpuLimit == "" {
+		return nil, errors.New("one or more required kubeRbacProxy config fields are empty")
 	}
 
-	// Use kube-rbac-proxy image
-	oauthImage := KubeRbacProxyImage
-	oauthMemoryRequest := oauthProxyConfig.MemoryRequest
-	oauthMemoryLimit := oauthProxyConfig.MemoryLimit
-	oauthCpuRequest := oauthProxyConfig.CpuRequest
-	oauthCpuLimit := oauthProxyConfig.CpuLimit
-	oauthUpstreamTimeout := strings.TrimSpace(oauthProxyConfig.UpstreamTimeoutSeconds)
+	// Use kube-rbac-proxy image and resources from config
+	proxyImage := kubeRbacProxyConfig.Image
+	proxyMemoryRequest := kubeRbacProxyConfig.MemoryRequest
+	proxyMemoryLimit := kubeRbacProxyConfig.MemoryLimit
+	proxyCpuRequest := kubeRbacProxyConfig.CpuRequest
+	proxyCpuLimit := kubeRbacProxyConfig.CpuLimit
+	proxyUpstreamTimeout := strings.TrimSpace(kubeRbacProxyConfig.UpstreamTimeoutSeconds)
 	if upstreamTimeout != "" {
-		oauthUpstreamTimeout = upstreamTimeout
+		proxyUpstreamTimeout = upstreamTimeout
 	}
 
 	args := []string{
@@ -416,17 +416,17 @@ func generateKubeRbacProxyContainer(ctx context.Context, client kclient.Client, 
 		`--config-file=/etc/kube-rbac-proxy/config-file.yaml`,
 		`--v=4`,
 	}
-	if oauthUpstreamTimeout != "" {
-		if _, err = strconv.ParseInt(oauthUpstreamTimeout, 10, 64); err != nil {
-			return nil, fmt.Errorf("invalid oauthProxy config upstreamTimeoutSeconds value %q: %w", oauthUpstreamTimeout, err)
+	if proxyUpstreamTimeout != "" {
+		if _, err = strconv.ParseInt(proxyUpstreamTimeout, 10, 64); err != nil {
+			return nil, fmt.Errorf("invalid kubeRbacProxy config upstreamTimeoutSeconds value %q: %w", proxyUpstreamTimeout, err)
 		}
-		args = append(args, `--upstream-timeout=`+oauthUpstreamTimeout+`s`)
+		args = append(args, `--upstream-timeout=`+proxyUpstreamTimeout+`s`)
 	}
 
 	return &corev1.Container{
 		Name:  KubeRbacContainerName,
 		Args:  args,
-		Image: oauthImage,
+		Image: proxyImage,
 		Ports: []corev1.ContainerPort{
 			{
 				ContainerPort: int32(constants.OauthProxyPort),
@@ -467,12 +467,12 @@ func generateKubeRbacProxyContainer(ctx context.Context, client kclient.Client, 
 		},
 		Resources: corev1.ResourceRequirements{
 			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse(oauthCpuLimit),
-				corev1.ResourceMemory: resource.MustParse(oauthMemoryLimit),
+				corev1.ResourceCPU:    resource.MustParse(proxyCpuLimit),
+				corev1.ResourceMemory: resource.MustParse(proxyMemoryLimit),
 			},
 			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse(oauthCpuRequest),
-				corev1.ResourceMemory: resource.MustParse(oauthMemoryRequest),
+				corev1.ResourceCPU:    resource.MustParse(proxyCpuRequest),
+				corev1.ResourceMemory: resource.MustParse(proxyMemoryRequest),
 			},
 		},
 		VolumeMounts: []corev1.VolumeMount{
