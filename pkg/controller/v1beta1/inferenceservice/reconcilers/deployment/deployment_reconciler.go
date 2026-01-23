@@ -72,22 +72,6 @@ const (
 	oauthProxy    = "oauthProxy"
 )
 
-// PATCH: New constants for auth proxy type selection
-const (
-	// ODHAuthProxyType is the annotation key to select auth proxy type
-	ODHAuthProxyType = "security.opendatahub.io/auth-proxy-type"
-	// AuthProxyTypeOAuth selects the oauth-proxy sidecar (default)
-	AuthProxyTypeOAuth = "oauth-proxy"
-	// AuthProxyTypeKubeRbac selects the kube-rbac-proxy sidecar
-	AuthProxyTypeKubeRbac = "kube-rbac-proxy"
-	// OauthProxyProbePort is the probe port for kube-rbac-proxy
-	OauthProxyProbePort = int32(8643)
-	// KubeRbacContainerName is the container name for kube-rbac-proxy
-	KubeRbacContainerName = "kube-rbac-proxy"
-	// OauthProxySARCMName is the suffix for the SAR ConfigMap name
-	OauthProxySARCMName = "kube-rbac-proxy-sar-config"
-)
-
 // PATCH: Modified to pass client for SAR ConfigMap creation
 func NewDeploymentReconciler(ctx context.Context,
 	client kclient.Client,
@@ -99,7 +83,6 @@ func NewDeploymentReconciler(ctx context.Context,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec,
 ) (*DeploymentReconciler, error) {
-	// PATCH: Pass client to createRawDeploymentODH
 	deploymentList, err := createRawDeploymentODH(ctx, client, clientset, resourceType, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create raw deployment: %w", err)
@@ -137,9 +120,9 @@ func createRawDeploymentODH(ctx context.Context,
 	}
 
 	// PATCH: Determine which auth proxy type to use (default: oauth-proxy for backward compatibility)
-	authProxyType := AuthProxyTypeOAuth
-	if val, ok := componentMeta.Annotations[ODHAuthProxyType]; ok {
-		authProxyType = val
+	authProxyType := constants.OauthProxyType
+	if val, ok := componentMeta.Annotations[constants.ODHAuthProxyTypeAnnotation]; ok {
+		authProxyType = constants.OauthProxyProvider(val)
 	}
 
 	enableAuth := false
@@ -259,7 +242,7 @@ func createRawDefaultDeployment(componentMeta metav1.ObjectMeta,
 }
 
 // PATCH: Renamed and updated to support kube-rbac-proxy ConfigMap volume
-func mountServingSecretCMVolumeToDeployment(deployment *appsv1.Deployment, componentMeta metav1.ObjectMeta, resourceType constants.ResourceType, isvcName string, authProxyType string) {
+func mountServingSecretCMVolumeToDeployment(deployment *appsv1.Deployment, componentMeta metav1.ObjectMeta, resourceType constants.ResourceType, isvcName string, authProxyType constants.OauthProxyProvider) {
 	updatedPodSpec := deployment.Spec.Template.Spec.DeepCopy()
 	tlsSecretVolume := corev1.Volume{
 		Name: tlsVolumeName,
@@ -274,13 +257,13 @@ func mountServingSecretCMVolumeToDeployment(deployment *appsv1.Deployment, compo
 	volumes := []corev1.Volume{tlsSecretVolume}
 
 	// PATCH: Add SAR ConfigMap volume only for kube-rbac-proxy
-	if authProxyType == AuthProxyTypeKubeRbac {
+	if authProxyType == constants.KubeRbacProxyType {
 		kubeRbacProxyConfigVolume := corev1.Volume{
-			Name: fmt.Sprintf("%s-%s", isvcName, OauthProxySARCMName),
+			Name: fmt.Sprintf("%s-%s", isvcName, constants.OauthProxySARCMName),
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{
-						Name: fmt.Sprintf("%s-%s", isvcName, OauthProxySARCMName),
+						Name: fmt.Sprintf("%s-%s", isvcName, constants.OauthProxySARCMName),
 					},
 					DefaultMode: func(i int32) *int32 { return &i }(420),
 				},
@@ -316,7 +299,7 @@ func addAuthProxyContainerToDeployment(ctx context.Context,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec,
 	isvcName string,
-	authProxyType string,
+	authProxyType constants.OauthProxyProvider,
 ) error {
 	var upstreamPort string
 	var upstreamTimeout string
@@ -342,7 +325,7 @@ func addAuthProxyContainerToDeployment(ctx context.Context,
 		var err error
 
 		// PATCH: Choose proxy type based on annotation
-		if authProxyType == AuthProxyTypeKubeRbac {
+		if authProxyType == constants.KubeRbacProxyType {
 			proxyContainer, err = generateKubeRbacProxyContainer(ctx, client, clientset, isvcName, componentMeta.Namespace, upstreamPort, upstreamTimeout)
 		} else {
 			// Default to oauth-proxy for backward compatibility
@@ -408,7 +391,7 @@ func generateKubeRbacProxyContainer(ctx context.Context, client kclient.Client, 
 
 	args := []string{
 		`--secure-listen-address=:` + strconv.Itoa(constants.OauthProxyPort),
-		`--proxy-endpoints-port=` + strconv.Itoa(int(OauthProxyProbePort)),
+		`--proxy-endpoints-port=` + strconv.Itoa(constants.OauthProxyProbePort),
 		`--upstream=http://localhost:` + upstreamPort,
 		`--auth-header-fields-enabled=true`,
 		`--tls-cert-file=/etc/tls/private/tls.crt`,
@@ -424,7 +407,7 @@ func generateKubeRbacProxyContainer(ctx context.Context, client kclient.Client, 
 	}
 
 	return &corev1.Container{
-		Name:  KubeRbacContainerName,
+		Name:  "kube-rbac-proxy",
 		Args:  args,
 		Image: proxyImage,
 		Ports: []corev1.ContainerPort{
@@ -433,7 +416,7 @@ func generateKubeRbacProxyContainer(ctx context.Context, client kclient.Client, 
 				Name:          "https",
 			},
 			{
-				ContainerPort: OauthProxyProbePort,
+				ContainerPort: constants.OauthProxyProbePort,
 				Name:          "proxy",
 			},
 		},
@@ -441,7 +424,7 @@ func generateKubeRbacProxyContainer(ctx context.Context, client kclient.Client, 
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
 					Path:   "/healthz",
-					Port:   intstr.FromInt32(OauthProxyProbePort),
+					Port:   intstr.FromInt32(constants.OauthProxyProbePort),
 					Scheme: corev1.URISchemeHTTPS,
 				},
 			},
@@ -455,7 +438,7 @@ func generateKubeRbacProxyContainer(ctx context.Context, client kclient.Client, 
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
 					Path:   "/healthz",
-					Port:   intstr.FromInt32(OauthProxyProbePort),
+					Port:   intstr.FromInt32(constants.OauthProxyProbePort),
 					Scheme: corev1.URISchemeHTTPS,
 				},
 			},
@@ -481,7 +464,7 @@ func generateKubeRbacProxyContainer(ctx context.Context, client kclient.Client, 
 				MountPath: "/etc/tls/private",
 			},
 			{
-				Name:      fmt.Sprintf("%s-%s", isvc, OauthProxySARCMName),
+				Name:      fmt.Sprintf("%s-%s", isvc, constants.OauthProxySARCMName),
 				MountPath: "/etc/kube-rbac-proxy",
 				ReadOnly:  true,
 			},
@@ -501,7 +484,7 @@ func createSarCm(ctx context.Context, client kclient.Client, namespace string, i
 		return fmt.Errorf("failed to get InferenceService for owner reference: %w", err)
 	}
 
-	configMapName := fmt.Sprintf("%s-%s", inferenceServiceName, OauthProxySARCMName)
+	configMapName := fmt.Sprintf("%s-%s", inferenceServiceName, constants.OauthProxySARCMName)
 	configContent := fmt.Sprintf(`authorization:
   resourceAttributes:
     namespace: "%s"
@@ -665,7 +648,7 @@ func generateOauthProxyContainer(ctx context.Context, clientset kubernetes.Inter
 		Image: oauthImage,
 		Ports: []corev1.ContainerPort{
 			{
-				ContainerPort: int32(constants.OauthProxyPort),
+				ContainerPort: constants.OauthProxyPort,
 				Name:          "https",
 			},
 		},
@@ -673,7 +656,7 @@ func generateOauthProxyContainer(ctx context.Context, clientset kubernetes.Inter
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
 					Path:   "/oauth/healthz",
-					Port:   intstr.FromInt(constants.OauthProxyPort),
+					Port:   intstr.FromInt32(constants.OauthProxyPort),
 					Scheme: corev1.URISchemeHTTPS,
 				},
 			},
@@ -687,7 +670,7 @@ func generateOauthProxyContainer(ctx context.Context, clientset kubernetes.Inter
 			ProbeHandler: corev1.ProbeHandler{
 				HTTPGet: &corev1.HTTPGetAction{
 					Path:   "/oauth/healthz",
-					Port:   intstr.FromInt(constants.OauthProxyPort),
+					Port:   intstr.FromInt32(constants.OauthProxyPort),
 					Scheme: corev1.URISchemeHTTPS,
 				},
 			},
@@ -869,6 +852,18 @@ func setDefaultDeploymentSpec(spec *appsv1.DeploymentSpec) {
 }
 
 // addGPUResourceToDeployment assigns GPU resources to a specific container in a Deployment.
+//
+// Parameters:
+// - deployment: Pointer to the Deployment where GPU resources should be added.
+// - targetContainerName: Name of the container within the Deployment to which the GPU resources should be assigned.
+// - gpuCount: String representation of the number of GPUs to allocate.
+//
+// Functionality:
+// - Retrieves the list of GPU resource types, updating it based on annotations if available.
+// - Identifies the correct GPU resource type by checking existing Limits and Requests values in the container.
+// - If no GPU resource is explicitly set, it defaults to "nvidia.com/gpu".
+// - Ensures that the container's Limits and Requests maps are initialized before assigning values.
+// - Sets both the Limits and Requests for the selected GPU resource type using the provided gpuCount.
 func addGPUResourceToDeployment(deployment *appsv1.Deployment, targetContainerName string, gpuCount string) error {
 	// Default GPU type is "nvidia.com/gpu"
 	gpuResourceType := corev1.ResourceName(constants.NvidiaGPUResourceType)
