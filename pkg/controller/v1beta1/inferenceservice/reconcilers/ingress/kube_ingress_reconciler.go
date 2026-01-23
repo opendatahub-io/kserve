@@ -214,10 +214,11 @@ func createAddress(ctx context.Context, client client.Client, isvc *v1beta1.Infe
 		if err := client.Get(ctx, types.NamespacedName{
 			Namespace: isvc.Namespace,
 			Name:      entryPointSvcName,
-		}, entryPointSvc); err == nil {
-			if entryPointSvc.Spec.ClusterIP == corev1.ClusterIPNone {
-				url.Host = internalHost + ":" + constants.InferenceServiceDefaultHttpPort
-			}
+		}, entryPointSvc); err != nil {
+			return nil, fmt.Errorf("failed to get entry point service %s: %w", entryPointSvcName, err)
+		}
+		if entryPointSvc.Spec.ClusterIP == corev1.ClusterIPNone {
+			url.Host = internalHost + ":" + constants.InferenceServiceDefaultHttpPort
 		}
 	}
 
