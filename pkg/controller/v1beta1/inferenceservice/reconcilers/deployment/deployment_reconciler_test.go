@@ -874,6 +874,7 @@ func TestCreateDefaultDeployment(t *testing.T) {
 
 func TestOauthProxyUpstreamTimeout(t *testing.T) {
 	type args struct {
+		client           kclient.Client
 		clientset        kubernetes.Interface
 		objectMeta       metav1.ObjectMeta
 		workerObjectMeta metav1.ObjectMeta
@@ -976,6 +977,7 @@ func TestOauthProxyUpstreamTimeout(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			deployments, err := createRawDeploymentODH(
 				t.Context(),
+				tt.args.client,
 				tt.args.clientset,
 				constants.InferenceServiceResource,
 				tt.args.objectMeta,

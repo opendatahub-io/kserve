@@ -8902,7 +8902,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}
 			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil)
 			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
-
+			defer k8sClient.Delete(ctx, isvc)
 			inferenceService := &v1beta1.InferenceService{}
 
 			Eventually(func() bool {
@@ -9335,7 +9335,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}
 			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil)
 			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
-
+			defer k8sClient.Delete(ctx, isvc)
 			inferenceService := &v1beta1.InferenceService{}
 
 			Eventually(func() bool {
@@ -9701,6 +9701,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 	Context("When creating an inferenceservice with raw kube predictor and ODH auth enabled using kube-rabc-proxy", func() {
 		configs := map[string]string{
 			"oauthProxy":         `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+			"kubeRbacProxy":      `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
 			"ingress":            `{"ingressGateway": "knative-serving/knative-ingress-gateway", "ingressService": "test-destination", "localGateway": "knative-serving/knative-local-gateway", "localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"}`,
 			"storageInitializer": `{"image": "kserve/storage-initializer:latest", "memoryRequest": "100Mi", "memoryLimit": "1Gi", "cpuRequest": "100m", "cpuLimit": "1", "CaBundleConfigMapName": "", "caBundleVolumeMountPath": "/etc/ssl/custom-certs", "enableDirectPvcVolumeMount": false, "cpuModelcar": "10m", "memoryModelcar": "15Mi"}`,
 		}
@@ -9752,7 +9753,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}
 			k8sClient.Create(context.TODO(), servingRuntime)
 			defer k8sClient.Delete(context.TODO(), servingRuntime)
-			serviceName := "raw-auth"
+			serviceName := "raw-auth-kubeproxy"
 			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
 			serviceKey := expectedRequest.NamespacedName
 			storageUri := "s3://test/mnist/export"
@@ -9762,7 +9763,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					Name:      serviceKey.Name,
 					Namespace: serviceKey.Namespace,
 					Annotations: map[string]string{
-						"serving.kserve.io/deploymentMode":   "Standard",
+						"serving.kserve.io/deploymentMode":   "RawDeployment",
 						constants.ODHKserveRawAuth:           "true",
 						constants.ODHAuthProxyTypeAnnotation: string(constants.KubeRbacProxyType),
 					},
@@ -9791,7 +9792,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			}
 			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil)
 			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
-
+			defer k8sClient.Delete(ctx, isvc)
 			inferenceService := &v1beta1.InferenceService{}
 
 			Eventually(func() bool {
@@ -9807,6 +9808,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			Eventually(func() error {
 				return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment)
 			}, timeout).Should(Succeed())
+
 			var replicas int32 = 1
 			var revisionHistory int32 = 10
 			var progressDeadlineSeconds int32 = 600
@@ -9836,7 +9838,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 							},
 							Annotations: map[string]string{
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
-								"serving.kserve.io/deploymentMode":                         "Standard",
+								constants.ODHAuthProxyTypeAnnotation:                       string(constants.KubeRbacProxyType),
+								"serving.kserve.io/deploymentMode":                         "RawDeployment",
 								constants.ODHKserveRawAuth:                                 "true",
 								"service.beta.openshift.io/serving-cert-secret-name":       predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 							},
@@ -9880,7 +9883,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									ImagePullPolicy:          "IfNotPresent",
 								},
 								{
-									Name:  "kube-rbav-proxy",
+									Name:  "kube-rbac-proxy",
 									Image: constants.KubeRbacProxyImage,
 									Args: []string{
 										`--secure-listen-address=:8443`,
@@ -10116,7 +10119,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					},
 				},
 				Spec: routev1.RouteSpec{
-					Host: "raw-auth-default.example.com",
+					Host: "raw-auth-kubeproxy-default.example.com",
 					To: routev1.RouteTargetReference{
 						Kind:   "Service",
 						Name:   predictorServiceKey.Name,
@@ -10136,7 +10139,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			route.Status = routev1.RouteStatus{
 				Ingress: []routev1.RouteIngress{
 					{
-						Host: "raw-auth-default.example.com",
+						Host: "raw-auth-kubeproxy-default.example.com",
 						Conditions: []routev1.RouteIngressCondition{
 							{
 								Type:   routev1.RouteAdmitted,
@@ -10183,7 +10186,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 				URL: &apis.URL{
 					Scheme: "https",
-					Host:   "raw-auth-default.example.com",
+					Host:   "raw-auth-kubeproxy-default.example.com",
 				},
 				Address: &duckv1.Addressable{
 					URL: &apis.URL{
@@ -10275,8 +10278,9 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					Name:      serviceKey.Name,
 					Namespace: serviceKey.Namespace,
 					Annotations: map[string]string{
-						"serving.kserve.io/deploymentMode": "RawDeployment",
-						constants.ODHKserveRawAuth:         "true",
+						"serving.kserve.io/deploymentMode":   "RawDeployment",
+						constants.ODHKserveRawAuth:           "true",
+						constants.ODHAuthProxyTypeAnnotation: string(constants.KubeRbacProxyType),
 					},
 				},
 				Spec: v1beta1.InferenceServiceSpec{

@@ -357,7 +357,7 @@ func generateKubeRbacProxyContainer(ctx context.Context, client kclient.Client, 
 	namespace string, upstreamPort string, upstreamTimeout string,
 ) (*corev1.Container, error) {
 	// Create SAR ConfigMap for this specific InferenceService
-	err := createSarCm(ctx, client, namespace, isvc)
+	err := createSarCm(ctx, client, clientset, namespace, isvc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SAR configmap: %w", err)
 	}
@@ -396,6 +396,7 @@ func generateKubeRbacProxyContainer(ctx context.Context, client kclient.Client, 
 		`--auth-header-fields-enabled=true`,
 		`--tls-cert-file=/etc/tls/private/tls.crt`,
 		`--tls-private-key-file=/etc/tls/private/tls.key`,
+		// Defines the SAR
 		`--config-file=/etc/kube-rbac-proxy/config-file.yaml`,
 		`--v=4`,
 	}
@@ -472,8 +473,10 @@ func generateKubeRbacProxyContainer(ctx context.Context, client kclient.Client, 
 	}, nil
 }
 
-// PATCH: New function to create SAR ConfigMap for kube-rbac-proxy
-func createSarCm(ctx context.Context, client kclient.Client, namespace string, inferenceServiceName string) error {
+// createSarCm creates or updates a ConfigMap containing SAR (SubjectAccessReview) configuration
+// for the kube-rbac-proxy container. This configmap defines the authorization parameters
+// for accessing the specific InferenceService.
+func createSarCm(ctx context.Context, client kclient.Client, clientset kubernetes.Interface, namespace string, inferenceServiceName string) error {
 	// Get the InferenceService to obtain its UID for owner reference
 	inferenceService := &v1beta1.InferenceService{}
 	err := client.Get(ctx, types.NamespacedName{
@@ -512,27 +515,39 @@ func createSarCm(ctx context.Context, client kclient.Client, namespace string, i
 		Data: map[string]string{
 			"config-file.yaml": configContent,
 		},
+		Immutable: ptr.To(true),
 	}
 
-	// Try to get existing ConfigMap
-	existingCM := &corev1.ConfigMap{}
-	err = client.Get(ctx, types.NamespacedName{
-		Namespace: namespace,
-		Name:      configMapName,
-	}, existingCM)
-
+	// Check if configmap already exists
+	existingConfigMap, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, configMapName, metav1.GetOptions{})
 	if err != nil {
 		if apierr.IsNotFound(err) {
-			// Create new ConfigMap
-			return client.Create(ctx, sarConfigMap)
+			_, err = clientset.CoreV1().ConfigMaps(namespace).Create(ctx, sarConfigMap, metav1.CreateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to create SAR configmap: %w", err)
+			}
+			log.V(2).Info("Created SAR ConfigMap", "name", configMapName, "namespace", namespace)
+		} else {
+			return fmt.Errorf("failed to get SAR configmap: %w", err)
 		}
-		return err
-	}
+	} else { // found
+		// Since ConfigMap is immutable, if content differs we need to delete and recreate
+		if existingConfigMap.Data["config-file.yaml"] != configContent {
+			log.V(2).Info("SAR ConfigMap - changes detected, will be recreated", "name", configMapName, "namespace", namespace)
+			err = clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, configMapName, metav1.DeleteOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to delete existing SAR configmap: %w", err)
+			}
+			log.V(2).Info("Deleted existing SAR ConfigMap", "name", configMapName, "namespace", namespace)
 
-	// Update existing ConfigMap
-	existingCM.Data = sarConfigMap.Data
-	existingCM.OwnerReferences = sarConfigMap.OwnerReferences
-	return client.Update(ctx, existingCM)
+			_, err = clientset.CoreV1().ConfigMaps(namespace).Create(ctx, sarConfigMap, metav1.CreateOptions{})
+			if err != nil {
+				return fmt.Errorf("failed to recreate SAR configmap: %w", err)
+			}
+			log.V(2).Info("Recreated SAR ConfigMap", "name", configMapName, "namespace", namespace)
+		}
+	}
+	return nil
 }
 
 func createRawWorkerDeployment(componentMeta metav1.ObjectMeta,
