@@ -67,6 +67,11 @@ $ helm install kserve oci://ghcr.io/kserve/charts/kserve --version v0.15.2
 | kserve.inferenceservice.resources.limits.memory | string | `"2Gi"` |  |
 | kserve.inferenceservice.resources.requests.cpu | string | `"1"` |  |
 | kserve.inferenceservice.resources.requests.memory | string | `"2Gi"` |  |
+| kserve.kubeRbacProxy.cpuLimit | string | `"200m"` |  |
+| kserve.kubeRbacProxy.cpuRequest | string | `"100m"` |  |
+| kserve.kubeRbacProxy.image | string | `"registry.redhat.io/rhoai/odh-kube-auth-proxy-rhel9@sha256:1f4b2b9bb5061faf17299c2ae2405ab408e2b7ce349d9831eb6045990e6da005"` |  |
+| kserve.kubeRbacProxy.memoryLimit | string | `"128Mi"` |  |
+| kserve.kubeRbacProxy.memoryRequest | string | `"64Mi"` |  |
 | kserve.localmodel.agent.affinity | object | `{}` |  |
 | kserve.localmodel.agent.hostPath | string | `"/mnt/models"` |  |
 | kserve.localmodel.agent.image | string | `"kserve/kserve-localmodelnode-agent"` |  |
@@ -85,6 +90,11 @@ $ helm install kserve oci://ghcr.io/kserve/charts/kserve --version v0.15.2
 | kserve.localmodel.securityContext.fsGroup | int | `1000` |  |
 | kserve.metricsaggregator.enableMetricAggregation | string | `"false"` | configures metric aggregation annotation. This adds the annotation serving.kserve.io/enable-metric-aggregation to every service with the specified boolean value. If true enables metric aggregation in queue-proxy by setting env vars in the queue proxy container to configure scraping ports. |
 | kserve.metricsaggregator.enablePrometheusScraping | string | `"false"` | If true, prometheus annotations are added to the pod to scrape the metrics. If serving.kserve.io/enable-metric-aggregation is false, the prometheus port is set with the default prometheus scraping port 9090, otherwise the prometheus port annotation is set with the metric aggregation port. |
+| kserve.oauthProxy.cpuLimit | string | `"200m"` |  |
+| kserve.oauthProxy.cpuRequest | string | `"100m"` |  |
+| kserve.oauthProxy.image | string | `"registry.redhat.io/openshift4/ose-oauth-proxy-rhel9@sha256:aa00b068c4c6a2428fd7832d8b53e2c8b0d2bb03799bb2a874ceb00be2bef33f"` |  |
+| kserve.oauthProxy.memoryLimit | string | `"128Mi"` |  |
+| kserve.oauthProxy.memoryRequest | string | `"64Mi"` |  |
 | kserve.router.image | string | `"kserve/router"` |  |
 | kserve.router.imagePullPolicy | string | `"IfNotPresent"` | Specifies when to pull router image from registry. |
 | kserve.router.imagePullSecrets | list | `[]` | specifies the list of secrets to be used for pulling the router image from registry. |
