@@ -9356,10 +9356,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 	})
 
 	Context("When creating inference service with headless service (ServiceClusterIPNone)", func() {
-		// This test verifies that when using headless service mode (ClusterIP: None),
-		// the status.address.url includes the container port :8080.
-		// When headless, Kubernetes DNS resolves directly to pod IPs without port mapping,
-		// so users must connect to the container port (8080) directly, not the service port (80).
 		It("Should include port 8080 in status.address.url", func() {
 			By("By creating a new InferenceService with headless service enabled")
 			ctx := context.Background()
