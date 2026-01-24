@@ -75,15 +75,16 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				"additionalIngressDomains": ["additional.example.com"]
 			}`,
 		"storageInitializer": `{
-				"image" : "kserve/storage-initializer:latest",
-				"memoryRequest": "100Mi",
-				"memoryLimit": "1Gi",
-				"cpuRequest": "100m",
-				"cpuLimit": "1",
-				"CaBundleConfigMapName": "",
-				"caBundleVolumeMountPath": "/etc/ssl/custom-certs",
-				"enableDirectPvcVolumeMount": false
-			}`,
+			"image" : "kserve/storage-initializer:latest",
+			"memoryRequest": "100Mi",
+			"memoryLimit": "1Gi",
+			"cpuRequest": "100m",
+			"cpuLimit": "1",
+			"CaBundleConfigMapName": "",
+			"caBundleVolumeMountPath": "/etc/ssl/custom-certs",
+			"enableDirectPvcVolumeMount": false
+		}`,
+		"service": `{"serviceClusterIPNone": false}`,
 	}
 
 	// Checks that any Kubernetes object does not exist
@@ -9359,7 +9360,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		// the status.address.url includes the container port :8080.
 		// When headless, Kubernetes DNS resolves directly to pod IPs without port mapping,
 		// so users must connect to the container port (8080) directly, not the service port (80).
-		// See: RHOAIENG-39715
 		It("Should include port 8080 in status.address.url", func() {
 			By("By creating a new InferenceService with headless service enabled")
 			ctx := context.Background()

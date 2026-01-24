@@ -4634,8 +4634,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				}
 
 				if actualIsvc.Status.URL != nil && actualIsvc.Status.Address.URL != nil {
-					fmt.Printf("\n actual status URL: %s -- expeted URL %s\n", actualIsvc.Status.URL, expectedURL)
-					fmt.Printf("\n actual Status ADdress: %s -- expeted ADDRESS %s\n", actualIsvc.Status.Address.URL, expectedAddressURL.URL)
+					fmt.Printf("\n actual status URL: %s -- expected URL %s\n", actualIsvc.Status.URL, expectedURL)
+					fmt.Printf("\n actual Status Address: %s -- expected ADDRESS %s\n", actualIsvc.Status.Address.URL, expectedAddressURL.URL)
 				}
 
 				return reflect.DeepEqual(actualIsvc.Status.URL, expectedURL) &&
