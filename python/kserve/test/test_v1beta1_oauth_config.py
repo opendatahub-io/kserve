@@ -53,7 +53,8 @@ class TestV1beta1OauthConfig(unittest.TestCase):
             return V1beta1OauthConfig(
                 cpu_limit="0",
                 cpu_request="0",
-                image="0",
+                oauth_proxy_image="0",
+                kube_rbac_proxy_image="0",
                 memory_limit="0",
                 memory_request="0",
             )
@@ -61,7 +62,7 @@ class TestV1beta1OauthConfig(unittest.TestCase):
             return V1beta1OauthConfig(
                 cpu_limit="0",
                 cpu_request="0",
-                image="0",
+                oauth_proxy_image="0",
                 memory_limit="0",
                 memory_request="0",
             )

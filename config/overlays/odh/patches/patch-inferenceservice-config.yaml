@@ -7,15 +7,8 @@ data:
   explainers: "{}"
   oauthProxy: |-
     {
-      "image" : "$(oauth-proxy)",
-      "memoryRequest": "64Mi",
-      "memoryLimit": "128Mi",
-      "cpuRequest": "100m",
-      "cpuLimit": "200m"
-    }
-  kubeRbacProxy: |-
-    {
-      "image" : "$(kube-rbac-proxy)",
+      "oauthProxyImage" : "$(oauth-proxy)",
+      "kubeRbacProxyImage" : "$(kube-rbac-proxy)",
       "memoryRequest": "64Mi",
       "memoryLimit": "128Mi",
       "cpuRequest": "100m",

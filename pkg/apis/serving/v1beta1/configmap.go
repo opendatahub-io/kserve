@@ -122,7 +122,8 @@ type IngressConfig struct {
 
 // +kubebuilder:object:generate=false
 type OauthConfig struct {
-	Image                  string `json:"image"`
+	OauthProxyImage        string `json:"oauthProxyImage"`
+	KubeRbacProxyImage     string `json:"kubeRbacProxyImage,omitempty"`
 	CpuLimit               string `json:"cpuLimit"`
 	CpuRequest             string `json:"cpuRequest"`
 	MemoryLimit            string `json:"memoryLimit"`

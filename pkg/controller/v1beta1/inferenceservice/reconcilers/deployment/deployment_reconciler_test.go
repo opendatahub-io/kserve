@@ -894,7 +894,7 @@ func TestOauthProxyUpstreamTimeout(t *testing.T) {
 				clientset: fake.NewSimpleClientset(&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 					Data: map[string]string{
-						oauthProxy: `{"image": "registry.redhat.io/openshift4/ose-oauth-proxy@sha256:8507daed246d4d367704f7d7193233724acf1072572e1226ca063c066b858ecf", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+						oauthProxy: `{"oauthProxyImage": "registry.redhat.io/openshift4/ose-oauth-proxy@sha256:8507daed246d4d367704f7d7193233724acf1072572e1226ca063c066b858ecf", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
 					},
 				}),
 				objectMeta: metav1.ObjectMeta{
@@ -921,7 +921,7 @@ func TestOauthProxyUpstreamTimeout(t *testing.T) {
 				clientset: fake.NewSimpleClientset(&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 					Data: map[string]string{
-						oauthProxy: `{"image": "registry.redhat.io/openshift4/ose-oauth-proxy@sha256:8507daed246d4d367704f7d7193233724acf1072572e1226ca063c066b858ecf", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m", "upstreamTimeoutSeconds": "20"}`,
+						oauthProxy: `{"oauthProxyImage": "registry.redhat.io/openshift4/ose-oauth-proxy@sha256:8507daed246d4d367704f7d7193233724acf1072572e1226ca063c066b858ecf", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m", "upstreamTimeoutSeconds": "20"}`,
 					},
 				}),
 				objectMeta: metav1.ObjectMeta{
@@ -948,7 +948,7 @@ func TestOauthProxyUpstreamTimeout(t *testing.T) {
 				clientset: fake.NewSimpleClientset(&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 					Data: map[string]string{
-						oauthProxy: `{"image": "registry.redhat.io/openshift4/ose-oauth-proxy@sha256:8507daed246d4d367704f7d7193233724acf1072572e1226ca063c066b858ecf", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m", "upstreamTimeoutSeconds": "20"}`,
+						oauthProxy: `{"oauthProxyImage": "registry.redhat.io/openshift4/ose-oauth-proxy@sha256:8507daed246d4d367704f7d7193233724acf1072572e1226ca063c066b858ecf", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m", "upstreamTimeoutSeconds": "20"}`,
 					},
 				}),
 				objectMeta: metav1.ObjectMeta{
@@ -993,6 +993,16 @@ func TestOauthProxyUpstreamTimeout(t *testing.T) {
 			containers := deployments[0].Spec.Template.Spec.Containers
 			for _, container := range containers {
 				if container.Name == "oauth-proxy" {
+					oauthProxyContainerFound = true
+					if tt.args.expectedTimeout == "" {
+						for _, arg := range container.Args {
+							assert.NotContains(t, arg, "upstream-timeout")
+						}
+					} else {
+						require.Contains(t, container.Args, "--upstream-timeout="+tt.args.expectedTimeout)
+					}
+				}
+				if container.Name == "kube-rbac-proxy" {
 					oauthProxyContainerFound = true
 					if tt.args.expectedTimeout == "" {
 						for _, arg := range container.Args {

@@ -4161,7 +4161,7 @@
     "v1beta1.OauthConfig": {
       "type": "object",
       "required": [
-        "image",
+        "oauthProxyImage",
         "cpuLimit",
         "cpuRequest",
         "memoryLimit",
@@ -4176,15 +4176,18 @@
           "type": "string",
           "default": ""
         },
-        "image": {
-          "type": "string",
-          "default": ""
+        "kubeRbacProxyImage": {
+          "type": "string"
         },
         "memoryLimit": {
           "type": "string",
           "default": ""
         },
         "memoryRequest": {
+          "type": "string",
+          "default": ""
+        },
+        "oauthProxyImage": {
           "type": "string",
           "default": ""
         },

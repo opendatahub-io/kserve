@@ -7515,11 +7515,17 @@ func schema_pkg_apis_serving_v1beta1_OauthConfig(ref common.ReferenceCallback) c
 			SchemaProps: spec.SchemaProps{
 				Type: []string{"object"},
 				Properties: map[string]spec.Schema{
-					"image": {
+					"oauthProxyImage": {
 						SchemaProps: spec.SchemaProps{
 							Default: "",
 							Type:    []string{"string"},
 							Format:  "",
+						},
+					},
+					"kubeRbacProxyImage": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"string"},
+							Format: "",
 						},
 					},
 					"cpuLimit": {
@@ -7557,7 +7563,7 @@ func schema_pkg_apis_serving_v1beta1_OauthConfig(ref common.ReferenceCallback) c
 						},
 					},
 				},
-				Required: []string{"image", "cpuLimit", "cpuRequest", "memoryLimit", "memoryRequest"},
+				Required: []string{"oauthProxyImage", "cpuLimit", "cpuRequest", "memoryLimit", "memoryRequest"},
 			},
 		},
 	}

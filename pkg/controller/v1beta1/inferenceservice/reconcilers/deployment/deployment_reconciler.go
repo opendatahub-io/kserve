@@ -368,18 +368,18 @@ func generateKubeRbacProxyContainer(ctx context.Context, client kclient.Client, 
 	}
 
 	// PATCH: Read from kubeRbacProxy config section (separate from oauthProxy)
-	kubeRbacProxyJSON := strings.TrimSpace(isvcConfigMap.Data["kubeRbacProxy"])
+	kubeRbacProxyJSON := strings.TrimSpace(isvcConfigMap.Data["oauthProxy"])
 	kubeRbacProxyConfig := v1beta1.OauthConfig{}
 	if err := json.Unmarshal([]byte(kubeRbacProxyJSON), &kubeRbacProxyConfig); err != nil {
 		return nil, fmt.Errorf("failed to parse kubeRbacProxy config: %w", err)
 	}
-	if kubeRbacProxyConfig.Image == "" || kubeRbacProxyConfig.MemoryRequest == "" || kubeRbacProxyConfig.MemoryLimit == "" ||
+	if kubeRbacProxyConfig.KubeRbacProxyImage == "" || kubeRbacProxyConfig.MemoryRequest == "" || kubeRbacProxyConfig.MemoryLimit == "" ||
 		kubeRbacProxyConfig.CpuRequest == "" || kubeRbacProxyConfig.CpuLimit == "" {
 		return nil, errors.New("one or more required kubeRbacProxy config fields are empty")
 	}
 
 	// Use kube-rbac-proxy image and resources from config
-	proxyImage := kubeRbacProxyConfig.Image
+	proxyImage := kubeRbacProxyConfig.KubeRbacProxyImage
 	proxyMemoryRequest := kubeRbacProxyConfig.MemoryRequest
 	proxyMemoryLimit := kubeRbacProxyConfig.MemoryLimit
 	proxyCpuRequest := kubeRbacProxyConfig.CpuRequest
@@ -619,11 +619,11 @@ func generateOauthProxyContainer(ctx context.Context, clientset kubernetes.Inter
 	if err := json.Unmarshal([]byte(oauthProxyJSON), &oauthProxyConfig); err != nil {
 		return nil, err
 	}
-	if oauthProxyConfig.Image == "" || oauthProxyConfig.MemoryRequest == "" || oauthProxyConfig.MemoryLimit == "" ||
+	if oauthProxyConfig.OauthProxyImage == "" || oauthProxyConfig.MemoryRequest == "" || oauthProxyConfig.MemoryLimit == "" ||
 		oauthProxyConfig.CpuRequest == "" || oauthProxyConfig.CpuLimit == "" {
 		return nil, errors.New("one or more required oauthProxyConfig fields are empty")
 	}
-	oauthImage := oauthProxyConfig.Image
+	oauthImage := oauthProxyConfig.OauthProxyImage
 	oauthMemoryRequest := oauthProxyConfig.MemoryRequest
 	oauthMemoryLimit := oauthProxyConfig.MemoryLimit
 	oauthCpuRequest := oauthProxyConfig.CpuRequest

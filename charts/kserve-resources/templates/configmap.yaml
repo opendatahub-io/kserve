@@ -683,19 +683,12 @@ data:
     }
   oauthProxy: |-
     {
-      "image": "{{ .Values.kserve.oauthProxy.image }}",
+      "oauthProxyImage": "{{ .Values.kserve.oauthProxy.oauthProxyImage }}",
+      "kubeRbacProxyImage": "{{ .Values.kserve.oauthProxy.kubeRbacProxyImage }}",
       "memoryRequest": "{{ .Values.kserve.oauthProxy.memoryRequest }}",
       "memoryLimit": "{{ .Values.kserve.oauthProxy.memoryLimit }}",
       "cpuRequest": "{{ .Values.kserve.oauthProxy.cpuRequest }}",
       "cpuLimit": "{{ .Values.kserve.oauthProxy.cpuLimit }}"
-    }
-  kubeRbacProxy: |-
-    {
-      "image": "{{ .Values.kserve.kubeRbacProxy.image }}",
-      "memoryRequest": "{{ .Values.kserve.kubeRbacProxy.memoryRequest }}",
-      "memoryLimit": "{{ .Values.kserve.kubeRbacProxy.memoryLimit }}",
-      "cpuRequest": "{{ .Values.kserve.kubeRbacProxy.cpuRequest }}",
-      "cpuLimit": "{{ .Values.kserve.kubeRbacProxy.cpuLimit }}"
     }
 
   inferenceService: |-

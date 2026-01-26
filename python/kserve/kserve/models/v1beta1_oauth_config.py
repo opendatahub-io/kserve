@@ -49,22 +49,24 @@ class V1beta1OauthConfig(object):
     openapi_types = {
         'cpu_limit': 'str',
         'cpu_request': 'str',
-        'image': 'str',
+        'kube_rbac_proxy_image': 'str',
         'memory_limit': 'str',
         'memory_request': 'str',
+        'oauth_proxy_image': 'str',
         'upstream_timeout_seconds': 'str'
     }
 
     attribute_map = {
         'cpu_limit': 'cpuLimit',
         'cpu_request': 'cpuRequest',
-        'image': 'image',
+        'kube_rbac_proxy_image': 'kubeRbacProxyImage',
         'memory_limit': 'memoryLimit',
         'memory_request': 'memoryRequest',
+        'oauth_proxy_image': 'oauthProxyImage',
         'upstream_timeout_seconds': 'upstreamTimeoutSeconds'
     }
 
-    def __init__(self, cpu_limit='', cpu_request='', image='', memory_limit='', memory_request='', upstream_timeout_seconds=None, local_vars_configuration=None):  # noqa: E501
+    def __init__(self, cpu_limit='', cpu_request='', kube_rbac_proxy_image=None, memory_limit='', memory_request='', oauth_proxy_image='', upstream_timeout_seconds=None, local_vars_configuration=None):  # noqa: E501
         """V1beta1OauthConfig - a model defined in OpenAPI"""  # noqa: E501
         if local_vars_configuration is None:
             local_vars_configuration = Configuration()
@@ -72,17 +74,20 @@ class V1beta1OauthConfig(object):
 
         self._cpu_limit = None
         self._cpu_request = None
-        self._image = None
+        self._kube_rbac_proxy_image = None
         self._memory_limit = None
         self._memory_request = None
+        self._oauth_proxy_image = None
         self._upstream_timeout_seconds = None
         self.discriminator = None
 
         self.cpu_limit = cpu_limit
         self.cpu_request = cpu_request
-        self.image = image
+        if kube_rbac_proxy_image is not None:
+            self.kube_rbac_proxy_image = kube_rbac_proxy_image
         self.memory_limit = memory_limit
         self.memory_request = memory_request
+        self.oauth_proxy_image = oauth_proxy_image
         if upstream_timeout_seconds is not None:
             self.upstream_timeout_seconds = upstream_timeout_seconds
 
@@ -133,27 +138,25 @@ class V1beta1OauthConfig(object):
         self._cpu_request = cpu_request
 
     @property
-    def image(self):
-        """Gets the image of this V1beta1OauthConfig.  # noqa: E501
+    def kube_rbac_proxy_image(self):
+        """Gets the kube_rbac_proxy_image of this V1beta1OauthConfig.  # noqa: E501
 
 
-        :return: The image of this V1beta1OauthConfig.  # noqa: E501
+        :return: The kube_rbac_proxy_image of this V1beta1OauthConfig.  # noqa: E501
         :rtype: str
         """
-        return self._image
+        return self._kube_rbac_proxy_image
 
-    @image.setter
-    def image(self, image):
-        """Sets the image of this V1beta1OauthConfig.
+    @kube_rbac_proxy_image.setter
+    def kube_rbac_proxy_image(self, kube_rbac_proxy_image):
+        """Sets the kube_rbac_proxy_image of this V1beta1OauthConfig.
 
 
-        :param image: The image of this V1beta1OauthConfig.  # noqa: E501
+        :param kube_rbac_proxy_image: The kube_rbac_proxy_image of this V1beta1OauthConfig.  # noqa: E501
         :type: str
         """
-        if self.local_vars_configuration.client_side_validation and image is None:  # noqa: E501
-            raise ValueError("Invalid value for `image`, must not be `None`")  # noqa: E501
 
-        self._image = image
+        self._kube_rbac_proxy_image = kube_rbac_proxy_image
 
     @property
     def memory_limit(self):
@@ -200,6 +203,29 @@ class V1beta1OauthConfig(object):
             raise ValueError("Invalid value for `memory_request`, must not be `None`")  # noqa: E501
 
         self._memory_request = memory_request
+
+    @property
+    def oauth_proxy_image(self):
+        """Gets the oauth_proxy_image of this V1beta1OauthConfig.  # noqa: E501
+
+
+        :return: The oauth_proxy_image of this V1beta1OauthConfig.  # noqa: E501
+        :rtype: str
+        """
+        return self._oauth_proxy_image
+
+    @oauth_proxy_image.setter
+    def oauth_proxy_image(self, oauth_proxy_image):
+        """Sets the oauth_proxy_image of this V1beta1OauthConfig.
+
+
+        :param oauth_proxy_image: The oauth_proxy_image of this V1beta1OauthConfig.  # noqa: E501
+        :type: str
+        """
+        if self.local_vars_configuration.client_side_validation and oauth_proxy_image is None:  # noqa: E501
+            raise ValueError("Invalid value for `oauth_proxy_image`, must not be `None`")  # noqa: E501
+
+        self._oauth_proxy_image = oauth_proxy_image
 
     @property
     def upstream_timeout_seconds(self):
