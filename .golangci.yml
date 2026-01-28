@@ -1,6 +1,6 @@
 run:
   timeout: 6m
-  go: "1.23"
+  go: "1.25"
   tests: true
 
 issues:
@@ -15,8 +15,7 @@ issues:
     - "zz_generated.*.go"
 
 output:
-  formats:
-    - format: "colored-line-number"
+  formats: colored-line-number
   print-issued-lines: true
   print-linter-name: true
   path-prefix: ""
