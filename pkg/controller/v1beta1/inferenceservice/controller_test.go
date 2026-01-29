@@ -304,12 +304,16 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					Namespace: serviceKey.Namespace,
 				}
 				actualService := &knservingv1.Service{}
-				Eventually(func() error { return k8sClient.Get(context.TODO(), predictorServiceKey, actualService) }, timeout).
-					Should(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(context.TODO(), predictorServiceKey, actualService)
+				},
+					timeout, interval).Should(Succeed())
+
 				Expect(actualService.Spec.Template.Annotations).NotTo(HaveKey(autoscaling.InitialScaleAnnotationKey))
 			})
 		})
 	})
+
 	Context("with knative configured to allow zero initial scale", func() {
 		BeforeEach(func() {
 			// Patch the existing config-autoscaler configmap to set allow-zero-initial-scale to true
@@ -559,8 +563,9 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					Namespace: serviceKey.Namespace,
 				}
 				actualService := &knservingv1.Service{}
-				Eventually(func() error { return k8sClient.Get(context.TODO(), predictorServiceKey, actualService) }, timeout).
-					Should(Succeed())
+				Eventually(func() error {
+					return k8sClient.Get(context.TODO(), predictorServiceKey, actualService)
+				}, timeout, interval).Should(Succeed())
 
 				Expect(actualService.Spec.Template.Annotations[autoscaling.InitialScaleAnnotationKey]).To(Equal("0"))
 			})
@@ -4564,12 +4569,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err != nil {
 					return false
 				}
-
-				if actualIsvc.Status.URL != nil && actualIsvc.Status.Address.URL != nil {
-					fmt.Printf("\n actual status URL: %s -- expeted URL %s\n", actualIsvc.Status.URL, expectedURL)
-					fmt.Printf("\n actual Status ADdress: %s -- expeted ADDRESS %s\n", actualIsvc.Status.Address.URL, expectedAddressURL.URL)
-				}
-
 				return reflect.DeepEqual(actualIsvc.Status.URL, expectedURL) &&
 					reflect.DeepEqual(actualIsvc.Status.Address.URL, expectedAddressURL.URL)
 			}, timeout, interval).Should(BeTrue())

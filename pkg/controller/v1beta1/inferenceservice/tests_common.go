@@ -204,9 +204,8 @@ func getExpectedIsvcStatus(serviceKey types.NamespacedName, protocol, host, comp
 			ModelRevisionStates: &v1beta1.ModelRevisionStates{TargetModelState: "Pending"},
 			ModelCopies:         &v1beta1.ModelCopies{},
 		},
-		DeploymentMode:            string(constants.Standard),
-		ServingRuntimeName:        "tf-serving-raw",
-		ClusterServingRuntimeName: "",
+		DeploymentMode:     string(constants.Standard),
+		ServingRuntimeName: "tf-serving-raw",
 	}
 }
 
@@ -242,7 +241,7 @@ func getDefaultMetrics() []v1beta1.MetricsSpec {
 				},
 				Target: v1beta1.MetricTarget{
 					Type:  v1beta1.ValueMetricType,
-					Value: &v1beta1.MetricQuantity{},
+					Value: v1beta1.NewMetricQuantity(""),
 				},
 			},
 		},
