@@ -44,6 +44,6 @@ spec:
 EOF
 } || true
 
-wait_for_crd certificates.cert-manager.io 90s
+wait_for_crd certificates.cert-manager.io 180s
 
 echo "✅ Cert-manager installed"
