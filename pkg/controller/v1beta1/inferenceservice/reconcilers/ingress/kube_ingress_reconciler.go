@@ -140,21 +140,9 @@ func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Infe
 		return err
 	}
 
-	internalHost := getRawServiceHost(isvc)
-	url := &apis.URL{
-		Host:   internalHost,
-		Scheme: "http", // odh specific change, scheme is decided based on auth annotation
-		Path:   "",
-	}
-
-	if authEnabled {
-		internalHost += ":" + strconv.Itoa(constants.OauthProxyPort)
-		url.Host = internalHost
-		url.Scheme = "https"
-	}
-
-	isvc.Status.Address = &duckv1.Addressable{
-		URL: url,
+	isvc.Status.Address, err = createAddress(ctx, r.client, isvc, authEnabled)
+	if err != nil {
+		return err
 	}
 
 	isvc.Status.SetCondition(v1beta1.IngressReady, &apis.Condition{
@@ -199,6 +187,44 @@ func createRawURLODH(ctx context.Context, client client.Client, isvc *v1beta1.In
 		}
 	}
 	return url, nil
+}
+
+func createAddress(ctx context.Context, client client.Client, isvc *v1beta1.InferenceService, authEnabled bool) (*duckv1.Addressable, error) {
+	internalHost := getRawServiceHost(isvc)
+	url := &apis.URL{
+		Host:   internalHost,
+		Scheme: "http", // odh specific change, scheme is decided based on auth annotation
+		Path:   "",
+	}
+
+	if authEnabled {
+		internalHost += ":" + strconv.Itoa(constants.OauthProxyPort)
+		url.Host = internalHost
+		url.Scheme = "https"
+	} else {
+		// Check if the entry point service is headless (ClusterIP: None).
+		// When headless, the service port mapping (80 -> 8080) doesn't apply,
+		// so we must include the container port in the URL.
+		// If a transformer exists, it becomes the entry point; otherwise, the predictor is.
+		entryPointSvcName := constants.PredictorServiceName(isvc.Name)
+		if isvc.Spec.Transformer != nil {
+			entryPointSvcName = constants.TransformerServiceName(isvc.Name)
+		}
+		entryPointSvc := &corev1.Service{}
+		if err := client.Get(ctx, types.NamespacedName{
+			Namespace: isvc.Namespace,
+			Name:      entryPointSvcName,
+		}, entryPointSvc); err != nil {
+			return nil, fmt.Errorf("failed to get entry point service %s: %w", entryPointSvcName, err)
+		}
+		if entryPointSvc.Spec.ClusterIP == corev1.ClusterIPNone {
+			url.Host = internalHost + ":" + constants.InferenceServiceDefaultHttpPort
+		}
+	}
+
+	return &duckv1.Addressable{
+		URL: url,
+	}, nil
 }
 
 func generateRule(ingressHost string, componentName string, path string, port int32) netv1.IngressRule { //nolint:unparam
