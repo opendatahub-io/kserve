@@ -54,10 +54,6 @@ echo "Found ODH operator pod: $POD_NAME"
 echo "Cleaning up existing manifests in PVC..."
 oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "rm -rf /opt/manifests/kserve/* /opt/manifests/odh-model-controller/*" || true
 
-# Create subdirectories (mount point should already exist from volume mount)
-echo "Creating subdirectories in PVC..."
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- mkdir -p /opt/manifests/kserve /opt/manifests/odh-model-controller
-
 # Copy config directory to PVC using oc cp
 echo "Copying config directory to PVC..."
 oc cp "${PROJECT_ROOT}/config/." ${ODH_OPERATOR_NAMESPACE}/${POD_NAME}:/opt/manifests/kserve
