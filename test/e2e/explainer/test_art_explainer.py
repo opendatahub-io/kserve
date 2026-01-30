@@ -38,11 +38,11 @@ kserve_client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/c
 pytest.skip("ODH does not support art explainer at the moment", allow_module_level=True)
 
 
-@pytest.mark.path_based_routing
 @pytest.mark.explainer
 @pytest.mark.asyncio(scope="session")
 async def test_tabular_explainer(rest_v1_client):
-    service_name = "art-explainer"
+    suffix = str(uuid.uuid4())[1:6]
+    service_name = "art-explainer" + suffix
     isvc = V1beta1InferenceService(
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
@@ -58,7 +58,7 @@ async def test_tabular_explainer(rest_v1_client):
                         limits={"cpu": "100m", "memory": "256Mi"},
                     ),
                 ),
-                timeout=180,
+                timeout=300,
             ),
             explainer=V1beta1ExplainerSpec(
                 min_replicas=1,
@@ -71,7 +71,7 @@ async def test_tabular_explainer(rest_v1_client):
                     ),
                     config={"nb_classes": "10"},
                 ),
-                timeout=180,
+                timeout=300,
             ),
         ),
     )
@@ -134,7 +134,7 @@ async def test_raw_tabular_explainer(rest_v1_client, network_layer):
                         limits={"cpu": "100m", "memory": "256Mi"},
                     ),
                 ),
-                timeout=180,
+                timeout=300,
             ),
             explainer=V1beta1ExplainerSpec(
                 min_replicas=1,
@@ -147,7 +147,7 @@ async def test_raw_tabular_explainer(rest_v1_client, network_layer):
                     ),
                     config={"nb_classes": "10"},
                 ),
-                timeout=180,
+                timeout=300,
             ),
         ),
     )

@@ -21,7 +21,7 @@ import kserve
 from huggingfaceserver.request_logger import RequestLogger
 from kserve import logging
 from kserve.logging import logger
-from kserve.storage import Storage
+from kserve_storage import Storage
 
 from transformers import AutoConfig
 
@@ -71,7 +71,7 @@ def is_vllm_backend_enabled(
 
 
 try:
-    from vllm.utils import FlexibleArgumentParser
+    from vllm.utils.argparse_utils import FlexibleArgumentParser
 
     parser = FlexibleArgumentParser(parents=[kserve.model_server.parser])
 except ImportError:

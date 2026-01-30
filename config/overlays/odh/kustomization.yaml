@@ -9,6 +9,7 @@ namespace: opendatahub
 
 patches:
 - path: remove-namespace.yaml
+#- path: remove-cert-manager.yaml  # Not needed - cert-manager resources already commented out in base
 - path: inferenceservice-config-patch.yaml
 - path: set-resources-manager-patch.yaml
 

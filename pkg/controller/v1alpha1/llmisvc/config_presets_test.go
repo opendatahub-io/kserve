@@ -100,12 +100,6 @@ func TestPresetFiles(t *testing.T) {
 										"--vllm-port=8001",
 										"--connector=nixlv2",
 										"--secure-proxy=true",
-										"--cert-path=/etc/ssl/certs",
-										"--decoder-use-tls=true",
-										"--decoder-tls-insecure-skip-verify=true",
-										"--prefiller-use-tls=true",
-										"--prefiller-tls-insecure-skip-verify=true",
-										"--enable-ssrf-protection=true",
 									},
 									Env: []corev1.EnvVar{
 										{
@@ -125,7 +119,7 @@ func TestPresetFiles(t *testing.T) {
 									},
 									SecurityContext: &corev1.SecurityContext{
 										AllowPrivilegeEscalation: ptr.To(false),
-										RunAsNonRoot:             ptr.To(true),
+										RunAsNonRoot:             ptr.To(false),
 										Capabilities: &corev1.Capabilities{
 											Drop: []corev1.Capability{"ALL"},
 										},
@@ -150,7 +144,7 @@ func TestPresetFiles(t *testing.T) {
 											HTTPGet: &corev1.HTTPGetAction{
 												Path:   "/health",
 												Port:   intstr.FromInt32(8000),
-												Scheme: corev1.URISchemeHTTPS,
+												Scheme: corev1.URISchemeHTTP,
 											},
 										},
 										InitialDelaySeconds: 10,
@@ -163,7 +157,7 @@ func TestPresetFiles(t *testing.T) {
 											HTTPGet: &corev1.HTTPGetAction{
 												Path:   "/health",
 												Port:   intstr.FromInt32(8000),
-												Scheme: corev1.URISchemeHTTPS,
+												Scheme: corev1.URISchemeHTTP,
 											},
 										},
 										InitialDelaySeconds: 10,
@@ -178,7 +172,6 @@ func TestPresetFiles(t *testing.T) {
 									Name:    "main",
 									Image:   "ghcr.io/llm-d/llm-d-dev:v0.2.2",
 									Command: []string{"/bin/bash", "-c"},
-									Args:    []string{"START_RANK=0\neval \"vllm serve \\\n  /mnt/models \\\n  --served-model-name \"llama\" \\\n  --port 8001 \\\n  --api-server-count ${VLLM_API_SERVER_COUNT:-8} \\\n  --disable-log-requests \\\n--enable-expert-parallel \\\n--tensor-parallel-size 1 \\\n  --data-parallel-size $(( 2 * 4 )) \\\n  --data-parallel-size-local 2 \\\n  --data-parallel-address $(LWS_LEADER_ADDRESS) \\\n  --data-parallel-rpc-port 5555 \\\n  --data-parallel-start-rank $START_RANK \\\n  --data-parallel-hybrid-lb \\\n  ${VLLM_ADDITIONAL_ARGS} \\\n  --trust-remote-code \\\n  --enable-ssl-refresh \\\n  --ssl-certfile \\\n  /etc/ssl/certs/tls.crt \\\n  --ssl-keyfile \\\n  /etc/ssl/certs/tls.key\""},
 									Ports: []corev1.ContainerPort{
 										{
 											ContainerPort: 8001,
@@ -223,7 +216,7 @@ func TestPresetFiles(t *testing.T) {
 											HTTPGet: &corev1.HTTPGetAction{
 												Path:   "/health",
 												Port:   intstr.FromInt32(8001),
-												Scheme: corev1.URISchemeHTTPS,
+												Scheme: corev1.URISchemeHTTP,
 											},
 										},
 										InitialDelaySeconds: 300,
@@ -236,7 +229,7 @@ func TestPresetFiles(t *testing.T) {
 											HTTPGet: &corev1.HTTPGetAction{
 												Path:   "/health",
 												Port:   intstr.FromInt32(8001),
-												Scheme: corev1.URISchemeHTTPS,
+												Scheme: corev1.URISchemeHTTP,
 											},
 										},
 										InitialDelaySeconds: 200,
@@ -252,11 +245,12 @@ func TestPresetFiles(t *testing.T) {
 											Add: []corev1.Capability{
 												"IPC_LOCK",
 												"SYS_RAWIO",
+												"NET_RAW",
 											},
 											Drop: []corev1.Capability{"ALL"},
 										},
 										AllowPrivilegeEscalation: ptr.To(false),
-										RunAsNonRoot:             ptr.To(true),
+										RunAsNonRoot:             ptr.To(false),
 										ReadOnlyRootFilesystem:   ptr.To(false),
 										SeccompProfile: &corev1.SeccompProfile{
 											Type: corev1.SeccompProfileTypeRuntimeDefault,
@@ -299,8 +293,7 @@ func TestPresetFiles(t *testing.T) {
 								{
 									Name:    "main",
 									Image:   "ghcr.io/llm-d/llm-d-dev:v0.2.2",
-									Command: []string{"/bin/sh", "-c"},
-									Args:    []string{"START_RANK=$(( ${LWS_WORKER_INDEX:-0} * 2 ))\neval \"vllm serve \\\n  /mnt/models \\\n  --served-model-name \"llama\" \\\n  --port 8001 \\\n  --disable-log-requests \\\n--enable-expert-parallel \\\n--tensor-parallel-size 1 \\\n  --data-parallel-size $(( 2 * 4 )) \\\n  --data-parallel-size-local 2 \\\n  --data-parallel-address $(LWS_LEADER_ADDRESS) \\\n  --data-parallel-rpc-port 5555 \\\n  --data-parallel-start-rank $START_RANK \\\n  --data-parallel-hybrid-lb \\\n  ${VLLM_ADDITIONAL_ARGS} \\\n  --trust-remote-code \\\n  --headless \\\n  --enable-ssl-refresh \\\n  --ssl-certfile \\\n  /etc/ssl/certs/tls.crt \\\n  --ssl-keyfile \\\n  /etc/ssl/certs/tls.key\""},
+									Command: []string{"/bin/bash", "-c"},
 									Ports: []corev1.ContainerPort{
 										{
 											ContainerPort: 8001,
@@ -331,11 +324,12 @@ func TestPresetFiles(t *testing.T) {
 											Add: []corev1.Capability{
 												"IPC_LOCK",
 												"SYS_RAWIO",
+												"NET_RAW",
 											},
 											Drop: []corev1.Capability{"ALL"},
 										},
 										AllowPrivilegeEscalation: ptr.To(false),
-										RunAsNonRoot:             ptr.To(true),
+										RunAsNonRoot:             ptr.To(false),
 										ReadOnlyRootFilesystem:   ptr.To(false),
 										SeccompProfile: &corev1.SeccompProfile{
 											Type: corev1.SeccompProfileTypeRuntimeDefault,

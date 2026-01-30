@@ -1,6 +1,5 @@
 # Build the inference-router binary
-# Upstream already is on go 1.24, however there is no gotoolset for 1.24 yet.
-FROM registry.access.redhat.com/ubi9/go-toolset:1.24 as builder
+FROM registry.access.redhat.com/ubi9/go-toolset:1.25 as builder
 
 # Copy in the go src
 WORKDIR /go/src/github.com/kserve/kserve

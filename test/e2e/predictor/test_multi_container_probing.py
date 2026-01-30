@@ -67,8 +67,8 @@ async def test_multi_container_probing(rest_v1_client):
         sklearn=V1beta1SKLearnSpec(
             storage_uri="gs://kfserving-examples/models/sklearn/1.0/model",
             resources=V1ResourceRequirements(
-                requests={"cpu": "50m", "memory": "128Mi"},
-                limits={"cpu": "100m", "memory": "256Mi"},
+                requests={"cpu": "100m", "memory": "128Mi"},
+                limits={"cpu": "200m", "memory": "256Mi"},
             ),
             liveness_probe=V1Probe(
                 http_get=V1HTTPGetAction(
@@ -88,7 +88,7 @@ async def test_multi_container_probing(rest_v1_client):
         containers=[
             V1Container(
                 name="kserve-agent",
-                image="quay.io/opendatahub/kserve-agent:v0.14",
+                image="quay.io/opendatahub/kserve-agent:latest",
                 ports=[V1ContainerPort(container_port=8080, protocol="TCP")],
                 env=[
                     V1EnvVar(name="AGENT_TARGET_PORT", value="8080"),

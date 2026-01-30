@@ -78,6 +78,8 @@ fi
 echo "Installing KServe Python SDK ..."
 pushd $PROJECT_ROOT >/dev/null
   ./test/scripts/gh-actions/setup-uv.sh
+  # Add bin directory to PATH so uv command is available
+  export PATH="${PROJECT_ROOT}/bin:${PATH}"
 popd
 pushd $PROJECT_ROOT/python/kserve >/dev/null
   uv sync --active --group test

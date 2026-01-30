@@ -20,7 +20,8 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"strings"
+
+	"github.com/kserve/kserve/pkg/utils"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/constants"
 )
 
 func (r *LLMISVCReconciler) reconcileSingleNodeWorkload(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, config *Config) error {
@@ -59,7 +61,12 @@ func (r *LLMISVCReconciler) reconcileSingleNodeMainWorkload(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("failed to get expected main deployment: %w", err)
 	}
-	if llmSvc.Spec.Worker != nil {
+	if isStopped := utils.GetForceStopRuntime(llmSvc); isStopped || llmSvc.Spec.Worker != nil {
+		if isStopped {
+			llmSvc.MarkMainWorkloadNotReady("Stopped", "Service is stopped")
+		} else {
+			llmSvc.MarkMainWorkloadUnset()
+		}
 		return Delete(ctx, r, llmSvc, expected)
 	}
 	if err := Reconcile(ctx, r, llmSvc, &appsv1.Deployment{}, expected, semanticDeploymentIsEqual); err != nil {
@@ -146,7 +153,13 @@ func (r *LLMISVCReconciler) reconcileSingleNodePrefill(ctx context.Context, llmS
 	if err != nil {
 		return fmt.Errorf("failed to get expected prefill deployment: %w", err)
 	}
-	if llmSvc.Spec.Prefill == nil || llmSvc.Spec.Prefill.Worker != nil {
+	if isStopped := utils.GetForceStopRuntime(llmSvc); isStopped || llmSvc.Spec.Prefill == nil || llmSvc.Spec.Prefill.Worker != nil {
+		if isStopped {
+			llmSvc.MarkPrefillWorkloadNotReady("Stopped", "Service is stopped")
+		} else {
+			llmSvc.MarkPrefillWorkloadUnset()
+		}
+
 		if err := Delete(ctx, r, llmSvc, prefill); err != nil {
 			return fmt.Errorf("failed to delete prefill main deployment: %w", err)
 		}
@@ -217,24 +230,17 @@ func (r *LLMISVCReconciler) expectedPrefillMainDeployment(ctx context.Context, l
 }
 
 func (r *LLMISVCReconciler) propagateDeploymentMetadata(llmSvc *v1alpha1.LLMInferenceService, expected *appsv1.Deployment) {
-	ann := make(map[string]string, len(expected.Annotations))
-	for k, v := range llmSvc.GetAnnotations() {
-		if strings.HasPrefix(k, "k8s.v1.cni.cncf.io") {
-			ann[k] = v
-			if expected.Annotations == nil {
-				expected.Annotations = make(map[string]string, 1)
-			}
-			expected.Annotations[k] = v
-		}
-	}
+	// Define the prefixes to approve for annotations and labels
+	approvedAnnotationPrefixes := []string{"k8s.v1.cni.cncf.io", constants.KueueAPIGroupName}
+	approvedLabelPrefixes := []string{constants.KueueAPIGroupName}
 
-	if expected.Spec.Template.Annotations == nil {
-		expected.Spec.Template.Annotations = ann
-	} else {
-		for k, v := range ann {
-			expected.Spec.Template.Annotations[k] = v
-		}
-	}
+	// Propagate approved annotations to the Deployment and its Pod template
+	utils.PropagatePrefixedMap(llmSvc.GetAnnotations(), &expected.Annotations, approvedAnnotationPrefixes...)
+	utils.PropagatePrefixedMap(llmSvc.GetAnnotations(), &expected.Spec.Template.Annotations, approvedAnnotationPrefixes...)
+
+	// Propagate approved labels to the Deployment and its Pod template
+	utils.PropagatePrefixedMap(llmSvc.GetLabels(), &expected.Labels, approvedLabelPrefixes...)
+	utils.PropagatePrefixedMap(llmSvc.GetLabels(), &expected.Spec.Template.Labels, approvedLabelPrefixes...)
 }
 
 func (r *LLMISVCReconciler) propagateDeploymentStatus(ctx context.Context, expected *appsv1.Deployment, ready func(), notReady func(reason, messageFormat string, messageA ...interface{})) error {
@@ -278,7 +284,7 @@ func (r *LLMISVCReconciler) reconcileSingleNodeMainServiceAccount(ctx context.Co
 	if err != nil {
 		return fmt.Errorf("failed to created expected single node service account: %w", err)
 	}
-	if !hasRoutingSidecar(expectedDeployment.Spec.Template.Spec) {
+	if utils.GetForceStopRuntime(llmSvc) || !hasRoutingSidecar(expectedDeployment.Spec.Template.Spec) {
 		return Delete(ctx, r, llmSvc, serviceAccount)
 	}
 
@@ -300,7 +306,7 @@ func (r *LLMISVCReconciler) reconcileSingleNodeMainRole(ctx context.Context, llm
 	}
 
 	role := r.expectedSingleNodeRole(llmSvc)
-	if !hasRoutingSidecar(expectedDeployment.Spec.Template.Spec) {
+	if utils.GetForceStopRuntime(llmSvc) || !hasRoutingSidecar(expectedDeployment.Spec.Template.Spec) {
 		return Delete(ctx, r, llmSvc, role)
 	}
 
@@ -318,7 +324,7 @@ func (r *LLMISVCReconciler) reconcileSingleNodeMainRoleBinding(ctx context.Conte
 	}
 
 	roleBinding := r.expectedSingleNodeRoleBinding(llmSvc, sa)
-	if !hasRoutingSidecar(expectedDeployment.Spec.Template.Spec) {
+	if utils.GetForceStopRuntime(llmSvc) || !hasRoutingSidecar(expectedDeployment.Spec.Template.Spec) {
 		return Delete(ctx, r, llmSvc, roleBinding)
 	}
 

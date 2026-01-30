@@ -581,6 +581,7 @@ async def test_sklearn_keda_scale_new_spec_external(rest_v1_client, network_laye
     assert trigger_metadata["threshold"] == "50.000000"
     assert trigger_metadata["authModes"] == "bearer"
     assert authentication_ref["name"] == "inference-prometheus-auth"
+
     res = await predict_isvc(
         rest_v1_client, service_name, INPUT, network_layer=network_layer
     )
@@ -590,6 +591,7 @@ async def test_sklearn_keda_scale_new_spec_external(rest_v1_client, network_laye
 
 @pytest.mark.skip(reason="ODH doesn't use OTEL for keda autoscaling, failed to get existing OTel Collector resource: no kind is registered for the type v1beta1.OpenTelemetryCollector")
 @pytest.mark.raw
+@pytest.mark.autoscaling
 @pytest.mark.asyncio(scope="session")
 async def test_scaling_sklearn_with_keda_otel_add_on(rest_v1_client, network_layer):
     """
