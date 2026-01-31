@@ -5,11 +5,13 @@ kind: Kustomization
 namespace: kserve
 
 # Labels to add to all resources and selectors.
-#commonLabels:
-#  app.kubernetes.io/name: kserve
+labels:
+- pairs:
+    app.kubernetes.io/name: kserve
+    app.kubernetes.io/component: kserve
 resources:
+- ../certmanager/kserve
 - ../crd
-- ../configmap
 - ../rbac
 - ../manager
 - ../webhook
@@ -21,8 +23,6 @@ resources:
 
 generatorOptions:
   disableNameSuffixHash: true
-
-
 
 replacements:
 # Replace with the name of the webhook service.
@@ -302,4 +302,3 @@ patches:
 #       path: "/webhooks/0/clientConfig/caBundle"
 #   target:
 #     kind: ValidatingWebhookConfiguration
-

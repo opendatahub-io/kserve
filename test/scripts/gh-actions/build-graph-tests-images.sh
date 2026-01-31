@@ -20,11 +20,26 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-echo "Github SHA ${GITHUB_SHA}"
-export DOCKER_REPO=kserve
-export SUCCESS_200_ISVC_IMG=success-200-isvc
-export ERROR_404_ISVC_IMG=error-404-isvc
-export DOCKER_IMAGES_PATH=/tmp/docker-images
+# Load image configurations
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+source "${PROJECT_ROOT}/kserve-images.sh"
+
+if [ -d "${DOCKER_IMAGES_PATH}" ]; then
+  mkdir -p "${DOCKER_IMAGES_PATH}"  
+fi
+
+: "${BUILDER:=docker}"
+if [ $BUILDER == "docker" ]; then
+  BUILDER=docker
+  BUILDER_TYPE=docker
+  # docker buildx create --name mybuilder --driver docker-container --use
+  else
+  BUILDER=podman
+  BUILDER_TYPE=local
+fi
+
+echo "Github SHA ${TAG}"
 : "${QUAY_REPO:=}"
 SUCCESS_200_ISVC_IMG_TAG=${QUAY_REPO}/${DOCKER_REPO}/${SUCCESS_200_ISVC_IMG}:${GITHUB_SHA}
 ERROR_404_ISVC_IMG_TAG=${QUAY_REPO}/${DOCKER_REPO}/${ERROR_404_ISVC_IMG}:${GITHUB_SHA}
@@ -33,30 +48,20 @@ if [ -z "${QUAY_REPO}" ]; then
   ERROR_404_ISVC_IMG_TAG=${DOCKER_REPO}/${ERROR_404_ISVC_IMG}:${GITHUB_SHA}
 fi
 
-
-: "${BUILDER:=docker}"
-if [ $BUILDER == "docker" ]; then
-  BUILDER=docker
-  BUILDER_TYPE=docker
-  # docker buildx create --name mybuilder --driver docker-container --use
-  else 
-  BUILDER=podman
-  BUILDER_TYPE=local
-fi
-
 pushd python >/dev/null
 echo "Building success_200_isvc image"
 $BUILDER buildx build -t "${SUCCESS_200_ISVC_IMG_TAG}" -f success_200_isvc.Dockerfile \
-  -o type=${BUILDER_TYPE} .
+  -o type=docker,dest="${DOCKER_IMAGES_PATH}/${SUCCESS_200_ISVC_IMG}-${TAG}",compression-level=0 .
 echo "Done building success_200_isvc image"
 echo "Building error_404_isvc image"
 $BUILDER buildx build -t "${ERROR_404_ISVC_IMG_TAG}" -f error_404_isvc.Dockerfile \
-  -o type=${BUILDER_TYPE} .
+  -o type=docker,dest="${DOCKER_IMAGES_PATH}/${ERROR_404_ISVC_IMG}-${TAG}",compression-level=0 .
 echo "Done building error_404_isvc image"
+
 if $RUNNING_LOCAL; then
   $BUILDER push ${SUCCESS_200_ISVC_IMG_TAG}
   $BUILDER push ${ERROR_404_ISVC_IMG_TAG}
-fi 
+fi
 popd
 echo "Done building images"
 

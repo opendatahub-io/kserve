@@ -4,7 +4,13 @@ kind: Kustomization
 resources:
 - ../../crd/external
 - ../../default
+- ../../base
 - minio
+
+components:
+- ../../components/kserve
+- ../../components/llmisvc
+- ../../components/localmodel
 
 patches:
 - path: configmap/inferenceservice.yaml
