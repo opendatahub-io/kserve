@@ -51,6 +51,7 @@ if $RUNNING_LOCAL; then
 fi
 
 : "${SETUP_E2E:=true}"
+
 if [ "$SETUP_E2E" = "true" ]; then
   echo "Installing on cluster"
   pushd $PROJECT_ROOT >/dev/null

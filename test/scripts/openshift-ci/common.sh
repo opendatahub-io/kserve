@@ -61,6 +61,67 @@ wait_for_crd() {
   oc wait --for=condition=Established --timeout="$timeout" "crd/$crd"
 }
 
+# Helper function to wait for and approve an operator install plan
+# Usage: wait_for_installplan_and_approve <namespace> <operator-name> [timeout]
+#   <namespace>     : namespace where the operator is being installed
+#   <operator-name> : name pattern to match in clusterServiceVersionNames (e.g., "opendatahub-operator")
+#   [timeout]       : timeout in seconds (default: 60)
+wait_for_installplan_and_approve() {
+  local namespace=${1:?namespace is required}
+  local operator_name=${2:?operator name is required}
+  local timeout=${3:-60}
+
+  echo "Waiting for ${operator_name} install plan to be created..."
+  local counter=0
+  local install_plan=""
+  while [ "$counter" -lt "$timeout" ]; do
+    install_plan=$(oc get installplan -n "${namespace}" -o json | jq -r ".items[] | select(.spec.clusterServiceVersionNames[]? | contains(\"${operator_name}\")) | select(.spec.approved == false) | .metadata.name" 2>/dev/null | head -1)
+    if [ -n "$install_plan" ]; then
+      echo "Found install plan: $install_plan"
+      break
+    fi
+    sleep 2
+    counter=$((counter + 2))
+  done
+
+  if [ -n "$install_plan" ]; then
+    echo "Approving install plan $install_plan..."
+    oc patch installplan "$install_plan" -n "${namespace}" --type merge --patch '{"spec":{"approved":true}}'
+  else
+    echo "No unapproved install plan found for ${operator_name} within timeout"
+  fi
+}
+
+# Helper function to wait for a CSV to reach "Succeeded" status
+# Usage: wait_for_csv_ready <namespace> <csv-name-pattern> [timeout]
+#   <namespace>        : namespace where the CSV exists
+#   <csv-name-pattern> : pattern to match CSV name (e.g., "opendatahub-operator" matches "opendatahub-operator.v1.2.3")
+#   [timeout]          : timeout in seconds (default: 300)
+wait_for_csv_ready() {
+  local namespace=${1:?namespace is required}
+  local csv_name_pattern=${2:?CSV name pattern is required}
+  local timeout=${3:-300}
+
+  echo "Waiting for ${csv_name_pattern} CSV to be installed..."
+  local counter=0
+  local csv_status=""
+  while [ "$counter" -lt "$timeout" ]; do
+    csv_status=$(oc get csv -n "${namespace}" -o json | jq -r ".items[] | select(.metadata.name | startswith(\"${csv_name_pattern}\")) | .status.phase" 2>/dev/null || echo "")
+    if [ "$csv_status" = "Succeeded" ]; then
+      echo "${csv_name_pattern} CSV is ready"
+      break
+    fi
+    echo "Waiting for CSV to be ready... (current status: ${csv_status:-NotFound}, $counter/$timeout)"
+    sleep 5
+    counter=$((counter + 5))
+  done
+
+  if [ "$counter" -ge "$timeout" ]; then
+    echo "Timeout waiting for ${csv_name_pattern} CSV to be ready"
+    return 1
+  fi
+}
+
 # Define deployment types that skip serverless installation
 MARKERS_SKIP_SERVERLESS=("raw" "graph" "predictor" "path_based_routing" "kserve_on_openshift")
 
