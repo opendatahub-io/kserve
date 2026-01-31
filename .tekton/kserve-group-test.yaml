@@ -49,22 +49,16 @@ spec:
       serviceAccountName: build-pipeline-kserve-group
     - pipelineTaskName: build-llmisvc-controller
       serviceAccountName: build-pipeline-kserve-group
-#    - pipelineTaskName: clone-repository
-#      serviceAccountName: build-pipeline-kserve-group
-#    - pipelineTaskName: clone-repository
-#      serviceAccountName: build-pipeline-kserve-group
-#    - pipelineTaskName: clone-repository
-#      serviceAccountName: build-pipeline-kserve-group
-#    - pipelineTaskName: clone-repository
-#      serviceAccountName: build-pipeline-kserve-group
-#    - pipelineTaskName: clone-repository
-#      serviceAccountName: build-pipeline-kserve-group
-#    - pipelineTaskName: clone-repository
-#      serviceAccountName: build-pipeline-kserve-group
-#    - pipelineTaskName: clone-repository
-#      serviceAccountName: build-pipeline-kserve-group
-#    - pipelineTaskName: clone-repository
-#      serviceAccountName: build-pipeline-kserve-group
+    - pipelineTaskName: build-sklearn-serving-runtime
+      serviceAccountName: build-pipeline-kserve-group
+    - pipelineTaskName: build-custom-transformer
+      serviceAccountName: build-pipeline-kserve-group
+    - pipelineTaskName: build-custom-model-grpc
+      serviceAccountName: build-pipeline-kserve-group
+    - pipelineTaskName: build-success-200-isvc
+      serviceAccountName: build-pipeline-kserve-group
+    - pipelineTaskName: build-error-404-isvc
+      serviceAccountName: build-pipeline-kserve-group
   workspaces:
   - name: git-auth
     secret:
