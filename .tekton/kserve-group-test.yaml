@@ -47,6 +47,24 @@ spec:
   taskRunSpecs:
     - pipelineTaskName: clone-repository
       serviceAccountName: build-pipeline-kserve-group
+    - pipelineTaskName: build-llmisvc-controller
+      serviceAccountName: build-pipeline-kserve-group
+#    - pipelineTaskName: clone-repository
+#      serviceAccountName: build-pipeline-kserve-group
+#    - pipelineTaskName: clone-repository
+#      serviceAccountName: build-pipeline-kserve-group
+#    - pipelineTaskName: clone-repository
+#      serviceAccountName: build-pipeline-kserve-group
+#    - pipelineTaskName: clone-repository
+#      serviceAccountName: build-pipeline-kserve-group
+#    - pipelineTaskName: clone-repository
+#      serviceAccountName: build-pipeline-kserve-group
+#    - pipelineTaskName: clone-repository
+#      serviceAccountName: build-pipeline-kserve-group
+#    - pipelineTaskName: clone-repository
+#      serviceAccountName: build-pipeline-kserve-group
+#    - pipelineTaskName: clone-repository
+#      serviceAccountName: build-pipeline-kserve-group
   workspaces:
   - name: git-auth
     secret:
