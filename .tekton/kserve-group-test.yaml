@@ -21,6 +21,10 @@ spec:
   params:
   - name: group-components
     value: '{ "kserve-agent-ci": "opendatahub/kserve-agent", "kserve-controller-ci": "opendatahub/kserve-controller", "kserve-router-ci": "opendatahub/kserve-router", "kserve-storage-initializer-ci": "opendatahub/kserve-storage-initializer" }'
+  - name: git-url
+    value: '{{source_url}}'
+  - name: revision
+    value: '{{revision}}'
   pipelineRef:
     resolver: git
     params:

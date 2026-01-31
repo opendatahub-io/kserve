@@ -8,10 +8,10 @@ metadata:
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
-      == "master"
+      == "stable"
   creationTimestamp: null
   labels:
-    appstudio.openshift.io/application: opendatahub-release
+    appstudio.openshift.io/application: opendatahub-builds
     appstudio.openshift.io/component: kserve-storage-initializer-ci
     pipelines.appstudio.openshift.io/type: build
   name: kserve-storage-initializer-on-push
