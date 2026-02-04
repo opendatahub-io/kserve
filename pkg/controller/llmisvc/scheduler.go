@@ -32,7 +32,6 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -211,20 +210,10 @@ func (r *LLMInferenceServiceReconciler) reconcileV1InferencePool(ctx context.Con
 			// Create new v1 InferencePool
 			_, err = r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(expected.GetNamespace()).Create(ctx, expected, metav1.CreateOptions{})
 			if err != nil {
-				// If the CRD doesn't exist, log and continue
-				if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
-					logger.V(1).Info("v1 InferencePool CRD not available, skipping")
-					return nil
-				}
 				return fmt.Errorf("failed to create v1 InferencePool: %w", err)
 			}
 			logger.Info("Created v1 InferencePool", "name", expected.GetName(), "namespace", expected.GetNamespace())
 			r.Eventf(llmSvc, corev1.EventTypeNormal, "Created", "Created v1 InferencePool %s/%s", expected.GetNamespace(), expected.GetName())
-			return nil
-		}
-		// If the CRD doesn't exist, log and continue
-		if meta.IsNoMatchError(err) {
-			logger.V(1).Info("v1 InferencePool CRD not available, skipping")
 			return nil
 		}
 		return fmt.Errorf("failed to get v1 InferencePool: %w", err)
@@ -356,7 +345,7 @@ func (r *LLMInferenceServiceReconciler) deleteV1InferencePool(ctx context.Contex
 	// Get the existing resource first
 	existing, err := r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(v1alpha2Pool.Namespace).Get(ctx, v1alpha2Pool.Name, metav1.GetOptions{})
 	if err != nil {
-		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
+		if apierrors.IsNotFound(err) {
 			return nil
 		}
 		return fmt.Errorf("failed to get v1 InferencePool: %w", err)
@@ -380,7 +369,7 @@ func (r *LLMInferenceServiceReconciler) deleteV1InferencePool(ctx context.Contex
 
 	err = r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(v1alpha2Pool.Namespace).Delete(ctx, v1alpha2Pool.Name, metav1.DeleteOptions{})
 	if err != nil {
-		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
+		if apierrors.IsNotFound(err) {
 			return nil
 		}
 		return fmt.Errorf("failed to delete v1 InferencePool: %w", err)
