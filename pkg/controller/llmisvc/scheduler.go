@@ -167,7 +167,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerInferencePool(ctx cont
 		if err := Delete(ctx, r, llmSvc, expected); err != nil {
 			return err
 		}
-		return r.deleteV1InferencePool(ctx, expected)
+		return r.deleteV1InferencePool(ctx, llmSvc, expected)
 	}
 
 	// Reconcile v1alpha2 InferencePool (typed client)
@@ -189,15 +189,74 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerInferencePool(ctx cont
 // reconcileV1InferencePool creates/updates a v1 InferencePool using the dynamic client.
 // This is needed because some Gateways (e.g., Istio 1.28+) only support the v1 API
 // (inference.networking.k8s.io) and not v1alpha2 (inference.networking.x-k8s.io).
-func (r *LLMInferenceServiceReconciler) reconcileV1InferencePool(ctx context.Context, _ *v1alpha1.LLMInferenceService, v1alpha2Pool *igwapi.InferencePool) error {
+// This function follows the same pattern as the generic Reconcile function in lifecycle_crud.go.
+func (r *LLMInferenceServiceReconciler) reconcileV1InferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, v1alpha2Pool *igwapi.InferencePool) error {
 	logger := log.FromContext(ctx)
 
 	if r.DynamicClient == nil {
-		logger.V(1).Info("DynamicClient not configured, skipping v1 InferencePool reconciliation")
-		return nil
+		// DynamicClient should always be configured; panic during tests to catch misconfiguration
+		panic("DynamicClient is nil - controller is misconfigured")
 	}
 
 	// Build unstructured v1 InferencePool from the v1alpha2 pool
+	expected := buildV1InferencePoolUnstructured(v1alpha2Pool)
+
+	logger.V(1).Info("Reconciling v1 InferencePool", "name", expected.GetName(), "namespace", expected.GetNamespace())
+
+	// Get current v1 InferencePool
+	curr, err := r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(expected.GetNamespace()).Get(ctx, expected.GetName(), metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// Create new v1 InferencePool
+			_, err = r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(expected.GetNamespace()).Create(ctx, expected, metav1.CreateOptions{})
+			if err != nil {
+				// If the CRD doesn't exist, log and continue
+				if apierrors.IsNotFound(err) || isNoKindMatchError(err) {
+					logger.V(1).Info("v1 InferencePool CRD not available, skipping")
+					return nil
+				}
+				return fmt.Errorf("failed to create v1 InferencePool: %w", err)
+			}
+			logger.Info("Created v1 InferencePool", "name", expected.GetName(), "namespace", expected.GetNamespace())
+			r.Eventf(llmSvc, corev1.EventTypeNormal, "Created", "Created v1 InferencePool %s/%s", expected.GetNamespace(), expected.GetName())
+			return nil
+		}
+		// If the CRD doesn't exist, log and continue
+		if isNoKindMatchError(err) {
+			logger.V(1).Info("v1 InferencePool CRD not available, skipping")
+			return nil
+		}
+		return fmt.Errorf("failed to get v1 InferencePool: %w", err)
+	}
+
+	// Check ownership - ensure the current resource is controlled by the same owner
+	if !isControlledByOwner(curr, v1alpha2Pool.OwnerReferences) {
+		return fmt.Errorf("v1 InferencePool %s/%s is not controlled by LLMInferenceService %s/%s",
+			curr.GetNamespace(), curr.GetName(), llmSvc.GetNamespace(), llmSvc.GetName())
+	}
+
+	// Compare spec, labels, and annotations to determine if update is needed
+	if semanticUnstructuredInferencePoolIsEqual(expected, curr) {
+		logger.V(2).Info("v1 InferencePool is up to date, skipping update", "name", expected.GetName())
+		return nil
+	}
+
+	// Set resourceVersion for update
+	expected.SetResourceVersion(curr.GetResourceVersion())
+
+	// Update existing v1 InferencePool
+	_, err = r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(expected.GetNamespace()).Update(ctx, expected, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update v1 InferencePool: %w", err)
+	}
+	logger.Info("Updated v1 InferencePool", "name", expected.GetName(), "namespace", expected.GetNamespace())
+	r.Eventf(llmSvc, corev1.EventTypeNormal, "Updated", "Updated v1 InferencePool %s/%s", expected.GetNamespace(), expected.GetName())
+
+	return nil
+}
+
+// buildV1InferencePoolUnstructured creates an unstructured v1 InferencePool from a v1alpha2 pool.
+func buildV1InferencePoolUnstructured(v1alpha2Pool *igwapi.InferencePool) *unstructured.Unstructured {
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   constants.InferencePoolV1Group,
@@ -239,60 +298,94 @@ func (r *LLMInferenceServiceReconciler) reconcileV1InferencePool(ctx context.Con
 	}
 
 	u.Object["spec"] = spec
+	return u
+}
 
-	logger.V(1).Info("Reconciling v1 InferencePool", "name", u.GetName(), "namespace", u.GetNamespace())
+// semanticUnstructuredInferencePoolIsEqual compares two unstructured InferencePool objects.
+func semanticUnstructuredInferencePoolIsEqual(expected, curr *unstructured.Unstructured) bool {
+	// Compare spec
+	expectedSpec, _, _ := unstructured.NestedMap(expected.Object, "spec")
+	currSpec, _, _ := unstructured.NestedMap(curr.Object, "spec")
+	if !equality.Semantic.DeepDerivative(expectedSpec, currSpec) {
+		return false
+	}
 
-	// Check if the v1 InferencePool CRD exists
-	_, err := r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(u.GetNamespace()).Get(ctx, u.GetName(), metav1.GetOptions{})
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			// Create new v1 InferencePool
-			_, err = r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(u.GetNamespace()).Create(ctx, u, metav1.CreateOptions{})
-			if err != nil {
-				// If the CRD doesn't exist, log and continue
-				if apierrors.IsNotFound(err) || isNoKindMatchError(err) {
-					logger.V(1).Info("v1 InferencePool CRD not available, skipping")
-					return nil
+	// Compare labels
+	if !equality.Semantic.DeepDerivative(expected.GetLabels(), curr.GetLabels()) {
+		return false
+	}
+
+	// Compare annotations
+	if !equality.Semantic.DeepDerivative(expected.GetAnnotations(), curr.GetAnnotations()) {
+		return false
+	}
+
+	return true
+}
+
+// isControlledByOwner checks if the unstructured object is controlled by one of the given owner references.
+func isControlledByOwner(obj *unstructured.Unstructured, expectedOwners []metav1.OwnerReference) bool {
+	if len(expectedOwners) == 0 {
+		return true
+	}
+
+	objOwners := obj.GetOwnerReferences()
+	for _, expected := range expectedOwners {
+		if expected.Controller != nil && *expected.Controller {
+			for _, actual := range objOwners {
+				if actual.Controller != nil && *actual.Controller &&
+					actual.UID == expected.UID {
+					return true
 				}
-				return fmt.Errorf("failed to create v1 InferencePool: %w", err)
 			}
-			logger.Info("Created v1 InferencePool", "name", u.GetName())
-			return nil
 		}
-		// If the CRD doesn't exist, log and continue
-		if isNoKindMatchError(err) {
-			logger.V(1).Info("v1 InferencePool CRD not available, skipping")
-			return nil
-		}
-		return fmt.Errorf("failed to get v1 InferencePool: %w", err)
 	}
-
-	// Update existing v1 InferencePool
-	_, err = r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(u.GetNamespace()).Update(ctx, u, metav1.UpdateOptions{})
-	if err != nil {
-		return fmt.Errorf("failed to update v1 InferencePool: %w", err)
-	}
-	logger.V(1).Info("Updated v1 InferencePool", "name", u.GetName())
-
-	return nil
+	return false
 }
 
 // deleteV1InferencePool deletes the v1 InferencePool using the dynamic client.
-func (r *LLMInferenceServiceReconciler) deleteV1InferencePool(ctx context.Context, v1alpha2Pool *igwapi.InferencePool) error {
+// This function follows the same pattern as the generic Delete function in lifecycle_crud.go.
+func (r *LLMInferenceServiceReconciler) deleteV1InferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, v1alpha2Pool *igwapi.InferencePool) error {
 	logger := log.FromContext(ctx)
 
 	if r.DynamicClient == nil {
 		return nil
 	}
 
-	err := r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(v1alpha2Pool.Namespace).Delete(ctx, v1alpha2Pool.Name, metav1.DeleteOptions{})
+	// Get the existing resource first
+	existing, err := r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(v1alpha2Pool.Namespace).Get(ctx, v1alpha2Pool.Name, metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) || isNoKindMatchError(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to get v1 InferencePool: %w", err)
+	}
+
+	// Check if already being deleted
+	if existing.GetDeletionTimestamp() != nil && !existing.GetDeletionTimestamp().IsZero() {
+		return nil
+	}
+
+	// Check ownership before deleting
+	if !isControlledByOwner(existing, v1alpha2Pool.OwnerReferences) {
+		return fmt.Errorf("cannot delete v1 InferencePool %s/%s: not owned by LLMInferenceService %s/%s",
+			existing.GetNamespace(), existing.GetName(), llmSvc.GetNamespace(), llmSvc.GetName())
+	}
+
+	// If owner is being deleted, let GC handle it
+	if llmSvc != nil && !llmSvc.GetDeletionTimestamp().IsZero() {
+		return nil
+	}
+
+	err = r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(v1alpha2Pool.Namespace).Delete(ctx, v1alpha2Pool.Name, metav1.DeleteOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) || isNoKindMatchError(err) {
 			return nil
 		}
 		return fmt.Errorf("failed to delete v1 InferencePool: %w", err)
 	}
-	logger.Info("Deleted v1 InferencePool", "name", v1alpha2Pool.Name)
+	logger.Info("Deleted v1 InferencePool", "name", v1alpha2Pool.Name, "namespace", v1alpha2Pool.Namespace)
+	r.Eventf(llmSvc, corev1.EventTypeNormal, "Deleted", "Deleted v1 InferencePool %s/%s", v1alpha2Pool.Namespace, v1alpha2Pool.Name)
 
 	return nil
 }
