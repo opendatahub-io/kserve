@@ -350,7 +350,7 @@ func (r *LLMInferenceServiceReconciler) deleteV1InferencePool(ctx context.Contex
 	logger := log.FromContext(ctx)
 
 	if r.DynamicClient == nil {
-		return nil
+		panic("DynamicClient is nil - controller is misconfigured")
 	}
 
 	// Get the existing resource first
