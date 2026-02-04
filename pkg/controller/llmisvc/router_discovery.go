@@ -566,25 +566,34 @@ func IsInferencePoolV1Supported(route *gatewayapi.HTTPRoute) metav1.ConditionSta
 
 // isBackendSupported checks if the HTTPRoute's backendRefs have been resolved successfully.
 // Returns:
-//   - ConditionTrue if ResolvedRefs=True
-//   - ConditionFalse if ResolvedRefs=False with reason InvalidKind
-//   - ConditionUnknown if no condition found or route is nil
+//   - ConditionTrue if at least one parent has ResolvedRefs=True (or False with non-InvalidKind reason)
+//   - ConditionFalse if any parent has ResolvedRefs=False with reason InvalidKind
+//   - ConditionUnknown if no condition found, route is nil, or status is stale
 func isBackendSupported(route *gatewayapi.HTTPRoute) metav1.ConditionStatus {
 	if route == nil {
 		return metav1.ConditionUnknown
 	}
 
-	// Check first parent status - TODO: find the parents that belong to our gateway
-	if len(route.Status.Parents) > 0 {
-		parent := route.Status.Parents[0]
+	for _, parent := range route.Status.Parents {
 		cond := meta.FindStatusCondition(parent.Conditions, string(gatewayapi.RouteConditionResolvedRefs))
 		if cond == nil {
-			return metav1.ConditionUnknown
+			continue
 		}
-		if cond.Status == metav1.ConditionFalse && cond.Reason == string(gatewayapi.RouteReasonInvalidKind) {
-			return metav1.ConditionFalse
+		// Skip stale conditions (based on older generation)
+		if cond.ObservedGeneration > 0 && cond.ObservedGeneration < route.Generation {
+			continue
 		}
-		return metav1.ConditionTrue
+		switch cond.Status {
+		case metav1.ConditionTrue:
+			return metav1.ConditionTrue
+		case metav1.ConditionFalse:
+			if cond.Reason == string(gatewayapi.RouteReasonInvalidKind) {
+				// Backend kind is not supported by this gateway
+				return metav1.ConditionFalse
+			}
+			// Other failures (e.g., BackendNotFound) indicate the kind itself is accepted
+			return metav1.ConditionTrue
+		}
 	}
 
 	return metav1.ConditionUnknown
