@@ -115,9 +115,10 @@ var _ = Describe("LLMInferenceService Auth Integration Tests", func() {
 					return nil
 				}).WithContext(ctx).Should(Succeed())
 
-				// Simulate HTTPRoute with AuthPolicy enforcement
-				ensureHTTPRouteReadyWithAuth(ctx, envTest.Client, llmSvc, createdRoute)
+				// First setup all managed resources (Gateway, InferencePool, Deployment)
+				// Then apply auth-specific HTTPRoute status to avoid it being overwritten
 				ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
+				ensureHTTPRouteReadyWithAuth(ctx, envTest.Client, llmSvc, createdRoute)
 
 				// then - LLMInferenceService should be ready
 				Eventually(LLMInferenceServiceIsReady(llmSvc, func(g Gomega, current *v1alpha1.LLMInferenceService) {
@@ -367,6 +368,13 @@ func ensureHTTPRouteReadyWithAuth(ctx context.Context, c client.Client, llmSvc *
 						Status:             metav1.ConditionTrue,
 						Reason:             "Accepted",
 						Message:            "HTTPRoute accepted",
+						LastTransitionTime: metav1.Now(),
+					},
+					{
+						Type:               string(gatewayapi.RouteConditionResolvedRefs),
+						Status:             metav1.ConditionTrue,
+						Reason:             "ResolvedRefs",
+						Message:            "All references resolved",
 						LastTransitionTime: metav1.Now(),
 					},
 				},
