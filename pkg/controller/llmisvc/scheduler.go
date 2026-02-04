@@ -189,7 +189,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerInferencePool(ctx cont
 // reconcileV1InferencePool creates/updates a v1 InferencePool using the dynamic client.
 // This is needed because some Gateways (e.g., Istio 1.28+) only support the v1 API
 // (inference.networking.k8s.io) and not v1alpha2 (inference.networking.x-k8s.io).
-func (r *LLMInferenceServiceReconciler) reconcileV1InferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, v1alpha2Pool *igwapi.InferencePool) error {
+func (r *LLMInferenceServiceReconciler) reconcileV1InferencePool(ctx context.Context, _ *v1alpha1.LLMInferenceService, v1alpha2Pool *igwapi.InferencePool) error {
 	logger := log.FromContext(ctx)
 
 	if r.DynamicClient == nil {

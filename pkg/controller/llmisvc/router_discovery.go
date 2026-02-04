@@ -574,7 +574,9 @@ func isBackendSupported(route *gatewayapi.HTTPRoute) metav1.ConditionStatus {
 		return metav1.ConditionUnknown
 	}
 
-	for _, parent := range route.Status.Parents {
+	// Check first parent status - TODO: find the parents that belong to our gateway
+	if len(route.Status.Parents) > 0 {
+		parent := route.Status.Parents[0]
 		cond := meta.FindStatusCondition(parent.Conditions, string(gatewayapi.RouteConditionResolvedRefs))
 		if cond == nil {
 			return metav1.ConditionUnknown
@@ -582,7 +584,6 @@ func isBackendSupported(route *gatewayapi.HTTPRoute) metav1.ConditionStatus {
 		if cond.Status == metav1.ConditionFalse && cond.Reason == string(gatewayapi.RouteReasonInvalidKind) {
 			return metav1.ConditionFalse
 		}
-		// TODO: find the parents that belong to our gateway
 		return metav1.ConditionTrue
 	}
 
@@ -592,6 +593,10 @@ func isBackendSupported(route *gatewayapi.HTTPRoute) metav1.ConditionStatus {
 // isHTTPRouteUsingInferencePool checks if the HTTPRoute has any backendRefs using
 // InferencePool from the specified API group.
 func isHTTPRouteUsingInferencePool(route *gatewayapi.HTTPRoute, apiGroup string) bool {
+	if route == nil {
+		return false
+	}
+
 	for _, rule := range route.Spec.Rules {
 		for _, backendRef := range rule.BackendRefs {
 			if backendRef.Group != nil && string(*backendRef.Group) == apiGroup {
