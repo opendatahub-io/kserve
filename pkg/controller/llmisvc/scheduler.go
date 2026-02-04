@@ -259,32 +259,49 @@ func expectedSchedulerInferencePoolV1(v1alpha2Pool *igwapi.InferencePool) *unstr
 	u.SetAnnotations(v1alpha2Pool.Annotations)
 	u.SetOwnerReferences(v1alpha2Pool.OwnerReferences)
 
-	// Build spec - convert from v1alpha2 spec fields
+	// Build spec - convert from v1alpha2 to v1 API fields
+	// v1alpha2 -> v1 field mapping:
+	//   targetPortNumber (int32) -> targetPorts ([]TargetPort)
+	//   selector (map) -> selector.matchLabels (map)
+	//   extensionRef -> endpointPickerRef
 	spec := map[string]interface{}{
-		"targetPortNumber": v1alpha2Pool.Spec.TargetPortNumber,
+		// v1 uses targetPorts array with "number" field instead of single targetPortNumber
+		// Cast int32 to int64 for JSON compatibility in unstructured objects
+		"targetPorts": []interface{}{
+			map[string]interface{}{
+				"number": int64(v1alpha2Pool.Spec.TargetPortNumber),
+			},
+		},
 	}
 
-	// Convert selector (map[LabelKey]LabelValue -> map[string]interface{})
+	// Convert selector (v1alpha2: flat map -> v1: selector.matchLabels)
 	if v1alpha2Pool.Spec.Selector != nil {
-		selector := make(map[string]interface{})
+		matchLabels := make(map[string]interface{})
 		for k, v := range v1alpha2Pool.Spec.Selector {
-			selector[string(k)] = string(v)
+			matchLabels[string(k)] = string(v)
 		}
-		spec["selector"] = selector
+		spec["selector"] = map[string]interface{}{
+			"matchLabels": matchLabels,
+		}
 	}
 
-	// Convert extensionRef if present
+	// Convert extensionRef to endpointPickerRef (v1alpha2: extensionRef -> v1: endpointPickerRef)
+	// v1 requires a port.number field when kind is Service, EPP service uses gRPC port 9002
 	if v1alpha2Pool.Spec.ExtensionRef.Name != "" {
-		extensionRef := map[string]interface{}{
+		endpointPickerRef := map[string]interface{}{
 			"name": string(v1alpha2Pool.Spec.ExtensionRef.Name),
+			"port": map[string]interface{}{
+				// Cast int32 to int64 for JSON compatibility in unstructured objects
+				"number": int64(v1alpha2Pool.Spec.TargetPortNumber),
+			},
 		}
 		if v1alpha2Pool.Spec.ExtensionRef.Group != nil {
-			extensionRef["group"] = string(*v1alpha2Pool.Spec.ExtensionRef.Group)
+			endpointPickerRef["group"] = string(*v1alpha2Pool.Spec.ExtensionRef.Group)
 		}
 		if v1alpha2Pool.Spec.ExtensionRef.Kind != nil {
-			extensionRef["kind"] = string(*v1alpha2Pool.Spec.ExtensionRef.Kind)
+			endpointPickerRef["kind"] = string(*v1alpha2Pool.Spec.ExtensionRef.Kind)
 		}
-		spec["extensionRef"] = extensionRef
+		spec["endpointPickerRef"] = endpointPickerRef
 	}
 
 	u.Object["spec"] = spec
