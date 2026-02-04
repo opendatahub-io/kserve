@@ -200,7 +200,7 @@ func (r *LLMInferenceServiceReconciler) reconcileV1InferencePool(ctx context.Con
 	}
 
 	// Build unstructured v1 InferencePool from the v1alpha2 pool
-	expected := buildV1InferencePoolUnstructured(v1alpha2Pool)
+	expected := expectedSchedulerInferencePoolV1(v1alpha2Pool)
 
 	logger.V(1).Info("Reconciling v1 InferencePool", "name", expected.GetName(), "namespace", expected.GetNamespace())
 
@@ -256,8 +256,8 @@ func (r *LLMInferenceServiceReconciler) reconcileV1InferencePool(ctx context.Con
 	return nil
 }
 
-// buildV1InferencePoolUnstructured creates an unstructured v1 InferencePool from a v1alpha2 pool.
-func buildV1InferencePoolUnstructured(v1alpha2Pool *igwapi.InferencePool) *unstructured.Unstructured {
+// expectedSchedulerInferencePoolV1 creates an unstructured v1 InferencePool from a v1alpha2 pool.
+func expectedSchedulerInferencePoolV1(v1alpha2Pool *igwapi.InferencePool) *unstructured.Unstructured {
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   constants.InferencePoolV1Group,
