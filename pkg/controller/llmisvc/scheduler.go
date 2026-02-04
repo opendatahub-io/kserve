@@ -31,15 +31,26 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/utils"
 )
+
+// inferencePoolV1GVR is the GroupVersionResource for v1 InferencePool (inference.networking.k8s.io)
+var inferencePoolV1GVR = schema.GroupVersionResource{
+	Group:    constants.InferencePoolV1Group,
+	Version:  "v1",
+	Resource: "inferencepools",
+}
 
 func (r *LLMInferenceServiceReconciler) reconcileScheduler(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
 	log.FromContext(ctx).Info("Reconciling Scheduler")
@@ -148,16 +159,167 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerDeployment(ctx context
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerInferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	logger := log.FromContext(ctx)
 	expected := r.expectedSchedulerInferencePool(ctx, llmSvc)
+
 	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
-		return Delete(ctx, r, llmSvc, expected)
+		// Delete both v1alpha2 and v1 pools
+		if err := Delete(ctx, r, llmSvc, expected); err != nil {
+			return err
+		}
+		return r.deleteV1InferencePool(ctx, expected)
 	}
 
+	// Reconcile v1alpha2 InferencePool (typed client)
 	if err := Reconcile(ctx, r, llmSvc, &igwapi.InferencePool{}, expected, semanticInferencePoolIsEqual); err != nil {
 		return err
 	}
+
+	// Also reconcile v1 InferencePool (dynamic/unstructured client) for Gateway compatibility
+	// Some Gateways (e.g., Istio 1.28+) only support v1 InferencePool
+	if err := r.reconcileV1InferencePool(ctx, llmSvc, expected); err != nil {
+		logger.Error(err, "Failed to reconcile v1 InferencePool, continuing with v1alpha2 only")
+		// Don't fail reconciliation - v1alpha2 might still work depending on Gateway
+	}
+
 	// TODO add inference pool condition propagation and then aggregate it into "RouterReady" similar to WorkloadReady.
 	return nil
+}
+
+// reconcileV1InferencePool creates/updates a v1 InferencePool using the dynamic client.
+// This is needed because some Gateways (e.g., Istio 1.28+) only support the v1 API
+// (inference.networking.k8s.io) and not v1alpha2 (inference.networking.x-k8s.io).
+func (r *LLMInferenceServiceReconciler) reconcileV1InferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, v1alpha2Pool *igwapi.InferencePool) error {
+	logger := log.FromContext(ctx)
+
+	if r.DynamicClient == nil {
+		logger.V(1).Info("DynamicClient not configured, skipping v1 InferencePool reconciliation")
+		return nil
+	}
+
+	// Build unstructured v1 InferencePool from the v1alpha2 pool
+	u := &unstructured.Unstructured{}
+	u.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   constants.InferencePoolV1Group,
+		Version: "v1",
+		Kind:    "InferencePool",
+	})
+	u.SetName(v1alpha2Pool.Name)
+	u.SetNamespace(v1alpha2Pool.Namespace)
+	u.SetLabels(v1alpha2Pool.Labels)
+	u.SetAnnotations(v1alpha2Pool.Annotations)
+	u.SetOwnerReferences(v1alpha2Pool.OwnerReferences)
+
+	// Build spec - convert from v1alpha2 spec fields
+	spec := map[string]interface{}{
+		"targetPortNumber": v1alpha2Pool.Spec.TargetPortNumber,
+	}
+
+	// Convert selector (map[LabelKey]LabelValue -> map[string]interface{})
+	if v1alpha2Pool.Spec.Selector != nil {
+		selector := make(map[string]interface{})
+		for k, v := range v1alpha2Pool.Spec.Selector {
+			selector[string(k)] = string(v)
+		}
+		spec["selector"] = selector
+	}
+
+	// Convert extensionRef if present
+	if v1alpha2Pool.Spec.ExtensionRef.Name != "" {
+		extensionRef := map[string]interface{}{
+			"name": string(v1alpha2Pool.Spec.ExtensionRef.Name),
+		}
+		if v1alpha2Pool.Spec.ExtensionRef.Group != nil {
+			extensionRef["group"] = string(*v1alpha2Pool.Spec.ExtensionRef.Group)
+		}
+		if v1alpha2Pool.Spec.ExtensionRef.Kind != nil {
+			extensionRef["kind"] = string(*v1alpha2Pool.Spec.ExtensionRef.Kind)
+		}
+		spec["extensionRef"] = extensionRef
+	}
+
+	u.Object["spec"] = spec
+
+	logger.V(1).Info("Reconciling v1 InferencePool", "name", u.GetName(), "namespace", u.GetNamespace())
+
+	// Check if the v1 InferencePool CRD exists
+	_, err := r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(u.GetNamespace()).Get(ctx, u.GetName(), metav1.GetOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			// Create new v1 InferencePool
+			_, err = r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(u.GetNamespace()).Create(ctx, u, metav1.CreateOptions{})
+			if err != nil {
+				// If the CRD doesn't exist, log and continue
+				if apierrors.IsNotFound(err) || isNoKindMatchError(err) {
+					logger.V(1).Info("v1 InferencePool CRD not available, skipping")
+					return nil
+				}
+				return fmt.Errorf("failed to create v1 InferencePool: %w", err)
+			}
+			logger.Info("Created v1 InferencePool", "name", u.GetName())
+			return nil
+		}
+		// If the CRD doesn't exist, log and continue
+		if isNoKindMatchError(err) {
+			logger.V(1).Info("v1 InferencePool CRD not available, skipping")
+			return nil
+		}
+		return fmt.Errorf("failed to get v1 InferencePool: %w", err)
+	}
+
+	// Update existing v1 InferencePool
+	_, err = r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(u.GetNamespace()).Update(ctx, u, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update v1 InferencePool: %w", err)
+	}
+	logger.V(1).Info("Updated v1 InferencePool", "name", u.GetName())
+
+	return nil
+}
+
+// deleteV1InferencePool deletes the v1 InferencePool using the dynamic client.
+func (r *LLMInferenceServiceReconciler) deleteV1InferencePool(ctx context.Context, v1alpha2Pool *igwapi.InferencePool) error {
+	logger := log.FromContext(ctx)
+
+	if r.DynamicClient == nil {
+		return nil
+	}
+
+	err := r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(v1alpha2Pool.Namespace).Delete(ctx, v1alpha2Pool.Name, metav1.DeleteOptions{})
+	if err != nil {
+		if apierrors.IsNotFound(err) || isNoKindMatchError(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to delete v1 InferencePool: %w", err)
+	}
+	logger.Info("Deleted v1 InferencePool", "name", v1alpha2Pool.Name)
+
+	return nil
+}
+
+// isNoKindMatchError checks if the error indicates the CRD doesn't exist.
+func isNoKindMatchError(err error) bool {
+	// Check for "no matches for kind" error which occurs when CRD is not installed
+	if err == nil {
+		return false
+	}
+	return apierrors.IsNotFound(err) ||
+		// Discovery errors when CRD doesn't exist
+		(err.Error() != "" && (contains(err.Error(), "no matches for kind") ||
+			contains(err.Error(), "the server could not find the requested resource")))
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsAt(s, substr, 0))
+}
+
+func containsAt(s, substr string, start int) bool {
+	for i := start; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerService(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
