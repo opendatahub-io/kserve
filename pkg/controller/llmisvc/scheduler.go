@@ -32,6 +32,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -211,7 +212,7 @@ func (r *LLMInferenceServiceReconciler) reconcileV1InferencePool(ctx context.Con
 			_, err = r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(expected.GetNamespace()).Create(ctx, expected, metav1.CreateOptions{})
 			if err != nil {
 				// If the CRD doesn't exist, log and continue
-				if apierrors.IsNotFound(err) || isNoKindMatchError(err) {
+				if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
 					logger.V(1).Info("v1 InferencePool CRD not available, skipping")
 					return nil
 				}
@@ -222,7 +223,7 @@ func (r *LLMInferenceServiceReconciler) reconcileV1InferencePool(ctx context.Con
 			return nil
 		}
 		// If the CRD doesn't exist, log and continue
-		if isNoKindMatchError(err) {
+		if meta.IsNoMatchError(err) {
 			logger.V(1).Info("v1 InferencePool CRD not available, skipping")
 			return nil
 		}
@@ -355,7 +356,7 @@ func (r *LLMInferenceServiceReconciler) deleteV1InferencePool(ctx context.Contex
 	// Get the existing resource first
 	existing, err := r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(v1alpha2Pool.Namespace).Get(ctx, v1alpha2Pool.Name, metav1.GetOptions{})
 	if err != nil {
-		if apierrors.IsNotFound(err) || isNoKindMatchError(err) {
+		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
 			return nil
 		}
 		return fmt.Errorf("failed to get v1 InferencePool: %w", err)
@@ -379,7 +380,7 @@ func (r *LLMInferenceServiceReconciler) deleteV1InferencePool(ctx context.Contex
 
 	err = r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(v1alpha2Pool.Namespace).Delete(ctx, v1alpha2Pool.Name, metav1.DeleteOptions{})
 	if err != nil {
-		if apierrors.IsNotFound(err) || isNoKindMatchError(err) {
+		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
 			return nil
 		}
 		return fmt.Errorf("failed to delete v1 InferencePool: %w", err)
@@ -388,31 +389,6 @@ func (r *LLMInferenceServiceReconciler) deleteV1InferencePool(ctx context.Contex
 	r.Eventf(llmSvc, corev1.EventTypeNormal, "Deleted", "Deleted v1 InferencePool %s/%s", v1alpha2Pool.Namespace, v1alpha2Pool.Name)
 
 	return nil
-}
-
-// isNoKindMatchError checks if the error indicates the CRD doesn't exist.
-func isNoKindMatchError(err error) bool {
-	// Check for "no matches for kind" error which occurs when CRD is not installed
-	if err == nil {
-		return false
-	}
-	return apierrors.IsNotFound(err) ||
-		// Discovery errors when CRD doesn't exist
-		(err.Error() != "" && (contains(err.Error(), "no matches for kind") ||
-			contains(err.Error(), "the server could not find the requested resource")))
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsAt(s, substr, 0))
-}
-
-func containsAt(s, substr string, start int) bool {
-	for i := start; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerService(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
