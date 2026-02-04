@@ -287,7 +287,7 @@ func expectedSchedulerInferencePoolV1(v1alpha2Pool *igwapi.InferencePool) *unstr
 
 	// Convert extensionRef to endpointPickerRef (v1alpha2: extensionRef -> v1: endpointPickerRef)
 	// v1 requires a port.number field when kind is Service, EPP service uses gRPC port 9002
-	if v1alpha2Pool.Spec.ExtensionRef.Name != "" {
+	if v1alpha2Pool.Spec.ExtensionRef != nil && v1alpha2Pool.Spec.ExtensionRef.Name != "" {
 		endpointPickerRef := map[string]interface{}{
 			"name": string(v1alpha2Pool.Spec.ExtensionRef.Name),
 			"port": map[string]interface{}{
