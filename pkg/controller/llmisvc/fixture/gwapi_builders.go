@@ -303,6 +303,21 @@ func BackendRefInferencePool(name string) gatewayapi.HTTPBackendRef {
 	}
 }
 
+// BackendRefInferencePoolV1 creates an HTTPBackendRef for v1 InferencePool (inference.networking.k8s.io)
+func BackendRefInferencePoolV1(name string) gatewayapi.HTTPBackendRef {
+	return gatewayapi.HTTPBackendRef{
+		BackendRef: gatewayapi.BackendRef{
+			BackendObjectReference: gatewayapi.BackendObjectReference{
+				Group: ptr.To(gatewayapi.Group("inference.networking.k8s.io")),
+				Kind:  ptr.To(gatewayapi.Kind("InferencePool")),
+				Name:  gatewayapi.ObjectName(name),
+				Port:  ptr.To(gatewayapi.PortNumber(8000)),
+			},
+			Weight: ptr.To(int32(1)),
+		},
+	}
+}
+
 func BackendRefService(name string) gatewayapi.HTTPBackendRef {
 	return gatewayapi.HTTPBackendRef{
 		BackendRef: gatewayapi.BackendRef{
@@ -547,6 +562,60 @@ func GatewayAPIControllerStatus(parentRef gatewayapi.ParentReference, generation
 				Status:             metav1.ConditionTrue,
 				Reason:             "ResolvedRefs",
 				Message:            "All references resolved",
+				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: generation,
+			},
+		},
+	}
+}
+
+// GatewayAPIControllerStatusInvalidKind creates a RouteParentStatus with ResolvedRefs=False, Reason=InvalidKind
+// This simulates a Gateway that doesn't support the backend kind (e.g., Istio 1.28 rejecting v1alpha2 InferencePool)
+func GatewayAPIControllerStatusInvalidKind(parentRef gatewayapi.ParentReference, generation int64) gatewayapi.RouteParentStatus {
+	return gatewayapi.RouteParentStatus{
+		ParentRef:      parentRef,
+		ControllerName: "openshift.io/gateway-controller/v1",
+		Conditions: []metav1.Condition{
+			{
+				Type:               string(gatewayapi.RouteConditionAccepted),
+				Status:             metav1.ConditionTrue,
+				Reason:             "Accepted",
+				Message:            "Route was valid",
+				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: generation,
+			},
+			{
+				Type:               string(gatewayapi.RouteConditionResolvedRefs),
+				Status:             metav1.ConditionFalse,
+				Reason:             string(gatewayapi.RouteReasonInvalidKind),
+				Message:            "Backend kind InferencePool is not supported",
+				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: generation,
+			},
+		},
+	}
+}
+
+// GatewayAPIControllerStatusBackendNotFound creates a RouteParentStatus with ResolvedRefs=False, Reason=BackendNotFound
+// This simulates a Gateway that supports the kind but the backend doesn't exist
+func GatewayAPIControllerStatusBackendNotFound(parentRef gatewayapi.ParentReference, generation int64) gatewayapi.RouteParentStatus {
+	return gatewayapi.RouteParentStatus{
+		ParentRef:      parentRef,
+		ControllerName: "openshift.io/gateway-controller/v1",
+		Conditions: []metav1.Condition{
+			{
+				Type:               string(gatewayapi.RouteConditionAccepted),
+				Status:             metav1.ConditionTrue,
+				Reason:             "Accepted",
+				Message:            "Route was valid",
+				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: generation,
+			},
+			{
+				Type:               string(gatewayapi.RouteConditionResolvedRefs),
+				Status:             metav1.ConditionFalse,
+				Reason:             string(gatewayapi.RouteReasonBackendNotFound),
+				Message:            "Backend not found",
 				LastTransitionTime: metav1.Now(),
 				ObservedGeneration: generation,
 			},

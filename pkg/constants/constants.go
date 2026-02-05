@@ -47,6 +47,16 @@ const (
 	KueueAPIGroupName = "kueue.x-k8s.io"
 )
 
+// InferencePool API Groups (for migration between v1alpha2 and v1)
+const (
+	// InferencePoolV1Alpha2Group is the experimental API group (inference.networking.x-k8s.io)
+	InferencePoolV1Alpha2Group = "inference.networking.x-k8s.io"
+	// InferencePoolV1Group is the graduated API group (inference.networking.k8s.io)
+	InferencePoolV1Group = "inference.networking.k8s.io"
+	// InferencePoolMigratedAnnotation marks an HTTPRoute as migrated to v1
+	InferencePoolMigratedAnnotation = "serving.kserve.io/inferencepool-migrated"
+)
+
 // InferenceService Constants
 var (
 	InferenceServiceName                  = "inferenceservice"

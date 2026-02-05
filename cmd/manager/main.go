@@ -35,6 +35,7 @@ import (
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth/gcp"
@@ -139,6 +140,13 @@ func main() {
 	clientSet, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		setupLog.Error(err, "unable to create clientSet")
+		os.Exit(1)
+	}
+
+	// Setup dynamic client for unstructured resource operations (e.g., v1 InferencePool)
+	dynamicClient, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		setupLog.Error(err, "unable to create dynamicClient")
 		os.Exit(1)
 	}
 
@@ -345,6 +353,7 @@ func main() {
 			Client:        mgr.GetClient(),
 			Config:        mgr.GetConfig(),
 			Clientset:     clientSet,
+			DynamicClient: dynamicClient,
 			EventRecorder: llmEventBroadcaster.NewRecorder(scheme, corev1.EventSource{Component: "LLMInferenceServiceController"}),
 		}).SetupWithManager(mgr); err != nil {
 			setupLog.Error(err, "unable to create controller", "controller", "LLMInferenceService")
