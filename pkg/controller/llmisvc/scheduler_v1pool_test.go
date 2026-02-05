@@ -39,6 +39,7 @@ func TestExpectedSchedulerInferencePoolV1(t *testing.T) {
 	tests := []struct {
 		name           string
 		v1alpha2Pool   *igwapi.InferencePool
+		eppGRPCPort    int32
 		expectedName   string
 		expectedNS     string
 		expectedSpec   map[string]interface{}
@@ -69,6 +70,7 @@ func TestExpectedSchedulerInferencePoolV1(t *testing.T) {
 					},
 				},
 			},
+			eppGRPCPort:  9002,
 			expectedName: "test-pool",
 			expectedNS:   "test-ns",
 			expectedSpec: map[string]interface{}{
@@ -87,7 +89,7 @@ func TestExpectedSchedulerInferencePoolV1(t *testing.T) {
 					"group": "",
 					"kind":  "Service",
 					"port": map[string]interface{}{
-						"number": int64(8000),
+						"number": int64(9002),
 					},
 				},
 			},
@@ -110,6 +112,7 @@ func TestExpectedSchedulerInferencePoolV1(t *testing.T) {
 					// No ExtensionRef
 				},
 			},
+			eppGRPCPort:  9002,
 			expectedName: "simple-pool",
 			expectedNS:   "default",
 			expectedSpec: map[string]interface{}{
@@ -133,7 +136,7 @@ func TestExpectedSchedulerInferencePoolV1(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 
-			result := expectedSchedulerInferencePoolV1(tt.v1alpha2Pool)
+			result := expectedSchedulerInferencePoolV1(tt.v1alpha2Pool, tt.eppGRPCPort)
 
 			// Verify GVK
 			g.Expect(result.GetAPIVersion()).To(Equal(constants.InferencePoolV1Group + "/v1"))

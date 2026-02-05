@@ -177,9 +177,26 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerInferencePool(ctx cont
 		return err
 	}
 
+	// Extract the EPP gRPC port from the scheduler template for the v1 InferencePool's endpointPickerRef.
+	// This port is distinct from TargetPortNumber (model server port).
+	var eppGRPCPort int32
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil && llmSvc.Spec.Router.Scheduler.Template != nil {
+		for _, container := range llmSvc.Spec.Router.Scheduler.Template.Containers {
+			for _, port := range container.Ports {
+				if port.Name == "grpc" {
+					eppGRPCPort = port.ContainerPort
+					break
+				}
+			}
+			if eppGRPCPort != 0 {
+				break
+			}
+		}
+	}
+
 	// Also reconcile v1 InferencePool (dynamic/unstructured client) for Gateway compatibility
 	// Some Gateways (e.g., Istio 1.28+) only support v1 InferencePool
-	if err := r.reconcileV1InferencePool(ctx, llmSvc, expected); err != nil {
+	if err := r.reconcileV1InferencePool(ctx, llmSvc, expected, eppGRPCPort); err != nil {
 		logger.Error(err, "Failed to reconcile v1 InferencePool, continuing with v1alpha2 only")
 		// Don't fail reconciliation - v1alpha2 might still work depending on Gateway
 	}
@@ -192,7 +209,7 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerInferencePool(ctx cont
 // This is needed because some Gateways (e.g., Istio 1.28+) only support the v1 API
 // (inference.networking.k8s.io) and not v1alpha2 (inference.networking.x-k8s.io).
 // This function follows the same pattern as the generic Reconcile function in lifecycle_crud.go.
-func (r *LLMInferenceServiceReconciler) reconcileV1InferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, v1alpha2Pool *igwapi.InferencePool) error {
+func (r *LLMInferenceServiceReconciler) reconcileV1InferencePool(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService, v1alpha2Pool *igwapi.InferencePool, eppGRPCPort int32) error {
 	logger := log.FromContext(ctx)
 
 	if r.DynamicClient == nil {
@@ -201,7 +218,7 @@ func (r *LLMInferenceServiceReconciler) reconcileV1InferencePool(ctx context.Con
 	}
 
 	// Build unstructured v1 InferencePool from the v1alpha2 pool
-	expected := expectedSchedulerInferencePoolV1(v1alpha2Pool)
+	expected := expectedSchedulerInferencePoolV1(v1alpha2Pool, eppGRPCPort)
 
 	logger.V(1).Info("Reconciling v1 InferencePool", "name", expected.GetName(), "namespace", expected.GetNamespace())
 
@@ -248,7 +265,9 @@ func (r *LLMInferenceServiceReconciler) reconcileV1InferencePool(ctx context.Con
 }
 
 // expectedSchedulerInferencePoolV1 creates an unstructured v1 InferencePool from a v1alpha2 pool.
-func expectedSchedulerInferencePoolV1(v1alpha2Pool *igwapi.InferencePool) *unstructured.Unstructured {
+// eppGRPCPort is the EPP's gRPC port (e.g. 9002) used for endpointPickerRef.port.number.
+// This is distinct from TargetPortNumber which is the model server port (e.g. 8000).
+func expectedSchedulerInferencePoolV1(v1alpha2Pool *igwapi.InferencePool, eppGRPCPort int32) *unstructured.Unstructured {
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(schema.GroupVersionKind{
 		Group:   constants.InferencePoolV1Group,
@@ -288,13 +307,14 @@ func expectedSchedulerInferencePoolV1(v1alpha2Pool *igwapi.InferencePool) *unstr
 	}
 
 	// Convert extensionRef to endpointPickerRef (v1alpha2: extensionRef -> v1: endpointPickerRef)
-	// v1 requires a port.number field when kind is Service, EPP service uses gRPC port 9002
+	// v1 requires a port.number field - this must be the EPP's gRPC port (e.g. 9002),
+	// NOT the model server's TargetPortNumber (e.g. 8000).
 	if v1alpha2Pool.Spec.ExtensionRef != nil && v1alpha2Pool.Spec.ExtensionRef.Name != "" {
 		endpointPickerRef := map[string]interface{}{
 			"name": string(v1alpha2Pool.Spec.ExtensionRef.Name),
 			"port": map[string]interface{}{
 				// Cast int32 to int64 for JSON compatibility in unstructured objects
-				"number": int64(v1alpha2Pool.Spec.TargetPortNumber),
+				"number": int64(eppGRPCPort),
 			},
 		}
 		if v1alpha2Pool.Spec.ExtensionRef.Group != nil {
