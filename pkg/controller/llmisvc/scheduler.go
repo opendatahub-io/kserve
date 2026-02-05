@@ -596,7 +596,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerDeployment(ctx context.
 
 			// Find and update --pool-group in args
 			args := d.Spec.Template.Spec.Containers[i].Args
-			for j := 0; j < len(args)-1; j++ {
+			for j := range len(args) - 1 {
 				if args[j] == "--pool-group" || args[j] == "-pool-group" {
 					args[j+1] = targetPoolGroup
 					break
@@ -830,7 +830,6 @@ func (r *LLMInferenceServiceReconciler) isInferencePoolMigrated(ctx context.Cont
 		Namespace: llmSvc.GetNamespace(),
 		Name:      routeName,
 	}, route)
-
 	if err != nil {
 		// Route doesn't exist yet or error - not migrated
 		return false

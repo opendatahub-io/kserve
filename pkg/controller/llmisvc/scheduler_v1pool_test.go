@@ -17,7 +17,6 @@ limitations under the License.
 package llmisvc
 
 import (
-	"context"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -382,7 +381,7 @@ func TestIsInferencePoolMigrated(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
-			ctx := context.Background()
+			ctx := t.Context()
 
 			scheme := runtime.NewScheme()
 			_ = v1alpha1.AddToScheme(scheme)
@@ -484,7 +483,7 @@ func TestExpectedSchedulerDeploymentPoolGroup(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
-			ctx := context.Background()
+			ctx := t.Context()
 
 			scheme := runtime.NewScheme()
 			_ = v1alpha1.AddToScheme(scheme)
@@ -512,7 +511,7 @@ func TestExpectedSchedulerDeploymentPoolGroup(t *testing.T) {
 			for _, container := range deployment.Spec.Template.Spec.Containers {
 				if container.Name == "main" {
 					args := container.Args
-					for j := 0; j < len(args)-1; j++ {
+					for j := range len(args) - 1 {
 						if args[j] == "--pool-group" || args[j] == "-pool-group" {
 							foundPoolGroup = args[j+1]
 							break
