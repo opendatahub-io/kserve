@@ -17,14 +17,21 @@ limitations under the License.
 package llmisvc
 
 import (
+	"context"
 	"testing"
 
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
 )
 
@@ -291,6 +298,228 @@ func TestSemanticUnstructuredInferencePoolIsEqual(t *testing.T) {
 			g := NewWithT(t)
 			result := semanticUnstructuredInferencePoolIsEqual(tt.expected, tt.current)
 			g.Expect(result).To(Equal(tt.equal))
+		})
+	}
+}
+
+func TestIsInferencePoolMigrated(t *testing.T) {
+	tests := []struct {
+		name           string
+		llmSvc         *v1alpha1.LLMInferenceService
+		existingRoute  *gatewayapi.HTTPRoute
+		expectedResult bool
+	}{
+		{
+			name: "no HTTPRoute exists - not migrated",
+			llmSvc: &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-llm",
+					Namespace: "test-ns",
+				},
+			},
+			existingRoute:  nil,
+			expectedResult: false,
+		},
+		{
+			name: "HTTPRoute exists without migration annotation - not migrated",
+			llmSvc: &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-llm",
+					Namespace: "test-ns",
+				},
+			},
+			existingRoute: &gatewayapi.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-llm-kserve-route",
+					Namespace: "test-ns",
+				},
+			},
+			expectedResult: false,
+		},
+		{
+			name: "HTTPRoute exists with wrong migration annotation value - not migrated",
+			llmSvc: &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-llm",
+					Namespace: "test-ns",
+				},
+			},
+			existingRoute: &gatewayapi.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-llm-kserve-route",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						constants.InferencePoolMigratedAnnotation: "false",
+					},
+				},
+			},
+			expectedResult: false,
+		},
+		{
+			name: "HTTPRoute exists with v1 migration annotation - migrated",
+			llmSvc: &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-llm",
+					Namespace: "test-ns",
+				},
+			},
+			existingRoute: &gatewayapi.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-llm-kserve-route",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						constants.InferencePoolMigratedAnnotation: "v1",
+					},
+				},
+			},
+			expectedResult: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			ctx := context.Background()
+
+			scheme := runtime.NewScheme()
+			_ = v1alpha1.AddToScheme(scheme)
+			_ = gatewayapi.Install(scheme)
+
+			var objects []client.Object
+			if tt.existingRoute != nil {
+				objects = append(objects, tt.existingRoute)
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(objects...).
+				Build()
+
+			reconciler := &LLMInferenceServiceReconciler{
+				Client: fakeClient,
+			}
+
+			result := reconciler.isInferencePoolMigrated(ctx, tt.llmSvc)
+			g.Expect(result).To(Equal(tt.expectedResult))
+		})
+	}
+}
+
+func TestExpectedSchedulerDeploymentPoolGroup(t *testing.T) {
+	tests := []struct {
+		name              string
+		llmSvc            *v1alpha1.LLMInferenceService
+		existingRoute     *gatewayapi.HTTPRoute
+		expectedPoolGroup string
+	}{
+		{
+			name: "not migrated - uses v1alpha2 pool group",
+			llmSvc: &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-llm",
+					Namespace: "test-ns",
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Template: &corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name: "main",
+										Args: []string{
+											"--pool-group", "inference.networking.x-k8s.io",
+											"--pool-name", "test-pool",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			existingRoute:     nil,
+			expectedPoolGroup: constants.InferencePoolV1Alpha2Group,
+		},
+		{
+			name: "migrated - uses v1 pool group",
+			llmSvc: &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-llm",
+					Namespace: "test-ns",
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Router: &v1alpha1.RouterSpec{
+						Scheduler: &v1alpha1.SchedulerSpec{
+							Template: &corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name: "main",
+										Args: []string{
+											"--pool-group", "inference.networking.x-k8s.io",
+											"--pool-name", "test-pool",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			existingRoute: &gatewayapi.HTTPRoute{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-llm-kserve-route",
+					Namespace: "test-ns",
+					Annotations: map[string]string{
+						constants.InferencePoolMigratedAnnotation: "v1",
+					},
+				},
+			},
+			expectedPoolGroup: constants.InferencePoolV1Group,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			ctx := context.Background()
+
+			scheme := runtime.NewScheme()
+			_ = v1alpha1.AddToScheme(scheme)
+			_ = gatewayapi.Install(scheme)
+			_ = corev1.AddToScheme(scheme)
+
+			var objects []client.Object
+			if tt.existingRoute != nil {
+				objects = append(objects, tt.existingRoute)
+			}
+
+			fakeClient := fake.NewClientBuilder().
+				WithScheme(scheme).
+				WithObjects(objects...).
+				Build()
+
+			reconciler := &LLMInferenceServiceReconciler{
+				Client: fakeClient,
+			}
+
+			deployment := reconciler.expectedSchedulerDeployment(ctx, tt.llmSvc)
+
+			// Find the main container and check --pool-group arg
+			var foundPoolGroup string
+			for _, container := range deployment.Spec.Template.Spec.Containers {
+				if container.Name == "main" {
+					args := container.Args
+					for j := 0; j < len(args)-1; j++ {
+						if args[j] == "--pool-group" || args[j] == "-pool-group" {
+							foundPoolGroup = args[j+1]
+							break
+						}
+					}
+					break
+				}
+			}
+
+			g.Expect(foundPoolGroup).To(Equal(tt.expectedPoolGroup))
 		})
 	}
 }

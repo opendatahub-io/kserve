@@ -37,8 +37,10 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"knative.dev/pkg/kmeta"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
+	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
@@ -563,6 +565,24 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerDeployment(ctx context.
 				continue
 			}
 
+			// Update --pool-group based on migration status.
+			// When the HTTPRoute has been migrated to v1 InferencePool (indicated by annotation),
+			// the EPP needs to watch the v1 group instead of v1alpha2.
+			isMigrated := r.isInferencePoolMigrated(ctx, llmSvc)
+			targetPoolGroup := constants.InferencePoolV1Alpha2Group // default to v1alpha2
+			if isMigrated {
+				targetPoolGroup = constants.InferencePoolV1Group
+			}
+
+			// Find and update --pool-group in args
+			args := d.Spec.Template.Spec.Containers[i].Args
+			for j := 0; j < len(args)-1; j++ {
+				if args[j] == "--pool-group" || args[j] == "-pool-group" {
+					args[j+1] = targetPoolGroup
+					break
+				}
+			}
+
 			if slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "--config-text") ||
 				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "-config-text") ||
 				slices.Contains(d.Spec.Template.Spec.Containers[i].Args, "--config-file") ||
@@ -776,4 +796,26 @@ func SchedulerLabels(llmSvc *v1alpha1.LLMInferenceService) map[string]string {
 		"app.kubernetes.io/name":      llmSvc.GetName(),
 		"app.kubernetes.io/part-of":   "llminferenceservice",
 	}
+}
+
+// isInferencePoolMigrated checks if the HTTPRoute has been migrated to v1 InferencePool.
+// Returns true if the migration annotation is present and set to "v1".
+// This is used to determine whether the EPP should watch v1 or v1alpha2 InferencePool.
+func (r *LLMInferenceServiceReconciler) isInferencePoolMigrated(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) bool {
+	// Get the HTTPRoute name (same logic as expectedHTTPRoute in router.go)
+	routeName := kmeta.ChildName(llmSvc.GetName(), "-kserve-route")
+
+	route := &gatewayapi.HTTPRoute{}
+	err := r.Client.Get(ctx, client.ObjectKey{
+		Namespace: llmSvc.GetNamespace(),
+		Name:      routeName,
+	}, route)
+
+	if err != nil {
+		// Route doesn't exist yet or error - not migrated
+		return false
+	}
+
+	migrationValue, exists := route.Annotations[constants.InferencePoolMigratedAnnotation]
+	return exists && migrationValue == "v1"
 }
