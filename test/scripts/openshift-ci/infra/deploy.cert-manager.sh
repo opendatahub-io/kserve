@@ -40,7 +40,7 @@ spec:
   name: openshift-cert-manager-operator
   source: redhat-operators
   sourceNamespace: openshift-marketplace
-  startingCSV: cert-manager-operator.v1.16.1
+  startingCSV: cert-manager-operator.v1.18.1
 EOF
 } || true
 
