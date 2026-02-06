@@ -18,6 +18,11 @@ concurrency:
 jobs:
   test-odh-xks-kind:
     runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      matrix:
+        istio-version: ["1.27.5", "1.28.3"]
+    name: test-odh-xks-kind (istio-${{ matrix.istio-version }})
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -76,6 +81,8 @@ jobs:
           echo "cloud-provider-kind started in background (PID: $!)"
 
       - name: Run setup-odh-xks.sh
+        env:
+          ISTIO_VERSION: ${{ matrix.istio-version }}
         run: |
           # Script creates KinD cluster, installs deps, builds & loads controller, deploys overlay
           ./test/scripts/kind/setup-odh-xks.sh

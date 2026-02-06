@@ -286,20 +286,29 @@ func expectedSchedulerInferencePoolV1(v1alpha2Pool *igwapi.InferencePool) *unstr
 	}
 
 	// Convert extensionRef to endpointPickerRef (v1alpha2: extensionRef -> v1: endpointPickerRef)
-	// v1 requires a port.number field when kind is Service, EPP service uses gRPC port 9002
 	if v1alpha2Pool.Spec.ExtensionRef != nil && v1alpha2Pool.Spec.ExtensionRef.Name != "" {
 		endpointPickerRef := map[string]interface{}{
 			"name": string(v1alpha2Pool.Spec.ExtensionRef.Name),
-			"port": map[string]interface{}{
-				// Cast int32 to int64 for JSON compatibility in unstructured objects
-				"number": int64(v1alpha2Pool.Spec.TargetPortNumber),
-			},
 		}
 		if v1alpha2Pool.Spec.ExtensionRef.Group != nil {
 			endpointPickerRef["group"] = string(*v1alpha2Pool.Spec.ExtensionRef.Group)
 		}
 		if v1alpha2Pool.Spec.ExtensionRef.Kind != nil {
 			endpointPickerRef["kind"] = string(*v1alpha2Pool.Spec.ExtensionRef.Kind)
+		}
+		// Port is required in v1 when kind is Service (the default).
+		// v1alpha2 spec says "implementations SHOULD infer a default value of 9002 when Kind is Service".
+		// Use ExtensionRef.PortNumber if set, otherwise default to 9002.
+		portNumber := int64(9002) // Default EPP gRPC port
+		if v1alpha2Pool.Spec.ExtensionRef.PortNumber != nil {
+			portNumber = int64(*v1alpha2Pool.Spec.ExtensionRef.PortNumber)
+		}
+		endpointPickerRef["port"] = map[string]interface{}{
+			"number": portNumber,
+		}
+		// Convert FailureMode if set
+		if v1alpha2Pool.Spec.ExtensionRef.FailureMode != nil {
+			endpointPickerRef["failureMode"] = string(*v1alpha2Pool.Spec.ExtensionRef.FailureMode)
 		}
 		spec["endpointPickerRef"] = endpointPickerRef
 	}

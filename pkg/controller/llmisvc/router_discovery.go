@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
@@ -536,6 +537,108 @@ func nonReadyInferencePoolTopLevelCondition(pool *igwapi.InferencePool) (*metav1
 	}
 
 	return nil, false
+}
+
+// IsUnstructuredInferencePoolReady checks if an unstructured v1 InferencePool has been accepted by all parents.
+// This is used for checking v1 InferencePool readiness since we use dynamic client for v1 pools.
+func IsUnstructuredInferencePoolReady(obj *unstructured.Unstructured) bool {
+	if obj == nil {
+		return false
+	}
+
+	parents, found, err := unstructured.NestedSlice(obj.Object, "status", "parents")
+	if err != nil || !found || len(parents) == 0 {
+		return false
+	}
+
+	generation := obj.GetGeneration()
+
+	for _, parent := range parents {
+		parentMap, ok := parent.(map[string]interface{})
+		if !ok {
+			return false
+		}
+
+		conditions, found, err := unstructured.NestedSlice(parentMap, "conditions")
+		if err != nil || !found || len(conditions) == 0 {
+			return false
+		}
+
+		foundAccepted := false
+		for _, cond := range conditions {
+			condMap, ok := cond.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			condType, _, _ := unstructured.NestedString(condMap, "type")
+			if condType != "Accepted" {
+				continue
+			}
+
+			foundAccepted = true
+			condStatus, _, _ := unstructured.NestedString(condMap, "status")
+			if condStatus != "True" {
+				return false
+			}
+
+			// Check for stale condition
+			observedGen, found, _ := unstructured.NestedInt64(condMap, "observedGeneration")
+			if found && observedGen > 0 && observedGen < generation {
+				return false
+			}
+		}
+
+		if !foundAccepted {
+			return false
+		}
+	}
+
+	return true
+}
+
+// GetUnstructuredInferencePoolConditionMessage extracts a human-readable condition message from an unstructured v1 InferencePool.
+func GetUnstructuredInferencePoolConditionMessage(obj *unstructured.Unstructured) string {
+	if obj == nil {
+		return "pool is nil"
+	}
+
+	parents, found, err := unstructured.NestedSlice(obj.Object, "status", "parents")
+	if err != nil || !found || len(parents) == 0 {
+		return "no parents found in status"
+	}
+
+	for _, parent := range parents {
+		parentMap, ok := parent.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		conditions, found, err := unstructured.NestedSlice(parentMap, "conditions")
+		if err != nil || !found {
+			continue
+		}
+
+		for _, cond := range conditions {
+			condMap, ok := cond.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			condType, _, _ := unstructured.NestedString(condMap, "type")
+			if condType != "Accepted" {
+				continue
+			}
+
+			condStatus, _, _ := unstructured.NestedString(condMap, "status")
+			reason, _, _ := unstructured.NestedString(condMap, "reason")
+			message, _, _ := unstructured.NestedString(condMap, "message")
+
+			return fmt.Sprintf("Accepted=%q (reason %q, message %q)", condStatus, reason, message)
+		}
+	}
+
+	return "Accepted condition not found"
 }
 
 // IsInferencePoolV1Alpha2Supported checks if an HTTPRoute has been accepted by the Gateway,
