@@ -80,7 +80,7 @@ func TestExpectedSchedulerInferencePoolV1(t *testing.T) {
 					"group": "",
 					"kind":  "Service",
 					"port": map[string]interface{}{
-						"number": int64(8000),
+						"number": int64(9002),
 					},
 				},
 			},
