@@ -166,6 +166,7 @@ const (
 	IsvcNameHeader                 = "KServe-Isvc-Name"
 	IsvcNamespaceHeader            = "KServe-Isvc-Namespace"
 	ODHKserveRawAuth               = "security.opendatahub.io/enable-auth"
+	ODHAuthProxyTypeAnnotation     = "security.opendatahub.io/auth-proxy-type"
 	ODHRouteEnabled                = "exposed"
 	ServingCertSecretSuffix        = "-serving-cert"
 	OpenshiftServingCertAnnotation = "service.beta.openshift.io/serving-cert-secret-name"
@@ -541,6 +542,10 @@ const (
 	OauthProxyImage       = "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3"
 	DefaultServiceAccount = "default"
 	KubeRbacContainerName = "kube-rbac-proxy"
+	// Container name for oauth-proxy (used for detection during 2.x->3.x upgrade)
+	OauthProxyContainerName = "oauth-proxy"
+	// Auth proxy type value for migration annotation
+	KubeRbacProxyType = "kube-rbac-proxy"
 )
 
 type ProtocolVersion int
