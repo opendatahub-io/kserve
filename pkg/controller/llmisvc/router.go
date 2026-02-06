@@ -32,6 +32,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"knative.dev/pkg/kmeta"
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1alpha2"
 	gatewayapi "sigs.k8s.io/gateway-api/apis/v1"
@@ -504,6 +505,12 @@ func (r *LLMInferenceServiceReconciler) EvaluateInferencePoolConditions(ctx cont
 		return nil
 	}
 
+	// After migration to v1, the v1alpha2 InferencePool has no controller watching it,
+	// so we need to check the v1 InferencePool's conditions instead.
+	if r.isInferencePoolMigrated(ctx, llmSvc) && r.DynamicClient != nil {
+		return r.evaluateV1InferencePoolConditions(ctx, llmSvc)
+	}
+
 	curr := &igwapi.InferencePool{}
 
 	if llmSvc.Spec.Router.Scheduler.Pool != nil && llmSvc.Spec.Router.Scheduler.Pool.Ref != nil && llmSvc.Spec.Router.Scheduler.Pool.Ref.Name != "" {
@@ -545,4 +552,94 @@ func (r *LLMInferenceServiceReconciler) EvaluateInferencePoolConditions(ctx cont
 	llmSvc.MarkInferencePoolReady()
 	logger.V(2).Info("Inference Pool is ready", "pool", curr)
 	return nil
+}
+
+// evaluateV1InferencePoolConditions checks readiness of the v1 InferencePool (unstructured)
+// after migration from v1alpha2. On OSSM 3.2+, only the v1 pool gets a controller, so the
+// v1alpha2 pool's status will never update.
+func (r *LLMInferenceServiceReconciler) evaluateV1InferencePoolConditions(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
+	logger := log.FromContext(ctx).WithName("evaluateV1InferencePoolConditions")
+
+	// Determine pool name (same logic as the v1alpha2 path)
+	var poolName, poolNS string
+	if llmSvc.Spec.Router.Scheduler.Pool != nil && llmSvc.Spec.Router.Scheduler.Pool.Ref != nil && llmSvc.Spec.Router.Scheduler.Pool.Ref.Name != "" {
+		poolName = llmSvc.Spec.Router.Scheduler.Pool.Ref.Name
+		poolNS = llmSvc.Namespace
+	} else {
+		expected := r.expectedSchedulerInferencePool(ctx, llmSvc)
+		poolName = expected.Name
+		poolNS = expected.Namespace
+	}
+
+	v1Pool, err := r.DynamicClient.Resource(inferencePoolV1GVR).Namespace(poolNS).Get(ctx, poolName, metav1.GetOptions{})
+	if err != nil {
+		err := fmt.Errorf("failed to fetch v1 Inference Pool %s/%s: %w", poolNS, poolName, err)
+		llmSvc.MarkInferencePoolNotReady("InferencePoolFetchError", err.Error())
+		return err
+	}
+
+	// Check status.parents[].conditions for Accepted=True
+	ready, reason, message := isUnstructuredInferencePoolReady(v1Pool)
+	if !ready {
+		if reason != "" {
+			llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady", fmt.Sprintf(
+				"%s/%s: Accepted=%q (reason %q, message %q)", poolNS, poolName, "False", reason, message))
+		} else {
+			llmSvc.MarkInferencePoolNotReady("InferencePoolNotReady",
+				fmt.Sprintf("The v1 inference pool %s/%s is not ready", poolNS, poolName))
+		}
+		return nil
+	}
+
+	llmSvc.MarkInferencePoolReady()
+	logger.V(2).Info("v1 Inference Pool is ready", "pool", poolName, "namespace", poolNS)
+	return nil
+}
+
+// isUnstructuredInferencePoolReady checks if an unstructured v1 InferencePool has Accepted=True
+// in its status.parents[].conditions. Returns (ready, reason, message).
+func isUnstructuredInferencePoolReady(pool *unstructured.Unstructured) (bool, string, string) {
+	if pool == nil {
+		return false, "", ""
+	}
+
+	status, ok := pool.Object["status"].(map[string]interface{})
+	if !ok {
+		return false, "", ""
+	}
+
+	parents, ok := status["parents"].([]interface{})
+	if !ok || len(parents) == 0 {
+		return false, "", ""
+	}
+
+	for _, p := range parents {
+		parent, ok := p.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		conditions, ok := parent["conditions"].([]interface{})
+		if !ok {
+			continue
+		}
+		for _, c := range conditions {
+			cond, ok := c.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			condType, _ := cond["type"].(string)
+			if condType != "Accepted" {
+				continue
+			}
+			condStatus, _ := cond["status"].(string)
+			if condStatus == "True" {
+				return true, "", ""
+			}
+			reason, _ := cond["reason"].(string)
+			message, _ := cond["message"].(string)
+			return false, reason, message
+		}
+	}
+
+	return false, "", ""
 }
