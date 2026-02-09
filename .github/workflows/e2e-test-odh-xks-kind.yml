@@ -22,7 +22,8 @@ jobs:
       fail-fast: false
       matrix:
         istio-version: ["1.27.5", "1.28.3"]
-    name: test-odh-xks-kind (istio-${{ matrix.istio-version }})
+        deploy-method: ["kustomize", "helm"]
+    name: test-odh-xks-kind (istio-${{ matrix.istio-version }}, ${{ matrix.deploy-method }})
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -69,6 +70,10 @@ jobs:
           sudo mv kustomize /usr/local/bin/
           kustomize version
 
+      - name: Install Helm
+        if: matrix.deploy-method == 'helm'
+        uses: azure/setup-helm@v4
+
       - name: Install cloud-provider-kind
         run: |
           go install sigs.k8s.io/cloud-provider-kind@latest
@@ -80,12 +85,62 @@ jobs:
           nohup cloud-provider-kind > /tmp/cloud-provider-kind.log 2>&1 &
           echo "cloud-provider-kind started in background (PID: $!)"
 
-      - name: Run setup-odh-xks.sh
+      - name: Run setup-odh-xks.sh (kustomize)
+        if: matrix.deploy-method == 'kustomize'
         env:
           ISTIO_VERSION: ${{ matrix.istio-version }}
         run: |
           # Script creates KinD cluster, installs deps, builds & loads controller, deploys overlay
           ./test/scripts/kind/setup-odh-xks.sh
+
+      - name: Run setup-odh-xks.sh (helm - cluster setup only)
+        if: matrix.deploy-method == 'helm'
+        env:
+          ISTIO_VERSION: ${{ matrix.istio-version }}
+          SKIP_KSERVE_DEPLOY: "true"
+        run: |
+          # Script creates KinD cluster, installs deps, builds & loads controller
+          # Skip kserve deployment - will deploy via helm
+          ./test/scripts/kind/setup-odh-xks.sh
+
+      - name: Clone chart repository
+        if: matrix.deploy-method == 'helm'
+        uses: actions/checkout@v4
+        with:
+          repository: pierDipi/rhaii-xks-kserve
+          path: rhaii-xks-kserve
+
+      - name: Generate and deploy Helm chart
+        if: matrix.deploy-method == 'helm'
+        env:
+          KSERVE_CONTROLLER_IMAGE: kserve-controller:dev
+        run: |
+          # Generate chart with original images (skip registry.redhat.io replacement)
+          ./rhaii-xks-kserve/generate-chart.sh \
+            --overlay ./config/overlays/odh-xks \
+            --skip-image-replacement
+
+          # Deploy via Helm
+          helm install kserve-xks ./rhaii-xks-kserve \
+            --namespace opendatahub \
+            --wait \
+            --timeout 5m
+
+          # Patch deployment to use local controller image (built by setup-odh-xks.sh)
+          kubectl set image deployment/kserve-controller-manager \
+            manager="${KSERVE_CONTROLLER_IMAGE}" \
+            -n opendatahub
+
+          kubectl patch deployment kserve-controller-manager \
+            -n opendatahub \
+            --type=json \
+            -p='[{"op": "replace", "path": "/spec/template/spec/containers/0/imagePullPolicy", "value": "Never"}]'
+
+          # Restart to pick up new image
+          kubectl rollout restart deployment/kserve-controller-manager -n opendatahub
+
+          # Wait for controller to be ready
+          kubectl rollout status deployment/kserve-controller-manager -n opendatahub --timeout=300s
 
       - name: Install Poetry and version plugin
         run: ./test/scripts/gh-actions/setup-poetry.sh
@@ -135,3 +190,6 @@ jobs:
           echo ""
           echo "=== cloud-provider-kind logs ==="
           cat /tmp/cloud-provider-kind.log 2>/dev/null || echo "No cloud-provider-kind logs"
+          echo ""
+          echo "=== Helm release status ==="
+          helm list -A 2>/dev/null || echo "Helm not available"
