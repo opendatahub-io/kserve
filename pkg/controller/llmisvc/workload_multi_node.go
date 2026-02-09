@@ -195,7 +195,12 @@ func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Con
 		}
 		expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.ServiceAccountName = serviceAccount.GetName()
 
-		if err := r.attachModelArtifacts(ctx, serviceAccount, llmSvc, &expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec, storageConfig, credentialConfig); err != nil {
+		curr := &lwsapi.LeaderWorkerSet{}
+		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil && !apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to get expected leader worker set %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+		}
+
+		if err := r.attachModelArtifacts(ctx, serviceAccount, llmSvc, curr.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, &expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec, storageConfig, credentialConfig); err != nil {
 			return nil, fmt.Errorf("failed to attach model artifacts to leader template: %w", err)
 		}
 
@@ -220,7 +225,12 @@ func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Con
 		}
 		expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.ServiceAccountName = serviceAccount.GetName()
 
-		if err := r.attachModelArtifacts(ctx, serviceAccount, llmSvc, &expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, storageConfig, credentialConfig); err != nil {
+		curr := &lwsapi.LeaderWorkerSet{}
+		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil && !apierrors.IsNotFound(err) {
+			return nil, fmt.Errorf("failed to get expected leader worker set %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+		}
+
+		if err := r.attachModelArtifacts(ctx, serviceAccount, llmSvc, curr.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, &expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, storageConfig, credentialConfig); err != nil {
 			return nil, fmt.Errorf("failed to attach model artifacts to worker template: %w", err)
 		}
 
@@ -306,7 +316,12 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMultiNodeLWS(ctx context.
 			}
 			expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.ServiceAccountName = serviceAccount.GetName()
 
-			if err := r.attachModelArtifacts(ctx, serviceAccount, llmSvc, &expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec, storageConfig, credentialConfig); err != nil {
+			curr := &lwsapi.LeaderWorkerSet{}
+			if err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil && !apierrors.IsNotFound(err) {
+				return nil, fmt.Errorf("failed to get expected leader worker set %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+			}
+
+			if err := r.attachModelArtifacts(ctx, serviceAccount, llmSvc, curr.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, &expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec, storageConfig, credentialConfig); err != nil {
 				return nil, fmt.Errorf("failed to attach model artifacts to prefill leader template: %w", err)
 			}
 		}
@@ -314,7 +329,12 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMultiNodeLWS(ctx context.
 			expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec = *llmSvc.Spec.Prefill.Worker.DeepCopy()
 			expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.ServiceAccountName = serviceAccount.GetName()
 
-			if err := r.attachModelArtifacts(ctx, serviceAccount, llmSvc, &expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, storageConfig, credentialConfig); err != nil {
+			curr := &lwsapi.LeaderWorkerSet{}
+			if err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil && !apierrors.IsNotFound(err) {
+				return nil, fmt.Errorf("failed to get expected leader worker set %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
+			}
+
+			if err := r.attachModelArtifacts(ctx, serviceAccount, llmSvc, curr.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, &expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, storageConfig, credentialConfig); err != nil {
 				return nil, fmt.Errorf("failed to attach model artifacts to prefill worker template: %w", err)
 			}
 		}

@@ -18,6 +18,7 @@ package llmisvc_test
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -1998,3 +1999,405 @@ func restoreInferenceServiceConfig(ctx context.Context) {
 	isvcConfigMap.Data = InferenceServiceCfgMap(constants.KServeNamespace).Data
 	Expect(envTest.Client.Patch(ctx, isvcConfigMap, restoredIsvcConfigMap)).To(Succeed())
 }
+
+var _ = Describe("LLMInferenceService Controller - Storage initializer upgrade behavior", func() {
+	Context("Single node", func() {
+		It("should NOT auto-upgrade storage-initializer image when reconciling existing deployments with hf:// storage", func(ctx SpecContext) {
+			// setup test dependencies
+			svcName := "test-llm-storage-no-upgrade-hf"
+			testNs := NewTestNamespace(ctx, envTest)
+
+			modelURL, err := apis.ParseURL("hf://user-id/repo-id:tag")
+			Expect(err).ToNot(HaveOccurred())
+
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      svcName,
+					Namespace: testNs.Name,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						Name: ptr.To("foo"),
+						URI:  *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{},
+					Router: &v1alpha1.RouterSpec{
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
+					},
+					Prefill: &v1alpha1.WorkloadSpec{},
+				},
+			}
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				testNs.DeleteAndWait(ctx, llmSvc)
+			}()
+
+			// Wait for the main deployment to be created
+			mainDeployment := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve",
+					Namespace: testNs.Name,
+				}, mainDeployment)
+			}).WithContext(ctx).Should(Succeed())
+
+			// Get the storage-initializer init container and verify it exists
+			initContainer := utils.GetInitContainerWithName(&mainDeployment.Spec.Template.Spec, constants.StorageInitializerContainerName)
+			Expect(initContainer).ToNot(BeNil())
+
+			// Simulate an "old" storage-initializer image by modifying the deployment directly
+			oldImage := "kserve/storage-initializer:v0.10.0-old"
+			patchedDeployment := mainDeployment.DeepCopy()
+			for i := range patchedDeployment.Spec.Template.Spec.InitContainers {
+				if patchedDeployment.Spec.Template.Spec.InitContainers[i].Name == constants.StorageInitializerContainerName {
+					patchedDeployment.Spec.Template.Spec.InitContainers[i].Image = oldImage
+					break
+				}
+			}
+			Expect(envTest.Client.Patch(ctx, patchedDeployment, client.MergeFrom(mainDeployment))).To(Succeed())
+
+			// Verify the patch was applied
+			Eventually(func(g Gomega, ctx context.Context) string {
+				d := &appsv1.Deployment{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve",
+					Namespace: testNs.Name,
+				}, d)).To(Succeed())
+				ic := utils.GetInitContainerWithName(&d.Spec.Template.Spec, constants.StorageInitializerContainerName)
+				g.Expect(ic).ToNot(BeNil())
+				return ic.Image
+			}).WithContext(ctx).Should(Equal(oldImage))
+
+			// Trigger a reconciliation by updating the LLMInferenceService
+			Expect(envTest.Client.Get(ctx, types.NamespacedName{Name: svcName, Namespace: testNs.Name}, llmSvc)).To(Succeed())
+			patchedLlmSvc := llmSvc.DeepCopy()
+			if patchedLlmSvc.Annotations == nil {
+				patchedLlmSvc.Annotations = make(map[string]string)
+			}
+			patchedLlmSvc.Annotations["test-trigger-reconcile"] = "true"
+			Expect(envTest.Client.Patch(ctx, patchedLlmSvc, client.MergeFrom(llmSvc))).To(Succeed())
+
+			// Wait for reconciliation to complete and verify the storage-initializer image is NOT changed
+			Consistently(func(g Gomega, ctx context.Context) string {
+				d := &appsv1.Deployment{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve",
+					Namespace: testNs.Name,
+				}, d)).To(Succeed())
+				ic := utils.GetInitContainerWithName(&d.Spec.Template.Spec, constants.StorageInitializerContainerName)
+				g.Expect(ic).ToNot(BeNil())
+				return ic.Image
+			}).WithContext(ctx).WithTimeout(5 * time.Second).WithPolling(500 * time.Millisecond).Should(Equal(oldImage))
+		})
+
+		It("should NOT auto-upgrade storage-initializer image when reconciling existing deployments with s3:// storage", func(ctx SpecContext) {
+			// setup test dependencies
+			svcName := "test-llm-storage-no-upgrade-s3"
+			testNs := NewTestNamespace(ctx, envTest)
+
+			modelURL, err := apis.ParseURL("s3://bucket/model")
+			Expect(err).ToNot(HaveOccurred())
+
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      svcName,
+					Namespace: testNs.Name,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						Name: ptr.To("foo"),
+						URI:  *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{},
+					Router: &v1alpha1.RouterSpec{
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
+					},
+					Prefill: &v1alpha1.WorkloadSpec{},
+				},
+			}
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				testNs.DeleteAndWait(ctx, llmSvc)
+			}()
+
+			// Wait for the main deployment to be created
+			mainDeployment := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve",
+					Namespace: testNs.Name,
+				}, mainDeployment)
+			}).WithContext(ctx).Should(Succeed())
+
+			// Get the storage-initializer init container and verify it exists
+			initContainer := utils.GetInitContainerWithName(&mainDeployment.Spec.Template.Spec, constants.StorageInitializerContainerName)
+			Expect(initContainer).ToNot(BeNil())
+
+			// Simulate an "old" storage-initializer image by modifying the deployment directly
+			oldImage := "kserve/storage-initializer:v0.10.0-old"
+			patchedDeployment := mainDeployment.DeepCopy()
+			for i := range patchedDeployment.Spec.Template.Spec.InitContainers {
+				if patchedDeployment.Spec.Template.Spec.InitContainers[i].Name == constants.StorageInitializerContainerName {
+					patchedDeployment.Spec.Template.Spec.InitContainers[i].Image = oldImage
+					break
+				}
+			}
+			Expect(envTest.Client.Patch(ctx, patchedDeployment, client.MergeFrom(mainDeployment))).To(Succeed())
+
+			// Verify the patch was applied
+			Eventually(func(g Gomega, ctx context.Context) string {
+				d := &appsv1.Deployment{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve",
+					Namespace: testNs.Name,
+				}, d)).To(Succeed())
+				ic := utils.GetInitContainerWithName(&d.Spec.Template.Spec, constants.StorageInitializerContainerName)
+				g.Expect(ic).ToNot(BeNil())
+				return ic.Image
+			}).WithContext(ctx).Should(Equal(oldImage))
+
+			// Trigger a reconciliation by updating the LLMInferenceService
+			Expect(envTest.Client.Get(ctx, types.NamespacedName{Name: svcName, Namespace: testNs.Name}, llmSvc)).To(Succeed())
+			patchedLlmSvc := llmSvc.DeepCopy()
+			if patchedLlmSvc.Annotations == nil {
+				patchedLlmSvc.Annotations = make(map[string]string)
+			}
+			patchedLlmSvc.Annotations["test-trigger-reconcile"] = "true"
+			Expect(envTest.Client.Patch(ctx, patchedLlmSvc, client.MergeFrom(llmSvc))).To(Succeed())
+
+			// Wait for reconciliation to complete and verify the storage-initializer image is NOT changed
+			Consistently(func(g Gomega, ctx context.Context) string {
+				d := &appsv1.Deployment{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve",
+					Namespace: testNs.Name,
+				}, d)).To(Succeed())
+				ic := utils.GetInitContainerWithName(&d.Spec.Template.Spec, constants.StorageInitializerContainerName)
+				g.Expect(ic).ToNot(BeNil())
+				return ic.Image
+			}).WithContext(ctx).WithTimeout(5 * time.Second).WithPolling(500 * time.Millisecond).Should(Equal(oldImage))
+		})
+	})
+
+	Context("Multi node", func() {
+		It("should NOT auto-upgrade storage-initializer image when reconciling existing LeaderWorkerSets with hf:// storage", func(ctx SpecContext) {
+			// setup test dependencies
+			svcName := "test-llm-storage-no-upgrade-hf-mn"
+			testNs := NewTestNamespace(ctx, envTest,
+				WithIstioShadowService(svcName),
+			)
+
+			modelURL, err := apis.ParseURL("hf://user-id/repo-id:tag")
+			Expect(err).ToNot(HaveOccurred())
+
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      svcName,
+					Namespace: testNs.Name,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						Name: ptr.To("foo"),
+						URI:  *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Worker: &corev1.PodSpec{
+							Containers: []corev1.Container{},
+						},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
+					Router: &v1alpha1.RouterSpec{
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
+					},
+					Prefill: &v1alpha1.WorkloadSpec{
+						Worker: &corev1.PodSpec{Containers: []corev1.Container{}},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
+				},
+			}
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				testNs.DeleteAndWait(ctx, llmSvc)
+			}()
+
+			// Wait for the main LWS to be created
+			mainLWS := &lwsapi.LeaderWorkerSet{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn",
+					Namespace: testNs.Name,
+				}, mainLWS)
+			}).WithContext(ctx).Should(Succeed())
+
+			// Get the storage-initializer init container and verify it exists
+			initContainer := utils.GetInitContainerWithName(&mainLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, constants.StorageInitializerContainerName)
+			Expect(initContainer).ToNot(BeNil())
+
+			// Simulate an "old" storage-initializer image by modifying the LWS directly
+			oldImage := "kserve/storage-initializer:v0.10.0-old"
+			patchedLWS := mainLWS.DeepCopy()
+			for i := range patchedLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers {
+				if patchedLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers[i].Name == constants.StorageInitializerContainerName {
+					patchedLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers[i].Image = oldImage
+					break
+				}
+			}
+			Expect(envTest.Client.Patch(ctx, patchedLWS, client.MergeFrom(mainLWS))).To(Succeed())
+
+			// Verify the patch was applied
+			Eventually(func(g Gomega, ctx context.Context) string {
+				lws := &lwsapi.LeaderWorkerSet{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn",
+					Namespace: testNs.Name,
+				}, lws)).To(Succeed())
+				ic := utils.GetInitContainerWithName(&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, constants.StorageInitializerContainerName)
+				g.Expect(ic).ToNot(BeNil())
+				return ic.Image
+			}).WithContext(ctx).Should(Equal(oldImage))
+
+			// Trigger a reconciliation by updating the LLMInferenceService
+			Expect(envTest.Client.Get(ctx, types.NamespacedName{Name: svcName, Namespace: testNs.Name}, llmSvc)).To(Succeed())
+			patchedLlmSvc := llmSvc.DeepCopy()
+			if patchedLlmSvc.Annotations == nil {
+				patchedLlmSvc.Annotations = make(map[string]string)
+			}
+			patchedLlmSvc.Annotations["test-trigger-reconcile"] = "true"
+			Expect(envTest.Client.Patch(ctx, patchedLlmSvc, client.MergeFrom(llmSvc))).To(Succeed())
+
+			// Wait for reconciliation to complete and verify the storage-initializer image is NOT changed
+			Consistently(func(g Gomega, ctx context.Context) string {
+				lws := &lwsapi.LeaderWorkerSet{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn",
+					Namespace: testNs.Name,
+				}, lws)).To(Succeed())
+				ic := utils.GetInitContainerWithName(&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, constants.StorageInitializerContainerName)
+				g.Expect(ic).ToNot(BeNil())
+				return ic.Image
+			}).WithContext(ctx).WithTimeout(5 * time.Second).WithPolling(500 * time.Millisecond).Should(Equal(oldImage))
+		})
+
+		It("should NOT auto-upgrade storage-initializer image when reconciling existing LeaderWorkerSets with s3:// storage", func(ctx SpecContext) {
+			// setup test dependencies
+			svcName := "test-llm-storage-no-upgrade-s3-mn"
+			testNs := NewTestNamespace(ctx, envTest,
+				WithIstioShadowService(svcName),
+			)
+
+			modelURL, err := apis.ParseURL("s3://bucket/model")
+			Expect(err).ToNot(HaveOccurred())
+
+			llmSvc := &v1alpha1.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      svcName,
+					Namespace: testNs.Name,
+				},
+				Spec: v1alpha1.LLMInferenceServiceSpec{
+					Model: v1alpha1.LLMModelSpec{
+						Name: ptr.To("foo"),
+						URI:  *modelURL,
+					},
+					WorkloadSpec: v1alpha1.WorkloadSpec{
+						Worker: &corev1.PodSpec{
+							Containers: []corev1.Container{},
+						},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
+					Router: &v1alpha1.RouterSpec{
+						Route:     &v1alpha1.GatewayRoutesSpec{},
+						Gateway:   &v1alpha1.GatewaySpec{},
+						Scheduler: &v1alpha1.SchedulerSpec{},
+					},
+					Prefill: &v1alpha1.WorkloadSpec{
+						Worker: &corev1.PodSpec{Containers: []corev1.Container{}},
+						Parallelism: &v1alpha1.ParallelismSpec{
+							Data:      ptr.To[int32](1),
+							DataLocal: ptr.To[int32](1),
+						},
+					},
+				},
+			}
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				testNs.DeleteAndWait(ctx, llmSvc)
+			}()
+
+			// Wait for the main LWS to be created
+			mainLWS := &lwsapi.LeaderWorkerSet{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn",
+					Namespace: testNs.Name,
+				}, mainLWS)
+			}).WithContext(ctx).Should(Succeed())
+
+			// Get the storage-initializer init container and verify it exists
+			initContainer := utils.GetInitContainerWithName(&mainLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, constants.StorageInitializerContainerName)
+			Expect(initContainer).ToNot(BeNil())
+
+			// Simulate an "old" storage-initializer image by modifying the LWS directly
+			oldImage := "kserve/storage-initializer:v0.10.0-old"
+			patchedLWS := mainLWS.DeepCopy()
+			for i := range patchedLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers {
+				if patchedLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers[i].Name == constants.StorageInitializerContainerName {
+					patchedLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.InitContainers[i].Image = oldImage
+					break
+				}
+			}
+			Expect(envTest.Client.Patch(ctx, patchedLWS, client.MergeFrom(mainLWS))).To(Succeed())
+
+			// Verify the patch was applied
+			Eventually(func(g Gomega, ctx context.Context) string {
+				lws := &lwsapi.LeaderWorkerSet{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn",
+					Namespace: testNs.Name,
+				}, lws)).To(Succeed())
+				ic := utils.GetInitContainerWithName(&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, constants.StorageInitializerContainerName)
+				g.Expect(ic).ToNot(BeNil())
+				return ic.Image
+			}).WithContext(ctx).Should(Equal(oldImage))
+
+			// Trigger a reconciliation by updating the LLMInferenceService
+			Expect(envTest.Client.Get(ctx, types.NamespacedName{Name: svcName, Namespace: testNs.Name}, llmSvc)).To(Succeed())
+			patchedLlmSvc := llmSvc.DeepCopy()
+			if patchedLlmSvc.Annotations == nil {
+				patchedLlmSvc.Annotations = make(map[string]string)
+			}
+			patchedLlmSvc.Annotations["test-trigger-reconcile"] = "true"
+			Expect(envTest.Client.Patch(ctx, patchedLlmSvc, client.MergeFrom(llmSvc))).To(Succeed())
+
+			// Wait for reconciliation to complete and verify the storage-initializer image is NOT changed
+			Consistently(func(g Gomega, ctx context.Context) string {
+				lws := &lwsapi.LeaderWorkerSet{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-mn",
+					Namespace: testNs.Name,
+				}, lws)).To(Succeed())
+				ic := utils.GetInitContainerWithName(&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, constants.StorageInitializerContainerName)
+				g.Expect(ic).ToNot(BeNil())
+				return ic.Image
+			}).WithContext(ctx).WithTimeout(5 * time.Second).WithPolling(500 * time.Millisecond).Should(Equal(oldImage))
+		})
+	})
+})
