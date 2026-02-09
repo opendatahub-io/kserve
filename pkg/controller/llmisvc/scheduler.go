@@ -24,6 +24,7 @@ import (
 	"sort"
 
 	"k8s.io/utils/ptr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -143,7 +144,10 @@ func (r *LLMInferenceServiceReconciler) reconcileSchedulerServiceAccount(ctx con
 }
 
 func (r *LLMInferenceServiceReconciler) reconcileSchedulerDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) error {
-	scheduler := r.expectedSchedulerDeployment(ctx, llmSvc)
+	scheduler, err := r.expectedSchedulerDeployment(ctx, llmSvc)
+	if err != nil {
+		return fmt.Errorf("failed to get expected scheduler deployment: %w", err)
+	}
 	if isStopped := utils.GetForceStopRuntime(llmSvc); isStopped || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil || llmSvc.Spec.Router.Scheduler.Pool.HasRef() {
 		if isStopped {
 			llmSvc.MarkSchedulerWorkloadNotReady("Stopped", "Service is stopped")
@@ -542,7 +546,7 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerInferenceModel(ctx cont
 	return im
 }
 
-func (r *LLMInferenceServiceReconciler) expectedSchedulerDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) *appsv1.Deployment {
+func (r *LLMInferenceServiceReconciler) expectedSchedulerDeployment(ctx context.Context, llmSvc *v1alpha1.LLMInferenceService) (*appsv1.Deployment, error) {
 	labels := SchedulerLabels(llmSvc)
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -560,9 +564,24 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerDeployment(ctx context.
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: labels,
+					// Ensure we restart the scheduler since it didn't support watching and auto-reloading certificates
+					// in previous versions.
+					// It is fixed by https://github.com/kubernetes-sigs/gateway-api-inference-extension/pull/1765.
+					// Without a restart, on upgrade, we will get errors like
+					// '{"object":"error","message":"[{'type': 'missing', 'loc': ('body',), 'msg': 'Field required', 'input': None}]","type":"Bad Request","param":null,"code":400}'
+					// This will allow us to move to validating TLS certs even for previous deployments created in TP.
+					Annotations: map[string]string{
+						certificatesExpirationAnnotation: "true",
+					},
 				},
 			},
 		},
+	}
+
+	curr := &appsv1.Deployment{}
+	err := r.Client.Get(ctx, client.ObjectKeyFromObject(d), curr)
+	if err != nil && !apierrors.IsNotFound(err) {
+		return nil, fmt.Errorf("failed to get current deployment %s/%s: %w", d.GetNamespace(), d.GetName(), err)
 	}
 
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil && llmSvc.Spec.Router.Scheduler.Template != nil {
@@ -581,15 +600,42 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerDeployment(ctx context.
 			}
 
 			d.Spec.Template.Spec.Containers[i].Args = append(d.Spec.Template.Spec.Containers[i].Args,
-				"--config-text",
-				schedulerConfigText(llmSvc),
+				preserveSchedulerConfig(llmSvc, curr)...,
 			)
 		}
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected router scheduler deployment", "deployment", d)
 
-	return d
+	return d, nil
+}
+
+func preserveSchedulerConfig(llmSvc *v1alpha1.LLMInferenceService, curr *appsv1.Deployment) []string {
+	for i := range curr.Spec.Template.Spec.Containers {
+		if curr.Spec.Template.Spec.Containers[i].Name != "main" {
+			continue
+		}
+
+		for j := range curr.Spec.Template.Spec.Containers[i].Args {
+			if j == len(curr.Spec.Template.Spec.Containers[i].Args)-1 {
+				break
+			}
+
+			if curr.Spec.Template.Spec.Containers[i].Args[j] == "--config-text" ||
+				curr.Spec.Template.Spec.Containers[i].Args[j] == "-config-text" ||
+				curr.Spec.Template.Spec.Containers[i].Args[j] == "--configText" ||
+				curr.Spec.Template.Spec.Containers[i].Args[j] == "-configText" ||
+				curr.Spec.Template.Spec.Containers[i].Args[j] == "--config-file" ||
+				curr.Spec.Template.Spec.Containers[i].Args[j] == "-config-file" ||
+				curr.Spec.Template.Spec.Containers[i].Args[j] == "--configFile" ||
+				curr.Spec.Template.Spec.Containers[i].Args[j] == "-configFile" {
+				// When the configuration is present, preserve previous config.
+				return []string{curr.Spec.Template.Spec.Containers[i].Args[j], curr.Spec.Template.Spec.Containers[i].Args[j+1]}
+			}
+		}
+	}
+
+	return []string{"--config-text", schedulerConfigText(llmSvc)}
 }
 
 func schedulerConfigText(llmSvc *v1alpha1.LLMInferenceService) string {
@@ -700,9 +746,10 @@ func (r *LLMInferenceServiceReconciler) expectedSchedulerRole(llmSvc *v1alpha1.L
 			},
 			Labels: SchedulerLabels(llmSvc),
 		},
+		// Keep all resources used in previous versions.
 		Rules: []rbacv1.PolicyRule{
 			{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get", "list", "watch"}},
-			{APIGroups: []string{"inference.networking.x-k8s.io"}, Resources: []string{"inferencepools", "inferenceobjectives"}, Verbs: []string{"get", "list", "watch"}},
+			{APIGroups: []string{"inference.networking.x-k8s.io"}, Resources: []string{"inferencepools", "inferencemodels", "inferenceobjectives"}, Verbs: []string{"get", "list", "watch"}},
 			{APIGroups: []string{"inference.networking.k8s.io"}, Resources: []string{"inferencepools"}, Verbs: []string{"get", "list", "watch"}},
 			{APIGroups: []string{"discovery.k8s.io"}, Resources: []string{"endpointslices"}, Verbs: []string{"get", "list", "watch"}},
 		},

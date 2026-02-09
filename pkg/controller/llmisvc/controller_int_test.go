@@ -18,13 +18,14 @@ package llmisvc_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/kserve/kserve/pkg/constants"
 
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/client-go/util/retry"
@@ -718,7 +719,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Name:      constants.GatewayName,
 					Namespace: constants.KServeNamespace,
 				}, existing)
-				if errors.IsNotFound(err) {
+				if apierrors.IsNotFound(err) {
 					Expect(envTest.Client.Create(ctx, gatewayToRestore)).To(Succeed())
 				}
 			})
@@ -731,7 +732,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Name:      constants.GatewayName,
 					Namespace: constants.KServeNamespace,
 				}, &gatewayapi.Gateway{})
-				return errors.IsNotFound(err)
+				return apierrors.IsNotFound(err)
 			}).WithContext(ctx).Should(BeTrue(), "default gateway should be deleted")
 
 			// Create test namespace
@@ -1272,7 +1273,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Name:      "kserve-metrics-reader-sa",
 					Namespace: testNs.Name,
 				}, serviceAccount)
-				return err != nil && errors.IsNotFound(err)
+				return err != nil && apierrors.IsNotFound(err)
 			}).WithContext(ctx).Should(BeTrue(), "monitoring ServiceAccount should be deleted")
 
 			Eventually(func(g Gomega, ctx context.Context) bool {
@@ -1281,7 +1282,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Name:      "kserve-metrics-reader-sa-secret",
 					Namespace: testNs.Name,
 				}, secret)
-				return err != nil && errors.IsNotFound(err)
+				return err != nil && apierrors.IsNotFound(err)
 			}).WithContext(ctx).Should(BeTrue(), "monitoring Secret should be deleted")
 
 			Eventually(func(g Gomega, ctx context.Context) bool {
@@ -1289,7 +1290,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 				err := envTest.Get(ctx, types.NamespacedName{
 					Name: kmeta.ChildName("kserve-metrics-reader-role-binding-", testNs.Name),
 				}, clusterRoleBinding)
-				return err != nil && errors.IsNotFound(err)
+				return err != nil && apierrors.IsNotFound(err)
 			}).WithContext(ctx).Should(BeTrue(), "monitoring ClusterRoleBinding should be deleted")
 
 			Eventually(func(g Gomega, ctx context.Context) bool {
@@ -1298,7 +1299,7 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Name:      "kserve-llm-isvc-vllm-engine",
 					Namespace: testNs.Name,
 				}, podMonitor)
-				return err != nil && errors.IsNotFound(err)
+				return err != nil && apierrors.IsNotFound(err)
 			}).WithContext(ctx).Should(BeTrue(), "monitoring PodMonitor should be deleted")
 
 			Eventually(func(g Gomega, ctx context.Context) bool {
@@ -1307,8 +1308,233 @@ var _ = Describe("LLMInferenceService Controller", func() {
 					Name:      "kserve-llm-isvc-scheduler",
 					Namespace: testNs.Name,
 				}, serviceMonitor)
-				return err != nil && errors.IsNotFound(err)
+				return err != nil && apierrors.IsNotFound(err)
 			}).WithContext(ctx).Should(BeTrue(), "monitoring ServiceMonitor should be deleted")
+		})
+	})
+
+	Context("Scheduler Upgrade Compatibility", func() {
+		It("should add certificate expiration annotation to scheduler deployment", func(ctx SpecContext) {
+			// given
+			svcName := "test-llm-scheduler-cert-annotation"
+			testNs := NewTestNamespace(ctx, envTest,
+				WithIstioShadowService(svcName),
+			)
+
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha1.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithManagedRoute(),
+				WithManagedGateway(),
+				WithManagedScheduler(),
+			)
+
+			// when
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				testNs.DeleteAndWait(ctx, llmSvc)
+			}()
+
+			// then - verify scheduler deployment has the certificate expiration annotation
+			Eventually(func(g Gomega, ctx context.Context) error {
+				schedulerDeployment := &appsv1.Deployment{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name:      kmeta.ChildName(svcName, "-kserve-router-scheduler"),
+					Namespace: testNs.Name,
+				}, schedulerDeployment)).To(Succeed())
+
+				// Check that the pod template has the certificate expiration annotation
+				g.Expect(schedulerDeployment.Spec.Template.Annotations).To(
+					HaveKeyWithValue("certificates.kserve.io/expiration-v2", "true"),
+					"Scheduler deployment should have certificate expiration annotation for upgrade compatibility",
+				)
+
+				return nil
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("should preserve existing scheduler config on reconciliation", func(ctx SpecContext) {
+			// given
+			svcName := "test-llm-preserve-scheduler-config"
+			testNs := NewTestNamespace(ctx, envTest,
+				WithIstioShadowService(svcName),
+			)
+
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha1.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithManagedRoute(),
+				WithManagedGateway(),
+				WithManagedScheduler(),
+			)
+
+			// when - create the llmisvc
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				testNs.DeleteAndWait(ctx, llmSvc)
+			}()
+
+			// Wait for the scheduler deployment to be created
+			var originalConfigText string
+			Eventually(func(g Gomega, ctx context.Context) error {
+				schedulerDeployment := &appsv1.Deployment{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name:      kmeta.ChildName(svcName, "-kserve-router-scheduler"),
+					Namespace: testNs.Name,
+				}, schedulerDeployment)).To(Succeed())
+
+				// Find and store the original config-text value
+				for _, container := range schedulerDeployment.Spec.Template.Spec.Containers {
+					if container.Name == "main" {
+						for i, arg := range container.Args {
+							if arg == "--config-text" && i+1 < len(container.Args) {
+								originalConfigText = container.Args[i+1]
+								return nil
+							}
+						}
+					}
+				}
+
+				return errors.New("--config-text arg not found in scheduler deployment")
+			}).WithContext(ctx).Should(Succeed())
+
+			// Simulate modifying the scheduler deployment's config directly (as if from a previous version)
+			customConfigText := "custom-config-from-previous-version"
+			errRetry := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				schedulerDeployment := &appsv1.Deployment{}
+				if err := envTest.Get(ctx, types.NamespacedName{
+					Name:      kmeta.ChildName(svcName, "-kserve-router-scheduler"),
+					Namespace: testNs.Name,
+				}, schedulerDeployment); err != nil {
+					return err
+				}
+
+				for i := range schedulerDeployment.Spec.Template.Spec.Containers {
+					if schedulerDeployment.Spec.Template.Spec.Containers[i].Name == "main" {
+						for j := range schedulerDeployment.Spec.Template.Spec.Containers[i].Args {
+							if schedulerDeployment.Spec.Template.Spec.Containers[i].Args[j] == "--config-text" && j+1 < len(schedulerDeployment.Spec.Template.Spec.Containers[i].Args) {
+								schedulerDeployment.Spec.Template.Spec.Containers[i].Args[j+1] = customConfigText
+								break
+							}
+						}
+						break
+					}
+				}
+
+				return envTest.Client.Update(ctx, schedulerDeployment)
+			})
+			Expect(errRetry).ToNot(HaveOccurred())
+
+			// Trigger a reconciliation by updating the llmisvc
+			errRetry = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				_, errUpdate := ctrl.CreateOrUpdate(ctx, envTest.Client, llmSvc, func() error {
+					if llmSvc.Annotations == nil {
+						llmSvc.Annotations = make(map[string]string)
+					}
+					llmSvc.Annotations["test-trigger-reconcile"] = "true"
+					return nil
+				})
+				return errUpdate
+			})
+			Expect(errRetry).ToNot(HaveOccurred())
+
+			// then - verify the custom config is preserved after reconciliation
+			Eventually(func(g Gomega, ctx context.Context) error {
+				schedulerDeployment := &appsv1.Deployment{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name:      kmeta.ChildName(svcName, "-kserve-router-scheduler"),
+					Namespace: testNs.Name,
+				}, schedulerDeployment)).To(Succeed())
+
+				for _, container := range schedulerDeployment.Spec.Template.Spec.Containers {
+					if container.Name == "main" {
+						for i, arg := range container.Args {
+							if arg == "--config-text" && i+1 < len(container.Args) {
+								g.Expect(container.Args[i+1]).To(Equal(customConfigText),
+									"Scheduler config should be preserved from existing deployment, not overwritten with new config")
+								return nil
+							}
+						}
+					}
+				}
+
+				return errors.New("--config-text arg not found in scheduler deployment after reconciliation")
+			}).WithContext(ctx).Should(Succeed())
+
+			// Verify that original config was different (to ensure the test is meaningful)
+			Expect(originalConfigText).ToNot(Equal(customConfigText),
+				"Test setup: original config should differ from custom config")
+		})
+
+		It("should include inferencemodels in scheduler RBAC Role", func(ctx SpecContext) {
+			// given
+			svcName := "test-llm-scheduler-rbac"
+			testNs := NewTestNamespace(ctx, envTest,
+				WithIstioShadowService(svcName),
+			)
+
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha1.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithManagedRoute(),
+				WithManagedGateway(),
+				WithManagedScheduler(),
+			)
+
+			// when
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				testNs.DeleteAndWait(ctx, llmSvc)
+			}()
+
+			// then - verify the scheduler Role includes inferencemodels
+			Eventually(func(g Gomega, ctx context.Context) error {
+				role := &rbacv1.Role{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name:      kmeta.ChildName(svcName, "-epp-role"),
+					Namespace: testNs.Name,
+				}, role)).To(Succeed())
+
+				// Find the rule for inference.networking.x-k8s.io API group
+				var foundInferenceModels bool
+				for _, rule := range role.Rules {
+					for _, apiGroup := range rule.APIGroups {
+						if apiGroup == "inference.networking.x-k8s.io" {
+							for _, resource := range rule.Resources {
+								if resource == "inferencemodels" {
+									foundInferenceModels = true
+									break
+								}
+							}
+						}
+					}
+				}
+
+				g.Expect(foundInferenceModels).To(BeTrue(),
+					"Scheduler Role should include 'inferencemodels' resource for backward compatibility")
+
+				// Also verify the role has the expected resources
+				var hasInferencePools, hasInferenceObjectives bool
+				for _, rule := range role.Rules {
+					for _, apiGroup := range rule.APIGroups {
+						if apiGroup == "inference.networking.x-k8s.io" {
+							for _, resource := range rule.Resources {
+								if resource == "inferencepools" {
+									hasInferencePools = true
+								}
+								if resource == "inferenceobjectives" {
+									hasInferenceObjectives = true
+								}
+							}
+						}
+					}
+				}
+
+				g.Expect(hasInferencePools).To(BeTrue(), "Scheduler Role should include 'inferencepools'")
+				g.Expect(hasInferenceObjectives).To(BeTrue(), "Scheduler Role should include 'inferenceobjectives'")
+
+				return nil
+			}).WithContext(ctx).Should(Succeed())
 		})
 	})
 })
@@ -1490,7 +1716,7 @@ func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, 
 			LabelSelector: labels.SelectorFromSet(llmisvc.RouterLabels(llmSvc)),
 		}
 		err := c.List(ctx, gateways, listOpts)
-		if err != nil && !errors.IsNotFound(err) {
+		if err != nil && !apierrors.IsNotFound(err) {
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -1505,7 +1731,7 @@ func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, 
 		// Get managed HTTPRoutes and make them ready
 		httpRoutes := &gatewayapi.HTTPRouteList{}
 		err = c.List(ctx, httpRoutes, listOpts)
-		if err != nil && !errors.IsNotFound(err) {
+		if err != nil && !apierrors.IsNotFound(err) {
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
@@ -1527,7 +1753,7 @@ func ensureRouterManagedResourcesAreReady(ctx context.Context, c client.Client, 
 
 		infPools := &igwapi.InferencePoolList{}
 		err = c.List(ctx, infPools, infPoolsListOpts)
-		if err != nil && !errors.IsNotFound(err) {
+		if err != nil && !apierrors.IsNotFound(err) {
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 		logf.FromContext(ctx).Info("Marking InferencePool resources ready", "inferencepools", infPools)
@@ -1552,7 +1778,7 @@ func ensureSchedulerDeploymentReady(ctx context.Context, c client.Client, llmSvc
 	}
 	deployments := &appsv1.DeploymentList{}
 	err := c.List(ctx, deployments, schedulerListOpts)
-	if err != nil && !errors.IsNotFound(err) {
+	if err != nil && !apierrors.IsNotFound(err) {
 		Expect(err).NotTo(gomega.HaveOccurred())
 	}
 
