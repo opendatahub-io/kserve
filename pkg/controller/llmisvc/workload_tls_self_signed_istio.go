@@ -281,6 +281,12 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForWorkload(
 		},
 	}
 
+	if llmSvc.Spec.Prefill != nil {
+		// This is kept for backward compatibility, the sidecar doesn't support watching and auto-reloading certificates yet.
+		dr.Spec.TrafficPolicy.Tls.CaCertificates = ""
+		dr.Spec.TrafficPolicy.Tls.InsecureSkipVerify = &pbwrappers.BoolValue{Value: true}
+	}
+
 	log.FromContext(ctx).V(2).Info("Expected destination rule for workload service", "destinationrule", dr)
 
 	return dr
