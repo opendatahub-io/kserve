@@ -141,6 +141,31 @@ REQUIREMENTS:
 
 As example, a command to migrate models from one namespace to another:
 
+## 3.3. How to Use the Hardware Profiles Ignorelist Script
+
+The `hardwareprofiles-ignorelist.sh` script adds hardware profile annotations to the `serviceAnnotationDisallowedList` in the `inferenceservice-config` ConfigMap. This prevents these annotations from being propagated to Knative revisions, which can trigger reconciliation loops.
+
+### What it does:
+1. Adds the annotation `opendatahub.io/managed=false` to the ConfigMap (if not already present)
+2. Adds `opendatahub.io/hardware-profile-name` and `opendatahub.io/hardware-profile-namespace` to `serviceAnnotationDisallowedList`
+
+### Usage:
+
+```shell
+# Apply changes
+./hardwareprofiles-ignorelist.sh -n <namespace>
+
+# Preview changes without applying
+./hardwareprofiles-ignorelist.sh -n <namespace> --dry-run
+
+# Show help
+./hardwareprofiles-ignorelist.sh --help
+```
+
+### Prerequisites:
+- OpenShift CLI (oc) - logged into target cluster
+- jq (JSON processor)
+
 ```c
 $ modelmesh-to-raw.sh --from-ns public-models --target-ns public-kserve
 ```
