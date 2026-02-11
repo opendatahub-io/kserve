@@ -44,6 +44,9 @@ spec:
         operator: Equal
         value: konflux-tenants
     serviceAccountName: konflux-integration-runner
+  timeouts:
+    pipeline: 4h0m0s
+    tasks: 3h
   taskRunSpecs:
     - pipelineTaskName: clone-repository
       serviceAccountName: build-pipeline-kserve-group
