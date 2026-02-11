@@ -304,5 +304,13 @@ if [[ $1 =~ "kserve_on_openshift" ]]; then
   ${PROJECT_ROOT}/test/scripts/openshift-ci/tls/setup-minio-tls-serving-cert.sh
 fi
 
+if [[ "${MARKERS}" =~ "rawcipn" ]]; then
+  echo "⏳ Patching config for ClusterIP None (headless services)"
+  oc patch configmaps -n ${NS} inferenceservice-config \
+    --patch '{"data":{"service":"{\"serviceClusterIPNone\": true}"}}'
+  oc delete pod -n ${NS} -l control-plane=kserve-controller-manager
+  wait_for_pod_ready "${NS}" "control-plane=kserve-controller-manager"
+fi
+
 echo "✅ Setup complete"
 

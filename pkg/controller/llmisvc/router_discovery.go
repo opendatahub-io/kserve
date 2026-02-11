@@ -28,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
@@ -467,17 +468,30 @@ func nonReadyHTTPRouteTopLevelCondition(llmSvc *v1alpha1.LLMInferenceService, ro
 			continue
 		}
 
-		cond := meta.FindStatusCondition(parent.Conditions, string(gatewayapi.RouteConditionAccepted))
-		if cond == nil {
+		// Check Accepted condition
+		acceptedCond := meta.FindStatusCondition(parent.Conditions, string(gatewayapi.RouteConditionAccepted))
+		if acceptedCond == nil {
 			// This can happen when multiple controllers write to the status, e.g., besides the gateway controller, there
 			// are conditions reported from the policy controller.
 			// See example https://gist.github.com/bartoszmajsak/4329206afe107357afdcb9b92ed778bd
 			continue
 		}
 		routeConditionAcceptedMissing = false
-		staleCondition := cond.ObservedGeneration > 0 && cond.ObservedGeneration < route.Generation
-		if cond.Status != metav1.ConditionTrue || staleCondition {
-			return cond, false
+		staleCondition := acceptedCond.ObservedGeneration > 0 && acceptedCond.ObservedGeneration < route.Generation
+		if acceptedCond.Status != metav1.ConditionTrue || staleCondition {
+			return acceptedCond, false
+		}
+
+		// Check ResolvedRefs condition - important for InferencePool backend validation
+		resolvedRefsCond := meta.FindStatusCondition(parent.Conditions, string(gatewayapi.RouteConditionResolvedRefs))
+		if resolvedRefsCond == nil {
+			// Missing condition indicates the route is not ready
+			return nil, true
+		}
+		// Check if condition is stale (based on older generation)
+		staleCondition = resolvedRefsCond.ObservedGeneration > 0 && resolvedRefsCond.ObservedGeneration < route.Generation
+		if resolvedRefsCond.Status != metav1.ConditionTrue || staleCondition {
+			return resolvedRefsCond, false
 		}
 	}
 
@@ -523,4 +537,186 @@ func nonReadyInferencePoolTopLevelCondition(pool *igwapi.InferencePool) (*metav1
 	}
 
 	return nil, false
+}
+
+// IsUnstructuredInferencePoolReady checks if an unstructured v1 InferencePool has been accepted by all parents.
+// This is used for checking v1 InferencePool readiness since we use dynamic client for v1 pools.
+func IsUnstructuredInferencePoolReady(obj *unstructured.Unstructured) bool {
+	if obj == nil {
+		return false
+	}
+
+	parents, found, err := unstructured.NestedSlice(obj.Object, "status", "parents")
+	if err != nil || !found || len(parents) == 0 {
+		return false
+	}
+
+	generation := obj.GetGeneration()
+
+	for _, parent := range parents {
+		parentMap, ok := parent.(map[string]interface{})
+		if !ok {
+			return false
+		}
+
+		conditions, found, err := unstructured.NestedSlice(parentMap, "conditions")
+		if err != nil || !found || len(conditions) == 0 {
+			return false
+		}
+
+		foundAccepted := false
+		for _, cond := range conditions {
+			condMap, ok := cond.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			condType, _, _ := unstructured.NestedString(condMap, "type")
+			if condType != "Accepted" {
+				continue
+			}
+
+			foundAccepted = true
+			condStatus, _, _ := unstructured.NestedString(condMap, "status")
+			if condStatus != "True" {
+				return false
+			}
+
+			// Check for stale condition
+			observedGen, found, _ := unstructured.NestedInt64(condMap, "observedGeneration")
+			if found && observedGen > 0 && observedGen < generation {
+				return false
+			}
+		}
+
+		if !foundAccepted {
+			return false
+		}
+	}
+
+	return true
+}
+
+// GetUnstructuredInferencePoolConditionMessage extracts a human-readable condition message from an unstructured v1 InferencePool.
+func GetUnstructuredInferencePoolConditionMessage(obj *unstructured.Unstructured) string {
+	if obj == nil {
+		return "pool is nil"
+	}
+
+	parents, found, err := unstructured.NestedSlice(obj.Object, "status", "parents")
+	if err != nil || !found || len(parents) == 0 {
+		return "no parents found in status"
+	}
+
+	for _, parent := range parents {
+		parentMap, ok := parent.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		conditions, found, err := unstructured.NestedSlice(parentMap, "conditions")
+		if err != nil || !found {
+			continue
+		}
+
+		for _, cond := range conditions {
+			condMap, ok := cond.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			condType, _, _ := unstructured.NestedString(condMap, "type")
+			if condType != "Accepted" {
+				continue
+			}
+
+			condStatus, _, _ := unstructured.NestedString(condMap, "status")
+			reason, _, _ := unstructured.NestedString(condMap, "reason")
+			message, _, _ := unstructured.NestedString(condMap, "message")
+
+			return fmt.Sprintf("Accepted=%q (reason %q, message %q)", condStatus, reason, message)
+		}
+	}
+
+	return "Accepted condition not found"
+}
+
+// IsInferencePoolV1Alpha2Supported checks if an HTTPRoute has been accepted by the Gateway,
+// and it's using v1alpha2 InferencePool.
+// Returns:
+//   - ConditionTrue if the Gateway accepted the v1alpha2 backendRef
+//   - ConditionFalse if the Gateway rejected the v1alpha2 backendRef (InvalidKind)
+//   - ConditionUnknown if the route is not using v1alpha2 or status is not yet available
+func IsInferencePoolV1Alpha2Supported(route *gatewayapi.HTTPRoute) metav1.ConditionStatus {
+	if isHTTPRouteUsingInferencePool(route, constants.InferencePoolV1Alpha2Group) {
+		return isBackendSupported(route)
+	}
+	return metav1.ConditionUnknown
+}
+
+// IsInferencePoolV1Supported checks if an HTTPRoute has been accepted by the Gateway,
+// and it's using v1 InferencePool.
+// Returns:
+//   - ConditionTrue if the Gateway accepted the v1 backendRef
+//   - ConditionFalse if the Gateway rejected the v1 backendRef (InvalidKind)
+//   - ConditionUnknown if the route is not using v1 or status is not yet available
+func IsInferencePoolV1Supported(route *gatewayapi.HTTPRoute) metav1.ConditionStatus {
+	if isHTTPRouteUsingInferencePool(route, constants.InferencePoolV1Group) {
+		return isBackendSupported(route)
+	}
+	return metav1.ConditionUnknown
+}
+
+// isBackendSupported checks if the HTTPRoute's backendRefs have been resolved successfully.
+// Returns:
+//   - ConditionTrue if at least one parent has ResolvedRefs=True (or False with non-InvalidKind reason)
+//   - ConditionFalse if any parent has ResolvedRefs=False with reason InvalidKind
+//   - ConditionUnknown if no condition found, route is nil, or status is stale
+func isBackendSupported(route *gatewayapi.HTTPRoute) metav1.ConditionStatus {
+	if route == nil {
+		return metav1.ConditionUnknown
+	}
+
+	for _, parent := range route.Status.Parents {
+		cond := meta.FindStatusCondition(parent.Conditions, string(gatewayapi.RouteConditionResolvedRefs))
+		if cond == nil {
+			continue
+		}
+		// Skip stale conditions (based on older generation)
+		if cond.ObservedGeneration > 0 && cond.ObservedGeneration < route.Generation {
+			continue
+		}
+		switch cond.Status {
+		case metav1.ConditionTrue:
+			return metav1.ConditionTrue
+		case metav1.ConditionFalse:
+			if cond.Reason == string(gatewayapi.RouteReasonInvalidKind) {
+				// Backend kind is not supported by this gateway
+				return metav1.ConditionFalse
+			}
+			// Other failures (e.g., BackendNotFound) indicate the kind itself is accepted
+			return metav1.ConditionTrue
+		}
+	}
+
+	return metav1.ConditionUnknown
+}
+
+// isHTTPRouteUsingInferencePool checks if the HTTPRoute has any backendRefs using
+// InferencePool from the specified API group.
+func isHTTPRouteUsingInferencePool(route *gatewayapi.HTTPRoute, apiGroup string) bool {
+	if route == nil {
+		return false
+	}
+
+	for _, rule := range route.Spec.Rules {
+		for _, backendRef := range rule.BackendRefs {
+			if backendRef.Group != nil && string(*backendRef.Group) == apiGroup {
+				if backendRef.Kind != nil && string(*backendRef.Kind) == "InferencePool" {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

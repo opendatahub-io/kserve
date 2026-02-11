@@ -74,7 +74,7 @@ func (r *LLMInferenceServiceReconciler) reconcileIstioDestinationRules(ctx conte
 	}
 
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Route != nil && !llmSvc.Spec.Router.Route.HTTP.HasRefs() {
-		routes = append(routes, r.expectedHTTPRoute(llmSvc))
+		routes = append(routes, r.expectedHTTPRoute(ctx, llmSvc))
 	}
 
 	cfg, err := LoadConfig(ctx, r.Clientset)
@@ -161,9 +161,17 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForScheduler
 		Spec: istionetworking.DestinationRule{
 			TrafficPolicy: &istionetworking.TrafficPolicy{
 				Tls: &istionetworking.ClientTLSSettings{
-					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
-					CaCertificates:     IstioCACertificatePath,
-					InsecureSkipVerify: &pbwrappers.BoolValue{Value: false},
+					Mode: istionetworking.ClientTLSSettings_SIMPLE,
+					// TODO: after 3.4, we can flip this back to false
+					//CaCertificates: IstioCACertificatePath,
+					//
+					// The scheduler didn't support watching and auto-reloading certificates
+					// in previous versions.
+					// It is fixed by https://github.com/kubernetes-sigs/gateway-api-inference-extension/pull/1765.
+					// Without a restart, on upgrade, we will get errors like
+					// '{"object":"error","message":"[{'type': 'missing', 'loc': ('body',), 'msg': 'Field required', 'input': None}]","type":"Bad Request","param":null,"code":400}'
+					// Once the upgrade to 3.4 is done, the certs will have the expected SAN.
+					InsecureSkipVerify: &pbwrappers.BoolValue{Value: true},
 				},
 			},
 			// Export to all namespaces, this is the default, however, we keep the configuration explicit.
@@ -215,9 +223,17 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForShadowSer
 		Spec: istionetworking.DestinationRule{
 			TrafficPolicy: &istionetworking.TrafficPolicy{
 				Tls: &istionetworking.ClientTLSSettings{
-					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
-					CaCertificates:     IstioCACertificatePath,
-					InsecureSkipVerify: &pbwrappers.BoolValue{Value: false},
+					Mode: istionetworking.ClientTLSSettings_SIMPLE,
+					// TODO: after 3.4, we can flip this back to false
+					//CaCertificates: IstioCACertificatePath,
+					//
+					// The scheduler didn't support watching and auto-reloading certificates
+					// in previous versions.
+					// It is fixed by https://github.com/kubernetes-sigs/gateway-api-inference-extension/pull/1765.
+					// Without a restart, on upgrade, we will get errors like
+					// '{"object":"error","message":"[{'type': 'missing', 'loc': ('body',), 'msg': 'Field required', 'input': None}]","type":"Bad Request","param":null,"code":400}'
+					// Once the upgrade to 3.4 is done, the certs will have the expected SAN.
+					InsecureSkipVerify: &pbwrappers.BoolValue{Value: true},
 				},
 			},
 			// Export to all namespaces, this is the default, however, we keep the configuration explicit.
@@ -227,7 +243,7 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForShadowSer
 	if shadowSvc != nil {
 		hostname := network.GetServiceHostname(shadowSvc.GetName(), shadowSvc.GetNamespace())
 		dr.Spec.Host = hostname
-		dr.Spec.TrafficPolicy.Tls.Sni = hostname
+		dr.Spec.TrafficPolicy.Tls.Sni = network.GetServiceHostname(kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"), llmSvc.GetNamespace())
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected destination rule for workload shadow service", "destinationrule", dr)
@@ -263,6 +279,12 @@ func (r *LLMInferenceServiceReconciler) expectedIstioDestinationRuleForWorkload(
 			// Export to all namespaces, this is the default, however, we keep the configuration explicit.
 			ExportTo: []string{"*"},
 		},
+	}
+
+	if llmSvc.Spec.Prefill != nil {
+		// This is kept for backward compatibility, the sidecar doesn't support watching and auto-reloading certificates yet.
+		dr.Spec.TrafficPolicy.Tls.CaCertificates = ""
+		dr.Spec.TrafficPolicy.Tls.InsecureSkipVerify = &pbwrappers.BoolValue{Value: true}
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected destination rule for workload service", "destinationrule", dr)

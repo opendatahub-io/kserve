@@ -24,6 +24,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
@@ -53,10 +54,14 @@ func SetupTestEnv() *pkgtest.Client {
 		clientSet, err := kubernetes.NewForConfig(cfg)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+		dynamicClient, err := dynamic.NewForConfig(cfg)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 		llmCtrl := llmisvc.LLMInferenceServiceReconciler{
-			Client:    mgr.GetClient(),
-			Clientset: clientSet,
-			Config:    cfg,
+			Client:        mgr.GetClient(),
+			Clientset:     clientSet,
+			DynamicClient: dynamicClient,
+			Config:        cfg,
 			// TODO fix it to be set up similar to main.go, for now it's stub
 			EventRecorder: eventBroadcaster.NewRecorder(mgr.GetScheme(), corev1.EventSource{Component: "v1beta1Controllers"}),
 		}
