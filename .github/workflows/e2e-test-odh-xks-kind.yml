@@ -107,7 +107,7 @@ jobs:
         if: matrix.deploy-method == 'helm'
         uses: actions/checkout@v4
         with:
-          repository: pierDipi/rhaii-xks-kserve
+          repository: opendatahub-io/rhaii-on-xks
           path: rhaii-xks-kserve
 
       - name: Generate and deploy Helm chart
@@ -116,12 +116,12 @@ jobs:
           KSERVE_CONTROLLER_IMAGE: kserve-controller:dev
         run: |
           # Generate chart with original images (skip registry.redhat.io replacement)
-          ./rhaii-xks-kserve/generate-chart.sh \
+          ./rhaii-xks-kserve/charts/kserve/generate-chart.sh \
             --overlay ./config/overlays/odh-xks \
             --skip-image-replacement
 
           # Deploy via Helm
-          helm install kserve-xks ./rhaii-xks-kserve \
+          helm install kserve-xks ./rhaii-xks-kserve/charts/kserve \
             --namespace opendatahub \
             --wait \
             --timeout 5m
