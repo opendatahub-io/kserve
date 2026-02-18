@@ -1,0 +1,12 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: kserve-config-llm-template-google-tpu
+  annotations:
+    openshift.io/display-name: vLLM Google TPU LLMInferenceServiceConfig
+    description: vLLM Google TPU LLMInferenceServiceConfig for LLMInferenceService.
+spec:
+  template:
+    containers:
+      - name: main
+        image: $(kserve-llm-d-google-tpu)

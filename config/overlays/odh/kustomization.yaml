@@ -132,6 +132,36 @@ replacements:
         name: kserve-config-llm-template-amd-rocm
       fieldPaths:
         - spec.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-nvidia-cuda
+  targets:
+    - select:
+        kind: LLMInferenceServiceConfig
+        name: kserve-config-llm-template-nvidia-cuda
+      fieldPaths:
+        - spec.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-ibm-spyre
+  targets:
+    - select:
+        kind: LLMInferenceServiceConfig
+        name: kserve-config-llm-template-ibm-spyre
+      fieldPaths:
+        - spec.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-google-tpu
+  targets:
+    - select:
+        kind: LLMInferenceServiceConfig
+        name: kserve-config-llm-template-google-tpu
+      fieldPaths:
+        - spec.template.containers.[name=main].image
 
 configMapGenerator:
 - envs:
