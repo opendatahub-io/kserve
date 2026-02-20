@@ -66,4 +66,7 @@ spec:
   workspaces:
   - name: git-auth
     secret:
-      secretName: '{{ git_auth_secret }}'
+      secretName: 'odh-github-secret'
+      items:
+        - key: build-metadata-token
+          path: git-provider-token
