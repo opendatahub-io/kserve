@@ -7,5 +7,6 @@ commonLabels:
 resources:
   - amd-rocm-config-llm-template.yaml
   - nvidia-cuda-config-llm-template.yaml
-  - ibm-spyre-config-llm-template.yaml
-  - google-tpu-config-llm-template.yaml
+  - ibm-spyre-s390x-config-llm-template.yaml
+  - ibm-spyre-x86-config-llm-template.yaml
+  - ibm-spyre-ppc64le-config-llm-template.yaml

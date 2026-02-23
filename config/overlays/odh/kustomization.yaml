@@ -149,17 +149,27 @@ replacements:
   targets:
     - select:
         kind: LLMInferenceServiceConfig
-        name: kserve-config-llm-template-ibm-spyre
+        name: kserve-config-llm-template-ibm-spyre-s390x
       fieldPaths:
         - spec.template.containers.[name=main].image
 - source:
     kind: ConfigMap
     name: kserve-parameters
-    fieldPath: data.kserve-llm-d-google-tpu
+    fieldPath: data.kserve-llm-d-ibm-spyre
   targets:
     - select:
         kind: LLMInferenceServiceConfig
-        name: kserve-config-llm-template-google-tpu
+        name: kserve-config-llm-template-ibm-spyre-x86
+      fieldPaths:
+        - spec.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-ibm-spyre
+  targets:
+    - select:
+        kind: LLMInferenceServiceConfig
+        name: kserve-config-llm-template-ibm-spyre-ppc64le
       fieldPaths:
         - spec.template.containers.[name=main].image
 
