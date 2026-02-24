@@ -56,6 +56,8 @@ pyyaml = "^6.0.0"
 urllib3 = ">=2.6.3"
 # CVE-2025-69223 AIOHTTP's HTTP Parser auto_decompress feature is vulnerable to zip bomb
 aiohttp = ">=3.13.3"
+# CVE-2026-25990 Pillow: Out-of-bounds Write via Specially Crafted PSD Image
+Pillow = ">=12.1.1"
 
 # Storage dependencies. They can be opted into by apps.
 requests = { version = "^2.32.2", optional = true }
