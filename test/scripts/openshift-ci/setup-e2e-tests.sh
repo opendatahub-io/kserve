@@ -15,7 +15,7 @@
 # This is a helper script to run E2E tests on the openshift-ci operator.
 # This script assumes to be run inside a container/machine that has
 # python pre-installed and the `oc` command available. Additional tooling,
-# like kustomize and the minio client are installed by the script if not available.
+# like kustomize are installed by the script if not available.
 # The oc CLI is assumed to be configured with the credentials of the
 # target cluster. The target cluster is assumed to be a clean cluster.
 set -o errexit
@@ -67,24 +67,6 @@ if ! command -v kustomize &>/dev/null; then
   curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash -s -- 5.7.1 $HOME/.local/bin
 fi
 
-# If minio CLI is not installed, install it
-if ! mc --version &>/dev/null; then
-  echo "⏳ Installing Minio CLI"
-  mkdir -p "$HOME/.local/bin"
-  if ! curl -fsSL --retry 3 --retry-delay 5 https://dl.min.io/client/mc/release/linux-amd64/mc -o "$HOME/.local/bin/mc"; then
-    echo "❌ Failed to download MinIO CLI"
-    exit 1
-  fi
-  # Validate the downloaded file is an actual ELF binary, not an HTML error page
-  if ! file "$HOME/.local/bin/mc" | grep -q "ELF"; then
-    echo "Downloaded mc is not a valid binary (possibly an HTML error page). Content:"
-    head -c 200 "$HOME/.local/bin/mc"
-    rm -f "$HOME/.local/bin/mc"
-    exit 1
-  fi
-  chmod +x "$HOME/.local/bin/mc"
-fi
-
 echo "⏳ Installing KServe Python SDK ..."
 pushd $PROJECT_ROOT >/dev/null
   ./test/scripts/gh-actions/setup-poetry.sh
@@ -133,7 +115,7 @@ kustomize build $PROJECT_ROOT/config/crd | oc apply --server-side=true -f -
 
 wait_for_crd llminferenceserviceconfigs.serving.kserve.io 90s
 
-echo "⏳ Installing KServe with Minio"
+echo "⏳ Installing KServe with SeaweedFS"
 kustomize build $PROJECT_ROOT/config/overlays/odh-test |
   sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
   sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
@@ -183,38 +165,33 @@ kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
 
 wait_for_pod_ready "${NS}" "app=odh-model-controller"
 
-echo "Add testing models to minio storage ..." # Reference: config/overlays/test/minio/minio-init-job.yaml
-# Wait for MinIO pod to be ready
-echo "⏳ Waiting for MinIO pod to be ready..."
+echo "Add testing models to SeaweedFS S3 storage ..."
+echo "⏳ Waiting for SeaweedFS deployment to be ready..."
+oc rollout status deployment/seaweedfs -n ${NS} --timeout=300s
 
-echo "minio oc get events"
-oc get events
-oc wait --for=condition=ready pod -l app=minio -n ${NS} --timeout=300s
-
-oc expose service minio-service -n ${NS} && sleep 15 # increased from 5 to 15
-MINIO_ROUTE=$(oc get routes -n ${NS} minio-service -o jsonpath="{.spec.host}")
-if [[ -z "${MINIO_ROUTE}" ]]; then
-  echo "Failed to get MinIO route"
-  exit 1
-fi
-echo "MinIO route: $MINIO_ROUTE"
-mc alias set storage http://$MINIO_ROUTE minio minio123
-
-if ! mc ls storage/example-models >/dev/null 2>&1; then
-  mc mb storage/example-models
+if oc wait --for=condition=complete job/s3-init -n ${NS} --timeout=60s 2>/dev/null; then
+  echo "S3 init job already completed successfully"
 else
-  echo "Bucket 'example-models' already exists."
+  echo "S3 init job not completed, re-creating..."
+  oc delete job s3-init -n ${NS} --wait=true --ignore-not-found
+  sed "s/s3-service.kserve/s3-service.${NS}/" \
+    "$PROJECT_ROOT/config/overlays/test/s3-local-backend/seaweedfs-init-job.yaml" | \
+    oc apply -n ${NS} -f -
+
+  echo "Waiting for S3 init job to complete..."
+  if ! oc wait --for=condition=complete job/s3-init -n ${NS} --timeout=300s; then
+    echo "S3 init job failed. Pod status and logs:"
+    oc get pods -l job-name=s3-init -n ${NS}
+    oc logs -l job-name=s3-init -n ${NS} --tail=50 || true
+    exit 1
+  fi
 fi
 
-if [[ $(mc ls storage/example-models/sklearn/model.joblib | wc -l) == "1" ]]; then
-  echo "Test model exists"
-else
-  echo "Copy test model"
-  curl -L https://storage.googleapis.com/kfserving-examples/models/sklearn/1.0/model/model.joblib -o /tmp/sklearn-model.joblib
-  mc cp /tmp/sklearn-model.joblib storage/example-models/sklearn/model.joblib
+if [[ "${MARKERS}" == *"kserve_on_openshift"* ]]; then
+  echo "Configuring SeaweedFS S3 TLS"
+  S3_NAMESPACE="${NS}" "$PROJECT_ROOT/test/scripts/openshift-ci/tls/setup-s3-tls.sh" custom
+  S3_NAMESPACE="${NS}" "$PROJECT_ROOT/test/scripts/openshift-ci/tls/setup-s3-tls.sh" serving
 fi
-
-oc delete route -n ${NS} minio-service
 
 echo "Prepare CI namespace and install ServingRuntimes"
 oc create ns kserve-ci-e2e-test || true
@@ -234,8 +211,8 @@ EOF
 fi
 
 oc apply -n kserve-ci-e2e-test -f <(
-  sed "s|http://minio-service\.kserve:9000|http://minio-service.${NS}:9000|g" \
-      "$PROJECT_ROOT/config/overlays/test/minio/minio-user-secret.yaml"
+  sed "s|http://s3-service\.kserve:8333|http://s3-service.${NS}:8333|g" \
+      "$PROJECT_ROOT/config/overlays/test/s3-local-backend/storage-config-secret.yaml"
 )
 
 kustomize build $PROJECT_ROOT/config/overlays/odh-test/clusterresources |
