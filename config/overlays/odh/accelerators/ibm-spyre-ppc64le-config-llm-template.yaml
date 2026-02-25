@@ -1,0 +1,15 @@
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceServiceConfig
+metadata:
+  name: kserve-config-llm-template-ibm-spyre-ppc64le
+  annotations:
+    openshift.io/display-name: vLLM IBM Spyre ppc64le LLMInferenceServiceConfig
+    description: vLLM IBM Spyre ppc64le LLMInferenceServiceConfig for LLMInferenceService.
+spec:
+  template:
+    containers:
+      - name: main
+        image: placeholder
+        env:
+          - name: HF_HOME
+            value: /tmp/hf_home

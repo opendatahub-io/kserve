@@ -12,9 +12,13 @@ spec:
           - containerPort: 8000
             protocol: TCP
         command:
-          - vllm
-          - serve
-          - /mnt/models
+          - /bin/bash
+          - -c
+          - |
+            [ -f /etc/profile.d/ibm-aiu-setup.sh ] && source /etc/profile.d/ibm-aiu-setup.sh
+            exec vllm serve /mnt/models "$@"
+          - --
+        args:
           - --served-model-name
           - "{{ .Spec.Model.Name }}"
           - --port
