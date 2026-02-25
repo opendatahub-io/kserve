@@ -74,6 +74,7 @@ pushd $PROJECT_ROOT >/dev/null
   ./test/scripts/gh-actions/setup-poetry.sh
 popd
 pushd $PROJECT_ROOT/python/kserve >/dev/null
+  poetry env remove --all 2>/dev/null || true
   poetry install --with=test --no-interaction
 popd
 

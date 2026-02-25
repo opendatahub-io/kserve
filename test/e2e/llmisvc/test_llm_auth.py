@@ -43,15 +43,20 @@ LLMINFERENCESERVICE_CONFIGS["router-auth-disabled"] = {
 }
 
 
-def create_service_account_with_get_access(
+def create_service_account_with_inference_access(
     kserve_client: KServeClient,
     sa_name: str,
     llm_service_name: str,
     namespace: str = KSERVE_TEST_NAMESPACE,
 ):
     """
-    Create a ServiceAccount with GET access to a specific LLMInferenceService.
-    Returns the ServiceAccount token.
+    Create a ServiceAccount with access to call a specific LLMInferenceService.
+
+    The gateway AuthPolicy (ODH/Kuadrant) checks both:
+    - inference-access: verb get on llminferenceservices
+    - endpoint-access: verb post on llminferenceservices (for POST /v1/completions etc.)
+
+    So the Role must grant both get and post. Returns the ServiceAccount token.
     """
     core_api = kserve_client.core_api
     rbac_api = client.RbacAuthorizationV1Api()
@@ -69,7 +74,7 @@ def create_service_account_with_get_access(
         else:
             raise
 
-    # Create Role with GET permission on the specific LLMInferenceService
+    # Create Role with get+post on the specific LLMInferenceService (required by gateway AuthPolicy)
     role_name = f"{sa_name}-role"
     role = client.V1Role(
         metadata=client.V1ObjectMeta(name=role_name, namespace=namespace),
@@ -78,7 +83,7 @@ def create_service_account_with_get_access(
                 api_groups=["serving.kserve.io"],
                 resources=["llminferenceservices"],
                 resource_names=[llm_service_name],
-                verbs=["get"],
+                verbs=["get", "post"],
             )
         ],
     )
@@ -243,8 +248,8 @@ def test_llm_auth_enabled_requires_token(test_case: TestCase):
             kserve_client, test_case.llm_service, test_case.wait_timeout
         )
 
-        # Create ServiceAccount with GET access
-        token = create_service_account_with_get_access(
+        # Create ServiceAccount with get+post access (required for inference-access and endpoint-access)
+        token = create_service_account_with_inference_access(
             kserve_client, sa_name, service_name
         )
 
@@ -379,7 +384,9 @@ def test_llm_auth_invalid_token_rejected(test_case: TestCase):
         )
 
         # Create ServiceAccount to get a valid token format reference
-        create_service_account_with_get_access(kserve_client, sa_name, service_name)
+        create_service_account_with_inference_access(
+            kserve_client, sa_name, service_name
+        )
 
         service_url = get_llm_service_url(kserve_client, test_case.llm_service)
         completion_url = f"{service_url}/v1/completions"
