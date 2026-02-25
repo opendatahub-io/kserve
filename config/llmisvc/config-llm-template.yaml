@@ -136,7 +136,9 @@ spec:
               fi
             fi
 
-            eval "vllm serve /mnt/models \
+            [ -f /etc/profile.d/ibm-aiu-setup.sh ] && source /etc/profile.d/ibm-aiu-setup.sh
+
+            eval "python3 -m vllm.entrypoints.openai.api_server /mnt/models \
               --served-model-name "{{ .Spec.Model.Name }}" \
               --port 8000 \
               ${VLLM_ADDITIONAL_ARGS} \
