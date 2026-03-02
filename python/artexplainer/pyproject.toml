@@ -3,13 +3,17 @@ authors = [
     {name = "Andrew Butler", email = "Andrew.Butler@ibm.com"},
 ]
 license = {text = "Apache-2.0"}
-requires-python = "<3.13,>=3.10"
+# Updated to >=3.11 for CVE-2026-0897 fix (requires Keras 3.13.2+)
+requires-python = "<3.13,>=3.11"
 dependencies = [
     "kserve @ file:///${PROJECT_ROOT}/../kserve",
     "adversarial-robustness-toolbox[keras]<2.0.0,>=1.18.1",
     "nest-asyncio<2.0.0,>=1.5.8",
     "pillow<11.0.0,>=10.3.0",
     "h5py==3.10.0",
+    # CVE-2026-0897: Keras DoS via crafted HDF5 weight loading file (RHOAIENG-45807)
+    # Fixed in 3.13.2+ with validation for HDF5 dataset metadata
+    "keras>=3.13.2",
 ]
 name = "artserver"
 version = "0.16.0"
