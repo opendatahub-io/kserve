@@ -1724,6 +1724,7 @@ dependencies = [
     { name = "kserve", extra = ["llm"] },
     { name = "kserve-storage" },
     { name = "modelscope" },
+    { name = "sentencepiece" },
     { name = "setuptools" },
     { name = "transformers" },
 ]
@@ -1749,6 +1750,7 @@ requires-dist = [
     { name = "kserve", extras = ["llm"], directory = "../kserve" },
     { name = "kserve-storage", directory = "../storage" },
     { name = "modelscope", specifier = ">=1.16.0,<2.0.0" },
+    { name = "sentencepiece", specifier = ">=0.2.1" },
     { name = "setuptools", specifier = ">=70.0.0" },
     { name = "transformers", specifier = ">=4.53.2" },
 ]
@@ -1953,6 +1955,7 @@ dependencies = [
 
 [package.optional-dependencies]
 llm = [
+    { name = "sentencepiece" },
     { name = "vllm" },
 ]
 
@@ -1978,6 +1981,7 @@ requires-dist = [
     { name = "python-dateutil", specifier = ">=2.8.0,<3.0.0" },
     { name = "pyyaml", specifier = ">=6.0.0,<7.0.0" },
     { name = "ray", extras = ["serve"], marker = "extra == 'ray'", specifier = ">=2.43.0" },
+    { name = "sentencepiece", marker = "extra == 'llm'", specifier = ">=0.2.1" },
     { name = "six", specifier = ">=1.16.0,<2.0.0" },
     { name = "starlette", specifier = "==0.49.1" },
     { name = "tabulate", specifier = ">=0.9.0,<1.0.0" },

@@ -67,6 +67,7 @@ ray = [
 ]
 llm = [
     "vllm==0.11.2",
+    "sentencepiece>=0.2.1",  # CVE-2026-1260: Invalid memory access leading to potential arbitrary code execution
 ]
 
 [dependency-groups]

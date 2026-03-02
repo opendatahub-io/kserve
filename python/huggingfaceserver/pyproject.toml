@@ -12,6 +12,7 @@ dependencies = [
     "bitsandbytes>=0.45.3",
     "modelscope<2.0.0,>=1.16.0",
     "setuptools>=70.0.0",
+    "sentencepiece>=0.2.1",  # CVE-2026-1260: Invalid memory access leading to potential arbitrary code execution
 ]
 name = "huggingfaceserver"
 version = "0.16.0"

@@ -23,6 +23,7 @@ tensorflow-io-gcs-filesystem = "0.37.1"
 keras = ">=3.12.0"
 urllib3 = ">=2.6.0"
 transformers = ">=4.53.0"
+sentencepiece = ">=0.2.1"  # CVE-2026-1260: Invalid memory access leading to potential arbitrary code execution
 
 [tool.poetry.group.test]
 optional = true
