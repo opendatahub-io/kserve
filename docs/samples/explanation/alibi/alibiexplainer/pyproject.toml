@@ -19,6 +19,8 @@ dill = "^0.3.8"
 nest-asyncio = "~1.4.0"
 llvmlite = ">0.38.1" # needed since poetry chooses lower version of llvmlite which is not supported by python 3.9 above
 tensorflow-io-gcs-filesystem = "0.37.1"
+# CVE-2026-1260 sentencepiece: Invalid memory access leading to potential arbitrary code execution
+sentencepiece = ">=0.2.1"
 
 [tool.poetry.group.test]
 optional = true

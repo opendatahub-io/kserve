@@ -21,6 +21,8 @@ modelscope = "^1.16.0"
 setuptools = ">=70.0.0"
 torchaudio = {version = ">=2.7.0,<2.8.0", source = "pytorch-cpu"}
 torchvision = {version = ">=0.22.0,<0.23.0", source = "pytorch-cpu"}
+# CVE-2026-1260 sentencepiece: Invalid memory access leading to potential arbitrary code execution
+sentencepiece = ">=0.2.1"
 
 [tool.poetry.group.test]
 optional = true

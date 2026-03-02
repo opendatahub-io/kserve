@@ -56,6 +56,8 @@ pyyaml = "^6.0.0"
 urllib3 = ">=2.6.3"
 # CVE-2025-69223 AIOHTTP's HTTP Parser auto_decompress feature is vulnerable to zip bomb
 aiohttp = ">=3.13.3"
+# CVE-2026-1260 sentencepiece: Invalid memory access leading to potential arbitrary code execution
+sentencepiece = { version = ">=0.2.1", optional = true }
 
 # Storage dependencies. They can be opted into by apps.
 requests = { version = "^2.32.2", optional = true }
@@ -90,7 +92,7 @@ storage = [
 
 logging = ["asgi-logger"]
 ray = ["ray"]
-llm = ["vllm"]
+llm = ["vllm", "sentencepiece"]
 
 [tool.poetry.group.test]
 optional = true
