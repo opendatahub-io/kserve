@@ -30,8 +30,6 @@ import (
 	"github.com/kserve/kserve/pkg/constants"
 )
 
-// +kubebuilder:rbac:groups="security.openshift.io",resources=securitycontextconstraints,verbs=use,resourceNames=openshift-ai-llminferenceservice-scc
-
 // sccDisabled indicates whether SCC role binding reconciliation is globally disabled for LLMInferenceService.
 // When set to "true", the controller will skip creating SCC RoleBinding resources,
 // useful for non-OpenShift Kubernetes clusters where SecurityContextConstraints don't exist.
