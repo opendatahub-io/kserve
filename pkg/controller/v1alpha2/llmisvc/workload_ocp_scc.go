@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	"github.com/kserve/kserve/pkg/constants"
 )
 
 // +kubebuilder:rbac:groups="security.openshift.io",resources=securitycontextconstraints,verbs=use,resourceNames=openshift-ai-llminferenceservice-scc
@@ -73,8 +74,8 @@ func (r *LLMISVCReconciler) expectedMultiNodeSCCRoleBinding(ctx context.Context,
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-mn-scc"),
 			Namespace: llmSvc.GetNamespace(),
 			Labels: map[string]string{
-				"app.kubernetes.io/name":    llmSvc.GetName(),
-				"app.kubernetes.io/part-of": "llminferenceservice",
+				constants.KubernetesAppNameLabelKey: llmSvc.GetName(),
+				constants.KubernetesPartOfLabelKey:  constants.LLMInferenceServicePartOfValue,
 			},
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
