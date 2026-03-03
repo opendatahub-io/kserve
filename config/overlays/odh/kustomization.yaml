@@ -7,6 +7,7 @@ resources:
 # - ../../crd/full/localmodel
 - user-cluster-roles.yaml
 - network-policies.yaml
+- llm-svc-scc.yaml
 
 components:
 - ../../components/kserve
