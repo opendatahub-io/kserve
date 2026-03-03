@@ -21,6 +21,7 @@ import (
 
 	. "github.com/onsi/gomega"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
@@ -143,6 +144,81 @@ func TestDiscoverURLs(t *testing.T) {
 				WithAddresses("203.0.113.1"),
 			),
 			expectedURLs: []string{"http://203.0.113.1/api/v1/models"},
+		},
+		{
+			name: "multi-rule path extraction - prefers Service-backed rule path",
+			route: HTTPRoute("multi-rule-route",
+				InNamespace[*gwapiv1.HTTPRoute]("test-ns"),
+				WithParentRef(GatewayRef("multi-rule-gateway", RefInNamespace("test-ns"))),
+				WithHTTPRule(
+					Matches(PathPrefixMatch("/ns/name/v1/completions")),
+					WithBackendRefs(BackendRefInferencePool("pool")),
+				),
+				WithHTTPRule(
+					Matches(PathPrefixMatch("/ns/name/v1/chat/completions")),
+					WithBackendRefs(BackendRefInferencePool("pool")),
+				),
+				WithHTTPRule(
+					Matches(PathPrefixMatch("/ns/name")),
+					WithBackendRefs(BackendRefService("svc")),
+				),
+			),
+			gateway: Gateway("multi-rule-gateway",
+				InNamespace[*gwapiv1.Gateway]("test-ns"),
+				WithListener(gwapiv1.HTTPProtocolType),
+				WithAddresses("203.0.113.1"),
+			),
+			expectedURLs: []string{"http://203.0.113.1/ns/name"},
+		},
+		{
+			name: "multi-rule path extraction - falls back to shortest when no Service backend",
+			route: HTTPRoute("no-svc-route",
+				InNamespace[*gwapiv1.HTTPRoute]("test-ns"),
+				WithParentRef(GatewayRef("no-svc-gateway", RefInNamespace("test-ns"))),
+				WithHTTPRule(
+					Matches(PathPrefixMatch("/ns/name/v1/completions")),
+					WithBackendRefs(BackendRefInferencePool("pool")),
+				),
+				WithHTTPRule(
+					Matches(PathPrefixMatch("/ns/name/v1/chat/completions")),
+					WithBackendRefs(BackendRefInferencePool("pool")),
+				),
+			),
+			gateway: Gateway("no-svc-gateway",
+				InNamespace[*gwapiv1.Gateway]("test-ns"),
+				WithListener(gwapiv1.HTTPProtocolType),
+				WithAddresses("203.0.113.1"),
+			),
+			expectedURLs: []string{"http://203.0.113.1/ns/name/v1/completions"},
+		},
+		{
+			name: "multi-rule path extraction - Service with default Kind (nil)",
+			route: HTTPRoute("default-kind-route",
+				InNamespace[*gwapiv1.HTTPRoute]("test-ns"),
+				WithParentRef(GatewayRef("default-kind-gateway", RefInNamespace("test-ns"))),
+				WithHTTPRule(
+					Matches(PathPrefixMatch("/ns/name/v1/completions")),
+					WithBackendRefs(BackendRefInferencePool("pool")),
+				),
+				WithHTTPRule(
+					Matches(PathPrefixMatch("/ns/name")),
+					WithBackendRefs(gwapiv1.HTTPBackendRef{
+						BackendRef: gwapiv1.BackendRef{
+							BackendObjectReference: gwapiv1.BackendObjectReference{
+								// Kind nil defaults to "Service" per Gateway API spec
+								Name: "svc",
+								Port: ptr.To(gwapiv1.PortNumber(8000)),
+							},
+						},
+					}),
+				),
+			),
+			gateway: Gateway("default-kind-gateway",
+				InNamespace[*gwapiv1.Gateway]("test-ns"),
+				WithListener(gwapiv1.HTTPProtocolType),
+				WithAddresses("203.0.113.1"),
+			),
+			expectedURLs: []string{"http://203.0.113.1/ns/name"},
 		},
 		{
 			name: "HTTPS scheme from gateway listener",
@@ -465,6 +541,165 @@ func TestDiscoverURLs(t *testing.T) {
 				"http://primary.example.com/",
 			},
 		},
+		{
+			name: "listener hostname fallback - no route hostnames",
+			route: HTTPRoute("listener-hostname-route",
+				InNamespace[*gwapiv1.HTTPRoute]("test-ns"),
+				WithParentRef(GatewayRef("listener-hostname-gateway", RefInNamespace("test-ns"))),
+				// No hostnames specified in route
+			),
+			gateway: Gateway("listener-hostname-gateway",
+				InNamespace[*gwapiv1.Gateway]("test-ns"),
+				WithListeners(gwapiv1.Listener{
+					Protocol: gwapiv1.HTTPProtocolType,
+					Port:     80,
+					Hostname: ptr.To(gwapiv1.Hostname("listener.example.com")),
+				}),
+				WithAddresses("203.0.113.1"),
+			),
+			expectedURLs: []string{"http://listener.example.com/"},
+		},
+		{
+			name: "listener hostname fallback - route has wildcard hostname",
+			route: HTTPRoute("listener-hostname-wildcard-route",
+				InNamespace[*gwapiv1.HTTPRoute]("test-ns"),
+				WithParentRef(GatewayRef("listener-hostname-wildcard-gateway", RefInNamespace("test-ns"))),
+				WithHostnames("*"), // Wildcard should be filtered out
+			),
+			gateway: Gateway("listener-hostname-wildcard-gateway",
+				InNamespace[*gwapiv1.Gateway]("test-ns"),
+				WithListeners(gwapiv1.Listener{
+					Protocol: gwapiv1.HTTPProtocolType,
+					Port:     80,
+					Hostname: ptr.To(gwapiv1.Hostname("fallback.example.com")),
+				}),
+				WithAddresses("203.0.113.1"),
+			),
+			expectedURLs: []string{"http://fallback.example.com/"},
+		},
+		{
+			name: "listener hostname fallback - route hostname takes precedence",
+			route: HTTPRoute("route-hostname-precedence",
+				InNamespace[*gwapiv1.HTTPRoute]("test-ns"),
+				WithParentRef(GatewayRef("route-hostname-precedence-gateway", RefInNamespace("test-ns"))),
+				WithHostnames("route.example.com"),
+			),
+			gateway: Gateway("route-hostname-precedence-gateway",
+				InNamespace[*gwapiv1.Gateway]("test-ns"),
+				WithListeners(gwapiv1.Listener{
+					Protocol: gwapiv1.HTTPProtocolType,
+					Port:     80,
+					Hostname: ptr.To(gwapiv1.Hostname("listener.example.com")),
+				}),
+				WithAddresses("203.0.113.1"),
+			),
+			expectedURLs: []string{"http://route.example.com/"}, // Route hostname should be used, not listener
+		},
+		{
+			name: "listener hostname fallback - empty listener hostname uses addresses",
+			route: HTTPRoute("empty-listener-hostname-route",
+				InNamespace[*gwapiv1.HTTPRoute]("test-ns"),
+				WithParentRef(GatewayRef("empty-listener-hostname-gateway", RefInNamespace("test-ns"))),
+				// No hostnames specified in route
+			),
+			gateway: Gateway("empty-listener-hostname-gateway",
+				InNamespace[*gwapiv1.Gateway]("test-ns"),
+				WithListeners(gwapiv1.Listener{
+					Protocol: gwapiv1.HTTPProtocolType,
+					Port:     80,
+					Hostname: ptr.To(gwapiv1.Hostname("")), // Empty hostname
+				}),
+				WithAddresses("203.0.113.1"),
+			),
+			expectedURLs: []string{"http://203.0.113.1/"}, // Should fall back to addresses
+		},
+		{
+			name: "listener wildcard hostname - basic wildcard expansion",
+			route: HTTPRoute("wildcard-listener-route",
+				InNamespace[*gwapiv1.HTTPRoute]("test-ns"),
+				WithParentRef(GatewayRef("wildcard-listener-gateway", RefInNamespace("test-ns"))),
+				// No hostnames specified in route
+			),
+			gateway: Gateway("wildcard-listener-gateway",
+				InNamespace[*gwapiv1.Gateway]("test-ns"),
+				WithListeners(gwapiv1.Listener{
+					Protocol: gwapiv1.HTTPProtocolType,
+					Port:     80,
+					Hostname: ptr.To(gwapiv1.Hostname("*.example.com")),
+				}),
+				WithAddresses("203.0.113.1"),
+			),
+			expectedURLs: []string{"http://inference.example.com/"}, // Should expand wildcard to inference.example.com
+		},
+		{
+			name: "listener wildcard hostname - wildcard with subdomain",
+			route: HTTPRoute("wildcard-subdomain-route",
+				InNamespace[*gwapiv1.HTTPRoute]("test-ns"),
+				WithParentRef(GatewayRef("wildcard-subdomain-gateway", RefInNamespace("test-ns"))),
+			),
+			gateway: Gateway("wildcard-subdomain-gateway",
+				InNamespace[*gwapiv1.Gateway]("test-ns"),
+				WithListeners(gwapiv1.Listener{
+					Protocol: gwapiv1.HTTPProtocolType,
+					Port:     80,
+					Hostname: ptr.To(gwapiv1.Hostname("*.api.example.com")),
+				}),
+				WithAddresses("203.0.113.1"),
+			),
+			expectedURLs: []string{"http://inference.api.example.com/"}, // Should expand to inference.api.example.com
+		},
+		{
+			name: "listener wildcard hostname - route hostname takes precedence over wildcard",
+			route: HTTPRoute("route-over-wildcard-route",
+				InNamespace[*gwapiv1.HTTPRoute]("test-ns"),
+				WithParentRef(GatewayRef("route-over-wildcard-gateway", RefInNamespace("test-ns"))),
+				WithHostnames("custom.example.com"),
+			),
+			gateway: Gateway("route-over-wildcard-gateway",
+				InNamespace[*gwapiv1.Gateway]("test-ns"),
+				WithListeners(gwapiv1.Listener{
+					Protocol: gwapiv1.HTTPProtocolType,
+					Port:     80,
+					Hostname: ptr.To(gwapiv1.Hostname("*.example.com")),
+				}),
+				WithAddresses("203.0.113.1"),
+			),
+			expectedURLs: []string{"http://custom.example.com/"}, // Route hostname should take precedence
+		},
+		{
+			name: "listener wildcard hostname - HTTPS with wildcard",
+			route: HTTPRoute("https-wildcard-route",
+				InNamespace[*gwapiv1.HTTPRoute]("test-ns"),
+				WithParentRef(GatewayRef("https-wildcard-gateway", RefInNamespace("test-ns"))),
+			),
+			gateway: Gateway("https-wildcard-gateway",
+				InNamespace[*gwapiv1.Gateway]("test-ns"),
+				WithListeners(gwapiv1.Listener{
+					Protocol: gwapiv1.HTTPSProtocolType,
+					Port:     443,
+					Hostname: ptr.To(gwapiv1.Hostname("*.secure.example.com")),
+				}),
+				WithAddresses("203.0.113.1"),
+			),
+			expectedURLs: []string{"https://inference.secure.example.com/"},
+		},
+		{
+			name: "listener wildcard hostname - custom port with wildcard",
+			route: HTTPRoute("custom-port-wildcard-route",
+				InNamespace[*gwapiv1.HTTPRoute]("test-ns"),
+				WithParentRef(GatewayRef("custom-port-wildcard-gateway", RefInNamespace("test-ns"))),
+			),
+			gateway: Gateway("custom-port-wildcard-gateway",
+				InNamespace[*gwapiv1.Gateway]("test-ns"),
+				WithListeners(gwapiv1.Listener{
+					Protocol: gwapiv1.HTTPProtocolType,
+					Port:     8080,
+					Hostname: ptr.To(gwapiv1.Hostname("*.apps.example.com")),
+				}),
+				WithAddresses("203.0.113.1"),
+			),
+			expectedURLs: []string{"http://inference.apps.example.com:8080/"},
+		},
 	}
 
 	for _, tt := range tests {
@@ -778,4 +1013,171 @@ func TestFilterURLs(t *testing.T) {
 			g.Expect(isInternal).To(Equal(!isExternal), "URL %s should be either internal or external, not both", urlStr)
 		}
 	})
+}
+
+func TestIsInferencePoolV1Alpha2Supported(t *testing.T) {
+	v1alpha2Group := gwapiv1.Group("inference.networking.x-k8s.io")
+	v1Group := gwapiv1.Group("inference.networking.k8s.io")
+	poolKind := gwapiv1.Kind("InferencePool")
+
+	tests := []struct {
+		name     string
+		route    *gwapiv1.HTTPRoute
+		expected metav1.ConditionStatus
+	}{
+		{
+			name:     "nil route returns Unknown",
+			route:    nil,
+			expected: metav1.ConditionUnknown,
+		},
+		{
+			name: "route not using v1alpha2 InferencePool returns Unknown",
+			route: &gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{BackendRef: gwapiv1.BackendRef{BackendObjectReference: gwapiv1.BackendObjectReference{
+									Group: &v1Group,
+									Kind:  &poolKind,
+									Name:  "test-pool",
+								}}},
+							},
+						},
+					},
+				},
+			},
+			expected: metav1.ConditionUnknown,
+		},
+		{
+			name: "route using v1alpha2 with no status returns Unknown",
+			route: &gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{BackendRef: gwapiv1.BackendRef{BackendObjectReference: gwapiv1.BackendObjectReference{
+									Group: &v1alpha2Group,
+									Kind:  &poolKind,
+									Name:  "test-pool",
+								}}},
+							},
+						},
+					},
+				},
+			},
+			expected: metav1.ConditionUnknown,
+		},
+		{
+			name: "route using v1alpha2 with ResolvedRefs=True returns True (supported)",
+			route: &gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{BackendRef: gwapiv1.BackendRef{BackendObjectReference: gwapiv1.BackendObjectReference{
+									Group: &v1alpha2Group,
+									Kind:  &poolKind,
+									Name:  "test-pool",
+								}}},
+							},
+						},
+					},
+				},
+				Status: gwapiv1.HTTPRouteStatus{
+					RouteStatus: gwapiv1.RouteStatus{
+						Parents: []gwapiv1.RouteParentStatus{
+							{
+								Conditions: []metav1.Condition{
+									{
+										Type:   string(gwapiv1.RouteConditionResolvedRefs),
+										Status: metav1.ConditionTrue,
+										Reason: "ResolvedRefs",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: metav1.ConditionTrue,
+		},
+		{
+			name: "route using v1alpha2 with ResolvedRefs=False/InvalidKind returns False (rejected)",
+			route: &gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{BackendRef: gwapiv1.BackendRef{BackendObjectReference: gwapiv1.BackendObjectReference{
+									Group: &v1alpha2Group,
+									Kind:  &poolKind,
+									Name:  "test-pool",
+								}}},
+							},
+						},
+					},
+				},
+				Status: gwapiv1.HTTPRouteStatus{
+					RouteStatus: gwapiv1.RouteStatus{
+						Parents: []gwapiv1.RouteParentStatus{
+							{
+								Conditions: []metav1.Condition{
+									{
+										Type:    string(gwapiv1.RouteConditionResolvedRefs),
+										Status:  metav1.ConditionFalse,
+										Reason:  "InvalidKind",
+										Message: "Group is invalid: inference.networking.x-k8s.io",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: metav1.ConditionFalse,
+		},
+		{
+			name: "route using v1alpha2 with ResolvedRefs=False but different reason returns True (not InvalidKind rejection)",
+			route: &gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{BackendRef: gwapiv1.BackendRef{BackendObjectReference: gwapiv1.BackendObjectReference{
+									Group: &v1alpha2Group,
+									Kind:  &poolKind,
+									Name:  "test-pool",
+								}}},
+							},
+						},
+					},
+				},
+				Status: gwapiv1.HTTPRouteStatus{
+					RouteStatus: gwapiv1.RouteStatus{
+						Parents: []gwapiv1.RouteParentStatus{
+							{
+								Conditions: []metav1.Condition{
+									{
+										Type:   string(gwapiv1.RouteConditionResolvedRefs),
+										Status: metav1.ConditionFalse,
+										Reason: "BackendNotFound",
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			expected: metav1.ConditionTrue,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewGomegaWithT(t)
+			result := llmisvc.IsInferencePoolV1Alpha2Supported(tt.route)
+			g.Expect(result).To(Equal(tt.expected))
+		})
+	}
 }

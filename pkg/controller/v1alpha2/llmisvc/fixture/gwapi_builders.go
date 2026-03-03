@@ -120,13 +120,13 @@ func HTTPRoute(name string, opts ...HTTPRouteOption) *gwapiv1.HTTPRoute {
 
 func WithParentRef(ref gwapiv1.ParentReference) HTTPRouteOption {
 	return func(route *gwapiv1.HTTPRoute) {
-		route.Spec.CommonRouteSpec.ParentRefs = append(route.Spec.CommonRouteSpec.ParentRefs, ref)
+		route.Spec.ParentRefs = append(route.Spec.ParentRefs, ref)
 	}
 }
 
 func WithParentRefs(refs ...gwapiv1.ParentReference) HTTPRouteOption {
 	return func(route *gwapiv1.HTTPRoute) {
-		route.Spec.CommonRouteSpec.ParentRefs = refs
+		route.Spec.ParentRefs = refs
 	}
 }
 
@@ -297,6 +297,20 @@ func BackendRefInferencePool(name string) gwapiv1.HTTPBackendRef {
 	}
 }
 
+func BackendRefInferencePoolV1Alpha2(name string) gwapiv1.HTTPBackendRef {
+	return gwapiv1.HTTPBackendRef{
+		BackendRef: gwapiv1.BackendRef{
+			BackendObjectReference: gwapiv1.BackendObjectReference{
+				Group: ptr.To(gwapiv1.Group("inference.networking.x-k8s.io")),
+				Kind:  ptr.To(gwapiv1.Kind("InferencePool")),
+				Name:  gwapiv1.ObjectName(name),
+				Port:  ptr.To(gwapiv1.PortNumber(8000)),
+			},
+			Weight: ptr.To(int32(1)),
+		},
+	}
+}
+
 func BackendRefService(name string) gwapiv1.HTTPBackendRef {
 	return gwapiv1.HTTPBackendRef{
 		BackendRef: gwapiv1.BackendRef{
@@ -332,10 +346,6 @@ func WithHTTPRule(ruleOpts ...HTTPRouteRuleOption) HTTPRouteOption {
 
 func Matches(matches ...gwapiv1.HTTPRouteMatch) HTTPRouteRuleOption {
 	return WithMatches(matches...)
-}
-
-func BackendRefs(refs ...gwapiv1.HTTPBackendRef) HTTPRouteRuleOption {
-	return WithBackendRefs(refs...)
 }
 
 func Timeouts(backendTimeout, requestTimeout string) HTTPRouteRuleOption {
@@ -420,7 +430,7 @@ func WithHTTPRouteParentStatus(parentRef gwapiv1.ParentReference, controllerName
 			ControllerName: gwapiv1.GatewayController(controllerName),
 			Conditions:     conditions,
 		}
-		route.Status.RouteStatus.Parents = append(route.Status.RouteStatus.Parents, parentStatus)
+		route.Status.Parents = append(route.Status.Parents, parentStatus)
 	}
 }
 
@@ -428,9 +438,9 @@ func WithHTTPRouteParentStatus(parentRef gwapiv1.ParentReference, controllerName
 func WithHTTPRouteReadyStatus(controllerName string) HTTPRouteOption {
 	return func(route *gwapiv1.HTTPRoute) {
 		if len(route.Spec.ParentRefs) > 0 {
-			route.Status.RouteStatus.Parents = make([]gwapiv1.RouteParentStatus, len(route.Spec.ParentRefs))
+			route.Status.Parents = make([]gwapiv1.RouteParentStatus, len(route.Spec.ParentRefs))
 			for i, parentRef := range route.Spec.ParentRefs {
-				route.Status.RouteStatus.Parents[i] = gwapiv1.RouteParentStatus{
+				route.Status.Parents[i] = gwapiv1.RouteParentStatus{
 					ParentRef:      parentRef,
 					ControllerName: gwapiv1.GatewayController(controllerName),
 					Conditions: []metav1.Condition{
@@ -477,42 +487,13 @@ func WithGatewayReadyStatus() GatewayOption {
 	}
 }
 
-// Advanced fixture patterns for custom conditions
-
-// WithCustomHTTPRouteConditions allows setting custom conditions on HTTPRoute parent status
-func WithCustomHTTPRouteConditions(parentRef gwapiv1.ParentReference, controllerName string, conditions ...metav1.Condition) HTTPRouteOption {
-	return WithHTTPRouteParentStatus(parentRef, controllerName, conditions...)
-}
-
-// WithGatewayNotReadyStatus sets the Gateway status to not ready (for negative testing)
-func WithGatewayNotReadyStatus(reason, message string) GatewayOption {
-	return func(gw *gwapiv1.Gateway) {
-		gw.Status.Conditions = []metav1.Condition{
-			{
-				Type:               string(gwapiv1.GatewayConditionAccepted),
-				Status:             metav1.ConditionTrue,
-				Reason:             "Accepted",
-				Message:            "Gateway accepted",
-				LastTransitionTime: metav1.Now(),
-			},
-			{
-				Type:               string(gwapiv1.GatewayConditionProgrammed),
-				Status:             metav1.ConditionFalse,
-				Reason:             reason,
-				Message:            message,
-				LastTransitionTime: metav1.Now(),
-			},
-		}
-	}
-}
-
 // WithHTTPRouteNotReadyStatus sets the HTTPRoute status to not ready (for negative testing)
 func WithHTTPRouteNotReadyStatus(controllerName, reason, message string) HTTPRouteOption {
 	return func(route *gwapiv1.HTTPRoute) {
 		if len(route.Spec.ParentRefs) > 0 {
-			route.Status.RouteStatus.Parents = make([]gwapiv1.RouteParentStatus, len(route.Spec.ParentRefs))
+			route.Status.Parents = make([]gwapiv1.RouteParentStatus, len(route.Spec.ParentRefs))
 			for i, parentRef := range route.Spec.ParentRefs {
-				route.Status.RouteStatus.Parents[i] = gwapiv1.RouteParentStatus{
+				route.Status.Parents[i] = gwapiv1.RouteParentStatus{
 					ParentRef:      parentRef,
 					ControllerName: gwapiv1.GatewayController(controllerName),
 					Conditions: []metav1.Condition{
@@ -526,6 +507,116 @@ func WithHTTPRouteNotReadyStatus(controllerName, reason, message string) HTTPRou
 					},
 				}
 			}
+		}
+	}
+}
+
+// WithHTTPRouteV1Alpha2RejectedStatus sets the HTTPRoute status to indicate Gateway rejection
+// of v1alpha2 backendRef (ResolvedRefs=False, Reason=InvalidKind). This simulates what happens
+// when Envoy Gateway or Istio rejects an unsupported InferencePool API group.
+func WithHTTPRouteV1Alpha2RejectedStatus(controllerName string) HTTPRouteOption {
+	return func(route *gwapiv1.HTTPRoute) {
+		if len(route.Spec.ParentRefs) > 0 {
+			route.Status.Parents = make([]gwapiv1.RouteParentStatus, len(route.Spec.ParentRefs))
+			for i, parentRef := range route.Spec.ParentRefs {
+				route.Status.Parents[i] = gwapiv1.RouteParentStatus{
+					ParentRef:      parentRef,
+					ControllerName: gwapiv1.GatewayController(controllerName),
+					Conditions: []metav1.Condition{
+						{
+							Type:               string(gwapiv1.RouteConditionAccepted),
+							Status:             metav1.ConditionTrue,
+							Reason:             "Accepted",
+							Message:            "HTTPRoute accepted",
+							LastTransitionTime: metav1.Now(),
+						},
+						{
+							Type:               string(gwapiv1.RouteConditionResolvedRefs),
+							Status:             metav1.ConditionFalse,
+							Reason:             "InvalidKind",
+							Message:            "Group is invalid: inference.networking.x-k8s.io",
+							LastTransitionTime: metav1.Now(),
+						},
+					},
+				}
+			}
+		}
+	}
+}
+
+// Advanced fixture patterns for custom conditions
+
+// KuadrantControllerStatus creates a RouteParentStatus for Kuadrant policy controller
+func KuadrantControllerStatus(parentRef gwapiv1.ParentReference, generation int64) gwapiv1.RouteParentStatus {
+	return gwapiv1.RouteParentStatus{
+		ParentRef:      parentRef,
+		ControllerName: "kuadrant.io/policy-controller",
+		Conditions: []metav1.Condition{
+			{
+				Type:               "kuadrant.io/AuthPolicyAffected",
+				Status:             metav1.ConditionTrue,
+				Reason:             "Accepted",
+				Message:            "Object affected by AuthPolicy [openshift-ingress/gateway-auth-policy]",
+				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: generation,
+			},
+			{
+				Type:               "kuadrant.io/RateLimitPolicyAffected",
+				Status:             metav1.ConditionTrue,
+				Reason:             "Accepted",
+				Message:            "Object affected by RateLimitPolicy [openshift-ingress/gateway-rate-limits]",
+				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: generation,
+			},
+			{
+				Type:               "kuadrant.io/TokenRateLimitPolicyAffected",
+				Status:             metav1.ConditionTrue,
+				Reason:             "Accepted",
+				Message:            "Object affected by TokenRateLimitPolicy [openshift-ingress/gateway-token-rate-limits]",
+				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: generation,
+			},
+		},
+	}
+}
+
+// GatewayAPIControllerStatus creates a RouteParentStatus for Gateway API controller
+func GatewayAPIControllerStatus(parentRef gwapiv1.ParentReference, generation int64) gwapiv1.RouteParentStatus {
+	return gwapiv1.RouteParentStatus{
+		ParentRef:      parentRef,
+		ControllerName: "openshift.io/gateway-controller/v1",
+		Conditions: []metav1.Condition{
+			{
+				Type:               string(gwapiv1.RouteConditionAccepted),
+				Status:             metav1.ConditionTrue,
+				Reason:             "Accepted",
+				Message:            "Route was valid",
+				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: generation,
+			},
+			{
+				Type:               string(gwapiv1.RouteConditionResolvedRefs),
+				Status:             metav1.ConditionTrue,
+				Reason:             "ResolvedRefs",
+				Message:            "All references resolved",
+				LastTransitionTime: metav1.Now(),
+				ObservedGeneration: generation,
+			},
+		},
+	}
+}
+
+// StatusFunc is a function that creates a RouteParentStatus for a given parent ref and generation
+type StatusFunc func(parentRef gwapiv1.ParentReference, generation int64) gwapiv1.RouteParentStatus
+
+// WithHTTPRouteMultipleControllerStatus sets HTTPRoute status with multiple controllers
+// This simulates real-world scenarios where policy controllers and gateway controllers
+// both add status entries for the same parent ref
+func WithHTTPRouteMultipleControllerStatus(parentRef gwapiv1.ParentReference, statusFuncs ...StatusFunc) HTTPRouteOption {
+	return func(route *gwapiv1.HTTPRoute) {
+		for _, statusFunc := range statusFuncs {
+			status := statusFunc(parentRef, route.Generation)
+			route.Status.Parents = append(route.Status.Parents, status)
 		}
 	}
 }
