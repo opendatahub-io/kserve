@@ -47,23 +47,6 @@ validate_deployment_profile() {
   fi
 }
 
-# Usage: wait_for_crd <crd-name> [timeout]
-#   <crd-name> : the full CRD name (e.g. leaderworkersetoperators.operator.openshift.io)
-#   [timeout]  : oc wait timeout (default “60s”)
-wait_for_crd() {
-  local crd="$1"
-  local timeout="${2:-60s}"
-
-  echo "⏳ Waiting for CRD ${crd} to appear (timeout: ${timeout})…"
-  if ! timeout "$timeout" bash -c 'until oc get crd "$1" &>/dev/null; do sleep 2; done' _ "$crd"; then
-    echo "❌ Timed out after $timeout waiting for CRD $crd to appear." >&2
-    return 1
-  fi
-
-  echo "⏳ CRD ${crd} detected — waiting for it to become Established (timeout: ${timeout})…"
-  oc wait --for=condition=Established --timeout="$timeout" "crd/$crd"
-}
-
 # Helper function to wait for a pod with a given label to be created
 wait_for_pod_labeled() {
   local ns=${1:?namespace is required}
@@ -188,7 +171,7 @@ wait_for_csv_ready() {
 }
 
 # Define deployment types that skip serverless installation
-MARKERS_SKIP_SERVERLESS=("raw" "graph" "predictor" "path_based_routing" "kserve_on_openshift")
+MARKERS_SKIP_SERVERLESS=("raw" "graph" "predictor" "path_based_routing" "kserve_on_openshift" "llm-d")
 
 # Helper function to check if deployment type should skip serverless
 skip_serverless() {

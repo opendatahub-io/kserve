@@ -4,7 +4,7 @@ kind: Kustomization
 namespace: kserve
 
 resources:
-- ../../crd/external
+- ../../crd/external/opendatahub-operator
 - ../odh
 - ../test/s3-local-backend
 

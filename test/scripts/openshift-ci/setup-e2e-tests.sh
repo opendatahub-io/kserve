@@ -32,6 +32,18 @@ readonly PARALLELISM="${2:-1}"
 readonly DEPLOYMENT_PROFILE="${3:-serverless}"
 validate_deployment_profile "${DEPLOYMENT_PROFILE}"
 
+# Parse command line options
+: "${INSTALL_ODH_OPERATOR:=false}"
+
+# Set the applications namespace based on installation method
+# ODH operator uses 'opendatahub', manual installation uses 'kserve'
+if [[ "$INSTALL_ODH_OPERATOR" == "true" ]]; then
+  KSERVE_NAMESPACE="opendatahub"
+else
+  KSERVE_NAMESPACE="kserve"
+fi
+
+echo "Using namespace: $KSERVE_NAMESPACE for KServe components"
 : "${NS:=kserve}"
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
 : "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:latest}"
@@ -56,13 +68,6 @@ echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
 # Install Kustomize using the centralized install script
 $PROJECT_ROOT/hack/setup/cli/install-kustomize.sh
 export PATH="${PROJECT_ROOT}/bin:${PATH}"
-
-# If minio CLI is not installed, install it
-if ! command -v mc &>/dev/null; then
-  echo "⏳ Installing Minio CLI"
-  curl https://dl.min.io/client/mc/release/linux-amd64/mc --create-dirs -o $HOME/.local/bin/mc
-  chmod +x $HOME/.local/bin/mc
-fi
 
 echo "⏳ Installing KServe Python SDK ..."
 pushd $PROJECT_ROOT >/dev/null
@@ -98,11 +103,15 @@ oc new-project ${KSERVE_NAMESPACE} || true
 # Install KServe components based on method
 if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
   # Manual installation: Install KServe directly with PR images
-  echo "⏳ Installing LLMISvc CRDs"
-  kustomize build $PROJECT_ROOT/config/crd/full/llmisvc | oc apply --server-side=true --force-conflicts -f -
-  wait_for_crd llminferenceserviceconfigs.serving.kserve.io 90s
+  if [[ "${DEPLOYMENT_PROFILE}" == "llm-d" ]]; then
+    echo "⏳ Installing LLMISvc CRDs"
+    kustomize build $PROJECT_ROOT/config/crd/full/llmisvc | oc apply --server-side=true --force-conflicts -f -
+    wait_for_crd llminferenceserviceconfigs.serving.kserve.io 90s
+    
+    
+  fi
 
-  echo "⏳ Installing KServe with Minio"
+  echo "⏳ Installing KServe with SeaweedFS"
   kustomize build $PROJECT_ROOT/config/overlays/odh-test |
     sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
     sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
@@ -111,13 +120,12 @@ if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
     sed "s|kserve/llmisvc-controller:latest|${LLMISVC_CONTROLLER_IMAGE}|" |
     oc apply --server-side=true --force-conflicts -f -
 
-kustomize build $PROJECT_ROOT/config/crd/external/opendatahub-operator | oc apply --server-side=true -f -
-
+  kustomize build $PROJECT_ROOT/config/crd/external/opendatahub-operator | oc apply --server-side=true -f -
+ 
   # Install DSC/DSCI for manual installation
   echo "Installing DSC/DSCI resources..."
   oc apply -f config/overlays/odh-test/dsci.yaml
   oc apply -f config/overlays/odh-test/dsc.yaml
-
 else
   # ODH operator path: Copy full kustomize directory structure to operator PVC
   echo "⏳ Preparing PR manifests for ODH operator..."
@@ -171,6 +179,7 @@ fi
 
 if [[ "${DEPLOYMENT_PROFILE}" == "llm-d" ]]; then
   oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/test/configmap/inferenceservice-openshift-ci-llm.yaml | envsubst)
+  kustomize build $PROJECT_ROOT/config/llmisvcconfig | oc apply --server-side=true --force-conflicts -f -
 fi
 
 wait_for_pod_ready "${NS}" "control-plane=kserve-controller-manager"
@@ -181,21 +190,13 @@ if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
     bash -s -- -v 0.16.0
 fi
 
-# TODO can be moved to odh-test overlays
-echo "⏳ Installing ODH Model Controller"
-kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
-    sed "s|quay.io/opendatahub/odh-model-controller:fast|${ODH_MODEL_CONTROLLER_IMAGE}|" |
-    oc apply -n ${NS} -f -
-
-wait_for_pod_ready "${NS}" "app=odh-model-controller"
-
-echo "Add testing models to minio storage ..." # Reference: config/overlays/test/minio/minio-init-job.yaml
-oc expose service minio-service -n ${NS} && sleep 5
-MINIO_ROUTE=$(oc get routes -n ${NS} minio-service -o jsonpath="{.spec.host}")
-mc alias set storage http://$MINIO_ROUTE minio minio123
-
-if ! mc ls storage/example-models >/dev/null 2>&1; then
-  mc mb storage/example-models
+# Wait for/Install ODH Model Controller based on method
+if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
+  echo "Installing ODH Model Controller manually with PR images"
+  kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
+      sed "s|quay.io/opendatahub/odh-model-controller:fast|${ODH_MODEL_CONTROLLER_IMAGE}|" |
+      oc apply -n ${KSERVE_NAMESPACE} -f -
+  oc rollout status deployment/odh-model-controller -n ${KSERVE_NAMESPACE} --timeout=300s
 else
   # ODH operator deploys odh-model-controller using custom manifests from PVC
   # The image was already configured in copy-kserve-manifests-to-pvc.sh via params.env
@@ -210,8 +211,21 @@ else
   echo "ODH Model Controller deployed with image: $ACTUAL_IMAGE"
 fi
 
-if [[ $(mc ls storage/example-models/sklearn/model.joblib | wc -l) == "1" ]]; then
-  echo "Test model exists"
+# Configure certs for the python requests by getting the CA cert from the kserve controller pod
+export CA_CERT_PATH="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+# The run-e2e-tests script expects the CA cert to be in /tmp/ca.crt
+oc exec deploy/kserve-controller-manager -n ${KSERVE_NAMESPACE} -- cat $CA_CERT_PATH > /tmp/ca.crt
+
+echo "Add testing models to SeaweedFS S3 storage ..."
+
+# Wait for SeaweedFS deployment to be ready
+echo "Waiting for SeaweedFS deployment to be ready..."
+oc rollout status deployment/seaweedfs -n ${KSERVE_NAMESPACE} --timeout=300s
+
+# The s3-init job is already created by the kustomize build above.
+# It may have failed if SeaweedFS wasn't ready yet, so check and re-create if needed.
+if oc wait --for=condition=complete job/s3-init -n ${KSERVE_NAMESPACE} --timeout=60s 2>/dev/null; then
+  echo "S3 init job already completed successfully"
 else
   echo "S3 init job not completed, re-creating..."
   oc delete job s3-init -n ${KSERVE_NAMESPACE} --wait=true --ignore-not-found
@@ -228,29 +242,15 @@ else
   fi
 fi
 
-oc delete route -n ${NS} minio-service
-
-echo "Prepare CI namespace and install ServingRuntimes"
-oc create ns kserve-ci-e2e-test || true
-
-if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
-  cat <<EOF | oc apply -f -
-apiVersion: maistra.io/v1
-kind: ServiceMeshMember
-metadata:
-  name: default
-  namespace: kserve-ci-e2e-test
-spec:
-  controlPlaneRef:
-    namespace: istio-system
-    name: basic
-EOF
+# Configure S3 TLS if needed
+if [[ "$1" =~ "kserve_on_openshift" ]]; then
+  echo "Configuring SeaweedFS S3 TLS"
+  "$PROJECT_ROOT/test/scripts/openshift-ci/tls/setup-s3-tls.sh" custom
+  "$PROJECT_ROOT/test/scripts/openshift-ci/tls/setup-s3-tls.sh" serving
 fi
 
-oc apply -n kserve-ci-e2e-test -f <(
-  sed "s|http://minio-service\.kserve:9000|http://minio-service.${NS}:9000|g" \
-      "$PROJECT_ROOT/config/overlays/test/minio/minio-user-secret.yaml"
-)
+echo "Prepare CI namespace and install ServingRuntimes"
+$SCRIPT_DIR/setup-ci-namespace.sh "$DEPLOYMENT_PROFILE"
 
 kustomize build $PROJECT_ROOT/config/overlays/test/clusterresources |
   sed 's/ClusterServingRuntime/ServingRuntime/' |

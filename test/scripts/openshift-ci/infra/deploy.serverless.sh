@@ -35,7 +35,6 @@ metadata:
 spec:
   upgradeStrategy: Default
 EOF
-} || true
 
 # Install Serverless operator if it doesn't exist
 cat <<EOF | oc apply -f -
@@ -53,7 +52,6 @@ spec:
   source: redhat-operators
   sourceNamespace: openshift-marketplace
 EOF
-} || true
  
 wait_for_pod_ready "openshift-serverless" "name=knative-openshift"
 wait_for_pod_ready "openshift-serverless" "name=knative-openshift-ingress"

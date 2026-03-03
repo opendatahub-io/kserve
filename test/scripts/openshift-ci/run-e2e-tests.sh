@@ -29,11 +29,6 @@ PROJECT_ROOT="$(find_project_root "$SCRIPT_DIR")"
 readonly MARKERS="${1:-raw}"
 readonly PARALLELISM="${2:-1}"
 
-if [[ "${MARKERS}" == *"llminferenceservice"* || "${MARKERS}" == *"llm-inference-service"* ]]; then
-  echo "Dummy stub for llm-inference-service setup"
-  exit 0
-fi
-
 readonly DEPLOYMENT_PROFILE="${3:-serverless}"
 validate_deployment_profile "${DEPLOYMENT_PROFILE}"
 
@@ -50,6 +45,12 @@ if $RUNNING_LOCAL; then
   export IMAGE_TRANSFORMER_IMG_TAG=kserve/image-transformer:latest
   export GITHUB_SHA=master
 
+  if [ "$BUILD_KSERVE_IMAGES" = "true" ]; then
+    pushd $PROJECT_ROOT >/dev/null
+    ./test/scripts/openshift-ci/build-kserve-images.sh | tee 2>&1 ./test/scripts/openshift-ci/build-kserve-images.log
+    popd
+  fi
+  
   if [[ "${MARKERS}" = *"graph"*  && "$BUILD_GRAPH_IMAGES" = "true" ]]; then
     pushd $PROJECT_ROOT >/dev/null
     ./test/scripts/gh-actions/build-graph-tests-images.sh | tee 2>&1 ./test/scripts/openshift-ci/build-graph-tests-images.log
@@ -58,7 +59,6 @@ if $RUNNING_LOCAL; then
 fi
 
 : "${SETUP_E2E:=true}"
-
 if [ "$SETUP_E2E" = "true" ]; then
   echo "Installing on cluster"
   pushd $PROJECT_ROOT >/dev/null

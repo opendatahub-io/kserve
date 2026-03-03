@@ -63,10 +63,6 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "timeoutSeconds": 5,
                         "failureThreshold": 3,
                     },
-                    "securityContext": {
-                        "runAsNonRoot": False,
-                        "runAsUser": 0,
-                    },
                 }
             ]
         },
@@ -100,10 +96,6 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "timeoutSeconds": 5,
                         "failureThreshold": 3,
                     },
-                    "securityContext": {
-                        "runAsNonRoot": False,
-                        "runAsUser": 0,
-                    },
                 }
             ]
         },
@@ -135,10 +127,6 @@ LLMINFERENCESERVICE_CONFIGS = {
                             "periodSeconds": 10,
                             "timeoutSeconds": 5,
                             "failureThreshold": 3,
-                        },
-                        "securityContext": {
-                            "runAsNonRoot": False,
-                            "runAsUser": 0,
                         },
                     }
                 ]
@@ -379,10 +367,6 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "timeoutSeconds": 5,
                         "failureThreshold": 3,
                     },
-                    "securityContext": {
-                        "runAsNonRoot": False,
-                        "runAsUser": 0,
-                    },
                 }
             ]
         },
@@ -424,10 +408,6 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "periodSeconds": 10,
                         "timeoutSeconds": 5,
                         "failureThreshold": 3,
-                    },
-                    "securityContext": {
-                        "runAsNonRoot": False,
-                        "runAsUser": 0,
                     },
                 }
             ]
