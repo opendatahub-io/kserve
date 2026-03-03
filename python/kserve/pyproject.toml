@@ -58,6 +58,9 @@ urllib3 = ">=2.6.3"
 aiohttp = ">=3.13.3"
 # CVE-2026-1260 sentencepiece: Invalid memory access leading to potential arbitrary code execution
 sentencepiece = { version = ">=0.2.1", optional = true }
+# CVE-2026-26007 cryptography Subgroup Attack Due to Missing Subgroup Validation for SECT Curves
+# Pinning because it is a transitive dependency.
+cryptography = ">=46.0.5"
 
 # Storage dependencies. They can be opted into by apps.
 requests = { version = "^2.32.2", optional = true }
