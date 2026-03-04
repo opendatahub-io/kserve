@@ -546,3 +546,6 @@ check-doc-links:
 
 uv-update-lockfiles:
 	bash -ec 'for value in $$(find . -name uv.lock -exec dirname {} \;); do (cd "$${value}" && echo "Updating $${value}/uv.lock" && uv update --lock); done'
+
+# Optional local/downstream overrides (ignored if absent)
+-include Makefile.overrides.mk
