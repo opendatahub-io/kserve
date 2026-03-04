@@ -18,18 +18,17 @@ import requests
 from kserve import KServeClient
 from kubernetes import client
 
-from .fixtures import (
+from .fixtures import (  # noqa: F401
     KSERVE_TEST_NAMESPACE,
     LLMINFERENCESERVICE_CONFIGS,
     generate_test_id,
     inject_k8s_proxy,
-    test_case,  # noqa: F401,F811
+    test_case,  # noqa: F811
 )
 from .test_llm_inference_service import (
     TestCase,
     create_llmisvc,
     delete_llmisvc,
-    get_llmisvc,
     wait_for_llm_isvc_ready,
     get_llm_service_url,
     _collect_diagnostics,
@@ -224,7 +223,7 @@ def cleanup_service_account(
     ids=generate_test_id,
 )
 @log_execution
-def test_llm_auth_enabled_requires_token(test_case: TestCase):
+def test_llm_auth_enabled_requires_token(test_case: TestCase):  # noqa: F811
     """
     Test that when auth is enabled (default):
     - Requests WITH valid token succeed
@@ -360,7 +359,7 @@ def test_llm_auth_enabled_requires_token(test_case: TestCase):
     ids=generate_test_id,
 )
 @log_execution
-def test_llm_auth_invalid_token_rejected(test_case: TestCase):
+def test_llm_auth_invalid_token_rejected(test_case: TestCase):  # noqa: F811
     """
     Test that when auth is enabled:
     - Requests with MALFORMED tokens are rejected
@@ -483,7 +482,7 @@ def test_llm_auth_invalid_token_rejected(test_case: TestCase):
     ids=generate_test_id,
 )
 @log_execution
-def test_llm_auth_disabled_no_token_required(test_case: TestCase):
+def test_llm_auth_disabled_no_token_required(test_case: TestCase):  # noqa: F811
     """
     Test that when auth is disabled via annotation:
     - Requests WITHOUT token succeed
