@@ -261,7 +261,6 @@ spec:
             path: /health
             port: 8001
             scheme: HTTPS
-          initialDelaySeconds: 300
           periodSeconds: 10
           timeoutSeconds: 10
           failureThreshold: 3
@@ -270,10 +269,16 @@ spec:
             path: /health
             port: 8001
             scheme: HTTPS
-          initialDelaySeconds: 200
           periodSeconds: 30
           timeoutSeconds: 5
           failureThreshold: 60
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8001
+            scheme: HTTPS
+          failureThreshold: 60
+          periodSeconds: 10
         volumeMounts:
           - mountPath: /home
             name: home

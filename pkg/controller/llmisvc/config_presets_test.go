@@ -223,10 +223,9 @@ func TestPresetFiles(t *testing.T) {
 												Scheme: corev1.URISchemeHTTPS,
 											},
 										},
-										InitialDelaySeconds: 300,
-										TimeoutSeconds:      10,
-										PeriodSeconds:       10,
-										FailureThreshold:    3,
+										TimeoutSeconds:   10,
+										PeriodSeconds:    10,
+										FailureThreshold: 3,
 									},
 									ReadinessProbe: &corev1.Probe{
 										ProbeHandler: corev1.ProbeHandler{
@@ -236,10 +235,20 @@ func TestPresetFiles(t *testing.T) {
 												Scheme: corev1.URISchemeHTTPS,
 											},
 										},
-										InitialDelaySeconds: 200,
-										TimeoutSeconds:      5,
-										PeriodSeconds:       30,
-										FailureThreshold:    60,
+										TimeoutSeconds:   5,
+										PeriodSeconds:    30,
+										FailureThreshold: 60,
+									},
+									StartupProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											HTTPGet: &corev1.HTTPGetAction{
+												Path:   "/health",
+												Port:   intstr.FromInt32(8001),
+												Scheme: corev1.URISchemeHTTPS,
+											},
+										},
+										FailureThreshold: 60,
+										PeriodSeconds:    10,
 									},
 									TerminationMessagePath:   "/dev/termination-log",
 									TerminationMessagePolicy: "FallbackToLogsOnError",
