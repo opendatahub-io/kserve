@@ -24,6 +24,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -196,7 +197,7 @@ func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Con
 		expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.ServiceAccountName = serviceAccount.GetName()
 
 		curr := &lwsapi.LeaderWorkerSet{}
-		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil && !apierrors.IsNotFound(err) {
+		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil && !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
 			return nil, fmt.Errorf("failed to get expected leader worker set %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 		}
 
@@ -226,7 +227,7 @@ func (r *LLMInferenceServiceReconciler) expectedMainMultiNodeLWS(ctx context.Con
 		expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.ServiceAccountName = serviceAccount.GetName()
 
 		curr := &lwsapi.LeaderWorkerSet{}
-		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil && !apierrors.IsNotFound(err) {
+		if err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil && !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
 			return nil, fmt.Errorf("failed to get expected leader worker set %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 		}
 
@@ -317,7 +318,7 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMultiNodeLWS(ctx context.
 			expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.ServiceAccountName = serviceAccount.GetName()
 
 			curr := &lwsapi.LeaderWorkerSet{}
-			if err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil && !apierrors.IsNotFound(err) {
+			if err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil && !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
 				return nil, fmt.Errorf("failed to get expected leader worker set %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 			}
 
@@ -330,7 +331,7 @@ func (r *LLMInferenceServiceReconciler) expectedPrefillMultiNodeLWS(ctx context.
 			expected.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.ServiceAccountName = serviceAccount.GetName()
 
 			curr := &lwsapi.LeaderWorkerSet{}
-			if err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil && !apierrors.IsNotFound(err) {
+			if err := r.Client.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil && !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
 				return nil, fmt.Errorf("failed to get expected leader worker set %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 			}
 
