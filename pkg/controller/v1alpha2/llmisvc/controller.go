@@ -269,6 +269,10 @@ func (r *LLMISVCReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.EnqueueOnLLMInferenceServicePods),
 			builder.WithPredicates(PodStatusPredicate()))
 
+	if err := extendControllerSetup(mgr, b); err != nil {
+		return fmt.Errorf("failed to extend controller setup: %w", err)
+	}
+
 	if err := gwapiv1.Install(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("failed to add GIE APIs to scheme: %w", err)
 	}
