@@ -18,6 +18,7 @@ package testing
 
 import (
 	"google.golang.org/protobuf/proto"
+	istioclientv1 "istio.io/client-go/pkg/apis/networking/v1"
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 	netv1 "k8s.io/api/networking/v1"
 
@@ -47,8 +48,12 @@ func SetupEnvTest(crdDirectoryPaths []string) *envtest.Environment {
 		log.Error(err, "Failed to add knative serving scheme")
 	}
 
+	if err := istioclientv1.SchemeBuilder.AddToScheme(scheme.Scheme); err != nil {
+		log.Error(err, "Failed to add istio v1 scheme")
+	}
+
 	if err := istioclientv1beta1.SchemeBuilder.AddToScheme(scheme.Scheme); err != nil {
-		log.Error(err, "Failed to add istio scheme")
+		log.Error(err, "Failed to add istio v1beta1 scheme")
 	}
 
 	if err := gwapiv1.Install(scheme.Scheme); err != nil {
