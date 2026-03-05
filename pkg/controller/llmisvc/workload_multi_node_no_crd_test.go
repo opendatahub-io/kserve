@@ -126,7 +126,6 @@ func TestExpectedMainMultiNodeLWS_WhenCRDNotInstalled_ShouldNotFail(t *testing.T
 
 	// when
 	lws, err := reconciler.expectedMainMultiNodeLWS(t.Context(), llmSvc, storageConfig, credentialConfig)
-
 	// then - should succeed without error
 	if err != nil {
 		t.Errorf("expectedMainMultiNodeLWS should not fail when LWS CRD is not installed, got: %v", err)
@@ -183,7 +182,6 @@ func TestExpectedPrefillMultiNodeLWS_WhenCRDNotInstalled_ShouldNotFail(t *testin
 
 	// when
 	lws, err := reconciler.expectedPrefillMultiNodeLWS(t.Context(), llmSvc, storageConfig, credentialConfig)
-
 	// then - should succeed without error
 	if err != nil {
 		t.Errorf("expectedPrefillMultiNodeLWS should not fail when LWS CRD is not installed, got: %v", err)
