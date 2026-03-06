@@ -21,6 +21,7 @@ import (
 
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
+	istioclientv1 "istio.io/client-go/pkg/apis/networking/v1"
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -59,6 +60,7 @@ func NewEnvTest(options ...Option) *Config {
 		igwapiv1alpha2.Install,
 		// Other Schemes
 		knservingv1.AddToScheme,
+		istioclientv1.AddToScheme,
 		istioclientv1beta1.AddToScheme,
 		kedav1alpha1.AddToScheme,
 		otelv1beta1.AddToScheme,
