@@ -12,6 +12,7 @@ COPY cmd/    cmd/
 COPY pkg/    pkg/
 
 # Build
+USER root
 RUN CGO_ENABLED=0 GOOS=linux go build -a -o manager ./cmd/llmisvc
 
 # Generate third-party licenses
