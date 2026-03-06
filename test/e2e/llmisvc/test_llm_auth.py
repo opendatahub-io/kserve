@@ -240,6 +240,13 @@ def test_llm_auth_enabled_requires_token(test_case: TestCase):  # noqa: F811
     sa_name = f"{service_name}-test-sa"
     test_failed = False
 
+    # Enable auth for this test
+    if not test_case.llm_service.metadata.annotations:
+        test_case.llm_service.metadata.annotations = {}
+    test_case.llm_service.metadata.annotations[
+        "security.opendatahub.io/enable-auth"
+    ] = "true"
+
     try:
         # Create LLMInferenceService
         create_llmisvc(kserve_client, test_case.llm_service)
@@ -374,6 +381,13 @@ def test_llm_auth_invalid_token_rejected(test_case: TestCase):  # noqa: F811
     service_name = test_case.llm_service.metadata.name
     sa_name = f"{service_name}-test-sa"
     test_failed = False
+
+    # Enable auth for this test
+    if not test_case.llm_service.metadata.annotations:
+        test_case.llm_service.metadata.annotations = {}
+    test_case.llm_service.metadata.annotations[
+        "security.opendatahub.io/enable-auth"
+    ] = "true"
 
     try:
         # Create LLMInferenceService

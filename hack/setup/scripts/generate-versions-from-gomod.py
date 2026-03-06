@@ -48,6 +48,12 @@ HELM_REPOS = {
     "open-telemetry": "https://open-telemetry.github.io/opentelemetry-helm-charts",
 }
 
+# Manual version overrides for security patches where Helm charts lag behind go.mod
+# These take precedence over auto-generated versions from Helm chart lookups
+VERSION_OVERRIDES = {
+    "KEDA_VERSION": "2.17.3",  # CVE-2025-68476 fix (CVSS 8.2, HIGH) - Helm chart only has 2.17.1
+}
+
 
 def run(cmd):
     return subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True).stdout
@@ -208,6 +214,12 @@ def main():
 
     versions = {}
     for var_name, dependency_info in DEPENDENCIES.items():
+        # Check for manual override first
+        if var_name in VERSION_OVERRIDES:
+            versions[var_name] = VERSION_OVERRIDES[var_name]
+            print(f"🔒 {var_name}: {VERSION_OVERRIDES[var_name]} (manual override)")
+            continue
+
         package = dependency_info[0]
         helm_repo = dependency_info[1] if len(dependency_info) > 1 else None
         helm_chart = dependency_info[2] if len(dependency_info) > 2 else None
