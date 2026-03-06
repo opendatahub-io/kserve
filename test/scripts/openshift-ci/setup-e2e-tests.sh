@@ -189,9 +189,34 @@ fi
 
 # TODO can be moved to odh-test overlays
 echo "⏳ Installing ODH Model Controller"
+
+# If ODH_MC_MANIFEST_SOURCE is set, override the kustomization to point to the
+# provided local path (e.g. /path/to/odh-model-controller/config/base).
+# This solves the chicken-and-egg problem in CI where a PR changes manifests
+# but the tests would otherwise deploy the already-merged version.
+if [[ -n "${ODH_MC_MANIFEST_SOURCE:-}" ]]; then
+  echo "Overriding odh-model-controller manifests source to: ${ODH_MC_MANIFEST_SOURCE}"
+  ODH_MC_KUSTOMIZATION="$PROJECT_ROOT/test/scripts/openshift-ci/kustomization.yaml"
+  cp "${ODH_MC_KUSTOMIZATION}" "${ODH_MC_KUSTOMIZATION}.bak"
+  cat > "${ODH_MC_KUSTOMIZATION}" <<EOF
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ${ODH_MC_MANIFEST_SOURCE}
+
+namespace: opendatahub
+EOF
+fi
+
 kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
     sed "s|quay.io/opendatahub/odh-model-controller:fast|${ODH_MODEL_CONTROLLER_IMAGE}|" |
     oc apply -n ${NS} -f -
+
+# Restore original kustomization.yaml if it was overridden
+if [[ -f "${ODH_MC_KUSTOMIZATION:-}.bak" ]]; then
+  mv "${ODH_MC_KUSTOMIZATION}.bak" "${ODH_MC_KUSTOMIZATION}"
+fi
 
 wait_for_pod_ready "${NS}" "app=odh-model-controller"
 
