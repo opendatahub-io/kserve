@@ -118,7 +118,7 @@ func (r *LLMISVCReconciler) reconcileIstioDestinationRuleForShadowService(ctx co
 	if err != nil {
 		return fmt.Errorf("failed to get expected Istio destination rule for shadow service: %w", err)
 	}
-	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil {
+	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
 		return Delete(ctx, r, llmSvc, expected)
 	}
 	if expected.Spec.GetHost() == "" {
