@@ -1,3 +1,51 @@
+#!/usr/bin/env bash
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+set -euo pipefail
+
+# find_project_root [start_dir] [marker]
+#   start_dir : directory to begin the search (defaults to this script’s dir)
+#   marker    : filename or directory name to look for (defaults to "go.mod")
+#
+# Prints the first dir containing the marker, or exits 1 if none found.
+find_project_root() {
+  local start_dir="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+  local marker="${2:-go.mod}"
+  local dir="$start_dir"
+
+  while [[ "$dir" != "/" && ! -e "$dir/$marker" ]]; do
+    dir="$(dirname "$dir")"
+  done
+
+  if [[ -e "$dir/$marker" ]]; then
+    printf '%s\n' "$dir"
+  else
+    echo "Error: couldn’t find '$marker' in any parent of '$start_dir'" >&2
+    return 1
+  fi
+}
+
+readonly VALID_DEPLOYMENT_PROFILES=(raw serverless llm-d)
+# validate_deployment_profile [value]
+validate_deployment_profile() {
+  local profile="$1"
+  if [[ ! " ${VALID_DEPLOYMENT_PROFILES[*]} " =~ " ${DEPLOYMENT_PROFILE} " ]]; then
+    echo "Error: '$DEPLOYMENT_PROFILE' is not a valid deployment profile." >&2
+    echo "Allowed values: ${VALID_DEPLOYMENT_PROFILES[*]}" >&2
+    exit 1
+  fi
+}
 
 # Helper function to wait for a pod with a given label to be created
 wait_for_pod_labeled() {
@@ -123,7 +171,7 @@ wait_for_csv_ready() {
 }
 
 # Define deployment types that skip serverless installation
-MARKERS_SKIP_SERVERLESS=("raw" "graph" "predictor" "path_based_routing" "kserve_on_openshift")
+MARKERS_SKIP_SERVERLESS=("raw" "graph" "predictor" "path_based_routing" "kserve_on_openshift" "llm-d")
 
 # Helper function to check if deployment type should skip serverless
 skip_serverless() {

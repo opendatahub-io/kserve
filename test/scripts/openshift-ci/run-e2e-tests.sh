@@ -22,14 +22,23 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-MY_PATH=$(dirname "$0")
-PROJECT_ROOT=$MY_PATH/../../../
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+PROJECT_ROOT="$(find_project_root "$SCRIPT_DIR")"
+
+readonly MARKERS="${1:-raw}"
+readonly PARALLELISM="${2:-1}"
+
+readonly DEPLOYMENT_PROFILE="${3:-serverless}"
+validate_deployment_profile "${DEPLOYMENT_PROFILE}"
+
 export CI_USE_ISVC_HOST="1"
 export GITHUB_SHA=stable # Need to use stable as this is what the CI tags the images to for success-200 and error-404
 : "${BUILD_GRAPH_IMAGES:=true}"
 : "${BUILD_KSERVE_IMAGES:=true}"
 : "${RUNNING_LOCAL:=false}"
-cp ./test/e2e/conftest.py ./test/e2e/conftest.py.bak
+: "${SKIP_DELETION_ON_FAILURE:=true}"
+export SKIP_DELETION_ON_FAILURE
 
 if $RUNNING_LOCAL; then
   export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
@@ -37,13 +46,12 @@ if $RUNNING_LOCAL; then
   export GITHUB_SHA=master
 
   if [ "$BUILD_KSERVE_IMAGES" = "true" ]; then
-    echo "asd"
     pushd $PROJECT_ROOT >/dev/null
     ./test/scripts/openshift-ci/build-kserve-images.sh | tee 2>&1 ./test/scripts/openshift-ci/build-kserve-images.log
     popd
   fi
-
-  if [ "$1" = "graph" ] && [ "$BUILD_GRAPH_IMAGES" = "true" ]; then
+  
+  if [[ "${MARKERS}" = *"graph"*  && "$BUILD_GRAPH_IMAGES" = "true" ]]; then
     pushd $PROJECT_ROOT >/dev/null
     ./test/scripts/gh-actions/build-graph-tests-images.sh | tee 2>&1 ./test/scripts/openshift-ci/build-graph-tests-images.log
     popd
@@ -51,15 +59,12 @@ if $RUNNING_LOCAL; then
 fi
 
 : "${SETUP_E2E:=true}"
-
 if [ "$SETUP_E2E" = "true" ]; then
   echo "Installing on cluster"
   pushd $PROJECT_ROOT >/dev/null
-  ./test/scripts/openshift-ci/setup-e2e-tests.sh "$1" | tee 2>&1 "./test/scripts/openshift-ci/setup-e2e-tests-${1// /-}.log"
+  ./test/scripts/openshift-ci/setup-e2e-tests.sh "${MARKERS}" "${PARALLELISM}" "${DEPLOYMENT_PROFILE}" | tee 2>&1 ./test/scripts/openshift-ci/setup-e2e-tests-"${MARKERS// /_}".log
   popd
 fi
-
-PARALLELISM="${2:-1}"
 
 # Use certify go module to get the CA certs
 if [ ! -f "/tmp/ca.crt" ]; then
@@ -70,8 +75,7 @@ fi
 export REQUESTS_CA_BUNDLE="/tmp/ca.crt"
 echo "REQUESTS_CA_BUNDLE=$(cat ${REQUESTS_CA_BUNDLE})"
 
-echo "Run E2E tests: $1"
+echo "Run E2E tests: ${MARKERS}"
 pushd $PROJECT_ROOT >/dev/null
-./test/scripts/gh-actions/run-e2e-tests.sh "$1" $PARALLELISM | tee 2>&1 "./test/scripts/openshift-ci/run-e2e-tests-${1// /-}.log"
+./test/scripts/gh-actions/run-e2e-tests.sh "${MARKERS}" "${PARALLELISM}" "${DEPLOYMENT_PROFILE}" | tee 2>&1 ./test/scripts/openshift-ci/run-e2e-tests-"${MARKERS// /_}".log
 popd
-cp ./test/e2e/conftest.py.bak ./test/e2e/conftest.py

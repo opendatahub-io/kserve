@@ -41,6 +41,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                 {
                     "name": "main",
                     "image": "quay.io/pierdipi/vllm-cpu:latest",
+                    "securityContext": {
+                        # The image is not built in a way that can run as non-root
+                        "runAsNonRoot": False,
+                    },
                     "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
                     "resources": {
                         "limits": {"cpu": "2", "memory": "7Gi"},
@@ -58,10 +62,6 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "periodSeconds": 10,
                         "timeoutSeconds": 5,
                         "failureThreshold": 3,
-                    },
-                    "securityContext": {
-                        "runAsNonRoot": False,
-                        "runAsUser": 0,
                     },
                 }
             ]
@@ -73,6 +73,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                 {
                     "name": "main",
                     "image": "quay.io/pierdipi/vllm-cpu:latest",
+                    "securityContext": {
+                        # The image is not built in a way that can run as non-root
+                        "runAsNonRoot": False,
+                    },
                     "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
                     "resources": {
                         "limits": {"cpu": "2", "memory": "7Gi"},
@@ -92,10 +96,6 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "timeoutSeconds": 5,
                         "failureThreshold": 3,
                     },
-                    "securityContext": {
-                        "runAsNonRoot": False,
-                        "runAsUser": 0,
-                    },
                 }
             ]
         },
@@ -105,6 +105,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                     {
                         "name": "main",
                         "image": "quay.io/pierdipi/vllm-cpu:latest",
+                        "securityContext": {
+                            # The image is not built in a way that can run as non-root
+                            "runAsNonRoot": False,
+                        },
                         "env": [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}],
                         "resources": {
                             "limits": {"cpu": "2", "memory": "7Gi"},
@@ -123,10 +127,6 @@ LLMINFERENCESERVICE_CONFIGS = {
                             "periodSeconds": 10,
                             "timeoutSeconds": 5,
                             "failureThreshold": 3,
-                        },
-                        "securityContext": {
-                            "runAsNonRoot": False,
-                            "runAsUser": 0,
                         },
                     }
                 ]
@@ -332,6 +332,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                 {
                     "name": "main",
                     "image": "quay.io/pierdipi/vllm-cpu:latest",
+                    "securityContext": {
+                        # The image is not built in a way that can run as non-root
+                        "runAsNonRoot": False,
+                    },
                     "command": ["vllm", "serve", "/mnt/models"],
                     "args": [
                         "--served-model-name",
@@ -363,10 +367,6 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "timeoutSeconds": 5,
                         "failureThreshold": 3,
                     },
-                    "securityContext": {
-                        "runAsNonRoot": False,
-                        "runAsUser": 0,
-                    },
                 }
             ]
         },
@@ -375,6 +375,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                 {
                     "name": "main",
                     "image": "quay.io/pierdipi/vllm-cpu:latest",
+                    "securityContext": {
+                        # The image is not built in a way that can run as non-root
+                        "runAsNonRoot": False,
+                    },
                     "command": ["vllm", "serve", "/mnt/models"],
                     "args": [
                         "--served-model-name",
@@ -404,10 +408,6 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "periodSeconds": 10,
                         "timeoutSeconds": 5,
                         "failureThreshold": 3,
-                    },
-                    "securityContext": {
-                        "runAsNonRoot": False,
-                        "runAsUser": 0,
                     },
                 }
             ]
@@ -621,10 +621,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "{{ .Spec.Model.Name }}",
                         "--mode",
                         "random",
-                        # "--ssl-certfile",
-                        # "/etc/ssl/certs/tls.crt",
-                        # "--ssl-keyfile",
-                        # "/etc/ssl/certs/tls.key",
+                        "--ssl-certfile",
+                        "/etc/ssl/certs/tls.crt",
+                        "--ssl-keyfile",
+                        "/etc/ssl/certs/tls.key",
                     ],
                     "resources": {
                         "limits": {"cpu": "1", "memory": "2Gi"},
