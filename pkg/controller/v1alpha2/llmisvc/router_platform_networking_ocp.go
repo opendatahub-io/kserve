@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1"
+	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
@@ -66,14 +67,28 @@ func isIstioGatewayController(name string) bool {
 	return slices.Contains(istioGatewayControllerNames, name)
 }
 
+func (r *LLMISVCReconciler) hasIstioGateway(ctx context.Context, routes []*gwapiv1.HTTPRoute) (bool, error) {
+	for _, route := range routes {
+		gateways, err := DiscoverGateways(ctx, r.Client, route)
+		if err != nil {
+			return false, err
+		}
+		for _, g := range gateways {
+			if g.gatewayClass != nil && isIstioGatewayController(string(g.gatewayClass.Spec.ControllerName)) {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
+}
+
 // reconcileRouterPlatformNetworking configures Istio DestinationRules so the gateway can communicate with the
 // scheduler and workload pods over TLS using self-signed certificates without injected sidecars.
 func (r *LLMISVCReconciler) reconcileRouterPlatformNetworking(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	log.FromContext(ctx).Info("Reconciling Istio Destination Rules")
 
 	if llmSvc.Spec.Router == nil {
-		// No router configured — clean up any existing destination rules.
-		return r.reconcileIstioDestinationRules(ctx, llmSvc)
+		return r.reconcileIstioDestinationRules(ctx, llmSvc, false)
 	}
 
 	routes, err := r.collectReferencedRoutes(ctx, llmSvc)
@@ -85,40 +100,34 @@ func (r *LLMISVCReconciler) reconcileRouterPlatformNetworking(ctx context.Contex
 		routes = append(routes, r.expectedHTTPRoute(ctx, llmSvc))
 	}
 
-	for _, route := range routes {
-		gateways, err := DiscoverGateways(ctx, r.Client, route)
-		if err != nil {
-			return fmt.Errorf("failed to discover gateways: %w", err)
-		}
-		for _, g := range gateways {
-			if g.gatewayClass != nil && isIstioGatewayController(string(g.gatewayClass.Spec.ControllerName)) {
-				return r.reconcileIstioDestinationRules(ctx, llmSvc)
-			}
-		}
+	isIstio, err := r.hasIstioGateway(ctx, routes)
+	if err != nil {
+		return fmt.Errorf("failed to discover gateways: %w", err)
 	}
 
-	return nil
+	return r.reconcileIstioDestinationRules(ctx, llmSvc, isIstio)
 }
 
-func (r *LLMISVCReconciler) reconcileIstioDestinationRules(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
-	if err := r.reconcileIstioDestinationRuleForScheduler(ctx, llmSvc); err != nil {
+func (r *LLMISVCReconciler) reconcileIstioDestinationRules(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, isIstio bool) error {
+	shouldDelete := !isIstio || utils.GetForceStopRuntime(llmSvc)
+	if err := r.reconcileIstioDestinationRuleForScheduler(ctx, llmSvc, shouldDelete); err != nil {
 		return fmt.Errorf("failed to reconcile Istio destination rule for scheduler: %w", err)
 	}
-	if err := r.reconcileIstioDestinationRuleForWorkload(ctx, llmSvc); err != nil {
+	if err := r.reconcileIstioDestinationRuleForWorkload(ctx, llmSvc, shouldDelete); err != nil {
 		return fmt.Errorf("failed to reconcile Istio destination rule for workload: %w", err)
 	}
-	if err := r.reconcileIstioDestinationRuleForShadowService(ctx, llmSvc); err != nil {
+	if err := r.reconcileIstioDestinationRuleForShadowService(ctx, llmSvc, shouldDelete); err != nil {
 		return fmt.Errorf("failed to reconcile Istio destination rule for shadow service: %w", err)
 	}
 	return nil
 }
 
-func (r *LLMISVCReconciler) reconcileIstioDestinationRuleForShadowService(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
+func (r *LLMISVCReconciler) reconcileIstioDestinationRuleForShadowService(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, shouldDelete bool) error {
 	expected, err := r.expectedIstioDestinationRuleForShadowService(ctx, llmSvc)
 	if err != nil {
 		return fmt.Errorf("failed to get expected Istio destination rule for shadow service: %w", err)
 	}
-	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
+	if shouldDelete || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
 		return Delete(ctx, r, llmSvc, expected)
 	}
 	if expected.Spec.GetHost() == "" {
@@ -130,20 +139,20 @@ func (r *LLMISVCReconciler) reconcileIstioDestinationRuleForShadowService(ctx co
 	return Reconcile(ctx, r, llmSvc, &istioapi.DestinationRule{}, expected, semanticDestinationRuleIsEqual)
 }
 
-func (r *LLMISVCReconciler) reconcileIstioDestinationRuleForWorkload(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
+func (r *LLMISVCReconciler) reconcileIstioDestinationRuleForWorkload(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, shouldDelete bool) error {
 	expected := r.expectedIstioDestinationRuleForWorkload(ctx, llmSvc)
-	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil {
+	if shouldDelete || llmSvc.Spec.Router == nil {
 		return Delete(ctx, r, llmSvc, expected)
 	}
 	return Reconcile(ctx, r, llmSvc, &istioapi.DestinationRule{}, expected, semanticDestinationRuleIsEqual)
 }
 
-func (r *LLMISVCReconciler) reconcileIstioDestinationRuleForScheduler(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
+func (r *LLMISVCReconciler) reconcileIstioDestinationRuleForScheduler(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, shouldDelete bool) error {
 	expected, err := r.expectedIstioDestinationRuleForScheduler(ctx, llmSvc)
 	if err != nil {
 		return fmt.Errorf("failed to get expected Istio destination rule for scheduler: %w", err)
 	}
-	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
+	if shouldDelete || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
 		return Delete(ctx, r, llmSvc, expected)
 	}
 	return Reconcile(ctx, r, llmSvc, &istioapi.DestinationRule{}, expected, semanticDestinationRuleIsEqual)
