@@ -285,7 +285,7 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForWorkload(ctx context.
 }
 
 func (r *LLMISVCReconciler) getIstioShadowInferencePoolService(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) (*corev1.Service, error) {
-	if llmSvc.Spec.Router == nil {
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
 		return nil, nil
 	}
 
