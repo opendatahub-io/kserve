@@ -1,0 +1,12 @@
+# Remove kserve-controller-manager Deployment
+$patch: delete
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kserve-controller-manager
+---
+$patch: delete
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kserve-controller-manager
