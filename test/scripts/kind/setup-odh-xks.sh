@@ -305,8 +305,8 @@ build_and_load_controller() {
   pushd "${PROJECT_ROOT}" > /dev/null
 
   # Build the controller image
-  log_wait "Running make docker-build..."
-  LLMISVC_CONTROLLER_IMG="${KSERVE_CONTROLLER_IMAGE}" make docker-build-llmisvc
+  log_wait "Running docker build..."
+  docker buildx build -t "${KSERVE_CONTROLLER_IMAGE}" -f llmisvc-controller.Dockerfile .
 
   popd > /dev/null
 
