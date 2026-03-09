@@ -4,6 +4,7 @@
 
 # Enable distro build tag for platform-specific code
 export GOFLAGS += -tags=distro
+GOTAGS = distro
 
 .PHONY: deploy-dev-llm deploy-dev-llm-ocp deploy-ci uv-update-lockfiles
 
