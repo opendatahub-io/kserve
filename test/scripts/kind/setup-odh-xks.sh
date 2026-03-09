@@ -78,7 +78,8 @@ wait_for_crd() {
   fi
 
   log_wait "CRD ${crd} detected — waiting for it to become Established..."
-  kubectl wait --for=condition=Established --timeout="$timeout" "crd/$crd"
+  # Wait for status.conditions to be populated before using kubectl wait
+  timeout "$timeout" bash -c 'until kubectl get crd "$1" -o jsonpath="{.status.conditions}" 2>/dev/null | grep -q "Established"; do sleep 1; done' _ "$crd"
 }
 
 # wait_for_pods <namespace> <label-selector> [timeout]
@@ -332,7 +333,7 @@ deploy_odh_xks() {
   kustomize build "${PROJECT_ROOT}/config/crd" | kubectl apply --server-side=true --force-conflicts -f -
 
   # Wait for InferenceService CRD
-  wait_for_crd "inferenceservices.serving.kserve.io" 60s
+  wait_for_crd "llminferenceservices.serving.kserve.io" 60s
 
   # Apply odh-xks overlay
   log_wait "Applying odh-xks overlay..."
