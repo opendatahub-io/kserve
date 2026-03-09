@@ -4,9 +4,11 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kserve-controller-manager
+  namespace: opendatahub
 ---
 $patch: delete
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: kserve-controller-manager
+  namespace: opendatahub
