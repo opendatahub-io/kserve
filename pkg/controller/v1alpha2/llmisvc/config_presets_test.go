@@ -417,7 +417,8 @@ func TestPresetFiles(t *testing.T) {
 								{
 									Name:    "main",
 									Image:   "ghcr.io/llm-d/llm-d-cuda:v0.4.0",
-									Command: []string{"vllm", "serve", "/mnt/models", "--served-model-name", "llama", "--port", "8000"},
+									Command: []string{"/bin/bash", "-c", "set -e\nif [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then\n  source /etc/profile.d/ibm-aiu-setup.sh\nfi\nexec vllm serve /mnt/models \"$@\"\n", "--"},
+									Args:    []string{"--served-model-name", "llama", "--port", "8000"},
 									Ports: []corev1.ContainerPort{
 										{
 											ContainerPort: 8000,
