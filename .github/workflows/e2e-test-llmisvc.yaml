@@ -13,6 +13,7 @@ on:
       - "cmd/llmisvc/**"
       - "test/e2e/llmisvc/**"
       - ".github/workflows/e2e-test-llmisvc.yaml"
+      - ".github/actions/**"
       - "hack/setup/quick-install/llmisvc-dependency-install.sh"
 
 concurrency:
@@ -113,6 +114,11 @@ jobs:
       - name: Install KServe
         run: |          
           ./test/scripts/gh-actions/setup-kserve.sh
+
+      - name: Disable SCC for non-OpenShift clusters
+        run: |
+          kubectl set env deployment/llmisvc-controller-manager -n kserve LLMISVC_SCC_DISABLED=true
+          kubectl rollout status deployment/llmisvc-controller-manager -n kserve --timeout=120s
 
       - name: Verify LLMISvc setup
         run: |
