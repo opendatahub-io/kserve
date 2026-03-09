@@ -2,6 +2,9 @@
 # Loaded via `-include Makefile.overrides.mk` in the main Makefile.
 # This file does not exist on upstream kserve/kserve.
 
+# Enable distro build tag for platform-specific code
+export GOFLAGS += -tags=distro
+
 .PHONY: deploy-dev-llm deploy-dev-llm-ocp deploy-ci uv-update-lockfiles
 
 deploy-dev-llm:

@@ -66,7 +66,7 @@ func (r *LLMISVCReconciler) ensureGatewayPreconditions(ctx context.Context, llmS
 			return fmt.Errorf("AuthPolicy CRD is not available, please install Red Hat Connectivity Link: %w", err)
 		}
 		logger.Info("AuthPolicy CRD is not available, HTTPRoute deleted to prevent unauthenticated exposure")
-		return ErrPreconditionNotMet
+		return fmt.Errorf("AuthPolicy CRD is not available, please install Red Hat Connectivity Link: %w", ErrPreconditionNotMet)
 	}
 
 	logger.V(2).Info("Red Hat Connectivity Link (Kuadrant) is installed or Auth is disabled", "authEnabled", llmSvc.IsAuthEnabled())
