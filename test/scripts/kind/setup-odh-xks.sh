@@ -330,7 +330,7 @@ deploy_odh_xks() {
 
   # Apply KServe CRDs first
   log_wait "Applying KServe CRDs..."
-  kustomize build "${PROJECT_ROOT}/config/crd" | kubectl apply --server-side=true --force-conflicts -f -
+  kustomize build "${PROJECT_ROOT}/config/crd/full/llmisvc" | kubectl apply --server-side=true --force-conflicts -f -
 
   # Wait for InferenceService CRD
   wait_for_crd "llminferenceservices.serving.kserve.io" 60s
