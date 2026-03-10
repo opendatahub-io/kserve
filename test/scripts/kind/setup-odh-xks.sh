@@ -441,12 +441,12 @@ setup_ca_bundle() {
   # Create Gateway deployment configuration ConfigMap for Istio
   # This configures the Gateway pod to mount the CA bundle
   log_wait "Creating Gateway deployment configuration..."
-  kubectl apply -f - <<'EOF'
+  kubectl apply -f - <<EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: inference-gateway-config
-  namespace: opendatahub
+  namespace: ${KSERVE_NAMESPACE}
 data:
   deployment: |
     spec:

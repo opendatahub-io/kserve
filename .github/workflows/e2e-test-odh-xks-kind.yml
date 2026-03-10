@@ -4,11 +4,14 @@ on:
   pull_request:
     branches: [master, release*]
     paths:
-      - "**"
+      - "pkg/apis/**"
+      - "pkg/controller/**"
+      - "config/**"
+      - "test/e2e/llmisvc/**"
       - "!.github/**"
       - "!docs/**"
       - "!**.md"
-      - "e2e-test-odh-xks-kind.yml"
+      - ".github/workflows/e2e-test-odh-xks-kind.yml"
   workflow_dispatch:
 
 concurrency:
@@ -87,14 +90,8 @@ jobs:
           # Script creates KinD cluster, installs deps, builds & loads controller, deploys overlay
           ./test/scripts/kind/setup-odh-xks.sh
 
-      - name: Install Poetry and version plugin
-        run: ./test/scripts/gh-actions/setup-poetry.sh
-
-      - name: Install Python test dependencies
-        run: |
-          cd python/kserve
-          poetry install --with=test
-          cd -
+      - name: Install UV
+        run: ./test/scripts/gh-actions/setup-uv.sh
 
       - name: Run E2E tests
         timeout-minutes: 40
@@ -103,18 +100,7 @@ jobs:
           TOKEN_AUDIENCES: "https://kubernetes.default.svc"
           GATEWAY_CLASS_NAME: "istio"
         run: |
-          source python/kserve/.venv/bin/activate
-          cd test/e2e
-
-          # Run llmisvc tests for CPU, skipping auth tests
-          pytest llmisvc/ --capture=tee-sys \
-            -m "llminferenceservice and cluster_cpu and not auth and not custom_gateway" \
-            --ignore=qpext \
-            --log-cli-level=INFO \
-            -n 1 \
-            --dist worksteal \
-            --network-layer istio-gatewayapi-ext \
-            --maxfail=1
+          ./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice and cluster_cpu and not auth and not custom_gateway" 1 "istio-gatewayapi-ext"
 
       - name: Check system status
         if: always()
