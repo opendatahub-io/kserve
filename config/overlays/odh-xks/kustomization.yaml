@@ -43,10 +43,10 @@ patches:
 # Set env vars for cert-manager CA location
 - path: patches/patch-controller-env.yaml
 
-# Remove OCP service signer annotation from webhook service
+# Remove OCP service signer annotation from llmisvc webhook service
 - target:
     kind: Service
-    name: kserve-webhook-server-service
+    name: llmisvc-webhook-server-service
   patch: |
     - op: remove
       path: /metadata/annotations/service.beta.openshift.io~1serving-cert-secret-name
