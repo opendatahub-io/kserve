@@ -19,12 +19,11 @@ spec:
           - "{{ .Spec.Model.Name }}"
           - --port
           - "8000"
-          # BackendTLSPolicy is not implemented yet so disable SSL for now
-          # - --enable-ssl-refresh
-          # - --ssl-certfile
-          # - /var/run/kserve/tls/tls.crt
-          # - --ssl-keyfile
-          # - /var/run/kserve/tls/tls.key
+          - --enable-ssl-refresh
+          - --ssl-certfile
+          - /var/run/kserve/tls/tls.crt
+          - --ssl-keyfile
+          - /var/run/kserve/tls/tls.key
 
         env:
           - name: HOME
@@ -48,7 +47,7 @@ spec:
           httpGet:
             path: /health
             port: 8000
-            scheme: HTTP
+            scheme: HTTPS
           periodSeconds: 10
           timeoutSeconds: 10
           failureThreshold: 3
@@ -56,7 +55,7 @@ spec:
           httpGet:
             path: /health
             port: 8000
-            scheme: HTTP
+            scheme: HTTPS
           periodSeconds: 10
           timeoutSeconds: 5
           failureThreshold: 60
@@ -64,7 +63,7 @@ spec:
           httpGet:
             path: /health
             port: 8000
-            scheme: HTTP
+            scheme: HTTPS
           failureThreshold: 60
           periodSeconds: 10
         volumeMounts:
