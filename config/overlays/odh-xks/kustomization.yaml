@@ -14,7 +14,28 @@ patches:
 
 # Remove all CRDs except LLMInferenceService and LLMInferenceServiceConfig
 - path: patches/remove-non-llm-crds.yaml
-- path: patches/remove-non-llm-manager.yaml
+- path: patches/remove-non-llm.yaml
+
+# Restore cert-manager.io/inject-ca-from on CRDs for conversion webhooks
+# (reverse ODH's inline patches that added OCP annotations)
+- target:
+    kind: CustomResourceDefinition
+    name: llminferenceservices.serving.kserve.io
+  patch: |
+    - op: remove
+      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
+    - op: add
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+      value: "$(NAMESPACE)/llmisvc-webhook-server"
+- target:
+    kind: CustomResourceDefinition
+    name: llminferenceserviceconfigs.serving.kserve.io
+  patch: |
+    - op: remove
+      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
+    - op: add
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+      value: "$(NAMESPACE)/llmisvc-webhook-server"
 
 # Override inferenceservice-config for Gateway API
 - path: patches/patch-inferenceservice-config.yaml
@@ -40,7 +61,7 @@ patches:
       path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
     - op: add
       path: /metadata/annotations/cert-manager.io~1inject-ca-from
-      value: "$(NAMESPACE)/kserve-webhook-server"
+      value: "$(NAMESPACE)/llmisvc-webhook-server"
 - target:
     kind: ValidatingWebhookConfiguration
     name: llminferenceserviceconfig.serving.kserve.io
@@ -49,7 +70,7 @@ patches:
       path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
     - op: add
       path: /metadata/annotations/cert-manager.io~1inject-ca-from
-      value: "$(NAMESPACE)/kserve-webhook-server"
+      value: "$(NAMESPACE)/llmisvc-webhook-server"
 
 # Generate ConfigMap from params.env for variable substitution
 configMapGenerator:
