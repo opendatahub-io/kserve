@@ -135,7 +135,7 @@ func TestShouldRecreateCertificate(t *testing.T) {
 			secret: &corev1.Secret{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{
-						certificatesExpirationAnnotation: time.Now().Add(24 * time.Hour).Format(time.RFC3339),
+						llmisvc.DefaultExpirationAnnotations[0]: time.Now().Add(24 * time.Hour).Format(time.RFC3339),
 					},
 				},
 				Data: map[string][]byte{
