@@ -32,8 +32,12 @@ $(shell perl -pi -e 's/memory:.*/memory: $(KSERVE_CONTROLLER_MEMORY_LIMIT)/' con
 
 export GOFLAGS=-mod=mod
 
-# Go build tags passed to Docker image builds (e.g. "distro" for midstream)
+# Go build tags (e.g. "distro" for midstream).
+# Passed to Docker image builds via --build-arg and to all go commands via GOFLAGS.
 GOTAGS ?=
+ifdef GOTAGS
+export GOFLAGS += -tags=$(GOTAGS)
+endif
 
 all: test manager agent router
 
