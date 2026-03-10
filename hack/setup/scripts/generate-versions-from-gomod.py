@@ -12,6 +12,12 @@ from urllib.request import Request
 from pathlib import Path
 
 
+# Manual version overrides (when Helm charts lag behind Go modules)
+# Set to None to use auto-detection
+VERSION_OVERRIDES = {
+    "KEDA_VERSION": "2.17.3",  # Force 2.17.3 even though Helm chart is only at 2.17.1
+}
+
 # Configuration: (go_package, helm_repo, helm_chart, (github_repo, download_file))
 DEPENDENCIES = {
     "KEDA_VERSION": ("github.com/kedacore/keda/v2", "kedacore", "keda", None),
@@ -208,6 +214,12 @@ def main():
 
     versions = {}
     for var_name, dependency_info in DEPENDENCIES.items():
+        # Check for manual override first
+        if var_name in VERSION_OVERRIDES and VERSION_OVERRIDES[var_name] is not None:
+            versions[var_name] = VERSION_OVERRIDES[var_name]
+            print(f"🔧 {var_name}: Using manual override {VERSION_OVERRIDES[var_name]}")
+            continue
+
         package = dependency_info[0]
         helm_repo = dependency_info[1] if len(dependency_info) > 1 else None
         helm_chart = dependency_info[2] if len(dependency_info) > 2 else None

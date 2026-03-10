@@ -300,6 +300,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        - name: SECRET_NAME
+          value: llmisvc-webhook-server-cert
         image: kserve/llmisvc-controller:latest
         imagePullPolicy: Always
         livenessProbe:
@@ -341,7 +343,6 @@ spec:
           privileged: false
           readOnlyRootFilesystem: true
           runAsNonRoot: true
-          runAsUser: 1000
           seccompProfile:
             type: RuntimeDefault
         volumeMounts:
