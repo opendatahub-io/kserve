@@ -120,6 +120,9 @@ if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
     sed "s|kserve/llmisvc-controller:latest|${LLMISVC_CONTROLLER_IMAGE}|" |
     oc apply --server-side=true --force-conflicts -f -
 
+  # Wait for llmisvc-controller-manager to be ready before applying webhook-validated resources
+  wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=llmisvc-controller-manager" 600s
+
   kustomize build $PROJECT_ROOT/config/crd/external/opendatahub-operator | oc apply --server-side=true -f -
  
   # Install DSC/DSCI for manual installation
@@ -179,6 +182,8 @@ fi
 
 if [[ "${DEPLOYMENT_PROFILE}" == "llm-d" ]]; then
   oc patch configmap inferenceservice-config -n ${NS} --patch-file <(cat ${PROJECT_ROOT}/config/overlays/test/configmap/inferenceservice-openshift-ci-llm.yaml | envsubst)
+  # Wait for llmisvc-controller-manager to be ready before applying configs that require webhook validation
+  wait_for_pod_ready "${NS}" "control-plane=llmisvc-controller-manager" 600s
   kustomize build $PROJECT_ROOT/config/llmisvcconfig | oc apply --server-side=true --force-conflicts -f -
 fi
 
