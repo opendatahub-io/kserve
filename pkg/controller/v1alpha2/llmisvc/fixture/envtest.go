@@ -117,7 +117,7 @@ func SetupTestEnv() *pkgtest.Client {
 		return v1alpha2ConfigValidator.SetupWithManager(mgr)
 	}
 
-	envTest := pkgtest.NewEnvTest(webhookManifests).
+	envTest := pkgtest.NewEnvTest(append([]pkgtest.Option{webhookManifests}, additionalEnvTestOptions()...)...).
 		WithWebhooks(webhooks).
 		WithControllers(llmCtrlFunc).
 		Start(ctx)
