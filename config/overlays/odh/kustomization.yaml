@@ -3,7 +3,6 @@ kind: Kustomization
 
 resources:
 - ../../base
-- ../../crd/full/llmisvc
 - ../../llmisvcconfig
 # - ../../crd/full/localmodel
 - user-cluster-roles.yaml
