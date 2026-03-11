@@ -93,6 +93,12 @@ jobs:
       - name: Install UV
         run: ./test/scripts/gh-actions/setup-uv.sh
 
+      - name: Install Python SDK
+        run: |
+          pushd python/kserve
+          uv sync --group test
+          popd
+
       - name: Run E2E tests
         timeout-minutes: 40
         env:
