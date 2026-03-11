@@ -3796,12 +3796,7 @@ metadata:
 spec:
   template:
     containers:
-    - args:
-      - --served-model-name
-      - '{{ .Spec.Model.Name }}'
-      - --port
-      - "8000"
-      command:
+    - command:
       - /bin/bash
       - -c
       - |
@@ -3809,7 +3804,11 @@ spec:
         if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
           source /etc/profile.d/ibm-aiu-setup.sh
         fi
-        exec vllm serve /mnt/models "$@"
+        exec vllm serve \
+          /mnt/models \
+          --served-model-name "{{ .Spec.Model.Name }}" \
+          --port 8000 \
+          "$@"
       - --
       env:
       - name: HOME
