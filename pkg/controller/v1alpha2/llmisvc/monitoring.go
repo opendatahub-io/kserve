@@ -284,6 +284,7 @@ func (r *LLMISVCReconciler) expectedSchedulerMonitor(llmSvc *v1alpha2.LLMInferen
 			Labels: map[string]string{
 				"app.kubernetes.io/component": "llm-monitoring",
 				"app.kubernetes.io/part-of":   "llminferenceservice",
+				"monitoring.opendatahub.io/scrape": "true",
 			},
 		},
 		Spec: monitoringv1.ServiceMonitorSpec{
