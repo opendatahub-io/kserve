@@ -307,7 +307,7 @@ build_and_load_controller() {
 
   # Build the controller image
   log_wait "Running docker build..."
-  docker buildx build -t "${KSERVE_CONTROLLER_IMAGE}" -f llmisvc-controller.Dockerfile .
+  docker buildx build -t "${KSERVE_CONTROLLER_IMAGE}" --build-arg GOTAGS=distro -f llmisvc-controller.Dockerfile .
 
   popd > /dev/null
 
