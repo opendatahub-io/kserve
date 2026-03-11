@@ -209,8 +209,8 @@ func (r *LLMISVCReconciler) expectedVLLMEngineMonitor(llmSvc *v1alpha2.LLMInfere
 			Name:      "kserve-llm-isvc-vllm-engine",
 			Namespace: llmSvc.GetNamespace(),
 			Labels: map[string]string{
-				"app.kubernetes.io/component": "llm-monitoring",
-				"app.kubernetes.io/part-of":   "llminferenceservice",
+				"app.kubernetes.io/component":      "llm-monitoring",
+				"app.kubernetes.io/part-of":        "llminferenceservice",
 				"monitoring.opendatahub.io/scrape": "true",
 			},
 		},
@@ -282,8 +282,8 @@ func (r *LLMISVCReconciler) expectedSchedulerMonitor(llmSvc *v1alpha2.LLMInferen
 			Name:      "kserve-llm-isvc-scheduler",
 			Namespace: llmSvc.GetNamespace(),
 			Labels: map[string]string{
-				"app.kubernetes.io/component": "llm-monitoring",
-				"app.kubernetes.io/part-of":   "llminferenceservice",
+				"app.kubernetes.io/component":      "llm-monitoring",
+				"app.kubernetes.io/part-of":        "llminferenceservice",
 				"monitoring.opendatahub.io/scrape": "true",
 			},
 		},
