@@ -16,7 +16,8 @@
 #   LWS_VERSION=v0.6.2
 #   GATEWAY_API_VERSION=v1.2.1
 #   KSERVE_NAMESPACE=opendatahub
-#   KSERVE_CONTROLLER_IMAGE=kserve-llmisvc-controller:dev
+#   KO_DOCKER_REPO=local
+#   LLMISVC_CONTROLLER_IMG=llmisvc-controller:dev
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -40,7 +41,9 @@ CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.16.1}"
 LWS_VERSION="${LWS_VERSION:-v0.6.2}"
 GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.4.1}"
 KSERVE_NAMESPACE="${KSERVE_NAMESPACE:-opendatahub}"
-KSERVE_CONTROLLER_IMAGE="${KSERVE_CONTROLLER_IMAGE:-kserve-llmisvc-controller:dev}"
+KO_DOCKER_REPO="${KO_DOCKER_REPO:-local}"
+LLMISVC_CONTROLLER_IMG="${LLMISVC_CONTROLLER_IMG:-llmisvc-controller:dev}"
+KSERVE_CONTROLLER_IMAGE="${KO_DOCKER_REPO}/${LLMISVC_CONTROLLER_IMG}"
 
 # Determine script and project directories
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -303,13 +306,12 @@ install_lws() {
 build_and_load_controller() {
   log_info "Building KServe controller image '${KSERVE_CONTROLLER_IMAGE}'..."
 
-  pushd "${PROJECT_ROOT}" > /dev/null
-
-  # Build the controller image
-  log_wait "Running docker build..."
-  docker buildx build -t "${KSERVE_CONTROLLER_IMAGE}" --build-arg GOTAGS=distro -f llmisvc-controller.Dockerfile .
-
-  popd > /dev/null
+  # Build the controller image using the Makefile target
+  # GOTAGS=distro is set automatically via Makefile.overrides.mk
+  log_wait "Running make docker-build-llmisvc..."
+  make -C "${PROJECT_ROOT}" docker-build-llmisvc \
+    KO_DOCKER_REPO="${KO_DOCKER_REPO}" \
+    LLMISVC_CONTROLLER_IMG="${LLMISVC_CONTROLLER_IMG}"
 
   # Load image into KinD cluster
   log_wait "Loading image into KinD cluster..."
