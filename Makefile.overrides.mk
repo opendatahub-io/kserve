@@ -6,6 +6,10 @@
 # GOTAGS is picked up by the main Makefile to set GOFLAGS and --build-arg for Docker.
 GOTAGS = distro
 
+# Pass distro build tags to controller-gen so it processes //go:build distro files
+# (e.g. kubebuilder RBAC markers for Istio DestinationRules).
+CONTROLLER_GEN_BUILD_TAGS = --load-build-tags=$(GOTAGS)
+
 .PHONY: deploy-dev-llm deploy-dev-llm-ocp deploy-ci uv-update-lockfiles
 
 deploy-dev-llm:
