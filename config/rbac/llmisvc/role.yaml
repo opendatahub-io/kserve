@@ -139,18 +139,6 @@ rules:
   - update
   - watch
 - apiGroups:
-  - networking.istio.io
-  resources:
-  - destinationrules
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
   - networking.k8s.io
   resources:
   - ingresses

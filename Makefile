@@ -30,16 +30,11 @@ KSERVE_CONTROLLER_MEMORY_LIMIT ?= 300Mi
 $(shell perl -pi -e 's/cpu:.*/cpu: $(KSERVE_CONTROLLER_CPU_LIMIT)/' config/default/manager_resources_patch.yaml)
 $(shell perl -pi -e 's/memory:.*/memory: $(KSERVE_CONTROLLER_MEMORY_LIMIT)/' config/default/manager_resources_patch.yaml)
 
-# Optional local/downstream overrides (ignored if absent).
-# Loaded early so that variables like GOTAGS are visible to the ifdef checks below.
--include Makefile.overrides.mk
-
 export GOFLAGS=-mod=mod
 
 # Go build tags (e.g. "distro" for midstream).
 # Passed to Docker image builds via --build-arg and to all go commands via GOFLAGS.
 GOTAGS ?=
-CONTROLLER_GEN_BUILD_TAGS ?=
 ifdef GOTAGS
 export GOFLAGS += -tags=$(GOTAGS)
 endif
@@ -103,11 +98,11 @@ verify-helm-helpers-consistency:
 
 # Generate manifests e.g. CRD, RBAC etc.
 manifests: controller-gen yq
-	@$(CONTROLLER_GEN) $(CONTROLLER_GEN_BUILD_TAGS) $(CRD_OPTIONS) paths=./pkg/apis/serving/... output:crd:dir=config/crd/full
-	@$(CONTROLLER_GEN) $(CONTROLLER_GEN_BUILD_TAGS) rbac:roleName=kserve-manager-role paths={./pkg/controller/v1alpha1/inferencegraph,./pkg/controller/v1alpha1/trainedmodel,./pkg/controller/v1beta1/...} output:rbac:artifacts:config=config/rbac
-	@$(CONTROLLER_GEN) $(CONTROLLER_GEN_BUILD_TAGS) rbac:roleName=kserve-llmisvc-manager-role paths=./pkg/controller/v1alpha2/llmisvc output:rbac:artifacts:config=config/rbac/llmisvc
-	@$(CONTROLLER_GEN) $(CONTROLLER_GEN_BUILD_TAGS) rbac:roleName=kserve-localmodel-manager-role paths=./pkg/controller/v1alpha1/localmodel output:rbac:artifacts:config=config/rbac/localmodel
-	@$(CONTROLLER_GEN) $(CONTROLLER_GEN_BUILD_TAGS) rbac:roleName=kserve-localmodelnode-agent-role paths=./pkg/controller/v1alpha1/localmodelnode output:rbac:artifacts:config=config/rbac/localmodelnode
+	@$(CONTROLLER_GEN) $(CRD_OPTIONS) paths=./pkg/apis/serving/... output:crd:dir=config/crd/full	
+	@$(CONTROLLER_GEN) rbac:roleName=kserve-manager-role paths={./pkg/controller/v1alpha1/inferencegraph,./pkg/controller/v1alpha1/trainedmodel,./pkg/controller/v1beta1/...} output:rbac:artifacts:config=config/rbac
+	@$(CONTROLLER_GEN) rbac:roleName=kserve-llmisvc-manager-role paths=./pkg/controller/v1alpha2/llmisvc output:rbac:artifacts:config=config/rbac/llmisvc
+	@$(CONTROLLER_GEN) rbac:roleName=kserve-localmodel-manager-role paths=./pkg/controller/v1alpha1/localmodel output:rbac:artifacts:config=config/rbac/localmodel
+	@$(CONTROLLER_GEN) rbac:roleName=kserve-localmodelnode-agent-role paths=./pkg/controller/v1alpha1/localmodelnode output:rbac:artifacts:config=config/rbac/localmodelnode
 	
 	# DO NOT COPY to helm chart. It needs to be created before the Envoy Gateway or you will need to restart the Envoy Gateway controller.
 	# The llmisvc helm chart needs to be installed after the Envoy Gateway as well, so it needs to be created before the llmisvc helm chart.
@@ -585,3 +580,6 @@ apidocs:
 .PHONY: check-doc-links
 check-doc-links:
 	@python3 hack/verify-doc-links.py && echo "$@: OK"
+
+# Optional local/downstream overrides (ignored if absent)
+-include Makefile.overrides.mk
