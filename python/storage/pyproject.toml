@@ -28,6 +28,8 @@ azure-storage-file-share = { version = "^12.16.0"}
 azure-identity = { version = "^1.15.0"}
 boto3 = { version = "^1.29.0"}
 huggingface-hub = { version = "^0.30.0", extras = ["hf-transfer"]}
+# CVE-2026-21441 urllib3: vulnerable to decompression-bomb safeguard bypass when following HTTP redirects (streaming API)
+urllib3 = ">=2.6.3"
 # CVE-2026-26007 cryptography Subgroup Attack Due to Missing Subgroup Validation for SECT Curves
 # Pinning because it is a transitive dependency.
 cryptography = ">=46.0.5"
