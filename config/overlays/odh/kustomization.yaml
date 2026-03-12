@@ -4,7 +4,6 @@ kind: Kustomization
 resources:
 - ../../base
 - ../../llmisvcconfig
-# - ../../crd/full/localmodel
 - rbac/
 - accelerators/
 - network-policies.yaml
@@ -13,11 +12,11 @@ resources:
 components:
 - ../../components/kserve
 - ../../components/llmisvc
-# - ../../localmodels
 
 namespace: opendatahub
 
 patches:
+- path: patches/remove-storagecontainer.yaml
 - path: patches/remove-namespace.yaml
 - path: patches/remove-cert-manager.yaml
 - path: patches/remove-clusterservingruntime.yaml

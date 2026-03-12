@@ -130,3 +130,16 @@ data:
            "s3CABundle": "/etc/ssl/custom-certs/cabundle.crt"
        }
     }
+  localModel: |-
+    {
+      "enabled": false,
+      "jobNamespace": "opendatahub",
+      "defaultJobImage" : "$(kserve-storage-initializer)",
+      "fsGroup": 1000,
+      "localModelAgentImage": "$(kserve-localmodelnode-agent)",
+      "localModelAgentCpuRequest": "100m",
+      "localModelAgentMemoryRequest": "200Mi",
+      "localModelAgentCpuLimit": "100m",
+      "localModelAgentMemoryLimit": "300Mi",
+      "permissionFixImage": "$(kserve-agent)"
+    }
