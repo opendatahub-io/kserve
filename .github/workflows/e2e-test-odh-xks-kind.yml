@@ -116,8 +116,8 @@ jobs:
       - name: Collect logs on failure
         if: failure()
         run: |
-          echo "=== KServe Controller logs ==="
-          kubectl logs -n opendatahub -l control-plane=kserve-controller-manager --tail=500 2>/dev/null || echo "No controller logs"
+          echo "=== LLMISVC Controller logs ==="
+          kubectl logs -n opendatahub -l control-plane=llmisvc-controller-manager --tail=500 2>/dev/null || echo "No controller logs"
           echo ""
           echo "=== Istio logs ==="
           kubectl logs -n istio-system -l app=istiod --tail=200 2>/dev/null || echo "No istiod logs"
