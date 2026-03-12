@@ -19,6 +19,7 @@ package llmisvc
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -49,9 +50,14 @@ import (
 // Once set to "v1", traffic will never fall back to v1alpha2 even during transient failures.
 const AnnotationInferencePoolMigrated = "serving.kserve.io/inference-pool-migrated"
 
+// ErrPreconditionNotMet is a sentinel error returned by ensureGatewayPreconditions
+// when a non-transient precondition is not met (e.g. a required CRD is missing).
+// The caller should mark status but not propagate the error to avoid infinite requeue.
+var ErrPreconditionNotMet = errors.New("precondition not met")
+
 // reconcileRouter handles the networking and routing components for the LLM service
 // This includes schedulers, HTTP routes, and various validation checks
-func (r *LLMISVCReconciler) reconcileRouter(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
+func (r *LLMISVCReconciler) reconcileRouter(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, config *Config) error {
 	logger := log.FromContext(ctx).WithName("reconcileRouter").
 		WithValues("InferencePoolV1Alpha2Available", r.InferencePoolV1Alpha2Available,
 			"InferencePoolV1Available", r.InferencePoolV1Available)
@@ -62,13 +68,25 @@ func (r *LLMISVCReconciler) reconcileRouter(ctx context.Context, llmSvc *v1alpha
 	// Ensure readiness is determined even if errors occur
 	defer llmSvc.DetermineRouterReadiness()
 
+	// Ensure platform-specific preconditions are met before proceeding.
+	// A non-transient precondition failure (e.g. missing CRD) marks status and stops
+	// reconciliation without requeuing — the condition won't resolve by retrying.
+	if err := r.ensureGatewayPreconditions(ctx, llmSvc); err != nil {
+		if errors.Is(err, ErrPreconditionNotMet) {
+			llmSvc.MarkHTTPRoutesNotReady("GatewayPreconditionNotMet", err.Error())
+			return nil
+		}
+		llmSvc.MarkHTTPRoutesNotReady("HTTPRouteReconcileError", err.Error())
+		return fmt.Errorf("failed to ensure gateway preconditions: %w", err)
+	}
+
 	// Validate that referenced resources exist before proceeding
 	if err := r.validateRouterReferences(ctx, llmSvc); err != nil {
 		return err
 	}
 
 	// Reconcile the scheduler component that manages inference pools
-	if err := r.reconcileScheduler(ctx, llmSvc); err != nil {
+	if err := r.reconcileScheduler(ctx, llmSvc, config.SchedulerConfig); err != nil {
 		llmSvc.MarkSchedulerWorkloadNotReady("SchedulerReconcileError", "Failed to reconcile scheduler: %v", err.Error())
 		return fmt.Errorf("failed to reconcile scheduler: %w", err)
 	}
@@ -79,6 +97,12 @@ func (r *LLMISVCReconciler) reconcileRouter(ctx context.Context, llmSvc *v1alpha
 	if err := r.reconcileHTTPRoutes(ctx, llmSvc); err != nil {
 		llmSvc.MarkHTTPRoutesNotReady("HTTPRouteReconcileError", "Failed to reconcile HTTPRoute: %v", err.Error())
 		return fmt.Errorf("failed to reconcile HTTP routes: %w", err)
+	}
+
+	// Reconcile platform-specific networking resources
+	if err := r.reconcileRouterPlatformNetworking(ctx, llmSvc); err != nil {
+		llmSvc.MarkHTTPRoutesNotReady("PlatformNetworkingReconcileError", "Failed to reconcile platform networking: %v", err.Error())
+		return fmt.Errorf("failed to reconcile router platform networking: %w", err)
 	}
 
 	// Evaluate the subconditions to determine overall router health
@@ -273,10 +297,18 @@ func (r *LLMISVCReconciler) updateRoutingStatus(ctx context.Context, llmSvc *v1a
 		return nil
 	}
 
+	// TODO: LoadConfig fetches the configmap from the API server on every
+	// reconciliation. Consider caching with an informer-based watch to reduce
+	// API server pressure under high reconciliation load.
+	cfg, err := LoadConfig(ctx, r.Clientset)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
 	var urls []*apis.URL
 	for _, route := range routes {
-		discoverURL, err := DiscoverURLs(ctx, r.Client, route)
-		if IgnoreExternalAddressNotFound(err) != nil {
+		discoverURL, err := DiscoverURLs(ctx, r.Client, route, cfg.UrlScheme)
+		if IgnoreNoURLsDiscovered(err) != nil {
 			return fmt.Errorf("failed to discover URL for route %s/%s: %w", route.GetNamespace(), route.GetName(), err)
 		}
 		if discoverURL != nil {
@@ -298,8 +330,10 @@ func (r *LLMISVCReconciler) updateRoutingStatus(ctx context.Context, llmSvc *v1a
 
 	llmSvc.Status.Addresses = make([]duckv1.Addressable, 0, len(urls))
 	for _, url := range urls {
+		addressType := AddressTypeName(url)
 		llmSvc.Status.Addresses = append(llmSvc.Status.Addresses, duckv1.Addressable{
-			URL: url,
+			Name: &addressType,
+			URL:  url,
 		})
 	}
 
@@ -331,7 +365,7 @@ func (r *LLMISVCReconciler) EvaluateGatewayConditions(ctx context.Context, llmSv
 	}
 
 	// If no router or gateway configuration, mark as ready to clear any previous stopped state
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
+	if llmSvc.Spec.Router == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
 		logger.Info("No Gateway references found, skipping Gateway condition evaluation")
 		llmSvc.MarkGatewaysReadyUnset()
 		return nil
@@ -368,7 +402,7 @@ func (r *LLMISVCReconciler) EvaluateGatewayConditions(ctx context.Context, llmSv
 
 // CollectReferencedGateways retrieves all Gateway objects referenced in the LLMInferenceService spec
 func (r *LLMISVCReconciler) CollectReferencedGateways(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) ([]*gwapiv1.Gateway, error) {
-	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Gateway == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
+	if llmSvc.Spec.Router == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
 		return nil, nil
 	}
 

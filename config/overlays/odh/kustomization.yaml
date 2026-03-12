@@ -3,11 +3,12 @@ kind: Kustomization
 
 resources:
 - ../../base
-- ../../crd/full/llmisvc
+- ../../llmisvcconfig
 # - ../../crd/full/localmodel
-- user-cluster-roles.yaml
+- rbac/
+- accelerators/
 - network-policies.yaml
-- llm-svc-scc.yaml
+- ../../monitoring/llmisvc
 
 components:
 - ../../components/kserve
@@ -17,43 +18,32 @@ components:
 namespace: opendatahub
 
 patches:
-- path: remove-namespace.yaml
-- path: remove-cert-manager.yaml
-- path: remove-clusterservingruntime-crd.yaml
-- path: inferenceservice-config-patch.yaml
-- path: set-resources-manager-patch.yaml
-- path: remove-auth-proxy-patch.yaml
+- path: patches/remove-namespace.yaml
+- path: patches/remove-cert-manager.yaml
+- path: patches/remove-clusterservingruntime.yaml
+- path: patches/inferenceservice-config-patch.yaml
+- path: patches/set-resources-manager-patch.yaml
+- path: patches/remove-auth-proxy-patch.yaml
 - target:
     kind: ValidatingWebhookConfiguration
     annotationSelector: cert-manager.io/inject-ca-from
-  path: openshift-ca-patch.yaml
+  path: patches/openshift-ca-patch.yaml
 - target:
     kind: MutatingWebhookConfiguration
     annotationSelector: cert-manager.io/inject-ca-from
-  path: openshift-ca-patch.yaml
+  path: patches/openshift-ca-patch.yaml
 - target:
     kind: CustomResourceDefinition
     annotationSelector: cert-manager.io/inject-ca-from
-  path: openshift-ca-patch.yaml
+  path: patches/openshift-ca-patch.yaml
 - target:
     kind: Service
     name: kserve-webhook-server-service
-  path: openshift-serving-cert-patch.yaml
+  path: patches/openshift-serving-cert-patch.yaml
 - target:
     kind: Service
     name: llmisvc-webhook-server-service
-  path: openshift-serving-cert-llmisvc-patch.yaml
-- target:
-    kind: ClusterRole
-    name: kserve-llmisvc-manager-role
-  patch: |
-    - op: add
-      path: /rules/-
-      value:
-        apiGroups: ["security.openshift.io"]
-        resources: ["securitycontextconstraints"]
-        resourceNames: ["openshift-ai-llminferenceservice-scc"]
-        verbs: ["use"]
+  path: patches/openshift-serving-cert-llmisvc-patch.yaml
 
 replacements:
 - source:
@@ -66,6 +56,158 @@ replacements:
       name: kserve-controller-manager
     fieldPaths:
     - spec.template.spec.containers.[name=manager].image
+# Replace base LLMInferenceServiceConfig images with Red Hat CUDA image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-worker-data-parallel
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+    - spec.worker.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-decode-template
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-decode-worker-data-parallel
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+    - spec.worker.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-prefill-template
+    fieldPaths:
+    - spec.prefill.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-prefill-worker-data-parallel
+    fieldPaths:
+    - spec.prefill.template.containers.[name=main].image
+    - spec.prefill.worker.containers.[name=main].image
+# Replace scheduler image with ODH image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-inference-scheduler
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-scheduler
+    fieldPaths:
+    - spec.router.scheduler.template.containers.[name=main].image
+# Replace routing sidecar init container images with ODH image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-routing-sidecar
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-decode-template
+    fieldPaths:
+    - spec.template.initContainers.[name=llm-d-routing-sidecar].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-decode-worker-data-parallel
+    fieldPaths:
+    - spec.template.initContainers.[name=llm-d-routing-sidecar].image
+
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldpath: data.kserve-llm-d-nvidia-cuda
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-nvidia-cuda
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldpath: data.kserve-llm-d-amd-rocm
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-amd-rocm
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldpath: data.kserve-llm-d-ibm-spyre
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-ibm-spyre-s390x
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-ibm-spyre-x86
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-ibm-spyre-ppc64le
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+
+# Set runAsNonRoot: true for all LLMInferenceServiceConfig templates.
+# NOTE: When adding a new LLMInferenceServiceConfig template, add its container paths here.
+- source:
+    kind: LLMInferenceServiceConfig
+    name: kserve-config-llm-scheduler
+    fieldPath: spec.router.scheduler.template.containers.[name=main].securityContext.runAsNonRoot
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-worker-data-parallel
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    - spec.worker.containers.[name=main].securityContext.runAsNonRoot
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-decode-template
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    - spec.template.initContainers.[name=llm-d-routing-sidecar].securityContext.runAsNonRoot
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-decode-worker-data-parallel
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    - spec.template.initContainers.[name=llm-d-routing-sidecar].securityContext.runAsNonRoot
+    - spec.worker.containers.[name=main].securityContext.runAsNonRoot
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-prefill-template
+    fieldPaths:
+    - spec.prefill.template.containers.[name=main].securityContext.runAsNonRoot
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-prefill-worker-data-parallel
+    fieldPaths:
+    - spec.prefill.template.containers.[name=main].securityContext.runAsNonRoot
+    - spec.prefill.worker.containers.[name=main].securityContext.runAsNonRoot
 
 configMapGenerator:
 - envs:
@@ -104,6 +246,5 @@ vars:
     apiVersion: v1
     kind: ConfigMap
     name: kserve-parameters
-
 configurations:
   - params.yaml

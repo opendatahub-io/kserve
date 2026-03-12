@@ -25,9 +25,38 @@ env:
   TAG: ${{ github.sha }}
   DOCKER_IMAGES_PATH: "/mnt/docker-images"
   KO_DOCKER_REPO: "kserve"
-  LLMISVC: "true"
+  ENABLE_LLMISVC: "true"
 
 jobs:
+
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      install_methods: ${{ steps.set-matrix.outputs.install_methods }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            charts:
+              - 'charts/**'
+            non_charts:
+              - '**'
+              - '!charts/**'
+      - id: set-matrix
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo 'install_methods=["kustomize","helm"]' >> $GITHUB_OUTPUT
+          elif [[ "${{ steps.filter.outputs.charts }}" == "true" && \
+                  "${{ steps.filter.outputs.non_charts }}" == "true" ]]; then
+            echo 'install_methods=["kustomize","helm"]' >> $GITHUB_OUTPUT
+          elif [[ "${{ steps.filter.outputs.charts }}" == "true" ]]; then
+            echo 'install_methods=["helm"]' >> $GITHUB_OUTPUT
+          else
+            echo 'install_methods=["kustomize"]' >> $GITHUB_OUTPUT
+          fi
+
   llmisvc-image-build:
     # Midstream Section: Disable this workflow for ODH midstream fork
     # This workflow requires auth setup (AuthPolicy/Kuadrant) not available in midstream CI
@@ -65,12 +94,24 @@ jobs:
           compression-level: 0
           if-no-files-found: error
 
+      - name: Upload storage-initializer image
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.STORAGE_INIT_IMG }}-${{ env.TAG }}
+          path: ${{ env.DOCKER_IMAGES_PATH }}/${{ env.STORAGE_INIT_IMG }}-${{ env.TAG }}
+          compression-level: 0
+          if-no-files-found: error
+
   test-llmisvc:
     # Midstream Section: Disable this workflow for ODH midstream fork
     if: github.repository == 'kserve/kserve'
     # end Midstream Section
     runs-on: ubuntu-latest
-    needs: [llmisvc-image-build]
+    needs: [detect-changes, llmisvc-image-build]
+    strategy:
+      fail-fast: false
+      matrix:
+        install-method: ${{ fromJSON(needs.detect-changes.outputs.install_methods) }}
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
@@ -100,6 +141,12 @@ jobs:
           name: ${{ env.LLMISVC_CONTROLLER_IMG }}-${{ env.TAG }}
           path: ./tmp
 
+      - name: Download storage-initializer image
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.STORAGE_INIT_IMG }}-${{ env.TAG }}
+          path: ./tmp
+
       - name: Load LLMISvc controller image into minikube
         run: |
           # Load the tagged image into minikube
@@ -108,6 +155,15 @@ jobs:
           # Verify image is loaded
           echo "Images in minikube:"
           minikube image ls | grep ${{ env.LLMISVC_CONTROLLER_IMG }} || echo "No llmisvc-controller images found"
+
+      - name: Load storage-initializer image into minikube
+        run: |
+          # Load the tagged image into minikube
+          minikube image load ./tmp/${{ env.STORAGE_INIT_IMG }}-${{ env.TAG }}
+
+          # Verify image is loaded
+          echo "Images in minikube:"
+          minikube image ls | grep ${{ env.STORAGE_INIT_IMG }} || echo "No storage-initializer images found"
 
       - name: KServe dependency setup
         uses: ./.github/actions/kserve-dep-setup
@@ -119,6 +175,7 @@ jobs:
 
       - name: Install KServe
         run: |
+          ${{ matrix.install-method == 'helm' && 'export INSTALL_METHOD="helm"' || '' }}
           ./test/scripts/gh-actions/setup-kserve.sh
 
       - name: Disable SCC for non-OpenShift clusters
