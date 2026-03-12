@@ -503,7 +503,8 @@ func TestNewLocalModelConfig(t *testing.T) {
 					"fsGroup": %d,
 					"jobTTLSecondsAfterFinished": %d,
 					"reconcilationFrequencyInSecs": %d,
-					"disableVolumeManagement": true
+					"disableVolumeManagement": true,
+					"permissionFixImage": "test-perm-image"
 				}`, fsGroup, jobTTL, reconFreq),
 			},
 		}
@@ -520,6 +521,7 @@ func TestNewLocalModelConfig(t *testing.T) {
 		g.Expect(cfg.ReconcilationFrequencyInSecs).ToNot(gomega.BeNil())
 		g.Expect(*cfg.ReconcilationFrequencyInSecs).To(gomega.Equal(reconFreq))
 		g.Expect(cfg.DisableVolumeManagement).To(gomega.BeTrue())
+		g.Expect(cfg.PermissionFixImage).To(gomega.Equal("test-perm-image"))
 	})
 
 	t.Run("returns error on invalid localModel config json", func(t *testing.T) {

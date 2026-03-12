@@ -51,8 +51,8 @@ func (m *MockFileInfo) Info() (fs.FileInfo, error) { return nil, nil }
 
 type mockFileSystem struct {
 	FileSystemInterface
-	// represents the dirs under /mnt/models/models
-	subDirs []os.DirEntry
+	subDirs  []os.DirEntry
+	writable bool
 }
 
 func (f *mockFileSystem) removeModel(model string) error {
@@ -92,13 +92,18 @@ func (f *mockFileSystem) ensureModelRootFolderExists() error {
 	return nil
 }
 
+func (f *mockFileSystem) isWritable() bool {
+	return f.writable
+}
+
 func (f *mockFileSystem) clear() {
 	f.subDirs = []os.DirEntry{}
 }
 
 func newMockFileSystem() *mockFileSystem {
 	return &mockFileSystem{
-		subDirs: []os.DirEntry{},
+		subDirs:  []os.DirEntry{},
+		writable: true,
 	}
 }
 
@@ -371,9 +376,10 @@ var _ = Describe("LocalModelNode controller", func() {
 			Expect(job.Spec.Template.Spec.Containers).To(HaveLen(1))
 			container := job.Spec.Template.Spec.Containers[0]
 			Expect(container.VolumeMounts).To(HaveLen(1))
-			Expect(container.VolumeMounts[0].SubPath).To(Equal("models/"+storageKey),
-				"Download job SubPath must use storageKey hash, not modelName, for storage deduplication. "+
-					"storageKey=%s, modelName=%s", storageKey, modelName)
+			Expect(container.VolumeMounts[0].SubPath).To(BeEmpty(),
+				"Download job should not use SubPath, to allow FSGroup to apply permissions")
+			Expect(container.Args).To(Equal([]string{sourceModelUri, MountPath + "/" + storageKey}),
+				"Download destination should include storageKey subdirectory")
 		})
 		It("Should recreate download jobs if the model is missing from local disk", func() {
 			fsMock.clear()
@@ -724,7 +730,8 @@ var _ = Describe("LocalModelNode controller", func() {
 			Expect(job.Spec.Template.Spec.Containers).To(HaveLen(1))
 			container := job.Spec.Template.Spec.Containers[0]
 			Expect(container.Image).To(Equal("kserve/storage-initializer:latest"))
-			Expect(container.Args).To(Equal([]string{"hf://meta-llama/Meta-Llama-3-8B", "/mnt/models"}))
+			storageKey := v1alpha1.GetStorageKey("hf://meta-llama/Meta-Llama-3-8B")
+			Expect(container.Args).To(Equal([]string{"hf://meta-llama/Meta-Llama-3-8B", MountPath + "/" + storageKey}))
 		})
 
 		It("Should use storage key credentials when specified in LocalModelInfo", func() {
@@ -814,7 +821,7 @@ var _ = Describe("LocalModelNode controller", func() {
 			}, timeout, interval).Should(BeTrue(), "Download job should be created with storage key")
 		})
 
-		It("Should create download job in model namespace for namespace-scoped LocalModelNamespaceCache", func() {
+		It("Should create download job in jobNamespace for namespace-scoped LocalModelNamespaceCache", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			DeferCleanup(cancel)
 			fsMock.clear()
@@ -905,9 +912,9 @@ var _ = Describe("LocalModelNode controller", func() {
 				"modelNamespace": modelNamespace,
 			}
 			Eventually(func() bool {
-				err := k8sClient.List(ctx, jobs, client.InNamespace(modelNamespace), client.MatchingLabels(labelSelector))
+				err := k8sClient.List(ctx, jobs, client.InNamespace(modelCacheNamespace), client.MatchingLabels(labelSelector))
 				return err == nil && len(jobs.Items) == 1
-			}, timeout, interval).Should(BeTrue(), "Download job should be created in the model's namespace")
+			}, timeout, interval).Should(BeTrue(), "Download job should be created in jobNamespace")
 
 			job := &jobs.Items[0]
 			Expect(job.Labels["modelNamespace"]).To(Equal(modelNamespace))
@@ -1007,9 +1014,9 @@ var _ = Describe("LocalModelNode controller", func() {
 				"node":  nodeName,
 			}
 			Eventually(func() bool {
-				err := k8sClient.List(ctx, jobs, client.InNamespace(modelNamespace), client.MatchingLabels(labelSelector))
+				err := k8sClient.List(ctx, jobs, client.InNamespace(modelCacheNamespace), client.MatchingLabels(labelSelector))
 				return err == nil && len(jobs.Items) == 1
-			}, timeout, interval).Should(BeTrue(), "Download job should be created")
+			}, timeout, interval).Should(BeTrue(), "Download job should be created in jobNamespace")
 
 			// Update job status to succeeded
 			job := &jobs.Items[0]
@@ -1282,16 +1289,16 @@ var _ = Describe("LocalModelNode controller", func() {
 				"modelNamespace": nsModelNamespace,
 			}
 			Eventually(func() bool {
-				err := k8sClient.List(ctx, jobs, client.InNamespace(nsModelNamespace), client.MatchingLabels(labelSelector))
+				err := k8sClient.List(ctx, jobs, client.InNamespace(modelCacheNamespace), client.MatchingLabels(labelSelector))
 				return err == nil && len(jobs.Items) == 1
-			}, timeout, interval).Should(BeTrue(), "Download job should be created in the model's namespace")
+			}, timeout, interval).Should(BeTrue(), "Download job should be created in jobNamespace")
 
 			job := &jobs.Items[0]
 			Expect(job.Spec.Template.Spec.Volumes).To(HaveLen(1))
 			pvcVolume := job.Spec.Template.Spec.Volumes[0]
 			Expect(pvcVolume.PersistentVolumeClaim).NotTo(BeNil())
-			Expect(pvcVolume.PersistentVolumeClaim.ClaimName).To(Equal(sklearnModelName+"-"+sklearnNodeGroupName+"-download"),
-				"PVC name for namespace-scoped models must include -download suffix to match the PVC created by the namespace cache reconciler")
+			Expect(pvcVolume.PersistentVolumeClaim.ClaimName).To(Equal(sklearnModelName+"-"+sklearnNodeGroupName+"-"+nsModelNamespace+"-download"),
+				"PVC name for namespace-scoped models must include source namespace and -download suffix")
 		})
 
 		It("Should track both cluster-scoped and namespace-scoped models with separate status entries", func() {
@@ -1408,9 +1415,9 @@ var _ = Describe("LocalModelNode controller", func() {
 				"node":  nodeName,
 			}
 			Eventually(func() bool {
-				err := k8sClient.List(ctx, nsJobs, client.InNamespace(modelNamespace), client.MatchingLabels(nsLabelSelector))
+				err := k8sClient.List(ctx, nsJobs, client.InNamespace(modelCacheNamespace), client.MatchingLabels(nsLabelSelector))
 				return err == nil && len(nsJobs.Items) == 1
-			}, timeout, interval).Should(BeTrue(), "Namespace-scoped job should be in model's namespace")
+			}, timeout, interval).Should(BeTrue(), "Namespace-scoped job should be in jobNamespace")
 
 			// Update both jobs to succeeded
 			clusterJob := &clusterJobs.Items[0]
@@ -1444,6 +1451,91 @@ var _ = Describe("LocalModelNode controller", func() {
 				}
 				return true
 			}, timeout, interval).Should(BeTrue(), "Status should have separate entries for cluster and namespace-scoped models")
+		})
+
+		It("Should include MCS level in permission fix job chcon command", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+
+			fsMock = &mockFileSystem{
+				subDirs:  []os.DirEntry{},
+				writable: false,
+			}
+			fsHelper = fsMock
+
+			// Patch the existing jobNamespace to add MCS annotation
+			existingNs := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: modelCacheNamespace}, existingNs)).Should(Succeed())
+			patch := client.MergeFrom(existingNs.DeepCopy())
+			if existingNs.Annotations == nil {
+				existingNs.Annotations = map[string]string{}
+			}
+			existingNs.Annotations["openshift.io/sa.scc.mcs"] = "s0:c28,c27"
+			Expect(k8sClient.Patch(ctx, existingNs, patch)).Should(Succeed())
+			defer func() {
+				ns := &corev1.Namespace{}
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: modelCacheNamespace}, ns)
+				p := client.MergeFrom(ns.DeepCopy())
+				delete(ns.Annotations, "openshift.io/sa.scc.mcs")
+				_ = k8sClient.Patch(ctx, ns, p)
+			}()
+
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: map[string]string{
+					"localModel": fmt.Sprintf(`{
+						"jobNamespace": "%s",
+						"defaultJobImage": "kserve/storage-initializer:latest"
+					}`, modelCacheNamespace),
+				},
+			}
+			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(ctx, configMap)
+
+			nodeName = "worker-mcs-test"
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{"node.kubernetes.io/instance-type": "gpu"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).Should(Succeed())
+			defer k8sClient.Delete(ctx, node)
+
+			localModelNode := &v1alpha1.LocalModelNode{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Spec: v1alpha1.LocalModelNodeSpec{
+					LocalModels: []v1alpha1.LocalModelInfo{},
+				},
+			}
+			Expect(k8sClient.Create(ctx, localModelNode)).Should(Succeed())
+			defer k8sClient.Delete(ctx, localModelNode)
+
+			// Wait for permission fix job
+			jobs := &batchv1.JobList{}
+			fixLabels := map[string]string{
+				"fix-permissions": "true",
+				"node":            nodeName,
+			}
+			Eventually(func() bool {
+				err := k8sClient.List(ctx, jobs, client.InNamespace(modelCacheNamespace), client.MatchingLabels(fixLabels))
+				return err == nil && len(jobs.Items) == 1
+			}, timeout, interval).Should(BeTrue(), "Permission fix job should be created")
+
+			job := &jobs.Items[0]
+			command := job.Spec.Template.Spec.Containers[0].Command[2]
+			Expect(command).To(ContainSubstring("-l s0:c28,c27"))
+
+			// Reset writable for cleanup
+			fsMock.writable = true
 		})
 	})
 })

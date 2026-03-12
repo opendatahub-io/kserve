@@ -115,7 +115,7 @@ func TestFileSystemHelper_removeModel(t *testing.T) {
 func TestFileSystemHelper_ensureModelRootFolderExists(t *testing.T) {
 	// Case 1: Folder does not exist, should be created
 	tempDir := t.TempDir()
-	modelsRoot := filepath.Join(tempDir, "models")
+	modelsRoot := tempDir
 	helper := NewFileSystemHelper(modelsRoot)
 
 	err := helper.ensureModelRootFolderExists()
@@ -142,10 +142,30 @@ func TestFileSystemHelper_ensureModelRootFolderExists(t *testing.T) {
 		t.Fatalf("failed to create permDir: %v", err)
 	}
 	defer os.Chmod(permDir, 0o755) //nolint
-	unwritableRoot := filepath.Join(permDir, "models")
+	unwritableRoot := filepath.Join(permDir, "subdir")
 	helper2 := NewFileSystemHelper(unwritableRoot)
 	err = helper2.ensureModelRootFolderExists()
 	if err == nil {
 		t.Errorf("expected error due to permission denied, got nil")
+	}
+}
+
+func TestFileSystemHelper_isWritable(t *testing.T) {
+	// Case 1: Writable directory returns true
+	tempDir := t.TempDir()
+	helper := NewFileSystemHelper(tempDir)
+	if !helper.isWritable() {
+		t.Errorf("expected writable directory to return true")
+	}
+
+	// Case 2: Read-only directory returns false
+	readOnlyDir := t.TempDir()
+	if err := os.Chmod(readOnlyDir, 0o555); err != nil { //nolint:gosec // G302: intentionally non-restrictive for test
+		t.Fatalf("failed to chmod dir: %v", err)
+	}
+	defer os.Chmod(readOnlyDir, 0o755) //nolint
+	helper2 := NewFileSystemHelper(readOnlyDir)
+	if helper2.isWritable() {
+		t.Errorf("expected read-only directory to return false")
 	}
 }
