@@ -17,6 +17,8 @@ limitations under the License.
 package localmodelnode
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -26,6 +28,7 @@ type FileSystemInterface interface {
 	hasModelFolder(modelName string) (bool, error)
 	getModelFolders() ([]os.DirEntry, error)
 	ensureModelRootFolderExists() error
+	isWritable() bool
 }
 
 type FileSystemHelper struct {
@@ -49,7 +52,11 @@ func (f *FileSystemHelper) removeModel(modelName string) error {
 }
 
 func (f *FileSystemHelper) getModelFolders() ([]os.DirEntry, error) {
-	return os.ReadDir(f.modelsRootFolder)
+	entries, err := os.ReadDir(f.modelsRootFolder)
+	if err != nil && errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	return entries, err
 }
 
 func (f *FileSystemHelper) hasModelFolder(modelName string) (bool, error) {
@@ -70,4 +77,15 @@ func (f *FileSystemHelper) ensureModelRootFolderExists() error {
 		return err
 	}
 	return nil
+}
+
+func (f *FileSystemHelper) isWritable() bool {
+	testFile := filepath.Join(f.modelsRootFolder, ".write-test")
+	file, err := os.Create(testFile) //nolint:gosec // G304: test file in controlled directory
+	if err != nil {
+		return false
+	}
+	_ = file.Close()
+	_ = os.Remove(testFile)
+	return true
 }

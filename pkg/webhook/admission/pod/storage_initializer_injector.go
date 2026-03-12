@@ -564,7 +564,7 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(ctx context.Conte
 		}
 		if pvcName, ok := pod.Annotations[constants.LocalModelPVCNameAnnotationKey]; ok {
 			storageKey := v1alpha1.GetStorageKey(sourceUri)
-			srcURI = "pvc://" + pvcName + "/models/" + storageKey + subPath
+			srcURI = "pvc://" + pvcName + "/" + storageKey + subPath
 		} else {
 			return fmt.Errorf("Annotation %s not found", constants.LocalModelPVCNameAnnotationKey)
 		}
