@@ -75,7 +75,7 @@ func additionalRequiredResources(ctx context.Context, c client.Client) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	caKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: caKeyBytes})
 
-	gomega.Expect(c.Create(ctx, &corev1.Secret{
+	gomega.Expect(client.IgnoreAlreadyExists(c.Create(ctx, &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      llmisvc.ServiceCASigningSecretName,
 			Namespace: ns,
@@ -86,5 +86,5 @@ func additionalRequiredResources(ctx context.Context, c client.Client) {
 			"tls.key": caKeyPEM,
 			"ca.crt":  caCertPEM,
 		},
-	})).To(gomega.Succeed())
+	}))).To(gomega.Succeed())
 }
