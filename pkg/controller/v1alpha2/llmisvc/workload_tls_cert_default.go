@@ -20,11 +20,6 @@ package llmisvc
 
 import "context"
 
-var (
-	ServiceCASigningSecretName      = constants.GetEnvOrDefault("SERVICE_CA_SIGNING_SECRET_NAME", "signing-key")
-	ServiceCASigningSecretNamespace = constants.GetEnvOrDefault("SERVICE_CA_SIGNING_SECRET_NAMESPACE", "openshift-service-ca")
-)
-
 // createWorkloadCertificate returns a createCertFunc that generates a self-signed TLS certificate.
 // Because the certificate signs itself (issuer = subject, same key pair), it is its own CA -
 // ca.crt is therefore identical to tls.crt.
