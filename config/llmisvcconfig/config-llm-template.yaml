@@ -24,6 +24,7 @@ spec:
               --ssl-keyfile \
               /var/run/kserve/tls/tls.key \
               --port 8000 \
+              --disable-uvicorn-access-log \
               "$@"
           # "--" ends bash options; subsequent args become positional params ($@) forwarded to vllm serve
           - --
