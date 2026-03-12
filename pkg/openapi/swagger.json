@@ -3970,6 +3970,9 @@
           "type": "integer",
           "format": "int32"
         },
+        "permissionFixImage": {
+          "type": "string"
+        },
         "reconcilationFrequencyInSecs": {
           "type": "integer",
           "format": "int64"

@@ -53,6 +53,7 @@ class V1beta1LocalModelConfig(object):
         'fs_group': 'int',
         'job_namespace': 'str',
         'job_ttl_seconds_after_finished': 'int',
+        'permission_fix_image': 'str',
         'reconcilation_frequency_in_secs': 'int'
     }
 
@@ -63,10 +64,11 @@ class V1beta1LocalModelConfig(object):
         'fs_group': 'fsGroup',
         'job_namespace': 'jobNamespace',
         'job_ttl_seconds_after_finished': 'jobTTLSecondsAfterFinished',
+        'permission_fix_image': 'permissionFixImage',
         'reconcilation_frequency_in_secs': 'reconcilationFrequencyInSecs'
     }
 
-    def __init__(self, default_job_image=None, disable_volume_management=None, enabled=False, fs_group=None, job_namespace='', job_ttl_seconds_after_finished=None, reconcilation_frequency_in_secs=None, local_vars_configuration=None):  # noqa: E501
+    def __init__(self, default_job_image=None, disable_volume_management=None, enabled=False, fs_group=None, job_namespace='', job_ttl_seconds_after_finished=None, permission_fix_image=None, reconcilation_frequency_in_secs=None, local_vars_configuration=None):  # noqa: E501
         """V1beta1LocalModelConfig - a model defined in OpenAPI"""  # noqa: E501
         if local_vars_configuration is None:
             local_vars_configuration = Configuration()
@@ -78,6 +80,7 @@ class V1beta1LocalModelConfig(object):
         self._fs_group = None
         self._job_namespace = None
         self._job_ttl_seconds_after_finished = None
+        self._permission_fix_image = None
         self._reconcilation_frequency_in_secs = None
         self.discriminator = None
 
@@ -91,6 +94,8 @@ class V1beta1LocalModelConfig(object):
         self.job_namespace = job_namespace
         if job_ttl_seconds_after_finished is not None:
             self.job_ttl_seconds_after_finished = job_ttl_seconds_after_finished
+        if permission_fix_image is not None:
+            self.permission_fix_image = permission_fix_image
         if reconcilation_frequency_in_secs is not None:
             self.reconcilation_frequency_in_secs = reconcilation_frequency_in_secs
 
@@ -223,6 +228,27 @@ class V1beta1LocalModelConfig(object):
         """
 
         self._job_ttl_seconds_after_finished = job_ttl_seconds_after_finished
+
+    @property
+    def permission_fix_image(self):
+        """Gets the permission_fix_image of this V1beta1LocalModelConfig.  # noqa: E501
+
+
+        :return: The permission_fix_image of this V1beta1LocalModelConfig.  # noqa: E501
+        :rtype: str
+        """
+        return self._permission_fix_image
+
+    @permission_fix_image.setter
+    def permission_fix_image(self, permission_fix_image):
+        """Sets the permission_fix_image of this V1beta1LocalModelConfig.
+
+
+        :param permission_fix_image: The permission_fix_image of this V1beta1LocalModelConfig.  # noqa: E501
+        :type: str
+        """
+
+        self._permission_fix_image = permission_fix_image
 
     @property
     def reconcilation_frequency_in_secs(self):
