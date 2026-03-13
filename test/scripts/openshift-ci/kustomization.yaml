@@ -5,6 +5,6 @@ resources:
   # Pin to last v1alpha1-compatible commit before the v1alpha2 migration (PR #731).
   # The incubating branch now uses serving.kserve.io/v1alpha2 which requires CRD
   # multi-version support + conversion webhooks only available on kserve release-0.17+.
-  - github.com/opendatahub-io/odh-model-controller/config/base?ref=a174efc9cc73
+  - github.com/opendatahub-io/odh-model-controller/config/base?ref=a174efc9cc73384d5ee0a2a6f51c1baefed66a72
 
 namespace: opendatahub
