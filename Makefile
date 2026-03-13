@@ -34,7 +34,7 @@ export GOFLAGS=-mod=mod
 
 # Go build tags (e.g. "distro" for midstream).
 # Passed to Docker image builds via --build-arg and to all go commands via GOFLAGS.
-GOTAGS ?= distro
+GOTAGS ?=
 ifdef GOTAGS
 export GOFLAGS += -tags=$(GOTAGS)
 endif
