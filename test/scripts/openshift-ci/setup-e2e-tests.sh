@@ -133,8 +133,17 @@ if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
   wait_for_crd clusterstoragecontainers.serving.kserve.io 90s
   wait_for_crd datascienceclusters.datasciencecluster.opendatahub.io 90s
 
-  # Apply all resources now that CRDs are established
-  echo "$ODH_MANIFESTS" | oc apply --server-side=true --force-conflicts -f -
+  # Apply all resources (LLMInferenceServiceConfig may fail webhook validation initially, will retry after)
+  echo "⏳ Applying all resources..."
+  echo "$ODH_MANIFESTS" | oc apply --server-side=true --force-conflicts -f - || true
+
+  # Wait for llmisvc-controller-manager to be ready before applying webhook-validated resources
+  echo "⏳ Waiting for llmisvc-controller-manager to be ready..."
+  wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=llmisvc-controller-manager" 600s
+
+  # Re-apply LLMInferenceServiceConfig resources now that webhook is ready
+  echo "⏳ Re-applying LLMInferenceServiceConfig resources with webhook validation..."
+  kustomize build "$PROJECT_ROOT/config/llmisvcconfig" | oc apply --server-side=true --force-conflicts -f -
 
   # Install DSC/DSCI for manual installation
   echo "Installing DSC/DSCI resources..."
