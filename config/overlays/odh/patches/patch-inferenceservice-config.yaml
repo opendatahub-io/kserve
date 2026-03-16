@@ -104,6 +104,10 @@ data:
       ]
      }
 
+  service: |-
+    {
+        "serviceClusterIPNone": true
+    }
   security: |-
     {
       "autoMountServiceAccountToken": false
