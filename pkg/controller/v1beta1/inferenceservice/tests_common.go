@@ -229,6 +229,14 @@ func getDefaultAnnotations(scalerClass constants.AutoscalerClassType) map[string
 	}
 }
 
+func withCertAnnotation(annotations map[string]string, deploymentName string) map[string]string {
+	if annotations == nil {
+		annotations = make(map[string]string)
+	}
+	annotations[constants.OpenshiftServingCertAnnotation] = deploymentName + constants.ServingCertSecretSuffix
+	return annotations
+}
+
 func getDefaultMetrics() []v1beta1.MetricsSpec {
 	return []v1beta1.MetricsSpec{
 		{
@@ -280,7 +288,11 @@ func getExpectedDeployment(explainerDeploymentKey types.NamespacedName, serviceN
 						constants.KServiceComponentLabel:      constants.Explainer.String(),
 						constants.InferenceServicePodLabelKey: serviceName,
 					},
-					Annotations: getDefaultAnnotations(constants.AutoscalerClassHPA),
+					Annotations: func() map[string]string {
+						m := getDefaultAnnotations(constants.AutoscalerClassHPA)
+						m[constants.OpenshiftServingCertAnnotation] = explainerDeploymentKey.Name + constants.ServingCertSecretSuffix
+						return m
+					}(),
 				},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
@@ -360,6 +372,7 @@ func getDeploymentWithKServiceLabel(predictorDeploymentKey types.NamespacedName,
 						constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
 						constants.DeploymentMode:                                   string(constants.Standard),
 						constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+						constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
 					},
 				},
 				Spec: corev1.PodSpec{
