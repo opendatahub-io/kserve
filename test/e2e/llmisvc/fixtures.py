@@ -121,8 +121,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                             "failureThreshold": 3,
                         },
                         "securityContext": {
-                            "runAsNonRoot": False,
-                            "runAsUser": 0,
+                            "runAsNonRoot": True,
                         },
                     }
                 ]

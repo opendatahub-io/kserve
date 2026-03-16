@@ -146,13 +146,6 @@ if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
 
   # Patch inferenceservice-config for llminferenceservice tests
   if [[ "$1" =~ "llminferenceservice" ]]; then
-    echo "⏳ Patching inferenceservice-config to use openshift-ai-inference gateway"
-    oc patch configmap inferenceservice-config -n ${KSERVE_NAMESPACE} --type=json -p='[{
-      "op": "replace",
-      "path": "/data/ingress",
-      "value": "{\"enableGatewayApi\": false, \"kserveIngressGateway\": \"openshift-ingress/openshift-ai-inference\", \"ingressGateway\": \"knative-serving/knative-ingress-gateway\", \"localGateway\": \"knative-serving/knative-local-gateway\", \"localGatewayService\": \"knative-local-gateway.istio-system.svc.cluster.local\", \"ingressDomain\": \"example.com\", \"ingressClassName\": \"istio\", \"domainTemplate\": \"{{ .Name }}-{{ .Namespace }}.{{ .IngressDomain }}\", \"urlScheme\": \"http\"}"
-    }]'
-
     # Restart llmisvc-controller to pick up the new config
     echo "⏳ Restarting llmisvc-controller to apply configuration changes"
     oc delete pod -n ${KSERVE_NAMESPACE} -l control-plane=llmisvc-controller-manager

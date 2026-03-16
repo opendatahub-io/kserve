@@ -94,13 +94,13 @@ data:
         "resource": {
            # cpuLimit is the limits.cpu to set for the inference service.
            "cpuLimit": "1",
-    
+
            # memoryLimit is the limits.memory to set for the inference service.
            "memoryLimit": "2Gi",
-    
+
            # cpuRequest is the requests.cpu to set for the inference service.
            "cpuRequest": "1",
-    
+
            # memoryRequest is the requests.memory to set for the inference service.
            "memoryRequest": "2Gi"
         }
@@ -672,7 +672,7 @@ data:
   ingress: |-
     {   
         "enableGatewayApi": false,
-        "kserveIngressGateway": "kserve/kserve-ingress-gateway",
+        "kserveIngressGateway": "openshift-ingress/openshift-ai-inference",
         "ingressGateway" : "knative-serving/knative-ingress-gateway",
         "localGateway" : "knative-serving/knative-local-gateway",
         "localGatewayService" : "knative-local-gateway.istio-system.svc.cluster.local",
