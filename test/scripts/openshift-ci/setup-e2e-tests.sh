@@ -121,7 +121,7 @@ if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
     sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
     sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
     sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
-    sed "s|kserve/llmisvc-controller:latest|${LLMISVC_CONTROLLER_IMAGE}|")
+    sed "s|quay.io/opendatahub/llmisvc-controller:latest|${LLMISVC_CONTROLLER_IMAGE}|")
 
   # Apply CRDs first and wait for them to be established before applying the rest
   echo "$ODH_MANIFESTS" | awk '/^apiVersion: apiextensions\.k8s\.io/{found=1} found{print} /^---/{if(found) found=0}' |
@@ -142,8 +142,22 @@ if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
   wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=llmisvc-controller-manager" 600s
 
   # Re-apply LLMInferenceServiceConfig resources now that webhook is ready
-  echo "⏳ Re-applying LLMInferenceServiceConfig resources with webhook validation..."
-  kustomize build "$PROJECT_ROOT/config/llmisvcconfig" | oc apply --server-side=true --force-conflicts -f -
+  echo "$ODH_MANIFESTS" | oc apply --server-side=true --force-conflicts -f -
+
+  # Patch inferenceservice-config for llminferenceservice tests
+  if [[ "$1" =~ "llminferenceservice" ]]; then
+    echo "⏳ Patching inferenceservice-config to use openshift-ai-inference gateway"
+    oc patch configmap inferenceservice-config -n ${KSERVE_NAMESPACE} --type=json -p='[{
+      "op": "replace",
+      "path": "/data/ingress",
+      "value": "{\"enableGatewayApi\": false, \"kserveIngressGateway\": \"openshift-ingress/openshift-ai-inference\", \"ingressGateway\": \"knative-serving/knative-ingress-gateway\", \"localGateway\": \"knative-serving/knative-local-gateway\", \"localGatewayService\": \"knative-local-gateway.istio-system.svc.cluster.local\", \"ingressDomain\": \"example.com\", \"ingressClassName\": \"istio\", \"domainTemplate\": \"{{ .Name }}-{{ .Namespace }}.{{ .IngressDomain }}\", \"urlScheme\": \"http\"}"
+    }]'
+
+    # Restart llmisvc-controller to pick up the new config
+    echo "⏳ Restarting llmisvc-controller to apply configuration changes"
+    oc delete pod -n ${KSERVE_NAMESPACE} -l control-plane=llmisvc-controller-manager
+    wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=llmisvc-controller-manager" 300s
+  fi
 
   # Install DSC/DSCI for manual installation
   echo "Installing DSC/DSCI resources..."
