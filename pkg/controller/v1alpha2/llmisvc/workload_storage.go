@@ -272,9 +272,6 @@ func (r *LLMISVCReconciler) attachStorageInitializer(modelUri string, curr corev
 
 	initContainer := utils.CreateInitContainerWithConfig(&copied, containerArgs)
 
-	// Add default HuggingFace optimization environment variables
-	utils.AddDefaultHuggingFaceEnvVars(initContainer)
-
 	podSpec.InitContainers = append(podSpec.InitContainers, *initContainer)
 
 	if err := utils.AddModelMount(storageMountParams, initContainer.Name, podSpec); err != nil {
