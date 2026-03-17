@@ -1,0 +1,28 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kserve-localmodelnode-distro-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  - persistentvolumes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - localmodelnodes/finalizers
+  verbs:
+  - update

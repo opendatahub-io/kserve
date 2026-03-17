@@ -3,3 +3,5 @@ varReference:
     kind: Deployment
   - path: data
     kind: ConfigMap
+  - path: spec/template/spec/containers/image
+    kind: DaemonSet

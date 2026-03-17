@@ -18,6 +18,7 @@ components:
 namespace: opendatahub
 
 patches:
+- path: patches/remove-storagecontainer.yaml
 - path: patches/remove-namespace.yaml
 - path: patches/remove-cert-manager.yaml
 - path: patches/remove-clusterservingruntime.yaml

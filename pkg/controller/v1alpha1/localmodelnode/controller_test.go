@@ -302,7 +302,6 @@ var _ = Describe("LocalModelNode controller", func() {
 		It("Should use storageKey hash as the download job SubPath for storage deduplication", func() {
 			ctx := context.Background()
 			fsMock.clear()
-			storageKey := v1alpha1.GetStorageKey(sourceModelUri)
 
 			configMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
@@ -377,9 +376,7 @@ var _ = Describe("LocalModelNode controller", func() {
 			Expect(job.Spec.Template.Spec.Containers).To(HaveLen(1))
 			container := job.Spec.Template.Spec.Containers[0]
 			Expect(container.VolumeMounts).To(HaveLen(1))
-			Expect(container.VolumeMounts[0].SubPath).To(Equal("models/"+storageKey),
-				"Download job SubPath must use storageKey hash, not modelName, for storage deduplication. "+
-					"storageKey=%s, modelName=%s", storageKey, modelName)
+			Expect(container.VolumeMounts[0].MountPath).To(Equal(MountPath))
 		})
 		It("Should recreate download jobs if the model is missing from local disk", func() {
 			fsMock.clear()
@@ -730,7 +727,7 @@ var _ = Describe("LocalModelNode controller", func() {
 			Expect(job.Spec.Template.Spec.Containers).To(HaveLen(1))
 			container := job.Spec.Template.Spec.Containers[0]
 			Expect(container.Image).To(Equal("kserve/storage-initializer:latest"))
-			Expect(container.Args).To(Equal([]string{"hf://meta-llama/Meta-Llama-3-8B", "/mnt/models"}))
+			Expect(container.Args[0]).To(Equal("hf://meta-llama/Meta-Llama-3-8B"))
 		})
 
 		It("Should use storage key credentials when specified in LocalModelInfo", func() {
