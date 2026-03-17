@@ -571,6 +571,43 @@ func TestNewSecurityConfig(t *testing.T) {
 	})
 }
 
+func TestNewOpenShiftConfig(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+
+	t.Run("returns default config when openshiftConfig is missing", func(t *testing.T) {
+		cm := &corev1.ConfigMap{
+			Data: map[string]string{},
+		}
+		cfg, err := NewOpenShiftConfig(cm)
+		g.Expect(err).ShouldNot(gomega.HaveOccurred())
+		g.Expect(cfg).ShouldNot(gomega.BeNil())
+		g.Expect(cfg.ModelcachePermissionFixImage).To(gomega.BeEmpty())
+	})
+
+	t.Run("returns config when openshiftConfig is present", func(t *testing.T) {
+		cm := &corev1.ConfigMap{
+			Data: map[string]string{
+				OpenShiftConfigName: `{"modelcachePermissionFixImage": "quay.io/test/fix:latest"}`,
+			},
+		}
+		cfg, err := NewOpenShiftConfig(cm)
+		g.Expect(err).ShouldNot(gomega.HaveOccurred())
+		g.Expect(cfg).ShouldNot(gomega.BeNil())
+		g.Expect(cfg.ModelcachePermissionFixImage).To(gomega.Equal("quay.io/test/fix:latest"))
+	})
+
+	t.Run("returns error on invalid openshiftConfig json", func(t *testing.T) {
+		cm := &corev1.ConfigMap{
+			Data: map[string]string{
+				OpenShiftConfigName: `invalid-json`,
+			},
+		}
+		cfg, err := NewOpenShiftConfig(cm)
+		g.Expect(err).Should(gomega.HaveOccurred())
+		g.Expect(cfg).To(gomega.BeNil())
+	})
+}
+
 func TestNewIngressConfig_Validation(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 

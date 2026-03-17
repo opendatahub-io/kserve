@@ -12,7 +12,8 @@ COPY cmd/    cmd/
 COPY pkg/    pkg/
 
 # Build
-RUN CGO_ENABLED=0 GOOS=linux go build -a -o localmodelnode-agent ./cmd/localmodelnode
+ARG GOTAGS=""
+RUN CGO_ENABLED=0 GOOS=linux go build -tags "${GOTAGS}" -a -o localmodelnode-agent ./cmd/localmodelnode
 
 # Generate third-party licenses
 COPY LICENSE LICENSE
