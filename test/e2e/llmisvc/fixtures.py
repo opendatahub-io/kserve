@@ -47,6 +47,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "limits": {"cpu": "2", "memory": "7Gi"},
                         "requests": {"cpu": "200m", "memory": "2Gi"},
                     },
+                    "securityContext": {
+                        # The image is not built in a way that can run as non-root
+                        "runAsNonRoot": False,
+                    },
                 }
             ]
         },
@@ -78,6 +82,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "periodSeconds": 10,
                         "timeoutSeconds": 5,
                         "failureThreshold": 3,
+                    },
+                    "securityContext": {
+                        # The image is not built in a way that can run as non-root
+                        "runAsNonRoot": False,
                     },
                 }
             ]
