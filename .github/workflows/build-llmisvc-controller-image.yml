@@ -4,16 +4,16 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - incubating
       - main
-      - stable-*
+      - master
+      - release-v*
     tags:
       - 'odh-v*'
   pull_request:
     branches:
-      - incubating
       - main
-      - stable-*
+      - master
+      - release-v*
 
 env:
   IMAGE_NAME: "llmisvc-controller"
