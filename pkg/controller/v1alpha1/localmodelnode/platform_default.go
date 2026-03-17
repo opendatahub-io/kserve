@@ -32,7 +32,8 @@ const MountPath = "/mnt/models"
 func enhanceDownloadJob(_ *batchv1.Job, _ string) {}
 
 func ensureVolumePermissions(_ context.Context, _ *LocalModelNodeReconciler,
-	_ *v1beta1.LocalModelConfig) (ctrl.Result, bool, error) {
+	_ *v1beta1.LocalModelConfig,
+) (ctrl.Result, bool, error) {
 	return ctrl.Result{}, true, nil
 }
 

@@ -4638,6 +4638,14 @@
         }
       }
     },
+    "v1beta1.OpenShiftConfig": {
+      "type": "object",
+      "properties": {
+        "modelcachePermissionFixImage": {
+          "type": "string"
+        }
+      }
+    },
     "v1beta1.OtelCollectorConfig": {
       "type": "object",
       "properties": {

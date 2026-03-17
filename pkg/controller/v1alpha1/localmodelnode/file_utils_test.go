@@ -160,7 +160,7 @@ func TestFileSystemHelper_isWritable(t *testing.T) {
 
 	// Case 2: Read-only directory returns false
 	readOnlyDir := t.TempDir()
-	if err := os.Chmod(readOnlyDir, 0o555); err != nil {
+	if err := os.Chmod(readOnlyDir, 0o555); err != nil { //nolint:gosec // intentionally restrictive permissions for test
 		t.Fatalf("failed to chmod: %v", err)
 	}
 	defer os.Chmod(readOnlyDir, 0o755) //nolint
