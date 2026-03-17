@@ -271,7 +271,6 @@ func (r *LLMISVCReconciler) attachStorageInitializer(modelUri string, curr corev
 	}
 
 	initContainer := utils.CreateInitContainerWithConfig(&copied, containerArgs)
-
 	podSpec.InitContainers = append(podSpec.InitContainers, *initContainer)
 
 	if err := utils.AddModelMount(storageMountParams, initContainer.Name, podSpec); err != nil {
