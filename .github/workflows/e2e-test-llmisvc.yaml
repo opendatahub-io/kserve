@@ -58,10 +58,6 @@ jobs:
           fi
 
   llmisvc-image-build:
-    # Midstream Section: Disable this workflow for ODH midstream fork
-    # This workflow requires auth setup (AuthPolicy/Kuadrant) not available in midstream CI
-    if: github.repository == 'kserve/kserve'
-    # end Midstream Section
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
@@ -103,9 +99,6 @@ jobs:
           if-no-files-found: error
 
   test-llmisvc:
-    # Midstream Section: Disable this workflow for ODH midstream fork
-    if: github.repository == 'kserve/kserve'
-    # end Midstream Section
     runs-on: ubuntu-latest
     needs: [detect-changes, llmisvc-image-build]
     strategy:
