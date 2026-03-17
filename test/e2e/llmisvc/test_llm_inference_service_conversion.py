@@ -276,9 +276,9 @@ class TestLLMInferenceServiceConversion:
             )
 
             # Verify basic fields are present
-            assert (
-                v1alpha2_isvc is not None
-            ), "Should be able to read v1alpha1 resource as v1alpha2"
+            assert v1alpha2_isvc is not None, (
+                "Should be able to read v1alpha1 resource as v1alpha2"
+            )
             assert (
                 v1alpha2_isvc["apiVersion"]
                 == f"{constants.KSERVE_GROUP}/{constants.KSERVE_V1ALPHA2_VERSION}"
@@ -365,9 +365,9 @@ class TestLLMInferenceServiceConversion:
             )
 
             # Verify basic fields are present
-            assert (
-                v1alpha1_isvc is not None
-            ), "Should be able to read v1alpha2 resource as v1alpha1"
+            assert v1alpha1_isvc is not None, (
+                "Should be able to read v1alpha2 resource as v1alpha1"
+            )
             assert (
                 v1alpha1_isvc["apiVersion"]
                 == f"{constants.KSERVE_GROUP}/{constants.KSERVE_V1ALPHA1_VERSION}"
@@ -481,9 +481,9 @@ class TestLLMInferenceServiceConversion:
 
             # v1alpha2 model spec should NOT have criticality field
             model_spec = v1alpha2_isvc.get("spec", {}).get("model", {})
-            assert (
-                "criticality" not in model_spec
-            ), "v1alpha2 model spec should not have criticality field"
+            assert "criticality" not in model_spec, (
+                "v1alpha2 model spec should not have criticality field"
+            )
 
             return v1alpha2_isvc
 
@@ -502,18 +502,18 @@ class TestLLMInferenceServiceConversion:
             model_spec = v1alpha1_isvc.get("spec", {}).get("model", {})
 
             # Criticality should be restored in model spec
-            assert (
-                "criticality" in model_spec
-            ), "Criticality should be restored in v1alpha1 model spec"
-            assert (
-                model_spec["criticality"] == "Critical"
-            ), f"Criticality should be 'Critical', got: {model_spec.get('criticality')}"
+            assert "criticality" in model_spec, (
+                "Criticality should be restored in v1alpha1 model spec"
+            )
+            assert model_spec["criticality"] == "Critical", (
+                f"Criticality should be 'Critical', got: {model_spec.get('criticality')}"
+            )
 
             # The annotation should be cleaned up after conversion back
             annotations = v1alpha1_isvc.get("metadata", {}).get("annotations", {})
-            assert (
-                MODEL_CRITICALITY_ANNOTATION_KEY not in annotations
-            ), "Criticality annotation should be cleaned up after converting back to v1alpha1"
+            assert MODEL_CRITICALITY_ANNOTATION_KEY not in annotations, (
+                "Criticality annotation should be cleaned up after converting back to v1alpha1"
+            )
 
             return v1alpha1_isvc
 
@@ -613,26 +613,26 @@ class TestLLMInferenceServiceConversion:
             annotations = v1alpha2_isvc.get("metadata", {}).get("annotations", {})
 
             # Model criticality should be in annotation
-            assert (
-                MODEL_CRITICALITY_ANNOTATION_KEY in annotations
-            ), "Model criticality should be preserved in annotation"
+            assert MODEL_CRITICALITY_ANNOTATION_KEY in annotations, (
+                "Model criticality should be preserved in annotation"
+            )
 
             # LoRA criticalities should be in annotation as JSON
-            assert (
-                LORA_CRITICALITIES_ANNOTATION_KEY in annotations
-            ), f"LoRA criticalities should be preserved in annotation {LORA_CRITICALITIES_ANNOTATION_KEY}"
+            assert LORA_CRITICALITIES_ANNOTATION_KEY in annotations, (
+                f"LoRA criticalities should be preserved in annotation {LORA_CRITICALITIES_ANNOTATION_KEY}"
+            )
 
             import json
 
             lora_crit_data = json.loads(annotations[LORA_CRITICALITIES_ANNOTATION_KEY])
 
             # Verify both adapter criticalities are stored (keys are string indices)
-            assert (
-                "0" in lora_crit_data or 0 in lora_crit_data
-            ), "Adapter 0 criticality should be stored"
-            assert (
-                "1" in lora_crit_data or 1 in lora_crit_data
-            ), "Adapter 1 criticality should be stored"
+            assert "0" in lora_crit_data or 0 in lora_crit_data, (
+                "Adapter 0 criticality should be stored"
+            )
+            assert "1" in lora_crit_data or 1 in lora_crit_data, (
+                "Adapter 1 criticality should be stored"
+            )
 
             return v1alpha2_isvc
 
@@ -655,12 +655,12 @@ class TestLLMInferenceServiceConversion:
             assert len(adapters) >= 2, "Should have at least 2 LoRA adapters"
 
             # Check adapter criticalities are restored
-            assert (
-                adapters[0].get("criticality") == "Standard"
-            ), f"Adapter 0 criticality should be 'Standard', got: {adapters[0].get('criticality')}"
-            assert (
-                adapters[1].get("criticality") == "Sheddable"
-            ), f"Adapter 1 criticality should be 'Sheddable', got: {adapters[1].get('criticality')}"
+            assert adapters[0].get("criticality") == "Standard", (
+                f"Adapter 0 criticality should be 'Standard', got: {adapters[0].get('criticality')}"
+            )
+            assert adapters[1].get("criticality") == "Sheddable", (
+                f"Adapter 1 criticality should be 'Sheddable', got: {adapters[1].get('criticality')}"
+            )
 
             return v1alpha1_isvc
 
@@ -751,21 +751,21 @@ class TestLLMInferenceServiceConversion:
         v1alpha2_isvc = wait_for(get_as_v1alpha2, timeout=30.0)
 
         # Verify key fields in v1alpha2
-        assert (
-            v1alpha2_isvc["spec"].get("replicas") == 1
-        ), "Replicas should be preserved"
+        assert v1alpha2_isvc["spec"].get("replicas") == 1, (
+            "Replicas should be preserved"
+        )
         model_spec = v1alpha2_isvc["spec"].get("model", {})
         assert model_spec.get("name") == "test-model", "Model name should be preserved"
 
         # User annotations/labels should be preserved
         annotations = v1alpha2_isvc.get("metadata", {}).get("annotations", {})
-        assert (
-            annotations.get("user-annotation") == "test-value"
-        ), "User annotations should be preserved"
+        assert annotations.get("user-annotation") == "test-value", (
+            "User annotations should be preserved"
+        )
         labels = v1alpha2_isvc.get("metadata", {}).get("labels", {})
-        assert (
-            labels.get("user-label") == "test-label"
-        ), "User labels should be preserved"
+        assert labels.get("user-label") == "test-label", (
+            "User labels should be preserved"
+        )
 
         print("✅ Fields preserved when converting to v1alpha2")
 
@@ -781,23 +781,23 @@ class TestLLMInferenceServiceConversion:
         v1alpha1_result = wait_for(get_as_v1alpha1, timeout=30.0)
 
         # Verify all original fields are preserved
-        assert (
-            v1alpha1_result["spec"].get("replicas") == 1
-        ), "Replicas should be preserved in round-trip"
+        assert v1alpha1_result["spec"].get("replicas") == 1, (
+            "Replicas should be preserved in round-trip"
+        )
         model_spec = v1alpha1_result["spec"].get("model", {})
-        assert (
-            model_spec.get("name") == "test-model"
-        ), "Model name should be preserved in round-trip"
+        assert model_spec.get("name") == "test-model", (
+            "Model name should be preserved in round-trip"
+        )
 
         # User annotations/labels should still be there
         annotations = v1alpha1_result.get("metadata", {}).get("annotations", {})
-        assert (
-            annotations.get("user-annotation") == "test-value"
-        ), "User annotations should survive round-trip"
+        assert annotations.get("user-annotation") == "test-value", (
+            "User annotations should survive round-trip"
+        )
         labels = v1alpha1_result.get("metadata", {}).get("labels", {})
-        assert (
-            labels.get("user-label") == "test-label"
-        ), "User labels should survive round-trip"
+        assert labels.get("user-label") == "test-label", (
+            "User labels should survive round-trip"
+        )
 
         print(
             "✅ All fields preserved through v1alpha1 -> v1alpha2 -> v1alpha1 round-trip"
