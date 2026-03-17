@@ -51,7 +51,7 @@ ROUTER_GATEWAYS = [
             "namespace": KSERVE_TEST_NAMESPACE,
         },
         "spec": {
-            "gatewayClassName": "openshift-default",
+            "gatewayClassName": GATEWAY_CLASS_NAME,
             "listeners": [
                 {
                     "name": "http",
