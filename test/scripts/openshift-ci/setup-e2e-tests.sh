@@ -146,7 +146,6 @@ if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
 
   # Patch inferenceservice-config for llminferenceservice tests
   if [[ "$1" =~ "llminferenceservice" ]]; then
-    # Restart llmisvc-controller to pick up the new config
     echo "⏳ Restarting llmisvc-controller to apply configuration changes"
     oc delete pod -n ${KSERVE_NAMESPACE} -l control-plane=llmisvc-controller-manager
     wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=llmisvc-controller-manager" 300s
