@@ -30,6 +30,7 @@ KSERVE_TEST_NAMESPACE = "kserve-ci-e2e-test"
 
 INFERENCE_POOL_GROUP = os.environ.get("INFERENCE_POOL_GROUP", "inference.networking.k8s.io")
 GATEWAY_CLASS_NAME = os.environ.get("GATEWAY_CLASS_NAME", "envoy")
+RUN_AS_NON_ROOT = os.environ.get("RUN_AS_NON_ROOT", "false").lower() in ("true", "1", "yes")
 
 # Scheduler config constants
 SCHEDULER_CONFIGMAP_NAME = "scheduler-config-e2e"
@@ -51,8 +52,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "requests": {"cpu": "200m", "memory": "2Gi"},
                     },
                     "securityContext": {
-                        # The image is not built in a way that can run as non-root
-                        "runAsNonRoot": True,
+                        "runAsNonRoot": RUN_AS_NON_ROOT,
                     },
                 }
             ]
@@ -87,8 +87,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "failureThreshold": 3,
                     },
                     "securityContext": {
-                        # The image is not built in a way that can run as non-root
-                        "runAsNonRoot": True,
+                        "runAsNonRoot": RUN_AS_NON_ROOT,
                     },
                 }
             ]
@@ -122,8 +121,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                             "failureThreshold": 3,
                         },
                         "securityContext": {
-                            # The image is not built in a way that can run as non-root
-                            "runAsNonRoot": True,
+                            "runAsNonRoot": RUN_AS_NON_ROOT,
                         },
                     }
                 ]
@@ -349,8 +347,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "requests": {"cpu": "200m", "memory": "2Gi"},
                     },
                     "securityContext": {
-                        # The image is not built in a way that can run as non-root
-                        "runAsNonRoot": True,
+                        "runAsNonRoot": RUN_AS_NON_ROOT,
                     },
                 }
             ]
@@ -380,8 +377,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "requests": {"cpu": "200m", "memory": "2Gi"},
                     },
                     "securityContext": {
-                        # The image is not built in a way that can run as non-root
-                        "runAsNonRoot": True,
+                        "runAsNonRoot": RUN_AS_NON_ROOT,
                     },
                 }
             ]
