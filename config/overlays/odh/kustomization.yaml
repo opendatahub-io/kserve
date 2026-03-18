@@ -26,26 +26,6 @@ patches:
 - path: patches/remove-auth-proxy-patch.yaml
 - path: patches/config-scheduler-patch.yaml
 - target:
-    kind: ClusterRole
-    name: kserve-llmisvc-manager-role
-  patch: |-
-    - op: add
-      path: /rules/-
-      value:
-        apiGroups:
-        - networking.istio.io
-        resources:
-        - destinationrules
-        - virtualservices
-        verbs:
-        - create
-        - delete
-        - get
-        - list
-        - patch
-        - update
-        - watch
-- target:
     kind: ValidatingWebhookConfiguration
     annotationSelector: cert-manager.io/inject-ca-from
   path: patches/openshift-ca-patch.yaml
