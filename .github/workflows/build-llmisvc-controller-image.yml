@@ -16,7 +16,7 @@ on:
       - release-v*
 
 env:
-  IMAGE_NAME: "llmisvc-controller"
+  IMAGE_NAME: "odh-kserve-llmisvc-controller"
   REPO_NAME: "opendatahub"
   REGISTRY_NAME: "quay.io"
 
@@ -84,7 +84,9 @@ jobs:
       - name: Build and push llmisvc-controller image
         uses: docker/build-push-action@v6
         with:
-          platforms: linux/amd64,linux/arm64,linux/ppc64le,linux/s390x
+          # TODO enable P/Z
+          # platforms: linux/amd64,linux/arm64,linux/ppc64le,linux/s390x
+          platforms: linux/amd64,linux/arm64
           context: .
           file: llmisvc-controller.Dockerfile
           push: true
