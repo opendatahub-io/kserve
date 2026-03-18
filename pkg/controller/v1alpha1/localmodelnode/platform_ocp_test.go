@@ -51,7 +51,8 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 		configs   = map[string]string{
 			"localModel": fmt.Sprintf(`{
 				"jobNamespace": "%s",
-				"defaultJobImage": "kserve/storage-initializer:latest"
+				"defaultJobImage": "kserve/storage-initializer:latest",
+				"fsGroup": 1000
 			}`, modelCacheNamespace),
 			"storageInitializer": `{
 				"image": "kserve/storage-initializer:latest",
@@ -266,11 +267,16 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 
 			job := &jobs.Items[0]
 
+			// Verify dedicated service account
+			Expect(job.Spec.Template.Spec.ServiceAccountName).To(Equal("kserve-localmodel-permfix"))
+
 			// Verify exec-form init containers
 			Expect(job.Spec.Template.Spec.InitContainers).To(HaveLen(2))
 			fixOwnership := job.Spec.Template.Spec.InitContainers[0]
 			Expect(fixOwnership.Name).To(Equal("fix-ownership"))
 			Expect(fixOwnership.Command[0]).To(Equal("chown"))
+			Expect(fixOwnership.Command).To(ContainElement("1000:1000"),
+				"chown should target FSGroup UID:GID")
 
 			fixSelinux := job.Spec.Template.Spec.InitContainers[1]
 			Expect(fixSelinux.Name).To(Equal("fix-selinux"))
@@ -280,6 +286,24 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			// Verify main container is log-success
 			Expect(job.Spec.Template.Spec.Containers).To(HaveLen(1))
 			Expect(job.Spec.Template.Spec.Containers[0].Name).To(Equal("log-success"))
+
+			// Verify blast radius controls
+			Expect(job.Spec.ActiveDeadlineSeconds).To(Equal(ptr.To(int64(120))),
+				"Job should have ActiveDeadlineSeconds to limit privileged pod lifetime")
+
+			// Verify resource limits on init containers
+			for _, ic := range job.Spec.Template.Spec.InitContainers {
+				Expect(ic.Resources.Requests).NotTo(BeEmpty(),
+					"Init container %s should have resource requests", ic.Name)
+				Expect(ic.Resources.Limits).NotTo(BeEmpty(),
+					"Init container %s should have resource limits", ic.Name)
+			}
+
+			// Verify seccomp profile
+			Expect(job.Spec.Template.Spec.SecurityContext.SeccompProfile).NotTo(BeNil(),
+				"Pod should have a seccomp profile")
+			Expect(job.Spec.Template.Spec.SecurityContext.SeccompProfile.Type).To(
+				Equal(corev1.SeccompProfileTypeRuntimeDefault))
 
 			// Reset writable for cleanup
 			fsMock.writable = true
@@ -427,6 +451,82 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			fixSelinux := job.Spec.Template.Spec.InitContainers[1]
 			Expect(fixSelinux.Command).NotTo(ContainElement("-l"),
 				"chcon should not use -l flag when no MCS level is present")
+
+			fsMock.writable = true
+		})
+
+		It("Should fall back to process UID when FSGroup is not configured", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+
+			fsMock = &mockFileSystem{
+				subDirs:  []os.DirEntry{},
+				writable: false,
+			}
+			fsHelper = fsMock
+
+			// Save and clear FSGroup
+			savedFSGroup := FSGroup
+			FSGroup = nil
+			defer func() { FSGroup = savedFSGroup }()
+
+			configsNoFSGroup := map[string]string{
+				"localModel": fmt.Sprintf(`{
+					"jobNamespace": "%s",
+					"defaultJobImage": "kserve/storage-initializer:latest"
+				}`, modelCacheNamespace),
+				"storageInitializer": configs["storageInitializer"],
+			}
+
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: configsNoFSGroup,
+			}
+			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(ctx, configMap)
+
+			nodeName = "worker-no-fsgroup"
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{"node.kubernetes.io/instance-type": "gpu"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).Should(Succeed())
+			defer k8sClient.Delete(ctx, node)
+
+			localModelNode := &v1alpha1.LocalModelNode{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Spec: v1alpha1.LocalModelNodeSpec{
+					LocalModels: []v1alpha1.LocalModelInfo{},
+				},
+			}
+			Expect(k8sClient.Create(ctx, localModelNode)).Should(Succeed())
+			defer k8sClient.Delete(ctx, localModelNode)
+
+			jobs := &batchv1.JobList{}
+			fixLabels := map[string]string{
+				"fix-permissions": "true",
+				"node":            nodeName,
+			}
+			Eventually(func() bool {
+				err := k8sClient.List(ctx, jobs, client.InNamespace(modelCacheNamespace), client.MatchingLabels(fixLabels))
+				return err == nil && len(jobs.Items) == 1
+			}, timeout, interval).Should(BeTrue(), "Permission fix job should be created")
+
+			job := &jobs.Items[0]
+			fixOwnership := job.Spec.Template.Spec.InitContainers[0]
+			expectedChownTarget := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
+			Expect(fixOwnership.Command).To(ContainElement(expectedChownTarget),
+				"chown should fall back to process UID:GID when FSGroup is nil")
 
 			fsMock.writable = true
 		})

@@ -5,6 +5,7 @@ resources:
 - ../odh
 - localmodel-scc.yaml
 - localmodel-permissions-scc.yaml
+- localmodel-permfix-sa.yaml
 # This will be created by the operator
 # - localmodelnode-pv-pvc.yaml
 
@@ -67,7 +68,7 @@ patches:
       value:
         apiGroups: ["security.openshift.io"]
         resources: ["securitycontextconstraints"]
-        resourceNames: ["openshift-ai-localmodel-scc", "kserve-localmodel-permissions-scc"]
+        resourceNames: ["openshift-ai-localmodel-scc"]
         verbs: ["use"]
 
 replacements:
