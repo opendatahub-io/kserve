@@ -23,6 +23,7 @@ set -o nounset
 set -o pipefail
 
 export GATEWAY_CLASS_NAME=${GATEWAY_CLASS_NAME:-"openshift-default"}
+export INFERENCE_POOL_GROUP="${INFERENCE_POOL_GROUP:-inference.networking.x-k8s.io}"
 
 MY_PATH=$(dirname "$0")
 PROJECT_ROOT=$MY_PATH/../../../

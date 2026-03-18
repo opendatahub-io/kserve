@@ -116,13 +116,12 @@ oc new-project ${KSERVE_NAMESPACE} || true
 if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
   # Manual installation: Install KServe directly with PR images
   echo "⏳ Installing KServe with SeaweedFS"
-  # Replace images matching both upstream (kserve/<name>) and downstream (quay.io/opendatahub/<name>) with any tag
   ODH_MANIFESTS=$(kustomize build "$PROJECT_ROOT/config/overlays/odh-test" |
-    sed -E "s#(quay\.io/opendatahub/kserve-|kserve/)storage-initializer:[^\"[:space:]]+#${STORAGE_INITIALIZER_IMAGE}#" |
-    sed -E "s#(quay\.io/opendatahub/kserve-|kserve/)agent:[^\"[:space:]]+#${KSERVE_AGENT_IMAGE}#" |
-    sed -E "s#(quay\.io/opendatahub/kserve-|kserve/)router:[^\"[:space:]]+#${KSERVE_ROUTER_IMAGE}#" |
-    sed -E "s#(quay\.io/opendatahub|kserve)/kserve-controller:[^\"[:space:]]+#${KSERVE_CONTROLLER_IMAGE}#" |
-    sed -E "s#(quay\.io/opendatahub|kserve)/llmisvc-controller:[^\"[:space:]]+#${LLMISVC_CONTROLLER_IMAGE}#")
+    sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
+    sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
+    sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
+    sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
+    sed "s|quay.io/opendatahub/llmisvc-controller:latest|${LLMISVC_CONTROLLER_IMAGE}|")
 
   # Apply CRDs first and wait for them to be established before applying the rest
   echo "$ODH_MANIFESTS" | awk '/^apiVersion: apiextensions\.k8s\.io/{found=1} found{print} /^---/{if(found) found=0}' |

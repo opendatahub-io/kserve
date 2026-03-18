@@ -28,6 +28,9 @@ from .logging import logger
 KSERVE_PLURAL_LLMINFERENCESERVICECONFIG = "llminferenceserviceconfigs"
 KSERVE_TEST_NAMESPACE = "kserve-ci-e2e-test"
 
+INFERENCE_POOL_GROUP = os.environ.get("INFERENCE_POOL_GROUP", "inference.networking.k8s.io")
+GATEWAY_CLASS_NAME = os.environ.get("GATEWAY_CLASS_NAME", "envoy")
+
 # Scheduler config constants
 SCHEDULER_CONFIGMAP_NAME = "scheduler-config-e2e"
 SCHEDULER_CONFIGMAP_KEY = "epp"
@@ -49,7 +52,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                     },
                     "securityContext": {
                         # The image is not built in a way that can run as non-root
-                        "runAsNonRoot": False,
+                        "runAsNonRoot": True,
                     },
                 }
             ]
@@ -85,7 +88,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                     },
                     "securityContext": {
                         # The image is not built in a way that can run as non-root
-                        "runAsNonRoot": False,
+                        "runAsNonRoot": True,
                     },
                 }
             ]
@@ -120,7 +123,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                         },
                         "securityContext": {
                             # The image is not built in a way that can run as non-root
-                            "runAsNonRoot": False,
+                            "runAsNonRoot": True,
                         },
                     }
                 ]
@@ -347,7 +350,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                     },
                     "securityContext": {
                         # The image is not built in a way that can run as non-root
-                        "runAsNonRoot": False,
+                        "runAsNonRoot": True,
                     },
                 }
             ]
@@ -378,7 +381,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                     },
                     "securityContext": {
                         # The image is not built in a way that can run as non-root
-                        "runAsNonRoot": False,
+                        "runAsNonRoot": True,
                     },
                 }
             ]
@@ -416,7 +419,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                 ],
                                 "backendRefs": [
                                     {
-                                        "group": "inference.networking.k8s.io",
+                                        "group": INFERENCE_POOL_GROUP,
                                         "kind": "InferencePool",
                                         "name": "custom-route-timeout-test-inference-pool",
                                         "namespace": KSERVE_TEST_NAMESPACE,
@@ -450,7 +453,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                 ],
                                 "backendRefs": [
                                     {
-                                        "group": "inference.networking.k8s.io",
+                                        "group": INFERENCE_POOL_GROUP,
                                         "kind": "InferencePool",
                                         "name": "custom-route-timeout-test-inference-pool",
                                         "namespace": KSERVE_TEST_NAMESPACE,
@@ -531,7 +534,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                 ],
                                 "backendRefs": [
                                     {
-                                        "group": "inference.networking.k8s.io",
+                                        "group": INFERENCE_POOL_GROUP,
                                         "kind": "InferencePool",
                                         "name": "custom-route-timeout-pd-test-inference-pool",
                                         "namespace": KSERVE_TEST_NAMESPACE,
@@ -565,7 +568,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                 ],
                                 "backendRefs": [
                                     {
-                                        "group": "inference.networking.k8s.io",
+                                        "group": INFERENCE_POOL_GROUP,
                                         "kind": "InferencePool",
                                         "name": "custom-route-timeout-pd-test-inference-pool",
                                         "namespace": KSERVE_TEST_NAMESPACE,
