@@ -119,7 +119,8 @@ LLMINFERENCESERVICE_CONFIGS = {
                             "failureThreshold": 3,
                         },
                         "securityContext": {
-                            "runAsNonRoot": True,
+                            # The image is not built in a way that can run as non-root
+                            "runAsNonRoot": False,
                         },
                     }
                 ]
@@ -345,7 +346,8 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "requests": {"cpu": "200m", "memory": "2Gi"},
                     },
                     "securityContext": {
-                        "runAsNonRoot": True,
+                        # The image is not built in a way that can run as non-root
+                        "runAsNonRoot": False,
                     },
                 }
             ]
@@ -375,7 +377,8 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "requests": {"cpu": "200m", "memory": "2Gi"},
                     },
                     "securityContext": {
-                        "runAsNonRoot": True,
+                        # The image is not built in a way that can run as non-root
+                        "runAsNonRoot": False,
                     },
                 }
             ]
