@@ -83,12 +83,12 @@ func (f *FileSystemHelper) ensureModelRootFolderExists() error {
 }
 
 func (f *FileSystemHelper) isWritable() bool {
-	testFile := filepath.Join(f.modelsRootFolder, ".write-test")
-	file, err := os.Create(testFile) //nolint:gosec // G304: path is constructed from a trusted config value, not user input
+	file, err := os.CreateTemp(f.modelsRootFolder, ".write-test-*")
 	if err != nil {
 		return false
 	}
+	name := file.Name()
 	_ = file.Close()
-	_ = os.Remove(testFile)
+	_ = os.Remove(name)
 	return true
 }

@@ -74,12 +74,8 @@ func ensureVolumePermissions(ctx context.Context, c *LocalModelNodeReconciler,
 
 	c.Log.Info("Model root directory is not writable, launching permission fix job", "path", modelsRootFolder)
 
-	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(ctx, c.Clientset)
-	if err != nil {
-		c.Log.Error(err, "unable to get configmap for permission fix image lookup")
-		return ctrl.Result{}, false, err
-	}
-	openshiftConfig, err := v1beta1.NewOpenShiftConfig(isvcConfigMap)
+	// Load OpenShift config for permission fix image
+	openshiftConfig, err := v1beta1.NewOpenShiftConfig(c.IsvcConfigMap)
 	if err != nil {
 		c.Log.Error(err, "Failed to get OpenShift config")
 		return ctrl.Result{}, false, err

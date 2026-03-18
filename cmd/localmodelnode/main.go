@@ -17,7 +17,6 @@ limitations under the License.
 package main
 
 import (
-	"context"
 	"flag"
 	"os"
 
@@ -128,10 +127,6 @@ func main() {
 		Clientset: clientSet,
 		Log:       ctrl.Log.WithName("v1alpha1Controllers").WithName("LocalModelNode"),
 		Scheme:    mgr.GetScheme(),
-	}
-
-	if err := reconciler.EnsurePermissions(context.Background()); err != nil {
-		setupLog.Info("Startup permission fix failed, will retry in reconcile loop", "error", err)
 	}
 
 	if err = reconciler.SetupWithManager(mgr); err != nil {
