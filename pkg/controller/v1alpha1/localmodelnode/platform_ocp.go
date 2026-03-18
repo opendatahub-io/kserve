@@ -29,21 +29,45 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 )
 
 const MountPath = "/var/lib/kserve"
 
+const permFixJobFinalizerName = "serving.kserve.io/permfix-job-cleanup"
+
 var (
-	permissionFixImage = "registry.access.redhat.com/ubi9/ubi-minimal:latest"
-	validMCSLevel      = regexp.MustCompile(`^s\d+(-s\d+)?(:(c\d{1,4})(,c\d{1,4})*)?$`)
+	validMCSLevel = regexp.MustCompile(`^s\d+(-s\d+)?(:(c\d{1,4})(,c\d{1,4})*)?$`)
+
+	allowedRegistries = []string{
+		"registry.access.redhat.com/",
+		"registry.redhat.io/",
+		"quay.io/opendatahub/",
+		"quay.io/modh/",
+	}
 )
+
+func isAllowedImage(image string) bool {
+	if strings.Contains(image, "..") {
+		return false
+	}
+	for _, prefix := range allowedRegistries {
+		if strings.HasPrefix(image, prefix) {
+			return true
+		}
+	}
+	return false
+}
 
 func enhanceDownloadJob(job *batchv1.Job, storageKey string) {
 	container := &job.Spec.Template.Spec.Containers[0]
@@ -56,7 +80,7 @@ func enhanceDownloadJob(job *batchv1.Job, storageKey string) {
 		podSecurityContext.RunAsGroup = FSGroup
 		podSecurityContext.FSGroup = FSGroup
 	}
-	if mcsLevel := getProcessMCSLevel(); mcsLevel != "" {
+	if mcsLevel := getProcessMCSLevel(); mcsLevel != "" && validMCSLevel.MatchString(mcsLevel) {
 		podSecurityContext.SELinuxOptions = &corev1.SELinuxOptions{
 			Level: mcsLevel,
 		}
@@ -65,9 +89,48 @@ func enhanceDownloadJob(job *batchv1.Job, storageKey string) {
 	job.Spec.Template.Spec.ServiceAccountName = "kserve-localmodelnode-agent"
 }
 
-func ensureVolumePermissions(ctx context.Context, c *LocalModelNodeReconciler,
+func ensureModelRootFolderExistsAndIsWritable(ctx context.Context, c *LocalModelNodeReconciler,
 	localModelConfig *v1beta1.LocalModelConfig,
 ) (ctrl.Result, bool, error) {
+	// Handle deletion — clean up permission fix jobs
+	lmn := &v1alpha1.LocalModelNode{}
+	if err := c.Get(ctx, types.NamespacedName{Name: nodeName}, lmn); err == nil {
+		if !lmn.DeletionTimestamp.IsZero() {
+			if controllerutil.ContainsFinalizer(lmn, permFixJobFinalizerName) {
+				existingJobs := &batchv1.JobList{}
+				fixLabels := map[string]string{
+					"fix-permissions": "true",
+					"node":            nodeName,
+				}
+				if err := c.List(ctx, existingJobs, client.InNamespace(jobNamespace), client.MatchingLabels(fixLabels)); err == nil {
+					for i := range existingJobs.Items {
+						if err := c.Clientset.BatchV1().Jobs(jobNamespace).Delete(ctx, existingJobs.Items[i].Name, metav1.DeleteOptions{
+							PropagationPolicy: ptr.To(metav1.DeletePropagationBackground),
+						}); err != nil && !errors.IsNotFound(err) {
+							c.Log.Error(err, "Failed to delete permission fix job", "job", existingJobs.Items[i].Name)
+							return ctrl.Result{RequeueAfter: 5 * time.Second}, false, nil
+						}
+					}
+				}
+				controllerutil.RemoveFinalizer(lmn, permFixJobFinalizerName)
+				if err := c.Update(ctx, lmn); err != nil {
+					return ctrl.Result{}, false, fmt.Errorf("failed to remove permission fix finalizer: %w", err)
+				}
+			}
+			return ctrl.Result{}, false, nil
+		}
+	}
+
+	// Create model root folder — tolerate permission errors
+	if err := fsHelper.ensureModelRootFolderExists(); err != nil {
+		if os.IsPermission(err) {
+			c.Log.Info("Model root folder not writable, will launch permission fix job", "path", modelsRootFolder, "error", err)
+		} else {
+			return ctrl.Result{}, false, fmt.Errorf("failed to ensure model root folder: %w", err)
+		}
+	}
+
+	// If already writable, nothing to do
 	if fsHelper.isWritable() {
 		return ctrl.Result{}, true, nil
 	}
@@ -80,8 +143,14 @@ func ensureVolumePermissions(ctx context.Context, c *LocalModelNodeReconciler,
 		c.Log.Error(err, "Failed to get OpenShift config")
 		return ctrl.Result{}, false, err
 	}
-	if openshiftConfig.ModelcachePermissionFixImage != "" {
-		permissionFixImage = openshiftConfig.ModelcachePermissionFixImage
+
+	permissionFixImage := openshiftConfig.ModelcachePermissionFixImage
+	if permissionFixImage == "" {
+		return ctrl.Result{}, false, errors.New("modelcachePermissionFixImage not configured in inferenceservice-config")
+	}
+	if !isAllowedImage(permissionFixImage) {
+		c.Log.Error(nil, "Rejecting permission fix image from untrusted registry", "image", permissionFixImage)
+		return ctrl.Result{}, false, fmt.Errorf("permission fix image %q is not from a trusted registry", permissionFixImage)
 	}
 
 	mcsLevel, err := c.resolveMCSLevel(ctx, localModelConfig.JobNamespace)
@@ -90,24 +159,22 @@ func ensureVolumePermissions(ctx context.Context, c *LocalModelNodeReconciler,
 		return ctrl.Result{}, false, err
 	}
 
-	if err := c.launchPermissionFixJob(ctx, mcsLevel); err != nil {
+	// Re-fetch to avoid stale resourceVersion before finalizer update
+	if err := c.Get(ctx, types.NamespacedName{Name: nodeName}, lmn); err != nil {
+		return ctrl.Result{}, false, fmt.Errorf("failed to re-fetch LocalModelNode for finalizer: %w", err)
+	}
+	if !controllerutil.ContainsFinalizer(lmn, permFixJobFinalizerName) {
+		controllerutil.AddFinalizer(lmn, permFixJobFinalizerName)
+		if err := c.Update(ctx, lmn); err != nil {
+			return ctrl.Result{}, false, fmt.Errorf("failed to add permission fix finalizer: %w", err)
+		}
+	}
+
+	if err := c.launchPermissionFixJob(ctx, mcsLevel, permissionFixImage); err != nil {
 		c.Log.Error(err, "Failed to launch permission fix job")
 		return ctrl.Result{}, false, err
 	}
 	return ctrl.Result{RequeueAfter: 10 * time.Second}, false, nil
-}
-
-func (c *LocalModelNodeReconciler) EnsurePermissions(ctx context.Context) error {
-	if fsHelper == nil {
-		fsHelper = NewFileSystemHelper(modelsRootFolder)
-		if err := fsHelper.ensureModelRootFolderExists(); err != nil {
-			return fmt.Errorf("failed to ensure model root folder: %w", err)
-		}
-	}
-	if !fsHelper.isWritable() {
-		c.Log.Info("Model root directory is not writable at startup, will fix in reconcile loop", "path", modelsRootFolder)
-	}
-	return nil
 }
 
 func getProcessMCSLevel() string {
@@ -148,7 +215,7 @@ func (c *LocalModelNodeReconciler) resolveMCSLevel(ctx context.Context, namespac
 	return "", nil
 }
 
-func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, mcsLevel string) error {
+func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, mcsLevel string, permissionFixImage string) error {
 	jobName := "fix-permissions-" + nodeName
 
 	existingJobs := &batchv1.JobList{}
@@ -279,10 +346,21 @@ func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, m
 							Name:    "log-success",
 							Image:   permissionFixImage,
 							Command: []string{"echo", "Permissions fixed: ownership and SELinux labels applied successfully"},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      PvcSourceMountName,
-									MountPath: MountPath,
+							SecurityContext: &corev1.SecurityContext{
+								AllowPrivilegeEscalation: ptr.To(false),
+								ReadOnlyRootFilesystem:   ptr.To(true),
+								Capabilities: &corev1.Capabilities{
+									Drop: []corev1.Capability{"ALL"},
+								},
+							},
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("10m"),
+									corev1.ResourceMemory: resource.MustParse("16Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("32Mi"),
 								},
 							},
 						},
