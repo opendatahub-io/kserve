@@ -144,9 +144,15 @@ def managed_storage_config_key(
 ODH_TRUSTED_CA_BUNDLE_CONFIGMAP_NAME = "odh-trusted-ca-bundle"
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="session")
 def odh_trusted_ca_bundle_configmap(kserve_client):
-    """Create empty odh-trusted-ca-bundle configmap at module level."""
+    """Create empty odh-trusted-ca-bundle configmap once per session.
+
+    Uses session scope to avoid race conditions with pytest-xdist worksteal
+    distribution, where module-scoped fixture teardown on one worker can
+    delete the ConfigMap while another worker's tests still need it.
+    The CI namespace is cleaned up after the test run.
+    """
     odh_trusted_ca_configmap = client.V1ConfigMap(
         api_version="v1",
         kind="ConfigMap",
@@ -161,18 +167,6 @@ def odh_trusted_ca_bundle_configmap(kserve_client):
         if e.status != 409:  # 409 = already exists (another worker created it)
             raise
     yield ODH_TRUSTED_CA_BUNDLE_CONFIGMAP_NAME
-    try:
-        kserve_client.core_api.delete_namespaced_config_map(
-            name=ODH_TRUSTED_CA_BUNDLE_CONFIGMAP_NAME, namespace=KSERVE_TEST_NAMESPACE
-        )
-        wait_for_resource_deletion(
-            read_func=lambda: kserve_client.core_api.read_namespaced_config_map(
-                name=ODH_TRUSTED_CA_BUNDLE_CONFIGMAP_NAME, namespace=KSERVE_TEST_NAMESPACE
-            ),
-        )
-    except client.ApiException as e:
-        if e.status != 404:  # 404 = already deleted (another worker cleaned it up)
-            raise
 
 
 @contextmanager
