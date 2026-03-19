@@ -22,6 +22,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 	appsv1 "k8s.io/api/apps/v1"
@@ -45,6 +46,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
@@ -273,21 +275,53 @@ func main() {
 		os.Exit(1)
 	}
 
-	eg := errgroup.Group{}
-	migrator := storageversion.NewMigrator(dynamic.NewForConfigOrDie(cfg), apixclient.NewForConfigOrDie(cfg))
-	for _, gr := range []schema.GroupResource{
-		{Group: v1alpha2.SchemeGroupVersion.Group, Resource: "llminferenceservices"},
-		{Group: v1alpha2.SchemeGroupVersion.Group, Resource: "llminferenceserviceconfigs"},
-	} {
-		eg.Go(func() error {
-			if err := migrator.Migrate(ctx, gr); err != nil {
-				return fmt.Errorf("failed to migrate %q: %w", gr, err)
-			}
+	// Fix for RHOAIENG-54344: Add migration as a post-startup runnable
+	// Migration must run AFTER the webhook server is ready to avoid circular dependency.
+	// The manager starts the webhook server, then runs this migration task.
+	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
+		// Wait for webhook server to be fully ready and service endpoints to be updated
+		// This prevents a race condition where migration starts before the webhook
+		// service has endpoints available in Kubernetes
+		setupLog.Info("waiting for webhook server readiness")
+		time.Sleep(5 * time.Second)
+
+		setupLog.Info("starting resource migration")
+		migrator := storageversion.NewMigrator(dynamic.NewForConfigOrDie(cfg), apixclient.NewForConfigOrDie(cfg))
+		eg := errgroup.Group{}
+		for _, gr := range []schema.GroupResource{
+			{Group: v1alpha2.SchemeGroupVersion.Group, Resource: "llminferenceservices"},
+			{Group: v1alpha2.SchemeGroupVersion.Group, Resource: "llminferenceserviceconfigs"},
+		} {
+			gr := gr // capture loop variable for goroutine
+			eg.Go(func() error {
+				// Retry migration with exponential backoff to handle transient failures
+				var lastErr error
+				for attempt := 0; attempt < 3; attempt++ {
+					if err := migrator.Migrate(ctx, gr); err != nil {
+						lastErr = err
+						setupLog.Info("migration attempt failed, will retry",
+							"resource", gr, "attempt", attempt+1, "error", err.Error())
+						// Exponential backoff: 1s, 2s, 4s
+						backoff := time.Second * time.Duration(1<<uint(attempt))
+						time.Sleep(backoff)
+						continue
+					}
+					setupLog.Info("successfully migrated resource", "resource", gr)
+					return nil
+				}
+				return fmt.Errorf("failed to migrate %q after 3 attempts: %w", gr, lastErr)
+			})
+		}
+		if err := eg.Wait(); err != nil {
+			setupLog.Error(err, "resource migration failed")
+			// Don't crash the manager - migrations can be retried manually if needed
+			// This prevents blocking the controller from serving new requests
 			return nil
-		})
-	}
-	if err := eg.Wait(); err != nil {
-		setupLog.Error(err, "unable to migrate resources")
+		}
+		setupLog.Info("resource migration completed successfully")
+		return nil
+	})); err != nil {
+		setupLog.Error(err, "unable to add migration runnable")
 		os.Exit(1)
 	}
 
