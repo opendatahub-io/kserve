@@ -255,10 +255,6 @@ func AddDefaultHuggingFaceEnvVars(container *corev1.Container) {
 			Name:  "HF_XET_NUM_CONCURRENT_RANGE_GETS",
 			Value: "8",
 		},
-		{
-			Name:  "HF_HOME",
-			Value: "/tmp",
-		},
 	}
 
 	AddEnvVars(container, defaultHFEnvVars)
