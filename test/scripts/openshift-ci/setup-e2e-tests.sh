@@ -26,6 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 source "$SCRIPT_DIR/common.sh"
+source "$SCRIPT_DIR/version.sh"
 
 # Parse command line options
 : "${INSTALL_ODH_OPERATOR:=false}"
@@ -48,6 +49,20 @@ echo "Using namespace: $KSERVE_NAMESPACE for KServe components"
 : "${ERROR_404_ISVC_IMAGE:=error-404-isvc:latest}"
 : "${SUCCESS_200_ISVC_IMAGE:=success-200-isvc:latest}"
 : "${LLMISVC_CONTROLLER_IMAGE:=quay.io/opendatahub/llmisvc-controller:latest}"
+
+# On OCP 4.20 and earlier, InferencePool lives in the x-k8s.io API group.
+# OCP 4.21+ ships the GA API group (inference.networking.k8s.io).
+if [[ -z "${INFERENCE_POOL_GROUP:-}" ]]; then
+  server_version=$(get_openshift_server_version)
+  # Extract major.minor for comparison (handles nightly versions like 4.20.0-0.nightly-...)
+  ocp_major_minor=$(echo "$server_version" | awk -F. '{print $1"."$2}')
+  if awk "BEGIN{exit !($ocp_major_minor <= 4.20)}"; then
+    export INFERENCE_POOL_GROUP="inference.networking.x-k8s.io"
+    echo "OCP $server_version (${ocp_major_minor}): using INFERENCE_POOL_GROUP=$INFERENCE_POOL_GROUP"
+  else
+    echo "OCP $server_version (${ocp_major_minor}): skipping setting INFERENCE_POOL_GROUP env variable."
+  fi
+fi
 
 echo "SKLEARN_IMAGE=$SKLEARN_IMAGE"
 echo "KSERVE_CONTROLLER_IMAGE=$KSERVE_CONTROLLER_IMAGE"
