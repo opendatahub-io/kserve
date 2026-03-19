@@ -34,7 +34,7 @@ export GITHUB_SHA=stable # Need to use stable as this is what the CI tags the im
 : "${BUILD_GRAPH_IMAGES:=true}"
 : "${BUILD_KSERVE_IMAGES:=true}"
 : "${RUNNING_LOCAL:=false}"
-cp ./test/e2e/conftest.py ./test/e2e/conftest.py.bak
+cp ./test/e2e/conftest.py ./bin/test/e2e/conftest.py.bak
 
 if $RUNNING_LOCAL; then
   export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
@@ -79,4 +79,4 @@ echo "Run E2E tests: $1"
 pushd $PROJECT_ROOT >/dev/null
 ./test/scripts/gh-actions/run-e2e-tests.sh "$1" $PARALLELISM | tee 2>&1 "./test/scripts/openshift-ci/run-e2e-tests-${1// /-}.log"
 popd
-cp ./test/e2e/conftest.py.bak ./test/e2e/conftest.py
+cp ./test/e2e/conftest.py.bak ./bin/test/e2e/conftest.py
