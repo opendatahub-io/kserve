@@ -25,6 +25,7 @@ set -o pipefail
 export GATEWAY_CLASS_NAME=${GATEWAY_CLASS_NAME:-"openshift-default"}
 export INFERENCE_POOL_GROUP="${INFERENCE_POOL_GROUP:-inference.networking.x-k8s.io}"
 export RUN_AS_NON_ROOT="${RUN_AS_NON_ROOT:-true}"
+export SKIP_DELETION_ON_FAILURE=${SKIP_DELETION_ON_FAILURE:-true}
 
 MY_PATH=$(dirname "$0")
 PROJECT_ROOT=$MY_PATH/../../../
