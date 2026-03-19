@@ -51,7 +51,7 @@ spec:
   taskRunSpecs:
     - pipelineTaskName: clone-repository
       serviceAccountName: build-pipeline-kserve-group
-    - pipelineTaskName: build-llmisvc-controller
+    - pipelineTaskName: build-odh-kserve-llmisvc-controller
       serviceAccountName: build-pipeline-kserve-group
     - pipelineTaskName: build-sklearn-serving-runtime
       serviceAccountName: build-pipeline-kserve-group
