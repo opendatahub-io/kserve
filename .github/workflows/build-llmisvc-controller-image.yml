@@ -86,7 +86,7 @@ jobs:
         with:
           # TODO enable other platforms
           # platforms: linux/amd64,linux/arm64,linux/ppc64le,linux/s390x
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           context: .
           file: llmisvc-controller.Dockerfile
           push: true
