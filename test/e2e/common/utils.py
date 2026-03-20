@@ -327,11 +327,12 @@ async def predict_modelmesh(
         return response
 
 
-def _get_gateway_namespace_from_config():
-    """Read the gateway namespace from kserveIngressGateway in the inferenceservice-config ConfigMap.
+def _get_gateway_from_config():
+    """Read the gateway namespace and name from kserveIngressGateway in the inferenceservice-config ConfigMap.
 
     The controller stores the gateway reference as "namespace/name" in the ingress config.
     This follows the same parsing logic used by the Go controller in configmap.go.
+    Returns (namespace, name).
     """
     api = k8s_client.CoreV1Api(k8s_client.ApiClient())
     cm = api.read_namespaced_config_map(
@@ -341,8 +342,8 @@ def _get_gateway_namespace_from_config():
     gateway = ingress_config.get("kserveIngressGateway", "")
     parts = gateway.split("/")
     if len(parts) == 2:
-        return parts[0]
-    return KSERVE_NAMESPACE
+        return parts[0], parts[1]
+    return KSERVE_NAMESPACE, "kserve-ingress-gateway"
 
 
 def get_isvc_endpoint(isvc, network_layer: str = "istio"):
@@ -358,11 +359,11 @@ def get_isvc_endpoint(isvc, network_layer: str = "istio"):
         cluster_ip = get_cluster_ip()
         logger.info(f"Using internal cluster IP: {cluster_ip}")
     elif network_layer == "gateway-api":
-        gw_ns = _get_gateway_namespace_from_config()
-        logger.info(f"Using gateway namespace from config: {gw_ns}")
+        gw_ns, gw_name = _get_gateway_from_config()
+        logger.info(f"Using gateway from config: {gw_ns}/{gw_name}")
         cluster_ip = get_cluster_ip(
             namespace=gw_ns,
-            labels={"serving.kserve.io/gateway": "kserve-ingress-gateway"},
+            labels={"serving.kserve.io/gateway": gw_name},
         )
     elif network_layer == "envoy-gatewayapi":
         cluster_ip = get_cluster_ip(
@@ -384,9 +385,12 @@ def generate(
     input_json,
     version=constants.KSERVE_V1BETA1_VERSION,
     chat_completions=True,
+    network_layer: str = "istio",
 ):
     url_suffix = "v1/chat/completions" if chat_completions else "v1/completions"
-    res = _openai_request(service_name, input_json, version, url_suffix)
+    res = _openai_request(
+        service_name, input_json, version, url_suffix, network_layer=network_layer
+    )
     return _process_non_streaming_response(res)
 
 
@@ -394,8 +398,11 @@ def embed(
     service_name,
     input_json,
     version=constants.KSERVE_V1BETA1_VERSION,
+    network_layer: str = "istio",
 ):
-    res = _openai_request(service_name, input_json, version, "v1/embeddings")
+    res = _openai_request(
+        service_name, input_json, version, "v1/embeddings", network_layer=network_layer
+    )
     return _process_non_streaming_response(res)
 
 
@@ -403,13 +410,19 @@ def rerank(
     service_name,
     input_json,
     version=constants.KSERVE_V1BETA1_VERSION,
+    network_layer: str = "istio",
 ):
-    res = _openai_request(service_name, input_json, version, "v1/rerank")
+    res = _openai_request(
+        service_name, input_json, version, "v1/rerank", network_layer=network_layer
+    )
     return _process_non_streaming_response(res)
 
 
 def _get_openai_endpoint_and_host(
-    service_name, url_suffix, version=constants.KSERVE_V1BETA1_VERSION
+    service_name,
+    url_suffix,
+    version=constants.KSERVE_V1BETA1_VERSION,
+    network_layer: str = "istio",
 ):
     """
     Get the OpenAI endpoint for the given service name.
@@ -417,6 +430,7 @@ def _get_openai_endpoint_and_host(
         service_name: The name of the inference service
         url_suffix: The suffix for the OpenAI endpoint (e.g., "v1/chat/completions")
         version: The version of the inference service. Defaults to v1beta1
+        network_layer: The network layer to use for endpoint resolution
     Returns:
         A tuple containing the OpenAI endpoint URL and the host name
     """
@@ -426,7 +440,7 @@ def _get_openai_endpoint_and_host(
     isvc = kfs_client.get(
         service_name, namespace=KSERVE_TEST_NAMESPACE, version=version
     )
-    scheme, cluster_ip, host, path = get_isvc_endpoint(isvc)
+    scheme, cluster_ip, host, path = get_isvc_endpoint(isvc, network_layer)
     return f"{scheme}://{cluster_ip}{path}/openai/{url_suffix}", host
 
 
@@ -436,11 +450,14 @@ def _openai_request(
     version=constants.KSERVE_V1BETA1_VERSION,
     url_suffix="",
     stream=False,
+    network_layer: str = "istio",
 ):
     with open(input_json) as json_file:
         data = json.load(json_file)
 
-        url, host = _get_openai_endpoint_and_host(service_name, url_suffix, version)
+        url, host = _get_openai_endpoint_and_host(
+            service_name, url_suffix, version, network_layer
+        )
         headers = {"Host": host, "Content-Type": "application/json"}
 
         logger.info("Sending Header = %s", headers)
@@ -468,13 +485,19 @@ def chat_completion_stream(
     service_name,
     input_json,
     version=constants.KSERVE_V1BETA1_VERSION,
+    network_layer: str = "istio",
 ):
     """
     Make a chat completion streaming request to the inference service and collect all chunks.
     Returns a tuple containing full response text and all chunks received.
     """
     res = _openai_request(
-        service_name, input_json, version, "v1/chat/completions", stream=True
+        service_name,
+        input_json,
+        version,
+        "v1/chat/completions",
+        stream=True,
+        network_layer=network_layer,
     )
 
     chunks = []
@@ -499,13 +522,19 @@ def completion_stream(
     service_name,
     input_json,
     version=constants.KSERVE_V1BETA1_VERSION,
+    network_layer: str = "istio",
 ):
     """
     Make a streaming request to the text completion inference service and collect all chunks.
     Returns a tuple containing full response text and all chunks received.
     """
     res = _openai_request(
-        service_name, input_json, version, "v1/completions", stream=True
+        service_name,
+        input_json,
+        version,
+        "v1/completions",
+        stream=True,
+        network_layer=network_layer,
     )
     chunks = []
     full_content = ""
