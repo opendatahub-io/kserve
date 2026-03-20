@@ -61,7 +61,7 @@ RUN microdnf install -y --setopt=ubi-9-appstream-rpms.module_hotfixes=1 --disabl
     --enablerepo=ubi-9-baseos-rpms --enablerepo=ubi-9-appstream-rpms shadow-utils python3.11 python3.11-devel \
     && microdnf clean all \
     &&  alternatives --install /usr/bin/python python3 /usr/bin/python3.11 1
-RUN useradd kserve -m -u 1000 -d /home/kserve && chmod -R g+rwx /home/kserve
+RUN useradd kserve -m -u 1000 -d /home/kserve && chgrp -R 0 /home/kserve && chmod -R g+rwx /home/kserve
 
 COPY --from=builder --chown=kserve:kserve third_party third_party
 COPY --from=builder --chown=kserve:kserve $VIRTUAL_ENV $VIRTUAL_ENV
