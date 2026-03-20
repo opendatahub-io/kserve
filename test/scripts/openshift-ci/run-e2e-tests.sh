@@ -22,30 +22,35 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-export GATEWAY_CLASS_NAME=${GATEWAY_CLASS_NAME:-"openshift-default"}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+PROJECT_ROOT="$(find_project_root "$SCRIPT_DIR")"
 
-MY_PATH=$(dirname "$0")
-PROJECT_ROOT=$MY_PATH/../../../
-export CI_USE_ISVC_HOST="1"
+readonly MARKERS="${1:-raw}"
+readonly PARALLELISM="${2:-1}"
+
+readonly DEPLOYMENT_PROFILE="${3:-raw}"
+validate_deployment_profile "${DEPLOYMENT_PROFILE}"
+
+# Map deployment profile to network layer for pytest
+case "${DEPLOYMENT_PROFILE}" in
+  raw)        NETWORK_LAYER="openshift-route" ;;
+  serverless) NETWORK_LAYER="istio" ;;
+  llm-d)      NETWORK_LAYER="gateway-api" ;;
+esac
+
 export GITHUB_SHA=stable # Need to use stable as this is what the CI tags the images to for success-200 and error-404
 : "${BUILD_GRAPH_IMAGES:=true}"
-: "${BUILD_KSERVE_IMAGES:=true}"
 : "${RUNNING_LOCAL:=false}"
-cp ./test/e2e/conftest.py ./test/e2e/conftest.py.bak
+: "${SKIP_DELETION_ON_FAILURE:=true}"
+export SKIP_DELETION_ON_FAILURE
 
 if $RUNNING_LOCAL; then
   export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
   export IMAGE_TRANSFORMER_IMG_TAG=kserve/image-transformer:latest
   export GITHUB_SHA=master
 
-  if [ "$BUILD_KSERVE_IMAGES" = "true" ]; then
-    echo "asd"
-    pushd $PROJECT_ROOT >/dev/null
-    ./test/scripts/openshift-ci/build-kserve-images.sh | tee 2>&1 ./test/scripts/openshift-ci/build-kserve-images.log
-    popd
-  fi
-
-  if [ "$1" = "graph" ] && [ "$BUILD_GRAPH_IMAGES" = "true" ]; then
+  if [[ "${MARKERS}" = *"graph"*  && "$BUILD_GRAPH_IMAGES" = "true" ]]; then
     pushd $PROJECT_ROOT >/dev/null
     ./test/scripts/gh-actions/build-graph-tests-images.sh | tee 2>&1 ./test/scripts/openshift-ci/build-graph-tests-images.log
     popd
@@ -53,27 +58,25 @@ if $RUNNING_LOCAL; then
 fi
 
 : "${SETUP_E2E:=true}"
-
 if [ "$SETUP_E2E" = "true" ]; then
   echo "Installing on cluster"
   pushd $PROJECT_ROOT >/dev/null
-  ./test/scripts/openshift-ci/setup-e2e-tests.sh "$1" | tee 2>&1 "./test/scripts/openshift-ci/setup-e2e-tests-${1// /-}.log"
+  ./test/scripts/openshift-ci/setup-e2e-tests.sh "${MARKERS}" "${PARALLELISM}" "${DEPLOYMENT_PROFILE}" | tee 2>&1 ./test/scripts/openshift-ci/setup-e2e-tests-"${MARKERS// /_}".log
   popd
 fi
 
-PARALLELISM="${2:-1}"
-
 # Use certify go module to get the CA certs
-if [ ! -f "/tmp/ca.crt" ]; then
-  echo "❌ Error: CA certificate file '/tmp/ca.crt' not found. Please ensure the setup script ran successfully."
-  exit 1
+# For serverless it is configured here: infra/deploy.serverless.sh
+# For Raw: setup-e2e-tests.sh
+if [ ! -s "/tmp/ca.crt" ]; then
+  echo "Failed to extract CA certificate, using system defaults... early failing..."
+else
+  echo "CA certificate extracted"
+  export REQUESTS_CA_BUNDLE="/tmp/ca.crt"
+  echo "REQUESTS_CA_BUNDLE=$(cat ${REQUESTS_CA_BUNDLE})"
 fi
 
-export REQUESTS_CA_BUNDLE="/tmp/ca.crt"
-echo "REQUESTS_CA_BUNDLE=$(cat ${REQUESTS_CA_BUNDLE})"
-
-echo "Run E2E tests: $1"
+echo "Run E2E tests: ${MARKERS}"
 pushd $PROJECT_ROOT >/dev/null
-./test/scripts/gh-actions/run-e2e-tests.sh "$1" $PARALLELISM | tee 2>&1 "./test/scripts/openshift-ci/run-e2e-tests-${1// /-}.log"
+./test/scripts/gh-actions/run-e2e-tests.sh "${MARKERS}" "${PARALLELISM}" "${NETWORK_LAYER}" | tee 2>&1 ./test/scripts/openshift-ci/run-e2e-tests-"${MARKERS// /_}".log
 popd
-cp ./test/e2e/conftest.py.bak ./test/e2e/conftest.py

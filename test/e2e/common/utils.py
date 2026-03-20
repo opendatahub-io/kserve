@@ -301,20 +301,43 @@ async def predict_modelmesh(
         return response
 
 
+def _get_gateway_namespace_from_config():
+    """Read the gateway namespace from kserveIngressGateway in the inferenceservice-config ConfigMap.
+
+    The controller stores the gateway reference as "namespace/name" in the ingress config.
+    This follows the same parsing logic used by the Go controller in configmap.go.
+    """
+    api = k8s_client.CoreV1Api(k8s_client.ApiClient())
+    cm = api.read_namespaced_config_map(
+        name="inferenceservice-config", namespace=KSERVE_NAMESPACE
+    )
+    ingress_config = json.loads(cm.data.get("ingress", "{}"))
+    gateway = ingress_config.get("kserveIngressGateway", "")
+    parts = gateway.split("/")
+    if len(parts) == 2:
+        return parts[0]
+    return KSERVE_NAMESPACE
+
+
 def get_isvc_endpoint(isvc, network_layer: str = "istio"):
     scheme = urlparse(isvc["status"]["url"]).scheme
     host = urlparse(isvc["status"]["url"]).netloc
     path = urlparse(isvc["status"]["url"]).path
-    ci_use_isvc_host = os.environ.get("CI_USE_ISVC_HOST")
-    logger.info(f"CI_USE_ISVC_HOST = {ci_use_isvc_host}")
     logger.info(f"Host from isvc status URL = {host}")
     logger.info(f"Network layer = {network_layer}")
-    if ci_use_isvc_host == "1":
+    if network_layer == "openshift-route":
         cluster_ip = host
         logger.info(f"Using external route host: {cluster_ip}")
     elif network_layer == "istio" or network_layer == "istio-ingress":
         cluster_ip = get_cluster_ip()
         logger.info(f"Using internal cluster IP: {cluster_ip}")
+    elif network_layer == "gateway-api":
+        gw_ns = _get_gateway_namespace_from_config()
+        logger.info(f"Using gateway namespace from config: {gw_ns}")
+        cluster_ip = get_cluster_ip(
+            namespace=gw_ns,
+            labels={"serving.kserve.io/gateway": "kserve-ingress-gateway"},
+        )
     elif network_layer == "envoy-gatewayapi":
         cluster_ip = get_cluster_ip(
             namespace="envoy-gateway-system",

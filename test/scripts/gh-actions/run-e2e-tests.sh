@@ -31,7 +31,10 @@ export GITHUB_SHA="${TAG:-latest}"
 echo "Starting E2E functional tests ..."
 MARKER="${1}"
 PARALLELISM="${2:-1}"
-NETWORK_LAYER="${3:-'istio'}"
+NETWORK_LAYER="${3:-'openshift-route'}"
+
+: "${SKIP_DELETION_ON_FAILURE:=true}"
+export SKIP_DELETION_ON_FAILURE
 
 echo "Parallelism requested for pytest is ${PARALLELISM}"
 
@@ -40,8 +43,14 @@ source python/kserve/.venv/bin/activate
 pushd test/e2e >/dev/null
   if [[ $MARKER == "raw" && $NETWORK_LAYER == "istio-ingress" ]]; then
     echo "Skipping explainer tests for raw deployment with ingress"
-    pytest -m "$MARKER" --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --network-layer $NETWORK_LAYER --ignore=explainer/ -vv --tb=long -s    
+    pytest --capture=tee-sys -m "$MARKER" --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --network-layer $NETWORK_LAYER --ignore=explainer/
   else
-    pytest -m "$MARKER" --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --network-layer $NETWORK_LAYER -vv --tb=long -s
+    rc=0
+    pytest --capture=tee-sys -m "$MARKER" --ignore=qpext --log-cli-level=INFO -n $PARALLELISM --dist worksteal --network-layer $NETWORK_LAYER || rc=$?
+    if [ $rc -ne 0 ]; then
+      oc get authpolicies -A -oyaml || true
+      oc get llmisvc -A -oyaml || true
+      exit $rc
+    fi
   fi
 popd
