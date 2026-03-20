@@ -40,15 +40,16 @@ else
 fi
 
 echo "Using namespace: $KSERVE_NAMESPACE for KServe components"
+PARAMS_ENV="$PROJECT_ROOT/config/overlays/odh/params.env"
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
-: "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:latest}"
-: "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
-: "${KSERVE_ROUTER_IMAGE:=quay.io/opendatahub/kserve-router:latest}"
-: "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
+: "${KSERVE_CONTROLLER_IMAGE:=$(grep '^kserve-controller=' "$PARAMS_ENV" | cut -d= -f2-)}"
+: "${KSERVE_AGENT_IMAGE:=$(grep '^kserve-agent=' "$PARAMS_ENV" | cut -d= -f2-)}"
+: "${KSERVE_ROUTER_IMAGE:=$(grep '^kserve-router=' "$PARAMS_ENV" | cut -d= -f2-)}"
+: "${STORAGE_INITIALIZER_IMAGE:=$(grep '^kserve-storage-initializer=' "$PARAMS_ENV" | cut -d= -f2-)}"
 : "${ODH_MODEL_CONTROLLER_IMAGE:=quay.io/opendatahub/odh-model-controller:fast}"
 : "${ERROR_404_ISVC_IMAGE:=error-404-isvc:latest}"
 : "${SUCCESS_200_ISVC_IMAGE:=success-200-isvc:latest}"
-: "${LLMISVC_CONTROLLER_IMAGE:=quay.io/opendatahub/llmisvc-controller:latest}"
+: "${LLMISVC_CONTROLLER_IMAGE:=$(grep '^llmisvc-controller=' "$PARAMS_ENV" | cut -d= -f2-)}"
 
 # On OCP 4.20 and earlier, InferencePool lives in the x-k8s.io API group.
 # OCP 4.21+ ships the GA API group (inference.networking.k8s.io).
@@ -133,7 +134,6 @@ if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
   echo "⏳ Installing KServe with SeaweedFS"
 
   # Update params.env with CI-injected images so kustomize build produces the right output
-  PARAMS_ENV="$PROJECT_ROOT/config/overlays/odh/params.env"
   cp "$PARAMS_ENV" "$PARAMS_ENV.bak"
   trap "mv '$PARAMS_ENV.bak' '$PARAMS_ENV'" EXIT
   sed -i "s|kserve-controller=.*|kserve-controller=${KSERVE_CONTROLLER_IMAGE}|" "$PARAMS_ENV"
@@ -280,10 +280,14 @@ else
   echo "ODH Model Controller deployed with image: $ACTUAL_IMAGE"
 fi
 
-# Configure certs for the python requests by getting the CA cert from the kserve controller pod
-export CA_CERT_PATH="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+# Configure certs for the python requests
 # The run-e2e-tests script expects the CA cert to be in /tmp/ca.crt
-oc exec deploy/kserve-controller-manager -n ${KSERVE_NAMESPACE} -- cat $CA_CERT_PATH > /tmp/ca.crt
+# Combine both the cluster root CA and OpenShift service CA
+{
+  oc get configmap kube-root-ca.crt -n "${KSERVE_NAMESPACE}" -o jsonpath='{.data.ca\.crt}'
+  echo ""
+  oc get configmap openshift-service-ca.crt -n "${KSERVE_NAMESPACE}" -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null || true
+} > /tmp/ca.crt
 
 echo "Add testing models to SeaweedFS S3 storage ..."
 
