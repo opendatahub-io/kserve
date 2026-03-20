@@ -115,9 +115,9 @@ async def rest_v2_client():
 def pytest_addoption(parser):
     parser.addoption(
         "--network-layer",
-        default="istio",
+        default="openshift-route",
         type=str,
-        help="Network layer to used for testing. Default is istio. Allowed values are istio-ingress, envoy-gatewayapi, istio-gatewayapi",
+        help="Network layer to used for testing. Default is openshift-route. Allowed values are istio, istio-ingress, envoy-gatewayapi, istio-gatewayapi, openshift-route, gateway-api",
     )
 
 
