@@ -131,12 +131,18 @@ oc new-project ${KSERVE_NAMESPACE} || true
 if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
   # Manual installation: Install KServe directly with PR images
   echo "⏳ Installing KServe with SeaweedFS"
-  ODH_MANIFESTS=$(kustomize build "$PROJECT_ROOT/config/overlays/odh-test" |
-    sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
-    sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
-    sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
-    sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
-    sed "s|quay.io/opendatahub/llmisvc-controller:latest|${LLMISVC_CONTROLLER_IMAGE}|")
+
+  # Update params.env with CI-injected images so kustomize build produces the right output
+  PARAMS_ENV="$PROJECT_ROOT/config/overlays/odh/params.env"
+  cp "$PARAMS_ENV" "$PARAMS_ENV.bak"
+  trap "mv '$PARAMS_ENV.bak' '$PARAMS_ENV'" EXIT
+  sed -i "s|kserve-controller=.*|kserve-controller=${KSERVE_CONTROLLER_IMAGE}|" "$PARAMS_ENV"
+  sed -i "s|llmisvc-controller=.*|llmisvc-controller=${LLMISVC_CONTROLLER_IMAGE}|" "$PARAMS_ENV"
+  sed -i "s|kserve-agent=.*|kserve-agent=${KSERVE_AGENT_IMAGE}|" "$PARAMS_ENV"
+  sed -i "s|kserve-router=.*|kserve-router=${KSERVE_ROUTER_IMAGE}|" "$PARAMS_ENV"
+  sed -i "s|kserve-storage-initializer=.*|kserve-storage-initializer=${STORAGE_INITIALIZER_IMAGE}|" "$PARAMS_ENV"
+
+  ODH_MANIFESTS=$(kustomize build "$PROJECT_ROOT/config/overlays/odh-test")
 
   # Apply CRDs first and wait for them to be established before applying the rest
   echo "$ODH_MANIFESTS" | awk '/^apiVersion: apiextensions\.k8s\.io/{found=1} found{print} /^---/{if(found) found=0}' |
