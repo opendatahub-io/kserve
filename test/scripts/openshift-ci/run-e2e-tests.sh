@@ -27,6 +27,7 @@ export INFERENCE_POOL_GROUP="${INFERENCE_POOL_GROUP:-inference.networking.x-k8s.
 export RUN_AS_NON_ROOT="${RUN_AS_NON_ROOT:-true}"
 export SKIP_DELETION_ON_FAILURE=${SKIP_DELETION_ON_FAILURE:-true}
 export KUBE_CLI=${KUBE_CLI_COMMAND:-oc}
+export KSERVE_NAMESPACE=${KSERVE_NAMESPACE:-"kserve"}
 
 MY_PATH=$(dirname "$0")
 PROJECT_ROOT=$MY_PATH/../../../
