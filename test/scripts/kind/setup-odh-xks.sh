@@ -525,6 +525,7 @@ main() {
   echo "  LWS Version:         ${LWS_VERSION}"
   echo "  Gateway API:         ${GATEWAY_API_VERSION}"
   echo "  KServe Namespace:    ${KSERVE_NAMESPACE}"
+  echo "  Skip KServe Deploy:  ${SKIP_KSERVE_DEPLOY:-false}"
   echo ""
 
   # 1. Check dependencies
@@ -552,7 +553,14 @@ main() {
   build_and_load_controller
 
   # 9. Deploy odh-xks overlay (requires cert-manager PKI)
-  deploy_odh_xks
+  # Skip if SKIP_KSERVE_DEPLOY is set (for Helm deployment testing)
+  if [[ "${SKIP_KSERVE_DEPLOY:-false}" != "true" ]]; then
+    deploy_odh_xks
+  else
+    log_info "Skipping KServe deployment (SKIP_KSERVE_DEPLOY=true)"
+    # Still need to create namespace for CA bundle and Gateway
+    kubectl create namespace "${KSERVE_NAMESPACE}" --dry-run=client -o yaml | kubectl apply -f -
+  fi
 
   # 10. Setup CA bundle ConfigMap (must be before Gateway as Gateway references it)
   setup_ca_bundle
