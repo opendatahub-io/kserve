@@ -74,8 +74,9 @@ echo "STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_IMAGE"
 echo "ERROR_404_ISVC_IMAGE=$ERROR_404_ISVC_IMAGE"
 echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
 
-# Install Kustomize using the centralized install script
+# Install Kustomize and yq
 $PROJECT_ROOT/hack/setup/cli/install-kustomize.sh
+make -C "$PROJECT_ROOT" yq
 export PATH="${PROJECT_ROOT}/bin:${PATH}"
 
 echo "Installing KServe Python SDK ..."
@@ -199,13 +200,13 @@ else
   echo "ODH operator deployed KServe using PR manifests and images"
 fi
 
-# Patch the inferenceservice-config ConfigMap, when running RawDeployment tests
-echo "Patching RAW deployment, markers: $1"
+# Patch the inferenceservice-config ConfigMap to set the cluster ingress domain
+echo "Patching ingress domain, markers: $1"
 export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
-oc patch configmap inferenceservice-config -n ${KSERVE_NAMESPACE} --type=strategic \
-  --patch-file=<(cat config/overlays/odh-test/configmap/inferenceservice-openshift-ci-raw.yaml | \
-  sed "s/namespace: kserve/namespace: ${KSERVE_NAMESPACE}/" | \
-  envsubst)
+INGRESS_DATA=$(oc get configmap inferenceservice-config -n ${KSERVE_NAMESPACE} -o jsonpath='{.data.ingress}' | \
+  yq -p json -o json '.ingressDomain = strenv(OPENSHIFT_INGRESS_DOMAIN)')
+oc patch configmap inferenceservice-config -n ${KSERVE_NAMESPACE} --type=merge \
+  -p "$(INGRESS="$INGRESS_DATA" yq -n -o json '.data.ingress = strenv(INGRESS)')"
 oc delete pod -n ${KSERVE_NAMESPACE} -l control-plane=kserve-controller-manager
 
 # Patch DSC only in manual mode (operator mode uses yaml files directly)
