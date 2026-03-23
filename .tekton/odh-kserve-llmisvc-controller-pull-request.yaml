@@ -32,9 +32,6 @@ spec:
   - name: additional-tags
     value:
     - 'odh-pr-{{revision}}'
-  - name: build-args
-    value:
-    - "GOTAGS=distro"
   - name: pipeline-type
     value: pull-request
   pipelineRef:
