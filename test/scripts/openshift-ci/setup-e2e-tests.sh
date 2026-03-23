@@ -200,38 +200,22 @@ else
 fi
 
 # Patch the inferenceservice-config ConfigMap, when running RawDeployment tests
-if skip_serverless "$1"; then
-  echo "Patching RAW deployment, markers: $1"
-  export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
-  oc patch configmap inferenceservice-config -n ${KSERVE_NAMESPACE} --type=strategic \
-    --patch-file=<(cat config/overlays/odh-test/configmap/inferenceservice-openshift-ci-raw.yaml | \
-    sed "s/namespace: kserve/namespace: ${KSERVE_NAMESPACE}/" | \
-    envsubst)
-  oc delete pod -n ${KSERVE_NAMESPACE} -l control-plane=kserve-controller-manager
+echo "Patching RAW deployment, markers: $1"
+export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
+oc patch configmap inferenceservice-config -n ${KSERVE_NAMESPACE} --type=strategic \
+  --patch-file=<(cat config/overlays/odh-test/configmap/inferenceservice-openshift-ci-raw.yaml | \
+  sed "s/namespace: kserve/namespace: ${KSERVE_NAMESPACE}/" | \
+  envsubst)
+oc delete pod -n ${KSERVE_NAMESPACE} -l control-plane=kserve-controller-manager
 
-  # Patch DSC only in manual mode (operator mode uses yaml files directly)
-  if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
-    oc patch datascienceclusters.datasciencecluster.opendatahub.io/test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
-  fi
-else
-  export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
-  oc patch configmap inferenceservice-config -n ${KSERVE_NAMESPACE} --type=strategic \
-    --patch-file=<(cat config/overlays/odh-test/configmap/inferenceservice-openshift-ci-serverless-predictor.yaml | \
-    sed "s/namespace: kserve/namespace: ${KSERVE_NAMESPACE}/" | \
-    envsubst)
+# Patch DSC only in manual mode (operator mode uses yaml files directly)
+if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
+  oc patch datascienceclusters.datasciencecluster.opendatahub.io/test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
 fi
 
 # Wait until KServe starts
 echo "waiting kserve-controller get ready..."
 oc wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n ${KSERVE_NAMESPACE} --timeout=300s
-
-if ! skip_serverless "$1"; then
-  echo "Installing authorino and kserve gateways"
-  # authorino
-  curl -sL https://raw.githubusercontent.com/Kuadrant/authorino-operator/main/utils/install.sh | sed "s|kubectl|oc|" |
-    bash -s -- -v 0.16.0
-
-fi
 
 # Wait for/Install ODH Model Controller based on method
 if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
