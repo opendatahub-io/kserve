@@ -54,7 +54,7 @@ func (r *LLMISVCReconciler) reconcileMultiNodeSCCRoleBinding(ctx context.Context
 	if err != nil {
 		return fmt.Errorf("failed to create expected multi node scc role binding: %w", err)
 	}
-	if llmSvc.Spec.Worker == nil && (llmSvc.Spec.Prefill == nil || llmSvc.Spec.Prefill.Worker == nil) || utils.GetForceStopRuntime(llmSvc) {
+	if (llmSvc.Spec.Worker == nil && (llmSvc.Spec.Prefill == nil || llmSvc.Spec.Prefill.Worker == nil)) || utils.GetForceStopRuntime(llmSvc) {
 		return Delete(ctx, r, llmSvc, expected)
 	}
 	return Reconcile(ctx, r, llmSvc, &rbacv1.RoleBinding{}, expected, semanticRoleBindingIsEqual)
