@@ -40,18 +40,18 @@ DEPENDENCIES = {
         None,
         ("kubernetes-sigs/gateway-api-inference-extension", "manifests.yaml"),
     ),
+    "WVA_VERSION": (
+        "github.com/llm-d/llm-d-workload-variant-autoscaler",
+        None,
+        None,
+        None,
+    ),
 }
 
 HELM_REPOS = {
     "istio": "https://istio-release.storage.googleapis.com/charts",
     "kedacore": "https://kedacore.github.io/charts",
     "open-telemetry": "https://open-telemetry.github.io/opentelemetry-helm-charts",
-}
-
-# Manual version overrides for security patches where Helm charts lag behind go.mod
-# These take precedence over auto-generated versions from Helm chart lookups
-VERSION_OVERRIDES = {
-    "KEDA_VERSION": "2.17.3",  # CVE-2025-68476 fix (CVSS 8.2, HIGH) - Helm chart only has 2.17.1
 }
 
 
@@ -199,12 +199,26 @@ def ensure_helm_repo(name, url):
     run(f"helm repo add {name} {url}")
 
 
+def parse_existing_versions(env_file):
+    """Parse existing VAR=value pairs from kserve-deps.env"""
+    existing = {}
+    if env_file.exists():
+        for line in env_file.read_text().splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                key, value = line.split("=", 1)
+                existing[key] = value
+    return existing
+
+
 def main():
     repo_root = Path(__file__).resolve().parent.parent.parent.parent
     go_mod = repo_root / "go.mod"
     output_file = repo_root / "kserve-deps.env"
 
     print("📦 Extracting versions from go.mod...")
+
+    existing_versions = parse_existing_versions(output_file)
 
     packages = [item[0] for item in DEPENDENCIES.values()]
     gomod_versions = extract_all_versions_from_gomod(go_mod, packages)
@@ -214,12 +228,6 @@ def main():
 
     versions = {}
     for var_name, dependency_info in DEPENDENCIES.items():
-        # Check for manual override first
-        if var_name in VERSION_OVERRIDES:
-            versions[var_name] = VERSION_OVERRIDES[var_name]
-            print(f"🔒 {var_name}: {VERSION_OVERRIDES[var_name]} (manual override)")
-            continue
-
         package = dependency_info[0]
         helm_repo = dependency_info[1] if len(dependency_info) > 1 else None
         helm_chart = dependency_info[2] if len(dependency_info) > 2 else None
@@ -246,7 +254,12 @@ def main():
                     else:
                         print(f"⚠️  {var_name}: Using {final_version} for requested {base_version}")
                 else:
-                    print(f"⚠️  {var_name}: No available URL found, using {base_version}")
+                    fallback = existing_versions.get(var_name)
+                    if fallback:
+                        final_version = fallback
+                        print(f"⚠️  {var_name}: No available URL found for {base_version}, keeping existing {fallback}")
+                    else:
+                        print(f"⚠️  {var_name}: No available URL found, using {base_version}")
                 versions[var_name] = final_version
             else:
                 versions[var_name] = base_version
@@ -268,6 +281,7 @@ def main():
         f"LWS_VERSION={versions['LWS_VERSION']}\n",
         f"GATEWAY_API_VERSION={versions['GATEWAY_API_VERSION']}\n",
         f"GIE_VERSION={versions['GIE_VERSION']}\n",
+        f"WVA_VERSION={versions['WVA_VERSION']}\n",
         "# END\n",
     ]
 
@@ -275,7 +289,8 @@ def main():
 
     print(f"\n✅ Updated {output_file.name}\n")
     for var in ["ISTIO_VERSION", "KEDA_VERSION", "GATEWAY_API_VERSION",
-                "GIE_VERSION", "LWS_VERSION", "OPENTELEMETRY_OPERATOR_VERSION"]:
+                "GIE_VERSION", "LWS_VERSION", "OPENTELEMETRY_OPERATOR_VERSION",
+                "WVA_VERSION"]:
         print(f"  {var}={versions[var]}")
 
 
