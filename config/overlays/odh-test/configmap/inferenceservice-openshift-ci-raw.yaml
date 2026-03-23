@@ -19,7 +19,7 @@ data:
       "ingressDomain"  : "$OPENSHIFT_INGRESS_DOMAIN",
       "ingressClassName" : "openshift-default",
       "domainTemplate": "{{ .Name }}-{{ .Namespace }}.{{ .IngressDomain }}",
-      "urlScheme": "http",
+      "urlScheme": "https",
       "disableIstioVirtualHost": false,
       "disableIngressCreation": true
     }
