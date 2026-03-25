@@ -1,7 +1,6 @@
 ---
 apiVersion: tekton.dev/v1
 kind: PipelineRun
-#test
 metadata:
   annotations:
     build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/kserve?rev={{revision}}
@@ -21,7 +20,7 @@ metadata:
 spec:
   params:
   - name: group-components
-    value: '{ "kserve-agent-ci": "opendatahub/kserve-agent", "kserve-controller-ci": "opendatahub/kserve-controller", "kserve-router-ci": "opendatahub/kserve-router", "kserve-storage-initializer-ci": "opendatahub/kserve-storage-initializer" }'
+    value: '{ "kserve-agent-ci": "opendatahub/kserve-agent", "kserve-controller-ci": "opendatahub/kserve-controller", "kserve-router-ci": "opendatahub/kserve-router", "kserve-storage-initializer-ci": "opendatahub/kserve-storage-initializer", "odh-kserve-llmisvc-controller-ci": "opendatahub/odh-kserve-llmisvc-controller" }'
   - name: git-url
     value: '{{source_url}}'
   - name: revision
