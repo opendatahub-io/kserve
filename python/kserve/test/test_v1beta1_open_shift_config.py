@@ -33,6 +33,7 @@ import kserve
 from kserve.models.v1beta1_open_shift_config import V1beta1OpenShiftConfig  # noqa: E501
 from kserve.rest import ApiException
 
+
 class TestV1beta1OpenShiftConfig(unittest.TestCase):
     """V1beta1OpenShiftConfig unit test stubs"""
 
@@ -44,17 +45,14 @@ class TestV1beta1OpenShiftConfig(unittest.TestCase):
 
     def make_instance(self, include_optional):
         """Test V1beta1OpenShiftConfig
-            include_option is a boolean, when False only required
-            params are included, when True both required and
-            optional params are included """
+        include_option is a boolean, when False only required
+        params are included, when True both required and
+        optional params are included"""
         # model = kserve.models.v1beta1_open_shift_config.V1beta1OpenShiftConfig()  # noqa: E501
-        if include_optional :
-            return V1beta1OpenShiftConfig(
-                modelcache_permission_fix_image = '0'
-            )
-        else :
-            return V1beta1OpenShiftConfig(
-        )
+        if include_optional:
+            return V1beta1OpenShiftConfig(modelcache_permission_fix_image="0")
+        else:
+            return V1beta1OpenShiftConfig()
 
     def testV1beta1OpenShiftConfig(self):
         """Test V1beta1OpenShiftConfig"""
@@ -62,5 +60,5 @@ class TestV1beta1OpenShiftConfig(unittest.TestCase):
         inst_req_and_optional = self.make_instance(include_optional=True)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

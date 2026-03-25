@@ -29,11 +29,19 @@ requiredDropCapabilities:
   - SETUID
   - SYS_CHROOT
 runAsUser:
-  type: RunAsAny
+  type: MustRunAs
+  uid: 0
 seLinuxContext:
-  type: RunAsAny
+  type: MustRunAs
+  seLinuxOptions:
+    type: spc_t
 supplementalGroups:
-  type: RunAsAny
+  type: MustRunAs
+  ranges:
+    - min: 0
+      max: 0
+seccompProfiles:
+  - runtime/default
 volumes:
   - configMap
   - downwardAPI

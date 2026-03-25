@@ -29,6 +29,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -196,8 +197,14 @@ func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, m
 	rootUser := int64(0)
 	permFixTTL := int32(60)
 
-	uid := os.Getuid()
-	gid := os.Getgid()
+	var uid, gid int64
+	if FSGroup != nil {
+		uid = *FSGroup
+		gid = *FSGroup
+	} else {
+		uid = int64(os.Getuid())
+		gid = int64(os.Getgid())
+	}
 
 	selinuxLevel := "s0"
 	if mcsLevel != "" {
@@ -226,15 +233,19 @@ func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, m
 		Spec: batchv1.JobSpec{
 			TTLSecondsAfterFinished: &permFixTTL,
 			BackoffLimit:            ptr.To(int32(0)),
+			ActiveDeadlineSeconds:   ptr.To(int64(120)),
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					ServiceAccountName: "kserve-localmodelnode-agent",
+					ServiceAccountName: "kserve-localmodel-permfix",
 					NodeName:           nodeName,
 					RestartPolicy:      corev1.RestartPolicyNever,
 					SecurityContext: &corev1.PodSecurityContext{
 						SELinuxOptions: &corev1.SELinuxOptions{
 							Type:  "spc_t",
 							Level: selinuxLevel,
+						},
+						SeccompProfile: &corev1.SeccompProfile{
+							Type: corev1.SeccompProfileTypeRuntimeDefault,
 						},
 					},
 					InitContainers: []corev1.Container{
@@ -243,6 +254,16 @@ func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, m
 							Image:           permissionFixImage,
 							Command:         []string{"chown", "-R", fmt.Sprintf("%d:%d", uid, gid), MountPath},
 							SecurityContext: initSecurityContext,
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("64Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("500m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      PvcSourceMountName,
@@ -255,6 +276,16 @@ func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, m
 							Image:           permissionFixImage,
 							Command:         chconCommand,
 							SecurityContext: initSecurityContext,
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("64Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("500m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      PvcSourceMountName,
