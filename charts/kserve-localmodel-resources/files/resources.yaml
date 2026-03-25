@@ -87,6 +87,13 @@ rules:
 - apiGroups:
   - serving.kserve.io
   resources:
+  - localmodelcaches/finalizers
+  - localmodelnamespacecaches/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - serving.kserve.io
+  resources:
   - localmodelcaches/status
   - localmodelnamespacecaches/status
   verbs:
@@ -113,6 +120,7 @@ rules:
   - ""
   resources:
   - configmaps
+  - namespaces
   verbs:
   - get
 - apiGroups:
@@ -132,6 +140,16 @@ rules:
   verbs:
   - get
   - watch
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  - persistentvolumes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
 - apiGroups:
   - batch
   resources:
@@ -171,6 +189,12 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - localmodelnodes/finalizers
+  verbs:
+  - update
 - apiGroups:
   - serving.kserve.io
   resources:
@@ -367,7 +391,7 @@ spec:
           readOnlyRootFilesystem: true
           runAsNonRoot: true
         volumeMounts:
-        - mountPath: /mnt/models
+        - mountPath: /var/lib/kserve
           name: models
           readOnly: false
       nodeSelector:

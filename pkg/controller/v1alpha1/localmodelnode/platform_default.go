@@ -40,3 +40,5 @@ func ensureModelRootFolderExistsAndIsWritable(_ context.Context, _ *LocalModelNo
 	}
 	return &ensureModelRootFolderResult{Continue: true}, nil
 }
+
+func (c *LocalModelNodeReconciler) EnsurePermissions(_ context.Context) error { return nil }
