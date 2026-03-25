@@ -558,6 +558,7 @@ def wait_for_resource_deletion(
         TimeoutExpiredError: If the resource is not deleted within wait_timeout seconds
         ApiException: If there's an API error other than 404 (resource not found)
     """
+
     def _check_deleted():
         try:
             read_func()

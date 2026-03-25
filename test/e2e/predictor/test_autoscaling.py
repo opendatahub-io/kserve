@@ -71,8 +71,7 @@ async def test_sklearn_kserve_concurrency(rest_v1_client):
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name,
-            namespace=KSERVE_TEST_NAMESPACE
+            name=service_name, namespace=KSERVE_TEST_NAMESPACE
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -123,8 +122,7 @@ async def test_sklearn_kserve_rps(rest_v1_client):
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name,
-            namespace=KSERVE_TEST_NAMESPACE
+            name=service_name, namespace=KSERVE_TEST_NAMESPACE
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -609,10 +607,15 @@ async def test_sklearn_keda_scale_new_spec_external(rest_v1_client, network_laye
 
     trigger_metadata = scaledobject_resp["items"][0]["spec"]["triggers"][0]["metadata"]
     trigger_type = scaledobject_resp["items"][0]["spec"]["triggers"][0]["type"]
-    authentication_ref = scaledobject_resp["items"][0]["spec"]["triggers"][0]["authenticationRef"]
+    authentication_ref = scaledobject_resp["items"][0]["spec"]["triggers"][0][
+        "authenticationRef"
+    ]
     assert trigger_type == "prometheus"
     assert trigger_metadata["query"] == "http_requests_per_second"
-    assert trigger_metadata["serverAddress"] == "https://thanos-querier.openshift-monitoring.svc.cluster.local:9092"
+    assert (
+        trigger_metadata["serverAddress"]
+        == "https://thanos-querier.openshift-monitoring.svc.cluster.local:9092"
+    )
     assert trigger_metadata["threshold"] == "50.000000"
     assert trigger_metadata["authModes"] == "bearer"
     assert authentication_ref["name"] == "inference-prometheus-auth"
@@ -624,7 +627,9 @@ async def test_sklearn_keda_scale_new_spec_external(rest_v1_client, network_laye
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 
-@pytest.mark.skip(reason="ODH doesn't use OTEL for keda autoscaling, failed to get existing OTel Collector resource: no kind is registered for the type v1beta1.OpenTelemetryCollector")
+@pytest.mark.skip(
+    reason="ODH doesn't use OTEL for keda autoscaling, failed to get existing OTel Collector resource: no kind is registered for the type v1beta1.OpenTelemetryCollector"
+)
 @pytest.mark.raw
 @pytest.mark.autoscaling
 @pytest.mark.asyncio(scope="session")

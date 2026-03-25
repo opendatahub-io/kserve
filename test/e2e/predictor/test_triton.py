@@ -124,7 +124,9 @@ async def test_triton_runtime_with_transformer(rest_v1_client):
             V1Container(
                 image=transformer_image,
                 name="kserve-container",
-                ports=[V1ContainerPort(container_port=8080, name="http1", protocol="TCP")],
+                ports=[
+                    V1ContainerPort(container_port=8080, name="http1", protocol="TCP")
+                ],
                 resources=V1ResourceRequirements(
                     requests={"cpu": "10m", "memory": "128Mi"},
                     limits={"cpu": "100m", "memory": "512Mi"},
