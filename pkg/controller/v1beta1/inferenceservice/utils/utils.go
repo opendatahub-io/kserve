@@ -148,6 +148,11 @@ func GetModelName(isvc *v1beta1.InferenceService) string {
 func GetPredictorEndpoint(ctx context.Context, client client.Client, isvc *v1beta1.InferenceService) (string, error) {
 	if isvc.Status.Address != nil && isvc.Status.Address.URL != nil {
 		hostName := isvc.Status.Address.URL.String()
+		// For internal cluster service calls, use HTTP instead of HTTPS
+		// since services don't have TLS configured
+		if strings.Contains(hostName, ".svc.cluster.local") {
+			hostName = strings.Replace(hostName, "https://", "http://", 1)
+		}
 		path := ""
 		modelName := GetModelName(isvc)
 		if isvc.Spec.Transformer != nil {
