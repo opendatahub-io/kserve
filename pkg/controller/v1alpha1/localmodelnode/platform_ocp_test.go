@@ -61,6 +61,9 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 				"memoryRequest": "200Mi",
 				"memoryLimit": "1Gi"
 			}`,
+			"openshiftConfig": `{
+				"modelcachePermissionFixImage": "quay.io/opendatahub/kserve-agent:latest"
+			}`,
 		}
 		clusterStorageContainerSpec = v1alpha1.StorageContainerSpec{
 			SupportedUriFormats: []v1alpha1.SupportedUriFormat{{Prefix: "s3://"}},
@@ -476,6 +479,9 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 					"defaultJobImage": "kserve/storage-initializer:latest"
 				}`, modelCacheNamespace),
 				"storageInitializer": configs["storageInitializer"],
+				"openshiftConfig": `{
+					"modelcachePermissionFixImage": "quay.io/opendatahub/kserve-agent:latest"
+				}`,
 			}
 
 			configMap := &corev1.ConfigMap{
@@ -607,5 +613,25 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 
 			fsMock.writable = true
 		})
+	})
+})
+
+var _ = Describe("isAllowedImage", func() {
+	It("should accept images from allowed registries", func() {
+		Expect(isAllowedImage("registry.access.redhat.com/ubi9/ubi-minimal:latest")).To(BeTrue())
+		Expect(isAllowedImage("registry.redhat.io/ubi9/ubi-minimal@sha256:abc123")).To(BeTrue())
+		Expect(isAllowedImage("quay.io/opendatahub/some-image:v1")).To(BeTrue())
+		Expect(isAllowedImage("quay.io/modh/some-image:v1")).To(BeTrue())
+	})
+
+	It("should reject images from untrusted registries", func() {
+		Expect(isAllowedImage("docker.io/evil/image:latest")).To(BeFalse())
+		Expect(isAllowedImage("quay.io/malicious/image:latest")).To(BeFalse())
+		Expect(isAllowedImage("")).To(BeFalse())
+	})
+
+	It("should reject path traversal attempts", func() {
+		Expect(isAllowedImage("quay.io/opendatahub/../evil/image:latest")).To(BeFalse())
+		Expect(isAllowedImage("registry.redhat.io/../attacker/image:latest")).To(BeFalse())
 	})
 })
