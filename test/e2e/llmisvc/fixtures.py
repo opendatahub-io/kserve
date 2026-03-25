@@ -342,6 +342,9 @@ LLMINFERENCESERVICE_CONFIGS = {
                     "env": [
                         {"name": "VLLM_CPU_KVCACHE_SPACE", "value": "1"},
                     ],
+                    "env": [
+                        {"name": "VLLM_CPU_KVCACHE_SPACE", "value": "1"},
+                    ],
                     "resources": {
                         "limits": {"cpu": "2", "memory": "7Gi"},
                         "requests": {"cpu": "200m", "memory": "2Gi"},
@@ -368,6 +371,9 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "/var/run/kserve/tls/tls.crt",
                         "--ssl-keyfile",
                         "/var/run/kserve/tls/tls.key",
+                    ],
+                    "env": [
+                        {"name": "VLLM_CPU_KVCACHE_SPACE", "value": "1"},
                     ],
                     "env": [
                         {"name": "VLLM_CPU_KVCACHE_SPACE", "value": "1"},

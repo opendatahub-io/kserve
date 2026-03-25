@@ -76,8 +76,7 @@ async def test_triton(rest_v2_client):
             print(svc)
         deployments = kserve_client.app_api.list_namespaced_deployment(
             KSERVE_TEST_NAMESPACE,
-            label_selector="serving.kserve.io/"
-            "inferenceservice={}".format(service_name),
+            label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
         )
         for deployment in deployments.items:
             print(deployment)
@@ -165,8 +164,7 @@ async def test_triton_runtime_with_transformer(rest_v1_client):
             print(svc)
         deployments = kserve_client.app_api.list_namespaced_deployment(
             KSERVE_TEST_NAMESPACE,
-            label_selector="serving.kserve.io/"
-            "inferenceservice={}".format(service_name),
+            label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
         )
         for deployment in deployments.items:
             print(deployment)
