@@ -43,9 +43,4 @@ supplementalGroups:
 seccompProfiles:
   - runtime/default
 volumes:
-  - configMap
-  - downwardAPI
-  - emptyDir
   - persistentVolumeClaim
-  - projected
-  - secret

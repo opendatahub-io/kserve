@@ -201,10 +201,11 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			DeferCleanup(cancel)
 
 			fsMock = &mockFileSystem{
-				subDirs:  []os.DirEntry{},
-				writable: false,
+				subDirs: []os.DirEntry{},
 			}
 			fsHelper = fsMock
+			// Simulate a root-owned volume that the agent can't write to, triggering the permission-fix job flow
+			isModelRootWritable = func() bool { return false }
 
 			// Patch the existing jobNamespace to add MCS annotation
 			existingNs := &corev1.Namespace{}
@@ -309,14 +310,15 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 				Equal(corev1.SeccompProfileTypeRuntimeDefault))
 
 			// Reset writable for cleanup
-			fsMock.writable = true
+			isModelRootWritable = func() bool { return true }
 		})
 
 		It("Should skip permission fix when filesystem is writable", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			DeferCleanup(cancel)
 			fsMock.clear()
-			fsMock.writable = true
+			// Simulate a volume that's already writable, so the reconciler skips the permission-fix job
+			isModelRootWritable = func() bool { return true }
 			fsHelper = fsMock
 			storageKey := v1alpha1.GetStorageKey(sourceModelUri)
 			fsMock.mockModel(&MockFileInfo{name: storageKey, isDir: true})
@@ -401,10 +403,10 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			DeferCleanup(cancel)
 
 			fsMock = &mockFileSystem{
-				subDirs:  []os.DirEntry{},
-				writable: false,
+				subDirs: []os.DirEntry{},
 			}
 			fsHelper = fsMock
+			isModelRootWritable = func() bool { return false }
 
 			configMap := &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
@@ -455,7 +457,7 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			Expect(fixSelinux.Command).NotTo(ContainElement("-l"),
 				"chcon should not use -l flag when no MCS level is present")
 
-			fsMock.writable = true
+			isModelRootWritable = func() bool { return true }
 		})
 
 		It("Should fall back to process UID when FSGroup is not configured", func() {
@@ -463,10 +465,10 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			DeferCleanup(cancel)
 
 			fsMock = &mockFileSystem{
-				subDirs:  []os.DirEntry{},
-				writable: false,
+				subDirs: []os.DirEntry{},
 			}
 			fsHelper = fsMock
+			isModelRootWritable = func() bool { return false }
 
 			// Save and clear FSGroup
 			savedFSGroup := FSGroup
@@ -534,7 +536,7 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			Expect(fixOwnership.Command).To(ContainElement(expectedChownTarget),
 				"chown should fall back to process UID:GID when FSGroup is nil")
 
-			fsMock.writable = true
+			isModelRootWritable = func() bool { return true }
 		})
 
 		It("Should reject invalid MCS level from namespace annotation", func() {
@@ -542,10 +544,10 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			DeferCleanup(cancel)
 
 			fsMock = &mockFileSystem{
-				subDirs:  []os.DirEntry{},
-				writable: false,
+				subDirs: []os.DirEntry{},
 			}
 			fsHelper = fsMock
+			isModelRootWritable = func() bool { return false }
 
 			// Patch namespace with an invalid MCS level (injection attempt)
 			existingNs := &corev1.Namespace{}
@@ -611,7 +613,7 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			}, time.Second*3, interval).Should(Equal(0),
 				"No permission fix job should be created with invalid MCS level")
 
-			fsMock.writable = true
+			isModelRootWritable = func() bool { return true }
 		})
 	})
 })

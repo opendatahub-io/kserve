@@ -49,6 +49,7 @@ const permFixJobFinalizerName = "serving.kserve.io/permfix-job-cleanup"
 var (
 	validMCSLevel = regexp.MustCompile(`^s\d+(-s\d+)?(:(c\d{1,4})(,c\d{1,4})*)?$`)
 
+	// TODO: add rhoai image registries and check for airgapped mirrors
 	allowedRegistries = []string{
 		"registry.access.redhat.com/",
 		"registry.redhat.io/",
@@ -70,6 +71,10 @@ func isAllowedImage(image string) bool {
 }
 
 func enhanceDownloadJob(job *batchv1.Job, storageKey string) error {
+	containers := job.Spec.Template.Spec.Containers
+	if len(containers) == 0 || len(containers[0].VolumeMounts) == 0 || len(containers[0].Args) == 0 {
+		return errors.New("download job spec is missing required containers, volume mounts, or args")
+	}
 	container := &job.Spec.Template.Spec.Containers[0]
 	container.VolumeMounts[0].SubPath = ""
 	container.Args = []string{container.Args[0], filepath.Join(MountPath, "models", storageKey)}
@@ -147,7 +152,7 @@ func ensureModelRootFolderExistsAndIsWritable(ctx context.Context, c *LocalModel
 
 	permissionFixImage := openshiftConfig.ModelcachePermissionFixImage
 	if permissionFixImage == "" {
-		return nil, fmt.Errorf("modelcachePermissionFixImage not configured in inferenceservice-config")
+		return nil, errors.New("modelcachePermissionFixImage not configured in inferenceservice-config")
 	}
 	if !isAllowedImage(permissionFixImage) {
 		c.Log.Error(nil, "Rejecting permission fix image from untrusted registry", "image", permissionFixImage)
