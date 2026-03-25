@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -38,7 +39,10 @@ import (
 
 const MountPath = "/var/lib/kserve"
 
-var permissionFixImage = "registry.access.redhat.com/ubi9/ubi-minimal:latest"
+var (
+	permissionFixImage = "registry.access.redhat.com/ubi9/ubi-minimal:latest"
+	validMCSLevel      = regexp.MustCompile(`^s\d+(-s\d+)?(:(c\d{1,4})(,c\d{1,4})*)?$`)
+)
 
 func enhanceDownloadJob(job *batchv1.Job, storageKey string) error {
 	container := &job.Spec.Template.Spec.Containers[0]
@@ -62,7 +66,8 @@ func enhanceDownloadJob(job *batchv1.Job, storageKey string) error {
 }
 
 func ensureVolumePermissions(ctx context.Context, c *LocalModelNodeReconciler,
-	localModelConfig *v1beta1.LocalModelConfig) (ctrl.Result, bool, error) {
+	localModelConfig *v1beta1.LocalModelConfig,
+) (ctrl.Result, bool, error) {
 	if isModelRootWritable() {
 		return ctrl.Result{}, true, nil
 	}
@@ -83,17 +88,10 @@ func ensureVolumePermissions(ctx context.Context, c *LocalModelNodeReconciler,
 		permissionFixImage = openshiftConfig.ModelcachePermissionFixImage
 	}
 
-	mcsLevel := getProcessMCSLevel()
-	if mcsLevel != "" {
-		c.Log.Info("Read MCS level from agent process", "mcsLevel", mcsLevel)
-	} else {
-		ns, err := c.Clientset.CoreV1().Namespaces().Get(ctx, localModelConfig.JobNamespace, metav1.GetOptions{})
-		if err != nil {
-			c.Log.Info("Could not get namespace for MCS annotation", "namespace", localModelConfig.JobNamespace, "error", err)
-		} else if mcs, ok := ns.Annotations["openshift.io/sa.scc.mcs"]; ok {
-			mcsLevel = mcs
-			c.Log.Info("Falling back to namespace MCS level", "namespace", localModelConfig.JobNamespace, "mcsLevel", mcsLevel)
-		}
+	mcsLevel, err := c.resolveMCSLevel(ctx, localModelConfig.JobNamespace)
+	if err != nil {
+		c.Log.Error(err, "Invalid MCS level")
+		return ctrl.Result{}, false, err
 	}
 
 	if err := c.launchPermissionFixJob(ctx, mcsLevel); err != nil {
@@ -143,6 +141,32 @@ func getProcessMCSLevel() string {
 	return parts[3]
 }
 
+func (c *LocalModelNodeReconciler) resolveMCSLevel(ctx context.Context, namespace string) (string, error) {
+	mcsLevel := getProcessMCSLevel()
+	if mcsLevel != "" {
+		if !validMCSLevel.MatchString(mcsLevel) {
+			return "", fmt.Errorf("invalid MCS level from process: %q", mcsLevel)
+		}
+		c.Log.Info("Read MCS level from agent process", "mcsLevel", mcsLevel)
+		return mcsLevel, nil
+	}
+
+	ns, err := c.Clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
+	if err != nil {
+		c.Log.Info("Could not get namespace for MCS annotation", "namespace", namespace, "error", err)
+		return "", nil
+	}
+	if mcs, ok := ns.Annotations["openshift.io/sa.scc.mcs"]; ok {
+		mcs = strings.TrimSpace(mcs)
+		if !validMCSLevel.MatchString(mcs) {
+			return "", fmt.Errorf("invalid MCS level from namespace annotation: %q", mcs)
+		}
+		c.Log.Info("Using namespace MCS level", "namespace", namespace, "mcsLevel", mcs)
+		return mcs, nil
+	}
+	return "", nil
+}
+
 func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, mcsLevel string) error {
 	jobName := "fix-permissions-" + nodeName
 
@@ -175,14 +199,22 @@ func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, m
 	uid := os.Getuid()
 	gid := os.Getgid()
 
-	chconCmd := "chcon -R -t container_file_t " + MountPath
-	if mcsLevel != "" {
-		chconCmd = fmt.Sprintf("chcon -R -t container_file_t -l %s %s", mcsLevel, MountPath)
-	}
-
 	selinuxLevel := "s0"
 	if mcsLevel != "" {
 		selinuxLevel = mcsLevel
+	}
+
+	initSecurityContext := &corev1.SecurityContext{
+		RunAsUser:                &rootUser,
+		AllowPrivilegeEscalation: ptr.To(true),
+		Capabilities: &corev1.Capabilities{
+			Add: []corev1.Capability{"CHOWN", "DAC_OVERRIDE", "FOWNER"},
+		},
+	}
+
+	chconCommand := []string{"chcon", "-R", "-t", "container_file_t", MountPath}
+	if mcsLevel != "" {
+		chconCommand = []string{"chcon", "-R", "-t", "container_file_t", "-l", mcsLevel, MountPath}
 	}
 
 	job := &batchv1.Job{
@@ -205,22 +237,37 @@ func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, m
 							Level: selinuxLevel,
 						},
 					},
-					Containers: []corev1.Container{
+					InitContainers: []corev1.Container{
 						{
-							Name:  "fix-permissions",
-							Image: permissionFixImage,
-							Command: []string{
-								"sh", "-c",
-								fmt.Sprintf("chown -R %d:%d %s && %s",
-									uid, gid, MountPath, chconCmd),
-							},
-							SecurityContext: &corev1.SecurityContext{
-								RunAsUser:                &rootUser,
-								AllowPrivilegeEscalation: ptr.To(true),
-								Capabilities: &corev1.Capabilities{
-									Add: []corev1.Capability{"CHOWN", "DAC_OVERRIDE", "FOWNER"},
+							Name:            "fix-ownership",
+							Image:           permissionFixImage,
+							Command:         []string{"chown", "-R", fmt.Sprintf("%d:%d", uid, gid), MountPath},
+							SecurityContext: initSecurityContext,
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      PvcSourceMountName,
+									MountPath: MountPath,
 								},
 							},
+						},
+						{
+							Name:            "fix-selinux",
+							Image:           permissionFixImage,
+							Command:         chconCommand,
+							SecurityContext: initSecurityContext,
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      PvcSourceMountName,
+									MountPath: MountPath,
+								},
+							},
+						},
+					},
+					Containers: []corev1.Container{
+						{
+							Name:    "log-success",
+							Image:   permissionFixImage,
+							Command: []string{"echo", "Permissions fixed: ownership and SELinux labels applied successfully"},
 							VolumeMounts: []corev1.VolumeMount{
 								{
 									Name:      PvcSourceMountName,

