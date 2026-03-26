@@ -37,7 +37,7 @@ data:
         "ingressDomain"  : "example.com",
         "ingressClassName" : "openshift-default",
         "domainTemplate": "{{ .Name }}-{{ .Namespace }}.{{ .IngressDomain }}",
-        "urlScheme": "https",
+        "urlScheme": "http",
         "disableIstioVirtualHost": false, 
         "disableIngressCreation": true
     }
