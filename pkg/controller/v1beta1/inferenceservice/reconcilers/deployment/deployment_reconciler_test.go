@@ -1563,18 +1563,19 @@ type mockClientForCheckDeploymentExist struct {
 }
 
 func (m *mockClientForCheckDeploymentExist) Get(ctx context.Context, key kclient.ObjectKey, obj kclient.Object, opts ...kclient.GetOption) error {
-	if m.getErr != nil {
-		return m.getErr
-	}
-
 	// Handle different object types
 	switch o := obj.(type) {
 	case *appsv1.Deployment:
+		// Return error only for Deployment Get() calls
+		if m.getErr != nil {
+			return m.getErr
+		}
 		if m.getDeployment != nil {
 			*o = *m.getDeployment.DeepCopy()
 		}
 	case *v1beta1.InferenceService:
-		// For InferenceService, create a minimal mock object with required fields
+		// For InferenceService, always create a minimal mock object with required fields
+		// This is needed for SAR ConfigMap creation
 		o.ObjectMeta = metav1.ObjectMeta{
 			Name:      key.Name,
 			Namespace: key.Namespace,
@@ -2451,4 +2452,326 @@ func TestGetAuthProxyConditionNoCondition(t *testing.T) {
 	cond, condType := reconciler.GetAuthProxyCondition()
 	assert.Nil(t, cond)
 	assert.Empty(t, condType)
+}
+
+// Tests for RHOAIENG-52129: OAuth proxy always added to new deployments
+
+func TestNewRawDeploymentWithAuthDisabled_IncludesOAuthProxy(t *testing.T) {
+	client := &mockClientForCheckDeploymentExist{
+		getErr: errors.NewNotFound(appsv1.Resource("deployment"), "default-predictor"),
+	}
+	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+		Data: map[string]string{
+			oauthProxyISVCConfigKey: `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+		},
+	})
+
+	objectMeta := metav1.ObjectMeta{
+		Name:      "default-predictor",
+		Namespace: "default-predictor-namespace",
+		Annotations: map[string]string{
+			constants.ODHKserveRawAuth: "false", // Auth disabled
+		},
+		Labels: map[string]string{
+			constants.DeploymentMode:  string(constants.Standard),
+			constants.AutoscalerClass: string(constants.DefaultAutoscalerClass),
+		},
+	}
+
+	deployments, _, err := createRawDeploymentODH(
+		context.TODO(),
+		client,
+		clientset,
+		constants.InferenceServiceResource,
+		objectMeta,
+		metav1.ObjectMeta{},
+		&v1beta1.ComponentExtensionSpec{},
+		&corev1.PodSpec{},
+		nil,
+		nil,
+	)
+
+	require.NoError(t, err)
+	require.NotEmpty(t, deployments)
+
+	// Verify OAuth proxy container is present even though auth is disabled
+	containers := deployments[0].Spec.Template.Spec.Containers
+	oauthProxyFound := false
+	for _, container := range containers {
+		if container.Name == constants.KubeRbacContainerName {
+			oauthProxyFound = true
+			break
+		}
+	}
+	assert.True(t, oauthProxyFound, "OAuth proxy should be present in new deployment even with auth disabled")
+
+	// Verify AutomountServiceAccountToken is set
+	assert.NotNil(t, deployments[0].Spec.Template.Spec.AutomountServiceAccountToken)
+	assert.True(t, *deployments[0].Spec.Template.Spec.AutomountServiceAccountToken)
+
+	// Verify volumes are mounted
+	volumes := deployments[0].Spec.Template.Spec.Volumes
+	tlsVolumeFound := false
+	sarVolumeFound := false
+	for _, vol := range volumes {
+		if vol.Name == "proxy-tls" {
+			tlsVolumeFound = true
+		}
+		if vol.Name == "default-predictor-kube-rbac-proxy-sar-config" {
+			sarVolumeFound = true
+		}
+	}
+	assert.True(t, tlsVolumeFound, "TLS volume should be mounted")
+	assert.True(t, sarVolumeFound, "SAR ConfigMap volume should be mounted")
+}
+
+func TestNewRawDeploymentWithAuthEnabled_IncludesOAuthProxy(t *testing.T) {
+	client := &mockClientForCheckDeploymentExist{
+		getErr: errors.NewNotFound(appsv1.Resource("deployment"), "auth-enabled-predictor"),
+	}
+	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+		Data: map[string]string{
+			oauthProxyISVCConfigKey: `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+		},
+	})
+
+	objectMeta := metav1.ObjectMeta{
+		Name:      "auth-enabled-predictor",
+		Namespace: "default-predictor-namespace",
+		Annotations: map[string]string{
+			constants.ODHKserveRawAuth: "true", // Auth enabled
+		},
+		Labels: map[string]string{
+			constants.DeploymentMode:  string(constants.Standard),
+			constants.AutoscalerClass: string(constants.DefaultAutoscalerClass),
+		},
+	}
+
+	deployments, _, err := createRawDeploymentODH(
+		context.TODO(),
+		client,
+		clientset,
+		constants.InferenceServiceResource,
+		objectMeta,
+		metav1.ObjectMeta{},
+		&v1beta1.ComponentExtensionSpec{},
+		&corev1.PodSpec{},
+		nil,
+		nil,
+	)
+
+	require.NoError(t, err)
+	require.NotEmpty(t, deployments)
+
+	// Verify OAuth proxy container is present
+	containers := deployments[0].Spec.Template.Spec.Containers
+	oauthProxyFound := false
+	for _, container := range containers {
+		if container.Name == constants.KubeRbacContainerName {
+			oauthProxyFound = true
+			break
+		}
+	}
+	assert.True(t, oauthProxyFound, "OAuth proxy should be present in new deployment with auth enabled")
+}
+
+func TestExistingRawDeploymentWithAuthDisabled_NoOAuthProxyAdded(t *testing.T) {
+	existingDeployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "existing-predictor",
+			Namespace: "default-predictor-namespace",
+		},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: constants.InferenceServiceContainerName},
+					},
+				},
+			},
+		},
+	}
+
+	client := &mockClientForCheckDeploymentExist{
+		getDeployment: existingDeployment,
+		getErr:        nil,
+	}
+	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+		Data: map[string]string{
+			oauthProxyISVCConfigKey: `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+		},
+	})
+
+	objectMeta := metav1.ObjectMeta{
+		Name:      "existing-predictor",
+		Namespace: "default-predictor-namespace",
+		Annotations: map[string]string{
+			constants.ODHKserveRawAuth: "false",
+		},
+		Labels: map[string]string{
+			constants.DeploymentMode:  string(constants.Standard),
+			constants.AutoscalerClass: string(constants.DefaultAutoscalerClass),
+		},
+	}
+
+	deployments, _, err := createRawDeploymentODH(
+		context.TODO(),
+		client,
+		clientset,
+		constants.InferenceServiceResource,
+		objectMeta,
+		metav1.ObjectMeta{},
+		&v1beta1.ComponentExtensionSpec{},
+		&corev1.PodSpec{},
+		nil,
+		nil,
+	)
+
+	require.NoError(t, err)
+	require.NotEmpty(t, deployments)
+
+	// Verify OAuth proxy is NOT added to existing deployment with auth disabled
+	containers := deployments[0].Spec.Template.Spec.Containers
+	oauthProxyFound := false
+	for _, container := range containers {
+		if container.Name == constants.KubeRbacContainerName {
+			oauthProxyFound = true
+			break
+		}
+	}
+	assert.False(t, oauthProxyFound, "OAuth proxy should NOT be added to existing deployment with auth disabled")
+}
+
+func TestExistingRawDeploymentWithAuthEnabled_PreservesOAuthProxy(t *testing.T) {
+	existingDeployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "existing-auth-predictor",
+			Namespace: "default-predictor-namespace",
+		},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: constants.InferenceServiceContainerName},
+						{Name: constants.KubeRbacContainerName},
+					},
+				},
+			},
+		},
+	}
+
+	client := &mockClientForCheckDeploymentExist{
+		getDeployment: existingDeployment,
+		getErr:        nil,
+	}
+	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+		Data: map[string]string{
+			oauthProxyISVCConfigKey: `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+		},
+	})
+
+	objectMeta := metav1.ObjectMeta{
+		Name:      "existing-auth-predictor",
+		Namespace: "default-predictor-namespace",
+		Annotations: map[string]string{
+			constants.ODHKserveRawAuth: "true",
+		},
+		Labels: map[string]string{
+			constants.DeploymentMode:  string(constants.Standard),
+			constants.AutoscalerClass: string(constants.DefaultAutoscalerClass),
+		},
+	}
+
+	deployments, _, err := createRawDeploymentODH(
+		context.TODO(),
+		client,
+		clientset,
+		constants.InferenceServiceResource,
+		objectMeta,
+		metav1.ObjectMeta{},
+		&v1beta1.ComponentExtensionSpec{},
+		&corev1.PodSpec{},
+		nil,
+		nil,
+	)
+
+	require.NoError(t, err)
+	require.NotEmpty(t, deployments)
+
+	// Verify OAuth proxy is still present in existing deployment with auth enabled
+	containers := deployments[0].Spec.Template.Spec.Containers
+	oauthProxyFound := false
+	for _, container := range containers {
+		if container.Name == constants.KubeRbacContainerName {
+			oauthProxyFound = true
+			break
+		}
+	}
+	assert.True(t, oauthProxyFound, "OAuth proxy should be preserved in existing deployment with auth enabled")
+}
+
+func TestNewInferenceGraph_NoOAuthProxy(t *testing.T) {
+	client := &mockClientForCheckDeploymentExist{
+		getErr: errors.NewNotFound(appsv1.Resource("deployment"), "ig-predictor"),
+	}
+	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+		Data: map[string]string{
+			oauthProxyISVCConfigKey: `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+		},
+	})
+
+	objectMeta := metav1.ObjectMeta{
+		Name:      "ig-predictor",
+		Namespace: "default-predictor-namespace",
+		Annotations: map[string]string{
+			constants.ODHKserveRawAuth: "false",
+		},
+		Labels: map[string]string{
+			constants.DeploymentMode:  string(constants.Standard),
+			constants.AutoscalerClass: string(constants.DefaultAutoscalerClass),
+		},
+	}
+
+	deployments, _, err := createRawDeploymentODH(
+		context.TODO(),
+		client,
+		clientset,
+		constants.InferenceGraphResource,
+		objectMeta,
+		metav1.ObjectMeta{},
+		&v1beta1.ComponentExtensionSpec{},
+		&corev1.PodSpec{},
+		nil,
+		nil,
+	)
+
+	require.NoError(t, err)
+	require.NotEmpty(t, deployments)
+
+	// Verify OAuth proxy is NOT added to InferenceGraph
+	containers := deployments[0].Spec.Template.Spec.Containers
+	oauthProxyFound := false
+	for _, container := range containers {
+		if container.Name == constants.KubeRbacContainerName {
+			oauthProxyFound = true
+			break
+		}
+	}
+	assert.False(t, oauthProxyFound, "OAuth proxy should NOT be added to InferenceGraph resources")
+
+	// Verify TLS volumes ARE still mounted (for serving cert)
+	volumes := deployments[0].Spec.Template.Spec.Volumes
+	tlsVolumeFound := false
+	for _, vol := range volumes {
+		if vol.Name == "proxy-tls" {
+			tlsVolumeFound = true
+			break
+		}
+	}
+	assert.True(t, tlsVolumeFound, "TLS volume should be mounted for InferenceGraph")
 }
