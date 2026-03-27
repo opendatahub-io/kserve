@@ -49,6 +49,7 @@ const (
 	OtelCollectorConfigName            = "opentelemetryCollector"
 	StorageInitializerConfigMapKeyName = "storageInitializer"
 	AutoscalerConfigName               = "autoscaler"
+	OpenShiftConfigName                = "openshiftConfig"
 )
 
 const (
@@ -419,6 +420,21 @@ func NewServiceConfig(isvcConfigMap *corev1.ConfigMap) (*ServiceConfig, error) {
 		}
 	}
 	return serviceConfig, nil
+}
+
+// +kubebuilder:object:generate=false
+type OpenShiftConfig struct {
+	ModelcachePermissionFixImage string `json:"modelcachePermissionFixImage,omitempty"`
+}
+
+func NewOpenShiftConfig(isvcConfigMap *corev1.ConfigMap) (*OpenShiftConfig, error) {
+	cfg := &OpenShiftConfig{}
+	if data, ok := isvcConfigMap.Data[OpenShiftConfigName]; ok {
+		if err := json.Unmarshal([]byte(data), cfg); err != nil {
+			return nil, err
+		}
+	}
+	return cfg, nil
 }
 
 // GetStorageInitializerConfigs parses the StorageInitializer configuration from the provided ConfigMap.

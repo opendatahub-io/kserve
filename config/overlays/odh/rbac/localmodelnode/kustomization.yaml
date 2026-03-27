@@ -1,7 +1,5 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - llmisvc
-  - localmodel
-  - localmodelnode
-  - user-cluster-roles.yaml
+- role.yaml
+- clusterrolebinding.yaml
