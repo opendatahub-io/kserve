@@ -16,13 +16,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package hack
+package qpext
 
 import (
 	_ "github.com/google/go-licenses/v2"
-	_ "k8s.io/code-generator/cmd/client-gen"
-	_ "k8s.io/code-generator/cmd/deepcopy-gen"
-	_ "k8s.io/code-generator/cmd/defaulter-gen"
-	_ "k8s.io/code-generator/cmd/informer-gen"
-	_ "k8s.io/code-generator/cmd/lister-gen"
 )

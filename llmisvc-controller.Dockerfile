@@ -15,12 +15,12 @@ COPY pkg/    pkg/
 ARG GOTAGS=""
 RUN CGO_ENABLED=0 GOOS=linux go build -tags "${GOTAGS}" -a -o manager ./cmd/llmisvc
 
-# Generate third-party licenses
+# Generate third-party licenses (tool is declared in hack/tools.go and pinned in go.mod)
 COPY LICENSE LICENSE
-RUN go install github.com/google/go-licenses@latest
+COPY hack/tools.go hack/tools.go
 # Forbidden Licenses: https://github.com/google/licenseclassifier/blob/e6a9bb99b5a6f71d5a34336b8245e305f5430f99/license_type.go#L341
-RUN /opt/app-root/src/go/bin/go-licenses check ./cmd/... ./pkg/... --disallowed_types="forbidden,unknown"
-RUN /opt/app-root/src/go/bin/go-licenses save --save_path third_party/library ./cmd/llmisvc
+RUN go run github.com/google/go-licenses/v2 check ./cmd/... ./pkg/... --disallowed_types="forbidden,unknown"
+RUN go run github.com/google/go-licenses/v2 save --save_path third_party/library ./cmd/llmisvc
 
 # Copy the controller-manager into a thin image
 FROM gcr.io/distroless/static:nonroot
