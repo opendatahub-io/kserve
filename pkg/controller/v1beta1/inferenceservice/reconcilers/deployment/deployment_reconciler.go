@@ -126,14 +126,46 @@ func createRawDeploymentODH(ctx context.Context,
 		isvcname = componentMeta.Name
 	}
 
+	// Check if this is a new deployment
+	// Note: If client is nil (e.g., in some tests), treat as new deployment
+	isNewDeployment := false
+	if client != nil {
+		existingDeployment := &appsv1.Deployment{}
+		err = client.Get(ctx, types.NamespacedName{
+			Namespace: componentMeta.Namespace,
+			Name:      componentMeta.Name,
+		}, existingDeployment)
+		if err != nil {
+			if apierr.IsNotFound(err) {
+				isNewDeployment = true
+			}
+			// For other errors, treat as existing to be safe (preserves current behavior)
+		}
+	} else {
+		// If client is nil, assume new deployment (for backward compatibility with tests)
+		isNewDeployment = true
+	}
+
 	enableAuth := false
 	addNewAuthProxy := false
 	authProxyPreserved := false
+	alwaysAddProxy := false
+
+	// For new InferenceService deployments, always add OAuth proxy
+	// Only if client and clientset are available (needed for SAR ConfigMap creation)
+	if isNewDeployment && resourceType == constants.InferenceServiceResource && client != nil && clientset != nil {
+		alwaysAddProxy = true
+	}
+
 	// Deployment list is for multi-node, we only need to add oauth proxy and serving secret certs to the head deployment
 	headDeployment := deploymentList[0]
+
+	// Determine if auth is enabled
 	if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
 		enableAuth = true
+	}
 
+	if enableAuth || alwaysAddProxy {
 		wantsMigration := false
 		if val, ok := componentMeta.Annotations[constants.ODHAuthProxyTypeAnnotation]; ok {
 			wantsMigration = (val == constants.KubeRbacProxyType)
@@ -156,7 +188,7 @@ func createRawDeploymentODH(ctx context.Context,
 				case constants.OauthProxyContainerName:
 					if wantsMigration {
 						addNewAuthProxy = true
-						err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname)
+						err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, true)
 						if err != nil {
 							return nil, false, err
 						}
@@ -172,7 +204,7 @@ func createRawDeploymentODH(ctx context.Context,
 					}
 					if configuredKubeRbacImage != "" && existingProxyImage == configuredKubeRbacImage {
 						addNewAuthProxy = true
-						err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname)
+						err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, true)
 						if err != nil {
 							return nil, false, err
 						}
@@ -186,14 +218,14 @@ func createRawDeploymentODH(ctx context.Context,
 				}
 			} else {
 				addNewAuthProxy = true
-				err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname)
+				err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, alwaysAddProxy)
 				if err != nil {
 					return nil, false, err
 				}
 			}
 		}
 	}
-	if (resourceType == constants.InferenceServiceResource && enableAuth) || resourceType == constants.InferenceGraphResource {
+	if alwaysAddProxy || (resourceType == constants.InferenceServiceResource && enableAuth) || resourceType == constants.InferenceGraphResource {
 		if addNewAuthProxy || resourceType == constants.InferenceGraphResource {
 			mountServingSecretCMVolumeToDeployment(headDeployment, componentMeta, resourceType, isvcname)
 		}
@@ -360,10 +392,18 @@ func addOauthContainerToDeployment(ctx context.Context,
 	componentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, isvcName string,
+	forceAdd bool,
 ) error {
 	var upstreamPort, upstreamTimeout string
 
+	// Check if we should add the proxy
+	// Either forced (new deployment) or auth is enabled (existing deployment)
+	shouldAdd := forceAdd
 	if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
+		shouldAdd = true
+	}
+
+	if shouldAdd {
 		switch {
 		case componentExt != nil && componentExt.Batcher != nil:
 			upstreamPort = constants.InferenceServiceDefaultAgentPortStr
