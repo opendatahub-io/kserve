@@ -241,14 +241,6 @@ func (r *LLMISVCReconciler) expectedVLLMEngineMonitor(llmSvc *v1alpha2.LLMInfere
 					TLSConfig: &monitoringv1.SafeTLSConfig{
 						InsecureSkipVerify: ptr.To(true),
 					},
-					MetricRelabelConfigs: []monitoringv1.RelabelConfig{
-						{
-							SourceLabels: []monitoringv1.LabelName{"__name__"},
-							Action:       "replace",
-							Replacement:  ptr.To("kserve_$1"),
-							TargetLabel:  "__name__",
-						},
-					},
 					RelabelConfigs: []monitoringv1.RelabelConfig{
 						{
 							SourceLabels: []monitoringv1.LabelName{"__meta_kubernetes_pod_label_app_kubernetes_io_name"},
@@ -303,14 +295,6 @@ func (r *LLMISVCReconciler) expectedSchedulerMonitor(llmSvc *v1alpha2.LLMInferen
 								Name: "kserve-metrics-reader-sa-secret",
 							},
 							Key: "token",
-						},
-					},
-					MetricRelabelConfigs: []monitoringv1.RelabelConfig{
-						{
-							SourceLabels: []monitoringv1.LabelName{"__name__"},
-							Action:       "replace",
-							Replacement:  ptr.To("kserve_$1"),
-							TargetLabel:  "__name__",
 						},
 					},
 					RelabelConfigs: []monitoringv1.RelabelConfig{
