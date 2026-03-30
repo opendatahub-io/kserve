@@ -20,6 +20,7 @@ package localmodelnode
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -29,7 +30,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -112,7 +113,7 @@ func ensureModelRootFolderExistsAndIsWritable(ctx context.Context, c *LocalModel
 					for i := range existingJobs.Items {
 						if err := c.Clientset.BatchV1().Jobs(jobNamespace).Delete(ctx, existingJobs.Items[i].Name, metav1.DeleteOptions{
 							PropagationPolicy: ptr.To(metav1.DeletePropagationBackground),
-						}); err != nil && !errors.IsNotFound(err) {
+						}); err != nil && !apierrors.IsNotFound(err) {
 							c.Log.Error(err, "Failed to delete permission fix job", "job", existingJobs.Items[i].Name)
 							return &ensureModelRootFolderResult{Result: ctrl.Result{RequeueAfter: 5 * time.Second}}, nil
 						}
