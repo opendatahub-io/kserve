@@ -23,14 +23,14 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/kserve-router:odh-v3.4
+    value: quay.io/opendatahub/kserve-router:odh-stable
   - name: dockerfile
     value: router.Dockerfile
   - name: path-context
     value: .
   - name: additional-tags
     value:
-      - 'odh-stable'
+    - 'odh-stable'
   pipelineRef:
     resolver: git
     params:

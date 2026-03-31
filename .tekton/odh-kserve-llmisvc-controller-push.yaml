@@ -23,17 +23,17 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-kserve-llmisvc-controller:odh-v3.4
+    value: quay.io/opendatahub/odh-kserve-llmisvc-controller:odh-stable
   - name: dockerfile
     value: llmisvc-controller.Dockerfile
   - name: path-context
     value: .
   - name: additional-tags
     value:
-      - 'odh-stable'
+    - 'odh-stable'
   - name: build-args
     value:
-      - "GOTAGS=distro"
+    - "GOTAGS=distro"
   pipelineRef:
     resolver: git
     params:
@@ -44,9 +44,9 @@ spec:
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-odh-kserve-llmisvc-controller
+    serviceAccountName: build-pipeline-odh-kserve-llmisvc-controller-ci
   workspaces:
-    - name: git-auth
-      secret:
-        secretName: '{{ git_auth_secret }}'
+  - name: git-auth
+    secret:
+      secretName: '{{ git_auth_secret }}'
 status: {}
