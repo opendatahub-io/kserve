@@ -323,7 +323,9 @@ class TestOpenAIParamsConversion:
             )
         )
         # request_id is randomly generated on construction, so exclude it
-        assert converted_params.model_dump(exclude={"request_id"}) == completion_create_params.model_dump(exclude={"request_id"})
+        assert converted_params.model_dump(
+            exclude={"request_id"}
+        ) == completion_create_params.model_dump(exclude={"request_id"})
 
 
 class TestOpenAIProxyModelCompletion:
