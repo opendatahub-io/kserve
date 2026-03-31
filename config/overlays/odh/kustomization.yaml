@@ -292,6 +292,36 @@ replacements:
       name: inferenceservice-config
     fieldPaths:
     - data.oauthProxy.image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-storage-initializer
+  targets:
+  - select:
+      kind: ConfigMap
+      name: inferenceservice-config
+    fieldPaths:
+    - data.localModel.defaultJobImage
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-localmodelnode-agent
+  targets:
+  - select:
+      kind: ConfigMap
+      name: inferenceservice-config
+    fieldPaths:
+    - data.localModel.localModelAgentImage
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-agent
+  targets:
+  - select:
+      kind: ConfigMap
+      name: inferenceservice-config
+    fieldPaths:
+    - data.openshiftConfig.modelcachePermissionFixImage
 
 configMapGenerator:
 - envs:
