@@ -322,7 +322,8 @@ class TestOpenAIParamsConversion:
                 prompt=chat_completion_create_params.messages[0]["content"],
             )
         )
-        assert converted_params == completion_create_params
+        # request_id is randomly generated on construction, so exclude it
+        assert converted_params.model_dump(exclude={"request_id"}) == completion_create_params.model_dump(exclude={"request_id"})
 
 
 class TestOpenAIProxyModelCompletion:
