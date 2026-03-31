@@ -30,7 +30,6 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -44,8 +43,6 @@ import (
 )
 
 const MountPath = "/var/lib/kserve"
-
-const permFixJobFinalizerName = "serving.kserve.io/permfix-job-cleanup"
 
 var (
 	validMCSLevel = regexp.MustCompile(`^s\d+(-s\d+)?(:(c\d{1,4})(,c\d{1,4})*)?$`)
@@ -71,7 +68,7 @@ func isAllowedImage(image string) bool {
 	return false
 }
 
-func enhanceDownloadJob(job *batchv1.Job, storageKey string) error {
+func enhanceDownloadJob(ctx context.Context, c *LocalModelNodeReconciler, job *batchv1.Job, storageKey string) error {
 	containers := job.Spec.Template.Spec.Containers
 	if len(containers) == 0 || len(containers[0].VolumeMounts) == 0 || len(containers[0].Args) == 0 {
 		return errors.New("download job spec is missing required containers, volume mounts, or args")
@@ -86,10 +83,12 @@ func enhanceDownloadJob(job *batchv1.Job, storageKey string) error {
 		podSecurityContext.RunAsGroup = FSGroup
 		podSecurityContext.FSGroup = FSGroup
 	}
-	if mcsLevel := getProcessMCSLevel(); mcsLevel != "" && validMCSLevel.MatchString(mcsLevel) {
-		podSecurityContext.SELinuxOptions = &corev1.SELinuxOptions{
-			Level: mcsLevel,
-		}
+	mcsLevel, err := c.resolveMCSLevel(ctx, jobNamespace)
+	if err != nil {
+		return fmt.Errorf("failed to resolve MCS level: %w", err)
+	}
+	podSecurityContext.SELinuxOptions = &corev1.SELinuxOptions{
+		Level: mcsLevel,
 	}
 	job.Spec.Template.Spec.SecurityContext = podSecurityContext
 	job.Spec.Template.Spec.ServiceAccountName = "kserve-localmodelnode-agent"
@@ -99,35 +98,6 @@ func enhanceDownloadJob(job *batchv1.Job, storageKey string) error {
 func ensureModelRootFolderExistsAndIsWritable(ctx context.Context, c *LocalModelNodeReconciler,
 	localModelConfig *v1beta1.LocalModelConfig,
 ) (*ensureModelRootFolderResult, error) {
-	// Handle deletion — clean up permission fix jobs
-	lmn := &v1alpha1.LocalModelNode{}
-	if err := c.Get(ctx, types.NamespacedName{Name: nodeName}, lmn); err == nil {
-		if !lmn.DeletionTimestamp.IsZero() {
-			if controllerutil.ContainsFinalizer(lmn, permFixJobFinalizerName) {
-				existingJobs := &batchv1.JobList{}
-				fixLabels := map[string]string{
-					"fix-permissions": "true",
-					"node":            nodeName,
-				}
-				if err := c.List(ctx, existingJobs, client.InNamespace(jobNamespace), client.MatchingLabels(fixLabels)); err == nil {
-					for i := range existingJobs.Items {
-						if err := c.Clientset.BatchV1().Jobs(jobNamespace).Delete(ctx, existingJobs.Items[i].Name, metav1.DeleteOptions{
-							PropagationPolicy: ptr.To(metav1.DeletePropagationBackground),
-						}); err != nil && !apierrors.IsNotFound(err) {
-							c.Log.Error(err, "Failed to delete permission fix job", "job", existingJobs.Items[i].Name)
-							return &ensureModelRootFolderResult{Result: ctrl.Result{RequeueAfter: 5 * time.Second}}, nil
-						}
-					}
-				}
-				controllerutil.RemoveFinalizer(lmn, permFixJobFinalizerName)
-				if err := c.Update(ctx, lmn); err != nil {
-					return nil, fmt.Errorf("failed to remove permission fix finalizer: %w", err)
-				}
-			}
-			return &ensureModelRootFolderResult{}, nil
-		}
-	}
-
 	// Create model root folder — tolerate permission errors
 	if err := fsHelper.ensureModelRootFolderExists(); err != nil {
 		if os.IsPermission(err) {
@@ -166,18 +136,13 @@ func ensureModelRootFolderExistsAndIsWritable(ctx context.Context, c *LocalModel
 		return nil, err
 	}
 
-	// Re-fetch to avoid stale resourceVersion before finalizer update
+	// Fetch the LocalModelNode to set as owner of the permission fix job
+	lmn := &v1alpha1.LocalModelNode{}
 	if err := c.Get(ctx, types.NamespacedName{Name: nodeName}, lmn); err != nil {
-		return nil, fmt.Errorf("failed to re-fetch LocalModelNode for finalizer: %w", err)
-	}
-	if !controllerutil.ContainsFinalizer(lmn, permFixJobFinalizerName) {
-		controllerutil.AddFinalizer(lmn, permFixJobFinalizerName)
-		if err := c.Update(ctx, lmn); err != nil {
-			return nil, fmt.Errorf("failed to add permission fix finalizer: %w", err)
-		}
+		return nil, fmt.Errorf("failed to get LocalModelNode for owner reference: %w", err)
 	}
 
-	if err := c.launchPermissionFixJob(ctx, mcsLevel, permissionFixImage); err != nil {
+	if err := c.launchPermissionFixJob(ctx, mcsLevel, permissionFixImage, lmn); err != nil {
 		c.Log.Error(err, "Failed to launch permission fix job")
 		return nil, err
 	}
@@ -219,10 +184,10 @@ func (c *LocalModelNodeReconciler) resolveMCSLevel(ctx context.Context, namespac
 		c.Log.Info("Using namespace MCS level", "namespace", namespace, "mcsLevel", mcs)
 		return mcs, nil
 	}
-	return "", nil
+	return "s0", nil
 }
 
-func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, mcsLevel string, permissionFixImage string) error {
+func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, mcsLevel string, permissionFixImage string, owner *v1alpha1.LocalModelNode) error {
 	jobName := "fix-permissions-" + nodeName
 
 	existingJobs := &batchv1.JobList{}
@@ -260,14 +225,9 @@ func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, m
 		gid = int64(os.Getgid())
 	}
 
-	selinuxLevel := "s0"
-	if mcsLevel != "" {
-		selinuxLevel = mcsLevel
-	}
-
 	initSecurityContext := &corev1.SecurityContext{
 		RunAsUser:                &rootUser,
-		AllowPrivilegeEscalation: ptr.To(true),
+		AllowPrivilegeEscalation: ptr.To(false),
 		Capabilities: &corev1.Capabilities{
 			Add: []corev1.Capability{"CHOWN", "DAC_OVERRIDE", "FOWNER"},
 		},
@@ -296,7 +256,7 @@ func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, m
 					SecurityContext: &corev1.PodSecurityContext{
 						SELinuxOptions: &corev1.SELinuxOptions{
 							Type:  "spc_t",
-							Level: selinuxLevel,
+							Level: mcsLevel,
 						},
 						SeccompProfile: &corev1.SeccompProfile{
 							Type: corev1.SeccompProfileTypeRuntimeDefault,
@@ -385,6 +345,10 @@ func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, m
 				},
 			},
 		},
+	}
+
+	if err := controllerutil.SetControllerReference(owner, job, c.Scheme); err != nil {
+		return fmt.Errorf("failed to set owner reference on permission fix job: %w", err)
 	}
 
 	createdJob, err := c.Clientset.BatchV1().Jobs(jobNamespace).Create(ctx, job, metav1.CreateOptions{})

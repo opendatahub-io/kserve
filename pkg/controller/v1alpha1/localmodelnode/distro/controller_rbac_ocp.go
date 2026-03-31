@@ -20,7 +20,4 @@ package distro
 // Processed by a separate controller-gen invocation (see Makefile.overrides.mk)
 // to generate a dedicated ClusterRole included only in distro overlays.
 
-//+kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodes/finalizers,verbs=update
-//+kubebuilder:rbac:groups=core,resources=persistentvolumes,verbs=get;list
-//+kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list
 //+kubebuilder:rbac:groups=core,resources=namespaces,verbs=get

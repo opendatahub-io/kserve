@@ -27,7 +27,13 @@ RUN /opt/app-root/src/go/bin/go-licenses check ./cmd/${CMD} ./pkg/... --disallow
 RUN CGO_ENABLED=0 GOOS=linux GOFLAGS=-mod=readonly go build -a -o localmodel-manager ./cmd/${CMD}
 
 # Copy the controller-manager into a thin image
-FROM gcr.io/distroless/static:nonroot
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+RUN microdnf install -y --disablerepo=* --enablerepo=ubi-9-baseos-rpms shadow-utils && \
+    microdnf clean all && \
+    useradd kserve -m -u 1000
+RUN microdnf remove -y shadow-utils
+
 COPY --from=builder /go/src/github.com/kserve/kserve/third_party /third_party
 COPY --from=builder /go/src/github.com/kserve/kserve/localmodel-manager /manager
 USER 1000:1000

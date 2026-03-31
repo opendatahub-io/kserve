@@ -10,17 +10,3 @@ rules:
   - namespaces
   verbs:
   - get
-- apiGroups:
-  - ""
-  resources:
-  - persistentvolumeclaims
-  - persistentvolumes
-  verbs:
-  - get
-  - list
-- apiGroups:
-  - serving.kserve.io
-  resources:
-  - localmodelnodes/finalizers
-  verbs:
-  - update

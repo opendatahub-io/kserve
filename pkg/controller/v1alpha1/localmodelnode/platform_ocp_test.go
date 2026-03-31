@@ -398,68 +398,6 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			Expect(fixJobs.Items).To(BeEmpty(), "No permission fix jobs should exist when filesystem is writable")
 		})
 
-		It("Should run chcon without -l flag when no MCS level is present", func() {
-			ctx, cancel := context.WithCancel(context.Background())
-			DeferCleanup(cancel)
-
-			fsMock = &mockFileSystem{
-				subDirs: []os.DirEntry{},
-			}
-			fsHelper = fsMock
-			isModelRootWritable = func() bool { return false }
-
-			configMap := &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      constants.InferenceServiceConfigMapName,
-					Namespace: constants.KServeNamespace,
-				},
-				Data: configs,
-			}
-			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
-			defer k8sClient.Delete(ctx, configMap)
-
-			nodeName = "worker-no-mcs"
-			node := &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:   nodeName,
-					Labels: map[string]string{"node.kubernetes.io/instance-type": "gpu"},
-				},
-				Status: corev1.NodeStatus{
-					Conditions: []corev1.NodeCondition{
-						{Type: corev1.NodeReady, Status: corev1.ConditionTrue},
-					},
-				},
-			}
-			Expect(k8sClient.Create(ctx, node)).Should(Succeed())
-			defer k8sClient.Delete(ctx, node)
-
-			localModelNode := &v1alpha1.LocalModelNode{
-				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
-				Spec: v1alpha1.LocalModelNodeSpec{
-					LocalModels: []v1alpha1.LocalModelInfo{},
-				},
-			}
-			Expect(k8sClient.Create(ctx, localModelNode)).Should(Succeed())
-			defer k8sClient.Delete(ctx, localModelNode)
-
-			jobs := &batchv1.JobList{}
-			fixLabels := map[string]string{
-				"fix-permissions": "true",
-				"node":            nodeName,
-			}
-			Eventually(func() bool {
-				err := k8sClient.List(ctx, jobs, client.InNamespace(modelCacheNamespace), client.MatchingLabels(fixLabels))
-				return err == nil && len(jobs.Items) == 1
-			}, timeout, interval).Should(BeTrue(), "Permission fix job should be created")
-
-			job := &jobs.Items[0]
-			fixSelinux := job.Spec.Template.Spec.InitContainers[1]
-			Expect(fixSelinux.Command).NotTo(ContainElement("-l"),
-				"chcon should not use -l flag when no MCS level is present")
-
-			isModelRootWritable = func() bool { return true }
-		})
-
 		It("Should fall back to process UID when FSGroup is not configured", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			DeferCleanup(cancel)
