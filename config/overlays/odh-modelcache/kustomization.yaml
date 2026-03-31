@@ -2,10 +2,10 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-- ../odh
 - localmodel-scc.yaml
 - localmodel-permissions-scc.yaml
 - localmodel-permfix-sa.yaml
+- rbac/
 # This will be created by the operator
 # - localmodelnode-pv-pvc.yaml
 
@@ -16,25 +16,25 @@ components:
 
 patches:
 # Delete localmodel cert-manager cert (replaced by OpenShift serving cert)
-- path: remove-localmodel-cert-manager.yaml
+- path: patches/remove-localmodel-cert-manager.yaml
 # OpenShift CA injection for localmodel webhooks/CRDs
 - target:
     kind: ValidatingWebhookConfiguration
     annotationSelector: cert-manager.io/inject-ca-from
-  path: openshift-ca-patch.yaml
+  path: patches/openshift-ca-patch.yaml
 - target:
     kind: MutatingWebhookConfiguration
     annotationSelector: cert-manager.io/inject-ca-from
-  path: openshift-ca-patch.yaml
+  path: patches/openshift-ca-patch.yaml
 - target:
     kind: CustomResourceDefinition
     annotationSelector: cert-manager.io/inject-ca-from
-  path: openshift-ca-patch.yaml
+  path: patches/openshift-ca-patch.yaml
 # OpenShift serving cert for localmodel webhook service
 - target:
     kind: Service
     name: localmodel-webhook-server-service
-  path: openshift-serving-cert-localmodel-patch.yaml
+  path: patches/openshift-serving-cert-localmodel-patch.yaml
 # DaemonSet customizations (mount path, PVC, security context)
 - patch: |-
     - op: replace
@@ -74,7 +74,7 @@ patches:
 replacements:
 - source:
     kind: ConfigMap
-    name: kserve-parameters
+    name: kserve-modelcache-parameters
     fieldpath: data.kserve-localmodel-controller
   targets:
   - select:
@@ -84,7 +84,7 @@ replacements:
     - spec.template.spec.containers.[name=manager].image
 - source:
     kind: ConfigMap
-    name: kserve-parameters
+    name: kserve-modelcache-parameters
     fieldpath: data.kserve-localmodelnode-agent
   targets:
   - select:
@@ -92,3 +92,11 @@ replacements:
       name: kserve-localmodelnode-agent
     fieldPaths:
     - spec.template.spec.containers.[name=manager].image
+
+configMapGenerator:
+- envs:
+  - params.env
+  name: kserve-modelcache-parameters
+
+generatorOptions:
+  disableNameSuffixHash: true
