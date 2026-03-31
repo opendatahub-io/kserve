@@ -140,7 +140,7 @@ data:
       "prometheus": {
         "url": "https://thanos-querier.openshift-monitoring.svc.cluster.local:9091",
         "authModes": "bearer",
-        "triggerAuthName": "keda-thanos-token",
+        "triggerAuthName": "ai-inference-keda-thanos",
         "triggerAuthKind": "ClusterTriggerAuthentication"
       }
     }
