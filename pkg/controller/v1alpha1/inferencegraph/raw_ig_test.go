@@ -63,7 +63,7 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 	}
 
 	expectedReadinessProbe := constants.GetRouterReadinessProbe()
-	expectedReadinessProbe.HTTPGet.Scheme = corev1.URISchemeHTTPS
+	expectedReadinessProbe.HTTPGet.Scheme = expectedReadinessProbeScheme()
 
 	testIGSpecs := map[string]*InferenceGraph{
 		"basic": {
@@ -221,32 +221,11 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							Drop: []corev1.Capability{corev1.Capability("ALL")},
 						},
 					},
-					VolumeMounts: []corev1.VolumeMount{
-						{
-							Name:      "openshift-service-ca-bundle",
-							MountPath: "/etc/odh/openshift-service-ca-bundle",
-						},
-					},
-					Env: []corev1.EnvVar{
-						{
-							Name:  "SSL_CERT_FILE",
-							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
-						},
-					},
+					VolumeMounts: expectedPlatformVolumeMounts(),
+					Env:          expectedPlatformEnvVars(),
 				},
 			},
-			Volumes: []corev1.Volume{
-				{
-					Name: "openshift-service-ca-bundle",
-					VolumeSource: corev1.VolumeSource{
-						ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: constants.OpenShiftServiceCaConfigMapName,
-							},
-						},
-					},
-				},
-			},
+			Volumes:                      expectedPlatformVolumes(),
 			AutomountServiceAccountToken: proto.Bool(false),
 			ServiceAccountName:           "default",
 			ImagePullSecrets:             []corev1.LocalObjectReference{},
@@ -261,16 +240,12 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 						"--graph-json",
 						"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.example.com\"}]}},\"resources\":{}}",
 					},
-					Env: []corev1.EnvVar{
-						{
-							Name:  "SSL_CERT_FILE",
-							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
-						},
-						{
+					Env: append(expectedPlatformEnvVars(),
+						corev1.EnvVar{
 							Name:  "PROPAGATE_HEADERS",
 							Value: "Authorization,Intuit_tid",
 						},
-					},
+					),
 					Resources: corev1.ResourceRequirements{
 						Limits: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("100m"),
@@ -291,26 +266,10 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							Drop: []corev1.Capability{corev1.Capability("ALL")},
 						},
 					},
-					VolumeMounts: []corev1.VolumeMount{
-						{
-							Name:      "openshift-service-ca-bundle",
-							MountPath: "/etc/odh/openshift-service-ca-bundle",
-						},
-					},
+					VolumeMounts: expectedPlatformVolumeMounts(),
 				},
 			},
-			Volumes: []corev1.Volume{
-				{
-					Name: "openshift-service-ca-bundle",
-					VolumeSource: corev1.VolumeSource{
-						ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: constants.OpenShiftServiceCaConfigMapName,
-							},
-						},
-					},
-				},
-			},
+			Volumes:                      expectedPlatformVolumes(),
 			AutomountServiceAccountToken: proto.Bool(false),
 			ServiceAccountName:           "default",
 			ImagePullSecrets:             []corev1.LocalObjectReference{},
@@ -345,32 +304,11 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							Drop: []corev1.Capability{corev1.Capability("ALL")},
 						},
 					},
-					VolumeMounts: []corev1.VolumeMount{
-						{
-							Name:      "openshift-service-ca-bundle",
-							MountPath: "/etc/odh/openshift-service-ca-bundle",
-						},
-					},
-					Env: []corev1.EnvVar{
-						{
-							Name:  "SSL_CERT_FILE",
-							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
-						},
-					},
+					VolumeMounts: expectedPlatformVolumeMounts(),
+					Env:          expectedPlatformEnvVars(),
 				},
 			},
-			Volumes: []corev1.Volume{
-				{
-					Name: "openshift-service-ca-bundle",
-					VolumeSource: corev1.VolumeSource{
-						ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: constants.OpenShiftServiceCaConfigMapName,
-							},
-						},
-					},
-				},
-			},
+			Volumes:                      expectedPlatformVolumes(),
 			AutomountServiceAccountToken: proto.Bool(false),
 			ServiceAccountName:           "default",
 			ImagePullSecrets:             []corev1.LocalObjectReference{},
@@ -405,32 +343,11 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							Drop: []corev1.Capability{corev1.Capability("ALL")},
 						},
 					},
-					VolumeMounts: []corev1.VolumeMount{
-						{
-							Name:      "openshift-service-ca-bundle",
-							MountPath: "/etc/odh/openshift-service-ca-bundle",
-						},
-					},
-					Env: []corev1.EnvVar{
-						{
-							Name:  "SSL_CERT_FILE",
-							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
-						},
-					},
+					VolumeMounts: expectedPlatformVolumeMounts(),
+					Env:          expectedPlatformEnvVars(),
 				},
 			},
-			Volumes: []corev1.Volume{
-				{
-					Name: "openshift-service-ca-bundle",
-					VolumeSource: corev1.VolumeSource{
-						ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: constants.OpenShiftServiceCaConfigMapName,
-							},
-						},
-					},
-				},
-			},
+			Volumes:                      expectedPlatformVolumes(),
 			AutomountServiceAccountToken: proto.Bool(false),
 			ServiceAccountName:           "default",
 			ImagePullSecrets:             []corev1.LocalObjectReference{},
