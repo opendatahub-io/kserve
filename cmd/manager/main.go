@@ -37,8 +37,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	routev1 "github.com/openshift/api/route/v1"
-
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
@@ -149,8 +147,8 @@ func main() {
 		setupLog.Error(err, "unable to register API schemes")
 		os.Exit(1)
 	}
-	if err := routev1.AddToScheme(mgr.GetScheme()); err != nil {
-		setupLog.Error(err, "unable to add routev1 APIs to scheme")
+	if err := registerDistroSchemes(mgr.GetScheme()); err != nil {
+		setupLog.Error(err, "unable to register distro-specific API schemes")
 		os.Exit(1)
 	}
 
