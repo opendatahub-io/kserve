@@ -21,7 +21,6 @@ import (
 	wvav1alpha1 "github.com/llm-d/llm-d-workload-variant-autoscaler/api/v1alpha1"
 	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
 	"github.com/pkg/errors"
-	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	istioclientv1beta1 "istio.io/client-go/pkg/apis/networking/v1beta1"
 	appsv1 "k8s.io/api/apps/v1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
@@ -44,6 +43,10 @@ import (
 )
 
 type addToSchemeFunc func(scheme *runtime.Scheme) error
+
+// distroSchemes collects distribution-specific scheme registration functions.
+// Populated via init() in build-tagged companion files (register_ocp.go).
+var distroSchemes []addToSchemeFunc
 
 // AddKServeAPIs registers all KServe APIs.
 func AddKServeAPIs(s *runtime.Scheme) error {
@@ -106,12 +109,6 @@ func AddOpenTelemetryAPIs(s *runtime.Scheme) error {
 	return addAll(s, otelv1beta1.AddToScheme)
 }
 
-// AddMonitoringAPIs registers Prometheus Operator monitoring APIs (PodMonitor, ServiceMonitor).
-// The scheme registration is unconditional; actual CRD availability is checked at watch setup time.
-func AddMonitoringAPIs(s *runtime.Scheme) error {
-	return addAll(s, monitoringv1.AddToScheme)
-}
-
 // AddControllerAPIs registers the baseline controller APIs used by production and tests.
 func AddControllerAPIs(s *runtime.Scheme) error {
 	return addAll(s,
@@ -122,19 +119,20 @@ func AddControllerAPIs(s *runtime.Scheme) error {
 
 // AddLLMISVCAPIs registers API groups required by the llmisvc manager.
 func AddLLMISVCAPIs(s *runtime.Scheme) error {
-	return addAll(s,
+	fns := []addToSchemeFunc{
 		AddControllerAPIs,
 		AddGatewayAPIs,
 		AddLeaderWorkerSetAPIs,
-		AddMonitoringAPIs,
 		AddKedaAPIs,
 		AddWVAAPIs,
-	)
+	}
+	fns = append(fns, distroSchemes...)
+	return addAll(s, fns...)
 }
 
 // AddAll registers all API groups supported by KServe managers and envtest suites.
 func AddAll(s *runtime.Scheme) error {
-	return addAll(s,
+	fns := []addToSchemeFunc{
 		AddControllerAPIs,
 		AddGatewayAPIs,
 		AddLeaderWorkerSetAPIs,
@@ -143,8 +141,9 @@ func AddAll(s *runtime.Scheme) error {
 		AddKedaAPIs,
 		AddWVAAPIs,
 		AddOpenTelemetryAPIs,
-		AddMonitoringAPIs,
-	)
+	}
+	fns = append(fns, distroSchemes...)
+	return addAll(s, fns...)
 }
 
 func addAll(s *runtime.Scheme, fns ...addToSchemeFunc) error {
