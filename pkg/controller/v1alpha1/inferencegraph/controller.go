@@ -32,9 +32,6 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-
-	osv1 "github.com/openshift/api/route/v1"
-
 	"github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -269,18 +266,8 @@ func (r *InferenceGraphReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 		}
 
-		routeAvailable, _ := utils.IsCrdAvailable(r.ClientConfig, osv1.GroupVersion.String(), "Route")
-		if routeAvailable {
-			routeReconciler := OpenShiftRouteReconciler{
-				Scheme: r.Scheme,
-				Client: r.Client,
-			}
-			hostname, err := routeReconciler.Reconcile(ctx, graph)
-			url.Host = hostname
-			url.Scheme = "https"
-			if err != nil {
-				return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile Route for InferenceGraph")
-			}
+		if err := reconcilePlatformRoute(ctx, r, graph, url); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile Route for InferenceGraph")
 		}
 
 		logger.Info("Inference graph raw before propagate status")
@@ -454,11 +441,7 @@ func (r *InferenceGraphReconciler) SetupWithManager(mgr ctrl.Manager, deployConf
 		For(&v1alpha1.InferenceGraph{}).
 		Owns(&appsv1.Deployment{})
 
-	if routeFound {
-		ctrlBuilder = ctrlBuilder.Owns(&osv1.Route{})
-	} else {
-		r.Log.Info("The InferenceGraph controller won't watch route.openshift.io/v1/Route resources because the CRD is not available.")
-	}
+	ctrlBuilder = setupPlatformOwns(ctrlBuilder)
 
 	if ksvcFound {
 		ctrlBuilder = ctrlBuilder.Owns(&knservingv1.Service{})

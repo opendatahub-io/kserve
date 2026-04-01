@@ -26,10 +26,6 @@ import (
 	"sort"
 	"strings"
 
-	routev1 "github.com/openshift/api/route/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"knative.dev/pkg/apis"
-
 	"github.com/pkg/errors"
 	goerrors "github.com/pkg/errors"
 	corev1 "k8s.io/api/core/v1"
@@ -520,52 +516,6 @@ func MergeServingRuntimeAndInferenceServiceSpecs(srContainers []corev1.Container
 		return 0, nil, nil, errors.New(errMsg)
 	}
 	return containerIndexInSR, mergedContainer, mergedPodSpec, nil
-}
-
-// GetRouteURLIfExists Check for route created by odh-model-controller. If the route is found, use it as the isvc URL
-func GetRouteURLIfExists(ctx context.Context, cli client.Client, metadata metav1.ObjectMeta, isvcName string) (*apis.URL, error) {
-	foundRoute := false
-	routeReady := false
-	route := &routev1.Route{}
-	err := cli.Get(ctx, types.NamespacedName{Name: isvcName, Namespace: metadata.Namespace}, route)
-	if err != nil {
-		return nil, err
-	}
-
-	// Check if the route is owned by the InferenceService
-	for _, ownerRef := range route.OwnerReferences {
-		if ownerRef.UID == metadata.UID {
-			foundRoute = true
-		}
-	}
-
-	// Check if the route is admitted
-	for _, ingress := range route.Status.Ingress {
-		for _, condition := range ingress.Conditions {
-			if condition.Type == "Admitted" && condition.Status == "True" {
-				routeReady = true
-			}
-		}
-	}
-
-	if !foundRoute || !routeReady {
-		return nil, fmt.Errorf("route %s/%s not found or not ready", metadata.Namespace, metadata.Name)
-	}
-
-	// Construct the URL
-	host := route.Spec.Host
-	scheme := "http"
-	if route.Spec.TLS != nil && route.Spec.TLS.Termination != "" {
-		scheme = "https"
-	}
-
-	// Create the URL as an apis.URL object
-	routeURL := &apis.URL{
-		Scheme: scheme,
-		Host:   host,
-	}
-
-	return routeURL, nil
 }
 
 func FilterList(slice []string, element string) []string {
