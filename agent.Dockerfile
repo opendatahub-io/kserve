@@ -3,27 +3,22 @@ FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS builder
 # distro: UBI go-toolset does not add GOPATH/bin to PATH
 ENV PATH="$PATH:/opt/app-root/src/go/bin"
 
-# Copy in the go src
 WORKDIR /go/src/github.com/kserve/kserve
 COPY go.mod  go.mod
 COPY go.sum  go.sum
-
-RUN go mod download
-
-# Install license tool (cached independently of source changes)
-RUN go install github.com/google/go-licenses@v1.6.0
-COPY LICENSE LICENSE
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 ARG CMD=agent
 COPY cmd/${CMD}/ cmd/${CMD}/
 COPY pkg/    pkg/
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOFLAGS=-mod=readonly go build -a -o agent ./cmd/${CMD}
 
 # Check and generate third-party licenses (fast, fail-fast on violations)
 RUN /opt/app-root/src/go/bin/go-licenses check ./cmd/${CMD} ./pkg/... --disallowed_types="forbidden,unknown" && \
     /opt/app-root/src/go/bin/go-licenses save --save_path third_party/library ./cmd/${CMD}
-
-# Build
-RUN CGO_ENABLED=0 GOOS=linux GOFLAGS=-mod=readonly go build -a -o agent ./cmd/${CMD}
 
 # Copy the inference-agent into a thin image
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
