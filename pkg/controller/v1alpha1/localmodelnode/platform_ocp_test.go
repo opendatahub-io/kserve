@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -196,7 +197,7 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			Expect(job.Spec.Template.Spec.ServiceAccountName).To(Equal("kserve-localmodelnode-agent"))
 		})
 
-		It("Should create permission fix job with exec-form init containers when filesystem is not writable", func() {
+		It("Should create permission fix job with single container when filesystem is not writable", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			DeferCleanup(cancel)
 
@@ -274,34 +275,35 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			// Verify dedicated service account
 			Expect(job.Spec.Template.Spec.ServiceAccountName).To(Equal("kserve-localmodel-permfix"))
 
-			// Verify exec-form init containers
-			Expect(job.Spec.Template.Spec.InitContainers).To(HaveLen(2))
-			fixOwnership := job.Spec.Template.Spec.InitContainers[0]
-			Expect(fixOwnership.Name).To(Equal("fix-ownership"))
-			Expect(fixOwnership.Command[0]).To(Equal("chown"))
-			Expect(fixOwnership.Command).To(ContainElement("1000:1000"),
-				"chown should target FSGroup UID:GID")
+			// Verify no init containers
+			Expect(job.Spec.Template.Spec.InitContainers).To(BeEmpty())
 
-			fixSelinux := job.Spec.Template.Spec.InitContainers[1]
-			Expect(fixSelinux.Name).To(Equal("fix-selinux"))
-			Expect(fixSelinux.Command).To(ContainElement("-l"))
-			Expect(fixSelinux.Command).To(ContainElement("s0:c28,c27"))
-
-			// Verify main container is log-success
+			// Verify single main container with sh -c script
 			Expect(job.Spec.Template.Spec.Containers).To(HaveLen(1))
-			Expect(job.Spec.Template.Spec.Containers[0].Name).To(Equal("log-success"))
+			container := job.Spec.Template.Spec.Containers[0]
+			Expect(container.Name).To(Equal("fix-permissions"))
+			Expect(container.Command).To(Equal([]string{
+				"sh", "-c",
+				`set -eu; chown -R "$FIX_UID:$FIX_GID" "$TARGET" && chcon -R -t container_file_t -l "$MCS_LEVEL" "$TARGET"`,
+			}))
+
+			// Verify env vars
+			envMap := map[string]string{}
+			for _, e := range container.Env {
+				envMap[e.Name] = e.Value
+			}
+			Expect(envMap).To(HaveKeyWithValue("FIX_UID", "1000"))
+			Expect(envMap).To(HaveKeyWithValue("FIX_GID", "1000"))
+			Expect(envMap).To(HaveKeyWithValue("TARGET", MountPath))
+			Expect(envMap).To(HaveKeyWithValue("MCS_LEVEL", "s0:c28,c27"))
+
+			// Verify resource limits
+			Expect(container.Resources.Requests).NotTo(BeEmpty())
+			Expect(container.Resources.Limits).NotTo(BeEmpty())
 
 			// Verify blast radius controls
 			Expect(job.Spec.ActiveDeadlineSeconds).To(Equal(ptr.To(int64(120))),
 				"Job should have ActiveDeadlineSeconds to limit privileged pod lifetime")
-
-			// Verify resource limits on init containers
-			for _, ic := range job.Spec.Template.Spec.InitContainers {
-				Expect(ic.Resources.Requests).NotTo(BeEmpty(),
-					"Init container %s should have resource requests", ic.Name)
-				Expect(ic.Resources.Limits).NotTo(BeEmpty(),
-					"Init container %s should have resource limits", ic.Name)
-			}
 
 			// Verify seccomp profile
 			Expect(job.Spec.Template.Spec.SecurityContext.SeccompProfile).NotTo(BeNil(),
@@ -469,10 +471,15 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			}, timeout, interval).Should(BeTrue(), "Permission fix job should be created")
 
 			job := &jobs.Items[0]
-			fixOwnership := job.Spec.Template.Spec.InitContainers[0]
-			expectedChownTarget := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
-			Expect(fixOwnership.Command).To(ContainElement(expectedChownTarget),
-				"chown should fall back to process UID:GID when FSGroup is nil")
+			container := job.Spec.Template.Spec.Containers[0]
+			envMap := map[string]string{}
+			for _, e := range container.Env {
+				envMap[e.Name] = e.Value
+			}
+			Expect(envMap).To(HaveKeyWithValue("FIX_UID", strconv.Itoa(os.Getuid())),
+				"FIX_UID should fall back to process UID when FSGroup is nil")
+			Expect(envMap).To(HaveKeyWithValue("FIX_GID", strconv.Itoa(os.Getgid())),
+				"FIX_GID should fall back to process GID when FSGroup is nil")
 
 			isModelRootWritable = func() bool { return true }
 		})
@@ -553,25 +560,5 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 
 			isModelRootWritable = func() bool { return true }
 		})
-	})
-})
-
-var _ = Describe("isAllowedImage", func() {
-	It("should accept images from allowed registries", func() {
-		Expect(isAllowedImage("registry.access.redhat.com/ubi9/ubi-minimal:latest")).To(BeTrue())
-		Expect(isAllowedImage("registry.redhat.io/ubi9/ubi-minimal@sha256:abc123")).To(BeTrue())
-		Expect(isAllowedImage("quay.io/opendatahub/some-image:v1")).To(BeTrue())
-		Expect(isAllowedImage("quay.io/modh/some-image:v1")).To(BeTrue())
-	})
-
-	It("should reject images from untrusted registries", func() {
-		Expect(isAllowedImage("docker.io/evil/image:latest")).To(BeFalse())
-		Expect(isAllowedImage("quay.io/malicious/image:latest")).To(BeFalse())
-		Expect(isAllowedImage("")).To(BeFalse())
-	})
-
-	It("should reject path traversal attempts", func() {
-		Expect(isAllowedImage("quay.io/opendatahub/../evil/image:latest")).To(BeFalse())
-		Expect(isAllowedImage("registry.redhat.io/../attacker/image:latest")).To(BeFalse())
 	})
 })

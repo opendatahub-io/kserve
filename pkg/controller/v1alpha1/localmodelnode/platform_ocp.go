@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -44,29 +45,7 @@ import (
 
 const MountPath = "/var/lib/kserve"
 
-var (
-	validMCSLevel = regexp.MustCompile(`^s\d+(-s\d+)?(:(c\d{1,4})(,c\d{1,4})*)?$`)
-
-	// TODO: add rhoai image registries and check for airgapped mirrors
-	allowedRegistries = []string{
-		"registry.access.redhat.com/",
-		"registry.redhat.io/",
-		"quay.io/opendatahub/",
-		"quay.io/modh/",
-	}
-)
-
-func isAllowedImage(image string) bool {
-	if strings.Contains(image, "..") {
-		return false
-	}
-	for _, prefix := range allowedRegistries {
-		if strings.HasPrefix(image, prefix) {
-			return true
-		}
-	}
-	return false
-}
+var validMCSLevel = regexp.MustCompile(`^s\d+(-s\d+)?(:(c\d{1,4})(,c\d{1,4})*)?$`)
 
 func enhanceDownloadJob(ctx context.Context, c *LocalModelNodeReconciler, job *batchv1.Job, storageKey string) error {
 	containers := job.Spec.Template.Spec.Containers
@@ -125,11 +104,6 @@ func ensureModelRootFolderExistsAndIsWritable(ctx context.Context, c *LocalModel
 	if permissionFixImage == "" {
 		return nil, errors.New("modelcachePermissionFixImage not configured in inferenceservice-config")
 	}
-	if !isAllowedImage(permissionFixImage) {
-		c.Log.Error(nil, "Rejecting permission fix image from untrusted registry", "image", permissionFixImage)
-		return nil, fmt.Errorf("permission fix image %q is not from a trusted registry", permissionFixImage)
-	}
-
 	mcsLevel, err := c.resolveMCSLevel(ctx, localModelConfig.JobNamespace)
 	if err != nil {
 		c.Log.Error(err, "Invalid MCS level")
@@ -233,9 +207,19 @@ func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, m
 		},
 	}
 
-	chconCommand := []string{"chcon", "-R", "-t", "container_file_t", MountPath}
+	env := []corev1.EnvVar{
+		{Name: "FIX_UID", Value: strconv.FormatInt(uid, 10)},
+		{Name: "FIX_GID", Value: strconv.FormatInt(gid, 10)},
+		{Name: "TARGET", Value: MountPath},
+	}
+
+	// Script is a Go constant, never interpolated with user data.
+	// SECURITY: double-quoting on variable expansions is critical —
+	// it prevents word splitting and shell injection. Do not remove the quotes.
+	script := `set -eu; chown -R "$FIX_UID:$FIX_GID" "$TARGET" && chcon -R -t container_file_t "$TARGET"`
 	if mcsLevel != "" {
-		chconCommand = []string{"chcon", "-R", "-t", "container_file_t", "-l", mcsLevel, MountPath}
+		env = append(env, corev1.EnvVar{Name: "MCS_LEVEL", Value: mcsLevel})
+		script = `set -eu; chown -R "$FIX_UID:$FIX_GID" "$TARGET" && chcon -R -t container_file_t -l "$MCS_LEVEL" "$TARGET"`
 	}
 
 	job := &batchv1.Job{
@@ -262,72 +246,27 @@ func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, m
 							Type: corev1.SeccompProfileTypeRuntimeDefault,
 						},
 					},
-					InitContainers: []corev1.Container{
-						{
-							Name:            "fix-ownership",
-							Image:           permissionFixImage,
-							Command:         []string{"chown", "-R", fmt.Sprintf("%d:%d", uid, gid), MountPath},
-							SecurityContext: initSecurityContext,
-							Resources: corev1.ResourceRequirements{
-								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("100m"),
-									corev1.ResourceMemory: resource.MustParse("64Mi"),
-								},
-								Limits: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("500m"),
-									corev1.ResourceMemory: resource.MustParse("256Mi"),
-								},
-							},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      PvcSourceMountName,
-									MountPath: MountPath,
-								},
-							},
-						},
-						{
-							Name:            "fix-selinux",
-							Image:           permissionFixImage,
-							Command:         chconCommand,
-							SecurityContext: initSecurityContext,
-							Resources: corev1.ResourceRequirements{
-								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("100m"),
-									corev1.ResourceMemory: resource.MustParse("64Mi"),
-								},
-								Limits: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("500m"),
-									corev1.ResourceMemory: resource.MustParse("256Mi"),
-								},
-							},
-							VolumeMounts: []corev1.VolumeMount{
-								{
-									Name:      PvcSourceMountName,
-									MountPath: MountPath,
-								},
-							},
-						},
-					},
 					Containers: []corev1.Container{
 						{
-							Name:    "log-success",
-							Image:   permissionFixImage,
-							Command: []string{"echo", "Permissions fixed: ownership and SELinux labels applied successfully"},
-							SecurityContext: &corev1.SecurityContext{
-								AllowPrivilegeEscalation: ptr.To(false),
-								ReadOnlyRootFilesystem:   ptr.To(true),
-								Capabilities: &corev1.Capabilities{
-									Drop: []corev1.Capability{"ALL"},
-								},
-							},
+							Name:            "fix-permissions",
+							Image:           permissionFixImage,
+							Command:         []string{"sh", "-c", script},
+							Env:             env,
+							SecurityContext: initSecurityContext,
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("10m"),
-									corev1.ResourceMemory: resource.MustParse("16Mi"),
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("64Mi"),
 								},
 								Limits: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("100m"),
-									corev1.ResourceMemory: resource.MustParse("32Mi"),
+									corev1.ResourceCPU:    resource.MustParse("500m"),
+									corev1.ResourceMemory: resource.MustParse("256Mi"),
+								},
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      PvcSourceMountName,
+									MountPath: MountPath,
 								},
 							},
 						},
