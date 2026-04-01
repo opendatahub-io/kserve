@@ -32,9 +32,6 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
-
-	osv1 "github.com/openshift/api/route/v1"
-
 	"github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -269,14 +266,7 @@ func (r *InferenceGraphReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			}
 		}
 
-		routeReconciler := OpenShiftRouteReconciler{
-			Scheme: r.Scheme,
-			Client: r.Client,
-		}
-		hostname, err := routeReconciler.Reconcile(ctx, graph)
-		url.Host = hostname
-		url.Scheme = "https"
-		if err != nil {
+		if err := reconcilePlatformRoute(ctx, r, graph, url); err != nil {
 			return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile Route for InferenceGraph")
 		}
 
@@ -444,8 +434,9 @@ func (r *InferenceGraphReconciler) SetupWithManager(mgr ctrl.Manager, deployConf
 
 	ctrlBuilder := ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.InferenceGraph{}).
-		Owns(&appsv1.Deployment{}).
-		Owns(&osv1.Route{})
+		Owns(&appsv1.Deployment{})
+
+	ctrlBuilder = setupPlatformOwns(ctrlBuilder)
 
 	if ksvcFound {
 		ctrlBuilder = ctrlBuilder.Owns(&knservingv1.Service{})
