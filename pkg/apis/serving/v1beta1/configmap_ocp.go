@@ -19,10 +19,7 @@ limitations under the License.
 package v1beta1
 
 // OauthConfig holds OAuth proxy configuration for OCP deployments.
-// The distro build tag keeps this type out of non-distro builds entirely -
-// not because openapi-gen would pick it up (it won't, since OauthConfig is
-// never a field in a registered API type), but because an _ocp.go file that
-// compiles in upstream builds would be confusing and defeats the convention.
+// Build-tagged so upstream builds have no concept of it.
 //
 // +kubebuilder:object:generate=false
 type OauthConfig struct {
