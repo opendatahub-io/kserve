@@ -3700,7 +3700,7 @@ spec:
           livenessProbe:
             failureThreshold: 3
             httpGet:
-              path: /health
+              path: /healthz
               port: 8082
             periodSeconds: 15
             timeoutSeconds: 5
@@ -3712,7 +3712,7 @@ spec:
           readinessProbe:
             failureThreshold: 3
             httpGet:
-              path: /health
+              path: /healthz
               port: 8082
             periodSeconds: 10
             timeoutSeconds: 5
@@ -3732,7 +3732,7 @@ spec:
           startupProbe:
             failureThreshold: 60
             httpGet:
-              path: /health
+              path: /healthz
               port: 8082
             initialDelaySeconds: 5
             periodSeconds: 10
