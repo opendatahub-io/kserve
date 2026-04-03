@@ -231,10 +231,7 @@ func main() {
 		Handler: &pod.Mutator{Client: mgr.GetClient(), Clientset: clientSet, Decoder: admission.NewDecoder(mgr.GetScheme())},
 	})
 
-	// log.Info("registering cluster serving runtime validator webhook to the webhook server")
-	// hookServer.Register("/validate-serving-kserve-io-v1alpha1-clusterservingruntime", &webhook.Admission{
-	// 	Handler: &servingruntime.ClusterServingRuntimeValidator{Client: mgr.GetClient(), Decoder: admission.NewDecoder(mgr.GetScheme())},
-	// })
+	registerCSRWebhook(hookServer, mgr)
 
 	setupLog.Info("registering serving runtime validator webhook to the webhook server")
 	hookServer.Register("/validate-serving-kserve-io-v1alpha1-servingruntime", &webhook.Admission{
