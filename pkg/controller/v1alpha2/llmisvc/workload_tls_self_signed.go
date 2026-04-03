@@ -326,9 +326,7 @@ func (r *LLMISVCReconciler) collectIPAddresses(ctx context.Context, llmSvc *v1al
 
 	// Exclude scheduler pods from IP collection. Scheduler pods connect via
 	// Service DNS (already covered by collectDNSNames), so their pod IPs are
-	// not needed in the certificate SANs. Not doing it would result in reconciliation
-	// storm: schedulers pod IP added to certs results in cert-hash changes that
-	// will restart scheduler with new pod (and IP), goto 1.
+	// not needed in the certificate SANs.
 	excludeScheduler, errReq := labels.NewRequirement(
 		constants.KubernetesComponentLabelKey,
 		selection.NotIn,

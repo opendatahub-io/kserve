@@ -25,8 +25,8 @@ CRD status to include a stale stored version, then restarting the controller.
 """
 
 import os
-import time
 import subprocess
+import time
 import pytest
 from kserve import KServeClient, constants
 from kubernetes import client
@@ -43,6 +43,7 @@ LLMISVC_CRD_NAME = "llminferenceservices.serving.kserve.io"
 LLMISVC_CONFIG_CRD_NAME = "llminferenceserviceconfigs.serving.kserve.io"
 CONTROLLER_NAMESPACE = KSERVE_NAMESPACE
 CONTROLLER_DEPLOYMENT = "llmisvc-controller-manager"
+# ODH/OpenShift: use oc when KUBE_CLI=oc (CI); upstream uses Apps API restart instead.
 KUBE_CLI_COMMAND = os.environ.get("KUBE_CLI", "kubectl")
 
 
@@ -217,7 +218,13 @@ class TestStorageVersionMigration:
                     f"got {crd.status.stored_versions} for {crd_name}"
                 )
 
-        wait_for(assert_stored_versions_migrated, timeout=180.0, interval=5.0)
+        # Allow enough time for the controller's exponential backoff to exhaust
+        # on slow clusters: 10 steps at 2s*1.5^n gives ~150s per resource group,
+        # two groups sequential = ~300s worst case. Default 360s adds buffer.
+        migration_timeout = float(os.getenv("STORAGE_MIGRATION_TIMEOUT", "360"))
+        wait_for(
+            assert_stored_versions_migrated, timeout=migration_timeout, interval=5.0
+        )
         logger.info("Storage version migration completed - storedVersions cleaned up")
 
         # 5. Verify the resource is still accessible via both API versions
