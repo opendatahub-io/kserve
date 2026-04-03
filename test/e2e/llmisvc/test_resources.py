@@ -12,7 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from .fixtures import KSERVE_TEST_NAMESPACE
+import os
+
+from .fixtures import KSERVE_TEST_NAMESPACE, INFERENCE_POOL_GROUP
+
+# GatewayClass name - can be overridden via GATEWAY_CLASS_NAME env var (e.g., "istio")
+GATEWAY_CLASS_NAME = os.environ.get("GATEWAY_CLASS_NAME", "envoy")
 
 ROUTER_GATEWAYS = [
     {
@@ -23,7 +28,7 @@ ROUTER_GATEWAYS = [
             "namespace": KSERVE_TEST_NAMESPACE,
         },
         "spec": {
-            "gatewayClassName": "envoy",
+            "gatewayClassName": GATEWAY_CLASS_NAME,
             "listeners": [
                 {
                     "name": "http",
@@ -46,7 +51,7 @@ ROUTER_GATEWAYS = [
             "namespace": KSERVE_TEST_NAMESPACE,
         },
         "spec": {
-            "gatewayClassName": "envoy",
+            "gatewayClassName": GATEWAY_CLASS_NAME,
             "listeners": [
                 {
                     "name": "http",
@@ -101,7 +106,7 @@ ROUTER_ROUTES = [
                     ],
                     "backendRefs": [
                         {
-                            "group": "inference.networking.k8s.io",
+                            "group": INFERENCE_POOL_GROUP,
                             "kind": "InferencePool",
                             "name": "router-with-refs-test-inference-pool",
                             "namespace": KSERVE_TEST_NAMESPACE,
@@ -131,7 +136,7 @@ ROUTER_ROUTES = [
                     ],
                     "backendRefs": [
                         {
-                            "group": "inference.networking.k8s.io",
+                            "group": INFERENCE_POOL_GROUP,
                             "kind": "InferencePool",
                             "name": "router-with-refs-test-inference-pool",
                             "namespace": KSERVE_TEST_NAMESPACE,
@@ -257,7 +262,7 @@ ROUTER_ROUTES = [
                     ],
                     "backendRefs": [
                         {
-                            "group": "inference.networking.k8s.io",
+                            "group": INFERENCE_POOL_GROUP,
                             "kind": "InferencePool",
                             "name": "router-with-refs-pd-test-inference-pool",
                             "namespace": KSERVE_TEST_NAMESPACE,
@@ -287,7 +292,7 @@ ROUTER_ROUTES = [
                     ],
                     "backendRefs": [
                         {
-                            "group": "inference.networking.k8s.io",
+                            "group": INFERENCE_POOL_GROUP,
                             "kind": "InferencePool",
                             "name": "router-with-refs-pd-test-inference-pool",
                             "namespace": KSERVE_TEST_NAMESPACE,

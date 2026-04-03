@@ -20,10 +20,10 @@ namespace: opendatahub
 patches:
 - path: patches/remove-namespace.yaml
 - path: patches/remove-cert-manager.yaml
-- path: patches/remove-clusterservingruntime.yaml
 - path: patches/inferenceservice-config-patch.yaml
 - path: patches/set-resources-manager-patch.yaml
 - path: patches/remove-auth-proxy-patch.yaml
+- path: patches/config-scheduler-patch.yaml
 - target:
     kind: ValidatingWebhookConfiguration
     annotationSelector: cert-manager.io/inject-ca-from
@@ -44,12 +44,23 @@ patches:
     kind: Service
     name: llmisvc-webhook-server-service
   path: patches/openshift-serving-cert-llmisvc-patch.yaml
+- target:
+    kind: LLMInferenceServiceConfig
+  path: patches/annotate-well-known-llmisvcconfigs.yaml
+- target:
+    kind: Deployment
+    name: llmisvc-controller-manager
+  path: patches/remove-kserve-controller-runas.yaml
+- target:
+    kind: ClusterStorageContainer
+    name: default
+  path: patches/set-resources-storagecontainer-patch.yaml
 
 replacements:
 - source:
     kind: ConfigMap
     name: kserve-parameters
-    fieldpath: data.kserve-controller
+    fieldPath: data.kserve-controller
   targets:
   - select:
       kind: Deployment
@@ -106,6 +117,16 @@ replacements:
       name: kserve-config-llm-scheduler
     fieldPaths:
     - spec.router.scheduler.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-uds-tokenizer
+  targets:
+    - select:
+        kind: LLMInferenceServiceConfig
+        name: kserve-config-llm-scheduler
+      fieldPaths:
+        - spec.router.scheduler.template.containers.[name=tokenizer].image
 # Replace routing sidecar init container images with ODH image
 - source:
     kind: ConfigMap
@@ -122,33 +143,63 @@ replacements:
       name: kserve-config-llm-decode-worker-data-parallel
     fieldPaths:
     - spec.template.initContainers.[name=llm-d-routing-sidecar].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.llmisvc-controller
+  targets:
+  - select:
+      kind: Deployment
+      name: llmisvc-controller-manager
+    fieldPaths:
+    - spec.template.spec.containers.[name=manager].image
+
+# Replace ClusterStorageContainer image with ODH image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-storage-initializer
+  targets:
+  - select:
+      kind: ClusterStorageContainer
+      name: default
+    fieldPaths:
+    - spec.container.image
 
 - source:
     kind: ConfigMap
     name: kserve-parameters
-    fieldpath: data.kserve-llm-d-nvidia-cuda
+    fieldPath: data.kserve-llm-d-nvidia-cuda
   targets:
   - select:
       kind: LLMInferenceServiceConfig
       name: kserve-config-llm-template-nvidia-cuda
     fieldPaths:
     - spec.template.containers.[name=main].image
-
 - source:
     kind: ConfigMap
     name: kserve-parameters
-    fieldpath: data.kserve-llm-d-amd-rocm
+    fieldPath: data.kserve-llm-d-amd-rocm
   targets:
   - select:
       kind: LLMInferenceServiceConfig
       name: kserve-config-llm-template-amd-rocm
     fieldPaths:
     - spec.template.containers.[name=main].image
-
 - source:
     kind: ConfigMap
     name: kserve-parameters
-    fieldpath: data.kserve-llm-d-ibm-spyre
+    fieldPath: data.kserve-llm-d-intel-gaudi
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-intel-gaudi
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-ibm-spyre
   targets:
   - select:
       kind: LLMInferenceServiceConfig
@@ -165,7 +216,6 @@ replacements:
       name: kserve-config-llm-template-ibm-spyre-ppc64le
     fieldPaths:
     - spec.template.containers.[name=main].image
-
 # Set runAsNonRoot: true for all LLMInferenceServiceConfig templates.
 # NOTE: When adding a new LLMInferenceServiceConfig template, add its container paths here.
 - source:
@@ -208,6 +258,49 @@ replacements:
     fieldPaths:
     - spec.prefill.template.containers.[name=main].securityContext.runAsNonRoot
     - spec.prefill.worker.containers.[name=main].securityContext.runAsNonRoot
+# Replace inferenceservice-config images with ODH images
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-storage-initializer
+  targets:
+  - select:
+      kind: ConfigMap
+      name: inferenceservice-config
+    fieldPaths:
+    - data.storageInitializer.image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-agent
+  targets:
+  - select:
+      kind: ConfigMap
+      name: inferenceservice-config
+    fieldPaths:
+    - data.agent.image
+    - data.logger.image
+    - data.batcher.image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-router
+  targets:
+  - select:
+      kind: ConfigMap
+      name: inferenceservice-config
+    fieldPaths:
+    - data.router.image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kube-rbac-proxy
+  targets:
+  - select:
+      kind: ConfigMap
+      name: inferenceservice-config
+    fieldPaths:
+    - data.oauthProxy.image
 
 configMapGenerator:
 - envs:
@@ -216,35 +309,3 @@ configMapGenerator:
 
 generatorOptions:
   disableNameSuffixHash: true
-
-vars:
-- fieldref:
-    fieldpath: data.kserve-storage-initializer
-  name: kserve-storage-initializer
-  objref:
-    apiVersion: v1
-    kind: ConfigMap
-    name: kserve-parameters
-- fieldref:
-    fieldpath: data.kserve-agent
-  name: kserve-agent
-  objref:
-    apiVersion: v1
-    kind: ConfigMap
-    name: kserve-parameters
-- fieldref:
-    fieldpath: data.kserve-router
-  name: kserve-router
-  objref:
-    apiVersion: v1
-    kind: ConfigMap
-    name: kserve-parameters
-- fieldref:
-    fieldpath: data.kube-rbac-proxy
-  name: kube-rbac-proxy
-  objref:
-    apiVersion: v1
-    kind: ConfigMap
-    name: kserve-parameters
-configurations:
-  - params.yaml

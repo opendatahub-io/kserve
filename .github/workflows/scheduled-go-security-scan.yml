@@ -2,6 +2,11 @@ name: "Go Security Scan"
 
 on:
   pull_request:
+
+  # Don't do security scan on merge queue. For now, we assume scheduled and PR checks are enough.
+  # merge_group:
+  #   types: [ checks_requested ]
+
   schedule:
     # The scheduled workflow runs every Sunday at 00:00 UTC time.
     - cron: '0 0 * * 0'
@@ -15,6 +20,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
 
       - name: Run Gosec Security Scanner
         uses: securego/gosec@v2.20.0

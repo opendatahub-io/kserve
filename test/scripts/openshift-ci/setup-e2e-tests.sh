@@ -26,6 +26,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 source "$SCRIPT_DIR/common.sh"
+source "$SCRIPT_DIR/version.sh"
 
 # Parse command line options
 : "${INSTALL_ODH_OPERATOR:=false}"
@@ -39,15 +40,30 @@ else
 fi
 
 echo "Using namespace: $KSERVE_NAMESPACE for KServe components"
+PARAMS_ENV="$PROJECT_ROOT/config/overlays/odh/params.env"
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
-: "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:latest}"
-: "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
-: "${KSERVE_ROUTER_IMAGE:=quay.io/opendatahub/kserve-router:latest}"
-: "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
+: "${KSERVE_CONTROLLER_IMAGE:=$(grep '^kserve-controller=' "$PARAMS_ENV" | cut -d= -f2-)}"
+: "${KSERVE_AGENT_IMAGE:=$(grep '^kserve-agent=' "$PARAMS_ENV" | cut -d= -f2-)}"
+: "${KSERVE_ROUTER_IMAGE:=$(grep '^kserve-router=' "$PARAMS_ENV" | cut -d= -f2-)}"
+: "${STORAGE_INITIALIZER_IMAGE:=$(grep '^kserve-storage-initializer=' "$PARAMS_ENV" | cut -d= -f2-)}"
 : "${ODH_MODEL_CONTROLLER_IMAGE:=quay.io/opendatahub/odh-model-controller:fast}"
 : "${ERROR_404_ISVC_IMAGE:=error-404-isvc:latest}"
 : "${SUCCESS_200_ISVC_IMAGE:=success-200-isvc:latest}"
-: "${LLMISVC_CONTROLLER_IMAGE:=quay.io/opendatahub/llmisvc-controller:latest}"
+: "${LLMISVC_CONTROLLER_IMAGE:=$(grep '^llmisvc-controller=' "$PARAMS_ENV" | cut -d= -f2-)}"
+
+# On OCP 4.20 and earlier, InferencePool lives in the x-k8s.io API group.
+# OCP 4.21+ ships the GA API group (inference.networking.k8s.io).
+if [[ -z "${INFERENCE_POOL_GROUP:-}" ]]; then
+  server_version=$(get_openshift_server_version)
+  # Extract major.minor for comparison (handles nightly versions like 4.20.0-0.nightly-...)
+  ocp_major_minor=$(echo "$server_version" | awk -F. '{print $1"."$2}')
+  if awk "BEGIN{exit !($ocp_major_minor <= 4.20)}"; then
+    export INFERENCE_POOL_GROUP="inference.networking.x-k8s.io"
+    echo "OCP $server_version (${ocp_major_minor}): using INFERENCE_POOL_GROUP=$INFERENCE_POOL_GROUP"
+  else
+    echo "OCP $server_version (${ocp_major_minor}): skipping setting INFERENCE_POOL_GROUP env variable."
+  fi
+fi
 
 echo "SKLEARN_IMAGE=$SKLEARN_IMAGE"
 echo "KSERVE_CONTROLLER_IMAGE=$KSERVE_CONTROLLER_IMAGE"
@@ -58,8 +74,9 @@ echo "STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_IMAGE"
 echo "ERROR_404_ISVC_IMAGE=$ERROR_404_ISVC_IMAGE"
 echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
 
-# Install Kustomize using the centralized install script
+# Install Kustomize and yq
 $PROJECT_ROOT/hack/setup/cli/install-kustomize.sh
+make -C "$PROJECT_ROOT" yq
 export PATH="${PROJECT_ROOT}/bin:${PATH}"
 
 echo "Installing KServe Python SDK ..."
@@ -116,12 +133,17 @@ oc new-project ${KSERVE_NAMESPACE} || true
 if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
   # Manual installation: Install KServe directly with PR images
   echo "⏳ Installing KServe with SeaweedFS"
-  ODH_MANIFESTS=$(kustomize build "$PROJECT_ROOT/config/overlays/odh-test" |
-    sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
-    sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
-    sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
-    sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
-    sed "s|kserve/llmisvc-controller:latest|${LLMISVC_CONTROLLER_IMAGE}|")
+
+  # Update params.env with CI-injected images so kustomize build produces the right output
+  cp "$PARAMS_ENV" "$PARAMS_ENV.bak"
+  trap "mv '$PARAMS_ENV.bak' '$PARAMS_ENV'" EXIT
+  sed -i "s|kserve-controller=.*|kserve-controller=${KSERVE_CONTROLLER_IMAGE}|" "$PARAMS_ENV"
+  sed -i "s|llmisvc-controller=.*|llmisvc-controller=${LLMISVC_CONTROLLER_IMAGE}|" "$PARAMS_ENV"
+  sed -i "s|kserve-agent=.*|kserve-agent=${KSERVE_AGENT_IMAGE}|" "$PARAMS_ENV"
+  sed -i "s|kserve-router=.*|kserve-router=${KSERVE_ROUTER_IMAGE}|" "$PARAMS_ENV"
+  sed -i "s|kserve-storage-initializer=.*|kserve-storage-initializer=${STORAGE_INITIALIZER_IMAGE}|" "$PARAMS_ENV"
+
+  ODH_MANIFESTS=$(kustomize build "$PROJECT_ROOT/config/overlays/odh-test")
 
   # Apply CRDs first and wait for them to be established before applying the rest
   echo "$ODH_MANIFESTS" | awk '/^apiVersion: apiextensions\.k8s\.io/{found=1} found{print} /^---/{if(found) found=0}' |
@@ -133,8 +155,24 @@ if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
   wait_for_crd clusterstoragecontainers.serving.kserve.io 90s
   wait_for_crd datascienceclusters.datasciencecluster.opendatahub.io 90s
 
-  # Apply all resources now that CRDs are established
-  echo "$ODH_MANIFESTS" | oc apply --server-side=true --force-conflicts -f -
+  # Apply all resources (LLMInferenceServiceConfig may fail webhook validation initially, will retry after)
+  echo "⏳ Applying all resources..."
+  echo "$ODH_MANIFESTS" | oc apply --server-side=true --force-conflicts -f - || true
+
+  # Wait for llmisvc-controller-manager to be ready before applying webhook-validated resources
+  echo "⏳ Waiting for llmisvc-controller-manager to be ready..."
+  wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=llmisvc-controller-manager" 600s
+
+  # Re-apply LLMInferenceServiceConfig resources now that webhook is ready
+  echo "⏳ Re-applying LLMInferenceServiceConfig resources with webhook validation..."
+  kustomize build "$PROJECT_ROOT/config/llmisvcconfig" | oc apply --server-side=true --force-conflicts -f -
+
+  # Patch inferenceservice-config for llminferenceservice tests
+  if [[ "$1" =~ "llm-d" ]]; then
+    echo "⏳ Restarting llmisvc-controller to apply configuration changes"
+    oc delete pod -n ${KSERVE_NAMESPACE} -l control-plane=llmisvc-controller-manager
+    wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=llmisvc-controller-manager" 300s
+  fi
 
   # Install DSC/DSCI for manual installation
   echo "Installing DSC/DSCI resources..."
@@ -162,44 +200,54 @@ else
   echo "ODH operator deployed KServe using PR manifests and images"
 fi
 
-# Patch the inferenceservice-config ConfigMap, when running RawDeployment tests
-if skip_serverless "$1"; then
-  echo "Patching RAW deployment, markers: $1"
-  export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
-  oc patch configmap inferenceservice-config -n ${KSERVE_NAMESPACE} --type=strategic \
-    --patch-file=<(cat config/overlays/odh-test/configmap/inferenceservice-openshift-ci-raw.yaml | \
-    sed "s/namespace: kserve/namespace: ${KSERVE_NAMESPACE}/" | \
-    envsubst)
-  oc delete pod -n ${KSERVE_NAMESPACE} -l control-plane=kserve-controller-manager
+# Patch the inferenceservice-config ConfigMap to set the cluster ingress domain
+echo "Patching ingress domain, markers: $1"
+export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
+INGRESS_DATA=$(oc get configmap inferenceservice-config -n ${KSERVE_NAMESPACE} -o jsonpath='{.data.ingress}' | \
+  yq -p json -o json '.ingressDomain = strenv(OPENSHIFT_INGRESS_DOMAIN)')
+oc patch configmap inferenceservice-config -n ${KSERVE_NAMESPACE} --type=merge \
+  -p "$(INGRESS="$INGRESS_DATA" yq -n -o json '.data.ingress = strenv(INGRESS)')"
+oc delete pod -n ${KSERVE_NAMESPACE} -l control-plane=kserve-controller-manager
 
-  # Patch DSC only in manual mode (operator mode uses yaml files directly)
-  if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
-    oc patch datascienceclusters.datasciencecluster.opendatahub.io/test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
-  fi
-else
-  export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
-  oc patch configmap inferenceservice-config -n ${KSERVE_NAMESPACE} --type=strategic \
-    --patch-file=<(cat config/overlays/odh-test/configmap/inferenceservice-openshift-ci-serverless-predictor.yaml | \
-    sed "s/namespace: kserve/namespace: ${KSERVE_NAMESPACE}/" | \
-    envsubst)
+# Patch DSC only in manual mode (operator mode uses yaml files directly)
+if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
+  oc patch datascienceclusters.datasciencecluster.opendatahub.io/test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
 fi
 
 # Wait until KServe starts
 echo "waiting kserve-controller get ready..."
 oc wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n ${KSERVE_NAMESPACE} --timeout=300s
 
-if ! skip_serverless "$1"; then
-  echo "Installing authorino and kserve gateways"
-  # authorino
-  curl -sL https://raw.githubusercontent.com/Kuadrant/authorino-operator/main/utils/install.sh | sed "s|kubectl|oc|" |
-    bash -s -- -v 0.16.0
-
-fi
-
 # Wait for/Install ODH Model Controller based on method
 if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
+  # TODO can be moved to odh-test overlays
   echo "Installing ODH Model Controller manually with PR images"
-  kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
+
+  # ODH_MC_MANIFEST_SOURCE is injected by the odh-model-controller OpenShift CI
+  # job definition (openshift/release) which points to the local path.
+  # If ODH_MC_MANIFEST_SOURCE is set, override the kustomization will point to the
+  # provided local path (e.g. export ODH_MC_MANIFEST_SOURCE="$(pwd)/config/base").
+  # This solves the chicken-and-egg problem in CI where a PR changes manifests
+  # but the tests would otherwise deploy the already-merged version.
+  ODH_MC_KUSTOMIZE_DIR="$PROJECT_ROOT/test/scripts/openshift-ci"
+  if [[ -n "${ODH_MC_MANIFEST_SOURCE:-}" ]]; then
+    echo "Overriding odh-model-controller manifests source to: ${ODH_MC_MANIFEST_SOURCE}"
+    # Copy the kustomization to the bin directory so the original file is never modified.
+    ODH_MC_KUSTOMIZE_DIR="$PROJECT_ROOT/bin/odh-mc-kustomize"
+    mkdir -p "${ODH_MC_KUSTOMIZE_DIR}"
+    cp "$PROJECT_ROOT/test/scripts/openshift-ci/kustomization.yaml" "${ODH_MC_KUSTOMIZE_DIR}/kustomization.yaml"
+    cat > "${ODH_MC_KUSTOMIZE_DIR}/kustomization.yaml" <<EOF
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ${ODH_MC_MANIFEST_SOURCE}
+
+namespace: opendatahub
+EOF
+  fi
+
+  kustomize build "${ODH_MC_KUSTOMIZE_DIR}" |
       sed "s|quay.io/opendatahub/odh-model-controller:fast|${ODH_MODEL_CONTROLLER_IMAGE}|" |
       oc apply -n ${KSERVE_NAMESPACE} -f -
   oc rollout status deployment/odh-model-controller -n ${KSERVE_NAMESPACE} --timeout=300s
@@ -217,10 +265,14 @@ else
   echo "ODH Model Controller deployed with image: $ACTUAL_IMAGE"
 fi
 
-# Configure certs for the python requests by getting the CA cert from the kserve controller pod
-export CA_CERT_PATH="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+# Configure certs for the python requests
 # The run-e2e-tests script expects the CA cert to be in /tmp/ca.crt
-oc exec deploy/kserve-controller-manager -n ${KSERVE_NAMESPACE} -- cat $CA_CERT_PATH > /tmp/ca.crt
+# Combine both the cluster root CA and OpenShift service CA
+{
+  oc get configmap kube-root-ca.crt -n "${KSERVE_NAMESPACE}" -o jsonpath='{.data.ca\.crt}'
+  echo ""
+  oc get configmap openshift-service-ca.crt -n "${KSERVE_NAMESPACE}" -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null || true
+} > /tmp/ca.crt
 
 echo "Add testing models to SeaweedFS S3 storage ..."
 

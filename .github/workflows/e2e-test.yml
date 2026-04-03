@@ -10,6 +10,8 @@ on:
       - "!**.md"
       - ".github/workflows/e2e-test.yml"
       - ".github/actions/**"
+  merge_group:
+    types: [ checks_requested ]
   workflow_dispatch:
 
 env:
@@ -35,6 +37,14 @@ jobs:
       install_methods: ${{ steps.set-matrix.outputs.install_methods }}
     steps:
       - uses: actions/checkout@v4
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
       - uses: dorny/paths-filter@v3
         id: filter
         with:
@@ -62,6 +72,15 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
 
       - name: Load KServe environment variables
         run: ./kserve-images.sh --ci
@@ -135,6 +154,15 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
 
       - name: Load KServe environment variables
         run: ./kserve-images.sh --ci
@@ -241,6 +269,15 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
+
       - name: Load KServe environment variables
         run: ./kserve-images.sh --ci
 
@@ -270,6 +307,15 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
 
       - name: Load KServe environment variables
         run: ./kserve-images.sh --ci
@@ -316,6 +362,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
 
       - name: Load KServe environment variables
         run: ./kserve-images.sh --ci
@@ -387,6 +442,15 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
 
       - name: Load KServe environment variables
         run: ./kserve-images.sh --ci
@@ -488,6 +552,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
+
       - name: Load KServe environment variables
         run: ./kserve-images.sh --ci
 
@@ -576,6 +649,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
 
       - name: Load KServe environment variables
         run: ./kserve-images.sh --ci
@@ -687,6 +769,15 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
+
       - name: Load KServe environment variables
         run: ./kserve-images.sh --ci
 
@@ -767,6 +858,15 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
+
       - name: Load KServe environment variables
         run: ./kserve-images.sh --ci
 
@@ -827,6 +927,15 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
 
       - name: Load KServe environment variables
         run: ./kserve-images.sh --ci
@@ -963,6 +1072,15 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
+
       - name: Load KServe environment variables
         run: ./kserve-images.sh --ci
 
@@ -1056,6 +1174,15 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
 
       - name: Load KServe environment variables
         run: ./kserve-images.sh --ci
@@ -1156,6 +1283,15 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
+
       - name: Load KServe environment variables
         run: ./kserve-images.sh --ci
 
@@ -1223,6 +1359,15 @@ jobs:
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
+
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
 
       - name: Load KServe environment variables
         run: ./kserve-images.sh --ci
@@ -1292,6 +1437,15 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --unshallow origin
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.email "ci@kserve.io"
+          git config user.name "CI Bot"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
+
       - name: Load KServe environment variables
         run: ./kserve-images.sh --ci
 
@@ -1354,6 +1508,12 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ${{ env.HUGGINGFACE_IMG }}-${{ env.TAG }}
+          path: /tmp-images
+
+      - name: Download sklearn server image
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.PREDICTOR_ARTIFACT_PREFIX }}-${{ env.SKLEARN_IMG }}-${{ env.TAG }}
           path: /tmp-images
 
       - name: Load runtime docker images

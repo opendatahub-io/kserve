@@ -7,7 +7,7 @@ data:
   explainers: "{}"
   oauthProxy: |- 
     {
-      "image" : "$(kube-rbac-proxy)",
+      "image" : "REPLACE_IMAGE",
       "memoryRequest": "64Mi",
       "memoryLimit": "128Mi",
       "cpuRequest": "100m",
@@ -15,12 +15,11 @@ data:
     }
   storageInitializer: |-
     {
-        "image" : "$(kserve-storage-initializer)",
+        "image" : "REPLACE_IMAGE",
         "memoryRequest": "100Mi",
         "memoryLimit": "24Gi",
         "cpuRequest": "100m",
         "cpuLimit": "1",
-        "enableDirectPvcVolumeMount": true,
         "cpuModelcar": "10m",
         "memoryModelcar": "15Mi",
         "enableModelcar": true
@@ -29,21 +28,22 @@ data:
     {
         "enableGatewayApi": false,
         "kserveIngressGateway": "openshift-ingress/openshift-ai-inference",
+        "enableLLMInferenceServiceTLS": true,
         "ingressGateway" : "knative-serving/knative-ingress-gateway",
         "knativeLocalGatewayService" : "knative-local-gateway.istio-system.svc.cluster.local",
         "ingressService" : "istio-ingressgateway.istio-system.svc.cluster.local",
         "localGateway" : "istio-system/kserve-local-gateway",
         "localGatewayService" : "kserve-local-gateway.istio-system.svc.cluster.local",
         "ingressDomain"  : "example.com",
-        "ingressClassName" : "istio",
-        "domainTemplate": "example.com",
-        "urlScheme": "https",
+        "ingressClassName" : "openshift-default",
+        "domainTemplate": "{{ .Name }}-{{ .Namespace }}.{{ .IngressDomain }}",
+        "urlScheme": "http",
         "disableIstioVirtualHost": false, 
         "disableIngressCreation": true
     }
   logger: |-
     {
-        "image" : "$(kserve-agent)",
+        "image" : "REPLACE_IMAGE",
         "memoryRequest": "100Mi",
         "memoryLimit": "1Gi",
         "cpuRequest": "100m",
@@ -52,7 +52,7 @@ data:
     }
   batcher: |-
     {
-        "image" : "$(kserve-agent)",
+        "image" : "REPLACE_IMAGE",
         "memoryRequest": "1Gi",
         "memoryLimit": "1Gi",
         "cpuRequest": "1",
@@ -60,7 +60,7 @@ data:
     }
   agent: |-
     {
-        "image" : "$(kserve-agent)",
+        "image" : "REPLACE_IMAGE",
         "memoryRequest": "100Mi",
         "memoryLimit": "1Gi",
         "cpuRequest": "100m",
@@ -68,7 +68,7 @@ data:
     }
   router: |-
     {
-        "image" : "$(kserve-router)",
+        "image" : "REPLACE_IMAGE",
         "memoryRequest": "100Mi",
         "memoryLimit": "1Gi",
         "cpuRequest": "100m",
@@ -87,6 +87,11 @@ data:
     {
       "enableMetricAggregation": "false",
       "enablePrometheusScraping" : "false"
+    }
+
+  service: |-
+    {
+        "serviceClusterIPNone": false
     }
 
   inferenceService: |-
@@ -129,4 +134,29 @@ data:
            "s3CABundleConfigMap": "odh-kserve-custom-ca-bundle",
            "s3CABundle": "/etc/ssl/custom-certs/cabundle.crt"
        }
+    }
+  autoscaling-wva-controller-config: |-
+    {
+      "prometheus": {
+        "url": "https://thanos-querier.openshift-monitoring.svc.cluster.local:9091",
+        "authModes": "bearer",
+        "triggerAuthName": "ai-inference-keda-thanos",
+        "triggerAuthKind": "ClusterTriggerAuthentication"
+      }
+    }
+  localModel: |-
+    {
+      "enabled": false,
+      "jobNamespace": "opendatahub",
+      "defaultJobImage" : "REPLACE_IMAGE",
+      "fsGroup": 1000,
+      "localModelAgentImage": "REPLACE_IMAGE",
+      "localModelAgentCpuRequest": "100m",
+      "localModelAgentMemoryRequest": "200Mi",
+      "localModelAgentCpuLimit": "100m",
+      "localModelAgentMemoryLimit": "300Mi"
+    }
+  openshiftConfig: |-
+    {
+      "modelcachePermissionFixImage": "REPLACE_IMAGE"
     }

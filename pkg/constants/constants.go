@@ -166,6 +166,7 @@ var (
 	PredictorHostAnnotationKey                       = InferenceServiceInternalAnnotationsPrefix + "/predictor-host"
 	PredictorProtocolAnnotationKey                   = InferenceServiceInternalAnnotationsPrefix + "/predictor-protocol"
 	LocalModelLabel                                  = InferenceServiceInternalAnnotationsPrefix + "/localmodel"
+	LocalModelNamespaceLabel                         = InferenceServiceInternalAnnotationsPrefix + "/localmodel-namespace"
 	LocalModelSourceUriAnnotationKey                 = InferenceServiceInternalAnnotationsPrefix + "/localmodel-sourceuri"
 	LocalModelPVCNameAnnotationKey                   = InferenceServiceInternalAnnotationsPrefix + "/localmodel-pvc-name"
 )
@@ -609,6 +610,7 @@ const (
 	MLServerModelClassXGBoost  = "mlserver_xgboost.XGBoostModel"
 	MLServerModelClassLightGBM = "mlserver_lightgbm.LightGBMModel"
 	MLServerModelClassMLFlow   = "mlserver_mlflow.MLflowRuntime"
+	MLServerModelClassONNX     = "mlserver_onnx.OnnxModel"
 )
 
 // torchserve service envelope label allowed values

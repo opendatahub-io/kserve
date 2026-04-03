@@ -5,6 +5,7 @@
 # Enable distro build tag for platform-specific code.
 # GOTAGS is picked up by the main Makefile to set GOFLAGS and --build-arg for Docker.
 GOTAGS = distro
+export GOFLAGS += -tags=$(GOTAGS)
 
 .PHONY: deploy-dev-llm deploy-dev-llm-ocp deploy-ci uv-update-lockfiles
 
@@ -30,3 +31,9 @@ manifests-distro: controller-gen
 	@$(CONTROLLER_GEN) rbac:roleName=kserve-llmisvc-distro-role \
 		paths=./pkg/controller/v1alpha2/llmisvc/distro \
 		output:rbac:artifacts:config=config/overlays/odh/rbac/llmisvc
+	@$(CONTROLLER_GEN) rbac:roleName=kserve-localmodel-distro-role \
+		paths=./pkg/controller/v1alpha1/localmodel/distro \
+		output:rbac:artifacts:config=config/overlays/odh-modelcache/rbac/localmodel
+	@$(CONTROLLER_GEN) rbac:roleName=kserve-localmodelnode-distro-role \
+		paths=./pkg/controller/v1alpha1/localmodelnode/distro \
+		output:rbac:artifacts:config=config/overlays/odh-modelcache/rbac/localmodelnode
