@@ -113,21 +113,21 @@ spec:
                 value: /mnt/models
             livenessProbe:
               httpGet:
-                path: /health
+                path: /healthz
                 port: 8082
               periodSeconds: 15
               timeoutSeconds: 5
               failureThreshold: 3
             readinessProbe:
               httpGet:
-                path: /health
+                path: /healthz
                 port: 8082
               periodSeconds: 10
               timeoutSeconds: 5
               failureThreshold: 3
             startupProbe:
               httpGet:
-                path: /health
+                path: /healthz
                 port: 8082
               periodSeconds: 10
               initialDelaySeconds: 5
