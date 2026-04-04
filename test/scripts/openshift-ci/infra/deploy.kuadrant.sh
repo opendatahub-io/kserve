@@ -70,6 +70,9 @@ oc wait Kuadrant -n "${KUADRANT_NS}" kuadrant --for=condition=Ready --timeout=10
   oc describe pods -n "${KUADRANT_NS}"
   oc describe deployments -n "${KUADRANT_NS}"
   oc describe csv -n "${KUADRANT_NS}"
+
+  echo "=== Controller manager logs ==="
+  oc logs -n "${KUADRANT_NS}" deployment/kuadrant-operator-controller-manager --tail=200 || true
   exit 1
 }
 
