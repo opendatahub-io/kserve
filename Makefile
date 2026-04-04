@@ -64,6 +64,12 @@ setup-envtest: envtest
 		exit 1; \
 		}
 
+# Prints the absolute path to use as KUBEBUILDER_ASSETS when running go test outside of "make test"
+# (downloads etcd/kube-apiserver/kubectl via setup-envtest into $(LOCALBIN) if missing).
+.PHONY: print-kubebuilder-assets
+print-kubebuilder-assets: envtest
+	@$(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path
+
 # Run go fmt against code
 fmt:
 	go fmt ./pkg/... ./cmd/... && cd qpext && go fmt ./...
@@ -92,6 +98,16 @@ go-lint: golangci-lint
 
 py-lint: $(RUFF)
 	$(RUFF) check --config ruff.toml 
+
+pin-actions: pinact
+	GITHUB_TOKEN=$$(gh auth token 2>/dev/null) $(PINACT) run .github/workflows/*.yml .github/workflows/*.yaml
+
+# Verify that all GitHub Actions are pinned to a full-length commit SHA (offline check, no API calls).
+verify-pinned-actions:
+	@if grep -rPn 'uses:\s+\S+@(?!([0-9a-f]{40}))' .github/workflows/*.yml .github/workflows/*.yaml 2>/dev/null; then \
+		echo "ERROR: Found GitHub Actions not pinned to a full SHA. Run 'make pin-actions' to fix."; \
+		exit 1; \
+	fi
 
 validate-infra-scripts:
 	@python3 hack/setup/scripts/validate-install-scripts.py
@@ -296,14 +312,22 @@ sync-helm-multi-resource-helpers:
 	done
 
 # This runs all necessary steps to prepare for a commit.
-precommit: ensure-go-version-upgrade sync-deps sync-img-env vet tidy go-lint py-fmt py-lint generate manifests uv-lock generate-quick-install-scripts generate-chart-manifests sync-helm-common-helpers sync-helm-common-resource-helpers sync-helm-multi-resource-helpers
+precommit: ensure-go-version-upgrade sync-deps sync-img-env vet tidy go-lint py-fmt py-lint generate manifests uv-lock generate-quick-install-scripts generate-chart-manifests sync-helm-common-helpers sync-helm-common-resource-helpers sync-helm-multi-resource-helpers verify-pinned-actions
 
 # This is used by CI to ensure that the precommit checks are met.
+# Requires a clean working tree after precommit: run "make precommit", then git add/commit
+# (or stash). Re-running precommit alone does not clear git status.
 check: precommit
-	@if [ ! -z "`git status -s`" ]; then \
-		echo "The following differences will fail CI until committed:"; \
-		git diff --exit-code; \
-		echo "Please ensure that you have run 'make precommit' and committed the changes."; \
+	@if [ -n "`git status -s`" ]; then \
+		echo "ERROR: Git working tree is not clean after precommit (CI expects generated output to match the commit)."; \
+		echo ""; \
+		git status -s; \
+		echo ""; \
+		git diff --stat; \
+		git diff --cached --stat; \
+		echo ""; \
+		echo "Fix: make precommit && git add -A && git commit -m \"your message\" && make check"; \
+		echo "For full patches: git diff   and   git diff --cached"; \
 		exit 1; \
 	fi
 
@@ -320,7 +344,7 @@ clean:
 TEST_PKGS ?= $$(go list ./pkg/...) ./cmd/...
 TEST_TIMEOUT ?= 30m
 test: fmt vet manifests envtest test-qpext
-	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test --timeout 30m $$(go list ./pkg/...) ./cmd/... -coverprofile coverage.out -coverpkg ./pkg/... ./cmd...
+	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" go test --timeout 30m $$(go list ./pkg/...) ./cmd/... -coverprofile coverage.out -coverpkg ./pkg/... ./cmd...
 
 test-qpext:
 	cd qpext && go test -v ./... -cover

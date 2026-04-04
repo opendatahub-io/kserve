@@ -35,9 +35,11 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
-	"github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
 	. "github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc/fixture"
 )
+
+// Must match scheduler.schedulerSelfSignedTLSRestartAnnotation in production code.
+const schedulerSelfSignedTLSRestartAnnotation = "serving.kserve.io/scheduler-self-signed-tls-sha256"
 
 var _ = Describe("LLMInferenceService Scheduler Config", func() {
 	Context("Inline scheduler config", func() {
@@ -940,10 +942,10 @@ schedulingProfiles:
 				}, schedulerDeployment)).To(Succeed())
 
 				g.Expect(schedulerDeployment.Spec.Template.Annotations).To(
-					HaveKey(llmisvc.DefaultRestartAnnotation),
+					HaveKey(schedulerSelfSignedTLSRestartAnnotation),
 					"Scheduler pod template should have cert-hash annotation to trigger restart on cert renewal",
 				)
-				g.Expect(schedulerDeployment.Spec.Template.Annotations[llmisvc.DefaultRestartAnnotation]).To(
+				g.Expect(schedulerDeployment.Spec.Template.Annotations[schedulerSelfSignedTLSRestartAnnotation]).To(
 					MatchRegexp("^[0-9a-f]{64}$"), "cert-hash should be a SHA-256 hex string",
 				)
 
@@ -1019,7 +1021,7 @@ schedulingProfiles:
 				}).WithContext(ctx).Should(Succeed())
 
 				Expect(schedulerDeployment.Spec.Template.Annotations).NotTo(
-					HaveKey(llmisvc.DefaultRestartAnnotation),
+					HaveKey(schedulerSelfSignedTLSRestartAnnotation),
 					"Scheduler with cert reload enabled should not have cert-hash annotation",
 				)
 			},

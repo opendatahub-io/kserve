@@ -42,95 +42,153 @@ RUN_AS_NON_ROOT = os.environ.get("RUN_AS_NON_ROOT", "false").lower() in (
 SCHEDULER_CONFIGMAP_NAME = "scheduler-config-e2e"
 SCHEDULER_CONFIGMAP_KEY = "epp"
 
+# vLLM chat warmup requires an explicit Jinja chat template when the HF tokenizer has no
+# chat_template (transformers>=4.44). ConfigMap is created in conftest (and Kind setup script).
+VLLM_E2E_CHAT_TEMPLATE_CM = "vllm-e2e-chat-template"
+VLLM_E2E_CHAT_TEMPLATE_KEY = "chat_template.jinja"
+VLLM_E2E_CHAT_TEMPLATE_MOUNT_DIR = "/etc/kserve/vllm"
+VLLM_E2E_CHAT_TEMPLATE_PATH = (
+    f"{VLLM_E2E_CHAT_TEMPLATE_MOUNT_DIR}/{VLLM_E2E_CHAT_TEMPLATE_KEY}"
+)
+VLLM_E2E_CHAT_TEMPLATE_JINJA = (
+    "{% for message in messages %}{{ message['content'] }}{% endfor %}"
+)
+
+_VLLM_CPU_CHAT_VOLUME = {
+    "name": "vllm-chat-template",
+    "configMap": {"name": VLLM_E2E_CHAT_TEMPLATE_CM},
+}
+_VLLM_CPU_CHAT_VOLUME_MOUNT = {
+    "name": "vllm-chat-template",
+    "mountPath": VLLM_E2E_CHAT_TEMPLATE_MOUNT_DIR,
+    "readOnly": True,
+}
+# Direct `vllm serve` overrides well-known bash entrypoints so we can pass chat-template flags.
+_VLLM_CPU_SERVE_CMD = ["vllm", "serve", "/mnt/models"]
+_VLLM_CPU_SERVE_ARGS = [
+    "--served-model-name",
+    "{{ .Spec.Model.Name }}",
+    "--port",
+    "8000",
+    "--chat-template",
+    VLLM_E2E_CHAT_TEMPLATE_PATH,
+    "--chat-template-content-format",
+    "string",
+]
+
+_VLLM_CPU_PD_CONTAINER_PROBES = {
+    "startupProbe": {
+        "httpGet": {"path": "/health", "port": 8000},
+        "failureThreshold": 60,
+        "periodSeconds": 10,
+        "timeoutSeconds": 5,
+    },
+    "livenessProbe": {
+        "httpGet": {"path": "/health", "port": 8000},
+        "initialDelaySeconds": 10,
+        "periodSeconds": 30,
+        "timeoutSeconds": 30,
+        "failureThreshold": 8,
+    },
+    "readinessProbe": {
+        "httpGet": {"path": "/health", "port": 8000},
+        "initialDelaySeconds": 10,
+        "periodSeconds": 10,
+        "timeoutSeconds": 5,
+        "failureThreshold": 6,
+    },
+}
+
+_VLLM_SIMULATED_DP_EP_SERVE_ARGS = list(_VLLM_CPU_SERVE_ARGS) + [
+    "--enable-ssl-refresh",
+    "--ssl-certfile",
+    "/var/run/kserve/tls/tls.crt",
+    "--ssl-keyfile",
+    "/var/run/kserve/tls/tls.key",
+]
+
+
+def vllm_cpu_e2e_main_container(
+    *,
+    limits_cpu: str = "2",
+    limits_memory: str = "7Gi",
+    requests_cpu: str = "200m",
+    requests_memory: str = "2Gi",
+    include_debug_log_env: bool = True,
+    serve_args: Optional[List[str]] = None,
+    container_extra: Optional[dict] = None,
+) -> dict:
+    """Main container spec for vLLM CPU E2E (explicit chat template; transformers>=4.44)."""
+    env: List[dict] = [{"name": "VLLM_CPU_KVCACHE_SPACE", "value": "1"}]
+    if include_debug_log_env:
+        env.insert(0, {"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"})
+    args = list(serve_args) if serve_args is not None else list(_VLLM_CPU_SERVE_ARGS)
+    c: dict = {
+        "name": "main",
+        "image": "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.17.1",
+        "command": list(_VLLM_CPU_SERVE_CMD),
+        "args": args,
+        "volumeMounts": [_VLLM_CPU_CHAT_VOLUME_MOUNT],
+        "env": env,
+        "resources": {
+            "limits": {"cpu": limits_cpu, "memory": limits_memory},
+            "requests": {"cpu": requests_cpu, "memory": requests_memory},
+        },
+        "securityContext": {"runAsNonRoot": RUN_AS_NON_ROOT},
+    }
+    if container_extra:
+        c.update(container_extra)
+    return c
+
+
+def vllm_cpu_pod_template_for_e2e(
+    *,
+    limits_cpu: str = "2",
+    limits_memory: str = "7Gi",
+    requests_cpu: str = "200m",
+    requests_memory: str = "2Gi",
+    include_debug_log_env: bool = True,
+    serve_args: Optional[List[str]] = None,
+    container_extra: Optional[dict] = None,
+) -> dict:
+    """Pod template (volumes + main container) for LLMInferenceServiceConfig CPU E2E."""
+    return {
+        "volumes": [_VLLM_CPU_CHAT_VOLUME],
+        "containers": [
+            vllm_cpu_e2e_main_container(
+                limits_cpu=limits_cpu,
+                limits_memory=limits_memory,
+                requests_cpu=requests_cpu,
+                requests_memory=requests_memory,
+                include_debug_log_env=include_debug_log_env,
+                serve_args=serve_args,
+                container_extra=container_extra,
+            )
+        ],
+    }
+
+
 LLMINFERENCESERVICE_CONFIGS = {
     "workload-single-cpu": {
-        "template": {
-            "containers": [
-                {
-                    "name": "main",
-                    "image": "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.17.1",
-                    "env": [
-                        {"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"},
-                        {"name": "VLLM_CPU_KVCACHE_SPACE", "value": "1"},
-                    ],
-                    "resources": {
-                        "limits": {"cpu": "2", "memory": "7Gi"},
-                        "requests": {"cpu": "200m", "memory": "2Gi"},
-                    },
-                    "securityContext": {
-                        "runAsNonRoot": RUN_AS_NON_ROOT,
-                    },
-                }
-            ]
-        },
+        "template": vllm_cpu_pod_template_for_e2e(),
     },
     "workload-pd-cpu": {
         "template": {
+            "volumes": [_VLLM_CPU_CHAT_VOLUME],
             "containers": [
-                {
-                    "name": "main",
-                    "image": "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.17.1",
-                    "env": [
-                        {"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"},
-                        {"name": "VLLM_CPU_KVCACHE_SPACE", "value": "1"},
-                    ],
-                    "resources": {
-                        "limits": {"cpu": "2", "memory": "7Gi"},
-                        "requests": {"cpu": "200m", "memory": "2Gi"},
-                    },
-                    "livenessProbe": {
-                        "httpGet": {"path": "/health", "port": 8000},
-                        "initialDelaySeconds": 180,
-                        "periodSeconds": 30,
-                        "timeoutSeconds": 30,
-                        "failureThreshold": 8,
-                    },
-                    "readinessProbe": {
-                        "httpGet": {"path": "/health", "port": 8000},
-                        "initialDelaySeconds": 30,
-                        "periodSeconds": 10,
-                        "timeoutSeconds": 5,
-                        "failureThreshold": 3,
-                    },
-                    "securityContext": {
-                        "runAsNonRoot": RUN_AS_NON_ROOT,
-                    },
-                }
-            ]
+                vllm_cpu_e2e_main_container(
+                    container_extra=_VLLM_CPU_PD_CONTAINER_PROBES,
+                )
+            ],
         },
         "prefill": {
             "template": {
+                "volumes": [_VLLM_CPU_CHAT_VOLUME],
                 "containers": [
-                    {
-                        "name": "main",
-                        "image": "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.17.1",
-                        "env": [
-                            {"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"},
-                            {"name": "VLLM_CPU_KVCACHE_SPACE", "value": "1"},
-                        ],
-                        "resources": {
-                            "limits": {"cpu": "2", "memory": "7Gi"},
-                            "requests": {"cpu": "200m", "memory": "2Gi"},
-                        },
-                        "livenessProbe": {
-                            "httpGet": {"path": "/health", "port": 8000},
-                            "initialDelaySeconds": 180,
-                            "periodSeconds": 30,
-                            "timeoutSeconds": 30,
-                            "failureThreshold": 8,
-                        },
-                        "readinessProbe": {
-                            "httpGet": {"path": "/health", "port": 8000},
-                            "initialDelaySeconds": 30,
-                            "periodSeconds": 10,
-                            "timeoutSeconds": 5,
-                            "failureThreshold": 3,
-                        },
-                        "securityContext": {
-                            "runAsNonRoot": RUN_AS_NON_ROOT,
-                        },
-                    }
-                ]
+                    vllm_cpu_e2e_main_container(
+                        container_extra=_VLLM_CPU_PD_CONTAINER_PROBES,
+                    )
+                ],
             }
         },
     },
@@ -329,64 +387,22 @@ LLMINFERENCESERVICE_CONFIGS = {
             "tensor": 1,
         },
         "template": {
+            "volumes": [_VLLM_CPU_CHAT_VOLUME],
             "containers": [
-                {
-                    "name": "main",
-                    "image": "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.17.1",
-                    "command": ["vllm", "serve", "/mnt/models"],
-                    "args": [
-                        "--served-model-name",
-                        "{{ .Spec.Model.Name }}",
-                        "--port",
-                        "8000",
-                        "--enable-ssl-refresh",
-                        "--ssl-certfile",
-                        "/var/run/kserve/tls/tls.crt",
-                        "--ssl-keyfile",
-                        "/var/run/kserve/tls/tls.key",
-                    ],
-                    "env": [
-                        {"name": "VLLM_CPU_KVCACHE_SPACE", "value": "1"},
-                    ],
-                    "resources": {
-                        "limits": {"cpu": "2", "memory": "7Gi"},
-                        "requests": {"cpu": "200m", "memory": "2Gi"},
-                    },
-                    "securityContext": {
-                        "runAsNonRoot": RUN_AS_NON_ROOT,
-                    },
-                }
-            ]
+                vllm_cpu_e2e_main_container(
+                    include_debug_log_env=False,
+                    serve_args=_VLLM_SIMULATED_DP_EP_SERVE_ARGS,
+                )
+            ],
         },
         "worker": {
+            "volumes": [_VLLM_CPU_CHAT_VOLUME],
             "containers": [
-                {
-                    "name": "main",
-                    "image": "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.17.1",
-                    "command": ["vllm", "serve", "/mnt/models"],
-                    "args": [
-                        "--served-model-name",
-                        "{{ .Spec.Model.Name }}",
-                        "--port",
-                        "8000",
-                        "--enable-ssl-refresh",
-                        "--ssl-certfile",
-                        "/var/run/kserve/tls/tls.crt",
-                        "--ssl-keyfile",
-                        "/var/run/kserve/tls/tls.key",
-                    ],
-                    "env": [
-                        {"name": "VLLM_CPU_KVCACHE_SPACE", "value": "1"},
-                    ],
-                    "resources": {
-                        "limits": {"cpu": "2", "memory": "7Gi"},
-                        "requests": {"cpu": "200m", "memory": "2Gi"},
-                    },
-                    "securityContext": {
-                        "runAsNonRoot": RUN_AS_NON_ROOT,
-                    },
-                }
-            ]
+                vllm_cpu_e2e_main_container(
+                    include_debug_log_env=False,
+                    serve_args=_VLLM_SIMULATED_DP_EP_SERVE_ARGS,
+                )
+            ],
         },
     },
     "router-custom-route-timeout": {

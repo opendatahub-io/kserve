@@ -32,6 +32,7 @@ from .fixtures import (
     inject_k8s_proxy,
     KSERVE_TEST_NAMESPACE,
     KSERVE_PLURAL_LLMINFERENCESERVICECONFIG,
+    vllm_cpu_pod_template_for_e2e,
 )
 from .logging import log_execution, logger
 
@@ -225,18 +226,7 @@ class TestLLMInferenceServiceConversion:
             "spec": {
                 "model": {"uri": "hf://facebook/opt-125m", "name": "facebook/opt-125m"},
                 "router": {"route": {}},
-                "template": {
-                    "containers": [
-                        {
-                            "name": "main",
-                            "image": "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.17.1",
-                            "resources": {
-                                "limits": {"cpu": "2", "memory": "7Gi"},
-                                "requests": {"cpu": "200m", "memory": "2Gi"},
-                            },
-                        }
-                    ]
-                },
+                "template": vllm_cpu_pod_template_for_e2e(),
             },
         }
         create_llmisvc_config_raw(
@@ -314,18 +304,7 @@ class TestLLMInferenceServiceConversion:
             "spec": {
                 "model": {"uri": "hf://facebook/opt-125m", "name": "facebook/opt-125m"},
                 "router": {"route": {}},
-                "template": {
-                    "containers": [
-                        {
-                            "name": "main",
-                            "image": "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.17.1",
-                            "resources": {
-                                "limits": {"cpu": "2", "memory": "7Gi"},
-                                "requests": {"cpu": "200m", "memory": "2Gi"},
-                            },
-                        }
-                    ]
-                },
+                "template": vllm_cpu_pod_template_for_e2e(),
             },
         }
         create_llmisvc_config_raw(
@@ -412,18 +391,7 @@ class TestLLMInferenceServiceConversion:
                     "criticality": "Critical",  # v1alpha1-specific field
                 },
                 "router": {"route": {}},
-                "template": {
-                    "containers": [
-                        {
-                            "name": "main",
-                            "image": "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.17.1",
-                            "resources": {
-                                "limits": {"cpu": "2", "memory": "7Gi"},
-                                "requests": {"cpu": "200m", "memory": "2Gi"},
-                            },
-                        }
-                    ]
-                },
+                "template": vllm_cpu_pod_template_for_e2e(),
             },
         }
         create_llmisvc_config_raw(
@@ -541,18 +509,7 @@ class TestLLMInferenceServiceConversion:
             },
             "spec": {
                 "router": {"route": {}},
-                "template": {
-                    "containers": [
-                        {
-                            "name": "main",
-                            "image": "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.17.1",
-                            "resources": {
-                                "limits": {"cpu": "2", "memory": "7Gi"},
-                                "requests": {"cpu": "200m", "memory": "2Gi"},
-                            },
-                        }
-                    ]
-                },
+                "template": vllm_cpu_pod_template_for_e2e(),
             },
         }
         create_llmisvc_config_raw(
@@ -684,18 +641,7 @@ class TestLLMInferenceServiceConversion:
             },
             "spec": {
                 "router": {"route": {}, "gateway": {}},
-                "template": {
-                    "containers": [
-                        {
-                            "name": "main",
-                            "image": "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.17.1",
-                            "resources": {
-                                "limits": {"cpu": "2", "memory": "7Gi"},
-                                "requests": {"cpu": "200m", "memory": "2Gi"},
-                            },
-                        }
-                    ]
-                },
+                "template": vllm_cpu_pod_template_for_e2e(),
             },
         }
         create_llmisvc_config_raw(

@@ -36,6 +36,7 @@ from kserve import KServeClient, V1alpha1LLMInferenceService, constants
 from .fixtures import (
     KSERVE_TEST_NAMESPACE,
     inject_k8s_proxy,
+    vllm_cpu_pod_template_for_e2e,
 )
 from .logging import logger
 from .test_llm_inference_service import (
@@ -361,18 +362,7 @@ async def test_event_storm_prevention_init_container_isolation():
             workload_config_name,
             KSERVE_TEST_NAMESPACE,
             {
-                "template": {
-                    "containers": [
-                        {
-                            "name": "main",
-                            "image": "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.17.1",
-                            "resources": {
-                                "limits": {"cpu": "2", "memory": "7Gi"},
-                                "requests": {"cpu": "200m", "memory": "2Gi"},
-                            },
-                        }
-                    ]
-                }
+                "template": vllm_cpu_pod_template_for_e2e()
             },
         )
 
@@ -561,18 +551,7 @@ async def test_quick_reconciliation_on_init_container_failure():
             workload_config_name,
             KSERVE_TEST_NAMESPACE,
             {
-                "template": {
-                    "containers": [
-                        {
-                            "name": "main",
-                            "image": "public.ecr.aws/q9t5s3a7/vllm-cpu-release-repo:v0.17.1",
-                            "resources": {
-                                "limits": {"cpu": "2", "memory": "7Gi"},
-                                "requests": {"cpu": "200m", "memory": "2Gi"},
-                            },
-                        }
-                    ]
-                }
+                "template": vllm_cpu_pod_template_for_e2e()
             },
         )
 
