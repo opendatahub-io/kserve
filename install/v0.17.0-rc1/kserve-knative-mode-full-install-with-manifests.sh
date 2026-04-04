@@ -3724,8 +3724,6 @@ spec:
           - "9002"
           - --grpc-health-port
           - "9003"
-          - --kv-cache-usage-percentage-metric
-          - vllm:kv_cache_usage_perc
           image: ghcr.io/llm-d/llm-d-inference-scheduler:v0.4.0
           imagePullPolicy: IfNotPresent
           livenessProbe:
