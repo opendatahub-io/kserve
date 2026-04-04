@@ -12,8 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
+from kubernetes import client, config
+from kubernetes.client.rest import ApiException
+
 # Fixture factory - not called explicitly, but must be imported for pytest to discover it.
-from .fixtures import test_case  # noqa: F401
+from .fixtures import (  # noqa: F401
+    KSERVE_TEST_NAMESPACE,
+    VLLM_E2E_CHAT_TEMPLATE_CM,
+    VLLM_E2E_CHAT_TEMPLATE_JINJA,
+    VLLM_E2E_CHAT_TEMPLATE_KEY,
+    test_case,
+)
 
 
 # This hook is used to ensure that the test names are unique and to ensure that
@@ -44,3 +55,43 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "llminferenceservice: mark test as an LLM inference service test"
     )
+
+
+def pytest_sessionstart(session):
+    """Ensure vLLM CPU E2E workloads can pass chat warmup (transformers>=4.44)."""
+    if os.environ.get("SKIP_VLLM_E2E_CHAT_TEMPLATE_CM", "").lower() in (
+        "1",
+        "true",
+        "yes",
+    ):
+        return
+    try:
+        config.load_kube_config()
+    except Exception:
+        return
+
+    v1 = client.CoreV1Api()
+    try:
+        v1.read_namespace(KSERVE_TEST_NAMESPACE)
+    except ApiException as e:
+        if getattr(e, "status", None) == 404:
+            return
+
+    cm = client.V1ConfigMap(
+        api_version="v1",
+        kind="ConfigMap",
+        metadata=client.V1ObjectMeta(
+            name=VLLM_E2E_CHAT_TEMPLATE_CM,
+            namespace=KSERVE_TEST_NAMESPACE,
+        ),
+        data={VLLM_E2E_CHAT_TEMPLATE_KEY: VLLM_E2E_CHAT_TEMPLATE_JINJA},
+    )
+    try:
+        v1.create_namespaced_config_map(namespace=KSERVE_TEST_NAMESPACE, body=cm)
+    except ApiException as e:
+        if getattr(e, "status", None) == 409:
+            v1.replace_namespaced_config_map(
+                VLLM_E2E_CHAT_TEMPLATE_CM, KSERVE_TEST_NAMESPACE, cm
+            )
+        else:
+            raise

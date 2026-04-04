@@ -341,6 +341,9 @@ deploy_odh_xks() {
   log_wait "Applying odh-xks overlay..."
   kustomize build "${PROJECT_ROOT}/config/overlays/odh-xks" | kubectl apply --server-side=true --force-conflicts -f -
 
+  # GIE CRD ships with the overlay; wait before controller polls InferenceModelRewrite informer.
+  wait_for_crd "inferencemodelrewrites.inference.networking.x-k8s.io" 120s
+
   # Patch the deployment to use the local controller image
   log_wait "Patching deployment to use local controller image '${KSERVE_CONTROLLER_IMAGE}'..."
   kubectl set image deployment/llmisvc-controller-manager \
@@ -477,6 +480,18 @@ create_test_namespace() {
   log_info "Creating E2E test namespace..."
 
   kubectl create namespace kserve-ci-e2e-test --dry-run=client -o yaml | kubectl apply -f -
+
+  # Jinja chat template for vLLM CPU E2E (models without tokenizer.chat_template; transformers>=4.44).
+  log_wait "Creating vLLM E2E chat template ConfigMap..."
+  kubectl apply -n kserve-ci-e2e-test -f - <<'EOF'
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vllm-e2e-chat-template
+data:
+  chat_template.jinja: |
+    {% for message in messages %}{{ message['content'] }}{% endfor %}
+EOF
 
   log_success "E2E test namespace 'kserve-ci-e2e-test' created"
 }
