@@ -45,6 +45,7 @@ spec:
 EOF
 } || true
 
+wait_for_subscription_csv "rhcl-operator" "${KUADRANT_NS}" 600
 wait_for_crd  kuadrants.kuadrant.io  90s
 
 {
@@ -69,6 +70,9 @@ oc wait Kuadrant -n "${KUADRANT_NS}" kuadrant --for=condition=Ready --timeout=10
   oc describe pods -n "${KUADRANT_NS}"
   oc describe deployments -n "${KUADRANT_NS}"
   oc describe csv -n "${KUADRANT_NS}"
+
+  echo "=== Controller manager logs ==="
+  oc logs -n "${KUADRANT_NS}" deployment/kuadrant-operator-controller-manager --tail=200 || true
   exit 1
 }
 
