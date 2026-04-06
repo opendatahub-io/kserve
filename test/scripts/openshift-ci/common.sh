@@ -97,9 +97,11 @@ wait_for_api_discovery() {
   echo "Waiting for apiserver discovery /apis/${gv} to list ${resource_name} (timeout: ${timeout_sec}s)…"
   local counter=0
   local raw=""
+  # Match discovery JSON without jq (Prow e2e image may not ship jq; Konflux often does).
+  local name_pattern
+  name_pattern="\"name\":\"${resource_name}\""
   while [ "$counter" -lt "$timeout_sec" ]; do
-    if raw=$(oc get --raw "/apis/${gv}" 2>/dev/null) && \
-      echo "$raw" | jq -e --arg n "$resource_name" '.resources[]? | select(.name == $n)' >/dev/null 2>&1; then
+    if raw=$(oc get --raw "/apis/${gv}" 2>/dev/null) && echo "$raw" | grep -Fq "$name_pattern"; then
       echo "Discovery for ${gv} includes ${resource_name}."
       return 0
     fi
