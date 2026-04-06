@@ -628,7 +628,7 @@ export RELEASE
 
 GOLANGCI_LINT_VERSION=v2.9.0
 CONTROLLER_TOOLS_VERSION=v0.19.0
-ENVTEST_VERSION=latest
+ENVTEST_VERSION=release-0.19
 YQ_VERSION=v4.52.1
 HELM_VERSION=v3.16.3
 KUSTOMIZE_VERSION=v5.8.1
@@ -2024,7 +2024,7 @@ spec:
       value: "8080"
     - name: MLSERVER_GRPC_PORT
       value: "9000"
-    image: docker.io/seldonio/mlserver:1.5.0
+    image: docker.io/seldonio/mlserver:1.7.1
     name: kserve-container
     resources:
       limits:
