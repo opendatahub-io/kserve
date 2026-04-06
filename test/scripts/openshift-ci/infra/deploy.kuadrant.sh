@@ -47,6 +47,8 @@ EOF
 
 wait_for_subscription_csv "rhcl-operator" "${KUADRANT_NS}" 600
 wait_for_crd  kuadrants.kuadrant.io  90s
+# Let apiserver discovery include kuadrants before first reconcile creates child resources with owner refs.
+wait_for_api_discovery "kuadrant.io/v1beta1" "kuadrants" 120
 
 {
 cat <<EOF | oc create -f -

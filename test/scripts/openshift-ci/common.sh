@@ -83,6 +83,35 @@ wait_for_crd() {
   oc wait --for=condition=Established --timeout="$timeout" "crd/$crd"
 }
 
+# Poll until GET /apis/<group>/<version> lists the given resource (apiserver discovery).
+# Stronger than CRD Established alone for admission paths that resolve owner GVK via REST mapping.
+# Usage: wait_for_api_discovery <group/version> <resource-name> [timeout_seconds]
+#   <group/version>   e.g. kuadrant.io/v1beta1
+#   <resource-name>   plural list name from discovery, e.g. kuadrants
+#   [timeout_seconds] default 120
+wait_for_api_discovery() {
+  local gv=${1:?group/version is required}
+  local resource_name=${2:?resource name is required}
+  local timeout_sec=${3:-120}
+
+  echo "Waiting for apiserver discovery /apis/${gv} to list ${resource_name} (timeout: ${timeout_sec}s)…"
+  local counter=0
+  local raw=""
+  while [ "$counter" -lt "$timeout_sec" ]; do
+    if raw=$(oc get --raw "/apis/${gv}" 2>/dev/null) && \
+      echo "$raw" | jq -e --arg n "$resource_name" '.resources[]? | select(.name == $n)' >/dev/null 2>&1; then
+      echo "Discovery for ${gv} includes ${resource_name}."
+      return 0
+    fi
+    sleep 2
+    counter=$((counter + 2))
+  done
+
+  echo "ERROR: Timed out after ${timeout_sec}s waiting for /apis/${gv} to list ${resource_name}."
+  oc get --raw "/apis/${gv}" 2>/dev/null || echo "(GET /apis/${gv} failed)"
+  return 1
+}
+
 # Helper function to wait for and approve an operator install plan
 # Usage: wait_for_installplan_and_approve <namespace> <operator-name> [timeout]
 #   <namespace>     : namespace where the operator is being installed
