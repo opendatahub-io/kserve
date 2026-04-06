@@ -1,12 +1,8 @@
 # Build the manager binary
-<<<<<<< HEAD
-FROM registry.access.redhat.com/ubi9/go-toolset:1.25 as builder
-=======
 FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS builder
 
 # Run as root during build (final image uses nonroot)
 USER 0
->>>>>>> 0b12dd8a82a86f7b9294c603cc1298f016062bc5
 
 # Copy in the go src
 WORKDIR /go/src/github.com/kserve/kserve
