@@ -108,13 +108,13 @@ Then rerun the command from the previous step.
 ### Debugging Individual Tests
 
 You can run an individual test using the `PYTEST_ARGS` environment variable:
-```
-$ PYTEST_ARGS="predictor/test_canary.py::test_canary_rollout" ./test/scripts/openshift-ci/run-e2e-tests.sh
+```bash
+PYTEST_ARGS="predictor/test_canary.py::test_canary_rollout" ./test/scripts/openshift-ci/run-e2e-tests.sh ""
 ```
 
 To filter by keyword expression:
-```
-$ PYTEST_ARGS="-k test_sklearn_v2" ./test/scripts/openshift-ci/run-e2e-tests.sh predictor
+```bash
+PYTEST_ARGS="-k test_sklearn_v2" ./test/scripts/openshift-ci/run-e2e-tests.sh predictor
 ```
 
 ### Debugging CI
