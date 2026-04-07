@@ -46,6 +46,7 @@ if [[ "$RUNNING_LOCAL" == "true" ]]; then
 fi
 
 cp ./test/e2e/conftest.py ./test/e2e/conftest.py.bak
+trap 'mv ./test/e2e/conftest.py.bak ./test/e2e/conftest.py 2>/dev/null || true' EXIT
 
 : "${SETUP_E2E:=true}"
 
@@ -71,4 +72,3 @@ echo "Run E2E tests: $1"
 pushd $PROJECT_ROOT >/dev/null
 ./test/scripts/gh-actions/run-e2e-tests.sh "$1" $PARALLELISM | tee 2>&1 "./test/scripts/openshift-ci/run-e2e-tests-${1// /-}.log"
 popd
-cp ./test/e2e/conftest.py.bak ./test/e2e/conftest.py

@@ -20,6 +20,9 @@
 # Extra pytest flags can be passed via the PYTEST_ARGS env var, e.g.:
 #   PYTEST_ARGS="-k test_sklearn_v2" ./test/scripts/gh-actions/run-e2e-tests.sh predictor
 #
+# Quoted selectors are supported (parsed via xargs):
+#   PYTEST_ARGS='-k "test_a or test_b"' ./test/scripts/gh-actions/run-e2e-tests.sh predictor
+#
 # To run a specific test by path, pass an empty marker:
 #   PYTEST_ARGS="predictor/test_sklearn.py::test_sklearn_v2" ./test/scripts/gh-actions/run-e2e-tests.sh
 
@@ -50,11 +53,16 @@ if [[ -n "$MARKER" ]]; then
   MARKER_ARGS=(-m "$MARKER")
 fi
 
+PYTEST_EXTRA_ARGS=()
+if [[ -n "${PYTEST_ARGS:-}" ]]; then
+  readarray -t PYTEST_EXTRA_ARGS < <(xargs printf '%s\n' <<< "$PYTEST_ARGS")
+fi
+
 pushd test/e2e >/dev/null
   if [[ "$MARKER" == "raw" && "$NETWORK_LAYER" == "istio-ingress" ]]; then
     echo "Skipping explainer tests for raw deployment with ingress"
-    pytest "${MARKER_ARGS[@]}" "${PYTEST_COMMON_ARGS[@]}" --ignore=explainer/ ${PYTEST_ARGS:-}
+    pytest "${MARKER_ARGS[@]}" "${PYTEST_COMMON_ARGS[@]}" --ignore=explainer/ "${PYTEST_EXTRA_ARGS[@]}"
   else
-    pytest "${MARKER_ARGS[@]}" "${PYTEST_COMMON_ARGS[@]}" ${PYTEST_ARGS:-}
+    pytest "${MARKER_ARGS[@]}" "${PYTEST_COMMON_ARGS[@]}" "${PYTEST_EXTRA_ARGS[@]}"
   fi
 popd
