@@ -49,7 +49,6 @@ type ServiceReconciler struct {
 
 func NewServiceReconciler(client client.Client,
 	scheme *runtime.Scheme,
-	resourceType constants.ResourceType,
 	componentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, multiNodeEnabled bool,
@@ -58,7 +57,7 @@ func NewServiceReconciler(client client.Client,
 	return &ServiceReconciler{
 		client:       client,
 		scheme:       scheme,
-		ServiceList:  createService(resourceType, componentMeta, componentExt, podSpec, multiNodeEnabled, serviceConfig),
+		ServiceList:  createService(componentMeta, componentExt, podSpec, multiNodeEnabled, serviceConfig),
 		componentExt: componentExt,
 	}
 }
@@ -78,7 +77,7 @@ func getAppProtocol(port corev1.ContainerPort) *string {
 	return nil
 }
 
-func createService(resourceType constants.ResourceType, componentMeta metav1.ObjectMeta, componentExt *v1beta1.ComponentExtensionSpec,
+func createService(componentMeta metav1.ObjectMeta, componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, multiNodeEnabled bool, serviceConfig *v1beta1.ServiceConfig,
 ) []*corev1.Service {
 	var svcList []*corev1.Service
@@ -94,11 +93,11 @@ func createService(resourceType constants.ResourceType, componentMeta metav1.Obj
 
 	if !multiNodeEnabled {
 		// If multiNodeEnabled is false, only defaultSvc will be created.
-		defaultSvc := createDefaultSvc(resourceType, componentMeta, componentExt, podSpec, serviceConfig)
+		defaultSvc := createDefaultSvc(componentMeta, componentExt, podSpec, serviceConfig)
 		svcList = append(svcList, defaultSvc)
 	} else if multiNodeEnabled && !isWorkerContainer {
 		// If multiNodeEnabled is true, both defaultSvc and headSvc will be created.
-		defaultSvc := createDefaultSvc(resourceType, componentMeta, componentExt, podSpec, serviceConfig)
+		defaultSvc := createDefaultSvc(componentMeta, componentExt, podSpec, serviceConfig)
 		svcList = append(svcList, defaultSvc)
 
 		headSvc := createHeadlessSvc(componentMeta)
@@ -108,7 +107,7 @@ func createService(resourceType constants.ResourceType, componentMeta metav1.Obj
 	return svcList
 }
 
-func createDefaultSvc(resourceType constants.ResourceType, componentMeta metav1.ObjectMeta, componentExt *v1beta1.ComponentExtensionSpec,
+func createDefaultSvc(componentMeta metav1.ObjectMeta, componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, serviceConfig *v1beta1.ServiceConfig,
 ) *corev1.Service {
 	var servicePorts []corev1.ServicePort
@@ -196,7 +195,7 @@ func createDefaultSvc(resourceType constants.ResourceType, componentMeta metav1.
 	}
 	service.Annotations[constants.OpenshiftServingCertAnnotation] = componentMeta.Name + constants.ServingCertSecretSuffix
 
-	if resourceType == constants.InferenceGraphResource {
+	if _, isIG := componentMeta.Labels[constants.InferenceGraphLabel]; isIG {
 		servicePorts[0].Port = int32(443)
 	} else {
 		if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {

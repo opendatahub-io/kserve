@@ -35,9 +35,7 @@ import (
 // WorkloadReconcilerParams contains parameters for workload reconciler creation
 type WorkloadReconcilerParams struct {
 	Client              client.Client
-	ClientSet           kubernetes.Interface
 	Scheme              *runtime.Scheme
-	ResourceType        constants.ResourceType
 	ComponentMeta       metav1.ObjectMeta
 	WorkerComponentMeta metav1.ObjectMeta
 	ComponentExt        *v1beta1.ComponentExtensionSpec
@@ -50,7 +48,6 @@ type WorkloadReconcilerParams struct {
 type ServiceReconcilerParams struct {
 	Client           client.Client
 	Scheme           *runtime.Scheme
-	ResourceType     constants.ResourceType
 	ComponentMeta    metav1.ObjectMeta
 	ComponentExt     *v1beta1.ComponentExtensionSpec
 	PodSpec          *corev1.PodSpec
@@ -88,8 +85,8 @@ func (f *ReconcilerFactory) CreateWorkloadReconciler(
 	switch deploymentMode {
 	case constants.Standard, constants.LegacyRawDeployment:
 		deploymentRec, err := deployment.NewDeploymentReconciler(
-			ctx, params.Client, params.ClientSet, params.Scheme, params.ResourceType, params.ComponentMeta,
-			params.WorkerComponentMeta, params.ComponentExt, params.PodSpec, params.WorkerPodSpec, params.DeployConfig,
+			ctx, params.Client, params.Scheme, params.ComponentMeta, params.WorkerComponentMeta,
+			params.ComponentExt, params.PodSpec, params.WorkerPodSpec, params.DeployConfig,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create deployment reconciler: %w", err)
@@ -110,7 +107,7 @@ func (f *ReconcilerFactory) CreateServiceReconciler(
 	switch deploymentMode {
 	case constants.Standard, constants.LegacyRawDeployment:
 		return service.NewServiceReconciler(
-			params.Client, params.Scheme, params.ResourceType, params.ComponentMeta, params.ComponentExt,
+			params.Client, params.Scheme, params.ComponentMeta, params.ComponentExt,
 			params.PodSpec, params.MultiNodeEnabled, params.ServiceConfig,
 		), nil
 
