@@ -120,8 +120,7 @@ func TestCreateDefaultDeployment(t *testing.T) {
 						constants.DeploymentMode:  string(constants.Standard),
 					},
 					Annotations: map[string]string{
-						"annotation":                             "annotation-value",
-						constants.OpenshiftServingCertAnnotation: "default-predictor-serving-cert",
+						"annotation": "annotation-value",
 					},
 				},
 				Spec: corev1.ServiceSpec{
@@ -152,8 +151,7 @@ func TestCreateDefaultDeployment(t *testing.T) {
 						constants.InferenceServiceGenerationPodLabelKey: "1",
 					},
 					Annotations: map[string]string{
-						"annotation":                             "annotation-value",
-						constants.OpenshiftServingCertAnnotation: "default-predictor-serving-cert",
+						"annotation": "annotation-value",
 					},
 				},
 				Spec: corev1.ServiceSpec{
@@ -182,8 +180,7 @@ func TestCreateDefaultDeployment(t *testing.T) {
 						constants.MultiNodeRoleLabelKey:                 constants.MultiNodeHead,
 					},
 					Annotations: map[string]string{
-						"annotation":                             "annotation-value",
-						constants.OpenshiftServingCertAnnotation: "default-predictor-serving-cert",
+						"annotation": "annotation-value",
 					},
 				},
 				Spec: corev1.ServiceSpec{
@@ -250,7 +247,7 @@ func TestCreateDefaultDeployment(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := createService(constants.InferenceServiceResource, tt.args.componentMeta, tt.args.componentExt, tt.args.podSpec, tt.args.multiNodeEnabled, emptyServiceConfig)
+			got := createService(tt.args.componentMeta, tt.args.componentExt, tt.args.podSpec, tt.args.multiNodeEnabled, emptyServiceConfig)
 			for i, service := range got {
 				if diff := cmp.Diff(tt.expected[i], service); diff != "" {
 					t.Errorf("Test %q unexpected service (-want +got): %v", tt.name, diff)
@@ -302,13 +299,8 @@ func runTestServiceCreate(serviceConfig *v1beta1.ServiceConfig, expectedClusterI
 	componentExt := &v1beta1.ComponentExtensionSpec{}
 	podSpec := &corev1.PodSpec{}
 
-	service := createService(constants.InferenceServiceResource, componentMeta, componentExt, podSpec, false, serviceConfig)
-
-	expectedMeta := *componentMeta.DeepCopy()
-	expectedMeta.Annotations = map[string]string{
-		constants.OpenshiftServingCertAnnotation: "test-service" + constants.ServingCertSecretSuffix,
-	}
-	assert.Equal(t, expectedMeta, service[0].ObjectMeta, "Expected ObjectMeta to be equal")
+	service := createService(componentMeta, componentExt, podSpec, false, serviceConfig)
+	assert.Equal(t, componentMeta, service[0].ObjectMeta, "Expected ObjectMeta to be equal")
 	assert.Equal(t, map[string]string{"app": "isvc.test-service"}, service[0].Spec.Selector, "Expected Selector to be equal")
 	assert.Equal(t, expectedClusterIP, service[0].Spec.ClusterIP, "Expected ClusterIP to be equal")
 }
