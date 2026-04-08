@@ -25,6 +25,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/coreos/go-semver/semver"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -53,6 +54,7 @@ const (
 
 	precisePrefixCacheScorerPlugin = "precise-prefix-cache-scorer"
 	prefixCacheScorerPlugin        = "prefix-cache-scorer"
+	coreMetricsExtractorPlugin     = "core-metrics-extractor"
 	udsTokenizerBaseModelName      = "base"
 	udsTokenizerSocketFile         = "/tmp/tokenizer/tokenizer-uds.socket" //nolint:gosec // G101: not a credential, UDS socket path
 )
@@ -368,6 +370,8 @@ func (r *LLMISVCReconciler) expectedSchedulerDeployment(ctx context.Context, llm
 		},
 	}
 
+	r.propagateSchedulerMetadata(llmSvc, d)
+
 	mainIdx := -1
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil && llmSvc.Spec.Router.Scheduler.Template != nil {
 		curr := &appsv1.Deployment{}
@@ -447,9 +451,18 @@ func (r *LLMISVCReconciler) expectedSchedulerDeployment(ctx context.Context, llm
 				return d, fmt.Errorf("failed to mutate scheduler config: %w", err)
 			}
 		}
-	}
 
-	r.propagateSchedulerMetadata(llmSvc, d)
+		// In 0.7.0, the following scheduler arguments are removed and moved to engine config in EndpointPickerConfig.
+		if err := schedulerTransform(d, removeSchedulerArg(ctx,
+			"total-queued-requests-metric",
+			"total-running-requests-metric",
+			"kv-cache-usage-percentage-metric",
+			"lora-info-metric",
+			"cache-info-metric",
+		)); err != nil {
+			return d, fmt.Errorf("failed to remove scheduler args: %w", err)
+		}
+	}
 
 	// Set a hash of the current certificate data on the pod template so that
 	// when certificates are renewed the pod template changes and the scheduler
@@ -923,6 +936,139 @@ func WithMigrateBlockSizeToBlockSizeTokens(ctx context.Context, u *unstructured.
 	}
 
 	return nil
+}
+
+type TransformDeployment func(curr semver.Version, d *appsv1.Deployment) error
+
+func schedulerTransform(d *appsv1.Deployment, transformations ...TransformDeployment) error {
+	version, ok := d.Spec.Template.Annotations["app.kubernetes.io/version"]
+	if !ok || version == "" {
+		version = "0.0.0"
+	}
+	v, err := semver.NewVersion(version)
+	if err != nil {
+		return fmt.Errorf("failed to parse version %q: %w", version, err)
+	}
+	for _, transformation := range transformations {
+		if err := transformation(*v, d); err != nil {
+			return fmt.Errorf("failed to apply transformation: %w", err)
+		}
+	}
+	return nil
+}
+
+func removeSchedulerArg(ctx context.Context, args ...string) TransformDeployment {
+	return func(curr semver.Version, d *appsv1.Deployment) error {
+		if curr.Compare(*semver.New("0.7.0")) < 0 {
+			return nil
+		}
+
+		toRemove := make(map[string]bool, len(args))
+		for _, a := range args {
+			toRemove[a] = true
+		}
+		for ci := range d.Spec.Template.Spec.Containers {
+			c := &d.Spec.Template.Spec.Containers[ci]
+
+			// Extract values and remove matched args in a single pass.
+			filtered, extracted := filterArgs(c.Args, toRemove)
+			c.Args = filtered
+
+			// Inject the core-metrics-extractor plugin into the --config-text using
+			// the extracted values. This must happen after updating c.Args so that
+			// mutateSchedulerConfig modifies the filtered args, not the original ones.
+			if err := mutateSchedulerConfig(ctx, d, withCoreMetricsExtractorPlugin(extracted)); err != nil {
+				return fmt.Errorf("failed to inject core-metrics-extractor plugin: %w", err)
+			}
+		}
+		return nil
+	}
+}
+
+// filterArgs removes matching flags from args and returns their values.
+// It handles both --flag=value and --flag value forms.
+func filterArgs(args []string, names map[string]bool) (filtered []string, extracted map[string]string) {
+	extracted = make(map[string]string)
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		name := strings.TrimLeft(arg, "-")
+		// Handle --flag=value form
+		value := ""
+		if eqIdx := strings.Index(name, "="); eqIdx != -1 {
+			value = name[eqIdx+1:]
+			name = name[:eqIdx]
+		}
+		if !names[name] {
+			filtered = append(filtered, args[i])
+			continue
+		}
+		// For bare flags (no "="), the next non-flag arg is the value.
+		if value == "" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+			value = args[i+1]
+			i++
+		}
+		extracted[name] = value
+	}
+	return filtered, extracted
+}
+
+// withCoreMetricsExtractorPlugin returns a mutateSchedulerConfigFunc that injects
+// the core-metrics-extractor plugin using the metric spec values extracted from
+// the deprecated CLI flags.
+func withCoreMetricsExtractorPlugin(extracted map[string]string) mutateSchedulerConfigFunc {
+
+	// argToEngineConfigField maps CLI flag names to core-metrics-extractor engineConfig field names.
+	var argToEngineConfigField = map[string]string{
+		"total-queued-requests-metric":     "queuedRequestsSpec",
+		"total-running-requests-metric":    "runningRequestsSpec",
+		"kv-cache-usage-percentage-metric": "kvUsageSpec",
+		"lora-info-metric":                 "loraSpec",
+		"cache-info-metric":                "cacheInfoSpec",
+	}
+
+	return func(_ context.Context, u *unstructured.Unstructured) error {
+		if len(extracted) == 0 {
+			return nil
+		}
+
+		val, _, err := unstructured.NestedFieldNoCopy(u.Object, "plugins")
+		if err != nil {
+			return err
+		}
+		plugins, _ := val.([]interface{})
+
+		// Skip if the plugin already exists.
+		for _, plugin := range plugins {
+			pluginMap, ok := plugin.(map[string]interface{})
+			if ok && pluginMap["type"] == coreMetricsExtractorPlugin {
+				return nil
+			}
+		}
+
+		engineConfig := map[string]interface{}{
+			"name": "vllm",
+		}
+		for argName, fieldName := range argToEngineConfigField {
+			if v, ok := extracted[argName]; ok {
+				engineConfig[fieldName] = v
+			}
+		}
+
+		pluginEntry := map[string]interface{}{
+			"name": coreMetricsExtractorPlugin,
+			"type": coreMetricsExtractorPlugin,
+			"parameters": map[string]interface{}{
+				"engineLabelKey": "inference.networking.k8s.io/engine-type",
+				"defaultEngine":  "vllm",
+				"engineConfigs": []interface{}{
+					engineConfig,
+				},
+			},
+		}
+
+		plugins = append(plugins, pluginEntry)
+		return unstructured.SetNestedSlice(u.Object, plugins, "plugins")
+	}
 }
 
 func semanticServiceIsEqual(expected *corev1.Service, current *corev1.Service) bool {
