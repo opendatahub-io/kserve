@@ -974,7 +974,7 @@ schedulingProfiles:
 							Containers: []corev1.Container{
 								{
 									Name:  "main",
-									Image: "ghcr.io/llm-d/llm-d-inference-scheduler:v0.6.0",
+									Image: "ghcr.io/llm-d/llm-d-inference-scheduler:v0.7.1",
 									Args: []string{
 										certReloadArg,
 										"--poolName",
