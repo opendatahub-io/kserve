@@ -12,6 +12,14 @@ resources:
   - ../webhook/llmisvc
   - gateway-inference-extension.yaml
 
+commonLabels:
+  app.opendatahub.io/part-of: llmisvc
+
+# TODO: enable once OSSM integration is fully validated
+# annotations:
+#   service.beta.openshift.io/serving-cert-secret-name: llmisvc-tls
+#   networking.knative.dev/disableIstioSidecar: "false"
+
 replacements:
 # Replace the namespace with the namespace of the controller manager.
 - source:

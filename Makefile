@@ -1,6 +1,19 @@
 # The Go and Python based tools are defined in Makefile.tools.mk.
 include Makefile.tools.mk
 
+# Build tags for OpenShift-specific compilation
+GOTAGS ?= distro
+
+.PHONY: build-ocp
+build-ocp: ## Build OCP-specific manager image with distro build tags
+	$(ENGINE) build --build-arg GOTAGS=$(GOTAGS) \
+		-f Dockerfile.ocp \
+		-t $(IMG)-ocp:$(TAG) .
+
+.PHONY: push-ocp
+push-ocp: ## Push OCP manager image to registry.redhat.io
+	$(ENGINE) push registry.redhat.io/rhods/$(IMG):$(TAG)
+
 # Load dependency versions
 include kserve-deps.env
 
