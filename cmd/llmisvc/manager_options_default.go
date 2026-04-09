@@ -22,4 +22,4 @@ import ctrl "sigs.k8s.io/controller-runtime"
 
 // customizeManagerOptions is a hook for distribution-specific manager configuration
 // such as adding extra cache watches or modifying controller options.
-func customizeManagerOptions(_ *ctrl.Options) {}
+func customizeManagerOptions(_ *ctrl.Options) error { return nil }

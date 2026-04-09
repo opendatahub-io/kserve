@@ -27,7 +27,7 @@ import (
 	"github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
 )
 
-func customizeManagerOptions(opts *ctrl.Options) {
+func customizeManagerOptions(opts *ctrl.Options) error {
 	// Replace the simple label-based Secret cache with a namespace-aware one that
 	// also watches the platform CA signing secret used for workload TLS certificates.
 	for obj, cfg := range opts.Cache.ByObject {
@@ -44,9 +44,10 @@ func customizeManagerOptions(opts *ctrl.Options) {
 					},
 				},
 			}
-			return
+			return nil
 		}
 	}
 
 	setupLog.WithValues("distro", "opendatahub").Info("WARNING: Secret entry not found in cache.ByObject; CA signing secret will not be watched")
+	return nil
 }
