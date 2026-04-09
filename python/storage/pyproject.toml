@@ -34,6 +34,9 @@ PyJWT = {version = ">=2.12.0"}
 # CVE-2026-26007 cryptography fails to validate EC public key subgroup membership (SECT curves)
 # Pinning because it is a transitive dependency.
 cryptography = {version = ">=46.0.5"}
+# CVE-2026-30922 pyasn1 Vulnerable to Denial of Service via Unbounded Recursion.
+# Pinning because it is a transitive dependency.
+pyasn1 = {version = ">=0.6.3"}
 
 
 #[tool.poetry-version-plugin]
