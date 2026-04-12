@@ -1,8 +1,9 @@
 # KServe
-[![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white)](https://pkg.go.dev/github.com/opendatahub-io/kserve)
-[![Go Report Card](https://goreportcard.com/badge/github.com/opendatahub-io/kserve)](https://goreportcard.com/report/github.com/opendatahub-io/kserve)
-[![Releases](https://img.shields.io/github/release-pre/opendatahub-io/kserve.svg?sort=semver)](https://github.com/opendatahub-io/kserve/releases)
-[![LICENSE](https://img.shields.io/github/license/opendatahub-io/kserve.svg)](https://github.com/opendatahub-io/kserve/blob/master/LICENSE)
+[![go.dev reference](https://img.shields.io/badge/go.dev-reference-007d9c?logo=go&logoColor=white)](https://pkg.go.dev/github.com/kserve/kserve)
+[![Go Report Card](https://goreportcard.com/badge/github.com/kserve/kserve)](https://goreportcard.com/report/github.com/kserve/kserve)
+[![OpenSSF Best Practices](https://bestpractices.coreinfrastructure.org/projects/6643/badge)](https://bestpractices.coreinfrastructure.org/projects/6643)
+[![Releases](https://img.shields.io/github/release-pre/kserve/kserve.svg?sort=semver)](https://github.com/kserve/kserve/releases)
+[![LICENSE](https://img.shields.io/github/license/kserve/kserve.svg)](https://github.com/kserve/kserve/blob/master/LICENSE)
 [![Slack Status](https://img.shields.io/badge/slack-join_chat-white.svg?logo=slack&style=social)](https://github.com/kserve/community/blob/main/README.md#questions-and-issues)
 [![Gurubase](https://img.shields.io/badge/Gurubase-Ask%20KServe%20Guru-006BFF)](https://gurubase.io/g/kserve)
 
@@ -39,8 +40,8 @@ Single platform that unifies Generative and Predictive AI inference on Kubernete
   * 💰 **Cost Efficient**: Scale-to-zero on expensive resources when not in use, reducing infrastructure costs
 
 ### Learn More
-To learn more about KServe, how to use various supported features, and how to participate in the KServe community, 
-please follow the [KServe website documentation](https://kserve.github.io/website). 
+To learn more about KServe, how to use various supported features, and how to participate in the KServe community,
+please follow the [KServe website documentation](https://kserve.github.io/website).
 Additionally, we have compiled a list of [presentations and demos](https://kserve.github.io/website/docs/community/presentations) to dive through various details.
 
 ### :hammer_and_wrench: Installation
@@ -48,7 +49,7 @@ Additionally, we have compiled a list of [presentations and demos](https://kserv
 #### Standalone Installation
 - **[Standard Kubernetes Installation](https://kserve.github.io/website/docs/admin-guide/overview#raw-kubernetes-deployment)**: Compared to Serverless Installation, this is a more **lightweight** installation. However, this option does not support canary deployment and request based autoscaling with scale-to-zero.
 - **[Knative Installation](https://kserve.github.io/website/docs/admin-guide/overview#serverless-deployment)**: KServe by default installs Knative for **serverless deployment** for InferenceService.
-- **[ModelMesh Installation](https://kserve.github.io/website/docs/admin-guide/overview#modelmesh-deployment)**: You can optionally install ModelMesh to enable **high-scale**, **high-density** and **frequently-changing model serving** use cases. 
+- **[ModelMesh Installation](https://kserve.github.io/website/docs/admin-guide/overview#modelmesh-deployment)**: You can optionally install ModelMesh to enable **high-scale**, **high-density** and **frequently-changing model serving** use cases.
 - **[Quick Installation](https://kserve.github.io/website/docs/getting-started/quickstart-guide)**: Install KServe on your local machine.
 
 #### Kubeflow Installation

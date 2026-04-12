@@ -195,6 +195,30 @@ func TestCreateDefaultDeployment(t *testing.T) {
 					PublishNotReadyAddresses: true,
 				},
 			},
+			&corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "default-workers-1",
+					Namespace: "default-predictor-namespace",
+					Labels: map[string]string{
+						constants.RawDeploymentAppLabel:                 "isvc.default-predictor",
+						constants.KServiceComponentLabel:                "predictor",
+						constants.InferenceServicePodLabelKey:           "default-predictor",
+						constants.InferenceServiceGenerationPodLabelKey: "1",
+						constants.MultiNodeRoleLabelKey:                 constants.MultiNodeWorker,
+					},
+					Annotations: map[string]string{
+						"annotation": "annotation-value",
+					},
+				},
+				Spec: corev1.ServiceSpec{
+					Selector: map[string]string{
+						"app": "isvc.default-predictor-worker",
+						constants.InferenceServiceGenerationPodLabelKey: "1",
+					},
+					ClusterIP:                "None",
+					PublishNotReadyAddresses: true,
+				},
+			},
 		},
 	}
 
@@ -271,19 +295,20 @@ func TestCreateServiceRawTrueAndConfigNil(t *testing.T) {
 }
 
 func runTestServiceCreate(serviceConfig *v1beta1.ServiceConfig, expectedClusterIP string, t *testing.T) {
-	// Adding the annotation here as the test it is expected that this annotation is injected automatically for all services
 	componentMeta := metav1.ObjectMeta{
 		Name:      "test-service",
 		Namespace: "default",
-		Annotations: map[string]string{
-			constants.OpenshiftServingCertAnnotation: "default-predictor-serving-cert",
-		},
 	}
 	componentExt := &v1beta1.ComponentExtensionSpec{}
 	podSpec := &corev1.PodSpec{}
 
 	service := createService(constants.InferenceServiceResource, componentMeta, componentExt, podSpec, false, serviceConfig)
-	assert.Equal(t, componentMeta, service[0].ObjectMeta, "Expected ObjectMeta to be equal")
+
+	expectedMeta := *componentMeta.DeepCopy()
+	expectedMeta.Annotations = map[string]string{
+		constants.OpenshiftServingCertAnnotation: "test-service" + constants.ServingCertSecretSuffix,
+	}
+	assert.Equal(t, expectedMeta, service[0].ObjectMeta, "Expected ObjectMeta to be equal")
 	assert.Equal(t, map[string]string{"app": "isvc.test-service"}, service[0].Spec.Selector, "Expected Selector to be equal")
 	assert.Equal(t, expectedClusterIP, service[0].Spec.ClusterIP, "Expected ClusterIP to be equal")
 }

@@ -1,29 +1,38 @@
 # Build the inference-agent binary
-FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS builder
+FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS deps
 # distro: UBI go-toolset does not add GOPATH/bin to PATH
 ENV PATH="$PATH:/opt/app-root/src/go/bin"
 
-# Copy in the go src
 WORKDIR /go/src/github.com/kserve/kserve
 COPY go.mod  go.mod
 COPY go.sum  go.sum
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
-RUN go mod download
-
-# Install license tool (cached independently of source changes)
-RUN go install github.com/google/go-licenses@v1.6.0
-COPY LICENSE LICENSE
+# ---- Build stage (parallel with license on BuildKit) ----
+FROM deps AS builder
 
 ARG CMD=agent
 COPY cmd/${CMD}/ cmd/${CMD}/
 COPY pkg/    pkg/
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOFLAGS=-mod=readonly go build -a -o agent ./cmd/${CMD}
 
-# Check and generate third-party licenses (fast, fail-fast on violations)
-RUN /opt/app-root/src/go/bin/go-licenses check ./cmd/${CMD} ./pkg/... --disallowed_types="forbidden,unknown" && \
-    /opt/app-root/src/go/bin/go-licenses save --save_path third_party/library ./cmd/${CMD}
+# ---- License stage (parallel with build on BuildKit) ----
+FROM deps AS license
 
-# Build
-RUN CGO_ENABLED=0 GOOS=linux GOFLAGS=-mod=readonly go build -a -o agent ./cmd/${CMD}
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go install github.com/google/go-licenses@v1.6.0
+
+ARG CMD=agent
+COPY cmd/${CMD}/ cmd/${CMD}/
+COPY pkg/    pkg/
+COPY LICENSE LICENSE
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go-licenses check ./cmd/${CMD} ./pkg/... --disallowed_types="forbidden,unknown" && \
+    go-licenses save --save_path third_party/library ./cmd/${CMD}
 
 # Copy the inference-agent into a thin image
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
@@ -33,7 +42,7 @@ RUN microdnf install -y --disablerepo=* --enablerepo=ubi-9-baseos-rpms shadow-ut
     useradd kserve -m -u 1000
 RUN microdnf remove -y shadow-utils
 
-COPY --from=builder /go/src/github.com/kserve/kserve/third_party /third_party
+COPY --from=license /go/src/github.com/kserve/kserve/third_party /third_party
 
 WORKDIR /ko-app
 
