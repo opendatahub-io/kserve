@@ -62,6 +62,8 @@ spec:
       serviceAccountName: build-pipeline-kserve-group
     - pipelineTaskName: build-error-404-isvc
       serviceAccountName: build-pipeline-kserve-group
+    - pipelineTaskName: export-pipeline-logs
+      serviceAccountName: build-pipeline-kserve-group
   workspaces:
   - name: git-auth
     secret:
