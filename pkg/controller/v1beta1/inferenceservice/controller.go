@@ -390,6 +390,12 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		return result, nil
 	}
 
+	if deploymentMode == constants.Standard || deploymentMode == constants.LegacyRawDeployment {
+		if err := reconcilePlatformPermissions(ctx, r.Client, isvc); err != nil {
+			return reconcile.Result{}, errors.Wrapf(err, "fails to reconcile platform permissions")
+		}
+	}
+
 	// Reconcile modelConfig
 	configMapReconciler := modelconfig.NewModelConfigReconciler(r.Client, r.Clientset, r.Scheme)
 	if err := configMapReconciler.Reconcile(ctx, isvc); err != nil {
@@ -732,6 +738,10 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, deployCo
 		}
 	} else {
 		ctrlBuilder = ctrlBuilder.Owns(&netv1.Ingress{})
+	}
+
+	if err := extendControllerSetup(mgr, ctrlBuilder); err != nil {
+		return fmt.Errorf("failed to extend controller setup: %w", err)
 	}
 
 	return ctrlBuilder.Watches(&v1alpha1.ServingRuntime{}, handler.EnqueueRequestsFromMapFunc(r.servingRuntimeFunc), builder.WithPredicates(servingRuntimesPredicate)).

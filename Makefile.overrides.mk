@@ -37,3 +37,6 @@ manifests-distro: controller-gen
 	@$(CONTROLLER_GEN) rbac:roleName=kserve-localmodelnode-distro-role \
 		paths=./pkg/controller/v1alpha1/localmodelnode/distro \
 		output:rbac:artifacts:config=config/overlays/odh-modelcache/rbac/localmodelnode
+	@$(CONTROLLER_GEN) rbac:roleName=kserve-isvc-distro-role \
+		paths=./pkg/controller/v1beta1/inferenceservice/distro \
+		output:rbac:artifacts:config=config/overlays/odh/rbac/inferenceservice

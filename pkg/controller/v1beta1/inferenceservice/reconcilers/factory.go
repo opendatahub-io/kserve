@@ -126,6 +126,9 @@ func (f *ReconcilerFactory) CreateIngressReconciler(
 ) (IngressReconciler, error) {
 	switch deploymentMode {
 	case constants.Standard, constants.LegacyRawDeployment:
+		if override, err := resolveDistroIngressReconciler(params); override != nil || err != nil {
+			return override, err
+		}
 		if params.IngressConfig.EnableGatewayAPI {
 			// Gateway API HTTPRoute
 			return ingress.NewRawHTTPRouteReconciler(
