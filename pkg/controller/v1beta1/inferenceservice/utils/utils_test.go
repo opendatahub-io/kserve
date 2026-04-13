@@ -1037,7 +1037,7 @@ func TestGetServingRuntime(t *testing.T) {
 		if !g.Expect(res).To(gomega.BeNil()) {
 			t.Errorf("got %v, want %v", res, nil)
 		}
-		g.Expect(err.Error()).To(gomega.ContainSubstring("No ServingRuntimes with the name"))
+		g.Expect(err.Error()).To(gomega.ContainSubstring("No ServingRuntimes or ClusterServingRuntimes with the name"))
 	})
 }
 
