@@ -981,7 +981,7 @@ func TestOauthProxyUpstreamTimeout(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			deployments, err := createRawDeploymentODH(
+			deployments, _, err := createRawDeploymentODH(
 				t.Context(),
 				tt.args.client,
 				tt.args.clientset,
@@ -1854,4 +1854,585 @@ func TestSetControllerReferences(t *testing.T) {
 	assert.Equal(t, owner.Name, deployment1.GetOwnerReferences()[0].Name)
 	assert.Len(t, deployment2.GetOwnerReferences(), 1)
 	assert.Equal(t, owner.Name, deployment2.GetOwnerReferences()[0].Name)
+}
+
+// mockClientForAuthProxyDetection is a mock client for testing auth proxy preservation
+type mockClientForAuthProxyDetection struct {
+	kclient.Client
+	existingDeployment *appsv1.Deployment
+	deploymentNotFound bool
+}
+
+func (m *mockClientForAuthProxyDetection) Get(ctx context.Context, key kclient.ObjectKey, obj kclient.Object, opts ...kclient.GetOption) error {
+	switch o := obj.(type) {
+	case *appsv1.Deployment:
+		if m.deploymentNotFound {
+			return errors.NewNotFound(appsv1.Resource("deployments"), key.Name)
+		}
+		if m.existingDeployment != nil {
+			*o = *m.existingDeployment.DeepCopy()
+		}
+	case *v1beta1.InferenceService:
+		o.ObjectMeta = metav1.ObjectMeta{
+			Name:      key.Name,
+			Namespace: key.Namespace,
+			UID:       "test-uid-12345",
+		}
+	}
+	return nil
+}
+
+func (m *mockClientForAuthProxyDetection) Update(ctx context.Context, obj kclient.Object, opts ...kclient.UpdateOption) error {
+	return nil
+}
+
+func (m *mockClientForAuthProxyDetection) Create(ctx context.Context, obj kclient.Object, opts ...kclient.CreateOption) error {
+	return nil
+}
+
+func TestGetExistingAuthProxyType(t *testing.T) {
+	tests := []struct {
+		name               string
+		existingDeployment *appsv1.Deployment
+		deploymentNotFound bool
+		expectedName       string
+		expectedImage      string
+		expectErr          bool
+	}{
+		{
+			name:               "deployment not found returns empty string",
+			deploymentNotFound: true,
+			expectedName:       "",
+			expectedImage:      "",
+		},
+		{
+			name: "deployment with oauth-proxy container",
+			existingDeployment: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: constants.InferenceServiceContainerName},
+								{Name: constants.OauthProxyContainerName, Image: "quay.io/oauth-proxy:v1"},
+							},
+						},
+					},
+				},
+			},
+			expectedName:  constants.OauthProxyContainerName,
+			expectedImage: "quay.io/oauth-proxy:v1",
+		},
+		{
+			name: "deployment with kube-rbac-proxy container",
+			existingDeployment: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: constants.InferenceServiceContainerName},
+								{Name: constants.KubeRbacContainerName, Image: "quay.io/kube-rbac-proxy:v2"},
+							},
+						},
+					},
+				},
+			},
+			expectedName:  constants.KubeRbacContainerName,
+			expectedImage: "quay.io/kube-rbac-proxy:v2",
+		},
+		{
+			name: "deployment without any auth proxy",
+			existingDeployment: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: constants.InferenceServiceContainerName},
+							},
+						},
+					},
+				},
+			},
+			expectedName:  "",
+			expectedImage: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &mockClientForAuthProxyDetection{
+				existingDeployment: tt.existingDeployment,
+				deploymentNotFound: tt.deploymentNotFound,
+			}
+
+			resultName, resultImage, _, err := getExistingAuthProxyType(t.Context(), client, "test-ns", "test-deployment")
+
+			if tt.expectErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				assert.Equal(t, tt.expectedName, resultName)
+				assert.Equal(t, tt.expectedImage, resultImage)
+			}
+		})
+	}
+}
+
+func TestCopyAuthProxyFromExisting(t *testing.T) {
+	existingContainer := corev1.Container{
+		Name:  constants.KubeRbacContainerName,
+		Image: "quay.io/opendatahub/odh-kube-auth-proxy@sha256:originalimage",
+		Args:  []string{"--arg1", "--arg2"},
+		Ports: []corev1.ContainerPort{
+			{Name: "https", ContainerPort: 8443},
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: "proxy-tls", MountPath: "/etc/tls/private"},
+			{Name: "test-sar-config", MountPath: "/etc/kube-rbac-proxy", ReadOnly: true},
+		},
+	}
+
+	existingVolumes := []corev1.Volume{
+		{
+			Name: "proxy-tls",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{SecretName: "test-cert"},
+			},
+		},
+		{
+			Name: "test-sar-config",
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "test-sar-config"},
+				},
+			},
+		},
+	}
+
+	trueVal := true
+	falseVal := false
+	existingDeployment := &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					AutomountServiceAccountToken: &trueVal,
+					Containers: []corev1.Container{
+						{
+							Name:  constants.InferenceServiceContainerName,
+							Image: "test-image",
+							VolumeMounts: []corev1.VolumeMount{
+								{Name: "proxy-tls", MountPath: "/etc/tls/private"},
+							},
+						},
+						existingContainer,
+					},
+					Volumes: existingVolumes,
+				},
+			},
+		},
+	}
+
+	desiredDeployment := &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					AutomountServiceAccountToken: &falseVal,
+					Containers: []corev1.Container{
+						{
+							Name:  constants.InferenceServiceContainerName,
+							Image: "test-image",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	copyAuthProxyFromExisting(existingDeployment, desiredDeployment, constants.KubeRbacContainerName)
+
+	var foundContainer *corev1.Container
+	for i, c := range desiredDeployment.Spec.Template.Spec.Containers {
+		if c.Name == constants.KubeRbacContainerName {
+			foundContainer = &desiredDeployment.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	require.NotNil(t, foundContainer, "auth proxy container should be copied")
+	assert.Equal(t, existingContainer.Image, foundContainer.Image)
+	assert.Equal(t, existingContainer.Args, foundContainer.Args)
+
+	assert.Len(t, desiredDeployment.Spec.Template.Spec.Volumes, 2)
+
+	require.NotNil(t, desiredDeployment.Spec.Template.Spec.AutomountServiceAccountToken)
+	assert.True(t, *desiredDeployment.Spec.Template.Spec.AutomountServiceAccountToken)
+
+	var kserveContainer *corev1.Container
+	for i, c := range desiredDeployment.Spec.Template.Spec.Containers {
+		if c.Name == constants.InferenceServiceContainerName {
+			kserveContainer = &desiredDeployment.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	require.NotNil(t, kserveContainer)
+	hasProxyTlsMount := false
+	for _, vm := range kserveContainer.VolumeMounts {
+		if vm.Name == "proxy-tls" {
+			hasProxyTlsMount = true
+			break
+		}
+	}
+	assert.True(t, hasProxyTlsMount, "kserve-container should have proxy-tls mount")
+}
+
+func TestOauthProxyPreservation(t *testing.T) {
+	oauthProxyConfig := fmt.Sprintf(`{"image": "%s", "memoryRequest": "%s", "memoryLimit": "%s", "cpuRequest": "%s", "cpuLimit": "%s"}`,
+		constants.OauthProxyImage,
+		constants.OauthProxyResourceMemoryRequest,
+		constants.OauthProxyResourceMemoryLimit,
+		constants.OauthProxyResourceCPURequest,
+		constants.OauthProxyResourceCPULimit,
+	)
+
+	tests := []struct {
+		name                      string
+		existingDeployment        *appsv1.Deployment
+		deploymentNotFound        bool
+		annotations               map[string]string
+		expectKubeRbacProxy       bool
+		expectOauthProxyPreserved bool
+		expectedProxyImage        string
+	}{
+		{
+			name:               "new ISVC with auth enabled gets kube-rbac-proxy",
+			deploymentNotFound: true,
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth: "true",
+			},
+			expectKubeRbacProxy:       true,
+			expectOauthProxyPreserved: false,
+			expectedProxyImage:        constants.OauthProxyImage,
+		},
+		{
+			name: "existing ISVC with oauth-proxy is preserved",
+			existingDeployment: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: constants.InferenceServiceContainerName},
+								{Name: constants.OauthProxyContainerName, Image: "quay.io/oauth-proxy:old"},
+							},
+						},
+					},
+				},
+			},
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth: "true",
+			},
+			expectKubeRbacProxy:       false,
+			expectOauthProxyPreserved: true,
+		},
+		{
+			name: "existing ISVC with oauth-proxy and migration annotation gets kube-rbac-proxy",
+			existingDeployment: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: constants.InferenceServiceContainerName},
+								{Name: constants.OauthProxyContainerName, Image: "quay.io/oauth-proxy:old"},
+							},
+						},
+					},
+				},
+			},
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth:           "true",
+				constants.ODHAuthProxyTypeAnnotation: constants.KubeRbacProxyType,
+			},
+			expectKubeRbacProxy:       true,
+			expectOauthProxyPreserved: false,
+			expectedProxyImage:        constants.OauthProxyImage,
+		},
+		{
+			name: "existing ISVC with kube-rbac-proxy matching config image regenerates normally",
+			existingDeployment: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: constants.InferenceServiceContainerName},
+								{Name: constants.KubeRbacContainerName, Image: constants.OauthProxyImage},
+							},
+						},
+					},
+				},
+			},
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth: "true",
+			},
+			expectKubeRbacProxy:       true,
+			expectOauthProxyPreserved: false,
+			expectedProxyImage:        constants.OauthProxyImage,
+		},
+		{
+			name: "existing ISVC with kube-rbac-proxy different image is preserved",
+			existingDeployment: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: constants.InferenceServiceContainerName},
+								{Name: constants.KubeRbacContainerName, Image: "quay.io/different/image:v1.0.0"},
+							},
+						},
+					},
+				},
+			},
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth: "true",
+			},
+			expectKubeRbacProxy:       true,
+			expectOauthProxyPreserved: false,
+			expectedProxyImage:        "quay.io/different/image:v1.0.0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &mockClientForAuthProxyDetection{
+				existingDeployment: tt.existingDeployment,
+				deploymentNotFound: tt.deploymentNotFound,
+			}
+
+			clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: map[string]string{
+					oauthProxyISVCConfigKey: oauthProxyConfig,
+				},
+			})
+
+			objectMeta := metav1.ObjectMeta{
+				Name:        "test-predictor",
+				Namespace:   "test-ns",
+				Annotations: tt.annotations,
+				Labels: map[string]string{
+					constants.InferenceServicePodLabelKey: "test-isvc",
+				},
+			}
+
+			podSpec := &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name:  constants.InferenceServiceContainerName,
+						Image: "test-image",
+						Ports: []corev1.ContainerPort{
+							{ContainerPort: 8080},
+						},
+					},
+				},
+			}
+
+			deploymentList, _, err := createRawDeploymentODH(
+				t.Context(),
+				client,
+				clientset,
+				constants.InferenceServiceResource,
+				objectMeta,
+				metav1.ObjectMeta{},
+				&v1beta1.ComponentExtensionSpec{},
+				podSpec,
+				nil,
+				nil,
+			)
+
+			require.NoError(t, err)
+			require.Len(t, deploymentList, 1)
+
+			deployment := deploymentList[0]
+			var kubeRbacProxyContainer *corev1.Container
+			for i, container := range deployment.Spec.Template.Spec.Containers {
+				if container.Name == constants.KubeRbacContainerName {
+					kubeRbacProxyContainer = &deployment.Spec.Template.Spec.Containers[i]
+					break
+				}
+			}
+
+			hasKubeRbacProxy := kubeRbacProxyContainer != nil
+			assert.Equal(t, tt.expectKubeRbacProxy, hasKubeRbacProxy,
+				"kube-rbac-proxy presence mismatch")
+
+			if tt.expectOauthProxyPreserved {
+				assert.False(t, hasKubeRbacProxy, "oauth-proxy should be preserved, kube-rbac-proxy should not be added")
+			}
+
+			if tt.expectedProxyImage != "" && kubeRbacProxyContainer != nil {
+				assert.Equal(t, tt.expectedProxyImage, kubeRbacProxyContainer.Image,
+					"kube-rbac-proxy image mismatch")
+			}
+		})
+	}
+}
+
+func TestDeploymentReconcilerCondition(t *testing.T) {
+	oauthProxyConfig := fmt.Sprintf(`{"image": "%s", "memoryRequest": "%s", "memoryLimit": "%s", "cpuRequest": "%s", "cpuLimit": "%s"}`,
+		constants.OauthProxyImage,
+		constants.OauthProxyResourceMemoryRequest,
+		constants.OauthProxyResourceMemoryLimit,
+		constants.OauthProxyResourceCPURequest,
+		constants.OauthProxyResourceCPULimit,
+	)
+
+	tests := []struct {
+		name               string
+		existingDeployment *appsv1.Deployment
+		deploymentNotFound bool
+		annotations        map[string]string
+		expectCondition    bool
+		expectedReason     string
+	}{
+		{
+			name:               "new ISVC does not set condition",
+			deploymentNotFound: true,
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth: "true",
+			},
+			expectCondition: false,
+		},
+		{
+			name: "existing ISVC with oauth-proxy sets AuthProxyPreserved condition",
+			existingDeployment: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: constants.InferenceServiceContainerName},
+								{Name: constants.OauthProxyContainerName},
+							},
+						},
+					},
+				},
+			},
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth: "true",
+			},
+			expectCondition: true,
+			expectedReason:  "AuthProxyPreserved",
+		},
+		{
+			name: "existing ISVC with kube-rbac-proxy matching config does NOT set condition",
+			existingDeployment: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: constants.InferenceServiceContainerName},
+								{Name: constants.KubeRbacContainerName, Image: constants.OauthProxyImage},
+							},
+						},
+					},
+				},
+			},
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth: "true",
+			},
+			expectCondition: false,
+		},
+		{
+			name: "existing ISVC with kube-rbac-proxy different image sets AuthProxyPreserved condition",
+			existingDeployment: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: constants.InferenceServiceContainerName},
+								{Name: constants.KubeRbacContainerName, Image: "quay.io/different/image:v1.0.0"},
+							},
+						},
+					},
+				},
+			},
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth: "true",
+			},
+			expectCondition: true,
+			expectedReason:  "AuthProxyPreserved",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &mockClientForAuthProxyDetection{
+				existingDeployment: tt.existingDeployment,
+				deploymentNotFound: tt.deploymentNotFound,
+			}
+
+			clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: map[string]string{
+					oauthProxyISVCConfigKey: oauthProxyConfig,
+				},
+			})
+
+			objectMeta := metav1.ObjectMeta{
+				Name:        "test-predictor",
+				Namespace:   "test-ns",
+				Annotations: tt.annotations,
+				Labels: map[string]string{
+					constants.InferenceServicePodLabelKey: "test-isvc",
+				},
+			}
+
+			podSpec := &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name:  constants.InferenceServiceContainerName,
+						Image: "test-image",
+						Ports: []corev1.ContainerPort{
+							{ContainerPort: 8080},
+						},
+					},
+				},
+			}
+
+			reconciler, err := NewDeploymentReconciler(
+				t.Context(),
+				client,
+				clientset,
+				nil,
+				constants.InferenceServiceResource,
+				objectMeta,
+				metav1.ObjectMeta{},
+				&v1beta1.ComponentExtensionSpec{},
+				podSpec,
+				nil,
+				nil,
+			)
+
+			require.NoError(t, err)
+			require.NotNil(t, reconciler)
+
+			cond, condType := reconciler.GetAuthProxyCondition()
+			if tt.expectCondition {
+				require.NotNil(t, cond, "expected condition to be set")
+				assert.Equal(t, tt.expectedReason, cond.Reason)
+				assert.Equal(t, corev1.ConditionFalse, cond.Status)
+				assert.Equal(t, v1beta1.LatestDeploymentReady, condType)
+			} else {
+				assert.Nil(t, cond, "expected condition to be nil")
+			}
+		})
+	}
+}
+
+func TestGetAuthProxyConditionNoCondition(t *testing.T) {
+	reconciler := &DeploymentReconciler{}
+	cond, condType := reconciler.GetAuthProxyCondition()
+	assert.Nil(t, cond)
+	assert.Empty(t, condType)
 }
