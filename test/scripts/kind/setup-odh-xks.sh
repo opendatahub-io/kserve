@@ -15,7 +15,7 @@
 #   CERT_MANAGER_VERSION=v1.16.1
 #   LWS_VERSION=v0.6.2
 #   GATEWAY_API_VERSION=v1.2.1
-#   KSERVE_NAMESPACE=opendatahub
+#   KSERVE_NAMESPACE=redhat-ods-applications
 #   KO_DOCKER_REPO=local
 #   LLMISVC_CONTROLLER_IMG=llmisvc-controller:dev
 #
@@ -40,7 +40,7 @@ ISTIO_VERSION="${ISTIO_VERSION:-1.27.5}"
 CERT_MANAGER_VERSION="${CERT_MANAGER_VERSION:-v1.16.1}"
 LWS_VERSION="${LWS_VERSION:-v0.6.2}"
 GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.4.1}"
-KSERVE_NAMESPACE="${KSERVE_NAMESPACE:-opendatahub}"
+KSERVE_NAMESPACE="${KSERVE_NAMESPACE:-redhat-ods-applications}"
 KO_DOCKER_REPO="${KO_DOCKER_REPO:-local}"
 LLMISVC_CONTROLLER_IMG="${LLMISVC_CONTROLLER_IMG:-llmisvc-controller:dev}"
 KSERVE_CONTROLLER_IMAGE="${KO_DOCKER_REPO}/${LLMISVC_CONTROLLER_IMG}"
@@ -216,9 +216,9 @@ install_cert_manager() {
 # -----------------------------------------------------------------------------
 # setup_cert_manager_pki
 # Create PKI chain using resources from config/overlays/odh-test/cert-manager/:
-#   - opendatahub-selfsigned-issuer (ClusterIssuer)
-#   - opendatahub-ca (Certificate in cert-manager ns)
-#   - opendatahub-ca-issuer (ClusterIssuer)
+#   - rhaii-selfsigned-issuer (ClusterIssuer)
+#   - rhaii-ca (Certificate in cert-manager ns)
+#   - rhaii-ca-issuer (ClusterIssuer)
 # -----------------------------------------------------------------------------
 setup_cert_manager_pki() {
   log_info "Setting up cert-manager PKI chain..."
@@ -228,16 +228,16 @@ setup_cert_manager_pki() {
   kubectl apply -k "${PROJECT_ROOT}/config/overlays/odh-test/cert-manager"
 
   # Wait for self-signed issuer to be ready
-  log_wait "Waiting for opendatahub-selfsigned-issuer to be ready..."
-  kubectl wait --for=condition=Ready clusterissuer/opendatahub-selfsigned-issuer --timeout=60s
+  log_wait "Waiting for rhaii-selfsigned-issuer to be ready..."
+  kubectl wait --for=condition=Ready clusterissuer/rhaii-selfsigned-issuer --timeout=60s
 
   # Wait for CA certificate to be issued
-  log_wait "Waiting for opendatahub-ca certificate to be issued..."
-  kubectl wait --for=condition=Ready certificate/opendatahub-ca -n cert-manager --timeout=120s
+  log_wait "Waiting for rhaii-ca certificate to be issued..."
+  kubectl wait --for=condition=Ready certificate/rhaii-ca -n cert-manager --timeout=120s
 
   # Wait for CA issuer to be ready
-  log_wait "Waiting for opendatahub-ca-issuer to be ready..."
-  kubectl wait --for=condition=Ready clusterissuer/opendatahub-ca-issuer --timeout=60s
+  log_wait "Waiting for rhaii-ca-issuer to be ready..."
+  kubectl wait --for=condition=Ready clusterissuer/rhaii-ca-issuer --timeout=60s
 
   log_success "cert-manager PKI chain created"
 }
@@ -425,17 +425,17 @@ setup_ca_bundle() {
 
   # Extract CA certificate from the secret
   local ca_cert
-  ca_cert=$(kubectl get secret opendatahub-ca -n cert-manager -o jsonpath='{.data.ca\.crt}' 2>/dev/null || \
-            kubectl get secret opendatahub-ca -n cert-manager -o jsonpath='{.data.tls\.crt}')
+  ca_cert=$(kubectl get secret rhaii-ca -n cert-manager -o jsonpath='{.data.ca\.crt}' 2>/dev/null || \
+            kubectl get secret rhaii-ca -n cert-manager -o jsonpath='{.data.tls\.crt}')
 
   if [[ -z "$ca_cert" ]]; then
-    log_error "Could not extract CA certificate from opendatahub-ca secret"
+    log_error "Could not extract CA certificate from rhaii-ca secret"
     return 1
   fi
 
   # Create CA bundle ConfigMap in KServe namespace
-  # Use 'ca.crt' as the key to match the mount path /var/run/secrets/opendatahub/ca.crt
-  kubectl create configmap odh-ca-bundle \
+  # Use 'ca.crt' as the key to match the mount path /var/run/secrets/rhaii/ca.crt
+  kubectl create configmap rhaii-ca-bundle \
     --from-literal=ca.crt="$(echo "$ca_cert" | base64 -d)" \
     -n "${KSERVE_NAMESPACE}" \
     --dry-run=client -o yaml | kubectl apply -f -
@@ -455,14 +455,14 @@ data:
       template:
         spec:
           volumes:
-          - name: odh-ca-bundle
+          - name: rhaii-ca-bundle
             configMap:
-              name: odh-ca-bundle
+              name: rhaii-ca-bundle
           containers:
           - name: istio-proxy
             volumeMounts:
-            - name: odh-ca-bundle
-              mountPath: /var/run/secrets/opendatahub
+            - name: rhaii-ca-bundle
+              mountPath: /var/run/secrets/rhaii
               readOnly: true
 EOF
 

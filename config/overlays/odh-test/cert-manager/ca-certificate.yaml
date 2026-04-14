@@ -1,21 +1,21 @@
-# This is the OpenDataHub CA certificate.
+# This is the RHAII CA certificate.
 # It is issued by the selfsigned ClusterIssuer and used to sign workload certificates.
-# The secret created (opendatahub-ca) contains tls.crt and tls.key.
+# The secret created (rhaii-ca) contains tls.crt and tls.key.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: opendatahub-ca
+  name: rhaii-ca
   namespace: cert-manager
 spec:
-  secretName: opendatahub-ca
+  secretName: rhaii-ca
   isCA: true
-  commonName: opendatahub-ca
+  commonName: rhaii-ca
   duration: 87600h  # 10 years
   renewBefore: 2160h  # 90 days
   privateKey:
     algorithm: RSA
     size: 4096
   issuerRef:
-    name: opendatahub-selfsigned-issuer
+    name: rhaii-selfsigned-issuer
     kind: ClusterIssuer
     group: cert-manager.io

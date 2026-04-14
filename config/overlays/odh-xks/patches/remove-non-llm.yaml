@@ -1,3 +1,6 @@
+# Patches use the base overlay namespace (opendatahub) for matching
+# the kustomization.yaml namespace override it later
+#
 # Remove kserve-controller-manager Deployment
 $patch: delete
 apiVersion: apps/v1

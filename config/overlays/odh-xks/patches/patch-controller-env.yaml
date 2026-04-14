@@ -1,3 +1,5 @@
+# Uses base overlay namespace (opendatahub) for matching
+# kustomization.yaml namespace override it later
 apiVersion: apps/v1
 kind: Deployment
 metadata:

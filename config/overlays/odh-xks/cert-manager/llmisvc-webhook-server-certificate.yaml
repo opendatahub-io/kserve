@@ -1,5 +1,5 @@
 # Certificate for the LLMInferenceService webhook server.
-# Issued by the OpenDataHub CA ClusterIssuer.
+# Issued by the RHAII CA ClusterIssuer.
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
