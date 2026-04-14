@@ -119,22 +119,18 @@ func AddControllerAPIs(s *runtime.Scheme) error {
 
 // AddLLMISVCAPIs registers API groups required by the llmisvc manager.
 func AddLLMISVCAPIs(s *runtime.Scheme) error {
-	fns := make([]addToSchemeFunc, 0, 5+len(distroSchemes))
-	fns = append(fns,
+	return addAll(s, append([]addToSchemeFunc{
 		AddControllerAPIs,
 		AddGatewayAPIs,
 		AddLeaderWorkerSetAPIs,
 		AddKedaAPIs,
 		AddWVAAPIs,
-	)
-	fns = append(fns, distroSchemes...)
-	return addAll(s, fns...)
+	}, distroSchemes...)...)
 }
 
 // AddAll registers all API groups supported by KServe managers and envtest suites.
 func AddAll(s *runtime.Scheme) error {
-	fns := make([]addToSchemeFunc, 0, 8+len(distroSchemes))
-	fns = append(fns,
+	return addAll(s, append([]addToSchemeFunc{
 		AddControllerAPIs,
 		AddGatewayAPIs,
 		AddLeaderWorkerSetAPIs,
@@ -143,9 +139,7 @@ func AddAll(s *runtime.Scheme) error {
 		AddKedaAPIs,
 		AddWVAAPIs,
 		AddOpenTelemetryAPIs,
-	)
-	fns = append(fns, distroSchemes...)
-	return addAll(s, fns...)
+	}, distroSchemes...)...)
 }
 
 func addAll(s *runtime.Scheme, fns ...addToSchemeFunc) error {
