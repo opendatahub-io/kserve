@@ -30,7 +30,6 @@ import (
 	apixclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -168,7 +167,7 @@ func main() {
 
 	llmSvcCacheSelector, _ := metav1.LabelSelectorAsSelector(&llmisvc.ChildResourcesLabelSelector)
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+	mgrOpts := ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
 		WebhookServer:          webhook.NewServer(webhook.Options{Port: options.webhookPort, TLSOpts: tlsOpts}),
@@ -178,16 +177,7 @@ func main() {
 		Cache: cache.Options{
 			ByObject: map[client.Object]cache.ByObject{
 				&corev1.Secret{}: {
-					Namespaces: map[string]cache.Config{
-						llmisvc.ServiceCASigningSecretNamespace: {
-							FieldSelector: fields.SelectorFromSet(map[string]string{
-								"metadata.name": llmisvc.ServiceCASigningSecretName,
-							}),
-						},
-						cache.AllNamespaces: {
-							LabelSelector: llmSvcCacheSelector,
-						},
-					},
+					Label: llmSvcCacheSelector,
 				},
 				&corev1.ConfigMap{}: {
 					Label: llmSvcCacheSelector,
@@ -203,7 +193,13 @@ func main() {
 				},
 			},
 		},
-	})
+	}
+
+	if err := customizeManagerOptions(&mgrOpts); err != nil {
+		setupLog.Error(err, "failed to apply distribution-specific manager options")
+		os.Exit(1)
+	}
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOpts)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
