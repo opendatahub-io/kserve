@@ -15,6 +15,7 @@ RUN go install github.com/google/go-licenses@v1.6.0
 COPY LICENSE LICENSE
 
 ARG CMD=manager
+ARG GOTAGS=""
 COPY cmd/${CMD}/ cmd/${CMD}/
 COPY pkg/    pkg/
 
@@ -25,7 +26,7 @@ RUN /opt/app-root/src/go/bin/go-licenses check ./cmd/${CMD} ./pkg/... --disallow
     /opt/app-root/src/go/bin/go-licenses save --save_path third_party/library ./cmd/${CMD}
 
 # Build
-RUN CGO_ENABLED=0 GOOS=linux GOFLAGS=-mod=readonly go build -a -o manager ./cmd/${CMD}
+RUN CGO_ENABLED=0 GOOS=linux GOFLAGS=-mod=readonly go build -tags "${GOTAGS}" -a -o manager ./cmd/${CMD}
 
 # Runtime image - Copy the controller-manager into a thin image
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
