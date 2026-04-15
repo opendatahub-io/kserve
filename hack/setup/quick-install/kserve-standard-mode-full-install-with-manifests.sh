@@ -37507,18 +37507,6 @@ rules:
   - update
 - apiGroups:
   - rbac.authorization.k8s.io
-  resources:
-  - clusterrolebindings
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - rbac.authorization.k8s.io
   resourceNames:
   - kserve-inferencegraph-auth-verifiers
   resources:
