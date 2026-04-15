@@ -984,8 +984,9 @@ func (r *DeploymentReconciler) GetAuthProxyCondition() (*apis.Condition, apis.Co
 	return r.condition, r.conditionType
 }
 
-// copyAuthProxyFromExisting copies the auth proxy container, its volumes, and related
-// configuration from an existing deployment to the desired deployment.
+// copyAuthProxyFromExisting copies the auth proxy container and only its related
+// volumes/mounts from an existing deployment into the desired deployment, preserving
+// any user-defined volumes and mounts already present on the desired spec.
 func copyAuthProxyFromExisting(existing, desired *appsv1.Deployment, containerName string) {
 	if existing == nil || desired == nil {
 		return
@@ -1006,14 +1007,29 @@ func copyAuthProxyFromExisting(existing, desired *appsv1.Deployment, containerNa
 	}
 
 	desiredSpec.Containers = append(desiredSpec.Containers, *authProxyContainer)
-	desiredSpec.Volumes = existingSpec.Volumes
 	desiredSpec.AutomountServiceAccountToken = existingSpec.AutomountServiceAccountToken
 
-	for i, desiredContainer := range desiredSpec.Containers {
-		if desiredContainer.Name == constants.InferenceServiceContainerName {
-			for _, existingContainer := range existingSpec.Containers {
-				if existingContainer.Name == constants.InferenceServiceContainerName {
-					desiredSpec.Containers[i].VolumeMounts = existingContainer.VolumeMounts
+	authVolumeNames := make(map[string]bool, len(authProxyContainer.VolumeMounts))
+	for _, vm := range authProxyContainer.VolumeMounts {
+		authVolumeNames[vm.Name] = true
+	}
+
+	for _, v := range existingSpec.Volumes {
+		if authVolumeNames[v.Name] {
+			desiredSpec.Volumes = append(desiredSpec.Volumes, v)
+		}
+	}
+
+	for i, c := range desiredSpec.Containers {
+		if c.Name == constants.InferenceServiceContainerName {
+			for _, existingC := range existingSpec.Containers {
+				if existingC.Name == constants.InferenceServiceContainerName {
+					for _, vm := range existingC.VolumeMounts {
+						if authVolumeNames[vm.Name] {
+							desiredSpec.Containers[i].VolumeMounts = append(
+								desiredSpec.Containers[i].VolumeMounts, vm)
+						}
+					}
 					break
 				}
 			}
