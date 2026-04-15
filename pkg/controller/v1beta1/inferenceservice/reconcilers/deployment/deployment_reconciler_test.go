@@ -2031,6 +2031,14 @@ func TestCopyAuthProxyFromExisting(t *testing.T) {
 		},
 	}
 
+	userVolume := corev1.Volume{
+		Name: "user-data",
+		VolumeSource: corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{},
+		},
+	}
+	userVolumeMount := corev1.VolumeMount{Name: "user-data", MountPath: "/data"}
+
 	desiredDeployment := &appsv1.Deployment{
 		Spec: appsv1.DeploymentSpec{
 			Template: corev1.PodTemplateSpec{
@@ -2038,10 +2046,12 @@ func TestCopyAuthProxyFromExisting(t *testing.T) {
 					AutomountServiceAccountToken: &falseVal,
 					Containers: []corev1.Container{
 						{
-							Name:  constants.InferenceServiceContainerName,
-							Image: "test-image",
+							Name:         constants.InferenceServiceContainerName,
+							Image:        "test-image",
+							VolumeMounts: []corev1.VolumeMount{userVolumeMount},
 						},
 					},
+					Volumes: []corev1.Volume{userVolume},
 				},
 			},
 		},
@@ -2060,7 +2070,15 @@ func TestCopyAuthProxyFromExisting(t *testing.T) {
 	assert.Equal(t, existingContainer.Image, foundContainer.Image)
 	assert.Equal(t, existingContainer.Args, foundContainer.Args)
 
-	assert.Len(t, desiredDeployment.Spec.Template.Spec.Volumes, 2)
+	// 1 user volume + 2 auth proxy volumes (proxy-tls, test-sar-config)
+	assert.Len(t, desiredDeployment.Spec.Template.Spec.Volumes, 3)
+	volumeNames := make([]string, 0, len(desiredDeployment.Spec.Template.Spec.Volumes))
+	for _, v := range desiredDeployment.Spec.Template.Spec.Volumes {
+		volumeNames = append(volumeNames, v.Name)
+	}
+	assert.Contains(t, volumeNames, "user-data", "user volume should be preserved")
+	assert.Contains(t, volumeNames, "proxy-tls", "proxy-tls volume should be added")
+	assert.Contains(t, volumeNames, "test-sar-config", "sar-config volume should be added")
 
 	require.NotNil(t, desiredDeployment.Spec.Template.Spec.AutomountServiceAccountToken)
 	assert.True(t, *desiredDeployment.Spec.Template.Spec.AutomountServiceAccountToken)
@@ -2073,14 +2091,12 @@ func TestCopyAuthProxyFromExisting(t *testing.T) {
 		}
 	}
 	require.NotNil(t, kserveContainer)
-	hasProxyTlsMount := false
+	mountNames := make([]string, 0, len(kserveContainer.VolumeMounts))
 	for _, vm := range kserveContainer.VolumeMounts {
-		if vm.Name == "proxy-tls" {
-			hasProxyTlsMount = true
-			break
-		}
+		mountNames = append(mountNames, vm.Name)
 	}
-	assert.True(t, hasProxyTlsMount, "kserve-container should have proxy-tls mount")
+	assert.Contains(t, mountNames, "user-data", "user volume mount should be preserved")
+	assert.Contains(t, mountNames, "proxy-tls", "proxy-tls mount should be added")
 }
 
 func TestOauthProxyPreservation(t *testing.T) {
