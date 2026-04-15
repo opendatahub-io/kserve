@@ -93,6 +93,8 @@ func (r *RawOCPRouteReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Inf
 				}
 			}
 		}
+		isvc.Status.URL = nil
+		isvc.Status.Address = nil
 		isvc.Status.SetCondition(v1beta1.IngressReady, &apis.Condition{
 			Type:   v1beta1.IngressReady,
 			Status: corev1.ConditionFalse,
@@ -137,7 +139,12 @@ func (r *RawOCPRouteReconciler) reconcileExposed(
 	if !semanticRouteEquals(desiredRoute, existingRoute) {
 		existingRoute.Spec = desiredRoute.Spec
 		existingRoute.Labels = desiredRoute.Labels
-		existingRoute.Annotations = desiredRoute.Annotations
+		if existingRoute.Annotations == nil {
+			existingRoute.Annotations = map[string]string{}
+		}
+		for k, v := range desiredRoute.Annotations {
+			existingRoute.Annotations[k] = v
+		}
 		log.Info("Updating Route", "name", isvc.Name, "namespace", isvc.Namespace)
 		if err := r.client.Update(ctx, existingRoute); err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to update Route: %w", err)
@@ -325,6 +332,8 @@ func setRouteTargetPort(authEnabled bool, svc *corev1.Service) (intstr.IntOrStri
 		}
 	}
 	if len(svc.Spec.Ports) > 0 {
+		log.Info("Desired port not found, falling back to first port",
+			"service", svc.Name, "desiredPort", desiredName, "fallbackPort", svc.Spec.Ports[0].Name)
 		if svc.Spec.Ports[0].Name != "" {
 			return intstr.FromString(svc.Spec.Ports[0].Name), nil
 		}
@@ -360,7 +369,16 @@ func setRouteTimeout(route *routev1.Route, isvc *v1beta1.InferenceService) {
 }
 
 func semanticRouteEquals(desired, existing *routev1.Route) bool {
-	return equality.Semantic.DeepEqual(desired.Spec, existing.Spec) &&
-		equality.Semantic.DeepEqual(desired.Labels, existing.Labels) &&
-		equality.Semantic.DeepEqual(desired.Annotations, existing.Annotations)
+	if !equality.Semantic.DeepEqual(desired.Spec, existing.Spec) {
+		return false
+	}
+	if !equality.Semantic.DeepEqual(desired.Labels, existing.Labels) {
+		return false
+	}
+	for key, val := range desired.Annotations {
+		if existing.Annotations[key] != val {
+			return false
+		}
+	}
+	return true
 }

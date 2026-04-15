@@ -392,6 +392,9 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	if deploymentMode == constants.Standard || deploymentMode == constants.LegacyRawDeployment {
 		if err := reconcilePlatformPermissions(ctx, r.Client, isvc); err != nil {
+			if updateErr := r.updateStatus(ctx, isvc, deploymentMode); updateErr != nil {
+				r.Log.Error(updateErr, "Error updating status after platform permissions reconcile failure")
+			}
 			return reconcile.Result{}, errors.Wrapf(err, "fails to reconcile platform permissions")
 		}
 	}
