@@ -82,27 +82,21 @@ func createService(resourceType constants.ResourceType, componentMeta metav1.Obj
 	podSpec *corev1.PodSpec, multiNodeEnabled bool, serviceConfig *v1beta1.ServiceConfig,
 ) []*corev1.Service {
 	var svcList []*corev1.Service
-	var isWorkerContainer bool
-
-	if multiNodeEnabled {
-		for _, container := range podSpec.Containers {
-			if container.Name == constants.WorkerContainerName {
-				isWorkerContainer = true
-			}
-		}
-	}
 
 	if !multiNodeEnabled {
 		// If multiNodeEnabled is false, only defaultSvc will be created.
 		defaultSvc := createDefaultSvc(resourceType, componentMeta, componentExt, podSpec, serviceConfig)
 		svcList = append(svcList, defaultSvc)
-	} else if multiNodeEnabled && !isWorkerContainer {
-		// If multiNodeEnabled is true, both defaultSvc and headSvc will be created.
+	} else {
+		// If multiNodeEnabled is true, create defaultSvc, headSvc and workerSvc.
 		defaultSvc := createDefaultSvc(resourceType, componentMeta, componentExt, podSpec, serviceConfig)
 		svcList = append(svcList, defaultSvc)
 
 		headSvc := createHeadlessSvc(componentMeta)
 		svcList = append(svcList, headSvc)
+
+		workerSvc := createWorkerHeadlessSvc(componentMeta)
+		svcList = append(svcList, workerSvc)
 	}
 
 	return svcList
@@ -191,10 +185,12 @@ func createDefaultSvc(resourceType constants.ResourceType, componentMeta metav1.
 		},
 	}
 
-	if service.Annotations == nil {
-		service.Annotations = make(map[string]string)
+	annotations := make(map[string]string, len(service.Annotations)+1)
+	for k, v := range service.Annotations {
+		annotations[k] = v
 	}
-	service.Annotations[constants.OpenshiftServingCertAnnotation] = componentMeta.Name + constants.ServingCertSecretSuffix
+	annotations[constants.OpenshiftServingCertAnnotation] = componentMeta.Name + constants.ServingCertSecretSuffix
+	service.Annotations = annotations
 
 	if resourceType == constants.InferenceGraphResource {
 		servicePorts[0].Port = int32(443)
@@ -231,12 +227,37 @@ func createDefaultSvc(resourceType constants.ResourceType, componentMeta metav1.
 	return service
 }
 
+func createWorkerHeadlessSvc(componentMeta metav1.ObjectMeta) *corev1.Service {
+	workerComponentMeta := componentMeta.DeepCopy()
+	predictorSvcName := workerComponentMeta.Name
+	isvcGeneration := componentMeta.GetLabels()[constants.InferenceServiceGenerationPodLabelKey]
+	workerComponentMeta.Name = constants.GetWorkerServiceName(predictorSvcName, isvcGeneration)
+	workerComponentMeta.Labels[constants.MultiNodeRoleLabelKey] = constants.MultiNodeWorker
+
+	service := &corev1.Service{
+		ObjectMeta: *workerComponentMeta,
+		Spec: corev1.ServiceSpec{
+			Selector: map[string]string{
+				"app": constants.GetRawWorkerServiceLabel(predictorSvcName),
+				constants.InferenceServiceGenerationPodLabelKey: isvcGeneration,
+			},
+			ClusterIP:                "None",
+			PublishNotReadyAddresses: true,
+		},
+	}
+	return service
+}
+
 func createHeadlessSvc(componentMeta metav1.ObjectMeta) *corev1.Service {
 	workerComponentMeta := componentMeta.DeepCopy()
 	predictorSvcName := workerComponentMeta.Name
 	isvcGeneration := componentMeta.GetLabels()[constants.InferenceServiceGenerationPodLabelKey]
 	workerComponentMeta.Name = constants.GetHeadServiceName(predictorSvcName, isvcGeneration)
 	workerComponentMeta.Labels[constants.MultiNodeRoleLabelKey] = constants.MultiNodeHead
+	if workerComponentMeta.Annotations == nil {
+		workerComponentMeta.Annotations = make(map[string]string)
+	}
+	workerComponentMeta.Annotations[constants.OpenshiftServingCertAnnotation] = predictorSvcName + constants.ServingCertSecretSuffix
 
 	service := &corev1.Service{
 		ObjectMeta: *workerComponentMeta,

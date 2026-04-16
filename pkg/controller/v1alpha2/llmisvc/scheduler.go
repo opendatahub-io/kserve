@@ -23,7 +23,6 @@ import (
 	"path"
 	"slices"
 	"sort"
-	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -59,13 +58,13 @@ const (
 
 // reconcileScheduler manages the scheduler component and its related resources
 // The scheduler handles load balancing for inference pods
-func (r *LLMISVCReconciler) reconcileScheduler(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, schedulerConfig *SchedulerConfig) error {
+func (r *LLMISVCReconciler) reconcileScheduler(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	log.FromContext(ctx).Info("Reconciling Scheduler")
 
 	if err := r.reconcileSchedulerServiceAccount(ctx, llmSvc); err != nil {
 		return err
 	}
-	if err := r.reconcileSchedulerDeployment(ctx, llmSvc, schedulerConfig); err != nil {
+	if err := r.reconcileSchedulerDeployment(ctx, llmSvc); err != nil {
 		return err
 	}
 	if err := r.reconcileSchedulerService(ctx, llmSvc); err != nil {
@@ -159,8 +158,8 @@ func (r *LLMISVCReconciler) reconcileSchedulerServiceAccount(ctx context.Context
 	return r.reconcileSchedulerRoleBinding(ctx, llmSvc, serviceAccount)
 }
 
-func (r *LLMISVCReconciler) reconcileSchedulerDeployment(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, schedulerConfig *SchedulerConfig) error {
-	scheduler, err := r.expectedSchedulerDeployment(ctx, llmSvc, schedulerConfig)
+func (r *LLMISVCReconciler) reconcileSchedulerDeployment(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
+	scheduler, err := r.expectedSchedulerDeployment(ctx, llmSvc)
 	if err != nil {
 		return fmt.Errorf("failed to build expected scheduler deployment: %w", err)
 	}
@@ -336,7 +335,7 @@ func (r *LLMISVCReconciler) expectedSchedulerInferencePoolV1Alpha2(ctx context.C
 	return ip
 }
 
-func (r *LLMISVCReconciler) expectedSchedulerDeployment(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, schedulerConfig *SchedulerConfig) (*appsv1.Deployment, error) {
+func (r *LLMISVCReconciler) expectedSchedulerDeployment(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) (*appsv1.Deployment, error) {
 	labels := SchedulerLabels(llmSvc)
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -368,7 +367,6 @@ func (r *LLMISVCReconciler) expectedSchedulerDeployment(ctx context.Context, llm
 		},
 	}
 
-	mainIdx := -1
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil && llmSvc.Spec.Router.Scheduler.Template != nil {
 		curr := &appsv1.Deployment{}
 		if err := r.Get(ctx, client.ObjectKeyFromObject(d), curr); err != nil && !apierrors.IsNotFound(err) {
@@ -378,7 +376,7 @@ func (r *LLMISVCReconciler) expectedSchedulerDeployment(ctx context.Context, llm
 		d.Spec.Replicas = llmSvc.Spec.Router.Scheduler.Replicas
 		d.Spec.Template.Spec = *llmSvc.Spec.Router.Scheduler.Template.DeepCopy()
 
-		mainIdx = slices.IndexFunc(d.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
+		mainIdx := slices.IndexFunc(d.Spec.Template.Spec.Containers, func(c corev1.Container) bool {
 			return c.Name == "main"
 		})
 		if mainIdx < 0 {
@@ -450,27 +448,6 @@ func (r *LLMISVCReconciler) expectedSchedulerDeployment(ctx context.Context, llm
 	}
 
 	r.propagateSchedulerMetadata(llmSvc, d)
-
-	// Set a hash of the current certificate data on the pod template so that
-	// when certificates are renewed the pod template changes and the scheduler
-	// is restarted to pick up the new certificate.
-	// Skip if the main container supports automatic cert reload.
-	certReloadEnabled := func(args []string) bool {
-		return slices.ContainsFunc(args, func(s string) bool {
-			return strings.HasPrefix(s, "--enable-cert-reload") ||
-				strings.HasPrefix(s, "-enable-cert-reload")
-		})
-	}
-	if mainIdx >= 0 &&
-		!certReloadEnabled(d.Spec.Template.Spec.Containers[mainIdx].Command) &&
-		!certReloadEnabled(d.Spec.Template.Spec.Containers[mainIdx].Args) {
-		if h := r.getSelfSignedCertHash(ctx, llmSvc); h != "" {
-			if d.Spec.Template.Annotations == nil {
-				d.Spec.Template.Annotations = map[string]string{}
-			}
-			d.Spec.Template.Annotations[schedulerConfig.RestartAnnotation] = h
-		}
-	}
 
 	log.FromContext(ctx).V(2).Info("Expected router scheduler deployment", "deployment", d)
 
@@ -701,6 +678,7 @@ func (r *LLMISVCReconciler) expectedSchedulerRole(llmSvc *v1alpha2.LLMInferenceS
 		Rules: []rbacv1.PolicyRule{
 			{APIGroups: []string{""}, Resources: []string{"pods"}, Verbs: []string{"get", "list", "watch"}},
 			{APIGroups: []string{"inference.networking.k8s.io", "inference.networking.x-k8s.io"}, Resources: []string{"inferencepools", "inferenceobjectives", "inferencemodels"}, Verbs: []string{"get", "list", "watch"}},
+			{APIGroups: []string{"inference.networking.x-k8s.io"}, Resources: []string{"inferencemodelrewrites", "inferencepoolimports"}, Verbs: []string{"get", "list", "watch"}},
 			{APIGroups: []string{"discovery.k8s.io"}, Resources: []string{"endpointslices"}, Verbs: []string{"get", "list", "watch"}},
 			{APIGroups: []string{"coordination.k8s.io"}, Resources: []string{"leases"}, Verbs: []string{"get", "list", "watch", "create", "update", "patch", "delete"}},
 		},

@@ -45,7 +45,8 @@ import (
 
 const MountPath = "/var/lib/kserve"
 
-var validMCSLevel = regexp.MustCompile(`^s\d+(-s\d+)?(:(c\d{1,4})(,c\d{1,4})*)?$`)
+// Categories may be comma-separated (typical on OCP) or dot-separated (e.g. Fedora: s0-s0:c0.c1023).
+var validMCSLevel = regexp.MustCompile(`^s\d+(-s\d+)?(:c\d{1,4}([,.]c\d{1,4})*)?$`)
 
 func enhanceDownloadJob(ctx context.Context, c *LocalModelNodeReconciler, job *batchv1.Job, storageKey string) error {
 	containers := job.Spec.Template.Spec.Containers
@@ -136,29 +137,40 @@ func getProcessMCSLevel() string {
 }
 
 func (c *LocalModelNodeReconciler) resolveMCSLevel(ctx context.Context, namespace string) (string, error) {
-	mcsLevel := getProcessMCSLevel()
-	if mcsLevel != "" {
-		if !validMCSLevel.MatchString(mcsLevel) {
-			return "", fmt.Errorf("invalid MCS level from process: %q", mcsLevel)
-		}
-		c.Log.Info("Read MCS level from agent process", "mcsLevel", mcsLevel)
-		return mcsLevel, nil
-	}
-
 	ns, err := c.Clientset.CoreV1().Namespaces().Get(ctx, namespace, metav1.GetOptions{})
 	if err != nil {
 		c.Log.Info("Could not get namespace for MCS annotation", "namespace", namespace, "error", err)
-		return "", nil
+		return c.resolveMCSLevelFromProcessOrDefault()
 	}
+
+	// When the job namespace carries openshift.io/sa.scc.mcs, it must win over the
+	// agent process MCS so chcon targets the workload namespace (OCP). If the
+	// annotation is present but invalid, reject — do not fall back to process MCS
+	// (security: blocks injection attempts that would be ignored on OCP).
 	if mcs, ok := ns.Annotations["openshift.io/sa.scc.mcs"]; ok {
 		mcs = strings.TrimSpace(mcs)
-		if !validMCSLevel.MatchString(mcs) {
-			return "", fmt.Errorf("invalid MCS level from namespace annotation: %q", mcs)
+		if mcs != "" {
+			if !validMCSLevel.MatchString(mcs) {
+				return "", fmt.Errorf("invalid MCS level from namespace annotation: %q", mcs)
+			}
+			c.Log.Info("Using namespace MCS level", "namespace", namespace, "mcsLevel", mcs)
+			return mcs, nil
 		}
-		c.Log.Info("Using namespace MCS level", "namespace", namespace, "mcsLevel", mcs)
-		return mcs, nil
 	}
-	return "s0", nil
+
+	return c.resolveMCSLevelFromProcessOrDefault()
+}
+
+func (c *LocalModelNodeReconciler) resolveMCSLevelFromProcessOrDefault() (string, error) {
+	mcsLevel := getProcessMCSLevel()
+	if mcsLevel == "" {
+		return "s0", nil
+	}
+	if !validMCSLevel.MatchString(mcsLevel) {
+		return "", fmt.Errorf("invalid MCS level from process: %q", mcsLevel)
+	}
+	c.Log.Info("Read MCS level from agent process", "mcsLevel", mcsLevel)
+	return mcsLevel, nil
 }
 
 func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, mcsLevel string, permissionFixImage string, owner *v1alpha1.LocalModelNode) error {

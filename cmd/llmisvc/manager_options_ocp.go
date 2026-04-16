@@ -31,21 +31,28 @@ func customizeManagerOptions(opts *ctrl.Options) error {
 	// Replace the simple label-based Secret cache with a namespace-aware one that
 	// also watches the platform CA signing secret used for workload TLS certificates.
 	for obj, cfg := range opts.Cache.ByObject {
-		if _, ok := obj.(*corev1.Secret); ok {
-			opts.Cache.ByObject[obj] = cache.ByObject{
-				Namespaces: map[string]cache.Config{
-					llmisvc.ServiceCASigningSecretNamespace: {
-						FieldSelector: fields.SelectorFromSet(map[string]string{
-							"metadata.name": llmisvc.ServiceCASigningSecretName,
-						}),
-					},
-					cache.AllNamespaces: {
-						LabelSelector: cfg.Label,
-					},
-				},
-			}
-			return nil
+		if _, ok := obj.(*corev1.Secret); !ok {
+			continue
 		}
+		labelSel := cfg.Label
+		if labelSel == nil {
+			labelSel = cfg.Namespaces[cache.AllNamespaces].LabelSelector
+		}
+		
+    opts.Cache.ByObject[obj] = cache.ByObject{
+			Namespaces: map[string]cache.Config{
+				llmisvc.ServiceCASigningSecretNamespace: {
+					FieldSelector: fields.SelectorFromSet(map[string]string{
+						"metadata.name": llmisvc.ServiceCASigningSecretName,
+					}),
+				},
+				cache.AllNamespaces: {
+					LabelSelector: labelSel,
+				},
+			},
+		}
+    
+		return nil
 	}
 
 	setupLog.WithValues("distro", "opendatahub").Info("WARNING: Secret entry not found in cache.ByObject; CA signing secret will not be watched")
