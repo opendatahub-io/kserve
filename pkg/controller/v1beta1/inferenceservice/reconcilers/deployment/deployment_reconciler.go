@@ -127,34 +127,37 @@ func createRawDeploymentODH(ctx context.Context,
 	}
 
 	// Check if this is a new deployment
-	// Note: If client is nil (e.g., in some tests), treat as new deployment
 	isNewDeployment := false
-	if client != nil {
-		existingDeployment := &appsv1.Deployment{}
-		err = client.Get(ctx, types.NamespacedName{
-			Namespace: componentMeta.Namespace,
-			Name:      componentMeta.Name,
-		}, existingDeployment)
-		if err != nil {
-			if apierr.IsNotFound(err) {
-				isNewDeployment = true
-			}
-			// For other errors, treat as existing to be safe (preserves current behavior)
+	existingDeployment := &appsv1.Deployment{}
+	existingDeploymentFound := false
+	err = client.Get(ctx, types.NamespacedName{
+		Namespace: componentMeta.Namespace,
+		Name:      componentMeta.Name,
+	}, existingDeployment)
+	if err != nil {
+		if apierr.IsNotFound(err) {
+			isNewDeployment = true
 		}
+		// For other errors, treat as existing to be safe (preserves current behavior)
 	} else {
-		// If client is nil, assume new deployment (for backward compatibility with tests)
-		isNewDeployment = true
+		existingDeploymentFound = true
 	}
 
 	enableAuth := false
 	addNewAuthProxy := false
 	authProxyPreserved := false
-	alwaysAddProxy := false
 
 	// For new InferenceService deployments, always add OAuth proxy
-	// Only if client and clientset are available (needed for SAR ConfigMap creation)
-	if isNewDeployment && resourceType == constants.InferenceServiceResource && client != nil && clientset != nil {
-		alwaysAddProxy = true
+	alwaysAddProxy := isNewDeployment && resourceType == constants.InferenceServiceResource
+
+	// If the deployment already exists and has the kube-rbac-proxy container, preserve it.
+	if !alwaysAddProxy && existingDeploymentFound && resourceType == constants.InferenceServiceResource {
+		for _, c := range existingDeployment.Spec.Template.Spec.Containers {
+			if c.Name == constants.KubeRbacContainerName {
+				alwaysAddProxy = true
+				break
+			}
+		}
 	}
 
 	// Deployment list is for multi-node, we only need to add oauth proxy and serving secret certs to the head deployment

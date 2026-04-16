@@ -44,7 +44,13 @@ import (
 	"github.com/kserve/kserve/pkg/utils"
 )
 
-const oauthProxyISVCConfigKey = "oauthProxy"
+const (
+	oauthProxyISVCConfigKey = "oauthProxy"
+
+	oauthProxyConfig = `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`
+
+	oauthProxyConfigWithTimeout = `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m", "upstreamTimeoutSeconds": "20"}`
+)
 
 func TestCreateDefaultDeployment(t *testing.T) {
 	type args struct {
@@ -898,7 +904,7 @@ func TestOauthProxyUpstreamTimeout(t *testing.T) {
 				clientset: fake.NewSimpleClientset(&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 					Data: map[string]string{
-						oauthProxyISVCConfigKey: `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+						oauthProxyISVCConfigKey: oauthProxyConfig,
 					},
 				}),
 				objectMeta: metav1.ObjectMeta{
@@ -926,7 +932,7 @@ func TestOauthProxyUpstreamTimeout(t *testing.T) {
 				clientset: fake.NewSimpleClientset(&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 					Data: map[string]string{
-						oauthProxyISVCConfigKey: `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m", "upstreamTimeoutSeconds": "20"}`,
+						oauthProxyISVCConfigKey: oauthProxyConfigWithTimeout,
 					},
 				}),
 				objectMeta: metav1.ObjectMeta{
@@ -954,7 +960,7 @@ func TestOauthProxyUpstreamTimeout(t *testing.T) {
 				clientset: fake.NewSimpleClientset(&corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 					Data: map[string]string{
-						oauthProxyISVCConfigKey: `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m", "upstreamTimeoutSeconds": "20"}`,
+						oauthProxyISVCConfigKey: oauthProxyConfigWithTimeout,
 					},
 				}),
 				objectMeta: metav1.ObjectMeta{
@@ -1382,7 +1388,15 @@ func TestNewDeploymentReconciler(t *testing.T) {
 		{
 			name: "default deployment",
 			fields: fields{
-				client:       nil,
+				client: &mockClientForCheckDeploymentExist{
+					getErr: errors.NewNotFound(appsv1.Resource("deployment"), "test-predictor"),
+				},
+				clientset: fake.NewSimpleClientset(&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+					Data: map[string]string{
+						oauthProxyISVCConfigKey: oauthProxyConfig,
+					},
+				}),
 				resourceType: constants.InferenceServiceResource,
 				scheme:       nil,
 				objectMeta: metav1.ObjectMeta{
@@ -1412,7 +1426,15 @@ func TestNewDeploymentReconciler(t *testing.T) {
 		{
 			name: "multi-node deployment",
 			fields: fields{
-				client:       nil,
+				client: &mockClientForCheckDeploymentExist{
+					getErr: errors.NewNotFound(appsv1.Resource("deployment"), "test-predictor"),
+				},
+				clientset: fake.NewSimpleClientset(&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+					Data: map[string]string{
+						oauthProxyISVCConfigKey: oauthProxyConfig,
+					},
+				}),
 				resourceType: constants.InferenceServiceResource,
 				scheme:       nil,
 				objectMeta: metav1.ObjectMeta{
@@ -2463,7 +2485,7 @@ func TestNewRawDeploymentWithAuthDisabled_IncludesOAuthProxy(t *testing.T) {
 	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 		Data: map[string]string{
-			oauthProxyISVCConfigKey: `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+			oauthProxyISVCConfigKey: oauthProxyConfig,
 		},
 	})
 
@@ -2518,7 +2540,7 @@ func TestNewRawDeploymentWithAuthDisabled_IncludesOAuthProxy(t *testing.T) {
 		if vol.Name == "proxy-tls" {
 			tlsVolumeFound = true
 		}
-		if vol.Name == "default-predictor-kube-rbac-proxy-sar-config" {
+		if vol.Name == fmt.Sprintf("%s-%s", objectMeta.Name, constants.OauthProxySARCMName) {
 			sarVolumeFound = true
 		}
 	}
@@ -2533,7 +2555,7 @@ func TestNewRawDeploymentWithAuthEnabled_IncludesOAuthProxy(t *testing.T) {
 	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 		Data: map[string]string{
-			oauthProxyISVCConfigKey: `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+			oauthProxyISVCConfigKey: oauthProxyConfig,
 		},
 	})
 
@@ -2601,7 +2623,7 @@ func TestExistingRawDeploymentWithAuthDisabled_NoOAuthProxyAdded(t *testing.T) {
 	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 		Data: map[string]string{
-			oauthProxyISVCConfigKey: `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+			oauthProxyISVCConfigKey: oauthProxyConfig,
 		},
 	})
 
@@ -2670,7 +2692,7 @@ func TestExistingRawDeploymentWithAuthEnabled_PreservesOAuthProxy(t *testing.T) 
 	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 		Data: map[string]string{
-			oauthProxyISVCConfigKey: `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+			oauthProxyISVCConfigKey: oauthProxyConfig,
 		},
 	})
 
@@ -2721,7 +2743,7 @@ func TestNewInferenceGraph_NoOAuthProxy(t *testing.T) {
 	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 		Data: map[string]string{
-			oauthProxyISVCConfigKey: `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+			oauthProxyISVCConfigKey: oauthProxyConfig,
 		},
 	})
 
