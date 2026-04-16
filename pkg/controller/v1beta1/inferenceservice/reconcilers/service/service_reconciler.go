@@ -49,7 +49,6 @@ type ServiceReconciler struct {
 
 func NewServiceReconciler(client client.Client,
 	scheme *runtime.Scheme,
-	resourceType constants.ResourceType,
 	componentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, multiNodeEnabled bool,
@@ -58,7 +57,7 @@ func NewServiceReconciler(client client.Client,
 	return &ServiceReconciler{
 		client:       client,
 		scheme:       scheme,
-		ServiceList:  createService(resourceType, componentMeta, componentExt, podSpec, multiNodeEnabled, serviceConfig),
+		ServiceList:  buildServiceList(componentMeta, componentExt, podSpec, multiNodeEnabled, serviceConfig),
 		componentExt: componentExt,
 	}
 }
@@ -78,18 +77,18 @@ func getAppProtocol(port corev1.ContainerPort) *string {
 	return nil
 }
 
-func createService(resourceType constants.ResourceType, componentMeta metav1.ObjectMeta, componentExt *v1beta1.ComponentExtensionSpec,
+func createService(componentMeta metav1.ObjectMeta, componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, multiNodeEnabled bool, serviceConfig *v1beta1.ServiceConfig,
 ) []*corev1.Service {
 	var svcList []*corev1.Service
 
 	if !multiNodeEnabled {
 		// If multiNodeEnabled is false, only defaultSvc will be created.
-		defaultSvc := createDefaultSvc(resourceType, componentMeta, componentExt, podSpec, serviceConfig)
+		defaultSvc := createDefaultSvc(componentMeta, componentExt, podSpec, serviceConfig)
 		svcList = append(svcList, defaultSvc)
 	} else {
 		// If multiNodeEnabled is true, create defaultSvc, headSvc and workerSvc.
-		defaultSvc := createDefaultSvc(resourceType, componentMeta, componentExt, podSpec, serviceConfig)
+		defaultSvc := createDefaultSvc(componentMeta, componentExt, podSpec, serviceConfig)
 		svcList = append(svcList, defaultSvc)
 
 		headSvc := createHeadlessSvc(componentMeta)
@@ -102,7 +101,7 @@ func createService(resourceType constants.ResourceType, componentMeta metav1.Obj
 	return svcList
 }
 
-func createDefaultSvc(resourceType constants.ResourceType, componentMeta metav1.ObjectMeta, componentExt *v1beta1.ComponentExtensionSpec,
+func createDefaultSvc(componentMeta metav1.ObjectMeta, componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, serviceConfig *v1beta1.ServiceConfig,
 ) *corev1.Service {
 	var servicePorts []corev1.ServicePort
@@ -185,41 +184,6 @@ func createDefaultSvc(resourceType constants.ResourceType, componentMeta metav1.
 		},
 	}
 
-	annotations := make(map[string]string, len(service.Annotations)+1)
-	for k, v := range service.Annotations {
-		annotations[k] = v
-	}
-	annotations[constants.OpenshiftServingCertAnnotation] = componentMeta.Name + constants.ServingCertSecretSuffix
-	service.Annotations = annotations
-
-	if resourceType == constants.InferenceGraphResource {
-		servicePorts[0].Port = int32(443)
-	} else {
-		if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
-			httpsPort := corev1.ServicePort{
-				Name: "https",
-				Port: constants.OauthProxyPort,
-				TargetPort: intstr.IntOrString{
-					Type:   intstr.String,
-					StrVal: "https",
-				},
-				Protocol: corev1.ProtocolTCP,
-			}
-			ports := service.Spec.Ports
-			replaced := false
-			for i, port := range ports {
-				if port.Port == constants.CommonDefaultHttpPort {
-					ports[i] = httpsPort
-					replaced = true
-				}
-			}
-			if !replaced {
-				ports = append(ports, httpsPort)
-			}
-			service.Spec.Ports = ports
-		}
-	}
-
 	if serviceConfig != nil && serviceConfig.ServiceClusterIPNone {
 		service.Spec.ClusterIP = corev1.ClusterIPNone
 	}
@@ -254,10 +218,6 @@ func createHeadlessSvc(componentMeta metav1.ObjectMeta) *corev1.Service {
 	isvcGeneration := componentMeta.GetLabels()[constants.InferenceServiceGenerationPodLabelKey]
 	workerComponentMeta.Name = constants.GetHeadServiceName(predictorSvcName, isvcGeneration)
 	workerComponentMeta.Labels[constants.MultiNodeRoleLabelKey] = constants.MultiNodeHead
-	if workerComponentMeta.Annotations == nil {
-		workerComponentMeta.Annotations = make(map[string]string)
-	}
-	workerComponentMeta.Annotations[constants.OpenshiftServingCertAnnotation] = predictorSvcName + constants.ServingCertSecretSuffix
 
 	service := &corev1.Service{
 		ObjectMeta: *workerComponentMeta,

@@ -40,3 +40,16 @@ func NewOpenShiftConfig(isvcConfigMap *corev1.ConfigMap) (*OpenShiftConfig, erro
 	}
 	return cfg, nil
 }
+
+// OauthConfig holds OAuth proxy configuration for OCP deployments.
+// Build-tagged so upstream builds have no concept of it.
+//
+// +kubebuilder:object:generate=false
+type OauthConfig struct {
+	Image                  string `json:"image"`
+	CpuLimit               string `json:"cpuLimit"`
+	CpuRequest             string `json:"cpuRequest"`
+	MemoryLimit            string `json:"memoryLimit"`
+	MemoryRequest          string `json:"memoryRequest"`
+	UpstreamTimeoutSeconds string `json:"upstreamTimeoutSeconds,omitempty"`
+}
