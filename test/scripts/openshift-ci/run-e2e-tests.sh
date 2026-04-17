@@ -34,9 +34,9 @@ validate_deployment_profile "${DEPLOYMENT_PROFILE}"
 
 # Map deployment profile to network layer for pytest
 case "${DEPLOYMENT_PROFILE}" in
-  raw)        NETWORK_LAYER="openshift-route" ;;
   serverless) NETWORK_LAYER="istio" ;;
   llm-d)      NETWORK_LAYER="gateway-api" ;;
+  *)          NETWORK_LAYER="openshift-route" ;;
 esac
 
 export GATEWAY_CLASS_NAME=${GATEWAY_CLASS_NAME:-"openshift-default"}
@@ -82,6 +82,7 @@ fi
 # For Raw: setup-e2e-tests.sh
 if [ ! -s "/tmp/ca.crt" ]; then
   echo "Failed to extract CA certificate, using system defaults... early failing..."
+  unset REQUESTS_CA_BUNDLE
 else
   echo "CA certificate extracted"
   export REQUESTS_CA_BUNDLE="/tmp/ca.crt"
