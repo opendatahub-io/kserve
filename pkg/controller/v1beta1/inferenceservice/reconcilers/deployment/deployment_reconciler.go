@@ -137,8 +137,9 @@ func createRawDeploymentODH(ctx context.Context,
 	if err != nil {
 		if apierr.IsNotFound(err) {
 			isNewDeployment = true
+		} else {
+			return nil, false, fmt.Errorf("failed to check deployment %s/%s: %w", componentMeta.Namespace, componentMeta.Name, err)
 		}
-		// For other errors, treat as existing to be safe (preserves current behavior)
 	} else {
 		existingDeploymentFound = true
 	}
@@ -647,8 +648,8 @@ func createSarCm(ctx context.Context, client kclient.Client, clientset kubernete
 			Namespace: namespace,
 			OwnerReferences: []metav1.OwnerReference{
 				{
-					APIVersion:         inferenceService.APIVersion,
-					Kind:               inferenceService.Kind,
+					APIVersion:         v1beta1.SchemeGroupVersion.String(),
+					Kind:               "InferenceService",
 					Name:               inferenceService.Name,
 					UID:                inferenceService.UID,
 					Controller:         ptr.To(true),
