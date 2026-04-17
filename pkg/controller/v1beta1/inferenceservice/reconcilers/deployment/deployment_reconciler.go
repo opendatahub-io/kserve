@@ -126,8 +126,7 @@ func createRawDeploymentODH(ctx context.Context,
 		isvcname = componentMeta.Name
 	}
 
-	// Check if this is a new deployment
-	isNewDeployment := false
+	// Check if an existing deployment is already deployed.
 	existingDeployment := &appsv1.Deployment{}
 	existingDeploymentFound := false
 	err = client.Get(ctx, types.NamespacedName{
@@ -135,28 +134,33 @@ func createRawDeploymentODH(ctx context.Context,
 		Name:      componentMeta.Name,
 	}, existingDeployment)
 	if err != nil {
-		if apierr.IsNotFound(err) {
-			isNewDeployment = true
-		} else {
+		if !apierr.IsNotFound(err) {
 			return nil, false, fmt.Errorf("failed to check deployment %s/%s: %w", componentMeta.Namespace, componentMeta.Name, err)
 		}
 	} else {
 		existingDeploymentFound = true
 	}
 
-	enableAuth := false
 	addNewAuthProxy := false
 	authProxyPreserved := false
 
-	// For new InferenceService deployments, always add OAuth proxy
-	alwaysAddProxy := isNewDeployment && resourceType == constants.InferenceServiceResource
-
-	// If the deployment already exists and has the kube-rbac-proxy container, preserve it.
-	if !alwaysAddProxy && existingDeploymentFound && resourceType == constants.InferenceServiceResource {
-		for _, c := range existingDeployment.Spec.Template.Spec.Containers {
-			if c.Name == constants.KubeRbacContainerName {
-				alwaysAddProxy = true
-				break
+	// shouldAddAuthProxy controls whether the OAuth proxy sidecar is injected or preserved.
+	// For InferenceService: always inject for new deployments (to avoid pod-template rollouts
+	// when auth is later toggled), preserve for existing deployments that already carry the
+	// proxy, and also inject when auth is explicitly enabled via annotation.
+	shouldAddAuthProxy := false
+	if resourceType == constants.InferenceServiceResource {
+		if !existingDeploymentFound {
+			shouldAddAuthProxy = true
+		} else {
+			if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
+				shouldAddAuthProxy = true
+			}
+			for _, c := range existingDeployment.Spec.Template.Spec.Containers {
+				if c.Name == constants.KubeRbacContainerName {
+					shouldAddAuthProxy = true
+					break
+				}
 			}
 		}
 	}
@@ -164,12 +168,7 @@ func createRawDeploymentODH(ctx context.Context,
 	// Deployment list is for multi-node, we only need to add oauth proxy and serving secret certs to the head deployment
 	headDeployment := deploymentList[0]
 
-	// Determine if auth is enabled
-	if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
-		enableAuth = true
-	}
-
-	if enableAuth || alwaysAddProxy {
+	if shouldAddAuthProxy {
 		wantsMigration := false
 		if val, ok := componentMeta.Annotations[constants.ODHAuthProxyTypeAnnotation]; ok {
 			wantsMigration = (val == constants.KubeRbacProxyType)
@@ -192,7 +191,7 @@ func createRawDeploymentODH(ctx context.Context,
 				case constants.OauthProxyContainerName:
 					if wantsMigration {
 						addNewAuthProxy = true
-						err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, true)
+						err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname)
 						if err != nil {
 							return nil, false, err
 						}
@@ -208,7 +207,7 @@ func createRawDeploymentODH(ctx context.Context,
 					}
 					if configuredKubeRbacImage != "" && existingProxyImage == configuredKubeRbacImage {
 						addNewAuthProxy = true
-						err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, true)
+						err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname)
 						if err != nil {
 							return nil, false, err
 						}
@@ -222,14 +221,14 @@ func createRawDeploymentODH(ctx context.Context,
 				}
 			} else {
 				addNewAuthProxy = true
-				err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, alwaysAddProxy)
+				err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname)
 				if err != nil {
 					return nil, false, err
 				}
 			}
 		}
 	}
-	if alwaysAddProxy || (resourceType == constants.InferenceServiceResource && enableAuth) || resourceType == constants.InferenceGraphResource {
+	if shouldAddAuthProxy || resourceType == constants.InferenceGraphResource {
 		if addNewAuthProxy || resourceType == constants.InferenceGraphResource {
 			mountServingSecretCMVolumeToDeployment(headDeployment, componentMeta, resourceType, isvcname)
 		}
@@ -396,44 +395,34 @@ func addOauthContainerToDeployment(ctx context.Context,
 	componentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, isvcName string,
-	forceAdd bool,
 ) error {
 	var upstreamPort, upstreamTimeout string
 
-	// Check if we should add the proxy
-	// Either forced (new deployment) or auth is enabled (existing deployment)
-	shouldAdd := forceAdd
-	if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
-		shouldAdd = true
+	switch {
+	case componentExt != nil && componentExt.Batcher != nil:
+		upstreamPort = constants.InferenceServiceDefaultAgentPortStr
+	case componentExt != nil && componentExt.Logger != nil:
+		upstreamPort = constants.InferenceServiceDefaultAgentPortStr
+	default:
+		upstreamPort = GetKServeContainerPort(podSpec)
+		if upstreamPort == "" {
+			upstreamPort = constants.InferenceServiceDefaultHttpPort
+		}
 	}
 
-	if shouldAdd {
-		switch {
-		case componentExt != nil && componentExt.Batcher != nil:
-			upstreamPort = constants.InferenceServiceDefaultAgentPortStr
-		case componentExt != nil && componentExt.Logger != nil:
-			upstreamPort = constants.InferenceServiceDefaultAgentPortStr
-		default:
-			upstreamPort = GetKServeContainerPort(podSpec)
-			if upstreamPort == "" {
-				upstreamPort = constants.InferenceServiceDefaultHttpPort
-			}
-		}
-
-		if componentExt != nil && componentExt.TimeoutSeconds != nil {
-			upstreamTimeout = strconv.FormatInt(*componentExt.TimeoutSeconds, 10)
-		}
-
-		oauthProxyContainer, err := generateOauthProxyContainer(ctx, client, clientset, oauthConfig, isvcName, componentMeta.Namespace, upstreamPort, upstreamTimeout)
-		if err != nil {
-			return err
-		}
-		updatedPodSpec := deployment.Spec.Template.Spec.DeepCopy()
-		// ODH override. See : https://issues.redhat.com/browse/RHOAIENG-19904
-		updatedPodSpec.AutomountServiceAccountToken = proto.Bool(true)
-		updatedPodSpec.Containers = append(updatedPodSpec.Containers, *oauthProxyContainer)
-		deployment.Spec.Template.Spec = *updatedPodSpec
+	if componentExt != nil && componentExt.TimeoutSeconds != nil {
+		upstreamTimeout = strconv.FormatInt(*componentExt.TimeoutSeconds, 10)
 	}
+
+	oauthProxyContainer, err := generateOauthProxyContainer(ctx, client, clientset, oauthConfig, isvcName, componentMeta.Namespace, upstreamPort, upstreamTimeout)
+	if err != nil {
+		return err
+	}
+	updatedPodSpec := deployment.Spec.Template.Spec.DeepCopy()
+	// ODH override. See: https://issues.redhat.com/browse/RHOAIENG-19904
+	updatedPodSpec.AutomountServiceAccountToken = proto.Bool(true)
+	updatedPodSpec.Containers = append(updatedPodSpec.Containers, *oauthProxyContainer)
+	deployment.Spec.Template.Spec = *updatedPodSpec
 	return nil
 }
 
