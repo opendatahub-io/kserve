@@ -32,9 +32,7 @@ runAsUser:
   type: MustRunAs
   uid: 0
 seLinuxContext:
-  type: MustRunAs
-  seLinuxOptions:
-    type: spc_t
+  type: RunAsAny
 supplementalGroups:
   type: MustRunAs
   ranges:
@@ -44,3 +42,4 @@ seccompProfiles:
   - runtime/default
 volumes:
   - persistentVolumeClaim
+  - projected
