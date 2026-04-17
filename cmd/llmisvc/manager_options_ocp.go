@@ -38,8 +38,8 @@ func customizeManagerOptions(opts *ctrl.Options) error {
 		if labelSel == nil {
 			labelSel = cfg.Namespaces[cache.AllNamespaces].LabelSelector
 		}
-		
-    opts.Cache.ByObject[obj] = cache.ByObject{
+
+		opts.Cache.ByObject[obj] = cache.ByObject{
 			Namespaces: map[string]cache.Config{
 				llmisvc.ServiceCASigningSecretNamespace: {
 					FieldSelector: fields.SelectorFromSet(map[string]string{
@@ -51,7 +51,7 @@ func customizeManagerOptions(opts *ctrl.Options) error {
 				},
 			},
 		}
-    
+
 		return nil
 	}
 
