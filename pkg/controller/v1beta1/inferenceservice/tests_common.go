@@ -280,8 +280,8 @@ func kubeRbacProxyContainer(upstreamTimeoutSeconds *int64, sarVolumeName string)
 		Image: constants.OauthProxyImage,
 		Args:  args,
 		Ports: []corev1.ContainerPort{
-			{ContainerPort: constants.OauthProxyPort, Name: "https", Protocol: corev1.ProtocolTCP},
-			{ContainerPort: constants.OauthProxyProbePort, Name: "proxy", Protocol: corev1.ProtocolTCP},
+			{ContainerPort: constants.OauthProxyPort, Name: "https"},
+			{ContainerPort: constants.OauthProxyProbePort, Name: "proxy"},
 		},
 		LivenessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
@@ -325,9 +325,6 @@ func kubeRbacProxyContainer(upstreamTimeoutSeconds *int64, sarVolumeName string)
 			{Name: "proxy-tls", MountPath: "/etc/tls/private"},
 			{Name: sarVolumeName, MountPath: "/etc/kube-rbac-proxy", ReadOnly: true},
 		},
-		TerminationMessagePath:   "/dev/termination-log",
-		TerminationMessagePolicy: "File",
-		ImagePullPolicy:          "IfNotPresent",
 	}
 }
 
@@ -513,7 +510,7 @@ func getDeploymentWithKServiceLabel(predictorDeploymentKey types.NamespacedName,
 							TerminationMessagePolicy: "File",
 							ImagePullPolicy:          "IfNotPresent",
 						},
-						kubeRbacProxyContainer(isvc.Spec.Predictor.ComponentExtensionSpec.TimeoutSeconds, fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName)),
+						kubeRbacProxyContainer(isvc.Spec.Predictor.TimeoutSeconds, fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName)),
 					},
 					Volumes: proxyVolumes(
 						predictorDeploymentKey.Name+constants.ServingCertSecretSuffix,
