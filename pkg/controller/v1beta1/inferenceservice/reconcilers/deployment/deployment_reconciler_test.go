@@ -1592,20 +1592,18 @@ func (m *mockClientForCheckDeploymentExist) Get(ctx context.Context, key kclient
 		if m.getErr != nil {
 			return m.getErr
 		}
-		if m.getDeployment != nil {
-			*o = *m.getDeployment.DeepCopy()
+		if m.getDeployment == nil {
+			return errors.NewNotFound(appsv1.Resource("deployment"), key.Name)
 		}
+		*o = *m.getDeployment.DeepCopy()
 	case *v1beta1.InferenceService:
-		// For InferenceService, always create a minimal mock object with required fields
-		// This is needed for SAR ConfigMap creation
+		// For InferenceService, always create a minimal mock object with required fields.
+		// TypeMeta is intentionally left zero-valued to match real controller-runtime client behavior.
+		// This is needed for SAR ConfigMap creation.
 		o.ObjectMeta = metav1.ObjectMeta{
 			Name:      key.Name,
 			Namespace: key.Namespace,
 			UID:       "test-uid-12345",
-		}
-		o.TypeMeta = metav1.TypeMeta{
-			APIVersion: "serving.kserve.io/v1beta1",
-			Kind:       "InferenceService",
 		}
 	}
 	return nil
