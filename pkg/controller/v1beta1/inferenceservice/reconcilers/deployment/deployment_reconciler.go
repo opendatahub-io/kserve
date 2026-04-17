@@ -127,22 +127,12 @@ func createRawDeploymentODH(ctx context.Context,
 	}
 
 	// Check if an existing deployment is already deployed.
-	existingDeployment := &appsv1.Deployment{}
-	existingDeploymentFound := false
-	err = client.Get(ctx, types.NamespacedName{
-		Namespace: componentMeta.Namespace,
-		Name:      componentMeta.Name,
-	}, existingDeployment)
+	existingProxyType, existingProxyImage, existingDeployment, err := getExistingAuthProxyType(ctx, client,
+		componentMeta.Namespace, componentMeta.Name)
 	if err != nil {
-		if !apierr.IsNotFound(err) {
-			return nil, false, fmt.Errorf("failed to check deployment %s/%s: %w", componentMeta.Namespace, componentMeta.Name, err)
-		}
-	} else {
-		existingDeploymentFound = true
+		return nil, false, fmt.Errorf("failed to fetch deployment %s/%s: %w", componentMeta.Namespace, componentMeta.Name, err)
 	}
-
-	addNewAuthProxy := false
-	authProxyPreserved := false
+	existingDeploymentFound := existingDeployment != nil
 
 	// shouldAddAuthProxy controls whether the OAuth proxy sidecar is injected or preserved.
 	// For InferenceService: always inject for new deployments (to avoid pod-template rollouts
@@ -157,7 +147,7 @@ func createRawDeploymentODH(ctx context.Context,
 				shouldAddAuthProxy = true
 			}
 			for _, c := range existingDeployment.Spec.Template.Spec.Containers {
-				if c.Name == constants.KubeRbacContainerName {
+				if c.Name == constants.KubeRbacContainerName || c.Name == constants.OauthProxyContainerName {
 					shouldAddAuthProxy = true
 					break
 				}
@@ -168,16 +158,11 @@ func createRawDeploymentODH(ctx context.Context,
 	// Deployment list is for multi-node, we only need to add oauth proxy and serving secret certs to the head deployment
 	headDeployment := deploymentList[0]
 
+	authProxyPreserved := false
 	if shouldAddAuthProxy {
 		wantsMigration := false
 		if val, ok := componentMeta.Annotations[constants.ODHAuthProxyTypeAnnotation]; ok {
-			wantsMigration = (val == constants.KubeRbacProxyType)
-		}
-
-		existingProxyType, existingProxyImage, existingDeployment, err := getExistingAuthProxyType(ctx, client,
-			componentMeta.Namespace, componentMeta.Name)
-		if err != nil {
-			return nil, false, err
+			wantsMigration = val == constants.KubeRbacProxyType
 		}
 
 		oauthConfig, cfgErr := getOauthProxyConfig(ctx, clientset)
@@ -185,53 +170,46 @@ func createRawDeploymentODH(ctx context.Context,
 			oauthConfig = nil
 		}
 
-		if resourceType != constants.InferenceGraphResource { // InferenceGraphs don't use rbac-proxy
-			if existingProxyType != "" {
-				switch existingProxyType {
-				case constants.OauthProxyContainerName:
-					if wantsMigration {
-						addNewAuthProxy = true
-						err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname)
-						if err != nil {
-							return nil, false, err
-						}
-					} else {
-						log.Info("Preserving existing auth proxy container", "isvc", isvcname, "type", existingProxyType)
-						authProxyPreserved = true
-						copyAuthProxyFromExisting(existingDeployment, headDeployment, existingProxyType)
+		if existingProxyType != "" {
+			switch existingProxyType {
+			case constants.OauthProxyContainerName:
+				if wantsMigration {
+					err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname)
+					if err != nil {
+						return nil, false, err
 					}
-				case constants.KubeRbacContainerName:
-					configuredKubeRbacImage := ""
-					if oauthConfig != nil {
-						configuredKubeRbacImage = oauthConfig.Image
-					}
-					if configuredKubeRbacImage != "" && existingProxyImage == configuredKubeRbacImage {
-						addNewAuthProxy = true
-						err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname)
-						if err != nil {
-							return nil, false, err
-						}
-					} else {
-						log.Info("Preserving existing auth proxy container (image differs from config)",
-							"isvc", isvcname, "type", existingProxyType,
-							"existingImage", existingProxyImage, "configImage", configuredKubeRbacImage)
-						authProxyPreserved = true
-						copyAuthProxyFromExisting(existingDeployment, headDeployment, existingProxyType)
-					}
+				} else {
+					log.Info("Preserving existing auth proxy container", "isvc", isvcname, "type", existingProxyType)
+					authProxyPreserved = true
+					copyAuthProxyFromExisting(existingDeployment, headDeployment, existingProxyType)
 				}
-			} else {
-				addNewAuthProxy = true
-				err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname)
-				if err != nil {
-					return nil, false, err
+			case constants.KubeRbacContainerName:
+				configuredKubeRbacImage := ""
+				if oauthConfig != nil {
+					configuredKubeRbacImage = oauthConfig.Image
 				}
+				if configuredKubeRbacImage != "" && existingProxyImage == configuredKubeRbacImage {
+					err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname)
+					if err != nil {
+						return nil, false, err
+					}
+				} else {
+					log.Info("Preserving existing auth proxy container (image differs from config)",
+						"isvc", isvcname, "type", existingProxyType,
+						"existingImage", existingProxyImage, "configImage", configuredKubeRbacImage)
+					authProxyPreserved = true
+					copyAuthProxyFromExisting(existingDeployment, headDeployment, existingProxyType)
+				}
+			}
+		} else {
+			err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname)
+			if err != nil {
+				return nil, false, err
 			}
 		}
 	}
-	if shouldAddAuthProxy || resourceType == constants.InferenceGraphResource {
-		if addNewAuthProxy || resourceType == constants.InferenceGraphResource {
-			mountServingSecretCMVolumeToDeployment(headDeployment, componentMeta, resourceType, isvcname)
-		}
+	if (shouldAddAuthProxy && !authProxyPreserved) || resourceType == constants.InferenceGraphResource {
+		mountServingSecretCMVolumeToDeployment(headDeployment, componentMeta, resourceType, isvcname)
 	}
 	return deploymentList, authProxyPreserved, nil
 }

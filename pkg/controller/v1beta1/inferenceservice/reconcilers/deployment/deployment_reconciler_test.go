@@ -2474,8 +2474,7 @@ func TestGetAuthProxyConditionNoCondition(t *testing.T) {
 	assert.Empty(t, condType)
 }
 
-// Tests for RHOAIENG-52129: OAuth proxy always added to new deployments
-
+// Tests for OAuth proxy always added to new deployments
 func TestNewRawDeploymentWithAuthDisabled_IncludesOAuthProxy(t *testing.T) {
 	client := &mockClientForCheckDeploymentExist{
 		getErr: errors.NewNotFound(appsv1.Resource("deployment"), "default-predictor"),
