@@ -2,15 +2,21 @@
 # Loaded via `-include Makefile.overrides.mk` in the main Makefile.
 # This file does not exist on upstream kserve/kserve.
 
+# UBI base image for Python Dockerfiles (upstream defaults to python:3.11-slim-bookworm).
+BASE_IMG = registry.access.redhat.com/ubi9/python-311:9.7
+
 # Enable distro build tag for platform-specific code.
 # GOTAGS is picked up by the main Makefile to set GOFLAGS and --build-arg for Docker.
 GOTAGS = distro
 export GOFLAGS += -tags=$(GOTAGS)
 
-.PHONY: deploy-dev-llm deploy-dev-llm-ocp deploy-ci uv-update-lockfiles
+# Align image names with ODH registry conventions so that `make docker-build-*`
+# produces images that match CI expectations without re-tagging.
+AGENT_IMG = kserve-agent
+ROUTER_IMG = kserve-router
+STORAGE_INIT_IMG = kserve-storage-initializer
 
-deploy-dev-llm:
-	./hack/deploy_dev_llm.sh
+.PHONY: deploy-dev-llm-ocp deploy-ci uv-update-lockfiles setup-e2e-ocp e2e-ocp teardown-e2e-ocp
 
 deploy-dev-llm-ocp:
 	./test/scripts/openshift-ci/setup-llm.sh --deploy-kuadrant
@@ -26,6 +32,17 @@ deploy-ci: manifests
 
 uv-update-lockfiles:
 	bash -ec 'for value in $$(find . -name uv.lock -exec dirname {} \;); do (cd "$${value}" && echo "Updating $${value}/uv.lock" && uv update --lock); done'
+
+E2E_MARKER ?= predictor
+
+setup-e2e-ocp:
+	./test/scripts/openshift-ci/setup-e2e-tests.sh "$(E2E_MARKER)"
+
+e2e-ocp:
+	./test/scripts/openshift-ci/run-e2e-tests.sh "$(E2E_MARKER)"
+
+teardown-e2e-ocp:
+	./test/scripts/openshift-ci/teardown-e2e-setup.sh "$(E2E_MARKER)"
 
 manifests-distro: controller-gen
 	@$(CONTROLLER_GEN) rbac:roleName=kserve-llmisvc-distro-role \

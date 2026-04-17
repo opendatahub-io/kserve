@@ -302,7 +302,14 @@ fi
 
 echo "Add testing models to SeaweedFS S3 storage ..."
 
-# Wait for SeaweedFS deployment to be ready
+# In operator mode, SeaweedFS isn't part of the operator deployment -- deploy it separately.
+if [[ "$INSTALL_ODH_OPERATOR" == "true" ]]; then
+  echo "Deploying SeaweedFS S3 backend for tests..."
+  kustomize build "$PROJECT_ROOT/config/overlays/test/s3-local-backend" | \
+    sed "s/namespace: kserve/namespace: ${KSERVE_NAMESPACE}/" | \
+    oc apply -n ${KSERVE_NAMESPACE} -f -
+fi
+
 echo "Waiting for SeaweedFS deployment to be ready..."
 oc rollout status deployment/seaweedfs -n ${KSERVE_NAMESPACE} --timeout=300s
 

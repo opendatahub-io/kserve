@@ -1,100 +1,46 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 BUILDER=${BUILDER:-"docker"}
 GITHUB_SHA=${GITHUB_SHA:-"master"}
 
-if [ -z "${QUAY_REPO}" ]; then
+if [ -z "${QUAY_REPO:-}" ]; then
     echo "Error: QUAY_REPO environment variable is not set"
     exit 1
 fi
 export KO_DOCKER_REPO=$QUAY_REPO/kserve
 
-# Function to check command status
-check_status() {
-    if [ $? -ne 0 ]; then
-        echo "Error: $1 failed"
-        exit 1
-    fi
-    echo "$1 completed successfully"
+# Build via Make, tag with :$GITHUB_SHA, and push.
+# Usage: build_tag_push <make-target> <ci-image-ref>
+#   ci-image-ref: registry/name (no tag); the Make target must produce this same name.
+#   Overrides in Makefile.overrides.mk align build names with CI names.
+build_tag_push() {
+    local target="$1" ci_ref="$2"
+    local ci_image="${ci_ref}:${GITHUB_SHA}"
+    echo "Building ${ci_ref##*/}..."
+    make "$target"
+    $BUILDER tag "$ci_ref" "$ci_image"
+    $BUILDER push "$ci_image"
+    echo "${ci_ref##*/} completed successfully"
 }
 
-# Build and push Sklearn image
-echo "Building Sklearn image..."
-make docker-build-sklearn #git@github.com:opendatahub-io/kserve.git
-check_status "Sklearn image build"
+build_tag_push docker-build-sklearn              "$KO_DOCKER_REPO/sklearnserver"
+export SKLEARN_IMAGE=$KO_DOCKER_REPO/sklearnserver:$GITHUB_SHA
 
-SKLEARN_DOCKER_IMAGE=$KO_DOCKER_REPO/sklearnserver:$GITHUB_SHA
-$BUILDER tag $KO_DOCKER_REPO/sklearnserver $SKLEARN_DOCKER_IMAGE
-check_status "Sklearn image tag"
+build_tag_push docker-build-storageInitializer   "$KO_DOCKER_REPO/kserve-storage-initializer"
+export STORAGE_INITIALIZER_IMAGE=$KO_DOCKER_REPO/kserve-storage-initializer:$GITHUB_SHA
 
-$BUILDER push $SKLEARN_DOCKER_IMAGE
-check_status "Sklearn image push"
-export SKLEARN_IMAGE=$SKLEARN_DOCKER_IMAGE
+build_tag_push docker-build-agent                "$KO_DOCKER_REPO/kserve-agent"
+export KSERVE_AGENT_IMAGE=$KO_DOCKER_REPO/kserve-agent:$GITHUB_SHA
 
-# Build and push Storage Initializer image
-echo "Building Storage Initializer image..."
-make docker-build-storageInitializer
-check_status "Storage Initializer image build"
+build_tag_push docker-build-router               "$KO_DOCKER_REPO/kserve-router"
+export KSERVE_ROUTER_IMAGE=$KO_DOCKER_REPO/kserve-router:$GITHUB_SHA
 
-STORAGE_INITIALIZER_DOCKER_IMAGE=$KO_DOCKER_REPO/kserve-storage-initializer:$GITHUB_SHA
-$BUILDER tag $KO_DOCKER_REPO/storage-initializer $STORAGE_INITIALIZER_DOCKER_IMAGE
-check_status "Storage Initializer image tag"
+build_tag_push docker-build                      "$KO_DOCKER_REPO/kserve-controller"
+export KSERVE_CONTROLLER_IMAGE=$KO_DOCKER_REPO/kserve-controller:$GITHUB_SHA
 
-$BUILDER push $STORAGE_INITIALIZER_DOCKER_IMAGE
-check_status "Storage Initializer image push"
-export STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_DOCKER_IMAGE
-
-# Build and push KServe Agent image
-echo "Building KServe Agent image..."
-make docker-build-agent
-check_status "KServe Agent image build"
-
-KSERVE_AGENT_DOCKER_IMAGE=$KO_DOCKER_REPO/kserve-agent:$GITHUB_SHA
-$BUILDER tag $KO_DOCKER_REPO/agent $KSERVE_AGENT_DOCKER_IMAGE
-check_status "KServe Agent image tag"
-
-$BUILDER push $KSERVE_AGENT_DOCKER_IMAGE
-check_status "KServe Agent image push"
-export KSERVE_AGENT_IMAGE=$KSERVE_AGENT_DOCKER_IMAGE
-
-# Build and push KServe Router image
-echo "Building KServe Router image..."
-make docker-build-router
-check_status "KServe Router image build"
-
-KSERVE_ROUTER_DOCKER_IMAGE=$KO_DOCKER_REPO/kserve-router:$GITHUB_SHA
-$BUILDER tag $KO_DOCKER_REPO/router $KSERVE_ROUTER_DOCKER_IMAGE
-check_status "KServe Router image tag"
-
-$BUILDER push $KSERVE_ROUTER_DOCKER_IMAGE
-check_status "KServe Router image push"
-export KSERVE_ROUTER_IMAGE=$KSERVE_ROUTER_DOCKER_IMAGE
-
-# Build and push KServe Controller image
-echo "Building KServe Controller image..."
-make docker-build
-check_status "KServe Controller image build"
-
-KSERVE_CONTROLLER_DOCKER_IMAGE=$QUAY_REPO/kserve-controller:$GITHUB_SHA
-$BUILDER tag $KO_DOCKER_REPO/kserve-controller $KSERVE_CONTROLLER_DOCKER_IMAGE
-check_status "KServe Controller image tag"
-
-$BUILDER push $KSERVE_CONTROLLER_DOCKER_IMAGE
-check_status "KServe Controller image push"
-export KSERVE_CONTROLLER_IMAGE=$KSERVE_CONTROLLER_DOCKER_IMAGE
-
-# Build and push LLMISvc Controller image
-echo "Building LLMISvc Controller image..."
-make docker-build-llmisvc
-check_status "LLMISvc Controller image build"
-
-LLMISVC_CONTROLLER_DOCKER_IMAGE=$KO_DOCKER_REPO/llmisvc-controller:$GITHUB_SHA
-$BUILDER tag $KO_DOCKER_REPO/llmisvc-controller $LLMISVC_CONTROLLER_DOCKER_IMAGE
-check_status "LLMISvc Controller image tag"
-
-$BUILDER push $LLMISVC_CONTROLLER_DOCKER_IMAGE
-check_status "LLMISvc Controller image push"
-export LLMISVC_CONTROLLER_IMAGE=$LLMISVC_CONTROLLER_DOCKER_IMAGE
+build_tag_push docker-build-llmisvc              "$KO_DOCKER_REPO/llmisvc-controller"
+export LLMISVC_CONTROLLER_IMAGE=$KO_DOCKER_REPO/llmisvc-controller:$GITHUB_SHA
 
 echo "All images built and pushed successfully!"
-
