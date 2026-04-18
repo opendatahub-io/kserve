@@ -39,7 +39,7 @@ IG_TEST_RESOURCES_BASE_LOCATION = "graph/test-resources"
 @pytest.mark.graph
 @pytest.mark.kourier
 @pytest.mark.asyncio(scope="session")
-async def test_inference_graph(rest_v1_client):
+async def test_inference_graph(rest_v1_client, network_layer):
     logger.info("Starting test test_inference_graph")
     sklearn_name_1 = "isvc-sklearn-graph-1"
     sklearn_name_2 = "isvc-sklearn-graph-2"
@@ -150,6 +150,7 @@ async def test_inference_graph(rest_v1_client):
         rest_v1_client,
         graph_name,
         os.path.join(IG_TEST_RESOURCES_BASE_LOCATION, "iris_input.json"),
+        network_layer=network_layer,
     )
     assert res["predictions"] == [1, 1]
 
@@ -225,7 +226,7 @@ def setup_isvcs_for_test(suffix):
 @pytest.mark.graph
 @pytest.mark.kourier
 @pytest.mark.asyncio(scope="session")
-async def test_ig_scenario1(rest_v1_client):
+async def test_ig_scenario1(rest_v1_client, network_layer):
     """
     Scenario: Sequence graph with 2 steps that are both soft dependencies.
      success_isvc(soft) -> error_isvc (soft)
@@ -289,6 +290,7 @@ async def test_ig_scenario1(rest_v1_client):
             os.path.join(
                 IG_TEST_RESOURCES_BASE_LOCATION, "custom_predictor_input.json"
             ),
+            network_layer=network_layer,
         )
 
     assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
@@ -302,7 +304,7 @@ async def test_ig_scenario1(rest_v1_client):
 @pytest.mark.graph
 @pytest.mark.kourier
 @pytest.mark.asyncio(scope="session")
-async def test_ig_scenario2(rest_v1_client):
+async def test_ig_scenario2(rest_v1_client, network_layer):
     """
     Scenario: Sequence graph with 2 steps that are both soft dependencies.
        error_isvc (soft) -> success_isvc(soft)
@@ -361,6 +363,7 @@ async def test_ig_scenario2(rest_v1_client):
         rest_v1_client,
         graph_name,
         os.path.join(IG_TEST_RESOURCES_BASE_LOCATION, "custom_predictor_input.json"),
+        network_layer=network_layer,
     )
     assert response == {"predictions": [{"message": "SUCCESS"}]}
 
@@ -372,7 +375,7 @@ async def test_ig_scenario2(rest_v1_client):
 @pytest.mark.graph
 @pytest.mark.kourier
 @pytest.mark.asyncio(scope="session")
-async def test_ig_scenario3(rest_v1_client):
+async def test_ig_scenario3(rest_v1_client, network_layer):
     """
      Scenario: Sequence graph with 2 steps - first is hard (and returns non-200) and second is soft dependency.
      error_isvc(hard) -> success_isvc (soft)
@@ -427,6 +430,7 @@ async def test_ig_scenario3(rest_v1_client):
             os.path.join(
                 IG_TEST_RESOURCES_BASE_LOCATION, "custom_predictor_input.json"
             ),
+            network_layer=network_layer,
         )
 
     assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
@@ -440,7 +444,7 @@ async def test_ig_scenario3(rest_v1_client):
 @pytest.mark.graph
 @pytest.mark.kourier
 @pytest.mark.asyncio(scope="session")
-async def test_ig_scenario4(rest_v1_client):
+async def test_ig_scenario4(rest_v1_client, network_layer):
     """
     Scenario: Switch graph with 1 step as hard dependency and other one as soft dependency.
     Will be testing 3 cases in this test case:
@@ -501,6 +505,7 @@ async def test_ig_scenario4(rest_v1_client):
             os.path.join(
                 IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_error_picker_input.json"
             ),
+            network_layer=network_layer,
         )
 
     assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
@@ -513,6 +518,7 @@ async def test_ig_scenario4(rest_v1_client):
         os.path.join(
             IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_success_picker_input.json"
         ),
+        network_layer=network_layer,
     )
     assert response == {"predictions": [{"message": "SUCCESS"}]}
 
@@ -524,6 +530,7 @@ async def test_ig_scenario4(rest_v1_client):
             os.path.join(
                 IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_no_match_input.json"
             ),
+            network_layer=network_layer,
         )
 
     assert exc_info.value.response.json() == {
@@ -540,7 +547,7 @@ async def test_ig_scenario4(rest_v1_client):
 @pytest.mark.graph
 @pytest.mark.kourier
 @pytest.mark.asyncio(scope="session")
-async def test_ig_scenario5(rest_v1_client):
+async def test_ig_scenario5(rest_v1_client, network_layer):
     """
     Scenario: Switch graph where a match would happen for error node and then error would return but IG will continue
     execution and call the next step in the flow as error step will be a soft dependency.
@@ -593,6 +600,7 @@ async def test_ig_scenario5(rest_v1_client):
         os.path.join(
             IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_error_picker_input.json"
         ),
+        network_layer=network_layer,
     )
     assert response == {"predictions": [{"message": "SUCCESS"}]}
 
@@ -604,7 +612,7 @@ async def test_ig_scenario5(rest_v1_client):
 @pytest.mark.graph
 @pytest.mark.kourier
 @pytest.mark.asyncio(scope="session")
-async def test_ig_scenario6(rest_v1_client):
+async def test_ig_scenario6(rest_v1_client, network_layer):
     """
     Scenario: Switch graph where a match would happen for error node and then error would return and IG will NOT
     continue execution and call the next step in the flow as error step will be a HARD dependency.
@@ -658,6 +666,7 @@ async def test_ig_scenario6(rest_v1_client):
             os.path.join(
                 IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_error_picker_input.json"
             ),
+            network_layer=network_layer,
         )
 
     assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
@@ -671,7 +680,7 @@ async def test_ig_scenario6(rest_v1_client):
 @pytest.mark.graph
 @pytest.mark.kourier
 @pytest.mark.asyncio(scope="session")
-async def test_ig_scenario7(rest_v1_client):
+async def test_ig_scenario7(rest_v1_client, network_layer):
     """
     Scenario: Ensemble graph with 2 steps, where both the steps are soft deps.
 
@@ -724,6 +733,7 @@ async def test_ig_scenario7(rest_v1_client):
         os.path.join(
             IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_success_picker_input.json"
         ),
+        network_layer=network_layer,
     )
     assert response == {
         "rootStep1": {"predictions": [{"message": "SUCCESS"}]},
@@ -738,7 +748,7 @@ async def test_ig_scenario7(rest_v1_client):
 @pytest.mark.graph
 @pytest.mark.kourier
 @pytest.mark.asyncio(scope="session")
-async def test_ig_scenario8(rest_v1_client):
+async def test_ig_scenario8(rest_v1_client, network_layer):
     """
     Scenario: Ensemble graph with 3 steps, where 2 steps are soft and 1 step is hard and returns non-200
 
@@ -792,6 +802,7 @@ async def test_ig_scenario8(rest_v1_client):
             os.path.join(
                 IG_TEST_RESOURCES_BASE_LOCATION, "switch_call_success_picker_input.json"
             ),
+            network_layer=network_layer,
         )
 
     assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
@@ -804,7 +815,7 @@ async def test_ig_scenario8(rest_v1_client):
 @pytest.mark.graph
 @pytest.mark.kourier
 @pytest.mark.asyncio(scope="session")
-async def test_ig_scenario9(rest_v1_client):
+async def test_ig_scenario9(rest_v1_client, network_layer):
     """
     Scenario: Splitter graph where a match would happen for error node and then error would return but IG will continue
     execution and call the next step in the flow as error step will be a soft dependency.
@@ -855,6 +866,7 @@ async def test_ig_scenario9(rest_v1_client):
         rest_v1_client,
         graph_name,
         os.path.join(IG_TEST_RESOURCES_BASE_LOCATION, "iris_input.json"),
+        network_layer=network_layer,
     )
     assert response == {"predictions": [{"message": "SUCCESS"}]}
 
@@ -866,7 +878,7 @@ async def test_ig_scenario9(rest_v1_client):
 @pytest.mark.graph
 @pytest.mark.kourier
 @pytest.mark.asyncio(scope="session")
-async def test_ig_scenario10(rest_v1_client):
+async def test_ig_scenario10(rest_v1_client, network_layer):
     """
     Scenario: Splitter graph where a match would happen for error node and then error would return and IG will NOT
     continue execution and call the next step in the flow as error step will be a HARD dependency.
@@ -918,6 +930,7 @@ async def test_ig_scenario10(rest_v1_client):
             rest_v1_client,
             graph_name,
             os.path.join(IG_TEST_RESOURCES_BASE_LOCATION, "iris_input.json"),
+            network_layer=network_layer,
         )
 
     assert exc_info.value.response.json() == {"detail": "Intentional 404 code"}
