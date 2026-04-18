@@ -35,7 +35,19 @@ uv-update-lockfiles:
 
 E2E_MARKER ?= predictor
 
-setup-e2e-ocp:
+# Operator install mode: odh, rhoai, or empty (manual kustomize deploy).
+OPERATOR_TYPE ?=
+# Pin to a specific operator version (e.g. 3.4.0). Empty = latest in channel.
+OPERATOR_VERSION ?=
+# FBC fragment image or CatalogSource name. Empty = default catalog.
+# Example: quay.io/rhoai/rhoai-fbc-fragment:rhoai-3.4
+CATALOG_SOURCE ?=
+
+setup-e2e-ocp: ## Set up E2E test environment on OpenShift. Use OPERATOR_TYPE=odh|rhoai.
+	INSTALL_ODH_OPERATOR=$$([ -n "$(OPERATOR_TYPE)" ] && echo true || echo false) \
+	OPERATOR_TYPE="$(OPERATOR_TYPE)" \
+	OPERATOR_VERSION="$(OPERATOR_VERSION)" \
+	CATALOG_SOURCE="$(CATALOG_SOURCE)" \
 	./test/scripts/openshift-ci/setup-e2e-tests.sh "$(E2E_MARKER)"
 
 e2e-ocp:
