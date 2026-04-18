@@ -38544,7 +38544,7 @@ spec:
               fieldPath: metadata.namespace
         - name: SECRET_NAME
           value: kserve-webhook-server-cert
-        image: kserve/kserve-controller:latest
+        image: kserve-controller
         imagePullPolicy: Always
         livenessProbe:
           failureThreshold: 5

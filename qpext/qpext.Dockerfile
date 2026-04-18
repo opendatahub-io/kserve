@@ -27,6 +27,7 @@ COPY qpext/cmd/qpext cmd/qpext
 COPY qpext/logger.go logger.go
 COPY LICENSE LICENSE
 RUN --mount=type=cache,target=/go/pkg/mod \
+    go-licenses check ./... --disallowed_types="forbidden,unknown" && \
     go-licenses save --save_path third_party/library ./cmd/qpext
 
 # ---- Runtime ----

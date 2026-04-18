@@ -1,6 +1,10 @@
 #!/bin/bash
 echo "Do not run this script. Copy paste the commands and execute the manual steps in between." && exit 1
 
+# NOTE: As of 2026-03, license generation is automated in all Dockerfiles using go-licenses.
+# The go-licenses tool is declared in hack/tools.go and pinned in go.mod for hermetic builds.
+# This script uses an older manual process and is kept for reference only.
+
 ## Generate a Golang License
 # See https://github.com/kubeflow/testing/blob/master/py/kubeflow/testing/go-license-tools/README.md
 go list -m all | cut -d ' ' -f 1 > dep.txt
