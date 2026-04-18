@@ -94,10 +94,14 @@ while (( kuadrant_ready_attempt <= KUADRANT_READY_MAX_ATTEMPTS )); do
     oc logs -n "${KUADRANT_NS}" deployment/kuadrant-operator-controller-manager --tail=200 || true
     exit 1
   fi
-  echo "Kuadrant not Ready; deleting and recreating CR to trigger a new Create reconcile (helps operator versions that only subscribe to Create)…"
+  echo "Kuadrant not Ready; attempting to fix…"
+  echo "  Recreating CR (triggers fresh Create reconcile for operator versions that only subscribe to Create)…"
   oc delete kuadrant kuadrant -n "${KUADRANT_NS}" --ignore-not-found=true --wait=true --timeout=300s
+  echo "  Restarting operator pod (clears stale dependency cache)…"
+  oc delete pod -n "${KUADRANT_NS}" -l app=kuadrant,control-plane=controller-manager --wait=true --timeout=120s || true
   echo "⏳ sleeping ${KUADRANT_POST_DELETE_SLEEP}s before recreating Kuadrant…"
   sleep "${KUADRANT_POST_DELETE_SLEEP}"
+  wait_for_pod_ready "${KUADRANT_NS}" "app=kuadrant,control-plane=controller-manager" 120s || true
   create_kuadrant_cr || true
   kuadrant_ready_attempt=$((kuadrant_ready_attempt + 1))
 done
