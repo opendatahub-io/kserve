@@ -3552,9 +3552,9 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				return k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.InferenceServiceConfigMapName, Namespace: isvcNamespace}, cm)
 			}, timeout, interval).Should(Succeed())
 
-			isvcNamePytorch := "isvc-enable-auto-update-multiple-pytorch"
+			isvcNamePytorch := "isvc-multi-pytorch"
 			serviceKeyPytorch := types.NamespacedName{Name: isvcNamePytorch, Namespace: isvcNamespace}
-			isvcNameTensorflow := "isvc-enable-auto-update-multiple-tensorflow"
+			isvcNameTensorflow := "isvc-multi-tensorflow"
 			serviceKeyTensorflow := types.NamespacedName{Name: isvcNameTensorflow, Namespace: isvcNamespace}
 
 			servingRuntimePytorchName := "pytorch-serving-auto-update-true-multiple"
@@ -3752,7 +3752,9 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			tensorFlowDeploymentAfterUpdate := &appsv1.Deployment{}
 			tensorflowDeploymentName := constants.PredictorServiceName(serviceKeyTensorflow.Name)
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: tensorflowDeploymentName, Namespace: serviceKeyTensorflow.Namespace}, tensorFlowDeploymentAfterUpdate)).Should(Succeed())
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: tensorflowDeploymentName, Namespace: serviceKeyTensorflow.Namespace}, tensorFlowDeploymentAfterUpdate)
+			}, timeout, interval).Should(Succeed())
 			Expect(tensorFlowDeploymentAfterUpdate.Spec.Template.ObjectMeta.Labels["key1"]).Should(Equal("val1FromSR"))
 		})
 	})
