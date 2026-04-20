@@ -52,18 +52,12 @@ export SKIP_DELETION_ON_FAILURE
 
 # Export the controller namespace so that E2E tests
 # (e.g. storage version migration) can find the controller.
-export KSERVE_NAMESPACE="${KSERVE_NAMESPACE:-opendatahub}"
+export KSERVE_NAMESPACE=${KSERVE_NAMESPACE:-"kserve"}
 
 if [[ "$RUNNING_LOCAL" == "true" ]]; then
   export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
   export IMAGE_TRANSFORMER_IMG_TAG=kserve/image-transformer:latest
   export GITHUB_SHA=master
-
-  if [[ "${MARKERS}" = *"graph"*  && "$BUILD_GRAPH_IMAGES" = "true" ]]; then
-    pushd $PROJECT_ROOT >/dev/null
-    ./test/scripts/gh-actions/build-graph-tests-images.sh | tee 2>&1 ./test/scripts/openshift-ci/build-graph-tests-images.log
-    popd
-  fi
 fi
 
 cp ./test/e2e/conftest.py ./test/e2e/conftest.py.bak
