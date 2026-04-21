@@ -23,9 +23,6 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 source "$SCRIPT_DIR/common.sh"
 
-# Get deployment type from first argument, default to empty string
-DEPLOYMENT_TYPE="${1:-}"
-
 # Image variables with defaults (will use environment variables if set)
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
 : "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
@@ -35,7 +32,7 @@ NAMESPACE="kserve-ci-e2e-test"
 echo "Setting up CI namespace: $NAMESPACE"
 
 # Delete namespace if it exists for idempotency
-"$SCRIPT_DIR/teardown-ci-namespace.sh" "$DEPLOYMENT_TYPE" "$NAMESPACE"
+"$SCRIPT_DIR/teardown-ci-namespace.sh" "" "$NAMESPACE"
 
 # Create namespace
 echo "Creating namespace $NAMESPACE"

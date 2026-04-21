@@ -75,7 +75,7 @@ kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
 
 
 echo "Delete CI namespace and ServingRuntimes"
-# Tear down the CI namespace (Kubernetes will automatically clean up all resources including ServiceMeshMember)
+# Tear down the CI namespace (Kubernetes will automatically clean up all resources within it)
 "$MY_PATH/teardown-ci-namespace.sh" "${1:-}" "kserve-ci-e2e-test"
 
 oc delete -f $PROJECT_ROOT/config/overlays/test/s3-local-backend/mlpipeline-s3-artifact-secret.yaml -n kserve-ci-e2e-test --ignore-not-found || true

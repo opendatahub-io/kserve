@@ -16,7 +16,7 @@ AGENT_IMG = kserve-agent
 ROUTER_IMG = kserve-router
 STORAGE_INIT_IMG = kserve-storage-initializer
 
-.PHONY: deploy-dev-llm-ocp deploy-ci uv-update-lockfiles setup-e2e-ocp e2e-ocp teardown-e2e-ocp
+.PHONY: deploy-dev-llm-ocp deploy-ci uv-update-lockfiles build-images-ocp setup-e2e-ocp e2e-ocp reset-e2e-ocp teardown-e2e-ocp
 
 deploy-dev-llm-ocp:
 	./test/scripts/openshift-ci/setup-llm.sh --deploy-kuadrant
@@ -34,6 +34,8 @@ uv-update-lockfiles:
 	bash -ec 'for value in $$(find . -name uv.lock -exec dirname {} \;); do (cd "$${value}" && echo "Updating $${value}/uv.lock" && uv update --lock); done'
 
 E2E_MARKER ?= predictor
+QUAY_REPO ?=
+GITHUB_SHA ?= master
 
 # Operator install mode: odh, rhoai, or empty (manual kustomize deploy).
 OPERATOR_TYPE ?=
@@ -42,6 +44,10 @@ OPERATOR_VERSION ?=
 # FBC fragment image or CatalogSource name. Empty = default catalog.
 # Example: quay.io/rhoai/rhoai-fbc-fragment:rhoai-3.4
 CATALOG_SOURCE ?=
+
+build-images-ocp: ## Build and push KServe images for E2E testing. Requires QUAY_REPO.
+	QUAY_REPO="$(QUAY_REPO)" GITHUB_SHA="$(GITHUB_SHA)" \
+	./test/scripts/openshift-ci/build-kserve-images.sh
 
 setup-e2e-ocp: ## Set up E2E test environment on OpenShift. Use OPERATOR_TYPE=odh|rhoai.
 	INSTALL_ODH_OPERATOR=$$([ -n "$(OPERATOR_TYPE)" ] && echo true || echo false) \
@@ -52,6 +58,9 @@ setup-e2e-ocp: ## Set up E2E test environment on OpenShift. Use OPERATOR_TYPE=od
 
 e2e-ocp:
 	./test/scripts/openshift-ci/run-e2e-tests.sh "$(E2E_MARKER)"
+
+reset-e2e-ocp: ## Reset the test namespace for a fresh E2E rerun.
+	./test/scripts/openshift-ci/setup-ci-namespace.sh
 
 teardown-e2e-ocp:
 	./test/scripts/openshift-ci/teardown-e2e-setup.sh "$(E2E_MARKER)"

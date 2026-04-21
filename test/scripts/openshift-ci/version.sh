@@ -71,7 +71,7 @@ print_e2e_environment_summary() {
   else
     echo "ClusterVersion: unavailable (not OpenShift or no RBAC)"
   fi
-  for ns in kuadrant-system opendatahub openshift-keda openshift-serverless cert-manager-operator openshift-lws-operator; do
+  for ns in kuadrant-system opendatahub openshift-keda cert-manager-operator openshift-lws-operator; do
     if oc get ns "$ns" &>/dev/null; then
       echo "CSVs in ${ns}:"
       oc get csv -n "$ns" -o custom-columns=NAME:.metadata.name,PHASE:.status.phase --no-headers 2>/dev/null || true
@@ -80,7 +80,7 @@ print_e2e_environment_summary() {
   if oc get ns openshift-operators &>/dev/null; then
     echo "CSVs in openshift-operators (ODH / shared operators, filtered):"
     oc get csv -n openshift-operators -o custom-columns=NAME:.metadata.name,PHASE:.status.phase --no-headers 2>/dev/null \
-      | grep -iE 'opendatahub|servicemesh|serverless|keda|custom-metrics|rhcl|authorino|limitador|dns-operator' || true
+      | grep -iE 'opendatahub|keda|custom-metrics|rhcl|authorino|limitador|dns-operator' || true
   fi
   if oc get ns kuadrant-system &>/dev/null; then
     echo "Kuadrant / Authorino (diagnostics):"
