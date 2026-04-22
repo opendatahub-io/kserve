@@ -25,9 +25,11 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
@@ -155,10 +157,30 @@ func (p *Predictor) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 	// Add InferenceService name as environment variable to all containers
 	// In collocation mode, there may be multiple containers (predictor + transformer)
 	// https://kserve.github.io/website/docs/model-serving/predictive-inference/transformers/collocation
-	for i := range podSpec.Containers {
-		containerName := podSpec.Containers[i].Name
-		if err := isvcutils.AddEnvVarToPodSpec(&podSpec, containerName, constants.InferenceServiceNameEnvVarKey, isvc.Name); err != nil {
-			return ctrl.Result{}, errors.Wrapf(err, "failed to add INFERENCE_SERVICE_NAME environment variable to container %s", containerName)
+	// Only inject INFERENCE_SERVICE_NAME if the existing deployment already has it,
+	// or if no deployment exists yet (new ISVC). This avoids triggering a rolling restart
+	// of pre-existing deployments during operator upgrades (RHOAIENG-59268).
+	existingDeployment := &appsv1.Deployment{}
+	errGet := p.client.Get(ctx, types.NamespacedName{Name: constants.PredictorServiceName(isvc.Name), Namespace: isvc.Namespace}, existingDeployment)
+	injectEnvVar := true
+	if errGet == nil {
+		// Deployment already exists — only inject if it already has the env var
+		for _, container := range existingDeployment.Spec.Template.Spec.Containers {
+			if container.Name == constants.InferenceServiceContainerName {
+				if _, exists := utils.GetEnvVarValue(container.Env, constants.InferenceServiceNameEnvVarKey); !exists {
+					injectEnvVar = false
+					p.Log.Info("Skipping INFERENCE_SERVICE_NAME injection to avoid pod restart on upgrade", "isvc", isvc.Name)
+				}
+				break
+			}
+		}
+	}
+	if injectEnvVar {
+		for i := range podSpec.Containers {
+			containerName := podSpec.Containers[i].Name
+			if err := isvcutils.AddEnvVarToPodSpec(&podSpec, containerName, constants.InferenceServiceNameEnvVarKey, isvc.Name); err != nil {
+				return ctrl.Result{}, errors.Wrapf(err, "failed to add INFERENCE_SERVICE_NAME environment variable to container %s", containerName)
+			}
 		}
 	}
 
