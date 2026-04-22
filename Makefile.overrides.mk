@@ -44,16 +44,20 @@ OPERATOR_VERSION ?=
 # FBC fragment image or CatalogSource name. Empty = default catalog.
 # Example: quay.io/rhoai/rhoai-fbc-fragment:rhoai-3.4
 CATALOG_SOURCE ?=
+# Set to false to skip copying local branch manifests into the operator PVC.
+# Use false for "vanilla operator" testing with bundled images.
+COPY_PR_MANIFESTS ?= true
 
 build-images-ocp: ## Build and push KServe images for E2E testing. Requires QUAY_REPO.
 	QUAY_REPO="$(QUAY_REPO)" GITHUB_SHA="$(GITHUB_SHA)" \
 	./test/scripts/openshift-ci/build-kserve-images.sh
 
 setup-e2e-ocp: ## Set up E2E test environment on OpenShift. Use OPERATOR_TYPE=odh|rhoai.
-	INSTALL_ODH_OPERATOR=$$([ -n "$(OPERATOR_TYPE)" ] && echo true || echo false) \
-	OPERATOR_TYPE="$(OPERATOR_TYPE)" \
-	OPERATOR_VERSION="$(OPERATOR_VERSION)" \
-	CATALOG_SOURCE="$(CATALOG_SOURCE)" \
+	INSTALL_ODH_OPERATOR=$$([ -n "$(strip $(OPERATOR_TYPE))" ] && echo true || echo false) \
+	OPERATOR_TYPE="$(strip $(OPERATOR_TYPE))" \
+	OPERATOR_VERSION="$(strip $(OPERATOR_VERSION))" \
+	CATALOG_SOURCE="$(strip $(CATALOG_SOURCE))" \
+	COPY_PR_MANIFESTS="$(strip $(COPY_PR_MANIFESTS))" \
 	./test/scripts/openshift-ci/setup-e2e-tests.sh "$(E2E_MARKER)"
 
 e2e-ocp:

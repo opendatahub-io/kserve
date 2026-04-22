@@ -40,15 +40,27 @@ echo "  KSERVE_ROUTER_IMAGE=$KSERVE_ROUTER_IMAGE"
 echo "  STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_IMAGE"
 echo "  ODH_MODEL_CONTROLLER_IMAGE=$ODH_MODEL_CONTROLLER_IMAGE"
 
-# Get the ODH operator pod name
-POD_NAME=$(oc get po -l name=opendatahub-operator -n ${ODH_OPERATOR_NAMESPACE} -o jsonpath="{.items[0].metadata.name}")
+: "${OPERATOR_TYPE:=odh}"
+case "${OPERATOR_TYPE}" in
+  odh|opendatahub) OPERATOR_DEPLOYMENT="opendatahub-operator-controller-manager" ;;
+  rhods|rhoai)     OPERATOR_DEPLOYMENT="rhods-operator" ;;
+  *)               echo "Error: Unknown OPERATOR_TYPE '${OPERATOR_TYPE}'"; exit 1 ;;
+esac
+
+POD_NAME=$(oc get po -n "${ODH_OPERATOR_NAMESPACE}" \
+  -l "$(oc get deployment "${OPERATOR_DEPLOYMENT}" -n "${ODH_OPERATOR_NAMESPACE}" \
+        -o json | python3 -c "
+import json, sys
+d = json.load(sys.stdin)['spec']['selector']['matchLabels']
+print(','.join(f'{k}={v}' for k, v in d.items()))
+")" -o jsonpath="{.items[0].metadata.name}" 2>/dev/null || true)
 
 if [ -z "$POD_NAME" ]; then
-  echo "Error: Could not find ODH operator pod"
+  echo "Error: Could not find operator pod for deployment ${OPERATOR_DEPLOYMENT}"
   exit 1
 fi
 
-echo "Found ODH operator pod: $POD_NAME"
+echo "Found operator pod: $POD_NAME (deployment: ${OPERATOR_DEPLOYMENT})"
 
 # Clean up any existing manifests in the PVC (but not the mount point itself)
 echo "Cleaning up existing manifests in PVC..."

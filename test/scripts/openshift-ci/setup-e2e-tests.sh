@@ -57,10 +57,13 @@ fi
 # Parse command line options
 : "${INSTALL_ODH_OPERATOR:=false}"
 
-# Set the applications namespace based on installation method
-# ODH operator uses 'opendatahub', manual installation uses 'kserve'
+# Set the applications namespace based on operator type
+: "${OPERATOR_TYPE:=}"
 if [[ "$INSTALL_ODH_OPERATOR" == "true" ]]; then
-  KSERVE_NAMESPACE="opendatahub"
+  case "${OPERATOR_TYPE}" in
+    rhods|rhoai) KSERVE_NAMESPACE="redhat-ods-applications" ;;
+    *)           KSERVE_NAMESPACE="opendatahub" ;;
+  esac
 else
   KSERVE_NAMESPACE="kserve"
 fi
@@ -206,17 +209,25 @@ if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
   oc apply -f config/overlays/odh-test/dsc.yaml
 
 else
-  # ODH operator path: Copy full kustomize directory structure to operator PVC
-  echo "⏳ Preparing PR manifests for ODH operator..."
+  # ODH operator path
+  : "${COPY_PR_MANIFESTS:=true}"
+  if [[ "$COPY_PR_MANIFESTS" == "true" ]]; then
+    echo "⏳ Preparing PR manifests for ODH operator..."
+    echo "Copying PR manifests into ODH operator PVC..."
+    $SCRIPT_DIR/copy-kserve-manifests-to-pvc.sh
+  else
+    echo "Skipping PR manifest copy -- using operator's bundled manifests"
+  fi
 
-  # Copy PR manifests into ODH operator PVC using the helper script
-  echo "Copying PR manifests into ODH operator PVC..."
-  $SCRIPT_DIR/copy-kserve-manifests-to-pvc.sh
-
-  # Apply DSC/DSCI to trigger deployment with custom manifests
-  # Sed the DSCI to use opendatahub namespace for ODH operator mode
-  echo "Applying DSC/DSCI to trigger ODH operator deployment with PR manifests..."
-  sed 's/applicationsNamespace:  kserve/applicationsNamespace: opendatahub/' config/overlays/odh-test/dsci.yaml | oc apply -f -
+  # Apply DSC/DSCI to trigger deployment.
+  # RHOAI auto-creates a default DSCI; ODH may not. Only apply if none exists.
+  if oc get dscinitializations -o name 2>/dev/null | grep -q .; then
+    echo "DSCI already exists, skipping apply"
+  else
+    echo "Applying DSCI..."
+    sed 's/applicationsNamespace:  kserve/applicationsNamespace: opendatahub/' config/overlays/odh-test/dsci.yaml | oc apply -f -
+  fi
+  echo "Applying DSC to trigger operator deployment with PR manifests..."
   oc apply -f config/overlays/odh-test/dsc.yaml
 
   # Wait for KServe controller to be deployed by the operator

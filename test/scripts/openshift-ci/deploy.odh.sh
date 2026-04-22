@@ -42,33 +42,46 @@ echo "Waiting for ODH CRDs to be established..."
 wait_for_crd "dscinitializations.dscinitialization.opendatahub.io" 90s
 wait_for_crd "datascienceclusters.datasciencecluster.opendatahub.io" 90s
 
-# Configure operator to use custom KServe manifests from PR
-echo "Configuring ODH operator to use custom KServe manifests from PR..."
+: "${COPY_PR_MANIFESTS:=true}"
 
-echo "Creating PVC for custom KServe manifests..."
-oc apply -f "${SCRIPT_DIR}/odh-operator-custom-manifests/pvc.yaml"
-echo "PVC created (will bind when consumed by operator pod)"
+if [[ "$COPY_PR_MANIFESTS" == "true" ]]; then
+  echo "Configuring operator to use custom KServe manifests from PR..."
 
-echo "Patching ODH operator CSV to mount custom manifests volume..."
-CSV=$(oc get csv -n ${ODH_OPERATOR_NAMESPACE} -o name | grep opendatahub-operator | head -n1 | cut -d/ -f2)
-echo "Found CSV: $CSV"
+  echo "Creating PVC for custom KServe manifests..."
+  oc apply -f "${SCRIPT_DIR}/odh-operator-custom-manifests/pvc.yaml"
+  echo "PVC created (will bind when consumed by operator pod)"
 
-if oc get csv "$CSV" -n ${ODH_OPERATOR_NAMESPACE} -o json | jq -e '.spec.install.spec.deployments[0].spec.template.spec.volumes[] | select(.name=="kserve-custom-manifests")' > /dev/null 2>&1; then
-  echo "Volume already mounted, skipping patch"
+  echo "Patching operator CSV to mount custom manifests volume..."
+  CSV=$(oc get csv -n ${ODH_OPERATOR_NAMESPACE} -o name | grep "${OPERATOR_NAME}" | head -n1 | cut -d/ -f2)
+  echo "Found CSV: $CSV"
+
+  if oc get csv "$CSV" -n ${ODH_OPERATOR_NAMESPACE} -o json | jq -e '.spec.install.spec.deployments[0].spec.template.spec.volumes[] | select(.name=="kserve-custom-manifests")' > /dev/null 2>&1; then
+    echo "Volume already mounted, skipping patch"
+  else
+    echo "Applying CSV patch to mount custom manifests volume..."
+    oc patch csv "$CSV" -n ${ODH_OPERATOR_NAMESPACE} --type json --patch-file "${SCRIPT_DIR}/odh-operator-custom-manifests/csv-patch.json"
+  fi
+
+  OPERATOR_POD_SELECTOR=$(oc get deployment "${CONTROLLER_DEPLOYMENT}" -n "${ODH_OPERATOR_NAMESPACE}" \
+    -o json 2>/dev/null | python3 -c "
+import json, sys
+d = json.load(sys.stdin)['spec']['selector']['matchLabels']
+print(','.join(f'{k}={v}' for k, v in d.items()))
+" 2>/dev/null || echo "name=${OPERATOR_NAME}")
+
+  echo "Waiting for operator pod to restart with custom manifests volume (selector: ${OPERATOR_POD_SELECTOR})..."
+  oc wait --for='jsonpath={.status.conditions[?(@.type=="Ready")].status}=True' \
+    pod -l "${OPERATOR_POD_SELECTOR}" -n ${ODH_OPERATOR_NAMESPACE} \
+    --timeout=300s 2>/dev/null || true
+
+  sleep 5
+
+  wait_for_pod_ready "${ODH_OPERATOR_NAMESPACE}" "${OPERATOR_POD_SELECTOR}" 300s
+
+  echo "Operator ready to use custom KServe manifests."
+  echo "  NOTE: Copy PR manifests to PVC, then apply DSC/DSCI resources."
 else
-  echo "Applying CSV patch to mount custom manifests volume..."
-  oc patch csv "$CSV" -n ${ODH_OPERATOR_NAMESPACE} --type json --patch-file "${SCRIPT_DIR}/odh-operator-custom-manifests/csv-patch.json"
+  echo "Vanilla operator install -- skipping PVC/CSV patch (using bundled manifests)"
 fi
 
-echo "Waiting for ODH operator pod to restart with custom manifests volume..."
-oc wait --for='jsonpath={.status.conditions[?(@.type=="Ready")].status}=True' \
-  pod -l name=opendatahub-operator -n ${ODH_OPERATOR_NAMESPACE} \
-  --timeout=300s 2>/dev/null || true
-
-sleep 5
-
-wait_for_pod_ready "${ODH_OPERATOR_NAMESPACE}" "name=opendatahub-operator" 300s
-
 echo "ODH operator installed successfully"
-echo -e "\n  ODH operator ready to use custom KServe manifests."
-echo "  NOTE: Copy PR manifests to PVC, then apply DSC/DSCI resources."
