@@ -47,6 +47,10 @@ import (
 
 const routeAdmissionRequeueDelay = 3 * time.Second
 
+var managedRouteAnnotations = []string{
+	"haproxy.router.openshift.io/timeout",
+}
+
 type RawOCPRouteReconciler struct {
 	client        client.Client
 	scheme        *runtime.Scheme
@@ -128,6 +132,7 @@ func (r *RawOCPRouteReconciler) reconcileExposed(
 		if err := r.client.Create(ctx, desiredRoute); err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to create Route: %w", err)
 		}
+		isvc.Status.URL = nil
 		isvc.Status.SetCondition(v1beta1.IngressReady, &apis.Condition{
 			Type:   v1beta1.IngressReady,
 			Status: corev1.ConditionFalse,
@@ -142,8 +147,12 @@ func (r *RawOCPRouteReconciler) reconcileExposed(
 		if existingRoute.Annotations == nil {
 			existingRoute.Annotations = map[string]string{}
 		}
-		for k, v := range desiredRoute.Annotations {
-			existingRoute.Annotations[k] = v
+		for _, key := range managedRouteAnnotations {
+			if val, ok := desiredRoute.Annotations[key]; ok {
+				existingRoute.Annotations[key] = val
+			} else {
+				delete(existingRoute.Annotations, key)
+			}
 		}
 		log.Info("Updating Route", "name", isvc.Name, "namespace", isvc.Namespace)
 		if err := r.client.Update(ctx, existingRoute); err != nil {
@@ -153,6 +162,7 @@ func (r *RawOCPRouteReconciler) reconcileExposed(
 
 	routeHost, admitted := getAdmittedHost(existingRoute)
 	if !admitted {
+		isvc.Status.URL = nil
 		isvc.Status.SetCondition(v1beta1.IngressReady, &apis.Condition{
 			Type:   v1beta1.IngressReady,
 			Status: corev1.ConditionFalse,
@@ -351,20 +361,21 @@ func setRouteTimeout(route *routev1.Route, isvc *v1beta1.InferenceService) {
 		return
 	}
 
-	maxTimeout := int64(0)
+	totalTimeout := int64(0)
 	if isvc.Spec.Predictor.TimeoutSeconds != nil {
-		maxTimeout = *isvc.Spec.Predictor.TimeoutSeconds
+		totalTimeout += *isvc.Spec.Predictor.TimeoutSeconds
 	}
 	if isvc.Spec.Transformer != nil && isvc.Spec.Transformer.TimeoutSeconds != nil {
-		if *isvc.Spec.Transformer.TimeoutSeconds > maxTimeout {
-			maxTimeout = *isvc.Spec.Transformer.TimeoutSeconds
-		}
+		totalTimeout += *isvc.Spec.Transformer.TimeoutSeconds
 	}
-	if maxTimeout > 0 {
+	if isvc.Spec.Explainer != nil && isvc.Spec.Explainer.TimeoutSeconds != nil {
+		totalTimeout += *isvc.Spec.Explainer.TimeoutSeconds
+	}
+	if totalTimeout > 0 {
 		if route.Annotations == nil {
 			route.Annotations = map[string]string{}
 		}
-		route.Annotations["haproxy.router.openshift.io/timeout"] = strconv.FormatInt(maxTimeout, 10) + "s"
+		route.Annotations["haproxy.router.openshift.io/timeout"] = strconv.FormatInt(totalTimeout, 10) + "s"
 	}
 }
 
@@ -375,8 +386,8 @@ func semanticRouteEquals(desired, existing *routev1.Route) bool {
 	if !equality.Semantic.DeepEqual(desired.Labels, existing.Labels) {
 		return false
 	}
-	for key, val := range desired.Annotations {
-		if existing.Annotations[key] != val {
+	for _, key := range managedRouteAnnotations {
+		if desired.Annotations[key] != existing.Annotations[key] {
 			return false
 		}
 	}
