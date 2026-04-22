@@ -134,7 +134,6 @@ class V2Endpoints:
         raw_request: Request,
         raw_response: Response,
         model_name: str,
-        request_body: Union[InferenceRequest, bytes],
         model_version: Optional[str] = None,
     ) -> Union[InferenceResponse, Response]:
         """Infer handler.
@@ -143,7 +142,6 @@ class V2Endpoints:
             raw_request (Request): fastapi request object,
             raw_response (Response): fastapi response object,
             model_name (str): Model name.
-            request_body (InferenceRequest): Inference request body.
             model_version (Optional[str]): Model version (optional).
 
         Returns:
@@ -160,6 +158,19 @@ class V2Endpoints:
             raise ModelNotReady(model_name)
 
         request_headers = dict(raw_request.headers)
+
+        # Parse the body manually instead of relying on FastAPI's
+        # Union[InferenceRequest, bytes] resolution, which broke in FastAPI >= 0.129
+        # (bodies are now resolved as raw bytes instead of the Pydantic model).
+        body = await raw_request.body()
+        content_type = request_headers.get("content-type", "")
+        if not content_type or "json" in content_type:
+            try:
+                request_body = InferenceRequest.model_validate_json(body)
+            except Exception:
+                request_body = body
+        else:
+            request_body = body
 
         infer_request, _ = self.dataplane.decode(
             request_body,

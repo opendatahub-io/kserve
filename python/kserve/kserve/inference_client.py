@@ -498,8 +498,6 @@ class InferenceRESTClient:
                 headers["content-type"] = "application/octet-stream"
         if isinstance(data, dict):
             data = orjson.dumps(data)
-            headers = headers or {}
-            headers.setdefault("content-type", "application/json")
         response = await self._client.post(
             url, content=data, headers=headers, timeout=timeout
         )
