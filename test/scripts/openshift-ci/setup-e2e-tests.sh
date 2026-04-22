@@ -330,10 +330,9 @@ if oc wait --for=condition=complete job/s3-init -n ${KSERVE_NAMESPACE} --timeout
   echo "S3 init job already completed successfully"
 else
   echo "S3 init job not completed, re-creating..."
-  oc delete job s3-init -n ${KSERVE_NAMESPACE} --wait=true --ignore-not-found
   sed "s/s3-service.kserve/s3-service.${KSERVE_NAMESPACE}/" \
     "$PROJECT_ROOT/config/overlays/test/s3-local-backend/seaweedfs-init-job.yaml" | \
-    oc apply -n ${KSERVE_NAMESPACE} -f -
+    oc replace --force -n ${KSERVE_NAMESPACE} -f -
 
   echo "Waiting for S3 init job to complete..."
   if ! oc wait --for=condition=complete job/s3-init -n ${KSERVE_NAMESPACE} --timeout=300s; then
