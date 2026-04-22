@@ -674,6 +674,7 @@ var _ = Context("When creating an inferenceservice with raw kube predictor and O
 		Expect(ownerFound).To(BeTrue(), "Owner reference should be set correctly")
 	})
 })
+
 var _ = Context("When an existing ISVC has oauth-proxy container", func() {
 	configs := map[string]string{
 		"oauthProxy":         `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
@@ -1003,4 +1004,3 @@ var _ = Context("When kube-rbac-proxy image changes in config", func() {
 		}, timeout, interval).Should(BeTrue())
 	})
 })
-
