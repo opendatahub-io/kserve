@@ -61,18 +61,18 @@ func TestShouldInjectInferenceServiceName(t *testing.T) {
 	}
 
 	tests := []struct {
-		name             string
+		name               string
 		existingDeployment *appsv1.Deployment
-		wantInject       bool
-		wantErr          bool
+		wantInject         bool
+		wantErr            bool
 	}{
 		{
-			name:             "new ISVC — no existing deployment, should inject",
+			name:               "new ISVC — no existing deployment, should inject",
 			existingDeployment: nil,
-			wantInject:       true,
+			wantInject:         true,
 		},
 		{
-			name: "pre-upgrade deployment — env var absent, should skip to avoid restart",
+			name:               "pre-upgrade deployment — env var absent, should skip to avoid restart",
 			existingDeployment: makeDeployment(),
 			wantInject:         false,
 		},
