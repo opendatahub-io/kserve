@@ -23,13 +23,19 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-logr/logr"
+	appsv1 "k8s.io/api/apps/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/controller/v1alpha1/trainedmodel/sharding/memory"
 	v1beta1utils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
 	"github.com/kserve/kserve/pkg/credentials"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 // Component can be reconciled to create underlying resources for an InferenceService
@@ -102,4 +108,28 @@ func addAgentAnnotations(isvc *v1beta1.InferenceService, annotations map[string]
 		return true
 	}
 	return false
+}
+
+// shouldInjectInferenceServiceName returns true when INFERENCE_SERVICE_NAME should be
+// injected into pod containers. For pre-existing deployments that do not yet carry the
+// env var it returns false, preventing rolling restarts during operator upgrades (RHOAIENG-59268).
+func shouldInjectInferenceServiceName(ctx context.Context, c client.Client, deploymentName types.NamespacedName, containerName string, log logr.Logger) (bool, error) {
+	existing := &appsv1.Deployment{}
+	err := c.Get(ctx, deploymentName, existing)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return true, nil
+		}
+		return false, err
+	}
+	for _, container := range existing.Spec.Template.Spec.Containers {
+		if container.Name == containerName {
+			_, exists := utils.GetEnvVarValue(container.Env, constants.InferenceServiceNameEnvVarKey)
+			if !exists {
+				log.Info("Skipping INFERENCE_SERVICE_NAME injection to avoid pod restart on upgrade", "deployment", deploymentName.String())
+			}
+			return exists, nil
+		}
+	}
+	return true, nil
 }
