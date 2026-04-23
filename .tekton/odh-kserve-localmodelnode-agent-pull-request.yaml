@@ -28,6 +28,9 @@ spec:
     value: localmodel-agent.Dockerfile
   - name: path-context
     value: .
+  - name: build-args
+    value:
+    - "GOTAGS=distro"
   - name: additional-tags
     value:
     - 'odh-pr-{{revision}}'
