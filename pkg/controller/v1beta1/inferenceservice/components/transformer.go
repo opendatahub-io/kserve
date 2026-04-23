@@ -76,7 +76,18 @@ func NewTransformer(client client.Client, clientset kubernetes.Interface, scheme
 func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceService) (ctrl.Result, error) {
 	p.Log.Info("Reconciling Transformer", "TransformerSpec", isvc.Spec.Transformer)
 	transformer := isvc.Spec.Transformer.GetImplementation()
-	annotations := filterServiceAnnotations(isvc.Annotations, p.inferenceServiceConfig.ServiceAnnotationDisallowedList, p.deploymentMode)
+	var annotations map[string]string
+	if p.deploymentMode == constants.Standard {
+		annotations = utils.Filter(isvc.Annotations, func(key string) bool {
+			// https://issues.redhat.com/browse/RHOAIENG-20326
+			// For RawDeployment, we allow the security.opendatahub.io/enable-auth annotation
+			return !utils.Includes(isvcutils.FilterList(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, constants.ODHKserveRawAuth), key)
+		})
+	} else {
+		annotations = utils.Filter(isvc.Annotations, func(key string) bool {
+			return !utils.Includes(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, key)
+		})
+	}
 
 	sourceURI := transformer.GetStorageUri()
 
@@ -99,7 +110,18 @@ func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServ
 	// Labels and annotations from transformer component
 	// Label filter will be handled in ksvc_reconciler and raw reconciler
 	transformerLabels := isvc.Spec.Transformer.Labels
-	transformerAnnotations := filterServiceAnnotations(isvc.Spec.Transformer.Annotations, p.inferenceServiceConfig.ServiceAnnotationDisallowedList, p.deploymentMode)
+	var transformerAnnotations map[string]string
+	if p.deploymentMode == constants.Standard {
+		transformerAnnotations = utils.Filter(isvc.Spec.Transformer.Annotations, func(key string) bool {
+			// https://issues.redhat.com/browse/RHOAIENG-20326
+			// For RawDeployment, we allow the security.opendatahub.io/enable-auth annotation
+			return !utils.Includes(isvcutils.FilterList(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, constants.ODHKserveRawAuth), key)
+		})
+	} else {
+		transformerAnnotations = utils.Filter(isvc.Spec.Transformer.Annotations, func(key string) bool {
+			return !utils.Includes(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, key)
+		})
+	}
 
 	// Labels and annotations priority: transformer component > isvc
 	// Labels and annotations from high priority will overwrite that from low priority
@@ -251,7 +273,7 @@ func (p *Transformer) reconcileTransformerRawDeployment(ctx context.Context, isv
 }
 
 func (p *Transformer) reconcileTransformerKnativeDeployment(ctx context.Context, isvc *v1beta1.InferenceService, objectMeta *metav1.ObjectMeta, podSpec *corev1.PodSpec) error {
-	objectMeta.Annotations = knutils.ValidateInitialScaleAnnotationWithReplicas(objectMeta.Annotations, p.allowZeroInitialScale, isvc.Spec.Transformer.MinReplicas, p.Log)
+	knutils.ValidateInitialScaleAnnotation(objectMeta.Annotations, p.allowZeroInitialScale, isvc.Spec.Transformer.MinReplicas, p.Log)
 
 	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(ctx, p.clientset)
 	if err != nil {

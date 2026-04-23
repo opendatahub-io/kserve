@@ -99,7 +99,18 @@ func (p *Predictor) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 	if isvc.Spec.Predictor.WorkerSpec != nil {
 		multiNodeEnabled = true
 	}
-	annotations := filterServiceAnnotations(isvc.Annotations, p.inferenceServiceConfig.ServiceAnnotationDisallowedList, p.deploymentMode)
+	var annotations map[string]string
+	if p.deploymentMode == constants.Standard {
+		annotations = utils.Filter(isvc.Annotations, func(key string) bool {
+			// https://issues.redhat.com/browse/RHOAIENG-20326
+			// For RawDeployment, we allow the security.opendatahub.io/enable-auth annotation
+			return !utils.Includes(isvcutils.FilterList(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, constants.ODHKserveRawAuth), key)
+		})
+	} else {
+		annotations = utils.Filter(isvc.Annotations, func(key string) bool {
+			return !utils.Includes(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, key)
+		})
+	}
 
 	p.Log.V(1).Info("Predictor custom annotations", "annotations", p.inferenceServiceConfig.ServiceAnnotationDisallowedList)
 	p.Log.V(1).Info("Predictor custom labels", "labels", p.inferenceServiceConfig.ServiceLabelDisallowedList)
@@ -167,7 +178,18 @@ func (p *Predictor) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 	// Labels and annotations from predictor component
 	// Label filter will be handled in ksvc_reconciler and raw reconciler
 	predictorLabels := isvc.Spec.Predictor.Labels
-	predictorAnnotations := filterServiceAnnotations(isvc.Spec.Predictor.Annotations, p.inferenceServiceConfig.ServiceAnnotationDisallowedList, p.deploymentMode)
+	var predictorAnnotations map[string]string
+	if p.deploymentMode == constants.Standard {
+		predictorAnnotations = utils.Filter(isvc.Spec.Predictor.Annotations, func(key string) bool {
+			// https://issues.redhat.com/browse/RHOAIENG-20326
+			// For RawDeployment, we allow the security.opendatahub.io/enable-auth annotation
+			return !utils.Includes(isvcutils.FilterList(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, constants.ODHKserveRawAuth), key)
+		})
+	} else {
+		predictorAnnotations = utils.Filter(isvc.Spec.Predictor.Annotations, func(key string) bool {
+			return !utils.Includes(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, key)
+		})
+	}
 
 	// Label filter will be handled in ksvc_reconciler
 	sRuntimeLabels = sRuntime.Labels
@@ -772,10 +794,6 @@ func (p *Predictor) reconcileRawDeployment(ctx context.Context, isvc *v1beta1.In
 		return errors.Wrapf(err, "fails to reconcile predictor")
 	}
 
-	if cond, condType := r.Workload.GetAuthProxyCondition(); cond != nil {
-		isvc.Status.SetCondition(condType, cond)
-	}
-
 	if !utils.GetForceStopRuntime(isvc) {
 		isvc.Status.PropagateRawStatus(v1beta1.PredictorComponent, deploymentList, r.URL)
 	}
@@ -784,7 +802,7 @@ func (p *Predictor) reconcileRawDeployment(ctx context.Context, isvc *v1beta1.In
 }
 
 func (p *Predictor) reconcileKnativeDeployment(ctx context.Context, isvc *v1beta1.InferenceService, objectMeta *metav1.ObjectMeta, podSpec *corev1.PodSpec) (*knservingv1.ServiceStatus, error) {
-	objectMeta.Annotations = knutils.ValidateInitialScaleAnnotationWithReplicas(objectMeta.Annotations, p.allowZeroInitialScale, isvc.Spec.Predictor.MinReplicas, p.Log)
+	knutils.ValidateInitialScaleAnnotation(objectMeta.Annotations, p.allowZeroInitialScale, isvc.Spec.Predictor.MinReplicas, p.Log)
 
 	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(ctx, p.clientset)
 	if err != nil {

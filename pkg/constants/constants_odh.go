@@ -30,7 +30,6 @@ var (
 // Midstream networking constants
 const (
 	ODHKserveRawAuth               = "security.opendatahub.io/enable-auth"
-	ODHAuthProxyTypeAnnotation     = "security.opendatahub.io/auth-proxy-type"
 	ODHRouteEnabled                = "exposed"
 	ServingCertSecretSuffix        = "-serving-cert"
 	OpenshiftServingCertAnnotation = "service.beta.openshift.io/serving-cert-secret-name"
@@ -51,11 +50,9 @@ const (
 	OauthProxyResourceCPURequest    = "100m"
 	OauthProxySARCMName             = "kube-rbac-proxy-sar-config"
 	// Used for test purposes
-	OauthProxyImage         = "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3"
-	DefaultServiceAccount   = "default"
-	KubeRbacContainerName   = "kube-rbac-proxy"
-	OauthProxyContainerName = "oauth-proxy"
-	KubeRbacProxyType       = "kube-rbac-proxy"
+	OauthProxyImage       = "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3"
+	DefaultServiceAccount = "default"
+	KubeRbacContainerName = "kube-rbac-proxy"
 )
 
 // OpenShift constants

@@ -262,20 +262,20 @@ if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
     ODH_MC_KUSTOMIZE_DIR="$PROJECT_ROOT/bin/odh-mc-kustomize"
     mkdir -p "${ODH_MC_KUSTOMIZE_DIR}"
     cp "$PROJECT_ROOT/test/scripts/openshift-ci/kustomization.yaml" "${ODH_MC_KUSTOMIZE_DIR}/kustomization.yaml"
-    # kustomize requires relative paths in resources
-    ODH_MC_MANIFEST_REL="$(realpath --relative-to="${ODH_MC_KUSTOMIZE_DIR}" "${ODH_MC_MANIFEST_SOURCE}")"
     cat > "${ODH_MC_KUSTOMIZE_DIR}/kustomization.yaml" <<EOF
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - ${ODH_MC_MANIFEST_REL}
+  - ${ODH_MC_MANIFEST_SOURCE}
 
 namespace: opendatahub
 EOF
   fi
 
-  kustomize build --load-restrictor LoadRestrictionsNone "${ODH_MC_KUSTOMIZE_DIR}" | oc apply -n ${KSERVE_NAMESPACE} -f -
+  kustomize build "${ODH_MC_KUSTOMIZE_DIR}" |
+      sed "s|quay.io/opendatahub/odh-model-controller:fast|${ODH_MODEL_CONTROLLER_IMAGE}|" |
+      oc apply -n ${KSERVE_NAMESPACE} -f -
   oc rollout status deployment/odh-model-controller -n ${KSERVE_NAMESPACE} --timeout=300s
 else
   # ODH operator deploys odh-model-controller using custom manifests from PVC

@@ -34,4 +34,3 @@ fi
 echo "Creating virtual environment..."
 uv venv --clear
 source .venv/bin/activate
-

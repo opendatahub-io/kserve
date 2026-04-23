@@ -36,38 +36,6 @@ lives in `*_ocp.go` files compiled only with `//go:build distro`; the upstream f
    full repository tree (diff-only mode), flag tentatively and ask the author to confirm whether a
    `*_default.go` companion exists in the same package.
 
-## Build system propagation rules
-
-These rules apply when the diff touches **Dockerfiles**, **Makefile targets**, **Tekton PipelineRuns**,
-or any other CI/build system file that builds Go binaries importing `pkg/scheme` or any
-`//go:build distro` gated code.
-
-The core principle: `GOTAGS=distro` must flow unbroken from the build system into `go build`.
-Every layer in the chain is a potential break point.
-
-7. **Dockerfile missing GOTAGS support** - Any Dockerfile that compiles a Go binary which imports
-   `pkg/scheme` (or any package with `//go:build distro` companion files) must declare `ARG GOTAGS`
-   in the builder stage and pass `-tags "${GOTAGS}"` to `go build`. Without this, `*_ocp.go` files
-   are silently skipped - causing missing scheme registrations, CRD watch failures, or runtime
-   crashes. Two valid patterns:
-   - `ARG GOTAGS=""` when the caller always supplies the value (Makefile / generic CI).
-   - `ARG GOTAGS="distro"` when the Dockerfile is exclusively used for distro builds (Konflux).
-   Canonical references: `llmisvc-controller.Dockerfile` (Makefile pattern),
-   `Dockerfiles/llmisvc-controller.Dockerfile.konflux` (Konflux pattern).
-
-8. **Build system invocation not passing GOTAGS** - Every invocation of a Dockerfile covered by
-   rule 7 must pass `GOTAGS=distro` through that build system's mechanism for Docker build
-   arguments. The mechanism varies by system - check each caller type in the diff:
-   - **Makefile**: `--build-arg GOTAGS=${GOTAGS}` on the `buildx build` call.
-     Canonical references: `docker-build` and `docker-build-llmisvc` in `Makefile`.
-   - **Tekton PipelineRun** (`.tekton/*.yaml`): `build-args: ["GOTAGS=distro"]` in `spec.params`.
-     Canonical reference: `odh-kserve-llmisvc-controller-pull-request.yaml` in `.tekton/`.
-   - **Konflux Dockerfiles** (`Dockerfiles/*.Dockerfile.konflux`): prefer `ARG GOTAGS="distro"`
-     as the default so the pipeline does not need to pass it explicitly.
-     Canonical reference: `Dockerfiles/llmisvc-controller.Dockerfile.konflux`.
-   If a new build system is introduced, apply the same principle: locate the equivalent of
-   `--build-arg` for that system and verify GOTAGS reaches the compiler.
-
 ## Exemptions - do not flag
 
 - Files under a `distro/` sub-package (e.g. `pkg/controller/.../distro/controller_rbac_ocp.go`)
