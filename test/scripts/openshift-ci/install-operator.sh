@@ -22,7 +22,6 @@
 #   OPERATOR_VERSION   e.g. 3.4.0; empty = latest in channel (CI default)
 #   CATALOG_SOURCE     FBC fragment image, CatalogSource name, or empty (default catalog)
 #   MIRROR_IMAGES      true | false (default); creates ImageDigestMirrorSet
-#   CHANNEL_OVERRIDE   explicit OLM channel; empty = auto-detect
 #
 # When OPERATOR_VERSION is set the script uses "dev mode":
 #   - cleans up any previous subscription/CSV
@@ -33,12 +32,9 @@
 
 _INSTALL_OPERATOR_SOURCED=true
 
-INSTALL_OPERATOR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
 : "${OPERATOR_TYPE:=odh}"
 : "${OPERATOR_VERSION:=}"
 : "${CATALOG_SOURCE:=}"
-: "${CHANNEL_OVERRIDE:=}"
 
 # Auto-enable image mirroring for RHOAI with FBC fragment images
 if [[ -z "${MIRROR_IMAGES:-}" ]]; then
@@ -184,97 +180,65 @@ is_ea_version() {
     [[ "${OPERATOR_VERSION}" == *-ea* || "${OPERATOR_VERSION}" == *-ea.* ]]
 }
 
-query_catalog_channels() {
+query_catalog_info() {
     local catalog="$1"
+    local csv_pattern="${2:-}"
     oc get packagemanifest --all-namespaces -o json 2>/dev/null | python3 -c "
 import json, sys
+catalog, csv_pat = '${catalog}', '${csv_pattern}'
 data = json.load(sys.stdin)
 for item in data.get('items', []):
-    if item['metadata']['name'] == '${OPERATOR_NAME}' and item['status']['catalogSource'] == '${catalog}':
-        print(' '.join(ch['name'] for ch in item['status']['channels']))
-        break
+    st = item.get('status', {})
+    if item['metadata']['name'] != '${OPERATOR_NAME}' or st.get('catalogSource') != catalog:
+        continue
+    channels = st.get('channels', [])
+    default_ch = st.get('defaultChannel', '')
+    if csv_pat:
+        for ch in channels:
+            if csv_pat in ch.get('currentCSV', ''):
+                print(ch['name'], ch['currentCSV'])
+                sys.exit(0)
+    if default_ch:
+        for ch in channels:
+            if ch['name'] == default_ch:
+                print(default_ch, ch.get('currentCSV', ''))
+                sys.exit(0)
+    if channels:
+        ch = channels[0]
+        print(ch['name'], ch.get('currentCSV', ''))
+    break
 " 2>/dev/null
-}
-
-query_current_csv() {
-    local catalog="$1"
-    local channel="$2"
-    oc get packagemanifest --all-namespaces -o json 2>/dev/null | python3 -c "
-import json, sys
-data = json.load(sys.stdin)
-for item in data.get('items', []):
-    if item['metadata']['name'] == '${OPERATOR_NAME}' and item['status'].get('catalogSource') == '${catalog}':
-        for ch in item['status'].get('channels', []):
-            if ch['name'] == '${channel}':
-                print(ch.get('currentCSV', ''))
-                break
-        break
-" 2>/dev/null
-}
-
-detect_channel() {
-    if [[ -n "${CHANNEL_OVERRIDE}" ]]; then
-        OPERATOR_CHANNEL="${CHANNEL_OVERRIDE}"
-        echo "Using channel override: ${OPERATOR_CHANNEL}"
-        return
-    fi
-    if [[ -z "${OPERATOR_VERSION}" ]]; then
-        echo "Using default channel: ${OPERATOR_CHANNEL}"
-        return
-    fi
-
-    echo "Detecting available channels from CatalogSource '${OPERATOR_SOURCE}'..."
-    local channels
-    channels=$(query_catalog_channels "${OPERATOR_SOURCE}")
-    if [[ -z "${channels}" ]]; then
-        echo "  Could not query channels from '${OPERATOR_SOURCE}'; using default: ${OPERATOR_CHANNEL}"
-        return
-    fi
-    echo "  Available channels: ${channels}"
-
-    local major_minor
-    major_minor=$(parse_major_minor "${OPERATOR_VERSION}")
-
-    local candidates=()
-    if is_ea_version; then
-        candidates=("beta" "stable-${major_minor}" "fast-${major_minor}" "${OPERATOR_CHANNEL}" "fast")
-    else
-        candidates=("stable-${major_minor}" "stable-${OPERATOR_VERSION}" "fast-${major_minor}" "${OPERATOR_CHANNEL}" "fast")
-    fi
-
-    for candidate in "${candidates[@]}"; do
-        if echo "${channels}" | tr ' ' '\n' | grep -qx "${candidate}"; then
-            OPERATOR_CHANNEL="${candidate}"
-            echo "  Selected channel: ${OPERATOR_CHANNEL}"
-            return
-        fi
-    done
-    echo "  No preferred channel matched; using default: ${OPERATOR_CHANNEL}"
 }
 
 USE_STARTING_CSV=true
 
-validate_csv() {
-    [[ -n "${OPERATOR_VERSION}" ]] || return 0
+detect_channel() {
+    local csv_pattern=""
+    if [[ -n "${OPERATOR_VERSION}" ]]; then
+        csv_pattern="${OPERATOR_NAME}.${CSV_VERSION}"
+    fi
 
-    local requested_csv="${OPERATOR_NAME}.${CSV_VERSION}"
-    echo "Validating ${requested_csv} in channel ${OPERATOR_CHANNEL}..."
-    local current_csv
-    current_csv=$(query_current_csv "${OPERATOR_SOURCE}" "${OPERATOR_CHANNEL}")
-    if [[ -z "${current_csv}" ]]; then
-        echo "  Could not query catalog; proceeding with requested version"
+    echo "Querying catalog '${OPERATOR_SOURCE}' for channel (csv_pattern='${csv_pattern:-any}')..."
+    local info
+    info=$(query_catalog_info "${OPERATOR_SOURCE}" "${csv_pattern}")
+    if [[ -z "${info}" ]]; then
+        echo "  Could not query catalog; using fallback channel: ${OPERATOR_CHANNEL}"
         return
     fi
-    if [[ "${current_csv}" == "${requested_csv}" ]]; then
-        echo "  Confirmed: ${requested_csv} is current in channel"
-        return
+
+    local detected_channel detected_csv
+    detected_channel=$(echo "${info}" | awk '{print $1}')
+    detected_csv=$(echo "${info}" | awk '{print $2}')
+    echo "  Catalog reports: channel=${detected_channel} csv=${detected_csv}"
+    OPERATOR_CHANNEL="${detected_channel}"
+
+    if [[ -n "${csv_pattern}" && "${detected_csv}" != "${csv_pattern}" ]]; then
+        echo "  WARNING: requested ${csv_pattern} not found; catalog offers ${detected_csv}"
+        CSV_VERSION="${detected_csv#${OPERATOR_NAME}.}"
+        OPERATOR_VERSION="${CSV_VERSION#v}"
+        USE_STARTING_CSV=false
+        echo "  Falling back to ${detected_csv} (omitting startingCSV to let OLM resolve)"
     fi
-    echo "  WARNING: ${requested_csv} not found as current CSV in channel ${OPERATOR_CHANNEL}"
-    echo "  Latest available: ${current_csv}"
-    CSV_VERSION="${current_csv#${OPERATOR_NAME}.}"
-    OPERATOR_VERSION="${CSV_VERSION#v}"
-    USE_STARTING_CSV=false
-    echo "  Falling back to ${current_csv} (omitting startingCSV to let OLM resolve)"
 }
 
 cleanup_previous_install() {
@@ -402,7 +366,6 @@ install_operator() {
     fi
 
     detect_channel
-    validate_csv
 
     local version_display="${OPERATOR_VERSION:-latest}"
     echo "Installing ${OPERATOR_NAME} (${version_display})..."

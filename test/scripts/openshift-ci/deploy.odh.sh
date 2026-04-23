@@ -30,7 +30,6 @@ source "${SCRIPT_DIR}/install-operator.sh"
 # OPERATOR_VERSION is intentionally left unset (CI mode: skip-if-installed,
 # Automatic approval, no startingCSV).
 : "${OPERATOR_TYPE:=odh}"
-: "${CHANNEL_OVERRIDE:=${ODH_OPERATOR_CHANNEL:-}}"
 : "${CATALOG_SOURCE:=${ODH_OPERATOR_SOURCE:-}}"
 
 echo "Installing ODH operator stack to manage KServe deployment..."

@@ -54,19 +54,15 @@ if [[ "$RUNNING_LOCAL" == "true" ]]; then
   fi
 fi
 
-# Parse command line options
-: "${INSTALL_ODH_OPERATOR:=false}"
-
-# Set the applications namespace based on operator type
+# Derive install mode from OPERATOR_TYPE (empty = manual kustomize deploy)
 : "${OPERATOR_TYPE:=}"
-if [[ "$INSTALL_ODH_OPERATOR" == "true" ]]; then
-  case "${OPERATOR_TYPE}" in
-    rhods|rhoai) KSERVE_NAMESPACE="redhat-ods-applications" ;;
-    *)           KSERVE_NAMESPACE="opendatahub" ;;
-  esac
-else
-  KSERVE_NAMESPACE="kserve"
-fi
+USE_OPERATOR=false
+case "${OPERATOR_TYPE}" in
+  rhods|rhoai)       KSERVE_NAMESPACE="redhat-ods-applications"; USE_OPERATOR=true ;;
+  odh|opendatahub)   KSERVE_NAMESPACE="opendatahub";            USE_OPERATOR=true ;;
+  "")                KSERVE_NAMESPACE="kserve" ;;
+  *)                 echo "Error: Unknown OPERATOR_TYPE '${OPERATOR_TYPE}'"; exit 1 ;;
+esac
 
 echo "Using namespace: $KSERVE_NAMESPACE for KServe components"
 PARAMS_ENV="$PROJECT_ROOT/config/overlays/odh/params.env"
@@ -119,13 +115,13 @@ pushd $PROJECT_ROOT/python/kserve >/dev/null
   uv pip install timeout-sampler
 popd
 
-# Install autoscaler only if NOT using ODH operator (operator handles it)
-if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
+# Install autoscaler only if NOT using an operator (operator handles it)
+if [[ "$USE_OPERATOR" == "false" ]]; then
   $SCRIPT_DIR/deploy.cma.sh
 fi
 
-# Install ODH operator if requested
-if [[ "$INSTALL_ODH_OPERATOR" == "true" ]]; then
+# Install ODH/RHOAI operator if requested
+if [[ "$USE_OPERATOR" == "true" ]]; then
   $SCRIPT_DIR/deploy.odh.sh
 fi
 
@@ -159,7 +155,7 @@ fi
 oc new-project ${KSERVE_NAMESPACE} || true
 
 # Install KServe components based on method
-if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
+if [[ "$USE_OPERATOR" == "false" ]]; then
   # Manual installation: Install KServe directly with PR images
   echo "⏳ Installing KServe with SeaweedFS"
 
@@ -247,7 +243,7 @@ oc patch configmap inferenceservice-config -n ${KSERVE_NAMESPACE} --type=merge \
 oc delete pod -n ${KSERVE_NAMESPACE} -l control-plane=kserve-controller-manager
 
 # Patch DSC only in manual mode (operator mode uses yaml files directly)
-if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
+if [[ "$USE_OPERATOR" == "false" ]]; then
   oc patch datascienceclusters.datasciencecluster.opendatahub.io/test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
 fi
 
@@ -256,7 +252,7 @@ echo "waiting kserve-controller get ready..."
 oc wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n ${KSERVE_NAMESPACE} --timeout=300s
 
 # Wait for/Install ODH Model Controller based on method
-if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
+if [[ "$USE_OPERATOR" == "false" ]]; then
   # TODO can be moved to odh-test overlays
   echo "Installing ODH Model Controller manually with PR images"
 
@@ -314,7 +310,7 @@ fi
 echo "Add testing models to SeaweedFS S3 storage ..."
 
 # In operator mode, SeaweedFS isn't part of the operator deployment -- deploy it separately.
-if [[ "$INSTALL_ODH_OPERATOR" == "true" ]]; then
+if [[ "$USE_OPERATOR" == "true" ]]; then
   echo "Deploying SeaweedFS S3 backend for tests..."
   kustomize build "$PROJECT_ROOT/config/overlays/test/s3-local-backend" | \
     sed "s/namespace: kserve/namespace: ${KSERVE_NAMESPACE}/" | \

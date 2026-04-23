@@ -12,101 +12,133 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# This is a helper script to remove the E2E in local test execution environments.
-# Only works for raw deployment mode.
+# Idempotent teardown of the E2E test environment.
+# Works for both raw (manual) and operator-based (ODH/RHOAI) deployments.
+# Every delete uses --ignore-not-found / || true so resources that were never
+# created are silently skipped.
 set -o errexit
 set -o nounset
 set -o pipefail
 
-: "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
-: "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:latest}"
-: "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
-: "${KSERVE_ROUTER_IMAGE:=quay.io/opendatahub/kserve-router:latest}"
-: "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
-: "${ODH_MODEL_CONTROLLER_IMAGE:=quay.io/opendatahub/odh-model-controller:fast}"
-: "${ERROR_404_ISVC_IMAGE:=error-404-isvc:latest}"
-: "${SUCCESS_200_ISVC_IMAGE:=success-200-isvc:latest}"
-
-echo "SKLEARN_IMAGE=$SKLEARN_IMAGE"
-echo "KSERVE_CONTROLLER_IMAGE=$KSERVE_CONTROLLER_IMAGE"
-echo "KSERVE_AGENT_IMAGE=$KSERVE_AGENT_IMAGE"
-echo "KSERVE_ROUTER_IMAGE=$KSERVE_ROUTER_IMAGE"
-echo "STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_IMAGE"
-echo "ERROR_404_ISVC_IMAGE=$ERROR_404_ISVC_IMAGE"
-echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
-
-# Create directory for installing tooling
-# It is assumed that $HOME/.local/bin is in the $PATH
-mkdir -p $HOME/.local/bin
 MY_PATH=$(dirname "$0")
 PROJECT_ROOT=$MY_PATH/../../../
 
-echo "Deleting KServe with SeaweedFS"
-kustomize build $PROJECT_ROOT/config/overlays/test |
-  sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
-  sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
-  sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
-  sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
-  oc delete -f - --ignore-not-found || true
+PARAMS_ENV="$PROJECT_ROOT/config/overlays/odh/params.env"
+: "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
+: "${KSERVE_CONTROLLER_IMAGE:=$(grep '^kserve-controller=' "$PARAMS_ENV" | cut -d= -f2-)}"
+: "${KSERVE_AGENT_IMAGE:=$(grep '^kserve-agent=' "$PARAMS_ENV" | cut -d= -f2-)}"
+: "${KSERVE_ROUTER_IMAGE:=$(grep '^kserve-router=' "$PARAMS_ENV" | cut -d= -f2-)}"
+: "${STORAGE_INITIALIZER_IMAGE:=$(grep '^kserve-storage-initializer=' "$PARAMS_ENV" | cut -d= -f2-)}"
+: "${ODH_MODEL_CONTROLLER_IMAGE:=quay.io/opendatahub/odh-model-controller:fast}"
 
-if [[ "${1:-}" =~ kserve_on_openshift ]]; then
-  echo "Deleting TLS SeaweedFS resources and generated certificates"
-  kustomize build $PROJECT_ROOT/test/overlays/openshift-ci |
-    oc delete -n kserve -f - --ignore-not-found || true
-  oc delete secret seaweedfs-tls-custom -n kserve --ignore-not-found || true
-  oc delete secret seaweedfs-tls-serving -n kserve --ignore-not-found || true
-  # Clean up storage-config secret entries for TLS S3
-  if oc get secret storage-config -n kserve-ci-e2e-test > /dev/null 2>&1; then
-    oc patch secret storage-config -n kserve-ci-e2e-test --type=json \
-      -p='[{"op": "remove", "path": "/data/localTLSS3Serving"}, {"op": "remove", "path": "/data/localTLSS3Custom"}]' 2>/dev/null || true
-  fi
-  rm -rf $PROJECT_ROOT/test/scripts/openshift-ci/tls/certs
+ALL_NAMESPACES=(kserve opendatahub redhat-ods-applications)
+
+# ---------------------------------------------------------------------------
+# 1. DSC / DSCI -- delete first so the operator can gracefully unmanage
+# ---------------------------------------------------------------------------
+echo "Deleting DSC / DSCI resources"
+oc delete datascienceclusters.datasciencecluster.opendatahub.io --all --ignore-not-found || true
+oc delete dscinitializations.dscinitialization.opendatahub.io --all --ignore-not-found || true
+
+# ---------------------------------------------------------------------------
+# 2. ODH / RHOAI operator (Subscription, CSV, CatalogSource, PVC, IDMS)
+# ---------------------------------------------------------------------------
+echo "Deleting ODH / RHOAI operator OLM resources"
+for name in opendatahub-operator rhods-operator; do
+  oc delete subscription "${name}" -n openshift-operators --ignore-not-found || true
+  oc delete csv -n openshift-operators -l "operators.coreos.com/${name}.openshift-operators" --ignore-not-found || true
+  oc delete catalogsource "${name}-custom-catalog" -n openshift-marketplace --ignore-not-found || true
+done
+
+echo "Deleting custom-manifests PVC"
+oc delete pvc kserve-custom-manifests -n openshift-operators --ignore-not-found || true
+
+echo "Deleting ImageDigestMirrorSets created for operator install"
+for idms in rhoai-quay-mirror; do
+  oc delete imagedigestmirrorset "${idms}" --ignore-not-found || true
+done
+
+# ---------------------------------------------------------------------------
+# 3. KServe components (covers both raw-kustomize and operator-managed)
+# ---------------------------------------------------------------------------
+echo "Deleting KServe (raw overlay, if present)"
+kustomize build "$PROJECT_ROOT/config/overlays/odh-test" 2>/dev/null |
+  oc delete --ignore-not-found -f - || true
+
+# Also try the legacy test overlay in case it was used
+kustomize build "$PROJECT_ROOT/config/overlays/test" 2>/dev/null |
+  oc delete --ignore-not-found -f - || true
+
+# ---------------------------------------------------------------------------
+# 4. SeaweedFS S3 TLS resources
+# ---------------------------------------------------------------------------
+echo "Deleting TLS SeaweedFS resources and generated certificates"
+kustomize build "$PROJECT_ROOT/test/overlays/openshift-ci" 2>/dev/null |
+  oc delete --ignore-not-found -f - || true
+for ns in "${ALL_NAMESPACES[@]}"; do
+  oc delete secret seaweedfs-tls-custom -n "$ns" --ignore-not-found || true
+  oc delete secret seaweedfs-tls-serving -n "$ns" --ignore-not-found || true
+done
+if oc get secret storage-config -n kserve-ci-e2e-test > /dev/null 2>&1; then
+  oc patch secret storage-config -n kserve-ci-e2e-test --type=json \
+    -p='[{"op": "remove", "path": "/data/localTLSS3Serving"}, {"op": "remove", "path": "/data/localTLSS3Custom"}]' 2>/dev/null || true
 fi
-# Install DSC/DSCI for test. (sometimes there is timing issue when it is under the same kustomization so it is separated)
-oc delete -f config/overlays/test/dsci.yaml --ignore-not-found || true
-oc delete -f config/overlays/test/dsc.yaml --ignore-not-found || true
+rm -rf "$PROJECT_ROOT/test/scripts/openshift-ci/tls/certs"
 
+# SeaweedFS backend deployed separately in operator mode
+for ns in "${ALL_NAMESPACES[@]}"; do
+  kustomize build "$PROJECT_ROOT/config/overlays/test/s3-local-backend" 2>/dev/null |
+    sed "s/namespace: kserve/namespace: ${ns}/" |
+    oc delete -n "$ns" --ignore-not-found -f - || true
+done
 
+# ---------------------------------------------------------------------------
+# 5. ODH Model Controller
+# ---------------------------------------------------------------------------
 echo "Deleting ODH Model Controller"
-kustomize build $PROJECT_ROOT/test/scripts/openshift-ci |
-    sed "s|quay.io/opendatahub/odh-model-controller:fast|${ODH_MODEL_CONTROLLER_IMAGE}|" |
-    oc delete -f - --ignore-not-found || true
-  oc wait --for=delete pod -l app=odh-model-controller -n kserve --timeout=30s 2>/dev/null || true
+kustomize build "$PROJECT_ROOT/test/scripts/openshift-ci" 2>/dev/null |
+  oc delete --ignore-not-found -f - || true
+for ns in "${ALL_NAMESPACES[@]}"; do
+  oc wait --for=delete pod -l app=odh-model-controller -n "$ns" --timeout=30s 2>/dev/null || true
+done
 
-
+# ---------------------------------------------------------------------------
+# 6. CI namespace and ServingRuntimes
+# ---------------------------------------------------------------------------
 echo "Delete CI namespace and ServingRuntimes"
-# Tear down the CI namespace (Kubernetes will automatically clean up all resources within it)
-"$MY_PATH/teardown-ci-namespace.sh" "${1:-}" "kserve-ci-e2e-test"
+"$MY_PATH/teardown-ci-namespace.sh" "" "kserve-ci-e2e-test"
 
-oc delete -f $PROJECT_ROOT/config/overlays/test/s3-local-backend/mlpipeline-s3-artifact-secret.yaml -n kserve-ci-e2e-test --ignore-not-found || true
+oc delete -f "$PROJECT_ROOT/config/overlays/test/s3-local-backend/mlpipeline-s3-artifact-secret.yaml" -n kserve-ci-e2e-test --ignore-not-found || true
 
-kustomize build $PROJECT_ROOT/config/overlays/test/clusterresources |
+kustomize build "$PROJECT_ROOT/config/overlays/test/clusterresources" 2>/dev/null |
   sed 's/ClusterServingRuntime/ServingRuntime/' |
   sed "s|kserve/sklearnserver:latest|${SKLEARN_IMAGE}|" |
   sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
-  oc delete -n kserve-ci-e2e-test -f - --ignore-not-found || true
+  oc delete -n kserve-ci-e2e-test --ignore-not-found -f - || true
 
+# ---------------------------------------------------------------------------
+# 7. NetworkPolicy (try every possible namespace)
+# ---------------------------------------------------------------------------
+echo "Deleting NetworkPolicy"
+for ns in "${ALL_NAMESPACES[@]}"; do
+  oc delete networkpolicy allow-all -n "$ns" --ignore-not-found || true
+done
 
-cat <<EOF | oc delete -f - --ignore-not-found || true
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-all
-  namespace: kserve
-spec:
-  podSelector: {}
-  ingress:
-  - {}
-  egress:
-  - {}
-  policyTypes:
-  - Ingress
-  - Egress
-EOF
-
+# ---------------------------------------------------------------------------
+# 8. CMA / KEDA operator
+# ---------------------------------------------------------------------------
 echo "Delete CMA / KEDA operator"
 oc delete kedacontroller -n openshift-keda keda --ignore-not-found || true
 oc delete subscription -n openshift-keda openshift-custom-metrics-autoscaler-operator --ignore-not-found || true
 oc delete namespace openshift-keda --ignore-not-found || true
+
+# ---------------------------------------------------------------------------
+# 9. Application namespaces (opendatahub / redhat-ods-applications)
+#    The "kserve" namespace is only created by raw-mode setup, but clean it too.
+# ---------------------------------------------------------------------------
+echo "Deleting application namespaces"
+for ns in "${ALL_NAMESPACES[@]}"; do
+  oc delete namespace "$ns" --ignore-not-found --timeout=120s || true
+done
 
 echo "Teardown complete"

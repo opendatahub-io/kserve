@@ -53,7 +53,6 @@ build-images-ocp: ## Build and push KServe images for E2E testing. Requires QUAY
 	./test/scripts/openshift-ci/build-kserve-images.sh
 
 setup-e2e-ocp: ## Set up E2E test environment on OpenShift. Use OPERATOR_TYPE=odh|rhoai.
-	INSTALL_ODH_OPERATOR=$$([ -n "$(strip $(OPERATOR_TYPE))" ] && echo true || echo false) \
 	OPERATOR_TYPE="$(strip $(OPERATOR_TYPE))" \
 	OPERATOR_VERSION="$(strip $(OPERATOR_VERSION))" \
 	CATALOG_SOURCE="$(strip $(CATALOG_SOURCE))" \
@@ -67,7 +66,7 @@ reset-e2e-ocp: ## Reset the test namespace for a fresh E2E rerun.
 	./test/scripts/openshift-ci/setup-ci-namespace.sh
 
 teardown-e2e-ocp:
-	./test/scripts/openshift-ci/teardown-e2e-setup.sh "$(E2E_MARKER)"
+	./test/scripts/openshift-ci/teardown-e2e-setup.sh
 
 manifests-distro: controller-gen
 	@$(CONTROLLER_GEN) rbac:roleName=kserve-llmisvc-distro-role \
