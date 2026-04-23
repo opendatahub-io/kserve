@@ -27,6 +27,7 @@ import (
 	"github.com/pkg/errors"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -163,6 +164,9 @@ func (p *Predictor) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 	existingDeployment := &appsv1.Deployment{}
 	errGet := p.client.Get(ctx, types.NamespacedName{Name: constants.PredictorServiceName(isvc.Name), Namespace: isvc.Namespace}, existingDeployment)
 	injectEnvVar := true
+	if errGet != nil && !apierrors.IsNotFound(errGet) {
+		return ctrl.Result{}, errors.Wrapf(errGet, "failed to get existing deployment for %s", isvc.Name)
+	}
 	if errGet == nil {
 		// Deployment already exists — only inject if it already has the env var
 		for _, container := range existingDeployment.Spec.Template.Spec.Containers {

@@ -24,9 +24,12 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"knative.dev/pkg/apis"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -157,11 +160,31 @@ func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServ
 
 	podSpec := corev1.PodSpec(isvc.Spec.Transformer.PodSpec)
 
-	// Add InferenceService name as environment variable to transformer container
-	// Use the actual container name from the podSpec (first container)
+	// Add InferenceService name as environment variable to transformer container.
+	// Only inject if the existing deployment already has it, or if no deployment exists yet (new ISVC).
+	// This avoids triggering a rolling restart of pre-existing deployments during operator upgrades (RHOAIENG-59268).
 	transformerContainerName := podSpec.Containers[0].Name
-	if err := isvcutils.AddEnvVarToPodSpec(&podSpec, transformerContainerName, constants.InferenceServiceNameEnvVarKey, isvc.Name); err != nil {
-		return ctrl.Result{}, errors.Wrapf(err, "failed to add INFERENCE_SERVICE_NAME environment variable to container %s", transformerContainerName)
+	existingTransformerDeployment := &appsv1.Deployment{}
+	errGetTransformer := p.client.Get(ctx, types.NamespacedName{Name: constants.TransformerServiceName(isvc.Name), Namespace: isvc.Namespace}, existingTransformerDeployment)
+	injectTransformerEnvVar := true
+	if errGetTransformer != nil && !apierrors.IsNotFound(errGetTransformer) {
+		return ctrl.Result{}, errors.Wrapf(errGetTransformer, "failed to get existing transformer deployment for %s", isvc.Name)
+	}
+	if errGetTransformer == nil {
+		for _, container := range existingTransformerDeployment.Spec.Template.Spec.Containers {
+			if container.Name == transformerContainerName {
+				if _, exists := utils.GetEnvVarValue(container.Env, constants.InferenceServiceNameEnvVarKey); !exists {
+					injectTransformerEnvVar = false
+					p.Log.Info("Skipping INFERENCE_SERVICE_NAME injection to avoid pod restart on upgrade", "isvc", isvc.Name)
+				}
+				break
+			}
+		}
+	}
+	if injectTransformerEnvVar {
+		if err := isvcutils.AddEnvVarToPodSpec(&podSpec, transformerContainerName, constants.InferenceServiceNameEnvVarKey, isvc.Name); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed to add INFERENCE_SERVICE_NAME environment variable to container %s", transformerContainerName)
+		}
 	}
 
 	// Here we allow switch between knative and vanilla deployment
