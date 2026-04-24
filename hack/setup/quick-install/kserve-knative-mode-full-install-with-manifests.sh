@@ -2664,7 +2664,7 @@ spec:
       - /app/pd-sidecar
       - --port=8000
       - --vllm-port=8001
-      - --connector=nixlv2
+      - --kv-connector=nixlv2
       - --enable-ssrf-protection=true
       - --pool-group=inference.networking.x-k8s.io
       - '{{ if .GlobalConfig.EnableTLS }}--secure-proxy=true{{else}}--secure-proxy=false{{-
@@ -2978,7 +2978,7 @@ spec:
       - /app/pd-sidecar
       - --port=8000
       - --vllm-port=8001
-      - --connector=nixlv2
+      - --kv-connector=nixlv2
       - --enable-ssrf-protection=true
       - --pool-group=inference.networking.x-k8s.io
       - '{{ if .GlobalConfig.EnableTLS }}--secure-proxy=true{{else}}--secure-proxy=false{{-
@@ -4079,6 +4079,8 @@ metadata:
 spec:
   router:
     scheduler:
+      annotations:
+        app.kubernetes.io/version: 0.7.0
       pool:
         spec:
           endpointPickerRef:
