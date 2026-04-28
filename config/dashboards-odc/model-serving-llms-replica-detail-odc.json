@@ -15,7 +15,29 @@
   "editable": true,
   "graphTooltip": 1,
   "id": null,
-  "links": [],
+  "links": [
+    {
+      "icon": "dashboard",
+      "title": "Cluster Health Overview",
+      "type": "link",
+      "url": "/d/model-serving-llms-cluster-health?var-namespace=$namespace&${__url_time_range}",
+      "targetBlank": false
+    },
+    {
+      "icon": "dashboard",
+      "title": "Model Performance & Usage",
+      "type": "link",
+      "url": "/d/model-serving-llms-model-performance?var-namespace=$namespace&var-llm_isvc_name=$llm_isvc_name&${__url_time_range}",
+      "targetBlank": false
+    },
+    {
+      "icon": "dashboard",
+      "title": "Failure & Diagnostics",
+      "type": "link",
+      "url": "/d/model-serving-llms-failure-diagnostics?var-namespace=$namespace&var-llm_isvc_name=$llm_isvc_name&${__url_time_range}",
+      "targetBlank": false
+    }
+  ],
   "panels": [
     {
       "aliasColors": {},
@@ -60,7 +82,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(kserve_vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (pod)",
+          "expr": "sum(rate(kserve_vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (pod) or vector(0)",
           "interval": "",
           "legendFormat": "{{pod}}",
           "refId": "A"
@@ -105,7 +127,8 @@
       "yAxis": {
         "align": false,
         "alignLevel": null
-      }
+      },
+      "span": 6
     },
     {
       "aliasColors": {},
@@ -150,7 +173,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "100 * (1 - (rate(kserve_vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m]) / (rate(kserve_vllm:request_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m]) > 0))) or vector(0)",
+          "expr": "100 * (rate(kserve_http_requests_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",status!=\"2xx\"}[5m]) / (rate(kserve_http_requests_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m]) > 0)) or vector(0)",
           "interval": "",
           "legendFormat": "{{pod}}",
           "refId": "A"
@@ -212,7 +235,8 @@
       "yAxis": {
         "align": false,
         "alignLevel": null
-      }
+      },
+      "span": 6
     },
     {
       "aliasColors": {},
@@ -302,7 +326,8 @@
       "yAxis": {
         "align": false,
         "alignLevel": null
-      }
+      },
+      "span": 4
     },
     {
       "aliasColors": {},
@@ -392,7 +417,8 @@
       "yAxis": {
         "align": false,
         "alignLevel": null
-      }
+      },
+      "span": 4
     },
     {
       "aliasColors": {},
@@ -482,7 +508,8 @@
       "yAxis": {
         "align": false,
         "alignLevel": null
-      }
+      },
+      "span": 4
     },
     {
       "aliasColors": {},
@@ -527,7 +554,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(kserve_vllm:num_requests_waiting{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}) by (pod)",
+          "expr": "sum(kserve_vllm:num_requests_waiting{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}) by (pod) or vector(0)",
           "interval": "",
           "legendFormat": "{{pod}}",
           "refId": "A"
@@ -573,7 +600,8 @@
       "yAxis": {
         "align": false,
         "alignLevel": null
-      }
+      },
+      "span": 4
     },
     {
       "aliasColors": {},
@@ -618,7 +646,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(kserve_vllm:num_requests_running{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}) by (pod)",
+          "expr": "sum(kserve_vllm:num_requests_running{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}) by (pod) or vector(0)",
           "interval": "",
           "legendFormat": "{{pod}}",
           "refId": "A"
@@ -664,7 +692,8 @@
       "yAxis": {
         "align": false,
         "alignLevel": null
-      }
+      },
+      "span": 4
     },
     {
       "aliasColors": {},
@@ -709,7 +738,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "avg(kserve_vllm:kv_cache_usage_perc{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}) by (pod) * 100",
+          "expr": "avg(kserve_vllm:kv_cache_usage_perc{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}) by (pod) * 100 or vector(0)",
           "interval": "",
           "legendFormat": "{{pod}}",
           "refId": "A"
@@ -771,7 +800,8 @@
       "yAxis": {
         "align": false,
         "alignLevel": null
-      }
+      },
+      "span": 4
     },
     {
       "aliasColors": {},
@@ -816,7 +846,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(kserve_vllm:prompt_tokens_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (pod)",
+          "expr": "sum(rate(kserve_vllm:prompt_tokens_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (pod) or vector(0)",
           "interval": "",
           "legendFormat": "{{pod}}",
           "refId": "A"
@@ -861,7 +891,8 @@
       "yAxis": {
         "align": false,
         "alignLevel": null
-      }
+      },
+      "span": 6
     },
     {
       "aliasColors": {},
@@ -906,7 +937,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(kserve_vllm:generation_tokens_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (pod)",
+          "expr": "sum(rate(kserve_vllm:generation_tokens_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (pod) or vector(0)",
           "interval": "",
           "legendFormat": "{{pod}}",
           "refId": "A"
@@ -951,7 +982,8 @@
       "yAxis": {
         "align": false,
         "alignLevel": null
-      }
+      },
+      "span": 6
     },
     {
       "aliasColors": {},
@@ -1041,7 +1073,8 @@
       "yAxis": {
         "align": false,
         "alignLevel": null
-      }
+      },
+      "span": 6
     },
     {
       "aliasColors": {},
@@ -1138,7 +1171,765 @@
       "yAxis": {
         "align": false,
         "alignLevel": null
-      }
+      },
+      "span": 6
+    },
+    {
+      "collapsed": false,
+      "datasource": null,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "id": 100,
+      "title": "Phase & Cache Diagnostics per Replica",
+      "type": "row",
+      "span": 12
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Time spent in the prefill phase (P95) per replica. Identifies pods with slow prefill processing.",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 41
+      },
+      "hiddenSeries": false,
+      "id": 101,
+      "legend": {
+        "alignAsTable": true,
+        "avg": true,
+        "current": true,
+        "max": true,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": true
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(kserve_vllm:request_prefill_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",llm_isvc_role=~\"$llm_isvc_role\",llm_isvc_component=~\"$llm_isvc_component\"}[5m])) by (le, pod)) or vector(0)",
+          "interval": "",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Prefill Time P95 per Replica",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "s",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Time spent in the decode phase (P95) per replica. Identifies pods with slow token generation.",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 41
+      },
+      "hiddenSeries": false,
+      "id": 102,
+      "legend": {
+        "alignAsTable": true,
+        "avg": true,
+        "current": true,
+        "max": true,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": true
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(kserve_vllm:request_decode_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",llm_isvc_role=~\"$llm_isvc_role\",llm_isvc_component=~\"$llm_isvc_component\"}[5m])) by (le, pod)) or vector(0)",
+          "interval": "",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Decode Time P95 per Replica",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "s",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Prefix cache hit rate per replica. Low hit rate on specific pods may indicate uneven routing or cache cold-start.",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 41
+      },
+      "hiddenSeries": false,
+      "id": 103,
+      "legend": {
+        "alignAsTable": true,
+        "avg": true,
+        "current": true,
+        "max": true,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": true
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "100 * (sum(rate(kserve_vllm:prefix_cache_hits_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (pod) / (sum(rate(kserve_vllm:prefix_cache_queries_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (pod) > 0)) or vector(0)",
+          "interval": "",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Prefix Cache Hit Rate per Replica",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "percent",
+          "label": null,
+          "logBase": 1,
+          "max": 100,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Rate of request preemptions per replica. Preemptions indicate KV cache memory pressure on specific pods.",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 49
+      },
+      "hiddenSeries": false,
+      "id": 104,
+      "legend": {
+        "alignAsTable": true,
+        "avg": true,
+        "current": true,
+        "max": true,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": true
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "sum(rate(kserve_vllm:num_preemptions_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (pod) or vector(0)",
+          "interval": "",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Preemptions per Replica",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 6
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Average tokens per engine iteration per replica. Shows batch size consistency across pods.",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 49
+      },
+      "hiddenSeries": false,
+      "id": 105,
+      "legend": {
+        "alignAsTable": true,
+        "avg": true,
+        "current": true,
+        "max": true,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": true
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "sum(rate(kserve_vllm:iteration_tokens_total_sum{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (pod) / (sum(rate(kserve_vllm:iteration_tokens_total_count{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (pod) > 0) or vector(0)",
+          "interval": "",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Avg Tokens per Iteration per Replica",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "decimals": 0,
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 6
+    },
+    {
+      "collapsed": false,
+      "datasource": null,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 57
+      },
+      "id": 200,
+      "title": "KV Offload & Inter-Token Latency",
+      "type": "row",
+      "span": 12
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Cumulative KV cache bytes transferred per replica in disaggregated Prefill/Decode deployments. Shows the volume of KV cache data being offloaded between phases.",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 58
+      },
+      "hiddenSeries": false,
+      "id": 201,
+      "legend": {
+        "alignAsTable": true,
+        "avg": true,
+        "current": true,
+        "max": true,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": true
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "rate(kserve_vllm:kv_offload_total_bytes_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",llm_isvc_role=~\"$llm_isvc_role\",llm_isvc_component=~\"$llm_isvc_component\"}[5m]) or vector(0)",
+          "interval": "",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "KV Offload Throughput per Replica",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "Bps",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Cumulative time spent on KV cache offload transfers per replica. High values indicate slow P/D data transfer, potentially due to network or memory bandwidth constraints.",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 58
+      },
+      "hiddenSeries": false,
+      "id": 202,
+      "legend": {
+        "alignAsTable": true,
+        "avg": true,
+        "current": true,
+        "max": true,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": true
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "rate(kserve_vllm:kv_offload_total_time_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",llm_isvc_role=~\"$llm_isvc_role\",llm_isvc_component=~\"$llm_isvc_component\"}[5m]) or vector(0)",
+          "interval": "",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "KV Offload Time per Replica",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "s",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Inter-token latency P99 per replica. Measures the time between consecutive output tokens. High values indicate decode-phase stalls on specific pods.",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 58
+      },
+      "hiddenSeries": false,
+      "id": 203,
+      "legend": {
+        "alignAsTable": true,
+        "avg": true,
+        "current": true,
+        "max": true,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": true
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(kserve_vllm:inter_token_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",llm_isvc_role=~\"$llm_isvc_role\",llm_isvc_component=~\"$llm_isvc_component\"}[5m])) by (le, pod)) or vector(0)",
+          "interval": "",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Inter-Token Latency P99 per Replica",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "s",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
     }
   ],
   "refresh": "30s",
@@ -1224,6 +2015,42 @@
         "skipUrlSync": false,
         "sort": 1,
         "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": "$datasource",
+        "definition": "label_values(kserve_vllm:request_success_total{namespace=~\"$namespace\",llm_isvc_name=~\"$llm_isvc_name\"}, llm_isvc_role)",
+        "hide": 0,
+        "includeAll": true,
+        "multi": true,
+        "name": "llm_isvc_role",
+        "label": "Role (Prefill/Decode)",
+        "options": [],
+        "query": "label_values(kserve_vllm:request_success_total{namespace=~\"$namespace\",llm_isvc_name=~\"$llm_isvc_name\"}, llm_isvc_role)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {},
+        "datasource": "$datasource",
+        "definition": "label_values(kserve_vllm:request_success_total{namespace=~\"$namespace\",llm_isvc_name=~\"$llm_isvc_name\"}, llm_isvc_component)",
+        "hide": 0,
+        "includeAll": true,
+        "multi": true,
+        "name": "llm_isvc_component",
+        "label": "Component",
+        "options": [],
+        "query": "label_values(kserve_vllm:request_success_total{namespace=~\"$namespace\",llm_isvc_name=~\"$llm_isvc_name\"}, llm_isvc_component)",
+        "refresh": 1,
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": 1,
+        "type": "query"
       }
     ]
   },
@@ -1245,7 +2072,7 @@
     ]
   },
   "timezone": "",
-  "title": "AI / LLM InferenceService / Replica Detail View",
-  "uid": "llm-isvc-replica-detail",
+  "title": "AI / Model Serving / LLMs / Replica Detail View",
+  "uid": "model-serving-llms-replica-detail",
   "version": 1
 }

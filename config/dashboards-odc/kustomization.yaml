@@ -7,15 +7,43 @@ generatorOptions:
   disableNameSuffixHash: true
 
 configMapGenerator:
-- name: llm-isvc-model-performance-usage
+- name: model-serving-llms-cluster-health
   files:
-  - llm-isvc-model-performance-usage-odc.json
-- name: llm-isvc-replica-detail
+  - model-serving-llms-cluster-health-odc.json
+- name: model-serving-llms-model-performance-usage
   files:
-  - llm-isvc-replica-detail-odc.json
+  - model-serving-llms-model-performance-usage-odc.json
+- name: model-serving-llms-replica-detail
+  files:
+  - model-serving-llms-replica-detail-odc.json
+- name: model-serving-llms-failure-diagnostics
+  files:
+  - model-serving-llms-failure-diagnostics-odc.json
 
 labels:
 - pairs:
     console.openshift.io/dashboard: "true"
-    console.openshift.io/odc-dashboard: "true"
     app.kubernetes.io/part-of: kserve
+
+patches:
+- patch: |-
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: model-serving-llms-model-performance-usage
+      labels:
+        console.openshift.io/odc-dashboard: "true"
+- patch: |-
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: model-serving-llms-replica-detail
+      labels:
+        console.openshift.io/odc-dashboard: "true"
+- patch: |-
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: model-serving-llms-failure-diagnostics
+      labels:
+        console.openshift.io/odc-dashboard: "true"
