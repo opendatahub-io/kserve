@@ -81,9 +81,14 @@ oc wait deployment/limitador-operator-controller-manager -n "${KUADRANT_NS}" \
     exit 1
   }
 
-echo "🔄 restarting kuadrant-operator-controller-manager so it detects Limitador…"
-oc rollout restart deployment/kuadrant-operator-controller-manager -n "${KUADRANT_NS}"
-oc rollout status  deployment/kuadrant-operator-controller-manager -n "${KUADRANT_NS}" --timeout=120s
+# OLM owns the deployment spec, so `oc rollout restart` gets reverted.
+# Delete the pod directly and wait for it to be fully gone before checking
+# for the replacement, so we don't accidentally latch onto the terminating pod.
+echo "🔄 deleting kuadrant-operator-controller-manager pod so the replacement detects Limitador…"
+old_pod=$(oc get pod -n "${KUADRANT_NS}" -l app=kuadrant,control-plane=controller-manager \
+  -o=jsonpath='{.items[0].metadata.name}')
+oc delete pod -n "${KUADRANT_NS}" "$old_pod" --wait=true --timeout=60s
+wait_for_pod_ready "${KUADRANT_NS}" "app=kuadrant,control-plane=controller-manager" 120s
 
 # Let apiserver discovery include kuadrants before first reconcile creates child resources with owner refs.
 wait_for_api_discovery "kuadrant.io/v1beta1" "kuadrants" 120
