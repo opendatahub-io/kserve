@@ -65,6 +65,26 @@ EOF
 
 wait_for_subscription_csv "rhcl-operator" "${KUADRANT_NS}" 600
 wait_for_crd  kuadrants.kuadrant.io  90s
+
+# The rhcl-operator installs Limitador Operator as an OLM dependency.
+# The Kuadrant controller-manager only checks for the Limitador deployment at
+# startup; if it misses it, the Kuadrant CR stays in MissingDependency forever.
+# Wait for the limitador-operator deployment to be available and then bounce
+# the Kuadrant controller-manager so it picks up the dependency.
+echo "⏳ waiting for limitador-operator-controller-manager deployment to be available…"
+oc wait deployment/limitador-operator-controller-manager -n "${KUADRANT_NS}" \
+  --for=condition=Available --timeout=300s || {
+    echo "⚠️  Limitador Operator deployment not available — dumping diagnostics"
+    oc get csv -n "${KUADRANT_NS}"
+    oc get deployments -n "${KUADRANT_NS}"
+    oc describe deployment/limitador-operator-controller-manager -n "${KUADRANT_NS}" || true
+    exit 1
+  }
+
+echo "🔄 restarting kuadrant-operator-controller-manager so it detects Limitador…"
+oc rollout restart deployment/kuadrant-operator-controller-manager -n "${KUADRANT_NS}"
+oc rollout status  deployment/kuadrant-operator-controller-manager -n "${KUADRANT_NS}" --timeout=120s
+
 # Let apiserver discovery include kuadrants before first reconcile creates child resources with owner refs.
 wait_for_api_discovery "kuadrant.io/v1beta1" "kuadrants" 120
 
