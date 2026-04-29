@@ -447,22 +447,90 @@ def create_llmisvc(kserve_client: KServeClient, llm_isvc: V1alpha1LLMInferenceSe
 
 
 @log_execution
-def delete_llmisvc(kserve_client: KServeClient, llm_isvc: V1alpha1LLMInferenceService):
+def delete_llmisvc(
+    kserve_client: KServeClient,
+    llm_isvc: V1alpha1LLMInferenceService,
+    wait_for_deletion: bool = True,
+    deletion_timeout: int = 120,
+):
+    name = llm_isvc.metadata.name
+    namespace = llm_isvc.metadata.namespace
+    version = llm_isvc.api_version.split("/")[1]
     try:
         result = kserve_client.api_instance.delete_namespaced_custom_object(
             constants.KSERVE_GROUP,
-            llm_isvc.api_version.split("/")[1],
-            llm_isvc.metadata.namespace,
+            version,
+            namespace,
             KSERVE_PLURAL_LLMINFERENCESERVICE,
-            llm_isvc.metadata.name,
+            name,
         )
-        print(f"✅ LLM inference service {llm_isvc.metadata.name} deleted successfully")
-        return result
+        print(f"✅ LLM inference service {name} deleted successfully")
     except client.rest.ApiException as e:
         raise RuntimeError(
             f"❌ Exception when calling CustomObjectsApi->"
             f"delete_namespaced_custom_object for LLMInferenceService: {e}"
         ) from e
+
+    if wait_for_deletion:
+        _wait_for_llmisvc_gone(
+            kserve_client, name, namespace, version, deletion_timeout
+        )
+    return result
+
+
+def _wait_for_llmisvc_gone(
+    kserve_client: KServeClient,
+    name: str,
+    namespace: str,
+    version: str,
+    timeout: int,
+):
+    """Wait until the LLMInferenceService CR and its owned pods are gone.
+
+    This prevents the next test from competing for resources with pods
+    that are still terminating from the previous test.
+    """
+    v1 = client.CoreV1Api()
+    label_selector = (
+        f"app.kubernetes.io/part-of=llminferenceservice,app.kubernetes.io/name={name}"
+    )
+    deadline = time.time() + timeout
+
+    cr_gone = False
+    while time.time() < deadline:
+        if not cr_gone:
+            try:
+                kserve_client.api_instance.get_namespaced_custom_object(
+                    constants.KSERVE_GROUP,
+                    version,
+                    namespace,
+                    KSERVE_PLURAL_LLMINFERENCESERVICE,
+                    name,
+                )
+                time.sleep(2)
+                continue
+            except client.rest.ApiException as e:
+                if e.status == 404:
+                    logger.info("LLMInferenceService %s CR deleted", name)
+                    cr_gone = True
+                else:
+                    raise
+
+        pods = v1.list_namespaced_pod(namespace, label_selector=label_selector)
+        if not pods.items:
+            logger.info("All pods for %s are gone", name)
+            return
+        pod_names = [p.metadata.name for p in pods.items]
+        logger.info(
+            "Still waiting for %d pod(s) to terminate: %s", len(pods.items), pod_names
+        )
+        time.sleep(2)
+
+    logger.warning(
+        "LLMInferenceService %s resources still present after %ds; proceeding anyway",
+        name,
+        timeout,
+    )
 
 
 @log_execution
