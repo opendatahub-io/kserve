@@ -46,7 +46,7 @@ echo "Parallelism requested for pytest is ${PARALLELISM}"
 
 source python/kserve/.venv/bin/activate
 
-PYTEST_COMMON_ARGS=(--ignore=qpext --log-cli-level=INFO -n "$PARALLELISM" --dist worksteal --network-layer "$NETWORK_LAYER" --maxfail=10 -vv --tb=long -s)
+PYTEST_COMMON_ARGS=(--ignore=qpext --log-cli-level=INFO -n "$PARALLELISM" --dist loadgroup --network-layer "$NETWORK_LAYER" --maxfail=10 -vv --tb=long -s)
 
 MARKER_ARGS=()
 if [[ -n "$MARKER" ]]; then
