@@ -133,6 +133,7 @@ def _cleanup_llmisvc(kserve_client, name, namespace, version="v1alpha1"):
 @pytest.mark.cluster_cpu
 @pytest.mark.cluster_single_node
 @pytest.mark.llmd_simulator
+@pytest.mark.xdist_group("vllm")
 @pytest.mark.parametrize(
     "gateway_config_key, expected_section_name",
     [

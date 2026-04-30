@@ -149,6 +149,7 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 pytest.mark.cluster_single_node,
                 pytest.mark.llmd_simulator,
                 pytest.mark.custom_gateway,
+                pytest.mark.xdist_group("vllm"),
             ],
         ),
         pytest.param(
@@ -362,7 +363,11 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 prompt="KServe is a",
                 service_name="scheduler-inline-config-test",
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                pytest.mark.xdist_group("vllm"),
+            ],
         ),
         pytest.param(
             TestCase(
@@ -376,7 +381,11 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 before_test=[create_scheduler_configmap],
                 after_test=[delete_scheduler_configmap],
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                pytest.mark.xdist_group("vllm"),
+            ],
         ),
         pytest.param(
             TestCase(
@@ -388,7 +397,11 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 prompt="KServe is a",
                 service_name="scheduler-ha-replicas-test",
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                pytest.mark.xdist_group("vllm"),
+            ],
         ),
         # Precise prefix KV cache routing test
         pytest.param(
@@ -405,6 +418,7 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 pytest.mark.cluster_cpu,
                 pytest.mark.cluster_single_node,
                 pytest.mark.llmd_simulator,
+                pytest.mark.xdist_group("vllm"),
             ],
         ),
     ],
