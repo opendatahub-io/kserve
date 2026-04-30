@@ -9,5 +9,5 @@ releases:
     version: v0.8.0
     repoUrl: https://github.com/llm-d/llm-d-inference-scheduler
   - name: llm-d-workload-variant-autoscaler
-    version: v0.6.0
+    version: v0.7.0
     repoUrl: https://github.com/llm-d/llm-d-workload-variant-autoscaler
