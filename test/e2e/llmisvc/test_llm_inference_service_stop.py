@@ -52,7 +52,11 @@ STOP_ANNOTATION_KEY = "serving.kserve.io/stop"
                 prompt="KServe is a",
                 service_name="stop-feature-test",
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                pytest.mark.xdist_group("vllm"),
+            ],
         ),
     ],
     indirect=["test_case"],

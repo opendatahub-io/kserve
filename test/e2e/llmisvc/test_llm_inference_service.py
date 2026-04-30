@@ -162,7 +162,11 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 payload_formatter=completions_payload,
                 response_assertion=assert_200_with_choices,
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                pytest.mark.xdist_group("vllm"),
+            ],
         ),
         pytest.param(
             TestCase(
@@ -175,7 +179,11 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 prompt="KServe is a",
                 service_name="custom-route-timeout-test",
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                pytest.mark.xdist_group("vllm"),
+            ],
         ),
         pytest.param(
             TestCase(
@@ -198,6 +206,7 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 pytest.mark.cluster_cpu,
                 pytest.mark.cluster_single_node,
                 pytest.mark.custom_gateway,
+                pytest.mark.xdist_group("vllm"),
             ],
         ),
         pytest.param(
@@ -208,7 +217,11 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 "Provide a detailed comparison with open source alternatives, focusing on operational trade-offs.",
                 response_assertion=assert_200_with_choices,
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                pytest.mark.xdist_group("vllm"),
+            ],
         ),
         pytest.param(
             TestCase(
@@ -224,7 +237,11 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 service_name="custom-route-timeout-pd-test",
                 response_assertion=assert_200_with_choices,
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_single_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_single_node,
+                pytest.mark.xdist_group("vllm"),
+            ],
         ),
         pytest.param(
             TestCase(
@@ -250,6 +267,7 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 pytest.mark.cluster_cpu,
                 pytest.mark.cluster_single_node,
                 pytest.mark.custom_gateway,
+                pytest.mark.xdist_group("vllm"),
             ],
         ),
         pytest.param(
@@ -314,6 +332,7 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 pytest.mark.cluster_cpu,
                 pytest.mark.cluster_single_node,
                 pytest.mark.no_scheduler,
+                pytest.mark.xdist_group("vllm"),
             ],
         ),
         pytest.param(
@@ -326,7 +345,11 @@ def chat_completions_payload(test_case: TestCase) -> Dict[str, Any]:
                 prompt="This test simulates DP+EP that can run on CPU, the idea is to test the LWS-based deployment, "
                 "but without the resources requirements for DP+EP (GPUs and ROCe/IB).",
             ),
-            marks=[pytest.mark.cluster_cpu, pytest.mark.cluster_multi_node],
+            marks=[
+                pytest.mark.cluster_cpu,
+                pytest.mark.cluster_multi_node,
+                pytest.mark.xdist_group("vllm"),
+            ],
         ),
         # Scheduler config tests
         pytest.param(
