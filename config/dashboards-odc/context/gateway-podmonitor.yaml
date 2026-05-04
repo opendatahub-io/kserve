@@ -1,0 +1,53 @@
+# PodMonitor for scraping Istio/Envoy metrics from inference gateway pods.
+#
+# This resource is created per gateway in the gateway's namespace (e.g., openshift-ingress)
+# by the GatewayReconciler in odh-model-controller when a Gateway is referenced by
+# an LLMInferenceService. It is owned by the Gateway so it is garbage collected
+# when the gateway is deleted.
+#
+# Naming convention: llm-inference-<gateway-name>
+#
+# The metrics scraped here (istio_requests_total, istio_request_duration_milliseconds_bucket,
+# etc.) power the "Gateway & Ingress" panels in the Cluster Health Overview and
+# "Gateway & Auth Failures" panels in the Failure & Diagnostics dashboards.
+#
+# Disambiguation: the relabeling adds llm_isvc_gateway="true" to all scraped metrics.
+# Dashboard queries filter on this label to avoid pulling metrics from unrelated gateways.
+#
+# Key labels available in the scraped metrics:
+#   - llm_isvc_gateway: sentinel label ("true") — distinguishes metrics from our PodMonitor
+#   - gateway_name: gateway name extracted from pod label
+#   - source_workload: gateway workload identifier (for "by Gateway" grouping)
+#   - destination_canonical_service: maps to LLMInferenceService name
+#   - destination_service_namespace: destination namespace (for namespace filtering)
+#   - response_code: HTTP response code (200, 401, 503, etc.)
+#   - response_flags: Envoy response flags (-, DC, NR, DPE, UH, UO)
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  # name: llm-inference-<gateway-name> — set by the reconciler
+  name: llm-inference-openshift-ai-inference
+  # namespace: set to the gateway's namespace at reconciliation time
+  labels:
+    app.kubernetes.io/component: llm-monitoring
+    app.kubernetes.io/part-of: llminferenceservice
+    app.kubernetes.io/managed-by: odh-model-controller
+    monitoring.opendatahub.io/scrape: "true"
+spec:
+  selector:
+    matchLabels:
+      gateway.istio.io/managed: istio.io-gateway-controller
+      # gateway.networking.k8s.io/gateway-name: <gateway-name> — set per gateway by the reconciler
+  podMetricsEndpoints:
+    - port: metrics
+      path: /stats/prometheus
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_pod_label_gateway_networking_k8s_io_gateway_name]
+          action: replace
+          targetLabel: gateway_name
+        - replacement: "true"
+          targetLabel: llm_isvc_gateway
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          regex: "istio_requests_total|istio_request_duration_milliseconds_bucket|istio_request_duration_milliseconds_sum|istio_request_duration_milliseconds_count|istio_request_bytes_bucket|istio_request_bytes_sum|istio_request_bytes_count|istio_response_bytes_bucket|istio_response_bytes_sum|istio_response_bytes_count"
+          action: keep

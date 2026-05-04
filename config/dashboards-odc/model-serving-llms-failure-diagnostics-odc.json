@@ -48,6 +48,491 @@
         "x": 0,
         "y": 0
       },
+      "id": 50,
+      "title": "Gateway & Auth Failures",
+      "type": "row",
+      "span": 12
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Gateway-level errors broken down by destination model (LLMInferenceService) and HTTP response code. Maps ingress failures to specific models to identify routing or auth issues per service.",
+      "fill": 0,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "hiddenSeries": false,
+      "id": 17,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "sum by (destination_canonical_service, response_code) (rate(istio_requests_total{llm_isvc_gateway=\"true\",destination_service_namespace=~\"$namespace\",response_code!=\"200\"}[5m]))",
+          "interval": "",
+          "legendFormat": "{{destination_canonical_service}} [{{response_code}}]",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Gateway Errors by Model & Response Code",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "reqps",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Envoy response flags indicating transport-level issues. DC=downstream connection terminated, NR=no route found, DPE=downstream protocol error, UH=no healthy upstream, UO=upstream overflow.",
+      "fill": 0,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 1
+      },
+      "hiddenSeries": false,
+      "id": 18,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "sum by (response_flags) (rate(istio_requests_total{llm_isvc_gateway=\"true\",destination_service_namespace=~\"$namespace\",response_flags!=\"-\"}[5m]))",
+          "interval": "",
+          "legendFormat": "{{response_flags}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Gateway Response Flags",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "reqps",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "aliasColors": {
+        "Allowed": "#73BF69",
+        "Denied": "#F2495C",
+        "Errors": "#FF9830"
+      },
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Kuadrant authorization gateway decisions: allowed, denied, and error rates. These are cluster-wide counters (no per-model labels available from Kuadrant).",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "hiddenSeries": false,
+      "id": 19,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "rate(kuadrant_allowed[5m])",
+          "interval": "",
+          "legendFormat": "Allowed",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(kuadrant_denied[5m])",
+          "interval": "",
+          "legendFormat": "Denied",
+          "refId": "B"
+        },
+        {
+          "expr": "rate(kuadrant_errors[5m])",
+          "interval": "",
+          "legendFormat": "Errors",
+          "refId": "C"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Kuadrant Auth Decisions",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "reqps",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "P95 gateway latency broken down by HTTP response code. Fast errors (e.g., 401 auth rejection) vs slow errors (e.g., 503 timeout) help distinguish failure modes.",
+      "fill": 0,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "hiddenSeries": false,
+      "id": 20,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, response_code) (rate(istio_request_duration_milliseconds_bucket{llm_isvc_gateway=\"true\",destination_service_namespace=~\"$namespace\",response_code!=\"200\"}[5m])))",
+          "interval": "",
+          "legendFormat": "{{response_code}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Gateway Latency by Response Code (P95)",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "ms",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 6
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "P95 gateway latency broken down by Envoy response flags. Flags indicate failure modes: DC (downstream connection), NR (no route), DPE (downstream protocol error), UH (upstream unhealthy), UO (upstream overflow).",
+      "fill": 0,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "hiddenSeries": false,
+      "id": 21,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, response_flags) (rate(istio_request_duration_milliseconds_bucket{llm_isvc_gateway=\"true\",destination_service_namespace=~\"$namespace\",response_flags!=\"-\"}[5m])))",
+          "interval": "",
+          "legendFormat": "{{response_flags}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Gateway Latency by Response Flags (P95)",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "ms",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 6
+    },
+    {
+      "collapsed": false,
+      "datasource": null,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
       "id": 100,
       "title": "Service-Level Failure Signals",
       "type": "row",
@@ -69,7 +554,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 1
+        "y": 18
       },
       "hiddenSeries": false,
       "id": 1,
@@ -99,13 +584,13 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(kserve_http_requests_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",status!=\"2xx\"}[5m])) or vector(0)",
+          "expr": "sum(rate(http_requests_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",status!=\"2xx\"}[5m]))",
           "interval": "",
           "legendFormat": "Errors (non-2xx)",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(kserve_http_requests_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",status=\"2xx\"}[5m])) or vector(0)",
+          "expr": "sum(rate(http_requests_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",status=\"2xx\"}[5m]))",
           "interval": "",
           "legendFormat": "Success (2xx)",
           "refId": "B"
@@ -170,7 +655,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 1
+        "y": 18
       },
       "hiddenSeries": false,
       "id": 2,
@@ -200,19 +685,19 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(kserve_vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",finished_reason=\"abort\"}[5m])) or vector(0)",
+          "expr": "sum(rate(vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",finished_reason=\"abort\"}[5m]))",
           "interval": "",
           "legendFormat": "Aborted (failures)",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(kserve_vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",finished_reason=\"stop\"}[5m])) or vector(0)",
+          "expr": "sum(rate(vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",finished_reason=\"stop\"}[5m]))",
           "interval": "",
           "legendFormat": "Completed (stop)",
           "refId": "B"
         },
         {
-          "expr": "sum(rate(kserve_vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",finished_reason=\"length\"}[5m])) or vector(0)",
+          "expr": "sum(rate(vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",finished_reason=\"length\"}[5m]))",
           "interval": "",
           "legendFormat": "Completed (max length)",
           "refId": "C"
@@ -267,7 +752,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 9
+        "y": 26
       },
       "id": 200,
       "title": "Functional Area Attribution",
@@ -287,7 +772,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 10
+        "y": 27
       },
       "hiddenSeries": false,
       "id": 3,
@@ -317,7 +802,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(kserve_controller_runtime_reconcile_total{namespace=~\"$namespace\",result=\"error\"}[5m])) by (controller) or vector(0)",
+          "expr": "sum(rate(controller_runtime_reconcile_total{llm_isvc_name!=\"\",namespace=~\"$namespace\",result=\"error\"}[5m])) by (controller)",
           "interval": "",
           "legendFormat": "{{controller}}",
           "refId": "A"
@@ -378,7 +863,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 10
+        "y": 27
       },
       "hiddenSeries": false,
       "id": 4,
@@ -408,13 +893,13 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(kserve_workqueue_depth{namespace=~\"$namespace\"}) by (controller) or vector(0)",
+          "expr": "sum(workqueue_depth{llm_isvc_name!=\"\",namespace=~\"$namespace\"}) by (controller)",
           "interval": "",
           "legendFormat": "{{controller}} Depth",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(kserve_workqueue_retries_total{namespace=~\"$namespace\"}[5m])) by (controller) or vector(0)",
+          "expr": "sum(rate(workqueue_retries_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m])) by (controller)",
           "interval": "",
           "legendFormat": "{{controller}} Retries",
           "refId": "B"
@@ -478,7 +963,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 10
+        "y": 27
       },
       "hiddenSeries": false,
       "id": 5,
@@ -513,13 +998,13 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(kserve_vllm:num_preemptions_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) or vector(0)",
+          "expr": "sum(rate(vllm:num_preemptions_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m]))",
           "interval": "",
           "legendFormat": "Preemptions",
           "refId": "A"
         },
         {
-          "expr": "max(kserve_vllm:kv_cache_usage_perc{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}) * 100 or vector(0)",
+          "expr": "max(vllm:kv_cache_usage_perc{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}) * 100",
           "interval": "",
           "legendFormat": "Max KV Cache %",
           "refId": "B"
@@ -583,7 +1068,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 35
       },
       "id": 300,
       "title": "Failures by Phase & Topology",
@@ -603,7 +1088,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 19
+        "y": 36
       },
       "hiddenSeries": false,
       "id": 6,
@@ -633,7 +1118,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(kserve_vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",finished_reason=\"abort\"}[5m])) by (llm_isvc_role) or vector(0)",
+          "expr": "sum(rate(vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",finished_reason=\"abort\"}[5m])) by (llm_isvc_role)",
           "interval": "",
           "legendFormat": "{{llm_isvc_role}}",
           "refId": "A"
@@ -694,7 +1179,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 19
+        "y": 36
       },
       "hiddenSeries": false,
       "id": 7,
@@ -724,7 +1209,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(kserve_vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",finished_reason=\"abort\"}[5m])) by (llm_isvc_component) or vector(0)",
+          "expr": "sum(rate(vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",finished_reason=\"abort\"}[5m])) by (llm_isvc_component)",
           "interval": "",
           "legendFormat": "{{llm_isvc_component}}",
           "refId": "A"
@@ -779,7 +1264,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 27
+        "y": 44
       },
       "id": 400,
       "title": "Caching Layer Diagnostics",
@@ -801,7 +1286,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 28
+        "y": 45
       },
       "hiddenSeries": false,
       "id": 8,
@@ -831,7 +1316,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "100 * (sum(rate(kserve_vllm:prefix_cache_hits_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) / (sum(rate(kserve_vllm:prefix_cache_queries_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) > 0)) or vector(0)",
+          "expr": "100 * (sum(rate(vllm:prefix_cache_hits_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) / (sum(rate(vllm:prefix_cache_queries_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) > 0))",
           "interval": "",
           "legendFormat": "Prefix Cache Hit Rate",
           "refId": "A"
@@ -892,7 +1377,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 28
+        "y": 45
       },
       "hiddenSeries": false,
       "id": 9,
@@ -922,7 +1407,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "kserve_inference_extension_prefix_indexer_size{namespace=~\"$namespace\"} or vector(0)",
+          "expr": "inference_extension_prefix_indexer_size{namespace=~\"$namespace\"}",
           "interval": "",
           "legendFormat": "Prefix Indexer Size",
           "refId": "A"
@@ -977,7 +1462,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 36
+        "y": 53
       },
       "id": 500,
       "title": "Scheduling Delay vs Capacity Diagnosis",
@@ -997,7 +1482,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 37
+        "y": 54
       },
       "hiddenSeries": false,
       "id": 10,
@@ -1027,13 +1512,13 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(kserve_vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le, llm_isvc_role)) or vector(0)",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le, llm_isvc_role))",
           "interval": "",
           "legendFormat": "Queue Time P95 - {{llm_isvc_role}}",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(kserve_vllm:request_inference_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le, llm_isvc_role)) or vector(0)",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_inference_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le, llm_isvc_role))",
           "interval": "",
           "legendFormat": "Inference Time P95 - {{llm_isvc_role}}",
           "refId": "B"
@@ -1098,7 +1583,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 37
+        "y": 54
       },
       "hiddenSeries": false,
       "id": 11,
@@ -1133,19 +1618,19 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "kserve_inference_pool_average_kv_cache_utilization{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"} * 100 or vector(0)",
+          "expr": "inference_pool_average_kv_cache_utilization{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"} * 100",
           "interval": "",
           "legendFormat": "Pool Avg KV Cache %",
           "refId": "A"
         },
         {
-          "expr": "kserve_inference_pool_average_queue_size{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"} or vector(0)",
+          "expr": "inference_pool_average_queue_size{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}",
           "interval": "",
           "legendFormat": "Pool Avg Queue",
           "refId": "B"
         },
         {
-          "expr": "kserve_inference_pool_ready_pods{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"} or vector(0)",
+          "expr": "inference_pool_ready_pods{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}",
           "interval": "",
           "legendFormat": "Ready Pods",
           "refId": "C"
@@ -1200,7 +1685,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 45
+        "y": 62
       },
       "id": 600,
       "title": "EPP Scheduling & Flow Control",
@@ -1213,14 +1698,14 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "$datasource",
-      "description": "Gateway-level errors broken down by error code. Shows which specific error types are occurring at the EPP layer.",
+      "description": "Scheduler-level errors broken down by error code. Shows which specific error types are occurring at the scheduling layer.",
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 46
+        "y": 63
       },
       "hiddenSeries": false,
       "id": 12,
@@ -1250,7 +1735,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum by (error_code) (rate(inference_objective_request_error_total{namespace=~\"$namespace\"}[5m])) or vector(0)",
+          "expr": "sum by (error_code) (rate(inference_objective_request_error_total{namespace=~\"$namespace\"}[5m]))",
           "interval": "",
           "legendFormat": "{{error_code}}",
           "refId": "A"
@@ -1260,7 +1745,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Gateway Errors by Error Code",
+      "title": "Scheduler Errors by Error Code",
       "tooltip": {
         "shared": true,
         "sort": 0,
@@ -1311,7 +1796,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 46
+        "y": 63
       },
       "hiddenSeries": false,
       "id": 13,
@@ -1341,7 +1826,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum by (status) (rate(inference_extension_scheduler_attempts_total{namespace=~\"$namespace\"}[5m])) or vector(0)",
+          "expr": "sum by (status) (rate(inference_extension_scheduler_attempts_total{namespace=~\"$namespace\"}[5m]))",
           "interval": "",
           "legendFormat": "{{status}}",
           "refId": "A"
@@ -1404,7 +1889,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 54
+        "y": 71
       },
       "hiddenSeries": false,
       "id": 14,
@@ -1434,7 +1919,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(inference_extension_scheduler_e2e_duration_seconds_bucket{namespace=~\"$namespace\"}[5m]))) or vector(0)",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(inference_extension_scheduler_e2e_duration_seconds_bucket{namespace=~\"$namespace\"}[5m])))",
           "interval": "",
           "legendFormat": "Scheduling Latency P99",
           "refId": "A"
@@ -1495,7 +1980,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 54
+        "y": 71
       },
       "hiddenSeries": false,
       "id": 15,
@@ -1525,7 +2010,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum by (le, plugin_type) (rate(inference_extension_plugin_duration_seconds_bucket{namespace=~\"$namespace\"}[5m]))) or vector(0)",
+          "expr": "histogram_quantile(0.99, sum by (le, plugin_type) (rate(inference_extension_plugin_duration_seconds_bucket{namespace=~\"$namespace\"}[5m])))",
           "interval": "",
           "legendFormat": "{{plugin_type}} P99",
           "refId": "A"
@@ -1588,7 +2073,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 54
+        "y": 71
       },
       "hiddenSeries": false,
       "id": 16,
@@ -1618,7 +2103,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(inference_extension_flow_control_request_queue_duration_seconds_bucket{namespace=~\"$namespace\"}[5m]))) or vector(0)",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(inference_extension_flow_control_request_queue_duration_seconds_bucket{namespace=~\"$namespace\"}[5m])))",
           "interval": "",
           "legendFormat": "Queue Duration P99",
           "refId": "A"
@@ -1701,14 +2186,14 @@
         "allValue": "",
         "current": {},
         "datasource": "$datasource",
-        "definition": "label_values(kserve_vllm:request_success_total, namespace)",
+        "definition": "label_values(vllm:request_success_total{llm_isvc_name!=\"\"}, namespace)",
         "hide": 0,
         "includeAll": true,
         "multi": true,
         "name": "namespace",
         "label": "Namespace",
         "options": [],
-        "query": "label_values(kserve_vllm:request_success_total, namespace)",
+        "query": "label_values(vllm:request_success_total{llm_isvc_name!=\"\"}, namespace)",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
@@ -1719,14 +2204,14 @@
         "allValue": "",
         "current": {},
         "datasource": "$datasource",
-        "definition": "label_values(kserve_vllm:request_success_total{namespace=~\"$namespace\"}, llm_isvc_name)",
+        "definition": "label_values(vllm:request_success_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}, llm_isvc_name)",
         "hide": 0,
         "includeAll": true,
         "multi": true,
         "name": "llm_isvc_name",
         "label": "LLMInferenceService",
         "options": [],
-        "query": "label_values(kserve_vllm:request_success_total{namespace=~\"$namespace\"}, llm_isvc_name)",
+        "query": "label_values(vllm:request_success_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}, llm_isvc_name)",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
@@ -1737,14 +2222,14 @@
         "allValue": ".*",
         "current": {},
         "datasource": "$datasource",
-        "definition": "label_values(kserve_vllm:request_success_total{namespace=~\"$namespace\",llm_isvc_name=~\"$llm_isvc_name\"}, llm_isvc_role)",
+        "definition": "label_values(vllm:request_success_total{namespace=~\"$namespace\",llm_isvc_name=~\"$llm_isvc_name\"}, llm_isvc_role)",
         "hide": 0,
         "includeAll": true,
         "multi": true,
         "name": "llm_isvc_role",
         "label": "Role (Prefill/Decode)",
         "options": [],
-        "query": "label_values(kserve_vllm:request_success_total{namespace=~\"$namespace\",llm_isvc_name=~\"$llm_isvc_name\"}, llm_isvc_role)",
+        "query": "label_values(vllm:request_success_total{namespace=~\"$namespace\",llm_isvc_name=~\"$llm_isvc_name\"}, llm_isvc_role)",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,

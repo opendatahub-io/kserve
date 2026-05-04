@@ -48,6 +48,299 @@
         "x": 0,
         "y": 0
       },
+      "id": 50,
+      "title": "Gateway & Ingress",
+      "type": "row",
+      "span": 12
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Request rate through inference gateways, grouped by gateway workload. Shows traffic volume at the ingress layer before it reaches the scheduler.",
+      "fill": 0,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "hiddenSeries": false,
+      "id": 18,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "sum by (source_workload) (rate(istio_requests_total{llm_isvc_gateway=\"true\",destination_service_namespace=~\"$namespace\"}[5m]))",
+          "interval": "",
+          "legendFormat": "{{source_workload}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Gateway Request Rate by Gateway",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "reqps",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Non-200 responses at the gateway layer, broken down by HTTP response code. Catches errors before they reach vLLM or the scheduler (e.g., 401 auth failures, 404 routing misses, 503 upstream unavailable).",
+      "fill": 0,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 1
+      },
+      "hiddenSeries": false,
+      "id": 19,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": [
+          {
+            "title": "View Gateway Failure Details",
+            "url": "/d/model-serving-llms-failure-diagnostics?var-namespace=$namespace&${__url_time_range}",
+            "targetBlank": false
+          }
+        ]
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "sum by (response_code) (rate(istio_requests_total{llm_isvc_gateway=\"true\",destination_service_namespace=~\"$namespace\",response_code!=\"200\"}[5m]))",
+          "interval": "",
+          "legendFormat": "{{response_code}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Gateway Errors by Response Code",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "reqps",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "95th percentile request duration at the gateway (Envoy proxy), grouped by gateway workload. This is the outermost latency measurement \u2014 delta with E2E latency P99 reveals ingress overhead.",
+      "fill": 0,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      },
+      "hiddenSeries": false,
+      "id": 20,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, source_workload) (rate(istio_request_duration_milliseconds_bucket{llm_isvc_gateway=\"true\",destination_service_namespace=~\"$namespace\"}[5m])))",
+          "interval": "",
+          "legendFormat": "{{source_workload}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Gateway Latency P95 by Gateway",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "ms",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "collapsed": false,
+      "datasource": null,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
       "id": 100,
       "title": "SLI Summary",
       "type": "row",
@@ -73,7 +366,7 @@
         "h": 6,
         "w": 6,
         "x": 0,
-        "y": 1
+        "y": 10
       },
       "id": 1,
       "options": {
@@ -83,7 +376,7 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(kserve_vllm:request_success_total{namespace=~\"$namespace\"}[5m])) or vector(0)",
+          "expr": "sum(rate(vllm:request_success_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m])) or vector(0)",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -95,7 +388,7 @@
     },
     {
       "datasource": "$datasource",
-      "description": "Percentage of inference requests resulting in errors at the gateway level. Falls back to HTTP-based error rate if gateway metrics are unavailable.",
+      "description": "Percentage of inference requests resulting in errors at the scheduler level. Falls back to HTTP-based error rate if scheduler metrics are unavailable.",
       "fieldConfig": {
         "defaults": {
           "max": 100,
@@ -124,7 +417,7 @@
         "h": 6,
         "w": 6,
         "x": 6,
-        "y": 1
+        "y": 10
       },
       "id": 2,
       "options": {
@@ -134,7 +427,7 @@
       },
       "targets": [
         {
-          "expr": "100 * (sum(rate(inference_objective_request_error_total{namespace=~\"$namespace\"}[5m])) / (sum(rate(inference_objective_request_total{namespace=~\"$namespace\"}[5m])) > 0)) or 100 * (sum(rate(kserve_http_requests_total{namespace=~\"$namespace\",status!=\"2xx\"}[5m])) / (sum(rate(kserve_http_requests_total{namespace=~\"$namespace\"}[5m])) > 0)) or vector(0)",
+          "expr": "100 * (sum(rate(inference_objective_request_error_total{namespace=~\"$namespace\"}[5m])) / (sum(rate(inference_objective_request_total{namespace=~\"$namespace\"}[5m])) > 0)) or 100 * (sum(rate(http_requests_total{llm_isvc_name!=\"\",namespace=~\"$namespace\",status!=\"2xx\"}[5m])) / (sum(rate(http_requests_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m])) > 0)) or vector(0)",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -146,7 +439,7 @@
     },
     {
       "datasource": "$datasource",
-      "description": "99th percentile end-to-end request latency across all models. Uses gateway-level latency (includes routing overhead) with vLLM fallback.",
+      "description": "99th percentile end-to-end request latency across all models. Uses scheduler-level latency (includes routing overhead) with vLLM fallback.",
       "fieldConfig": {
         "defaults": {
           "thresholds": {
@@ -173,7 +466,7 @@
         "h": 6,
         "w": 6,
         "x": 12,
-        "y": 1
+        "y": 10
       },
       "id": 3,
       "options": {
@@ -183,7 +476,7 @@
       },
       "targets": [
         {
-          "expr": "(histogram_quantile(0.99, sum(rate(inference_objective_request_duration_seconds_bucket{namespace=~\"$namespace\"}[5m])) by (le)) >= 0) or (histogram_quantile(0.99, sum(rate(kserve_vllm:e2e_request_latency_seconds_bucket{namespace=~\"$namespace\"}[5m])) by (le)) >= 0) or vector(0)",
+          "expr": "(histogram_quantile(0.99, sum(rate(inference_objective_request_duration_seconds_bucket{namespace=~\"$namespace\"}[5m])) by (le)) >= 0) or (histogram_quantile(0.99, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m])) by (le)) >= 0) or vector(0)",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -217,7 +510,7 @@
         "h": 6,
         "w": 6,
         "x": 18,
-        "y": 1
+        "y": 10
       },
       "id": 4,
       "options": {
@@ -227,7 +520,7 @@
       },
       "targets": [
         {
-          "expr": "sum(kserve_inference_pool_ready_pods{namespace=~\"$namespace\"}) or vector(0)",
+          "expr": "sum(inference_pool_ready_pods{namespace=~\"$namespace\"}) or vector(0)",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -244,7 +537,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 7
+        "y": 16
       },
       "id": 200,
       "title": "Per-Model Health",
@@ -264,7 +557,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 8
+        "y": 17
       },
       "hiddenSeries": false,
       "id": 5,
@@ -300,7 +593,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "topk(10, sum(rate(kserve_vllm:request_success_total{namespace=~\"$namespace\"}[5m])) by (llm_isvc_name)) or vector(0)",
+          "expr": "topk(10, sum(rate(vllm:request_success_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m])) by (llm_isvc_name))",
           "interval": "",
           "legendFormat": "{{llm_isvc_name}}",
           "refId": "A"
@@ -361,7 +654,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 8
+        "y": 17
       },
       "hiddenSeries": false,
       "id": 6,
@@ -397,7 +690,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "100 * (sum(rate(kserve_http_requests_total{namespace=~\"$namespace\",status!=\"2xx\"}[5m])) by (llm_isvc_name) / (sum(rate(kserve_http_requests_total{namespace=~\"$namespace\"}[5m])) by (llm_isvc_name) > 0)) or vector(0)",
+          "expr": "100 * (sum(rate(http_requests_total{llm_isvc_name!=\"\",namespace=~\"$namespace\",status!=\"2xx\"}[5m])) by (llm_isvc_name) / (sum(rate(http_requests_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m])) by (llm_isvc_name) > 0))",
           "interval": "",
           "legendFormat": "{{llm_isvc_name}}",
           "refId": "A"
@@ -475,7 +768,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 8
+        "y": 17
       },
       "hiddenSeries": false,
       "id": 7,
@@ -511,7 +804,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(kserve_vllm:e2e_request_latency_seconds_bucket{namespace=~\"$namespace\"}[5m])) by (le, llm_isvc_name)) or vector(0)",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m])) by (le, llm_isvc_name))",
           "interval": "",
           "legendFormat": "{{llm_isvc_name}}",
           "refId": "A"
@@ -566,7 +859,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 16
+        "y": 25
       },
       "id": 300,
       "title": "Capacity & Scheduling",
@@ -586,7 +879,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 17
+        "y": 26
       },
       "hiddenSeries": false,
       "id": 8,
@@ -616,7 +909,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "avg(kserve_vllm:kv_cache_usage_perc{namespace=~\"$namespace\"}) by (llm_isvc_name) * 100 or vector(0)",
+          "expr": "avg(vllm:kv_cache_usage_perc{llm_isvc_name!=\"\",namespace=~\"$namespace\"}) by (llm_isvc_name) * 100",
           "interval": "",
           "legendFormat": "{{llm_isvc_name}}",
           "refId": "A"
@@ -694,7 +987,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 17
+        "y": 26
       },
       "hiddenSeries": false,
       "id": 9,
@@ -724,7 +1017,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(kserve_vllm:num_requests_waiting{namespace=~\"$namespace\"}) by (llm_isvc_name) or vector(0)",
+          "expr": "sum(vllm:num_requests_waiting{llm_isvc_name!=\"\",namespace=~\"$namespace\"}) by (llm_isvc_name)",
           "interval": "",
           "legendFormat": "{{llm_isvc_name}}",
           "refId": "A"
@@ -786,7 +1079,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 17
+        "y": 26
       },
       "hiddenSeries": false,
       "id": 10,
@@ -816,7 +1109,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(kserve_inference_pool_ready_pods{namespace=~\"$namespace\"}) by (name) or vector(0)",
+          "expr": "sum(inference_pool_ready_pods{namespace=~\"$namespace\"}) by (name)",
           "interval": "",
           "legendFormat": "{{name}}",
           "refId": "A"
@@ -872,7 +1165,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 25
+        "y": 34
       },
       "id": 400,
       "title": "Staleness & Token Throughput",
@@ -892,7 +1185,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 26
+        "y": 35
       },
       "hiddenSeries": false,
       "id": 11,
@@ -922,7 +1215,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "time() - max(timestamp(kserve_vllm:num_requests_running{namespace=~\"$namespace\"})) by (llm_isvc_name) or vector(0)",
+          "expr": "time() - max(timestamp(vllm:num_requests_running{llm_isvc_name!=\"\",namespace=~\"$namespace\"})) by (llm_isvc_name)",
           "interval": "",
           "legendFormat": "{{llm_isvc_name}}",
           "refId": "A"
@@ -1003,7 +1296,7 @@
         "h": 8,
         "w": 16,
         "x": 8,
-        "y": 26
+        "y": 35
       },
       "hiddenSeries": false,
       "id": 12,
@@ -1033,13 +1326,13 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(kserve_vllm:prompt_tokens_total{namespace=~\"$namespace\"}[5m])) or vector(0)",
+          "expr": "sum(rate(vllm:prompt_tokens_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m]))",
           "interval": "",
           "legendFormat": "Input Tokens",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(kserve_vllm:generation_tokens_total{namespace=~\"$namespace\"}[5m])) or vector(0)",
+          "expr": "sum(rate(vllm:generation_tokens_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m]))",
           "interval": "",
           "legendFormat": "Output Tokens",
           "refId": "B"
@@ -1094,10 +1387,10 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 43
       },
       "id": 500,
-      "title": "SLO & Gateway Signals",
+      "title": "SLO & Scheduler Signals",
       "type": "row",
       "span": 12
     },
@@ -1107,14 +1400,14 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "$datasource",
-      "description": "Rate of SLO violations by model and violation type (TTFT exceeded, TPOT exceeded). Directly measures user-facing quality degradation.",
+      "description": "Rate of SLO violations by violation type (TTFT exceeded, TPOT exceeded). Directly measures user-facing quality degradation.",
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 35
+        "y": 44
       },
       "hiddenSeries": false,
       "id": 13,
@@ -1144,9 +1437,9 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum by(model_name, type) (rate(inference_objective_request_slo_violation_total{namespace=~\"$namespace\"}[5m])) or vector(0)",
+          "expr": "sum by(model_name, type) (rate(inference_objective_request_slo_violation_total{namespace=~\"$namespace\"}[5m]))",
           "interval": "",
-          "legendFormat": "{{model_name}} - {{type}}",
+          "legendFormat": "{{type}}",
           "refId": "A"
         }
       ],
@@ -1154,7 +1447,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "SLO Violations by Model & Type",
+      "title": "SLO Violations by Type",
       "tooltip": {
         "shared": true,
         "sort": 2,
@@ -1198,14 +1491,14 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "$datasource",
-      "description": "Gateway-level error rate per model using inference_objective metrics. Captures all errors at the gateway boundary, including routing failures.",
+      "description": "Error rate per InferenceModel from the scheduler. Captures errors at the scheduling boundary, including routing failures.",
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 35
+        "y": 44
       },
       "hiddenSeries": false,
       "id": 14,
@@ -1241,7 +1534,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "100 * (sum by(model_name) (rate(inference_objective_request_error_total{namespace=~\"$namespace\"}[5m])) / (sum by(model_name) (rate(inference_objective_request_total{namespace=~\"$namespace\"}[5m])) > 0)) or vector(0)",
+          "expr": "100 * (sum by(model_name) (rate(inference_objective_request_error_total{namespace=~\"$namespace\"}[5m])) / (sum by(model_name) (rate(inference_objective_request_total{namespace=~\"$namespace\"}[5m])) > 0))",
           "interval": "",
           "legendFormat": "{{model_name}}",
           "refId": "A"
@@ -1268,7 +1561,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Gateway Error Rate by Model",
+      "title": "Scheduler Error Rate by Model",
       "tooltip": {
         "shared": true,
         "sort": 2,
@@ -1312,14 +1605,14 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "$datasource",
-      "description": "Current number of in-flight requests per model at the gateway. Shows real-time load distribution.",
+      "description": "Current number of in-flight requests per InferenceModel at the scheduler. Shows real-time load distribution.",
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 35
+        "y": 44
       },
       "hiddenSeries": false,
       "id": 15,
@@ -1349,7 +1642,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum by(model_name) (inference_objective_running_requests{namespace=~\"$namespace\"}) or vector(0)",
+          "expr": "sum by(model_name) (inference_objective_running_requests{namespace=~\"$namespace\"})",
           "interval": "",
           "legendFormat": "{{model_name}}",
           "refId": "A"
@@ -1359,7 +1652,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Running Requests by Model (Gateway)",
+      "title": "Running Requests by Model (Scheduler)",
       "tooltip": {
         "shared": true,
         "sort": 2,
@@ -1413,7 +1706,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 43
+        "y": 52
       },
       "hiddenSeries": false,
       "id": 16,
@@ -1443,7 +1736,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "inference_extension_flow_control_pool_saturation{namespace=~\"$namespace\"} or vector(0)",
+          "expr": "inference_extension_flow_control_pool_saturation{namespace=~\"$namespace\"}",
           "interval": "",
           "legendFormat": "Pool Saturation",
           "refId": "A"
@@ -1514,14 +1807,14 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "$datasource",
-      "description": "Request rate by model and target model at the gateway. Tracks demand and reveals traffic shifts between models.",
+      "description": "Request rate by InferenceModel and target model at the scheduler. Tracks demand and reveals traffic shifts.",
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 43
+        "y": 52
       },
       "hiddenSeries": false,
       "id": 17,
@@ -1551,7 +1844,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum by(model_name, target_model_name) (rate(inference_objective_request_total{namespace=~\"$namespace\"}[5m])) or vector(0)",
+          "expr": "sum by(model_name, target_model_name) (rate(inference_objective_request_total{namespace=~\"$namespace\"}[5m]))",
           "interval": "",
           "legendFormat": "{{model_name}} -> {{target_model_name}}",
           "refId": "A"
@@ -1561,7 +1854,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Gateway Request Rate by Model",
+      "title": "Scheduler Request Rate by Model",
       "tooltip": {
         "shared": true,
         "sort": 2,
@@ -1634,14 +1927,14 @@
         "allValue": "",
         "current": {},
         "datasource": "$datasource",
-        "definition": "label_values(kserve_vllm:request_success_total, namespace)",
+        "definition": "label_values(vllm:request_success_total{llm_isvc_name!=\"\"}, namespace)",
         "hide": 0,
         "includeAll": true,
         "multi": true,
         "name": "namespace",
         "label": "Namespace",
         "options": [],
-        "query": "label_values(kserve_vllm:request_success_total, namespace)",
+        "query": "label_values(vllm:request_success_total{llm_isvc_name!=\"\"}, namespace)",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,

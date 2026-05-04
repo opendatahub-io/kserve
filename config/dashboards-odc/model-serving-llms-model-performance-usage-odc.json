@@ -45,13 +45,121 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "$datasource",
+      "description": "KV cache utilization percentage over time",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "hiddenSeries": false,
+      "id": 1,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "avg(vllm:kv_cache_usage_perc{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}) by (llm_isvc_component) * 100",
+          "interval": "",
+          "legendFormat": "{{llm_isvc_component}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [
+        {
+          "colorMode": "warning",
+          "fill": true,
+          "line": true,
+          "op": "gt",
+          "value": 70,
+          "yaxis": "left"
+        },
+        {
+          "colorMode": "critical",
+          "fill": true,
+          "line": true,
+          "op": "gt",
+          "value": 90,
+          "yaxis": "left"
+        }
+      ],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "KV Cache Utilization Over Time",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "percent",
+          "label": null,
+          "logBase": 1,
+          "max": 100,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
       "description": "Overall error rate as percentage of failed requests over time",
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
-        "w": 6,
-        "x": 6,
+        "w": 8,
+        "x": 8,
         "y": 0
       },
       "hiddenSeries": false,
@@ -82,7 +190,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "100 * (sum(rate(kserve_http_requests_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",status!=\"2xx\"}[5m])) / (sum(rate(kserve_http_requests_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) > 0)) or vector(0)",
+          "expr": "100 * (sum(rate(http_requests_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",status!=\"2xx\"}[5m])) / (sum(rate(http_requests_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) > 0))",
           "interval": "",
           "legendFormat": "Error Rate %",
           "refId": "A"
@@ -145,98 +253,7 @@
         "align": false,
         "alignLevel": null
       },
-      "span": 3
-    },
-    {
-      "aliasColors": {},
-      "bars": false,
-      "dashLength": 10,
-      "dashes": false,
-      "datasource": "$datasource",
-      "description": "Requests volume trends over time",
-      "fill": 1,
-      "fillGradient": 0,
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 8
-      },
-      "hiddenSeries": false,
-      "id": 5,
-      "legend": {
-        "alignAsTable": false,
-        "avg": false,
-        "current": false,
-        "max": false,
-        "min": false,
-        "show": false,
-        "total": false,
-        "values": false
-      },
-      "lines": true,
-      "linewidth": 2,
-      "nullPointMode": "null",
-      "options": {
-        "dataLinks": []
-      },
-      "percentage": false,
-      "pointradius": 2,
-      "points": false,
-      "renderer": "flot",
-      "seriesOverrides": [],
-      "spaceLength": 10,
-      "stack": false,
-      "steppedLine": false,
-      "targets": [
-        {
-          "expr": "sum(rate(kserve_vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) or vector(0)",
-          "interval": "",
-          "legendFormat": "Requests",
-          "refId": "A"
-        }
-      ],
-      "thresholds": [],
-      "timeFrom": null,
-      "timeRegions": [],
-      "timeShift": null,
-      "title": "Requests Volume Over Time",
-      "tooltip": {
-        "shared": true,
-        "sort": 0,
-        "value_type": "individual"
-      },
-      "type": "graph",
-      "xaxis": {
-        "buckets": null,
-        "mode": "time",
-        "name": null,
-        "show": true,
-        "values": []
-      },
-      "yAxes": [
-        {
-          "format": "reqps",
-          "label": null,
-          "logBase": 1,
-          "max": null,
-          "min": null,
-          "show": true
-        },
-        {
-          "format": "short",
-          "label": null,
-          "logBase": 1,
-          "max": null,
-          "min": null,
-          "show": true
-        }
-      ],
-      "yAxis": {
-        "align": false,
-        "alignLevel": null
-      },
-      "span": 6
+      "span": 4
     },
     {
       "aliasColors": {},
@@ -249,8 +266,8 @@
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
-        "w": 12,
-        "x": 12,
+        "w": 8,
+        "x": 16,
         "y": 0
       },
       "hiddenSeries": false,
@@ -281,7 +298,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(kserve_vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (llm_isvc_component) or vector(0)",
+          "expr": "sum(rate(vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (llm_isvc_component)",
           "interval": "",
           "legendFormat": "{{llm_isvc_component}}",
           "refId": "A"
@@ -327,7 +344,98 @@
         "align": false,
         "alignLevel": null
       },
-      "span": 6
+      "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Requests volume trends over time",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 8
+      },
+      "hiddenSeries": false,
+      "id": 5,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": false,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "sum(rate(vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m]))",
+          "interval": "",
+          "legendFormat": "Requests",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Requests Volume Over Time",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "reqps",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
     },
     {
       "aliasColors": {},
@@ -341,7 +449,7 @@
       "gridPos": {
         "h": 8,
         "w": 8,
-        "x": 12,
+        "x": 8,
         "y": 8
       },
       "hiddenSeries": false,
@@ -372,31 +480,31 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(kserve_vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.50, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.90, sum(rate(kserve_vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.90, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P90",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(kserve_vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P95",
           "refId": "C"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(kserve_vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.99, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P99",
           "refId": "D"
         },
         {
-          "expr": "(sum(rate(kserve_vllm:e2e_request_latency_seconds_sum{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) / (sum(rate(kserve_vllm:e2e_request_latency_seconds_count{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) > 0)) or vector(0)",
+          "expr": "(sum(rate(vllm:e2e_request_latency_seconds_sum{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) / (sum(rate(vllm:e2e_request_latency_seconds_count{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) > 0))",
           "interval": "",
           "legendFormat": "Average",
           "refId": "E"
@@ -456,7 +564,7 @@
       "gridPos": {
         "h": 8,
         "w": 8,
-        "x": 20,
+        "x": 16,
         "y": 8
       },
       "hiddenSeries": false,
@@ -487,19 +595,19 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(kserve_vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.50, sum(rate(vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.90, sum(rate(kserve_vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.90, sum(rate(vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P90",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(kserve_vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P95",
           "refId": "C"
@@ -590,19 +698,19 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(kserve_vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.50, sum(rate(vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.90, sum(rate(kserve_vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.90, sum(rate(vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P90",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(kserve_vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P95",
           "refId": "C"
@@ -693,19 +801,19 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(kserve_vllm:inter_token_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.50, sum(rate(vllm:inter_token_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(kserve_vllm:inter_token_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:inter_token_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P95",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(kserve_vllm:inter_token_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.99, sum(rate(vllm:inter_token_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P99",
           "refId": "C"
@@ -799,13 +907,13 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(kserve_vllm:prompt_tokens_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) or vector(0)",
+          "expr": "sum(rate(vllm:prompt_tokens_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m]))",
           "interval": "",
           "legendFormat": "Input Tokens",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(kserve_vllm:generation_tokens_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) or vector(0)",
+          "expr": "sum(rate(vllm:generation_tokens_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m]))",
           "interval": "",
           "legendFormat": "Output Tokens",
           "refId": "B"
@@ -896,19 +1004,19 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(kserve_vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.50, sum(rate(vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.90, sum(rate(kserve_vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.90, sum(rate(vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P90",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(kserve_vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P95",
           "refId": "C"
@@ -999,7 +1107,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(kserve_vllm:num_requests_waiting{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}) by (llm_isvc_component) or vector(0)",
+          "expr": "sum(vllm:num_requests_waiting{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}) by (llm_isvc_component)",
           "interval": "",
           "legendFormat": "{{llm_isvc_component}}",
           "refId": "A"
@@ -1090,7 +1198,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(kserve_vllm:num_requests_running{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}) by (llm_isvc_component) or vector(0)",
+          "expr": "sum(vllm:num_requests_running{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}) by (llm_isvc_component)",
           "interval": "",
           "legendFormat": "{{llm_isvc_component}}",
           "refId": "A"
@@ -1184,13 +1292,13 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(kserve_vllm:request_prompt_tokens_sum{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) / (sum(rate(kserve_vllm:request_prompt_tokens_count{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) > 0) or vector(0)",
+          "expr": "sum(rate(vllm:request_prompt_tokens_sum{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) / (sum(rate(vllm:request_prompt_tokens_count{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) > 0)",
           "interval": "",
           "legendFormat": "Avg Input Tokens per Request",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(kserve_vllm:request_generation_tokens_sum{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) / (sum(rate(kserve_vllm:request_generation_tokens_count{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) > 0) or vector(0)",
+          "expr": "sum(rate(vllm:request_generation_tokens_sum{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) / (sum(rate(vllm:request_generation_tokens_count{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) > 0)",
           "interval": "",
           "legendFormat": "Avg Output Tokens per Request",
           "refId": "B"
@@ -1239,22 +1347,37 @@
       "span": 12
     },
     {
+      "collapsed": false,
+      "datasource": null,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "id": 170,
+      "panels": [],
+      "title": "Gateway Latency",
+      "type": "row",
+      "span": 12
+    },
+    {
       "aliasColors": {},
       "bars": false,
       "dashLength": 10,
       "dashes": false,
       "datasource": "$datasource",
-      "description": "KV cache utilization percentage over time",
-      "fill": 1,
+      "description": "End-to-end request latency as measured at the inference gateway, broken down by model. This is the latency the client experiences, including routing, scheduling, and inference time.",
+      "fill": 0,
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
-        "w": 6,
+        "w": 12,
         "x": 0,
-        "y": 0
+        "y": 41
       },
       "hiddenSeries": false,
-      "id": 1,
+      "id": 171,
       "legend": {
         "alignAsTable": false,
         "avg": false,
@@ -1281,34 +1404,29 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "avg(kserve_vllm:kv_cache_usage_perc{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}) by (llm_isvc_component) * 100 or vector(0)",
+          "expr": "histogram_quantile(0.50, sum by (le, destination_canonical_service) (rate(istio_request_duration_milliseconds_bucket{llm_isvc_gateway=\"true\",destination_service_namespace=~\"$namespace\",destination_canonical_service=~\"$llm_isvc_name\"}[5m])))",
           "interval": "",
-          "legendFormat": "{{llm_isvc_component}}",
+          "legendFormat": "{{destination_canonical_service}} P50",
           "refId": "A"
-        }
-      ],
-      "thresholds": [
-        {
-          "colorMode": "warning",
-          "fill": true,
-          "line": true,
-          "op": "gt",
-          "value": 70,
-          "yaxis": "left"
         },
         {
-          "colorMode": "critical",
-          "fill": true,
-          "line": true,
-          "op": "gt",
-          "value": 90,
-          "yaxis": "left"
+          "expr": "histogram_quantile(0.95, sum by (le, destination_canonical_service) (rate(istio_request_duration_milliseconds_bucket{llm_isvc_gateway=\"true\",destination_service_namespace=~\"$namespace\",destination_canonical_service=~\"$llm_isvc_name\"}[5m])))",
+          "interval": "",
+          "legendFormat": "{{destination_canonical_service}} P95",
+          "refId": "B"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum by (le, destination_canonical_service) (rate(istio_request_duration_milliseconds_bucket{llm_isvc_gateway=\"true\",destination_service_namespace=~\"$namespace\",destination_canonical_service=~\"$llm_isvc_name\"}[5m])))",
+          "interval": "",
+          "legendFormat": "{{destination_canonical_service}} P99",
+          "refId": "C"
         }
       ],
+      "thresholds": [],
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "KV Cache Utilization Over Time",
+      "title": "Gateway Latency per Model",
       "tooltip": {
         "shared": true,
         "sort": 0,
@@ -1324,10 +1442,10 @@
       },
       "yAxes": [
         {
-          "format": "percent",
+          "format": "ms",
           "label": null,
           "logBase": 1,
-          "max": 100,
+          "max": null,
           "min": 0,
           "show": true
         },
@@ -1344,7 +1462,104 @@
         "align": false,
         "alignLevel": null
       },
-      "span": 3
+      "span": 6
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Compares the P99 latency seen at the gateway (client-facing) vs the P99 E2E latency measured by the vLLM engine. The delta reveals overhead from the gateway, Istio sidecar, and routing/scheduling layers.",
+      "fill": 0,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 41
+      },
+      "hiddenSeries": false,
+      "id": 172,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(istio_request_duration_milliseconds_bucket{llm_isvc_gateway=\"true\",destination_service_namespace=~\"$namespace\",destination_canonical_service=~\"$llm_isvc_name\"}[5m])) by (le))",
+          "interval": "",
+          "legendFormat": "Gateway P99",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) * 1000",
+          "interval": "",
+          "legendFormat": "Engine P99",
+          "refId": "B"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Gateway vs Engine Latency (P99)",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "ms",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 6
     },
     {
       "collapsed": false,
@@ -1353,7 +1568,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 40
+        "y": 49
       },
       "id": 100,
       "title": "Prefill / Decode Phase Breakdown",
@@ -1373,7 +1588,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 41
+        "y": 50
       },
       "hiddenSeries": false,
       "id": 101,
@@ -1403,7 +1618,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "avg(kserve_vllm:kv_cache_usage_perc{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}) by (llm_isvc_role) * 100 or vector(0)",
+          "expr": "avg(vllm:kv_cache_usage_perc{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}) by (llm_isvc_role) * 100",
           "interval": "",
           "legendFormat": "{{llm_isvc_role}}",
           "refId": "A"
@@ -1481,7 +1696,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 41
+        "y": 50
       },
       "hiddenSeries": false,
       "id": 102,
@@ -1511,7 +1726,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(kserve_vllm:num_requests_waiting{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}) by (llm_isvc_role) or vector(0)",
+          "expr": "sum(vllm:num_requests_waiting{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}) by (llm_isvc_role)",
           "interval": "",
           "legendFormat": "{{llm_isvc_role}}",
           "refId": "A"
@@ -1572,7 +1787,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 49
+        "y": 58
       },
       "hiddenSeries": false,
       "id": 103,
@@ -1602,7 +1817,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(kserve_vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le, llm_isvc_role)) or vector(0)",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le, llm_isvc_role))",
           "interval": "",
           "legendFormat": "{{llm_isvc_role}} P95",
           "refId": "A"
@@ -1663,7 +1878,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 49
+        "y": 58
       },
       "hiddenSeries": false,
       "id": 104,
@@ -1693,7 +1908,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(kserve_vllm:request_prefill_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le, llm_isvc_role)) or vector(0)",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_prefill_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le, llm_isvc_role))",
           "interval": "",
           "legendFormat": "{{llm_isvc_role}} P95",
           "refId": "A"
@@ -1754,7 +1969,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 49
+        "y": 58
       },
       "hiddenSeries": false,
       "id": 105,
@@ -1784,7 +1999,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(kserve_vllm:request_decode_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le, llm_isvc_role)) or vector(0)",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_decode_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le, llm_isvc_role))",
           "interval": "",
           "legendFormat": "{{llm_isvc_role}} P95",
           "refId": "A"
@@ -1839,7 +2054,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 57
+        "y": 66
       },
       "id": 110,
       "title": "Wide EP / Multi-Node Topology",
@@ -1859,7 +2074,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 58
+        "y": 67
       },
       "hiddenSeries": false,
       "id": 111,
@@ -1889,7 +2104,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(kserve_vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (llm_isvc_component) or vector(0)",
+          "expr": "sum(rate(vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (llm_isvc_component)",
           "interval": "",
           "legendFormat": "{{llm_isvc_component}}",
           "refId": "A"
@@ -1950,7 +2165,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 58
+        "y": 67
       },
       "hiddenSeries": false,
       "id": 112,
@@ -1980,7 +2195,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "avg(kserve_vllm:kv_cache_usage_perc{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}) by (llm_isvc_component) * 100 or vector(0)",
+          "expr": "avg(vllm:kv_cache_usage_perc{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}) by (llm_isvc_component) * 100",
           "interval": "",
           "legendFormat": "{{llm_isvc_component}}",
           "refId": "A"
@@ -2052,7 +2267,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 66
+        "y": 75
       },
       "id": 120,
       "title": "Caching Efficiency",
@@ -2074,7 +2289,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 67
+        "y": 76
       },
       "hiddenSeries": false,
       "id": 121,
@@ -2104,7 +2319,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "100 * (sum(rate(kserve_vllm:prefix_cache_hits_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) / (sum(rate(kserve_vllm:prefix_cache_queries_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) > 0)) or vector(0)",
+          "expr": "100 * (sum(rate(vllm:prefix_cache_hits_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) / (sum(rate(vllm:prefix_cache_queries_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) > 0))",
           "interval": "",
           "legendFormat": "Prefix Cache Hit Rate",
           "refId": "A"
@@ -2165,7 +2380,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 67
+        "y": 76
       },
       "hiddenSeries": false,
       "id": 122,
@@ -2195,7 +2410,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(kserve_vllm:num_preemptions_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (llm_isvc_component) or vector(0)",
+          "expr": "sum(rate(vllm:num_preemptions_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (llm_isvc_component)",
           "interval": "",
           "legendFormat": "{{llm_isvc_component}}",
           "refId": "A"
@@ -2250,7 +2465,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 75
+        "y": 84
       },
       "id": 130,
       "title": "Scheduling Delay vs Capacity",
@@ -2273,7 +2488,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 76
+        "y": 85
       },
       "hiddenSeries": false,
       "id": 131,
@@ -2303,13 +2518,13 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(kserve_vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "Queue Time P95",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(kserve_vllm:request_inference_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_inference_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "Inference Time P95",
           "refId": "B"
@@ -2370,7 +2585,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 76
+        "y": 85
       },
       "hiddenSeries": false,
       "id": 132,
@@ -2400,13 +2615,13 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "kserve_inference_pool_average_queue_size{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"} or vector(0)",
+          "expr": "inference_pool_average_queue_size{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}",
           "interval": "",
           "legendFormat": "Avg Queue",
           "refId": "A"
         },
         {
-          "expr": "kserve_inference_pool_per_pod_queue_size{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"} or vector(0)",
+          "expr": "inference_pool_per_pod_queue_size{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}",
           "interval": "",
           "legendFormat": "{{model_server_pod}}",
           "refId": "B"
@@ -2461,30 +2676,30 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 84
+        "y": 93
       },
       "id": 140,
-      "title": "Gateway-Level Latency (includes routing overhead)",
+      "title": "Latency: Scheduler vs Engine",
       "type": "row",
       "span": 12
     },
     {
       "aliasColors": {
-        "Gateway TTFT P99": "#FF9830",
-        "vLLM TTFT P99": "#5794F2"
+        "Scheduler (E2E)": "#FF9830",
+        "Engine (vLLM)": "#5794F2"
       },
       "bars": false,
       "dashLength": 10,
       "dashes": false,
       "datasource": "$datasource",
-      "description": "Gateway-level TTFT P99 per model. Includes routing overhead on top of vLLM TTFT. Compare with vLLM TTFT to measure routing latency contribution.",
+      "description": "Compares time-to-first-token as measured by the scheduler (includes scheduling/routing overhead) vs the vLLM engine (compute only). The delta reveals scheduling overhead.",
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 85
+        "y": 94
       },
       "hiddenSeries": false,
       "id": 141,
@@ -2514,15 +2729,15 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum(rate(inference_objective_request_ttft_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le, model_name)) or vector(0)",
+          "expr": "histogram_quantile(0.99, sum(rate(inference_objective_request_ttft_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le, model_name))",
           "interval": "",
-          "legendFormat": "Gateway TTFT P99",
+          "legendFormat": "Scheduler (E2E)",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(kserve_vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.99, sum(rate(vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
-          "legendFormat": "vLLM TTFT P99",
+          "legendFormat": "Engine (vLLM)",
           "refId": "B"
         }
       ],
@@ -2530,7 +2745,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Gateway vs vLLM TTFT (P99)",
+      "title": "TTFT P99: Scheduler vs Engine",
       "tooltip": {
         "shared": true,
         "sort": 0,
@@ -2570,21 +2785,21 @@
     },
     {
       "aliasColors": {
-        "Gateway TPOT P99": "#FF9830",
-        "vLLM TPOT P99": "#5794F2"
+        "Scheduler (E2E)": "#FF9830",
+        "Engine (vLLM)": "#5794F2"
       },
       "bars": false,
       "dashLength": 10,
       "dashes": false,
       "datasource": "$datasource",
-      "description": "Gateway-level TPOT P99 per model. Includes routing overhead. Compare with vLLM TPOT to isolate routing contribution.",
+      "description": "Compares time-per-output-token as measured by the scheduler (includes scheduling/routing overhead) vs the vLLM engine (compute only). The delta reveals scheduling overhead.",
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 85
+        "y": 94
       },
       "hiddenSeries": false,
       "id": 142,
@@ -2614,15 +2829,15 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum(rate(inference_objective_request_tpot_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le, model_name)) or vector(0)",
+          "expr": "histogram_quantile(0.99, sum(rate(inference_objective_request_tpot_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le, model_name))",
           "interval": "",
-          "legendFormat": "Gateway TPOT P99",
+          "legendFormat": "Scheduler (E2E)",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(kserve_vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) or vector(0)",
+          "expr": "histogram_quantile(0.99, sum(rate(vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
           "interval": "",
-          "legendFormat": "vLLM TPOT P99",
+          "legendFormat": "Engine (vLLM)",
           "refId": "B"
         }
       ],
@@ -2630,7 +2845,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Gateway vs vLLM TPOT (P99)",
+      "title": "TPOT P99: Scheduler vs Engine",
       "tooltip": {
         "shared": true,
         "sort": 0,
@@ -2675,7 +2890,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 93
+        "y": 102
       },
       "id": 150,
       "title": "Disaggregation & Token Sources",
@@ -2688,14 +2903,14 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "$datasource",
-      "description": "Rate of disaggregation routing decisions by type. Shows the mix of decode-only, prefill-decode, encode-decode, and encode-prefill-decode routing in disaggregated deployments.",
+      "description": "Routing decisions made by the scheduler for disaggregated prefill/decode. Shows how requests are being distributed.",
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 94
+        "y": 103
       },
       "hiddenSeries": false,
       "id": 151,
@@ -2725,7 +2940,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum by(decision_type) (rate(llm_d_inference_scheduler_disagg_decision_total{namespace=~\"$namespace\"}[5m])) or vector(0)",
+          "expr": "sum by(decision_type) (rate(llm_d_inference_scheduler_disagg_decision_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m]))",
           "interval": "",
           "legendFormat": "{{decision_type}}",
           "refId": "A"
@@ -2779,14 +2994,14 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "$datasource",
-      "description": "Breakdown of prompt tokens by source: local compute, local cache hit, or external KV transfer. Shows how much computation is being saved by caching.",
+      "description": "Prompt token breakdown by source (cache hit vs computed). Shows how much of the prompt is being served from cache.",
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 94
+        "y": 103
       },
       "hiddenSeries": false,
       "id": 152,
@@ -2816,7 +3031,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum by(source) (rate(vllm:prompt_tokens_by_source_total{namespace=~\"$namespace\"}[5m])) or vector(0)",
+          "expr": "sum by(source) (rate(vllm:prompt_tokens_by_source_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m]))",
           "interval": "",
           "legendFormat": "{{source}}",
           "refId": "A"
@@ -2879,7 +3094,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 102
+        "y": 111
       },
       "hiddenSeries": false,
       "id": 153,
@@ -2909,7 +3124,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "100 * (sum(rate(vllm:external_prefix_cache_hits_total{namespace=~\"$namespace\"}[5m])) / (sum(rate(vllm:external_prefix_cache_queries_total{namespace=~\"$namespace\"}[5m])) > 0)) or vector(0)",
+          "expr": "100 * (sum(rate(vllm:external_prefix_cache_hits_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m])) / (sum(rate(vllm:external_prefix_cache_queries_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m])) > 0))",
           "interval": "",
           "legendFormat": "External Prefix Cache Hit Rate",
           "refId": "A"
@@ -2966,14 +3181,14 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "$datasource",
-      "description": "99th percentile input and output token counts per request at the gateway level. Identifies unexpectedly large prompts or long generations.",
+      "description": "P99 input and output token counts per request as observed by the scheduler.",
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 102
+        "y": 111
       },
       "hiddenSeries": false,
       "id": 154,
@@ -3003,13 +3218,13 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum(rate(inference_objective_input_tokens_bucket{namespace=~\"$namespace\"}[5m])) by (le, model_name)) or vector(0)",
+          "expr": "histogram_quantile(0.99, sum(rate(inference_objective_input_tokens_bucket{namespace=~\"$namespace\"}[5m])) by (le, model_name))",
           "interval": "",
           "legendFormat": "Input P99",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(inference_objective_output_tokens_bucket{namespace=~\"$namespace\"}[5m])) by (le, model_name)) or vector(0)",
+          "expr": "histogram_quantile(0.99, sum(rate(inference_objective_output_tokens_bucket{namespace=~\"$namespace\"}[5m])) by (le, model_name))",
           "interval": "",
           "legendFormat": "Output P99",
           "refId": "B"
@@ -3019,7 +3234,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Token Distribution P99 (Gateway)",
+      "title": "Token Distribution P99 (Scheduler)",
       "tooltip": {
         "shared": true,
         "sort": 0,
@@ -3091,14 +3306,14 @@
         "allValue": "",
         "current": {},
         "datasource": "$datasource",
-        "definition": "label_values(kserve_vllm:request_success_total, namespace)",
+        "definition": "label_values(vllm:request_success_total{llm_isvc_name!=\"\"}, namespace)",
         "hide": 0,
         "includeAll": true,
         "multi": true,
         "name": "namespace",
         "label": "Namespace",
         "options": [],
-        "query": "label_values(kserve_vllm:request_success_total, namespace)",
+        "query": "label_values(vllm:request_success_total{llm_isvc_name!=\"\"}, namespace)",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
@@ -3109,14 +3324,14 @@
         "allValue": "",
         "current": {},
         "datasource": "$datasource",
-        "definition": "label_values(kserve_vllm:request_success_total{namespace=~\"$namespace\"}, llm_isvc_name)",
+        "definition": "label_values(vllm:request_success_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}, llm_isvc_name)",
         "hide": 0,
         "includeAll": true,
         "multi": true,
         "name": "llm_isvc_name",
         "label": "LLMInferenceService",
         "options": [],
-        "query": "label_values(kserve_vllm:request_success_total{namespace=~\"$namespace\"}, llm_isvc_name)",
+        "query": "label_values(vllm:request_success_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}, llm_isvc_name)",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
@@ -3127,14 +3342,14 @@
         "allValue": ".*",
         "current": {},
         "datasource": "$datasource",
-        "definition": "label_values(kserve_vllm:request_success_total{namespace=~\"$namespace\",llm_isvc_name=~\"$llm_isvc_name\"}, llm_isvc_role)",
+        "definition": "label_values(vllm:request_success_total{namespace=~\"$namespace\",llm_isvc_name=~\"$llm_isvc_name\"}, llm_isvc_role)",
         "hide": 0,
         "includeAll": true,
         "multi": true,
         "name": "llm_isvc_role",
         "label": "Role (Prefill/Decode)",
         "options": [],
-        "query": "label_values(kserve_vllm:request_success_total{namespace=~\"$namespace\",llm_isvc_name=~\"$llm_isvc_name\"}, llm_isvc_role)",
+        "query": "label_values(vllm:request_success_total{namespace=~\"$namespace\",llm_isvc_name=~\"$llm_isvc_name\"}, llm_isvc_role)",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
