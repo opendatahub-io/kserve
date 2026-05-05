@@ -68,6 +68,9 @@ PyJWT = ">=2.12.0"
 # CVE-2026-30922 pyasn1 Vulnerable to Denial of Service via Unbounded Recursion.
 # Pinning because it is a transitive dependency.
 pyasn1 = ">=0.6.3"
+# CVE-2026-28684 python-dotenv: Arbitrary file overwrite via symbolic link following
+# Pinning because it is a transitive dependency.
+python-dotenv = ">=1.2.2"
 
 # Storage dependencies. They can be opted into by apps.
 requests = { version = "^2.32.2", optional = true }
