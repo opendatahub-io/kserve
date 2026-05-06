@@ -1,0 +1,10 @@
+map:
+  kserve:
+    src: config
+    dest: kserve
+    local: true
+  odh-model-controller:
+    src: config
+    dest: odh-model-controller
+    git.url: https://github.com/opendatahub-io/odh-model-controller
+    branch: main

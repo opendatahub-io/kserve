@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: opendatahub
+
+resources:
+- components.platform.opendatahub.io_kserves.yaml
+- manager.yaml
+- service.yaml
+- rbac/
+
+replacements:
+- source:
+    fieldPath: metadata.name
+    kind: ServiceAccount
+    name: kserve-module-controller-manager
+    version: v1
+  targets:
+  - fieldPaths:
+    - subjects.*.name
+    select:
+      kind: ClusterRoleBinding
+      name: kserve-module-manager-rolebinding
+  - fieldPaths:
+    - subjects.*.name
+    select:
+      kind: RoleBinding
+      name: kserve-module-leader-election-rolebinding
+  - fieldPaths:
+    - spec.template.spec.serviceAccountName
+    select:
+      kind: Deployment
+      name: kserve-module-controller-manager
+images:
+- name: ko://github.com/kserve/kserve/cmd/kserve-module
+  newName: quay.io/opendatahub/kserve-module-controller
+  newTag: latest
