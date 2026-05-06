@@ -783,6 +783,11 @@ func (p *Predictor) reconcileRawDeployment(ctx context.Context, isvc *v1beta1.In
 
 	if cond, condType := r.Workload.GetAuthProxyCondition(); cond != nil {
 		isvc.Status.SetCondition(condType, cond)
+	} else {
+		existing := isvc.Status.GetCondition(v1beta1.LatestDeploymentReady)
+		if existing != nil && existing.Reason == "AuthProxyPreserved" {
+			isvc.Status.ClearCondition(v1beta1.LatestDeploymentReady)
+		}
 	}
 
 	if !utils.GetForceStopRuntime(isvc) {
