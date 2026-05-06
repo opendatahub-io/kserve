@@ -68,10 +68,14 @@ if ! command -v kustomize &>/dev/null; then
 fi
 
 # If minio CLI is not installed, install it
-if ! command -v mc &>/dev/null; then
+if ! mc --version &>/dev/null; then
   echo "⏳ Installing Minio CLI"
-  curl https://dl.min.io/client/mc/release/linux-amd64/mc --create-dirs -o $HOME/.local/bin/mc
-  chmod +x $HOME/.local/bin/mc
+  mkdir -p "$HOME/.local/bin"
+  if ! curl -fsSL --retry 3 --retry-delay 5 https://dl.min.io/client/mc/release/linux-amd64/mc -o "$HOME/.local/bin/mc"; then
+    echo "❌ Failed to download MinIO CLI"
+    exit 1
+  fi
+  chmod +x "$HOME/.local/bin/mc"
 fi
 
 echo "⏳ Installing KServe Python SDK ..."
