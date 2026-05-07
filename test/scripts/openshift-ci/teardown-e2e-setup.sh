@@ -28,6 +28,7 @@ set -o pipefail
 
 MY_PATH=$(dirname "$0")
 PROJECT_ROOT=$MY_PATH/../../../
+: "${OPERATOR_NAMESPACE:=openshift-operators}"
 
 PARAMS_ENV="$PROJECT_ROOT/config/overlays/odh/params.env"
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
@@ -48,13 +49,14 @@ oc delete dscinitializations.dscinitialization.opendatahub.io --all --ignore-not
 
 echo "Deleting ODH / RHOAI operator OLM resources"
 for name in opendatahub-operator rhods-operator; do
-  oc delete subscription "${name}" -n openshift-operators --ignore-not-found || true
-  oc delete csv -n openshift-operators -l "operators.coreos.com/${name}.openshift-operators" --ignore-not-found || true
+  oc delete subscription "${name}" -n "${OPERATOR_NAMESPACE}" --ignore-not-found || true
+  oc delete csv -n "${OPERATOR_NAMESPACE}" -l "operators.coreos.com/${name}.${OPERATOR_NAMESPACE}" --ignore-not-found || true
   oc delete catalogsource "${name}-custom-catalog" -n openshift-marketplace --ignore-not-found || true
 done
+oc delete installplan --all -n "${OPERATOR_NAMESPACE}" --ignore-not-found || true
 
 echo "Deleting custom-manifests PVC"
-oc delete pvc kserve-custom-manifests -n openshift-operators --ignore-not-found || true
+oc delete pvc kserve-custom-manifests -n "${OPERATOR_NAMESPACE}" --ignore-not-found || true
 
 echo "Deleting ImageDigestMirrorSets created for operator install"
 for idms in rhoai-quay-mirror; do

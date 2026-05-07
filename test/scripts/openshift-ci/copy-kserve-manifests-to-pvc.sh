@@ -19,7 +19,7 @@ set -eu
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 PROJECT_ROOT="${SCRIPT_DIR}/../../../"
 
-: "${ODH_OPERATOR_NAMESPACE:=openshift-operators}"
+: "${OPERATOR_NAMESPACE:=openshift-operators}"
 : "${KSERVE_MANIFESTS_PVC:=kserve-custom-manifests}"
 
 # Image environment variables (should be set by caller)
@@ -47,8 +47,8 @@ case "${OPERATOR_TYPE}" in
   *)               echo "Error: Unknown OPERATOR_TYPE '${OPERATOR_TYPE}'"; exit 1 ;;
 esac
 
-POD_NAME=$(oc get po -n "${ODH_OPERATOR_NAMESPACE}" \
-  -l "$(oc get deployment "${OPERATOR_DEPLOYMENT}" -n "${ODH_OPERATOR_NAMESPACE}" \
+POD_NAME=$(oc get po -n "${OPERATOR_NAMESPACE}" \
+  -l "$(oc get deployment "${OPERATOR_DEPLOYMENT}" -n "${OPERATOR_NAMESPACE}" \
         -o json | python3 -c "
 import json, sys
 d = json.load(sys.stdin)['spec']['selector']['matchLabels']
@@ -64,16 +64,16 @@ echo "Found operator pod: $POD_NAME (deployment: ${OPERATOR_DEPLOYMENT})"
 
 # Clean up any existing manifests in the PVC (but not the mount point itself)
 echo "Cleaning up existing manifests in PVC..."
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "rm -rf /opt/manifests/kserve/* /opt/manifests/odh-model-controller/*" || true
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "rm -rf /opt/manifests/kserve/* /opt/manifests/odh-model-controller/*" || true
 
 # Copy config directory to PVC using oc cp
 echo "Copying config directory to PVC..."
-oc cp "${PROJECT_ROOT}/config/." ${ODH_OPERATOR_NAMESPACE}/${POD_NAME}:/opt/manifests/kserve
+oc cp "${PROJECT_ROOT}/config/." ${OPERATOR_NAMESPACE}/${POD_NAME}:/opt/manifests/kserve
 
 # Updating params.env
 echo ""
 echo "Updating params.envs..."
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "
   sed -i 's|kserve-controller=.*|kserve-controller=${KSERVE_CONTROLLER_IMAGE}|' /opt/manifests/kserve/overlays/odh/params.env
   sed -i 's|llmisvc-controller=.*|llmisvc-controller=${LLMISVC_CONTROLLER_IMAGE}|' /opt/manifests/kserve/overlays/odh/params.env
   sed -i 's|kserve-agent=.*|kserve-agent=${KSERVE_AGENT_IMAGE}|' /opt/manifests/kserve/overlays/odh/params.env
@@ -84,7 +84,7 @@ oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "
 # Verify the images were updated
 echo ""
 echo "Verifying updated KServe params.env:"
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- cat /opt/manifests/kserve/overlays/odh/params.env
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- cat /opt/manifests/kserve/overlays/odh/params.env
 
 # Download and copy odh-model-controller manifests
 echo ""
@@ -107,34 +107,34 @@ echo "Found odh-model-controller at: $ODH_MC_DIR"
 
 # Copy the config directory to the PVC
 echo "Copying odh-model-controller config to PVC..."
-oc cp "${ODH_MC_DIR}/config/." ${ODH_OPERATOR_NAMESPACE}/${POD_NAME}:/opt/manifests/odh-model-controller/
+oc cp "${ODH_MC_DIR}/config/." ${OPERATOR_NAMESPACE}/${POD_NAME}:/opt/manifests/odh-model-controller/
 
 # Update params.env with PR image
 echo ""
 echo "Updating odh-model-controller params.env with PR image..."
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "
   sed -i 's|odh-model-controller=.*|odh-model-controller=${ODH_MODEL_CONTROLLER_IMAGE}|' /opt/manifests/odh-model-controller/base/params.env
 "
 
 # Verify the odh-model-controller params.env was updated
 echo ""
 echo "Verifying updated odh-model-controller params.env:"
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- cat /opt/manifests/odh-model-controller/base/params.env
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- cat /opt/manifests/odh-model-controller/base/params.env
 
 # Verify the copy
 echo ""
 echo "Verifying manifest structure..."
 echo "Checking kserve directory..."
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/kserve/
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/kserve/
 echo ""
 echo "Checking kserve overlays/odh directory..."
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/kserve/overlays/odh/
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/kserve/overlays/odh/
 echo ""
 echo "Checking odh-model-controller directory..."
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/odh-model-controller/
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/odh-model-controller/
 echo ""
 echo "Checking odh-model-controller/base directory..."
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/odh-model-controller/base/
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/odh-model-controller/base/
 
 echo ""
 echo "Manifests successfully copied to PVC!"

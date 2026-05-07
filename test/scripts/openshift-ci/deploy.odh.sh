@@ -24,8 +24,6 @@ PROJECT_ROOT="${SCRIPT_DIR}/../../../"
 source "${SCRIPT_DIR}/common.sh"
 source "${SCRIPT_DIR}/install-operator.sh"
 
-: "${ODH_OPERATOR_NAMESPACE:=openshift-operators}"
-
 # Map legacy env vars to the shared install-operator.sh interface.
 # OPERATOR_VERSION is intentionally left unset (CI mode: skip-if-installed,
 # Automatic approval, no startingCSV).
@@ -51,17 +49,17 @@ if [[ "$COPY_PR_MANIFESTS" == "true" ]]; then
   echo "PVC created (will bind when consumed by operator pod)"
 
   echo "Patching operator CSV to mount custom manifests volume..."
-  CSV=$(oc get subscription "${OPERATOR_NAME}" -n "${ODH_OPERATOR_NAMESPACE}" -o jsonpath='{.status.installedCSV}')
+  CSV=$(oc get subscription "${OPERATOR_NAME}" -n "${OPERATOR_NAMESPACE}" -o jsonpath='{.status.installedCSV}')
   echo "Found CSV: $CSV"
 
-  if oc get csv "$CSV" -n ${ODH_OPERATOR_NAMESPACE} -o json | jq -e '.spec.install.spec.deployments[0].spec.template.spec.volumes[] | select(.name=="kserve-custom-manifests")' > /dev/null 2>&1; then
+  if oc get csv "$CSV" -n ${OPERATOR_NAMESPACE} -o json | jq -e '.spec.install.spec.deployments[0].spec.template.spec.volumes[] | select(.name=="kserve-custom-manifests")' > /dev/null 2>&1; then
     echo "Volume already mounted, skipping patch"
   else
     echo "Applying CSV patch to mount custom manifests volume..."
-    oc patch csv "$CSV" -n ${ODH_OPERATOR_NAMESPACE} --type json --patch-file "${SCRIPT_DIR}/odh-operator-custom-manifests/csv-patch.json"
+    oc patch csv "$CSV" -n ${OPERATOR_NAMESPACE} --type json --patch-file "${SCRIPT_DIR}/odh-operator-custom-manifests/csv-patch.json"
   fi
 
-  OPERATOR_POD_SELECTOR=$(oc get deployment "${CONTROLLER_DEPLOYMENT}" -n "${ODH_OPERATOR_NAMESPACE}" \
+  OPERATOR_POD_SELECTOR=$(oc get deployment "${CONTROLLER_DEPLOYMENT}" -n "${OPERATOR_NAMESPACE}" \
     -o json 2>/dev/null | python3 -c "
 import json, sys
 d = json.load(sys.stdin)['spec']['selector']['matchLabels']
@@ -70,12 +68,12 @@ print(','.join(f'{k}={v}' for k, v in d.items()))
 
   echo "Waiting for operator pod to restart with custom manifests volume (selector: ${OPERATOR_POD_SELECTOR})..."
   oc wait --for='jsonpath={.status.conditions[?(@.type=="Ready")].status}=True' \
-    pod -l "${OPERATOR_POD_SELECTOR}" -n ${ODH_OPERATOR_NAMESPACE} \
+    pod -l "${OPERATOR_POD_SELECTOR}" -n ${OPERATOR_NAMESPACE} \
     --timeout=300s 2>/dev/null || true
 
   sleep 5
 
-  wait_for_pod_ready "${ODH_OPERATOR_NAMESPACE}" "${OPERATOR_POD_SELECTOR}" 300s
+  wait_for_pod_ready "${OPERATOR_NAMESPACE}" "${OPERATOR_POD_SELECTOR}" 300s
 
   echo "Operator ready to use custom KServe manifests."
   echo "  NOTE: Copy PR manifests to PVC, then apply DSC/DSCI resources."

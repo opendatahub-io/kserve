@@ -37,6 +37,7 @@ _INSTALL_OPERATOR_SOURCED=true
 : "${OPERATOR_TYPE:=odh}"
 : "${OPERATOR_VERSION:=}"
 : "${CATALOG_SOURCE:=}"
+: "${OPERATOR_NAMESPACE:=openshift-operators}"
 
 # Auto-enable image mirroring for RHOAI with FBC fragment images
 if [[ -z "${MIRROR_IMAGES:-}" ]]; then
@@ -263,11 +264,11 @@ detect_channel() {
 
 cleanup_previous_install() {
     local existing_sub
-    existing_sub=$(oc get subscription "${OPERATOR_NAME}" -n openshift-operators -o name 2>/dev/null || echo "")
+    existing_sub=$(oc get subscription "${OPERATOR_NAME}" -n "${OPERATOR_NAMESPACE}" -o name 2>/dev/null || echo "")
     if [[ -n "${existing_sub}" ]]; then
         echo "Cleaning up previous installation..."
-        oc delete subscription "${OPERATOR_NAME}" -n openshift-operators --ignore-not-found 2>/dev/null
-        oc delete csv -n openshift-operators -l "operators.coreos.com/${OPERATOR_NAME}.openshift-operators" --ignore-not-found 2>/dev/null
+        oc delete subscription "${OPERATOR_NAME}" -n "${OPERATOR_NAMESPACE}" --ignore-not-found 2>/dev/null
+        oc delete csv -n "${OPERATOR_NAMESPACE}" -l "operators.coreos.com/${OPERATOR_NAME}.${OPERATOR_NAMESPACE}" --ignore-not-found 2>/dev/null
     fi
 
     local failed_jobs
@@ -282,11 +283,11 @@ cleanup_previous_install() {
 # Returns 0 (true) if operator is already installed and running.
 check_already_installed() {
     local existing_csv
-    existing_csv=$(oc get subscription "${OPERATOR_NAME}" -n openshift-operators \
+    existing_csv=$(oc get subscription "${OPERATOR_NAME}" -n "${OPERATOR_NAMESPACE}" \
         -o=jsonpath='{.status.installedCSV}' 2>/dev/null || true)
     if [[ -n "${existing_csv}" ]]; then
         local csv_status
-        csv_status=$(oc get csv "${existing_csv}" -n openshift-operators \
+        csv_status=$(oc get csv "${existing_csv}" -n "${OPERATOR_NAMESPACE}" \
             -o=jsonpath='{.status.phase}' 2>/dev/null || true)
         if [[ "${csv_status}" == "Succeeded" ]]; then
             echo "${OPERATOR_NAME} already installed and ready (${existing_csv}), skipping installation"
@@ -314,7 +315,7 @@ apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
   name: ${OPERATOR_NAME}
-  namespace: openshift-operators
+  namespace: ${OPERATOR_NAMESPACE}
 spec:
   channel: ${OPERATOR_CHANNEL}
   name: ${OPERATOR_NAME}
@@ -330,7 +331,7 @@ wait_for_operator_ready() {
         echo "Waiting for install plan to be created..."
         timeout 300 bash -c "
             while true; do
-                install_plan=\$(oc get subscription ${OPERATOR_NAME} -n openshift-operators -o jsonpath=\"{.status.installPlanRef.name}\" 2>/dev/null || echo \"\")
+                install_plan=\$(oc get subscription ${OPERATOR_NAME} -n ${OPERATOR_NAMESPACE} -o jsonpath=\"{.status.installPlanRef.name}\" 2>/dev/null || echo \"\")
                 if [[ -n \"\${install_plan}\" ]]; then
                     echo \"  Found install plan: \${install_plan}\"
                     break
@@ -341,15 +342,15 @@ wait_for_operator_ready() {
         "
         echo "Approving install plan..."
         local install_plan
-        install_plan=$(oc get subscription "${OPERATOR_NAME}" -n openshift-operators -o jsonpath="{.status.installPlanRef.name}")
-        oc patch installplan "${install_plan}" -n openshift-operators --type merge -p '{"spec":{"approved":true}}'
+        install_plan=$(oc get subscription "${OPERATOR_NAME}" -n "${OPERATOR_NAMESPACE}" -o jsonpath="{.status.installPlanRef.name}")
+        oc patch installplan "${install_plan}" -n "${OPERATOR_NAMESPACE}" --type merge -p '{"spec":{"approved":true}}'
         echo "Install plan approved"
     fi
 
     echo "Waiting for ${OPERATOR_NAME} CSV to succeed..."
     timeout 300 bash -c "
         while true; do
-            phase=\$(oc get csv -n openshift-operators -l operators.coreos.com/${OPERATOR_NAME}.openshift-operators -o jsonpath=\"{.items[0].status.phase}\" 2>/dev/null || echo \"Pending\")
+            phase=\$(oc get csv -n ${OPERATOR_NAMESPACE} -l operators.coreos.com/${OPERATOR_NAME}.${OPERATOR_NAMESPACE} -o jsonpath=\"{.items[0].status.phase}\" 2>/dev/null || echo \"Pending\")
             echo \"  CSV phase: \${phase}\"
             if [[ \"\${phase}\" == \"Succeeded\" ]]; then
                 break
@@ -361,11 +362,11 @@ wait_for_operator_ready() {
 
     echo "Waiting for ${CONTROLLER_DEPLOYMENT} deployment to be available..."
     timeout 300 bash -c "
-        while ! oc get deployment ${CONTROLLER_DEPLOYMENT} -n openshift-operators &>/dev/null; do
+        while ! oc get deployment ${CONTROLLER_DEPLOYMENT} -n "${OPERATOR_NAMESPACE}" &>/dev/null; do
             echo \"  Waiting for ${CONTROLLER_DEPLOYMENT} deployment to be created...\"
             sleep 10
         done
-        oc wait deployment/${CONTROLLER_DEPLOYMENT} -n openshift-operators \
+        oc wait deployment/${CONTROLLER_DEPLOYMENT} -n "${OPERATOR_NAMESPACE}" \
             --for=condition=Available \
             --timeout=300s
     "
