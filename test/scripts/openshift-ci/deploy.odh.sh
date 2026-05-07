@@ -51,7 +51,7 @@ if [[ "$COPY_PR_MANIFESTS" == "true" ]]; then
   echo "PVC created (will bind when consumed by operator pod)"
 
   echo "Patching operator CSV to mount custom manifests volume..."
-  CSV=$(oc get csv -n ${ODH_OPERATOR_NAMESPACE} -o name | grep "${OPERATOR_NAME}" | head -n1 | cut -d/ -f2)
+  CSV=$(oc get subscription "${OPERATOR_NAME}" -n "${ODH_OPERATOR_NAMESPACE}" -o jsonpath='{.status.installedCSV}')
   echo "Found CSV: $CSV"
 
   if oc get csv "$CSV" -n ${ODH_OPERATOR_NAMESPACE} -o json | jq -e '.spec.install.spec.deployments[0].spec.template.spec.volumes[] | select(.name=="kserve-custom-manifests")' > /dev/null 2>&1; then

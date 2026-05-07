@@ -30,6 +30,8 @@
 #   - skips install if operator is already running
 #   - uses Automatic install-plan approval, no startingCSV
 
+set -euo pipefail
+
 _INSTALL_OPERATOR_SOURCED=true
 
 : "${OPERATOR_TYPE:=odh}"
@@ -230,7 +232,7 @@ detect_channel() {
 
     echo "Querying catalog '${OPERATOR_SOURCE}' for channel (csv_pattern='${csv_pattern:-any}')..."
     local info
-    info=$(query_catalog_info "${OPERATOR_SOURCE}" "${csv_pattern}")
+    info=$(query_catalog_info "${OPERATOR_SOURCE}" "${csv_pattern}" || true)
     if [[ -z "${info}" ]]; then
         echo "  Could not query catalog; using fallback channel: ${OPERATOR_CHANNEL}"
         return
@@ -265,7 +267,7 @@ cleanup_previous_install() {
 
     local failed_jobs
     failed_jobs=$(oc get jobs -n openshift-marketplace --no-headers 2>/dev/null \
-        | awk '$3 == "Failed" || $2 == "0/1" {print $1}' | head -5)
+        | awk '$3 == "Failed" || $2 == "0/1" {print $1}' | head -5 || true)
     if [[ -n "${failed_jobs}" ]]; then
         echo "Removing stale unpack jobs in openshift-marketplace..."
         echo "${failed_jobs}" | xargs -r oc delete job -n openshift-marketplace --ignore-not-found 2>/dev/null
@@ -323,7 +325,7 @@ wait_for_operator_ready() {
         echo "Waiting for install plan to be created..."
         timeout 300 bash -c "
             while true; do
-                install_plan=\$(oc get subscription ${OPERATOR_NAME} -n openshift-operators -o jsonpath=\"{.status.installplan.name}\" 2>/dev/null || echo \"\")
+                install_plan=\$(oc get subscription ${OPERATOR_NAME} -n openshift-operators -o jsonpath=\"{.status.installPlanRef.name}\" 2>/dev/null || echo \"\")
                 if [[ -n \"\${install_plan}\" ]]; then
                     echo \"  Found install plan: \${install_plan}\"
                     break
@@ -334,7 +336,7 @@ wait_for_operator_ready() {
         "
         echo "Approving install plan..."
         local install_plan
-        install_plan=$(oc get subscription "${OPERATOR_NAME}" -n openshift-operators -o jsonpath="{.status.installplan.name}")
+        install_plan=$(oc get subscription "${OPERATOR_NAME}" -n openshift-operators -o jsonpath="{.status.installPlanRef.name}")
         oc patch installplan "${install_plan}" -n openshift-operators --type merge -p '{"spec":{"approved":true}}'
         echo "Install plan approved"
     fi
@@ -398,6 +400,5 @@ install_operator() {
 
 # When executed directly (not sourced), run the full install sequence.
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-    set -euo pipefail
     install_operator
 fi
