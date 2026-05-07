@@ -24,18 +24,35 @@ NAMESPACE="${2:-kserve-ci-e2e-test}"
 
 echo "Tearing down CI namespace: $NAMESPACE"
 
-# Delete namespace if it exists
-if oc get namespace "$NAMESPACE" >/dev/null 2>&1; then
-  echo "Deleting namespace $NAMESPACE..."
-  oc delete namespace "$NAMESPACE" --ignore-not-found --wait=true --timeout=120s || true
-  # Wait for namespace to be fully deleted
-  echo "Waiting for namespace to be fully deleted..."
-  while oc get namespace "$NAMESPACE" >/dev/null 2>&1; do
-    sleep 2
-  done
-  echo "Namespace $NAMESPACE has been deleted"
-else
+if ! oc get namespace "$NAMESPACE" >/dev/null 2>&1; then
   echo "Namespace $NAMESPACE does not exist, skipping deletion"
+  echo "CI namespace teardown complete"
+  exit 0
+fi
+
+echo "Deleting namespace $NAMESPACE..."
+oc delete namespace "$NAMESPACE" --ignore-not-found --timeout=60s || true
+
+# If the namespace is still around after the initial timeout, resources with
+# unprocessed finalizers are blocking deletion (e.g. the controller that would
+# remove them was already torn down). Strip finalizers so the namespace can
+# drain.
+if oc get namespace "$NAMESPACE" >/dev/null 2>&1; then
+  echo "Namespace still terminating -- stripping finalizers from stuck resources..."
+  for resource in inferenceservices.serving.kserve.io inferencegraphs.serving.kserve.io; do
+    for obj in $(oc get "$resource" -n "$NAMESPACE" -o name 2>/dev/null); do
+      oc patch "$obj" -n "$NAMESPACE" --type=merge \
+        -p '{"metadata":{"finalizers":null}}' 2>/dev/null || true
+    done
+  done
+  oc wait --for=delete "namespace/$NAMESPACE" --timeout=60s 2>/dev/null || \
+    echo "WARNING: namespace $NAMESPACE did not terminate within timeout"
+fi
+
+if oc get namespace "$NAMESPACE" >/dev/null 2>&1; then
+  echo "WARNING: namespace $NAMESPACE still exists"
+else
+  echo "Namespace $NAMESPACE has been deleted"
 fi
 
 echo "CI namespace teardown complete"

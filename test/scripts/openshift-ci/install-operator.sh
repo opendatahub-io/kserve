@@ -216,6 +216,16 @@ detect_channel() {
     local csv_pattern=""
     if [[ -n "${OPERATOR_VERSION}" ]]; then
         csv_pattern="${OPERATOR_NAME}.${CSV_VERSION}"
+    elif [[ "${CATALOG_SOURCE}" == */* && "${CATALOG_SOURCE}" == *:* ]]; then
+        local tag="${CATALOG_SOURCE##*:}"
+        local version_hint="${tag#rhoai-}"
+        version_hint="${version_hint#odh-}"
+        local major_minor
+        major_minor=$(echo "${version_hint}" | grep -oE '^[0-9]+\.[0-9]+' || true)
+        if [[ -n "${major_minor}" ]]; then
+            csv_pattern="${major_minor}"
+            echo "  Inferred version hint '${csv_pattern}' from CATALOG_SOURCE tag '${tag}'"
+        fi
     fi
 
     echo "Querying catalog '${OPERATOR_SOURCE}' for channel (csv_pattern='${csv_pattern:-any}')..."
@@ -232,12 +242,15 @@ detect_channel() {
     echo "  Catalog reports: channel=${detected_channel} csv=${detected_csv}"
     OPERATOR_CHANNEL="${detected_channel}"
 
-    if [[ -n "${csv_pattern}" && "${detected_csv}" != "${csv_pattern}" ]]; then
-        echo "  WARNING: requested ${csv_pattern} not found; catalog offers ${detected_csv}"
+    if [[ -n "${OPERATOR_VERSION}" && -n "${csv_pattern}" && "${detected_csv}" != "${csv_pattern}" ]]; then
+        echo "  ERROR: requested ${csv_pattern} but catalog only offers ${detected_csv}"
+        echo "  Check that OPERATOR_VERSION=${OPERATOR_VERSION} is available in the catalog."
+        exit 1
+    elif [[ -z "${OPERATOR_VERSION}" && -n "${csv_pattern}" && -n "${detected_csv}" ]]; then
         CSV_VERSION="${detected_csv#${OPERATOR_NAME}.}"
         OPERATOR_VERSION="${CSV_VERSION#v}"
         USE_STARTING_CSV=false
-        echo "  Falling back to ${detected_csv} (omitting startingCSV to let OLM resolve)"
+        echo "  Auto-detected version: ${OPERATOR_VERSION} (csv=${detected_csv})"
     fi
 }
 
@@ -357,6 +370,7 @@ install_operator() {
     resolve_catalog_source
     ensure_image_mirror
 
+    local version_before="${OPERATOR_VERSION}"
     if [[ -n "${OPERATOR_VERSION}" ]]; then
         cleanup_previous_install
     else
@@ -366,6 +380,10 @@ install_operator() {
     fi
 
     detect_channel
+
+    if [[ -z "${version_before}" && -n "${OPERATOR_VERSION}" ]]; then
+        cleanup_previous_install
+    fi
 
     local version_display="${OPERATOR_VERSION:-latest}"
     echo "Installing ${OPERATOR_NAME} (${version_display})..."

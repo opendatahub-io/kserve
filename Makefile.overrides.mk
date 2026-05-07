@@ -39,7 +39,8 @@ GITHUB_SHA ?= master
 
 # Operator install mode: odh, rhoai, or empty (manual kustomize deploy).
 OPERATOR_TYPE ?=
-# Pin to a specific operator version (e.g. 3.4.0). Empty = latest in channel.
+# Pin to a specific operator version (e.g. 3.4.0). When empty and CATALOG_SOURCE
+# is an FBC fragment image, the version is auto-detected from the image tag.
 OPERATOR_VERSION ?=
 # FBC fragment image or CatalogSource name. Empty = default catalog.
 # Example: quay.io/rhoai/rhoai-fbc-fragment:rhoai-3.4
@@ -59,8 +60,8 @@ setup-e2e-ocp: ## Set up E2E test environment on OpenShift. Use OPERATOR_TYPE=od
 	COPY_PR_MANIFESTS="$(strip $(COPY_PR_MANIFESTS))" \
 	./test/scripts/openshift-ci/setup-e2e-tests.sh "$(E2E_MARKER)"
 
-e2e-ocp:
-	./test/scripts/openshift-ci/run-e2e-tests.sh "$(E2E_MARKER)"
+e2e-ocp: ## Run E2E tests (assumes setup-e2e-ocp already ran).
+	SETUP_E2E=false ./test/scripts/openshift-ci/run-e2e-tests.sh "$(E2E_MARKER)"
 
 reset-e2e-ocp: ## Reset the test namespace for a fresh E2E rerun.
 	./test/scripts/openshift-ci/setup-ci-namespace.sh
