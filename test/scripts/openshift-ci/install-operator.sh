@@ -200,6 +200,11 @@ for item in data.get('items', []):
             if csv_pat in ch.get('currentCSV', ''):
                 print(ch['name'], ch['currentCSV'])
                 sys.exit(0)
+        for ch in channels:
+            for entry in ch.get('entries', []):
+                if csv_pat in entry.get('name', ''):
+                    print(ch['name'], entry['name'])
+                    sys.exit(0)
     if default_ch:
         for ch in channels:
             if ch['name'] == default_ch:

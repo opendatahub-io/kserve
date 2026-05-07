@@ -16,7 +16,7 @@ AGENT_IMG = kserve-agent
 ROUTER_IMG = kserve-router
 STORAGE_INIT_IMG = kserve-storage-initializer
 
-.PHONY: deploy-dev-llm-ocp deploy-ci uv-update-lockfiles build-images-ocp setup-e2e-ocp e2e-ocp reset-e2e-ocp teardown-e2e-ocp
+.PHONY: deploy-dev-llm-ocp deploy-ci uv-update-lockfiles build-images-ocp setup-e2e-ocp clean-setup-e2e-ocp e2e-ocp reset-e2e-ocp teardown-e2e-ocp
 
 deploy-dev-llm-ocp:
 	./test/scripts/openshift-ci/setup-llm.sh --deploy-kuadrant
@@ -66,7 +66,9 @@ e2e-ocp: ## Run E2E tests (assumes setup-e2e-ocp already ran).
 reset-e2e-ocp: ## Reset the test namespace for a fresh E2E rerun.
 	./test/scripts/openshift-ci/setup-ci-namespace.sh
 
-teardown-e2e-ocp:
+clean-setup-e2e-ocp: teardown-e2e-ocp setup-e2e-ocp ## Teardown then set up E2E environment (safe for operator switches).
+
+teardown-e2e-ocp: ## Tear down the entire E2E environment (operator, DSC, namespaces).
 	./test/scripts/openshift-ci/teardown-e2e-setup.sh
 
 manifests-distro: controller-gen
