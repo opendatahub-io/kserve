@@ -1,0 +1,24 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kserve-module-manager-role
+rules:
+- apiGroups:
+  - components.platform.opendatahub.io
+  resources:
+  - kserves
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - components.platform.opendatahub.io
+  resourceNames:
+  - default-kserve
+  resources:
+  - kserves
+  - kserves/status
+  verbs:
+  - get
+  - patch
+  - update
