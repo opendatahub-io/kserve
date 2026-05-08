@@ -216,8 +216,18 @@ else
   fi
 
   # Apply DSC/DSCI to trigger deployment.
-  # RHOAI auto-creates a default DSCI; ODH may not. Only apply if none exists.
-  if oc get dscinitializations -o name 2>/dev/null | grep -q .; then
+  # RHOAI auto-creates a default DSCI; wait for it rather than racing to apply our own.
+  # ODH may not auto-create one, so apply ours with the correct namespace.
+  if [[ "${OPERATOR_TYPE}" =~ ^(rhods|rhoai)$ ]]; then
+    echo "Waiting for RHOAI to auto-create DSCI..."
+    timeout 120 bash -c '
+      while ! oc get dscinitializations -o name 2>/dev/null | grep -q .; do
+        echo "  Waiting for DSCI..."
+        sleep 5
+      done
+    '
+    echo "DSCI found: $(oc get dscinitializations -o name)"
+  elif oc get dscinitializations -o name 2>/dev/null | grep -q .; then
     echo "DSCI already exists, skipping apply"
   else
     echo "Applying DSCI..."

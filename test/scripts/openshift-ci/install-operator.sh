@@ -298,11 +298,9 @@ check_already_installed() {
 }
 
 apply_subscription() {
-    local install_plan_approval="Automatic"
     local starting_csv_line=""
 
     if [[ -n "${OPERATOR_VERSION}" ]]; then
-        install_plan_approval="Manual"
         if [[ "${USE_STARTING_CSV}" == "true" ]]; then
             starting_csv_line="  startingCSV: ${OPERATOR_NAME}.${CSV_VERSION}"
         else
@@ -321,31 +319,29 @@ spec:
   name: ${OPERATOR_NAME}
   source: ${OPERATOR_SOURCE}
   sourceNamespace: openshift-marketplace
-  installPlanApproval: ${install_plan_approval}
+  installPlanApproval: Manual
 ${starting_csv_line}
 EOF
 }
 
 wait_for_operator_ready() {
-    if [[ -n "${OPERATOR_VERSION}" ]]; then
-        echo "Waiting for install plan to be created..."
-        timeout 300 bash -c "
-            while true; do
-                install_plan=\$(oc get subscription ${OPERATOR_NAME} -n ${OPERATOR_NAMESPACE} -o jsonpath=\"{.status.installPlanRef.name}\" 2>/dev/null || echo \"\")
-                if [[ -n \"\${install_plan}\" ]]; then
-                    echo \"  Found install plan: \${install_plan}\"
-                    break
-                fi
-                echo \"  Waiting for install plan...\"
-                sleep 5
-            done
-        "
-        echo "Approving install plan..."
-        local install_plan
-        install_plan=$(oc get subscription "${OPERATOR_NAME}" -n "${OPERATOR_NAMESPACE}" -o jsonpath="{.status.installPlanRef.name}")
-        oc patch installplan "${install_plan}" -n "${OPERATOR_NAMESPACE}" --type merge -p '{"spec":{"approved":true}}'
-        echo "Install plan approved"
-    fi
+    echo "Waiting for install plan to be created..."
+    timeout 300 bash -c "
+        while true; do
+            install_plan=\$(oc get subscription ${OPERATOR_NAME} -n ${OPERATOR_NAMESPACE} -o jsonpath=\"{.status.installPlanRef.name}\" 2>/dev/null || echo \"\")
+            if [[ -n \"\${install_plan}\" ]]; then
+                echo \"  Found install plan: \${install_plan}\"
+                break
+            fi
+            echo \"  Waiting for install plan...\"
+            sleep 5
+        done
+    "
+    echo "Approving install plan..."
+    local install_plan
+    install_plan=$(oc get subscription "${OPERATOR_NAME}" -n "${OPERATOR_NAMESPACE}" -o jsonpath="{.status.installPlanRef.name}")
+    oc patch installplan "${install_plan}" -n "${OPERATOR_NAMESPACE}" --type merge -p '{"spec":{"approved":true}}'
+    echo "Install plan approved"
 
     echo "Waiting for ${OPERATOR_NAME} CSV to succeed..."
     timeout 300 bash -c "
