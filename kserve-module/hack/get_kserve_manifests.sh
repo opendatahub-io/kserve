@@ -14,14 +14,14 @@ DST_MANIFESTS_DIR="${1:-${MODULE_DIR}/opt/manifests}"
 #   "tag"                 - immutable reference
 #   "branch@commit-sha"  - tracks branch but pinned to specific commit
 declare -A ODH_COMPONENT_MANIFESTS=(
-    ["kserve"]="opendatahub-io:kserve:release-v0.17@6effd2fc4006d07602b3134fe37d33610eda7bfc:config"
-    ["modelcontroller"]="opendatahub-io:odh-model-controller:incubating@229ff3788fc585914586264ad9764f993cc0e2da:config"
+    ["kserve"]="opendatahub-io:kserve:release-v0.17:config"
+    ["modelcontroller"]="opendatahub-io:odh-model-controller:incubating:config"
 )
 
 # RHOAI Component Manifests
 declare -A RHOAI_COMPONENT_MANIFESTS=(
-    ["kserve"]="red-hat-data-services:kserve:rhoai-3.5-ea.1@a0331d5707e0adda0c2dc0c94b3c9826e0cec45b:config"
-    ["modelcontroller"]="red-hat-data-services:odh-model-controller:rhoai-3.5-ea.1@71a24e68920459186d0972d7ed6fcdef5610955e:config"
+    ["kserve"]="red-hat-data-services:kserve:rhoai-3.5-ea.1:config"
+    ["modelcontroller"]="red-hat-data-services:odh-model-controller:rhoai-3.5-ea.1:config"
 )
 
 # Select manifests based on platform type

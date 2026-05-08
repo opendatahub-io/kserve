@@ -1,0 +1,68 @@
+# Example Kserve CR as created by the ODH Operator (platform orchestrator).
+# This shows the full structure including platform-managed annotations,
+# labels, owner references, and status conditions.
+#
+# Key platform-injected fields:
+#   annotations:
+#     platform.opendatahub.io/type: "OpenShift AI Self-Managed"  ← platform identity
+#     platform.opendatahub.io/version: "2.25.7"                  ← platform release version
+#   labels:
+#     platform.opendatahub.io/part-of: datasciencecluster
+#
+# The module controller can read platform.opendatahub.io/version from the
+# annotation to determine the version prefix for LLMInferenceServiceConfig
+# naming, replacing the RELEASE_VERSION env var when available.
+
+apiVersion: components.platform.opendatahub.io/v1alpha1
+kind: Kserve
+metadata:
+  annotations:
+    component.opendatahub.io/management-state: Managed
+    platform.opendatahub.io/instance.generation: "1"
+    platform.opendatahub.io/instance.name: default-dsc
+    platform.opendatahub.io/instance.uid: 27ef67b2-7cdb-40f4-b622-f8010790621e
+    platform.opendatahub.io/type: OpenShift AI Self-Managed
+    platform.opendatahub.io/version: 2.25.7
+  creationTimestamp: "2026-05-06T08:20:57Z"
+  generation: 1
+  labels:
+    platform.opendatahub.io/part-of: datasciencecluster
+  name: default-kserve
+  ownerReferences:
+  - apiVersion: datasciencecluster.opendatahub.io/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: DataScienceCluster
+    name: default-dsc
+    uid: 27ef67b2-7cdb-40f4-b622-f8010790621e
+spec:
+  nim:
+    managementState: Managed
+  rawDeploymentServiceConfig: Headless
+status:
+  conditions:
+  - lastTransitionTime: "2026-05-08T16:05:09Z"
+    status: "True"
+    type: Ready
+  - lastTransitionTime: "2026-05-08T16:05:13Z"
+    observedGeneration: 1
+    status: "True"
+    type: ProvisioningSucceeded
+  - lastTransitionTime: "2026-05-08T16:05:09Z"
+    message: 'Serving management state is set to: Removed'
+    reason: Removed
+    severity: Info
+    status: "False"
+    type: ServingAvailable
+  - lastTransitionTime: "2026-05-08T16:05:13Z"
+    observedGeneration: 1
+    status: "True"
+    type: DeploymentsAvailable
+  defaultDeploymentMode: RawDeployment
+  observedGeneration: 1
+  phase: Ready
+  releases:
+  - name: KServe
+    repoUrl: https://github.com/kserve/kserve/
+    version: v0.14.0
+  serverlessMode: Removed

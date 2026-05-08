@@ -14,7 +14,16 @@ spec:
     singular: kserve
   scope: Cluster
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Ready
+      jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - description: Reason
+      jsonPath: .status.conditions[?(@.type=="Ready")].reason
+      name: Reason
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
         properties:
@@ -57,6 +66,10 @@ spec:
                     type: string
                 type: object
               rawDeploymentServiceConfig:
+                default: Headless
+                enum:
+                - Headless
+                - Headed
                 type: string
               wva:
                 properties:

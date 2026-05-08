@@ -12,10 +12,33 @@ const (
 	KserveInstanceName = "default-kserve"
 )
 
+// +kubebuilder:validation:Enum=Serverless;RawDeployment
+type DefaultDeploymentMode string
+
+const (
+	Serverless    DefaultDeploymentMode = "Serverless"
+	RawDeployment DefaultDeploymentMode = "RawDeployment"
+)
+
+// +kubebuilder:validation:Enum=Headless;Headed
+type RawServiceConfig string
+
+const (
+	KserveRawHeadless RawServiceConfig = "Headless"
+	KserveRawHeaded   RawServiceConfig = "Headed"
+)
+
+// Compile-time check: Kserve must implement common.PlatformObject so the
+// orchestrator (ODH Operator) can read status, conditions, and releases
+// through a uniform interface across all modules.
+var _ common.PlatformObject = &Kserve{}
+
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster
 // +kubebuilder:subresource:status
 // +kubebuilder:validation:XValidation:rule="self.metadata.name == 'default-kserve'",message="Kserve name must be 'default-kserve'"
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`,description="Ready"
+// +kubebuilder:printcolumn:name="Reason",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].reason`,description="Reason"
 type Kserve struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -24,10 +47,11 @@ type Kserve struct {
 }
 
 type KserveSpec struct {
-	common.ManagementSpec          `json:",inline"`
-	RawDeploymentServiceConfig     string  `json:"rawDeploymentServiceConfig,omitempty"`
-	NIM                            NIMSpec `json:"nim,omitempty"`
-	WVA                            WVASpec `json:"wva,omitempty"`
+	common.ManagementSpec `json:",inline"`
+	// +kubebuilder:default=Headless
+	RawDeploymentServiceConfig RawServiceConfig `json:"rawDeploymentServiceConfig,omitempty"`
+	NIM                        NIMSpec          `json:"nim,omitempty"`
+	WVA                        WVASpec          `json:"wva,omitempty"`
 }
 
 type NIMSpec struct {
@@ -57,6 +81,32 @@ type KserveList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []Kserve `json:"items"`
+}
+
+// PlatformObject accessor methods.
+// The orchestrator uses these to read/write module status generically:
+//   - GetStatus: Phase, Conditions, ObservedGeneration
+//   - Get/SetConditions: Ready, ProvisioningSucceeded, Degraded
+//   - Get/SetReleaseStatus: deployed component versions (KServe, odh-model-controller)
+
+func (k *Kserve) GetStatus() *common.Status {
+	return &k.Status.Status
+}
+
+func (k *Kserve) GetConditions() []common.Condition {
+	return k.Status.Conditions
+}
+
+func (k *Kserve) SetConditions(conditions []common.Condition) {
+	k.Status.Conditions = conditions
+}
+
+func (k *Kserve) GetReleaseStatus() *common.ComponentReleaseStatus {
+	return &k.Status.ComponentReleaseStatus
+}
+
+func (k *Kserve) SetReleaseStatus(status common.ComponentReleaseStatus) {
+	k.Status.ComponentReleaseStatus = status
 }
 
 func init() {
