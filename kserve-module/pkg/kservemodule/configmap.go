@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -25,14 +26,18 @@ const (
 )
 
 var (
-	configMapGVK  = schema.GroupVersionKind{Group: "", Version: "v1", Kind: "ConfigMap"}
-	deploymentGVK = schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}
+	errResourceNotFound = errors.New("resource not found")
+	configMapGVK        = schema.GroupVersionKind{Group: "", Version: "v1", Kind: "ConfigMap"}
+	deploymentGVK       = schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}
 )
 
 func customizeKserveConfigMap(resources []unstructured.Unstructured, headless bool) ([]unstructured.Unstructured, error) {
 	cmIdx, cm, err := getIndexedResource[corev1.ConfigMap](resources, configMapGVK, kserveConfigMapName)
 	if err != nil {
-		return resources, nil
+		if errors.Is(err, errResourceNotFound) {
+			return resources, nil
+		}
+		return nil, err
 	}
 
 	if err := updateInferenceCM(cm, headless); err != nil {
@@ -46,7 +51,10 @@ func customizeKserveConfigMap(resources []unstructured.Unstructured, headless bo
 
 	deployIdx, deploy, err := getIndexedResource[appsv1.Deployment](resources, deploymentGVK, isvcControllerDeployment)
 	if err != nil {
-		return resources, nil
+		if errors.Is(err, errResourceNotFound) {
+			return resources, nil
+		}
+		return nil, err
 	}
 
 	h := hashConfigMap(cm)
@@ -85,6 +93,9 @@ func updateCMJSONKey(cm *corev1.ConfigMap, key string, mutate func(map[string]an
 	if err := json.Unmarshal([]byte(raw), &data); err != nil {
 		return fmt.Errorf("parsing configmap key %q: %w", key, err)
 	}
+	if data == nil {
+		data = map[string]any{}
+	}
 
 	mutate(data)
 
@@ -112,7 +123,7 @@ func getIndexedResource[T any](resources []unstructured.Unstructured, gvk schema
 			return i, obj, nil
 		}
 	}
-	return -1, nil, fmt.Errorf("%s %q not found", gvk.Kind, name)
+	return -1, nil, fmt.Errorf("%w: %s %q", errResourceNotFound, gvk.Kind, name)
 }
 
 func replaceResourceAtIndex(resources []unstructured.Unstructured, idx int, obj any) ([]unstructured.Unstructured, error) {

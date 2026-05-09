@@ -13,7 +13,7 @@ func TestParseParams_BasicKeyValue(t *testing.T) {
 
 	dir := t.TempDir()
 	paramsFile := filepath.Join(dir, "params.env")
-	os.WriteFile(paramsFile, []byte("key1=val1\nkey2=val2\n# comment\n\nkey3=val3\n"), 0o644)
+	g.Expect(os.WriteFile(paramsFile, []byte("key1=val1\nkey2=val2\n# comment\n\nkey3=val3\n"), 0o644)).ShouldNot(HaveOccurred())
 
 	params, err := parseParams(paramsFile)
 	g.Expect(err).ShouldNot(HaveOccurred())
@@ -28,7 +28,7 @@ func TestParseParams_SkipsComments(t *testing.T) {
 
 	dir := t.TempDir()
 	paramsFile := filepath.Join(dir, "params.env")
-	os.WriteFile(paramsFile, []byte("# this is a comment\nkey=val\n  # indented comment\n"), 0o644)
+	g.Expect(os.WriteFile(paramsFile, []byte("# this is a comment\nkey=val\n  # indented comment\n"), 0o644)).ShouldNot(HaveOccurred())
 
 	params, err := parseParams(paramsFile)
 	g.Expect(err).ShouldNot(HaveOccurred())
@@ -40,7 +40,7 @@ func TestApplyParams_OverridesFromEnv(t *testing.T) {
 	g := NewWithT(t)
 
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "params.env"), []byte("my-image=old-value\n"), 0o644)
+	g.Expect(os.WriteFile(filepath.Join(dir, "params.env"), []byte("my-image=old-value\n"), 0o644)).ShouldNot(HaveOccurred())
 
 	imageMap := map[string]string{"my-image": "TEST_RELATED_IMAGE"}
 	t.Setenv("TEST_RELATED_IMAGE", "new-value")
@@ -57,7 +57,7 @@ func TestApplyParams_PreservesWhenEnvNotSet(t *testing.T) {
 	g := NewWithT(t)
 
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "params.env"), []byte("my-image=original\n"), 0o644)
+	g.Expect(os.WriteFile(filepath.Join(dir, "params.env"), []byte("my-image=original\n"), 0o644)).ShouldNot(HaveOccurred())
 
 	imageMap := map[string]string{"my-image": "UNSET_ENV_VAR"}
 
@@ -80,7 +80,7 @@ func TestApplyParams_ExtraParamsMap(t *testing.T) {
 	g := NewWithT(t)
 
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "params.env"), []byte("NAMESPACE=default\n"), 0o644)
+	g.Expect(os.WriteFile(filepath.Join(dir, "params.env"), []byte("NAMESPACE=default\n"), 0o644)).ShouldNot(HaveOccurred())
 
 	extra := map[string]string{"NAMESPACE": "opendatahub"}
 

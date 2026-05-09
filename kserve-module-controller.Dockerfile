@@ -26,6 +26,6 @@ RUN microdnf install -y --disablerepo=* --enablerepo=ubi-9-baseos-rpms shadow-ut
     useradd kserve -m -u 1000 && \
     microdnf remove -y shadow-utils
 COPY --from=builder /go/src/github.com/opendatahub-io/kserve-module/manager /manager
-COPY --from=builder /go/src/github.com/opendatahub-io/kserve-module/opt/manifests/ /opt/manifests/
+COPY --from=builder /go/src/github.com/opendatahub-io/kserve-module/opt/manifests/ /opt/manifests-template/
 USER 1000:1000
 ENTRYPOINT ["/manager"]

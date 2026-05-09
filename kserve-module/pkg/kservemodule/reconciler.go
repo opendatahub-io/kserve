@@ -152,8 +152,6 @@ func (r *KserveModuleReconciler) isKubernetes(ctx context.Context) bool {
 	ct, err := cluster.DetectClusterType(ctx, r.Client)
 	if err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "failed to detect cluster type, assuming OpenShift")
-		openshift := cluster.ClusterTypeOpenShift
-		r.clusterType = &openshift
 		return false
 	}
 
@@ -201,11 +199,7 @@ func (r *KserveModuleReconciler) ensureWorkDir() (string, error) {
 		return r.workDir, nil
 	}
 
-	workDir := filepath.Join(os.TempDir(), "kserve-manifests")
-	if err := os.RemoveAll(workDir); err != nil {
-		return "", fmt.Errorf("cleaning workdir: %w", err)
-	}
-
+	workDir := "/opt/manifests"
 	srcDir := r.ManifestsPath
 	err := filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {

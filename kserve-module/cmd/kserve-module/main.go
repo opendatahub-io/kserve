@@ -16,7 +16,7 @@ import (
 	"github.com/opendatahub-io/kserve-module/pkg/kservemodule"
 )
 
-const manifestsPath = "/opt/manifests"
+const manifestsPath = "/opt/manifests-template"
 
 var (
 	scheme   = runtime.NewScheme()

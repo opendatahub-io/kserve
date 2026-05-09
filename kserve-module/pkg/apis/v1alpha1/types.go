@@ -12,14 +12,6 @@ const (
 	KserveInstanceName = "default-kserve"
 )
 
-// +kubebuilder:validation:Enum=Serverless;RawDeployment
-type DefaultDeploymentMode string
-
-const (
-	Serverless    DefaultDeploymentMode = "Serverless"
-	RawDeployment DefaultDeploymentMode = "RawDeployment"
-)
-
 // +kubebuilder:validation:Enum=Headless;Headed
 type RawServiceConfig string
 

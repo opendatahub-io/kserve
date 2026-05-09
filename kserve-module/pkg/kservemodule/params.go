@@ -43,7 +43,13 @@ func writeParamsEnv(params map[string]string, dir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer tmp.Close()
+	success := false
+	defer func() {
+		tmp.Close()
+		if !success {
+			_ = os.Remove(tmp.Name())
+		}
+	}()
 
 	keys := make([]string, 0, len(params))
 	for k := range params {
@@ -61,6 +67,7 @@ func writeParamsEnv(params map[string]string, dir string) (string, error) {
 		return "", fmt.Errorf("failed to write to file: %w", err)
 	}
 
+	success = true
 	return tmp.Name(), nil
 }
 
