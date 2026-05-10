@@ -120,6 +120,11 @@ for crd in $(oc get crd -o name 2>/dev/null | grep '\.serving\.kserve\.io$'); do
   oc delete "$crd" --ignore-not-found || true
 done
 
+echo "Deleting ODH / RHOAI platform CRDs"
+for crd in $(oc get crd -o name 2>/dev/null | grep '\.opendatahub\.io$'); do
+  oc delete "$crd" --ignore-not-found || true
+done
+
 echo "Deleting application namespaces"
 for ns in "${ALL_NAMESPACES[@]}"; do
   oc delete namespace "$ns" --ignore-not-found --timeout=120s || true

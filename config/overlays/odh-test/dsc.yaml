@@ -17,7 +17,7 @@ spec:
     datasciencepipelines:
       managementState: Removed
     kserve:
-      defaultDeploymentMode: Serverless
+      defaultDeploymentMode: RawDeployment
       managementState: Managed
       nim:
         managementState: Removed
