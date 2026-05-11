@@ -29,11 +29,11 @@ All dashboards include navigation links to move between levels without leaving t
 Single-pane-of-glass SLI-based health view. An operator opens this first and knows within seconds if the cluster is healthy.
 
 #### Key Metrics:
-- **Gateway & Ingress**: Gateway request rate by gateway, errors by response code, gateway latency P95 (Istio/Envoy metrics)
+- **Gateway & Ingress**: Gateway request rate by gateway, requests by response code (full traffic profile), gateway latency P95 (Istio/Envoy metrics)
 - **SLI Summary Gauges**: Total request rate, HTTP error rate %, E2E latency P99, ready pods
-- **Per-Model Health**: Request rate, error rate, and latency by model with drill-down links
+- **Per-Model-Server Health**: Request rate, error rate, and latency by model server (LLMInferenceService) with drill-down links
 - **Capacity & Scheduling**: KV cache utilization, request queue depth, and ready pods by pool
-- **Data Staleness Detector**: Seconds since last metric scrape per model (warns at 60s, critical at 300s)
+- **Data Staleness Detector**: Seconds since last metric scrape per model server (warns at 60s, critical at 300s)
 - **Token Throughput**: Cluster-wide input/output token processing rate
 - **SLO & Scheduler Signals**: SLO violations by type, scheduler error rate, running requests, pool saturation, scheduler request rate
 
@@ -82,7 +82,7 @@ Pod-level granularity for identifying hot spots and misbehaving replicas.
 Failure categorization by type and functional area attribution.
 
 #### Key Metrics:
-- **Gateway & Auth Failures**: Gateway errors by model & response code, Envoy response flags (DC/NR/DPE/UH), Kuadrant auth decisions (allowed/denied/errors), gateway latency by response code and by response flags (P95) — distinguishes fast rejections from slow timeouts
+- **Gateway & Auth Failures**: Gateway errors by model server & response code, Envoy response flags (DC/NR/DPE/UH), Kuadrant auth decisions (allowed/denied/errors), gateway latency by response code and by response flags (P95) — distinguishes fast rejections from slow timeouts
 - **Service-Level Failures**: HTTP success vs error rates, vLLM request outcomes (abort/stop/length)
 - **Functional Area Attribution**: Controller reconcile errors (routing/scheduling), workqueue health, memory pressure signals
 - **Failures by Phase & Topology**: Abort rate by phase (prefill/decode) and by component (leader/worker)
@@ -156,8 +156,8 @@ time() - max(timestamp(vllm:num_requests_running)) by (llm_isvc_name)
 # Gateway request rate by gateway (llm_isvc_gateway="true" disambiguates from unrelated gateways)
 sum by (source_workload) (rate(istio_requests_total{llm_isvc_gateway="true",destination_service_namespace=~"$namespace"}[5m]))
 
-# Gateway errors by response code
-sum by (response_code) (rate(istio_requests_total{llm_isvc_gateway="true",destination_service_namespace=~"$namespace",response_code!="200"}[5m]))
+# gateway request rate by response code
+sum by (response_code) (rate(istio_requests_total{llm_isvc_gateway="true",destination_service_namespace=~"$namespace"}[5m]))
 
 # Gateway latency P95
 histogram_quantile(0.95, sum by (le, source_workload) (rate(istio_request_duration_milliseconds_bucket{llm_isvc_gateway="true",destination_service_namespace=~"$namespace"}[5m])))
@@ -184,8 +184,8 @@ Available refresh intervals: 10s, 30s, 1m, 5m, 15m, 30m, 1h, 2h, 1d
 ## Drill-Down Navigation
 
 ### From Cluster Health Overview
-- Click any per-model series → **Model Performance & Usage** (pre-filtered to that model)
-- Click error rate series → **Failure & Diagnostics** (pre-filtered to that model)
+- Click any per-model-server series → **Model Performance & Usage** (pre-filtered to that model server)
+- Click error rate series → **Failure & Diagnostics** (pre-filtered to that model server)
 - Dashboard header links → All other dashboards
 
 ### Interpreting Scheduling vs Capacity

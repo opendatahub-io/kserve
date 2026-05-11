@@ -106,7 +106,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Gateway Errors by Model & Response Code",
+      "title": "Gateway Errors by Model Server & Response Code",
       "tooltip": {
         "shared": true,
         "sort": 2,
@@ -282,19 +282,19 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "rate(kuadrant_allowed[5m])",
+          "expr": "sum(rate(kuadrant_allowed[5m]))",
           "interval": "",
           "legendFormat": "Allowed",
           "refId": "A"
         },
         {
-          "expr": "rate(kuadrant_denied[5m])",
+          "expr": "sum(rate(kuadrant_denied[5m]))",
           "interval": "",
           "legendFormat": "Denied",
           "refId": "B"
         },
         {
-          "expr": "rate(kuadrant_errors[5m])",
+          "expr": "sum(rate(kuadrant_errors[5m]))",
           "interval": "",
           "legendFormat": "Errors",
           "refId": "C"

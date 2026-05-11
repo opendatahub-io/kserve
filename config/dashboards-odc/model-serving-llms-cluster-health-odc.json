@@ -64,7 +64,7 @@
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
-        "w": 8,
+        "w": 6,
         "x": 0,
         "y": 1
       },
@@ -142,7 +142,7 @@
         "align": false,
         "alignLevel": null
       },
-      "span": 4
+      "span": 3
     },
     {
       "aliasColors": {},
@@ -150,13 +150,13 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "$datasource",
-      "description": "Non-200 responses at the gateway layer, broken down by HTTP response code. Catches errors before they reach vLLM or the scheduler (e.g., 401 auth failures, 404 routing misses, 503 upstream unavailable).",
+      "description": "Gateway request rate broken down by HTTP response code. Shows the full traffic profile including successful (200) and error responses.",
       "fill": 0,
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 8,
+        "w": 6,
+        "x": 6,
         "y": 1
       },
       "hiddenSeries": false,
@@ -193,7 +193,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum by (response_code) (rate(istio_requests_total{llm_isvc_gateway=\"true\",destination_service_namespace=~\"$namespace\",response_code!=\"200\"}[5m]))",
+          "expr": "sum by (response_code) (rate(istio_requests_total{llm_isvc_gateway=\"true\",destination_service_namespace=~\"$namespace\"}[5m]))",
           "interval": "",
           "legendFormat": "{{response_code}}",
           "refId": "A"
@@ -203,7 +203,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Gateway Errors by Response Code",
+      "title": "Gateway Request Rate by Response Code",
       "tooltip": {
         "shared": true,
         "sort": 2,
@@ -239,7 +239,7 @@
         "align": false,
         "alignLevel": null
       },
-      "span": 4
+      "span": 3
     },
     {
       "aliasColors": {},
@@ -252,8 +252,8 @@
       "fillGradient": 0,
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 16,
+        "w": 6,
+        "x": 12,
         "y": 1
       },
       "hiddenSeries": false,
@@ -330,7 +330,114 @@
         "align": false,
         "alignLevel": null
       },
-      "span": 4
+      "span": 3
+    },
+    {
+      "aliasColors": {
+        "Allowed": "green",
+        "Denied": "red",
+        "Errors": "orange"
+      },
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Kuadrant authorization gateway decisions: allowed, denied, and error rates.",
+      "fill": 0,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      },
+      "hiddenSeries": false,
+      "id": 21,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "sum(rate(kuadrant_allowed[5m]))",
+          "interval": "",
+          "legendFormat": "Allowed",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(kuadrant_denied[5m]))",
+          "interval": "",
+          "legendFormat": "Denied",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(rate(kuadrant_errors[5m]))",
+          "interval": "",
+          "legendFormat": "Errors",
+          "refId": "C"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Kuadrant Auth Decisions",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "ops",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 3
     },
     {
       "collapsed": false,
@@ -348,7 +455,7 @@
     },
     {
       "datasource": "$datasource",
-      "description": "Current aggregate request rate across all models in the cluster",
+      "description": "Total number of LLMInferenceService resources in the cluster",
       "fieldConfig": {
         "defaults": {
           "thresholds": {
@@ -363,8 +470,8 @@
         }
       },
       "gridPos": {
-        "h": 6,
-        "w": 6,
+        "h": 8,
+        "w": 8,
         "x": 0,
         "y": 10
       },
@@ -376,47 +483,36 @@
       },
       "targets": [
         {
-          "expr": "sum(rate(vllm:request_success_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m])) or vector(0)",
+          "expr": "cluster:usage:resources:sum{resource=\"llminferenceservices.serving.kserve.io\"} or vector(0)",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
         }
       ],
-      "title": "Total Request Rate",
+      "title": "LLMInferenceServices",
       "type": "gauge",
-      "span": 3
+      "span": 4
     },
     {
       "datasource": "$datasource",
-      "description": "Percentage of inference requests resulting in errors at the scheduler level. Falls back to HTTP-based error rate if scheduler metrics are unavailable.",
+      "description": "Total number of LLMInferenceServiceConfig resources in the cluster",
       "fieldConfig": {
         "defaults": {
-          "max": 100,
-          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 5
               }
             ]
-          },
-          "unit": "percent"
+          }
         }
       },
       "gridPos": {
-        "h": 6,
-        "w": 6,
-        "x": 6,
+        "h": 8,
+        "w": 8,
+        "x": 8,
         "y": 10
       },
       "id": 2,
@@ -427,64 +523,15 @@
       },
       "targets": [
         {
-          "expr": "100 * (sum(rate(inference_objective_request_error_total{namespace=~\"$namespace\"}[5m])) / (sum(rate(inference_objective_request_total{namespace=~\"$namespace\"}[5m])) > 0)) or 100 * (sum(rate(http_requests_total{llm_isvc_name!=\"\",namespace=~\"$namespace\",status!=\"2xx\"}[5m])) / (sum(rate(http_requests_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m])) > 0)) or vector(0)",
+          "expr": "cluster:usage:resources:sum{resource=\"llminferenceserviceconfigs.serving.kserve.io\"} or vector(0)",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
         }
       ],
-      "title": "HTTP Error Rate",
+      "title": "LLMInferenceServiceConfigs",
       "type": "gauge",
-      "span": 3
-    },
-    {
-      "datasource": "$datasource",
-      "description": "99th percentile end-to-end request latency across all models. Uses scheduler-level latency (includes routing overhead) with vLLM fallback.",
-      "fieldConfig": {
-        "defaults": {
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 5
-              },
-              {
-                "color": "red",
-                "value": 30
-              }
-            ]
-          },
-          "unit": "s"
-        }
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 6,
-        "x": 12,
-        "y": 10
-      },
-      "id": 3,
-      "options": {
-        "orientation": "auto",
-        "showThresholdLabels": false,
-        "showThresholdMarkers": true
-      },
-      "targets": [
-        {
-          "expr": "(histogram_quantile(0.99, sum(rate(inference_objective_request_duration_seconds_bucket{namespace=~\"$namespace\"}[5m])) by (le)) >= 0) or (histogram_quantile(0.99, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m])) by (le)) >= 0) or vector(0)",
-          "interval": "",
-          "legendFormat": "",
-          "refId": "A"
-        }
-      ],
-      "title": "E2E Latency P99",
-      "type": "gauge",
-      "span": 3
+      "span": 4
     },
     {
       "datasource": "$datasource",
@@ -507,9 +554,9 @@
         }
       },
       "gridPos": {
-        "h": 6,
-        "w": 6,
-        "x": 18,
+        "h": 8,
+        "w": 8,
+        "x": 16,
         "y": 10
       },
       "id": 4,
@@ -528,7 +575,118 @@
       ],
       "title": "Ready Pods",
       "type": "gauge",
-      "span": 3
+      "span": 4
+    },
+    {
+      "datasource": "$datasource",
+      "description": "User-facing model names currently being served, with the model server (LLMInferenceService) they map to.",
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "id": 22,
+      "targets": [
+        {
+          "expr": "count by (model_name, llm_isvc_name, namespace) (vllm:request_success_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"})",
+          "format": "table",
+          "instant": true,
+          "interval": "",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "Served Models",
+      "type": "table",
+      "transform": "table",
+      "columns": [
+        {
+          "text": "model_name",
+          "value": "model_name"
+        },
+        {
+          "text": "llm_isvc_name",
+          "value": "llm_isvc_name"
+        },
+        {
+          "text": "namespace",
+          "value": "namespace"
+        }
+      ],
+      "styles": [
+        {
+          "alias": "Model Name",
+          "pattern": "model_name",
+          "type": "string"
+        },
+        {
+          "alias": "Model Server",
+          "pattern": "llm_isvc_name",
+          "type": "string"
+        },
+        {
+          "alias": "Namespace",
+          "pattern": "namespace",
+          "type": "string"
+        },
+        {
+          "alias": "",
+          "pattern": "Time",
+          "type": "hidden"
+        },
+        {
+          "alias": "",
+          "pattern": "Value",
+          "type": "hidden"
+        },
+        {
+          "alias": "",
+          "pattern": "__name__",
+          "type": "hidden"
+        },
+        {
+          "alias": "",
+          "pattern": "endpoint",
+          "type": "hidden"
+        },
+        {
+          "alias": "",
+          "pattern": "job",
+          "type": "hidden"
+        },
+        {
+          "alias": "",
+          "pattern": "service",
+          "type": "hidden"
+        },
+        {
+          "alias": "",
+          "pattern": "instance",
+          "type": "hidden"
+        },
+        {
+          "alias": "",
+          "pattern": "container",
+          "type": "hidden"
+        },
+        {
+          "alias": "",
+          "pattern": "pod",
+          "type": "hidden"
+        },
+        {
+          "alias": "",
+          "pattern": "engine",
+          "type": "hidden"
+        },
+        {
+          "alias": "",
+          "pattern": "finished_reason",
+          "type": "hidden"
+        }
+      ],
+      "span": 12
     },
     {
       "collapsed": false,
@@ -537,10 +695,10 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 16
+        "y": 24
       },
       "id": 200,
-      "title": "Per-Model Health",
+      "title": "Per-Model-Server Health",
       "type": "row",
       "span": 12
     },
@@ -557,7 +715,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 17
+        "y": 25
       },
       "hiddenSeries": false,
       "id": 5,
@@ -603,7 +761,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Request Rate by Model",
+      "title": "Request Rate by Model Server",
       "tooltip": {
         "shared": true,
         "sort": 2,
@@ -654,7 +812,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 17
+        "y": 25
       },
       "hiddenSeries": false,
       "id": 6,
@@ -717,7 +875,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Error Rate by Model",
+      "title": "Error Rate by Model Server",
       "tooltip": {
         "shared": true,
         "sort": 2,
@@ -768,7 +926,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 17
+        "y": 25
       },
       "hiddenSeries": false,
       "id": 7,
@@ -814,7 +972,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "E2E Latency P95 by Model",
+      "title": "E2E Latency P95 by Model Server",
       "tooltip": {
         "shared": true,
         "sort": 2,
@@ -859,7 +1017,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 25
+        "y": 33
       },
       "id": 300,
       "title": "Capacity & Scheduling",
@@ -879,7 +1037,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 26
+        "y": 34
       },
       "hiddenSeries": false,
       "id": 8,
@@ -936,7 +1094,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "KV Cache Utilization by Model",
+      "title": "KV Cache Utilization by Model Server",
       "tooltip": {
         "shared": true,
         "sort": 2,
@@ -987,7 +1145,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 26
+        "y": 34
       },
       "hiddenSeries": false,
       "id": 9,
@@ -1027,7 +1185,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Requests Waiting by Model",
+      "title": "Requests Waiting by Model Server",
       "tooltip": {
         "shared": true,
         "sort": 2,
@@ -1079,7 +1237,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 26
+        "y": 34
       },
       "hiddenSeries": false,
       "id": 10,
@@ -1165,7 +1323,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 42
       },
       "id": 400,
       "title": "Staleness & Token Throughput",
@@ -1185,7 +1343,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 35
+        "y": 43
       },
       "hiddenSeries": false,
       "id": 11,
@@ -1296,7 +1454,7 @@
         "h": 8,
         "w": 16,
         "x": 8,
-        "y": 35
+        "y": 43
       },
       "hiddenSeries": false,
       "id": 12,
@@ -1387,7 +1545,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 43
+        "y": 51
       },
       "id": 500,
       "title": "SLO & Scheduler Signals",
@@ -1407,7 +1565,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 44
+        "y": 52
       },
       "hiddenSeries": false,
       "id": 13,
@@ -1498,7 +1656,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 44
+        "y": 52
       },
       "hiddenSeries": false,
       "id": 14,
@@ -1612,7 +1770,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 44
+        "y": 52
       },
       "hiddenSeries": false,
       "id": 15,
@@ -1706,7 +1864,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 52
+        "y": 60
       },
       "hiddenSeries": false,
       "id": 16,
@@ -1814,7 +1972,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 52
+        "y": 60
       },
       "hiddenSeries": false,
       "id": 17,

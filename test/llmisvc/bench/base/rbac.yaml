@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: guidellm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: guidellm
+rules:
+  - apiGroups: [ "serving.kserve.io" ]
+    resources: [ "llminferenceservices" ]
+    verbs: [ "get" ]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: guidellm
+subjects:
+  - kind: ServiceAccount
+    name: guidellm
+roleRef:
+  kind: Role
+  name: guidellm
+  apiGroup: rbac.authorization.k8s.io

@@ -32,6 +32,10 @@ spec:
             # Set the HOME directory to a writable location to avoid permission errors.
             - name: HOME
               value: "/tmp"
+            - name: PYTHONUNBUFFERED
+              value: "1"
+            - name: TERM
+              value: "dumb"
           command: ["/bin/sh", "-c"]
           # The script to be executed. The '|' allows for a multi-line string.
           args:
@@ -61,19 +65,24 @@ spec:
               
               # Install the lm-evaluation-harness library with API support.
               echo "Installing lm_eval library..."
-              uv pip install "lm_eval[api]==0.4.11" "transformers==4.57.6"
+              uv pip install "lm_eval[api]==0.4.11" "transformers==4.57.6" "torch==2.7.1+cpu" --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple/ --index-strategy unsafe-best-match
               echo "lm_eval installation complete."
               
               echo "--- Setup complete. Starting evaluation ---"
               echo "Model for evaluation: ${MODEL}"
               echo "Target URL: ${BASE_URL}"
               
-              # Execute the lm_eval command with the specified arguments.
-              # The model arguments are passed as a comma-separated string.
-              lm_eval --model local-completions --tasks "${TASKS}" \
-                --model_args model=${MODEL},base_url=${BASE_URL}/v1/completions,num_concurrent=${NUM_CONCURRENT},max_retries=3,tokenized_requests=False
-              
-              echo "--- lm_eval run finished successfully ---"
+              set +e
+              (while true; do echo "[heartbeat $(date +%H:%M:%S)] lm_eval still running"; sleep 30; done) &
+              HEARTBEAT_PID=$!
+
+              lm_eval --model local-chat-completions --tasks "${TASKS}" \
+                --model_args model=${MODEL},base_url=${BASE_URL}/v1/chat/completions,num_concurrent=${NUM_CONCURRENT},max_retries=3,tokenized_requests=False \
+                --verbosity DEBUG 2>&1
+              EXIT_CODE=$?
+
+              kill $HEARTBEAT_PID 2>/dev/null
+              echo "--- lm_eval exited with code: ${EXIT_CODE} ---"
           resources:
             requests:
               cpu: "2"

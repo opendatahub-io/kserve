@@ -82,7 +82,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "avg(vllm:kv_cache_usage_perc{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}) by (llm_isvc_component) * 100",
+          "expr": "avg(vllm:kv_cache_usage_perc{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}) by (llm_isvc_component) * 100",
           "interval": "",
           "legendFormat": "{{llm_isvc_component}}",
           "refId": "A"
@@ -298,7 +298,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (llm_isvc_component)",
+          "expr": "sum(rate(vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (llm_isvc_component)",
           "interval": "",
           "legendFormat": "{{llm_isvc_component}}",
           "refId": "A"
@@ -389,7 +389,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m]))",
+          "expr": "sum(rate(vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m]))",
           "interval": "",
           "legendFormat": "Requests",
           "refId": "A"
@@ -480,31 +480,31 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.90, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.90, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P90",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P95",
           "refId": "C"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P99",
           "refId": "D"
         },
         {
-          "expr": "(sum(rate(vllm:e2e_request_latency_seconds_sum{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) / (sum(rate(vllm:e2e_request_latency_seconds_count{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) > 0))",
+          "expr": "(sum(rate(vllm:e2e_request_latency_seconds_sum{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) / (sum(rate(vllm:e2e_request_latency_seconds_count{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) > 0))",
           "interval": "",
           "legendFormat": "Average",
           "refId": "E"
@@ -595,19 +595,19 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.90, sum(rate(vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.90, sum(rate(vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P90",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P95",
           "refId": "C"
@@ -698,19 +698,19 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(vllm:request_time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.90, sum(rate(vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.90, sum(rate(vllm:request_time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P90",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P95",
           "refId": "C"
@@ -801,19 +801,19 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(vllm:inter_token_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(vllm:inter_token_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(vllm:inter_token_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:inter_token_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P95",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(vllm:inter_token_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(vllm:inter_token_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P99",
           "refId": "C"
@@ -907,13 +907,13 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(vllm:prompt_tokens_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m]))",
+          "expr": "sum(rate(vllm:prompt_tokens_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m]))",
           "interval": "",
           "legendFormat": "Input Tokens",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(vllm:generation_tokens_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m]))",
+          "expr": "sum(rate(vllm:generation_tokens_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m]))",
           "interval": "",
           "legendFormat": "Output Tokens",
           "refId": "B"
@@ -1004,19 +1004,19 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.50, sum(rate(vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.50, sum(rate(vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P50",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.90, sum(rate(vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.90, sum(rate(vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P90",
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "P95",
           "refId": "C"
@@ -1107,7 +1107,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(vllm:num_requests_waiting{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}) by (llm_isvc_component)",
+          "expr": "sum(vllm:num_requests_waiting{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}) by (llm_isvc_component)",
           "interval": "",
           "legendFormat": "{{llm_isvc_component}}",
           "refId": "A"
@@ -1198,7 +1198,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(vllm:num_requests_running{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}) by (llm_isvc_component)",
+          "expr": "sum(vllm:num_requests_running{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}) by (llm_isvc_component)",
           "interval": "",
           "legendFormat": "{{llm_isvc_component}}",
           "refId": "A"
@@ -1292,13 +1292,13 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(vllm:request_prompt_tokens_sum{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) / (sum(rate(vllm:request_prompt_tokens_count{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) > 0)",
+          "expr": "sum(rate(vllm:request_prompt_tokens_sum{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) / (sum(rate(vllm:request_prompt_tokens_count{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) > 0)",
           "interval": "",
           "legendFormat": "Avg Input Tokens per Request",
           "refId": "A"
         },
         {
-          "expr": "sum(rate(vllm:request_generation_tokens_sum{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) / (sum(rate(vllm:request_generation_tokens_count{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) > 0)",
+          "expr": "sum(rate(vllm:request_generation_tokens_sum{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) / (sum(rate(vllm:request_generation_tokens_count{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) > 0)",
           "interval": "",
           "legendFormat": "Avg Output Tokens per Request",
           "refId": "B"
@@ -1426,7 +1426,7 @@
       "timeFrom": null,
       "timeRegions": [],
       "timeShift": null,
-      "title": "Gateway Latency per Model",
+      "title": "Gateway Latency per Model Server",
       "tooltip": {
         "shared": true,
         "sort": 0,
@@ -1513,7 +1513,7 @@
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le)) * 1000",
+          "expr": "histogram_quantile(0.99, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le)) * 1000",
           "interval": "",
           "legendFormat": "Engine P99",
           "refId": "B"
@@ -2104,7 +2104,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (llm_isvc_component)",
+          "expr": "sum(rate(vllm:request_success_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (llm_isvc_component)",
           "interval": "",
           "legendFormat": "{{llm_isvc_component}}",
           "refId": "A"
@@ -2195,7 +2195,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "avg(vllm:kv_cache_usage_perc{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}) by (llm_isvc_component) * 100",
+          "expr": "avg(vllm:kv_cache_usage_perc{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}) by (llm_isvc_component) * 100",
           "interval": "",
           "legendFormat": "{{llm_isvc_component}}",
           "refId": "A"
@@ -2319,7 +2319,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "100 * (sum(rate(vllm:prefix_cache_hits_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) / (sum(rate(vllm:prefix_cache_queries_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) > 0))",
+          "expr": "100 * (sum(rate(vllm:prefix_cache_hits_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) / (sum(rate(vllm:prefix_cache_queries_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) > 0))",
           "interval": "",
           "legendFormat": "Prefix Cache Hit Rate",
           "refId": "A"
@@ -2410,7 +2410,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(rate(vllm:num_preemptions_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (llm_isvc_component)",
+          "expr": "sum(rate(vllm:num_preemptions_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (llm_isvc_component)",
           "interval": "",
           "legendFormat": "{{llm_isvc_component}}",
           "refId": "A"
@@ -2518,13 +2518,13 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_queue_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "Queue Time P95",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_inference_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_inference_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "Inference Time P95",
           "refId": "B"
@@ -2735,7 +2735,7 @@
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "Engine (vLLM)",
           "refId": "B"
@@ -2835,7 +2835,7 @@
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le))",
+          "expr": "histogram_quantile(0.99, sum(rate(vllm:request_time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) by (le))",
           "interval": "",
           "legendFormat": "Engine (vLLM)",
           "refId": "B"
@@ -3031,7 +3031,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum by(source) (rate(vllm:prompt_tokens_by_source_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m]))",
+          "expr": "sum by(source) (rate(vllm:prompt_tokens_by_source_total{llm_isvc_name!=\"\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m]))",
           "interval": "",
           "legendFormat": "{{source}}",
           "refId": "A"
@@ -3124,7 +3124,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "100 * (sum(rate(vllm:external_prefix_cache_hits_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m])) / (sum(rate(vllm:external_prefix_cache_queries_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m])) > 0))",
+          "expr": "100 * (sum(rate(vllm:external_prefix_cache_hits_total{llm_isvc_name!=\"\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) / (sum(rate(vllm:external_prefix_cache_queries_total{llm_isvc_name!=\"\",namespace=~\"$namespace\",llm_isvc_role=~\"$llm_isvc_role\"}[5m])) > 0))",
           "interval": "",
           "legendFormat": "External Prefix Cache Hit Rate",
           "refId": "A"

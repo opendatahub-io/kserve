@@ -30,7 +30,7 @@ This document maps real operational questions to the dashboard panels and PromQL
 Start at the top with **Gateway & Ingress** — these panels show traffic arriving at the cluster before it reaches any model:
 
 - **Gateway Request Rate by Gateway** — is traffic flowing through the ingress layer?
-- **Gateway Errors by Response Code** — are requests failing at the gateway (401 auth, 404 routing, 503 upstream)?
+- **Gateway Request Rate by Response Code** — full traffic profile by HTTP status code (200s, 4xx, 5xx)
 - **Gateway Latency P95** — how much time is spent at the ingress layer?
 
 If the gateway looks healthy, check the SLI summary gauges below. Four numbers tell you the state of the serving layer:
@@ -49,7 +49,7 @@ If all are green, the cluster is healthy. Move on.
 | Panel | ID | Query |
 |---|---|---|
 | CH: Gateway Request Rate by Gateway | 18 | `sum by (source_workload) (rate(istio_requests_total{llm_isvc_gateway="true",destination_service_namespace=~"$namespace"}[5m]))` |
-| CH: Gateway Errors by Response Code | 19 | `sum by (response_code) (rate(istio_requests_total{llm_isvc_gateway="true",destination_service_namespace=~"$namespace",response_code!="200"}[5m]))` |
+| CH: Gateway Request Rate by Response Code | 19 | `sum by (response_code) (rate(istio_requests_total{llm_isvc_gateway="true",destination_service_namespace=~"$namespace"}[5m]))` |
 | CH: Gateway Latency P95 by Gateway | 20 | `histogram_quantile(0.95, sum by (le, source_workload) (rate(istio_request_duration_milliseconds_bucket{llm_isvc_gateway="true",destination_service_namespace=~"$namespace"}[5m])))` |
 
 **SLI Summary:**
@@ -65,23 +65,23 @@ The HTTP Error Rate and E2E Latency gauges use a dual-source strategy: they try 
 
 ---
 
-### 2. Identifying a Problematic Model
+### 2. Identifying a Problematic Model Server
 
-> "Something is off. Which model is the problem?"
+> "Something is off. Which model server is the problem?"
 
-**Dashboard**: Cluster Health Overview → Per-Model Health row
+**Dashboard**: Cluster Health Overview → Per-Model-Server Health row
 
-The per-model health panels show request rate, error rate, and latency by `llm_isvc_name`. The problematic model will stand out as a spike in error rate or latency. Click the model name to drill down into Model Performance or Failure & Diagnostics.
+The per-model-server health panels show request rate, error rate, and latency by `llm_isvc_name` (the LLMInferenceService name). The problematic model server will stand out as a spike in error rate or latency. Click the model server name to drill down into Model Performance or Failure & Diagnostics.
 
 #### Panels & Queries
 
 | Panel | ID | Query |
 |---|---|---|
-| CH: Request Rate by Model | 5 | `topk(10, sum(rate(vllm:request_success_total{namespace=~"$namespace"}[5m])) by (llm_isvc_name))` |
-| CH: Error Rate by Model | 6 | `100 * (sum(rate(http_requests_total{llm_isvc_name!="",namespace=~"$namespace",status!="2xx"}[5m])) by (llm_isvc_name) / (sum(rate(http_requests_total{llm_isvc_name!="",namespace=~"$namespace"}[5m])) by (llm_isvc_name) > 0))` |
-| CH: E2E Latency P95 by Model | 7 | `histogram_quantile(0.95, sum(rate(vllm:e2e_request_latency_seconds_bucket{namespace=~"$namespace"}[5m])) by (le, llm_isvc_name))` |
+| CH: Request Rate by Model Server | 5 | `topk(10, sum(rate(vllm:request_success_total{namespace=~"$namespace"}[5m])) by (llm_isvc_name))` |
+| CH: Error Rate by Model Server | 6 | `100 * (sum(rate(http_requests_total{llm_isvc_name!="",namespace=~"$namespace",status!="2xx"}[5m])) by (llm_isvc_name) / (sum(rate(http_requests_total{llm_isvc_name!="",namespace=~"$namespace"}[5m])) by (llm_isvc_name) > 0))` |
+| CH: E2E Latency P95 by Model Server | 7 | `histogram_quantile(0.95, sum(rate(vllm:e2e_request_latency_seconds_bucket{namespace=~"$namespace"}[5m])) by (le, llm_isvc_name))` |
 
-Panel 5 links to Model Performance, panel 6 links to Failure & Diagnostics (both pre-filtered to the selected model).
+Panel 5 links to Model Performance, panel 6 links to Failure & Diagnostics (both pre-filtered to the selected model server).
 
 ---
 
@@ -103,7 +103,7 @@ The **Inter-Token Latency** panel (P50/P95/P99) shows token delivery smoothness 
 
 The **Gateway Latency** row adds the client-facing perspective:
 
-- **Gateway Latency per Model** (P50/P95/P99) — end-to-end latency as measured at the inference gateway (includes routing, scheduling, and inference)
+- **Gateway Latency per Model Server** (P50/P95/P99) — end-to-end latency as measured at the inference gateway (includes routing, scheduling, and inference)
 - **Gateway vs Engine Latency (P99)** — overlays gateway P99 with vLLM engine P99. The delta reveals overhead from the gateway, Istio sidecar, and routing/scheduling layers
 
 #### Panels & Queries
@@ -114,7 +114,7 @@ The **Gateway Latency** row adds the client-facing perspective:
 | MP: Latency Trends (TTFT) | 7 | `histogram_quantile(0.95, sum(rate(vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le))` |
 | MP: Time per Output Token (TPOT) | 8 | `histogram_quantile(0.95, sum(rate(vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le))` |
 | MP: Inter-Token Latency | 160 | `histogram_quantile(0.99, sum(rate(vllm:inter_token_latency_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le))` |
-| MP: Gateway Latency per Model | 171 | `histogram_quantile(0.95, sum by (le, destination_canonical_service) (rate(istio_request_duration_milliseconds_bucket{llm_isvc_gateway="true",destination_service_namespace=~"$namespace",destination_canonical_service=~"$llm_isvc_name"}[5m])))` |
+| MP: Gateway Latency per Model Server | 171 | `histogram_quantile(0.95, sum by (le, destination_canonical_service) (rate(istio_request_duration_milliseconds_bucket{llm_isvc_gateway="true",destination_service_namespace=~"$namespace",destination_canonical_service=~"$llm_isvc_name"}[5m])))` |
 | MP: Gateway vs Engine Latency (P99) | 172 | Gateway: `histogram_quantile(0.99, sum(rate(istio_request_duration_milliseconds_bucket{llm_isvc_gateway="true",destination_service_namespace=~"$namespace",destination_canonical_service=~"$llm_isvc_name"}[5m])) by (le))` |
 | | | Engine: `histogram_quantile(0.99, sum(rate(vllm:e2e_request_latency_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le)) * 1000` |
 
@@ -250,7 +250,7 @@ Additional per-replica panels available for deeper investigation:
 
 Start at the top with **Gateway & Auth Failures** to determine if the issue is at the ingress layer:
 
-- **Gateway Errors by Model & Response Code** — are errors hitting specific models? What HTTP codes?
+- **Gateway Errors by Model Server & Response Code** — are errors hitting specific model servers? What HTTP codes?
 - **Gateway Response Flags** — transport-level issues: `DC` (downstream conn terminated), `NR` (no route), `DPE` (protocol error), `UH` (no healthy upstream)
 - **Kuadrant Auth Decisions** — are requests being denied by the authorization gateway?
 - **Gateway Latency by Response Code (P95)** — fast errors (e.g., 401 auth rejection) vs slow errors (e.g., 503 timeout after waiting)
@@ -274,7 +274,7 @@ Then drill into functional area attribution:
 
 | Panel | ID | Query |
 |---|---|---|
-| FD: Gateway Errors by Model & Response Code | 17 | `sum by (destination_canonical_service, response_code) (rate(istio_requests_total{llm_isvc_gateway="true",destination_service_namespace=~"$namespace",response_code!="200"}[5m]))` |
+| FD: Gateway Errors by Model Server & Response Code | 17 | `sum by (destination_canonical_service, response_code) (rate(istio_requests_total{llm_isvc_gateway="true",destination_service_namespace=~"$namespace",response_code!="200"}[5m]))` |
 | FD: Gateway Response Flags | 18 | `sum by (response_flags) (rate(istio_requests_total{llm_isvc_gateway="true",destination_service_namespace=~"$namespace",response_flags!="-"}[5m]))` |
 | FD: Kuadrant Auth Decisions | 19 | Allowed: `rate(kuadrant_allowed[5m])`, Denied: `rate(kuadrant_denied[5m])`, Errors: `rate(kuadrant_errors[5m])` |
 | FD: Gateway Latency by Response Code (P95) | 20 | `histogram_quantile(0.95, sum by (le, response_code) (rate(istio_request_duration_milliseconds_bucket{llm_isvc_gateway="true",destination_service_namespace=~"$namespace",response_code!="200"}[5m])))` |
@@ -417,8 +417,8 @@ Compare token throughput trends against KV cache utilization and queue depth to 
 
 | Panel | ID | Query |
 |---|---|---|
-| CH: KV Cache Utilization by Model | 8 | `avg(vllm:kv_cache_usage_perc{namespace=~"$namespace"}) by (llm_isvc_name) * 100` |
-| CH: Requests Waiting by Model | 9 | `sum(vllm:num_requests_waiting{namespace=~"$namespace"}) by (llm_isvc_name)` |
+| CH: KV Cache Utilization by Model Server | 8 | `avg(vllm:kv_cache_usage_perc{namespace=~"$namespace"}) by (llm_isvc_name) * 100` |
+| CH: Requests Waiting by Model Server | 9 | `sum(vllm:num_requests_waiting{namespace=~"$namespace"}) by (llm_isvc_name)` |
 
 ---
 
@@ -428,7 +428,7 @@ Compare token throughput trends against KV cache utilization and queue depth to 
 
 **Dashboard**: Cluster Health Overview → Data Staleness Detector
 
-Shows seconds since last metric scrape per model. Warning at 60s, critical at 300s. If staleness is high:
+Shows seconds since last metric scrape per model server. Warning at 60s, critical at 300s. If staleness is high:
 
 1. Check PodMonitor / ServiceMonitor scrape targets: `up{job=~".*kserve.*"}`
 2. Verify LLMInferenceService is running and metrics collection is enabled
@@ -474,9 +474,9 @@ Most investigations follow this path:
 1. Cluster Health Overview          "Is something wrong?"
    └─ Gateway & Ingress row          (first check: is traffic reaching the cluster?)
    └─ SLI Summary gauges             (second check: is the serving layer healthy?)
-   └─ Per-Model Health row            (identify the problematic model)
+   └─ Per-Model-Server Health row     (identify the problematic model server)
          |
-         | (identify the model)
+         | (identify the model server)
          v
 2a. Model Performance & Usage      "What kind of problem — latency, errors, capacity?"
          |

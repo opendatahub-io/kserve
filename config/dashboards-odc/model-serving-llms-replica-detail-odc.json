@@ -463,7 +463,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (le, pod))",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (le, pod))",
           "interval": "",
           "legendFormat": "{{pod}}",
           "refId": "A"
@@ -1654,7 +1654,7 @@
         "y": 57
       },
       "id": 200,
-      "title": "KV Offload & Inter-Token Latency",
+      "title": "KV Transfer, Token Sources & Inter-Token Latency",
       "type": "row",
       "span": 12
     },
@@ -1664,7 +1664,7 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "$datasource",
-      "description": "Cumulative KV cache bytes transferred per replica in disaggregated Prefill/Decode deployments. Shows the volume of KV cache data being offloaded between phases.",
+      "description": "KV cache offload throughput in bytes/s per replica. Only populated when KV cache offloading to CPU is active.",
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -1755,7 +1755,7 @@
       "dashLength": 10,
       "dashes": false,
       "datasource": "$datasource",
-      "description": "Cumulative time spent on KV cache offload transfers per replica. High values indicate slow P/D data transfer, potentially due to network or memory bandwidth constraints.",
+      "description": "KV cache offload time per replica. Only populated when KV cache offloading to CPU is active.",
       "fill": 1,
       "fillGradient": 0,
       "gridPos": {
@@ -1930,6 +1930,194 @@
         "alignLevel": null
       },
       "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Prompt token rate per replica broken down by source: local_compute (computed from scratch), local_cache_hit (prefix cache), external_kv_transfer (P/D KV transfer).",
+      "fill": 0,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 66
+      },
+      "hiddenSeries": false,
+      "id": 204,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "sum by (pod, source) (rate(vllm:prompt_tokens_by_source_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",llm_isvc_role=~\"$llm_isvc_role\",llm_isvc_component=~\"$llm_isvc_component\"}[5m]))",
+          "interval": "",
+          "legendFormat": "{{pod}} \u2014 {{source}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Prompt Tokens by Source per Replica",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "ops",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 6
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Distribution of KV tokens computed during prefill per replica. High values indicate prefill is computing KV from scratch rather than reusing cached or transferred KV.",
+      "fill": 0,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 66
+      },
+      "hiddenSeries": false,
+      "id": 205,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le, pod) (rate(vllm:request_prefill_kv_computed_tokens_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",llm_isvc_role=~\"$llm_isvc_role\",llm_isvc_component=~\"$llm_isvc_component\"}[5m])))",
+          "interval": "",
+          "legendFormat": "{{pod}} P95",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.50, sum by (le, pod) (rate(vllm:request_prefill_kv_computed_tokens_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",llm_isvc_role=~\"$llm_isvc_role\",llm_isvc_component=~\"$llm_isvc_component\"}[5m])))",
+          "interval": "",
+          "legendFormat": "{{pod}} P50",
+          "refId": "B"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Prefill KV Computed Tokens per Replica",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 6
     }
   ],
   "refresh": "30s",
