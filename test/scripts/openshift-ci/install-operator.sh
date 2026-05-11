@@ -157,6 +157,13 @@ spec:
     - ${image_org}
 EOF
 
+    # HyperShift / ROSA HCP clusters have no MachineConfigPools -- the
+    # ImageDigestMirrorSet is applied directly to nodes without an MCP rollout.
+    if ! oc get mcp master &>/dev/null; then
+        echo "No MachineConfigPool found (HyperShift/ROSA HCP) -- skipping MCP wait"
+        return
+    fi
+
     echo "Waiting for MachineConfigPool update (this takes 1-2 min on CRC)..."
     sleep 5
     timeout 300 bash -c "
