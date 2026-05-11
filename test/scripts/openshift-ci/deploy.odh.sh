@@ -12,8 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# This script installs the ODH operator and configures it to use custom KServe manifests
+# This script installs the ODH/RHOAI operator and fully deploys KServe via DSCI/DSC.
+# Optionally copies custom PR manifests to the operator PVC before activating.
 # Based on: https://github.com/opendatahub-io/opendatahub-operator/blob/main/hack/component-dev/README.md
+#
+# Env-var interface:
+#   OPERATOR_TYPE        odh (default) | rhoai/rhods
+#   CATALOG_SOURCE       FBC fragment image or CatalogSource name
+#   COPY_PR_MANIFESTS    true (default) | false -- skip to use bundled operator manifests
+#   KSERVE_NAMESPACE     override; derived from OPERATOR_TYPE when not set
 #
 # NOTE: This is for development/testing only, not for production use
 
@@ -24,20 +31,19 @@ PROJECT_ROOT="${SCRIPT_DIR}/../../../"
 source "${SCRIPT_DIR}/common.sh"
 source "${SCRIPT_DIR}/install-operator.sh"
 
-# Map legacy env vars to the shared install-operator.sh interface.
-# OPERATOR_VERSION is intentionally left unset (CI mode: skip-if-installed,
-# Automatic approval, no startingCSV).
 : "${OPERATOR_TYPE:=odh}"
 : "${CATALOG_SOURCE:=${ODH_OPERATOR_SOURCE:-}}"
 
-echo "Installing ODH operator stack to manage KServe deployment..."
+# Derive KSERVE_NAMESPACE from OPERATOR_TYPE when not explicitly set.
+case "${OPERATOR_TYPE}" in
+  rhods|rhoai)     : "${KSERVE_NAMESPACE:=redhat-ods-applications}" ;;
+  odh|opendatahub) : "${KSERVE_NAMESPACE:=opendatahub}" ;;
+  *)               : "${KSERVE_NAMESPACE:=kserve}" ;;
+esac
+
+echo "Installing ${OPERATOR_TYPE} operator to manage KServe deployment (namespace: ${KSERVE_NAMESPACE})..."
 
 install_operator
-
-# Wait for ODH CRDs to be established
-echo "Waiting for ODH CRDs to be established..."
-wait_for_crd "dscinitializations.dscinitialization.opendatahub.io" 90s
-wait_for_crd "datascienceclusters.datasciencecluster.opendatahub.io" 90s
 
 : "${COPY_PR_MANIFESTS:=true}"
 
@@ -75,10 +81,36 @@ print(','.join(f'{k}={v}' for k, v in d.items()))
 
   wait_for_pod_ready "${OPERATOR_NAMESPACE}" "${OPERATOR_POD_SELECTOR}" 300s
 
-  echo "Operator ready to use custom KServe manifests."
-  echo "  NOTE: Copy PR manifests to PVC, then apply DSC/DSCI resources."
+  echo "Copying PR manifests into ODH operator PVC..."
+  "${SCRIPT_DIR}/copy-kserve-manifests-to-pvc.sh"
 else
-  echo "Vanilla operator install -- skipping PVC/CSV patch (using bundled manifests)"
+  echo "Vanilla operator install -- using bundled manifests"
 fi
 
-echo "ODH operator installed successfully"
+# Apply DSC/DSCI to trigger KServe deployment.
+# RHOAI auto-creates a default DSCI; wait for it rather than racing to apply our own.
+# ODH may not auto-create one, so apply ours with the correct namespace.
+if [[ "${OPERATOR_TYPE}" =~ ^(rhods|rhoai)$ ]]; then
+  echo "Waiting for RHOAI to auto-create DSCI..."
+  timeout 120 bash -c '
+    while ! oc get dscinitializations -o name 2>/dev/null | grep -q .; do
+      echo "  Waiting for DSCI..."
+      sleep 5
+    done
+  '
+  echo "DSCI found: $(oc get dscinitializations -o name)"
+elif oc get dscinitializations -o name 2>/dev/null | grep -q .; then
+  echo "DSCI already exists, skipping apply"
+else
+  echo "Applying DSCI..."
+  sed 's/applicationsNamespace:  kserve/applicationsNamespace: opendatahub/' \
+    "${PROJECT_ROOT}/config/overlays/odh-test/dsci.yaml" | oc apply -f -
+fi
+
+echo "Applying DSC to trigger operator deployment..."
+oc apply -f "${PROJECT_ROOT}/config/overlays/odh-test/dsc.yaml"
+
+echo "Waiting for operator to deploy KServe controller..."
+wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=kserve-controller-manager" 600s
+
+echo "ODH/RHOAI operator deployed KServe successfully"

@@ -33,6 +33,8 @@
 set -euo pipefail
 
 _INSTALL_OPERATOR_SOURCED=true
+_INSTALL_OPERATOR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${_INSTALL_OPERATOR_DIR}/common.sh"
 
 : "${OPERATOR_TYPE:=odh}"
 : "${OPERATOR_VERSION:=}"
@@ -374,6 +376,10 @@ wait_for_operator_ready() {
             --timeout=300s
     "
     echo "${CONTROLLER_DEPLOYMENT} is available"
+
+    echo "Waiting for ODH/RHOAI CRDs to be established..."
+    wait_for_crd "dscinitializations.dscinitialization.opendatahub.io" 90s
+    wait_for_crd "datascienceclusters.datasciencecluster.opendatahub.io" 90s
 }
 
 install_operator() {

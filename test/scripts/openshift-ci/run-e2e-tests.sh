@@ -27,16 +27,13 @@ export INFERENCE_POOL_GROUP="${INFERENCE_POOL_GROUP:-inference.networking.x-k8s.
 export RUN_AS_NON_ROOT="${RUN_AS_NON_ROOT:-true}"
 export SKIP_DELETION_ON_FAILURE=${SKIP_DELETION_ON_FAILURE:-true}
 export KUBE_CLI=${KUBE_CLI_COMMAND:-oc}
-export KSERVE_NAMESPACE=${KSERVE_NAMESPACE:-"kserve"}
 
 MY_PATH=$(dirname "$0")
 PROJECT_ROOT=$MY_PATH/../../../
 export CI_USE_ISVC_HOST="1"
 
-# Export the controller namespace so that E2E tests
-# (e.g. storage version migration) can find the controller.
 export KSERVE_NAMESPACE="${KSERVE_NAMESPACE:-opendatahub}"
-: "${RUNNING_LOCAL:=false}"
+export RUNNING_LOCAL="${RUNNING_LOCAL:-false}"
 export GITHUB_SHA=stable # CI tags images to "stable" for success-200 and error-404
 
 if [[ "$RUNNING_LOCAL" == "true" ]]; then

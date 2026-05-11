@@ -204,43 +204,6 @@ if [[ "$USE_OPERATOR" == "false" ]]; then
   oc apply -f config/overlays/odh-test/dsci.yaml
   oc apply -f config/overlays/odh-test/dsc.yaml
 
-else
-  # ODH operator path
-  : "${COPY_PR_MANIFESTS:=true}"
-  if [[ "$COPY_PR_MANIFESTS" == "true" ]]; then
-    echo "⏳ Preparing PR manifests for ODH operator..."
-    echo "Copying PR manifests into ODH operator PVC..."
-    $SCRIPT_DIR/copy-kserve-manifests-to-pvc.sh
-  else
-    echo "Skipping PR manifest copy -- using operator's bundled manifests"
-  fi
-
-  # Apply DSC/DSCI to trigger deployment.
-  # RHOAI auto-creates a default DSCI; wait for it rather than racing to apply our own.
-  # ODH may not auto-create one, so apply ours with the correct namespace.
-  if [[ "${OPERATOR_TYPE}" =~ ^(rhods|rhoai)$ ]]; then
-    echo "Waiting for RHOAI to auto-create DSCI..."
-    timeout 120 bash -c '
-      while ! oc get dscinitializations -o name 2>/dev/null | grep -q .; do
-        echo "  Waiting for DSCI..."
-        sleep 5
-      done
-    '
-    echo "DSCI found: $(oc get dscinitializations -o name)"
-  elif oc get dscinitializations -o name 2>/dev/null | grep -q .; then
-    echo "DSCI already exists, skipping apply"
-  else
-    echo "Applying DSCI..."
-    sed 's/applicationsNamespace:  kserve/applicationsNamespace: opendatahub/' config/overlays/odh-test/dsci.yaml | oc apply -f -
-  fi
-  echo "Applying DSC to trigger operator deployment with PR manifests..."
-  oc apply -f config/overlays/odh-test/dsc.yaml
-
-  # Wait for KServe controller to be deployed by the operator
-  echo "Waiting for ODH operator to deploy KServe components with PR manifests..."
-  wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=kserve-controller-manager" 600s
-
-  echo "ODH operator deployed KServe using PR manifests and images"
 fi
 
 # Patch the inferenceservice-config ConfigMap to set the cluster ingress domain
