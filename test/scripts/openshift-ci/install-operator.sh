@@ -266,7 +266,7 @@ detect_channel() {
         echo "  Check that OPERATOR_VERSION=${OPERATOR_VERSION} is available in the catalog."
         exit 1
     elif [[ -z "${OPERATOR_VERSION}" && -n "${csv_pattern}" && -n "${detected_csv}" ]]; then
-        CSV_VERSION="${detected_csv#${OPERATOR_NAME}.}"
+        CSV_VERSION="${detected_csv#"${OPERATOR_NAME}."}"
         OPERATOR_VERSION="${CSV_VERSION#v}"
         USE_STARTING_CSV=false
         echo "  Auto-detected version: ${OPERATOR_VERSION} (csv=${detected_csv})"
@@ -284,7 +284,7 @@ cleanup_previous_install() {
 
     local failed_jobs
     failed_jobs=$(oc get jobs -n openshift-marketplace --no-headers 2>/dev/null \
-        | awk '$3 == "Failed" || $2 == "0/1" {print $1}' | head -5 || true)
+        | awk '$3 == "Failed" {print $1}' || true)
     if [[ -n "${failed_jobs}" ]]; then
         echo "Removing stale unpack jobs in openshift-marketplace..."
         echo "${failed_jobs}" | xargs -r oc delete job -n openshift-marketplace --ignore-not-found 2>/dev/null
@@ -368,15 +368,15 @@ wait_for_operator_ready() {
     echo "${OPERATOR_NAME} installed successfully"
 
     echo "Waiting for ${CONTROLLER_DEPLOYMENT} deployment to be available..."
-    timeout 300 bash -c "
-        while ! oc get deployment ${CONTROLLER_DEPLOYMENT} -n "${OPERATOR_NAMESPACE}" &>/dev/null; do
-            echo \"  Waiting for ${CONTROLLER_DEPLOYMENT} deployment to be created...\"
+    timeout 300 bash -c '
+        while ! oc get deployment "$2" -n "$1" &>/dev/null; do
+            echo "  Waiting for $2 deployment to be created..."
             sleep 10
         done
-        oc wait deployment/${CONTROLLER_DEPLOYMENT} -n "${OPERATOR_NAMESPACE}" \
+        oc wait deployment/"$2" -n "$1" \
             --for=condition=Available \
             --timeout=300s
-    "
+    ' -- "${OPERATOR_NAMESPACE}" "${CONTROLLER_DEPLOYMENT}"
     echo "${CONTROLLER_DEPLOYMENT} is available"
 
     echo "Waiting for ODH/RHOAI CRDs to be established..."
