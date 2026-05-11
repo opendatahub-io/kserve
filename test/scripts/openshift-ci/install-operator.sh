@@ -36,7 +36,6 @@
 
 set -euo pipefail
 
-_INSTALL_OPERATOR_SOURCED=true
 _INSTALL_OPERATOR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${_INSTALL_OPERATOR_DIR}/common.sh"
 

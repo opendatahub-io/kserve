@@ -15,7 +15,8 @@ OPERATOR_VERSION ?=
 CATALOG_SOURCE ?=
 # Controls whether local branch manifests are copied into the operator PVC so the
 # operator uses them instead of its bundled manifests. Only relevant for operator
-# installs (OPERATOR_TYPE=odh|rhoai); ignored for manual kustomize deploys.
+# installs (OPERATOR_TYPE=odh|rhoai); in manual mode the local branch overlays
+# are always used (there is no bundled artifact to fall back to).
 COPY_PR_MANIFESTS ?= true
 # Set to true to build and push local KServe images before setup, and use them
 # in the test run. Requires QUAY_REPO to be set.
