@@ -131,7 +131,21 @@ done
 
 echo "Deleting application namespaces"
 for ns in "${ALL_NAMESPACES[@]}"; do
-  oc delete namespace "$ns" --ignore-not-found --timeout=120s || true
+    oc delete namespace "$ns" --ignore-not-found --timeout=60s || true
+    if oc get namespace "$ns" &>/dev/null; then
+        echo "  Namespace ${ns} still terminating -- stripping finalizers from stuck resources..."
+        for resource in inferenceservices.serving.kserve.io \
+                        inferencegraphs.serving.kserve.io \
+                        datascienceclusters.datasciencecluster.opendatahub.io \
+                        dscinitializations.dscinitialization.opendatahub.io; do
+            for obj in $(oc get "$resource" -n "$ns" -o name 2>/dev/null); do
+                oc patch "$obj" -n "$ns" --type=merge \
+                    -p '{"metadata":{"finalizers":null}}' 2>/dev/null || true
+            done
+        done
+        oc wait --for=delete "namespace/${ns}" --timeout=60s 2>/dev/null || \
+            echo "WARNING: namespace ${ns} did not terminate within timeout"
+    fi
 done
 
 echo "Teardown complete"

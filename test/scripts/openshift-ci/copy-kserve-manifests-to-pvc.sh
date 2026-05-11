@@ -64,6 +64,10 @@ esac
 _selector=$(oc get deployment "${OPERATOR_DEPLOYMENT}" -n "${OPERATOR_NAMESPACE}" \
   -o go-template='{{range $k,$v := .spec.selector.matchLabels}}{{$k}}={{$v}},{{end}}' 2>/dev/null || true)
 _selector="${_selector%,}"
+if [[ -z "${_selector}" ]]; then
+    echo "Error: Could not get pod selector for deployment ${OPERATOR_DEPLOYMENT} (namespace: ${OPERATOR_NAMESPACE})"
+    exit 1
+fi
 POD_NAME=$(oc get po -n "${OPERATOR_NAMESPACE}" -l "${_selector}" \
   -o jsonpath="{.items[0].metadata.name}" 2>/dev/null || true)
 

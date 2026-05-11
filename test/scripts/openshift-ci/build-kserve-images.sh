@@ -3,6 +3,10 @@
 set -euo pipefail
 
 BUILDER=${BUILDER:-"docker"}
+case "${BUILDER}" in
+    docker|podman) ;;
+    *) echo "Error: BUILDER must be 'docker' or 'podman', got '${BUILDER}'"; exit 1 ;;
+esac
 GITHUB_SHA=${GITHUB_SHA:-"master"}
 
 if [ -z "${QUAY_REPO:-}" ]; then
