@@ -18,8 +18,8 @@ The list of pytest markers available are defined in [https://github.com/kserve/k
 ## Quick start (Makefile targets)
 
 The recommended way to set up and run E2E tests locally is through the Makefile
-targets defined in `Makefile.overrides.mk`. These wrap the CI scripts with
-sensible defaults and a consistent interface.
+targets defined in `Makefile.ocp.mk` (included by `Makefile.overrides.mk`).
+These wrap the CI scripts with sensible defaults and a consistent interface.
 
 ### 1. Set up the test environment
 
@@ -66,7 +66,7 @@ make e2e-ocp E2E_MARKER=predictor
 To fully tear down the test setup:
 
 ```bash
-make teardown-e2e-ocp E2E_MARKER=predictor
+make teardown-e2e-ocp
 ```
 
 ## \[Optional\] Build and push custom images
