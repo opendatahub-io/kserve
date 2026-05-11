@@ -23,12 +23,16 @@
 #   CATALOG_SOURCE     FBC fragment image, CatalogSource name, or empty (default catalog)
 #   MIRROR_IMAGES      true | false (default); creates ImageDigestMirrorSet
 #
+# In both modes the Subscription always uses installPlanApproval: Manual; the
+# script explicitly approves the generated InstallPlan so that upgrades are
+# controlled and auditable.
+#
 # When OPERATOR_VERSION is set the script uses "dev mode":
 #   - cleans up any previous subscription/CSV
-#   - pins the version via startingCSV + Manual install-plan approval
+#   - pins the version via startingCSV
 # When OPERATOR_VERSION is empty the script uses "CI mode":
 #   - skips install if operator is already running
-#   - uses Automatic install-plan approval, no startingCSV
+#   - omits startingCSV (OLM picks the latest in the channel)
 
 set -euo pipefail
 
