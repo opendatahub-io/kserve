@@ -114,13 +114,6 @@ oc patch configmap inferenceservice-config -n "${KSERVE_NAMESPACE}" --type=merge
   -p "$(INGRESS="$INGRESS_DATA" yq -n -o json '.data.ingress = strenv(INGRESS)')"
 oc delete pod -n "${KSERVE_NAMESPACE}" -l control-plane=kserve-controller-manager
 
-# In manual mode, patch DSC to use RawDeployment (operator mode sets this via dsc.yaml)
-if [[ -z "${OPERATOR_TYPE}" ]]; then
-  oc patch datascienceclusters.datasciencecluster.opendatahub.io/test-dsc \
-    --type='json' \
-    -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
-fi
-
 echo "Waiting for kserve-controller-manager to be ready..."
 oc wait --for=condition=ready pod -l control-plane=kserve-controller-manager \
   -n "${KSERVE_NAMESPACE}" --timeout=300s
@@ -145,7 +138,7 @@ kind: Kustomization
 resources:
   - ${ODH_MC_MANIFEST_REL}
 
-namespace: opendatahub
+namespace: ${KSERVE_NAMESPACE}
 EOF
   fi
   kustomize build --load-restrictor LoadRestrictionsNone "${ODH_MC_KUSTOMIZE_DIR}" | \

@@ -61,13 +61,11 @@ case "${OPERATOR_TYPE}" in
   *)               echo "Error: Unknown OPERATOR_TYPE '${OPERATOR_TYPE}'"; exit 1 ;;
 esac
 
-POD_NAME=$(oc get po -n "${OPERATOR_NAMESPACE}" \
-  -l "$(oc get deployment "${OPERATOR_DEPLOYMENT}" -n "${OPERATOR_NAMESPACE}" \
-        -o json | python3 -c "
-import json, sys
-d = json.load(sys.stdin)['spec']['selector']['matchLabels']
-print(','.join(f'{k}={v}' for k, v in d.items()))
-")" -o jsonpath="{.items[0].metadata.name}" 2>/dev/null || true)
+_selector=$(oc get deployment "${OPERATOR_DEPLOYMENT}" -n "${OPERATOR_NAMESPACE}" \
+  -o go-template='{{range $k,$v := .spec.selector.matchLabels}}{{$k}}={{$v}},{{end}}' 2>/dev/null || true)
+_selector="${_selector%,}"
+POD_NAME=$(oc get po -n "${OPERATOR_NAMESPACE}" -l "${_selector}" \
+  -o jsonpath="{.items[0].metadata.name}" 2>/dev/null || true)
 
 if [ -z "$POD_NAME" ]; then
   echo "Error: Could not find operator pod for deployment ${OPERATOR_DEPLOYMENT}"

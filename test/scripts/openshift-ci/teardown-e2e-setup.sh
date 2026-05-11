@@ -120,6 +120,10 @@ for crd in $(oc get crd -o name 2>/dev/null | grep '\.serving\.kserve\.io$'); do
   oc delete "$crd" --ignore-not-found || true
 done
 
+# WARNING: this deletes ALL *.opendatahub.io CRDs cluster-wide (not just
+# KServe-related ones). This is intentional -- it lets version downgrades
+# succeed by clearing storedVersions that would otherwise be rejected.
+# This script must only be run against a DEDICATED test cluster.
 echo "Deleting ODH / RHOAI platform CRDs"
 for crd in $(oc get crd -o name 2>/dev/null | grep '\.opendatahub\.io$'); do
   oc delete "$crd" --ignore-not-found || true

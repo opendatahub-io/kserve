@@ -66,11 +66,9 @@ if [[ "$COPY_PR_MANIFESTS" == "true" ]]; then
   fi
 
   OPERATOR_POD_SELECTOR=$(oc get deployment "${CONTROLLER_DEPLOYMENT}" -n "${OPERATOR_NAMESPACE}" \
-    -o json 2>/dev/null | python3 -c "
-import json, sys
-d = json.load(sys.stdin)['spec']['selector']['matchLabels']
-print(','.join(f'{k}={v}' for k, v in d.items()))
-" 2>/dev/null || echo "name=${OPERATOR_NAME}")
+    -o go-template='{{range $k,$v := .spec.selector.matchLabels}}{{$k}}={{$v}},{{end}}' 2>/dev/null || true)
+  OPERATOR_POD_SELECTOR="${OPERATOR_POD_SELECTOR%,}"
+  OPERATOR_POD_SELECTOR="${OPERATOR_POD_SELECTOR:-name=${OPERATOR_NAME}}"
 
   echo "Waiting for operator pod to restart with custom manifests volume (selector: ${OPERATOR_POD_SELECTOR})..."
   oc wait --for='jsonpath={.status.conditions[?(@.type=="Ready")].status}=True' \
