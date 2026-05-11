@@ -30,18 +30,18 @@ make setup-e2e-ocp E2E_MARKER=predictor
 # With the ODH operator:
 make setup-e2e-ocp E2E_MARKER=predictor OPERATOR_TYPE=odh
 
-# With the ODH operator pinned to a specific version via FBC fragment:
+# With the ODH operator pinned to a specific catalog image:
 make setup-e2e-ocp E2E_MARKER=predictor \
   OPERATOR_TYPE=odh \
-  OPERATOR_VERSION=2.16.0 \
-  CATALOG_SOURCE=quay.io/opendatahub/odh-fbc-fragment:odh-2.16
+  OPERATOR_VERSION=3.4.0-ea.1 \
+  CATALOG_SOURCE=quay.io/opendatahub/opendatahub-operator-catalog:v3.4.0-ea.1
 ```
 
 | Variable | Description | Default |
 |---|---|---|
 | `E2E_MARKER` | Pytest marker to select tests (e.g. `predictor`, `raw`, `graph`) | `predictor` |
 | `OPERATOR_TYPE` | Operator to install: `odh` or empty for manual deploy | (empty) |
-| `OPERATOR_VERSION` | Pin to a specific operator version (e.g. `2.16.0`) | (latest) |
+| `OPERATOR_VERSION` | Pin to a specific operator version (e.g. `3.4.0-ea.1`) | (latest) |
 | `CATALOG_SOURCE` | FBC fragment image or CatalogSource name | (default catalog) |
 
 When `OPERATOR_TYPE` is set, the setup will install the operator, apply

@@ -86,8 +86,7 @@ resolve_operator_vars() {
             echo "Env vars: OPERATOR_TYPE=odh|rhods  OPERATOR_VERSION=3.4.0  CATALOG_SOURCE=<image>"
             echo ""
             echo "Examples:"
-            echo "  OPERATOR_TYPE=rhods OPERATOR_VERSION=3.4.0 CATALOG_SOURCE=quay.io/rhoai/rhoai-fbc-fragment:rhoai-3.4 $0"
-            echo "  OPERATOR_TYPE=odh OPERATOR_VERSION=3.2.0 $0"
+            echo "  OPERATOR_TYPE=odh OPERATOR_VERSION=3.4.0-ea.1 CATALOG_SOURCE=quay.io/opendatahub/opendatahub-operator-catalog:v3.4.0-ea.1 $0"
             echo "  OPERATOR_TYPE=odh $0   # latest ODH in fast-3 channel (CI mode)"
             return 1
             ;;
