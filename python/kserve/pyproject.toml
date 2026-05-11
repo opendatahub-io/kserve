@@ -71,6 +71,9 @@ pyasn1 = ">=0.6.3"
 # CVE-2026-28684 python-dotenv: Arbitrary file overwrite via symbolic link following
 # Pinning because it is a transitive dependency.
 python-dotenv = ">=1.2.2"
+# CVE-2026-1462 Keras TFSMLayer deserialization bypasses safe_mode (arbitrary code execution)
+# Pinning because it is a transitive dependency. Patched Keras requires Python >=3.11.
+keras = { version = ">=3.14.0", optional = true, markers = "python_version >= \"3.11\" and python_version < \"3.13\"" }
 
 # Storage dependencies. They can be opted into by apps.
 requests = { version = "^2.32.2", optional = true }
@@ -101,6 +104,7 @@ storage = [
   "azure-identity",
   "boto3",
   "huggingface-hub",
+  "keras",
 
 ]
 logging = ["asgi-logger"]

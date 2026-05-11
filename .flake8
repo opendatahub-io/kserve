@@ -2,8 +2,11 @@
 max-line-length = 120
 extend-ignore = E203,E501,E701,B017,F401,F811
 exclude =
+  .claude,
   .venv,
   venv,
+  prod_venv,
+  python/type=local,
   python/kserve/kserve/exceptions.py,
   python/kserve/kserve/configuration.py,
   python/kserve/kserve/rest.py,
@@ -12,7 +15,7 @@ exclude =
   python/kserve/kserve/__init__.py,
   python/kserve/test/__init__.py,
   python/kserve/test/test_knative*.py,
-  python/kserve/kserve/protocol/grpc/grpc_predict_v2*.py
-  python/*_pb2.py
-  docs/**/*.py
-  python/kserve/kserve/protocol/rest/openai/types/openapi.py
+  python/kserve/kserve/protocol/grpc/grpc_predict_v2*.py,
+  python/*_pb2.py,
+  docs/**/*.py,
+  python/kserve/kserve/protocol/rest/openai/types/openapi.py,
