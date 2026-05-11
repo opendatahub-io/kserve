@@ -22,12 +22,26 @@ PROJECT_ROOT="${SCRIPT_DIR}/../../../"
 : "${OPERATOR_NAMESPACE:=openshift-operators}"
 : "${KSERVE_MANIFESTS_PVC:=kserve-custom-manifests}"
 
-# Image environment variables (should be set by caller)
-: "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:latest}"
-: "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
-: "${KSERVE_ROUTER_IMAGE:=quay.io/opendatahub/kserve-router:latest}"
-: "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
-: "${LLMISVC_CONTROLLER_IMAGE:=quay.io/opendatahub/llmisvc-controller:latest}"
+# Image environment variables. When QUAY_REPO is set, prefer locally-built images
+# (tagged :${GITHUB_SHA:-master}) over the upstream defaults. This mirrors the logic
+# in deploy.kserve-manual.sh and covers both BUILD_KSERVE_IMAGES=true (where
+# build-kserve-images.sh exports these vars) and BUILD_KSERVE_IMAGES=false / standalone
+# setup-kserve-ocp invocations (where the vars are not yet set but images are pushed).
+if [[ -n "${QUAY_REPO:-}" ]]; then
+  _repo="${QUAY_REPO}/kserve"
+  _tag="${GITHUB_SHA:-master}"
+  : "${KSERVE_CONTROLLER_IMAGE:=${_repo}/kserve-controller:${_tag}}"
+  : "${KSERVE_AGENT_IMAGE:=${_repo}/kserve-agent:${_tag}}"
+  : "${KSERVE_ROUTER_IMAGE:=${_repo}/kserve-router:${_tag}}"
+  : "${STORAGE_INITIALIZER_IMAGE:=${_repo}/kserve-storage-initializer:${_tag}}"
+  : "${LLMISVC_CONTROLLER_IMAGE:=${_repo}/llmisvc-controller:${_tag}}"
+else
+  : "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:latest}"
+  : "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
+  : "${KSERVE_ROUTER_IMAGE:=quay.io/opendatahub/kserve-router:latest}"
+  : "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
+  : "${LLMISVC_CONTROLLER_IMAGE:=quay.io/opendatahub/llmisvc-controller:latest}"
+fi
 : "${ODH_MODEL_CONTROLLER_IMAGE:=quay.io/opendatahub/odh-model-controller:fast}"
 : "${ODH_MODEL_CONTROLLER_REF:=incubating}"
 

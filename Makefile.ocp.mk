@@ -1,4 +1,4 @@
-# OpenShift E2E test targets for kserve midstream CI.
+# OpenShift targets for kserve midstream (setup, teardown, and E2E testing).
 # Included from Makefile.overrides.mk.
 
 E2E_MARKER ?= predictor
@@ -13,12 +13,20 @@ OPERATOR_VERSION ?=
 # FBC fragment image or CatalogSource name. Empty = default catalog.
 # Example: quay.io/rhoai/rhoai-fbc-fragment:rhoai-3.4
 CATALOG_SOURCE ?=
-# Set to false to skip copying local branch manifests into the operator PVC.
-# Use false for "vanilla operator" testing with bundled images.
+# Controls whether local branch manifests are copied into the operator PVC so the
+# operator uses them instead of its bundled manifests. Only relevant for operator
+# installs (OPERATOR_TYPE=odh|rhoai); ignored for manual kustomize deploys.
 COPY_PR_MANIFESTS ?= true
 # Set to true to build and push local KServe images before setup, and use them
 # in the test run. Requires QUAY_REPO to be set.
+# NOTE: RUNNING_LOCAL and COPY_PR_MANIFESTS must be consistent for operator installs:
+#   RUNNING_LOCAL=true  + COPY_PR_MANIFESTS=true  -> build & inject local images (default for local dev)
+#   RUNNING_LOCAL=false + COPY_PR_MANIFESTS=false -> vanilla bundled operator (no local images)
+#   RUNNING_LOCAL=true  + COPY_PR_MANIFESTS=false -> images are built but NOT injected -- avoid this
 RUNNING_LOCAL ?= true
+# Set to false to skip the docker build/push when images are already pushed (e.g. re-running setup).
+# Only has effect when RUNNING_LOCAL=true.
+BUILD_KSERVE_IMAGES ?= true
 
 # Namespace where KServe controller runs. Derived from OPERATOR_TYPE when not set.
 # odh/opendatahub -> opendatahub, rhoai/rhods -> redhat-ods-applications, empty -> kserve
@@ -43,12 +51,25 @@ build-images-ocp: ## Build and push KServe images for E2E testing. Requires QUAY
 	QUAY_REPO="$(QUAY_REPO)" GITHUB_SHA="$(GITHUB_SHA)" \
 	./test/scripts/openshift-ci/build-kserve-images.sh
 
+setup-kserve-ocp: ## Install operator and deploy KServe on OpenShift (no E2E scaffolding). Use OPERATOR_TYPE=odh|rhoai, or leave empty for manual kustomize deploy.
+	OPERATOR_TYPE="$(strip $(OPERATOR_TYPE))" \
+	OPERATOR_VERSION="$(strip $(OPERATOR_VERSION))" \
+	CATALOG_SOURCE="$(strip $(CATALOG_SOURCE))" \
+	COPY_PR_MANIFESTS="$(strip $(COPY_PR_MANIFESTS))" \
+	RUNNING_LOCAL="$(strip $(RUNNING_LOCAL))" \
+	QUAY_REPO="$(QUAY_REPO)" \
+	GITHUB_SHA="$(GITHUB_SHA)" \
+	./test/scripts/openshift-ci/setup-kserve.sh
+
 setup-e2e-ocp: ## Set up E2E test environment on OpenShift. Use OPERATOR_TYPE=odh, or leave empty for manual kustomize deploy.
 	OPERATOR_TYPE="$(strip $(OPERATOR_TYPE))" \
 	OPERATOR_VERSION="$(strip $(OPERATOR_VERSION))" \
 	CATALOG_SOURCE="$(strip $(CATALOG_SOURCE))" \
 	COPY_PR_MANIFESTS="$(strip $(COPY_PR_MANIFESTS))" \
 	RUNNING_LOCAL="$(strip $(RUNNING_LOCAL))" \
+	BUILD_KSERVE_IMAGES="$(strip $(BUILD_KSERVE_IMAGES))" \
+	QUAY_REPO="$(QUAY_REPO)" \
+	GITHUB_SHA="$(GITHUB_SHA)" \
 	./test/scripts/openshift-ci/setup-e2e-tests.sh "$(E2E_MARKER)"
 
 e2e-ocp: ## Run E2E tests (assumes setup-e2e-ocp already ran).

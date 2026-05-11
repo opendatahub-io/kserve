@@ -18,7 +18,7 @@ STORAGE_INIT_IMG = kserve-storage-initializer
 
 .PHONY: deploy-dev-llm-ocp deploy-ci uv-update-lockfiles
 
--include Makefile.e2e-ocp.mk
+-include Makefile.ocp.mk
 
 deploy-dev-llm-ocp:
 	./test/scripts/openshift-ci/setup-llm.sh --deploy-kuadrant
