@@ -11,4 +11,5 @@ components:
 
 patches:
 - path: llmisvc_image_patch.yaml
+- path: configmap/inferenceservice.yaml
 
