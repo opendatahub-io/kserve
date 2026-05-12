@@ -278,7 +278,9 @@ def test_llm_auth_enabled_requires_token(test_case: TestCase):  # noqa: F811
         assert response_no_token.status_code in [
             401,
             403,
-        ], f"Expected 401/403 without token, got {response_no_token.status_code}: {response_no_token.text}"
+        ], (
+            f"Expected 401/403 without token, got {response_no_token.status_code}: {response_no_token.text}"
+        )
         logger.info(
             f"✅ Request without token rejected: {response_no_token.status_code}"
         )
@@ -294,9 +296,9 @@ def test_llm_auth_enabled_requires_token(test_case: TestCase):  # noqa: F811
             json=test_payload,
             timeout=test_case.response_timeout,
         )
-        assert (
-            response_with_token.status_code == 200
-        ), f"Expected 200 with token, got {response_with_token.status_code}: {response_with_token.text}"
+        assert response_with_token.status_code == 200, (
+            f"Expected 200 with token, got {response_with_token.status_code}: {response_with_token.text}"
+        )
         logger.info("✅ Request with valid token succeeded")
 
         logger.info("✅ Auth enforcement test passed")
@@ -424,7 +426,9 @@ def test_llm_auth_invalid_token_rejected(test_case: TestCase):  # noqa: F811
         assert response_malformed.status_code in [
             401,
             403,
-        ], f"Expected 401/403 with malformed token, got {response_malformed.status_code}: {response_malformed.text}"
+        ], (
+            f"Expected 401/403 with malformed token, got {response_malformed.status_code}: {response_malformed.text}"
+        )
         logger.info(
             f"✅ Request with malformed token rejected: {response_malformed.status_code}"
         )
@@ -541,9 +545,9 @@ def test_llm_auth_disabled_no_token_required(test_case: TestCase):  # noqa: F811
             json=test_payload,
             timeout=test_case.response_timeout,
         )
-        assert (
-            response_no_token.status_code == 200
-        ), f"Expected 200 without token when auth disabled, got {response_no_token.status_code}: {response_no_token.text}"
+        assert response_no_token.status_code == 200, (
+            f"Expected 200 without token when auth disabled, got {response_no_token.status_code}: {response_no_token.text}"
+        )
         logger.info("✅ Request without token succeeded (auth disabled)")
 
         logger.info("✅ Auth disabled test passed")
