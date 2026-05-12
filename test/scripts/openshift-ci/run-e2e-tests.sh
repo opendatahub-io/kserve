@@ -32,7 +32,7 @@ MY_PATH=$(dirname "$0")
 PROJECT_ROOT=$MY_PATH/../../../
 export CI_USE_ISVC_HOST="1"
 
-export KSERVE_NAMESPACE="${KSERVE_NAMESPACE:-opendatahub}"
+export KSERVE_NAMESPACE="${KSERVE_NAMESPACE:-kserve}"
 export RUNNING_LOCAL="${RUNNING_LOCAL:-false}"
 export GITHUB_SHA=stable # CI tags images to "stable" for success-200 and error-404
 
