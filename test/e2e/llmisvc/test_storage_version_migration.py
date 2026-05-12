@@ -131,7 +131,7 @@ class TestStorageVersionMigration:
                 "namespace": self.namespace,
             },
             "spec": {
-                "model": {"uri": "hf://facebook/opt-125m", "name": "facebook/opt-125m"},
+                "model": {"uri": "s3://example-models/facebook/opt-125m", "name": "facebook/opt-125m"},
                 "router": {"route": {}},
                 "template": {
                     "containers": [

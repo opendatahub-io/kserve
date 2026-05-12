@@ -127,6 +127,7 @@ else
   echo "S3 init job not completed, re-creating..."
   sed "s/s3-service.kserve/s3-service.${KSERVE_NAMESPACE}/" \
     "$PROJECT_ROOT/config/overlays/test/s3-local-backend/seaweedfs-init-job.yaml" | \
+    sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" | \
     oc replace --force -n ${KSERVE_NAMESPACE} -f -
 
   echo "Waiting for S3 init job to complete..."

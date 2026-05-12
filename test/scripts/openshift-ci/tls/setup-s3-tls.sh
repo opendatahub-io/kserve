@@ -125,10 +125,12 @@ fi
 # Upload the model using the S3 init job from config/overlays/test/s3-local-backend
 S3_INIT_JOB_NAME="s3-tls-init-${CERT_TYPE}"
 oc delete job "${S3_INIT_JOB_NAME}" -n kserve --ignore-not-found
+: "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
 sed -e "s/name: s3-init/name: ${S3_INIT_JOB_NAME}/" \
     -e "s|http://s3-service.kserve:8333|https://${SERVICE_NAME}.kserve.svc:8333|" \
     -e "s/mlpipeline-s3-artifact/${DEPLOYMENT_NAME}-artifact/" \
     -e "s|aws s3 mb s3://example-models|aws s3 mb s3://example-models --no-verify-ssl|" \
+    -e "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" \
     "${PROJECT_ROOT}/config/overlays/test/s3-local-backend/seaweedfs-init-job.yaml" | \
   oc apply -n kserve -f -
 
