@@ -2537,7 +2537,7 @@ func TestNewRawDeploymentWithAuthDisabled_IncludesOAuthProxy(t *testing.T) {
 		if vol.Name == "proxy-tls" {
 			tlsVolumeFound = true
 		}
-		if vol.Name == fmt.Sprintf("%s-%s", objectMeta.Name, constants.OauthProxySARCMName) {
+		if vol.Name == constants.OauthProxySARCMName {
 			sarVolumeFound = true
 		}
 	}
@@ -2793,4 +2793,233 @@ func TestNewInferenceGraph_NoOAuthProxy(t *testing.T) {
 		}
 	}
 	assert.True(t, tlsVolumeFound, "TLS volume should be mounted for InferenceGraph")
+}
+
+func TestSarVolumeNameForDeployment(t *testing.T) {
+	tests := []struct {
+		name               string
+		isvcName           string
+		existingDeployment *appsv1.Deployment
+		expectedVolumeName string
+	}{
+		{
+			name:               "nil existing deployment returns static name",
+			isvcName:           "my-isvc",
+			existingDeployment: nil,
+			expectedVolumeName: constants.OauthProxySARCMName,
+		},
+		{
+			name:     "existing deployment without legacy volume returns static name",
+			isvcName: "my-isvc",
+			existingDeployment: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Volumes: []corev1.Volume{
+								{Name: "some-other-volume"},
+							},
+						},
+					},
+				},
+			},
+			expectedVolumeName: constants.OauthProxySARCMName,
+		},
+		{
+			name:     "existing deployment with legacy volume preserves it",
+			isvcName: "my-isvc",
+			existingDeployment: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Volumes: []corev1.Volume{
+								{Name: fmt.Sprintf("%s-%s", "my-isvc", constants.OauthProxySARCMName)},
+							},
+						},
+					},
+				},
+			},
+			expectedVolumeName: fmt.Sprintf("%s-%s", "my-isvc", constants.OauthProxySARCMName),
+		},
+		{
+			name:     "existing deployment with static volume name keeps static name",
+			isvcName: "my-isvc",
+			existingDeployment: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Volumes: []corev1.Volume{
+								{Name: constants.OauthProxySARCMName},
+							},
+						},
+					},
+				},
+			},
+			expectedVolumeName: constants.OauthProxySARCMName,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sarVolumeNameForDeployment(tt.isvcName, tt.existingDeployment)
+			assert.Equal(t, tt.expectedVolumeName, result)
+		})
+	}
+}
+
+func TestUpgradePreservesLegacyVolumeName(t *testing.T) {
+	oauthCfg := fmt.Sprintf(`{"image": "%s", "memoryRequest": "%s", "memoryLimit": "%s", "cpuRequest": "%s", "cpuLimit": "%s"}`,
+		constants.OauthProxyImage,
+		constants.OauthProxyResourceMemoryRequest,
+		constants.OauthProxyResourceMemoryLimit,
+		constants.OauthProxyResourceCPURequest,
+		constants.OauthProxyResourceCPULimit,
+	)
+
+	isvcName := "my-model"
+	legacyVolumeName := fmt.Sprintf("%s-%s", isvcName, constants.OauthProxySARCMName)
+
+	tests := []struct {
+		name               string
+		existingDeployment *appsv1.Deployment
+		deploymentNotFound bool
+		expectedVolName    string
+		description        string
+	}{
+		{
+			name:               "new deployment uses static volume name",
+			deploymentNotFound: true,
+			expectedVolName:    constants.OauthProxySARCMName,
+			description:        "brand new ISVC should get the short static volume name",
+		},
+		{
+			name: "upgrade with legacy volume name preserves it",
+			existingDeployment: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: constants.InferenceServiceContainerName},
+								{Name: constants.KubeRbacContainerName, Image: constants.OauthProxyImage},
+							},
+							Volumes: []corev1.Volume{
+								{Name: legacyVolumeName},
+							},
+						},
+					},
+				},
+			},
+			expectedVolName: legacyVolumeName,
+			description:     "existing ISVC with legacy volume name should keep it to avoid rollout",
+		},
+		{
+			name: "existing deployment already using static name keeps it",
+			existingDeployment: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: constants.InferenceServiceContainerName},
+								{Name: constants.KubeRbacContainerName, Image: constants.OauthProxyImage},
+							},
+							Volumes: []corev1.Volume{
+								{Name: constants.OauthProxySARCMName},
+							},
+						},
+					},
+				},
+			},
+			expectedVolName: constants.OauthProxySARCMName,
+			description:     "existing ISVC already on static name should stay on it",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client := &mockClientForAuthProxyDetection{
+				existingDeployment: tt.existingDeployment,
+				deploymentNotFound: tt.deploymentNotFound,
+			}
+
+			clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: map[string]string{
+					oauthProxyISVCConfigKey: oauthCfg,
+				},
+			})
+
+			objectMeta := metav1.ObjectMeta{
+				Name:      isvcName + "-predictor",
+				Namespace: "test-ns",
+				Annotations: map[string]string{
+					constants.ODHKserveRawAuth: "true",
+				},
+				Labels: map[string]string{
+					constants.InferenceServicePodLabelKey: isvcName,
+				},
+			}
+
+			podSpec := &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name:  constants.InferenceServiceContainerName,
+						Image: "test-image",
+						Ports: []corev1.ContainerPort{
+							{ContainerPort: 8080},
+						},
+					},
+				},
+			}
+
+			deploymentList, _, err := createRawDeploymentODH(
+				t.Context(),
+				client,
+				clientset,
+				constants.InferenceServiceResource,
+				objectMeta,
+				metav1.ObjectMeta{},
+				&v1beta1.ComponentExtensionSpec{},
+				podSpec,
+				nil,
+				nil,
+			)
+
+			require.NoError(t, err, tt.description)
+			require.Len(t, deploymentList, 1)
+
+			deployment := deploymentList[0]
+
+			// Check the volume name matches expected
+			var sarVolFound bool
+			for _, vol := range deployment.Spec.Template.Spec.Volumes {
+				if vol.Name == tt.expectedVolName {
+					sarVolFound = true
+					// Verify the ConfigMap reference always uses the full name
+					require.NotNil(t, vol.ConfigMap, "SAR volume should reference a ConfigMap")
+					expectedCMName := fmt.Sprintf("%s-%s", isvcName, constants.OauthProxySARCMName)
+					assert.Equal(t, expectedCMName, vol.ConfigMap.Name,
+						"ConfigMap reference should always be the full isvc-prefixed name")
+					break
+				}
+			}
+			assert.True(t, sarVolFound, "expected volume %q not found in deployment: %s", tt.expectedVolName, tt.description)
+
+			// Check the container volume mount matches the same name
+			for _, c := range deployment.Spec.Template.Spec.Containers {
+				if c.Name == constants.KubeRbacContainerName {
+					var mountFound bool
+					for _, vm := range c.VolumeMounts {
+						if vm.Name == tt.expectedVolName && vm.MountPath == "/etc/kube-rbac-proxy" {
+							mountFound = true
+							break
+						}
+					}
+					assert.True(t, mountFound, "kube-rbac-proxy container should have volume mount %q: %s", tt.expectedVolName, tt.description)
+					break
+				}
+			}
+		})
+	}
 }

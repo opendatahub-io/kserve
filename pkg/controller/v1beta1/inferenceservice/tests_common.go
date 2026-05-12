@@ -259,9 +259,8 @@ func getDefaultRollingStrategy() appsv1.DeploymentStrategy {
 }
 
 // kubeRbacProxyContainer returns the kube-rbac-proxy sidecar container for an InferenceService deployment.
-// sarVolumeName is the pod volume label for the SAR ConfigMap volume (matches the volume defined by proxyVolumes).
 // If upstreamTimeoutSeconds is non-nil, --upstream-timeout=<N>s is appended to the args.
-func kubeRbacProxyContainer(upstreamTimeoutSeconds *int64, sarVolumeName string) corev1.Container {
+func kubeRbacProxyContainer(upstreamTimeoutSeconds *int64) corev1.Container {
 	args := []string{
 		`--secure-listen-address=:8443`,
 		`--proxy-endpoints-port=8643`,
@@ -323,7 +322,7 @@ func kubeRbacProxyContainer(upstreamTimeoutSeconds *int64, sarVolumeName string)
 		},
 		VolumeMounts: []corev1.VolumeMount{
 			{Name: "proxy-tls", MountPath: "/etc/tls/private"},
-			{Name: sarVolumeName, MountPath: "/etc/kube-rbac-proxy", ReadOnly: true},
+			{Name: constants.OauthProxySARCMName, MountPath: "/etc/kube-rbac-proxy", ReadOnly: true},
 		},
 		TerminationMessagePath:   "/dev/termination-log",
 		TerminationMessagePolicy: "File",
@@ -346,7 +345,7 @@ func proxyVolumes(tlsSecretName, sarConfigMapName string) []corev1.Volume {
 			},
 		},
 		{
-			Name: sarConfigMapName,
+			Name: constants.OauthProxySARCMName,
 			VolumeSource: corev1.VolumeSource{
 				ConfigMap: &corev1.ConfigMapVolumeSource{
 					LocalObjectReference: corev1.LocalObjectReference{Name: sarConfigMapName},
@@ -423,7 +422,7 @@ func getExpectedDeployment(explainerDeploymentKey types.NamespacedName, serviceN
 								},
 							},
 						},
-						kubeRbacProxyContainer(ptr.To(int64(30)), fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName)),
+						kubeRbacProxyContainer(ptr.To(int64(30))),
 					},
 					Volumes: proxyVolumes(
 						explainerDeploymentKey.Name+constants.ServingCertSecretSuffix,
@@ -513,7 +512,7 @@ func getDeploymentWithKServiceLabel(predictorDeploymentKey types.NamespacedName,
 							TerminationMessagePolicy: "File",
 							ImagePullPolicy:          "IfNotPresent",
 						},
-						kubeRbacProxyContainer(isvc.Spec.Predictor.TimeoutSeconds, fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName)),
+						kubeRbacProxyContainer(isvc.Spec.Predictor.TimeoutSeconds),
 					},
 					Volumes: proxyVolumes(
 						predictorDeploymentKey.Name+constants.ServingCertSecretSuffix,
