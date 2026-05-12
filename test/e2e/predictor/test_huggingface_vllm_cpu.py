@@ -83,7 +83,7 @@ def test_huggingface_vllm_cpu_openai_chat_completions():
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=1200)
+    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     res = generate(service_name, "./data/qwen_input_chat.json")
     assert res["choices"][0]["message"]["content"] == "The result of 2 + 2 is 4."
@@ -138,7 +138,7 @@ def test_huggingface_vllm_cpu_text_completion_streaming():
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=1200)
+    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     full_response, _ = completion_stream(
         service_name, "./data/qwen_input_cmpl_stream.json"
@@ -195,7 +195,7 @@ def test_huggingface_vllm_cpu_openai_completions():
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=1200)
+    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
     res = generate(service_name, "./data/qwen_input_cmpl.json", chat_completions=False)
     assert res["choices"][0]["text"].strip() == "The result of 2 + 2 is 4."
 
@@ -249,7 +249,7 @@ def test_huggingface_vllm_openai_chat_completions_streaming():
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=1200)
+    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     full_response, _ = chat_completion_stream(
         service_name, "./data/qwen_input_chat_stream.json"
@@ -309,7 +309,7 @@ def test_huggingface_vllm_cpu_rerank():
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=1200)
+    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
     res = rerank(service_name, "./data/bge-reranker-base.json")
     assert res["results"][0]["index"] == 1
