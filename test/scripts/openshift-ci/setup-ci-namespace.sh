@@ -51,6 +51,16 @@ oc apply -f "$PROJECT_ROOT/config/overlays/test/s3-local-backend/mlpipeline-s3-a
 echo "Applying storage-config secret"
 oc apply -f "$PROJECT_ROOT/config/overlays/test/s3-local-backend/storage-config-secret.yaml" -n "$NAMESPACE"
 
+# Apply SeaweedFS S3 credentials secret and link to default SA (used by LLMISVC s3:// model URIs)
+echo "Applying SeaweedFS S3 credentials secret"
+: "${KSERVE_NAMESPACE:=kserve}"
+sed "s/s3-service.kserve/s3-service.${KSERVE_NAMESPACE}/" \
+  "$PROJECT_ROOT/config/overlays/test/s3-local-backend/seaweedfs-s3-creds-secret.yaml" | \
+  oc apply -f - -n "$NAMESPACE"
+echo "Linking seaweedfs-s3-creds to default service account"
+oc patch serviceaccount default -n "$NAMESPACE" \
+  -p '{"secrets": [{"name": "seaweedfs-s3-creds"}]}'
+
 # Create empty odh-trusted-ca-bundle configmap (used by S3 TLS tests).
 # Created here rather than in a pytest fixture to avoid race conditions
 # when pytest-xdist distributes tests across multiple workers.

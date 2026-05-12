@@ -323,7 +323,7 @@ async def test_event_storm_prevention_init_container_isolation():
     LLMISVC to be MODIFIED (resourceVersion change).
 
     Test flow:
-    1. Creates a "primary" LLMISVC with a valid model (hf://facebook/opt-125m)
+    1. Creates a "primary" LLMISVC with a valid model (s3://example-models/facebook/opt-125m)
     2. Waits for the primary LLMISVC to become ready
     3. Records baseline resourceVersion
     4. Creates a "secondary" LLMISVC with invalid S3 credentials that will fail
@@ -355,7 +355,7 @@ async def test_event_storm_prevention_init_container_isolation():
             kserve_client,
             model_config_name,
             KSERVE_TEST_NAMESPACE,
-            {"model": {"uri": "hf://facebook/opt-125m", "name": "facebook/opt-125m"}},
+            {"model": {"uri": "s3://example-models/facebook/opt-125m", "name": "facebook/opt-125m"}},
         )
 
         create_llmisvc_config(

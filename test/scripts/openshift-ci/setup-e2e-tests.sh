@@ -69,10 +69,12 @@ echo "Using namespace: $KSERVE_NAMESPACE for KServe components"
 
 # Test-only image defaults (used by pytest, not by the KServe deployment itself)
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
+: "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
 : "${ERROR_404_ISVC_IMAGE:=error-404-isvc:latest}"
 : "${SUCCESS_200_ISVC_IMAGE:=success-200-isvc:latest}"
 
 echo "SKLEARN_IMAGE=$SKLEARN_IMAGE"
+echo "STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_IMAGE"
 echo "ERROR_404_ISVC_IMAGE=$ERROR_404_ISVC_IMAGE"
 echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
 
@@ -127,6 +129,7 @@ else
   echo "S3 init job not completed, re-creating..."
   sed "s/s3-service.kserve/s3-service.${KSERVE_NAMESPACE}/" \
     "$PROJECT_ROOT/config/overlays/test/s3-local-backend/seaweedfs-init-job.yaml" | \
+    sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" | \
     oc replace --force -n ${KSERVE_NAMESPACE} -f -
 
   echo "Waiting for S3 init job to complete..."

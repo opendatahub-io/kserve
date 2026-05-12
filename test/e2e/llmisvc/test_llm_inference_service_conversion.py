@@ -225,7 +225,7 @@ class TestLLMInferenceServiceConversion:
                 "namespace": self.namespace,
             },
             "spec": {
-                "model": {"uri": "hf://facebook/opt-125m", "name": "facebook/opt-125m"},
+                "model": {"uri": "s3://example-models/facebook/opt-125m", "name": "facebook/opt-125m"},
                 "router": {"route": {}},
                 "template": {
                     "containers": [
@@ -316,7 +316,7 @@ class TestLLMInferenceServiceConversion:
                 "namespace": self.namespace,
             },
             "spec": {
-                "model": {"uri": "hf://facebook/opt-125m", "name": "facebook/opt-125m"},
+                "model": {"uri": "s3://example-models/facebook/opt-125m", "name": "facebook/opt-125m"},
                 "router": {"route": {}},
                 "template": {
                     "containers": [
@@ -413,7 +413,7 @@ class TestLLMInferenceServiceConversion:
             },
             "spec": {
                 "model": {
-                    "uri": "hf://facebook/opt-125m",
+                    "uri": "s3://example-models/facebook/opt-125m",
                     "name": "facebook/opt-125m",
                     "criticality": "Critical",  # v1alpha1-specific field
                 },
@@ -451,7 +451,7 @@ class TestLLMInferenceServiceConversion:
             },
             "spec": {
                 "model": {
-                    "uri": "hf://facebook/opt-125m",
+                    "uri": "s3://example-models/facebook/opt-125m",
                     "name": "facebook/opt-125m",
                     "criticality": "Critical",
                 },
@@ -736,7 +736,7 @@ class TestLLMInferenceServiceConversion:
             },
             "spec": {
                 "model": {
-                    "uri": "hf://facebook/opt-125m",
+                    "uri": "s3://example-models/facebook/opt-125m",
                     "name": "test-model",
                 },
                 "replicas": 1,
