@@ -19,9 +19,6 @@ package testing
 import (
 	"path/filepath"
 
-	routev1 "github.com/openshift/api/route/v1"
-	istioclientv1 "istio.io/client-go/pkg/apis/networking/v1"
-
 	kservescheme "github.com/kserve/kserve/pkg/scheme"
 )
 
@@ -30,7 +27,7 @@ func NewEnvTest(options ...Option) *Config {
 	testCRDs := WithCRDs(
 		filepath.Join(ProjectRoot(), "test", "crds"),
 	)
-	schemes := WithScheme(kservescheme.AddAll, routev1.AddToScheme, istioclientv1.AddToScheme)
+	schemes := WithScheme(append([]AddToSchemeFunc{kservescheme.AddAll}, additionalTestSchemes()...)...)
 
 	return Configure(append(options, testCRDs, schemes)...)
 }

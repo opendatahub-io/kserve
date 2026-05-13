@@ -28,7 +28,7 @@ install() {
     log_info "Installing Kind ${KIND_VERSION} for ${os}/${arch}..."
 
     if [[ -x "${BIN_DIR}/kind" ]]; then
-        local current_version=$("${BIN_DIR}/kind" version 2>/dev/null | awk '/^kind v/ {print $2}')
+        local current_version=$("${BIN_DIR}/kind" version 2>/dev/null | awk 'match($0, /v[0-9.]+/) {print substr($0, RSTART, RLENGTH)}')
         if [[ -n "$current_version" ]] && version_gte "$current_version" "$KIND_VERSION"; then
             log_info "Kind ${current_version} is already installed in ${BIN_DIR} (>= ${KIND_VERSION})"
             return 0
@@ -66,7 +66,7 @@ install() {
     rm -rf "${temp_dir}"
 
     log_success "Successfully installed Kind ${KIND_VERSION} to ${BIN_DIR}/kind"
-    kind version
+    "${BIN_DIR}/kind" version
 }
 
 install

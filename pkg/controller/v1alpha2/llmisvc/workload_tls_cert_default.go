@@ -29,6 +29,6 @@ func (r *LLMISVCReconciler) createWorkloadCertificate(_ context.Context, dnsName
 		if err != nil {
 			return nil, err
 		}
-		return &certBundle{Key: keyBytes, Cert: certBytes}, nil
+		return &certBundle{Key: keyBytes, Cert: certBytes, CACert: certBytes}, nil
 	}
 }

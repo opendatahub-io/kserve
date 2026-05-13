@@ -37,8 +37,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	routev1 "github.com/openshift/api/route/v1"
-
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
@@ -47,6 +45,7 @@ import (
 	"github.com/kserve/kserve/pkg/controller/v1alpha1/trainedmodel/reconcilers/modelconfig"
 	v1beta1controller "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice"
 	kservescheme "github.com/kserve/kserve/pkg/scheme"
+	kserveutils "github.com/kserve/kserve/pkg/utils"
 	"github.com/kserve/kserve/pkg/webhook/admission/pod"
 	"github.com/kserve/kserve/pkg/webhook/admission/servingruntime"
 )
@@ -149,8 +148,8 @@ func main() {
 		setupLog.Error(err, "unable to register API schemes")
 		os.Exit(1)
 	}
-	if err := routev1.AddToScheme(mgr.GetScheme()); err != nil {
-		setupLog.Error(err, "unable to add routev1 APIs to scheme")
+	if err := registerDistroSchemes(mgr.GetScheme()); err != nil {
+		setupLog.Error(err, "unable to register distro-specific API schemes")
 		os.Exit(1)
 	}
 
@@ -231,10 +230,17 @@ func main() {
 		Handler: &pod.Mutator{Client: mgr.GetClient(), Clientset: clientSet, Decoder: admission.NewDecoder(mgr.GetScheme())},
 	})
 
-	// log.Info("registering cluster serving runtime validator webhook to the webhook server")
-	// hookServer.Register("/validate-serving-kserve-io-v1alpha1-clusterservingruntime", &webhook.Admission{
-	// 	Handler: &servingruntime.ClusterServingRuntimeValidator{Client: mgr.GetClient(), Decoder: admission.NewDecoder(mgr.GetScheme())},
-	// })
+	csrAvailable, err := kserveutils.IsCrdAvailable(mgr.GetConfig(), v1alpha1.SchemeGroupVersion.String(), "ClusterServingRuntime")
+	if err != nil {
+		setupLog.Error(err, "failed to check ClusterServingRuntime CRD availability")
+		os.Exit(1)
+	}
+	if csrAvailable {
+		setupLog.Info("registering cluster serving runtime validator webhook to the webhook server")
+		hookServer.Register("/validate-serving-kserve-io-v1alpha1-clusterservingruntime", &webhook.Admission{
+			Handler: &servingruntime.ClusterServingRuntimeValidator{Client: mgr.GetClient(), Decoder: admission.NewDecoder(mgr.GetScheme())},
+		})
+	}
 
 	setupLog.Info("registering serving runtime validator webhook to the webhook server")
 	hookServer.Register("/validate-serving-kserve-io-v1alpha1-servingruntime", &webhook.Admission{

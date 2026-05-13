@@ -301,7 +301,7 @@ func (r *InferenceGraphReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			return ctrl.Result{}, errors.Wrapf(err, "failed to retrieve the knative autoscaler configuration")
 		}
 
-		knutils.ValidateInitialScaleAnnotation(graph.Annotations, allowZeroInitialScale, graph.Spec.MinReplicas, r.Log)
+		graph.Annotations = knutils.ValidateInitialScaleAnnotationWithReplicas(graph.Annotations, allowZeroInitialScale, graph.Spec.MinReplicas, r.Log)
 
 		desired := createKnativeService(graph.ObjectMeta, graph, routerConfig)
 
@@ -389,7 +389,7 @@ func (r *InferenceGraphReconciler) updateStatus(ctx context.Context, desiredGrap
 	graph := &v1alpha1.InferenceGraph{}
 	namespacedName := types.NamespacedName{Name: desiredGraph.Name, Namespace: desiredGraph.Namespace}
 	if err := r.Get(ctx, namespacedName, graph); err != nil {
-		return err
+		return client.IgnoreNotFound(err)
 	}
 
 	wasReady := inferenceGraphReadiness(graph.Status)

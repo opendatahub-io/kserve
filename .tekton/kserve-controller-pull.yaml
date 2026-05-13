@@ -32,6 +32,9 @@ spec:
   - name: additional-tags
     value:
     - 'master-pr-{{revision}}'
+  - name: build-args
+    value:
+    - "GOTAGS=distro"
   - name: pipeline-type
     value: pull-request
   - name: enable-group-testing

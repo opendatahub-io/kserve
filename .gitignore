@@ -86,3 +86,6 @@ test/scripts/openshift-ci/tls/certs
 # Claude code
 .claude/
 
+# bkit
+.bkit/
+

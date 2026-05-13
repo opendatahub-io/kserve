@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"knative.dev/pkg/apis"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -76,18 +77,7 @@ func NewTransformer(client client.Client, clientset kubernetes.Interface, scheme
 func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceService) (ctrl.Result, error) {
 	p.Log.Info("Reconciling Transformer", "TransformerSpec", isvc.Spec.Transformer)
 	transformer := isvc.Spec.Transformer.GetImplementation()
-	var annotations map[string]string
-	if p.deploymentMode == constants.Standard {
-		annotations = utils.Filter(isvc.Annotations, func(key string) bool {
-			// https://issues.redhat.com/browse/RHOAIENG-20326
-			// For RawDeployment, we allow the security.opendatahub.io/enable-auth annotation
-			return !utils.Includes(isvcutils.FilterList(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, constants.ODHKserveRawAuth), key)
-		})
-	} else {
-		annotations = utils.Filter(isvc.Annotations, func(key string) bool {
-			return !utils.Includes(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, key)
-		})
-	}
+	annotations := filterServiceAnnotations(isvc.Annotations, p.inferenceServiceConfig.ServiceAnnotationDisallowedList, p.deploymentMode)
 
 	sourceURI := transformer.GetStorageUri()
 
@@ -110,18 +100,7 @@ func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServ
 	// Labels and annotations from transformer component
 	// Label filter will be handled in ksvc_reconciler and raw reconciler
 	transformerLabels := isvc.Spec.Transformer.Labels
-	var transformerAnnotations map[string]string
-	if p.deploymentMode == constants.Standard {
-		transformerAnnotations = utils.Filter(isvc.Spec.Transformer.Annotations, func(key string) bool {
-			// https://issues.redhat.com/browse/RHOAIENG-20326
-			// For RawDeployment, we allow the security.opendatahub.io/enable-auth annotation
-			return !utils.Includes(isvcutils.FilterList(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, constants.ODHKserveRawAuth), key)
-		})
-	} else {
-		transformerAnnotations = utils.Filter(isvc.Spec.Transformer.Annotations, func(key string) bool {
-			return !utils.Includes(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, key)
-		})
-	}
+	transformerAnnotations := filterServiceAnnotations(isvc.Spec.Transformer.Annotations, p.inferenceServiceConfig.ServiceAnnotationDisallowedList, p.deploymentMode)
 
 	// Labels and annotations priority: transformer component > isvc
 	// Labels and annotations from high priority will overwrite that from low priority
@@ -179,11 +158,18 @@ func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServ
 
 	podSpec := corev1.PodSpec(isvc.Spec.Transformer.PodSpec)
 
-	// Add InferenceService name as environment variable to transformer container
-	// Use the actual container name from the podSpec (first container)
+	// Add InferenceService name as environment variable to transformer container.
 	transformerContainerName := podSpec.Containers[0].Name
-	if err := isvcutils.AddEnvVarToPodSpec(&podSpec, transformerContainerName, constants.InferenceServiceNameEnvVarKey, isvc.Name); err != nil {
-		return ctrl.Result{}, errors.Wrapf(err, "failed to add INFERENCE_SERVICE_NAME environment variable to container %s", transformerContainerName)
+	inject, err := shouldInjectInferenceServiceName(ctx, p.client,
+		types.NamespacedName{Name: constants.TransformerServiceName(isvc.Name), Namespace: isvc.Namespace},
+		transformerContainerName, p.Log)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "failed to check existing transformer deployment for %s", isvc.Name)
+	}
+	if inject {
+		if err := isvcutils.AddEnvVarToPodSpec(&podSpec, transformerContainerName, constants.InferenceServiceNameEnvVarKey, isvc.Name); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed to add INFERENCE_SERVICE_NAME environment variable to container %s", transformerContainerName)
+		}
 	}
 
 	// Here we allow switch between knative and vanilla deployment
@@ -273,7 +259,7 @@ func (p *Transformer) reconcileTransformerRawDeployment(ctx context.Context, isv
 }
 
 func (p *Transformer) reconcileTransformerKnativeDeployment(ctx context.Context, isvc *v1beta1.InferenceService, objectMeta *metav1.ObjectMeta, podSpec *corev1.PodSpec) error {
-	knutils.ValidateInitialScaleAnnotation(objectMeta.Annotations, p.allowZeroInitialScale, isvc.Spec.Transformer.MinReplicas, p.Log)
+	objectMeta.Annotations = knutils.ValidateInitialScaleAnnotationWithReplicas(objectMeta.Annotations, p.allowZeroInitialScale, isvc.Spec.Transformer.MinReplicas, p.Log)
 
 	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(ctx, p.clientset)
 	if err != nil {

@@ -27,7 +27,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -47,6 +46,7 @@ var (
 
 func TestV1beta1APIs(t *testing.T) {
 	RegisterFailHandler(Fail)
+
 	RunSpecs(t, "v1beta1 Controller Suite")
 }
 
@@ -147,6 +147,7 @@ func getBaseTestConfigs() map[string]string {
 				"defaultDeploymentMode": "Knative"
 			}`,
 		"inferenceService": `{}`,
+		"oauthProxy":       `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
 	}
 }
 

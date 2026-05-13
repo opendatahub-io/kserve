@@ -45,8 +45,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
-
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/utils"
@@ -689,9 +687,7 @@ func createIngress(isvc *v1beta1.InferenceService, config *v1beta1.IngressConfig
 			}
 		}
 	}
-	annotations := utils.Filter(isvc.Annotations, func(key string) bool {
-		return !utils.Includes(isvcutils.FilterList(isvcConfig.ServiceAnnotationDisallowedList, constants.ODHKserveRawAuth), key)
-	})
+	annotations := filterIngressAnnotations(isvc.Annotations, isvcConfig.ServiceAnnotationDisallowedList)
 	desiredIngress := &istioclientv1beta1.VirtualService{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        isvc.Name,

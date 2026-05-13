@@ -20,10 +20,8 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
-	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -93,7 +91,8 @@ func (r *LLMISVCReconciler) reconcileSelfSignedCertsSecret(ctx context.Context, 
 }
 
 // certBundle holds TLS certificate material.
-// CACert is nil for self-signed certificates (where the cert is its own CA).
+// CACert holds the CA certificate. For self-signed certs it equals Cert (the cert is its own CA).
+// Distro hooks may supply a separate CA cert.
 type certBundle struct {
 	Key    []byte
 	Cert   []byte
@@ -213,24 +212,6 @@ func (r *LLMISVCReconciler) getExistingSelfSignedCertificate(ctx context.Context
 	return curr
 }
 
-// getSelfSignedCertHash returns the SHA-256 hash of the current self-signed certificate data.
-// It returns an empty string when the secret does not exist yet.
-func (r *LLMISVCReconciler) getSelfSignedCertHash(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) string {
-	secret := r.getExistingSelfSignedCertificate(ctx, llmSvc)
-	if secret == nil {
-		return ""
-	}
-	return certDataHash(secret)
-}
-
-// certDataHash computes a SHA-256 hash over the certificate data in a TLS secret.
-func certDataHash(secret *corev1.Secret) string {
-	h := sha256.New()
-	h.Write(secret.Data["tls.crt"])
-	h.Write(secret.Data["tls.key"])
-	return hex.EncodeToString(h.Sum(nil))
-}
-
 // isCertificateExpired checks all configured expiration annotation keys (first match wins).
 // Returns false when no annotation is found (the x509 NotAfter fallback is handled by
 // ShouldRecreateCertificate).
@@ -326,9 +307,7 @@ func (r *LLMISVCReconciler) collectIPAddresses(ctx context.Context, llmSvc *v1al
 
 	// Exclude scheduler pods from IP collection. Scheduler pods connect via
 	// Service DNS (already covered by collectDNSNames), so their pod IPs are
-	// not needed in the certificate SANs. Not doing it would result in reconciliation
-	// storm: schedulers pod IP added to certs results in cert-hash changes that
-	// will restart scheduler with new pod (and IP), goto 1.
+	// not needed in the certificate SANs.
 	excludeScheduler, errReq := labels.NewRequirement(
 		constants.KubernetesComponentLabelKey,
 		selection.NotIn,

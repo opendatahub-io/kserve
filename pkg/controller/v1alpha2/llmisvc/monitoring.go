@@ -263,9 +263,13 @@ func (r *LLMISVCReconciler) expectedVLLMEngineMonitor(llmSvc *v1alpha2.LLMInfere
 			PodMetricsEndpoints: []monitoringv1.PodMetricsEndpoint{
 				{
 					TargetPort: &metricsPort,
-					Scheme:     "https",
-					TLSConfig: &monitoringv1.SafeTLSConfig{
-						InsecureSkipVerify: ptr.To(true),
+					Scheme:     ptr.To(monitoringv1.Scheme("https")),
+					HTTPConfigWithProxy: monitoringv1.HTTPConfigWithProxy{
+						HTTPConfig: monitoringv1.HTTPConfig{
+							TLSConfig: &monitoringv1.SafeTLSConfig{
+								InsecureSkipVerify: ptr.To(true),
+							},
+						},
 					},
 					MetricRelabelConfigs: relabelConfigs,
 					RelabelConfigs: []monitoringv1.RelabelConfig{
@@ -320,12 +324,18 @@ func (r *LLMISVCReconciler) expectedSchedulerMonitor(llmSvc *v1alpha2.LLMInferen
 			Endpoints: []monitoringv1.Endpoint{
 				{
 					Port: "metrics",
-					Authorization: &monitoringv1.SafeAuthorization{
-						Credentials: &corev1.SecretKeySelector{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: "kserve-metrics-reader-sa-secret",
+					HTTPConfigWithProxyAndTLSFiles: monitoringv1.HTTPConfigWithProxyAndTLSFiles{
+						HTTPConfigWithTLSFiles: monitoringv1.HTTPConfigWithTLSFiles{
+							HTTPConfigWithoutTLS: monitoringv1.HTTPConfigWithoutTLS{
+								Authorization: &monitoringv1.SafeAuthorization{
+									Credentials: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "kserve-metrics-reader-sa-secret",
+										},
+										Key: "token",
+									},
+								},
 							},
-							Key: "token",
 						},
 					},
 					MetricRelabelConfigs: relabelConfigs,

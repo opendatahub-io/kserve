@@ -24,3 +24,7 @@
 
 # License (used by go-licenses in all builds)
 !LICENSE
+
+# kserve-module operator
+!kserve-module/
+!config/

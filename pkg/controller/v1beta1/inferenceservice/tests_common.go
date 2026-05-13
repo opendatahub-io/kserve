@@ -258,6 +258,105 @@ func getDefaultRollingStrategy() appsv1.DeploymentStrategy {
 	}
 }
 
+// kubeRbacProxyContainer returns the kube-rbac-proxy sidecar container for an InferenceService deployment.
+// sarVolumeName is the pod volume label for the SAR ConfigMap volume (matches the volume defined by proxyVolumes).
+// If upstreamTimeoutSeconds is non-nil, --upstream-timeout=<N>s is appended to the args.
+func kubeRbacProxyContainer(upstreamTimeoutSeconds *int64, sarVolumeName string) corev1.Container {
+	args := []string{
+		`--secure-listen-address=:8443`,
+		`--proxy-endpoints-port=8643`,
+		`--upstream=http://localhost:8080`,
+		`--auth-header-fields-enabled=true`,
+		`--tls-cert-file=/etc/tls/private/tls.crt`,
+		`--tls-private-key-file=/etc/tls/private/tls.key`,
+		`--config-file=/etc/kube-rbac-proxy/config-file.yaml`,
+		`--v=4`,
+	}
+	if upstreamTimeoutSeconds != nil {
+		args = append(args, fmt.Sprintf("--upstream-timeout=%ds", *upstreamTimeoutSeconds))
+	}
+	return corev1.Container{
+		Name:  constants.KubeRbacContainerName,
+		Image: constants.OauthProxyImage,
+		Args:  args,
+		Ports: []corev1.ContainerPort{
+			{ContainerPort: constants.OauthProxyPort, Name: "https", Protocol: corev1.ProtocolTCP},
+			{ContainerPort: constants.OauthProxyProbePort, Name: "proxy", Protocol: corev1.ProtocolTCP},
+		},
+		LivenessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Path:   "/healthz",
+					Port:   intstr.FromInt32(constants.OauthProxyProbePort),
+					Scheme: corev1.URISchemeHTTPS,
+				},
+			},
+			InitialDelaySeconds: 30,
+			TimeoutSeconds:      1,
+			PeriodSeconds:       5,
+			SuccessThreshold:    1,
+			FailureThreshold:    3,
+		},
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Path:   "/healthz",
+					Port:   intstr.FromInt32(constants.OauthProxyProbePort),
+					Scheme: corev1.URISchemeHTTPS,
+				},
+			},
+			InitialDelaySeconds: 5,
+			TimeoutSeconds:      1,
+			PeriodSeconds:       5,
+			SuccessThreshold:    1,
+			FailureThreshold:    3,
+		},
+		Resources: corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse(constants.OauthProxyResourceCPULimit),
+				corev1.ResourceMemory: resource.MustParse(constants.OauthProxyResourceMemoryLimit),
+			},
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse(constants.OauthProxyResourceCPURequest),
+				corev1.ResourceMemory: resource.MustParse(constants.OauthProxyResourceMemoryRequest),
+			},
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: "proxy-tls", MountPath: "/etc/tls/private"},
+			{Name: sarVolumeName, MountPath: "/etc/kube-rbac-proxy", ReadOnly: true},
+		},
+		TerminationMessagePath:   "/dev/termination-log",
+		TerminationMessagePolicy: "File",
+		ImagePullPolicy:          "IfNotPresent",
+	}
+}
+
+// proxyVolumes returns the proxy-tls and SAR ConfigMap volumes for an InferenceService deployment.
+// tlsSecretName is the serving certificate Secret name; sarConfigMapName is the full SAR ConfigMap name.
+func proxyVolumes(tlsSecretName, sarConfigMapName string) []corev1.Volume {
+	defaultMode := int32(420)
+	return []corev1.Volume{
+		{
+			Name: "proxy-tls",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  tlsSecretName,
+					DefaultMode: &defaultMode,
+				},
+			},
+		},
+		{
+			Name: sarConfigMapName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: sarConfigMapName},
+					DefaultMode:          &defaultMode,
+				},
+			},
+		},
+	}
+}
+
 func getExpectedDeployment(explainerDeploymentKey types.NamespacedName, serviceName string, serviceKey types.NamespacedName, predictorServiceKey types.NamespacedName) appsv1.Deployment {
 	return appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -317,14 +416,25 @@ func getExpectedDeployment(explainerDeploymentKey types.NamespacedName, serviceN
 							TerminationMessagePath:   "/dev/termination-log",
 							TerminationMessagePolicy: "File",
 							ImagePullPolicy:          "IfNotPresent",
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "proxy-tls",
+									MountPath: "/etc/tls/private",
+								},
+							},
 						},
+						kubeRbacProxyContainer(ptr.To(int64(30)), fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName)),
 					},
+					Volumes: proxyVolumes(
+						explainerDeploymentKey.Name+constants.ServingCertSecretSuffix,
+						fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName),
+					),
 					SchedulerName:                 "default-scheduler",
 					RestartPolicy:                 "Always",
 					TerminationGracePeriodSeconds: ptr.To(GRACE_PERIOD),
 					DNSPolicy:                     "ClusterFirst",
 					SecurityContext:               defaultSecurityContext,
-					AutomountServiceAccountToken:  ptr.To(false),
+					AutomountServiceAccountToken:  ptr.To(true),
 				},
 			},
 			Strategy:                getDefaultRollingStrategy(),
@@ -378,6 +488,12 @@ func getDeploymentWithKServiceLabel(predictorDeploymentKey types.NamespacedName,
 							Env: []corev1.EnvVar{
 								{Name: constants.InferenceServiceNameEnvVarKey, Value: serviceName},
 							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "proxy-tls",
+									MountPath: "/etc/tls/private",
+								},
+							},
 							Resources: defaultResource,
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
@@ -397,13 +513,18 @@ func getDeploymentWithKServiceLabel(predictorDeploymentKey types.NamespacedName,
 							TerminationMessagePolicy: "File",
 							ImagePullPolicy:          "IfNotPresent",
 						},
+						kubeRbacProxyContainer(isvc.Spec.Predictor.TimeoutSeconds, fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName)),
 					},
+					Volumes: proxyVolumes(
+						predictorDeploymentKey.Name+constants.ServingCertSecretSuffix,
+						fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName),
+					),
 					SchedulerName:                 "default-scheduler",
 					RestartPolicy:                 "Always",
 					TerminationGracePeriodSeconds: ptr.To(GRACE_PERIOD),
 					DNSPolicy:                     "ClusterFirst",
 					SecurityContext:               defaultSecurityContext,
-					AutomountServiceAccountToken:  ptr.To(false),
+					AutomountServiceAccountToken:  ptr.To(true),
 				},
 			},
 			Strategy:                getDefaultRollingStrategy(),

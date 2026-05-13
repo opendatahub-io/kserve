@@ -103,6 +103,25 @@ func (e *Config) WithManagerOptions(opts ...ManagerOption) *Config {
 	return e
 }
 
+// SetupTestLogger configures the controller-runtime logger for test suites.
+// By default, it sets the log level to warn so that only errors and warnings are visible,
+// suppressing verbose controller reconciliation logs.
+// Set the TEST_LOG_LEVEL env var to override (e.g. "debug", "info", "error").
+func SetupTestLogger() {
+	level := zapcore.WarnLevel
+	if envLevel := os.Getenv("TEST_LOG_LEVEL"); envLevel != "" {
+		if err := level.UnmarshalText([]byte(envLevel)); err != nil {
+			level = zapcore.WarnLevel
+		}
+	}
+
+	opts := zap.Options{
+		Level:       level,
+		TimeEncoder: zapcore.TimeEncoderOfLayout(time.RFC3339),
+	}
+	logf.SetLogger(zap.New(zap.WriteTo(ginkgo.GinkgoWriter), zap.UseFlagOptions(&opts)))
+}
+
 // BuildEnvironment constructs the envtest.Environment from the configured options
 // without starting it. This is intended for TestMain-based suites that manage
 // the environment lifecycle directly, since Start() depends on Ginkgo.
@@ -129,13 +148,9 @@ func (e *Config) BuildEnvironment() *envtest.Environment {
 // Start wires controller-runtime manager with controllers which are subject of the tests
 // and starts Kubernetes EnvTest to verify their behavior.
 func (e *Config) Start(ctx context.Context) *Client {
-	ctx, cancel := context.WithCancel(ctx)
+	SetupTestLogger()
 
-	opts := zap.Options{
-		Development: true,
-		TimeEncoder: zapcore.TimeEncoderOfLayout(time.RFC3339),
-	}
-	logf.SetLogger(zap.New(zap.WriteTo(ginkgo.GinkgoWriter), zap.UseFlagOptions(&opts)))
+	ctx, cancel := context.WithCancel(ctx)
 
 	envTest := e.BuildEnvironment()
 
@@ -262,6 +277,9 @@ func (e *Config) Start(ctx context.Context) *Client {
 // handles may not yet be populated (processState is unexported).
 // ControlPlane.Stop() is called afterwards to clean up temporary directories.
 func stopControlPlane(controlPlane *envtest.ControlPlane) {
+	if controlPlane == nil {
+		return
+	}
 	if controlPlane.APIServer != nil {
 		forceKillByPattern(controlPlane.APIServer.Path, controlPlane.APIServer.CertDir)
 	}
@@ -269,7 +287,14 @@ func stopControlPlane(controlPlane *envtest.ControlPlane) {
 		forceKillByPattern(controlPlane.Etcd.Path, controlPlane.Etcd.DataDir)
 	}
 
-	_ = controlPlane.Stop()
+	// After a failed Start(), controller-runtime may leave APIServer partially
+	// initialized; Stop() can panic (nil Authn). Best-effort cleanup only.
+	func() {
+		defer func() {
+			_ = recover()
+		}()
+		_ = controlPlane.Stop()
+	}()
 }
 
 // forceKillByPattern kills processes matching the given binary path and unique argument.

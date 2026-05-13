@@ -26,6 +26,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -33,9 +34,10 @@ import (
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1"
+
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
-	"github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
 	. "github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc/fixture"
 )
 
@@ -114,7 +116,7 @@ schedulingProfiles:
 						Containers: []corev1.Container{
 							{
 								Name:  "main",
-								Image: "ghcr.io/llm-d/llm-d-inference-scheduler:v0.2.0",
+								Image: "ghcr.io/llm-d/llm-d-inference-scheduler:v0.7.1",
 								Args: []string{
 									"--config-text",
 									"existing-config-from-template",
@@ -431,14 +433,14 @@ schedulingProfiles:
 				}, expectedDeployment)
 			}).WithContext(ctx).Should(Succeed())
 
-			// Verify P/D config (should contain prefill-filter, decode-filter, pd-profile-handler, etc.)
+			// Verify P/D config (should contain prefill-filter, decode-filter, disagg-profile-handler, etc.)
 			configText, found := getSchedulerConfigText(expectedDeployment)
 			Expect(found).To(BeTrue(), "Expected P/D config in scheduler deployment")
-			// P/D config should contain these plugins
-			Expect(configText).To(ContainSubstring("prefill-header-handler"))
+			// P/D config should contain these plugins (using new v0.7.0 names)
+			Expect(configText).To(ContainSubstring("disagg-headers-handler"))
 			Expect(configText).To(ContainSubstring("prefill-filter"))
 			Expect(configText).To(ContainSubstring("decode-filter"))
-			Expect(configText).To(ContainSubstring("pd-profile-handler"))
+			Expect(configText).To(ContainSubstring("disagg-profile-handler"))
 			Expect(configText).To(ContainSubstring("name: prefill"))
 			Expect(configText).To(ContainSubstring("name: decode"))
 		})
@@ -862,7 +864,7 @@ schedulingProfiles:
 						Containers: []corev1.Container{
 							{
 								Name:  "main",
-								Image: "ghcr.io/llm-d/llm-d-inference-scheduler:v0.2.0",
+								Image: "ghcr.io/llm-d/llm-d-inference-scheduler:v0.7.1",
 								Args: []string{
 									"--ha-enable-leader-election",
 									"--poolName",
@@ -909,123 +911,6 @@ schedulingProfiles:
 			Expect(countLeaderElectionFlags(expectedDeployment)).To(Equal(1),
 				"Expected exactly one --ha-enable-leader-election flag (not duplicated)")
 		})
-	})
-
-	Context("Certificate hash annotation", func() {
-		It("should set cert-hash annotation on the scheduler pod template", func(ctx SpecContext) {
-			// given
-			svcName := "test-llm-scheduler-cert-hash"
-			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
-
-			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
-				WithModelURI("hf://facebook/opt-125m"),
-				WithManagedRoute(),
-				WithManagedGateway(),
-				WithManagedScheduler(),
-			)
-
-			// when
-			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
-			defer func() {
-				testNs.DeleteAndWait(ctx, llmSvc)
-			}()
-
-			// then - verify the scheduler deployment has the cert-hash annotation
-			Eventually(func(g Gomega, ctx context.Context) error {
-				schedulerDeployment := &appsv1.Deployment{}
-				g.Expect(envTest.Get(ctx, types.NamespacedName{
-					Name:      kmeta.ChildName(svcName, "-kserve-router-scheduler"),
-					Namespace: testNs.Name,
-				}, schedulerDeployment)).To(Succeed())
-
-				g.Expect(schedulerDeployment.Spec.Template.Annotations).To(
-					HaveKey(llmisvc.DefaultRestartAnnotation),
-					"Scheduler pod template should have cert-hash annotation to trigger restart on cert renewal",
-				)
-				g.Expect(schedulerDeployment.Spec.Template.Annotations[llmisvc.DefaultRestartAnnotation]).To(
-					MatchRegexp("^[0-9a-f]{64}$"), "cert-hash should be a SHA-256 hex string",
-				)
-
-				return nil
-			}).WithContext(ctx).Should(Succeed())
-		})
-
-		DescribeTable("should skip cert-hash annotation when scheduler supports cert reload",
-			func(ctx SpecContext, certReloadArg string) {
-				// given
-				svcName := "test-llm-cert-reload-skip"
-				testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
-
-				modelConfig := LLMInferenceServiceConfig("model-cert-reload",
-					InNamespace[*v1alpha2.LLMInferenceServiceConfig](testNs.Name),
-					WithConfigModelName("facebook/opt-125m"),
-					WithConfigModelURI("hf://facebook/opt-125m"),
-				)
-
-				routerConfig := LLMInferenceServiceConfig("router-cert-reload",
-					InNamespace[*v1alpha2.LLMInferenceServiceConfig](testNs.Name),
-				)
-				routerConfig.Spec.Router = &v1alpha2.RouterSpec{
-					Gateway: &v1alpha2.GatewaySpec{},
-					Route:   &v1alpha2.GatewayRoutesSpec{},
-					Scheduler: &v1alpha2.SchedulerSpec{
-						Template: &corev1.PodSpec{
-							Containers: []corev1.Container{
-								{
-									Name:  "main",
-									Image: "ghcr.io/llm-d/llm-d-inference-scheduler:v0.6.0",
-									Args: []string{
-										certReloadArg,
-										"--poolName",
-										"test-pool",
-									},
-									Ports: []corev1.ContainerPort{
-										{Name: "grpc", ContainerPort: 9002, Protocol: corev1.ProtocolTCP},
-										{Name: "grpc-health", ContainerPort: 9003, Protocol: corev1.ProtocolTCP},
-										{Name: "metrics", ContainerPort: 9090, Protocol: corev1.ProtocolTCP},
-									},
-								},
-							},
-						},
-						Pool: &v1alpha2.InferencePoolSpec{},
-					},
-				}
-
-				Expect(envTest.Client.Create(ctx, modelConfig)).To(Succeed())
-				Expect(envTest.Client.Create(ctx, routerConfig)).To(Succeed())
-
-				llmSvc := LLMInferenceService(svcName,
-					InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
-					WithBaseRefs(
-						corev1.LocalObjectReference{Name: "model-cert-reload"},
-						corev1.LocalObjectReference{Name: "router-cert-reload"},
-					),
-				)
-
-				// when
-				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
-				defer func() {
-					testNs.DeleteAndWait(ctx, llmSvc)
-				}()
-
-				// then - the scheduler deployment must NOT have cert-hash annotation
-				schedulerDeployment := &appsv1.Deployment{}
-				Eventually(func(g Gomega, ctx context.Context) error {
-					return envTest.Get(ctx, types.NamespacedName{
-						Name:      svcName + "-kserve-router-scheduler",
-						Namespace: testNs.Name,
-					}, schedulerDeployment)
-				}).WithContext(ctx).Should(Succeed())
-
-				Expect(schedulerDeployment.Spec.Template.Annotations).NotTo(
-					HaveKey(llmisvc.DefaultRestartAnnotation),
-					"Scheduler with cert reload enabled should not have cert-hash annotation",
-				)
-			},
-			Entry("bare flag", "--enable-cert-reload"),
-			Entry("flag with =true", "--enable-cert-reload=true"),
-		)
 	})
 
 	Context("Scheduler RBAC", func() {
@@ -1600,6 +1485,97 @@ schedulingProfiles:
 					corev1.LocalObjectReference{Name: "new-secret"}))
 				return nil
 			}).WithContext(ctx).Should(Succeed())
+		})
+	})
+
+	Context("Multi-GPU-vendor pooling via workload label propagation", func() {
+		It("should create InferencePool with default workload labels that AMD pods can match", func(ctx SpecContext) {
+			// This test verifies the multi-GPU-vendor pooling pattern:
+			// 1. NVIDIA instance with default scheduler creates InferencePool with default workload labels
+			// 2. AMD instance with no router uses spec.labels to match the NVIDIA InferencePool selector
+			nvidiaSvcName := "test-llm-nvidia"
+			amdSvcName := "test-llm-amd"
+			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(nvidiaSvcName))
+
+			// Create NVIDIA instance with default scheduler
+			nvidiaLLMSvc := LLMInferenceService(nvidiaSvcName,
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithManagedRoute(),
+				WithManagedGateway(),
+				WithManagedScheduler(),
+			)
+
+			Expect(envTest.Create(ctx, nvidiaLLMSvc)).To(Succeed())
+			defer func() {
+				testNs.DeleteAndWait(ctx, nvidiaLLMSvc)
+			}()
+
+			// Verify InferencePool is created with default workload label selector
+			ip := &igwapi.InferencePool{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, client.ObjectKey{
+					Name:      nvidiaSvcName + "-inference-pool",
+					Namespace: testNs.Name,
+				}, ip)
+			}).WithContext(ctx).Should(Succeed())
+
+			Expect(ip.Spec.Selector.MatchLabels).To(HaveKeyWithValue(
+				igwapi.LabelKey("app.kubernetes.io/name"), igwapi.LabelValue(nvidiaSvcName)))
+			Expect(ip.Spec.Selector.MatchLabels).To(HaveKeyWithValue(
+				igwapi.LabelKey("kserve.io/component"), igwapi.LabelValue("workload")))
+			Expect(ip.Spec.Selector.MatchLabels).To(HaveKeyWithValue(
+				igwapi.LabelKey("app.kubernetes.io/part-of"), igwapi.LabelValue("llminferenceservice")))
+
+			// Create AMD instance with no router, using spec.labels to match NVIDIA's InferencePool
+			amdLLMSvc := LLMInferenceService(amdSvcName,
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithWorkloadLabels(map[string]string{
+					"app.kubernetes.io/name":    nvidiaSvcName,
+					"app.kubernetes.io/part-of": "llminferenceservice",
+					"kserve.io/component":       "workload",
+				}),
+			)
+
+			Expect(envTest.Create(ctx, amdLLMSvc)).To(Succeed())
+			defer func() {
+				testNs.DeleteAndWait(ctx, amdLLMSvc)
+			}()
+
+			// Verify AMD workload deployment is created and its pod template labels
+			// match the NVIDIA InferencePool selector
+			amdDeployment := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, client.ObjectKey{
+					Name:      amdSvcName + "-kserve",
+					Namespace: testNs.Name,
+				}, amdDeployment)
+			}).WithContext(ctx).Should(Succeed())
+
+			podLabels := amdDeployment.Spec.Template.Labels
+			for labelKey, labelValue := range ip.Spec.Selector.MatchLabels {
+				Expect(podLabels).To(HaveKeyWithValue(string(labelKey), string(labelValue)),
+					"AMD pod template label %q should match NVIDIA InferencePool selector", labelKey)
+			}
+
+			// Verify no InferencePool was created for the AMD instance
+			amdIP := &igwapi.InferencePool{}
+			err := envTest.Get(ctx, client.ObjectKey{
+				Name:      amdSvcName + "-inference-pool",
+				Namespace: testNs.Name,
+			}, amdIP)
+			Expect(errors.IsNotFound(err)).To(BeTrue(),
+				"AMD instance should not create its own InferencePool")
+
+			// Verify no scheduler deployment was created for the AMD instance
+			amdScheduler := &appsv1.Deployment{}
+			err = envTest.Get(ctx, client.ObjectKey{
+				Name:      amdSvcName + "-kserve-epp",
+				Namespace: testNs.Name,
+			}, amdScheduler)
+			Expect(errors.IsNotFound(err)).To(BeTrue(),
+				"AMD instance should not create a scheduler deployment")
 		})
 	})
 })
