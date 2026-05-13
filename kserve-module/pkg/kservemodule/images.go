@@ -1,7 +1,3 @@
-// [TEMPORARY] Image param maps derived from opendatahub-operator and rhods-operator
-// (internal/controller/components/kserve/kserve_support.go,
-//  internal/controller/components/modelcontroller/modelcontroller_support.go).
-// Remove this comment once the code diverges from the original.
 package kservemodule
 
 import "os"
@@ -29,18 +25,7 @@ var modelControllerImageParamMap = map[string]string{
 	"odh-model-controller": "RELATED_IMAGE_ODH_MODEL_CONTROLLER_IMAGE",
 }
 
-const (
-	defaultCAIssuerName    = "opendatahub-ca-issuer"
-	defaultIssuerRefKind   = "ClusterIssuer"
-	defaultCertName        = "opendatahub-ca"
-	defaultCertManagerNS   = "cert-manager"
-	defaultIstioCACertPath = "/var/run/secrets/opendatahub/ca.crt"
-)
 
-// [TEMPORARY] Adapted from rhods-operator (pkg/controller/actions/dependency/certmanager).
-// TODO: replace with certmanager.DefaultBootstrapConfig() from odh-platform-utilities
-// once it is migrated to the shared library. RHOAI uses RHAI_* env var overrides via that package.
-// Remove this comment once migrated.
 func buildCertManagerParams(namespace string) map[string]string {
 	return map[string]string{
 		"NAMESPACE":                 namespace,

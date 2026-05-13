@@ -2,6 +2,7 @@
 FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS builder
 ENV PATH="$PATH:/opt/app-root/src/go/bin"
 
+USER root
 WORKDIR /go/src/github.com/opendatahub-io/kserve-module
 COPY kserve-module/go.mod  go.mod
 COPY kserve-module/go.sum  go.sum

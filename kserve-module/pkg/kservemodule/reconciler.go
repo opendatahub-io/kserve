@@ -6,14 +6,17 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
+	"github.com/opendatahub-io/odh-platform-utilities/pkg/deploy"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/render/kustomize"
 
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
@@ -22,13 +25,31 @@ import (
 // +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=kserves,verbs=list;watch
 // +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=kserves,resourceNames=default-kserve,verbs=get;update;patch
 // +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=kserves/status,resourceNames=default-kserve,verbs=get;update;patch
-//
+// +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=kserves/finalizers,resourceNames=default-kserve,verbs=update
 // +kubebuilder:rbac:groups=config.openshift.io,resources=clusterversions,verbs=get
+// +kubebuilder:rbac:groups="",resources=configmaps;secrets;services;serviceaccounts,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups="",resources=configmaps/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups="",resources=serviceaccounts/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=create;delete;get;list;patch
+// escalation requires operator to hold all verbs it grants
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterroles;clusterrolebindings,verbs=bind;create;delete;escalate;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles/finalizers;rolebindings/finalizers;clusterroles/finalizers;clusterrolebindings/finalizers,verbs=update
+// no delete — CRDs survive CR deletion
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=create;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations;validatingwebhookconfigurations,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceserviceconfigs;clusterstoragecontainers,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=security.openshift.io,resources=securitycontextconstraints,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=create;delete;get;list;patch;update;watch
 
 type KserveModuleReconciler struct {
 	client.Client
 	Scheme        *runtime.Scheme
-	ManifestsPath string
+	ManifestsTemplatePath string
+	Deployer      *deploy.Deployer
 
 	workDir               string
 	initDone              bool
@@ -44,30 +65,36 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	mgmtState := platformv1alpha1.GetManagementState(kserve)
-	log.Info("reconciling Kserve CR", "name", kserve.Name, "managementState", mgmtState)
-
-	if mgmtState == common.Removed {
-		// TODO(RHOAIENG-61119): run garbage collection to remove deployed resources,
-		// then update status. Currently no-op because deploy is not yet implemented.
-		log.Info("Kserve is Removed, skipping reconciliation")
-		return ctrl.Result{}, nil
-	}
+	log.Info("reconciling Kserve CR", "name", kserve.Name)
 
 	componentErrors := r.reconcile(ctx, kserve)
 	if len(componentErrors) > 0 {
+		names := make([]string, 0, len(componentErrors))
+		for name := range componentErrors {
+			names = append(names, name)
+		}
+		slices.Sort(names)
+
 		var msgs []string
-		for name, err := range componentErrors {
-			log.Error(err, "component reconciliation failed", "component", name)
-			msgs = append(msgs, name+": "+err.Error())
+		for _, name := range names {
+			log.Error(componentErrors[name], "component reconciliation failed", "component", name)
+			msgs = append(msgs, name+": "+componentErrors[name].Error())
 		}
 		return ctrl.Result{}, fmt.Errorf("reconciliation failed: %s", strings.Join(msgs, "; "))
+	}
+
+	ns := r.getApplicationsNamespace()
+	if err := checkDeploymentReadiness(ctx, r.Client, ns, r.isKubernetes(ctx)); err != nil {
+		log.Info("deployment not ready, requeueing", "reason", err.Error())
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 
 	return ctrl.Result{}, nil
 }
 
 func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platformv1alpha1.Kserve) map[string]error {
+	log := ctrl.LoggerFrom(ctx)
+
 	manifestDir, err := r.ensureWorkDir()
 	if err != nil {
 		errs := make(map[string]error, len(components))
@@ -77,40 +104,63 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 		return errs
 	}
 
+	var allResources []unstructured.Unstructured
 	componentErrors := make(map[string]error, len(components))
+
 	for _, comp := range components {
-		if err := r.reconcileComponent(ctx, kserve, manifestDir, comp); err != nil {
+		resources, err := r.reconcileComponent(ctx, kserve, manifestDir, comp)
+		if err != nil {
 			componentErrors[comp.name] = err
+			continue
 		}
+		allResources = append(allResources, resources...)
 	}
 
-	return componentErrors
+	if len(componentErrors) > 0 {
+		return componentErrors
+	}
+
+	if err := r.Deployer.Deploy(ctx, deploy.DeployInput{
+		Client:    r.Client,
+		Owner:     kserve,
+		Resources: allResources,
+	}); err != nil {
+		return map[string]error{"deploy": fmt.Errorf("SSA apply: %w", err)}
+	}
+
+	log.Info("deployed all resources", "count", len(allResources))
+
+	return nil
 }
 
 func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
-	kserve *platformv1alpha1.Kserve, manifestDir string, comp componentConfig) error {
+	kserve *platformv1alpha1.Kserve, manifestDir string, comp componentConfig) ([]unstructured.Unstructured, error) {
 
 	log := ctrl.LoggerFrom(ctx)
 
 	sourcePath := comp.sourcePath
-	if comp.name == kserveComponentName && r.isKubernetes(ctx) {
-		sourcePath = kserveManifestSourcePathXKS
+	if r.isKubernetes(ctx) {
+		if comp.sourcePathXKS == "" {
+			log.Info("no XKS overlay, skipping component", "component", comp.name)
+			return nil, nil
+		}
+		sourcePath = comp.sourcePathXKS
 	}
 
 	if err := applyParams(
 		filepath.Join(manifestDir, comp.name, sourcePath),
 		comp.imageMap,
 	); err != nil {
-		return fmt.Errorf("applying %s image params: %w", comp.name, err)
+		return nil, fmt.Errorf("applying %s image params: %w", comp.name, err)
 	}
 
-	if comp.name == kserveComponentName && r.isKubernetes(ctx) {
+	if r.isKubernetes(ctx) {
 		ns := r.getApplicationsNamespace()
 		if err := applyParams(
-			filepath.Join(manifestDir, comp.name, kserveManifestSourcePathXKS),
+			filepath.Join(manifestDir, comp.name, comp.sourcePathXKS),
 			nil, buildCertManagerParams(ns),
 		); err != nil {
-			return fmt.Errorf("applying cert-manager params: %w", err)
+			return nil, fmt.Errorf("applying cert-manager params: %w", err)
 		}
 	}
 
@@ -120,28 +170,28 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 			filepath.Join(manifestDir, comp.name, sourcePath),
 			nil, extra,
 		); err != nil {
-			return fmt.Errorf("applying %s extra params: %w", comp.name, err)
+			return nil, fmt.Errorf("applying %s extra params: %w", comp.name, err)
 		}
 	}
 
 	renderPath := filepath.Join(manifestDir, comp.name, sourcePath)
 	resources, err := kustomize.Render(renderPath, nil)
 	if err != nil {
-		return fmt.Errorf("rendering %s kustomize: %w", comp.name, err)
+		return nil, fmt.Errorf("rendering %s kustomize: %w", comp.name, err)
 	}
 	log.Info("rendered kustomize manifests", "component", comp.name, "resourceCount", len(resources))
 
 	if comp.postRender != nil {
 		resources, err = comp.postRender(ctx, r, kserve, resources)
 		if err != nil {
-			return fmt.Errorf("%s post-render: %w", comp.name, err)
+			return nil, fmt.Errorf("%s post-render: %w", comp.name, err)
 		}
 	}
 
-	commonPostRender(resources, comp.name)
+	commonPostRender(resources, kserveComponentName)
 
-	log.Info("component reconciliation complete", "component", comp.name, "resources", len(resources))
-	return nil
+	log.Info("component rendering complete", "component", comp.name, "resources", len(resources))
+	return resources, nil
 }
 
 func (r *KserveModuleReconciler) isKubernetes(ctx context.Context) bool {
@@ -172,24 +222,15 @@ func (r *KserveModuleReconciler) getApplicationsNamespace() string {
 	return "opendatahub"
 }
 
-// getVersionPrefix returns a dash-separated version string (e.g. "v3-4-0")
-// used to prefix LLMInferenceServiceConfig names so multiple versions can
-// coexist during upgrades without name collisions.
-//
-// Resolution order:
-// 1. platform.opendatahub.io/version annotation on Kserve CR (set by orchestrator)
-// 2. PlatformContext.Release.Version projected into Kserve CR spec (future, when common.Release is in shared lib)
-// 3. RELEASE_VERSION env var (injected by build pipeline)
-// 4. Fallback "v0-0-0" for local development
+// TODO: clarify with platform team how the release version is delivered to module operators.
+// odh-operator uses cluster.GetRelease().Version (from CSV), but module operators don't have
+// direct CSV access. Current implementation reads annotation; need to confirm this is the
+// agreed contract or if a different mechanism (e.g. ConfigMap, CR spec field) will be used.
 func (r *KserveModuleReconciler) getVersionPrefix(kserve *platformv1alpha1.Kserve) string {
-	// implementated based on current KSERVE CR
 	if ann := kserve.GetAnnotations(); ann != nil {
 		if v := ann["platform.opendatahub.io/version"]; v != "" {
 			return "v" + strings.ReplaceAll(v, ".", "-")
 		}
-	}
-	if v := os.Getenv("RELEASE_VERSION"); v != "" {
-		return "v" + strings.ReplaceAll(v, ".", "-")
 	}
 	return "v0-0-0"
 }
@@ -200,7 +241,7 @@ func (r *KserveModuleReconciler) ensureWorkDir() (string, error) {
 	}
 
 	workDir := "/opt/manifests"
-	srcDir := r.ManifestsPath
+	srcDir := r.ManifestsTemplatePath
 	err := filepath.WalkDir(srcDir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -227,3 +268,4 @@ func (r *KserveModuleReconciler) ensureWorkDir() (string, error) {
 	r.initDone = true
 	return workDir, nil
 }
+

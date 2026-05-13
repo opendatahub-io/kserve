@@ -47,7 +47,7 @@ func TestCustomizeKserveConfigMap_AddsHashToDeployment(t *testing.T) {
 	result, err := customizeKserveConfigMap(resources, true)
 	g.Expect(err).ShouldNot(HaveOccurred())
 
-	_, deploy, err := getIndexedResource[appsv1.Deployment](result, deploymentGVK, isvcControllerDeployment)
+	_, deploy, err := getIndexedResource[appsv1.Deployment](result, deploymentGVK, kserveControllerDeployment)
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(deploy.Spec.Template.Annotations).Should(HaveKey(configHashAnnotationKey))
 	g.Expect(deploy.Spec.Template.Annotations[configHashAnnotationKey]).ShouldNot(BeEmpty())
@@ -79,7 +79,7 @@ func buildTestResources(t *testing.T) []unstructured.Unstructured {
 
 	deploy := &appsv1.Deployment{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
-		ObjectMeta: metav1.ObjectMeta{Name: isvcControllerDeployment, Namespace: "opendatahub"},
+		ObjectMeta: metav1.ObjectMeta{Name: kserveControllerDeployment, Namespace: "opendatahub"},
 		Spec: appsv1.DeploymentSpec{
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{

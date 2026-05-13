@@ -1,6 +1,3 @@
-// [TEMPORARY] Adapted from opendatahub-operator (pkg/deploy/envParams.go).
-// TODO: migrate to odh-platform-utilities once ApplyParams is moved to the shared library.
-// Remove this comment once migrated.
 package kservemodule
 
 import (
