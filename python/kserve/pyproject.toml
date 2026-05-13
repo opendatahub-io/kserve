@@ -36,6 +36,9 @@ dependencies = [
     # CVE-2026-32597 PyJWT accepts unknown `crit` header extensions (RFC 7515 §4.1.11 MUST violation)
     # Pinning because it is a transitive dependency.
     "pyjwt>=2.12.0",
+    # CVE-2026-28684 python-dotenv: Arbitrary file overwrite via symbolic link following
+    # Pinning because it is a transitive dependency.
+    "python-dotenv>=1.2.2",
 ]
 name = "kserve"
 version = "0.17.0"
