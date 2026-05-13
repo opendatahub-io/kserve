@@ -13,7 +13,7 @@
 # limitations under the License.
 #
 # Dispatches to the correct KServe install method and runs common post-install steps.
-# Called by setup-e2e-tests.sh, or directly via "make setup-kserve-ocp".
+# Called by setup-e2e-tests.sh, or directly via "make deploy-ocp".
 #
 # Env-var interface:
 #   OPERATOR_TYPE     odh | opendatahub | rhoai | rhods | empty (manual kustomize)

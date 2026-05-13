@@ -26,7 +26,7 @@ PROJECT_ROOT="${SCRIPT_DIR}/../../../"
 # (tagged :${GITHUB_SHA:-master}) over the upstream defaults. This mirrors the logic
 # in deploy.kserve-manual.sh and covers both BUILD_KSERVE_IMAGES=true (where
 # build-kserve-images.sh exports these vars) and BUILD_KSERVE_IMAGES=false / standalone
-# setup-kserve-ocp invocations (where the vars are not yet set but images are pushed).
+# deploy-ocp invocations (where the vars are not yet set but images are pushed).
 if [[ -n "${QUAY_REPO:-}" ]]; then
   _repo="${QUAY_REPO}/kserve"
   _tag="${GITHUB_SHA:-master}"

@@ -13,7 +13,7 @@ if [ -z "${QUAY_REPO:-}" ]; then
     echo "Error: QUAY_REPO environment variable is not set"
     exit 1
 fi
-export KO_DOCKER_REPO=$QUAY_REPO/kserve
+export KO_DOCKER_REPO=$QUAY_REPO
 
 # Build via Make, tag with :$GITHUB_SHA, and push.
 # Usage: build_tag_push <make-target> <ci-image-ref>

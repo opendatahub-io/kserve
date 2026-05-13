@@ -1,5 +1,10 @@
 # OpenShift targets for kserve midstream (setup, teardown, and E2E testing).
 # Included from Makefile.overrides.mk.
+#
+# WARNING: These targets are intended for DEVELOPMENT and CI use only.
+# Do NOT run them against production or shared clusters.  The undeploy-ocp
+# target removes operators, namespaces, and cluster-scoped resources
+# non-surgically; it will destroy workloads it did not create.
 
 E2E_MARKER ?= predictor
 QUAY_REPO ?=
@@ -52,7 +57,7 @@ build-images-ocp: ## Build and push KServe images for E2E testing. Requires QUAY
 	QUAY_REPO="$(QUAY_REPO)" GITHUB_SHA="$(GITHUB_SHA)" \
 	./test/scripts/openshift-ci/build-kserve-images.sh
 
-setup-kserve-ocp: ## Install operator and deploy KServe on OpenShift (no E2E scaffolding). Use OPERATOR_TYPE=odh|rhoai, or leave empty for manual kustomize deploy.
+deploy-ocp: ## Install operator and deploy KServe on OpenShift (no E2E scaffolding). Use OPERATOR_TYPE=odh|rhoai, or leave empty for manual kustomize deploy.
 	OPERATOR_TYPE="$(strip $(OPERATOR_TYPE))" \
 	OPERATOR_VERSION="$(strip $(OPERATOR_VERSION))" \
 	CATALOG_SOURCE="$(strip $(CATALOG_SOURCE))" \
@@ -62,7 +67,7 @@ setup-kserve-ocp: ## Install operator and deploy KServe on OpenShift (no E2E sca
 	GITHUB_SHA="$(GITHUB_SHA)" \
 	./test/scripts/openshift-ci/setup-kserve.sh
 
-setup-e2e-ocp: ## Set up E2E test environment on OpenShift. Use OPERATOR_TYPE=odh, or leave empty for manual kustomize deploy.
+deploy-e2e-ocp: ## Set up E2E test environment on OpenShift. Use OPERATOR_TYPE=odh, or leave empty for manual kustomize deploy.
 	OPERATOR_TYPE="$(strip $(OPERATOR_TYPE))" \
 	OPERATOR_VERSION="$(strip $(OPERATOR_VERSION))" \
 	CATALOG_SOURCE="$(strip $(CATALOG_SOURCE))" \
@@ -73,7 +78,7 @@ setup-e2e-ocp: ## Set up E2E test environment on OpenShift. Use OPERATOR_TYPE=od
 	GITHUB_SHA="$(GITHUB_SHA)" \
 	./test/scripts/openshift-ci/setup-e2e-tests.sh "$(E2E_MARKER)"
 
-e2e-ocp: ## Run E2E tests (assumes setup-e2e-ocp already ran).
+run-e2e-ocp: ## Run E2E tests (assumes deploy-e2e-ocp already ran).
 	SETUP_E2E=false \
 	OPERATOR_TYPE="$(strip $(OPERATOR_TYPE))" \
 	KSERVE_NAMESPACE="$(strip $(KSERVE_NAMESPACE))" \
@@ -84,7 +89,7 @@ e2e-ocp: ## Run E2E tests (assumes setup-e2e-ocp already ran).
 reset-e2e-ocp: ## Reset the test namespace for a fresh E2E rerun.
 	./test/scripts/openshift-ci/setup-ci-namespace.sh
 
-clean-setup-e2e-ocp: teardown-e2e-ocp setup-e2e-ocp ## Teardown then set up E2E environment (safe for operator switches).
+redeploy-e2e-ocp: undeploy-ocp deploy-e2e-ocp ## Tear down then re-deploy the full E2E environment (safe for operator switches).
 
-teardown-e2e-ocp: ## Tear down the entire E2E environment (operator, DSC, namespaces).
+undeploy-ocp: ## Tear down the entire OCP environment (operator, DSC, namespaces). See WARNING at top of file.
 	./test/scripts/openshift-ci/teardown-e2e-setup.sh
