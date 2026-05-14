@@ -50,10 +50,15 @@ def _get_authn_audiences(kserve_client: KServeClient) -> list:
         return token_audiences_env.split(",")
     try:
         policy = kserve_client.api_instance.get_namespaced_custom_object(
-            "kuadrant.io", "v1", "openshift-ingress",
-            "authpolicies", "openshift-ai-inference-authn",
+            "kuadrant.io",
+            "v1",
+            "openshift-ingress",
+            "authpolicies",
+            "openshift-ai-inference-authn",
         )
-        for authn_rule in policy.get("spec", {}).get("rules", {}).get("authentication", {}).values():
+        for authn_rule in (
+            policy.get("spec", {}).get("rules", {}).get("authentication", {}).values()
+        ):
             audiences = authn_rule.get("kubernetesTokenReview", {}).get("audiences")
             if audiences:
                 logger.info(f"Using token audiences from AuthPolicy: {audiences}")
@@ -303,15 +308,15 @@ def test_llm_auth_enabled_requires_token(test_case: TestCase):  # noqa: F811
         )
 
         # Test 2: Request WITH valid token should succeed.
-        # Retry to handle RBAC propagation delay — Kubernetes RBAC and Authorino caches
-        # may not reflect the new RoleBinding immediately after creation.
+        # Retry to handle propagation delay — RBAC changes and Authorino auth policy
+        # caches may not reflect new bindings immediately after creation.
         logger.info("Testing request WITH valid token (should succeed)")
         token_headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {token}",
         }
         response_with_token = None
-        for attempt in range(12):  # up to ~60s
+        for attempt in range(24):  # up to ~120s
             response_with_token = requests.post(
                 completion_url,
                 headers=token_headers,
@@ -567,14 +572,28 @@ def test_llm_auth_disabled_no_token_required(test_case: TestCase):  # noqa: F811
             "max_tokens": test_case.max_tokens,
         }
 
-        # Test: Request WITHOUT token should succeed when auth is disabled
+        # Test: Request WITHOUT token should succeed when auth is disabled.
+        # Retry because the anonymous AuthPolicy override (created by the operator when it
+        # sees enable-auth=false) may not have propagated to Authorino yet.
         logger.info("Testing request WITHOUT token (should succeed when auth disabled)")
-        response_no_token = requests.post(
-            completion_url,
-            headers={"Content-Type": "application/json"},
-            json=test_payload,
-            timeout=test_case.response_timeout,
-        )
+        response_no_token = None
+        for attempt in range(24):  # up to ~120s
+            response_no_token = requests.post(
+                completion_url,
+                headers={"Content-Type": "application/json"},
+                json=test_payload,
+                timeout=test_case.response_timeout,
+            )
+            if response_no_token.status_code == 200:
+                break
+            if response_no_token.status_code in [401, 403]:
+                logger.info(
+                    f"Attempt {attempt + 1}: got {response_no_token.status_code}, "
+                    "waiting for anonymous AuthPolicy propagation..."
+                )
+                time.sleep(5)
+            else:
+                break
         assert response_no_token.status_code == 200, (
             f"Expected 200 without token when auth disabled, got {response_no_token.status_code}: {response_no_token.text}"
         )
