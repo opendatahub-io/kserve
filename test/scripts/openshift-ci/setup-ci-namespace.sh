@@ -58,8 +58,7 @@ sed "s/s3-service.kserve/s3-service.${KSERVE_NAMESPACE}/" \
   "$PROJECT_ROOT/test/overlays/openshift-ci/seaweedfs-s3-creds-secret.yaml" | \
   oc apply -f - -n "$NAMESPACE"
 echo "Linking seaweedfs-s3-creds to default service account"
-oc patch serviceaccount default -n "$NAMESPACE" \
-  -p '{"secrets": [{"name": "seaweedfs-s3-creds"}]}'
+oc secrets link default seaweedfs-s3-creds -n "$NAMESPACE"
 
 # Create empty odh-trusted-ca-bundle configmap (used by S3 TLS tests).
 # Created here rather than in a pytest fixture to avoid race conditions
