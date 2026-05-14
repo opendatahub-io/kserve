@@ -27,15 +27,19 @@ import (
 // +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=kserves/status,resourceNames=default-kserve,verbs=get;update;patch
 // +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=kserves/finalizers,resourceNames=default-kserve,verbs=update
 // +kubebuilder:rbac:groups=config.openshift.io,resources=clusterversions,verbs=get
-// +kubebuilder:rbac:groups="",resources=configmaps;secrets;services;serviceaccounts,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups="",resources=configmaps;services;serviceaccounts,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=create;delete;patch;update,resourceNames=kserve-webhook-server-secret
 // +kubebuilder:rbac:groups="",resources=configmaps/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=create;delete;get;list;patch;update;watch
-// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=create;delete;get;list;patch
-// escalation requires operator to hold all verbs it grants
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterroles;clusterrolebindings,verbs=bind;create;delete;escalate;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=create;delete;get;list;patch;watch
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterroles;clusterrolebindings,verbs=create;delete;get;list;patch;update;watch
+// escalate/bind scoped to the exact roles and clusterroles deployed by this controller
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=kserve-admin;kserve-edit;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;odh-model-controller-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=bind;escalate,resourceNames=kserve-leader-election-role;llmisvc-leader-election-role;leader-election-role
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles/finalizers;rolebindings/finalizers;clusterroles/finalizers;clusterrolebindings/finalizers,verbs=update
 // no delete — CRDs survive CR deletion
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=create;get;list;patch;update;watch
