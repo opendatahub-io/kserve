@@ -72,7 +72,8 @@ echo "Using namespace: $KSERVE_NAMESPACE for KServe components"
 : "${ERROR_404_ISVC_IMAGE:=error-404-isvc:latest}"
 : "${SUCCESS_200_ISVC_IMAGE:=success-200-isvc:latest}"
 
-export OPT_125M_MODEL_URI="s3://example-models/facebook/opt-125m"
+: "${OPT_125M_MODEL_URI:=s3://example-models/facebook/opt-125m}"
+export OPT_125M_MODEL_URI
 
 echo "SKLEARN_IMAGE=$SKLEARN_IMAGE"
 echo "OPT_125M_MODEL_URI=$OPT_125M_MODEL_URI"
