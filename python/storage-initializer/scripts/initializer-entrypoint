@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
+import os
 import sys
+
+os.environ.setdefault("HF_HUB_VERBOSITY", "debug")
+os.environ.setdefault("HF_DEBUG", "1")
+os.environ.setdefault("RUST_LOG", "info")
+os.environ.setdefault("RUST_BACKTRACE", "1")
 
 from kserve_storage import Storage
 from kserve_storage.logging import configure_logging, logger

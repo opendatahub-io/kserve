@@ -255,6 +255,13 @@ func (r *LLMISVCReconciler) attachHfModelArtifact(ctx context.Context, serviceAc
 			utils.AddDefaultHuggingFaceEnvVars(initContainer)
 		}
 
+		utils.AddEnvVars(initContainer, []corev1.EnvVar{
+			{Name: "HF_HUB_VERBOSITY", Value: "debug"},
+			{Name: "HF_DEBUG", Value: "1"},
+			{Name: "RUST_LOG", Value: "info"},
+			{Name: "RUST_BACKTRACE", Value: "1"},
+		})
+
 		if containerName == tokenizerContainerName {
 			utils.AddEnvVars(initContainer, []corev1.EnvVar{*tokenizerOnlyDownload.DeepCopy()})
 		}
