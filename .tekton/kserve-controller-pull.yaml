@@ -24,17 +24,17 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/kserve-controller:master-pr
+    value: quay.io/opendatahub/kserve-controller:odh-pr
   - name: dockerfile
     value: Dockerfile
   - name: path-context
     value: .
-  - name: additional-tags
-    value:
-    - 'master-pr-{{revision}}'
   - name: build-args
     value:
     - "GOTAGS=distro"
+  - name: additional-tags
+    value:
+    - 'odh-pr-{{revision}}'
   - name: pipeline-type
     value: pull-request
   - name: enable-group-testing

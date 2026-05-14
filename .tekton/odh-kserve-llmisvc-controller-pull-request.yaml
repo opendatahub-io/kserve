@@ -24,14 +24,14 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-kserve-llmisvc-controller:master-pr
+    value: quay.io/opendatahub/odh-kserve-llmisvc-controller:odh-pr
   - name: dockerfile
     value: llmisvc-controller.Dockerfile
   - name: path-context
     value: .
   - name: additional-tags
     value:
-    - 'master-pr-{{revision}}'
+    - 'odh-pr-{{revision}}'
   - name: build-args
     value:
     - "GOTAGS=distro"

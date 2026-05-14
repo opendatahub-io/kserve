@@ -24,14 +24,14 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/kserve-storage-initializer:master-pr
+    value: quay.io/opendatahub/kserve-storage-initializer:odh-pr
   - name: dockerfile
     value: storage-initializer.Dockerfile
   - name: path-context
     value: python
   - name: additional-tags
     value:
-    - 'master-pr-{{revision}}'
+    - 'odh-pr-{{revision}}'
   - name: pipeline-type
     value: pull-request
   - name: enable-group-testing
