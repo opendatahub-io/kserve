@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import time
 import pytest
 import requests
 from kserve import KServeClient
@@ -40,6 +41,26 @@ from .logging import log_execution, logger
 LLMINFERENCESERVICE_CONFIGS["router-auth-disabled"] = {
     "router": {"scheduler": {}, "route": {}, "gateway": {}},
 }
+
+
+def _get_authn_audiences(kserve_client: KServeClient) -> list:
+    """Discover token audiences from the gateway AuthPolicy, with fallback to env var."""
+    token_audiences_env = os.getenv("TOKEN_AUDIENCES")
+    if token_audiences_env:
+        return token_audiences_env.split(",")
+    try:
+        policy = kserve_client.api_instance.get_namespaced_custom_object(
+            "kuadrant.io", "v1", "openshift-ingress",
+            "authpolicies", "openshift-ai-inference-authn",
+        )
+        for authn_rule in policy.get("spec", {}).get("rules", {}).get("authentication", {}).values():
+            audiences = authn_rule.get("kubernetesTokenReview", {}).get("audiences")
+            if audiences:
+                logger.info(f"Using token audiences from AuthPolicy: {audiences}")
+                return audiences
+    except Exception as e:
+        logger.warning(f"Could not read AuthPolicy audiences, using default: {e}")
+    return ["https://kubernetes.default.svc"]
 
 
 def create_service_account_with_inference_access(
@@ -139,10 +160,7 @@ def get_service_account_token(
     """Get the token for a ServiceAccount."""
     core_api = kserve_client.core_api
 
-    # Create a token for the ServiceAccount
-    audiences = os.getenv("TOKEN_AUDIENCES", "https://kubernetes.default.svc").split(
-        ","
-    )
+    audiences = _get_authn_audiences(kserve_client)
     token_request = client.AuthenticationV1TokenRequest(
         spec=client.V1TokenRequestSpec(
             audiences=audiences,
@@ -198,7 +216,6 @@ def cleanup_service_account(
 
 @pytest.mark.llminferenceservice
 @pytest.mark.auth
-@pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.parametrize(
     "test_case",
     [
@@ -285,17 +302,32 @@ def test_llm_auth_enabled_requires_token(test_case: TestCase):  # noqa: F811
             f"✅ Request without token rejected: {response_no_token.status_code}"
         )
 
-        # Test 2: Request WITH valid token should succeed
+        # Test 2: Request WITH valid token should succeed.
+        # Retry to handle RBAC propagation delay — Kubernetes RBAC and Authorino caches
+        # may not reflect the new RoleBinding immediately after creation.
         logger.info("Testing request WITH valid token (should succeed)")
-        response_with_token = requests.post(
-            completion_url,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {token}",
-            },
-            json=test_payload,
-            timeout=test_case.response_timeout,
-        )
+        token_headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+        }
+        response_with_token = None
+        for attempt in range(12):  # up to ~60s
+            response_with_token = requests.post(
+                completion_url,
+                headers=token_headers,
+                json=test_payload,
+                timeout=test_case.response_timeout,
+            )
+            if response_with_token.status_code == 200:
+                break
+            if response_with_token.status_code in [401, 403]:
+                logger.info(
+                    f"Attempt {attempt + 1}: got {response_with_token.status_code}, "
+                    "waiting for RBAC propagation..."
+                )
+                time.sleep(5)
+            else:
+                break
         assert response_with_token.status_code == 200, (
             f"Expected 200 with token, got {response_with_token.status_code}: {response_with_token.text}"
         )
@@ -343,7 +375,6 @@ def test_llm_auth_enabled_requires_token(test_case: TestCase):  # noqa: F811
 
 @pytest.mark.llminferenceservice
 @pytest.mark.auth
-@pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.parametrize(
     "test_case",
     [
@@ -475,7 +506,6 @@ def test_llm_auth_invalid_token_rejected(test_case: TestCase):  # noqa: F811
 
 @pytest.mark.llminferenceservice
 @pytest.mark.auth
-@pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.parametrize(
     "test_case",
     [
