@@ -40,6 +40,8 @@ RUN_AS_NON_ROOT = os.environ.get("RUN_AS_NON_ROOT", "false").lower() in (
     "yes",
 )
 
+OPT_125M_MODEL_URI = os.environ.get("OPT_125M_MODEL_URI", "hf://facebook/opt-125m")
+
 # Scheduler config constants
 SCHEDULER_CONFIGMAP_NAME = "scheduler-config-e2e"
 SCHEDULER_CONFIGMAP_KEY = "epp"
@@ -161,7 +163,7 @@ LLMINFERENCESERVICE_CONFIGS = {
         },
     },
     "model-fb-opt-125m": {
-        "model": {"uri": "s3://example-models/facebook/opt-125m", "name": "facebook/opt-125m"},
+        "model": {"uri": OPT_125M_MODEL_URI, "name": "facebook/opt-125m"},
     },
     "model-qwen2.5-0.5b": {
         "model": {
@@ -815,7 +817,7 @@ LLMINFERENCESERVICE_CONFIGS = {
     },
     "workload-llmd-simulator": {
         "replicas": 1,
-        "model": {"uri": "s3://example-models/facebook/opt-125m", "name": "facebook/opt-125m"},
+        "model": {"uri": OPT_125M_MODEL_URI, "name": "facebook/opt-125m"},
         "template": {
             "containers": [
                 {
@@ -844,7 +846,7 @@ LLMINFERENCESERVICE_CONFIGS = {
         },
     },
     "workload-llmd-simulator-no-replicas": {
-        "model": {"uri": "s3://example-models/facebook/opt-125m", "name": "facebook/opt-125m"},
+        "model": {"uri": OPT_125M_MODEL_URI, "name": "facebook/opt-125m"},
         "template": {
             "containers": [
                 {
@@ -869,7 +871,7 @@ LLMINFERENCESERVICE_CONFIGS = {
         },
     },
     "workload-llmd-simulator-lws": {
-        "model": {"uri": "s3://example-models/facebook/opt-125m", "name": "facebook/opt-125m"},
+        "model": {"uri": OPT_125M_MODEL_URI, "name": "facebook/opt-125m"},
         "parallelism": {
             "data": 2,
             "dataLocal": 1,
@@ -922,7 +924,7 @@ LLMINFERENCESERVICE_CONFIGS = {
         },
     },
     "workload-llmd-simulator-pd": {
-        "model": {"uri": "s3://example-models/facebook/opt-125m", "name": "facebook/opt-125m"},
+        "model": {"uri": OPT_125M_MODEL_URI, "name": "facebook/opt-125m"},
         "template": {
             "containers": [
                 {
@@ -1066,7 +1068,7 @@ LLMINFERENCESERVICE_CONFIGS = {
     },
     "workload-llmd-simulator-kvcache": {
         "replicas": 2,
-        "model": {"uri": "s3://example-models/facebook/opt-125m", "name": "facebook/opt-125m"},
+        "model": {"uri": OPT_125M_MODEL_URI, "name": "facebook/opt-125m"},
         "template": {
             "containers": [
                 {

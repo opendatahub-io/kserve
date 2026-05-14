@@ -73,8 +73,11 @@ echo "Using namespace: $KSERVE_NAMESPACE for KServe components"
 : "${ERROR_404_ISVC_IMAGE:=error-404-isvc:latest}"
 : "${SUCCESS_200_ISVC_IMAGE:=success-200-isvc:latest}"
 
+export OPT_125M_MODEL_URI="s3://example-models/facebook/opt-125m"
+
 echo "SKLEARN_IMAGE=$SKLEARN_IMAGE"
 echo "STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_IMAGE"
+echo "OPT_125M_MODEL_URI=$OPT_125M_MODEL_URI"
 echo "ERROR_404_ISVC_IMAGE=$ERROR_404_ISVC_IMAGE"
 echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
 
@@ -128,7 +131,7 @@ if oc wait --for=condition=complete job/s3-init -n ${KSERVE_NAMESPACE} --timeout
 else
   echo "S3 init job not completed, re-creating..."
   sed "s/s3-service.kserve/s3-service.${KSERVE_NAMESPACE}/" \
-    "$PROJECT_ROOT/config/overlays/test/s3-local-backend/seaweedfs-init-job.yaml" | \
+    "$PROJECT_ROOT/test/overlays/openshift-ci/seaweedfs-init-job-odh.yaml" | \
     sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" | \
     oc replace --force -n ${KSERVE_NAMESPACE} -f -
 

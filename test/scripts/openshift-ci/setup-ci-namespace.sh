@@ -55,7 +55,7 @@ oc apply -f "$PROJECT_ROOT/config/overlays/test/s3-local-backend/storage-config-
 echo "Applying SeaweedFS S3 credentials secret"
 : "${KSERVE_NAMESPACE:=kserve}"
 sed "s/s3-service.kserve/s3-service.${KSERVE_NAMESPACE}/" \
-  "$PROJECT_ROOT/config/overlays/test/s3-local-backend/seaweedfs-s3-creds-secret.yaml" | \
+  "$PROJECT_ROOT/test/overlays/openshift-ci/seaweedfs-s3-creds-secret.yaml" | \
   oc apply -f - -n "$NAMESPACE"
 echo "Linking seaweedfs-s3-creds to default service account"
 oc patch serviceaccount default -n "$NAMESPACE" \
