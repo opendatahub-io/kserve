@@ -967,11 +967,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/67/8b/222140f3cfb6f17b0dd8c4b9a0b36bd4ebefe9fb0098ba35d6960abcda0f/huggingface_hub-0.32.4-py3-none-any.whl", hash = "sha256:37abf8826b38d971f60d3625229221c36e53fe58060286db9baf619cfbf39767", size = 512101, upload-time = "2025-06-03T09:59:44.099Z" },
 ]
 
-[package.optional-dependencies]
-hf-transfer = [
-    { name = "hf-transfer" },
-]
-
 [[package]]
 name = "idna"
 version = "3.10"
