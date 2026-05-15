@@ -54,6 +54,10 @@ if [ "$SETUP_E2E" = "true" ]; then
   popd
 fi
 
+# TODO: uncomment once XET download hang is resolved
+# : "${OPT_125M_MODEL_URI:=s3://example-models/facebook/opt-125m}"
+# export OPT_125M_MODEL_URI
+
 PARALLELISM="${2:-1}"
 
 # Use certify go module to get the CA certs

@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
+import datetime
 import os
+import subprocess
 import sys
+import threading
+import time
 
 os.environ.setdefault("HF_HUB_VERBOSITY", "debug")
 os.environ.setdefault("HF_DEBUG", "1")
-os.environ.setdefault("RUST_LOG", "info")
+os.environ.setdefault("RUST_LOG", "debug")
 os.environ.setdefault("RUST_BACKTRACE", "1")
 
 from kserve_storage import Storage
@@ -18,6 +22,26 @@ if len(sys.argv) < 3 or len(sys.argv) % 2 != 1:
 
 src_uris = sys.argv[1::2]
 dest_paths = sys.argv[2::2]
+
+
+def _log_download_progress(paths, interval=10):
+    while True:
+        time.sleep(interval)
+        for p in paths:
+            if not os.path.isdir(p):
+                continue
+            result = subprocess.run(
+                ["du", "-sh", p], capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                ts = datetime.datetime.now(datetime.timezone.utc).isoformat()
+                logger.info("download progress [%s]: %s", ts, result.stdout.strip())
+
+
+progress_thread = threading.Thread(
+    target=_log_download_progress, args=(dest_paths,), daemon=True
+)
+progress_thread.start()
 
 logger.info("Initializing, args: (src_uri, dest_path): %s", list(zip(src_uris, dest_paths)))
 
