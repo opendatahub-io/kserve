@@ -258,7 +258,7 @@ func (r *LLMISVCReconciler) attachHfModelArtifact(ctx context.Context, serviceAc
 		utils.AddEnvVars(initContainer, []corev1.EnvVar{
 			{Name: "HF_HUB_VERBOSITY", Value: "debug"},
 			{Name: "HF_DEBUG", Value: "1"},
-			{Name: "RUST_LOG", Value: "debug"},
+			{Name: "RUST_LOG", Value: "debug,hyper=trace,hyper_util=trace"},
 			{Name: "RUST_BACKTRACE", Value: "1"},
 		})
 
