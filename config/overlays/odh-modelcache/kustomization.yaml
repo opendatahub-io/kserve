@@ -5,6 +5,7 @@ resources:
 - localmodel-scc.yaml
 - localmodel-permissions-scc.yaml
 - localmodel-permfix-sa.yaml
+- localmodelnode-storageclass.yaml
 - rbac/
 # This will be created by the operator
 # - localmodelnode-pv-pvc.yaml
