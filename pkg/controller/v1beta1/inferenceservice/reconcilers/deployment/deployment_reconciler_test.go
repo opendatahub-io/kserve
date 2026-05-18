@@ -190,9 +190,10 @@ func TestCreateDefaultDeployment(t *testing.T) {
 						constants.OpenshiftServingCertAnnotation: "default-predictor-serving-cert",
 					},
 					Labels: map[string]string{
-						constants.RawDeploymentAppLabel: "isvc.default-predictor",
-						constants.AutoscalerClass:       string(constants.AutoscalerClassHPA),
-						constants.DeploymentMode:        string(constants.Standard),
+						constants.RawDeploymentAppLabel:       "isvc.default-predictor",
+						constants.AutoscalerClass:             string(constants.AutoscalerClassHPA),
+						constants.DeploymentMode:              string(constants.Standard),
+						constants.KubernetesManagedByLabelKey: constants.KubernetesManagedByLabelValue,
 					},
 				},
 				Spec: appsv1.DeploymentSpec{
@@ -217,9 +218,10 @@ func TestCreateDefaultDeployment(t *testing.T) {
 								constants.OpenshiftServingCertAnnotation: "default-predictor-serving-cert",
 							},
 							Labels: map[string]string{
-								constants.RawDeploymentAppLabel: "isvc.default-predictor",
-								constants.AutoscalerClass:       string(constants.AutoscalerClassHPA),
-								constants.DeploymentMode:        string(constants.Standard),
+								constants.RawDeploymentAppLabel:       "isvc.default-predictor",
+								constants.AutoscalerClass:             string(constants.AutoscalerClassHPA),
+								constants.DeploymentMode:              string(constants.Standard),
+								constants.KubernetesManagedByLabelKey: constants.KubernetesManagedByLabelValue,
 							},
 						},
 						Spec: corev1.PodSpec{
@@ -265,9 +267,10 @@ func TestCreateDefaultDeployment(t *testing.T) {
 						constants.OpenshiftServingCertAnnotation: "default-predictor-serving-cert",
 					},
 					Labels: map[string]string{
-						"app":                               "isvc.default-predictor",
-						"serving.kserve.io/autoscalerClass": "none",
-						"serving.kserve.io/deploymentMode":  "Standard",
+						"app":                                 "isvc.default-predictor",
+						"serving.kserve.io/autoscalerClass":   "none",
+						"serving.kserve.io/deploymentMode":    "Standard",
+						constants.KubernetesManagedByLabelKey: constants.KubernetesManagedByLabelValue,
 					},
 				},
 				Spec: appsv1.DeploymentSpec{
@@ -292,9 +295,10 @@ func TestCreateDefaultDeployment(t *testing.T) {
 								constants.OpenshiftServingCertAnnotation: "default-predictor-serving-cert",
 							},
 							Labels: map[string]string{
-								"app":                               "isvc.default-predictor",
-								"serving.kserve.io/autoscalerClass": "none",
-								"serving.kserve.io/deploymentMode":  "Standard",
+								"app":                                 "isvc.default-predictor",
+								"serving.kserve.io/autoscalerClass":   "none",
+								"serving.kserve.io/deploymentMode":    "Standard",
+								constants.KubernetesManagedByLabelKey: constants.KubernetesManagedByLabelValue,
 							},
 						},
 						Spec: corev1.PodSpec{
@@ -349,9 +353,10 @@ func TestCreateDefaultDeployment(t *testing.T) {
 						constants.OpenshiftServingCertAnnotation: "worker-predictor-serving-cert",
 					},
 					Labels: map[string]string{
-						constants.RawDeploymentAppLabel: "isvc.default-predictor-worker",
-						constants.AutoscalerClass:       string(constants.AutoscalerClassNone),
-						constants.DeploymentMode:        string(constants.Standard),
+						constants.RawDeploymentAppLabel:       "isvc.default-predictor-worker",
+						constants.AutoscalerClass:             string(constants.AutoscalerClassNone),
+						constants.DeploymentMode:              string(constants.Standard),
+						constants.KubernetesManagedByLabelKey: constants.KubernetesManagedByLabelValue,
 					},
 				},
 				Spec: appsv1.DeploymentSpec{
@@ -377,9 +382,10 @@ func TestCreateDefaultDeployment(t *testing.T) {
 								constants.OpenshiftServingCertAnnotation: "worker-predictor-serving-cert",
 							},
 							Labels: map[string]string{
-								constants.RawDeploymentAppLabel: "isvc.default-predictor-worker",
-								constants.AutoscalerClass:       string(constants.AutoscalerClassNone),
-								constants.DeploymentMode:        string(constants.Standard),
+								constants.RawDeploymentAppLabel:       "isvc.default-predictor-worker",
+								constants.AutoscalerClass:             string(constants.AutoscalerClassNone),
+								constants.DeploymentMode:              string(constants.Standard),
+								constants.KubernetesManagedByLabelKey: constants.KubernetesManagedByLabelValue,
 							},
 						},
 						Spec: corev1.PodSpec{

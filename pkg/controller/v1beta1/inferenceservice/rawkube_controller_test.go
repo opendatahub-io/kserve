@@ -521,6 +521,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"app":                                 "isvc." + predictorDeploymentKey.Name,
 								constants.KServiceComponentLabel:      constants.Predictor.String(),
 								constants.InferenceServicePodLabelKey: serviceName,
+								constants.KubernetesManagedByLabelKey: constants.KubernetesManagedByLabelValue,
 							},
 							Annotations: map[string]string{
 								constants.OpenshiftServingCertAnnotation:                   serviceName + "-predictor" + constants.ServingCertSecretSuffix,
@@ -961,6 +962,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"app":                                 "isvc." + predictorDeploymentKey.Name,
 								constants.KServiceComponentLabel:      constants.Predictor.String(),
 								constants.InferenceServicePodLabelKey: serviceName,
+								constants.KubernetesManagedByLabelKey: constants.KubernetesManagedByLabelValue,
 							},
 							Annotations: map[string]string{
 								constants.OpenshiftServingCertAnnotation:                   serviceName + "-predictor" + constants.ServingCertSecretSuffix,
@@ -4445,6 +4447,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"app":                                 "isvc." + predictorDeploymentKey.Name,
 								constants.KServiceComponentLabel:      constants.Predictor.String(),
 								constants.InferenceServicePodLabelKey: serviceName,
+								constants.KubernetesManagedByLabelKey: constants.KubernetesManagedByLabelValue,
 							},
 							Annotations: map[string]string{
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
@@ -4547,6 +4550,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"app":                                 "isvc." + transformerDeploymentKey.Name,
 								constants.KServiceComponentLabel:      constants.Transformer.String(),
 								constants.InferenceServicePodLabelKey: serviceName,
+								constants.KubernetesManagedByLabelKey: constants.KubernetesManagedByLabelValue,
 							},
 							Annotations: annotations,
 						},
@@ -5237,6 +5241,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"app":                                 "isvc." + predictorDeploymentKey.Name,
 								constants.KServiceComponentLabel:      constants.Predictor.String(),
 								constants.InferenceServicePodLabelKey: serviceName,
+								constants.KubernetesManagedByLabelKey: constants.KubernetesManagedByLabelValue,
 							},
 							Annotations: map[string]string{
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
@@ -6404,6 +6409,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"app":                                 "isvc." + predictorDeploymentKey.Name,
 								constants.KServiceComponentLabel:      constants.Predictor.String(),
 								constants.InferenceServicePodLabelKey: serviceName,
+								constants.KubernetesManagedByLabelKey: constants.KubernetesManagedByLabelValue,
 							},
 							Annotations: map[string]string{
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
@@ -6506,6 +6512,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"app":                                 "isvc." + transformerDeploymentKey.Name,
 								constants.KServiceComponentLabel:      constants.Transformer.String(),
 								constants.InferenceServicePodLabelKey: serviceName,
+								constants.KubernetesManagedByLabelKey: constants.KubernetesManagedByLabelValue,
 							},
 							Annotations: annotations,
 						},
@@ -7245,6 +7252,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 								"app":                                 "isvc." + predictorDeploymentKey.Name,
 								constants.KServiceComponentLabel:      constants.Predictor.String(),
 								constants.InferenceServicePodLabelKey: serviceName,
+								constants.KubernetesManagedByLabelKey: constants.KubernetesManagedByLabelValue,
 							},
 							Annotations: map[string]string{
 								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
