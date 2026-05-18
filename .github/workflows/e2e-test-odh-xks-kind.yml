@@ -117,6 +117,7 @@ jobs:
           TOKEN_AUDIENCES: "https://kubernetes.default.svc"
           GATEWAY_CLASS_NAME: "istio"
           RUN_AS_NON_ROOT: "false"
+          OPT_125M_MODEL_URI: "s3://example-models/facebook/opt-125m"
           INFERENCE_POOL_GROUP: ${{ matrix.istio-version == '1.27.5' && 'inference.networking.x-k8s.io' || 'inference.networking.k8s.io' }}
         run: |
           ./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice and cluster_cpu and not auth and not custom_gateway and not autoscaling" 0 "istio-gatewayapi-ext"

@@ -470,6 +470,38 @@ EOF
 }
 
 # -----------------------------------------------------------------------------
+# setup_seaweedfs_models
+# Deploy SeaweedFS and pre-cache opt-125m to avoid HuggingFace downloads
+# -----------------------------------------------------------------------------
+setup_seaweedfs_models() {
+  log_info "Deploying SeaweedFS for model caching..."
+
+  kubectl apply -f "${PROJECT_ROOT}/config/overlays/test/s3-local-backend/mlpipeline-s3-artifact-secret.yaml" -n "${KSERVE_NAMESPACE}"
+  kubectl apply -f "${PROJECT_ROOT}/config/overlays/test/s3-local-backend/seaweedfs-deployment.yaml" -n "${KSERVE_NAMESPACE}"
+  sed "s/namespace: seaweedfs/namespace: ${KSERVE_NAMESPACE}/" \
+    "${PROJECT_ROOT}/config/overlays/test/s3-local-backend/seaweedfs-service.yaml" | kubectl apply -n "${KSERVE_NAMESPACE}" -f -
+
+  log_wait "Waiting for SeaweedFS to be ready..."
+  kubectl rollout status deployment/seaweedfs -n "${KSERVE_NAMESPACE}" --timeout=120s
+
+  log_info "Pre-caching opt-125m model in SeaweedFS..."
+  kubectl delete job s3-init -n "${KSERVE_NAMESPACE}" --ignore-not-found
+  sed "s/s3-service.kserve/s3-service.${KSERVE_NAMESPACE}/" \
+    "${PROJECT_ROOT}/test/overlays/openshift-ci/seaweedfs-init-job-odh.yaml" | \
+    kubectl apply -n "${KSERVE_NAMESPACE}" -f -
+
+  log_wait "Waiting for S3 init job to complete (downloading model)..."
+  if ! kubectl wait --for=condition=complete --timeout=300s job/s3-init -n "${KSERVE_NAMESPACE}"; then
+    log_error "S3 init job failed. Pod status and logs:"
+    kubectl get pods -l job-name=s3-init -n "${KSERVE_NAMESPACE}"
+    kubectl logs -l job-name=s3-init -n "${KSERVE_NAMESPACE}" --all-containers --tail=50 || true
+    return 1
+  fi
+
+  log_success "SeaweedFS deployed and opt-125m model cached"
+}
+
+# -----------------------------------------------------------------------------
 # create_test_namespace
 # Create the E2E test namespace for running tests
 # -----------------------------------------------------------------------------
@@ -477,6 +509,13 @@ create_test_namespace() {
   log_info "Creating E2E test namespace..."
 
   kubectl create namespace kserve-ci-e2e-test --dry-run=client -o yaml | kubectl apply -f -
+
+  log_info "Configuring S3 credentials in test namespace..."
+  sed "s/s3-service.kserve/s3-service.${KSERVE_NAMESPACE}/" \
+    "${PROJECT_ROOT}/test/overlays/openshift-ci/seaweedfs-s3-creds-secret.yaml" | \
+    kubectl apply -n kserve-ci-e2e-test -f -
+  kubectl patch serviceaccount default -n kserve-ci-e2e-test \
+    --type=merge -p='{"secrets": [{"name": "seaweedfs-s3-creds"}]}'
 
   log_success "E2E test namespace 'kserve-ci-e2e-test' created"
 }
@@ -557,13 +596,16 @@ main() {
   # 9. Deploy odh-xks overlay (requires cert-manager PKI)
   deploy_odh_xks
 
-  # 10. Setup CA bundle ConfigMap (must be before Gateway as Gateway references it)
+  # 10. Deploy SeaweedFS and pre-cache opt-125m model
+  setup_seaweedfs_models
+
+  # 11. Setup CA bundle ConfigMap (must be before Gateway as Gateway references it)
   setup_ca_bundle
 
-  # 11. Create Gateway resources
+  # 12. Create Gateway resources
   create_gateway
 
-  # 12. Create E2E test namespace
+  # 13. Create E2E test namespace
   create_test_namespace
 
   # Print verification steps
