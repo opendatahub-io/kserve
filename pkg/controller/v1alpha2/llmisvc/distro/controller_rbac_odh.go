@@ -21,4 +21,5 @@ package distro
 // to generate a dedicated ClusterRole included only in distro overlays.
 
 //+kubebuilder:rbac:groups=networking.istio.io,resources=destinationrules,verbs=get;list;watch;create;update;delete
+//+kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch
 //+kubebuilder:rbac:groups=security.openshift.io,resources=securitycontextconstraints,resourceNames=openshift-ai-llminferenceservice-scc,verbs=use
