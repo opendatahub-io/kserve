@@ -186,11 +186,9 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForScheduler(ctx context
 		Spec: istionetworking.DestinationRule{
 			TrafficPolicy: &istionetworking.TrafficPolicy{
 				Tls: &istionetworking.ClientTLSSettings{
-					Mode: istionetworking.ClientTLSSettings_SIMPLE,
-					// The scheduler doesn't support watching and auto-reloading certificates yet.
-					// Fixed by https://github.com/kubernetes-sigs/gateway-api-inference-extension/pull/1765.
-					// Until that fix is available, skip verification to avoid SAN mismatch errors on upgrade.
-					InsecureSkipVerify: &wrapperspb.BoolValue{Value: true},
+					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
+					CaCertificates:     IstioCACertificatePath,
+					InsecureSkipVerify: &wrapperspb.BoolValue{Value: false},
 				},
 			},
 			ExportTo: []string{"*"},
@@ -241,11 +239,9 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForShadowService(ctx con
 		Spec: istionetworking.DestinationRule{
 			TrafficPolicy: &istionetworking.TrafficPolicy{
 				Tls: &istionetworking.ClientTLSSettings{
-					Mode: istionetworking.ClientTLSSettings_SIMPLE,
-					// The shadow service forwards traffic to the workload service. Skip verification
-					// here for the same reason as the scheduler DR — the scheduler doesn't yet support
-					// watching and auto-reloading certificates.
-					InsecureSkipVerify: &wrapperspb.BoolValue{Value: true},
+					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
+					CaCertificates:     IstioCACertificatePath,
+					InsecureSkipVerify: &wrapperspb.BoolValue{Value: false},
 				},
 			},
 			ExportTo: []string{"*"},
@@ -290,12 +286,6 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForWorkload(ctx context.
 			},
 			ExportTo: []string{"*"},
 		},
-	}
-
-	if llmSvc.Spec.Prefill != nil {
-		// The sidecar doesn't support watching and auto-reloading certificates yet.
-		dr.Spec.TrafficPolicy.Tls.CaCertificates = ""
-		dr.Spec.TrafficPolicy.Tls.InsecureSkipVerify = &wrapperspb.BoolValue{Value: true}
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected destination rule for workload service", "destinationrule", dr)
