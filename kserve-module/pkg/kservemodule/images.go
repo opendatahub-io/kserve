@@ -1,0 +1,61 @@
+// [TEMPORARY] Image param maps derived from opendatahub-operator and rhods-operator
+// (internal/controller/components/kserve/kserve_support.go,
+//  internal/controller/components/modelcontroller/modelcontroller_support.go).
+// Remove this comment once the code diverges from the original.
+package kservemodule
+
+import "os"
+
+var kserveImageParamMap = map[string]string{
+	"kserve-controller":                "RELATED_IMAGE_ODH_KSERVE_CONTROLLER_IMAGE",
+	"llmisvc-controller":               "RELATED_IMAGE_ODH_KSERVE_LLMISVC_CONTROLLER_IMAGE",
+	"kserve-agent":                     "RELATED_IMAGE_ODH_KSERVE_AGENT_IMAGE",
+	"kserve-router":                    "RELATED_IMAGE_ODH_KSERVE_ROUTER_IMAGE",
+	"kserve-storage-initializer":       "RELATED_IMAGE_ODH_KSERVE_STORAGE_INITIALIZER_IMAGE",
+	"kserve-llm-d":                     "RELATED_IMAGE_RHAII_VLLM_CUDA_IMAGE",
+	"kserve-llm-d-nvidia-cuda":         "RELATED_IMAGE_RHAII_VLLM_CUDA_IMAGE",
+	"kserve-llm-d-amd-rocm":            "RELATED_IMAGE_RHAII_VLLM_ROCM_IMAGE",
+	"kserve-llm-d-intel-gaudi":         "RELATED_IMAGE_RHAII_VLLM_GAUDI_IMAGE",
+	"kserve-llm-d-ibm-spyre":           "RELATED_IMAGE_RHAII_VLLM_SPYRE_IMAGE",
+	"kserve-llm-d-inference-scheduler": "RELATED_IMAGE_ODH_LLM_D_INFERENCE_SCHEDULER_IMAGE",
+	"kserve-llm-d-routing-sidecar":     "RELATED_IMAGE_ODH_LLM_D_ROUTING_SIDECAR_IMAGE",
+	"kserve-llm-d-uds-tokenizer":       "RELATED_IMAGE_ODH_LLM_D_KV_CACHE_IMAGE",
+	"kube-rbac-proxy":                  "RELATED_IMAGE_ODH_KUBE_RBAC_PROXY_IMAGE",
+	"kserve-localmodel-controller":     "RELATED_IMAGE_ODH_KSERVE_LOCALMODEL_CONTROLLER_IMAGE",
+	"kserve-localmodelnode-agent":      "RELATED_IMAGE_ODH_KSERVE_LOCALMODELNODE_AGENT_IMAGE",
+}
+
+var modelControllerImageParamMap = map[string]string{
+	"odh-model-controller": "RELATED_IMAGE_ODH_MODEL_CONTROLLER_IMAGE",
+}
+
+const (
+	defaultCAIssuerName    = "opendatahub-ca-issuer"
+	defaultIssuerRefKind   = "ClusterIssuer"
+	defaultCertName        = "opendatahub-ca"
+	defaultCertManagerNS   = "cert-manager"
+	defaultIstioCACertPath = "/var/run/secrets/opendatahub/ca.crt"
+)
+
+// [TEMPORARY] Adapted from rhods-operator (pkg/controller/actions/dependency/certmanager).
+// TODO: replace with certmanager.DefaultBootstrapConfig() from odh-platform-utilities
+// once it is migrated to the shared library. RHOAI uses RHAI_* env var overrides via that package.
+// Remove this comment once migrated.
+func buildCertManagerParams(namespace string) map[string]string {
+	return map[string]string{
+		"NAMESPACE":                 namespace,
+		"ISSUER_REF_NAME":           getEnvOrDefault("ISSUER_NAME", defaultCAIssuerName),
+		"ISSUER_REF_KIND":           getEnvOrDefault("ISSUER_KIND", defaultIssuerRefKind),
+		"ISSUER_REF_GROUP":          "cert-manager.io",
+		"CA_SECRET_NAME":            getEnvOrDefault("CA_SECRET_NAME", defaultCertName),
+		"CA_SECRET_NAMESPACE":       getEnvOrDefault("CA_SECRET_NAMESPACE", defaultCertManagerNS),
+		"ISTIO_CA_CERTIFICATE_PATH": getEnvOrDefault("ISTIO_CA_CERT_PATH", defaultIstioCACertPath),
+	}
+}
+
+func getEnvOrDefault(key, defaultVal string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return defaultVal
+}

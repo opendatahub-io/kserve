@@ -2,7 +2,7 @@ KSERVE_MODULE_IMG ?= kserve-module-controller
 
 .PHONY: docker-build-kserve-module docker-push-kserve-module deploy-kserve-module \
 	kustomize-build-kserve-module generate-kserve-module manifests-kserve-module \
-	test-kserve-module setup-envtest-kserve-module
+	test-kserve-module setup-envtest-kserve-module precommit-km
 
 docker-build-kserve-module:
 	${ENGINE} buildx build ${ARCH} --load \
@@ -38,3 +38,6 @@ test-kserve-module: envtest
 
 setup-envtest-kserve-module: envtest
 	@$(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path
+
+precommit-km: generate-kserve-module manifests-kserve-module test-kserve-module
+	cd kserve-module && go mod tidy && go vet ./... && go build ./...

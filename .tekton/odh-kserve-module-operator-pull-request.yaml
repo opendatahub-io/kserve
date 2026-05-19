@@ -5,7 +5,6 @@ metadata:
     build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/kserve?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
-    build.appstudio.redhat.com/pull_request_number: '{{pull_request_number}}'
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
     pipelinesascode.tekton.dev/on-cel-expression: event == "pull_request" && target_branch
@@ -13,9 +12,9 @@ metadata:
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
-    appstudio.openshift.io/component: kserve-storage-initializer-ci
+    appstudio.openshift.io/component: odh-kserve-module-operator-ci
     pipelines.appstudio.openshift.io/type: build
-  name: kserve-storage-initializer-on-pull-request
+  name: odh-kserve-module-operator-on-pull-request
   namespace: open-data-hub-tenant
 spec:
   params:
@@ -24,18 +23,17 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/kserve-storage-initializer:master-pr
+    value: quay.io/opendatahub/odh-kserve-module-operator:odh-pr
   - name: dockerfile
-    value: storage-initializer.Dockerfile
+    value: kserve-module-controller.Dockerfile
   - name: path-context
-    value: python
+    value: .
+  # additional params
   - name: additional-tags
     value:
-    - 'master-pr-{{revision}}'
+    - 'odh-pr-{{revision}}'
   - name: pipeline-type
     value: pull-request
-  - name: enable-group-testing
-    value: "true"
   pipelineRef:
     resolver: git
     params:
@@ -46,7 +44,7 @@ spec:
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
   taskRunTemplate:
-    serviceAccountName: build-pipeline-kserve-storage-initializer
+    serviceAccountName: build-pipeline-odh-kserve-module-operator-ci
   workspaces:
   - name: git-auth
     secret:
