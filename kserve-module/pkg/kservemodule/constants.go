@@ -7,10 +7,11 @@ const (
 	WVAComponentName                = "wva"
 
 	// Manifest source paths
-	KserveManifestSourcePath    = "overlays/odh"
-	KserveManifestSourcePathXKS = "overlays/odh-xks"
-	ModelControllerSourcePath   = "base"
-	WVAManifestSourcePathOCP    = "openshift"
+	KserveManifestSourcePath           = "overlays/odh"
+	KserveManifestSourcePathXKS        = "overlays/odh-xks"
+	KserveManifestSourcePathModelCache = "overlays/odh-modelcache"
+	ModelControllerSourcePath          = "base"
+	WVAManifestSourcePathOCP           = "openshift"
 
 	// Deployment names
 	kserveControllerDeployment  = "kserve-controller-manager"
