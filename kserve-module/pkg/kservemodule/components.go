@@ -14,7 +14,6 @@ import (
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
-
 type componentConfig struct {
 	name          string
 	sourcePath    string
@@ -66,6 +65,11 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 	resources, err := customizeKserveConfigMap(resources, kserve)
 	if err != nil {
 		return nil, fmt.Errorf("customizing configmap: %w", err)
+	}
+
+	resources, err = modelCachePostRender(ctx, r, kserve, resources)
+	if err != nil {
+		return nil, fmt.Errorf("model cache post-render: %w", err)
 	}
 
 	versionPrefix := r.getVersionPrefix(kserve)

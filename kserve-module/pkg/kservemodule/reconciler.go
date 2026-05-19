@@ -85,6 +85,14 @@ import (
 // --- Dependency detection (read-only: check if required operators are installed) ---
 // +kubebuilder:rbac:groups=operators.coreos.com,resources=subscriptions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=operator.openshift.io,resources=leaderworkersets,verbs=get;list;watch
+//
+// ModelCache RBAC
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;patch;update
+// +kubebuilder:rbac:groups="",resources=persistentvolumes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;patch;update
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodegroups,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
 
 type ResourceDeployer interface {
 	Deploy(ctx context.Context, input deploy.DeployInput) error
@@ -168,9 +176,6 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 		return errs
 	}
 
-	var allResources []unstructured.Unstructured
-	componentErrors := make(map[string]error, len(components))
-
 	for _, comp := range components {
 		if comp.enabled != nil && !comp.enabled(kserve) {
 			if err := r.defaultCleanup(ctx, comp); err != nil {
@@ -191,6 +196,10 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 			continue
 		}
 		allResources = append(allResources, resources...)
+	}
+
+	if err := r.reconcileModelCache(ctx, kserve); err != nil {
+		componentErrors["modelcache"] = err
 	}
 
 	if len(componentErrors) > 0 {
