@@ -267,7 +267,15 @@ func (r *LLMISVCReconciler) expectedVLLMEngineMonitor(llmSvc *v1alpha2.LLMInfere
 					HTTPConfigWithProxy: monitoringv1.HTTPConfigWithProxy{
 						HTTPConfig: monitoringv1.HTTPConfig{
 							TLSConfig: &monitoringv1.SafeTLSConfig{
-								InsecureSkipVerify: ptr.To(true),
+								InsecureSkipVerify: ptr.To(!llmSvcHasTlsRotationEnabled(llmSvc)),
+								CA: monitoringv1.SecretOrConfigMap{
+									ConfigMap: &corev1.ConfigMapKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: "openshift-service-ca.crt",
+										},
+										Key: "service-ca.crt",
+									},
+								},
 							},
 						},
 					},
