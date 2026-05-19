@@ -25,13 +25,13 @@ These wrap the CI scripts with sensible defaults and a consistent interface.
 
 ```bash
 # Without an operator (manual kustomize deploy, like CI):
-make setup-e2e-ocp E2E_MARKER=predictor
+make deploy-e2e-ocp E2E_MARKER=predictor
 
 # With the ODH operator:
-make setup-e2e-ocp E2E_MARKER=predictor OPERATOR_TYPE=odh
+make deploy-e2e-ocp E2E_MARKER=predictor OPERATOR_TYPE=odh
 
 # With the ODH operator pinned to a specific catalog image:
-make setup-e2e-ocp E2E_MARKER=predictor \
+make deploy-e2e-ocp E2E_MARKER=predictor \
   OPERATOR_TYPE=odh \
   OPERATOR_VERSION=3.4.0-ea.1 \
   CATALOG_SOURCE=quay.io/opendatahub/opendatahub-operator-catalog:v3.4.0-ea.1
@@ -43,6 +43,11 @@ make setup-e2e-ocp E2E_MARKER=predictor \
 | `OPERATOR_TYPE` | Operator to install: `odh` or empty for manual deploy | (empty) |
 | `OPERATOR_VERSION` | Pin to a specific operator version (e.g. `3.4.0-ea.1`) | (latest) |
 | `CATALOG_SOURCE` | FBC fragment image or CatalogSource name | (default catalog) |
+| `COPY_PR_MANIFESTS` | Copy local branch manifests into the operator PVC (operator mode only) | `true` |
+| `RUNNING_LOCAL` | Build and push local KServe images before setup | `true` |
+| `BUILD_KSERVE_IMAGES` | Build images during setup (only when `RUNNING_LOCAL=true`) | `true` |
+| `KSERVE_NAMESPACE` | Namespace where KServe controller runs (derived from `OPERATOR_TYPE`) | `kserve` |
+| `PYTEST_ARGS` | Extra pytest flags passed to the test runner (e.g. `-k test_sklearn_v2`) | (empty) |
 
 When `OPERATOR_TYPE` is set, the setup will install the operator, apply
 DSCI/DSC resources, and wait for the kserve-controller-manager deployment to
@@ -51,7 +56,7 @@ roll out. SeaweedFS storage is deployed automatically in operator mode.
 ### 2. Run the tests
 
 ```bash
-make e2e-ocp E2E_MARKER=predictor
+make run-e2e-ocp E2E_MARKER=predictor
 ```
 
 ### 3. Rerun or teardown
@@ -60,13 +65,13 @@ To reset test namespaces without tearing down the full environment:
 
 ```bash
 make reset-e2e-ocp
-make e2e-ocp E2E_MARKER=predictor
+make run-e2e-ocp E2E_MARKER=predictor
 ```
 
 To fully tear down the test setup:
 
 ```bash
-make teardown-e2e-ocp
+make undeploy-ocp
 ```
 
 ## \[Optional\] Build and push custom images
