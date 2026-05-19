@@ -67,6 +67,8 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Secret{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ServiceAccount{}).
+		Owns(&corev1.PersistentVolume{}).
+		Owns(&corev1.PersistentVolumeClaim{}).
 		Owns(&appsv1.Deployment{}).
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&rbacv1.Role{}).
@@ -79,7 +81,8 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&apiextensionsv1.CustomResourceDefinition{},
 			handler.EnqueueRequestsFromMapFunc(mapToKserve),
 			builder.WithPredicates(crdNamePredicate()),
-		)
+		).
+		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(mapToKserve))
 
 	// Subscription CRD is always present on OpenShift (OLM); never on XKS.
 	// One-time conditional watch at startup — no dynamic retry needed.
