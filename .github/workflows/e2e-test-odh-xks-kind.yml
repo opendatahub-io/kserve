@@ -33,9 +33,12 @@ jobs:
           fetch-depth: 0
 
       - name: Merge target branch
+        if: github.event_name == 'pull_request'
         run: |
-          git fetch origin ${{ github.base_ref }}
-          git merge origin/${{ github.base_ref }} --no-edit
+          git fetch origin ${{ github.event.pull_request.base.ref }}
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git merge --no-edit origin/${{ github.event.pull_request.base.ref }}
 
       - name: Free-up disk space
         uses: ./.github/actions/free-up-disk-space
