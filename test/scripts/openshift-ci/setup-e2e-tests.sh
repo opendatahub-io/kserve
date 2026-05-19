@@ -75,6 +75,13 @@ if ! mc --version &>/dev/null; then
     echo "❌ Failed to download MinIO CLI"
     exit 1
   fi
+  # Validate the downloaded file is an actual ELF binary, not an HTML error page
+  if ! file "$HOME/.local/bin/mc" | grep -q "ELF"; then
+    echo "Downloaded mc is not a valid binary (possibly an HTML error page). Content:"
+    head -c 200 "$HOME/.local/bin/mc"
+    rm -f "$HOME/.local/bin/mc"
+    exit 1
+  fi
   chmod +x "$HOME/.local/bin/mc"
 fi
 
@@ -186,6 +193,10 @@ oc wait --for=condition=ready pod -l app=minio -n ${NS} --timeout=300s
 
 oc expose service minio-service -n ${NS} && sleep 15 # increased from 5 to 15
 MINIO_ROUTE=$(oc get routes -n ${NS} minio-service -o jsonpath="{.spec.host}")
+if [[ -z "${MINIO_ROUTE}" ]]; then
+  echo "Failed to get MinIO route"
+  exit 1
+fi
 echo "MinIO route: $MINIO_ROUTE"
 mc alias set storage http://$MINIO_ROUTE minio minio123
 
