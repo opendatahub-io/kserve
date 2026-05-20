@@ -35,6 +35,8 @@ spec:
     - 'odh-pr-{{revision}}'
   - name: pipeline-type
     value: pull-request
+  - name: enable-early-gate-testing
+    value: "true"
   pipelineRef:
     resolver: git
     params:
