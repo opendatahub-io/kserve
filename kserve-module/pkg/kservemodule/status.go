@@ -2,6 +2,7 @@ package kservemodule
 
 import (
 	"context"
+	"maps"
 	"slices"
 	"strings"
 
@@ -74,14 +75,8 @@ func applyProvisioningCondition(condMgr *conditions.Manager, componentErrors map
 		return
 	}
 
-	names := make([]string, 0, len(componentErrors))
-	for name := range componentErrors {
-		names = append(names, name)
-	}
-	slices.Sort(names)
-
-	msgs := make([]string, 0, len(names))
-	for _, name := range names {
+	msgs := make([]string, 0, len(componentErrors))
+	for _, name := range slices.Sorted(maps.Keys(componentErrors)) {
 		msgs = append(msgs, name+": "+componentErrors[name].Error())
 	}
 	condMgr.MarkFalse(string(common.ConditionTypeProvisioningSucceeded),

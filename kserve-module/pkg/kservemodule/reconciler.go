@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -93,14 +94,8 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	componentErrors := r.reconcile(ctx, kserve)
 	applyProvisioningCondition(condMgr, componentErrors)
 	if len(componentErrors) > 0 {
-		names := make([]string, 0, len(componentErrors))
-		for name := range componentErrors {
-			names = append(names, name)
-		}
-		slices.Sort(names)
-
 		var msgs []string
-		for _, name := range names {
+		for _, name := range slices.Sorted(maps.Keys(componentErrors)) {
 			log.Error(componentErrors[name], "component reconciliation failed", "component", name)
 			msgs = append(msgs, name+": "+componentErrors[name].Error())
 		}
