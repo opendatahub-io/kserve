@@ -51,7 +51,7 @@ PARAMS_ENV="${PROJECT_ROOT}/config/overlays/odh/params.env"
 # build-kserve-images.sh exports these vars) and BUILD_KSERVE_IMAGES=false (where
 # the vars are not yet set but the images have already been pushed).
 if [[ -n "${QUAY_REPO:-}" ]]; then
-  _repo="${QUAY_REPO}/kserve"
+  _repo="${QUAY_REPO}"
   _tag="${GITHUB_SHA:-master}"
   : "${KSERVE_CONTROLLER_IMAGE:=${_repo}/kserve-controller:${_tag}}"
   : "${KSERVE_AGENT_IMAGE:=${_repo}/kserve-agent:${_tag}}"

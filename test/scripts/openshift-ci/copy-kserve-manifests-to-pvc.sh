@@ -28,7 +28,7 @@ PROJECT_ROOT="${SCRIPT_DIR}/../../../"
 # build-kserve-images.sh exports these vars) and BUILD_KSERVE_IMAGES=false / standalone
 # deploy-ocp invocations (where the vars are not yet set but images are pushed).
 if [[ -n "${QUAY_REPO:-}" ]]; then
-  _repo="${QUAY_REPO}/kserve"
+  _repo="${QUAY_REPO}"
   _tag="${GITHUB_SHA:-master}"
   : "${KSERVE_CONTROLLER_IMAGE:=${_repo}/kserve-controller:${_tag}}"
   : "${KSERVE_AGENT_IMAGE:=${_repo}/kserve-agent:${_tag}}"
