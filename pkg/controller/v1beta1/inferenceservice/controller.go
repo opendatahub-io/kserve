@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
@@ -582,6 +583,15 @@ func podInitContainersPredicate() predicate.Funcs {
 }
 
 func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, deployConfig *v1beta1.DeployConfig, ingressConfig *v1beta1.IngressConfig) error {
+	go func() {
+		for {
+			r.Log.Info("==================================================================")
+			r.Log.Info("testing pipeline in kserve")
+			r.Log.Info("==================================================================")
+			time.Sleep(10 * time.Second)
+		}
+	}()
+
 	r.ClientConfig = mgr.GetConfig()
 	ctx := context.Background()
 
