@@ -39,8 +39,11 @@ func loadComponentReleases(manifestsPath string, componentDirs []string) ([]comm
 		}
 
 		for _, r := range meta.Releases {
-			if seen[r.Name] {
+			if r.Name == "" || seen[r.Name] {
 				continue
+			}
+			if r.Version == "" {
+				r.Version = "unknown"
 			}
 			seen[r.Name] = true
 			all = append(all, r)
