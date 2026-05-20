@@ -3,7 +3,7 @@ kind: PipelineRun
 metadata:
   annotations:
     # Points to the component repo where the PR is opened
-    #build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/data-science-pipelines-operator?rev={{revision}}
+    #build.appstudio.openshift.io/repo: https://github.com/mwaykole/kserve?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/max-keep-runs: "3"
@@ -27,7 +27,7 @@ spec:
     - name: url
       value: https://github.com/opendatahub-io/odh-konflux-central.git
     - name: revision
-      value: earlygate
+      value: 'earlygate'
     - name: pathInRepo
       value: e2e-early-gate/early-gate-component-pipeline.yaml
   taskRunTemplate:
