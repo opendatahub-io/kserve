@@ -33,9 +33,18 @@ jobs:
           fetch-depth: 0
 
       - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
-          git fetch origin ${{ github.base_ref }}
-          git merge origin/${{ github.base_ref }} --no-edit
+          if [[ ! "$BASE_REF" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+            echo "::error::Invalid base ref: $BASE_REF"
+            exit 1
+          fi
+          git fetch origin -- "$BASE_REF"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git merge --no-edit "origin/$BASE_REF"
 
       - name: Free-up disk space
         uses: ./.github/actions/free-up-disk-space

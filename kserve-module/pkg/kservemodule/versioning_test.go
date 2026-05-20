@@ -18,7 +18,7 @@ func buildLLMISVCDeployment(t *testing.T) []unstructured.Unstructured {
 
 	deploy := &appsv1.Deployment{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
-		ObjectMeta: metav1.ObjectMeta{Name: llmISVCControllerName, Namespace: "opendatahub"},
+		ObjectMeta: metav1.ObjectMeta{Name: llmISVCControllerDeployment, Namespace: "opendatahub"},
 		Spec: appsv1.DeploymentSpec{
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
@@ -83,7 +83,7 @@ func TestVersionLLMInferenceServiceConfigs_SetsEnvOnLLMISVCController(t *testing
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	for _, r := range result {
-		if r.GetKind() == "Deployment" && r.GetName() == llmISVCControllerName {
+		if r.GetKind() == "Deployment" && r.GetName() == llmISVCControllerDeployment {
 			containers, _, _ := unstructured.NestedSlice(r.Object, "spec", "template", "spec", "containers")
 			g.Expect(containers).ShouldNot(BeEmpty())
 			c := containers[0].(map[string]any)
