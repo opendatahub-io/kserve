@@ -37,7 +37,7 @@ func versionedWellKnownLLMInferenceServiceConfigs(resources []unstructured.Unstr
 				c := &deploy.Spec.Template.Spec.Containers[j]
 				found := false
 				for k := range c.Env {
-					if c.Env[k].Name == llmISVCConfigPrefix {
+					if c.Env[k].Name == llmISVCConfigPrefixEnv {
 						c.Env[k].Value = envValue
 						found = true
 						break
@@ -45,7 +45,7 @@ func versionedWellKnownLLMInferenceServiceConfigs(resources []unstructured.Unstr
 				}
 				if !found {
 					c.Env = append(c.Env, corev1.EnvVar{
-						Name:  llmISVCConfigPrefix,
+						Name:  llmISVCConfigPrefixEnv,
 						Value: envValue,
 					})
 				}

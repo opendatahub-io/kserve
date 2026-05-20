@@ -129,7 +129,7 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 		Owner:     kserve,
 		Resources: allResources,
 	}); err != nil {
-		return map[string]error{"deploy": fmt.Errorf("SSA apply: %w", err)}
+		return map[string]error{"deploy": fmt.Errorf("applying resources: %w", err)}
 	}
 
 	log.Info("deployed all resources", "count", len(allResources))

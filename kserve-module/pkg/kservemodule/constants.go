@@ -29,7 +29,7 @@ const (
 	// LLMInferenceServiceConfig versioning
 	wellKnownAnnotationKey   = "serving.kserve.io/well-known-config"
 	wellKnownAnnotationValue = "true"
-	llmISVCConfigPrefix      = "LLM_INFERENCE_SERVICE_CONFIG_PREFIX"
+	llmISVCConfigPrefixEnv   = "LLM_INFERENCE_SERVICE_CONFIG_PREFIX"
 	llmISVCConfigGroup       = "serving.kserve.io"
 	llmISVCConfigKind        = "LLMInferenceServiceConfig"
 

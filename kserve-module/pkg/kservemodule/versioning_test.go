@@ -91,7 +91,7 @@ func TestVersionLLMInferenceServiceConfigs_SetsEnvOnLLMISVCController(t *testing
 			found := false
 			for _, e := range envs {
 				env := e.(map[string]any)
-				if env["name"] == llmISVCConfigPrefix {
+				if env["name"] == llmISVCConfigPrefixEnv {
 					g.Expect(env["value"]).Should(Equal("v3-4-0-kserve-"))
 					found = true
 				}
