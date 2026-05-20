@@ -15,6 +15,33 @@ The list of pytest markers available are defined in [https://github.com/kserve/k
    2. A brand new cluster is highly recommended because the e2e setup does not play well with existing objects.
    3. Login to the cluster in your terminal
 
+## macOS: install bash 4+
+
+The test scripts use bash 4+ features (`readarray`, associative arrays, etc.).
+macOS ships bash 3.2, which is too old. Install a modern bash via Homebrew and
+put it on your PATH:
+
+```bash
+brew install bash
+```
+
+Add Homebrew's bin directory to your PATH **before** `/bin`.
+Add this to your `~/.zshrc` (or `~/.zprofile`):
+
+```bash
+export PATH="/opt/homebrew/bin:$PATH"
+```
+
+Open a new terminal and verify:
+
+```bash
+which bash          # should print /opt/homebrew/bin/bash
+bash --version      # should print 5.x
+```
+
+This does not change your default shell (still zsh). The test scripts use
+`#!/usr/bin/env bash`, so they will pick up the Homebrew version from PATH.
+
 ## Quick start (Makefile targets)
 
 The recommended way to set up and run E2E tests locally is through the Makefile
