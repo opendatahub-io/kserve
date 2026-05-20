@@ -61,7 +61,7 @@ type KserveModuleReconciler struct {
 	clusterType           *cluster.ClusterType
 }
 
-func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	kserve := &platformv1alpha1.Kserve{}
@@ -72,7 +72,11 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	log.Info("reconciling Kserve CR", "name", kserve.Name)
 
 	condMgr := newConditionManager(kserve)
-	defer r.updateStatus(ctx, kserve, condMgr)
+	defer func() {
+		if err := r.updateStatus(ctx, kserve, condMgr); err != nil && retErr == nil {
+			retErr = err
+		}
+	}()
 
 	componentErrors := r.reconcile(ctx, kserve)
 	applyProvisioningCondition(condMgr, componentErrors)

@@ -2,6 +2,7 @@ package kservemodule
 
 import (
 	"context"
+	"slices"
 	"strings"
 
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -33,9 +34,15 @@ func applyProvisioningCondition(condMgr *conditions.Manager, componentErrors map
 		return
 	}
 
-	var msgs []string
-	for name, err := range componentErrors {
-		msgs = append(msgs, name+": "+err.Error())
+	names := make([]string, 0, len(componentErrors))
+	for name := range componentErrors {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+
+	msgs := make([]string, 0, len(names))
+	for _, name := range names {
+		msgs = append(msgs, name+": "+componentErrors[name].Error())
 	}
 	condMgr.MarkFalse(string(common.ConditionTypeProvisioningSucceeded),
 		conditions.WithReason("DeployFailed"),
@@ -65,7 +72,7 @@ func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, c
 	}
 }
 
-func (r *KserveModuleReconciler) updateStatus(ctx context.Context, kserve *platformv1alpha1.Kserve, condMgr *conditions.Manager) {
+func (r *KserveModuleReconciler) updateStatus(ctx context.Context, kserve *platformv1alpha1.Kserve, condMgr *conditions.Manager) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	r.setReleaseStatus(kserve)
@@ -81,7 +88,9 @@ func (r *KserveModuleReconciler) updateStatus(ctx context.Context, kserve *platf
 
 	if err := r.Status().Update(ctx, kserve); err != nil {
 		log.Error(err, "failed to update status")
+		return err
 	}
+	return nil
 }
 
 func (r *KserveModuleReconciler) setReleaseStatus(kserve *platformv1alpha1.Kserve) {
