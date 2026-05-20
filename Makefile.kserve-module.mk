@@ -39,5 +39,5 @@ test-kserve-module: envtest
 setup-envtest-kserve-module: envtest
 	@$(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path
 
-precommit-km: generate-kserve-module manifests-kserve-module test-kserve-module
+precommit-km: fmt go-lint generate-kserve-module manifests-kserve-module test-kserve-module
 	cd kserve-module && go mod tidy && go vet ./... && go build ./...

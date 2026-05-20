@@ -162,6 +162,21 @@ rules:
   - patch
   - watch
 - apiGroups:
+  - operator.openshift.io
+  resources:
+  - leaderworkersets
+  verbs:
+  - get
+  - list
+- apiGroups:
+  - operators.coreos.com
+  resources:
+  - subscriptions
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - rbac.authorization.k8s.io
   resources:
   - clusterrolebindings
