@@ -71,7 +71,11 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	log.Info("reconciling Kserve CR", "name", kserve.Name)
 
+	condMgr := newConditionManager(kserve)
+	defer r.updateStatus(ctx, kserve, condMgr)
+
 	componentErrors := r.reconcile(ctx, kserve)
+	applyProvisioningCondition(condMgr, componentErrors)
 	if len(componentErrors) > 0 {
 		names := make([]string, 0, len(componentErrors))
 		for name := range componentErrors {
@@ -87,9 +91,10 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, fmt.Errorf("reconciliation failed: %s", strings.Join(msgs, "; "))
 	}
 
-	ns := r.getApplicationsNamespace()
-	if err := checkDeploymentReadiness(ctx, r.Client, ns, r.isKubernetes(ctx)); err != nil {
-		log.Info("deployment not ready, requeueing", "reason", err.Error())
+	r.updateComponentReadiness(ctx, condMgr)
+
+	if !condMgr.IsHappy() {
+		log.Info("not all components ready, requeueing")
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 

@@ -12,85 +12,76 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
-func TestCheckDeploymentReadiness_OCP_AllReady(t *testing.T) {
+func TestCheckKServeReadiness_OCP_AllReady(t *testing.T) {
 	g := NewWithT(t)
 
-	var deps []appsv1.Deployment
-	for _, name := range kserveDeploymentsOCP {
-		deps = append(deps, buildDeployment(name, 1))
+	deps := []appsv1.Deployment{
+		buildDeployment(kserveControllerDeployment, 1),
+		buildDeployment(llmISVCControllerDeployment, 1),
 	}
 
-	objs := make([]client.Object, len(deps))
-	for i := range deps {
-		objs[i] = &deps[i]
-	}
+	cli := buildFakeClient(deps...)
 
-	cli := fake.NewClientBuilder().
-		WithScheme(testScheme()).
-		WithObjects(objs...).
-		WithStatusSubresource(objs...).
-		Build()
-
-	err := checkDeploymentReadiness(context.Background(), cli, "opendatahub", false)
+	err := checkKServeReadiness(context.Background(), cli, "opendatahub", false)
 	g.Expect(err).ShouldNot(HaveOccurred())
 }
 
-func TestCheckDeploymentReadiness_OCP_NotReady(t *testing.T) {
+func TestCheckKServeReadiness_OCP_NotReady(t *testing.T) {
 	g := NewWithT(t)
 
 	deps := []appsv1.Deployment{
 		buildDeployment(kserveControllerDeployment, 1),
 		buildDeployment(llmISVCControllerDeployment, 0),
-		buildDeployment(odhModelControllerDeployment, 1),
 	}
 
-	objs := make([]client.Object, len(deps))
-	for i := range deps {
-		objs[i] = &deps[i]
-	}
+	cli := buildFakeClient(deps...)
 
-	cli := fake.NewClientBuilder().
-		WithScheme(testScheme()).
-		WithObjects(objs...).
-		WithStatusSubresource(objs...).
-		Build()
-
-	err := checkDeploymentReadiness(context.Background(), cli, "opendatahub", false)
+	err := checkKServeReadiness(context.Background(), cli, "opendatahub", false)
 	g.Expect(err).Should(HaveOccurred())
 	g.Expect(err.Error()).Should(ContainSubstring("llmisvc-controller-manager"))
 }
 
-func TestCheckDeploymentReadiness_XKS_AllReady(t *testing.T) {
+func TestCheckModelControllerReadiness_OCP_Ready(t *testing.T) {
 	g := NewWithT(t)
 
-	var deps []appsv1.Deployment
-	for _, name := range kserveDeploymentsXKS {
-		deps = append(deps, buildDeployment(name, 1))
+	deps := []appsv1.Deployment{
+		buildDeployment(odhModelControllerDeployment, 1),
 	}
 
-	objs := make([]client.Object, len(deps))
-	for i := range deps {
-		objs[i] = &deps[i]
-	}
+	cli := buildFakeClient(deps...)
 
-	cli := fake.NewClientBuilder().
-		WithScheme(testScheme()).
-		WithObjects(objs...).
-		WithStatusSubresource(objs...).
-		Build()
-
-	err := checkDeploymentReadiness(context.Background(), cli, "opendatahub", true)
+	err := checkModelControllerReadiness(context.Background(), cli, "opendatahub", false)
 	g.Expect(err).ShouldNot(HaveOccurred())
 }
 
-func TestCheckDeploymentReadiness_Missing(t *testing.T) {
+func TestCheckModelControllerReadiness_XKS_Skipped(t *testing.T) {
 	g := NewWithT(t)
 
-	cli := fake.NewClientBuilder().
-		WithScheme(testScheme()).
-		Build()
+	cli := fake.NewClientBuilder().WithScheme(testScheme()).Build()
 
-	err := checkDeploymentReadiness(context.Background(), cli, "opendatahub", false)
+	err := checkModelControllerReadiness(context.Background(), cli, "opendatahub", true)
+	g.Expect(err).ShouldNot(HaveOccurred())
+}
+
+func TestCheckKServeReadiness_XKS_AllReady(t *testing.T) {
+	g := NewWithT(t)
+
+	deps := []appsv1.Deployment{
+		buildDeployment(llmISVCControllerDeployment, 1),
+	}
+
+	cli := buildFakeClient(deps...)
+
+	err := checkKServeReadiness(context.Background(), cli, "opendatahub", true)
+	g.Expect(err).ShouldNot(HaveOccurred())
+}
+
+func TestCheckKServeReadiness_Missing(t *testing.T) {
+	g := NewWithT(t)
+
+	cli := fake.NewClientBuilder().WithScheme(testScheme()).Build()
+
+	err := checkKServeReadiness(context.Background(), cli, "opendatahub", false)
 	g.Expect(err).Should(HaveOccurred())
 }
 
@@ -101,9 +92,20 @@ func buildDeployment(name string, available int32) appsv1.Deployment {
 	}
 }
 
+func buildFakeClient(deps ...appsv1.Deployment) client.Client {
+	objs := make([]client.Object, len(deps))
+	for i := range deps {
+		objs[i] = &deps[i]
+	}
+	return fake.NewClientBuilder().
+		WithScheme(testScheme()).
+		WithObjects(objs...).
+		WithStatusSubresource(objs...).
+		Build()
+}
+
 func testScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = appsv1.AddToScheme(s)
 	return s
 }
-

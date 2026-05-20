@@ -15,11 +15,13 @@ var (
 	kserveDeploymentsOCP = []string{
 		kserveControllerDeployment,
 		llmISVCControllerDeployment,
-		odhModelControllerDeployment,
 		// TODO: add localmodelControllerDeployment once localmodel manifests are included in OCP overlay
 	}
 	kserveDeploymentsXKS = []string{
 		llmISVCControllerDeployment,
+	}
+	modelControllerDeploymentsOCP = []string{
+		odhModelControllerDeployment,
 	}
 )
 
@@ -31,14 +33,21 @@ func NewDeployer() *deploy.Deployer {
 	)
 }
 
-func checkDeploymentReadiness(ctx context.Context, cli client.Client, namespace string, isXKS bool) error {
-	var deployments []string
+func checkKServeReadiness(ctx context.Context, cli client.Client, namespace string, isXKS bool) error {
 	if isXKS {
-		deployments = append(deployments, kserveDeploymentsXKS...)
-	} else {
-		deployments = append(deployments, kserveDeploymentsOCP...)
+		return checkDeploymentsReady(ctx, cli, namespace, kserveDeploymentsXKS)
 	}
+	return checkDeploymentsReady(ctx, cli, namespace, kserveDeploymentsOCP)
+}
 
+func checkModelControllerReadiness(ctx context.Context, cli client.Client, namespace string, isXKS bool) error {
+	if isXKS {
+		return nil
+	}
+	return checkDeploymentsReady(ctx, cli, namespace, modelControllerDeploymentsOCP)
+}
+
+func checkDeploymentsReady(ctx context.Context, cli client.Client, namespace string, deployments []string) error {
 	var notReady []string
 	for _, name := range deployments {
 		dep := &appsv1.Deployment{}
