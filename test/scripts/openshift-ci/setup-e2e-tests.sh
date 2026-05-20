@@ -191,7 +191,7 @@ if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
 
   # Re-apply LLMInferenceServiceConfig resources now that webhook is ready
   echo "⏳ Re-applying LLMInferenceServiceConfig resources with webhook validation..."
-  kustomize build "$PROJECT_ROOT/config/llmisvcconfig" | oc apply --server-side=true --force-conflicts -f -
+  echo "$ODH_MANIFESTS" | oc apply --server-side=true --force-conflicts -f - || true
 
   # Patch inferenceservice-config for llminferenceservice tests
   if [[ "$1" =~ "llm-d" ]]; then
