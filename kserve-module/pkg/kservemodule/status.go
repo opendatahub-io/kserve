@@ -14,16 +14,16 @@ import (
 )
 
 const (
-	conditionKServeReady            = "KServeReady"
-	conditionModelControllerReady   = "ModelControllerReady"
+	ConditionKServeReady          = "KServeReady"
+	ConditionModelControllerReady = "ModelControllerReady"
 )
 
 func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
 	return conditions.NewManager(kserve,
 		string(common.ConditionTypeReady),
 		string(common.ConditionTypeProvisioningSucceeded),
-		conditionKServeReady,
-		conditionModelControllerReady,
+		ConditionKServeReady,
+		ConditionModelControllerReady,
 	)
 }
 
@@ -54,20 +54,20 @@ func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, c
 	isXKS := r.isKubernetes(ctx)
 
 	if err := checkKServeReadiness(ctx, r.Client, ns, isXKS); err != nil {
-		condMgr.MarkFalse(conditionKServeReady,
+		condMgr.MarkFalse(ConditionKServeReady,
 			conditions.WithReason("DeploymentNotReady"),
 			conditions.WithMessage("%s", err.Error()))
 	} else {
-		condMgr.MarkTrue(conditionKServeReady,
+		condMgr.MarkTrue(ConditionKServeReady,
 			conditions.WithReason("AllDeploymentsAvailable"))
 	}
 
 	if err := checkModelControllerReadiness(ctx, r.Client, ns, isXKS); err != nil {
-		condMgr.MarkFalse(conditionModelControllerReady,
+		condMgr.MarkFalse(ConditionModelControllerReady,
 			conditions.WithReason("DeploymentNotReady"),
 			conditions.WithMessage("%s", err.Error()))
 	} else {
-		condMgr.MarkTrue(conditionModelControllerReady,
+		condMgr.MarkTrue(ConditionModelControllerReady,
 			conditions.WithReason("AllDeploymentsAvailable"))
 	}
 }

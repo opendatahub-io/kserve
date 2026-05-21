@@ -49,11 +49,15 @@ import (
 // +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=create;delete;get;list;patch;update;watch
 
+type ResourceDeployer interface {
+	Deploy(ctx context.Context, input deploy.DeployInput) error
+}
+
 type KserveModuleReconciler struct {
 	client.Client
-	Scheme        *runtime.Scheme
+	Scheme                *runtime.Scheme
 	ManifestsTemplatePath string
-	Deployer      *deploy.Deployer
+	Deployer              ResourceDeployer
 
 	workDir               string
 	initDone              bool
@@ -246,6 +250,19 @@ func (r *KserveModuleReconciler) getVersionPrefix(kserve *platformv1alpha1.Kserv
 		}
 	}
 	return "v0-0-0"
+}
+
+func (r *KserveModuleReconciler) WorkDir() string {
+	return r.workDir
+}
+
+func (r *KserveModuleReconciler) SetClusterType(ct cluster.ClusterType) {
+	r.clusterType = &ct
+}
+
+func (r *KserveModuleReconciler) SetWorkDir(dir string) {
+	r.workDir = dir
+	r.initDone = true
 }
 
 func (r *KserveModuleReconciler) ensureWorkDir() (string, error) {

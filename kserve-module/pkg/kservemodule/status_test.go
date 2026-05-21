@@ -21,8 +21,8 @@ func TestNewConditionManager_InitializesConditions(t *testing.T) {
 
 	g.Expect(condMgr.GetCondition(string(common.ConditionTypeReady))).ShouldNot(BeNil())
 	g.Expect(condMgr.GetCondition(string(common.ConditionTypeProvisioningSucceeded))).ShouldNot(BeNil())
-	g.Expect(condMgr.GetCondition(conditionKServeReady)).ShouldNot(BeNil())
-	g.Expect(condMgr.GetCondition(conditionModelControllerReady)).ShouldNot(BeNil())
+	g.Expect(condMgr.GetCondition(ConditionKServeReady)).ShouldNot(BeNil())
+	g.Expect(condMgr.GetCondition(ConditionModelControllerReady)).ShouldNot(BeNil())
 }
 
 func TestApplyProvisioningCondition_Success(t *testing.T) {
@@ -59,9 +59,9 @@ func TestApplyProvisioningCondition_Failure(t *testing.T) {
 func markAllHealthy(condMgr *conditions.Manager) {
 	condMgr.MarkTrue(string(common.ConditionTypeProvisioningSucceeded),
 		conditions.WithReason("AllResourcesApplied"))
-	condMgr.MarkTrue(conditionKServeReady,
+	condMgr.MarkTrue(ConditionKServeReady,
 		conditions.WithReason("AllDeploymentsAvailable"))
-	condMgr.MarkTrue(conditionModelControllerReady,
+	condMgr.MarkTrue(ConditionModelControllerReady,
 		conditions.WithReason("AllDeploymentsAvailable"))
 }
 
@@ -82,7 +82,7 @@ func TestHappyCondition_DeploymentNotReady(t *testing.T) {
 	condMgr := newConditionManager(kserve)
 	markAllHealthy(condMgr)
 
-	condMgr.MarkFalse(conditionKServeReady,
+	condMgr.MarkFalse(ConditionKServeReady,
 		conditions.WithReason("DeploymentNotReady"))
 
 	g.Expect(condMgr.IsHappy()).Should(BeFalse())
