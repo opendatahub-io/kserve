@@ -9,12 +9,15 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/deploy"
@@ -66,6 +69,11 @@ type KserveModuleReconciler struct {
 	initDone              bool
 	applicationsNamespace string
 	clusterType           *cluster.ClusterType
+
+	controller     controller.Controller
+	cache          cache.Cache
+	dynamicWatches []*dynamicWatch
+	dynamicWatchMu sync.Mutex
 }
 
 func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
@@ -77,6 +85,8 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	log.Info("reconciling Kserve CR", "name", kserve.Name)
+
+	r.registerDynamicWatches(ctx)
 
 	condMgr := newConditionManager(kserve)
 	defer func() {
