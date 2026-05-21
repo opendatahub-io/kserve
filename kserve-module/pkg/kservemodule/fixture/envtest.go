@@ -8,7 +8,9 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -73,6 +75,9 @@ func SetupTestEnv(ctx context.Context) *TestEnv {
 	reconciler.SetWorkDir(workDir)
 	reconciler.SetClusterType(cluster.ClusterTypeOpenShift)
 	gomega.Expect(reconciler.SetupWithManager(mgr)).To(gomega.Succeed())
+
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "opendatahub"}}
+	gomega.Expect(cli.Create(ctx, ns)).To(gomega.Succeed())
 
 	mgrCtx, mgrCancel := context.WithCancel(ctx)
 	go func() {

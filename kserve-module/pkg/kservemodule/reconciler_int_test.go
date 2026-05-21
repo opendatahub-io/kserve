@@ -5,9 +5,9 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
@@ -92,9 +92,6 @@ var _ = Describe("KserveModule Reconciler", func() {
 		It("reports ready with all OCP deployments", func(ctx SpecContext) {
 			testEnv.Reconciler.SetClusterType(cluster.ClusterTypeOpenShift)
 
-			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "opendatahub"}}
-			Expect(client.IgnoreAlreadyExists(testEnv.Client.Create(ctx, ns))).To(Succeed())
-
 			deployments := []string{
 				"kserve-controller-manager",
 				"llmisvc-controller-manager",
@@ -147,7 +144,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 				g.Expect(kserveReady).NotTo(BeNil())
 				g.Expect(kserveReady.Status).To(Equal(metav1.ConditionTrue))
 
-				// XKS skips model controller check
+				// XKS does not deploy model controller, so readiness is always true
 				modelCtrlReady := fixture.FindCondition(cr, kservemodule.ConditionModelControllerReady)
 				g.Expect(modelCtrlReady).NotTo(BeNil())
 				g.Expect(modelCtrlReady.Status).To(Equal(metav1.ConditionTrue))
@@ -184,10 +181,15 @@ func createReadyDeployment(ctx SpecContext, name, namespace string) {
 }
 
 func triggerReconcile(ctx SpecContext, cr *platformv1alpha1.Kserve, trigger string) {
-	Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
-	if cr.Annotations == nil {
-		cr.Annotations = map[string]string{}
-	}
-	cr.Annotations["test/trigger"] = trigger
-	Expect(testEnv.Client.Update(ctx, cr)).To(Succeed())
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
+			return err
+		}
+		if cr.Annotations == nil {
+			cr.Annotations = map[string]string{}
+		}
+		cr.Annotations["test/trigger"] = trigger
+		return testEnv.Client.Update(ctx, cr)
+	})
+	Expect(err).NotTo(HaveOccurred())
 }
