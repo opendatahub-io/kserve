@@ -2,8 +2,6 @@ apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
   annotations:
-    # Points to the component repo where the PR is opened
-    #build.appstudio.openshift.io/repo: https://github.com/mwaykole/kserve?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/max-keep-runs: "3"
@@ -21,6 +19,9 @@ spec:
     value: '{{source_url}}'
   - name: revision
     value: '{{revision}}'
+  timeouts:
+    pipeline: 6h
+    tasks: 5h
   pipelineRef:
     resolver: git
     params:
