@@ -517,6 +517,12 @@ create_test_namespace() {
   kubectl patch serviceaccount default -n kserve-ci-e2e-test \
     --type=merge -p='{"secrets": [{"name": "seaweedfs-s3-creds"}]}'
 
+  # The ODH overlay configures s3CABundleConfigMap="odh-kserve-custom-ca-bundle" in the
+  # storage config. When using s3:// URIs, the controller injects a mandatory volume
+  # referencing this ConfigMap. Create it empty so pods can start on Kind.
+  kubectl create configmap odh-kserve-custom-ca-bundle -n kserve-ci-e2e-test \
+    --dry-run=client -o yaml | kubectl apply -f -
+
   log_success "E2E test namespace 'kserve-ci-e2e-test' created"
 }
 
