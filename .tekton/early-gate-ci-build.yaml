@@ -19,18 +19,15 @@ spec:
     value: '{{source_url}}'
   - name: revision
     value: '{{revision}}'
-  timeouts:
-    pipeline: 6h
-    tasks: 5h
   pipelineRef:
     resolver: git
     params:
     - name: url
       value: https://github.com/opendatahub-io/odh-konflux-central.git
     - name: revision
-      value: 'earlygate'
+      value: 'main'
     - name: pathInRepo
-      value: e2e-early-gate/early-gate-component-pipeline.yaml
+      value: early-gate/early-gate-component-pipeline.yaml
   taskRunTemplate:
     serviceAccountName: build-pipeline-early-gate-ci
   workspaces:
