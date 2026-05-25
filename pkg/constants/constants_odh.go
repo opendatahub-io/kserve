@@ -41,6 +41,24 @@ const (
 	OVMSVersioningContainerName = "ovms-auto-versioning"
 )
 
+// HardwareProfile annotation and CRD constants.
+const (
+	HardwareProfileAnnotationName      = "opendatahub.io/hardware-profile-name"
+	HardwareProfileAnnotationNamespace = "opendatahub.io/hardware-profile-namespace"
+
+	HardwareProfileGroup    = "infrastructure.opendatahub.io"
+	HardwareProfileVersion  = "v1alpha1"
+	HardwareProfileResource = "hardwareprofiles"
+)
+
+// LLMInferenceService container name constants.
+const (
+	LLMInferenceServiceMainContainerName = "main"
+)
+
+// KueueQueueNameLabel is the label key used to specify the Kueue local queue name.
+const KueueQueueNameLabel = KueueAPIGroupName + "/queue-name"
+
 // Midstream auth proxy constants
 const (
 	OauthProxyPort                  = 8443

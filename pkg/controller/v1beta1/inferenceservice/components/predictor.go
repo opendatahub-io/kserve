@@ -724,6 +724,10 @@ func computeMpNodeAndGPUs(pipelineParallelSize, tensorParallelSize int) (int, in
 }
 
 func (p *Predictor) reconcileRawDeployment(ctx context.Context, isvc *v1beta1.InferenceService, objectMeta, workerObjectMeta metav1.ObjectMeta, podSpec, workerPodSpec *corev1.PodSpec) error {
+	if err := p.applyHardwareProfile(ctx, isvc, podSpec, &objectMeta); err != nil {
+		return errors.Wrapf(err, "failed to apply HardwareProfile to predictor")
+	}
+
 	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(ctx, p.clientset)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get InferenceService ConfigMap")

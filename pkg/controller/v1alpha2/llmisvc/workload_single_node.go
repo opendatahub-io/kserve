@@ -168,6 +168,10 @@ func (r *LLMISVCReconciler) expectedSingleNodeMainDeployment(ctx context.Context
 
 	r.propagateDeploymentMetadata(llmSvc, d)
 
+	if err := r.applyHardwareProfileToDeployment(ctx, llmSvc, &d.Spec.Template.Spec, &d.ObjectMeta, &d.Spec.Template.ObjectMeta); err != nil {
+		return nil, fmt.Errorf("failed to apply HardwareProfile to main deployment: %w", err)
+	}
+
 	utils.PropagateMap(llmSvc.Spec.Labels, &d.Spec.Template.Labels)
 	utils.PropagateMap(llmSvc.Spec.Annotations, &d.Spec.Template.Annotations, AnnotationModelBasedRoutingEnabled)
 

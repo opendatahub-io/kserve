@@ -250,6 +250,10 @@ func (r *LLMISVCReconciler) expectedMainMultiNodeLWS(ctx context.Context, llmSvc
 
 	r.propagateTopLevelLeaderWorkerSetMetadata(llmSvc, expected)
 
+	if err := r.applyHardwareProfileToLWS(ctx, llmSvc, expected); err != nil {
+		return nil, fmt.Errorf("failed to apply HardwareProfile to main LWS: %w", err)
+	}
+
 	if expected.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
 		utils.PropagateMap(llmSvc.Spec.Labels, &expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels)
 		utils.PropagateMap(llmSvc.Spec.Annotations, &expected.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations, AnnotationModelBasedRoutingEnabled)
@@ -355,6 +359,10 @@ func (r *LLMISVCReconciler) expectedPrefillMultiNodeLWS(ctx context.Context, llm
 	}
 
 	r.propagateTopLevelLeaderWorkerSetMetadata(llmSvc, expected)
+
+	if err := r.applyHardwareProfileToLWS(ctx, llmSvc, expected); err != nil {
+		return nil, fmt.Errorf("failed to apply HardwareProfile to prefill LWS: %w", err)
+	}
 
 	if llmSvc.Spec.Prefill != nil {
 		if expected.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
