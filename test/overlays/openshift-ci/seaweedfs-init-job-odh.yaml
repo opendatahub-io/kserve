@@ -43,7 +43,7 @@ spec:
         image: docker.io/amazon/aws-cli:2.33.11@sha256:88ea087837da1b31a3afeeb4538888244a3087a867ddb1909848643fcc4b324e
         securityContext:
           runAsNonRoot: true
-          readOnlyRootFilesystem: false
+          readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
           capabilities:
             drop: ["ALL"]
@@ -81,8 +81,12 @@ spec:
         volumeMounts:
         - name: model-cache
           mountPath: /shared
+        - name: tmp
+          mountPath: /tmp
       volumes:
       - name: model-cache
+        emptyDir: {}
+      - name: tmp
         emptyDir: {}
       restartPolicy: Never
   activeDeadlineSeconds: 1800
