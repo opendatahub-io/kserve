@@ -32,4 +32,5 @@ spec:
         - name: AWS_ENDPOINT_URL_S3
           value: "http://s3-service.kserve:8333"
       restartPolicy: Never
+  activeDeadlineSeconds: 1800
   backoffLimit: 3
