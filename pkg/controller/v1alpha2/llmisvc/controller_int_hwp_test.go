@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/kmeta"
@@ -34,9 +35,7 @@ import (
 )
 
 var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
-
 	Context("Single-node Deployment", func() {
-
 		It("should not modify Deployment when no HWP annotation is set (LLM-1)", func(ctx SpecContext) {
 			// given
 			svcName := "test-llm-hwp-no-annotation"
@@ -108,7 +107,7 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			Consistently(func(g Gomega, ctx context.Context) {
 				dep := &appsv1.Deployment{}
 				err := envTest.Get(ctx, depName, dep)
-				g.Expect(err).To(HaveOccurred(), "Deployment should not be created while HWP is missing")
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "Deployment should not be created while HWP is missing")
 			}).WithContext(ctx).Should(Succeed())
 
 			// sub-step: create the missing HWP → reconciliation unblocked
@@ -477,7 +476,6 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 	})
 
 	Context("Multi-Node LeaderWorkerSet", func() {
-
 		It("should inject GPU resources into leader and worker templates (LWS-1)", func(ctx SpecContext) {
 			// given
 			svcName := "test-lws-hwp-resources"
@@ -674,7 +672,7 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			Consistently(func(g Gomega, ctx context.Context) {
 				lws := &lwsapi.LeaderWorkerSet{}
 				err := envTest.Get(ctx, lwsName, lws)
-				g.Expect(err).To(HaveOccurred(), "LWS should not be created while HWP is missing")
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "LWS should not be created while HWP is missing")
 			}).WithContext(ctx).Should(Succeed())
 
 			// sub-step: create the missing HWP → LWS eventually created
@@ -757,10 +755,11 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			Expect(leaderMain.Resources.Requests["nvidia.com/gpu"]).To(Equal(resource.MustParse("4")))
 			Expect(mainLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.NodeSelector).To(HaveKeyWithValue("nvidia.com/gpu.product", "A100-PCIE-80GB"))
 
-			// Main LWS: worker GPU
+			// Main LWS: worker GPU + nodeSelector
 			workerMain := findContainer(mainLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
 			Expect(workerMain).NotTo(BeNil())
 			Expect(workerMain.Resources.Requests["nvidia.com/gpu"]).To(Equal(resource.MustParse("4")))
+			Expect(mainLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.NodeSelector).To(HaveKeyWithValue("nvidia.com/gpu.product", "A100-PCIE-80GB"))
 
 			// then — check prefill LWS
 			prefillLWS := &lwsapi.LeaderWorkerSet{}
@@ -777,10 +776,11 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			Expect(prefillLeaderMain.Resources.Requests["nvidia.com/gpu"]).To(Equal(resource.MustParse("4")))
 			Expect(prefillLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.NodeSelector).To(HaveKeyWithValue("nvidia.com/gpu.product", "A100-PCIE-80GB"))
 
-			// Prefill LWS: worker GPU
+			// Prefill LWS: worker GPU + nodeSelector
 			prefillWorkerMain := findContainer(prefillLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
 			Expect(prefillWorkerMain).NotTo(BeNil())
 			Expect(prefillWorkerMain.Resources.Requests["nvidia.com/gpu"]).To(Equal(resource.MustParse("4")))
+			Expect(prefillLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.NodeSelector).To(HaveKeyWithValue("nvidia.com/gpu.product", "A100-PCIE-80GB"))
 		})
 	})
 })

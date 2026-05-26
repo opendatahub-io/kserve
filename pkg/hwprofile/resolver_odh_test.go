@@ -541,4 +541,3 @@ func TestHardwareProfileRef_NilAnnotations(t *testing.T) {
 	assert.Equal(t, "", name)
 	assert.Equal(t, "default", namespace)
 }
-

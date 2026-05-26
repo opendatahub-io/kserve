@@ -122,13 +122,11 @@ func minimalPredictorExtensionSpec() v1beta1.PredictorExtensionSpec {
 }
 
 var _ = Describe("InferenceService HardwareProfile injection", func() {
-
 	configs := getRawKubeTestConfigs()
 
 	// ---------- Test Group 1: Basic injection scenarios ----------
 
 	Context("Basic HWP injection scenarios", func() {
-
 		It("IS-1: should not modify Deployment when no HWP annotation is set", func() {
 			// given
 			ctx := context.Background()
@@ -402,7 +400,6 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 	// ---------- Test Group 2: Priority / override semantics ----------
 
 	Context("Priority and override semantics", func() {
-
 		It("IS-6: IS-specified resource takes priority over HWP resource", func() {
 			// given
 			ctx := context.Background()
@@ -655,7 +652,6 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 	// ---------- Test Group 3: Mutation / update semantics ----------
 
 	Context("Mutation and update semantics", func() {
-
 		It("IS-9: should update Deployment when HWP annotation changes to different HWP", func() {
 			// given
 			ctx := context.Background()

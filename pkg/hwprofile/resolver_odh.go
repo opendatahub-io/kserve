@@ -21,6 +21,7 @@ package hwprofile
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -250,8 +251,10 @@ func ApplyNodeScheduling(profile *ResolvedProfile, podSpec *corev1.PodSpec) {
 	if len(profile.Tolerations) > 0 {
 		existing := tolerationKeySet(podSpec.Tolerations)
 		for _, tol := range profile.Tolerations {
-			if !existing[tolerationKey(tol)] {
+			key := tolerationKey(tol)
+			if !existing[key] {
 				podSpec.Tolerations = append(podSpec.Tolerations, tol)
+				existing[key] = true
 			}
 		}
 	}
@@ -296,7 +299,7 @@ func HardwareProfileRef(annotations map[string]string, defaultNamespace string) 
 func tolerationKey(tol corev1.Toleration) string {
 	ts := ""
 	if tol.TolerationSeconds != nil {
-		ts = fmt.Sprintf("%d", *tol.TolerationSeconds)
+		ts = strconv.FormatInt(*tol.TolerationSeconds, 10)
 	}
 	return fmt.Sprintf("%s:%s:%s:%s:%s", tol.Key, tol.Operator, tol.Value, tol.Effect, ts)
 }
