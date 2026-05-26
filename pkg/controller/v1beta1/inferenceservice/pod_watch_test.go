@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
@@ -645,15 +646,14 @@ var _ = Describe("Event Storm Prevention Integration", func() {
 			},
 		}
 		err := k8sClient.Create(context.Background(), ns)
-		if err != nil {
-			// Namespace might already exist
-			_ = k8sClient.Get(context.Background(), types.NamespacedName{Name: testNamespace}, ns)
+		if err != nil && !apierr.IsAlreadyExists(err) {
+			Expect(err).ToNot(HaveOccurred(), "unexpected error creating namespace")
 		}
 	})
 
 	AfterEach(func() {
 		// Remove the callback
-		testReconciler.OnReconcile = nil
+		testReconciler.SetOnReconcile(nil)
 
 		// Clean up ISVCs
 		var isvcList v1beta1.InferenceServiceList
@@ -681,11 +681,11 @@ var _ = Describe("Event Storm Prevention Integration", func() {
 		// Set up reconcile invocation counter
 		var mu sync.Mutex
 		reconcileCounts := make(map[string]int)
-		testReconciler.OnReconcile = func(name types.NamespacedName) {
+		testReconciler.SetOnReconcile(func(name types.NamespacedName) {
 			mu.Lock()
 			defer mu.Unlock()
 			reconcileCounts[name.Name]++
-		}
+		})
 
 		// Create the inferenceservice-config ConfigMap
 		configMap := createInferenceServiceConfigMap(configs)
@@ -723,11 +723,19 @@ var _ = Describe("Event Storm Prevention Integration", func() {
 		}, 10*time.Second, 200*time.Millisecond).Should(BeTrue(),
 			"both ISVCs should have been reconciled at least once")
 
-		// Record the primary ISVC's reconcile count after initial reconciliation settles.
-		// Wait a short interval to let any in-flight reconciles drain.
-		time.Sleep(2 * time.Second)
+		// Record baseline counts after initial reconciliation settles.
+		// Use Consistently to verify counts are stable before snapshotting.
+		var primaryCountBefore, secondaryCountBefore int
+		Consistently(func() int {
+			mu.Lock()
+			defer mu.Unlock()
+			return reconcileCounts[primaryISVC]
+		}, 2*time.Second, 200*time.Millisecond).Should(
+			Not(BeNumerically("<", 0)), // always true; the assertion continuously samples the count
+		)
 		mu.Lock()
-		primaryCountBefore := reconcileCounts[primaryISVC]
+		primaryCountBefore = reconcileCounts[primaryISVC]
+		secondaryCountBefore = reconcileCounts[secondaryISVC]
 		mu.Unlock()
 
 		// Create a pod labeled for the secondary ISVC (simulates a pod event storm)
@@ -784,25 +792,25 @@ var _ = Describe("Event Storm Prevention Integration", func() {
 			}, 5*time.Second, 200*time.Millisecond).Should(Succeed())
 		}
 
-		// Wait for the secondary ISVC to be reconciled from the pod events
-		Eventually(func() bool {
+		// Wait for the secondary ISVC to be reconciled from the pod status transitions.
+		// Assert growth relative to the baseline to prove pod events caused the extra reconciles.
+		Eventually(func() int {
 			mu.Lock()
 			defer mu.Unlock()
-			return reconcileCounts[secondaryISVC] > 1
-		}, 10*time.Second, 200*time.Millisecond).Should(BeTrue(),
-			"secondary ISVC should have been reconciled from pod events")
+			return reconcileCounts[secondaryISVC]
+		}, 10*time.Second, 200*time.Millisecond).Should(BeNumerically(">", secondaryCountBefore),
+			"secondary ISVC should have been reconciled from pod events; "+
+				"count before=%d", secondaryCountBefore)
 
-		// Allow any queued reconciles to drain
-		time.Sleep(2 * time.Second)
-
-		// Assert the primary ISVC was NOT reconciled during the storm window
-		mu.Lock()
-		primaryCountAfter := reconcileCounts[primaryISVC]
-		mu.Unlock()
-
-		Expect(primaryCountAfter).To(Equal(primaryCountBefore),
+		// Assert the primary ISVC was NOT reconciled during the storm window.
+		// Consistently verifies the count remains stable over 2 seconds.
+		Consistently(func() int {
+			mu.Lock()
+			defer mu.Unlock()
+			return reconcileCounts[primaryISVC]
+		}, 2*time.Second, 200*time.Millisecond).Should(Equal(primaryCountBefore),
 			"primary ISVC should not have been reconciled due to secondary ISVC pod events; "+
-				"count before=%d, count after=%d", primaryCountBefore, primaryCountAfter)
+				"count before=%d", primaryCountBefore)
 	})
 })
 
@@ -818,9 +826,8 @@ var _ = Describe("ServingRuntime Watch", func() {
 			},
 		}
 		err := k8sClient.Create(context.Background(), ns)
-		if err != nil {
-			// Namespace might already exist, ignore error
-			_ = k8sClient.Get(context.Background(), types.NamespacedName{Name: testNamespace}, ns)
+		if err != nil && !apierr.IsAlreadyExists(err) {
+			Expect(err).ToNot(HaveOccurred(), "unexpected error creating namespace")
 		}
 
 		reconciler = &InferenceServiceReconciler{
