@@ -223,21 +223,21 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 					},
 					VolumeMounts: []corev1.VolumeMount{
 						{
-							Name:      "openshift-service-ca-bundle",
-							MountPath: "/etc/odh/openshift-service-ca-bundle",
+							Name:      constants.ServiceCaBundleVolumeName,
+							MountPath: constants.ServiceCaBundleMountPath,
 						},
 					},
 					Env: []corev1.EnvVar{
 						{
 							Name:  "SSL_CERT_FILE",
-							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+							Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
 						},
 					},
 				},
 			},
 			Volumes: []corev1.Volume{
 				{
-					Name: "openshift-service-ca-bundle",
+					Name: constants.ServiceCaBundleVolumeName,
 					VolumeSource: corev1.VolumeSource{
 						ConfigMap: &corev1.ConfigMapVolumeSource{
 							LocalObjectReference: corev1.LocalObjectReference{
@@ -264,7 +264,7 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 					Env: []corev1.EnvVar{
 						{
 							Name:  "SSL_CERT_FILE",
-							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+							Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
 						},
 						{
 							Name:  "PROPAGATE_HEADERS",
@@ -293,15 +293,15 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 					},
 					VolumeMounts: []corev1.VolumeMount{
 						{
-							Name:      "openshift-service-ca-bundle",
-							MountPath: "/etc/odh/openshift-service-ca-bundle",
+							Name:      constants.ServiceCaBundleVolumeName,
+							MountPath: constants.ServiceCaBundleMountPath,
 						},
 					},
 				},
 			},
 			Volumes: []corev1.Volume{
 				{
-					Name: "openshift-service-ca-bundle",
+					Name: constants.ServiceCaBundleVolumeName,
 					VolumeSource: corev1.VolumeSource{
 						ConfigMap: &corev1.ConfigMapVolumeSource{
 							LocalObjectReference: corev1.LocalObjectReference{
@@ -347,21 +347,21 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 					},
 					VolumeMounts: []corev1.VolumeMount{
 						{
-							Name:      "openshift-service-ca-bundle",
-							MountPath: "/etc/odh/openshift-service-ca-bundle",
+							Name:      constants.ServiceCaBundleVolumeName,
+							MountPath: constants.ServiceCaBundleMountPath,
 						},
 					},
 					Env: []corev1.EnvVar{
 						{
 							Name:  "SSL_CERT_FILE",
-							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+							Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
 						},
 					},
 				},
 			},
 			Volumes: []corev1.Volume{
 				{
-					Name: "openshift-service-ca-bundle",
+					Name: constants.ServiceCaBundleVolumeName,
 					VolumeSource: corev1.VolumeSource{
 						ConfigMap: &corev1.ConfigMapVolumeSource{
 							LocalObjectReference: corev1.LocalObjectReference{
@@ -407,21 +407,21 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 					},
 					VolumeMounts: []corev1.VolumeMount{
 						{
-							Name:      "openshift-service-ca-bundle",
-							MountPath: "/etc/odh/openshift-service-ca-bundle",
+							Name:      constants.ServiceCaBundleVolumeName,
+							MountPath: constants.ServiceCaBundleMountPath,
 						},
 					},
 					Env: []corev1.EnvVar{
 						{
 							Name:  "SSL_CERT_FILE",
-							Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+							Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
 						},
 					},
 				},
 			},
 			Volumes: []corev1.Volume{
 				{
-					Name: "openshift-service-ca-bundle",
+					Name: constants.ServiceCaBundleVolumeName,
 					VolumeSource: corev1.VolumeSource{
 						ConfigMap: &corev1.ConfigMapVolumeSource{
 							LocalObjectReference: corev1.LocalObjectReference{

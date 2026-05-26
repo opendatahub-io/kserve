@@ -86,21 +86,21 @@ func createInferenceGraphPodSpec(graph *v1alpha1.InferenceGraph, config *RouterC
 				},
 				VolumeMounts: []corev1.VolumeMount{
 					{
-						Name:      "openshift-service-ca-bundle",
-						MountPath: "/etc/odh/openshift-service-ca-bundle",
+						Name:      constants.ServiceCaBundleVolumeName,
+						MountPath: constants.ServiceCaBundleMountPath,
 					},
 				},
 				Env: []corev1.EnvVar{
 					{
 						Name:  "SSL_CERT_FILE",
-						Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+						Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
 					},
 				},
 			},
 		},
 		Volumes: []corev1.Volume{
 			{
-				Name: "openshift-service-ca-bundle",
+				Name: constants.ServiceCaBundleVolumeName,
 				VolumeSource: corev1.VolumeSource{
 					ConfigMap: &corev1.ConfigMapVolumeSource{
 						LocalObjectReference: corev1.LocalObjectReference{
