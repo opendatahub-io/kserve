@@ -8,22 +8,6 @@ spec:
       containers:
       - name: s3-init
         image: docker.io/amazon/aws-cli:2.33.11@sha256:88ea087837da1b31a3afeeb4538888244a3087a867ddb1909848643fcc4b324e
-        securityContext:
-          runAsNonRoot: true
-          readOnlyRootFilesystem: true
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: ["ALL"]
-        resources:
-          requests:
-            cpu: "100m"
-            memory: "128Mi"
-          limits:
-            cpu: "500m"
-            memory: "512Mi"
-        volumeMounts:
-        - name: tmp
-          mountPath: /tmp
         command:
         - /bin/sh
         - -c
@@ -47,9 +31,6 @@ spec:
           value: "us-east-1"
         - name: AWS_ENDPOINT_URL_S3
           value: "http://s3-service.kserve:8333"
-      volumes:
-      - name: tmp
-        emptyDir: {}
       restartPolicy: Never
   activeDeadlineSeconds: 1800
   backoffLimit: 3

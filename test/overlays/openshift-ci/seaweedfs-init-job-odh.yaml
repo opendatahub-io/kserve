@@ -8,19 +8,6 @@ spec:
       initContainers:
       - name: download-hf-model
         image: kserve/storage-initializer:latest
-        securityContext:
-          runAsNonRoot: true
-          readOnlyRootFilesystem: false
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: ["ALL"]
-        resources:
-          requests:
-            cpu: "250m"
-            memory: "512Mi"
-          limits:
-            cpu: "1"
-            memory: "2Gi"
         command:
         - python3
         - -c
@@ -41,19 +28,6 @@ spec:
       containers:
       - name: s3-init
         image: docker.io/amazon/aws-cli:2.33.11@sha256:88ea087837da1b31a3afeeb4538888244a3087a867ddb1909848643fcc4b324e
-        securityContext:
-          runAsNonRoot: true
-          readOnlyRootFilesystem: true
-          allowPrivilegeEscalation: false
-          capabilities:
-            drop: ["ALL"]
-        resources:
-          requests:
-            cpu: "100m"
-            memory: "128Mi"
-          limits:
-            cpu: "500m"
-            memory: "512Mi"
         command:
         - /bin/sh
         - -c
@@ -81,12 +55,8 @@ spec:
         volumeMounts:
         - name: model-cache
           mountPath: /shared
-        - name: tmp
-          mountPath: /tmp
       volumes:
       - name: model-cache
-        emptyDir: {}
-      - name: tmp
         emptyDir: {}
       restartPolicy: Never
   activeDeadlineSeconds: 1800
