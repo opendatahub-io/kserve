@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync"
 
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -135,6 +136,11 @@ var modelControllerDependencies = []dependencyCheck{
 
 var allDependencies = slices.Concat(kserveDependencies, modelControllerDependencies)
 
+type checkResultItem struct {
+	dep     dependencyCheck
+	reasons []string
+}
+
 func (r *KserveModuleReconciler) checkDependencies(ctx context.Context) dependencyResult {
 	log := ctrl.LoggerFrom(ctx)
 	isXKS := r.isKubernetes(ctx)
@@ -147,6 +153,9 @@ func (r *KserveModuleReconciler) checkDependencies(ctx context.Context) dependen
 		},
 	}
 
+	var wg sync.WaitGroup
+	ch := make(chan checkResultItem, len(allDependencies))
+
 	for _, dep := range allDependencies {
 		if dep.platform == "ocp" && isXKS {
 			continue
@@ -155,25 +164,39 @@ func (r *KserveModuleReconciler) checkDependencies(ctx context.Context) dependen
 			continue
 		}
 
-		var reasons []string
-		switch dep.checkType {
-		case checkCRD:
-			reasons = r.checkCRD(ctx, dep)
-		case checkSubscription:
-			reasons = r.checkSubscription(ctx, dep)
-		case checkOperator:
-			reasons = r.checkOperatorHealth(ctx, dep)
-		}
+		wg.Add(1)
+		go func(d dependencyCheck) {
+			defer wg.Done()
+			var reasons []string
+			switch d.checkType {
+			case checkCRD:
+				reasons = r.checkCRD(ctx, d)
+			case checkSubscription:
+				reasons = r.checkSubscription(ctx, d)
+			case checkOperator:
+				reasons = r.checkOperatorHealth(ctx, d)
+			}
+			if len(reasons) > 0 {
+				ch <- checkResultItem{dep: d, reasons: reasons}
+			}
+		}(dep)
+	}
 
-		for _, msg := range reasons {
-			log.Info("dependency not satisfied", "dependency", dep.name,
-				"type", dep.checkType, "critical", dep.critical, "message", msg)
+	go func() {
+		wg.Wait()
+		close(ch)
+	}()
 
-			if dep.critical {
+	for item := range ch {
+		for _, msg := range item.reasons {
+			log.Info("dependency not satisfied", "dependency", item.dep.name,
+				"type", item.dep.checkType, "critical", item.dep.critical, "message", msg)
+
+			if item.dep.critical {
 				result.criticalErrors = append(result.criticalErrors, msg)
-			} else if dep.conditionGroup != "" {
-				result.groupReasons[dep.conditionGroup] = append(
-					result.groupReasons[dep.conditionGroup], msg)
+			} else if item.dep.conditionGroup != "" {
+				result.groupReasons[item.dep.conditionGroup] = append(
+					result.groupReasons[item.dep.conditionGroup], msg)
 			} else {
 				result.degradedReasons = append(result.degradedReasons, msg)
 			}
@@ -213,6 +236,10 @@ func (r *KserveModuleReconciler) checkSubscription(ctx context.Context, dep depe
 }
 
 func (r *KserveModuleReconciler) checkOperatorHealth(ctx context.Context, dep dependencyCheck) []string {
+	// Skip checks when context is cancelled to avoid false-positive dependency errors.
+	if ctx.Err() != nil {
+		return nil
+	}
 	if dep.conditionFilter == nil {
 		return nil
 	}

@@ -31,6 +31,9 @@ func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
 }
 
 func applyDependencyConditions(condMgr *conditions.Manager, result dependencyResult) {
+	slices.Sort(result.criticalErrors)
+	slices.Sort(result.degradedReasons)
+
 	if len(result.criticalErrors) > 0 {
 		condMgr.MarkFalse(ConditionDependenciesAvailable,
 			conditions.WithReason("DependencyDegraded"),
@@ -55,6 +58,7 @@ func applyDependencyConditions(condMgr *conditions.Manager, result dependencyRes
 	}
 
 	for group, reasons := range result.groupReasons {
+		slices.Sort(reasons)
 		if len(reasons) > 0 {
 			condMgr.MarkTrue(group,
 				conditions.WithSeverity(common.ConditionSeverityInfo),
