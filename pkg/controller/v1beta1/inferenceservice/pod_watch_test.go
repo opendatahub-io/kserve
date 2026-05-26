@@ -18,12 +18,15 @@ package inferenceservice
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	knativeapis "knative.dev/pkg/apis"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -618,6 +621,188 @@ var _ = Describe("Pod InitContainers Watch", func() {
 				Expect(requests).To(BeNil())
 			})
 		})
+	})
+})
+
+var _ = Describe("Event Storm Prevention Integration", func() {
+	// This test verifies that pod events for one InferenceService do NOT trigger
+	// reconciliation of an unrelated InferenceService. It uses the OnReconcile
+	// callback to count reconciler invocations per ISVC name, which directly
+	// measures unnecessary work rather than relying on resourceVersion side effects.
+
+	var (
+		testNamespace string
+		configs       map[string]string
+	)
+
+	BeforeEach(func() {
+		testNamespace = "event-storm-test"
+		configs = getKnativeTestConfigs()
+
+		ns := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: testNamespace,
+			},
+		}
+		err := k8sClient.Create(context.Background(), ns)
+		if err != nil {
+			// Namespace might already exist
+			_ = k8sClient.Get(context.Background(), types.NamespacedName{Name: testNamespace}, ns)
+		}
+	})
+
+	AfterEach(func() {
+		// Remove the callback
+		testReconciler.OnReconcile = nil
+
+		// Clean up ISVCs
+		var isvcList v1beta1.InferenceServiceList
+		_ = k8sClient.List(context.Background(), &isvcList, client.InNamespace(testNamespace))
+		for i := range isvcList.Items {
+			_ = k8sClient.Delete(context.Background(), &isvcList.Items[i])
+		}
+		// Clean up pods
+		var podList corev1.PodList
+		_ = k8sClient.List(context.Background(), &podList, client.InNamespace(testNamespace))
+		for i := range podList.Items {
+			_ = k8sClient.Delete(context.Background(), &podList.Items[i])
+		}
+		// Clean up configmap
+		cm := &corev1.ConfigMap{}
+		cmKey := types.NamespacedName{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace}
+		if err := k8sClient.Get(context.Background(), cmKey, cm); err == nil {
+			_ = k8sClient.Delete(context.Background(), cm)
+		}
+	})
+
+	It("should not reconcile the primary ISVC when pod events fire for the secondary ISVC", func() {
+		ctx := context.Background()
+
+		// Set up reconcile invocation counter
+		var mu sync.Mutex
+		reconcileCounts := make(map[string]int)
+		testReconciler.OnReconcile = func(name types.NamespacedName) {
+			mu.Lock()
+			defer mu.Unlock()
+			reconcileCounts[name.Name]++
+		}
+
+		// Create the inferenceservice-config ConfigMap
+		configMap := createInferenceServiceConfigMap(configs)
+		Expect(k8sClient.Create(ctx, configMap)).Should(Succeed())
+
+		primaryISVC := "primary-isvc"
+		secondaryISVC := "secondary-isvc"
+
+		// Create two InferenceServices
+		for _, name := range []string{primaryISVC, secondaryISVC} {
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      name,
+					Namespace: testNamespace,
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						SKLearn: &v1beta1.SKLearnSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI: ptr.To("gs://testbucket/testmodel"),
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+		}
+
+		// Wait for initial reconciliation of both ISVCs to complete.
+		// Each ISVC will be reconciled at least once when created.
+		Eventually(func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			return reconcileCounts[primaryISVC] > 0 && reconcileCounts[secondaryISVC] > 0
+		}, 10*time.Second, 200*time.Millisecond).Should(BeTrue(),
+			"both ISVCs should have been reconciled at least once")
+
+		// Record the primary ISVC's reconcile count after initial reconciliation settles.
+		// Wait a short interval to let any in-flight reconciles drain.
+		time.Sleep(2 * time.Second)
+		mu.Lock()
+		primaryCountBefore := reconcileCounts[primaryISVC]
+		mu.Unlock()
+
+		// Create a pod labeled for the secondary ISVC (simulates a pod event storm)
+		secondaryPod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "secondary-pod",
+				Namespace: testNamespace,
+				Labels: map[string]string{
+					constants.InferenceServicePodLabelKey: secondaryISVC,
+				},
+			},
+			Spec: corev1.PodSpec{
+				InitContainers: []corev1.Container{
+					{
+						Name:    "storage-initializer",
+						Image:   "kserve/storage-initializer:latest",
+						Command: []string{"sh", "-c", "echo init"},
+					},
+				},
+				Containers: []corev1.Container{
+					{
+						Name:    "kserve-container",
+						Image:   "kserve/sklearnserver:latest",
+						Command: []string{"sh", "-c", "echo serve"},
+					},
+				},
+			},
+		}
+		Expect(k8sClient.Create(ctx, secondaryPod)).Should(Succeed())
+
+		// Simulate pod status updates (init container status changes) to trigger
+		// the pod watch predicate. Each status update should only reconcile
+		// the secondary ISVC, not the primary.
+		podKey := types.NamespacedName{Name: "secondary-pod", Namespace: testNamespace}
+		statusTransitions := []corev1.ContainerState{
+			{Waiting: &corev1.ContainerStateWaiting{Reason: "PodInitializing"}},
+			{Running: &corev1.ContainerStateRunning{StartedAt: metav1.Now()}},
+			{Terminated: &corev1.ContainerStateTerminated{ExitCode: 0, Reason: "Completed"}},
+		}
+
+		for _, state := range statusTransitions {
+			Eventually(func() error {
+				pod := &corev1.Pod{}
+				if err := k8sClient.Get(ctx, podKey, pod); err != nil {
+					return err
+				}
+				pod.Status.InitContainerStatuses = []corev1.ContainerStatus{
+					{
+						Name:  "storage-initializer",
+						State: state,
+					},
+				}
+				return k8sClient.Status().Update(ctx, pod)
+			}, 5*time.Second, 200*time.Millisecond).Should(Succeed())
+		}
+
+		// Wait for the secondary ISVC to be reconciled from the pod events
+		Eventually(func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			return reconcileCounts[secondaryISVC] > 1
+		}, 10*time.Second, 200*time.Millisecond).Should(BeTrue(),
+			"secondary ISVC should have been reconciled from pod events")
+
+		// Allow any queued reconciles to drain
+		time.Sleep(2 * time.Second)
+
+		// Assert the primary ISVC was NOT reconciled during the storm window
+		mu.Lock()
+		primaryCountAfter := reconcileCounts[primaryISVC]
+		mu.Unlock()
+
+		Expect(primaryCountAfter).To(Equal(primaryCountBefore),
+			"primary ISVC should not have been reconciled due to secondary ISVC pod events; "+
+				"count before=%d, count after=%d", primaryCountBefore, primaryCountAfter)
 	})
 })
 

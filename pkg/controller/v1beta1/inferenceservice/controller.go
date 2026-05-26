@@ -117,9 +117,15 @@ type InferenceServiceReconciler struct {
 	Recorder     record.EventRecorder
 	// VirtualServiceAvailable indicates whether the Istio VirtualService CRD exists in the cluster.
 	VirtualServiceAvailable bool
+	// OnReconcile is an optional test hook invoked at the start of each Reconcile call
+	// with the reconciled object's NamespacedName. It is nil in production.
+	OnReconcile func(name types.NamespacedName)
 }
 
 func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	if r.OnReconcile != nil {
+		r.OnReconcile(req.NamespacedName)
+	}
 	// Fetch the InferenceService instance
 	isvc := &v1beta1.InferenceService{}
 	if err := r.Get(ctx, req.NamespacedName, isvc); err != nil {
