@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The KServe Authors.
+Copyright 2023 The KServe Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -166,7 +166,7 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 				return k8sClient.Get(ctx, depKey, dep)
 			}, timeout, interval).Should(Succeed())
 
-			c := findISContainer(dep.Spec.Template.Spec.Containers, constants.InferenceServiceContainerName)
+			c := findISContainer(dep.Spec.Template.Spec.Containers)
 			Expect(c).NotTo(BeNil())
 			Expect(dep.Labels).NotTo(HaveKey(constants.KueueQueueNameLabel))
 		})
@@ -204,8 +204,8 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 					},
 				},
 			}
-			originalPredictor := isvc.Spec.Predictor.DeepCopy()
 			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			originalPredictor := isvc.Spec.Predictor.DeepCopy()
 			Expect(k8sClient.Create(ctx, isvc)).To(Succeed())
 			defer k8sClient.Delete(ctx, isvc) //nolint:errcheck
 
@@ -219,7 +219,7 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 				return k8sClient.Get(ctx, depKey, dep)
 			}, timeout, interval).Should(Succeed())
 
-			c := findISContainer(dep.Spec.Template.Spec.Containers, constants.InferenceServiceContainerName)
+			c := findISContainer(dep.Spec.Template.Spec.Containers)
 			Expect(c).NotTo(BeNil())
 			Expect(c.Resources.Requests["nvidia.com/gpu"]).To(Equal(resource.MustParse("2")))
 			Expect(c.Resources.Limits["nvidia.com/gpu"]).To(Equal(resource.MustParse("2")))
@@ -459,7 +459,7 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 				return k8sClient.Get(ctx, depKey, dep)
 			}, timeout, interval).Should(Succeed())
 
-			c := findISContainer(dep.Spec.Template.Spec.Containers, constants.InferenceServiceContainerName)
+			c := findISContainer(dep.Spec.Template.Spec.Containers)
 			Expect(c).NotTo(BeNil())
 			// IS-specified cpu "2" wins over HWP cpu "4"
 			Expect(c.Resources.Requests[corev1.ResourceCPU]).To(Equal(resource.MustParse("2")))
@@ -720,7 +720,7 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 				if err := k8sClient.Get(ctx, depKey, dep); err != nil {
 					return false
 				}
-				c := findISContainer(dep.Spec.Template.Spec.Containers, constants.InferenceServiceContainerName)
+				c := findISContainer(dep.Spec.Template.Spec.Containers)
 				if c == nil {
 					return false
 				}
@@ -783,7 +783,7 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 				if err := k8sClient.Get(ctx, depKey, dep); err != nil {
 					return false
 				}
-				c := findISContainer(dep.Spec.Template.Spec.Containers, constants.InferenceServiceContainerName)
+				c := findISContainer(dep.Spec.Template.Spec.Containers)
 				if c == nil {
 					return false
 				}
@@ -806,7 +806,7 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 				if err := k8sClient.Get(ctx, depKey, dep); err != nil {
 					return false
 				}
-				c := findISContainer(dep.Spec.Template.Spec.Containers, constants.InferenceServiceContainerName)
+				c := findISContainer(dep.Spec.Template.Spec.Containers)
 				if c == nil {
 					return false
 				}
@@ -871,17 +871,17 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 				return k8sClient.Get(ctx, depKey, dep)
 			}, timeout, interval).Should(Succeed())
 
-			c := findISContainer(dep.Spec.Template.Spec.Containers, constants.InferenceServiceContainerName)
+			c := findISContainer(dep.Spec.Template.Spec.Containers)
 			Expect(c).NotTo(BeNil())
 			Expect(c.Resources.Requests["nvidia.com/gpu"]).To(Equal(resource.MustParse("4")))
 		})
 	})
 })
 
-// findISContainer finds a container by name in a slice, returning nil if not found.
-func findISContainer(containers []corev1.Container, name string) *corev1.Container {
+// findISContainer finds the kserve-container in a slice, returning nil if not found.
+func findISContainer(containers []corev1.Container) *corev1.Container {
 	for i := range containers {
-		if containers[i].Name == name {
+		if containers[i].Name == constants.InferenceServiceContainerName {
 			return &containers[i]
 		}
 	}
