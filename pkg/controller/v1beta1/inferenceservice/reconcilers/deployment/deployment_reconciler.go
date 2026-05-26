@@ -229,6 +229,15 @@ func createRawDeploymentODH(ctx context.Context,
 	if (shouldAddAuthProxy && !authProxyPreserved) || resourceType == constants.InferenceGraphResource {
 		mountServingSecretCMVolumeToDeployment(headDeployment, componentMeta, resourceType, isvcname, sarVolumeName)
 	}
+
+	// Mount TLS infrastructure for transformer-to-predictor communication when auth is enabled
+	if shouldAddAuthProxy {
+		if componentLabel, ok := componentMeta.Labels[constants.KServiceComponentLabel]; ok &&
+			componentLabel == string(v1beta1.TransformerComponent) {
+			mountTransformerTLSInfrastructure(headDeployment, componentMeta)
+		}
+	}
+
 	return deploymentList, authProxyPreserved, nil
 }
 
@@ -1110,4 +1119,66 @@ func getOauthProxyConfig(ctx context.Context, clientset kubernetes.Interface) (*
 		return nil, err
 	}
 	return oauthProxyConfig, nil
+}
+
+// mountTransformerTLSInfrastructure injects the OpenShift service-ca bundle volume and
+// TLS endpoint discovery env vars into the transformer deployment's kserve-container.
+// This enables the transformer to verify the predictor's TLS certificate and discover
+// the predictor's HTTPS endpoint when auth is enabled.
+func mountTransformerTLSInfrastructure(deployment *appsv1.Deployment, componentMeta metav1.ObjectMeta) {
+	podSpec := &deployment.Spec.Template.Spec
+
+	// Add openshift-service-ca.crt ConfigMap volume
+	podSpec.Volumes = append(podSpec.Volumes, corev1.Volume{
+		Name: constants.ServiceCaBundleVolumeName,
+		VolumeSource: corev1.VolumeSource{
+			ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{
+					Name: constants.OpenShiftServiceCaConfigMapName,
+				},
+			},
+		},
+	})
+
+	// Derive predictor host with .svc suffix for TLS SAN matching
+	isvcName := componentMeta.Labels[constants.InferenceServicePodLabelKey]
+	predictorHost := fmt.Sprintf("%s.%s.svc",
+		constants.PredictorServiceName(isvcName), componentMeta.Namespace)
+
+	// Add volume mount + env vars to kserve-container
+	for i, container := range podSpec.Containers {
+		if container.Name == constants.InferenceServiceContainerName {
+			podSpec.Containers[i].VolumeMounts = append(
+				podSpec.Containers[i].VolumeMounts,
+				corev1.VolumeMount{
+					Name:      constants.ServiceCaBundleVolumeName,
+					MountPath: constants.ServiceCaBundleMountPath,
+					ReadOnly:  true,
+				},
+			)
+			podSpec.Containers[i].Env = append(podSpec.Containers[i].Env,
+				corev1.EnvVar{
+					Name:  "SSL_CERT_DIR",
+					Value: constants.ServiceCaBundleMountPath,
+				},
+				corev1.EnvVar{
+					Name:  "REQUESTS_CA_BUNDLE",
+					Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
+				},
+				corev1.EnvVar{
+					Name:  constants.PredictorHostEnvVar,
+					Value: predictorHost,
+				},
+				corev1.EnvVar{
+					Name:  constants.PredictorPortEnvVar,
+					Value: strconv.Itoa(constants.OauthProxyPort),
+				},
+				corev1.EnvVar{
+					Name:  constants.PredictorProtocolEnvVar,
+					Value: "https",
+				},
+			)
+			break
+		}
+	}
 }

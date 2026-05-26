@@ -2691,6 +2691,109 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				expectIsvcReadyStatus(ctx, serviceKey)
 				expectIsvcTransformerReadyStatus(ctx, serviceKey)
 			})
+
+			It("Should inject TLS infrastructure into transformer deployment when auth is enabled", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "trans-auth-tls-isvc"
+				serviceNamespace := "default"
+				serviceKey := types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+				transformerKey := types.NamespacedName{
+					Name:      constants.TransformerServiceName(serviceName),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(ctx, &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService with auth enabled
+				isvc := defaultTransformerIsvc(serviceKey, v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.ODHKserveRawAuth] = "true"
+				Expect(k8sClient.Create(ctx, isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+				expectDeploymentToBeReady(ctx, transformerKey)
+				expectDeploymentToBeReady(ctx, predictorKey)
+
+				By("Checking that the transformer deployment has the CA bundle volume and TLS env vars")
+				actualTransformerDeployment := &appsv1.Deployment{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, transformerKey, actualTransformerDeployment)
+				}, timeout, interval).Should(Succeed())
+
+				// Check CA bundle volume
+				var caBundleVolumeFound bool
+				for _, v := range actualTransformerDeployment.Spec.Template.Spec.Volumes {
+					if v.Name == constants.ServiceCaBundleVolumeName {
+						caBundleVolumeFound = true
+						Expect(v.VolumeSource.ConfigMap).NotTo(BeNil())
+						Expect(v.VolumeSource.ConfigMap.Name).To(Equal(constants.OpenShiftServiceCaConfigMapName))
+						break
+					}
+				}
+				Expect(caBundleVolumeFound).To(BeTrue(), "transformer should have openshift-service-ca-bundle volume")
+
+				// Check kserve-container has TLS volume mount and env vars
+				for _, container := range actualTransformerDeployment.Spec.Template.Spec.Containers {
+					if container.Name == constants.InferenceServiceContainerName {
+						var mountFound bool
+						for _, vm := range container.VolumeMounts {
+							if vm.Name == constants.ServiceCaBundleVolumeName {
+								mountFound = true
+								Expect(vm.MountPath).To(Equal(constants.ServiceCaBundleMountPath))
+								Expect(vm.ReadOnly).To(BeTrue())
+								break
+							}
+						}
+						Expect(mountFound).To(BeTrue(), "kserve-container should have CA bundle volume mount")
+
+						envMap := make(map[string]string)
+						for _, env := range container.Env {
+							envMap[env.Name] = env.Value
+						}
+						Expect(envMap["SSL_CERT_DIR"]).To(Equal(constants.ServiceCaBundleMountPath))
+						Expect(envMap["REQUESTS_CA_BUNDLE"]).To(Equal(constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile))
+						Expect(envMap[constants.PredictorHostEnvVar]).To(Equal(
+							fmt.Sprintf("%s.%s.svc", predictorKey.Name, serviceNamespace)))
+						Expect(envMap[constants.PredictorPortEnvVar]).To(Equal("8443"))
+						Expect(envMap[constants.PredictorProtocolEnvVar]).To(Equal("https"))
+						break
+					}
+				}
+
+				By("Checking that the predictor deployment does NOT have TLS env vars")
+				actualPredictorDeployment := &appsv1.Deployment{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, predictorKey, actualPredictorDeployment)
+				}, timeout, interval).Should(Succeed())
+
+				for _, container := range actualPredictorDeployment.Spec.Template.Spec.Containers {
+					if container.Name == constants.InferenceServiceContainerName {
+						for _, env := range container.Env {
+							Expect(env.Name).NotTo(Equal(constants.PredictorHostEnvVar),
+								"predictor should not have PREDICTOR_HOST env var")
+							Expect(env.Name).NotTo(Equal(constants.PredictorProtocolEnvVar),
+								"predictor should not have PREDICTOR_PROTOCOL env var")
+						}
+						break
+					}
+				}
+			})
 		})
 
 		Describe("inference service with an explainer", func() {
