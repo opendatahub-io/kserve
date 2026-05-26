@@ -724,19 +724,18 @@ var _ = Describe("Event Storm Prevention Integration", func() {
 			"both ISVCs should have been reconciled at least once")
 
 		// Record baseline counts after initial reconciliation settles.
-		// Use Consistently to verify counts are stable before snapshotting.
+		// Snapshot the count, then verify it stays stable via Consistently.
 		var primaryCountBefore, secondaryCountBefore int
-		Consistently(func() int {
-			mu.Lock()
-			defer mu.Unlock()
-			return reconcileCounts[primaryISVC]
-		}, 2*time.Second, 200*time.Millisecond).Should(
-			Not(BeNumerically("<", 0)), // always true; the assertion continuously samples the count
-		)
 		mu.Lock()
 		primaryCountBefore = reconcileCounts[primaryISVC]
 		secondaryCountBefore = reconcileCounts[secondaryISVC]
 		mu.Unlock()
+		Consistently(func() int {
+			mu.Lock()
+			defer mu.Unlock()
+			return reconcileCounts[primaryISVC]
+		}, 2*time.Second, 200*time.Millisecond).Should(Equal(primaryCountBefore),
+			"primary ISVC reconcile count should stabilize before proceeding")
 
 		// Create a pod labeled for the secondary ISVC (simulates a pod event storm)
 		secondaryPod := &corev1.Pod{
