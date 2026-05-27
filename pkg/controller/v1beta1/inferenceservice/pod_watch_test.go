@@ -730,12 +730,17 @@ var _ = Describe("Event Storm Prevention Integration", func() {
 		primaryCountBefore = reconcileCounts[primaryISVC]
 		secondaryCountBefore = reconcileCounts[secondaryISVC]
 		mu.Unlock()
-		Consistently(func() int {
+		Consistently(func() [2]int {
 			mu.Lock()
 			defer mu.Unlock()
-			return reconcileCounts[primaryISVC]
-		}, 2*time.Second, 200*time.Millisecond).Should(Equal(primaryCountBefore),
-			"primary ISVC reconcile count should stabilize before proceeding")
+			return [2]int{
+				reconcileCounts[primaryISVC],
+				reconcileCounts[secondaryISVC],
+			}
+		}, 2*time.Second, 200*time.Millisecond).Should(
+			Equal([2]int{primaryCountBefore, secondaryCountBefore}),
+			"both ISVC reconcile counts should stabilize before proceeding",
+		)
 
 		// Create a pod labeled for the secondary ISVC (simulates a pod event storm)
 		secondaryPod := &corev1.Pod{
