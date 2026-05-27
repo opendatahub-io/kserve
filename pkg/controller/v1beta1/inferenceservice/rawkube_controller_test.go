@@ -2749,8 +2749,10 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Expect(caBundleVolumeFound).To(BeTrue(), "transformer should have openshift-service-ca-bundle volume")
 
 				// Check kserve-container has TLS volume mount and env vars
+				transformerContainerFound := false
 				for _, container := range actualTransformerDeployment.Spec.Template.Spec.Containers {
 					if container.Name == constants.InferenceServiceContainerName {
+						transformerContainerFound = true
 						var mountFound bool
 						for _, vm := range container.VolumeMounts {
 							if vm.Name == constants.ServiceCaBundleVolumeName {
@@ -2775,6 +2777,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						break
 					}
 				}
+				Expect(transformerContainerFound).To(BeTrue(), "transformer should contain kserve-container")
 
 				By("Checking that the predictor deployment does NOT have TLS env vars")
 				actualPredictorDeployment := &appsv1.Deployment{}
@@ -2782,17 +2785,26 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					return k8sClient.Get(ctx, predictorKey, actualPredictorDeployment)
 				}, timeout, interval).Should(Succeed())
 
+				predictorContainerFound := false
 				for _, container := range actualPredictorDeployment.Spec.Template.Spec.Containers {
 					if container.Name == constants.InferenceServiceContainerName {
+						predictorContainerFound = true
 						for _, env := range container.Env {
 							Expect(env.Name).NotTo(Equal(constants.PredictorHostEnvVar),
 								"predictor should not have PREDICTOR_HOST env var")
 							Expect(env.Name).NotTo(Equal(constants.PredictorProtocolEnvVar),
 								"predictor should not have PREDICTOR_PROTOCOL env var")
+							Expect(env.Name).NotTo(Equal("SSL_CERT_DIR"),
+								"predictor should not have SSL_CERT_DIR env var")
+							Expect(env.Name).NotTo(Equal("REQUESTS_CA_BUNDLE"),
+								"predictor should not have REQUESTS_CA_BUNDLE env var")
+							Expect(env.Name).NotTo(Equal(constants.PredictorPortEnvVar),
+								"predictor should not have PREDICTOR_PORT env var")
 						}
 						break
 					}
 				}
+				Expect(predictorContainerFound).To(BeTrue(), "predictor should contain kserve-container")
 			})
 		})
 

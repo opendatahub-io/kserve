@@ -18,6 +18,7 @@ package deployment
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -3026,12 +3027,12 @@ func TestUpgradePreservesLegacyVolumeName(t *testing.T) {
 
 func TestMountTransformerTLSInfrastructure(t *testing.T) {
 	tests := []struct {
-		name            string
-		componentMeta   metav1.ObjectMeta
-		deployment      *appsv1.Deployment
-		expectVolume    bool
-		expectEnvVars   bool
-		expectedHost    string
+		name          string
+		componentMeta metav1.ObjectMeta
+		deployment    *appsv1.Deployment
+		expectVolume  bool
+		expectEnvVars bool
+		expectedHost  string
 	}{
 		{
 			name: "transformer deployment with auth enabled",
@@ -3113,8 +3114,8 @@ func TestMountTransformerTLSInfrastructure(t *testing.T) {
 				for _, v := range podSpec.Volumes {
 					if v.Name == constants.ServiceCaBundleVolumeName {
 						volumeFound = true
-						assert.NotNil(t, v.VolumeSource.ConfigMap)
-						assert.Equal(t, constants.OpenShiftServiceCaConfigMapName, v.VolumeSource.ConfigMap.Name)
+						assert.NotNil(t, v.ConfigMap)
+						assert.Equal(t, constants.OpenShiftServiceCaConfigMapName, v.ConfigMap.Name)
 						break
 					}
 				}
@@ -3232,13 +3233,8 @@ func TestTransformerTLSNotInjectedWithoutAuth(t *testing.T) {
 		},
 	}
 
-	// Simulate the guard: shouldAddAuthProxy would be false without the annotation
-	shouldAddAuthProxy := false
-	if val, ok := transformerMeta.Annotations[constants.ODHKserveRawAuth]; ok && val == "true" {
-		shouldAddAuthProxy = true
-	}
-
-	if shouldAddAuthProxy {
+	// Simulate the guard from createRawDeploymentODH: check auth annotation directly
+	if val, ok := transformerMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
 		if componentLabel, ok := transformerMeta.Labels[constants.KServiceComponentLabel]; ok &&
 			componentLabel == string(v1beta1.TransformerComponent) {
 			mountTransformerTLSInfrastructure(deployment, transformerMeta)

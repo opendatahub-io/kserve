@@ -230,8 +230,8 @@ func createRawDeploymentODH(ctx context.Context,
 		mountServingSecretCMVolumeToDeployment(headDeployment, componentMeta, resourceType, isvcname, sarVolumeName)
 	}
 
-	// Mount TLS infrastructure for transformer-to-predictor communication when auth is enabled
-	if shouldAddAuthProxy {
+	// Mount TLS infrastructure for transformer-to-predictor communication when auth is explicitly enabled
+	if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
 		if componentLabel, ok := componentMeta.Labels[constants.KServiceComponentLabel]; ok &&
 			componentLabel == string(v1beta1.TransformerComponent) {
 			mountTransformerTLSInfrastructure(headDeployment, componentMeta)
@@ -1142,6 +1142,10 @@ func mountTransformerTLSInfrastructure(deployment *appsv1.Deployment, componentM
 
 	// Derive predictor host with .svc suffix for TLS SAN matching
 	isvcName := componentMeta.Labels[constants.InferenceServicePodLabelKey]
+	if isvcName == "" {
+		log.Error(nil, "InferenceServicePodLabelKey label missing on transformer deployment", "deployment", componentMeta.Name)
+		return
+	}
 	predictorHost := fmt.Sprintf("%s.%s.svc",
 		constants.PredictorServiceName(isvcName), componentMeta.Namespace)
 
