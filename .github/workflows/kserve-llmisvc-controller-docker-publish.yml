@@ -2,10 +2,7 @@ name: KServe llmisvc controller Docker Publisher
 
 on:
   push:
-    # Publish `master` as Docker `latest` image.
-    branches:
-      - master
-
+    # Tekton now handles master branch builds (previously: branches: [master])
     # Publish `v1.2.3` tags as releases.
     tags:
       - v*
