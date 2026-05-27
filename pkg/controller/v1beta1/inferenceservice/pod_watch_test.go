@@ -714,33 +714,23 @@ var _ = Describe("Event Storm Prevention Integration", func() {
 			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
 		}
 
-		// Wait for initial reconciliation of both ISVCs to complete.
-		// Each ISVC will be reconciled at least once when created.
+		// Wait for initial reconciliation of both ISVCs to stabilize.
+		// Use a stability-detection approach: two consecutive readings at the
+		// polling interval must return the same (non-zero) counts. This avoids
+		// a race where the snapshot is taken before re-queued reconciliations
+		// (e.g. from status-update conflicts) have finished.
+		var primaryCountBefore, secondaryCountBefore int
 		Eventually(func() bool {
 			mu.Lock()
-			defer mu.Unlock()
-			return reconcileCounts[primaryISVC] > 0 && reconcileCounts[secondaryISVC] > 0
-		}, 10*time.Second, 200*time.Millisecond).Should(BeTrue(),
-			"both ISVCs should have been reconciled at least once")
-
-		// Record baseline counts after initial reconciliation settles.
-		// Snapshot the count, then verify it stays stable via Consistently.
-		var primaryCountBefore, secondaryCountBefore int
-		mu.Lock()
-		primaryCountBefore = reconcileCounts[primaryISVC]
-		secondaryCountBefore = reconcileCounts[secondaryISVC]
-		mu.Unlock()
-		Consistently(func() [2]int {
-			mu.Lock()
-			defer mu.Unlock()
-			return [2]int{
-				reconcileCounts[primaryISVC],
-				reconcileCounts[secondaryISVC],
-			}
-		}, 2*time.Second, 200*time.Millisecond).Should(
-			Equal([2]int{primaryCountBefore, secondaryCountBefore}),
-			"both ISVC reconcile counts should stabilize before proceeding",
-		)
+			p := reconcileCounts[primaryISVC]
+			s := reconcileCounts[secondaryISVC]
+			mu.Unlock()
+			stable := p > 0 && s > 0 && p == primaryCountBefore && s == secondaryCountBefore
+			primaryCountBefore = p
+			secondaryCountBefore = s
+			return stable
+		}, 15*time.Second, 1*time.Second).Should(BeTrue(),
+			"both ISVC reconcile counts should stabilize before proceeding")
 
 		// Create a pod labeled for the secondary ISVC (simulates a pod event storm)
 		secondaryPod := &corev1.Pod{
