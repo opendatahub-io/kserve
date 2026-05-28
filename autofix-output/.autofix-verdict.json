@@ -1,6 +1,6 @@
 {
   "verdict": "committed",
-  "reason": "Iterate review (iteration 11) found no actionable changes needed. All PR comments are bot-generated with no human code change requests. CI pipeline is passing (no failed jobs). Review agent passed with zero findings.",
+  "reason": "Iterate review (iteration 12) found no actionable changes needed. All PR comments are bot-generated (openshift-ci, CodeRabbit, rhods-ci-bot) with no human code change requests. The only CI failure (sast-shell-check) is an OOMKilled infrastructure issue, not a code problem. Review agent passed with zero findings.",
   "summary": "Added reconcile-invocation counting test for event storm prevention with OnReconcile atomic.Value hook, Consistently()-based assertions, and proper namespace error handling.",
   "files_changed": [
     "pkg/controller/v1beta1/inferenceservice/controller.go",
@@ -21,7 +21,7 @@
   "observations": [
     "Go toolchain is not available in this environment; lint, build, and test validation must be performed by CI.",
     "No actionable review comments found — all PR comments are from bots (openshift-ci, CodeRabbit, rhods-ci-bot) with no human reviewers requesting changes.",
-    "CI pipeline status is success with zero failed jobs.",
-    "Review agent (iteration 11) passed with zero findings: no debug prints, no TODO markers, no commented-out code blocks, no correctness issues, no scope creep."
+    "CI failure sast-shell-check is OOMKilled (infrastructure issue), not a code problem caused by this PR.",
+    "Review agent (iteration 12) passed with zero findings: no debug prints, no TODO markers, no commented-out code blocks (flagged blocks are legitimate documentation comments), no correctness issues, no scope creep."
   ]
 }
