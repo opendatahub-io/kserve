@@ -22,6 +22,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/testing/protocmp"
@@ -108,6 +109,26 @@ func (r *LLMISVCReconciler) reconcileRouterPlatformNetworking(ctx context.Contex
 	return r.reconcileIstioDestinationRules(ctx, llmSvc, isIstio)
 }
 
+// schedulerCertReloadEnabled reports whether the scheduler's main container has
+// the --enable-cert-reload flag set, meaning it can watch and reload TLS
+// certificates automatically without a pod restart.
+func schedulerCertReloadEnabled(llmSvc *v1alpha2.LLMInferenceService) bool {
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil || llmSvc.Spec.Router.Scheduler.Template == nil {
+		return false
+	}
+	hasCertReload := func(args []string) bool {
+		return slices.ContainsFunc(args, func(s string) bool {
+			return strings.HasPrefix(s, "--enable-cert-reload") || strings.HasPrefix(s, "-enable-cert-reload")
+		})
+	}
+	for _, c := range llmSvc.Spec.Router.Scheduler.Template.Containers {
+		if c.Name == "main" {
+			return hasCertReload(c.Command) || hasCertReload(c.Args)
+		}
+	}
+	return false
+}
+
 func (r *LLMISVCReconciler) reconcileIstioDestinationRules(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, isIstio bool) error {
 	shouldDelete := !isIstio || utils.GetForceStopRuntime(llmSvc)
 	if err := r.reconcileIstioDestinationRuleForScheduler(ctx, llmSvc, shouldDelete); err != nil {
@@ -176,11 +197,9 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForScheduler(ctx context
 		Spec: istionetworking.DestinationRule{
 			TrafficPolicy: &istionetworking.TrafficPolicy{
 				Tls: &istionetworking.ClientTLSSettings{
-					Mode: istionetworking.ClientTLSSettings_SIMPLE,
-					// The scheduler doesn't support watching and auto-reloading certificates yet.
-					// Fixed by https://github.com/kubernetes-sigs/gateway-api-inference-extension/pull/1765.
-					// Until that fix is available, skip verification to avoid SAN mismatch errors on upgrade.
-					InsecureSkipVerify: &wrapperspb.BoolValue{Value: true},
+					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
+					CaCertificates:     IstioCACertificatePath,
+					InsecureSkipVerify: &wrapperspb.BoolValue{Value: false},
 				},
 			},
 			ExportTo: []string{"*"},
@@ -201,6 +220,14 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForScheduler(ctx context
 		hostname := network.GetServiceHostname(name, llmSvc.GetNamespace())
 		dr.Spec.Host = hostname
 		dr.Spec.TrafficPolicy.Tls.Sni = hostname
+	}
+
+	// Only enforce CA-based TLS verification when the scheduler supports automatic
+	// certificate reload. Without it, a renewed leaf certificate may not match
+	// verification before the pod restarts, causing connection failures.
+	if !schedulerCertReloadEnabled(llmSvc) {
+		dr.Spec.TrafficPolicy.Tls.CaCertificates = ""
+		dr.Spec.TrafficPolicy.Tls.InsecureSkipVerify = &wrapperspb.BoolValue{Value: true}
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected destination rule for scheduler", "destinationrule", dr)
@@ -231,11 +258,9 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForShadowService(ctx con
 		Spec: istionetworking.DestinationRule{
 			TrafficPolicy: &istionetworking.TrafficPolicy{
 				Tls: &istionetworking.ClientTLSSettings{
-					Mode: istionetworking.ClientTLSSettings_SIMPLE,
-					// The shadow service forwards traffic to the workload service. Skip verification
-					// here for the same reason as the scheduler DR — the scheduler doesn't yet support
-					// watching and auto-reloading certificates.
-					InsecureSkipVerify: &wrapperspb.BoolValue{Value: true},
+					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
+					CaCertificates:     IstioCACertificatePath,
+					InsecureSkipVerify: &wrapperspb.BoolValue{Value: false},
 				},
 			},
 			ExportTo: []string{"*"},
@@ -245,6 +270,13 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForShadowService(ctx con
 		hostname := network.GetServiceHostname(shadowSvc.GetName(), shadowSvc.GetNamespace())
 		dr.Spec.Host = hostname
 		dr.Spec.TrafficPolicy.Tls.Sni = network.GetServiceHostname(kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"), llmSvc.GetNamespace())
+	}
+
+	// The shadow service forwards traffic to the scheduler. Apply the same
+	// cert-reload guard as the scheduler DR.
+	if !schedulerCertReloadEnabled(llmSvc) {
+		dr.Spec.TrafficPolicy.Tls.CaCertificates = ""
+		dr.Spec.TrafficPolicy.Tls.InsecureSkipVerify = &wrapperspb.BoolValue{Value: true}
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected destination rule for workload shadow service", "destinationrule", dr)
@@ -282,8 +314,9 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForWorkload(ctx context.
 		},
 	}
 
+	// The prefill sidecar reloads certificates implicitly without a flag.
+	// Keep InsecureSkipVerify for backward compatibility.
 	if llmSvc.Spec.Prefill != nil {
-		// The sidecar doesn't support watching and auto-reloading certificates yet.
 		dr.Spec.TrafficPolicy.Tls.CaCertificates = ""
 		dr.Spec.TrafficPolicy.Tls.InsecureSkipVerify = &wrapperspb.BoolValue{Value: true}
 	}
