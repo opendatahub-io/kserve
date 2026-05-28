@@ -94,7 +94,7 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	for _, dw := range r.dynamicWatches {
-		if !crdAvailable(mgr, dw.groupKind) {
+		if err := cluster.CustomResourceDefinitionExists(context.Background(), mgr.GetAPIReader(), dw.groupKind); err != nil {
 			continue
 		}
 		obj := &unstructured.Unstructured{}
@@ -189,7 +189,3 @@ func crdNamePredicate() predicate.Predicate {
 	})
 }
 
-func crdAvailable(mgr ctrl.Manager, gk schema.GroupKind) bool {
-	_, err := mgr.GetRESTMapper().RESTMapping(gk)
-	return err == nil
-}
