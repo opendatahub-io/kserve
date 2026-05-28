@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
@@ -221,20 +222,18 @@ func TestDesiredModelCacheNodes_ByNodeSelector(t *testing.T) {
 	g.Expect(desired).To(HaveKey("gpu-node-1"))
 }
 
-func TestBuildNamespacePSAPatch(t *testing.T) {
+func TestUpdateNamespacePSA(t *testing.T) {
 	tests := []struct {
 		name          string
 		level         string
 		expectLabel   string
 		expectAnnot   bool
-		annotValue    string
 	}{
 		{
 			name:        "privileged sets label and annotation",
 			level:       "privileged",
 			expectLabel: "privileged",
 			expectAnnot: true,
-			annotValue:  psaElevatedByValue,
 		},
 		{
 			name:        "baseline sets label and removes annotation",
@@ -248,18 +247,57 @@ func TestBuildNamespacePSAPatch(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
 
-			_, patched := buildNamespacePSAPatch("test-ns", tt.level)
-			g.Expect(patched.Labels[securityEnforceLabel]).To(Equal(tt.expectLabel))
+			scheme := runtime.NewScheme()
+			_ = corev1.AddToScheme(scheme)
 
-			annot, exists := patched.Annotations[psaElevatedByAnnotation]
+			ns := &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "test-ns",
+					Labels:      map[string]string{securityEnforceLabel: "restricted"},
+					Annotations: map[string]string{psaElevatedByAnnotation: psaElevatedByValue},
+				},
+			}
+
+			cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns).Build()
+			r := &KserveModuleReconciler{Client: cli, applicationsNamespace: "test-ns"}
+
+			err := r.updateNamespacePSA(context.Background(), tt.level)
+			g.Expect(err).NotTo(HaveOccurred())
+
+			updated := &corev1.Namespace{}
+			g.Expect(cli.Get(context.Background(), client.ObjectKey{Name: "test-ns"}, updated)).To(Succeed())
+			g.Expect(updated.Labels[securityEnforceLabel]).To(Equal(tt.expectLabel))
+
+			annot, exists := updated.Annotations[psaElevatedByAnnotation]
 			if tt.expectAnnot {
 				g.Expect(exists).To(BeTrue())
-				g.Expect(annot).To(Equal(tt.annotValue))
+				g.Expect(annot).To(Equal(psaElevatedByValue))
 			} else {
 				g.Expect(exists).To(BeFalse())
 			}
 		})
 	}
+}
+
+func TestUpdateNamespacePSA_NoOpWhenAlreadySet(t *testing.T) {
+	g := NewWithT(t)
+
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "test-ns",
+			Labels:      map[string]string{securityEnforceLabel: "privileged"},
+			Annotations: map[string]string{psaElevatedByAnnotation: psaElevatedByValue},
+		},
+	}
+
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns).Build()
+	r := &KserveModuleReconciler{Client: cli, applicationsNamespace: "test-ns"}
+
+	err := r.updateNamespacePSA(context.Background(), "privileged")
+	g.Expect(err).NotTo(HaveOccurred())
 }
 
 func toUnstructuredConfigMap(cm *corev1.ConfigMap) unstructured.Unstructured {
@@ -383,10 +421,26 @@ func TestCleanupModelCacheResources(t *testing.T) {
 	g.Expect(lmng.GroupVersionKind()).To(Equal(localModelNodeGroupGVK))
 }
 
+func newReconcilerWithFakeClient(objects ...client.Object) *KserveModuleReconciler {
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-ns"},
+	}
+	allObjects := append([]client.Object{ns}, objects...)
+
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(allObjects...).Build()
+	return &KserveModuleReconciler{
+		Client:                cli,
+		applicationsNamespace: "test-ns",
+	}
+}
+
 func TestReconcileModelCache_SkipsWhenNotEnabled(t *testing.T) {
 	g := NewWithT(t)
 
-	r := &KserveModuleReconciler{}
+	r := newReconcilerWithFakeClient()
 	kserve := &platformv1alpha1.Kserve{
 		Spec: platformv1alpha1.KserveSpec{},
 	}
@@ -398,9 +452,104 @@ func TestReconcileModelCache_SkipsWhenNotEnabled(t *testing.T) {
 func TestReconcileModelCache_SkipsWhenRemoved(t *testing.T) {
 	g := NewWithT(t)
 
-	r := &KserveModuleReconciler{}
+	r := newReconcilerWithFakeClient()
 	kserve := testKserveWithModelCache(common.Removed, "100Gi", []string{"node1"})
 
 	err := r.reconcileModelCache(context.Background(), kserve)
 	g.Expect(err).NotTo(HaveOccurred())
+}
+
+func TestReconcileModelCache_EnabledCreatesResources(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-1"}}
+	r := newReconcilerWithFakeClient(node)
+
+	kserve := testKserveWithModelCache(common.Managed, "500Gi", []string{"worker-1"})
+	err := r.reconcileModelCache(context.Background(), kserve)
+	g.Expect(err).NotTo(HaveOccurred())
+
+	pv := &corev1.PersistentVolume{}
+	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: modelCachePVName}, pv)).To(Succeed())
+	g.Expect(pv.Spec.Capacity[corev1.ResourceStorage]).To(Equal(resource.MustParse("500Gi")))
+
+	pvc := &corev1.PersistentVolumeClaim{}
+	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: modelCachePVCName, Namespace: "test-ns"}, pvc)).To(Succeed())
+
+	updatedNode := &corev1.Node{}
+	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: "worker-1"}, updatedNode)).To(Succeed())
+	g.Expect(updatedNode.Labels[modelCacheLabelKey]).To(Equal(modelCacheLabelValue))
+
+	ns := &corev1.Namespace{}
+	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: "test-ns"}, ns)).To(Succeed())
+	g.Expect(ns.Labels[securityEnforceLabel]).To(Equal("privileged"))
+}
+
+func TestLabelModelCacheNodes(t *testing.T) {
+	t.Run("labels desired nodes and unlabels stale ones", func(t *testing.T) {
+		g := NewWithT(t)
+
+		desired := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-1"}}
+		stale := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+			Name:   "worker-2",
+			Labels: map[string]string{modelCacheLabelKey: modelCacheLabelValue},
+		}}
+
+		r := newReconcilerWithFakeClient(desired, stale)
+		kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"worker-1"})
+
+		err := r.labelModelCacheNodes(context.Background(), kserve)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		labeled := &corev1.Node{}
+		g.Expect(r.Get(context.Background(), client.ObjectKey{Name: "worker-1"}, labeled)).To(Succeed())
+		g.Expect(labeled.Labels[modelCacheLabelKey]).To(Equal(modelCacheLabelValue))
+
+		unlabeled := &corev1.Node{}
+		g.Expect(r.Get(context.Background(), client.ObjectKey{Name: "worker-2"}, unlabeled)).To(Succeed())
+		_, hasLabel := unlabeled.Labels[modelCacheLabelKey]
+		g.Expect(hasLabel).To(BeFalse())
+	})
+
+	t.Run("skips already labeled nodes", func(t *testing.T) {
+		g := NewWithT(t)
+
+		node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+			Name:   "worker-1",
+			Labels: map[string]string{modelCacheLabelKey: modelCacheLabelValue},
+		}}
+
+		r := newReconcilerWithFakeClient(node)
+		kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"worker-1"})
+
+		err := r.labelModelCacheNodes(context.Background(), kserve)
+		g.Expect(err).NotTo(HaveOccurred())
+
+		updated := &corev1.Node{}
+		g.Expect(r.Get(context.Background(), client.ObjectKey{Name: "worker-1"}, updated)).To(Succeed())
+		g.Expect(updated.Labels[modelCacheLabelKey]).To(Equal(modelCacheLabelValue))
+	})
+}
+
+func TestCleanupModelCache_UnlabelsNodes(t *testing.T) {
+	g := NewWithT(t)
+
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name:   "worker-1",
+		Labels: map[string]string{modelCacheLabelKey: modelCacheLabelValue},
+	}}
+
+	r := newReconcilerWithFakeClient(node)
+
+	err := r.cleanupModelCache(context.Background())
+	g.Expect(err).NotTo(HaveOccurred())
+
+	updated := &corev1.Node{}
+	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: "worker-1"}, updated)).To(Succeed())
+	_, hasLabel := updated.Labels[modelCacheLabelKey]
+	g.Expect(hasLabel).To(BeFalse())
+
+	ns := &corev1.Namespace{}
+	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: "test-ns"}, ns)).To(Succeed())
+	g.Expect(ns.Labels[securityEnforceLabel]).To(Equal("baseline"))
 }

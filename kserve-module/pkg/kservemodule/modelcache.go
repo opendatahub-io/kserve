@@ -7,12 +7,15 @@ import (
 	"os"
 
 	corev1 "k8s.io/api/core/v1"
+	k8serr "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 
@@ -51,20 +54,238 @@ func (r *KserveModuleReconciler) reconcileModelCache(ctx context.Context, kserve
 
 	if !isModelCacheEnabled(kserve) {
 		log.Info("ModelCache not enabled, skipping reconciliation")
-		// TODO(RHOAIENG-61201): call cleanupModelCache once apply lifecycle is implemented
-		return nil
+		return r.cleanupModelCache(ctx)
 	}
 
 	log.Info("Reconciling ModelCache resources")
 
-	// TODO(RHOAIENG-61201): wire these into the apply lifecycle:
-	// 1. updateNamespacePSA(ctx, "privileged")
-	// 2. forceReconcileKserveAgentImage (handled via post-render in components pipeline)
-	// 3. CreateOrUpdate PV (from buildModelCachePV)
-	// 4. CreateOrUpdate PVC (from buildModelCachePVC)
-	// 5. CreateOrUpdate LocalModelNodeGroup (from buildLocalModelNodeGroup)
-	// 6. labelModelCacheNodes(ctx, kserve)
+	if err := r.updateNamespacePSA(ctx, "privileged"); err != nil {
+		return err
+	}
 
+	if err := r.createOrUpdateModelCachePV(ctx, kserve); err != nil {
+		return err
+	}
+
+	if err := r.createOrUpdateModelCachePVC(ctx, kserve); err != nil {
+		return err
+	}
+
+	if err := r.createOrUpdateLocalModelNodeGroup(ctx, kserve); err != nil {
+		return err
+	}
+
+	return r.labelModelCacheNodes(ctx, kserve)
+}
+
+func (r *KserveModuleReconciler) createOrUpdateModelCachePV(ctx context.Context, kserve *platformv1alpha1.Kserve) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	desired, err := r.buildModelCachePV(kserve)
+	if err != nil {
+		return fmt.Errorf("building model cache PV: %w", err)
+	}
+
+	pv := &corev1.PersistentVolume{
+		ObjectMeta: metav1.ObjectMeta{Name: modelCachePVName},
+	}
+	result, err := controllerutil.CreateOrUpdate(ctx, r.Client, pv, func() error {
+		pv.Spec = desired.Spec
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("creating/updating model cache PV: %w", err)
+	}
+	log.Info("Reconciled model cache PV", "result", result)
+	return nil
+}
+
+func (r *KserveModuleReconciler) createOrUpdateModelCachePVC(ctx context.Context, kserve *platformv1alpha1.Kserve) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	desired, err := r.buildModelCachePVC(kserve)
+	if err != nil {
+		return fmt.Errorf("building model cache PVC: %w", err)
+	}
+
+	pvc := &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      modelCachePVCName,
+			Namespace: r.getApplicationsNamespace(),
+		},
+	}
+	result, err := controllerutil.CreateOrUpdate(ctx, r.Client, pvc, func() error {
+		pvc.Spec = desired.Spec
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("creating/updating model cache PVC: %w", err)
+	}
+	log.Info("Reconciled model cache PVC", "result", result)
+	return nil
+}
+
+func (r *KserveModuleReconciler) createOrUpdateLocalModelNodeGroup(ctx context.Context, kserve *platformv1alpha1.Kserve) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	desired, err := r.buildLocalModelNodeGroup(kserve)
+	if err != nil {
+		return fmt.Errorf("building LocalModelNodeGroup: %w", err)
+	}
+
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(localModelNodeGroupGVK)
+	obj.SetName(localModelNodeGroupName)
+
+	result, err := controllerutil.CreateOrUpdate(ctx, r.Client, obj, func() error {
+		obj.Object["spec"] = desired.Object["spec"]
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("creating/updating LocalModelNodeGroup: %w", err)
+	}
+	log.Info("Reconciled LocalModelNodeGroup", "result", result)
+	return nil
+}
+
+func (r *KserveModuleReconciler) updateNamespacePSA(ctx context.Context, desiredLevel string) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	ns := &corev1.Namespace{}
+	if err := r.Get(ctx, client.ObjectKey{Name: r.getApplicationsNamespace()}, ns); err != nil {
+		return fmt.Errorf("failed to get application namespace: %w", err)
+	}
+
+	current := ns.Labels[securityEnforceLabel]
+	currentAnnotation := ns.Annotations[psaElevatedByAnnotation]
+	needsUpdate := false
+
+	if current != desiredLevel {
+		needsUpdate = true
+	}
+	if desiredLevel == "privileged" && currentAnnotation != psaElevatedByValue {
+		needsUpdate = true
+	} else if desiredLevel != "privileged" && currentAnnotation != "" {
+		needsUpdate = true
+	}
+
+	if !needsUpdate {
+		return nil
+	}
+
+	original := ns.DeepCopy()
+
+	if ns.Labels == nil {
+		ns.Labels = make(map[string]string)
+	}
+	if ns.Annotations == nil {
+		ns.Annotations = make(map[string]string)
+	}
+
+	ns.Labels[securityEnforceLabel] = desiredLevel
+
+	if desiredLevel == "privileged" {
+		ns.Annotations[psaElevatedByAnnotation] = psaElevatedByValue
+	} else {
+		delete(ns.Annotations, psaElevatedByAnnotation)
+	}
+
+	if err := r.Patch(ctx, ns, client.MergeFrom(original)); err != nil {
+		return fmt.Errorf("failed to update namespace PSA label: %w", err)
+	}
+
+	log.Info("Updated namespace PSA enforcement level", "namespace", ns.Name, "from", current, "to", desiredLevel)
+	return nil
+}
+
+func (r *KserveModuleReconciler) labelModelCacheNodes(ctx context.Context, kserve *platformv1alpha1.Kserve) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	desired, err := r.desiredModelCacheNodes(ctx, kserve)
+	if err != nil {
+		return err
+	}
+
+	for name := range desired {
+		node := &corev1.Node{}
+		if err := r.Get(ctx, client.ObjectKey{Name: name}, node); err != nil {
+			return fmt.Errorf("failed to get node %q: %w", name, err)
+		}
+		if node.Labels[modelCacheLabelKey] == modelCacheLabelValue {
+			continue
+		}
+		original := node.DeepCopy()
+		if node.Labels == nil {
+			node.Labels = make(map[string]string)
+		}
+		node.Labels[modelCacheLabelKey] = modelCacheLabelValue
+		if err := r.Patch(ctx, node, client.MergeFrom(original)); err != nil {
+			return fmt.Errorf("failed to label node %q: %w", name, err)
+		}
+		log.Info("Labeled node for model cache", "node", name)
+	}
+
+	allLabeled := &corev1.NodeList{}
+	if err := r.List(ctx, allLabeled, client.MatchingLabels{modelCacheLabelKey: modelCacheLabelValue}); err != nil {
+		return fmt.Errorf("failed to list model cache nodes: %w", err)
+	}
+	for i := range allLabeled.Items {
+		node := &allLabeled.Items[i]
+		if _, ok := desired[node.Name]; ok {
+			continue
+		}
+		original := node.DeepCopy()
+		delete(node.Labels, modelCacheLabelKey)
+		if err := r.Patch(ctx, node, client.MergeFrom(original)); err != nil {
+			return fmt.Errorf("failed to unlabel node %q: %w", node.Name, err)
+		}
+		log.Info("Removed model cache label from node", "node", node.Name)
+	}
+
+	return nil
+}
+
+func (r *KserveModuleReconciler) cleanupModelCache(ctx context.Context) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	if err := r.updateNamespacePSA(ctx, "baseline"); err != nil {
+		return err
+	}
+
+	for _, obj := range cleanupModelCacheResources(r.getApplicationsNamespace()) {
+		if err := deleteIfExists(ctx, r.Client, obj, fmt.Sprintf("%T", obj)); err != nil {
+			return err
+		}
+	}
+
+	nodeList := &corev1.NodeList{}
+	if err := r.List(ctx, nodeList, client.MatchingLabels{modelCacheLabelKey: modelCacheLabelValue}); err != nil {
+		return fmt.Errorf("failed to list model cache nodes: %w", err)
+	}
+	for i := range nodeList.Items {
+		node := &nodeList.Items[i]
+		original := node.DeepCopy()
+		delete(node.Labels, modelCacheLabelKey)
+		if err := r.Patch(ctx, node, client.MergeFrom(original)); err != nil {
+			return fmt.Errorf("failed to unlabel node %q: %w", node.Name, err)
+		}
+		log.Info("Removed model cache label from node", "node", node.Name)
+	}
+
+	return nil
+}
+
+func deleteIfExists(ctx context.Context, cli client.Client, obj client.Object, description string) error {
+	key := client.ObjectKeyFromObject(obj)
+	if err := cli.Get(ctx, key, obj); err != nil {
+		if k8serr.IsNotFound(err) || meta.IsNoMatchError(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to check %s %s: %w", description, key, err)
+	}
+	if err := cli.Delete(ctx, obj); err != nil && !k8serr.IsNotFound(err) {
+		return fmt.Errorf("failed to delete %s %s: %w", description, key, err)
+	}
 	return nil
 }
 
@@ -216,32 +437,6 @@ func (r *KserveModuleReconciler) desiredModelCacheNodes(ctx context.Context, kse
 	}
 
 	return desired, nil
-}
-
-func buildNamespacePSAPatch(namespace string, desiredLevel string) (*corev1.Namespace, *corev1.Namespace) {
-	original := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: namespace,
-		},
-	}
-
-	patched := original.DeepCopy()
-	if patched.Labels == nil {
-		patched.Labels = make(map[string]string)
-	}
-	if patched.Annotations == nil {
-		patched.Annotations = make(map[string]string)
-	}
-
-	patched.Labels[securityEnforceLabel] = desiredLevel
-
-	if desiredLevel == "privileged" {
-		patched.Annotations[psaElevatedByAnnotation] = psaElevatedByValue
-	} else {
-		delete(patched.Annotations, psaElevatedByAnnotation)
-	}
-
-	return original, patched
 }
 
 func modelCachePostRender(
