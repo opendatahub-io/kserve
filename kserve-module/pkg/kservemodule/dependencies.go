@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"sync"
 
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -153,8 +152,8 @@ func (r *KserveModuleReconciler) checkDependencies(ctx context.Context) dependen
 		},
 	}
 
-	var wg sync.WaitGroup
 	ch := make(chan checkResultItem, len(allDependencies))
+	active := 0
 
 	for _, dep := range allDependencies {
 		if dep.platform == "ocp" && isXKS {
@@ -164,9 +163,8 @@ func (r *KserveModuleReconciler) checkDependencies(ctx context.Context) dependen
 			continue
 		}
 
-		wg.Add(1)
+		active++
 		go func(d dependencyCheck) {
-			defer wg.Done()
 			var reasons []string
 			switch d.checkType {
 			case checkCRD:
@@ -176,18 +174,15 @@ func (r *KserveModuleReconciler) checkDependencies(ctx context.Context) dependen
 			case checkOperator:
 				reasons = r.checkOperatorHealth(ctx, d)
 			}
-			if len(reasons) > 0 {
-				ch <- checkResultItem{dep: d, reasons: reasons}
-			}
+			ch <- checkResultItem{dep: d, reasons: reasons}
 		}(dep)
 	}
 
-	go func() {
-		wg.Wait()
-		close(ch)
-	}()
-
-	for item := range ch {
+	for i := 0; i < active; i++ {
+		item := <-ch
+		if len(item.reasons) == 0 {
+			continue
+		}
 		for _, msg := range item.reasons {
 			log.Info("dependency not satisfied", "dependency", item.dep.name,
 				"type", item.dep.checkType, "critical", item.dep.critical, "message", msg)
