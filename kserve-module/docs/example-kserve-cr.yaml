@@ -60,8 +60,8 @@ status:
   - name: vLLM
     repoUrl: https://github.com/vllm-project/vllm
     version: v0.18.0
-  - name: llm-d-inference-scheduler
-    repoUrl: https://github.com/llm-d/llm-d-inference-scheduler
+  - name: llm-d-router
+    repoUrl: https://github.com/llm-d/llm-d-router
     version: v0.7.1
   - name: llm-d-workload-variant-autoscaler
     repoUrl: https://github.com/llm-d/llm-d-workload-variant-autoscaler
