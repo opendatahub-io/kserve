@@ -1,6 +1,6 @@
 {
   "verdict": "committed",
-  "reason": "Iterate review (iteration 19) found no actionable changes needed. The only CI failure is sast-shell-check OOMKilled — an infrastructure issue unrelated to code changes. All PR comments are from automated bots with no human reviewer feedback requesting code changes. Internal review found zero findings.",
+  "reason": "Iterate review found no actionable changes needed. CI is passing (pipeline_status: success, no failed jobs). All PR comments are from automated bots with no human reviewer feedback requesting code changes. Internal review found zero findings across mechanical checks and semantic review.",
   "summary": "Added reconcile-invocation counting test for event storm prevention with OnReconcile atomic.Value hook, Consistently()-based assertions, and proper namespace error handling.",
   "files_changed": [
     "pkg/controller/v1beta1/inferenceservice/controller.go",
@@ -21,9 +21,10 @@
   "upstream_consideration": "These changes are specific to the downstream test infrastructure (OnReconcile hook) and the envtest integration test. The predicate and mapper logic tested is upstream code but unchanged here.",
   "observations": [
     "Go toolchain is not available in this environment; lint, build, and test validation must be performed by CI.",
-    "CI failure sast-shell-check OOMKilled is an infrastructure issue (ShellCheck SAST scanner ran out of memory), not related to Go code changes.",
+    "CI pipeline is passing with no failures.",
     "All CodeRabbit findings are already mitigated: CWE-690 (type assertion safe due to SetOnReconcile always storing same concrete type), CWE-476 (nil check guard in Reconcile), CWE-667 (mutex and atomic protect different data), test state-leak (AfterEach clears callback).",
     "No actionable review comments found — all PR comments are from automated bots (openshift-ci-robot, openshift-ci[bot], coderabbitai[bot], rhods-ci-bot) with no human reviewers requesting changes.",
-    "Iteration 19: no code changes made. The implementation is sound and complete. Review agent found zero findings across mechanical checks and semantic review."
-  ]
+    "No code changes made in this iteration. The implementation is sound and complete."
+  ],
+  "change_description": "## Summary\n\nResolves flaky `test_event_storm_prevention_init_container_isolation` by replacing the removed e2e test with an envtest integration test that uses reconcile-invocation counting instead of resourceVersion stability.\n\n### Changes\n\n**`pkg/controller/v1beta1/inferenceservice/controller.go`**\n- Added `onReconcile` field (`atomic.Value`) to `InferenceServiceReconciler` as an optional test hook\n- Added `SetOnReconcile()` / `getOnReconcile()` methods for thread-safe callback access\n- Hook is invoked at the start of `Reconcile()` with `req.NamespacedName` (guarded by nil check)\n\n**`pkg/controller/v1beta1/inferenceservice/pod_watch_test.go`**\n- Added `Event Storm Prevention Integration` test that:\n  - Registers a mutex-protected reconcile counter via `SetOnReconcile`\n  - Creates two ISVCs (primary + secondary) and a pod labeled for the secondary\n  - Uses stability-detection (two consecutive identical readings) to establish baseline counts\n  - Simulates pod status transitions (Waiting → Running → Terminated) on the secondary pod\n  - Asserts secondary ISVC count grew (pod events triggered reconciliation)\n  - Asserts primary ISVC count remained stable via `Consistently()` (no cross-contamination)\n- Improved namespace creation error handling in `ServingRuntime Watch` to use `apierr.IsAlreadyExists`\n\n**`pkg/controller/v1beta1/inferenceservice/suite_test.go`**\n- Exposed the real reconciler as `testReconciler` package-level variable for the integration test to set callbacks on"
 }
