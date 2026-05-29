@@ -1,13 +1,21 @@
 package fixture
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
+	"github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 
@@ -46,6 +54,76 @@ func FindCondition(cr *platformv1alpha1.Kserve, condType string) *common.Conditi
 	}
 	return nil
 }
+
+func CreateCRD(ctx context.Context, cli client.Client, group, version, kind string, scope apiextensionsv1.ResourceScope) *apiextensionsv1.CustomResourceDefinition {
+	// Simplified plural — sufficient for test CRDs; not handling irregular plurals.
+	plural := strings.ToLower(kind) + "s"
+	crd := &apiextensionsv1.CustomResourceDefinition{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: fmt.Sprintf("%s.%s", plural, group),
+		},
+		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+			Group: group,
+			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{{
+				Name: version, Served: true, Storage: true,
+				Schema: &apiextensionsv1.CustomResourceValidation{
+					OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{
+						Type: "object",
+						Properties: map[string]apiextensionsv1.JSONSchemaProps{
+							"status": {
+								Type:                   "object",
+								XPreserveUnknownFields: ptr(true),
+							},
+						},
+					},
+				},
+				Subresources: &apiextensionsv1.CustomResourceSubresources{
+					Status: &apiextensionsv1.CustomResourceSubresourceStatus{},
+				},
+			}},
+			Scope: scope,
+			Names: apiextensionsv1.CustomResourceDefinitionNames{
+				Plural:   plural,
+				Singular: strings.ToLower(kind),
+				Kind:     kind,
+			},
+		},
+	}
+
+	gomega.ExpectWithOffset(1, client.IgnoreAlreadyExists(cli.Create(ctx, crd))).To(gomega.Succeed())
+
+	gomega.Eventually(func(g gomega.Gomega) {
+		var updated apiextensionsv1.CustomResourceDefinition
+		g.Expect(cli.Get(ctx, client.ObjectKey{Name: crd.Name}, &updated)).To(gomega.Succeed())
+		for _, c := range updated.Status.Conditions {
+			if c.Type == apiextensionsv1.Established && c.Status == apiextensionsv1.ConditionTrue {
+				return
+			}
+		}
+		g.Expect(false).To(gomega.BeTrue(), "CRD %s not established", crd.Name)
+	}).WithContext(ctx).WithTimeout(30 * time.Second).Should(gomega.Succeed())
+
+	return crd
+}
+
+func CreateSubscription(ctx context.Context, cli client.Client, name, namespace string) *unstructured.Unstructured {
+	sub := &unstructured.Unstructured{}
+	sub.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "operators.coreos.com", Version: "v1alpha1", Kind: "Subscription",
+	})
+	sub.SetName(name)
+	sub.SetNamespace(namespace)
+	sub.Object["spec"] = map[string]any{
+		"channel": "stable",
+		"name":    name,
+		"source":  "test-catalog",
+	}
+
+	gomega.ExpectWithOffset(1, cli.Create(ctx, sub)).To(gomega.Succeed())
+	return sub
+}
+
+func ptr[T any](v T) *T { return &v }
 
 func ProjectRoot() string {
 	dir, err := os.Getwd()
