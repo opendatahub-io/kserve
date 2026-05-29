@@ -81,12 +81,25 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			builder.WithPredicates(crdNamePredicate()),
 		)
 
+	// Subscription CRD is always present on OpenShift (OLM); never on XKS.
+	// One-time conditional watch at startup — no dynamic retry needed.
+	subGK := schema.GroupKind{Group: "operators.coreos.com", Kind: "Subscription"}
+	if err := cluster.CustomResourceDefinitionExists(context.Background(), mgr.GetAPIReader(), subGK); err == nil {
+		subObj := &unstructured.Unstructured{}
+		subObj.SetGroupVersionKind(schema.GroupVersionKind{Group: "operators.coreos.com", Version: "v1alpha1", Kind: "Subscription"})
+		b.Watches(subObj,
+			handler.EnqueueRequestsFromMapFunc(mapToKserve),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
+				u, ok := o.(*unstructured.Unstructured)
+				if !ok {
+					return false
+				}
+				return watchedSubscriptions[u.GetName()]
+			})),
+		)
+	}
+
 	r.dynamicWatches = []*dynamicWatch{
-		{
-			groupKind: schema.GroupKind{Group: "operators.coreos.com", Kind: "Subscription"},
-			gvk:       schema.GroupVersionKind{Group: "operators.coreos.com", Version: "v1alpha1", Kind: "Subscription"},
-			filterFn:  func(obj *unstructured.Unstructured) bool { return watchedSubscriptions[obj.GetName()] },
-		},
 		{
 			groupKind: schema.GroupKind{Group: "operator.openshift.io", Kind: "LeaderWorkerSet"},
 			gvk:       schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSet"},
