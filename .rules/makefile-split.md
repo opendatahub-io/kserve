@@ -4,8 +4,15 @@ These rules apply to **`Makefile` only** (exact filename match). Do not apply to
 `Makefile.overrides.mk`, `Makefile.tools.mk`, or any other `Makefile.*` variant - those are either
 upstream-owned tooling or the intended home for midstream content.
 
-This repository uses `Makefile.overrides.mk` (included by the upstream `Makefile` via `-include`)
-to isolate all midstream build logic. The upstream `Makefile` must stay clean.
+## Context - why the Makefile must stay clean
+
+The upstream `Makefile` includes `-include Makefile.overrides.mk` at the top, giving midstream a
+clean extension point. `Makefile.overrides.mk` can override variables, add new targets, and
+append to existing ones without touching the upstream file. This is where `GOTAGS=distro` is set,
+which activates all build-tagged midstream code.
+
+Any midstream-specific content added directly to `Makefile` will conflict on every upstream sync.
+The override file is the only place for midstream build logic.
 
 ## Violations - flag as blocking
 
