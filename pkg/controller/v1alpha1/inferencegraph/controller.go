@@ -432,11 +432,6 @@ func (r *InferenceGraphReconciler) SetupWithManager(mgr ctrl.Manager, deployConf
 		return err
 	}
 
-	routeFound, err := utils.IsCrdAvailable(r.ClientConfig, osv1.GroupVersion.String(), "Route")
-	if err != nil {
-		return err
-	}
-
 	ctrlBuilder := ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.InferenceGraph{}).
 		Owns(&appsv1.Deployment{})
