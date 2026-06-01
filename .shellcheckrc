@@ -1,0 +1,4 @@
+# Disable external-sources to prevent ShellCheck OOM in CI.
+# ShellCheck data flow analysis with --external-sources can consume
+# unbounded memory on repos with many scripts (koalaman/shellcheck#2721).
+external-sources=false
