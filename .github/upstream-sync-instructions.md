@@ -34,7 +34,7 @@ fork code and adapt it to work with the new upstream structure.
 Code blocks fenced with `AUTOMERGE(keep)` / `AUTOMERGE(end)` comments are
 fork-specific and MUST be preserved unconditionally during upstream sync:
 
-```
+```go
 // AUTOMERGE(keep): <reason>
 <fork-specific code>
 // AUTOMERGE(end)
@@ -99,10 +99,10 @@ Everything between the opening and separator is ours; between separator and clos
 
 - **go.sum**: do NOT manually resolve. Delete the file entirely, then run
   `go mod tidy` to regenerate it.
-- **go.mod `replace` directives**: keep replace directives that have a
-  comment explaining a specific pin. If upstream has already fixed the issue
-  a replace was addressing (e.g. a CVE fix was merged), the replace can be
-  dropped.
+- **go.mod `replace` directives**: preserve ALL replace directives during
+  automated sync. Determining whether upstream has resolved the underlying
+  issue (e.g. a CVE) requires human verification — do not drop replaces
+  during conflict resolution.
 - **go.mod `AUTOMERGE(keep)` blocks**: the distro-only `require` block is
   fenced and must be preserved as-is. Do not merge its deps into the main
   require block.
