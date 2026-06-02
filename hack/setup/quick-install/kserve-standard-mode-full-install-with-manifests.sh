@@ -1,4 +1,6 @@
 #!/bin/bash
+# shellcheck disable=all
+# Generated script -- static analysis is performed on the source templates instead.
 
 # Copyright 2025 The KServe Authors.
 #
