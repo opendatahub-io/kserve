@@ -1808,10 +1808,10 @@ func TestStorageUriPreservedDuringDefaults(t *testing.T) {
 	s3StorageUri := "s3://bucket/model"
 
 	scenarios := map[string]struct {
-		isvc              InferenceService
+		isvc               InferenceService
 		expectedStorageURI string
 	}{
-		"StorageUri preserved when Model spec is the only predictor": {
+		"Model-only predictor preserves storageUri": {
 			isvc: InferenceService{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "model-only",
@@ -1825,44 +1825,15 @@ func TestStorageUriPreservedDuringDefaults(t *testing.T) {
 								StorageURI: proto.String(ociStorageUri),
 							},
 						},
-						PodSpec: PodSpec{
-							ImagePullSecrets: []corev1.LocalObjectReference{
-								{Name: "new-secret"},
-							},
-						},
 					},
 				},
 			},
 			expectedStorageURI: ociStorageUri,
 		},
-		"StorageUri preserved with OCI URI and imagePullSecrets update": {
+		"SKLearn legacy without storageUri does not strip Model storageUri": {
 			isvc: InferenceService{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "oci-model",
-					Namespace: "default",
-				},
-				Spec: InferenceServiceSpec{
-					Predictor: PredictorSpec{
-						Model: &ModelSpec{
-							ModelFormat: ModelFormat{Name: "sklearn"},
-							PredictorExtensionSpec: PredictorExtensionSpec{
-								StorageURI: proto.String(ociStorageUri),
-							},
-						},
-						PodSpec: PodSpec{
-							ImagePullSecrets: []corev1.LocalObjectReference{
-								{Name: "replaced-secret"},
-							},
-						},
-					},
-				},
-			},
-			expectedStorageURI: ociStorageUri,
-		},
-		"StorageUri preserved when legacy spec and Model both present": {
-			isvc: InferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "dual-spec",
+					Name:      "sklearn-dual",
 					Namespace: "default",
 				},
 				Spec: InferenceServiceSpec{
@@ -1886,23 +1857,21 @@ func TestStorageUriPreservedDuringDefaults(t *testing.T) {
 			},
 			expectedStorageURI: ociStorageUri,
 		},
-		"StorageUri preserved with s3 URI": {
+		"Tensorflow legacy without storageUri does not strip Model storageUri": {
 			isvc: InferenceService{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "s3-model",
+					Name:      "tf-dual",
 					Namespace: "default",
 				},
 				Spec: InferenceServiceSpec{
 					Predictor: PredictorSpec{
+						Tensorflow: &TFServingSpec{
+							PredictorExtensionSpec: PredictorExtensionSpec{},
+						},
 						Model: &ModelSpec{
 							ModelFormat: ModelFormat{Name: "tensorflow"},
 							PredictorExtensionSpec: PredictorExtensionSpec{
 								StorageURI: proto.String(s3StorageUri),
-							},
-						},
-						PodSpec: PodSpec{
-							ImagePullSecrets: []corev1.LocalObjectReference{
-								{Name: "updated-secret"},
 							},
 						},
 					},
@@ -1910,28 +1879,51 @@ func TestStorageUriPreservedDuringDefaults(t *testing.T) {
 			},
 			expectedStorageURI: s3StorageUri,
 		},
-		"Legacy tensorflow spec storageUri preserved through conversion": {
+		"XGBoost legacy without storageUri does not strip Model storageUri": {
 			isvc: InferenceService{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "tf-model",
+					Name:      "xgb-dual",
 					Namespace: "default",
 				},
 				Spec: InferenceServiceSpec{
 					Predictor: PredictorSpec{
-						Tensorflow: &TFServingSpec{
+						XGBoost: &XGBoostSpec{
+							PredictorExtensionSpec: PredictorExtensionSpec{},
+						},
+						Model: &ModelSpec{
+							ModelFormat: ModelFormat{Name: "xgboost"},
 							PredictorExtensionSpec: PredictorExtensionSpec{
 								StorageURI: proto.String(ociStorageUri),
-							},
-						},
-						PodSpec: PodSpec{
-							ImagePullSecrets: []corev1.LocalObjectReference{
-								{Name: "my-secret"},
 							},
 						},
 					},
 				},
 			},
 			expectedStorageURI: ociStorageUri,
+		},
+		"Legacy spec with own storageUri takes precedence over Model storageUri": {
+			isvc: InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "legacy-wins",
+					Namespace: "default",
+				},
+				Spec: InferenceServiceSpec{
+					Predictor: PredictorSpec{
+						SKLearn: &SKLearnSpec{
+							PredictorExtensionSpec: PredictorExtensionSpec{
+								StorageURI: proto.String(s3StorageUri),
+							},
+						},
+						Model: &ModelSpec{
+							ModelFormat: ModelFormat{Name: "sklearn"},
+							PredictorExtensionSpec: PredictorExtensionSpec{
+								StorageURI: proto.String(ociStorageUri),
+							},
+						},
+					},
+				},
+			},
+			expectedStorageURI: s3StorageUri,
 		},
 	}
 
