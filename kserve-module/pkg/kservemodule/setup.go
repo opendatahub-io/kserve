@@ -85,6 +85,8 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(mapToKserve),
 			builder.WithPredicates(crdNamePredicate()),
 		).
+		// Watch Nodes so that newly added or relabeled nodes trigger
+		// reconciliation of labelModelCacheNodes.
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(mapToKserve),
 			builder.WithPredicates(predicate.Or(
 				predicate.GenerationChangedPredicate{},
