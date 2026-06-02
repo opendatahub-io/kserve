@@ -42,7 +42,10 @@ import (
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=create;delete;get;list;patch;watch
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterroles;clusterrolebindings,verbs=create;delete;get;list;patch;update;watch
 // escalate/bind scoped to the exact roles and clusterroles deployed by this controller
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=kserve-admin;kserve-edit;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;odh-model-controller-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s
+// +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/finalizers,verbs=get;update
+// +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/status,verbs=get;update
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=account-editor-role;account-viewer-role;kserve-admin;kserve-edit;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;odh-model-controller-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=bind;escalate,resourceNames=kserve-leader-election-role;llmisvc-leader-election-role;leader-election-role
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles/finalizers;rolebindings/finalizers;clusterroles/finalizers;clusterrolebindings/finalizers,verbs=update
 // no delete — CRDs survive CR deletion

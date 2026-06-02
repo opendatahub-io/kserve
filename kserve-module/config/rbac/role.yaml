@@ -162,6 +162,26 @@ rules:
   - patch
   - watch
 - apiGroups:
+  - nim.opendatahub.io
+  resources:
+  - accounts
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - nim.opendatahub.io
+  resources:
+  - accounts/finalizers
+  - accounts/status
+  verbs:
+  - get
+  - update
+- apiGroups:
   - operator.openshift.io
   resources:
   - leaderworkersets
@@ -204,6 +224,8 @@ rules:
 - apiGroups:
   - rbac.authorization.k8s.io
   resourceNames:
+  - account-editor-role
+  - account-viewer-role
   - kserve-admin
   - kserve-edit
   - kserve-llmisvc-distro-role
