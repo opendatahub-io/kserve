@@ -3,7 +3,7 @@ package kservemodule
 const (
 	// Component names
 	kserveComponentName             = "kserve"
-	odhModelControllerComponentName = "odh-model-controller"
+	odhModelControllerComponentName = "modelcontroller"
 
 	// Manifest source paths
 	kserveManifestSourcePath    = "overlays/odh"
