@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	securityv1 "github.com/openshift/api/security/v1"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -70,7 +71,9 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.PersistentVolume{}).
 		Owns(&corev1.PersistentVolumeClaim{}).
 		Owns(&appsv1.Deployment{}).
+		Owns(&appsv1.DaemonSet{}).
 		Owns(&networkingv1.NetworkPolicy{}).
+		Owns(&securityv1.SecurityContextConstraints{}).
 		Owns(&rbacv1.Role{}).
 		Owns(&rbacv1.RoleBinding{}).
 		Owns(&rbacv1.ClusterRole{}).
@@ -82,7 +85,12 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(mapToKserve),
 			builder.WithPredicates(crdNamePredicate()),
 		).
-		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(mapToKserve))
+		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(mapToKserve),
+			builder.WithPredicates(predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				predicate.LabelChangedPredicate{},
+			)),
+		)
 
 	// Subscription CRD is always present on OpenShift (OLM); never on XKS.
 	// One-time conditional watch at startup — no dynamic retry needed.
