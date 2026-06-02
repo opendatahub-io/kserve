@@ -67,15 +67,18 @@ func TestIsModelCacheEnabled(t *testing.T) {
 	}
 }
 
-func TestBuildModelCachePV(t *testing.T) {
+func TestCreateOrUpdateModelCachePV(t *testing.T) {
 	g := NewWithT(t)
 
-	kserve := testKserveWithModelCache(common.Managed, "500Gi", []string{"node1"})
-	r := &KserveModuleReconciler{}
+	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-1"}}
+	r := newReconcilerWithFakeClient(node)
 
-	pv, err := r.buildModelCachePV(kserve)
+	kserve := testKserveWithModelCache(common.Managed, "500Gi", []string{"worker-1"})
+	err := r.createOrUpdateModelCachePV(context.Background(), kserve)
 	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(pv.Name).To(Equal(modelCachePVName))
+
+	pv := &corev1.PersistentVolume{}
+	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: modelCachePVName}, pv)).To(Succeed())
 	g.Expect(pv.Spec.Capacity[corev1.ResourceStorage]).To(Equal(resource.MustParse("500Gi")))
 	g.Expect(pv.Spec.StorageClassName).To(Equal("local-storage"))
 	g.Expect(pv.Spec.PersistentVolumeReclaimPolicy).To(Equal(corev1.PersistentVolumeReclaimRetain))
@@ -86,51 +89,61 @@ func TestBuildModelCachePV(t *testing.T) {
 	g.Expect(pv.Spec.NodeAffinity.Required.NodeSelectorTerms).To(HaveLen(1))
 	g.Expect(pv.Spec.NodeAffinity.Required.NodeSelectorTerms[0].MatchExpressions[0].Key).To(Equal(modelCacheLabelKey))
 	g.Expect(pv.Spec.NodeAffinity.Required.NodeSelectorTerms[0].MatchExpressions[0].Values).To(ContainElement(modelCacheLabelValue))
+	g.Expect(pv.OwnerReferences).To(HaveLen(1))
+	g.Expect(pv.OwnerReferences[0].Name).To(Equal(platformv1alpha1.KserveInstanceName))
 }
 
-func TestBuildModelCachePV_NilCacheSize(t *testing.T) {
+func TestCreateOrUpdateModelCachePV_NilCacheSize(t *testing.T) {
 	g := NewWithT(t)
 
+	r := newReconcilerWithFakeClient()
 	kserve := &platformv1alpha1.Kserve{
+		ObjectMeta: metav1.ObjectMeta{Name: platformv1alpha1.KserveInstanceName},
 		Spec: platformv1alpha1.KserveSpec{
 			ModelCache: &platformv1alpha1.ModelCacheSpec{
 				ManagementState: common.Managed,
 			},
 		},
 	}
-	r := &KserveModuleReconciler{}
 
-	_, err := r.buildModelCachePV(kserve)
+	err := r.createOrUpdateModelCachePV(context.Background(), kserve)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("cacheSize is required"))
 }
 
-func TestBuildModelCachePVC(t *testing.T) {
+func TestCreateOrUpdateModelCachePVC(t *testing.T) {
 	g := NewWithT(t)
 
+	r := newReconcilerWithFakeClient()
 	kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"node1"})
-	r := &KserveModuleReconciler{applicationsNamespace: "test-ns"}
 
-	pvc, err := r.buildModelCachePVC(kserve)
+	err := r.createOrUpdateModelCachePVC(context.Background(), kserve)
 	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(pvc.Name).To(Equal(modelCachePVCName))
-	g.Expect(pvc.Namespace).To(Equal("test-ns"))
+
+	pvc := &corev1.PersistentVolumeClaim{}
+	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: modelCachePVCName, Namespace: "test-ns"}, pvc)).To(Succeed())
 	g.Expect(pvc.Spec.VolumeName).To(Equal(modelCachePVName))
 	g.Expect(pvc.Spec.Resources.Requests[corev1.ResourceStorage]).To(Equal(resource.MustParse("100Gi")))
 	g.Expect(*pvc.Spec.StorageClassName).To(Equal("local-storage"))
 	g.Expect(pvc.Spec.AccessModes).To(ContainElement(corev1.ReadWriteOnce))
+	g.Expect(pvc.OwnerReferences).To(HaveLen(1))
+	g.Expect(pvc.OwnerReferences[0].Name).To(Equal(platformv1alpha1.KserveInstanceName))
 }
 
-func TestBuildLocalModelNodeGroup(t *testing.T) {
+func TestCreateOrUpdateLocalModelNodeGroup(t *testing.T) {
 	g := NewWithT(t)
 
+	r := newReconcilerWithFakeClient()
 	kserve := testKserveWithModelCache(common.Managed, "200Gi", []string{"node1"})
-	r := &KserveModuleReconciler{}
 
-	obj, err := r.buildLocalModelNodeGroup(kserve)
+	err := r.createOrUpdateLocalModelNodeGroup(context.Background(), kserve)
 	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(obj.GetName()).To(Equal(localModelNodeGroupName))
-	g.Expect(obj.GroupVersionKind()).To(Equal(localModelNodeGroupGVK))
+
+	obj := &unstructured.Unstructured{}
+	obj.SetGroupVersionKind(localModelNodeGroupGVK)
+	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: localModelNodeGroupName}, obj)).To(Succeed())
+	g.Expect(obj.GetOwnerReferences()).To(HaveLen(1))
+	g.Expect(obj.GetOwnerReferences()[0].Name).To(Equal(platformv1alpha1.KserveInstanceName))
 
 	spec, found, err := unstructured.NestedMap(obj.Object, "spec")
 	g.Expect(err).NotTo(HaveOccurred())
@@ -146,50 +159,25 @@ func TestBuildLocalModelNodeGroup(t *testing.T) {
 	g.Expect(hostPath["path"]).To(Equal(modelCacheHostDir))
 }
 
-func TestBuildLocalModelNodeGroup_UpdateCacheSize(t *testing.T) {
+func TestLabelModelCacheNodes_ByNodeNames(t *testing.T) {
 	g := NewWithT(t)
-
-	r := &KserveModuleReconciler{}
-
-	kserve1 := testKserveWithModelCache(common.Managed, "100Gi", []string{"node1"})
-	obj1, err := r.buildLocalModelNodeGroup(kserve1)
-	g.Expect(err).NotTo(HaveOccurred())
-	spec1, _, _ := unstructured.NestedString(obj1.Object, "spec", "storageLimit")
-	g.Expect(spec1).To(Equal("100Gi"))
-
-	kserve2 := testKserveWithModelCache(common.Managed, "500Gi", []string{"node1"})
-	obj2, err := r.buildLocalModelNodeGroup(kserve2)
-	g.Expect(err).NotTo(HaveOccurred())
-	spec2, _, _ := unstructured.NestedString(obj2.Object, "spec", "storageLimit")
-	g.Expect(spec2).To(Equal("500Gi"))
-}
-
-func TestDesiredModelCacheNodes_ByNodeNames(t *testing.T) {
-	g := NewWithT(t)
-
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
 
 	node1 := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-1"}}
 	node2 := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-2"}}
-
-	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(node1, node2).Build()
-	r := &KserveModuleReconciler{Client: cli}
+	r := newReconcilerWithFakeClient(node1, node2)
 
 	kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"worker-1", "worker-2"})
+	g.Expect(r.labelModelCacheNodes(context.Background(), kserve)).To(Succeed())
 
-	desired, err := r.desiredModelCacheNodes(context.Background(), kserve)
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(desired).To(HaveLen(2))
-	g.Expect(desired).To(HaveKey("worker-1"))
-	g.Expect(desired).To(HaveKey("worker-2"))
+	for _, name := range []string{"worker-1", "worker-2"} {
+		node := &corev1.Node{}
+		g.Expect(r.Get(context.Background(), client.ObjectKey{Name: name}, node)).To(Succeed())
+		g.Expect(node.Labels[modelCacheLabelKey]).To(Equal(modelCacheLabelValue))
+	}
 }
 
-func TestDesiredModelCacheNodes_ByNodeSelector(t *testing.T) {
+func TestLabelModelCacheNodes_ByNodeSelector(t *testing.T) {
 	g := NewWithT(t)
-
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
 
 	gpuNode := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
 		Name:   "gpu-node-1",
@@ -199,12 +187,11 @@ func TestDesiredModelCacheNodes_ByNodeSelector(t *testing.T) {
 		Name:   "cpu-node-1",
 		Labels: map[string]string{"role": "compute"},
 	}}
-
-	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(gpuNode, cpuNode).Build()
-	r := &KserveModuleReconciler{Client: cli}
+	r := newReconcilerWithFakeClient(gpuNode, cpuNode)
 
 	qty := resource.MustParse("100Gi")
 	kserve := &platformv1alpha1.Kserve{
+		ObjectMeta: metav1.ObjectMeta{Name: platformv1alpha1.KserveInstanceName},
 		Spec: platformv1alpha1.KserveSpec{
 			ModelCache: &platformv1alpha1.ModelCacheSpec{
 				ManagementState: common.Managed,
@@ -216,10 +203,16 @@ func TestDesiredModelCacheNodes_ByNodeSelector(t *testing.T) {
 		},
 	}
 
-	desired, err := r.desiredModelCacheNodes(context.Background(), kserve)
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(desired).To(HaveLen(1))
-	g.Expect(desired).To(HaveKey("gpu-node-1"))
+	g.Expect(r.labelModelCacheNodes(context.Background(), kserve)).To(Succeed())
+
+	gpu := &corev1.Node{}
+	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: "gpu-node-1"}, gpu)).To(Succeed())
+	g.Expect(gpu.Labels[modelCacheLabelKey]).To(Equal(modelCacheLabelValue))
+
+	cpu := &corev1.Node{}
+	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: "cpu-node-1"}, cpu)).To(Succeed())
+	_, hasLabel := cpu.Labels[modelCacheLabelKey]
+	g.Expect(hasLabel).To(BeFalse())
 }
 
 func TestUpdateNamespacePSA(t *testing.T) {
@@ -403,10 +396,10 @@ func TestForceReconcileKserveAgentImage(t *testing.T) {
 	})
 }
 
-func TestCleanupModelCacheResources(t *testing.T) {
+func TestModelCacheResources(t *testing.T) {
 	g := NewWithT(t)
 
-	objects := cleanupModelCacheResources("test-ns")
+	objects := modelCacheResources("test-ns")
 	g.Expect(objects).To(HaveLen(3))
 
 	pvc := objects[0].(*corev1.PersistentVolumeClaim)
@@ -424,6 +417,7 @@ func TestCleanupModelCacheResources(t *testing.T) {
 func newReconcilerWithFakeClient(objects ...client.Object) *KserveModuleReconciler {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
+	_ = platformv1alpha1.AddToScheme(scheme)
 
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-ns"},
@@ -433,6 +427,7 @@ func newReconcilerWithFakeClient(objects ...client.Object) *KserveModuleReconcil
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(allObjects...).Build()
 	return &KserveModuleReconciler{
 		Client:                cli,
+		Scheme:                scheme,
 		applicationsNamespace: "test-ns",
 	}
 }
