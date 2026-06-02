@@ -269,11 +269,11 @@ func (r *LLMISVCReconciler) expectedVLLMEngineMonitor(llmSvc *v1alpha2.LLMInfere
 							TLSConfig: &monitoringv1.SafeTLSConfig{
 								InsecureSkipVerify: ptr.To(!llmSvcHasTlsRotationEnabled(llmSvc)),
 								CA: monitoringv1.SecretOrConfigMap{
-									ConfigMap: &corev1.ConfigMapKeySelector{
+									Secret: &corev1.SecretKeySelector{
 										LocalObjectReference: corev1.LocalObjectReference{
-											Name: "openshift-service-ca.crt",
+											Name: kmeta.ChildName(llmSvc.GetName(), "-kserve-self-signed-certs"),
 										},
-										Key: "service-ca.crt",
+										Key: "cacert",
 									},
 								},
 							},
