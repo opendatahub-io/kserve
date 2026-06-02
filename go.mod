@@ -25,10 +25,8 @@ require (
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.0
 	github.com/open-telemetry/opentelemetry-operator v0.113.0
-	github.com/openshift/api v0.0.0-20240124164020-e2ce40831f2e
 	github.com/parquet-go/parquet-go v0.27.0
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.89.0
 	github.com/spf13/cobra v1.10.0
 	github.com/spf13/pflag v1.0.10
 	github.com/stretchr/testify v1.11.1
@@ -213,6 +211,16 @@ require (
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.2-0.20260122202528-d9cc6641c482 // indirect
 )
+
+// AUTOMERGE(keep): distro-only block, do not remove during upstream sync.
+// These deps are imported exclusively by //go:build distro files (see .rules/gomod-distro-deps.md).
+// go mod tidy preserves them automatically when distro-tagged source files exist.
+require (
+	github.com/openshift/api v0.0.0-20240124164020-e2ce40831f2e
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.89.0
+)
+
+// AUTOMERGE(end)
 
 // google.golang.org/grpc/stats/opentelemetry is used by the keda package.
 // To avoid ambiguous import error due to multiple module versions found for the same import path,
