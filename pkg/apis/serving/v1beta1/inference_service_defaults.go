@@ -229,6 +229,17 @@ func disableAutomountServiceAccountToken(isvc *InferenceService) {
 }
 
 func (isvc *InferenceService) setPredictorModelDefaults() {
+	// Preserve storageUri from the existing Model spec before legacy-to-Model conversion.
+	// When both a legacy spec (e.g. sklearn) and a Model spec are present, the assign*Runtime()
+	// methods overwrite Model with the legacy spec's PredictorExtensionSpec, which may not
+	// include storageUri. This guard ensures storageUri is never inadvertently stripped
+	// during defaulting — storageUri and imagePullSecrets are independent fields.
+	var existingStorageURI *string
+	if isvc.Spec.Predictor.Model != nil && isvc.Spec.Predictor.Model.StorageURI != nil {
+		uri := *isvc.Spec.Predictor.Model.StorageURI
+		existingStorageURI = &uri
+	}
+
 	switch {
 	case isvc.Spec.Predictor.SKLearn != nil:
 		isvc.assignSKLearnRuntime()
@@ -259,6 +270,11 @@ func (isvc *InferenceService) setPredictorModelDefaults() {
 
 	case isvc.Spec.Predictor.Paddle != nil:
 		isvc.assignPaddleRuntime()
+	}
+
+	// Restore storageUri if it was cleared during legacy spec conversion.
+	if existingStorageURI != nil && isvc.Spec.Predictor.Model != nil && isvc.Spec.Predictor.Model.StorageURI == nil {
+		isvc.Spec.Predictor.Model.StorageURI = existingStorageURI
 	}
 
 	if isvc.Spec.Predictor.Model != nil {
