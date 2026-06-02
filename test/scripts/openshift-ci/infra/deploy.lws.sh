@@ -19,34 +19,34 @@ source "$SCRIPT_DIR/../common.sh"
 
 echo "⏳ Installing openshift-lws-operator"
 
-oc create ns openshift-lws-operator || true
+oc create ns ${LWS_NAMESPACE} || true
 
 {
 cat <<EOF | oc create -f -
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
-  name: leader-worker-set
-  namespace: openshift-lws-operator
+  name: ${LWS_NAME}
+  namespace: ${LWS_NAMESPACE}
 spec:
   targetNamespaces:
-  - openshift-lws-operator
+  - ${LWS_NAMESPACE}
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
-  name: leader-worker-set
-  namespace: openshift-lws-operator
+  name: ${LWS_NAME}
+  namespace: ${LWS_NAMESPACE}
 spec:
-  channel: stable-v1.0
+  channel: ${LWS_CHANNEL}
   installPlanApproval: Automatic
-  name: leader-worker-set
+  name: ${LWS_NAME}
   source: redhat-operators
   sourceNamespace: openshift-marketplace
 EOF
 } || true
 
-wait_for_subscription_csv "leader-worker-set" "openshift-lws-operator" 300
+wait_for_subscription_csv "${LWS_NAME}" "${LWS_NAMESPACE}" 300
 wait_for_crd leaderworkersetoperators.operator.openshift.io 90s
 
 {
@@ -55,7 +55,7 @@ apiVersion: operator.openshift.io/v1
 kind: LeaderWorkerSetOperator
 metadata:
   name: cluster
-  namespace: openshift-lws-operator
+  namespace: ${LWS_NAMESPACE}
 spec:
   managementState: Managed
   logLevel: Normal
@@ -64,6 +64,6 @@ EOF
 } || true
 
 echo "⏳ waiting for openshift-lws-operator to be ready.…"
-wait_for_pod_ready "openshift-lws-operator" "name=openshift-lws-operator"
+wait_for_pod_ready "${LWS_NAMESPACE}" "name=openshift-lws-operator"
 
 echo "✅ openshift-lws-operator installed"

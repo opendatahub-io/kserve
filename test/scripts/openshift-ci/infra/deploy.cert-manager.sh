@@ -17,33 +17,33 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../common.sh"
 
 echo "⏳ Installing cert-manager"
-oc create namespace cert-manager-operator || true
+oc create namespace ${CERT_MANAGER_NAMESPACE} || true
 
 {
 cat<<EOF | oc create -f -
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
-  name: cert-manager-operator
-  namespace: cert-manager-operator
+  name: ${CERT_MANAGER_NAME}
+  namespace: ${CERT_MANAGER_NAMESPACE}
 spec:
   upgradeStrategy: Default
 ---
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
-  name: openshift-cert-manager-operator
-  namespace: cert-manager-operator
+  name: ${CERT_MANAGER_NAME}
+  namespace: ${CERT_MANAGER_NAMESPACE}
 spec:
-  channel: stable-v1
+  channel: ${CERT_MANAGER_CHANNEL}
   installPlanApproval: Automatic
-  name: openshift-cert-manager-operator
+  name: ${CERT_MANAGER_NAME}
   source: redhat-operators
   sourceNamespace: openshift-marketplace
 EOF
 } || true
 
-wait_for_subscription_csv "openshift-cert-manager-operator" "cert-manager-operator" 300
+wait_for_subscription_csv "${CERT_MANAGER_NAME}" "${CERT_MANAGER_NAMESPACE}" 300
 wait_for_crd certificates.cert-manager.io 90s
 
 echo "✅ Cert-manager installed"

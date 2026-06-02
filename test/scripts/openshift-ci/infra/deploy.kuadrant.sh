@@ -16,7 +16,6 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../common.sh"
-KUADRANT_NS="${KUADRANT_NS:-kuadrant-system}"
 # Seconds to sleep after discovery passes (apiserver RESTMapper can lag discovery).
 KUADRANT_PRE_CREATE_SLEEP="${KUADRANT_PRE_CREATE_SLEEP:-30}"
 # How many times to wait for Ready before delete/recreate and final failure (default: initial + one retry).
@@ -44,12 +43,12 @@ cat <<EOF | oc create -f -
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
-  name: rhcl-operator
+  name: ${RHCL_NAME}
   namespace: ${KUADRANT_NS}
 spec:
-  channel: stable
+  channel: ${RHCL_CHANNEL}
   installPlanApproval: Automatic
-  name: rhcl-operator
+  name: ${RHCL_NAME}
   source: redhat-operators
   sourceNamespace: openshift-marketplace
 ---
@@ -63,7 +62,7 @@ spec:
 EOF
 } || true
 
-wait_for_subscription_csv "rhcl-operator" "${KUADRANT_NS}" 600
+wait_for_subscription_csv "${RHCL_NAME}" "${KUADRANT_NS}" 600
 wait_for_crd  kuadrants.kuadrant.io  90s
 # Let apiserver discovery include kuadrants before first reconcile creates child resources with owner refs.
 wait_for_api_discovery "kuadrant.io/v1beta1" "kuadrants" 120
