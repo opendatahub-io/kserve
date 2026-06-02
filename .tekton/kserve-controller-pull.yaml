@@ -48,6 +48,13 @@ spec:
       value: main
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
+  taskRunSpecs:
+  - pipelineTaskName: sast-shell-check
+    computeResources:
+      requests:
+        memory: 2Gi
+      limits:
+        memory: 4Gi
   taskRunTemplate:
     serviceAccountName: build-pipeline-kserve-controller
   workspaces:
