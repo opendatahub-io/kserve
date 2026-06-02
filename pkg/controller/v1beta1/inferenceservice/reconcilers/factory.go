@@ -50,7 +50,6 @@ type WorkloadReconcilerParams struct {
 type ServiceReconcilerParams struct {
 	Client           client.Client
 	Scheme           *runtime.Scheme
-	ResourceType     constants.ResourceType
 	ComponentMeta    metav1.ObjectMeta
 	ComponentExt     *v1beta1.ComponentExtensionSpec
 	PodSpec          *corev1.PodSpec
@@ -110,7 +109,7 @@ func (f *ReconcilerFactory) CreateServiceReconciler(
 	switch deploymentMode {
 	case constants.Standard, constants.LegacyRawDeployment:
 		return service.NewServiceReconciler(
-			params.Client, params.Scheme, params.ResourceType, params.ComponentMeta, params.ComponentExt,
+			params.Client, params.Scheme, params.ComponentMeta, params.ComponentExt,
 			params.PodSpec, params.MultiNodeEnabled, params.ServiceConfig,
 		), nil
 

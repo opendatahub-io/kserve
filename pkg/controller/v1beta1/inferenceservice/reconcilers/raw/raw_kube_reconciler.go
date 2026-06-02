@@ -205,7 +205,6 @@ func NewRawKubeReconciler(ctx context.Context,
 		reconcilers.ServiceReconcilerParams{
 			Client:           client,
 			Scheme:           scheme,
-			ResourceType:     resourceType,
 			ComponentMeta:    componentMeta,
 			ComponentExt:     componentExt,
 			PodSpec:          podSpec,
