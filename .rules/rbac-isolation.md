@@ -81,7 +81,5 @@ keeps midstream markers out of upstream manifests.
 The following files carry OCP-group RBAC markers predating this policy. Flag only if new markers
 are **added** in this PR:
 
-- `pkg/controller/v1beta1/inferenceservice/controller.go` (`route.openshift.io`,
-  `networking.istio.io` (treated as OCP-specific for exemption purposes))
-- `pkg/controller/v1alpha1/inferencegraph/controller.go` (`route.openshift.io`,
-  `networking.istio.io` (treated as OCP-specific for exemption purposes))
+- `pkg/controller/v1beta1/inferenceservice/controller.go` - `networking.istio.io` markers
+  remain because they are upstream (exist in `kserve/kserve:master`). Not OCP-specific.
