@@ -1,7 +1,7 @@
 
 # Source operator subscription configurations
-# Use BASH_SOURCE[-1] to get the path of this common.sh file itself, not the calling script
-COMMON_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[-1]}")" && pwd)"
+# Use BASH_SOURCE[0] to get the path of this common.sh file itself, not the calling script
+COMMON_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${COMMON_SCRIPT_DIR}/operator-subscriptions.sh"
 
 # find_project_root [start_dir] [marker]

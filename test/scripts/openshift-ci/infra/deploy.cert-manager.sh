@@ -17,7 +17,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/../common.sh"
 
 echo "⏳ Installing cert-manager"
-oc create namespace ${CERT_MANAGER_NAMESPACE} || true
+oc create namespace "${CERT_MANAGER_NAMESPACE}" || true
 
 {
 cat<<EOF | oc create -f -

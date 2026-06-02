@@ -19,7 +19,7 @@ source "$SCRIPT_DIR/../common.sh"
 
 echo "⏳ Installing openshift-lws-operator"
 
-oc create ns ${LWS_NAMESPACE} || true
+oc create ns "${LWS_NAMESPACE}" || true
 
 {
 cat <<EOF | oc create -f -
