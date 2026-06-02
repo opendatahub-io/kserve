@@ -1796,3 +1796,154 @@ func TestDefaultInferenceServiceWithLocalModelNamespaceCache(t *testing.T) {
 	g.Expect(isvc.Labels).To(gomega.HaveKeyWithValue(constants.LocalModelLabel, "test-ns-cache"))
 	g.Expect(isvc.Labels).To(gomega.HaveKeyWithValue(constants.LocalModelNamespaceLabel, "default"))
 }
+
+func TestStorageUriPreservedDuringDefaults(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+
+	deployConfig := &DeployConfig{
+		DefaultDeploymentMode: string(constants.Knative),
+	}
+
+	ociStorageUri := "oci://quay.io/example/model:latest"
+	s3StorageUri := "s3://bucket/model"
+
+	scenarios := map[string]struct {
+		isvc              InferenceService
+		expectedStorageURI string
+	}{
+		"StorageUri preserved when Model spec is the only predictor": {
+			isvc: InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "model-only",
+					Namespace: "default",
+				},
+				Spec: InferenceServiceSpec{
+					Predictor: PredictorSpec{
+						Model: &ModelSpec{
+							ModelFormat: ModelFormat{Name: "sklearn"},
+							PredictorExtensionSpec: PredictorExtensionSpec{
+								StorageURI: proto.String(ociStorageUri),
+							},
+						},
+						PodSpec: PodSpec{
+							ImagePullSecrets: []corev1.LocalObjectReference{
+								{Name: "new-secret"},
+							},
+						},
+					},
+				},
+			},
+			expectedStorageURI: ociStorageUri,
+		},
+		"StorageUri preserved with OCI URI and imagePullSecrets update": {
+			isvc: InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "oci-model",
+					Namespace: "default",
+				},
+				Spec: InferenceServiceSpec{
+					Predictor: PredictorSpec{
+						Model: &ModelSpec{
+							ModelFormat: ModelFormat{Name: "sklearn"},
+							PredictorExtensionSpec: PredictorExtensionSpec{
+								StorageURI: proto.String(ociStorageUri),
+							},
+						},
+						PodSpec: PodSpec{
+							ImagePullSecrets: []corev1.LocalObjectReference{
+								{Name: "replaced-secret"},
+							},
+						},
+					},
+				},
+			},
+			expectedStorageURI: ociStorageUri,
+		},
+		"StorageUri preserved when legacy spec and Model both present": {
+			isvc: InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "dual-spec",
+					Namespace: "default",
+				},
+				Spec: InferenceServiceSpec{
+					Predictor: PredictorSpec{
+						SKLearn: &SKLearnSpec{
+							PredictorExtensionSpec: PredictorExtensionSpec{},
+						},
+						Model: &ModelSpec{
+							ModelFormat: ModelFormat{Name: "sklearn"},
+							PredictorExtensionSpec: PredictorExtensionSpec{
+								StorageURI: proto.String(ociStorageUri),
+							},
+						},
+						PodSpec: PodSpec{
+							ImagePullSecrets: []corev1.LocalObjectReference{
+								{Name: "some-secret"},
+							},
+						},
+					},
+				},
+			},
+			expectedStorageURI: ociStorageUri,
+		},
+		"StorageUri preserved with s3 URI": {
+			isvc: InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "s3-model",
+					Namespace: "default",
+				},
+				Spec: InferenceServiceSpec{
+					Predictor: PredictorSpec{
+						Model: &ModelSpec{
+							ModelFormat: ModelFormat{Name: "tensorflow"},
+							PredictorExtensionSpec: PredictorExtensionSpec{
+								StorageURI: proto.String(s3StorageUri),
+							},
+						},
+						PodSpec: PodSpec{
+							ImagePullSecrets: []corev1.LocalObjectReference{
+								{Name: "updated-secret"},
+							},
+						},
+					},
+				},
+			},
+			expectedStorageURI: s3StorageUri,
+		},
+		"Legacy tensorflow spec storageUri preserved through conversion": {
+			isvc: InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "tf-model",
+					Namespace: "default",
+				},
+				Spec: InferenceServiceSpec{
+					Predictor: PredictorSpec{
+						Tensorflow: &TFServingSpec{
+							PredictorExtensionSpec: PredictorExtensionSpec{
+								StorageURI: proto.String(ociStorageUri),
+							},
+						},
+						PodSpec: PodSpec{
+							ImagePullSecrets: []corev1.LocalObjectReference{
+								{Name: "my-secret"},
+							},
+						},
+					},
+				},
+			},
+			expectedStorageURI: ociStorageUri,
+		},
+	}
+
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			isvc := scenario.isvc.DeepCopy()
+			isvc.DefaultInferenceService(nil, deployConfig, nil, nil, nil)
+
+			g.Expect(isvc.Spec.Predictor.Model).NotTo(gomega.BeNil(), "Model spec should be set after defaulting")
+			g.Expect(isvc.Spec.Predictor.Model.StorageURI).NotTo(gomega.BeNil(), "StorageURI should not be nil after defaulting")
+			g.Expect(*isvc.Spec.Predictor.Model.StorageURI).To(gomega.Equal(scenario.expectedStorageURI),
+				"StorageURI should be preserved regardless of imagePullSecrets changes")
+		})
+	}
+}
