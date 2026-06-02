@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
@@ -72,7 +73,7 @@ func CreateCRD(ctx context.Context, cli client.Client, group, version, kind stri
 						Properties: map[string]apiextensionsv1.JSONSchemaProps{
 							"status": {
 								Type:                   "object",
-								XPreserveUnknownFields: ptr(true),
+								XPreserveUnknownFields: ptr.To(true),
 							},
 						},
 					},
@@ -122,8 +123,6 @@ func CreateSubscription(ctx context.Context, cli client.Client, name, namespace 
 	gomega.ExpectWithOffset(1, cli.Create(ctx, sub)).To(gomega.Succeed())
 	return sub
 }
-
-func ptr[T any](v T) *T { return &v }
 
 func ProjectRoot() string {
 	dir, err := os.Getwd()
