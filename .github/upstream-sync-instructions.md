@@ -29,6 +29,24 @@ This fork uses a **build-tag architecture** for platform-specific code:
 If upstream deletes or modifies code that these files depend on, keep the
 fork code and adapt it to work with the new upstream structure.
 
+### AUTOMERGE fences
+
+Code blocks fenced with `AUTOMERGE(keep)` / `AUTOMERGE(end)` comments are
+fork-specific and MUST be preserved unconditionally during upstream sync:
+
+```
+// AUTOMERGE(keep): <reason>
+<fork-specific code>
+// AUTOMERGE(end)
+```
+
+The comment syntax matches the file type (`//` for Go, `#` for YAML/Makefile,
+`<!-- -->` for HTML/Markdown). These fences signal that the enclosed block is
+intentionally maintained by this fork — never remove, reorder, or merge it
+with upstream code. If upstream changes create a conflict around or within a
+fenced block, resolve by keeping the fenced content intact and integrating
+upstream changes around it.
+
 ## Merge Conflict Resolution Guidelines
 
 ### Understanding the markers
@@ -55,7 +73,8 @@ Everything between the opening and separator is ours; between separator and clos
 
 1. **Preserve all fork-specific customizations.** Look for any code
    unique to this fork (ODH-specific, OpenDataHub, OpenShift, Red Hat,
-   or any non-upstream additions). These MUST be kept.
+   or any non-upstream additions). These MUST be kept. Code within
+   `AUTOMERGE(keep)` / `AUTOMERGE(end)` fences is unconditionally preserved.
 2. **Accept upstream changes** for code that has no fork-specific modifications.
    If our side is just an older version of what upstream now has, take upstream.
 3. **Integrate both sides** when both upstream and fork modified the same
@@ -82,6 +101,9 @@ Everything between the opening and separator is ours; between separator and clos
   `go mod tidy` to regenerate it.
 - **go.mod `replace` directives**: keep ALL existing replace directives.
   They have specific pins for compatibility reasons.
+- **go.mod `AUTOMERGE(keep)` blocks**: the distro-only `require` block is
+  fenced and must be preserved as-is. Do not merge its deps into the main
+  require block.
 - **Generated files** (CRDs, deepcopy, RBAC manifests): do NOT manually edit.
   Resolve conflicts in the SOURCE files, then run `make manifests generate`
   to regenerate them.
