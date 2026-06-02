@@ -97,16 +97,19 @@ Everything between the opening and separator is ours; between separator and clos
 
 ### Special file handling
 
-- **go.sum**: do NOT manually resolve. Remove conflict markers, then run
+- **go.sum**: do NOT manually resolve. Delete the file entirely, then run
   `go mod tidy` to regenerate it.
-- **go.mod `replace` directives**: keep ALL existing replace directives.
-  They have specific pins for compatibility reasons.
+- **go.mod `replace` directives**: keep replace directives that have a
+  comment explaining a specific pin. If upstream has already fixed the issue
+  a replace was addressing (e.g. a CVE fix was merged), the replace can be
+  dropped.
 - **go.mod `AUTOMERGE(keep)` blocks**: the distro-only `require` block is
   fenced and must be preserved as-is. Do not merge its deps into the main
   require block.
 - **Generated files** (CRDs, deepcopy, RBAC manifests): do NOT manually edit.
-  Resolve conflicts in the SOURCE files, then run `make manifests generate`
-  to regenerate them.
+  Resolve conflicts in the SOURCE files only — `make precommit` will
+  regenerate all derived files automatically. If you need to verify a build
+  mid-resolution, `make manifests generate` can be run explicitly.
 - **uv.lock / lock files**: do NOT manually resolve. Remove conflict markers,
   then `make uv-lock` will regenerate.
 - **`*_ocp.go` / `*_default.go` pairs**: these are always fork-only.
@@ -122,7 +125,9 @@ Everything between the opening and separator is ours; between separator and clos
 
 ## Verification (MUST do all in order after resolving)
 
-1. Remove ALL conflict markers (the 7-character `<`, `=`, `>` lines).
+1. Ensure all conflicts are properly resolved (both sides integrated correctly)
+   and no conflict markers remain (the 7-character `<`, `=`, `>` lines).
+   Do NOT simply delete marker lines — the code between them must be resolved.
 2. Verify no markers remain: run `git grep` for the opening marker (7x less-than
    followed by a space). Must return no results (exit code 1).
 3. Run: `go build ./...` — must succeed.
