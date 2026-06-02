@@ -30,15 +30,14 @@ concurrency:
   group: upstream-sync
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  pull-requests: write
-  id-token: write
-
 jobs:
   sync:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
 
     steps:
       # ────────────────────────────────────────────
@@ -56,6 +55,7 @@ jobs:
         with:
           ref: master
           fetch-depth: 0
+          persist-credentials: false
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Configure git identity
@@ -63,6 +63,7 @@ jobs:
           git config user.name "upstream-sync[bot]"
           git config user.email "upstream-sync[bot]@users.noreply.github.com"
           git config push.autoSetupRemote true
+          git remote set-url origin "https://x-access-token:${{ steps.app-token.outputs.token }}@github.com/${{ github.repository }}.git"
 
       - name: Fetch upstream
         run: |
@@ -401,8 +402,9 @@ jobs:
         run: |
           MARKERS_CLEAN="${{ steps.verify_markers.outputs.clean }}"
           BUILD_PASSES="${{ steps.verify_build.outputs.passes }}"
+          PRECOMMIT_PASSES="${{ steps.verify_precommit.outputs.passes }}"
 
-          if [ "$MARKERS_CLEAN" != "true" ] || [ "$BUILD_PASSES" != "true" ]; then
+          if [ "$MARKERS_CLEAN" != "true" ] || [ "$BUILD_PASSES" != "true" ] || [ "$PRECOMMIT_PASSES" != "true" ]; then
             echo "label=merge-conflict/needs-manual-resolution" >> "$GITHUB_OUTPUT"
             echo "comment=Claude Code was unable to fully resolve the merge conflicts. Manual intervention is required." >> "$GITHUB_OUTPUT"
           else
