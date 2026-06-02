@@ -60,7 +60,12 @@ parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --platform)   PLATFORM="$2"; shift 2 ;;
-      --image)      KSERVE_MODULE_IMG="$2"; shift 2 ;;
+      --image)
+        if [[ ! "$2" =~ ^[a-zA-Z0-9._/:@-]+$ ]]; then
+          log_error "Invalid image format: $2"
+          exit 1
+        fi
+        KSERVE_MODULE_IMG="$2"; shift 2 ;;
       --cleanup)    CLEANUP=true; shift ;;
       -h|--help)    usage; exit 0 ;;
       *)            echo "Unknown option: $1"; usage; exit 1 ;;
