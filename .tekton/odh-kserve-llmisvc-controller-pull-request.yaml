@@ -50,11 +50,13 @@ spec:
       value: pipeline/multi-arch-container-build.yaml
   taskRunSpecs:
   - pipelineTaskName: sast-shell-check
-    computeResources:
-      requests:
-        memory: 2Gi
-      limits:
-        memory: 4Gi
+    stepSpecs:
+    - name: sast-shell-check
+      computeResources:
+        requests:
+          memory: 4Gi
+        limits:
+          memory: 8Gi
   taskRunTemplate:
     serviceAccountName: build-pipeline-odh-kserve-llmisvc-controller-ci
   workspaces:
