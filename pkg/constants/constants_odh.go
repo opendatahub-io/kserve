@@ -63,13 +63,6 @@ const (
 	OpenShiftServiceCaConfigMapName = "openshift-service-ca.crt"
 )
 
-type ResourceType string
-
-const (
-	InferenceServiceResource ResourceType = "InferenceService"
-	InferenceGraphResource   ResourceType = "InferenceGraph"
-)
-
 func init() {
 	ServiceAnnotationDisallowedList = append(ServiceAnnotationDisallowedList, ODHKserveRawAuth)
 }

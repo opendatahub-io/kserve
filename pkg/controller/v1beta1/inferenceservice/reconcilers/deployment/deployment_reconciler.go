@@ -19,14 +19,8 @@ package deployment
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"strconv"
-	"strings"
 
-	"google.golang.org/protobuf/proto"
 	"k8s.io/apimachinery/pkg/api/resource"
-	"k8s.io/client-go/kubernetes"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -63,22 +57,16 @@ type DeploymentReconciler struct {
 	conditionType  apis.ConditionType
 }
 
-const (
-	tlsVolumeName = "proxy-tls"
-)
-
 func NewDeploymentReconciler(ctx context.Context,
 	client kclient.Client,
-	clientset kubernetes.Interface,
 	scheme *runtime.Scheme,
-	resourceType constants.ResourceType,
 	componentMeta metav1.ObjectMeta,
 	workerComponentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec,
 	deployConfig *v1beta1.DeployConfig,
 ) (*DeploymentReconciler, error) {
-	deploymentList, authProxyPreserved, err := createRawDeploymentODH(ctx, client, clientset, resourceType, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec, deployConfig)
+	deploymentList, authProxyPreserved, err := buildDeployments(ctx, client, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec, deployConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -103,133 +91,8 @@ func NewDeploymentReconciler(ctx context.Context,
 	return reconciler, nil
 }
 
-// sarVolumeNameForDeployment returns the volume name to use for the SAR ConfigMap.
-// If an existing deployment already has a working legacy volume name (isvcName-kube-rbac-proxy-sar-config),
-// it is preserved to avoid triggering an unnecessary deployment rollout during upgrades.
-// For new deployments, it returns the fixed constant to stay within the 63-character limit.
-func sarVolumeNameForDeployment(isvcName string, existingDeployment *appsv1.Deployment) string {
-	if existingDeployment != nil {
-		legacyName := fmt.Sprintf("%s-%s", isvcName, constants.OauthProxySARCMName)
-		for _, v := range existingDeployment.Spec.Template.Spec.Volumes {
-			if v.Name == legacyName {
-				return legacyName
-			}
-		}
-	}
-	return constants.OauthProxySARCMName
-}
-
-func createRawDeploymentODH(ctx context.Context,
-	client kclient.Client,
-	clientset kubernetes.Interface,
-	resourceType constants.ResourceType,
-	componentMeta metav1.ObjectMeta,
-	workerComponentMeta metav1.ObjectMeta,
-	componentExt *v1beta1.ComponentExtensionSpec,
-	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec,
-	deployConfig *v1beta1.DeployConfig,
-) ([]*appsv1.Deployment, bool, error) {
-	deploymentList, err := createRawDeployment(componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec, deployConfig)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to create raw deployment: %w", err)
-	}
-
-	// get the Inference Service Name
-	var isvcname string
-	if val, ok := componentMeta.Labels[constants.InferenceServicePodLabelKey]; ok {
-		isvcname = val
-	} else {
-		isvcname = componentMeta.Name
-	}
-
-	// Check if an existing deployment is already deployed.
-	existingProxyType, existingProxyImage, existingDeployment, err := getExistingAuthProxyType(ctx, client,
-		componentMeta.Namespace, componentMeta.Name)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to fetch deployment %s/%s: %w", componentMeta.Namespace, componentMeta.Name, err)
-	}
-	existingDeploymentFound := existingDeployment != nil
-
-	sarVolumeName := sarVolumeNameForDeployment(isvcname, existingDeployment)
-
-	// shouldAddAuthProxy controls whether the OAuth proxy sidecar is injected or preserved.
-	// For InferenceService: always inject for new deployments (to avoid pod-template rollouts
-	// when auth is later toggled), preserve for existing deployments that already carry the
-	// proxy, and also inject when auth is explicitly enabled via annotation.
-	shouldAddAuthProxy := false
-	if resourceType == constants.InferenceServiceResource {
-		if !existingDeploymentFound {
-			shouldAddAuthProxy = true
-		} else {
-			if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
-				shouldAddAuthProxy = true
-			}
-			for _, c := range existingDeployment.Spec.Template.Spec.Containers {
-				if c.Name == constants.KubeRbacContainerName || c.Name == constants.OauthProxyContainerName {
-					shouldAddAuthProxy = true
-					break
-				}
-			}
-		}
-	}
-
-	// Deployment list is for multi-node, we only need to add oauth proxy and serving secret certs to the head deployment
-	headDeployment := deploymentList[0]
-
-	authProxyPreserved := false
-	if shouldAddAuthProxy {
-		wantsMigration := false
-		if val, ok := componentMeta.Annotations[constants.ODHAuthProxyTypeAnnotation]; ok {
-			wantsMigration = val == constants.KubeRbacProxyType
-		}
-
-		oauthConfig, cfgErr := getOauthProxyConfig(ctx, clientset)
-		if cfgErr != nil {
-			oauthConfig = nil
-		}
-
-		if existingProxyType != "" {
-			switch existingProxyType {
-			case constants.OauthProxyContainerName:
-				if wantsMigration {
-					err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName)
-					if err != nil {
-						return nil, false, err
-					}
-				} else {
-					log.Info("Preserving existing auth proxy container", "isvc", isvcname, "type", existingProxyType)
-					authProxyPreserved = true
-					copyAuthProxyFromExisting(existingDeployment, headDeployment, existingProxyType)
-				}
-			case constants.KubeRbacContainerName:
-				configuredKubeRbacImage := ""
-				if oauthConfig != nil {
-					configuredKubeRbacImage = oauthConfig.Image
-				}
-				if configuredKubeRbacImage != "" && existingProxyImage == configuredKubeRbacImage {
-					err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName)
-					if err != nil {
-						return nil, false, err
-					}
-				} else {
-					log.Info("Preserving existing auth proxy container (image differs from config)",
-						"isvc", isvcname, "type", existingProxyType,
-						"existingImage", existingProxyImage, "configImage", configuredKubeRbacImage)
-					authProxyPreserved = true
-					copyAuthProxyFromExisting(existingDeployment, headDeployment, existingProxyType)
-				}
-			}
-		} else {
-			err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName)
-			if err != nil {
-				return nil, false, err
-			}
-		}
-	}
-	if (shouldAddAuthProxy && !authProxyPreserved) || resourceType == constants.InferenceGraphResource {
-		mountServingSecretCMVolumeToDeployment(headDeployment, componentMeta, resourceType, isvcname, sarVolumeName)
-	}
-	return deploymentList, authProxyPreserved, nil
+func (r *DeploymentReconciler) GetAuthProxyCondition() (*apis.Condition, apis.ConditionType) {
+	return r.condition, r.conditionType
 }
 
 func createRawDeployment(componentMeta metav1.ObjectMeta, workerComponentMeta metav1.ObjectMeta,
@@ -303,13 +166,6 @@ func createRawDefaultDeployment(componentMeta metav1.ObjectMeta,
 ) *appsv1.Deployment {
 	podMetadata := componentMeta
 	podMetadata.Labels["app"] = constants.GetRawServiceLabel(componentMeta.Name)
-
-	// Add OpenShift serving cert annotation to pod template for ODH/OpenShift TLS support
-	if podMetadata.Annotations == nil {
-		podMetadata.Annotations = make(map[string]string)
-	}
-	podMetadata.Annotations[constants.OpenshiftServingCertAnnotation] = componentMeta.Name + constants.ServingCertSecretSuffix
-
 	setDefaultPodSpec(podSpec)
 
 	deployment := &appsv1.Deployment{
@@ -341,87 +197,6 @@ func createRawDefaultDeployment(componentMeta metav1.ObjectMeta,
 	return deployment
 }
 
-func mountServingSecretCMVolumeToDeployment(deployment *appsv1.Deployment, componentMeta metav1.ObjectMeta, resourceType constants.ResourceType, isvcName string, sarVolumeName string) {
-	updatedPodSpec := deployment.Spec.Template.Spec.DeepCopy()
-	tlsSecretVolume := corev1.Volume{
-		Name: tlsVolumeName,
-		VolumeSource: corev1.VolumeSource{
-			Secret: &corev1.SecretVolumeSource{
-				SecretName:  componentMeta.Name + constants.ServingCertSecretSuffix,
-				DefaultMode: func(i int32) *int32 { return &i }(420),
-			},
-		},
-	}
-
-	kubeRbacProxyConfigVolume := corev1.Volume{
-		Name: sarVolumeName,
-		VolumeSource: corev1.VolumeSource{
-			ConfigMap: &corev1.ConfigMapVolumeSource{
-				LocalObjectReference: corev1.LocalObjectReference{
-					Name: fmt.Sprintf("%s-%s", isvcName, constants.OauthProxySARCMName),
-				},
-				DefaultMode: func(i int32) *int32 { return &i }(420),
-			},
-		},
-	}
-
-	updatedPodSpec.Volumes = append(updatedPodSpec.Volumes, tlsSecretVolume, kubeRbacProxyConfigVolume)
-
-	containerName := "kserve-container"
-	if resourceType == constants.InferenceGraphResource {
-		containerName = componentMeta.Name
-	}
-	for i, container := range updatedPodSpec.Containers {
-		if container.Name == containerName {
-			updatedPodSpec.Containers[i].VolumeMounts = append(updatedPodSpec.Containers[i].VolumeMounts, corev1.VolumeMount{
-				Name:      tlsVolumeName,
-				MountPath: "/etc/tls/private",
-			})
-		}
-	}
-
-	deployment.Spec.Template.Spec = *updatedPodSpec
-}
-
-func addOauthContainerToDeployment(ctx context.Context,
-	client kclient.Client,
-	clientset kubernetes.Interface,
-	oauthConfig *v1beta1.OauthConfig,
-	deployment *appsv1.Deployment,
-	componentMeta metav1.ObjectMeta,
-	componentExt *v1beta1.ComponentExtensionSpec,
-	podSpec *corev1.PodSpec, isvcName string, sarVolumeName string,
-) error {
-	var upstreamPort, upstreamTimeout string
-
-	switch {
-	case componentExt != nil && componentExt.Batcher != nil:
-		upstreamPort = constants.InferenceServiceDefaultAgentPortStr
-	case componentExt != nil && componentExt.Logger != nil:
-		upstreamPort = constants.InferenceServiceDefaultAgentPortStr
-	default:
-		upstreamPort = GetKServeContainerPort(podSpec)
-		if upstreamPort == "" {
-			upstreamPort = constants.InferenceServiceDefaultHttpPort
-		}
-	}
-
-	if componentExt != nil && componentExt.TimeoutSeconds != nil {
-		upstreamTimeout = strconv.FormatInt(*componentExt.TimeoutSeconds, 10)
-	}
-
-	oauthProxyContainer, err := generateOauthProxyContainer(ctx, client, clientset, oauthConfig, isvcName, componentMeta.Namespace, upstreamPort, upstreamTimeout, sarVolumeName)
-	if err != nil {
-		return err
-	}
-	updatedPodSpec := deployment.Spec.Template.Spec.DeepCopy()
-	// ODH override. See: https://issues.redhat.com/browse/RHOAIENG-19904
-	updatedPodSpec.AutomountServiceAccountToken = proto.Bool(true)
-	updatedPodSpec.Containers = append(updatedPodSpec.Containers, *oauthProxyContainer)
-	deployment.Spec.Template.Spec = *updatedPodSpec
-	return nil
-}
-
 func createRawWorkerDeployment(componentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, predictorName string, replicas int32,
@@ -430,13 +205,6 @@ func createRawWorkerDeployment(componentMeta metav1.ObjectMeta,
 	podMetadata := componentMeta
 	workerPredictorName := constants.GetRawWorkerServiceLabel(predictorName)
 	podMetadata.Labels["app"] = workerPredictorName
-
-	// Add OpenShift serving cert annotation to pod template for ODH/OpenShift TLS support
-	if podMetadata.Annotations == nil {
-		podMetadata.Annotations = make(map[string]string)
-	}
-	podMetadata.Annotations[constants.OpenshiftServingCertAnnotation] = componentMeta.Name + constants.ServingCertSecretSuffix
-
 	setDefaultPodSpec(podSpec)
 	deployment := &appsv1.Deployment{
 		ObjectMeta: componentMeta,
@@ -472,213 +240,6 @@ func createRawWorkerDeployment(componentMeta metav1.ObjectMeta,
 
 	deployment.Spec.Replicas = &replicas
 	return deployment
-}
-
-func GetKServeContainerPort(podSpec *corev1.PodSpec) string {
-	var kserveContainerPort string
-
-	for _, container := range podSpec.Containers {
-		if container.Name == "transformer-container" {
-			if len(container.Ports) > 0 {
-				return strconv.Itoa(int(container.Ports[0].ContainerPort))
-			}
-		}
-		if container.Name == "kserve-container" {
-			if len(container.Ports) > 0 {
-				kserveContainerPort = strconv.Itoa(int(container.Ports[0].ContainerPort))
-			}
-		}
-	}
-
-	return kserveContainerPort
-}
-
-func generateOauthProxyContainer(ctx context.Context, client kclient.Client, clientset kubernetes.Interface,
-	oauthConfig *v1beta1.OauthConfig, isvc string, namespace string, upstreamPort string, upstreamTimeout string,
-	sarVolumeName string,
-) (*corev1.Container, error) {
-	// Create SAR ConfigMap for this specific InferenceService
-	err := createSarCm(ctx, client, clientset, namespace, isvc)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create SAR configmap: %w", err)
-	}
-
-	if oauthConfig == nil {
-		return nil, errors.New("oauthProxy config is nil")
-	}
-	if oauthConfig.Image == "" || oauthConfig.MemoryRequest == "" || oauthConfig.MemoryLimit == "" ||
-		oauthConfig.CpuRequest == "" || oauthConfig.CpuLimit == "" {
-		return nil, errors.New("one or more required oauthProxyConfig fields are empty")
-	}
-	oauthImage := oauthConfig.Image
-	oauthMemoryRequest := oauthConfig.MemoryRequest
-	oauthMemoryLimit := oauthConfig.MemoryLimit
-	oauthCpuRequest := oauthConfig.CpuRequest
-	oauthCpuLimit := oauthConfig.CpuLimit
-	oauthUpstreamTimeout := strings.TrimSpace(oauthConfig.UpstreamTimeoutSeconds)
-	if upstreamTimeout != "" {
-		oauthUpstreamTimeout = upstreamTimeout
-	}
-
-	args := []string{
-		`--secure-listen-address=:` + strconv.Itoa(constants.OauthProxyPort),
-		`--proxy-endpoints-port=8643`,
-		`--upstream=http://localhost:` + upstreamPort,
-		`--auth-header-fields-enabled=true`,
-		`--tls-cert-file=/etc/tls/private/tls.crt`,
-		`--tls-private-key-file=/etc/tls/private/tls.key`,
-		// Defines the SAR
-		`--config-file=/etc/kube-rbac-proxy/config-file.yaml`,
-		`--v=4`,
-	}
-	if oauthUpstreamTimeout != "" {
-		if _, err = strconv.ParseInt(oauthUpstreamTimeout, 10, 64); err != nil {
-			return nil, fmt.Errorf("invalid oauthProxy config upstreamTimeoutSeconds value %q: %w", oauthUpstreamTimeout, err)
-		}
-		args = append(args, `--upstream-timeout=`+oauthUpstreamTimeout+`s`)
-	}
-
-	return &corev1.Container{
-		Name:  constants.KubeRbacContainerName,
-		Args:  args,
-		Image: oauthImage,
-		Ports: []corev1.ContainerPort{
-			{
-				ContainerPort: constants.OauthProxyPort,
-				Name:          "https",
-			},
-			{
-				ContainerPort: constants.OauthProxyProbePort,
-				Name:          "proxy",
-			},
-		},
-		LivenessProbe: &corev1.Probe{
-			ProbeHandler: corev1.ProbeHandler{
-				HTTPGet: &corev1.HTTPGetAction{
-					Path:   "/healthz",
-					Port:   intstr.FromInt32(constants.OauthProxyProbePort),
-					Scheme: corev1.URISchemeHTTPS,
-				},
-			},
-			InitialDelaySeconds: 30,
-			TimeoutSeconds:      1,
-			PeriodSeconds:       5,
-			SuccessThreshold:    1,
-			FailureThreshold:    3,
-		},
-		ReadinessProbe: &corev1.Probe{
-			ProbeHandler: corev1.ProbeHandler{
-				HTTPGet: &corev1.HTTPGetAction{
-					Path:   "/healthz",
-					Port:   intstr.FromInt32(constants.OauthProxyProbePort),
-					Scheme: corev1.URISchemeHTTPS,
-				},
-			},
-			InitialDelaySeconds: 5,
-			TimeoutSeconds:      1,
-			PeriodSeconds:       5,
-			SuccessThreshold:    1,
-			FailureThreshold:    3,
-		},
-		Resources: corev1.ResourceRequirements{
-			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse(oauthCpuLimit),
-				corev1.ResourceMemory: resource.MustParse(oauthMemoryLimit),
-			},
-			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse(oauthCpuRequest),
-				corev1.ResourceMemory: resource.MustParse(oauthMemoryRequest),
-			},
-		},
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      tlsVolumeName,
-				MountPath: "/etc/tls/private",
-			},
-			{
-				Name:      sarVolumeName,
-				MountPath: "/etc/kube-rbac-proxy",
-				ReadOnly:  true,
-			},
-		},
-	}, nil
-}
-
-// createSarCm creates or updates a ConfigMap containing SAR (SubjectAccessReview) configuration
-// for the kube-rbac-proxy container. This configmap defines the authorization parameters
-// for accessing the specific InferenceService.
-func createSarCm(ctx context.Context, client kclient.Client, clientset kubernetes.Interface, namespace string, inferenceServiceName string) error {
-	// Get the InferenceService to obtain its UID for owner reference
-	inferenceService := &v1beta1.InferenceService{}
-	err := client.Get(ctx, types.NamespacedName{
-		Namespace: namespace,
-		Name:      inferenceServiceName,
-	}, inferenceService)
-	if err != nil {
-		return fmt.Errorf("failed to get InferenceService for owner reference: %w", err)
-	}
-
-	configMapName := fmt.Sprintf("%s-%s", inferenceServiceName, constants.OauthProxySARCMName)
-	configContent := fmt.Sprintf(`authorization:
-  resourceAttributes:
-    namespace: "%s"
-    apiGroup: "serving.kserve.io"
-    apiVersion: "v1beta1"
-    resource: "inferenceservices"
-    name: "%s"
-    verb: "get"`, namespace, inferenceServiceName)
-
-	sarConfigMap := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      configMapName,
-			Namespace: namespace,
-			OwnerReferences: []metav1.OwnerReference{
-				{
-					APIVersion:         v1beta1.SchemeGroupVersion.String(),
-					Kind:               "InferenceService",
-					Name:               inferenceService.Name,
-					UID:                inferenceService.UID,
-					Controller:         ptr.To(true),
-					BlockOwnerDeletion: ptr.To(true),
-				},
-			},
-		},
-		Data: map[string]string{
-			"config-file.yaml": configContent,
-		},
-		Immutable: ptr.To(true),
-	}
-
-	// Check if configmap already exists
-	existingConfigMap, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, configMapName, metav1.GetOptions{})
-	if err != nil {
-		if apierr.IsNotFound(err) {
-			_, err = clientset.CoreV1().ConfigMaps(namespace).Create(ctx, sarConfigMap, metav1.CreateOptions{})
-			if err != nil {
-				return fmt.Errorf("failed to create SAR configmap: %w", err)
-			}
-			log.V(2).Info("Created SAR ConfigMap", "name", configMapName, "namespace", namespace)
-		} else {
-			return fmt.Errorf("failed to get SAR configmap: %w", err)
-		}
-	} else { // found
-		// Since ConfigMap is immutable, if content differs we need to delete and recreate
-		if existingConfigMap.Data["config-file.yaml"] != configContent {
-			log.V(2).Info("SAR ConfigMap - changes detected, will be recreated", "name", configMapName, "namespace", namespace)
-			err = clientset.CoreV1().ConfigMaps(namespace).Delete(ctx, configMapName, metav1.DeleteOptions{})
-			if err != nil {
-				return fmt.Errorf("failed to delete existing SAR configmap: %w", err)
-			}
-			log.V(2).Info("Deleted existing SAR ConfigMap", "name", configMapName, "namespace", namespace)
-
-			_, err = clientset.CoreV1().ConfigMaps(namespace).Create(ctx, sarConfigMap, metav1.CreateOptions{})
-			if err != nil {
-				return fmt.Errorf("failed to recreate SAR configmap: %w", err)
-			}
-			log.V(2).Info("Recreated SAR ConfigMap", "name", configMapName, "namespace", namespace)
-		}
-	}
-	return nil
 }
 
 // checkDeploymentExist checks if the deployment exists?
@@ -727,7 +288,7 @@ func (r *DeploymentReconciler) checkDeploymentExist(ctx context.Context, client 
 		return constants.CheckResultUnknown, nil, err
 	}
 
-	if diff, err := kmp.SafeDiff(existingDeployment.Spec, deployment.Spec, ignoreFields); err != nil {
+	if diff, err := kmp.SafeDiff(deployment.Spec, existingDeployment.Spec, ignoreFields); err != nil {
 		log.Error(err, "Failed to diff deployments", "Deployment", deployment.Name)
 		return constants.CheckResultUnknown, nil, err
 	} else if len(diff) > 0 {
@@ -1006,108 +567,4 @@ func (r *DeploymentReconciler) SetControllerReferences(owner metav1.Object, sche
 		}
 	}
 	return nil
-}
-
-// GetAuthProxyCondition returns a condition to set on the ISVC status when an
-// existing auth proxy container has been preserved to avoid pod restart.
-func (r *DeploymentReconciler) GetAuthProxyCondition() (*apis.Condition, apis.ConditionType) {
-	return r.condition, r.conditionType
-}
-
-// copyAuthProxyFromExisting copies the auth proxy container and only its related
-// volumes/mounts from an existing deployment into the desired deployment, preserving
-// any user-defined volumes and mounts already present on the desired spec.
-func copyAuthProxyFromExisting(existing, desired *appsv1.Deployment, containerName string) {
-	if existing == nil || desired == nil {
-		return
-	}
-
-	existingSpec := &existing.Spec.Template.Spec
-	desiredSpec := &desired.Spec.Template.Spec
-
-	var authProxyContainer *corev1.Container
-	for i, c := range existingSpec.Containers {
-		if c.Name == containerName {
-			authProxyContainer = &existingSpec.Containers[i]
-			break
-		}
-	}
-	if authProxyContainer == nil {
-		return
-	}
-
-	desiredSpec.Containers = append(desiredSpec.Containers, *authProxyContainer)
-	desiredSpec.AutomountServiceAccountToken = existingSpec.AutomountServiceAccountToken
-
-	authVolumeNames := make(map[string]bool, len(authProxyContainer.VolumeMounts))
-	for _, vm := range authProxyContainer.VolumeMounts {
-		authVolumeNames[vm.Name] = true
-	}
-
-	for _, v := range existingSpec.Volumes {
-		if authVolumeNames[v.Name] {
-			desiredSpec.Volumes = append(desiredSpec.Volumes, v)
-		}
-	}
-
-	for i, c := range desiredSpec.Containers {
-		if c.Name == constants.InferenceServiceContainerName {
-			for _, existingC := range existingSpec.Containers {
-				if existingC.Name == constants.InferenceServiceContainerName {
-					for _, vm := range existingC.VolumeMounts {
-						if authVolumeNames[vm.Name] {
-							desiredSpec.Containers[i].VolumeMounts = append(
-								desiredSpec.Containers[i].VolumeMounts, vm)
-						}
-					}
-					break
-				}
-			}
-			break
-		}
-	}
-}
-
-// getExistingAuthProxyType checks if the deployment already has an auth proxy container.
-// Returns the container name ("oauth-proxy" or "kube-rbac-proxy"), its image, and the
-// existing deployment for use in preservation logic.
-func getExistingAuthProxyType(ctx context.Context, client kclient.Client,
-	namespace, deploymentName string,
-) (containerName string, containerImage string, existing *appsv1.Deployment, err error) {
-	existing = &appsv1.Deployment{}
-	err = client.Get(ctx, types.NamespacedName{
-		Namespace: namespace,
-		Name:      deploymentName,
-	}, existing)
-
-	if apierr.IsNotFound(err) {
-		return "", "", nil, nil
-	}
-	if err != nil {
-		return "", "", nil, err
-	}
-
-	for _, container := range existing.Spec.Template.Spec.Containers {
-		if container.Name == constants.OauthProxyContainerName {
-			return constants.OauthProxyContainerName, container.Image, existing, nil
-		}
-		if container.Name == constants.KubeRbacContainerName {
-			return constants.KubeRbacContainerName, container.Image, existing, nil
-		}
-	}
-	return "", "", existing, nil
-}
-
-// getOauthProxyConfig fetches and parses the oauth proxy configuration from the inferenceservice configmap.
-func getOauthProxyConfig(ctx context.Context, clientset kubernetes.Interface) (*v1beta1.OauthConfig, error) {
-	isvcConfigMap, err := clientset.CoreV1().ConfigMaps(constants.KServeNamespace).Get(ctx, constants.InferenceServiceConfigMapName, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
-	oauthProxyJSON := strings.TrimSpace(isvcConfigMap.Data["oauthProxy"])
-	oauthProxyConfig := &v1beta1.OauthConfig{}
-	if err := json.Unmarshal([]byte(oauthProxyJSON), oauthProxyConfig); err != nil {
-		return nil, err
-	}
-	return oauthProxyConfig, nil
 }

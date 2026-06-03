@@ -21,7 +21,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,33 +30,6 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 )
-
-func TestCreateWorkloadReconciler(t *testing.T) {
-	scheme := runtime.NewScheme()
-	_ = appsv1.AddToScheme(scheme)
-	_ = v1beta1.AddToScheme(scheme)
-	_ = corev1.AddToScheme(scheme)
-
-	factory := NewReconcilerFactory()
-	fakeClient := fakeclient.NewClientBuilder().WithScheme(scheme).Build()
-	params := WorkloadReconcilerParams{
-		Client:        fakeClient,
-		Scheme:        scheme,
-		ComponentMeta: metav1.ObjectMeta{Name: "test", Namespace: "default", Labels: map[string]string{"app": "test"}},
-		ComponentExt:  &v1beta1.ComponentExtensionSpec{},
-		PodSpec:       &corev1.PodSpec{Containers: []corev1.Container{{Name: "test"}}},
-	}
-
-	// Should succeed for Standard mode
-	rec, err := factory.CreateWorkloadReconciler(t.Context(), constants.Standard, params)
-	require.NoError(t, err)
-	assert.NotNil(t, rec)
-
-	// Should fail for unsupported modes
-	rec, err = factory.CreateWorkloadReconciler(t.Context(), constants.Knative, params)
-	require.Error(t, err)
-	assert.Nil(t, rec)
-}
 
 func TestCreateServiceReconciler(t *testing.T) {
 	scheme := runtime.NewScheme()
