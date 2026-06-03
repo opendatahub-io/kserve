@@ -230,8 +230,8 @@ cleanup_ocp_subscription() {
       log_info "Waiting for cert-manager pods cleanup..."
       kubectl wait --for=delete pods --all -n cert-manager --timeout=120s 2>/dev/null || true
 
-      # Clean up remaining cert-manager resources
-      kubectl delete issuers,clusterissuers,certificates --all --all-namespaces --ignore-not-found 2>/dev/null || true
+      # Clean up cert-manager resources created by this script
+      kubectl delete -k "${PROJECT_ROOT}/config/overlays/odh-test/cert-manager" --ignore-not-found 2>/dev/null || true
       ;;
     rhcl-operator)
       log_info "Deleting RHCL operands..."
