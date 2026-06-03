@@ -37,7 +37,7 @@ make e2e-cleanup-kserve-module
 
 ## Test Markers
 
-- `sanity` — core lifecycle tests (create, update, delete, CEL validation)
+- `sanity` - core lifecycle tests (create, update, delete, CEL validation)
 
 Run specific markers:
 

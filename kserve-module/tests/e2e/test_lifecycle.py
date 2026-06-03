@@ -1,5 +1,6 @@
 """E2E tests for Kserve CR lifecycle: create, update, delete, CEL validation."""
 
+import json
 import yaml
 import pytest
 
@@ -25,7 +26,7 @@ def _generation_matches(cr):
 
 def _verify_deployments_available(kubectl, is_openshift):
     expected = operand_deployments(is_openshift)
-    result = run(f"{kubectl} get deployments -n {NAMESPACE} -o yaml")
+    result = run([kubectl, "get", "deployments", "-n", NAMESPACE, "-o", "yaml"])
     deployments = yaml.safe_load(result.stdout)
     items = {d["metadata"]["name"]: d for d in deployments.get("items", [])}
     for name in expected:
@@ -60,14 +61,14 @@ class TestDelete:
         Verifies GC cleans up operand deployments via ownerReference,
         while the operator deployment itself remains.
         """
-        run(f"{kubectl} delete kserve {KSERVE_CR_NAME}")
+        run([kubectl, "delete", "kserve", KSERVE_CR_NAME])
         wait_for_kserve_cleanup(kubectl, is_openshift=cluster_info.is_openshift)
 
-        result = run(f"{kubectl} get kserve {KSERVE_CR_NAME}", check=False)
+        result = run([kubectl, "get", "kserve", KSERVE_CR_NAME], check=False)
         assert result.returncode != 0, "Kserve CR should be deleted"
 
         expected = operand_deployments(cluster_info.is_openshift)
-        result = run(f"{kubectl} get deployments -n {NAMESPACE} -o yaml")
+        result = run([kubectl, "get", "deployments", "-n", NAMESPACE, "-o", "yaml"])
         deployments = yaml.safe_load(result.stdout)
         dep_names = [d["metadata"]["name"] for d in deployments.get("items", [])]
 
@@ -94,10 +95,8 @@ class TestUpdate:
         current = cr_before.get("spec", {}).get("rawDeploymentServiceConfig", "Headless")
         new_value = "Headed" if current == "Headless" else "Headless"
 
-        run(
-            f'{kubectl} patch kserve {KSERVE_CR_NAME} --type merge '
-            f"""-p '{{"spec":{{"rawDeploymentServiceConfig":"{new_value}"}}}}'"""
-        )
+        patch = json.dumps({"spec": {"rawDeploymentServiceConfig": new_value}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
 
         cr_after = _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, 120,
                             "observedGeneration not matching within 120s")
@@ -109,6 +108,14 @@ class TestUpdate:
             "observedGeneration should match generation after reconcile"
         assert cr_after["spec"]["rawDeploymentServiceConfig"] == new_value, \
             f"Spec should reflect update: expected {new_value}"
+
+        expected_headless = "true" if new_value == "Headless" else "false"
+        result = run([
+            kubectl, "get", "configmap", "inferenceservice-config",
+            "-n", NAMESPACE, "-o", "jsonpath={.data.service}",
+        ])
+        assert f'"serviceClusterIPNone": {expected_headless}' in result.stdout, \
+            f"ConfigMap should reflect serviceClusterIPNone={expected_headless}"
 
 
 @pytest.mark.sanity
@@ -131,15 +138,15 @@ class TestCELValidation:
         )
 
         result = run(
-            f"echo '{invalid_cr}' | {kubectl} apply -f -", check=False
+            [kubectl, "apply", "-f", "-"], check=False, input_text=invalid_cr
         )
 
         assert result.returncode != 0, \
             "CR with invalid name should be rejected"
-        assert "default-kserve" in result.stderr or "invalid" in result.stderr.lower(), \
-            f"Error should reference name validation. stderr: {result.stderr}"
+        assert "Kserve name must be 'default-kserve'" in result.stderr, \
+            f"Error should reference CEL name validation. stderr: {result.stderr}"
 
-        result = run(f"{kubectl} get kserve invalid-name", check=False)
+        result = run([kubectl, "get", "kserve", "invalid-name"], check=False)
         assert result.returncode != 0, "Invalid CR should not exist"
 
 
@@ -150,12 +157,10 @@ class TestManagementState:
     def test_removed_updates_subcomponent_config(self, kubectl, apply_kserve_cr):
         """Setting nim.managementState to Removed updates sub-component config.
 
-        Not yet implemented — skipped until managementState: Removed is supported.
+        Not yet implemented - skipped until managementState: Removed is supported.
         """
-        run(
-            f"{kubectl} patch kserve {KSERVE_CR_NAME} --type merge "
-            f"""-p '{{"spec":{{"nim":{{"managementState":"Removed"}}}}}}'"""
-        )
+        patch = json.dumps({"spec": {"nim": {"managementState": "Removed"}}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
 
         cr = _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, 120,
                       "observedGeneration not matching within 120s")
@@ -176,19 +181,25 @@ class TestLifecycleE2E:
 
         current = cr.get("spec", {}).get("rawDeploymentServiceConfig", "Headless")
         new_value = "Headed" if current == "Headless" else "Headless"
-        run(
-            f'{kubectl} patch kserve {KSERVE_CR_NAME} --type merge '
-            f"""-p '{{"spec":{{"rawDeploymentServiceConfig":"{new_value}"}}}}'"""
-        )
+        patch = json.dumps({"spec": {"rawDeploymentServiceConfig": new_value}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
         cr = _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, 120,
                       "observedGeneration not matching within 120s")
         assert cr["status"]["observedGeneration"] == cr["metadata"]["generation"]
         assert cr["spec"]["rawDeploymentServiceConfig"] == new_value
 
-        run(f"{kubectl} delete kserve {KSERVE_CR_NAME}")
+        expected_headless = "true" if new_value == "Headless" else "false"
+        result = run([
+            kubectl, "get", "configmap", "inferenceservice-config",
+            "-n", NAMESPACE, "-o", "jsonpath={.data.service}",
+        ])
+        assert f'"serviceClusterIPNone": {expected_headless}' in result.stdout, \
+            f"ConfigMap should reflect serviceClusterIPNone={expected_headless}"
+
+        run([kubectl, "delete", "kserve", KSERVE_CR_NAME])
         wait_for_kserve_cleanup(kubectl, is_openshift=is_openshift)
 
-        result = run(f"{kubectl} get deployments -n {NAMESPACE} -o yaml")
+        result = run([kubectl, "get", "deployments", "-n", NAMESPACE, "-o", "yaml"])
         deployments = yaml.safe_load(result.stdout)
         dep_names = [d["metadata"]["name"] for d in deployments.get("items", [])]
         for operand in expected:

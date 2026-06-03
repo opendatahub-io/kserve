@@ -40,7 +40,7 @@ class ClusterInfo:
 
 
 # ---------------------------------------------------------------------------
-# Helper functions — pure
+# Helper functions - pure
 # ---------------------------------------------------------------------------
 def operand_deployments(is_openshift):
     """Return the expected operand deployments for the detected platform."""
@@ -54,12 +54,12 @@ def is_cr_ready(cr):
 
 
 # ---------------------------------------------------------------------------
-# Helper functions — shell / kubectl
+# Helper functions - shell / kubectl
 # ---------------------------------------------------------------------------
-def run(cmd, check=True, timeout=60):
-    """Run a shell command and return the result."""
+def run(cmd, check=True, timeout=60, input_text=None):
+    """Run a command and return the result."""
     result = subprocess.run(
-        cmd, shell=True, capture_output=True, text=True, timeout=timeout
+        cmd, capture_output=True, text=True, timeout=timeout, input=input_text
     )
     if check and result.returncode != 0:
         raise RuntimeError(
@@ -70,7 +70,7 @@ def run(cmd, check=True, timeout=60):
 
 def get_cr(kubectl_bin, name=KSERVE_CR_NAME, check=True):
     """Fetch the Kserve CR and return parsed YAML. Returns None on failure when check=False."""
-    result = run(f"{kubectl_bin} get kserve {name} -o yaml", check=False)
+    result = run([kubectl_bin, "get", "kserve", name, "-o", "yaml"], check=False)
     if result.returncode != 0:
         if check:
             raise RuntimeError(
@@ -88,10 +88,10 @@ def cr_exists(kubectl_bin, name=KSERVE_CR_NAME):
 def trigger_reconcile(kubectl_bin, name=KSERVE_CR_NAME, trigger_id=None):
     """Trigger reconcile by patching an annotation."""
     trigger_id = trigger_id or f"e2e-{int(time.time())}"
-    run(
-        f"{kubectl_bin} annotate kserve {name} "
-        f"test-trigger={trigger_id} --overwrite"
-    )
+    run([
+        kubectl_bin, "annotate", "kserve", name,
+        f"test-trigger={trigger_id}", "--overwrite",
+    ])
 
 
 def create_kserve_cr(kubectl_bin, cr_dict=None):
@@ -99,14 +99,14 @@ def create_kserve_cr(kubectl_bin, cr_dict=None):
     if cr_exists(kubectl_bin):
         return _poll_cr(kubectl_bin, KSERVE_CR_NAME, is_cr_ready, 120,
                         f"Kserve CR {KSERVE_CR_NAME} not ready within 120s")
-    cr = yaml.dump(cr_dict or KSERVE_CR_TEMPLATE)
-    run(f"echo '{cr}' | {kubectl_bin} create -f -")
+    cr = yaml.safe_dump(cr_dict or KSERVE_CR_TEMPLATE)
+    run([kubectl_bin, "create", "-f", "-"], input_text=cr)
     return _poll_cr(kubectl_bin, KSERVE_CR_NAME, is_cr_ready, 120,
                     f"Kserve CR {KSERVE_CR_NAME} not ready within 120s")
 
 
 # ---------------------------------------------------------------------------
-# Helper functions — polling / wait
+# Helper functions - polling / wait
 # ---------------------------------------------------------------------------
 def _poll_cr(kubectl_bin, name, predicate, timeout, msg):
     """Poll the Kserve CR until predicate(cr) returns True."""
@@ -138,18 +138,22 @@ def _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=60):
     """Wait until managed deployments are cleaned up by garbage collection."""
     expected = operand_deployments(is_openshift)
     deadline = time.time() + timeout
+    last_error = None
     while time.time() < deadline:
         result = run(
-            f"{kubectl_bin} get deployments -n {NAMESPACE} -o yaml", check=False
+            [kubectl_bin, "get", "deployments", "-n", NAMESPACE, "-o", "yaml"], check=False
         )
         if result.returncode != 0:
-            return
+            last_error = result.stderr.strip()
+            time.sleep(5)
+            continue
         deployments = yaml.safe_load(result.stdout)
         dep_names = [d["metadata"]["name"] for d in deployments.get("items", [])]
         if all(op not in dep_names for op in expected):
             return
         time.sleep(5)
-    raise TimeoutError(f"Operand deployments not cleaned up within {timeout}s")
+    suffix = f" (last kubectl error: {last_error})" if last_error else ""
+    raise TimeoutError(f"Managed deployments not cleaned up within {timeout}s{suffix}")
 
 
 # ---------------------------------------------------------------------------
@@ -185,5 +189,5 @@ def apply_kserve_cr(kubectl, cluster_info):
     cr = create_kserve_cr(kubectl)
     yield cr
     if created:
-        run(f"{kubectl} delete kserve {KSERVE_CR_NAME} --ignore-not-found", check=False)
+        run([kubectl, "delete", "kserve", KSERVE_CR_NAME, "--ignore-not-found"], check=False)
         wait_for_kserve_cleanup(kubectl, is_openshift=cluster_info.is_openshift)
