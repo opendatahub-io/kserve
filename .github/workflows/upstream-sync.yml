@@ -363,7 +363,7 @@ jobs:
           claude_args: |
             --max-turns 100
             --model claude-sonnet-4-6
-            --allowedTools Edit,Read,Write,Bash(git log*),Bash(git diff*),Bash(git grep*),Bash(git show*),Bash(go*),Bash(grep*),Bash(find*),Bash(cd*),Bash(cat*),Bash(ls*),Bash(make*),Bash(pip*),Bash(pre-commit*),Glob,Grep
+            --allowedTools Edit,Read,Write,Bash(git log*),Bash(git diff*),Bash(git grep*),Bash(git show*),Bash(go*),Bash(grep*),Bash(find*),Bash(cd*),Bash(cat*),Bash(ls*),Bash(make*),Glob,Grep
 
       - name: Read conflict resolution report
         if: >
@@ -502,10 +502,10 @@ jobs:
             --base master \
             --head "${{ steps.branch.outputs.name }}" \
             --title "chore: upstream sync [${{ steps.branch.outputs.date }}] (${{ steps.check.outputs.commit_count }} commits)" \
-            --body "$(cat <<BODY_EOF
+            --body "$(cat <<'BODY_EOF'
           ## Summary
 
-          Automated sync of \`kserve/kserve:master\` into \`${{ github.repository }}:master\`.
+          Automated sync of `kserve/kserve:master` into `${{ github.repository }}:master`.
 
           ${{ steps.tier.outputs.comment }}
 
@@ -517,8 +517,8 @@ jobs:
           | Check | Result |
           |-------|--------|
           | Conflict markers removed | ${{ steps.verify_markers.outputs.clean == 'true' && '✅' || '❌' }} |
-          | \`go build ./...\` | ${{ steps.verify_build.outputs.passes == 'true' && '✅' || '❌' }} |
-          | \`make precommit\` | ${{ steps.verify_precommit.outputs.passes == 'true' && '✅' || '❌' }} |
+          | `go build ./...` | ${{ steps.verify_build.outputs.passes == 'true' && '✅' || '❌' }} |
+          | `make precommit` | ${{ steps.verify_precommit.outputs.passes == 'true' && '✅' || '❌' }} |
 
           ### AI Conflict Resolution Report
 
@@ -527,9 +527,9 @@ jobs:
           <details>
           <summary>Upstream commit log</summary>
 
-          \`\`\`
+          ```
           ${{ steps.check.outputs.commit_log }}
-          \`\`\`
+          ```
           </details>
 
           ---
