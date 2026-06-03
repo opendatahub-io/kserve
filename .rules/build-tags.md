@@ -80,6 +80,13 @@ All midstream companion files use the `_odh.go` suffix (e.g. `router_odh.go`,
      implementation in a `*_odh.go` (`//go:build distro`). The upstream file just calls the hook.
      Reference the canonical pattern: `controller.go` calls `extendControllerSetup()`, implemented
      as no-op in `controller_setup_default.go` and as ODH setup in `controller_setup_odh.go`.
+   - **Hook functions that need the reconciler must be receiver methods** - When a hook is called
+     from a reconciler and the distro implementation needs API client access (via the reconciler),
+     define the hook as a receiver method on the reconciler type, not as a standalone function
+     taking the reconciler as a parameter. This is idiomatic Go and avoids threading the reconciler
+     as an extra parameter through the call chain.
+     Correct: `func (c *MyReconciler) enhanceJob(ctx context.Context, job *batchv1.Job) error`
+     Wrong: `func enhanceJob(ctx context.Context, c *MyReconciler, job *batchv1.Job) error`
    - If the logic is purely additive (new constants, new helper functions not called from
      upstream): extract to an additive `*_odh.go` or `constants_odh.go` file.
 

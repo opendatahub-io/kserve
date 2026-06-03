@@ -48,7 +48,7 @@ const MountPath = "/var/lib/kserve"
 // Categories may be comma-separated (typical on OCP) or dot-separated (e.g. Fedora: s0-s0:c0.c1023).
 var validMCSLevel = regexp.MustCompile(`^s\d+(-s\d+)?(:c\d{1,4}([,.]c\d{1,4})*)?$`)
 
-func enhanceDownloadJob(ctx context.Context, c *LocalModelNodeReconciler, job *batchv1.Job, storageKey string) error {
+func (c *LocalModelNodeReconciler) enhanceDownloadJob(ctx context.Context, job *batchv1.Job, storageKey string) error {
 	containers := job.Spec.Template.Spec.Containers
 	if len(containers) == 0 || len(containers[0].VolumeMounts) == 0 || len(containers[0].Args) == 0 {
 		return errors.New("download job spec is missing required containers, volume mounts, or args")
@@ -75,7 +75,7 @@ func enhanceDownloadJob(ctx context.Context, c *LocalModelNodeReconciler, job *b
 	return nil
 }
 
-func ensureModelRootFolderExistsAndIsWritable(ctx context.Context, c *LocalModelNodeReconciler,
+func (c *LocalModelNodeReconciler) ensureModelRootFolderExistsAndIsWritable(ctx context.Context,
 	localModelConfig *v1beta1.LocalModelConfig,
 ) (*ensureModelRootFolderResult, error) {
 	// Create model root folder — tolerate permission errors
