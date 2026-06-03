@@ -119,7 +119,7 @@ data:
 `
 	writeKustomizeDir(filepath.Join(workDir, "kserve", "overlays", "odh"), kserveManifest)
 	writeKustomizeDir(filepath.Join(workDir, "kserve", "overlays", "odh-xks"), kserveManifest)
-	writeKustomizeDir(filepath.Join(workDir, "odh-model-controller", "base"), modelCtrlManifest)
+	writeKustomizeDir(filepath.Join(workDir, "modelcontroller", "base"), modelCtrlManifest)
 }
 
 func writeKustomizeDir(dir, manifest string) {
