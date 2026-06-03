@@ -296,6 +296,13 @@ jobs:
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY_B64 }}
 
+      - name: Remove GCP credentials file from disk
+        if: >
+          steps.check.outputs.skip == 'false' &&
+          steps.merge.outputs.has_conflicts == 'true' &&
+          inputs.dry_run != true
+        run: rm -f gha-creds-*.json
+
       - name: Invoke Claude Code to resolve conflicts
         id: claude_resolve
         if: >
@@ -309,7 +316,7 @@ jobs:
         with:
           use_vertex: true
           github_token: ${{ steps.app-token.outputs.token }}
-          show_full_output: true
+          show_full_output: false
           prompt: |
             You are resolving merge conflicts from a daily upstream sync.
             Read .github/upstream-sync-instructions.md for full instructions.
@@ -480,10 +487,7 @@ jobs:
           steps.merge.outputs.has_conflicts == 'true' &&
           inputs.dry_run != true
         run: |
-          # Remove GCP credentials file created by google-github-actions/auth
           git rm --cached -f gha-creds-*.json 2>/dev/null || true
-          rm -f gha-creds-*.json
-
           git commit --signoff --no-verify -m "chore: sync upstream (${{ steps.check.outputs.commit_count }} commits)"
           git push origin "${{ steps.branch.outputs.name }}"
 
