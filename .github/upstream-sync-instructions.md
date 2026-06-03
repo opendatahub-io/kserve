@@ -1,6 +1,6 @@
-# Upstream Sync — Conflict Resolution Instructions
+# Upstream Sync -- Conflict Resolution Instructions
 
-## Environment (pre-installed — do NOT install these yourself)
+## Environment (pre-installed -- do NOT install these yourself)
 
 - Go (version matching go.mod) with modules pre-downloaded
 - Python 3.11 with venv
@@ -12,19 +12,23 @@
 
 ## Fork-Specific Identifiers (NEVER remove these)
 
-This fork uses a **build-tag architecture** for platform-specific code:
-- `*_ocp.go` files → compiled with `//go:build distro` (OpenShift/ODH code)
-- `*_default.go` files → compiled with `//go:build !distro` (upstream fallback)
-- `Makefile.overrides.mk` → fork-only Make overrides (sets `GOTAGS=distro`)
-- `Makefile.ocp.mk` → fork-only OCP targets
-- `config/overlays/odh/` → entire directory is fork-only
-- `config/overlays/odh-xks/` → fork-only
-- `config/overlays/odh-modelcache/` → fork-only
-- `kserve-module/` → entire directory is fork-only
-- `pkg/constants/constants_odh.go` → fork-only constants
-- `docs/odh/`, `docs/openshift/`, `docs/OPENSHIFT_GUIDE.md` → fork-only docs
-- `test/scripts/openshift-ci/` → fork-only CI scripts
-- `.rules/` → fork-only review rules
+For full conventions on build tags, companion file patterns, Makefile separation,
+and kustomize overlay hygiene, read the `.rules/` directory (especially
+`.rules/build-tags.md`, `.rules/makefile-split.md`, `.rules/kustomize-hygiene.md`).
+
+Fork-only paths (never take upstream deletions of these):
+- `*_odh.go` files -- compiled with `//go:build distro` (OpenShift/ODH code)
+- `*_default.go` files -- compiled with `//go:build !distro` (upstream fallback)
+- `Makefile.overrides.mk` -- fork-only Make overrides (sets `GOTAGS=distro`)
+- `Makefile.ocp.mk` -- fork-only OCP targets
+- `config/overlays/odh/` -- entire directory is fork-only
+- `config/overlays/odh-xks/` -- fork-only
+- `config/overlays/odh-modelcache/` -- fork-only
+- `kserve-module/` -- entire directory is fork-only
+- `pkg/constants/constants_odh.go` -- fork-only constants
+- `docs/odh/`, `docs/openshift/`, `docs/OPENSHIFT_GUIDE.md` -- fork-only docs
+- `test/scripts/openshift-ci/` -- fork-only CI scripts
+- `.rules/` -- fork-only review rules
 
 If upstream deletes or modifies code that these files depend on, keep the
 fork code and adapt it to work with the new upstream structure.
@@ -42,7 +46,7 @@ fork-specific and MUST be preserved unconditionally during upstream sync:
 
 The comment syntax matches the file type (`//` for Go, `#` for YAML/Makefile,
 `<!-- -->` for HTML/Markdown). These fences signal that the enclosed block is
-intentionally maintained by this fork — never remove, reorder, or merge it
+intentionally maintained by this fork -- never remove, reorder, or merge it
 with upstream code. If upstream changes create a conflict around or within a
 fenced block, resolve by keeping the fenced content intact and integrating
 upstream changes around it.
@@ -62,8 +66,8 @@ Everything between the opening and separator is ours; between separator and clos
 
 1. **Read the entire file** to understand context, not just the conflicted hunks.
 2. **Check git log** for context on what changed:
-   - `git log --oneline HEAD..upstream/master -- <file>` — what upstream changed
-   - `git log --oneline upstream/master..HEAD -- <file>` — what our fork changed
+   - `git log --oneline HEAD..upstream/master -- <file>` -- what upstream changed
+   - `git log --oneline upstream/master..HEAD -- <file>` -- what our fork changed
 3. **Determine the nature** of the conflict:
    - Did upstream rename/refactor something we also modified?
    - Did both sides add new code in the same region?
@@ -101,20 +105,21 @@ Everything between the opening and separator is ours; between separator and clos
   `go mod tidy` to regenerate it.
 - **go.mod `replace` directives**: preserve ALL replace directives during
   automated sync. Determining whether upstream has resolved the underlying
-  issue (e.g. a CVE) requires human verification — do not drop replaces
+  issue (e.g. a CVE) requires human verification -- do not drop replaces
   during conflict resolution.
 - **go.mod `AUTOMERGE(keep)` blocks**: the distro-only `require` block is
   fenced and must be preserved as-is. Do not merge its deps into the main
   require block.
 - **Generated files** (CRDs, deepcopy, RBAC manifests): do NOT manually edit.
-  Resolve conflicts in the SOURCE files only — `make precommit` will
+  Resolve conflicts in the SOURCE files only -- `make precommit` will
   regenerate all derived files automatically. If you need to verify a build
   mid-resolution, `make manifests generate` can be run explicitly.
 - **uv.lock / lock files**: do NOT manually resolve. Remove conflict markers,
   then `make uv-lock` will regenerate.
-- **`*_ocp.go` / `*_default.go` pairs**: these are always fork-only.
-  If upstream changes the non-`_ocp` file's signatures, update the `_ocp.go`
-  and `_default.go` companions to match.
+- **`*_odh.go` / `*_default.go` pairs**: these are always fork-only.
+  If upstream changes the non-`_odh` file's signatures, update the `_odh.go`
+  and `_default.go` companions to match. See `.rules/build-tags.md` for the
+  full companion file conventions.
 
 ### If something fails
 
@@ -127,12 +132,12 @@ Everything between the opening and separator is ours; between separator and clos
 
 1. Ensure all conflicts are properly resolved (both sides integrated correctly)
    and no conflict markers remain (the 7-character `<`, `=`, `>` lines).
-   Do NOT simply delete marker lines — the code between them must be resolved.
+   Do NOT simply delete marker lines -- the code between them must be resolved.
 2. Verify no markers remain: run `git grep` for the opening marker (7x less-than
    followed by a space). Must return no results (exit code 1).
-3. Run: `go build ./...` — must succeed.
-4. Run: `cd qpext && go build ./...` — must succeed.
-5. Run: `make precommit` — let it auto-fix any formatting issues.
+3. Run: `go build ./...` -- must succeed.
+4. Run: `cd qpext && go build ./...` -- must succeed.
+5. Run: `make precommit` -- let it auto-fix any formatting issues.
 
 ## IMPORTANT: Do NOT use git write commands
 
