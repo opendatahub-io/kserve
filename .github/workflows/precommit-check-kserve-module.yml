@@ -1,0 +1,44 @@
+name: "kserve-module Precommit Check"
+
+on:
+  pull_request:
+    paths:
+      - "kserve-module/**"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  precommit-check-km:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch --unshallow origin
+          git fetch origin "$BASE_REF"
+          git merge --no-edit origin/"$BASE_REF"
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: kserve-module/go.mod
+
+      - name: Install dependencies
+        run: cd kserve-module && go mod download
+
+      - name: Check
+        run: make check-km
