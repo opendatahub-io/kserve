@@ -15,6 +15,7 @@ import (
 
 type componentConfig struct {
 	name          string
+	manifestName  string // overrides name for manifest directory lookup; defaults to name if empty
 	sourcePath    string
 	sourcePathXKS string
 	imageMap      map[string]string
@@ -24,6 +25,13 @@ type componentConfig struct {
 		resources []unstructured.Unstructured) ([]unstructured.Unstructured, error)
 	enabled      func(kserve *platformv1alpha1.Kserve) bool
 	extraCleanup func(ctx context.Context, r *KserveModuleReconciler) error
+}
+
+func (c componentConfig) dirName() string {
+	if c.manifestName != "" {
+		return c.manifestName
+	}
+	return c.name
 }
 
 var components = []componentConfig{
@@ -47,6 +55,15 @@ var components = []componentConfig{
 		enabled:    isWVAEnabled,
 		postRender: wvaPostRender,
 	},
+	{
+		name:         ModelCacheComponentName,
+		manifestName: KserveComponentName,
+		sourcePath:   KserveManifestSourcePathModelCache,
+		imageMap:     kserveImageParamMap,
+		enabled:      isModelCacheEnabled,
+		postRender:   modelCacheComponentPostRender,
+		extraCleanup: cleanupModelCacheComponent,
+	},
 }
 
 func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
@@ -58,9 +75,9 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 		return nil, fmt.Errorf("customizing configmap: %w", err)
 	}
 
-	resources, err = modelCachePostRender(ctx, r, kserve, resources)
+	resources, err = updateLocalModelConfig(resources, isModelCacheEnabled(kserve), r.getApplicationsNamespace())
 	if err != nil {
-		return nil, fmt.Errorf("model cache post-render: %w", err)
+		return nil, fmt.Errorf("updating localModel config: %w", err)
 	}
 
 	versionPrefix := r.getVersionPrefix(kserve)

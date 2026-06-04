@@ -49,16 +49,7 @@ func isModelCacheEnabled(kserve *platformv1alpha1.Kserve) bool {
 	return kserve.Spec.ModelCache != nil && kserve.Spec.ModelCache.ManagementState == common.Managed
 }
 
-func (r *KserveModuleReconciler) reconcileModelCache(ctx context.Context, kserve *platformv1alpha1.Kserve) error {
-	log := ctrl.LoggerFrom(ctx)
-
-	if !isModelCacheEnabled(kserve) {
-		log.Info("ModelCache not enabled, skipping reconciliation")
-		return r.cleanupModelCache(ctx)
-	}
-
-	log.Info("Reconciling ModelCache resources")
-
+func (r *KserveModuleReconciler) reconcileModelCacheResources(ctx context.Context, kserve *platformv1alpha1.Kserve) error {
 	if err := r.updateNamespacePSA(ctx, "privileged"); err != nil {
 		return err
 	}
@@ -379,27 +370,26 @@ func deleteIfExists(ctx context.Context, cli client.Client, obj client.Object, d
 	return nil
 }
 
-func modelCachePostRender(
-	_ context.Context,
+func modelCacheComponentPostRender(
+	ctx context.Context,
 	r *KserveModuleReconciler,
 	kserve *platformv1alpha1.Kserve,
 	resources []unstructured.Unstructured,
 ) ([]unstructured.Unstructured, error) {
-	enabled := isModelCacheEnabled(kserve)
-
-	resources, err := updateLocalModelConfig(resources, enabled, r.getApplicationsNamespace())
+	resources, err := forceReconcileKserveAgentImage(resources)
 	if err != nil {
-		return nil, fmt.Errorf("updating localModel config: %w", err)
+		return nil, fmt.Errorf("reconciling agent image: %w", err)
 	}
 
-	if enabled {
-		resources, err = forceReconcileKserveAgentImage(resources)
-		if err != nil {
-			return nil, fmt.Errorf("reconciling agent image: %w", err)
-		}
+	if err := r.reconcileModelCacheResources(ctx, kserve); err != nil {
+		return nil, fmt.Errorf("reconciling modelcache resources: %w", err)
 	}
 
 	return resources, nil
+}
+
+func cleanupModelCacheComponent(ctx context.Context, r *KserveModuleReconciler) error {
+	return r.cleanupModelCache(ctx)
 }
 
 func updateLocalModelConfig(resources []unstructured.Unstructured, enabled bool, namespace string) ([]unstructured.Unstructured, error) {
@@ -452,6 +442,29 @@ func forceReconcileKserveAgentImage(resources []unstructured.Unstructured) ([]un
 	cm.Data[openshiftConfigKeyName] = string(updated)
 
 	return replaceResourceAtIndex(resources, cmIdx, cm)
+}
+
+func (r *KserveModuleReconciler) checkModelCacheReadiness(ctx context.Context) error {
+	pv := &corev1.PersistentVolume{}
+	if err := r.Get(ctx, client.ObjectKey{Name: modelCachePVName}, pv); err != nil {
+		return fmt.Errorf("PV %s: %w", modelCachePVName, err)
+	}
+
+	pvc := &corev1.PersistentVolumeClaim{}
+	if err := r.Get(ctx, client.ObjectKey{Name: modelCachePVCName, Namespace: r.getApplicationsNamespace()}, pvc); err != nil {
+		return fmt.Errorf("PVC %s: %w", modelCachePVCName, err)
+	}
+
+	lmng := &unstructured.Unstructured{}
+	lmng.SetGroupVersionKind(localModelNodeGroupGVK)
+	if err := r.Get(ctx, client.ObjectKey{Name: localModelNodeGroupName}, lmng); err != nil {
+		if meta.IsNoMatchError(err) {
+			return fmt.Errorf("LocalModelNodeGroup CRD not installed")
+		}
+		return fmt.Errorf("LocalModelNodeGroup %s: %w", localModelNodeGroupName, err)
+	}
+
+	return nil
 }
 
 func modelCacheResources(namespace string) []client.Object {

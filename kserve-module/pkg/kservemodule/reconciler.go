@@ -41,8 +41,8 @@ import (
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=create;delete;get;list;patch;watch
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterroles;clusterrolebindings,verbs=create;delete;get;list;patch;update;watch
-// escalate/bind scoped to the exact roles and clusterroles deployed by this controller
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=*
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings,verbs=*
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/status,verbs=get;update
@@ -174,10 +174,6 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 		allResources = append(allResources, resources...)
 	}
 
-	if err := r.reconcileModelCache(ctx, kserve); err != nil {
-		componentErrors["modelcache"] = err
-	}
-
 	if len(componentErrors) > 0 {
 		return componentErrors
 	}
@@ -210,7 +206,7 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 	}
 
 	if err := applyParams(
-		filepath.Join(manifestDir, comp.name, sourcePath),
+		filepath.Join(manifestDir, comp.dirName(), sourcePath),
 		comp.imageMap,
 	); err != nil {
 		return nil, fmt.Errorf("applying %s image params: %w", comp.name, err)
@@ -219,7 +215,7 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 	if r.isKubernetes(ctx) {
 		ns := r.getApplicationsNamespace()
 		if err := applyParams(
-			filepath.Join(manifestDir, comp.name, comp.sourcePathXKS),
+			filepath.Join(manifestDir, comp.dirName(), comp.sourcePathXKS),
 			nil, buildCertManagerParams(ns),
 		); err != nil {
 			return nil, fmt.Errorf("applying cert-manager params: %w", err)
@@ -229,14 +225,14 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 	if comp.extraParams != nil {
 		extra := comp.extraParams(kserve)
 		if err := applyParams(
-			filepath.Join(manifestDir, comp.name, sourcePath),
+			filepath.Join(manifestDir, comp.dirName(), sourcePath),
 			nil, extra,
 		); err != nil {
 			return nil, fmt.Errorf("applying %s extra params: %w", comp.name, err)
 		}
 	}
 
-	renderPath := filepath.Join(manifestDir, comp.name, sourcePath)
+	renderPath := filepath.Join(manifestDir, comp.dirName(), sourcePath)
 	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(r.getApplicationsNamespace()))
 	if err != nil {
 		return nil, fmt.Errorf("rendering %s kustomize: %w", comp.name, err)

@@ -21,6 +21,7 @@ const (
 	ConditionKServeReady           = "KServeReady"
 	ConditionModelControllerReady  = "ModelControllerReady"
 	ConditionWVAReady              = "WVAReady"
+	ConditionModelCacheReady       = "ModelCacheReady"
 	ConditionDependenciesAvailable = "DependenciesAvailable"
 )
 
@@ -31,6 +32,7 @@ func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
 		ConditionKServeReady,
 		ConditionModelControllerReady,
 		ConditionWVAReady,
+		ConditionModelCacheReady,
 		ConditionDependenciesAvailable,
 	)
 }
@@ -126,6 +128,18 @@ func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, k
 		}
 	} else {
 		condMgr.ClearCondition(ConditionWVAReady)
+	}
+
+	if !isModelCacheEnabled(kserve) {
+		condMgr.MarkTrue(ConditionModelCacheReady,
+			conditions.WithReason("Disabled"))
+	} else if err := r.checkModelCacheReadiness(ctx); err != nil {
+		condMgr.MarkFalse(ConditionModelCacheReady,
+			conditions.WithReason("ResourcesNotReady"),
+			conditions.WithMessage("%s", err.Error()))
+	} else {
+		condMgr.MarkTrue(ConditionModelCacheReady,
+			conditions.WithReason("ResourcesReady"))
 	}
 }
 
