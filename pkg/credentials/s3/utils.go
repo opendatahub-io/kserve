@@ -20,6 +20,8 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/kserve/kserve/pkg/constants"
 )
 
 // BuildS3EnvVars sets s3 related env variables based on the provided configuration.
@@ -36,7 +38,12 @@ import (
 func BuildS3EnvVars(annotations map[string]string, secretData *map[string][]byte, s3Config *S3Config) []corev1.EnvVar {
 	envs := []corev1.EnvVar{}
 
-	s3Endpoint := getEnvValue(annotations, secretData, InferenceServiceS3SecretEndpointAnnotation, S3Endpoint, s3Config.S3Endpoint)
+	var s3Endpoint string
+	if odhS3Endpoint, ok := getSecretValueFromPtr(secretData, constants.ODHS3Endpoint); ok {
+		s3Endpoint = odhS3Endpoint // ODH only
+	} else {
+		s3Endpoint = getEnvValue(annotations, secretData, InferenceServiceS3SecretEndpointAnnotation, S3Endpoint, s3Config.S3Endpoint)
+	}
 	if s3Endpoint != "" {
 		s3UseHttps, formattedS3Endpoint, s3EndpointUrl := getEndpointConfiguration(s3Endpoint, annotations, secretData, s3Config)
 		if s3UseHttps != "" {
@@ -45,7 +52,6 @@ func BuildS3EnvVars(annotations map[string]string, secretData *map[string][]byte
 				Value: s3UseHttps,
 			})
 		}
-
 		envs = append(envs, corev1.EnvVar{
 			Name:  S3Endpoint,
 			Value: formattedS3Endpoint,

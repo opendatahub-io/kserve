@@ -63,6 +63,9 @@ const (
 	OpenShiftServiceCaConfigMapName = "openshift-service-ca.crt"
 )
 
+// ODH Connections API
+const ODHS3Endpoint = "AWS_S3_ENDPOINT"
+
 type ResourceType string
 
 const (
