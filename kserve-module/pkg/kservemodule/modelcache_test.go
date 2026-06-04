@@ -432,36 +432,22 @@ func newReconcilerWithFakeClient(objects ...client.Object) *KserveModuleReconcil
 	}
 }
 
-func TestReconcileModelCache_SkipsWhenNotEnabled(t *testing.T) {
+func TestIsModelCacheEnabled_ControlsComponentRouting(t *testing.T) {
 	g := NewWithT(t)
 
-	r := newReconcilerWithFakeClient()
-	kserve := &platformv1alpha1.Kserve{
-		Spec: platformv1alpha1.KserveSpec{},
-	}
-
-	err := r.reconcileModelCache(context.Background(), kserve)
-	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(isModelCacheEnabled(&platformv1alpha1.Kserve{Spec: platformv1alpha1.KserveSpec{}})).To(BeFalse())
+	g.Expect(isModelCacheEnabled(testKserveWithModelCache(common.Removed, "100Gi", []string{"node1"}))).To(BeFalse())
+	g.Expect(isModelCacheEnabled(testKserveWithModelCache(common.Managed, "100Gi", []string{"node1"}))).To(BeTrue())
 }
 
-func TestReconcileModelCache_SkipsWhenRemoved(t *testing.T) {
-	g := NewWithT(t)
-
-	r := newReconcilerWithFakeClient()
-	kserve := testKserveWithModelCache(common.Removed, "100Gi", []string{"node1"})
-
-	err := r.reconcileModelCache(context.Background(), kserve)
-	g.Expect(err).NotTo(HaveOccurred())
-}
-
-func TestReconcileModelCache_EnabledCreatesResources(t *testing.T) {
+func TestReconcileModelCacheResources_CreatesResources(t *testing.T) {
 	g := NewWithT(t)
 
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-1"}}
 	r := newReconcilerWithFakeClient(node)
 
 	kserve := testKserveWithModelCache(common.Managed, "500Gi", []string{"worker-1"})
-	err := r.reconcileModelCache(context.Background(), kserve)
+	err := r.reconcileModelCacheResources(context.Background(), kserve)
 	g.Expect(err).NotTo(HaveOccurred())
 
 	pv := &corev1.PersistentVolume{}

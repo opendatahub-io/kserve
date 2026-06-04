@@ -10,5 +10,5 @@ resources:
 
 images:
 - name: kserve-module-controller
-  newName: quay.io/opendatahub/kserve-module-controller
-  newTag: latest
+  newName: quay.io/mskarbek/kserve-module-controller
+  newTag: pr-1508-v5
