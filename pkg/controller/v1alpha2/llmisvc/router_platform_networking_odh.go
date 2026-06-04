@@ -177,7 +177,7 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForScheduler(ctx context
 			TrafficPolicy: &istionetworking.TrafficPolicy{
 				Tls: &istionetworking.ClientTLSSettings{
 					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
-					CredentialName:     kmeta.ChildName(llmSvc.GetName(), "-kserve-self-signed-certs"),
+					CaCertificates:     IstioCACertificatePath,
 					InsecureSkipVerify: &wrapperspb.BoolValue{Value: !schedulerTlsRotationEnabled(llmSvc)},
 				},
 			},
@@ -230,7 +230,7 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForShadowService(ctx con
 			TrafficPolicy: &istionetworking.TrafficPolicy{
 				Tls: &istionetworking.ClientTLSSettings{
 					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
-					CredentialName:     kmeta.ChildName(llmSvc.GetName(), "-kserve-self-signed-certs"),
+					CaCertificates:     IstioCACertificatePath,
 					InsecureSkipVerify: &wrapperspb.BoolValue{Value: !schedulerTlsRotationEnabled(llmSvc)},
 				},
 			},
@@ -269,7 +269,7 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForWorkload(ctx context.
 			TrafficPolicy: &istionetworking.TrafficPolicy{
 				Tls: &istionetworking.ClientTLSSettings{
 					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
-					CredentialName:     kmeta.ChildName(llmSvc.GetName(), "-kserve-self-signed-certs"),
+					CaCertificates:     IstioCACertificatePath,
 					InsecureSkipVerify: &wrapperspb.BoolValue{Value: !llmSvcHasTlsRotationEnabled(llmSvc)},
 					Sni:                hostname,
 				},
