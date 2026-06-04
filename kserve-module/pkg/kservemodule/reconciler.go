@@ -55,7 +55,7 @@ import (
 // +kubebuilder:rbac:groups=cert-manager.io,resources=clusterissuers,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations;validatingwebhookconfigurations,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceserviceconfigs;clusterstoragecontainers,verbs=create;delete;get;list;patch;update;watch
-// +kubebuilder:rbac:groups=security.openshift.io,resources=securitycontextconstraints,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=security.openshift.io,resources=securitycontextconstraints,verbs=create;delete;get;list;patch;update;use;watch
 // +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheuses/api,resourceNames=k8s,verbs=get;create;update
