@@ -14,6 +14,8 @@ import yaml
 KSERVE_CR_NAME = "default-kserve"
 NAMESPACE = "opendatahub"
 OPERATOR_DEPLOYMENT = "kserve-module-controller-manager"
+TIMEOUT_120S = 120
+TIMEOUT_60S = 60
 
 OPERAND_DEPLOYMENTS_XKS = [
     "llmisvc-controller-manager",
@@ -97,12 +99,12 @@ def trigger_reconcile(kubectl_bin, name=KSERVE_CR_NAME, trigger_id=None):
 def create_kserve_cr(kubectl_bin, cr_dict=None):
     """Create a Kserve CR if it doesn't already exist."""
     if cr_exists(kubectl_bin):
-        return _poll_cr(kubectl_bin, KSERVE_CR_NAME, is_cr_ready, 120,
-                        f"Kserve CR {KSERVE_CR_NAME} not ready within 120s")
+        return _poll_cr(kubectl_bin, KSERVE_CR_NAME, is_cr_ready, TIMEOUT_120S,
+                        f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_120S}s")
     cr = yaml.safe_dump(cr_dict or KSERVE_CR_TEMPLATE)
     run([kubectl_bin, "create", "-f", "-"], input_text=cr)
-    return _poll_cr(kubectl_bin, KSERVE_CR_NAME, is_cr_ready, 120,
-                    f"Kserve CR {KSERVE_CR_NAME} not ready within 120s")
+    return _poll_cr(kubectl_bin, KSERVE_CR_NAME, is_cr_ready, TIMEOUT_120S,
+                    f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_120S}s")
 
 
 # ---------------------------------------------------------------------------
@@ -122,38 +124,27 @@ def _poll_cr(kubectl_bin, name, predicate, timeout, msg):
     raise TimeoutError(msg)
 
 
-def wait_for_kserve_cleanup(kubectl_bin, name=KSERVE_CR_NAME, is_openshift=False, timeout=120):
+def wait_for_kserve_cleanup(kubectl_bin, name=KSERVE_CR_NAME, is_openshift=False, timeout=TIMEOUT_120S):
     """Wait until the Kserve CR is fully deleted."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if not cr_exists(kubectl_bin, name):
-            break
-        time.sleep(5)
-    else:
-        raise TimeoutError(f"Kserve CR {name} not deleted within {timeout}s")
-    _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=60)
+    result = run([kubectl_bin, "get", "kserve", name, "--ignore-not-found"])
+    if result.stdout.strip():
+        run([
+            kubectl_bin, "wait", "--for=delete", f"kserve/{name}",
+            f"--timeout={timeout}s",
+        ])
+    _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S)
 
 
-def _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=60):
+def _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S):
     """Wait until managed deployments are cleaned up by garbage collection."""
     expected = operand_deployments(is_openshift)
-    deadline = time.time() + timeout
-    last_error = None
-    while time.time() < deadline:
-        result = run(
-            [kubectl_bin, "get", "deployments", "-n", NAMESPACE, "-o", "yaml"], check=False
-        )
-        if result.returncode != 0:
-            last_error = result.stderr.strip()
-            time.sleep(5)
-            continue
-        deployments = yaml.safe_load(result.stdout)
-        dep_names = [d["metadata"]["name"] for d in deployments.get("items", [])]
-        if all(op not in dep_names for op in expected):
-            return
-        time.sleep(5)
-    suffix = f" (last kubectl error: {last_error})" if last_error else ""
-    raise TimeoutError(f"Managed deployments not cleaned up within {timeout}s{suffix}")
+    for dep in expected:
+        result = run([kubectl_bin, "get", "deployment", dep, "-n", NAMESPACE, "--ignore-not-found"])
+        if result.stdout.strip():
+            run([
+                kubectl_bin, "wait", "--for=delete", f"deployment/{dep}",
+                "-n", NAMESPACE, f"--timeout={timeout}s",
+            ])
 
 
 # ---------------------------------------------------------------------------
@@ -174,12 +165,6 @@ def cluster_info():
 def kubectl(cluster_info):
     """Return the kubectl binary name for the cluster."""
     return cluster_info.kubectl
-
-
-@pytest.fixture
-def ensure_kserve_cr(kubectl):
-    """Ensure a Kserve CR exists; create if missing, leave in place after test."""
-    return create_kserve_cr(kubectl)
 
 
 @pytest.fixture

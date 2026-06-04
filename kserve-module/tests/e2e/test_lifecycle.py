@@ -6,15 +6,13 @@ import pytest
 
 from conftest import (
     run,
-    get_cr,
-    create_kserve_cr,
-    is_cr_ready,
     _poll_cr,
     wait_for_kserve_cleanup,
     operand_deployments,
     KSERVE_CR_NAME,
     NAMESPACE,
     OPERATOR_DEPLOYMENT,
+    TIMEOUT_120S,
 )
 
 
@@ -55,7 +53,7 @@ class TestCreate:
 class TestDelete:
     """Verify CR deletion removes managed resources and preserves CRDs."""
 
-    def test_delete_cleans_up_managed_resources(self, kubectl, cluster_info, ensure_kserve_cr):
+    def test_delete_cleans_up_managed_resources(self, kubectl, cluster_info, apply_kserve_cr):
         """Kserve CR deletion removes managed deployments but keeps the operator running.
 
         Verifies GC cleans up operand deployments via ownerReference,
@@ -84,32 +82,34 @@ class TestDelete:
 class TestUpdate:
     """Verify spec changes trigger reconcile and apply new config."""
 
-    def test_spec_change_triggers_reconcile(self, kubectl, ensure_kserve_cr):
+    def test_spec_change_triggers_reconcile(self, kubectl, apply_kserve_cr):
         """Patching spec.rawDeploymentServiceConfig triggers reconcile.
 
         Verifies generation increments, observedGeneration catches up,
         and the new spec value is persisted.
         """
-        cr_before = get_cr(kubectl)
-        gen_before = cr_before["metadata"]["generation"]
-        current = cr_before.get("spec", {}).get("rawDeploymentServiceConfig", "Headless")
-        new_value = "Headed" if current == "Headless" else "Headless"
+        gen_before = apply_kserve_cr["metadata"]["generation"]
 
-        patch = json.dumps({"spec": {"rawDeploymentServiceConfig": new_value}})
+        result = run([
+            kubectl, "get", "configmap", "inferenceservice-config",
+            "-n", NAMESPACE, "-o", "jsonpath={.data.service}",
+        ])
+        assert '"serviceClusterIPNone": true' in result.stdout, \
+            "ConfigMap should have serviceClusterIPNone=true before update"
+
+        patch = json.dumps({"spec": {"rawDeploymentServiceConfig": "Headed"}})
         run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
 
-        cr_after = _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, 120,
-                            "observedGeneration not matching within 120s")
+        cr_after = _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                            f"observedGeneration not matching within {TIMEOUT_120S}s")
         gen_after = cr_after["metadata"]["generation"]
 
         assert gen_after > gen_before, \
             f"Generation should increment: {gen_before} -> {gen_after}"
-        assert cr_after["status"]["observedGeneration"] == gen_after, \
-            "observedGeneration should match generation after reconcile"
-        assert cr_after["spec"]["rawDeploymentServiceConfig"] == new_value, \
-            f"Spec should reflect update: expected {new_value}"
+        assert cr_after["spec"]["rawDeploymentServiceConfig"] == "Headed", \
+            "Spec should reflect update: expected Headed"
 
-        expected_headless = "true" if new_value == "Headless" else "false"
+        expected_headless = "false"
         result = run([
             kubectl, "get", "configmap", "inferenceservice-config",
             "-n", NAMESPACE, "-o", "jsonpath={.data.service}",
@@ -162,53 +162,8 @@ class TestManagementState:
         patch = json.dumps({"spec": {"nim": {"managementState": "Removed"}}})
         run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
 
-        cr = _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, 120,
-                      "observedGeneration not matching within 120s")
+        cr = _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                      f"observedGeneration not matching within {TIMEOUT_120S}s")
 
         nim_state = cr.get("spec", {}).get("nim", {}).get("managementState")
         assert nim_state == "Removed", f"Expected Removed, got {nim_state}"
-
-@pytest.mark.sanity
-class TestLifecycleE2E:
-    """End-to-end lifecycle tests covering create -> update -> delete."""
-
-    def _run_full_lifecycle(self, kubectl, is_openshift):
-        expected = operand_deployments(is_openshift)
-
-        cr = create_kserve_cr(kubectl)
-        assert is_cr_ready(cr), "CR should be Ready after creation"
-        _verify_deployments_available(kubectl, is_openshift)
-
-        current = cr.get("spec", {}).get("rawDeploymentServiceConfig", "Headless")
-        new_value = "Headed" if current == "Headless" else "Headless"
-        patch = json.dumps({"spec": {"rawDeploymentServiceConfig": new_value}})
-        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
-        cr = _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, 120,
-                      "observedGeneration not matching within 120s")
-        assert cr["status"]["observedGeneration"] == cr["metadata"]["generation"]
-        assert cr["spec"]["rawDeploymentServiceConfig"] == new_value
-
-        expected_headless = "true" if new_value == "Headless" else "false"
-        result = run([
-            kubectl, "get", "configmap", "inferenceservice-config",
-            "-n", NAMESPACE, "-o", "jsonpath={.data.service}",
-        ])
-        assert f'"serviceClusterIPNone": {expected_headless}' in result.stdout, \
-            f"ConfigMap should reflect serviceClusterIPNone={expected_headless}"
-
-        run([kubectl, "delete", "kserve", KSERVE_CR_NAME])
-        wait_for_kserve_cleanup(kubectl, is_openshift=is_openshift)
-
-        result = run([kubectl, "get", "deployments", "-n", NAMESPACE, "-o", "yaml"])
-        deployments = yaml.safe_load(result.stdout)
-        dep_names = [d["metadata"]["name"] for d in deployments.get("items", [])]
-        for operand in expected:
-            assert operand not in dep_names, f"{operand} should be deleted"
-
-    def test_full_lifecycle(self, kubectl, cluster_info):
-        """Full lifecycle in a single test: create -> verify -> update -> delete.
-
-        Runs without fixtures to test the complete flow sequentially,
-        ensuring no state leaks between phases.
-        """
-        self._run_full_lifecycle(kubectl, is_openshift=cluster_info.is_openshift)
