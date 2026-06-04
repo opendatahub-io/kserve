@@ -376,11 +376,6 @@ func modelCacheComponentPostRender(
 	kserve *platformv1alpha1.Kserve,
 	resources []unstructured.Unstructured,
 ) ([]unstructured.Unstructured, error) {
-	resources, err := forceReconcileKserveAgentImage(resources)
-	if err != nil {
-		return nil, fmt.Errorf("reconciling agent image: %w", err)
-	}
-
 	if err := r.reconcileModelCacheResources(ctx, kserve); err != nil {
 		return nil, fmt.Errorf("reconciling modelcache resources: %w", err)
 	}
