@@ -5,16 +5,16 @@
 # Clean merges produce a simple PR. Conflicts trigger Claude Code for AI resolution.
 #
 # Labels:
-#   upstream-sync                         — always applied to sync PRs
-#   tide/merge-method-merge               — always applied, merge strategy
-#   clean-merge                           — no conflicts, trivial merge
-#   merge-conflict/ai-resolved            — Claude resolved conflicts, build + precommit pass
-#   merge-conflict/needs-manual-resolution — Claude couldn't resolve or build fails
+#   upstream-sync                         -- always applied to sync PRs
+#   tide/merge-method-merge               -- always applied, merge strategy
+#   clean-merge                           -- no conflicts, trivial merge
+#   merge-conflict/ai-resolved            -- Claude resolved conflicts, build + precommit pass
+#   merge-conflict/needs-manual-resolution -- Claude couldn't resolve or build fails
 #
 # Required secrets:
-#   GCP_SA_KEY_B64 — Base64-encoded Google Cloud service account JSON key (Vertex AI User role)
-#   ODH_RELEASE_BOT_APP_ID — GitHub App ID for ODH Release Bot
-#   ODH_RELEASE_BOT_PRIVATE_KEY — GitHub App private key for ODH Release Bot
+#   GCP_SA_KEY_B64 -- Base64-encoded Google Cloud service account JSON key (Vertex AI User role)
+#   ODH_RELEASE_BOT_APP_ID -- GitHub App ID for ODH Release Bot
+#   ODH_RELEASE_BOT_PRIVATE_KEY -- GitHub App private key for ODH Release Bot
 
 name: Daily Upstream Sync
 
@@ -95,16 +95,16 @@ jobs:
             # Check if upstream/master is already contained in the PR branch
             if git merge-base --is-ancestor upstream/master FETCH_HEAD; then
               echo "skip=true" >> "$GITHUB_OUTPUT"
-              echo "::notice::Open sync PR already includes all upstream commits — nothing new."
+              echo "::notice::Open sync PR already includes all upstream commits -- nothing new."
               exit 0
             fi
             echo "::notice::Upstream has new commits beyond the existing sync PR."
           else
-            # No open PR — compare against our master
+            # No open PR -- compare against our master
             MERGE_BASE=$(git merge-base HEAD upstream/master)
             if [ "$UPSTREAM_HEAD" = "$MERGE_BASE" ]; then
               echo "skip=true" >> "$GITHUB_OUTPUT"
-              echo "::notice::Already up to date with upstream — nothing to sync."
+              echo "::notice::Already up to date with upstream -- nothing to sync."
               exit 0
             fi
           fi
@@ -145,7 +145,7 @@ jobs:
             echo "::notice::Closing stale sync PR #${PR_NUM}"
             gh pr close "$PR_NUM" \
               --repo "${{ github.repository }}" \
-              --comment "Superseded — upstream has new commits since this PR was created." \
+              --comment "Superseded -- upstream has new commits since this PR was created." \
               --delete-branch || true
           fi
 
@@ -175,7 +175,7 @@ jobs:
                --no-edit \
                -m "chore: sync upstream (${{ steps.check.outputs.commit_count }} commits)"; then
             echo "has_conflicts=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Clean merge — no conflicts."
+            echo "::notice::Clean merge -- no conflicts."
           else
             echo "has_conflicts=true" >> "$GITHUB_OUTPUT"
 
@@ -192,7 +192,7 @@ jobs:
           fi
 
       # ════════════════════════════════════════════
-      # CLEAN PATH — no conflicts
+      # CLEAN PATH -- no conflicts
       # ════════════════════════════════════════════
       - name: Push clean merge
         if: >
@@ -201,7 +201,7 @@ jobs:
           inputs.dry_run != true
         run: git push origin "${{ steps.branch.outputs.name }}"
 
-      - name: Create PR — sync/clean
+      - name: Create PR -- sync/clean
         if: >
           steps.check.outputs.skip == 'false' &&
           steps.merge.outputs.has_conflicts == 'false' &&
@@ -244,7 +244,7 @@ jobs:
             --add-label "clean-merge"
 
       # ════════════════════════════════════════════
-      # CONFLICT PATH — resolve with Claude, verify, then commit & open PR
+      # CONFLICT PATH -- resolve with Claude, verify, then commit & open PR
       # ════════════════════════════════════════════
 
       # ── Pre-install toolchain so Claude doesn't waste turns ──
