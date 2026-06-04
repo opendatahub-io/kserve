@@ -198,10 +198,6 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 		allResources = append(allResources, resources...)
 	}
 
-	if err := r.reconcileModelCache(ctx, kserve); err != nil {
-		componentErrors["modelcache"] = err
-	}
-
 	if len(componentErrors) > 0 {
 		return componentErrors
 	}
@@ -234,7 +230,7 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 	}
 
 	if err := applyParams(
-		filepath.Join(manifestDir, comp.name, sourcePath),
+		filepath.Join(manifestDir, comp.dirName(), sourcePath),
 		comp.imageMap,
 	); err != nil {
 		return nil, fmt.Errorf("applying %s image params: %w", comp.name, err)
@@ -243,7 +239,7 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 	if r.isKubernetes(ctx) {
 		ns := r.getApplicationsNamespace()
 		if err := applyParams(
-			filepath.Join(manifestDir, comp.name, comp.sourcePathXKS),
+			filepath.Join(manifestDir, comp.dirName(), comp.sourcePathXKS),
 			nil, buildCertManagerParams(ns),
 		); err != nil {
 			return nil, fmt.Errorf("applying cert-manager params: %w", err)
@@ -253,14 +249,14 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 	if comp.extraParams != nil {
 		extra := comp.extraParams(kserve)
 		if err := applyParams(
-			filepath.Join(manifestDir, comp.name, sourcePath),
+			filepath.Join(manifestDir, comp.dirName(), sourcePath),
 			nil, extra,
 		); err != nil {
 			return nil, fmt.Errorf("applying %s extra params: %w", comp.name, err)
 		}
 	}
 
-	renderPath := filepath.Join(manifestDir, comp.name, sourcePath)
+	renderPath := filepath.Join(manifestDir, comp.dirName(), sourcePath)
 	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(r.getApplicationsNamespace()))
 	if err != nil {
 		return nil, fmt.Errorf("rendering %s kustomize: %w", comp.name, err)

@@ -5,6 +5,7 @@ const (
 	KserveComponentName             = "kserve"
 	OdhModelControllerComponentName = "modelcontroller"
 	WVAComponentName                = "wva"
+	ModelCacheComponentName         = "modelcache"
 
 	// Manifest source paths
 	KserveManifestSourcePath           = "overlays/odh"
