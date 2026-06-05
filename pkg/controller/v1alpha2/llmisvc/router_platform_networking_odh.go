@@ -175,7 +175,7 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForScheduler(ctx context
 		InsecureSkipVerify: &wrapperspb.BoolValue{Value: !schedulerTlsRotationEnabled(llmSvc)},
 	}
 
-	if tlsSettings.InsecureSkipVerify.Value {
+	if tlsSettings.GetInsecureSkipVerify().Value {
 		tlsSettings.CaCertificates = ""
 	}
 
@@ -234,7 +234,7 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForShadowService(ctx con
 		InsecureSkipVerify: &wrapperspb.BoolValue{Value: !schedulerTlsRotationEnabled(llmSvc)},
 	}
 
-	if tlsSettings.InsecureSkipVerify.Value {
+	if tlsSettings.GetInsecureSkipVerify().Value {
 		tlsSettings.CaCertificates = ""
 	}
 
@@ -280,7 +280,7 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForWorkload(ctx context.
 		Sni:                hostname,
 	}
 
-	if tlsSettings.InsecureSkipVerify.Value {
+	if tlsSettings.GetInsecureSkipVerify().Value {
 		tlsSettings.CaCertificates = ""
 	}
 
