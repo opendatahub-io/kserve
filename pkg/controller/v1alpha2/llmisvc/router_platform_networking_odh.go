@@ -169,6 +169,16 @@ func (r *LLMISVCReconciler) reconcileIstioDestinationRuleForScheduler(ctx contex
 }
 
 func (r *LLMISVCReconciler) expectedIstioDestinationRuleForScheduler(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) (*istioapi.DestinationRule, error) {
+	tlsSettings := &istionetworking.ClientTLSSettings{
+		Mode:               istionetworking.ClientTLSSettings_SIMPLE,
+		CaCertificates:     IstioCACertificatePath,
+		InsecureSkipVerify: &wrapperspb.BoolValue{Value: !schedulerTlsRotationEnabled(llmSvc)},
+	}
+
+	if tlsSettings.InsecureSkipVerify.Value {
+		tlsSettings.CaCertificates = ""
+	}
+
 	dr := &istioapi.DestinationRule{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-scheduler"),
@@ -185,11 +195,7 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForScheduler(ctx context
 		},
 		Spec: istionetworking.DestinationRule{
 			TrafficPolicy: &istionetworking.TrafficPolicy{
-				Tls: &istionetworking.ClientTLSSettings{
-					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
-					CaCertificates:     IstioCACertificatePath,
-					InsecureSkipVerify: &wrapperspb.BoolValue{Value: !schedulerTlsRotationEnabled(llmSvc)},
-				},
+				Tls: tlsSettings,
 			},
 			ExportTo: []string{"*"},
 		},
@@ -222,6 +228,16 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForShadowService(ctx con
 		return nil, fmt.Errorf("failed to get istio inference pool service: %w", err)
 	}
 
+	tlsSettings := &istionetworking.ClientTLSSettings{
+		Mode:               istionetworking.ClientTLSSettings_SIMPLE,
+		CaCertificates:     IstioCACertificatePath,
+		InsecureSkipVerify: &wrapperspb.BoolValue{Value: !schedulerTlsRotationEnabled(llmSvc)},
+	}
+
+	if tlsSettings.InsecureSkipVerify.Value {
+		tlsSettings.CaCertificates = ""
+	}
+
 	dr := &istioapi.DestinationRule{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-shadow-svc"),
@@ -238,11 +254,7 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForShadowService(ctx con
 		},
 		Spec: istionetworking.DestinationRule{
 			TrafficPolicy: &istionetworking.TrafficPolicy{
-				Tls: &istionetworking.ClientTLSSettings{
-					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
-					CaCertificates:     IstioCACertificatePath,
-					InsecureSkipVerify: &wrapperspb.BoolValue{Value: !schedulerTlsRotationEnabled(llmSvc)},
-				},
+				Tls: tlsSettings,
 			},
 			ExportTo: []string{"*"},
 		},
@@ -260,6 +272,18 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForShadowService(ctx con
 
 func (r *LLMISVCReconciler) expectedIstioDestinationRuleForWorkload(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) *istioapi.DestinationRule {
 	hostname := network.GetServiceHostname(kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"), llmSvc.GetNamespace())
+
+	tlsSettings := &istionetworking.ClientTLSSettings{
+		Mode:               istionetworking.ClientTLSSettings_SIMPLE,
+		CaCertificates:     IstioCACertificatePath,
+		InsecureSkipVerify: &wrapperspb.BoolValue{Value: !llmSvcHasTlsRotationEnabled(llmSvc)},
+		Sni:                hostname,
+	}
+
+	if tlsSettings.InsecureSkipVerify.Value {
+		tlsSettings.CaCertificates = ""
+	}
+
 	dr := &istioapi.DestinationRule{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"),
@@ -277,12 +301,7 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForWorkload(ctx context.
 		Spec: istionetworking.DestinationRule{
 			Host: hostname,
 			TrafficPolicy: &istionetworking.TrafficPolicy{
-				Tls: &istionetworking.ClientTLSSettings{
-					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
-					CaCertificates:     IstioCACertificatePath,
-					InsecureSkipVerify: &wrapperspb.BoolValue{Value: !llmSvcHasTlsRotationEnabled(llmSvc)},
-					Sni:                hostname,
-				},
+				Tls: tlsSettings,
 			},
 			ExportTo: []string{"*"},
 		},
@@ -336,6 +355,11 @@ func schedulerTlsRotationEnabled(llmSvc *v1alpha2.LLMInferenceService) bool {
 	}
 
 	podSpec := llmSvc.Spec.Router.Scheduler.Template
+	if podSpec == nil {
+		// No managed scheduler template (e.g. external InferencePool ref);
+		// default to rotation enabled for FIPS-compatible configurations.
+		return true
+	}
 	for _, container := range podSpec.Containers {
 		if container.Name != "main" {
 			continue
