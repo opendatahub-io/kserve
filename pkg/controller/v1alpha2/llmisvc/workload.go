@@ -279,7 +279,7 @@ func llmSvcHasTlsRotationEnabled(llmSvc *v1alpha2.LLMInferenceService) bool {
 	default:
 		// This would be a rare situation, assuming the llmSvc
 		// already undergo merge process with base configs.
-		// We flag the LLMIsvc with rotatino enabled for a
+		// We flag the LLMIsvc with rotation enabled for a
 		// FIPS-compatible configuration (prevent nil
 		// pointer de-reference of enginePodSpec).
 		return true
