@@ -273,7 +273,7 @@ func (r *LLMISVCReconciler) expectedVLLMEngineMonitor(llmSvc *v1alpha2.LLMInfere
 										LocalObjectReference: corev1.LocalObjectReference{
 											Name: kmeta.ChildName(llmSvc.GetName(), "-kserve-self-signed-certs"),
 										},
-										Key: "cacert",
+										Key: "ca.crt",
 									},
 								},
 							},
