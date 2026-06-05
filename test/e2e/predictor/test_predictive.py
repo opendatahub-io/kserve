@@ -34,7 +34,7 @@ from ..common.utils import KSERVE_TEST_NAMESPACE, predict_isvc
 
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")
-async def test_predictive_sklearn_v1(rest_v1_client):
+async def test_predictive_sklearn_v1(rest_v1_client, network_layer):
     service_name = "isvc-predictive-sklearn"
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
@@ -67,14 +67,19 @@ async def test_predictive_sklearn_v1(rest_v1_client):
     )
     kserve_client.create(isvc)
     kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
-    res = await predict_isvc(rest_v1_client, service_name, "./data/iris_input.json")
+    res = await predict_isvc(
+        rest_v1_client,
+        service_name,
+        "./data/iris_input.json",
+        network_layer=network_layer,
+    )
     assert res["predictions"] == [1, 1]
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")
-async def test_predictive_xgboost_v1(rest_v1_client):
+async def test_predictive_xgboost_v1(rest_v1_client, network_layer):
     service_name = "isvc-predictive-xgboost"
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
@@ -107,14 +112,19 @@ async def test_predictive_xgboost_v1(rest_v1_client):
     )
     kserve_client.create(isvc)
     kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
-    res = await predict_isvc(rest_v1_client, service_name, "./data/iris_input.json")
+    res = await predict_isvc(
+        rest_v1_client,
+        service_name,
+        "./data/iris_input.json",
+        network_layer=network_layer,
+    )
     assert res["predictions"] == [1, 1]
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")
-async def test_predictive_lightgbm_v1(rest_v1_client):
+async def test_predictive_lightgbm_v1(rest_v1_client, network_layer):
     service_name = "isvc-predictive-lightgbm"
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
@@ -148,14 +158,19 @@ async def test_predictive_lightgbm_v1(rest_v1_client):
     kserve_client.create(isvc)
     kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
-    res = await predict_isvc(rest_v1_client, service_name, "./data/iris_input_v3.json")
+    res = await predict_isvc(
+        rest_v1_client,
+        service_name,
+        "./data/iris_input_v3.json",
+        network_layer=network_layer,
+    )
     assert numpy.argmax(res["predictions"][0]) == 0
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")
-async def test_predictive_sklearn_v2(rest_v2_client):
+async def test_predictive_sklearn_v2(rest_v2_client, network_layer):
     service_name = "isvc-predictive-sklearn-v2"
     protocol_version = "v2"
     predictor = V1beta1PredictorSpec(
@@ -201,6 +216,7 @@ async def test_predictive_sklearn_v2(rest_v2_client):
         rest_v2_client,
         service_name,
         "./data/iris_input_v2.json",
+        network_layer=network_layer,
     )
     assert res.outputs[0].data == [1, 1]
 
@@ -209,7 +225,7 @@ async def test_predictive_sklearn_v2(rest_v2_client):
 
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")
-async def test_predictive_xgboost_v2(rest_v2_client):
+async def test_predictive_xgboost_v2(rest_v2_client, network_layer):
     service_name = "isvc-predictive-xgboost-v2"
     protocol_version = "v2"
     predictor = V1beta1PredictorSpec(
@@ -255,6 +271,7 @@ async def test_predictive_xgboost_v2(rest_v2_client):
         rest_v2_client,
         service_name,
         "./data/iris_input_v2.json",
+        network_layer=network_layer,
     )
     assert res.outputs[0].data == [1, 1]
 
@@ -263,7 +280,7 @@ async def test_predictive_xgboost_v2(rest_v2_client):
 
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")
-async def test_predictive_lightgbm_v2(rest_v2_client):
+async def test_predictive_lightgbm_v2(rest_v2_client, network_layer):
     service_name = "isvc-predictive-lightgbm-v2"
     protocol_version = "v2"
     predictor = V1beta1PredictorSpec(
@@ -309,6 +326,7 @@ async def test_predictive_lightgbm_v2(rest_v2_client):
         rest_v2_client,
         service_name,
         "./data/iris_input_v2.json",
+        network_layer=network_layer,
     )
     # LightGBM returns probability predictions in v2 format
     # We verify the highest probability class matches expected result

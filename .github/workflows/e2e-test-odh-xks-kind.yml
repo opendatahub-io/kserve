@@ -33,9 +33,18 @@ jobs:
           fetch-depth: 0
 
       - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
-          git fetch origin ${{ github.base_ref }}
-          git merge origin/${{ github.base_ref }} --no-edit
+          if [[ ! "$BASE_REF" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+            echo "::error::Invalid base ref: $BASE_REF"
+            exit 1
+          fi
+          git fetch origin -- "$BASE_REF"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git merge --no-edit "origin/$BASE_REF"
 
       - name: Free-up disk space
         uses: ./.github/actions/free-up-disk-space
@@ -101,15 +110,17 @@ jobs:
           popd
 
       - name: Run E2E tests
-        timeout-minutes: 40
+        timeout-minutes: 60
         env:
           KSERVE_NAMESPACE: "opendatahub"
           SKIP_DELETION_ON_FAILURE: "true"
           TOKEN_AUDIENCES: "https://kubernetes.default.svc"
           GATEWAY_CLASS_NAME: "istio"
           RUN_AS_NON_ROOT: "false"
+          OPT_125M_MODEL_URI: "s3://example-models/facebook/opt-125m"
           INFERENCE_POOL_GROUP: ${{ matrix.istio-version == '1.27.5' && 'inference.networking.x-k8s.io' || 'inference.networking.k8s.io' }}
         run: |
+          export PYTEST_MAXFAIL=3
           ./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice and cluster_cpu and not auth and not custom_gateway and not autoscaling" 0 "istio-gatewayapi-ext"
 
       - name: Check system status

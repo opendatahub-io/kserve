@@ -15,7 +15,7 @@ metadata:
     appstudio.openshift.io/application: opendatahub-builds
     appstudio.openshift.io/component: kserve-storage-initializer-ci
     pipelines.appstudio.openshift.io/type: build
-  name: kserve-storage-initializer-on-pull-request
+  name: kserve-storage-initializer-on-pull
   namespace: open-data-hub-tenant
 spec:
   params:

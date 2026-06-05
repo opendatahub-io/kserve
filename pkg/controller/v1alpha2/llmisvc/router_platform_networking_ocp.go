@@ -74,7 +74,7 @@ func (r *LLMISVCReconciler) hasIstioGateway(ctx context.Context, routes []*gwapi
 			return false, err
 		}
 		for _, g := range gateways {
-			if g.gatewayClass != nil && isIstioGatewayController(string(g.gatewayClass.Spec.ControllerName)) {
+			if g.GatewayClass != nil && isIstioGatewayController(string(g.GatewayClass.Spec.ControllerName)) {
 				return true, nil
 			}
 		}

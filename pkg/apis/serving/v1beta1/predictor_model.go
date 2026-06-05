@@ -102,7 +102,7 @@ func (m *ModelSpec) GetSupportingRuntimes(ctx context.Context, cl client.Client,
 		if !apimeta.IsNoMatchError(err) {
 			return nil, err
 		}
-		// CSR CRD not installed (e.g. OCP deployments) - treat as empty.
+		// CSR CRD not installed - treat as empty.
 	}
 	// Sort cluster-scoped runtimes by created timestamp desc and name asc.
 	sortClusterServingRuntimeList(clusterRuntimes)

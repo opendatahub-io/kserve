@@ -13,34 +13,28 @@ import (
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
-const (
-	kserveComponentName          = "kserve"
-	modelControllerComponentName = "modelcontroller"
-
-	kserveManifestSourcePath    = "overlays/odh"
-	kserveManifestSourcePathXKS = "overlays/odh-xks"
-	modelControllerSourcePath   = "base"
-)
 
 type componentConfig struct {
-	name        string
-	sourcePath  string
-	imageMap    map[string]string
-	extraParams func(kserve *platformv1alpha1.Kserve) map[string]string
-	postRender  func(ctx context.Context, r *KserveModuleReconciler,
+	name          string
+	sourcePath    string
+	sourcePathXKS string
+	imageMap      map[string]string
+	extraParams   func(kserve *platformv1alpha1.Kserve) map[string]string
+	postRender    func(ctx context.Context, r *KserveModuleReconciler,
 		kserve *platformv1alpha1.Kserve,
 		resources []unstructured.Unstructured) ([]unstructured.Unstructured, error)
 }
 
 var components = []componentConfig{
 	{
-		name:       kserveComponentName,
-		sourcePath: kserveManifestSourcePath,
-		imageMap:   kserveImageParamMap,
-		postRender: kservePostRender,
+		name:          kserveComponentName,
+		sourcePath:    kserveManifestSourcePath,
+		sourcePathXKS: kserveManifestSourcePathXKS,
+		imageMap:      kserveImageParamMap,
+		postRender:    kservePostRender,
 	},
 	{
-		name:        modelControllerComponentName,
+		name:        odhModelControllerComponentName,
 		sourcePath:  modelControllerSourcePath,
 		imageMap:    modelControllerImageParamMap,
 		extraParams: modelControllerExtraParams,

@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# This is a helper script to run E2E tests on the openshift-ci operator.
-# This script assumes to be run inside a container/machine that has
-# python pre-installed and the `oc` command available. Additional tooling,
-# like kustomize are installed by the script if not available.
-# The oc CLI is assumed to be configured with the credentials of the
-# target cluster. The target cluster is assumed to be a clean cluster.
+# Sets up the full E2E test environment on OpenShift:
+#   1. Optionally builds and pushes local KServe images (RUNNING_LOCAL=true)
+#   2. Installs KServe on the cluster via setup-kserve.sh
+#   3. Deploys E2E test infrastructure (SeaweedFS S3 backend, CA certs, ServingRuntimes)
+#
+# Assumes: python pre-installed, oc CLI configured against the target cluster.
 set -o errexit
 set -o nounset
 set -o pipefail
@@ -54,53 +54,33 @@ if [[ "$RUNNING_LOCAL" == "true" ]]; then
   fi
 fi
 
-# Parse command line options
-: "${INSTALL_ODH_OPERATOR:=false}"
-
-# Set the applications namespace based on installation method
-# ODH operator uses 'opendatahub', manual installation uses 'kserve'
-if [[ "$INSTALL_ODH_OPERATOR" == "true" ]]; then
-  KSERVE_NAMESPACE="opendatahub"
-else
-  KSERVE_NAMESPACE="kserve"
-fi
+# Derive install mode from OPERATOR_TYPE (empty = manual kustomize deploy).
+# KSERVE_NAMESPACE and SEAWEEDFS_BUNDLED are exported so they are available
+# after setup-kserve.sh returns (subprocess exports cannot propagate to this shell).
+: "${OPERATOR_TYPE:=}"
+case "${OPERATOR_TYPE}" in
+  rhods|rhoai)       export KSERVE_NAMESPACE="redhat-ods-applications"; export SEAWEEDFS_BUNDLED=false ;;
+  odh|opendatahub)   export KSERVE_NAMESPACE="opendatahub";             export SEAWEEDFS_BUNDLED=false ;;
+  "")                export KSERVE_NAMESPACE="kserve";                   export SEAWEEDFS_BUNDLED=true ;;
+  *)                 echo "Error: Unknown OPERATOR_TYPE '${OPERATOR_TYPE}'"; exit 1 ;;
+esac
 
 echo "Using namespace: $KSERVE_NAMESPACE for KServe components"
-PARAMS_ENV="$PROJECT_ROOT/config/overlays/odh/params.env"
+
+# Test-only image defaults (used by pytest, not by the KServe deployment itself)
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
-: "${KSERVE_CONTROLLER_IMAGE:=$(grep '^kserve-controller=' "$PARAMS_ENV" | cut -d= -f2-)}"
-: "${KSERVE_AGENT_IMAGE:=$(grep '^kserve-agent=' "$PARAMS_ENV" | cut -d= -f2-)}"
-: "${KSERVE_ROUTER_IMAGE:=$(grep '^kserve-router=' "$PARAMS_ENV" | cut -d= -f2-)}"
-: "${STORAGE_INITIALIZER_IMAGE:=$(grep '^kserve-storage-initializer=' "$PARAMS_ENV" | cut -d= -f2-)}"
-: "${ODH_MODEL_CONTROLLER_IMAGE:=quay.io/opendatahub/odh-model-controller:fast}"
 : "${ERROR_404_ISVC_IMAGE:=error-404-isvc:latest}"
 : "${SUCCESS_200_ISVC_IMAGE:=success-200-isvc:latest}"
-: "${LLMISVC_CONTROLLER_IMAGE:=$(grep '^llmisvc-controller=' "$PARAMS_ENV" | cut -d= -f2-)}"
 
-# On OCP 4.20 and earlier, InferencePool lives in the x-k8s.io API group.
-# OCP 4.21+ ships the GA API group (inference.networking.k8s.io).
-if [[ -z "${INFERENCE_POOL_GROUP:-}" ]]; then
-  server_version=$(get_openshift_server_version)
-  # Extract major.minor for comparison (handles nightly versions like 4.20.0-0.nightly-...)
-  ocp_major_minor=$(echo "$server_version" | awk -F. '{print $1"."$2}')
-  if awk "BEGIN{exit !($ocp_major_minor <= 4.20)}"; then
-    export INFERENCE_POOL_GROUP="inference.networking.x-k8s.io"
-    echo "OCP $server_version (${ocp_major_minor}): using INFERENCE_POOL_GROUP=$INFERENCE_POOL_GROUP"
-  else
-    echo "OCP $server_version (${ocp_major_minor}): skipping setting INFERENCE_POOL_GROUP env variable."
-  fi
-fi
+: "${OPT_125M_MODEL_URI:=s3://example-models/facebook/opt-125m}"
+export OPT_125M_MODEL_URI
 
 echo "SKLEARN_IMAGE=$SKLEARN_IMAGE"
-echo "KSERVE_CONTROLLER_IMAGE=$KSERVE_CONTROLLER_IMAGE"
-echo "LLMISVC_CONTROLLER_IMAGE=$LLMISVC_CONTROLLER_IMAGE"
-echo "KSERVE_AGENT_IMAGE=$KSERVE_AGENT_IMAGE"
-echo "KSERVE_ROUTER_IMAGE=$KSERVE_ROUTER_IMAGE"
-echo "STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_IMAGE"
+echo "OPT_125M_MODEL_URI=$OPT_125M_MODEL_URI"
 echo "ERROR_404_ISVC_IMAGE=$ERROR_404_ISVC_IMAGE"
 echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
 
-# Install Kustomize and yq
+# Install kustomize and yq (also needed for SeaweedFS kustomize build below)
 $PROJECT_ROOT/hack/setup/cli/install-kustomize.sh
 make -C "$PROJECT_ROOT" yq
 export PATH="${PROJECT_ROOT}/bin:${PATH}"
@@ -108,7 +88,6 @@ export PATH="${PROJECT_ROOT}/bin:${PATH}"
 echo "Installing KServe Python SDK ..."
 pushd $PROJECT_ROOT >/dev/null
   ./test/scripts/gh-actions/setup-uv.sh
-  # Add bin directory to PATH so uv command is available
   export PATH="${PROJECT_ROOT}/bin:${PATH}"
 popd
 pushd $PROJECT_ROOT/python/kserve >/dev/null
@@ -116,193 +95,31 @@ pushd $PROJECT_ROOT/python/kserve >/dev/null
   uv pip install timeout-sampler
 popd
 
-# Install autoscaler only if NOT using ODH operator (operator handles it)
-if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
-  $SCRIPT_DIR/deploy.cma.sh
-fi
+# Install KServe on the cluster (dispatch to the correct install method + common post-install)
+"$SCRIPT_DIR/setup-kserve.sh" "$1"
 
-# Install ODH operator if requested
-if [[ "$INSTALL_ODH_OPERATOR" == "true" ]]; then
-  $SCRIPT_DIR/deploy.odh.sh
-fi
-
-# Install LLMISvc required dependencies
-if [[ "$1" =~ "llminferenceservice" ]]; then
-  $SCRIPT_DIR/setup-llm.sh --skip-kserve --deploy-kuadrant
-fi
-
-# Add CA certificate extraction for raw deployments
-if [[ "$1" =~ raw ]]; then
-  echo "⏳ Extracting OpenShift CA certificates for raw deployment"
-  # Get comprehensive CA bundle including both cluster and service CAs
-  {
-    # Cluster root CA bundle
-    oc get configmap kube-root-ca.crt -o jsonpath='{.data.ca\.crt}' 2>/dev/null && echo ""
-
-    # OpenShift service CA
-    oc get configmap openshift-service-ca.crt -n openshift-config-managed -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null || \
-    oc get secret service-ca -n openshift-service-ca -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null | base64 -d || true
-  } > /tmp/ca.crt
-
-  # Verify we got a valid CA bundle
-  if [ -s "/tmp/ca.crt" ] && grep -q "BEGIN CERTIFICATE" "/tmp/ca.crt"; then
-    echo "✅ CA certificate bundle extracted ($(grep -c "BEGIN CERTIFICATE" /tmp/ca.crt) certificates)"
-  else
-    echo "❌ Failed to extract CA certificates"
-  fi
-fi
-
-# Ensure the target namespace exists
-oc new-project ${KSERVE_NAMESPACE} || true
-
-# Install KServe components based on method
-if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
-  # Manual installation: Install KServe directly with PR images
-  echo "⏳ Installing KServe with SeaweedFS"
-
-  # Update params.env with CI-injected images so kustomize build produces the right output
-  cp "$PARAMS_ENV" "$PARAMS_ENV.bak"
-  trap "mv '$PARAMS_ENV.bak' '$PARAMS_ENV' 2>/dev/null || true; print_e2e_environment_summary" EXIT
-  sed -i "s|kserve-controller=.*|kserve-controller=${KSERVE_CONTROLLER_IMAGE}|" "$PARAMS_ENV"
-  sed -i "s|llmisvc-controller=.*|llmisvc-controller=${LLMISVC_CONTROLLER_IMAGE}|" "$PARAMS_ENV"
-  sed -i "s|kserve-agent=.*|kserve-agent=${KSERVE_AGENT_IMAGE}|" "$PARAMS_ENV"
-  sed -i "s|kserve-router=.*|kserve-router=${KSERVE_ROUTER_IMAGE}|" "$PARAMS_ENV"
-  sed -i "s|kserve-storage-initializer=.*|kserve-storage-initializer=${STORAGE_INITIALIZER_IMAGE}|" "$PARAMS_ENV"
-
-  ODH_MANIFESTS=$(kustomize build "$PROJECT_ROOT/config/overlays/odh-test")
-
-  # Apply CRDs first and wait for them to be established before applying the rest
-  echo "$ODH_MANIFESTS" | awk '/^apiVersion: apiextensions\.k8s\.io/{found=1} found{print} /^---/{if(found) found=0}' |
-    oc apply --server-side=true --force-conflicts -f -
-
-  echo "⏳ Waiting for CRDs to be established"
-  wait_for_crd inferenceservices.serving.kserve.io 90s
-  wait_for_crd llminferenceserviceconfigs.serving.kserve.io 90s
-  wait_for_crd clusterstoragecontainers.serving.kserve.io 90s
-  wait_for_crd datascienceclusters.datasciencecluster.opendatahub.io 90s
-
-  # Apply all resources (LLMInferenceServiceConfig may fail webhook validation initially, will retry after)
-  echo "⏳ Applying all resources..."
-  echo "$ODH_MANIFESTS" | oc apply --server-side=true --force-conflicts -f - || true
-
-  # Wait for llmisvc-controller-manager to be ready before applying webhook-validated resources
-  echo "⏳ Waiting for llmisvc-controller-manager to be ready..."
-  wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=llmisvc-controller-manager" 600s
-
-  # Re-apply LLMInferenceServiceConfig resources now that webhook is ready
-  echo "⏳ Re-applying LLMInferenceServiceConfig resources with webhook validation..."
-  kustomize build "$PROJECT_ROOT/config/llmisvcconfig" | oc apply --server-side=true --force-conflicts -f -
-
-  # Patch inferenceservice-config for llminferenceservice tests
-  if [[ "$1" =~ "llm-d" ]]; then
-    echo "⏳ Restarting llmisvc-controller to apply configuration changes"
-    oc delete pod -n ${KSERVE_NAMESPACE} -l control-plane=llmisvc-controller-manager
-    wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=llmisvc-controller-manager" 300s
-  fi
-
-  # Install DSC/DSCI for manual installation
-  echo "Installing DSC/DSCI resources..."
-  oc apply -f config/overlays/odh-test/dsci.yaml
-  oc apply -f config/overlays/odh-test/dsc.yaml
-
-else
-  # ODH operator path: Copy full kustomize directory structure to operator PVC
-  echo "⏳ Preparing PR manifests for ODH operator..."
-
-  # Copy PR manifests into ODH operator PVC using the helper script
-  echo "Copying PR manifests into ODH operator PVC..."
-  $SCRIPT_DIR/copy-kserve-manifests-to-pvc.sh
-
-  # Apply DSC/DSCI to trigger deployment with custom manifests
-  # Sed the DSCI to use opendatahub namespace for ODH operator mode
-  echo "Applying DSC/DSCI to trigger ODH operator deployment with PR manifests..."
-  sed 's/applicationsNamespace:  kserve/applicationsNamespace: opendatahub/' config/overlays/odh-test/dsci.yaml | oc apply -f -
-  oc apply -f config/overlays/odh-test/dsc.yaml
-
-  # Wait for KServe controller to be deployed by the operator
-  echo "Waiting for ODH operator to deploy KServe components with PR manifests..."
-  wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=kserve-controller-manager" 600s
-
-  echo "ODH operator deployed KServe using PR manifests and images"
-fi
-
-# Patch the inferenceservice-config ConfigMap to set the cluster ingress domain
-echo "Patching ingress domain, markers: $1"
-export OPENSHIFT_INGRESS_DOMAIN=$(oc get ingresses.config cluster -o jsonpath='{.spec.domain}')
-INGRESS_DATA=$(oc get configmap inferenceservice-config -n ${KSERVE_NAMESPACE} -o jsonpath='{.data.ingress}' | \
-  yq -p json -o json '.ingressDomain = strenv(OPENSHIFT_INGRESS_DOMAIN)')
-oc patch configmap inferenceservice-config -n ${KSERVE_NAMESPACE} --type=merge \
-  -p "$(INGRESS="$INGRESS_DATA" yq -n -o json '.data.ingress = strenv(INGRESS)')"
-oc delete pod -n ${KSERVE_NAMESPACE} -l control-plane=kserve-controller-manager
-
-# Patch DSC only in manual mode (operator mode uses yaml files directly)
-if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
-  oc patch datascienceclusters.datasciencecluster.opendatahub.io/test-dsc --type='json' -p='[{"op": "replace", "path": "/spec/components/kserve/defaultDeploymentMode", "value": "RawDeployment"}]'
-fi
-
-# Wait until KServe starts
-echo "waiting kserve-controller get ready..."
-oc wait --for=condition=ready pod -l control-plane=kserve-controller-manager -n ${KSERVE_NAMESPACE} --timeout=300s
-
-# Wait for/Install ODH Model Controller based on method
-if [[ "$INSTALL_ODH_OPERATOR" == "false" ]]; then
-  # TODO can be moved to odh-test overlays
-  echo "Installing ODH Model Controller manually with PR images"
-
-  # ODH_MC_MANIFEST_SOURCE is injected by the odh-model-controller OpenShift CI
-  # job definition (openshift/release) which points to the local path.
-  # If ODH_MC_MANIFEST_SOURCE is set, override the kustomization will point to the
-  # provided local path (e.g. export ODH_MC_MANIFEST_SOURCE="$(pwd)/config/base").
-  # This solves the chicken-and-egg problem in CI where a PR changes manifests
-  # but the tests would otherwise deploy the already-merged version.
-  ODH_MC_KUSTOMIZE_DIR="$PROJECT_ROOT/test/scripts/openshift-ci"
-  if [[ -n "${ODH_MC_MANIFEST_SOURCE:-}" ]]; then
-    echo "Overriding odh-model-controller manifests source to: ${ODH_MC_MANIFEST_SOURCE}"
-    # Copy the kustomization to the bin directory so the original file is never modified.
-    ODH_MC_KUSTOMIZE_DIR="$PROJECT_ROOT/bin/odh-mc-kustomize"
-    mkdir -p "${ODH_MC_KUSTOMIZE_DIR}"
-    cp "$PROJECT_ROOT/test/scripts/openshift-ci/kustomization.yaml" "${ODH_MC_KUSTOMIZE_DIR}/kustomization.yaml"
-    # kustomize requires relative paths in resources
-    ODH_MC_MANIFEST_REL="$(realpath --relative-to="${ODH_MC_KUSTOMIZE_DIR}" "${ODH_MC_MANIFEST_SOURCE}")"
-    cat > "${ODH_MC_KUSTOMIZE_DIR}/kustomization.yaml" <<EOF
-apiVersion: kustomize.config.k8s.io/v1beta1
-kind: Kustomization
-
-resources:
-  - ${ODH_MC_MANIFEST_REL}
-
-namespace: opendatahub
-EOF
-  fi
-
-  kustomize build --load-restrictor LoadRestrictionsNone "${ODH_MC_KUSTOMIZE_DIR}" | oc apply -n ${KSERVE_NAMESPACE} -f -
-  oc rollout status deployment/odh-model-controller -n ${KSERVE_NAMESPACE} --timeout=300s
-else
-  # ODH operator deploys odh-model-controller using custom manifests from PVC
-  # The image was already configured in copy-kserve-manifests-to-pvc.sh via params.env
-  echo "Waiting for ODH operator to deploy ODH Model Controller with PR image..."
-  wait_for_pod_ready "${KSERVE_NAMESPACE}" "app=odh-model-controller" 600s
-
-  echo "Verifying ODH Model Controller deployment..."
-  oc rollout status deployment/odh-model-controller -n ${KSERVE_NAMESPACE} --timeout=300s
-
-  # Verify the correct image is being used
-  ACTUAL_IMAGE=$(oc get deployment odh-model-controller -n ${KSERVE_NAMESPACE} -o jsonpath='{.spec.template.spec.containers[0].image}')
-  echo "ODH Model Controller deployed with image: $ACTUAL_IMAGE"
-fi
-
-# Configure certs for the python requests
-# The run-e2e-tests script expects the CA cert to be in /tmp/ca.crt
-# Combine both the cluster root CA and OpenShift service CA
+# Configure CA cert for Python requests.
+# The run-e2e-tests script expects the CA cert at /tmp/ca.crt.
+# This overwrites the early raw-deployment cert written by setup-kserve.sh with the
+# definitive bundle sourced from KSERVE_NAMESPACE (namespace-scoped service CA).
 {
   oc get configmap kube-root-ca.crt -n "${KSERVE_NAMESPACE}" -o jsonpath='{.data.ca\.crt}'
   echo ""
-  oc get configmap openshift-service-ca.crt -n "${KSERVE_NAMESPACE}" -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null || true
+  oc get configmap openshift-service-ca.crt -n "${KSERVE_NAMESPACE}" \
+    -o jsonpath='{.data.service-ca\.crt}' 2>/dev/null || true
 } > /tmp/ca.crt
 
 echo "Add testing models to SeaweedFS S3 storage ..."
 
-# Wait for SeaweedFS deployment to be ready
+# In manual mode SeaweedFS is bundled in the kustomize overlay and is already deployed.
+# For operator and kserve-module installs it must be deployed separately.
+if [[ "$SEAWEEDFS_BUNDLED" == "false" ]]; then
+  echo "Deploying SeaweedFS S3 backend for tests..."
+  kustomize build "$PROJECT_ROOT/config/overlays/test/s3-local-backend" | \
+    sed "s/namespace: kserve/namespace: ${KSERVE_NAMESPACE}/" | \
+    oc apply -n ${KSERVE_NAMESPACE} -f -
+fi
+
 echo "Waiting for SeaweedFS deployment to be ready..."
 oc rollout status deployment/seaweedfs -n ${KSERVE_NAMESPACE} --timeout=300s
 
@@ -312,10 +129,10 @@ if oc wait --for=condition=complete job/s3-init -n ${KSERVE_NAMESPACE} --timeout
   echo "S3 init job already completed successfully"
 else
   echo "S3 init job not completed, re-creating..."
-  oc delete job s3-init -n ${KSERVE_NAMESPACE} --wait=true --ignore-not-found
   sed "s/s3-service.kserve/s3-service.${KSERVE_NAMESPACE}/" \
-    "$PROJECT_ROOT/config/overlays/test/s3-local-backend/seaweedfs-init-job.yaml" | \
-    oc apply -n ${KSERVE_NAMESPACE} -f -
+    "$PROJECT_ROOT/test/overlays/openshift-ci/seaweedfs-init-job-odh.yaml" | \
+    sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" | \
+    oc replace --force -n ${KSERVE_NAMESPACE} -f -
 
   echo "Waiting for S3 init job to complete..."
   if ! oc wait --for=condition=complete job/s3-init -n ${KSERVE_NAMESPACE} --timeout=300s; then
@@ -332,25 +149,6 @@ if [[ "$1" =~ "kserve_on_openshift" ]]; then
   "$PROJECT_ROOT/test/scripts/openshift-ci/tls/setup-s3-tls.sh" custom
   "$PROJECT_ROOT/test/scripts/openshift-ci/tls/setup-s3-tls.sh" serving
 fi
-
-# Allow all traffic to the KServe namespace. Without this networkpolicy, webhook will return 500
-# error msg: 'http: server gave HTTP response to HTTPS client"}]},"code":500}'
-cat <<EOF | oc apply -f -
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: allow-all
-  namespace: ${KSERVE_NAMESPACE}
-spec:
-  podSelector: {}
-  ingress:
-  - {}
-  egress:
-  - {}
-  policyTypes:
-  - Ingress
-  - Egress
-EOF
 
 echo "Prepare CI namespace and install ServingRuntimes"
 $SCRIPT_DIR/setup-ci-namespace.sh "$1"

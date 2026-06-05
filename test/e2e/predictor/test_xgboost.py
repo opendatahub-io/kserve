@@ -36,7 +36,7 @@ from ..common.utils import KSERVE_TEST_NAMESPACE, predict_isvc, predict_grpc
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
 @pytest.mark.asyncio(scope="session")
-async def test_xgboost_kserve(rest_v1_client):
+async def test_xgboost_kserve(rest_v1_client, network_layer):
     service_name = "isvc-xgboost"
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
@@ -67,7 +67,12 @@ async def test_xgboost_kserve(rest_v1_client):
     )
     kserve_client.create(isvc)
     kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
-    res = await predict_isvc(rest_v1_client, service_name, "./data/iris_input.json")
+    res = await predict_isvc(
+        rest_v1_client,
+        service_name,
+        "./data/iris_input.json",
+        network_layer=network_layer,
+    )
     assert res["predictions"] == [1, 1]
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
@@ -75,7 +80,7 @@ async def test_xgboost_kserve(rest_v1_client):
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
 @pytest.mark.asyncio(scope="session")
-async def test_xgboost_v2_mlserver(rest_v2_client):
+async def test_xgboost_v2_mlserver(rest_v2_client, network_layer):
     service_name = "isvc-xgboost-v2-mlserver"
     protocol_version = "v2"
 
@@ -121,6 +126,7 @@ async def test_xgboost_v2_mlserver(rest_v2_client):
         rest_v2_client,
         service_name,
         "./data/iris_input_v2.json",
+        network_layer=network_layer,
     )
     assert res.outputs[0].data == [1.0, 1.0]
 
@@ -130,7 +136,7 @@ async def test_xgboost_v2_mlserver(rest_v2_client):
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
 @pytest.mark.asyncio(scope="session")
-async def test_xgboost_single_model_file(rest_v2_client):
+async def test_xgboost_single_model_file(rest_v2_client, network_layer):
     service_name = "xgboost-v2-mlserver"
     protocol_version = "v2"
 
@@ -176,6 +182,7 @@ async def test_xgboost_single_model_file(rest_v2_client):
         rest_v2_client,
         service_name,
         "./data/iris_input_v2.json",
+        network_layer=network_layer,
     )
     assert res.outputs[0].data == [1.0, 1.0]
 
@@ -185,7 +192,7 @@ async def test_xgboost_single_model_file(rest_v2_client):
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
 @pytest.mark.asyncio(scope="session")
-async def test_xgboost_runtime_kserve(rest_v1_client):
+async def test_xgboost_runtime_kserve(rest_v1_client, network_layer):
     service_name = "isvc-xgboost-runtime"
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
@@ -219,7 +226,12 @@ async def test_xgboost_runtime_kserve(rest_v1_client):
     )
     kserve_client.create(isvc)
     kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
-    res = await predict_isvc(rest_v1_client, service_name, "./data/iris_input.json")
+    res = await predict_isvc(
+        rest_v1_client,
+        service_name,
+        "./data/iris_input.json",
+        network_layer=network_layer,
+    )
     assert res["predictions"] == [1, 1]
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
@@ -227,7 +239,7 @@ async def test_xgboost_runtime_kserve(rest_v1_client):
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
 @pytest.mark.asyncio(scope="session")
-async def test_xgboost_v2_runtime_mlserver(rest_v2_client):
+async def test_xgboost_v2_runtime_mlserver(rest_v2_client, network_layer):
     service_name = "isvc-xgboost-v2-runtime"
     protocol_version = "v2"
 
@@ -276,6 +288,7 @@ async def test_xgboost_v2_runtime_mlserver(rest_v2_client):
         rest_v2_client,
         service_name,
         "./data/iris_input_v2.json",
+        network_layer=network_layer,
     )
     assert res.outputs[0].data == [1.0, 1.0]
 
@@ -285,7 +298,7 @@ async def test_xgboost_v2_runtime_mlserver(rest_v2_client):
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
 @pytest.mark.asyncio(scope="session")
-async def test_xgboost_v2(rest_v2_client):
+async def test_xgboost_v2(rest_v2_client, network_layer):
     service_name = "isvc-xgboost-v2"
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
@@ -325,6 +338,7 @@ async def test_xgboost_v2(rest_v2_client):
         rest_v2_client,
         service_name,
         "./data/iris_input_v2.json",
+        network_layer=network_layer,
     )
     assert res.outputs[0].data == [1.0, 1.0]
 

@@ -1,8 +1,3 @@
-// [TEMPORARY] LLMInferenceServiceConfig versioning logic adapted from rhods-operator
-// (internal/controller/components/kserve/kserve_controller_actions.go).
-// Prefixes well-known config names with release version to allow multiple
-// versions to coexist during rolling upgrades.
-// Remove this comment once the code diverges from the original.
 package kservemodule
 
 import (
@@ -14,14 +9,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
-const (
-	wellKnownAnnotationKey   = "serving.kserve.io/well-known-config"
-	wellKnownAnnotationValue = "true"
-	llmISVCConfigPrefix      = "LLM_INFERENCE_SERVICE_CONFIG_PREFIX"
-	llmISVCControllerName    = "llmisvc-controller-manager"
-	llmISVCConfigGroup       = "serving.kserve.io"
-	llmISVCConfigKind        = "LLMInferenceServiceConfig"
-)
 
 func versionedWellKnownLLMInferenceServiceConfigs(resources []unstructured.Unstructured, versionPrefix string) ([]unstructured.Unstructured, error) {
 	if versionPrefix == "" {
@@ -40,7 +27,7 @@ func versionedWellKnownLLMInferenceServiceConfigs(resources []unstructured.Unstr
 			}
 		}
 
-		if gvk == deploymentGVK && resources[i].GetName() == llmISVCControllerName {
+		if gvk == deploymentGVK && resources[i].GetName() == llmISVCControllerDeployment {
 			deploy := &appsv1.Deployment{}
 			if err := runtime.DefaultUnstructuredConverter.FromUnstructured(resources[i].Object, deploy); err != nil {
 				return nil, err
@@ -50,7 +37,7 @@ func versionedWellKnownLLMInferenceServiceConfigs(resources []unstructured.Unstr
 				c := &deploy.Spec.Template.Spec.Containers[j]
 				found := false
 				for k := range c.Env {
-					if c.Env[k].Name == llmISVCConfigPrefix {
+					if c.Env[k].Name == llmISVCConfigPrefixEnv {
 						c.Env[k].Value = envValue
 						found = true
 						break
@@ -58,7 +45,7 @@ func versionedWellKnownLLMInferenceServiceConfigs(resources []unstructured.Unstr
 				}
 				if !found {
 					c.Env = append(c.Env, corev1.EnvVar{
-						Name:  llmISVCConfigPrefix,
+						Name:  llmISVCConfigPrefixEnv,
 						Value: envValue,
 					})
 				}

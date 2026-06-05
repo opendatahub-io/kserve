@@ -15,7 +15,7 @@ metadata:
     appstudio.openshift.io/application: opendatahub-builds
     appstudio.openshift.io/component: kserve-agent-ci
     pipelines.appstudio.openshift.io/type: build
-  name: kserve-agent-on-pull-request
+  name: kserve-agent-on-pull
   namespace: open-data-hub-tenant
 spec:
   params:
