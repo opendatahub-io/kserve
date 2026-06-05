@@ -268,12 +268,12 @@ func (isvc *InferenceService) setPredictorModelDefaults() {
 		isvc.assignPaddleRuntime()
 	}
 
-	// Restore storageUri if it was lost during legacy-to-Model conversion.
-	if existingStorageURI != nil && isvc.Spec.Predictor.Model != nil && isvc.Spec.Predictor.Model.StorageURI == nil {
-		isvc.Spec.Predictor.Model.StorageURI = existingStorageURI
-	}
-
 	if isvc.Spec.Predictor.Model != nil {
+		// Restore storageUri if it was lost during legacy-to-Model conversion.
+		if existingStorageURI != nil && isvc.Spec.Predictor.Model.StorageURI == nil {
+			isvc.Spec.Predictor.Model.StorageURI = existingStorageURI
+		}
+
 		// Set 'v2' as default protocol version for triton server
 		if isvc.Spec.Predictor.Model.ProtocolVersion == nil &&
 			isvc.Spec.Predictor.Model.ModelFormat.Name == constants.SupportedModelTriton {
