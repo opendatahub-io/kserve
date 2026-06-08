@@ -12,6 +12,7 @@
 # limitations under the License.
 
 import os
+import time
 
 import pytest
 from kubernetes import client
@@ -130,17 +131,29 @@ def test_storage_uri_preserved_on_replace():
         assert _get_storage_uri(service_name) == "oci://quay.io/example/model:latest"
 
         # GET → modify imagePullSecrets → PUT (mirrors dashboard replace)
-        isvc_dict = kserve_client.get(service_name, namespace=KSERVE_TEST_NAMESPACE)
-        isvc_dict["spec"]["predictor"]["imagePullSecrets"] = [{"name": "test-secret-2"}]
-
-        kserve_client.api_instance.replace_namespaced_custom_object(
-            constants.KSERVE_GROUP,
-            constants.KSERVE_V1BETA1_VERSION,
-            KSERVE_TEST_NAMESPACE,
-            constants.KSERVE_PLURAL_INFERENCESERVICE,
-            service_name,
-            isvc_dict,
-        )
+        # Retry on 409 Conflict since the controller may update status concurrently.
+        for _ in range(5):
+            isvc_dict = kserve_client.get(service_name, namespace=KSERVE_TEST_NAMESPACE)
+            isvc_dict["spec"]["predictor"]["imagePullSecrets"] = [
+                {"name": "test-secret-2"}
+            ]
+            try:
+                kserve_client.api_instance.replace_namespaced_custom_object(
+                    constants.KSERVE_GROUP,
+                    constants.KSERVE_V1BETA1_VERSION,
+                    KSERVE_TEST_NAMESPACE,
+                    constants.KSERVE_PLURAL_INFERENCESERVICE,
+                    service_name,
+                    isvc_dict,
+                )
+                break
+            except client.ApiException as e:
+                if e.status == 409:
+                    time.sleep(1)
+                    continue
+                raise
+        else:
+            pytest.fail("replace failed after 5 retries due to 409 Conflict")
 
         assert _get_storage_uri(service_name) == "oci://quay.io/example/model:latest"
     finally:
