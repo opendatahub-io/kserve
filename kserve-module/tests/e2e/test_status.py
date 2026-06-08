@@ -58,25 +58,25 @@ class TestDriftCorrection:
         """Manual ConfigMap edit is reverted by SSA on next reconcile."""
         cm_name = "inferenceservice-config"
 
-        run(
-            f"{kubectl} patch configmap {cm_name} -n {NAMESPACE} "
-            f"--type merge "
-            f"""-p '{{"data":{{"ingress":"{{\\"ingressClassName\\":\\"TAMPERED\\"}}"}}}}' """
-        )
+        run([
+            kubectl, "patch", "configmap", cm_name, "-n", NAMESPACE,
+            "--type", "merge",
+            "-p", '{"data":{"ingress":"{\\"ingressClassName\\":\\"TAMPERED\\"}"}}',
+        ])
 
-        result = run(
-            f"{kubectl} get configmap {cm_name} -n {NAMESPACE} "
-            f"-o jsonpath='{{.data.ingress}}'"
-        )
+        result = run([
+            kubectl, "get", "configmap", cm_name, "-n", NAMESPACE,
+            "-o", "jsonpath={.data.ingress}",
+        ])
         assert "TAMPERED" in result.stdout
 
         trigger_reconcile(kubectl, trigger_id="drift-001")
         time.sleep(15)
 
-        result = run(
-            f"{kubectl} get configmap {cm_name} -n {NAMESPACE} "
-            f"-o jsonpath='{{.data.ingress}}'"
-        )
+        result = run([
+            kubectl, "get", "configmap", cm_name, "-n", NAMESPACE,
+            "-o", "jsonpath={.data.ingress}",
+        ])
         assert "TAMPERED" not in result.stdout
 
         conditions = _get_conditions(kubectl)
