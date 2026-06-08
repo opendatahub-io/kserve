@@ -10,3 +10,15 @@ spec:
       control-plane: kserve-controller-manager
   ingress:
     - {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llmisvc-controller-manager
+  namespace: kserve
+spec:
+  podSelector:
+    matchLabels:
+      control-plane: llmisvc-controller-manager
+  ingress:
+    - {}
