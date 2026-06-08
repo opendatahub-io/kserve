@@ -34,10 +34,8 @@ func assertDependencyValid(g Gomega, dep dependencyCheck) {
 
 	switch dep.checkType {
 	case checkCRD:
-		g.Expect(dep.groupKind.Group).ShouldNot(BeEmpty(),
-			"CRD dependency %s must have groupKind.Group", dep.name)
-		g.Expect(dep.groupKind.Kind).ShouldNot(BeEmpty(),
-			"CRD dependency %s must have groupKind.Kind", dep.name)
+		g.Expect(dep.crdName).ShouldNot(BeEmpty(),
+			"CRD dependency %s must have crdName", dep.name)
 	case checkSubscription:
 		g.Expect(dep.subscriptionName).ShouldNot(BeEmpty(),
 			"subscription dependency %s must have subscriptionName", dep.name)

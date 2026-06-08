@@ -103,8 +103,8 @@ var _ = Describe("Dependency Integration", Ordered, func() {
 	})
 
 	It("sets Degraded=True with Info severity when critical CRDs exist but some optional CRDs are missing", func(ctx SpecContext) {
-		for _, gk := range criticalCRDs {
-			crd := fixture.CreateCRD(ctx, testEnv.Client, gk.Group, "v1", gk.Kind, apiextensionsv1.NamespaceScoped)
+		for _, info := range criticalCRDs {
+			crd := fixture.CreateCRDByName(ctx, testEnv.Client, info.Name, info.Group, "v1", apiextensionsv1.NamespaceScoped)
 			testCRDs[crd.Name] = crd
 		}
 
@@ -126,8 +126,8 @@ var _ = Describe("Dependency Integration", Ordered, func() {
 	})
 
 	It("clears Degraded when all CRDs are present", func(ctx SpecContext) {
-		for _, gk := range kservemodule.XKSCRDDependenciesForTest() {
-			crd := fixture.CreateCRD(ctx, testEnv.Client, gk.Group, "v1", gk.Kind, apiextensionsv1.NamespaceScoped)
+		for _, info := range kservemodule.XKSCRDDependenciesForTest() {
+			crd := fixture.CreateCRDByName(ctx, testEnv.Client, info.Name, info.Group, "v1", apiextensionsv1.NamespaceScoped)
 			testCRDs[crd.Name] = crd
 		}
 

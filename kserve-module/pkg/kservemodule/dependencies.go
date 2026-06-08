@@ -12,7 +12,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster/olm"
 )
 
@@ -40,7 +39,7 @@ type conditionFilterFunc func(conditionType string, status string) bool
 type dependencyCheck struct {
 	name             string
 	checkType        checkType
-	groupKind        schema.GroupKind        // CRD check
+	crdName          string                  // Full CRD name (e.g. "authorizationpolicies.security.istio.io")
 	subscriptionName string                  // Subscription check
 	operatorGVK      schema.GroupVersionKind // Operator CR GVK
 	operatorCRName   string                  // Operator CR name (empty = list first)
@@ -56,11 +55,11 @@ type dependencyResult struct {
 	groupReasons    map[string][]string
 }
 
-func crdDep(name, group, kind, platform string, critical bool) dependencyCheck {
+func crdDep(name, crdName, platform string, critical bool) dependencyCheck {
 	return dependencyCheck{
 		name:      name,
 		checkType: checkCRD,
-		groupKind: schema.GroupKind{Group: group, Kind: kind},
+		crdName:   crdName,
 		platform:  platform,
 		critical:  critical,
 	}
@@ -93,28 +92,28 @@ func operatorDep(name string, gvk schema.GroupVersionKind, crName, condGroup, pl
 var kserveDependencies = []dependencyCheck{
 	// xks only checks
 	// Istio CRDs
-	crdDep("istio-destinationrule", "networking.istio.io", "DestinationRule", "xks", false),
-	crdDep("istio-envoyfilter", "networking.istio.io", "EnvoyFilter", "xks", false),
-	crdDep("istio-gateway", "networking.istio.io", "Gateway", "xks", false),
-	crdDep("istio-proxyconfig", "networking.istio.io", "ProxyConfig", "xks", false),
-	crdDep("istio-serviceentry", "networking.istio.io", "ServiceEntry", "xks", false),
-	crdDep("istio-sidecar", "networking.istio.io", "Sidecar", "xks", false),
-	crdDep("istio-workloadentry", "networking.istio.io", "WorkloadEntry", "xks", false),
-	crdDep("istio-workloadgroup", "networking.istio.io", "WorkloadGroup", "xks", false),
-	crdDep("istio-authorizationpolicy", "security.istio.io", "AuthorizationPolicy", "xks", false),
-	crdDep("istio-peerauthentication", "security.istio.io", "PeerAuthentication", "xks", false),
-	crdDep("istio-requestauthentication", "security.istio.io", "RequestAuthentication", "xks", false),
-	crdDep("istio-telemetry", "telemetry.istio.io", "Telemetry", "xks", false),
-	crdDep("istio-wasmplugin", "extensions.istio.io", "WasmPlugin", "xks", false),
+	crdDep("istio-destinationrule", "destinationrules.networking.istio.io", "xks", false),
+	crdDep("istio-envoyfilter", "envoyfilters.networking.istio.io", "xks", false),
+	crdDep("istio-gateway", "gateways.networking.istio.io", "xks", false),
+	crdDep("istio-proxyconfig", "proxyconfigs.networking.istio.io", "xks", false),
+	crdDep("istio-serviceentry", "serviceentries.networking.istio.io", "xks", false),
+	crdDep("istio-sidecar", "sidecars.networking.istio.io", "xks", false),
+	crdDep("istio-workloadentry", "workloadentries.networking.istio.io", "xks", false),
+	crdDep("istio-workloadgroup", "workloadgroups.networking.istio.io", "xks", false),
+	crdDep("istio-authorizationpolicy", "authorizationpolicies.security.istio.io", "xks", false),
+	crdDep("istio-peerauthentication", "peerauthentications.security.istio.io", "xks", false),
+	crdDep("istio-requestauthentication", "requestauthentications.security.istio.io", "xks", false),
+	crdDep("istio-telemetry", "telemetries.telemetry.istio.io", "xks", false),
+	crdDep("istio-wasmplugin", "wasmplugins.extensions.istio.io", "xks", false),
 
 	// cert-manager CRDs
-	crdDep("cert-manager-certificate", "cert-manager.io", "Certificate", "xks", true),
-	crdDep("cert-manager-certificaterequest", "cert-manager.io", "CertificateRequest", "xks", true),
-	crdDep("cert-manager-issuer", "cert-manager.io", "Issuer", "xks", true),
-	crdDep("cert-manager-clusterissuer", "cert-manager.io", "ClusterIssuer", "xks", true),
+	crdDep("cert-manager-certificate", "certificates.cert-manager.io", "xks", true),
+	crdDep("cert-manager-certificaterequest", "certificaterequests.cert-manager.io", "xks", true),
+	crdDep("cert-manager-issuer", "issuers.cert-manager.io", "xks", true),
+	crdDep("cert-manager-clusterissuer", "clusterissuers.cert-manager.io", "xks", true),
 
 	// LeaderWorkerSet CRD
-	crdDep("leaderworkerset", "leaderworkerset.x-k8s.io", "LeaderWorkerSet", "xks", false),
+	crdDep("leaderworkersets", "leaderworkersets.leaderworkerset.x-k8s.io", "xks", false),
 
 	// OCP Subscription checks
 	subscriptionDep("Red Hat Connectivity Link", rhclSubscription, conditionLLMISVCDeps, "ocp", false),
@@ -202,12 +201,18 @@ func (r *KserveModuleReconciler) checkDependencies(ctx context.Context) dependen
 }
 
 func (r *KserveModuleReconciler) checkCRD(ctx context.Context, dep dependencyCheck) []string {
-  	// Skip checks when context is cancelled to avoid false-positive dependency errors.
+	// Skip checks when context is cancelled to avoid false-positive dependency errors.
 	if ctx.Err() != nil {
 		return nil
 	}
-	if err := cluster.CustomResourceDefinitionExists(ctx, r.Client, dep.groupKind); err != nil {
-		return []string{fmt.Sprintf("%s CRD check failed (%s): %v", dep.name, dep.groupKind, err)}
+	crd := &unstructured.Unstructured{}
+	crd.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "apiextensions.k8s.io",
+		Version: "v1",
+		Kind:    "CustomResourceDefinition",
+	})
+	if err := r.Client.Get(ctx, client.ObjectKey{Name: dep.crdName}, crd); err != nil {
+		return []string{fmt.Sprintf("%s CRD not found (%s): %v", dep.name, dep.crdName, err)}
 	}
 	return nil
 }

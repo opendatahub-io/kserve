@@ -57,12 +57,22 @@ func FindCondition(cr *platformv1alpha1.Kserve, condType string) *common.Conditi
 }
 
 func CreateCRD(ctx context.Context, cli client.Client, group, version, kind string, scope apiextensionsv1.ResourceScope) *apiextensionsv1.CustomResourceDefinition {
-	// Simplified plural — sufficient for test CRDs; not handling irregular plurals.
 	plural := strings.ToLower(kind) + "s"
+	return createCRDInternal(ctx, cli, fmt.Sprintf("%s.%s", plural, group), group, version, plural, strings.ToLower(kind), kind, scope)
+}
+
+func CreateCRDByName(ctx context.Context, cli client.Client, crdName, group, version string, scope apiextensionsv1.ResourceScope) *apiextensionsv1.CustomResourceDefinition {
+	plural := crdName[:strings.Index(crdName, ".")]
+	singular := plural
+	if len(singular) > 0 && singular[len(singular)-1] == 's' {
+		singular = singular[:len(singular)-1]
+	}
+	return createCRDInternal(ctx, cli, crdName, group, version, plural, singular, singular, scope)
+}
+
+func createCRDInternal(ctx context.Context, cli client.Client, name, group, version, plural, singular, kind string, scope apiextensionsv1.ResourceScope) *apiextensionsv1.CustomResourceDefinition {
 	crd := &apiextensionsv1.CustomResourceDefinition{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: fmt.Sprintf("%s.%s", plural, group),
-		},
+		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
 			Group: group,
 			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{{
@@ -71,10 +81,7 @@ func CreateCRD(ctx context.Context, cli client.Client, group, version, kind stri
 					OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{
 						Type: "object",
 						Properties: map[string]apiextensionsv1.JSONSchemaProps{
-							"status": {
-								Type:                   "object",
-								XPreserveUnknownFields: ptr.To(true),
-							},
+							"status": {Type: "object", XPreserveUnknownFields: ptr.To(true)},
 						},
 					},
 				},
@@ -85,13 +92,13 @@ func CreateCRD(ctx context.Context, cli client.Client, group, version, kind stri
 			Scope: scope,
 			Names: apiextensionsv1.CustomResourceDefinitionNames{
 				Plural:   plural,
-				Singular: strings.ToLower(kind),
+				Singular: singular,
 				Kind:     kind,
 			},
 		},
 	}
 
-	gomega.ExpectWithOffset(1, client.IgnoreAlreadyExists(cli.Create(ctx, crd))).To(gomega.Succeed())
+	gomega.ExpectWithOffset(2, client.IgnoreAlreadyExists(cli.Create(ctx, crd))).To(gomega.Succeed())
 
 	gomega.Eventually(func(g gomega.Gomega) {
 		var updated apiextensionsv1.CustomResourceDefinition
