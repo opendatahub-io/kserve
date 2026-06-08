@@ -1,0 +1,178 @@
+"""Shared fixtures for kserve-module E2E tests."""
+
+import subprocess
+import time
+from dataclasses import dataclass
+
+import pytest
+import yaml
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+KSERVE_CR_NAME = "default-kserve"
+NAMESPACE = "opendatahub"
+OPERATOR_DEPLOYMENT = "kserve-module-controller-manager"
+TIMEOUT_120S = 120
+TIMEOUT_60S = 60
+
+OPERAND_DEPLOYMENTS_XKS = [
+    "llmisvc-controller-manager",
+]
+OPERAND_DEPLOYMENTS_OCP = [
+    "kserve-controller-manager",
+    "llmisvc-controller-manager",
+    "odh-model-controller",
+    "model-serving-api",
+]
+
+KSERVE_CR_TEMPLATE = {
+    "apiVersion": "components.platform.opendatahub.io/v1alpha1",
+    "kind": "Kserve",
+    "metadata": {"name": KSERVE_CR_NAME},
+    "spec": {"managementState": "Managed"},
+}
+
+
+@dataclass
+class ClusterInfo:
+    is_openshift: bool
+    kubectl: str  # "oc" or "kubectl"
+
+
+# ---------------------------------------------------------------------------
+# Helper functions - pure
+# ---------------------------------------------------------------------------
+def operand_deployments(is_openshift):
+    """Return the expected operand deployments for the detected platform."""
+    return OPERAND_DEPLOYMENTS_OCP if is_openshift else OPERAND_DEPLOYMENTS_XKS
+
+
+def is_cr_ready(cr):
+    """Check if a Kserve CR dict has Ready=True."""
+    conditions = cr.get("status", {}).get("conditions", [])
+    return any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
+
+
+# ---------------------------------------------------------------------------
+# Helper functions - shell / kubectl
+# ---------------------------------------------------------------------------
+def run(cmd, check=True, timeout=60, input_text=None):
+    """Run a command and return the result."""
+    result = subprocess.run(
+        cmd, capture_output=True, text=True, timeout=timeout, input=input_text
+    )
+    if check and result.returncode != 0:
+        raise RuntimeError(
+            f"Command failed: {cmd}\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+    return result
+
+
+def get_cr(kubectl_bin, name=KSERVE_CR_NAME, check=True):
+    """Fetch the Kserve CR and return parsed YAML. Returns None on failure when check=False."""
+    result = run([kubectl_bin, "get", "kserve", name, "-o", "yaml"], check=False)
+    if result.returncode != 0:
+        if check:
+            raise RuntimeError(
+                f"Failed to get kserve {name}\nstdout: {result.stdout}\nstderr: {result.stderr}"
+            )
+        return None
+    return yaml.safe_load(result.stdout)
+
+
+def cr_exists(kubectl_bin, name=KSERVE_CR_NAME):
+    """Check if the Kserve CR already exists."""
+    return get_cr(kubectl_bin, name, check=False) is not None
+
+
+def trigger_reconcile(kubectl_bin, name=KSERVE_CR_NAME, trigger_id=None):
+    """Trigger reconcile by patching an annotation."""
+    trigger_id = trigger_id or f"e2e-{int(time.time())}"
+    run([
+        kubectl_bin, "annotate", "kserve", name,
+        f"test-trigger={trigger_id}", "--overwrite",
+    ])
+
+
+def create_kserve_cr(kubectl_bin, cr_dict=None):
+    """Create a Kserve CR if it doesn't already exist."""
+    if cr_exists(kubectl_bin):
+        return _poll_cr(kubectl_bin, KSERVE_CR_NAME, is_cr_ready, TIMEOUT_120S,
+                        f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_120S}s")
+    cr = yaml.safe_dump(cr_dict or KSERVE_CR_TEMPLATE)
+    run([kubectl_bin, "create", "-f", "-"], input_text=cr)
+    return _poll_cr(kubectl_bin, KSERVE_CR_NAME, is_cr_ready, TIMEOUT_120S,
+                    f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_120S}s")
+
+
+# ---------------------------------------------------------------------------
+# Helper functions - polling / wait
+# ---------------------------------------------------------------------------
+def _poll_cr(kubectl_bin, name, predicate, timeout, msg):
+    """Poll the Kserve CR until predicate(cr) returns True."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        cr = get_cr(kubectl_bin, name, check=False)
+        if cr is None:
+            time.sleep(5)
+            continue
+        if predicate(cr):
+            return cr
+        time.sleep(5)
+    raise TimeoutError(msg)
+
+
+def wait_for_kserve_cleanup(kubectl_bin, name=KSERVE_CR_NAME, is_openshift=False, timeout=TIMEOUT_120S):
+    """Wait until the Kserve CR is fully deleted."""
+    result = run([kubectl_bin, "get", "kserve", name, "--ignore-not-found"])
+    if result.stdout.strip():
+        run([
+            kubectl_bin, "wait", "--for=delete", f"kserve/{name}",
+            f"--timeout={timeout}s",
+        ])
+    _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S)
+
+
+def _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S):
+    """Wait until managed deployments are cleaned up by garbage collection."""
+    expected = operand_deployments(is_openshift)
+    for dep in expected:
+        result = run([kubectl_bin, "get", "deployment", dep, "-n", NAMESPACE, "--ignore-not-found"])
+        if result.stdout.strip():
+            run([
+                kubectl_bin, "wait", "--for=delete", f"deployment/{dep}",
+                "-n", NAMESPACE, f"--timeout={timeout}s",
+            ])
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+@pytest.fixture(scope="session")
+def cluster_info():
+    """Detect cluster type by checking for OpenShift API resources."""
+    result = subprocess.run(
+        ["kubectl", "api-resources", "--api-group=config.openshift.io"],
+        capture_output=True, text=True, timeout=10
+    )
+    is_ocp = result.returncode == 0 and "clusterversions" in result.stdout.lower()
+    return ClusterInfo(is_openshift=is_ocp, kubectl="kubectl")
+
+
+@pytest.fixture(scope="session")
+def kubectl(cluster_info):
+    """Return the kubectl binary name for the cluster."""
+    return cluster_info.kubectl
+
+
+@pytest.fixture
+def apply_kserve_cr(kubectl, cluster_info):
+    """Create a Kserve CR and delete after test."""
+    created = not cr_exists(kubectl)
+    cr = create_kserve_cr(kubectl)
+    yield cr
+    if created:
+        run([kubectl, "delete", "kserve", KSERVE_CR_NAME, "--ignore-not-found"], check=False)
+        wait_for_kserve_cleanup(kubectl, is_openshift=cluster_info.is_openshift)

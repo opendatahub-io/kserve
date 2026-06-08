@@ -7,6 +7,7 @@ E2E_IMG ?=
 	test-kserve-module setup-envtest-kserve-module precommit-km \
 	e2e-setup-kserve-module e2e-cleanup-kserve-module e2e-kserve-module check-km
 
+
 docker-build-kserve-module:
 	${ENGINE} buildx build ${ARCH} --load \
 		-t ${KO_DOCKER_REPO}/${KSERVE_MODULE_IMG}:${TAG} \
@@ -48,6 +49,9 @@ e2e-setup-kserve-module:
 
 e2e-cleanup-kserve-module:
 	bash kserve-module/tests/scripts/setup-cluster.sh --platform $(PLATFORM) --cleanup
+
+e2e-kserve-module:
+	cd kserve-module/tests/e2e && python -m pytest -v
 
 precommit-km: fmt go-lint generate-kserve-module manifests-kserve-module test-kserve-module
 	cd kserve-module && go mod tidy && go vet ./... && go build ./...
