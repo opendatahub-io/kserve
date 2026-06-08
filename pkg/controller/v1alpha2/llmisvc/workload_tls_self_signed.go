@@ -57,8 +57,10 @@ const (
 // reconcileSelfSignedCertsSecret reconciles the secret containing self-signed certs used by the server to serve TLS.
 // These self-signed certs are used for cluster internal communication encryption by the workload and the scheduler.
 // The certificates are automatically renewed before expiration to ensure continuous secure communication.
-func (r *LLMISVCReconciler) reconcileSelfSignedCertsSecret(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, schedulerConfig *SchedulerConfig) error {
+func (r *LLMISVCReconciler) reconcileSelfSignedCertsSecret(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, config *Config) error {
 	log.FromContext(ctx).Info("Reconciling self-signed certificates secret")
+
+	schedulerConfig := config.SchedulerConfig
 
 	ips, err := r.collectIPAddresses(ctx, llmSvc)
 	if err != nil {
@@ -66,8 +68,6 @@ func (r *LLMISVCReconciler) reconcileSelfSignedCertsSecret(ctx context.Context, 
 	}
 	dnsNames := r.collectDNSNames(ctx, llmSvc)
 
-	// Generating a new certificate is quite slow and expensive as it generates a new certificate, check if the current
-	// self-signed certificate (if any) is expired before creating a new one.
 	certFunc := r.createWorkloadCertificate(ctx, dnsNames, ips)
 	if curr := r.getExistingSelfSignedCertificate(ctx, llmSvc); curr != nil && !ShouldRecreateCertificate(curr, dnsNames, ips, schedulerConfig.ExpirationAnnotations) {
 		certFunc = func() (*certBundle, error) {

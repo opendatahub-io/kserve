@@ -84,11 +84,17 @@ func (r *LLMISVCReconciler) hasIstioGateway(ctx context.Context, routes []*gwapi
 
 // reconcileRouterPlatformNetworking configures Istio DestinationRules so the gateway can communicate with the
 // scheduler and workload pods over TLS using self-signed certificates without injected sidecars.
+// When enableLLMInferenceServiceTLS is false, existing DestinationRules are deleted since TLS origination is not needed.
 func (r *LLMISVCReconciler) reconcileRouterPlatformNetworking(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	log.FromContext(ctx).Info("Reconciling Istio Destination Rules")
 
+	config, err := r.loadConfig(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
 	if llmSvc.Spec.Router == nil {
-		return r.reconcileIstioDestinationRules(ctx, llmSvc, false)
+		return r.reconcileIstioDestinationRules(ctx, llmSvc, false, config.EnableTLS)
 	}
 
 	routes, err := r.collectReferencedRoutes(ctx, llmSvc)
@@ -109,11 +115,11 @@ func (r *LLMISVCReconciler) reconcileRouterPlatformNetworking(ctx context.Contex
 		return fmt.Errorf("failed to discover gateways: %w", err)
 	}
 
-	return r.reconcileIstioDestinationRules(ctx, llmSvc, isIstio)
+	return r.reconcileIstioDestinationRules(ctx, llmSvc, isIstio, config.EnableTLS)
 }
 
-func (r *LLMISVCReconciler) reconcileIstioDestinationRules(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, isIstio bool) error {
-	shouldDelete := !isIstio || utils.GetForceStopRuntime(llmSvc)
+func (r *LLMISVCReconciler) reconcileIstioDestinationRules(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, isIstio bool, enableTLS bool) error {
+	shouldDelete := !isIstio || !enableTLS || utils.GetForceStopRuntime(llmSvc)
 	if err := r.reconcileIstioDestinationRuleForScheduler(ctx, llmSvc, shouldDelete); err != nil {
 		return fmt.Errorf("failed to reconcile Istio destination rule for scheduler: %w", err)
 	}
