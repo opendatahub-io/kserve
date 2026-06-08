@@ -1,6 +1,3 @@
-// [TEMPORARY] ConfigMap customization adapted from opendatahub-operator
-// (internal/controller/components/kserve/kserve_support.go).
-// Remove this comment once the code diverges from the original.
 package kservemodule
 
 import (
@@ -17,13 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-const (
-	ingressConfigKeyName     = "ingress"
-	serviceConfigKeyName     = "service"
-	kserveConfigMapName      = "inferenceservice-config"
-	isvcControllerDeployment = "kserve-controller-manager"
-	configHashAnnotationKey  = "kserve-module/config-hash"
-)
 
 var (
 	errResourceNotFound = errors.New("resource not found")
@@ -49,7 +39,7 @@ func customizeKserveConfigMap(resources []unstructured.Unstructured, headless bo
 		return nil, err
 	}
 
-	deployIdx, deploy, err := getIndexedResource[appsv1.Deployment](resources, deploymentGVK, isvcControllerDeployment)
+	deployIdx, deploy, err := getIndexedResource[appsv1.Deployment](resources, deploymentGVK, kserveControllerDeployment)
 	if err != nil {
 		if errors.Is(err, errResourceNotFound) {
 			return resources, nil

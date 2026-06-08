@@ -1,11 +1,9 @@
-// [TEMPORARY] Adapted from opendatahub-operator (pkg/deploy/envParams.go).
-// TODO: migrate to odh-platform-utilities once ApplyParams is moved to the shared library.
-// Remove this comment once migrated.
 package kservemodule
 
 import (
 	"bufio"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -51,14 +49,8 @@ func writeParamsEnv(params map[string]string, dir string) (string, error) {
 		}
 	}()
 
-	keys := make([]string, 0, len(params))
-	for k := range params {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-
 	writer := bufio.NewWriter(tmp)
-	for _, key := range keys {
+	for _, key := range slices.Sorted(maps.Keys(params)) {
 		if _, err := fmt.Fprintf(writer, "%s=%s\n", key, params[key]); err != nil {
 			return "", err
 		}

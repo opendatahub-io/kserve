@@ -23,9 +23,6 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 source "$SCRIPT_DIR/common.sh"
 
-# Get deployment type from first argument, default to empty string
-DEPLOYMENT_TYPE="${1:-}"
-
 # Image variables with defaults (will use environment variables if set)
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
 : "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
@@ -35,7 +32,7 @@ NAMESPACE="kserve-ci-e2e-test"
 echo "Setting up CI namespace: $NAMESPACE"
 
 # Delete namespace if it exists for idempotency
-"$SCRIPT_DIR/teardown-ci-namespace.sh" "$DEPLOYMENT_TYPE" "$NAMESPACE"
+"$SCRIPT_DIR/teardown-ci-namespace.sh" "" "$NAMESPACE"
 
 # Create namespace
 echo "Creating namespace $NAMESPACE"
@@ -53,6 +50,15 @@ oc apply -f "$PROJECT_ROOT/config/overlays/test/s3-local-backend/mlpipeline-s3-a
 # Apply storage-config secret (used by TLS and storagespec tests)
 echo "Applying storage-config secret"
 oc apply -f "$PROJECT_ROOT/config/overlays/test/s3-local-backend/storage-config-secret.yaml" -n "$NAMESPACE"
+
+# Apply SeaweedFS S3 credentials secret and link to default SA (used by LLMISVC s3:// model URIs)
+echo "Applying SeaweedFS S3 credentials secret"
+: "${KSERVE_NAMESPACE:=kserve}"
+sed "s/s3-service.kserve/s3-service.${KSERVE_NAMESPACE}/" \
+  "$PROJECT_ROOT/test/overlays/openshift-ci/seaweedfs-s3-creds-secret.yaml" | \
+  oc apply -f - -n "$NAMESPACE"
+echo "Linking seaweedfs-s3-creds to default service account"
+oc secrets link default seaweedfs-s3-creds -n "$NAMESPACE"
 
 # Create empty odh-trusted-ca-bundle configmap (used by S3 TLS tests).
 # Created here rather than in a pytest fixture to avoid race conditions

@@ -3,7 +3,6 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: kserve-module-controller-manager
-  namespace: kserve
   labels:
     app.kubernetes.io/name: kserve-module-controller-manager
     app.kubernetes.io/component: controller

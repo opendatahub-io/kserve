@@ -29,6 +29,7 @@ export DEPLOYMENT_MODE="${1:-Knative}"
 export NETWORK_LAYER="${2:-istio}"
 export GATEWAY_NETWORK_LAYER="false"
 export ENABLE_LLMISVC="${ENABLE_LLMISVC:-false}"
+export ENABLE_KSERVE_WITH_LLMISVC="${ENABLE_KSERVE_WITH_LLMISVC:-false}"
 export INSTALL_METHOD="${INSTALL_METHOD:-kustomize}"
 
 # Extract gateway class name from NETWORK_LAYER (e.g., "envoy-gatewayapi" -> "envoy")
@@ -48,11 +49,14 @@ pushd python/kserve >/dev/null
 popd
 
 
-if [[ $ENABLE_LLMISVC == "false" ]]; then
+if [[ $ENABLE_LLMISVC == "false" || $ENABLE_KSERVE_WITH_LLMISVC == "true" ]]; then
   if [[ $INSTALL_METHOD == "helm" ]]; then
     export KSERVE_EXTRA_ARGS="--set kserve.controller.imagePullPolicy=IfNotPresent" 
     export LOCALMODEL_EXTRA_ARGS="--set kserve.localmodel.controller.imagePullPolicy=IfNotPresent --set kserve.localmodelnode.controller.imagePullPolicy=IfNotPresent" 
     export ENABLE_LOCALMODEL=true
+    if [[ $ENABLE_LLMISVC == "true" ]]; then
+      export LLMISVC_EXTRA_ARGS="--set kserve.llmisvc.controller.imagePullPolicy=IfNotPresent"
+    fi
     export SET_KSERVE_VERSION=${TAG}
     export USE_LOCAL_CHARTS=true
     export INSTALL_RUNTIMES=true
@@ -63,6 +67,12 @@ if [[ $ENABLE_LLMISVC == "false" ]]; then
     export ENABLE_LOCALMODEL=true
     export KSERVE_OVERLAY_DIR=test
     export INSTALL_RUNTIMES=false
+    if [[ $ENABLE_LLMISVC == "true" ]]; then
+      if [[ $ENABLE_KSERVE_WITH_LLMISVC == "true" ]]; then
+        export KSERVE_OVERLAY_DIR=test-modelcache
+      fi
+      export INSTALL_LLMISVC_CONFIGS=true
+    fi
     ${REPO_ROOT}/hack/setup/infra/manage.kserve-kustomize.sh
     echo "Installing KServe Runtimes..."
     kubectl apply --server-side=true -k config/overlays/test/clusterresources
@@ -95,6 +105,30 @@ else
     export ENABLE_KSERVE=false
     ${REPO_ROOT}/hack/setup/infra/manage.kserve-kustomize.sh
   fi
+
+  echo "Deploying SeaweedFS for LLMISVC model caching ..."
+  kubectl apply -f "${REPO_ROOT}/config/overlays/test/s3-local-backend/mlpipeline-s3-artifact-secret.yaml" -n kserve
+  kubectl apply -f "${REPO_ROOT}/config/overlays/test/s3-local-backend/seaweedfs-deployment.yaml" -n kserve
+  sed "s/namespace: seaweedfs/namespace: kserve/" \
+    "${REPO_ROOT}/config/overlays/test/s3-local-backend/seaweedfs-service.yaml" | kubectl apply -n kserve -f -
+
+  echo "Waiting for seaweedfs to be ready ..."
+  kubectl rollout status deployment/seaweedfs -n kserve --timeout=120s
+
+  echo "Pre-caching opt-125m model in SeaweedFS ..."
+  kubectl delete job s3-init -n kserve --ignore-not-found
+  kubectl apply -f "${REPO_ROOT}/test/overlays/openshift-ci/seaweedfs-init-job-odh.yaml" -n kserve
+  if ! kubectl wait --for=condition=complete --timeout=300s job/s3-init -n kserve; then
+    echo "S3 init job failed. Pod status and logs:"
+    kubectl get pods -l job-name=s3-init -n kserve
+    kubectl logs -l job-name=s3-init -n kserve --all-containers --tail=50 || true
+    exit 1
+  fi
+
+  echo "Configuring S3 credentials in test namespace ..."
+  kubectl apply -f "${REPO_ROOT}/test/overlays/openshift-ci/seaweedfs-s3-creds-secret.yaml" -n kserve-ci-e2e-test
+  kubectl patch serviceaccount default -n kserve-ci-e2e-test \
+    --type=merge -p='{"secrets": [{"name": "seaweedfs-s3-creds"}]}'
 fi
 
 ENABLE_KEDA="${ENABLE_KEDA:-false}"

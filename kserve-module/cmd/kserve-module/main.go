@@ -7,6 +7,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -16,7 +17,7 @@ import (
 	"github.com/opendatahub-io/kserve-module/pkg/kservemodule"
 )
 
-const manifestsPath = "/opt/manifests-template"
+const manifestsTemplatePath = "/opt/manifests-template"
 
 var (
 	scheme   = runtime.NewScheme()
@@ -25,6 +26,7 @@ var (
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
+	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
 	utilruntime.Must(platformv1alpha1.AddToScheme(scheme))
 }
 
@@ -43,11 +45,11 @@ func main() {
 
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zapOpts)))
 
-	if fi, err := os.Stat(manifestsPath); err != nil {
-		setupLog.Error(err, "manifests path is not accessible", "path", manifestsPath)
+	if fi, err := os.Stat(manifestsTemplatePath); err != nil {
+		setupLog.Error(err, "manifests template path is not accessible", "path", manifestsTemplatePath)
 		os.Exit(1)
 	} else if !fi.IsDir() {
-		setupLog.Error(errors.New("not a directory"), "manifests path is not a directory", "path", manifestsPath)
+		setupLog.Error(errors.New("not a directory"), "manifests template path is not a directory", "path", manifestsTemplatePath)
 		os.Exit(1)
 	}
 
@@ -65,7 +67,9 @@ func main() {
 		LeaderElectionNamespace: leaderNS,
 	}
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOpts)
+	restCfg := ctrl.GetConfigOrDie()
+
+	mgr, err := ctrl.NewManager(restCfg, mgrOpts)
 	if err != nil {
 		setupLog.Error(err, "unable to start manager")
 		os.Exit(1)
@@ -73,9 +77,10 @@ func main() {
 
 	setupLog.Info("setting up kserve-module controller")
 	if err = (&kservemodule.KserveModuleReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		ManifestsPath: manifestsPath,
+		Client:                mgr.GetClient(),
+		Scheme:                mgr.GetScheme(),
+		ManifestsTemplatePath: manifestsTemplatePath,
+		Deployer:              kservemodule.NewDeployer(),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "kserve-module")
 		os.Exit(1)

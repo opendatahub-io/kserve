@@ -1,4 +1,9 @@
 
+# Source operator subscription configurations
+# Use BASH_SOURCE[0] to get the path of this common.sh file itself, not the calling script
+COMMON_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${COMMON_SCRIPT_DIR}/operator-subscriptions.sh"
+
 # find_project_root [start_dir] [marker]
 #   start_dir : directory to begin the search (defaults to this script’s dir)
 #   marker    : filename or directory name to look for (defaults to "go.mod")

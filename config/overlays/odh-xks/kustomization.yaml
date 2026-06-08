@@ -54,6 +54,15 @@ patches:
 # Restore cert-manager.io/inject-ca-from annotations on webhooks
 # (reverse ODH's inline patches that added OCP annotations)
 - target:
+    kind: MutatingWebhookConfiguration
+    name: llminferenceservice.serving.kserve.io
+  patch: |
+    - op: remove
+      path: /metadata/annotations/service.beta.openshift.io~1inject-cabundle
+    - op: add
+      path: /metadata/annotations/cert-manager.io~1inject-ca-from
+      value: "$(NAMESPACE)/llmisvc-webhook-server"
+- target:
     kind: ValidatingWebhookConfiguration
     name: llminferenceservice.serving.kserve.io
   patch: |
@@ -77,7 +86,6 @@ configMapGenerator:
 - envs:
   - params.env
   name: odh-xks-kserve-parameters
-
 generatorOptions:
   disableNameSuffixHash: true
 

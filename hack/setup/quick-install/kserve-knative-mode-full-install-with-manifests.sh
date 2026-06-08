@@ -639,21 +639,21 @@ RUFF_VERSION=0.14.13
 PINACT_VERSION=v3.9.0
 KIND_VERSION=v0.30.0
 CERT_MANAGER_VERSION=v1.17.0
-ENVOY_GATEWAY_VERSION=v1.6.3
-ENVOY_AI_GATEWAY_VERSION=v0.5.0
+ENVOY_GATEWAY_VERSION=v1.7.0
+ENVOY_AI_GATEWAY_VERSION=v0.6.0
 KNATIVE_OPERATOR_VERSION=v1.21.1
 KNATIVE_SERVING_VERSION=1.21.1
 KEDA_OTEL_ADDON_VERSION=v0.0.6
 PROMETHEUS_VERSION=83.4.0
 PROMETHEUS_ADAPTER_VERSION=5.3.0
-KSERVE_VERSION=v0.18.0-rc1
+KSERVE_VERSION=v0.18.0
 ISTIO_VERSION=1.27.1
-KEDA_VERSION=2.17.3
+KEDA_VERSION=2.18.0
 OPENTELEMETRY_OPERATOR_VERSION=0.74.3
 LWS_VERSION=v0.8.0
 GATEWAY_API_VERSION=v1.4.1
 GIE_VERSION=v1.3.1
-WVA_VERSION=v0.6.0
+WVA_VERSION=v0.7.0
 
 #================================================
 # Global Variables (from global-vars.env)
@@ -1650,9 +1650,32 @@ main() {
                 TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full/localmodel")
                 TARGET_CRDS_TO_VERIFY+=("${KSERVE_CRDS}")
                 TARGET_CRDS_TO_VERIFY+=("${LOCALMODEL_CRDS}")
-                TARGET_DEPLOYMENT_NAMES+=("kserve-controller-manager")
-                TARGET_DEPLOYMENT_NAMES+=("kserve-localmodel-controller-manager")
+                test_overlay_deployments="kserve-controller-manager kserve-localmodel-controller-manager"
+                if is_positive "${ENABLE_LLMISVC}"; then
+                    TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full/llmisvc")
+                    TARGET_CRDS_TO_VERIFY+=("${LLMISVC_CRDS}")
+                    test_overlay_deployments+=" llmisvc-controller-manager"
+                fi
+                TARGET_DEPLOYMENT_NAMES+=("${test_overlay_deployments}")
+            elif [ "${KSERVE_OVERLAY_DIR}" == "test-modelcache" ]; then
+                ENABLE_LOCALMODEL="true"
+                ENABLE_LLMISVC="true"
+                INSTALL_LLMISVC_CONFIGS="true"
+        
+                TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full")
+                TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full/localmodel")
+                TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full/llmisvc")
+                TARGET_CRDS_TO_VERIFY+=("${KSERVE_CRDS}")
+                TARGET_CRDS_TO_VERIFY+=("${LOCALMODEL_CRDS}")
+                TARGET_CRDS_TO_VERIFY+=("${LLMISVC_CRDS}")
+                TARGET_DEPLOYMENT_NAMES+=("kserve-controller-manager kserve-localmodel-controller-manager llmisvc-controller-manager")
             elif [ "${KSERVE_OVERLAY_DIR}" == "test-llmisvc" ]; then
+                # Update test-llmisvc overlay image tags if version is set
+                if [ -n "${SET_KSERVE_VERSION}" ]; then
+                    log_info "Updating test-llmisvc overlay image tags to ${SET_KSERVE_VERSION}..."
+                    sed -i -e "s/latest/${SET_KSERVE_VERSION}/g" config/overlays/test-llmisvc/llmisvc_image_patch.yaml
+                    sed -i -e "s/latest/${SET_KSERVE_VERSION}/g" config/configmap/inferenceservice.yaml
+                fi
                 TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full/llmisvc")
                 TARGET_CRDS_TO_VERIFY+=("${LLMISVC_CRDS}")
                 TARGET_DEPLOYMENT_NAMES+=("llmisvc-controller-manager")
@@ -2595,10 +2618,20 @@ spec:
           fi
         fi
 
+        # --disable-access-log-for-endpoints landed in vLLM 0.16.0 (vllm-project/vllm#30011).
+        # Older versions still need the blanket --disable-uvicorn-access-log.
+        ACCESS_LOG_ARGS="--disable-uvicorn-access-log"
+        VLLM_VERSION=$(vllm --version 2>/dev/null | tail -1 | awk '{print $NF}')
+        echo "[access-log-detect] vllm version='${VLLM_VERSION}'"
+        if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.16.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.16.0" ]; then
+          ACCESS_LOG_ARGS="--disable-access-log-for-endpoints /health,/metrics,/ping"
+        fi
+        echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
+
         eval "vllm serve /mnt/models \
           --served-model-name "{{ .Spec.Model.Name }}" \
           --port 8001 \
-          --disable-uvicorn-access-log \
+          ${ACCESS_LOG_ARGS} \
           {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
@@ -2614,6 +2647,12 @@ spec:
         value: /models
       image: ghcr.io/llm-d/llm-d-cuda:v0.6.0
       imagePullPolicy: IfNotPresent
+      lifecycle:
+        preStop:
+          exec:
+            command:
+            - /bin/sleep
+            - "15"
       livenessProbe:
         failureThreshold: 3
         httpGet:
@@ -2723,7 +2762,7 @@ spec:
       - mountPath: /var/run/kserve/tls
         name: tls-certs
         readOnly: true
-    terminationGracePeriodSeconds: 30
+    terminationGracePeriodSeconds: 60
     volumes:
     - emptyDir: {}
       name: home
@@ -2896,6 +2935,17 @@ spec:
         fi
 
         START_RANK=0
+
+        # --disable-access-log-for-endpoints landed in vLLM 0.16.0 (vllm-project/vllm#30011).
+        # Older versions still need the blanket --disable-uvicorn-access-log.
+        ACCESS_LOG_ARGS="--disable-uvicorn-access-log"
+        VLLM_VERSION=$(vllm --version 2>/dev/null | tail -1 | awk '{print $NF}')
+        echo "[access-log-detect] vllm version='${VLLM_VERSION}'"
+        if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.16.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.16.0" ]; then
+          ACCESS_LOG_ARGS="--disable-access-log-for-endpoints /health,/metrics,/ping"
+        fi
+        echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
+
         eval "vllm serve \
           /mnt/models \
           --served-model-name "{{ .Spec.Model.Name }}" \
@@ -2908,7 +2958,7 @@ spec:
           --data-parallel-address ${DP_ADDRESS} \
           --data-parallel-rpc-port {{ if .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
           --data-parallel-start-rank $START_RANK \
-          --disable-uvicorn-access-log \
+          ${ACCESS_LOG_ARGS} \
           {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
@@ -2924,6 +2974,12 @@ spec:
         value: /models
       image: ghcr.io/llm-d/llm-d-cuda:v0.6.0
       imagePullPolicy: IfNotPresent
+      lifecycle:
+        preStop:
+          exec:
+            command:
+            - /bin/sleep
+            - "15"
       livenessProbe:
         failureThreshold: 3
         httpGet:
@@ -3038,7 +3094,7 @@ spec:
       - mountPath: /var/run/kserve/tls
         name: tls-certs
         readOnly: true
-    terminationGracePeriodSeconds: 30
+    terminationGracePeriodSeconds: 60
     volumes:
     - emptyDir: {}
       name: home
@@ -3204,6 +3260,17 @@ spec:
         fi
 
         START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or .Spec.Parallelism.DataLocal 1 }} ))
+
+        # --disable-access-log-for-endpoints landed in vLLM 0.16.0 (vllm-project/vllm#30011).
+        # Older versions still need the blanket --disable-uvicorn-access-log.
+        ACCESS_LOG_ARGS="--disable-uvicorn-access-log"
+        VLLM_VERSION=$(vllm --version 2>/dev/null | tail -1 | awk '{print $NF}')
+        echo "[access-log-detect] vllm version='${VLLM_VERSION}'"
+        if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.16.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.16.0" ]; then
+          ACCESS_LOG_ARGS="--disable-access-log-for-endpoints /health,/metrics,/ping"
+        fi
+        echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
+
         eval "vllm serve \
           /mnt/models \
           --served-model-name "{{ .Spec.Model.Name }}" \
@@ -3216,7 +3283,7 @@ spec:
           --data-parallel-rpc-port {{ if .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
           --data-parallel-start-rank $START_RANK \
           --headless \
-          --disable-uvicorn-access-log \
+          ${ACCESS_LOG_ARGS} \
           {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
@@ -3234,6 +3301,12 @@ spec:
         value: "1"
       image: ghcr.io/llm-d/llm-d-cuda:v0.6.0
       imagePullPolicy: IfNotPresent
+      lifecycle:
+        preStop:
+          exec:
+            command:
+            - /bin/sleep
+            - "15"
       name: main
       ports:
       - containerPort: 8001
@@ -3265,7 +3338,7 @@ spec:
       - mountPath: /var/run/kserve/tls
         name: tls-certs
         readOnly: true
-    terminationGracePeriodSeconds: 30
+    terminationGracePeriodSeconds: 60
     volumes:
     - emptyDir: {}
       name: home
@@ -3418,10 +3491,20 @@ spec:
             fi
           fi
 
+          # --disable-access-log-for-endpoints landed in vLLM 0.16.0 (vllm-project/vllm#30011).
+          # Older versions still need the blanket --disable-uvicorn-access-log.
+          ACCESS_LOG_ARGS="--disable-uvicorn-access-log"
+          VLLM_VERSION=$(vllm --version 2>/dev/null | tail -1 | awk '{print $NF}')
+          echo "[access-log-detect] vllm version='${VLLM_VERSION}'"
+          if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.16.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.16.0" ]; then
+            ACCESS_LOG_ARGS="--disable-access-log-for-endpoints /health,/metrics,/ping"
+          fi
+          echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
+
           eval "vllm serve /mnt/models \
             --served-model-name "{{ .Spec.Model.Name }}" \
             --port 8000 \
-            --disable-uvicorn-access-log \
+            ${ACCESS_LOG_ARGS} \
             {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
             {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
             {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
@@ -3437,6 +3520,12 @@ spec:
           value: /models
         image: ghcr.io/llm-d/llm-d-cuda:v0.6.0
         imagePullPolicy: IfNotPresent
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/sleep
+              - "15"
         livenessProbe:
           failureThreshold: 3
           httpGet:
@@ -3487,7 +3576,7 @@ spec:
         - mountPath: /var/run/kserve/tls
           name: tls-certs
           readOnly: true
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 60
       volumes:
       - emptyDir: {}
         name: home
@@ -3661,6 +3750,17 @@ spec:
           fi
 
           START_RANK=0
+
+          # --disable-access-log-for-endpoints landed in vLLM 0.16.0 (vllm-project/vllm#30011).
+          # Older versions still need the blanket --disable-uvicorn-access-log.
+          ACCESS_LOG_ARGS="--disable-uvicorn-access-log"
+          VLLM_VERSION=$(vllm --version 2>/dev/null | tail -1 | awk '{print $NF}')
+          echo "[access-log-detect] vllm version='${VLLM_VERSION}'"
+          if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.16.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.16.0" ]; then
+            ACCESS_LOG_ARGS="--disable-access-log-for-endpoints /health,/metrics,/ping"
+          fi
+          echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
+
           eval "vllm serve \
             /mnt/models \
             --served-model-name "{{ .Spec.Model.Name }}" \
@@ -3673,7 +3773,7 @@ spec:
             --data-parallel-address ${DP_ADDRESS} \
             --data-parallel-rpc-port {{ if .Spec.Prefill.Parallelism.DataRPCPort }}{{ .Spec.Prefill.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
             --data-parallel-start-rank $START_RANK \
-            --disable-uvicorn-access-log \
+            ${ACCESS_LOG_ARGS} \
             {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
             {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
             {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
@@ -3689,6 +3789,12 @@ spec:
           value: /models
         image: ghcr.io/llm-d/llm-d-cuda:v0.6.0
         imagePullPolicy: IfNotPresent
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/sleep
+              - "15"
         livenessProbe:
           failureThreshold: 3
           httpGet:
@@ -3743,7 +3849,7 @@ spec:
         - mountPath: /var/run/kserve/tls
           name: tls-certs
           readOnly: true
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 60
       volumes:
       - emptyDir: {}
         name: home
@@ -3909,6 +4015,17 @@ spec:
           fi
 
           START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or .Spec.Prefill.Parallelism.DataLocal 1 }} ))
+
+          # --disable-access-log-for-endpoints landed in vLLM 0.16.0 (vllm-project/vllm#30011).
+          # Older versions still need the blanket --disable-uvicorn-access-log.
+          ACCESS_LOG_ARGS="--disable-uvicorn-access-log"
+          VLLM_VERSION=$(vllm --version 2>/dev/null | tail -1 | awk '{print $NF}')
+          echo "[access-log-detect] vllm version='${VLLM_VERSION}'"
+          if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.16.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.16.0" ]; then
+            ACCESS_LOG_ARGS="--disable-access-log-for-endpoints /health,/metrics,/ping"
+          fi
+          echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
+
           eval "vllm serve \
             /mnt/models \
             --served-model-name "{{ .Spec.Model.Name }}" \
@@ -3921,7 +4038,7 @@ spec:
             --data-parallel-rpc-port {{ if .Spec.Prefill.Parallelism.DataRPCPort }}{{ .Spec.Prefill.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
             --data-parallel-start-rank $START_RANK \
             --headless \
-            --disable-uvicorn-access-log \
+            ${ACCESS_LOG_ARGS} \
             {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
             {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
             {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
@@ -3937,6 +4054,12 @@ spec:
           value: /models
         image: ghcr.io/llm-d/llm-d-cuda:v0.6.0
         imagePullPolicy: IfNotPresent
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - /bin/sleep
+              - "15"
         name: main
         ports:
         - containerPort: 8000
@@ -3968,7 +4091,7 @@ spec:
         - mountPath: /var/run/kserve/tls
           name: tls-certs
           readOnly: true
-      terminationGracePeriodSeconds: 30
+      terminationGracePeriodSeconds: 60
       volumes:
       - emptyDir: {}
         name: home
@@ -4385,10 +4508,20 @@ spec:
           fi
         fi
 
+        # --disable-access-log-for-endpoints landed in vLLM 0.16.0 (vllm-project/vllm#30011).
+        # Older versions still need the blanket --disable-uvicorn-access-log.
+        ACCESS_LOG_ARGS="--disable-uvicorn-access-log"
+        VLLM_VERSION=$(vllm --version 2>/dev/null | tail -1 | awk '{print $NF}')
+        echo "[access-log-detect] vllm version='${VLLM_VERSION}'"
+        if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.16.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.16.0" ]; then
+          ACCESS_LOG_ARGS="--disable-access-log-for-endpoints /health,/metrics,/ping"
+        fi
+        echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
+
         eval "vllm serve /mnt/models \
           --served-model-name "{{ .Spec.Model.Name }}" \
           --port 8000 \
-          --disable-uvicorn-access-log \
+          ${ACCESS_LOG_ARGS} \
           {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
@@ -4404,6 +4537,12 @@ spec:
         value: /models
       image: ghcr.io/llm-d/llm-d-cuda:v0.6.0
       imagePullPolicy: IfNotPresent
+      lifecycle:
+        preStop:
+          exec:
+            command:
+            - /bin/sleep
+            - "15"
       livenessProbe:
         failureThreshold: 3
         httpGet:
@@ -4454,7 +4593,7 @@ spec:
       - mountPath: /var/run/kserve/tls
         name: tls-certs
         readOnly: true
-    terminationGracePeriodSeconds: 30
+    terminationGracePeriodSeconds: 60
     volumes:
     - emptyDir: {}
       name: home
@@ -4627,6 +4766,17 @@ spec:
         fi
 
         START_RANK=0
+
+        # --disable-access-log-for-endpoints landed in vLLM 0.16.0 (vllm-project/vllm#30011).
+        # Older versions still need the blanket --disable-uvicorn-access-log.
+        ACCESS_LOG_ARGS="--disable-uvicorn-access-log"
+        VLLM_VERSION=$(vllm --version 2>/dev/null | tail -1 | awk '{print $NF}')
+        echo "[access-log-detect] vllm version='${VLLM_VERSION}'"
+        if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.16.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.16.0" ]; then
+          ACCESS_LOG_ARGS="--disable-access-log-for-endpoints /health,/metrics,/ping"
+        fi
+        echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
+
         eval "vllm serve \
           /mnt/models \
           --served-model-name "{{ .Spec.Model.Name }}" \
@@ -4639,7 +4789,7 @@ spec:
           --data-parallel-address ${DP_ADDRESS} \
           --data-parallel-rpc-port {{ if .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
           --data-parallel-start-rank $START_RANK \
-          --disable-uvicorn-access-log \
+          ${ACCESS_LOG_ARGS} \
           {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
@@ -4655,6 +4805,12 @@ spec:
         value: /models
       image: ghcr.io/llm-d/llm-d-cuda:v0.6.0
       imagePullPolicy: IfNotPresent
+      lifecycle:
+        preStop:
+          exec:
+            command:
+            - /bin/sleep
+            - "15"
       livenessProbe:
         failureThreshold: 3
         httpGet:
@@ -4709,7 +4865,7 @@ spec:
       - mountPath: /var/run/kserve/tls
         name: tls-certs
         readOnly: true
-    terminationGracePeriodSeconds: 30
+    terminationGracePeriodSeconds: 60
     volumes:
     - emptyDir: {}
       name: home
@@ -4875,6 +5031,17 @@ spec:
         fi
 
         START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or .Spec.Parallelism.DataLocal 1 }} ))
+
+        # --disable-access-log-for-endpoints landed in vLLM 0.16.0 (vllm-project/vllm#30011).
+        # Older versions still need the blanket --disable-uvicorn-access-log.
+        ACCESS_LOG_ARGS="--disable-uvicorn-access-log"
+        VLLM_VERSION=$(vllm --version 2>/dev/null | tail -1 | awk '{print $NF}')
+        echo "[access-log-detect] vllm version='${VLLM_VERSION}'"
+        if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.16.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.16.0" ]; then
+          ACCESS_LOG_ARGS="--disable-access-log-for-endpoints /health,/metrics,/ping"
+        fi
+        echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
+
         eval "vllm serve \
           /mnt/models \
           --served-model-name "{{ .Spec.Model.Name }}" \
@@ -4887,7 +5054,7 @@ spec:
           --data-parallel-rpc-port {{ if .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
           --data-parallel-start-rank $START_RANK \
           --headless \
-          --disable-uvicorn-access-log \
+          ${ACCESS_LOG_ARGS} \
           {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
@@ -4903,6 +5070,12 @@ spec:
         value: /models
       image: ghcr.io/llm-d/llm-d-cuda:v0.6.0
       imagePullPolicy: IfNotPresent
+      lifecycle:
+        preStop:
+          exec:
+            command:
+            - /bin/sleep
+            - "15"
       name: main
       ports:
       - containerPort: 8000
@@ -4934,7 +5107,7 @@ spec:
       - mountPath: /var/run/kserve/tls
         name: tls-certs
         readOnly: true
-    terminationGracePeriodSeconds: 30
+    terminationGracePeriodSeconds: 60
     volumes:
     - emptyDir: {}
       name: home

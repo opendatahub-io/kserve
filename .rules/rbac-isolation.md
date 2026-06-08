@@ -1,25 +1,40 @@
 # Midstream RBAC Isolation Rules
 
-These rules apply to **Go source files** (`*.go`, `*_test.go`). Skip for non-Go file diffs.
+Violations 1-3 apply to **Go source files** (`*.go`, `*_test.go`) - skip them for non-Go diffs.
+Rule 4 (generated manifest drift) applies to **YAML manifests and Helm charts** - always check
+those regardless of whether Go files are in the diff.
 
-This repository uses kubebuilder RBAC markers (`//+kubebuilder:rbac:...`) to generate ClusterRole
-manifests. Markers for OCP/ODH-specific API groups must live in a dedicated `distro/` sub-package
-so they generate a separate ClusterRole and do not contaminate the upstream-generated `role.yaml`.
+## Context - why RBAC markers need package-level isolation
 
-Correct pattern:
-- `pkg/<controller>/distro/controller_rbac_ocp.go` - file containing only `//+kubebuilder:rbac:`
-  markers, **no build tag** (controller-gen must scan it in all configurations), processed by a
-  separate `controller-gen` invocation in `Makefile.overrides.mk`
+`controller-gen` scans `//+kubebuilder:rbac:` markers at the **package level** and generates
+ClusterRole manifests from them. If a midstream-specific marker (e.g. for `route.openshift.io`
+or `infrastructure.opendatahub.io`) lives in the same package as upstream controller code,
+`controller-gen` will include it in the upstream-generated `role.yaml` - polluting it with
+permissions the upstream project does not need.
+
+The fix is a dedicated `distro/` sub-package with its own `controller-gen` invocation
+(in `Makefile.overrides.mk`). This generates a **separate** ClusterRole deployed only via the
+ODH overlay. The upstream `role.yaml` stays untouched.
+
+**Important**: a `//go:build distro` tag on a file does NOT prevent `controller-gen` from
+scanning its RBAC markers. Build tags control Go compilation; `controller-gen` parses all Go
+files regardless of build constraints. Only package-level separation (the `distro/` sub-package)
+keeps midstream markers out of upstream manifests.
 
 ## Violations - flag as blocking
 
-1. **OCP/ODH RBAC markers outside `distro/`** - If a file that is NOT under a `distro/`
+1. **ODH RBAC markers outside `distro/`** - If a file that is NOT under a `distro/`
    package path contains `//+kubebuilder:rbac:` markers referencing `*.opendatahub.io` or
    `*.openshift.io` groups, flag it. These markers pollute the upstream
    `role.yaml` with OCP-specific permissions. Move them to
-   `pkg/<controller>/distro/controller_rbac_ocp.go`.
+   `pkg/<controller>/distro/controller_rbac_odh.go`.
 
-2. **OCP/ODH RBAC markers without build tag outside `distro/`** - A stricter form of
+   **Common mistake**: placing RBAC markers in a `*_odh.go` file that has
+   `//go:build distro` but is NOT under a `distro/` sub-package. The build tag does not help
+   here - `controller-gen` ignores build tags. The markers still end up in the upstream
+   `role.yaml`. The file must be under a `distro/` package path for isolation to work.
+
+2. **ODH RBAC markers without build tag outside `distro/`** - A stricter form of
    violation #1: same markers as above, additionally in a file without a `//go:build distro` header
    and not in a `distro/` path. If this applies, flag #1 as well. The absence of a build tag means
    the OCP-specific code is compiled unconditionally into the upstream build, making this more
@@ -40,6 +55,15 @@ Correct pattern:
    where the import lives. If the RBAC marker is midstream-only, move it to `distro/`; if it is
    upstream-needed, leave it and the import rule still applies to the import itself.
 
+## Downstream signal - generated manifest drift
+
+4. If the diff modifies generated RBAC manifests (`config/rbac/role.yaml`,
+   `config/rbac/llmisvc/role.yaml`, `charts/*/resources.yaml`) and the changes add
+   `opendatahub.io` or `openshift.io` API group entries, this is almost always a symptom of RBAC
+   markers placed outside `distro/`. Flag the manifest change and ask the author to check whether
+   the source `//+kubebuilder:rbac:` markers are in the correct `distro/` sub-package. If the
+   markers are correctly placed, the upstream `role.yaml` should not contain these entries.
+
 ## Exemptions - do not flag
 
 - Files under a `distro/` sub-package that contain **only** a `package` declaration and
@@ -49,7 +73,7 @@ Correct pattern:
   The Go compiler parses and compiles this file in all configurations (it is just nearly empty);
   `controller-gen` scans it unconditionally to extract the RBAC markers - that is why no build tag
   is needed or wanted.
-  This is the canonical correct pattern; see `pkg/controller/v1alpha2/llmisvc/distro/controller_rbac_ocp.go`
+  This is the canonical correct pattern; see `pkg/controller/v1alpha2/llmisvc/distro/controller_rbac_odh.go`
   as a reference.
 
 ## Pre-existing technical debt - do not flag on unmodified files
