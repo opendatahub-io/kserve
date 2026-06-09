@@ -33,10 +33,10 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Install Python dependencies
 COPY storage/pyproject.toml storage/uv.lock storage/
-RUN cd storage && uv sync --active --no-cache 
+RUN cd storage && uv sync --active --extra confidential --no-cache
 
 COPY storage storage
-RUN cd storage && uv pip install . --no-cache 
+RUN cd storage && uv pip install ".[confidential]" --no-cache
 
 # Install Kerberos-related packages
 RUN uv pip install --no-cache-dir krbcontext==0.10 hdfs~=2.6.0 requests-kerberos==0.14.0
@@ -68,7 +68,7 @@ COPY --from=builder --chown=kserve:kserve $VIRTUAL_ENV $VIRTUAL_ENV
 COPY --from=builder storage storage
 COPY ./storage-initializer /storage-initializer
 
-RUN chmod +x /storage-initializer/scripts/initializer-entrypoint
+RUN chmod +x /storage-initializer/scripts/initializer-entrypoint-confidential
 RUN mkdir /work
 WORKDIR /work
 
@@ -77,4 +77,4 @@ RUN chown -R kserve:kserve /mnt
 ENV HOME=/home/kserve
 ENV HF_HOME=/home/kserve
 USER 1000
-ENTRYPOINT ["/storage-initializer/scripts/initializer-entrypoint"]
+ENTRYPOINT ["/storage-initializer/scripts/initializer-entrypoint-confidential"]
