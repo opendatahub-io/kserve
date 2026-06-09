@@ -10,6 +10,6 @@ labels:
 
 resources:
 - rbac.yaml
-- llm-d-health-dashboard.yaml
-- llm-d-replica-dashboard.yaml
-- llm-d-performance-dashboard.yaml
+- dashboards/llm-d-health-dashboard.yaml
+- dashboards/llm-d-replica-dashboard.yaml
+- dashboards/llm-d-performance-dashboard.yaml
