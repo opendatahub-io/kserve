@@ -11,3 +11,4 @@ labels:
 resources:
 - rbac.yaml
 - llm-d-health-dashboard.yaml
+- llm-d-replica-dashboard.yaml
