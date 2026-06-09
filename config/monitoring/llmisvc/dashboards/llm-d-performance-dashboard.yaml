@@ -164,6 +164,15 @@ spec:
                     kind: PrometheusDatasource
                   query: (histogram_quantile(0.95, sum by (le) (rate(kserve_vllm:time_per_output_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval]))) > -Inf) or vector(0)
                   seriesNameFormat: "P95"
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                  query: (histogram_quantile(0.99, sum by (le) (rate(kserve_vllm:time_per_output_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval]))) > -Inf) or vector(0)
+                  seriesNameFormat: "P99"
     kvCacheHitRate:
       kind: Panel
       spec:
