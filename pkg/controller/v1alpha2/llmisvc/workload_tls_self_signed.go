@@ -68,6 +68,8 @@ func (r *LLMISVCReconciler) reconcileSelfSignedCertsSecret(ctx context.Context, 
 	}
 	dnsNames := r.collectDNSNames(ctx, llmSvc)
 
+	// Generating a new certificate is quite slow and expensive as it generates a new certificate, check if the current
+	// self-signed certificate (if any) is expired before creating a new one.
 	certFunc := r.createWorkloadCertificate(ctx, dnsNames, ips)
 	if curr := r.getExistingSelfSignedCertificate(ctx, llmSvc); curr != nil && !ShouldRecreateCertificate(curr, dnsNames, ips, schedulerConfig.ExpirationAnnotations) {
 		certFunc = func() (*certBundle, error) {

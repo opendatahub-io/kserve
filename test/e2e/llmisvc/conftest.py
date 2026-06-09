@@ -17,7 +17,10 @@ from .fixtures import test_case  # noqa: F401
 
 import pytest
 
-_LLMD_SIMULATOR_WORKLOADS = ("workload-llmd-simulator",)
+_HARDCODED_TLS_WORKLOADS = (
+    "workload-llmd-simulator",
+    "workload-simulated-dp-ep-cpu",
+)
 
 
 # This hook is used to ensure that the test names are unique and to ensure that
@@ -34,7 +37,7 @@ def pytest_collection_modifyitems(config, items):
         base, rest = item.nodeid.split("[", 1)
         rest = rest.rstrip("]")
 
-        if any(w in rest for w in _LLMD_SIMULATOR_WORKLOADS):
+        if any(w in rest for w in _HARDCODED_TLS_WORKLOADS):
             item.add_marker(pytest.mark.llmd_simulator)
 
         cluster_marks = [
