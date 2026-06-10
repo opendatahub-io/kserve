@@ -166,6 +166,149 @@ var _ = Describe("KserveModule Reconciler", func() {
 			}).WithContext(ctx).Should(Succeed())
 		})
 	})
+
+	Context("WVA ManagementState lifecycle", Ordered, func() {
+		var cr *platformv1alpha1.Kserve
+
+		BeforeAll(func(ctx SpecContext) {
+			cr = fixture.KserveCR()
+			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
+
+			DeferCleanup(func(ctx SpecContext) {
+				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, cr))).To(Succeed())
+			})
+		})
+
+		BeforeEach(func() {
+			testEnv.Deployer = &fixture.MockDeployer{}
+			testEnv.Reconciler.Deployer = testEnv.Deployer
+		})
+
+		It("does not include WVA resources when ManagementState is Removed (default)", func(ctx SpecContext) {
+			triggerReconcile(ctx, cr, "wva-default-removed")
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				cond := fixture.FindCondition(cr, string(common.ConditionTypeProvisioningSucceeded))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			}).WithContext(ctx).Should(Succeed())
+
+			lastCall := testEnv.Deployer.LastCall()
+			Expect(lastCall).NotTo(BeNil())
+			for _, res := range lastCall.Resources {
+				Expect(res.GetName()).NotTo(Equal("workload-variant-autoscaler-controller-manager"),
+					"WVA resources should not be deployed when Removed")
+			}
+		})
+
+		It("includes WVA resources when ManagementState is Managed", func(ctx SpecContext) {
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
+					return err
+				}
+				cr.Spec.WVA.ManagementState = common.Managed
+				return testEnv.Client.Update(ctx, cr)
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				lastCall := testEnv.Deployer.LastCall()
+				g.Expect(lastCall).NotTo(BeNil())
+
+				hasWVA := false
+				for _, res := range lastCall.Resources {
+					if res.GetKind() == "Deployment" && res.GetName() == "workload-variant-autoscaler-controller-manager" {
+						hasWVA = true
+						break
+					}
+				}
+				g.Expect(hasWVA).To(BeTrue(), "WVA Deployment should be in allResources when Managed")
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("removes WVA resources when ManagementState changes to Removed", func(ctx SpecContext) {
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
+					return err
+				}
+				cr.Spec.WVA.ManagementState = common.Removed
+				return testEnv.Client.Update(ctx, cr)
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				lastCall := testEnv.Deployer.LastCall()
+				g.Expect(lastCall).NotTo(BeNil())
+
+				for _, res := range lastCall.Resources {
+					g.Expect(res.GetName()).NotTo(Equal("workload-variant-autoscaler-controller-manager"),
+						"WVA resources should not be in allResources after Removed")
+				}
+			}).WithContext(ctx).Should(Succeed())
+		})
+	})
+
+	Context("WVA readiness condition", Ordered, func() {
+		var cr *platformv1alpha1.Kserve
+
+		BeforeAll(func(ctx SpecContext) {
+			cr = fixture.KserveCR(fixture.WithWVAManagementState(common.Managed))
+			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
+
+			DeferCleanup(func(ctx SpecContext) {
+				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, cr))).To(Succeed())
+			})
+		})
+
+		BeforeEach(func() {
+			testEnv.Deployer = &fixture.MockDeployer{}
+			testEnv.Reconciler.Deployer = testEnv.Deployer
+		})
+
+		It("reports WVAReady=False when WVA deployment is not available", func(ctx SpecContext) {
+			triggerReconcile(ctx, cr, "wva-readiness-false")
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				cond := fixture.FindCondition(cr, "WVAReady")
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(Equal("DeploymentNotReady"))
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("reports WVAReady=True when WVA deployment is available", func(ctx SpecContext) {
+			createReadyDeployment(ctx, "workload-variant-autoscaler-controller-manager", "opendatahub")
+
+			triggerReconcile(ctx, cr, "wva-readiness-true")
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				cond := fixture.FindCondition(cr, "WVAReady")
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(cond.Reason).To(Equal("AllDeploymentsAvailable"))
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("clears WVAReady condition when WVA is disabled", func(ctx SpecContext) {
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
+					return err
+				}
+				cr.Spec.WVA.ManagementState = common.Removed
+				return testEnv.Client.Update(ctx, cr)
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				cond := fixture.FindCondition(cr, "WVAReady")
+				g.Expect(cond).To(BeNil(), "WVAReady condition should be cleared when WVA is disabled")
+			}).WithContext(ctx).Should(Succeed())
+		})
+	})
 })
 
 func createReadyDeployment(ctx SpecContext, name, namespace string) {

@@ -6,6 +6,10 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	. "github.com/onsi/gomega"
+
+	"github.com/opendatahub-io/odh-platform-utilities/api/common"
+
+	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
 func TestComponentsConfig_AllHaveRequiredFields(t *testing.T) {
@@ -24,6 +28,46 @@ func TestComponentsConfig_UniqueNames(t *testing.T) {
 		g.Expect(seen[comp.name]).Should(BeFalse(), "duplicate component name: %q", comp.name)
 		seen[comp.name] = true
 	}
+}
+
+func TestIsWVAEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		state    common.ManagementState
+		expected bool
+	}{
+		{"Managed returns true", common.Managed, true},
+		{"Removed returns false", common.Removed, false},
+		{"empty returns false", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			kserve := &platformv1alpha1.Kserve{
+				Spec: platformv1alpha1.KserveSpec{
+					WVA: platformv1alpha1.WVASpec{
+						ManagementState: tt.state,
+					},
+				},
+			}
+			g.Expect(isWVAEnabled(kserve)).To(Equal(tt.expected))
+		})
+	}
+}
+
+func TestComponentsConfig_WVAHasEnabled(t *testing.T) {
+	g := NewWithT(t)
+	var wva *componentConfig
+	for i := range components {
+		if components[i].name == wvaComponentName {
+			wva = &components[i]
+			break
+		}
+	}
+	g.Expect(wva).ShouldNot(BeNil(), "WVA component not registered")
+	g.Expect(wva.enabled).ShouldNot(BeNil(), "WVA must have enabled predicate")
+	g.Expect(wva.sourcePathXKS).Should(BeEmpty(), "WVA is OCP-only, must not have XKS overlay")
 }
 
 func TestApplyManagedByLabel(t *testing.T) {
