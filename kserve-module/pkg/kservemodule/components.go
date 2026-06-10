@@ -23,6 +23,8 @@ type componentConfig struct {
 	postRender    func(ctx context.Context, r *KserveModuleReconciler,
 		kserve *platformv1alpha1.Kserve,
 		resources []unstructured.Unstructured) ([]unstructured.Unstructured, error)
+	enabled      func(kserve *platformv1alpha1.Kserve) bool
+	extraCleanup func(ctx context.Context, r *KserveModuleReconciler) error
 }
 
 var components = []componentConfig{
@@ -38,6 +40,12 @@ var components = []componentConfig{
 		sourcePath:  modelControllerSourcePath,
 		imageMap:    modelControllerImageParamMap,
 		extraParams: modelControllerExtraParams,
+	},
+	{
+		name:       wvaComponentName,
+		sourcePath: wvaManifestSourcePathOCP,
+		imageMap:   wvaImageParamMap,
+		enabled:    isWVAEnabled,
 	},
 }
 
@@ -58,6 +66,10 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 	}
 
 	return resources, nil
+}
+
+func isWVAEnabled(kserve *platformv1alpha1.Kserve) bool {
+	return kserve.Spec.WVA.ManagementState == common.Managed
 }
 
 func modelControllerExtraParams(kserve *platformv1alpha1.Kserve) map[string]string {

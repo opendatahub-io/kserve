@@ -47,11 +47,15 @@ type KserveSpec struct {
 }
 
 type NIMSpec struct {
-	AirGapped       bool                   `json:"airGapped,omitempty"`
+	AirGapped bool `json:"airGapped,omitempty"`
+	// +kubebuilder:validation:Enum=Managed;Removed
+	// +kubebuilder:default=Managed
 	ManagementState common.ManagementState `json:"managementState,omitempty"`
 }
 
 type WVASpec struct {
+	// +kubebuilder:validation:Enum=Managed;Removed
+	// +kubebuilder:default=Removed
 	ManagementState common.ManagementState `json:"managementState,omitempty"`
 }
 

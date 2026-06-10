@@ -25,6 +25,10 @@ var modelControllerImageParamMap = map[string]string{
 	"odh-model-controller": "RELATED_IMAGE_ODH_MODEL_CONTROLLER_IMAGE",
 }
 
+var wvaImageParamMap = map[string]string{
+	"wva-controller-image": "RELATED_IMAGE_ODH_WORKLOAD_VARIANT_AUTOSCALER_CONTROLLER_IMAGE",
+}
+
 
 func buildCertManagerParams(namespace string) map[string]string {
 	return map[string]string{

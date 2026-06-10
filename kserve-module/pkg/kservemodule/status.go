@@ -17,6 +17,7 @@ import (
 const (
 	ConditionKServeReady           = "KServeReady"
 	ConditionModelControllerReady  = "ModelControllerReady"
+	ConditionWVAReady              = "WVAReady"
 	ConditionDependenciesAvailable = "DependenciesAvailable"
 )
 
@@ -26,6 +27,7 @@ func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
 		string(common.ConditionTypeProvisioningSucceeded),
 		ConditionKServeReady,
 		ConditionModelControllerReady,
+		ConditionWVAReady,
 		ConditionDependenciesAvailable,
 	)
 }
@@ -88,7 +90,7 @@ func applyProvisioningCondition(condMgr *conditions.Manager, componentErrors map
 		conditions.WithMessage("%s", strings.Join(msgs, "; ")))
 }
 
-func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, condMgr *conditions.Manager) {
+func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, kserve *platformv1alpha1.Kserve, condMgr *conditions.Manager) {
 	ns := r.getApplicationsNamespace()
 	isXKS := r.isKubernetes(ctx)
 
@@ -108,6 +110,19 @@ func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, c
 	} else {
 		condMgr.MarkTrue(ConditionModelControllerReady,
 			conditions.WithReason("AllDeploymentsAvailable"))
+	}
+
+	if isWVAEnabled(kserve) {
+		if err := checkWVAReadiness(ctx, r.Client, ns); err != nil {
+			condMgr.MarkFalse(ConditionWVAReady,
+				conditions.WithReason("DeploymentNotReady"),
+				conditions.WithMessage("%s", err.Error()))
+		} else {
+			condMgr.MarkTrue(ConditionWVAReady,
+				conditions.WithReason("AllDeploymentsAvailable"))
+		}
+	} else {
+		condMgr.ClearCondition(ConditionWVAReady)
 	}
 }
 

@@ -4,11 +4,13 @@ const (
 	// Component names
 	kserveComponentName             = "kserve"
 	odhModelControllerComponentName = "modelcontroller"
+	wvaComponentName                = "wva"
 
 	// Manifest source paths
 	kserveManifestSourcePath    = "overlays/odh"
 	kserveManifestSourcePathXKS = "overlays/odh-xks"
 	modelControllerSourcePath   = "base"
+	wvaManifestSourcePathOCP = "openshift"
 
 	// Deployment names
 	kserveControllerDeployment  = "kserve-controller-manager"
@@ -16,6 +18,7 @@ const (
 	//TO-DO
 	// localmodelControllerDeployment = "kserve-localmodel-controller-manager"
 	odhModelControllerDeployment = "odh-model-controller"
+	wvaControllerDeployment      = "workload-variant-autoscaler-controller-manager"
 
 	// SSA field manager
 	fieldOwner = "kserve-module-controller"

@@ -4,6 +4,11 @@ kind: ClusterRole
 metadata:
   name: kserve-module-manager-role
 rules:
+- nonResourceURLs:
+  - /debug/pprof/*
+  - /metrics
+  verbs:
+  - get
 - apiGroups:
   - ""
   resources:
@@ -36,6 +41,29 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - namespaces
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  - nodes/status
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
   - secrets
   verbs:
   - get
@@ -45,6 +73,8 @@ rules:
   - ""
   resourceNames:
   - kserve-webhook-server-secret
+  - workload-variant-autoscaler-epp-metrics-token
+  - workload-variant-autoscaler-metrics-reader-token
   resources:
   - secrets
   verbs:
@@ -93,6 +123,42 @@ rules:
   - list
   - patch
   - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - deployments/scale
+  verbs:
+  - get
+  - update
+- apiGroups:
+  - apps
+  resources:
+  - replicasets
+  - statefulsets
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
+  - autoscaling
+  resources:
+  - horizontalpodautoscalers
+  verbs:
+  - get
+  - list
   - watch
 - apiGroups:
   - cert-manager.io
@@ -152,6 +218,70 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - inference.networking.k8s.io
+  - inference.networking.x-k8s.io
+  resources:
+  - inferencepools
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - keda.sh
+  resources:
+  - scaledobjects
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - leaderworkerset.x-k8s.io
+  resources:
+  - leaderworkersets
+  - leaderworkersets/scale
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - llmd.ai
+  resources:
+  - variantautoscalings
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - llmd.ai
+  resources:
+  - variantautoscalings/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - llmd.ai
+  resources:
+  - variantautoscalings/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - monitoring.coreos.com
+  resourceNames:
+  - k8s
+  resources:
+  - prometheuses/api
+  verbs:
+  - create
+  - get
+  - update
 - apiGroups:
   - monitoring.coreos.com
   resources:
@@ -254,6 +384,13 @@ rules:
   - odh-model-controller-role
   - openshift-ai-llminferenceservice-scc
   - proxy-role
+  - workload-variant-autoscaler-epp-metrics-reader-role
+  - workload-variant-autoscaler-manager-role
+  - workload-variant-autoscaler-metrics-auth-role
+  - workload-variant-autoscaler-metrics-reader
+  - workload-variant-autoscaler-variantautoscaling-admin-role
+  - workload-variant-autoscaler-variantautoscaling-editor-role
+  - workload-variant-autoscaler-variantautoscaling-viewer-role
   resources:
   - clusterroles
   verbs:
@@ -265,6 +402,7 @@ rules:
   - kserve-leader-election-role
   - leader-election-role
   - llmisvc-leader-election-role
+  - workload-variant-autoscaler-leader-election-role
   resources:
   - roles
   verbs:
