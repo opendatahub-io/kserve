@@ -26,9 +26,10 @@ const (
 	modelCacheLabelKey   = "kserve/localmodel"
 	modelCacheLabelValue = "worker"
 
-	modelCachePVName  = "kserve-localmodelnode-pv"
-	modelCachePVCName = "kserve-localmodelnode-pvc"
-	modelCacheHostDir = "/var/lib/kserve/models"
+	modelCachePVName         = "kserve-localmodelnode-pv"
+	modelCachePVCName        = "kserve-localmodelnode-pvc"
+	modelCacheHostDir        = "/var/lib/kserve/models"
+	modelCacheStorageClass   = "local-storage"
 
 	localModelNodeGroupName = "workers"
 
@@ -81,28 +82,26 @@ func (r *KserveModuleReconciler) createOrUpdateModelCachePV(ctx context.Context,
 		ObjectMeta: metav1.ObjectMeta{Name: modelCachePVName},
 	}
 	result, err := controllerutil.CreateOrUpdate(ctx, r.Client, pv, func() error {
-		pv.Spec = corev1.PersistentVolumeSpec{
-			Capacity:                      corev1.ResourceList{corev1.ResourceStorage: cacheSize},
-			VolumeMode:                    ptr.To(corev1.PersistentVolumeFilesystem),
-			AccessModes:                   []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-			PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimRetain,
-			StorageClassName:              "local-storage",
-			PersistentVolumeSource: corev1.PersistentVolumeSource{
-				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/var/lib/kserve/models",
-					Type: ptr.To(corev1.HostPathDirectoryOrCreate),
-				},
+		pv.Spec.Capacity = corev1.ResourceList{corev1.ResourceStorage: cacheSize}
+		pv.Spec.VolumeMode = ptr.To(corev1.PersistentVolumeFilesystem)
+		pv.Spec.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
+		pv.Spec.PersistentVolumeReclaimPolicy = corev1.PersistentVolumeReclaimRetain
+		pv.Spec.StorageClassName = modelCacheStorageClass
+		pv.Spec.PersistentVolumeSource = corev1.PersistentVolumeSource{
+			HostPath: &corev1.HostPathVolumeSource{
+				Path: modelCacheHostDir,
+				Type: ptr.To(corev1.HostPathDirectoryOrCreate),
 			},
-			NodeAffinity: &corev1.VolumeNodeAffinity{
-				Required: &corev1.NodeSelector{
-					NodeSelectorTerms: []corev1.NodeSelectorTerm{{
-						MatchExpressions: []corev1.NodeSelectorRequirement{{
-							Key:      modelCacheLabelKey,
-							Operator: corev1.NodeSelectorOpIn,
-							Values:   []string{modelCacheLabelValue},
-						}},
+		}
+		pv.Spec.NodeAffinity = &corev1.VolumeNodeAffinity{
+			Required: &corev1.NodeSelector{
+				NodeSelectorTerms: []corev1.NodeSelectorTerm{{
+					MatchExpressions: []corev1.NodeSelectorRequirement{{
+						Key:      modelCacheLabelKey,
+						Operator: corev1.NodeSelectorOpIn,
+						Values:   []string{modelCacheLabelValue},
 					}},
-				},
+				}},
 			},
 		}
 		return controllerutil.SetControllerReference(kserve, pv, r.Scheme)
@@ -135,7 +134,7 @@ func (r *KserveModuleReconciler) createOrUpdateModelCachePVC(ctx context.Context
 			pvc.Spec.VolumeName = modelCachePVName
 			pvc.Spec.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
 			pvc.Spec.VolumeMode = ptr.To(corev1.PersistentVolumeFilesystem)
-			pvc.Spec.StorageClassName = ptr.To("local-storage")
+			pvc.Spec.StorageClassName = ptr.To(modelCacheStorageClass)
 		}
 		pvc.Spec.Resources = corev1.VolumeResourceRequirements{
 			Requests: corev1.ResourceList{corev1.ResourceStorage: cacheSize},
@@ -172,9 +171,9 @@ func (r *KserveModuleReconciler) createOrUpdateLocalModelNodeGroup(ctx context.C
 				"volumeMode":                    "Filesystem",
 				"accessModes":                   []interface{}{"ReadWriteOnce"},
 				"persistentVolumeReclaimPolicy": "Delete",
-				"storageClassName":              "local-storage",
+				"storageClassName":              modelCacheStorageClass,
 				"hostPath": map[string]interface{}{
-					"path": "/var/lib/kserve/models",
+					"path": modelCacheHostDir,
 					"type": "DirectoryOrCreate",
 				},
 				"nodeAffinity": map[string]interface{}{
@@ -201,7 +200,7 @@ func (r *KserveModuleReconciler) createOrUpdateLocalModelNodeGroup(ctx context.C
 						"storage": cacheSizeStr,
 					},
 				},
-				"storageClassName": "local-storage",
+				"storageClassName": modelCacheStorageClass,
 			},
 		}
 		return controllerutil.SetControllerReference(kserve, obj, r.Scheme)
