@@ -271,7 +271,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
-				cond := fixture.FindCondition(cr, "WVAReady")
+				cond := fixture.FindCondition(cr, kservemodule.ConditionWVAReady)
 				g.Expect(cond).NotTo(BeNil())
 				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 				g.Expect(cond.Reason).To(Equal("DeploymentNotReady"))
@@ -285,7 +285,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
-				cond := fixture.FindCondition(cr, "WVAReady")
+				cond := fixture.FindCondition(cr, kservemodule.ConditionWVAReady)
 				g.Expect(cond).NotTo(BeNil())
 				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 				g.Expect(cond.Reason).To(Equal("AllDeploymentsAvailable"))
@@ -304,7 +304,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
-				cond := fixture.FindCondition(cr, "WVAReady")
+				cond := fixture.FindCondition(cr, kservemodule.ConditionWVAReady)
 				g.Expect(cond).To(BeNil(), "WVAReady condition should be cleared when WVA is disabled")
 			}).WithContext(ctx).Should(Succeed())
 		})

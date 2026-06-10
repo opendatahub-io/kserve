@@ -180,16 +180,14 @@ def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_
 
 def wait_for_deployment_gone(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_60S):
     """Wait until a deployment no longer exists."""
-    result = run(
-        [kubectl_bin, "get", "deployment", name, "-n", namespace, "--ignore-not-found"],
-        check=False,
-    )
-    if not result.stdout.strip():
-        return
-    run([
+    result = run([
         kubectl_bin, "wait", "--for=delete", f"deployment/{name}",
         "-n", namespace, f"--timeout={timeout}s",
-    ])
+    ], check=False)
+    if result.returncode != 0 and "not found" not in result.stderr.lower():
+        raise RuntimeError(
+            f"wait_for_deployment_gone failed: {result.stderr}"
+        )
 
 
 def _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S):
