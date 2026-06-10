@@ -61,12 +61,15 @@ func CreateCRD(ctx context.Context, cli client.Client, group, version, kind stri
 	return createCRDInternal(ctx, cli, fmt.Sprintf("%s.%s", plural, group), group, version, plural, strings.ToLower(kind), kind, scope)
 }
 
+// CreateCRDByName creates a CRD from its full name (e.g. "authorizationpolicies.security.istio.io").
+// The naive singular derivation (strip trailing "s") is incorrect for irregular plurals
+// but harmless — dependency checks look up CRDs by full name, not by singular/kind.
 func CreateCRDByName(ctx context.Context, cli client.Client, crdName, group, version string, scope apiextensionsv1.ResourceScope) *apiextensionsv1.CustomResourceDefinition {
-	plural := crdName[:strings.Index(crdName, ".")]
-	singular := plural
-	if len(singular) > 0 && singular[len(singular)-1] == 's' {
-		singular = singular[:len(singular)-1]
-	}
+	parts := strings.SplitN(crdName, ".", 2)
+	gomega.ExpectWithOffset(1, len(parts) == 2 && parts[0] != "" && parts[1] != "").To(gomega.BeTrue(),
+		"invalid CRD name %q; expected <plural>.<group>", crdName)
+	plural := parts[0]
+	singular, _ := strings.CutSuffix(plural, "s")
 	return createCRDInternal(ctx, cli, crdName, group, version, plural, singular, singular, scope)
 }
 

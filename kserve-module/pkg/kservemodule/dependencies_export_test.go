@@ -1,5 +1,10 @@
 package kservemodule
 
+import (
+	"fmt"
+	"strings"
+)
+
 type CRDInfo struct {
 	Name     string // Full CRD name (e.g. "certificates.cert-manager.io")
 	Group    string // Extracted group (e.g. "cert-manager.io")
@@ -7,18 +12,14 @@ type CRDInfo struct {
 }
 
 func parseCRDName(crdName string) CRDInfo {
-	// CRD names follow <plural>.<group> convention.
-	idx := 0
-	for i, c := range crdName {
-		if c == '.' {
-			idx = i
-			break
-		}
+	parts := strings.SplitN(crdName, ".", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		panic(fmt.Sprintf("invalid CRD name format (expected <plural>.<group>): %q", crdName))
 	}
 	return CRDInfo{
 		Name:     crdName,
-		Group:    crdName[idx+1:],
-		Resource: crdName[:idx],
+		Group:    parts[1],
+		Resource: parts[0],
 	}
 }
 

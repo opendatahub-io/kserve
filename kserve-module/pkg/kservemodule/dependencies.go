@@ -212,7 +212,10 @@ func (r *KserveModuleReconciler) checkCRD(ctx context.Context, dep dependencyChe
 		Kind:    "CustomResourceDefinition",
 	})
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: dep.crdName}, crd); err != nil {
-		return []string{fmt.Sprintf("%s CRD not found (%s): %v", dep.name, dep.crdName, err)}
+		if k8serr.IsNotFound(err) {
+			return []string{fmt.Sprintf("%s CRD not found (%s)", dep.name, dep.crdName)}
+		}
+		return []string{fmt.Sprintf("%s CRD lookup failed (%s): %v", dep.name, dep.crdName, err)}
 	}
 	return nil
 }
