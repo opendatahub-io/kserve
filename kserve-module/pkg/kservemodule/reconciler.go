@@ -176,6 +176,9 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 		return errs
 	}
 
+	var allResources []unstructured.Unstructured
+	componentErrors := make(map[string]error, len(components))
+
 	for _, comp := range components {
 		if comp.enabled != nil && !comp.enabled(kserve) {
 			if err := r.defaultCleanup(ctx, comp); err != nil {
