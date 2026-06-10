@@ -27,6 +27,8 @@ OPERAND_DEPLOYMENTS_OCP = [
     "model-serving-api",
 ]
 
+WVA_DEPLOYMENT = "workload-variant-autoscaler-controller-manager"
+
 KSERVE_CR_TEMPLATE = {
     "apiVersion": "components.platform.opendatahub.io/v1alpha1",
     "kind": "Kserve",
@@ -158,16 +160,42 @@ def wait_for_kserve_cleanup(kubectl_bin, name=KSERVE_CR_NAME, is_openshift=False
     _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S)
 
 
+def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120S):
+    """Wait until a deployment exists and has Available=True."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        result = run(
+            [kubectl_bin, "get", "deployment", name, "-n", namespace, "-o", "yaml"],
+            check=False,
+        )
+        if result.returncode == 0:
+            dep = yaml.safe_load(result.stdout)
+            conditions = {c["type"]: c for c in dep.get("status", {}).get("conditions", [])}
+            avail = conditions.get("Available", {})
+            if avail.get("status") == "True":
+                return dep
+        time.sleep(5)
+    raise TimeoutError(f"deployment {name} not Available within {timeout}s")
+
+
+def wait_for_deployment_gone(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_60S):
+    """Wait until a deployment no longer exists."""
+    result = run(
+        [kubectl_bin, "get", "deployment", name, "-n", namespace, "--ignore-not-found"],
+        check=False,
+    )
+    if not result.stdout.strip():
+        return
+    run([
+        kubectl_bin, "wait", "--for=delete", f"deployment/{name}",
+        "-n", namespace, f"--timeout={timeout}s",
+    ])
+
+
 def _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S):
     """Wait until managed deployments are cleaned up by garbage collection."""
-    expected = operand_deployments(is_openshift)
-    for dep in expected:
-        result = run([kubectl_bin, "get", "deployment", dep, "-n", NAMESPACE, "--ignore-not-found"])
-        if result.stdout.strip():
-            run([
-                kubectl_bin, "wait", "--for=delete", f"deployment/{dep}",
-                "-n", NAMESPACE, f"--timeout={timeout}s",
-            ])
+    for dep in operand_deployments(is_openshift):
+        wait_for_deployment_gone(kubectl_bin, dep, timeout=timeout)
 
 
 # ---------------------------------------------------------------------------

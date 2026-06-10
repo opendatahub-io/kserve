@@ -11,10 +11,13 @@ from conftest import (
     wait_for,
     wait_for_kserve_cleanup,
     trigger_reconcile,
+    wait_for_deployment,
+    wait_for_deployment_gone,
     operand_deployments,
     KSERVE_CR_NAME,
     NAMESPACE,
     OPERATOR_DEPLOYMENT,
+    WVA_DEPLOYMENT,
     TIMEOUT_120S,
     TIMEOUT_60S,
 )
@@ -155,22 +158,58 @@ class TestCELValidation:
 
 
 class TestManagementState:
-    """Verify managementState transitions update sub-component config."""
+    """Verify managementState transitions for sub-components (WVA, NIM)."""
 
-    @pytest.mark.skip(reason="managementState: Removed not yet implemented")
-    def test_removed_updates_subcomponent_config(self, kubectl, apply_kserve_cr):
-        """Setting nim.managementState to Removed updates sub-component config.
+    def test_wva_default_removed_has_no_deployment(self, kubectl, cluster_info, apply_kserve_cr):
+        """WVA defaults to Removed — no WVA deployment should exist."""
+        if not cluster_info.is_openshift:
+            pytest.skip("WVA is OCP-only")
 
-        Not yet implemented - skipped until managementState: Removed is supported.
-        """
-        patch = json.dumps({"spec": {"nim": {"managementState": "Removed"}}})
+        patch = json.dumps({"spec": {"wva": {"managementState": "Removed"}}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+        wait_for_deployment_gone(kubectl, WVA_DEPLOYMENT)
+
+        result = run(
+            [kubectl, "get", "deployment", WVA_DEPLOYMENT, "-n", NAMESPACE],
+            check=False,
+        )
+        assert result.returncode != 0, \
+            f"{WVA_DEPLOYMENT} should not exist when WVA is Removed"
+
+    def test_wva_managed_deploys_resources(self, kubectl, cluster_info, apply_kserve_cr):
+        """Setting wva.managementState to Managed deploys WVA resources."""
+        if not cluster_info.is_openshift:
+            pytest.skip("WVA is OCP-only")
+
+        patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
         run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
 
-        cr = _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-                      f"observedGeneration not matching within {TIMEOUT_120S}s")
+        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                 f"observedGeneration not matching within {TIMEOUT_120S}s")
 
-        nim_state = cr.get("spec", {}).get("nim", {}).get("managementState")
-        assert nim_state == "Removed", f"Expected Removed, got {nim_state}"
+        wait_for_deployment(kubectl, WVA_DEPLOYMENT)
+        _verify_deployments_available(kubectl, is_openshift=True)
+
+    def test_wva_managed_to_removed_cleans_up(self, kubectl, cluster_info, apply_kserve_cr):
+        """Switching WVA from Managed to Removed removes WVA deployment but keeps others."""
+        if not cluster_info.is_openshift:
+            pytest.skip("WVA is OCP-only")
+
+        patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+        wait_for_deployment(kubectl, WVA_DEPLOYMENT)
+
+        patch = json.dumps({"spec": {"wva": {"managementState": "Removed"}}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+
+        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+
+        wait_for_deployment_gone(kubectl, WVA_DEPLOYMENT)
+
+        _verify_deployments_available(kubectl, is_openshift=True)
 
 
 @pytest.mark.sanity
