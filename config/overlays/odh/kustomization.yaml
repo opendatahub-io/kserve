@@ -189,6 +189,11 @@ replacements:
       name: kserve-config-llm-template-nvidia-cuda
     fieldPaths:
     - spec.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-prefill-template-nvidia-cuda
+    fieldPaths:
+    - spec.prefill.template.containers.[name=main].image
 - source:
     kind: ConfigMap
     name: kserve-parameters
@@ -240,6 +245,11 @@ replacements:
       name: kserve-config-llm-template-nvidia-cuda-fast-1
     fieldPaths:
     - spec.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-prefill-template-nvidia-cuda-fast-1
+    fieldPaths:
+    - spec.prefill.template.containers.[name=main].image
 - source:
     kind: ConfigMap
     name: kserve-parameters
@@ -291,6 +301,11 @@ replacements:
       name: kserve-config-llm-template-nvidia-cuda-fast-2
     fieldPaths:
     - spec.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-prefill-template-nvidia-cuda-fast-2
+    fieldPaths:
+    - spec.prefill.template.containers.[name=main].image
 - source:
     kind: ConfigMap
     name: kserve-parameters
@@ -382,6 +397,13 @@ replacements:
       create: true
   - select:
       kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-prefill-template-nvidia-cuda-fast-1
+    fieldPaths:
+    - spec.prefill.template.containers.[name=main].securityContext.runAsNonRoot
+    options:
+      create: true
+  - select:
+      kind: LLMInferenceServiceConfig
       name: kserve-config-llm-template-amd-rocm-fast-1
     fieldPaths:
     - spec.template.containers.[name=main].securityContext.runAsNonRoot
@@ -420,6 +442,13 @@ replacements:
       name: kserve-config-llm-template-nvidia-cuda-fast-2
     fieldPaths:
     - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    options:
+      create: true
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-prefill-template-nvidia-cuda-fast-2
+    fieldPaths:
+    - spec.prefill.template.containers.[name=main].securityContext.runAsNonRoot
     options:
       create: true
   - select:
