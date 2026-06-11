@@ -58,10 +58,6 @@ const (
 // These self-signed certs are used for cluster internal communication encryption by the workload and the scheduler.
 // The certificates are automatically renewed before expiration to ensure continuous secure communication.
 func (r *LLMISVCReconciler) reconcileSelfSignedCertsSecret(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, config *Config) error {
-	if !config.EnableTLS {
-		return r.deleteCertSecretIfExists(ctx, llmSvc)
-	}
-
 	log.FromContext(ctx).Info("Reconciling self-signed certificates secret")
 
 	schedulerConfig := config.SchedulerConfig
@@ -388,16 +384,4 @@ func NewSemanticCertificateSecretIsEqual(expirationAnnotations []string) Semanti
 // annotation keys. Useful in tests and contexts where no custom config is available.
 func SemanticCertificateSecretIsEqual(expected *corev1.Secret, curr *corev1.Secret) bool {
 	return NewSemanticCertificateSecretIsEqual(DefaultExpirationAnnotations)(expected, curr)
-}
-
-// deleteCertSecretIfExists deletes the self-signed cert secret when TLS is disabled.
-// Idempotent — returns nil if the secret does not exist.
-func (r *LLMISVCReconciler) deleteCertSecretIfExists(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
-	stub := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-self-signed-certs"),
-			Namespace: llmSvc.GetNamespace(),
-		},
-	}
-	return Delete(ctx, r, llmSvc, stub)
 }
