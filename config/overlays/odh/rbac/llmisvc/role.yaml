@@ -5,6 +5,14 @@ metadata:
   name: kserve-llmisvc-distro-role
 rules:
 - apiGroups:
+  - infrastructure.opendatahub.io
+  resources:
+  - hardwareprofiles
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - networking.istio.io
   resources:
   - destinationrules

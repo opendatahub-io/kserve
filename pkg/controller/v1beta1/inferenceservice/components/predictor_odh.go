@@ -29,8 +29,6 @@ import (
 	"github.com/kserve/kserve/pkg/hwprofile"
 )
 
-// +kubebuilder:rbac:groups=infrastructure.opendatahub.io,resources=hardwareprofiles,verbs=get;list;watch
-
 // applyHardwareProfile resolves the HardwareProfile referenced by the InferenceService annotations
 // and applies the scheduling stanzas to podSpec and objectMeta in-memory without mutating the IS.
 //

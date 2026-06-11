@@ -29,8 +29,6 @@ import (
 	"github.com/kserve/kserve/pkg/hwprofile"
 )
 
-// +kubebuilder:rbac:groups=infrastructure.opendatahub.io,resources=hardwareprofiles,verbs=get;list;watch
-
 // applyHardwareProfileToDeployment resolves the HardwareProfile referenced by the LLMInferenceService
 // annotations and applies the scheduling stanzas to the given pod spec and object metas in-memory,
 // without mutating the LLMInferenceService itself.
