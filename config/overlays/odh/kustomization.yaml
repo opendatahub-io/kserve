@@ -6,6 +6,7 @@ resources:
 # - ../../crd/full/localmodel
 - rbac/
 - accelerators/
+- accelerators-fast/
 - network-policies.yaml
 - ../../monitoring/llmisvc
 
@@ -228,6 +229,108 @@ replacements:
       name: kserve-config-llm-template-ibm-spyre-ppc64le
     fieldPaths:
     - spec.template.containers.[name=main].image
+# Replace fast-1 accelerator LLMInferenceServiceConfig images
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-nvidia-cuda-fast-1
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-nvidia-cuda-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-amd-rocm-fast-1
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-amd-rocm-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-intel-gaudi-fast-1
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-intel-gaudi-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-ibm-spyre-fast-1
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-ibm-spyre-s390x-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-ibm-spyre-x86-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-ibm-spyre-ppc64le-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+# Replace fast-2 accelerator LLMInferenceServiceConfig images
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-nvidia-cuda-fast-2
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-nvidia-cuda-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-amd-rocm-fast-2
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-amd-rocm-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-intel-gaudi-fast-2
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-intel-gaudi-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-ibm-spyre-fast-2
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-ibm-spyre-s390x-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-ibm-spyre-x86-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-ibm-spyre-ppc64le-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].image
 # Set runAsNonRoot: true for all LLMInferenceServiceConfig templates.
 # NOTE: When adding a new LLMInferenceServiceConfig template, add its container paths here.
 - source:
@@ -270,6 +373,90 @@ replacements:
     fieldPaths:
     - spec.prefill.template.containers.[name=main].securityContext.runAsNonRoot
     - spec.prefill.worker.containers.[name=main].securityContext.runAsNonRoot
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-nvidia-cuda-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    options:
+      create: true
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-amd-rocm-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    options:
+      create: true
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-intel-gaudi-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    options:
+      create: true
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-ibm-spyre-s390x-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    options:
+      create: true
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-ibm-spyre-x86-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    options:
+      create: true
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-ibm-spyre-ppc64le-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    options:
+      create: true
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-nvidia-cuda-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    options:
+      create: true
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-amd-rocm-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    options:
+      create: true
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-intel-gaudi-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    options:
+      create: true
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-ibm-spyre-s390x-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    options:
+      create: true
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-ibm-spyre-x86-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    options:
+      create: true
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-ibm-spyre-ppc64le-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    options:
+      create: true
 # Replace inferenceservice-config images with ODH images
 - source:
     kind: ConfigMap
