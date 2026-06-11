@@ -57,10 +57,8 @@ const (
 // reconcileSelfSignedCertsSecret reconciles the secret containing self-signed certs used by the server to serve TLS.
 // These self-signed certs are used for cluster internal communication encryption by the workload and the scheduler.
 // The certificates are automatically renewed before expiration to ensure continuous secure communication.
-func (r *LLMISVCReconciler) reconcileSelfSignedCertsSecret(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, config *Config) error {
+func (r *LLMISVCReconciler) reconcileSelfSignedCertsSecret(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, schedulerConfig *SchedulerConfig) error {
 	log.FromContext(ctx).Info("Reconciling self-signed certificates secret")
-
-	schedulerConfig := config.SchedulerConfig
 
 	ips, err := r.collectIPAddresses(ctx, llmSvc)
 	if err != nil {
