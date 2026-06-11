@@ -1,15 +1,14 @@
 name: kserve-module E2E Tests
 
 on:
-  # Enable after e2e test PR is merged:
-  # push:
-  #   branches: [master, release*, stable]
-  #   paths:
-  #     - "kserve-module/**"
-  # pull_request:
-  #   branches: [master, release*, stable]
-  #   paths:
-  #     - "kserve-module/**"
+  push:
+    branches: [master, release*, stable]
+    paths:
+      - "kserve-module/**"
+  pull_request:
+    branches: [master, release*, stable]
+    paths:
+      - "kserve-module/**"
   workflow_dispatch:
 
 env:
