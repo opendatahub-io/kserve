@@ -10,9 +10,9 @@ KSERVE_MODULE_IMG="${KSERVE_MODULE_IMG:-}"
 
 # Prefer oc on OpenShift, fall back to kubectl
 if command -v oc &>/dev/null; then
-  KUBECTL="${KUBECTL:-oc}"
+  KUBECTL="oc"
 else
-  KUBECTL="${KUBECTL:-kubectl}"
+  KUBECTL="kubectl"
 fi
 
 is_openshift() {

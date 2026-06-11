@@ -157,7 +157,7 @@ def cluster_info():
 
     cli = "oc" if shutil.which("oc") else "kubectl"
     if not shutil.which(cli):
-        pytest.fail(f"Neither 'oc' nor 'kubectl' found in PATH")
+        pytest.fail("Neither 'oc' nor 'kubectl' found in PATH")
 
     result = subprocess.run(
         [cli, "api-resources", "--api-group=config.openshift.io"],
