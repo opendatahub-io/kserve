@@ -38,12 +38,15 @@ var components = []componentConfig{
 		sourcePath:  modelControllerSourcePath,
 		imageMap:    modelControllerImageParamMap,
 		extraParams: modelControllerExtraParams,
+		postRender:  modelControllerPostRender,
 	},
 }
 
 func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 	kserve *platformv1alpha1.Kserve,
 	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
+
+	resources = filterFastResources(resources)
 
 	isHeadless := kserve.Spec.RawDeploymentServiceConfig != platformv1alpha1.KserveRawHeaded
 	resources, err := customizeKserveConfigMap(resources, isHeadless)
@@ -69,6 +72,13 @@ func modelControllerExtraParams(kserve *platformv1alpha1.Kserve) map[string]stri
 		"nim-state":    strings.ToLower(nimState),
 		"kserve-state": strings.ToLower(string(platformv1alpha1.GetManagementState(kserve))),
 	}
+}
+
+func modelControllerPostRender(_ context.Context, _ *KserveModuleReconciler,
+	_ *platformv1alpha1.Kserve,
+	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
+
+	return filterFastResources(resources), nil
 }
 
 func commonPostRender(resources []unstructured.Unstructured, componentName string) {

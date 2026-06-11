@@ -33,6 +33,10 @@ const (
 	llmISVCConfigGroup       = "serving.kserve.io"
 	llmISVCConfigKind        = "LLMInferenceServiceConfig"
 
+	// Template (ServingRuntime) resource type
+	templateGroup = "template.openshift.io"
+	templateKind  = "Template"
+
 	// cert-manager defaults
 	defaultCAIssuerName    = "opendatahub-ca-issuer"
 	defaultIssuerRefKind   = "ClusterIssuer"

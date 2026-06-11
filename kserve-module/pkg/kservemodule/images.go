@@ -17,8 +17,16 @@ var kserveImageParamMap = map[string]string{
 	"kserve-llm-d-routing-sidecar":     "RELATED_IMAGE_ODH_LLM_D_ROUTING_SIDECAR_IMAGE",
 	"kserve-llm-d-uds-tokenizer":       "RELATED_IMAGE_ODH_LLM_D_KV_CACHE_IMAGE",
 	"kube-rbac-proxy":                  "RELATED_IMAGE_ODH_KUBE_RBAC_PROXY_IMAGE",
-	"kserve-localmodel-controller":     "RELATED_IMAGE_ODH_KSERVE_LOCALMODEL_CONTROLLER_IMAGE",
-	"kserve-localmodelnode-agent":      "RELATED_IMAGE_ODH_KSERVE_LOCALMODELNODE_AGENT_IMAGE",
+	"kserve-localmodel-controller":      "RELATED_IMAGE_ODH_KSERVE_LOCALMODEL_CONTROLLER_IMAGE",
+	"kserve-localmodelnode-agent":       "RELATED_IMAGE_ODH_KSERVE_LOCALMODELNODE_AGENT_IMAGE",
+	"kserve-llm-d-nvidia-cuda-fast-1":   "RELATED_IMAGE_RHAII_VLLM_CUDA_FAST_1_IMAGE",
+	"kserve-llm-d-nvidia-cuda-fast-2":   "RELATED_IMAGE_RHAII_VLLM_CUDA_FAST_2_IMAGE",
+	"kserve-llm-d-amd-rocm-fast-1":      "RELATED_IMAGE_RHAII_VLLM_ROCM_FAST_1_IMAGE",
+	"kserve-llm-d-amd-rocm-fast-2":      "RELATED_IMAGE_RHAII_VLLM_ROCM_FAST_2_IMAGE",
+	"kserve-llm-d-intel-gaudi-fast-1":    "RELATED_IMAGE_RHAII_VLLM_GAUDI_FAST_1_IMAGE",
+	"kserve-llm-d-intel-gaudi-fast-2":    "RELATED_IMAGE_RHAII_VLLM_GAUDI_FAST_2_IMAGE",
+	"kserve-llm-d-ibm-spyre-fast-1":      "RELATED_IMAGE_RHAII_VLLM_SPYRE_FAST_1_IMAGE",
+	"kserve-llm-d-ibm-spyre-fast-2":      "RELATED_IMAGE_RHAII_VLLM_SPYRE_FAST_2_IMAGE",
 }
 
 var modelControllerImageParamMap = map[string]string{
