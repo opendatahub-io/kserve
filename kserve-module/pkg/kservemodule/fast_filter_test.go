@@ -55,192 +55,180 @@ func templateResource(name, image string) unstructured.Unstructured {
 	}}
 }
 
-func TestFilterFastResources_AllSameImage_BothFiltered(t *testing.T) {
-	g := NewWithT(t)
-
-	resources := []unstructured.Unstructured{
-		llmISVCConfig("kserve-config-llm-nvidia-cuda", "registry.io/vllm@sha256:abc123"),
-		llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-1", "registry.io/vllm@sha256:abc123"),
-		llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-2", "registry.io/vllm@sha256:abc123"),
+func TestFilterFastResources(t *testing.T) {
+	tests := []struct {
+		name          string
+		resources     []unstructured.Unstructured
+		wantNames     []string
+		dontWantNames []string
+	}{
+		{
+			name: "all same image, both fast variants filtered",
+			resources: []unstructured.Unstructured{
+				llmISVCConfig("kserve-config-llm-nvidia-cuda", "registry.io/vllm@sha256:abc123"),
+				llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-1", "registry.io/vllm@sha256:abc123"),
+				llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-2", "registry.io/vllm@sha256:abc123"),
+			},
+			wantNames: []string{"kserve-config-llm-nvidia-cuda"},
+		},
+		{
+			name: "fast differs from stable, same fast images, one kept",
+			resources: []unstructured.Unstructured{
+				llmISVCConfig("kserve-config-llm-nvidia-cuda", "registry.io/vllm@sha256:stable"),
+				llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-1", "registry.io/vllm@sha256:patch1"),
+				llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-2", "registry.io/vllm@sha256:patch1"),
+			},
+			wantNames: []string{
+				"kserve-config-llm-nvidia-cuda",
+				"kserve-config-llm-nvidia-cuda-fast-2",
+			},
+		},
+		{
+			name: "all different images, all kept",
+			resources: []unstructured.Unstructured{
+				llmISVCConfig("kserve-config-llm-nvidia-cuda", "registry.io/vllm@sha256:stable"),
+				llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-1", "registry.io/vllm@sha256:patch1"),
+				llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-2", "registry.io/vllm@sha256:patch2"),
+			},
+			wantNames: []string{
+				"kserve-config-llm-nvidia-cuda",
+				"kserve-config-llm-nvidia-cuda-fast-1",
+				"kserve-config-llm-nvidia-cuda-fast-2",
+			},
+		},
+		{
+			name: "only fast-1 matches stable",
+			resources: []unstructured.Unstructured{
+				llmISVCConfig("kserve-config-llm-nvidia-cuda", "registry.io/vllm@sha256:stable"),
+				llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-1", "registry.io/vllm@sha256:stable"),
+				llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-2", "registry.io/vllm@sha256:patch"),
+			},
+			wantNames: []string{
+				"kserve-config-llm-nvidia-cuda",
+				"kserve-config-llm-nvidia-cuda-fast-2",
+			},
+		},
+		{
+			name: "only fast-2 matches stable",
+			resources: []unstructured.Unstructured{
+				llmISVCConfig("kserve-config-llm-nvidia-cuda", "registry.io/vllm@sha256:stable"),
+				llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-1", "registry.io/vllm@sha256:patch"),
+				llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-2", "registry.io/vllm@sha256:stable"),
+			},
+			wantNames: []string{
+				"kserve-config-llm-nvidia-cuda",
+				"kserve-config-llm-nvidia-cuda-fast-1",
+			},
+		},
+		{
+			name: "no stable counterpart, fast kept",
+			resources: []unstructured.Unstructured{
+				llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-1", "registry.io/vllm@sha256:abc123"),
+			},
+			wantNames: []string{"kserve-config-llm-nvidia-cuda-fast-1"},
+		},
+		{
+			name:      "empty input",
+			resources: nil,
+			wantNames: nil,
+		},
+		{
+			name: "template resources, all same image, both filtered",
+			resources: []unstructured.Unstructured{
+				templateResource("nvidia-cuda-runtime", "registry.io/vllm@sha256:abc123"),
+				templateResource("nvidia-cuda-runtime-fast-1", "registry.io/vllm@sha256:abc123"),
+				templateResource("nvidia-cuda-runtime-fast-2", "registry.io/vllm@sha256:abc123"),
+			},
+			wantNames: []string{"nvidia-cuda-runtime"},
+		},
+		{
+			name: "template resources, all different, all kept",
+			resources: []unstructured.Unstructured{
+				templateResource("nvidia-cuda-runtime", "registry.io/vllm@sha256:stable"),
+				templateResource("nvidia-cuda-runtime-fast-1", "registry.io/vllm@sha256:patch1"),
+				templateResource("nvidia-cuda-runtime-fast-2", "registry.io/vllm@sha256:patch2"),
+			},
+			wantNames: []string{
+				"nvidia-cuda-runtime",
+				"nvidia-cuda-runtime-fast-1",
+				"nvidia-cuda-runtime-fast-2",
+			},
+		},
+		{
+			name: "non-fast resources unchanged",
+			resources: []unstructured.Unstructured{
+				{Object: map[string]any{
+					"apiVersion": "v1",
+					"kind":       "ConfigMap",
+					"metadata":   map[string]any{"name": "my-config"},
+				}},
+				{Object: map[string]any{
+					"apiVersion": "apps/v1",
+					"kind":       "Deployment",
+					"metadata":   map[string]any{"name": "my-deploy"},
+				}},
+			},
+			wantNames: []string{"my-config", "my-deploy"},
+		},
+		{
+			name: "mixed resource types",
+			resources: []unstructured.Unstructured{
+				llmISVCConfig("kserve-config-llm-nvidia-cuda", "registry.io/vllm@sha256:same"),
+				llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-1", "registry.io/vllm@sha256:same"),
+				templateResource("nvidia-cuda-runtime", "registry.io/vllm@sha256:stable"),
+				templateResource("nvidia-cuda-runtime-fast-1", "registry.io/vllm@sha256:patch"),
+				{Object: map[string]any{
+					"apiVersion": "v1",
+					"kind":       "ConfigMap",
+					"metadata":   map[string]any{"name": "unrelated"},
+				}},
+			},
+			wantNames: []string{
+				"kserve-config-llm-nvidia-cuda",
+				"nvidia-cuda-runtime",
+				"nvidia-cuda-runtime-fast-1",
+				"unrelated",
+			},
+			dontWantNames: []string{"kserve-config-llm-nvidia-cuda-fast-1"},
+		},
+		{
+			name: "multiple base resources",
+			resources: []unstructured.Unstructured{
+				llmISVCConfig("kserve-config-nvidia-cuda", "registry.io/cuda@sha256:stable"),
+				llmISVCConfig("kserve-config-nvidia-cuda-fast-1", "registry.io/cuda@sha256:stable"),
+				llmISVCConfig("kserve-config-amd-rocm", "registry.io/rocm@sha256:stable"),
+				llmISVCConfig("kserve-config-amd-rocm-fast-1", "registry.io/rocm@sha256:patch"),
+			},
+			wantNames: []string{
+				"kserve-config-nvidia-cuda",
+				"kserve-config-amd-rocm",
+				"kserve-config-amd-rocm-fast-1",
+			},
+			dontWantNames: []string{"kserve-config-nvidia-cuda-fast-1"},
+		},
 	}
 
-	result := filterFastResources(resources)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			result := filterFastResources(tc.resources)
 
-	g.Expect(result).Should(HaveLen(1))
-	g.Expect(result[0].GetName()).Should(Equal("kserve-config-llm-nvidia-cuda"))
-}
+			if tc.wantNames == nil {
+				g.Expect(result).Should(BeEmpty())
+				return
+			}
 
-func TestFilterFastResources_FastDiffersFromStable_SameFastImages_OneKept(t *testing.T) {
-	g := NewWithT(t)
-
-	resources := []unstructured.Unstructured{
-		llmISVCConfig("kserve-config-llm-nvidia-cuda", "registry.io/vllm@sha256:stable"),
-		llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-1", "registry.io/vllm@sha256:patch1"),
-		llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-2", "registry.io/vllm@sha256:patch1"),
+			g.Expect(result).Should(HaveLen(len(tc.wantNames)))
+			var names []string
+			for _, r := range result {
+				names = append(names, r.GetName())
+			}
+			g.Expect(names).Should(ContainElements(tc.wantNames))
+			for _, name := range tc.dontWantNames {
+				g.Expect(names).ShouldNot(ContainElement(name))
+			}
+		})
 	}
-
-	result := filterFastResources(resources)
-
-	g.Expect(result).Should(HaveLen(2))
-	names := []string{result[0].GetName(), result[1].GetName()}
-	g.Expect(names).Should(ContainElements(
-		"kserve-config-llm-nvidia-cuda",
-		"kserve-config-llm-nvidia-cuda-fast-2",
-	))
-}
-
-func TestFilterFastResources_AllDifferentImages_AllKept(t *testing.T) {
-	g := NewWithT(t)
-
-	resources := []unstructured.Unstructured{
-		llmISVCConfig("kserve-config-llm-nvidia-cuda", "registry.io/vllm@sha256:stable"),
-		llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-1", "registry.io/vllm@sha256:patch1"),
-		llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-2", "registry.io/vllm@sha256:patch2"),
-	}
-
-	result := filterFastResources(resources)
-
-	g.Expect(result).Should(HaveLen(3))
-}
-
-func TestFilterFastResources_OnlyFast1MatchesStable(t *testing.T) {
-	g := NewWithT(t)
-
-	resources := []unstructured.Unstructured{
-		llmISVCConfig("kserve-config-llm-nvidia-cuda", "registry.io/vllm@sha256:stable"),
-		llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-1", "registry.io/vllm@sha256:stable"),
-		llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-2", "registry.io/vllm@sha256:patch"),
-	}
-
-	result := filterFastResources(resources)
-
-	g.Expect(result).Should(HaveLen(2))
-	names := []string{result[0].GetName(), result[1].GetName()}
-	g.Expect(names).Should(ContainElements(
-		"kserve-config-llm-nvidia-cuda",
-		"kserve-config-llm-nvidia-cuda-fast-2",
-	))
-}
-
-func TestFilterFastResources_TemplateResources_BothFiltered(t *testing.T) {
-	g := NewWithT(t)
-
-	resources := []unstructured.Unstructured{
-		templateResource("nvidia-cuda-runtime", "registry.io/vllm@sha256:abc123"),
-		templateResource("nvidia-cuda-runtime-fast-1", "registry.io/vllm@sha256:abc123"),
-		templateResource("nvidia-cuda-runtime-fast-2", "registry.io/vllm@sha256:abc123"),
-	}
-
-	result := filterFastResources(resources)
-
-	g.Expect(result).Should(HaveLen(1))
-	g.Expect(result[0].GetName()).Should(Equal("nvidia-cuda-runtime"))
-}
-
-func TestFilterFastResources_TemplateResources_AllDifferent_AllKept(t *testing.T) {
-	g := NewWithT(t)
-
-	resources := []unstructured.Unstructured{
-		templateResource("nvidia-cuda-runtime", "registry.io/vllm@sha256:stable"),
-		templateResource("nvidia-cuda-runtime-fast-1", "registry.io/vllm@sha256:patch1"),
-		templateResource("nvidia-cuda-runtime-fast-2", "registry.io/vllm@sha256:patch2"),
-	}
-
-	result := filterFastResources(resources)
-
-	g.Expect(result).Should(HaveLen(3))
-}
-
-func TestFilterFastResources_NonFastResourcesUnchanged(t *testing.T) {
-	g := NewWithT(t)
-
-	resources := []unstructured.Unstructured{
-		{Object: map[string]any{
-			"apiVersion": "v1",
-			"kind":       "ConfigMap",
-			"metadata":   map[string]any{"name": "my-config"},
-		}},
-		{Object: map[string]any{
-			"apiVersion": "apps/v1",
-			"kind":       "Deployment",
-			"metadata":   map[string]any{"name": "my-deploy"},
-		}},
-	}
-
-	result := filterFastResources(resources)
-
-	g.Expect(result).Should(HaveLen(2))
-}
-
-func TestFilterFastResources_NoStableCounterpart_FastKept(t *testing.T) {
-	g := NewWithT(t)
-
-	resources := []unstructured.Unstructured{
-		llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-1", "registry.io/vllm@sha256:abc123"),
-	}
-
-	result := filterFastResources(resources)
-
-	g.Expect(result).Should(HaveLen(1))
-	g.Expect(result[0].GetName()).Should(Equal("kserve-config-llm-nvidia-cuda-fast-1"))
-}
-
-func TestFilterFastResources_MixedResourceTypes(t *testing.T) {
-	g := NewWithT(t)
-
-	resources := []unstructured.Unstructured{
-		llmISVCConfig("kserve-config-llm-nvidia-cuda", "registry.io/vllm@sha256:same"),
-		llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-1", "registry.io/vllm@sha256:same"),
-		templateResource("nvidia-cuda-runtime", "registry.io/vllm@sha256:stable"),
-		templateResource("nvidia-cuda-runtime-fast-1", "registry.io/vllm@sha256:patch"),
-		{Object: map[string]any{
-			"apiVersion": "v1",
-			"kind":       "ConfigMap",
-			"metadata":   map[string]any{"name": "unrelated"},
-		}},
-	}
-
-	result := filterFastResources(resources)
-
-	g.Expect(result).Should(HaveLen(4))
-	var names []string
-	for _, r := range result {
-		names = append(names, r.GetName())
-	}
-	g.Expect(names).Should(ContainElements(
-		"kserve-config-llm-nvidia-cuda",
-		"nvidia-cuda-runtime",
-		"nvidia-cuda-runtime-fast-1",
-		"unrelated",
-	))
-	g.Expect(names).ShouldNot(ContainElement("kserve-config-llm-nvidia-cuda-fast-1"))
-}
-
-func TestFilterFastResources_EmptyInput(t *testing.T) {
-	g := NewWithT(t)
-
-	result := filterFastResources(nil)
-
-	g.Expect(result).Should(BeEmpty())
-}
-
-func TestFilterFastResources_Fast2OnlyMatchesStable(t *testing.T) {
-	g := NewWithT(t)
-
-	resources := []unstructured.Unstructured{
-		llmISVCConfig("kserve-config-llm-nvidia-cuda", "registry.io/vllm@sha256:stable"),
-		llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-1", "registry.io/vllm@sha256:patch"),
-		llmISVCConfig("kserve-config-llm-nvidia-cuda-fast-2", "registry.io/vllm@sha256:stable"),
-	}
-
-	result := filterFastResources(resources)
-
-	g.Expect(result).Should(HaveLen(2))
-	names := []string{result[0].GetName(), result[1].GetName()}
-	g.Expect(names).Should(ContainElements(
-		"kserve-config-llm-nvidia-cuda",
-		"kserve-config-llm-nvidia-cuda-fast-1",
-	))
 }
 
 func TestParseFastSuffix(t *testing.T) {
@@ -269,52 +257,37 @@ func TestParseFastSuffix(t *testing.T) {
 	}
 }
 
-func TestExtractImage_LLMInferenceServiceConfig(t *testing.T) {
-	g := NewWithT(t)
-
-	r := llmISVCConfig("test", "registry.io/image:v1")
-	g.Expect(extractImage(r)).Should(Equal("registry.io/image:v1"))
-}
-
-func TestExtractImage_Template(t *testing.T) {
-	g := NewWithT(t)
-
-	r := templateResource("test", "registry.io/image:v1")
-	g.Expect(extractImage(r)).Should(Equal("registry.io/image:v1"))
-}
-
-func TestExtractImage_UnknownKind(t *testing.T) {
-	g := NewWithT(t)
-
-	r := unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": "v1",
-		"kind":       "ConfigMap",
-		"metadata":   map[string]any{"name": "test"},
-	}}
-	g.Expect(extractImage(r)).Should(BeEmpty())
-}
-
-func TestFilterFastResources_MultipleBaseResources(t *testing.T) {
-	g := NewWithT(t)
-
-	resources := []unstructured.Unstructured{
-		llmISVCConfig("kserve-config-nvidia-cuda", "registry.io/cuda@sha256:stable"),
-		llmISVCConfig("kserve-config-nvidia-cuda-fast-1", "registry.io/cuda@sha256:stable"),
-		llmISVCConfig("kserve-config-amd-rocm", "registry.io/rocm@sha256:stable"),
-		llmISVCConfig("kserve-config-amd-rocm-fast-1", "registry.io/rocm@sha256:patch"),
+func TestExtractImage(t *testing.T) {
+	tests := []struct {
+		name      string
+		resource  unstructured.Unstructured
+		wantImage string
+	}{
+		{
+			name:      "LLMInferenceServiceConfig",
+			resource:  llmISVCConfig("test", "registry.io/image:v1"),
+			wantImage: "registry.io/image:v1",
+		},
+		{
+			name:      "Template",
+			resource:  templateResource("test", "registry.io/image:v1"),
+			wantImage: "registry.io/image:v1",
+		},
+		{
+			name: "unknown kind",
+			resource: unstructured.Unstructured{Object: map[string]any{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata":   map[string]any{"name": "test"},
+			}},
+			wantImage: "",
+		},
 	}
 
-	result := filterFastResources(resources)
-
-	g.Expect(result).Should(HaveLen(3))
-	var names []string
-	for _, r := range result {
-		names = append(names, r.GetName())
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			g.Expect(extractImage(tc.resource)).Should(Equal(tc.wantImage))
+		})
 	}
-	g.Expect(names).Should(ContainElements(
-		"kserve-config-nvidia-cuda",
-		"kserve-config-amd-rocm",
-		"kserve-config-amd-rocm-fast-1",
-	))
-	g.Expect(names).ShouldNot(ContainElement("kserve-config-nvidia-cuda-fast-1"))
 }
