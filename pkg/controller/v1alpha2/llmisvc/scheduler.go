@@ -489,7 +489,14 @@ func schedulerConfigText(llmSvc *v1alpha2.LLMInferenceService) string {
 
 	switch {
 	case llmSvc.Spec.Prefill != nil:
-		// Always do P/D by default (threshold 0)
+		// Always do P/D by default (threshold 0).
+		// Profiles follow the upstream llm-d optimized P/D baseline:
+		//   prefill - prefix-cache + queue + kv-cache-utilization scorers
+		//   decode  - active-request + prefix-cache scorers (active request count
+		//             is a better signal than queue depth for ongoing generation).
+		// kv-cache-utilization-scorer and active-request-scorer are declared in the
+		// top-level plugins list so the profiles' pluginRefs resolve; queue-scorer
+		// stays declared because the prefill profile still references it.
 		return `
 apiVersion: inference.networking.x-k8s.io/v1alpha1
 kind: EndpointPickerConfig
@@ -498,6 +505,8 @@ plugins:
 - type: prefill-filter
 - type: decode-filter
 - type: queue-scorer
+- type: kv-cache-utilization-scorer
+- type: active-request-scorer
 - type: prefix-cache-scorer
 - type: max-score-picker
 - type: always-disagg-pd-decider
@@ -509,15 +518,17 @@ schedulingProfiles:
 - name: prefill
   plugins:
   - pluginRef: prefill-filter
-  - pluginRef: queue-scorer
-    weight: 2
   - pluginRef: prefix-cache-scorer
     weight: 3
+  - pluginRef: queue-scorer
+    weight: 2
+  - pluginRef: kv-cache-utilization-scorer
+    weight: 2
   - pluginRef: max-score-picker
 - name: decode
   plugins:
   - pluginRef: decode-filter
-  - pluginRef: queue-scorer
+  - pluginRef: active-request-scorer
     weight: 2
   - pluginRef: prefix-cache-scorer
     weight: 3
