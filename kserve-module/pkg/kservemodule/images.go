@@ -43,6 +43,15 @@ var modelControllerImageParamMap = map[string]string{
 	"vllm-spyre-image":        "RELATED_IMAGE_RHAII_VLLM_SPYRE_IMAGE",
 	"vllm-spyre-image-fast-1": "RELATED_IMAGE_RHAII_VLLM_SPYRE_FAST_1_IMAGE",
 	"vllm-spyre-image-fast-2": "RELATED_IMAGE_RHAII_VLLM_SPYRE_FAST_2_IMAGE",
+	"vllm-cpu-image":              "RELATED_IMAGE_ODH_VLLM_CPU_IMAGE",
+	"vllm-cpu-image-fast-1":       "RELATED_IMAGE_ODH_VLLM_CPU_FAST_1_IMAGE",
+	"vllm-cpu-image-fast-2":       "RELATED_IMAGE_ODH_VLLM_CPU_FAST_2_IMAGE",
+	"vllm-cpu-x86-image":          "RELATED_IMAGE_RHAII_VLLM_CPU_IMAGE",
+	"vllm-cpu-x86-image-fast-1":   "RELATED_IMAGE_RHAII_VLLM_CPU_FAST_1_IMAGE",
+	"vllm-cpu-x86-image-fast-2":   "RELATED_IMAGE_RHAII_VLLM_CPU_FAST_2_IMAGE",
+	"vllm-multinode-image":        "RELATED_IMAGE_RHAII_VLLM_MULTINODE_IMAGE",
+	"vllm-multinode-image-fast-1": "RELATED_IMAGE_RHAII_VLLM_MULTINODE_FAST_1_IMAGE",
+	"vllm-multinode-image-fast-2": "RELATED_IMAGE_RHAII_VLLM_MULTINODE_FAST_2_IMAGE",
 }
 
 
