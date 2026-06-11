@@ -152,13 +152,19 @@ def _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_
 # ---------------------------------------------------------------------------
 @pytest.fixture(scope="session")
 def cluster_info():
-    """Detect cluster type by checking for OpenShift API resources."""
+    """Detect cluster type and pick the right CLI binary (oc or kubectl)."""
+    import shutil
+
+    cli = "oc" if shutil.which("oc") else "kubectl"
+    if not shutil.which(cli):
+        pytest.fail(f"Neither 'oc' nor 'kubectl' found in PATH")
+
     result = subprocess.run(
-        ["kubectl", "api-resources", "--api-group=config.openshift.io"],
+        [cli, "api-resources", "--api-group=config.openshift.io"],
         capture_output=True, text=True, timeout=10
     )
     is_ocp = result.returncode == 0 and "clusterversions" in result.stdout.lower()
-    return ClusterInfo(is_openshift=is_ocp, kubectl="kubectl")
+    return ClusterInfo(is_openshift=is_ocp, kubectl="oc" if is_ocp else cli)
 
 
 @pytest.fixture(scope="session")

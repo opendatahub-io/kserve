@@ -8,6 +8,17 @@ PLATFORM="${PLATFORM:-xks}"
 KSERVE_NAMESPACE="${KSERVE_NAMESPACE:-opendatahub}"
 KSERVE_MODULE_IMG="${KSERVE_MODULE_IMG:-}"
 
+# Prefer oc on OpenShift, fall back to kubectl
+if command -v oc &>/dev/null; then
+  KUBECTL="${KUBECTL:-oc}"
+else
+  KUBECTL="${KUBECTL:-kubectl}"
+fi
+
+is_openshift() {
+  ${KUBECTL} get crd routes.route.openshift.io &>/dev/null
+}
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 KSERVE_INFRA_DIR="${PROJECT_ROOT}/hack/setup/infra"
@@ -107,10 +118,10 @@ EOF
 # ---------------------------------------------------------------------------
 setup_cert_manager_pki() {
   log_info "Setting up cert-manager PKI for kserve-module..."
-  kubectl apply -k "${PROJECT_ROOT}/config/overlays/odh-test/cert-manager"
-  kubectl wait --for=condition=Ready clusterissuer/opendatahub-selfsigned-issuer --timeout=60s
-  kubectl wait --for=condition=Ready certificate/opendatahub-ca -n cert-manager --timeout=120s
-  kubectl wait --for=condition=Ready clusterissuer/opendatahub-ca-issuer --timeout=60s
+  ${KUBECTL} apply -k "${PROJECT_ROOT}/config/overlays/odh-test/cert-manager"
+  ${KUBECTL} wait --for=condition=Ready clusterissuer/opendatahub-selfsigned-issuer --timeout=60s
+  ${KUBECTL} wait --for=condition=Ready certificate/opendatahub-ca -n cert-manager --timeout=120s
+  ${KUBECTL} wait --for=condition=Ready clusterissuer/opendatahub-ca-issuer --timeout=60s
   log_success "PKI chain created"
 }
 
@@ -142,7 +153,7 @@ install_ocp_subscription() {
   local channel="$3"
   local mode="${4:-AllNamespaces}"
 
-  if kubectl get subscription "${sub_name}" -n "${ns}" &>/dev/null; then
+  if ${KUBECTL} get subscription "${sub_name}" -n "${ns}" &>/dev/null; then
     log_info "Subscription ${sub_name} already exists, skipping"
     return
   fi
@@ -156,7 +167,7 @@ install_ocp_subscription() {
     - ${ns}"
   fi
 
-  kubectl apply -f - <<EOF
+  ${KUBECTL} apply -f - <<EOF
 apiVersion: operators.coreos.com/v1
 kind: OperatorGroup
 metadata:
@@ -198,15 +209,15 @@ install_ocp_deps() {
 # ---------------------------------------------------------------------------
 cleanup_kserve_module() {
   log_info "Cleaning up kserve-module..."
-  kubectl delete kserve --all --ignore-not-found -n "${KSERVE_NAMESPACE}" 2>/dev/null || true
+  ${KUBECTL} delete kserve --all --ignore-not-found -n "${KSERVE_NAMESPACE}" 2>/dev/null || true
 
   log_info "Waiting for operand cleanup..."
   sleep 10
 
   local config_dir="${PROJECT_ROOT}/kserve-module/config"
-  kustomize build "$config_dir" | \
+  ${KUBECTL} kustomize "$config_dir" | \
     sed "s|namespace: kserve|namespace: ${KSERVE_NAMESPACE}|g" | \
-    kubectl delete --ignore-not-found -f - 2>/dev/null || true
+    ${KUBECTL} delete --ignore-not-found -f - 2>/dev/null || true
 
   log_success "kserve-module cleaned up"
 }
@@ -224,51 +235,51 @@ cleanup_ocp_subscription() {
   case "${sub_name}" in
     openshift-cert-manager-operator)
       log_info "Deleting cert-manager operand..."
-      kubectl delete certmanagers.operator.openshift.io cluster --timeout=120s --ignore-not-found 2>/dev/null || true
+      ${KUBECTL} delete certmanagers.operator.openshift.io cluster --timeout=120s --ignore-not-found 2>/dev/null || true
 
       # Wait for cert-manager pods to be cleaned up
       log_info "Waiting for cert-manager pods cleanup..."
-      kubectl wait --for=delete pods --all -n cert-manager --timeout=120s 2>/dev/null || true
+      ${KUBECTL} wait --for=delete pods --all -n cert-manager --timeout=120s 2>/dev/null || true
 
       # Clean up cert-manager resources created by this script
-      kubectl delete -k "${PROJECT_ROOT}/config/overlays/odh-test/cert-manager" --ignore-not-found 2>/dev/null || true
+      ${KUBECTL} delete -k "${PROJECT_ROOT}/config/overlays/odh-test/cert-manager" --ignore-not-found 2>/dev/null || true
       ;;
     rhcl-operator)
       log_info "Deleting RHCL operands..."
-      kubectl delete kuadrants.kuadrant.io --all -n "${ns}" --timeout=60s --ignore-not-found 2>/dev/null || true
-      kubectl delete authorinos.operator.authorino.kuadrant.io --all -n "${ns}" --timeout=60s --ignore-not-found 2>/dev/null || true
+      ${KUBECTL} delete kuadrants.kuadrant.io --all -n "${ns}" --timeout=60s --ignore-not-found 2>/dev/null || true
+      ${KUBECTL} delete authorinos.operator.authorino.kuadrant.io --all -n "${ns}" --timeout=60s --ignore-not-found 2>/dev/null || true
 
       # Remove finalizers if operator is already gone and can't process them
       for kind in kuadrants.kuadrant.io authorinos.operator.authorino.kuadrant.io; do
-        for cr in $(kubectl get "${kind}" -n "${ns}" -o name 2>/dev/null); do
-          kubectl patch "${cr}" -n "${ns}" --type=json -p='[{"op":"remove","path":"/metadata/finalizers"}]' 2>/dev/null || true
+        for cr in $(${KUBECTL} get "${kind}" -n "${ns}" -o name 2>/dev/null); do
+          ${KUBECTL} patch "${cr}" -n "${ns}" --type=json -p='[{"op":"remove","path":"/metadata/finalizers"}]' 2>/dev/null || true
         done
       done
       ;;
     leader-worker-set)
-      kubectl delete leaderworkersets.operator.openshift.io --all --timeout=60s --ignore-not-found 2>/dev/null || true
+      ${KUBECTL} delete leaderworkersets.operator.openshift.io --all --timeout=60s --ignore-not-found 2>/dev/null || true
       ;;
     openshift-custom-metrics-autoscaler-operator)
-      kubectl delete kedacontrollers.keda.sh --all -n "${ns}" --timeout=60s --ignore-not-found 2>/dev/null || true
+      ${KUBECTL} delete kedacontrollers.keda.sh --all -n "${ns}" --timeout=60s --ignore-not-found 2>/dev/null || true
       ;;
   esac
 
   # Step 2: Remove subscription + CSV (operator stops)
   log_info "Removing subscriptions and CSVs in ${ns}..."
-  kubectl delete subscription --all -n "${ns}" --ignore-not-found 2>/dev/null || true
-  kubectl delete csv --all -n "${ns}" --ignore-not-found 2>/dev/null || true
-  kubectl delete operatorgroup "${sub_name}" -n "${ns}" --ignore-not-found 2>/dev/null || true
+  ${KUBECTL} delete subscription --all -n "${ns}" --ignore-not-found 2>/dev/null || true
+  ${KUBECTL} delete csv --all -n "${ns}" --ignore-not-found 2>/dev/null || true
+  ${KUBECTL} delete operatorgroup "${sub_name}" -n "${ns}" --ignore-not-found 2>/dev/null || true
 
   # Step 3: Clean up namespaces
   case "${sub_name}" in
     openshift-cert-manager-operator)
       log_info "Deleting cert-manager namespace..."
-      kubectl delete ns cert-manager --ignore-not-found --timeout=120s 2>/dev/null || true
+      ${KUBECTL} delete ns cert-manager --ignore-not-found --timeout=120s 2>/dev/null || true
       ;;
   esac
 
   log_info "Deleting operator namespace ${ns}..."
-  kubectl delete ns "${ns}" --ignore-not-found --timeout=120s 2>/dev/null || true
+  ${KUBECTL} delete ns "${ns}" --ignore-not-found --timeout=120s 2>/dev/null || true
 
   log_success "Cleaned up ${sub_name}"
 }
@@ -292,7 +303,7 @@ cleanup_xks_deps() {
   log_info "Cleaning up xks dependencies..."
 
   # Delete PKI first (before cert-manager)
-  kubectl delete -k "${PROJECT_ROOT}/config/overlays/odh-test/cert-manager" --ignore-not-found 2>/dev/null || true
+  ${KUBECTL} delete -k "${PROJECT_ROOT}/config/overlays/odh-test/cert-manager" --ignore-not-found 2>/dev/null || true
 
   # Uninstall in reverse order of installation
   local -a reverse_scripts=(
@@ -324,17 +335,17 @@ deploy_kserve_module() {
   local config_dir="${PROJECT_ROOT}/kserve-module/config"
 
   local output
-  output=$(kustomize build "$config_dir" | sed "s|namespace: kserve|namespace: ${KSERVE_NAMESPACE}|g")
+  output=$(${KUBECTL} kustomize "$config_dir" | sed "s|namespace: kserve|namespace: ${KSERVE_NAMESPACE}|g")
 
   if [[ -n "${KSERVE_MODULE_IMG}" ]]; then
     log_info "Using custom image: ${KSERVE_MODULE_IMG}"
     output=$(echo "$output" | sed "s|image: .*kserve-module-controller.*|image: ${KSERVE_MODULE_IMG}|g")
   fi
 
-  echo "$output" | kubectl apply --server-side=true --force-conflicts -f -
+  echo "$output" | ${KUBECTL} apply --server-side=true --force-conflicts -f -
 
   log_info "Waiting for controller rollout..."
-  kubectl rollout status deployment/kserve-module-controller-manager \
+  ${KUBECTL} rollout status deployment/kserve-module-controller-manager \
     -n "${KSERVE_NAMESPACE}" --timeout=300s
   log_success "kserve-module deployed"
 }
@@ -343,6 +354,10 @@ deploy_kserve_module() {
 # main
 # ---------------------------------------------------------------------------
 main() {
+  if is_openshift; then
+    PLATFORM="ocp"
+  fi
+
   parse_args "$@"
 
   echo ""
@@ -355,7 +370,8 @@ main() {
   echo "=========================================="
   echo ""
 
-  check_cli_exist kubectl kustomize
+  check_cli_exist "${KUBECTL}"
+
 
   if [[ "${CLEANUP}" == "true" ]]; then
     echo "  Action:    cleanup"
@@ -383,8 +399,8 @@ main() {
   echo ""
   log_success "Setup complete!"
   echo ""
-  echo "  kubectl get pods -n ${KSERVE_NAMESPACE}"
-  echo "  kubectl get crd kserves.components.platform.opendatahub.io"
+  echo "  ${KUBECTL} get pods -n ${KSERVE_NAMESPACE}"
+  echo "  ${KUBECTL} get crd kserves.components.platform.opendatahub.io"
   echo ""
 }
 
