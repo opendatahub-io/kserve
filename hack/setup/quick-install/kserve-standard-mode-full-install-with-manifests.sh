@@ -37828,14 +37828,6 @@ rules:
   - update
   - watch
 - apiGroups:
-  - infrastructure.opendatahub.io
-  resources:
-  - hardwareprofiles
-  verbs:
-  - get
-  - list
-  - watch
-- apiGroups:
   - keda.sh
   resources:
   - scaledobjects
