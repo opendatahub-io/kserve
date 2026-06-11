@@ -164,7 +164,7 @@ def cluster_info():
         capture_output=True, text=True, timeout=10
     )
     is_ocp = result.returncode == 0 and "clusterversions" in result.stdout.lower()
-    return ClusterInfo(is_openshift=is_ocp, kubectl="oc" if is_ocp else cli)
+    return ClusterInfo(is_openshift=is_ocp, kubectl=cli)
 
 
 @pytest.fixture(scope="session")
