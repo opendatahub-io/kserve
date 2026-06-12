@@ -68,7 +68,7 @@ COPY --from=builder --chown=kserve:kserve $VIRTUAL_ENV $VIRTUAL_ENV
 COPY --from=builder storage storage
 COPY ./storage-initializer /storage-initializer
 
-RUN chmod +x /storage-initializer/scripts/initializer-entrypoint-confidential
+RUN chmod +x /storage-initializer/scripts/initializer-entrypoint
 RUN mkdir /work
 WORKDIR /work
 
@@ -77,4 +77,4 @@ RUN chown -R kserve:kserve /mnt
 ENV HOME=/home/kserve
 ENV HF_HOME=/home/kserve
 USER 1000
-ENTRYPOINT ["/storage-initializer/scripts/initializer-entrypoint-confidential"]
+ENTRYPOINT ["/storage-initializer/scripts/initializer-entrypoint"]
