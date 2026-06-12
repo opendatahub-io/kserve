@@ -27,11 +27,11 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/constants"
+	pkgtesting "github.com/kserve/kserve/pkg/testing"
 )
 
 // mockClient wraps client.Client, overriding Get to return a configurable error.
@@ -42,22 +42,6 @@ type mockClient struct {
 
 func (m *mockClient) Get(_ context.Context, _ client.ObjectKey, _ client.Object, _ ...client.GetOption) error {
 	return m.getErr
-}
-
-// buildUnstructuredHWP builds a HardwareProfile unstructured object for unit tests.
-func buildUnstructuredHWP(spec map[string]interface{}) *unstructured.Unstructured {
-	obj := &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": constants.HardwareProfileGroup + "/" + constants.HardwareProfileVersion,
-			"kind":       "HardwareProfile",
-			"metadata": map[string]interface{}{
-				"name":      "test",
-				"namespace": "ns",
-			},
-			"spec": spec,
-		},
-	}
-	return obj
 }
 
 // ---------- Section 1: Resolve() ----------
@@ -92,7 +76,7 @@ func TestResolve_FetchError(t *testing.T) {
 // ---------- Section 2: parseProfile() ----------
 
 func TestParseProfile_ResourceIdentifiers(t *testing.T) {
-	obj := buildUnstructuredHWP(map[string]interface{}{
+	obj := pkgtesting.HardwareProfile("test", "ns",map[string]interface{}{
 		"identifiers": []interface{}{
 			map[string]interface{}{"identifier": "cpu", "defaultCount": "4"},
 			map[string]interface{}{"identifier": "nvidia.com/gpu", "defaultCount": "2"},
@@ -113,7 +97,7 @@ func TestParseProfile_ResourceIdentifiers(t *testing.T) {
 			gpuIdx = i
 		}
 	}
-	require.GreaterOrEqual(t, cpuIdx, 0, "cpu identifier not found")
+	require.GreaterOrEqual(t, cpuIdx, 0, "CPU identifier not found")
 	require.GreaterOrEqual(t, gpuIdx, 0, "GPU identifier not found")
 
 	assert.Equal(t, resource.MustParse("4"), profile.Identifiers[cpuIdx].DefaultCount)
@@ -121,7 +105,7 @@ func TestParseProfile_ResourceIdentifiers(t *testing.T) {
 }
 
 func TestParseProfile_DefaultCountMissing(t *testing.T) {
-	obj := buildUnstructuredHWP(map[string]interface{}{
+	obj := pkgtesting.HardwareProfile("test", "ns",map[string]interface{}{
 		"identifiers": []interface{}{
 			map[string]interface{}{"identifier": "cpu"},
 		},
@@ -136,7 +120,7 @@ func TestParseProfile_DefaultCountMissing(t *testing.T) {
 }
 
 func TestParseProfile_InvalidDefaultCount(t *testing.T) {
-	obj := buildUnstructuredHWP(map[string]interface{}{
+	obj := pkgtesting.HardwareProfile("test", "ns",map[string]interface{}{
 		"identifiers": []interface{}{
 			map[string]interface{}{"identifier": "cpu", "defaultCount": "bad!"},
 		},
@@ -148,7 +132,7 @@ func TestParseProfile_InvalidDefaultCount(t *testing.T) {
 }
 
 func TestParseProfile_KueueScheduling(t *testing.T) {
-	obj := buildUnstructuredHWP(map[string]interface{}{
+	obj := pkgtesting.HardwareProfile("test", "ns",map[string]interface{}{
 		"schedulingSpec": map[string]interface{}{
 			"type": "Queue",
 			"kueue": map[string]interface{}{
@@ -165,7 +149,7 @@ func TestParseProfile_KueueScheduling(t *testing.T) {
 }
 
 func TestParseProfile_NodeScheduling(t *testing.T) {
-	obj := buildUnstructuredHWP(map[string]interface{}{
+	obj := pkgtesting.HardwareProfile("test", "ns",map[string]interface{}{
 		"schedulingSpec": map[string]interface{}{
 			"type": "Node",
 			"node": map[string]interface{}{
@@ -195,7 +179,7 @@ func TestParseProfile_NodeScheduling(t *testing.T) {
 }
 
 func TestParseProfile_NodeSchedulingWithTolerationSeconds(t *testing.T) {
-	obj := buildUnstructuredHWP(map[string]interface{}{
+	obj := pkgtesting.HardwareProfile("test", "ns",map[string]interface{}{
 		"schedulingSpec": map[string]interface{}{
 			"type": "Node",
 			"node": map[string]interface{}{
@@ -219,7 +203,7 @@ func TestParseProfile_NodeSchedulingWithTolerationSeconds(t *testing.T) {
 }
 
 func TestParseProfile_NoSchedulingSpec(t *testing.T) {
-	obj := buildUnstructuredHWP(map[string]interface{}{
+	obj := pkgtesting.HardwareProfile("test", "ns",map[string]interface{}{
 		"identifiers": []interface{}{
 			map[string]interface{}{"identifier": "cpu", "defaultCount": "4"},
 		},
@@ -233,7 +217,7 @@ func TestParseProfile_NoSchedulingSpec(t *testing.T) {
 }
 
 func TestParseProfile_EmptySpec(t *testing.T) {
-	obj := buildUnstructuredHWP(map[string]interface{}{})
+	obj := pkgtesting.HardwareProfile("test", "ns",map[string]interface{}{})
 
 	profile, err := parseProfile(context.Background(), obj)
 	require.NoError(t, err)
@@ -377,8 +361,10 @@ func TestApplyNodeScheduling_EmptyPodSpec(t *testing.T) {
 }
 
 func TestApplyNodeScheduling_ExistingKeyPreserved(t *testing.T) {
+	// HWP has both a conflicting key ("zone") and a new key ("tier").
+	// The existing pod value wins for the conflict; the new key is added.
 	profile := &ResolvedProfile{
-		NodeSelector: map[string]string{"zone": "eu-west"},
+		NodeSelector: map[string]string{"zone": "eu-west", "tier": "gpu"},
 	}
 	podSpec := &corev1.PodSpec{
 		NodeSelector: map[string]string{"zone": "us-east"},
@@ -387,20 +373,7 @@ func TestApplyNodeScheduling_ExistingKeyPreserved(t *testing.T) {
 	ApplyNodeScheduling(profile, podSpec)
 
 	assert.Equal(t, "us-east", podSpec.NodeSelector["zone"], "existing key should not be overwritten")
-}
-
-func TestApplyNodeScheduling_HWPOnlyKeyAdded(t *testing.T) {
-	profile := &ResolvedProfile{
-		NodeSelector: map[string]string{"zone": "eu-west", "tier": "gpu"},
-	}
-	podSpec := &corev1.PodSpec{
-		NodeSelector: map[string]string{"tier": "gpu"},
-	}
-
-	ApplyNodeScheduling(profile, podSpec)
-
-	assert.Equal(t, "gpu", podSpec.NodeSelector["tier"])
-	assert.Equal(t, "eu-west", podSpec.NodeSelector["zone"], "HWP-only key should be added")
+	assert.Equal(t, "gpu", podSpec.NodeSelector["tier"], "HWP-only key should be added")
 }
 
 func TestApplyNodeScheduling_TolerationDeduplication(t *testing.T) {
@@ -431,7 +404,10 @@ func TestApplyNodeScheduling_NewTolerationAdded(t *testing.T) {
 
 	ApplyNodeScheduling(profile, podSpec)
 
-	assert.Len(t, podSpec.Tolerations, 2)
+	require.Len(t, podSpec.Tolerations, 2)
+	keys := []string{podSpec.Tolerations[0].Key, podSpec.Tolerations[1].Key}
+	assert.Contains(t, keys, "A", "original toleration should be preserved")
+	assert.Contains(t, keys, "B", "HWP toleration should be appended")
 }
 
 func TestApplyNodeScheduling_NilProfile(t *testing.T) {

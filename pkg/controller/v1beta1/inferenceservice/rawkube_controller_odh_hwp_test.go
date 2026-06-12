@@ -29,71 +29,13 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	pkgtesting "github.com/kserve/kserve/pkg/testing"
 )
-
-// hwpObject builds a HardwareProfile unstructured object for IS integration tests.
-func hwpObject(name, namespace string, spec map[string]interface{}) *unstructured.Unstructured {
-	return &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"apiVersion": constants.HardwareProfileGroup + "/" + constants.HardwareProfileVersion,
-			"kind":       "HardwareProfile",
-			"metadata": map[string]interface{}{
-				"name":      name,
-				"namespace": namespace,
-			},
-			"spec": spec,
-		},
-	}
-}
-
-// hwpResourceSpec returns a HardwareProfile spec with resource identifiers.
-// Each identifier is a []string{resourceName, defaultCount}.
-func hwpResourceSpec(identifiers ...[]string) map[string]interface{} {
-	items := make([]interface{}, 0, len(identifiers))
-	for _, id := range identifiers {
-		item := map[string]interface{}{"identifier": id[0]}
-		if len(id) > 1 && id[1] != "" {
-			item["defaultCount"] = id[1]
-		}
-		items = append(items, item)
-	}
-	return map[string]interface{}{"identifiers": items}
-}
-
-// hwpNodeSpec returns a HardwareProfile spec with node scheduling.
-func hwpNodeSpec(nodeSelector map[string]interface{}, tolerations []interface{}) map[string]interface{} {
-	node := map[string]interface{}{}
-	if nodeSelector != nil {
-		node["nodeSelector"] = nodeSelector
-	}
-	if tolerations != nil {
-		node["tolerations"] = tolerations
-	}
-	return map[string]interface{}{
-		"schedulingSpec": map[string]interface{}{
-			"type": "Node",
-			"node": node,
-		},
-	}
-}
-
-// hwpKueueSpec returns a HardwareProfile spec with Kueue queue scheduling.
-func hwpKueueSpec(localQueueName string) map[string]interface{} {
-	return map[string]interface{}{
-		"schedulingSpec": map[string]interface{}{
-			"type": "Queue",
-			"kueue": map[string]interface{}{
-				"localQueueName": localQueueName,
-			},
-		},
-	}
-}
 
 // rawIsvcAnnotations returns annotations required for RawDeployment mode.
 func rawIsvcAnnotations(extra ...map[string]string) map[string]string {
@@ -178,7 +120,7 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
 			defer k8sClient.Delete(ctx, configMap) //nolint:errcheck
 
-			hwp := hwpObject("hwp-is2-resources", "default", hwpResourceSpec(
+			hwp := pkgtesting.HardwareProfile("hwp-is2-resources", "default", pkgtesting.HWPResourceSpec(
 				[]string{"nvidia.com/gpu", "2"},
 			))
 			Expect(k8sClient.Create(ctx, hwp)).To(Succeed())
@@ -237,7 +179,7 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
 			defer k8sClient.Delete(ctx, configMap) //nolint:errcheck
 
-			hwp := hwpObject("hwp-is3-node", "default", hwpNodeSpec(
+			hwp := pkgtesting.HardwareProfile("hwp-is3-node", "default", pkgtesting.HWPNodeSpec(
 				map[string]interface{}{"nvidia.com/gpu.product": "A100-PCIE-80GB"},
 				[]interface{}{
 					map[string]interface{}{
@@ -301,7 +243,7 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
 			defer k8sClient.Delete(ctx, configMap) //nolint:errcheck
 
-			hwp := hwpObject("hwp-is4-kueue", "default", hwpKueueSpec("test-queue"))
+			hwp := pkgtesting.HardwareProfile("hwp-is4-kueue", "default", pkgtesting.HWPKueueSpec("test-queue"))
 			Expect(k8sClient.Create(ctx, hwp)).To(Succeed())
 			defer k8sClient.Delete(ctx, hwp) //nolint:errcheck
 
@@ -386,7 +328,7 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 			}, fastTimeout, interval).Should(BeTrue(), "Deployment should not be created when HWP is missing")
 
 			// sub-step: create the missing HWP → reconciliation unblocked
-			hwp := hwpObject("missing-hwp-is5", "default", hwpResourceSpec([]string{"nvidia.com/gpu", "1"}))
+			hwp := pkgtesting.HardwareProfile("missing-hwp-is5", "default", pkgtesting.HWPResourceSpec([]string{"nvidia.com/gpu", "1"}))
 			Expect(k8sClient.Create(ctx, hwp)).To(Succeed())
 			defer k8sClient.Delete(ctx, hwp) //nolint:errcheck
 
@@ -408,7 +350,7 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 			defer k8sClient.Delete(ctx, configMap) //nolint:errcheck
 
 			// HWP wants CPU "4", but IS already has CPU "2" and GPU
-			hwp := hwpObject("hwp-is6-prio", "default", hwpResourceSpec(
+			hwp := pkgtesting.HardwareProfile("hwp-is6-prio", "default", pkgtesting.HWPResourceSpec(
 				[]string{"cpu", "4"},
 				[]string{"nvidia.com/gpu", "2"},
 			))
@@ -474,7 +416,7 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
 			defer k8sClient.Delete(ctx, configMap) //nolint:errcheck
 
-			hwp := hwpObject("hwp-is7-node-prio", "default", hwpNodeSpec(
+			hwp := pkgtesting.HardwareProfile("hwp-is7-node-prio", "default", pkgtesting.HWPNodeSpec(
 				map[string]interface{}{
 					"zone": "eu-west",
 					"tier": "gpu",
@@ -537,7 +479,7 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 				Operator: corev1.TolerationOpExists,
 				Effect:   corev1.TaintEffectNoSchedule,
 			}
-			hwp := hwpObject("hwp-is7b-tol", "default", hwpNodeSpec(
+			hwp := pkgtesting.HardwareProfile("hwp-is7b-tol", "default", pkgtesting.HWPNodeSpec(
 				nil,
 				[]interface{}{
 					map[string]interface{}{
@@ -604,7 +546,7 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
 			defer k8sClient.Delete(ctx, configMap) //nolint:errcheck
 
-			hwp := hwpObject("hwp-is8-kueue-prio", "default", hwpKueueSpec("hwp-queue"))
+			hwp := pkgtesting.HardwareProfile("hwp-is8-kueue-prio", "default", pkgtesting.HWPKueueSpec("hwp-queue"))
 			Expect(k8sClient.Create(ctx, hwp)).To(Succeed())
 			defer k8sClient.Delete(ctx, hwp) //nolint:errcheck
 
@@ -659,11 +601,11 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
 			defer k8sClient.Delete(ctx, configMap) //nolint:errcheck
 
-			hwpA := hwpObject("hwp-is9-a", "default", hwpResourceSpec([]string{"nvidia.com/gpu", "2"}))
+			hwpA := pkgtesting.HardwareProfile("hwp-is9-a", "default", pkgtesting.HWPResourceSpec([]string{"nvidia.com/gpu", "2"}))
 			Expect(k8sClient.Create(ctx, hwpA)).To(Succeed())
 			defer k8sClient.Delete(ctx, hwpA) //nolint:errcheck
 
-			hwpB := hwpObject("hwp-is9-b", "default", hwpResourceSpec([]string{"nvidia.com/gpu", "8"}))
+			hwpB := pkgtesting.HardwareProfile("hwp-is9-b", "default", pkgtesting.HWPResourceSpec([]string{"nvidia.com/gpu", "8"}))
 			Expect(k8sClient.Create(ctx, hwpB)).To(Succeed())
 			defer k8sClient.Delete(ctx, hwpB) //nolint:errcheck
 
@@ -745,9 +687,9 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
 			defer k8sClient.Delete(ctx, configMap) //nolint:errcheck
 
-			hwp := hwpObject("hwp-is10-remove", "default", func() map[string]interface{} {
-				spec := hwpResourceSpec([]string{"nvidia.com/gpu", "4"})
-				nodePart := hwpNodeSpec(map[string]interface{}{"tier": "gpu"}, nil)
+			hwp := pkgtesting.HardwareProfile("hwp-is10-remove", "default", func() map[string]interface{} {
+				spec := pkgtesting.HWPResourceSpec([]string{"nvidia.com/gpu", "4"})
+				nodePart := pkgtesting.HWPNodeSpec(map[string]interface{}{"tier": "gpu"}, nil)
 				// Merge both into a combined spec
 				for k, v := range nodePart {
 					spec[k] = v
@@ -839,7 +781,7 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 			Expect(k8sClient.Create(ctx, hwpNs)).To(Succeed())
 			defer k8sClient.Delete(ctx, hwpNs) //nolint:errcheck
 
-			hwp := hwpObject("hwp-is11-cross", "hwp-cross-ns-test", hwpResourceSpec(
+			hwp := pkgtesting.HardwareProfile("hwp-is11-cross", "hwp-cross-ns-test", pkgtesting.HWPResourceSpec(
 				[]string{"nvidia.com/gpu", "4"},
 			))
 			Expect(k8sClient.Create(ctx, hwp)).To(Succeed())

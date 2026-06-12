@@ -18,10 +18,12 @@ package llmisvc
 
 import (
 	"context"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
@@ -62,6 +64,11 @@ func (r *LLMISVCReconciler) applyHardwareProfileToDeployment(
 	hwprofile.ApplyNodeScheduling(profile, podSpec)
 	hwprofile.ApplyKueueLabel(profile, deploymentMeta)
 	hwprofile.ApplyKueueLabel(profile, podTemplateMeta)
+
+	log.FromContext(ctx).Info("Applied HardwareProfile to LLMInferenceService deployment",
+		"hardwareProfile", fmt.Sprintf("%s/%s", namespace, name),
+		"llmInferenceService", fmt.Sprintf("%s/%s", llmSvc.GetNamespace(), llmSvc.GetName()),
+	)
 
 	return nil
 }
@@ -106,6 +113,11 @@ func (r *LLMISVCReconciler) applyHardwareProfileToLWS(
 
 	// Apply Kueue label to LWS top-level metadata
 	hwprofile.ApplyKueueLabel(profile, &lws.ObjectMeta)
+
+	log.FromContext(ctx).Info("Applied HardwareProfile to LLMInferenceService LWS",
+		"hardwareProfile", fmt.Sprintf("%s/%s", namespace, name),
+		"llmInferenceService", fmt.Sprintf("%s/%s", llmSvc.GetNamespace(), llmSvc.GetName()),
+	)
 
 	return nil
 }

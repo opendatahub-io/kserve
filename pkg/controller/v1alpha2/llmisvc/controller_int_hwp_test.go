@@ -112,7 +112,7 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			}).WithContext(ctx).Should(Succeed())
 
 			// sub-step: create the missing HWP → reconciliation unblocked
-			hwp := HardwareProfile("missing-hwp", testNs.Name, HWPResourceSpec(
+			hwp := pkgtesting.HardwareProfile("missing-hwp", testNs.Name, pkgtesting.HWPResourceSpec(
 				[]string{"nvidia.com/gpu", "1"},
 			))
 			Expect(envTest.Create(ctx, hwp)).To(Succeed())
@@ -129,7 +129,7 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			svcName := "test-llm-hwp-resources"
 			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
 
-			hwp := HardwareProfile("hwp-resources", testNs.Name, HWPResourceSpec(
+			hwp := pkgtesting.HardwareProfile("hwp-resources", testNs.Name, pkgtesting.HWPResourceSpec(
 				[]string{"cpu", "8"},
 				[]string{"memory", "16Gi"},
 				[]string{"nvidia.com/gpu", "4"},
@@ -187,7 +187,7 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			svcName := "test-llm-hwp-node-sched"
 			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
 
-			hwp := HardwareProfile("hwp-node", testNs.Name, HWPNodeSpec(
+			hwp := pkgtesting.HardwareProfile("hwp-node", testNs.Name, pkgtesting.HWPNodeSpec(
 				map[string]interface{}{"nvidia.com/gpu.product": "A100-PCIE-80GB"},
 				[]interface{}{
 					map[string]interface{}{
@@ -243,7 +243,7 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			svcName := "test-llm-hwp-kueue"
 			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
 
-			hwp := HardwareProfile("hwp-kueue", testNs.Name, HWPKueueSpec("llm-queue"))
+			hwp := pkgtesting.HardwareProfile("hwp-kueue", testNs.Name, pkgtesting.HWPKueueSpec("llm-queue"))
 			Expect(envTest.Create(ctx, hwp)).To(Succeed())
 			defer envTest.Delete(ctx, hwp) //nolint:errcheck
 
@@ -295,7 +295,7 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 					},
 				},
 			}
-			hwp := HardwareProfile("hwp-no-main", testNs.Name, combinedSpec)
+			hwp := pkgtesting.HardwareProfile("hwp-no-main", testNs.Name, combinedSpec)
 			Expect(envTest.Create(ctx, hwp)).To(Succeed())
 			defer envTest.Delete(ctx, hwp) //nolint:errcheck
 
@@ -336,12 +336,12 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			Expect(dep.Spec.Template.Spec.NodeSelector).To(HaveKeyWithValue("tier", "gpu"))
 		})
 
-		It("should give LLMis-specified resource priority over HWP (LLM-7)", func(ctx SpecContext) {
+		It("should give LLMIsvc-specified resource priority over HWP (LLM-7)", func(ctx SpecContext) {
 			// given
 			svcName := "test-llm-hwp-resource-priority"
 			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
 
-			hwp := HardwareProfile("hwp-resource-prio", testNs.Name, HWPResourceSpec(
+			hwp := pkgtesting.HardwareProfile("hwp-resource-prio", testNs.Name, pkgtesting.HWPResourceSpec(
 				[]string{"cpu", "8"},
 			))
 			Expect(envTest.Create(ctx, hwp)).To(Succeed())
@@ -387,12 +387,12 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			Expect(mainContainer.Resources.Requests[corev1.ResourceCPU]).To(Equal(resource.MustParse("2")))
 		})
 
-		It("should give LLMis-specified nodeSelector priority over HWP (LLM-8)", func(ctx SpecContext) {
+		It("should give LLMIsvc-specified nodeSelector priority over HWP (LLM-8)", func(ctx SpecContext) {
 			// given
 			svcName := "test-llm-hwp-node-priority"
 			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
 
-			hwp := HardwareProfile("hwp-node-prio", testNs.Name, HWPNodeSpec(
+			hwp := pkgtesting.HardwareProfile("hwp-node-prio", testNs.Name, pkgtesting.HWPNodeSpec(
 				map[string]interface{}{
 					"zone": "eu-west",
 					"tier": "gpu",
@@ -435,12 +435,12 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			Expect(dep.Spec.Template.Spec.NodeSelector).To(HaveKeyWithValue("tier", "gpu"), "HWP-only key should be added")
 		})
 
-		It("should give LLMis-specified Kueue label priority over HWP (LLM-9)", func(ctx SpecContext) {
+		It("should give LLMIsvc-specified Kueue label priority over HWP (LLM-9)", func(ctx SpecContext) {
 			// given
 			svcName := "test-llm-hwp-kueue-priority"
 			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
 
-			hwp := HardwareProfile("hwp-kueue-prio", testNs.Name, HWPKueueSpec("hwp-queue"))
+			hwp := pkgtesting.HardwareProfile("hwp-kueue-prio", testNs.Name, pkgtesting.HWPKueueSpec("hwp-queue"))
 			Expect(envTest.Create(ctx, hwp)).To(Succeed())
 			defer envTest.Delete(ctx, hwp) //nolint:errcheck
 
@@ -483,7 +483,7 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			svcName := "test-lws-hwp-resources"
 			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
 
-			hwp := HardwareProfile("hwp-lws-gpu", testNs.Name, HWPResourceSpec(
+			hwp := pkgtesting.HardwareProfile("hwp-lws-gpu", testNs.Name, pkgtesting.HWPResourceSpec(
 				[]string{"nvidia.com/gpu", "4"},
 			))
 			Expect(envTest.Create(ctx, hwp)).To(Succeed())
@@ -536,7 +536,7 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			svcName := "test-lws-hwp-node"
 			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
 
-			hwp := HardwareProfile("hwp-lws-node", testNs.Name, HWPNodeSpec(
+			hwp := pkgtesting.HardwareProfile("hwp-lws-node", testNs.Name, pkgtesting.HWPNodeSpec(
 				map[string]interface{}{"nvidia.com/gpu.product": "A100-PCIE-80GB"},
 				[]interface{}{
 					map[string]interface{}{
@@ -600,7 +600,7 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			svcName := "test-lws-hwp-kueue"
 			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
 
-			hwp := HardwareProfile("hwp-lws-kueue", testNs.Name, HWPKueueSpec("test-queue"))
+			hwp := pkgtesting.HardwareProfile("hwp-lws-kueue", testNs.Name, pkgtesting.HWPKueueSpec("test-queue"))
 			Expect(envTest.Create(ctx, hwp)).To(Succeed())
 			defer envTest.Delete(ctx, hwp) //nolint:errcheck
 
@@ -678,7 +678,7 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			}).WithContext(ctx).Should(Succeed())
 
 			// sub-step: create the missing HWP → LWS eventually created
-			hwp := HardwareProfile("missing-lws-hwp", testNs.Name, HWPResourceSpec(
+			hwp := pkgtesting.HardwareProfile("missing-lws-hwp", testNs.Name, pkgtesting.HWPResourceSpec(
 				[]string{"nvidia.com/gpu", "1"},
 			))
 			Expect(envTest.Create(ctx, hwp)).To(Succeed())
@@ -695,7 +695,7 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			svcName := "test-lws-hwp-prefill"
 			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
 
-			hwp := HardwareProfile("hwp-lws-prefill", testNs.Name, func() map[string]interface{} {
+			hwp := pkgtesting.HardwareProfile("hwp-lws-prefill", testNs.Name, func() map[string]interface{} {
 				// Combined spec: GPU resource + node scheduling
 				return map[string]interface{}{
 					"identifiers": []interface{}{
