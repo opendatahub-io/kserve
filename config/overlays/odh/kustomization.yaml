@@ -313,6 +313,16 @@ replacements:
       name: inferenceservice-config
     fieldPaths:
     - data.oauthProxy.image
+- source:
+    kind: ServiceAccount
+    name: kserve-controller-manager
+    fieldPath: metadata.namespace
+  targets:
+  - select:
+      kind: ClusterRoleBinding
+      name: kserve-controller-distro-rolebinding
+    fieldPaths:
+    - subjects.[name=kserve-controller-manager].namespace
 
 configMapGenerator:
 - envs:
