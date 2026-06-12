@@ -32,6 +32,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
 	. "github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc/fixture"
+	pkgtesting "github.com/kserve/kserve/pkg/testing"
 )
 
 var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
@@ -68,7 +69,7 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 				}, dep)
 			}).WithContext(ctx).Should(Succeed())
 
-			mainContainer := findContainer(dep.Spec.Template.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
+			mainContainer := pkgtesting.FindContainer(dep.Spec.Template.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
 			Expect(mainContainer).NotTo(BeNil())
 			Expect(mainContainer.Resources.Requests).To(Or(BeNil(), BeEmpty()))
 			Expect(dep.Labels).NotTo(HaveKey(constants.KueueQueueNameLabel))
@@ -165,13 +166,14 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 				}, dep)
 			}).WithContext(ctx).Should(Succeed())
 
-			mainContainer := findContainer(dep.Spec.Template.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
+			mainContainer := pkgtesting.FindContainer(dep.Spec.Template.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
 			Expect(mainContainer).NotTo(BeNil())
 			Expect(mainContainer.Resources.Requests[corev1.ResourceCPU]).To(Equal(resource.MustParse("8")))
 			Expect(mainContainer.Resources.Requests[corev1.ResourceMemory]).To(Equal(resource.MustParse("16Gi")))
 			Expect(mainContainer.Resources.Requests["nvidia.com/gpu"]).To(Equal(resource.MustParse("4")))
 			// Guaranteed QoS: limits equal requests
 			Expect(mainContainer.Resources.Limits[corev1.ResourceCPU]).To(Equal(resource.MustParse("8")))
+			Expect(mainContainer.Resources.Limits[corev1.ResourceMemory]).To(Equal(resource.MustParse("16Gi")))
 			Expect(mainContainer.Resources.Limits["nvidia.com/gpu"]).To(Equal(resource.MustParse("4")))
 
 			// LLMis spec must not be mutated
@@ -326,7 +328,7 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			}).WithContext(ctx).Should(Succeed())
 
 			// "server" container resources are not modified (no resource injection without "main")
-			serverContainer := findContainer(dep.Spec.Template.Spec.Containers, "server")
+			serverContainer := pkgtesting.FindContainer(dep.Spec.Template.Spec.Containers, "server")
 			Expect(serverContainer).NotTo(BeNil())
 			Expect(serverContainer.Resources.Requests).To(Or(BeNil(), BeEmpty()))
 
@@ -380,7 +382,7 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 				}, dep)
 			}).WithContext(ctx).Should(Succeed())
 
-			mainContainer := findContainer(dep.Spec.Template.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
+			mainContainer := pkgtesting.FindContainer(dep.Spec.Template.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
 			Expect(mainContainer).NotTo(BeNil())
 			Expect(mainContainer.Resources.Requests[corev1.ResourceCPU]).To(Equal(resource.MustParse("2")))
 		})
@@ -519,12 +521,12 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 
 			// Leader template GPU
 			Expect(lws.Spec.LeaderWorkerTemplate.LeaderTemplate).NotTo(BeNil())
-			leaderMain := findContainer(lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
+			leaderMain := pkgtesting.FindContainer(lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
 			Expect(leaderMain).NotTo(BeNil())
 			Expect(leaderMain.Resources.Requests["nvidia.com/gpu"]).To(Equal(resource.MustParse("4")))
 
 			// Worker template GPU
-			workerMain := findContainer(lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
+			workerMain := pkgtesting.FindContainer(lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
 			Expect(workerMain).NotTo(BeNil())
 			Expect(workerMain.Resources.Requests["nvidia.com/gpu"]).To(Equal(resource.MustParse("4")))
 		})
@@ -750,13 +752,13 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			}).WithContext(ctx).Should(Succeed())
 
 			// Main LWS: leader GPU
-			leaderMain := findContainer(mainLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
+			leaderMain := pkgtesting.FindContainer(mainLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
 			Expect(leaderMain).NotTo(BeNil())
 			Expect(leaderMain.Resources.Requests["nvidia.com/gpu"]).To(Equal(resource.MustParse("4")))
 			Expect(mainLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.NodeSelector).To(HaveKeyWithValue("nvidia.com/gpu.product", "A100-PCIE-80GB"))
 
 			// Main LWS: worker GPU + nodeSelector
-			workerMain := findContainer(mainLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
+			workerMain := pkgtesting.FindContainer(mainLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
 			Expect(workerMain).NotTo(BeNil())
 			Expect(workerMain.Resources.Requests["nvidia.com/gpu"]).To(Equal(resource.MustParse("4")))
 			Expect(mainLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.NodeSelector).To(HaveKeyWithValue("nvidia.com/gpu.product", "A100-PCIE-80GB"))
@@ -771,13 +773,13 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			}).WithContext(ctx).Should(Succeed())
 
 			// Prefill LWS: leader GPU
-			prefillLeaderMain := findContainer(prefillLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
+			prefillLeaderMain := pkgtesting.FindContainer(prefillLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
 			Expect(prefillLeaderMain).NotTo(BeNil())
 			Expect(prefillLeaderMain.Resources.Requests["nvidia.com/gpu"]).To(Equal(resource.MustParse("4")))
 			Expect(prefillLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.NodeSelector).To(HaveKeyWithValue("nvidia.com/gpu.product", "A100-PCIE-80GB"))
 
 			// Prefill LWS: worker GPU + nodeSelector
-			prefillWorkerMain := findContainer(prefillLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
+			prefillWorkerMain := pkgtesting.FindContainer(prefillLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
 			Expect(prefillWorkerMain).NotTo(BeNil())
 			Expect(prefillWorkerMain.Resources.Requests["nvidia.com/gpu"]).To(Equal(resource.MustParse("4")))
 			Expect(prefillLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.NodeSelector).To(HaveKeyWithValue("nvidia.com/gpu.product", "A100-PCIE-80GB"))
@@ -785,12 +787,3 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 	})
 })
 
-// findContainer returns the container with the given name, or nil if not found.
-func findContainer(containers []corev1.Container, name string) *corev1.Container {
-	for i := range containers {
-		if containers[i].Name == name {
-			return &containers[i]
-		}
-	}
-	return nil
-}

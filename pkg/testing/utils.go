@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	corev1 "k8s.io/api/core/v1"
 )
 
 // ProjectRoot returns the root directory of the project by searching for the go.mod file up from where it is called.
@@ -50,4 +52,18 @@ func ProjectRoot() string {
 	}
 
 	return rootDir
+}
+
+// FindContainer returns the first container with the given name from the slice, or nil if not found.
+//
+// Parameters:
+//   - containers: slice of containers to search
+//   - name: container name to find
+func FindContainer(containers []corev1.Container, name string) *corev1.Container {
+	for i := range containers {
+		if containers[i].Name == name {
+			return &containers[i]
+		}
+	}
+	return nil
 }

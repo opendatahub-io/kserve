@@ -696,11 +696,20 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 				Namespace: "default",
 			}
 
-			// Wait for initial Deployment with GPU "2"
+			// Wait for initial Deployment and assert GPU "2" from hwp-a
 			dep := &appsv1.Deployment{}
-			Eventually(func() error {
-				return k8sClient.Get(ctx, depKey, dep)
-			}, timeout, interval).Should(Succeed())
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, depKey, dep); err != nil {
+					return false
+				}
+				for _, c := range dep.Spec.Template.Spec.Containers {
+					if c.Name == constants.InferenceServiceContainerName {
+						gpu, ok := c.Resources.Requests["nvidia.com/gpu"]
+						return ok && gpu.Cmp(resource.MustParse("2")) == 0
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue(), "initial Deployment should have GPU '2' from hwp-a")
 
 			// when — update IS annotation to hwp-b
 			errRetry := retry.RetryOnConflict(retry.DefaultRetry, func() error {

@@ -18,7 +18,6 @@ package llmisvc
 
 import (
 	"context"
-	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -53,7 +52,7 @@ func (r *LLMISVCReconciler) applyHardwareProfileToDeployment(
 
 	profile, err := hwprofile.Resolve(ctx, r.Client, name, namespace)
 	if err != nil {
-		return fmt.Errorf("HardwareProfile %s/%s: %w", namespace, name, err)
+		return err
 	}
 	if profile == nil {
 		return nil
@@ -87,7 +86,7 @@ func (r *LLMISVCReconciler) applyHardwareProfileToLWS(
 
 	profile, err := hwprofile.Resolve(ctx, r.Client, name, namespace)
 	if err != nil {
-		return fmt.Errorf("HardwareProfile %s/%s: %w", namespace, name, err)
+		return err
 	}
 	if profile == nil {
 		return nil

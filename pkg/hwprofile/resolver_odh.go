@@ -71,22 +71,13 @@ func Resolve(ctx context.Context, c client.Client, name, namespace string) (*Res
 		return nil, nil
 	}
 
-	raw, err := fetchHardwareProfile(ctx, c, name, namespace)
-	if err != nil {
-		return nil, fmt.Errorf("fetching HardwareProfile %s/%s: %w", namespace, name, err)
-	}
-
-	return parseProfile(ctx, raw)
-}
-
-// fetchHardwareProfile retrieves the HardwareProfile CR as an unstructured object.
-func fetchHardwareProfile(ctx context.Context, c client.Client, name, namespace string) (*unstructured.Unstructured, error) {
 	obj := &unstructured.Unstructured{}
 	obj.SetGroupVersionKind(hardwareProfileGVK)
 	if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, obj); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed fetching HardwareProfile %s/%s: %w", namespace, name, err)
 	}
-	return obj, nil
+
+	return parseProfile(ctx, obj)
 }
 
 // parseProfile extracts the scheduling stanzas from a HardwareProfile unstructured object.

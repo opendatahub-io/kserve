@@ -25,6 +25,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
+	pkgtesting "github.com/kserve/kserve/pkg/testing"
 	kserveTypes "github.com/kserve/kserve/pkg/types"
 	"github.com/kserve/kserve/pkg/utils"
 )
@@ -105,7 +106,7 @@ func TestAttachStorageInitializer_TargetContainer(t *testing.T) {
 			}
 
 			// Check init container dest arg
-			initContainer := findContainer(podSpec.InitContainers, constants.StorageInitializerContainerName)
+			initContainer := pkgtesting.FindContainer(podSpec.InitContainers, constants.StorageInitializerContainerName)
 			if initContainer == nil {
 				t.Fatal("storage-initializer init container not found")
 			}
@@ -117,7 +118,7 @@ func TestAttachStorageInitializer_TargetContainer(t *testing.T) {
 			}
 
 			// Check target container volume mount
-			container := findContainer(podSpec.Containers, tc.containerName)
+			container := pkgtesting.FindContainer(podSpec.Containers, tc.containerName)
 			if container == nil {
 				t.Fatalf("container %q not found", tc.containerName)
 			}
@@ -194,7 +195,7 @@ func TestAttachPVCModelArtifact_TargetContainer(t *testing.T) {
 				t.Fatalf("attachPVCModelArtifact returned error: %v", err)
 			}
 
-			container := findContainer(podSpec.Containers, tc.containerName)
+			container := pkgtesting.FindContainer(podSpec.Containers, tc.containerName)
 			if container == nil {
 				t.Fatalf("container %q not found", tc.containerName)
 			}
@@ -288,7 +289,7 @@ func TestAttachOciModelArtifact_TargetContainer(t *testing.T) {
 			}
 
 			// Check target container volume mount
-			container := findContainer(podSpec.Containers, tc.containerName)
+			container := pkgtesting.FindContainer(podSpec.Containers, tc.containerName)
 			if container == nil {
 				t.Fatalf("container %q not found", tc.containerName)
 			}
@@ -307,7 +308,7 @@ func TestAttachOciModelArtifact_TargetContainer(t *testing.T) {
 			}
 
 			// Check modelcar container args
-			modelcarContainer := findContainer(podSpec.Containers, constants.ModelcarContainerName)
+			modelcarContainer := pkgtesting.FindContainer(podSpec.Containers, constants.ModelcarContainerName)
 			if modelcarContainer == nil {
 				t.Fatal("modelcar container not found")
 			}
@@ -421,13 +422,4 @@ func TestIsUsingTokenizerSidecar(t *testing.T) {
 			}
 		})
 	}
-}
-
-func findContainer(containers []corev1.Container, name string) *corev1.Container {
-	for i := range containers {
-		if containers[i].Name == name {
-			return &containers[i]
-		}
-	}
-	return nil
 }

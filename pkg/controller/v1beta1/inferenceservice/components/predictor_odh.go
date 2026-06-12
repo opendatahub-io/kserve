@@ -45,7 +45,7 @@ func (p *Predictor) applyHardwareProfile(ctx context.Context, isvc *v1beta1.Infe
 
 	profile, err := hwprofile.Resolve(ctx, p.client, name, namespace)
 	if err != nil {
-		return fmt.Errorf("HardwareProfile %s/%s: %w", namespace, name, err)
+		return err
 	}
 	if profile == nil {
 		return nil
