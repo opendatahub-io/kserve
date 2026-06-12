@@ -286,6 +286,142 @@ func HardwareProfileRef(annotations map[string]string, defaultNamespace string) 
 	return
 }
 
+// AnnotationChanged reports whether the HWP annotation on the workload differs from the
+// annotation recorded on an existing owned resource (Deployment or LWS).
+//
+// Uses HardwareProfileRef on both sides so the optional namespace annotation is normalised
+// identically to how resolution works, preventing false positives.
+//
+// Parameters:
+//   - workloadAnnotations: Annotations from the IS or LLMis
+//   - workloadNamespace: Namespace of the IS or LLMis (used as default for missing namespace annotation)
+//   - existingAnnotations: Annotations from the existing Deployment or LWS
+func AnnotationChanged(workloadAnnotations map[string]string, workloadNamespace string, existingAnnotations map[string]string) bool {
+	wName, wNS := HardwareProfileRef(workloadAnnotations, workloadNamespace)
+	eName, eNS := HardwareProfileRef(existingAnnotations, workloadNamespace)
+	return wName != eName || wNS != eNS
+}
+
+// CopyContainerResources copies resource types from the named container in src into the
+// matching container in dst, skipping types already present in dst (in either requests or
+// limits). Requests and limits are set to the same value (Guaranteed QoS), mirroring the
+// Apply* semantics.
+//
+// A missing container in dst is logged as a warning; the function does not fail.
+//
+// Parameters:
+//   - ctx: Request context (for logging)
+//   - containerName: Name of the target container in both pod specs
+//   - src: Source pod spec (e.g. from an existing Deployment)
+//   - dst: Destination pod spec to modify in-place
+func CopyContainerResources(ctx context.Context, containerName string, src, dst *corev1.PodSpec) {
+	if src == nil {
+		return
+	}
+	logger := log.FromContext(ctx)
+
+	srcIdx := -1
+	for i, c := range src.Containers {
+		if c.Name == containerName {
+			srcIdx = i
+			break
+		}
+	}
+	if srcIdx == -1 {
+		return
+	}
+
+	dstIdx := -1
+	for i, c := range dst.Containers {
+		if c.Name == containerName {
+			dstIdx = i
+			break
+		}
+	}
+	if dstIdx == -1 {
+		logger.V(1).Info("HWP frozen-mode: container not found in destination, skipping resource copy", "container", containerName)
+		return
+	}
+
+	srcContainer := &src.Containers[srcIdx]
+	dstContainer := &dst.Containers[dstIdx]
+
+	if dstContainer.Resources.Requests == nil {
+		dstContainer.Resources.Requests = make(corev1.ResourceList)
+	}
+	if dstContainer.Resources.Limits == nil {
+		dstContainer.Resources.Limits = make(corev1.ResourceList)
+	}
+
+	for resourceName, qty := range srcContainer.Resources.Requests {
+		if _, inRequests := dstContainer.Resources.Requests[resourceName]; inRequests {
+			continue
+		}
+		if _, inLimits := dstContainer.Resources.Limits[resourceName]; inLimits {
+			continue
+		}
+		copied := qty.DeepCopy()
+		dstContainer.Resources.Requests[resourceName] = copied
+		dstContainer.Resources.Limits[resourceName] = copied
+	}
+}
+
+// CopyNodeScheduling copies nodeSelector keys and tolerations from src into dst,
+// skipping entries already present in dst. Existing dst entries take priority.
+//
+// Parameters:
+//   - src: Source pod spec (e.g. from an existing Deployment)
+//   - dst: Destination pod spec to modify in-place
+func CopyNodeScheduling(src, dst *corev1.PodSpec) {
+	if src == nil {
+		return
+	}
+
+	if len(src.NodeSelector) > 0 {
+		if dst.NodeSelector == nil {
+			dst.NodeSelector = make(map[string]string)
+		}
+		for k, v := range src.NodeSelector {
+			if _, exists := dst.NodeSelector[k]; !exists {
+				dst.NodeSelector[k] = v
+			}
+		}
+	}
+
+	if len(src.Tolerations) > 0 {
+		existing := tolerationKeySet(dst.Tolerations)
+		for _, tol := range src.Tolerations {
+			key := tolerationKey(tol)
+			if !existing[key] {
+				dst.Tolerations = append(dst.Tolerations, tol)
+				existing[key] = true
+			}
+		}
+	}
+}
+
+// CopyKueueLabel copies the kueue.x-k8s.io/queue-name label from srcMeta into dstMeta
+// only when the label is not already set in dst.
+//
+// Parameters:
+//   - srcMeta: Source ObjectMeta (e.g. from an existing Deployment)
+//   - dstMeta: Destination ObjectMeta to modify in-place
+func CopyKueueLabel(srcMeta, dstMeta *metav1.ObjectMeta) {
+	if srcMeta == nil || dstMeta == nil {
+		return
+	}
+	queueName, ok := srcMeta.Labels[constants.KueueQueueNameLabel]
+	if !ok || queueName == "" {
+		return
+	}
+	if dstMeta.Labels == nil {
+		dstMeta.Labels = make(map[string]string)
+	}
+	if _, exists := dstMeta.Labels[constants.KueueQueueNameLabel]; !exists {
+		dstMeta.Labels[constants.KueueQueueNameLabel] = queueName
+	}
+}
+
 // tolerationKey generates a deduplication key for a toleration.
 func tolerationKey(tol corev1.Toleration) string {
 	ts := ""

@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/kmeta"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
@@ -474,6 +475,80 @@ var _ = Describe("LLMInferenceService HardwareProfile injection", func() {
 			}).WithContext(ctx).Should(Succeed())
 
 			Expect(dep.Labels).To(HaveKeyWithValue(constants.KueueQueueNameLabel, "user-queue"), "LLMis label should win")
+		})
+
+		It("should not update Deployment when HWP CR content changes but annotation is unchanged (frozen mode) (LLM-11)", func(ctx SpecContext) {
+			// given
+			svcName := "test-llm-hwp-frozen"
+			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
+
+			hwp := pkgtesting.HardwareProfile("hwp-frozen", testNs.Name, pkgtesting.HWPResourceSpec(
+				[]string{"nvidia.com/gpu", "2"},
+			))
+			Expect(envTest.Create(ctx, hwp)).To(Succeed())
+			defer envTest.Delete(ctx, hwp) //nolint:errcheck
+
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithTemplate(&corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: constants.LLMInferenceServiceMainContainerName, Image: "test:latest"},
+					},
+				}),
+				WithHardwareProfileAnnotation("hwp-frozen"),
+				WithManagedRoute(),
+				WithManagedGateway(),
+			)
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				testNs.DeleteAndWait(ctx, llmSvc)
+			}()
+
+			depKey := types.NamespacedName{
+				Name:      kmeta.ChildName(svcName, "-kserve"),
+				Namespace: testNs.Name,
+			}
+
+			// Wait for Deployment with GPU "2"
+			dep := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) {
+				g.Expect(envTest.Get(ctx, depKey, dep)).To(Succeed())
+				mainContainer := pkgtesting.FindContainer(dep.Spec.Template.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
+				g.Expect(mainContainer).NotTo(BeNil())
+				gpu, ok := mainContainer.Resources.Requests["nvidia.com/gpu"]
+				g.Expect(ok).To(BeTrue())
+				g.Expect(gpu.Cmp(resource.MustParse("2"))).To(BeZero())
+			}).WithContext(ctx).Should(Succeed())
+
+			// when — update HWP CR to GPU "8"; annotation name is unchanged
+			Expect(envTest.Get(ctx, types.NamespacedName{Name: hwp.GetName(), Namespace: testNs.Name}, hwp)).To(Succeed())
+			hwpUpdated := pkgtesting.HardwareProfile("hwp-frozen", testNs.Name, pkgtesting.HWPResourceSpec(
+				[]string{"nvidia.com/gpu", "8"},
+			))
+			hwpUpdated.SetResourceVersion(hwp.GetResourceVersion())
+			Expect(envTest.Update(ctx, hwpUpdated)).To(Succeed())
+
+			// Trigger a reconcile by patching the LLMis with a harmless annotation.
+			// The HWP annotation name is still "hwp-frozen" on both the LLMis and the
+			// existing Deployment, so frozen mode must activate and ignore the CR change.
+			Expect(envTest.Get(ctx, types.NamespacedName{Name: svcName, Namespace: testNs.Name}, llmSvc)).To(Succeed())
+			patch := client.MergeFrom(llmSvc.DeepCopy())
+			if llmSvc.Annotations == nil {
+				llmSvc.Annotations = map[string]string{}
+			}
+			llmSvc.Annotations["test.kserve.io/trigger"] = "frozen-reconcile"
+			Expect(envTest.Patch(ctx, llmSvc, patch)).To(Succeed())
+
+			// then — GPU must stay at "2"; the HWP CR update must not propagate
+			Consistently(func(g Gomega, ctx context.Context) {
+				g.Expect(envTest.Get(ctx, depKey, dep)).To(Succeed())
+				mainContainer := pkgtesting.FindContainer(dep.Spec.Template.Spec.Containers, constants.LLMInferenceServiceMainContainerName)
+				g.Expect(mainContainer).NotTo(BeNil())
+				gpu, ok := mainContainer.Resources.Requests["nvidia.com/gpu"]
+				g.Expect(ok).To(BeTrue())
+				g.Expect(gpu.Cmp(resource.MustParse("2"))).To(BeZero(), "GPU must remain at '2'; HWP CR change must not propagate in frozen mode")
+			}).WithContext(ctx).Should(Succeed())
 		})
 	})
 

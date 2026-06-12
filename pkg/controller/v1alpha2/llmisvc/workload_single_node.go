@@ -128,6 +128,8 @@ func (r *LLMISVCReconciler) expectedSingleNodeMainDeployment(ctx context.Context
 		},
 	}
 
+	curr := &appsv1.Deployment{}
+
 	if llmSvc.Spec.Template != nil && !utils.GetForceStopRuntime(llmSvc) {
 		d.Spec.Template.Spec = *llmSvc.Spec.Template.DeepCopy()
 
@@ -157,7 +159,6 @@ func (r *LLMISVCReconciler) expectedSingleNodeMainDeployment(ctx context.Context
 			}
 		}
 
-		curr := &appsv1.Deployment{}
 		if err := r.Get(ctx, client.ObjectKeyFromObject(d), curr); err != nil && !apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("failed to get current deployment %s/%s: %w", d.GetNamespace(), d.GetName(), err)
 		}
@@ -168,7 +169,7 @@ func (r *LLMISVCReconciler) expectedSingleNodeMainDeployment(ctx context.Context
 
 	r.propagateDeploymentMetadata(llmSvc, d)
 
-	if err := extendExpectedDeployment(ctx, r, llmSvc, d); err != nil {
+	if err := extendExpectedDeployment(ctx, r, llmSvc, d, curr); err != nil {
 		return nil, fmt.Errorf("failed to extend expected deployment with platform stanzas: %w", err)
 	}
 

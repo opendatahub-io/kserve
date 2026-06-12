@@ -33,9 +33,33 @@ import (
 	"github.com/kserve/kserve/pkg/hwprofile"
 )
 
+// setHWPTrackingAnnotation records the resolved HWP name (and cross-namespace namespace, if
+// applicable) on the Deployment or LWS ObjectMeta so that the next reconcile can detect
+// whether the annotation has changed without re-fetching the HWP CR.
+//
+// The namespace annotation is omitted when it equals the workload namespace, mirroring the
+// HardwareProfileRef convention so that HardwareProfileRef(meta.Annotations, workloadNamespace)
+// round-trips cleanly.
+func setHWPTrackingAnnotation(meta *metav1.ObjectMeta, name, namespace, workloadNamespace string) {
+	if meta.Annotations == nil {
+		meta.Annotations = make(map[string]string)
+	}
+	meta.Annotations[constants.HardwareProfileAnnotationName] = name
+	if namespace != workloadNamespace {
+		meta.Annotations[constants.HardwareProfileAnnotationNamespace] = namespace
+	} else {
+		delete(meta.Annotations, constants.HardwareProfileAnnotationNamespace)
+	}
+}
+
 // applyHardwareProfileToDeployment resolves the HardwareProfile referenced by the LLMInferenceService
 // annotations and applies the scheduling stanzas to the given pod spec and object metas in-memory,
 // without mutating the LLMInferenceService itself.
+//
+// Implements a frozen-state mode: when the HWP annotation on the LLMis matches the tracking annotation
+// already recorded on the existing Deployment, the stanzas are copied from the existing Deployment
+// rather than re-fetched from the HWP CR. This prevents HWP CR content changes from propagating to
+// running Deployments until the user explicitly updates the LLMis annotation.
 //
 // Parameters:
 //   - ctx: Request context
@@ -43,14 +67,33 @@ import (
 //   - podSpec: Pod spec to modify in-place
 //   - deploymentMeta: Deployment ObjectMeta to modify in-place
 //   - podTemplateMeta: Pod template ObjectMeta to modify in-place
+//   - curr: Existing Deployment from the cluster, or nil when the Deployment does not yet exist
 func (r *LLMISVCReconciler) applyHardwareProfileToDeployment(
 	ctx context.Context,
 	llmSvc *v1alpha2.LLMInferenceService,
 	podSpec *corev1.PodSpec,
 	deploymentMeta *metav1.ObjectMeta,
 	podTemplateMeta *metav1.ObjectMeta,
+	curr *appsv1.Deployment,
 ) error {
 	name, namespace := hwprofile.HardwareProfileRef(llmSvc.GetAnnotations(), llmSvc.GetNamespace())
+
+	// Frozen mode: annotation unchanged and Deployment already exists.
+	// Copy stanzas from the existing Deployment rather than re-fetching from the HWP CR,
+	// preserving the last-applied values until the user changes the annotation.
+	if curr != nil && !hwprofile.AnnotationChanged(llmSvc.GetAnnotations(), llmSvc.GetNamespace(), curr.GetAnnotations()) {
+		if name == "" {
+			return nil
+		}
+		hwprofile.CopyContainerResources(ctx, constants.LLMInferenceServiceMainContainerName, &curr.Spec.Template.Spec, podSpec)
+		hwprofile.CopyNodeScheduling(&curr.Spec.Template.Spec, podSpec)
+		hwprofile.CopyKueueLabel(&curr.ObjectMeta, deploymentMeta)
+		hwprofile.CopyKueueLabel(&curr.Spec.Template.ObjectMeta, podTemplateMeta)
+		setHWPTrackingAnnotation(deploymentMeta, name, namespace, llmSvc.GetNamespace())
+		return nil
+	}
+
+	// Fresh mode: annotation changed or Deployment does not yet exist — resolve from the HWP CR.
 	if name == "" {
 		return nil
 	}
@@ -67,6 +110,7 @@ func (r *LLMISVCReconciler) applyHardwareProfileToDeployment(
 	hwprofile.ApplyNodeScheduling(profile, podSpec)
 	hwprofile.ApplyKueueLabel(profile, deploymentMeta)
 	hwprofile.ApplyKueueLabel(profile, podTemplateMeta)
+	setHWPTrackingAnnotation(deploymentMeta, name, namespace, llmSvc.GetNamespace())
 
 	log.FromContext(ctx).Info("Applied HardwareProfile to LLMInferenceService deployment",
 		"hardwareProfile", fmt.Sprintf("%s/%s", namespace, name),
@@ -80,16 +124,53 @@ func (r *LLMISVCReconciler) applyHardwareProfileToDeployment(
 // annotations and applies the scheduling stanzas to the LeaderWorkerSet leader and worker pod
 // templates and the LWS ObjectMeta in-memory.
 //
+// Implements the same frozen-state mode as applyHardwareProfileToDeployment: when the HWP
+// annotation is unchanged, stanzas are copied from the existing LWS rather than re-fetched.
+//
 // Parameters:
 //   - ctx: Request context
 //   - llmSvc: LLMInferenceService being reconciled
 //   - lws: LeaderWorkerSet to modify in-place
+//   - curr: Existing LWS from the cluster, or nil when the LWS does not yet exist
 func (r *LLMISVCReconciler) applyHardwareProfileToLWS(
 	ctx context.Context,
 	llmSvc *v1alpha2.LLMInferenceService,
 	lws *lwsapi.LeaderWorkerSet,
+	curr *lwsapi.LeaderWorkerSet,
 ) error {
 	name, namespace := hwprofile.HardwareProfileRef(llmSvc.GetAnnotations(), llmSvc.GetNamespace())
+
+	// Frozen mode: annotation unchanged and LWS already exists.
+	if curr != nil && !hwprofile.AnnotationChanged(llmSvc.GetAnnotations(), llmSvc.GetNamespace(), curr.GetAnnotations()) {
+		if name == "" {
+			return nil
+		}
+		if curr.Spec.LeaderWorkerTemplate.LeaderTemplate != nil && lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+			hwprofile.CopyContainerResources(ctx, constants.LLMInferenceServiceMainContainerName,
+				&curr.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec,
+				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec)
+			hwprofile.CopyNodeScheduling(
+				&curr.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec,
+				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec)
+			hwprofile.CopyKueueLabel(
+				&curr.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta,
+				&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta)
+		}
+		hwprofile.CopyContainerResources(ctx, constants.LLMInferenceServiceMainContainerName,
+			&curr.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec,
+			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec)
+		hwprofile.CopyNodeScheduling(
+			&curr.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec,
+			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec)
+		hwprofile.CopyKueueLabel(
+			&curr.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta,
+			&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta)
+		hwprofile.CopyKueueLabel(&curr.ObjectMeta, &lws.ObjectMeta)
+		setHWPTrackingAnnotation(&lws.ObjectMeta, name, namespace, llmSvc.GetNamespace())
+		return nil
+	}
+
+	// Fresh mode: annotation changed or LWS does not yet exist — resolve from the HWP CR.
 	if name == "" {
 		return nil
 	}
@@ -116,6 +197,7 @@ func (r *LLMISVCReconciler) applyHardwareProfileToLWS(
 
 	// Apply Kueue label to LWS top-level metadata
 	hwprofile.ApplyKueueLabel(profile, &lws.ObjectMeta)
+	setHWPTrackingAnnotation(&lws.ObjectMeta, name, namespace, llmSvc.GetNamespace())
 
 	log.FromContext(ctx).Info("Applied HardwareProfile to LLMInferenceService LWS",
 		"hardwareProfile", fmt.Sprintf("%s/%s", namespace, name),
@@ -127,12 +209,17 @@ func (r *LLMISVCReconciler) applyHardwareProfileToLWS(
 
 // extendExpectedDeployment applies distribution-specific scheduling stanzas to the
 // expected single-node Deployment by resolving the referenced HardwareProfile.
-func extendExpectedDeployment(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService, d *appsv1.Deployment) error {
-	return r.applyHardwareProfileToDeployment(ctx, llmSvc, &d.Spec.Template.Spec, &d.ObjectMeta, &d.Spec.Template.ObjectMeta)
+//
+// curr is the existing Deployment fetched from the cluster; pass nil when the Deployment
+// does not yet exist.
+func extendExpectedDeployment(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService, d *appsv1.Deployment, curr *appsv1.Deployment) error {
+	return r.applyHardwareProfileToDeployment(ctx, llmSvc, &d.Spec.Template.Spec, &d.ObjectMeta, &d.Spec.Template.ObjectMeta, curr)
 }
 
 // extendExpectedLWS applies distribution-specific scheduling stanzas to an expected
 // LeaderWorkerSet by resolving the referenced HardwareProfile.
-func extendExpectedLWS(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService, lws *lwsapi.LeaderWorkerSet) error {
-	return r.applyHardwareProfileToLWS(ctx, llmSvc, lws)
+//
+// curr is the existing LWS fetched from the cluster; pass nil when the LWS does not yet exist.
+func extendExpectedLWS(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService, lws *lwsapi.LeaderWorkerSet, curr *lwsapi.LeaderWorkerSet) error {
+	return r.applyHardwareProfileToLWS(ctx, llmSvc, lws, curr)
 }

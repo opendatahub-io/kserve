@@ -826,6 +826,99 @@ var _ = Describe("InferenceService HardwareProfile injection", func() {
 			Expect(c).NotTo(BeNil())
 			Expect(c.Resources.Requests["nvidia.com/gpu"]).To(Equal(resource.MustParse("4")))
 		})
+
+		It("IS-12: should not update Deployment when HWP CR content changes but annotation is unchanged (frozen mode)", func() {
+			// given
+			ctx := context.Background()
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(ctx, configMap) //nolint:errcheck
+
+			hwp := pkgtesting.HardwareProfile("hwp-is12-frozen", "default", pkgtesting.HWPResourceSpec(
+				[]string{"nvidia.com/gpu", "2"},
+			))
+			Expect(k8sClient.Create(ctx, hwp)).To(Succeed())
+			defer k8sClient.Delete(ctx, hwp) //nolint:errcheck
+
+			servingRuntime := getServingRuntime("tf-hwp-is12", "default")
+			Expect(k8sClient.Create(ctx, &servingRuntime)).To(Succeed())
+			defer k8sClient.Delete(ctx, &servingRuntime) //nolint:errcheck
+
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "hwp-is12-frozen",
+					Namespace: "default",
+					Annotations: rawIsvcAnnotations(map[string]string{
+						constants.HardwareProfileAnnotationName: "hwp-is12-frozen",
+					}),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: minimalPredictorExtensionSpec(),
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).To(Succeed())
+			defer k8sClient.Delete(ctx, isvc) //nolint:errcheck
+
+			depKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(isvc.Name),
+				Namespace: "default",
+			}
+
+			// Wait for initial Deployment with GPU "2"
+			dep := &appsv1.Deployment{}
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, depKey, dep); err != nil {
+					return false
+				}
+				c := findISContainer(dep.Spec.Template.Spec.Containers)
+				if c == nil {
+					return false
+				}
+				gpu, ok := c.Resources.Requests["nvidia.com/gpu"]
+				return ok && gpu.Cmp(resource.MustParse("2")) == 0
+			}, timeout, interval).Should(BeTrue(), "initial Deployment should have GPU '2' from hwp-is12-frozen")
+
+			// when — update HWP CR to GPU "8"; annotation name is unchanged
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: hwp.GetName(), Namespace: hwp.GetNamespace()}, hwp)).To(Succeed())
+			hwpUpdated := pkgtesting.HardwareProfile("hwp-is12-frozen", "default", pkgtesting.HWPResourceSpec(
+				[]string{"nvidia.com/gpu", "8"},
+			))
+			hwpUpdated.SetResourceVersion(hwp.GetResourceVersion())
+			Expect(k8sClient.Update(ctx, hwpUpdated)).To(Succeed())
+
+			// Trigger a reconcile by adding a harmless annotation to the IS.
+			// The HWP annotation name is still "hwp-is12-frozen" on both the IS and the
+			// existing Deployment, so frozen mode must activate and ignore the CR change.
+			errRetry := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				_, errUpdate := ctrl.CreateOrUpdate(ctx, k8sClient, isvc, func() error {
+					if isvc.Annotations == nil {
+						isvc.Annotations = make(map[string]string)
+					}
+					isvc.Annotations["test.kserve.io/trigger"] = "frozen-reconcile"
+					return nil
+				})
+				return errUpdate
+			})
+			Expect(errRetry).NotTo(HaveOccurred())
+
+			// then — GPU must stay at "2"; the HWP CR update must not propagate
+			Consistently(func() bool {
+				if err := k8sClient.Get(ctx, depKey, dep); err != nil {
+					return true
+				}
+				c := findISContainer(dep.Spec.Template.Spec.Containers)
+				if c == nil {
+					return true
+				}
+				gpu, ok := c.Resources.Requests["nvidia.com/gpu"]
+				return ok && gpu.Cmp(resource.MustParse("2")) == 0
+			}, fastTimeout, interval).Should(BeTrue(), "Deployment GPU must stay at '2'; HWP CR change must not propagate in frozen mode")
+		})
 	})
 })
 

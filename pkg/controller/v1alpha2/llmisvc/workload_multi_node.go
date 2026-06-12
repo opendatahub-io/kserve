@@ -250,7 +250,7 @@ func (r *LLMISVCReconciler) expectedMainMultiNodeLWS(ctx context.Context, llmSvc
 
 	r.propagateTopLevelLeaderWorkerSetMetadata(llmSvc, expected)
 
-	if err := extendExpectedLWS(ctx, r, llmSvc, expected); err != nil {
+	if err := extendExpectedLWS(ctx, r, llmSvc, expected, currLWS); err != nil {
 		return nil, fmt.Errorf("failed to extend expected main LWS with platform stanzas: %w", err)
 	}
 
@@ -310,6 +310,8 @@ func (r *LLMISVCReconciler) expectedPrefillMultiNodeLWS(ctx context.Context, llm
 		},
 	}
 
+	currLWS := &lwsapi.LeaderWorkerSet{}
+
 	if llmSvc.Spec.Prefill != nil && !utils.GetForceStopRuntime(llmSvc) {
 		expected.Spec.Replicas = llmSvc.Spec.Prefill.Replicas
 		expected.Spec.LeaderWorkerTemplate.Size = llmSvc.Spec.Prefill.Parallelism.GetSize()
@@ -319,7 +321,6 @@ func (r *LLMISVCReconciler) expectedPrefillMultiNodeLWS(ctx context.Context, llm
 			return nil, fmt.Errorf("failed to create exptected multi node service account: %w", err)
 		}
 
-		currLWS := &lwsapi.LeaderWorkerSet{}
 		if err := r.Get(ctx, client.ObjectKeyFromObject(expected), currLWS); err != nil && !apierrors.IsNotFound(err) && !meta.IsNoMatchError(err) {
 			return nil, fmt.Errorf("failed to get current prefill leader worker set %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 		}
@@ -360,7 +361,7 @@ func (r *LLMISVCReconciler) expectedPrefillMultiNodeLWS(ctx context.Context, llm
 
 	r.propagateTopLevelLeaderWorkerSetMetadata(llmSvc, expected)
 
-	if err := extendExpectedLWS(ctx, r, llmSvc, expected); err != nil {
+	if err := extendExpectedLWS(ctx, r, llmSvc, expected, currLWS); err != nil {
 		return nil, fmt.Errorf("failed to extend expected prefill LWS with platform stanzas: %w", err)
 	}
 

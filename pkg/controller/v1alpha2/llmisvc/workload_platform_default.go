@@ -29,12 +29,12 @@ import (
 
 // extendExpectedDeployment is a hook for distribution-specific extensions to
 // the expected single-node Deployment, such as injecting platform scheduling stanzas.
-func extendExpectedDeployment(_ context.Context, _ *LLMISVCReconciler, _ *v1alpha2.LLMInferenceService, _ *appsv1.Deployment) error {
+func extendExpectedDeployment(_ context.Context, _ *LLMISVCReconciler, _ *v1alpha2.LLMInferenceService, _ *appsv1.Deployment, _ *appsv1.Deployment) error {
 	return nil
 }
 
 // extendExpectedLWS is a hook for distribution-specific extensions to an
 // expected LeaderWorkerSet, such as injecting platform scheduling stanzas.
-func extendExpectedLWS(_ context.Context, _ *LLMISVCReconciler, _ *v1alpha2.LLMInferenceService, _ *lwsapi.LeaderWorkerSet) error {
+func extendExpectedLWS(_ context.Context, _ *LLMISVCReconciler, _ *v1alpha2.LLMInferenceService, _ *lwsapi.LeaderWorkerSet, _ *lwsapi.LeaderWorkerSet) error {
 	return nil
 }
