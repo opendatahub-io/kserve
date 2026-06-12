@@ -76,7 +76,7 @@ func TestResolve_FetchError(t *testing.T) {
 // ---------- Section 2: parseProfile() ----------
 
 func TestParseProfile_ResourceIdentifiers(t *testing.T) {
-	obj := pkgtesting.HardwareProfile("test", "ns",map[string]interface{}{
+	obj := pkgtesting.HardwareProfile("test", "ns", map[string]interface{}{
 		"identifiers": []interface{}{
 			map[string]interface{}{"identifier": "cpu", "defaultCount": "4"},
 			map[string]interface{}{"identifier": "nvidia.com/gpu", "defaultCount": "2"},
@@ -105,7 +105,7 @@ func TestParseProfile_ResourceIdentifiers(t *testing.T) {
 }
 
 func TestParseProfile_DefaultCountMissing(t *testing.T) {
-	obj := pkgtesting.HardwareProfile("test", "ns",map[string]interface{}{
+	obj := pkgtesting.HardwareProfile("test", "ns", map[string]interface{}{
 		"identifiers": []interface{}{
 			map[string]interface{}{"identifier": "cpu"},
 		},
@@ -120,7 +120,7 @@ func TestParseProfile_DefaultCountMissing(t *testing.T) {
 }
 
 func TestParseProfile_InvalidDefaultCount(t *testing.T) {
-	obj := pkgtesting.HardwareProfile("test", "ns",map[string]interface{}{
+	obj := pkgtesting.HardwareProfile("test", "ns", map[string]interface{}{
 		"identifiers": []interface{}{
 			map[string]interface{}{"identifier": "cpu", "defaultCount": "bad!"},
 		},
@@ -132,7 +132,7 @@ func TestParseProfile_InvalidDefaultCount(t *testing.T) {
 }
 
 func TestParseProfile_KueueScheduling(t *testing.T) {
-	obj := pkgtesting.HardwareProfile("test", "ns",map[string]interface{}{
+	obj := pkgtesting.HardwareProfile("test", "ns", map[string]interface{}{
 		"schedulingSpec": map[string]interface{}{
 			"type": "Queue",
 			"kueue": map[string]interface{}{
@@ -149,7 +149,7 @@ func TestParseProfile_KueueScheduling(t *testing.T) {
 }
 
 func TestParseProfile_NodeScheduling(t *testing.T) {
-	obj := pkgtesting.HardwareProfile("test", "ns",map[string]interface{}{
+	obj := pkgtesting.HardwareProfile("test", "ns", map[string]interface{}{
 		"schedulingSpec": map[string]interface{}{
 			"type": "Node",
 			"node": map[string]interface{}{
@@ -179,7 +179,7 @@ func TestParseProfile_NodeScheduling(t *testing.T) {
 }
 
 func TestParseProfile_NodeSchedulingWithTolerationSeconds(t *testing.T) {
-	obj := pkgtesting.HardwareProfile("test", "ns",map[string]interface{}{
+	obj := pkgtesting.HardwareProfile("test", "ns", map[string]interface{}{
 		"schedulingSpec": map[string]interface{}{
 			"type": "Node",
 			"node": map[string]interface{}{
@@ -203,7 +203,7 @@ func TestParseProfile_NodeSchedulingWithTolerationSeconds(t *testing.T) {
 }
 
 func TestParseProfile_NoSchedulingSpec(t *testing.T) {
-	obj := pkgtesting.HardwareProfile("test", "ns",map[string]interface{}{
+	obj := pkgtesting.HardwareProfile("test", "ns", map[string]interface{}{
 		"identifiers": []interface{}{
 			map[string]interface{}{"identifier": "cpu", "defaultCount": "4"},
 		},
@@ -217,7 +217,7 @@ func TestParseProfile_NoSchedulingSpec(t *testing.T) {
 }
 
 func TestParseProfile_EmptySpec(t *testing.T) {
-	obj := pkgtesting.HardwareProfile("test", "ns",map[string]interface{}{})
+	obj := pkgtesting.HardwareProfile("test", "ns", map[string]interface{}{})
 
 	profile, err := parseProfile(context.Background(), obj)
 	require.NoError(t, err)
