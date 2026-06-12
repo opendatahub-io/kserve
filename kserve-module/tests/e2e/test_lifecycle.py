@@ -7,12 +7,16 @@ import pytest
 from conftest import (
     run,
     _poll_cr,
+    get_conditions,
+    wait_for,
     wait_for_kserve_cleanup,
+    trigger_reconcile,
     operand_deployments,
     KSERVE_CR_NAME,
     NAMESPACE,
     OPERATOR_DEPLOYMENT,
     TIMEOUT_120S,
+    TIMEOUT_60S,
 )
 
 
@@ -167,3 +171,41 @@ class TestManagementState:
 
         nim_state = cr.get("spec", {}).get("nim", {}).get("managementState")
         assert nim_state == "Removed", f"Expected Removed, got {nim_state}"
+
+
+@pytest.mark.sanity
+class TestDriftCorrection:
+    """SSA drift correction — manual edits reverted on reconcile."""
+
+    def test_configmap_edit_reverted(self, kubectl, apply_kserve_cr):
+        """Manual ConfigMap edit is reverted by SSA on next reconcile."""
+        cm_name = "inferenceservice-config"
+
+        run([
+            kubectl, "patch", "configmap", cm_name, "-n", NAMESPACE,
+            "--type", "merge",
+            "-p", '{"data":{"ingress":"{\\"ingressClassName\\":\\"TAMPERED\\"}"}}',
+        ])
+
+        result = run([
+            kubectl, "get", "configmap", cm_name, "-n", NAMESPACE,
+            "-o", "jsonpath={.data.ingress}",
+        ])
+        assert "TAMPERED" in result.stdout
+
+        trigger_reconcile(kubectl, trigger_id="drift-001")
+
+        def assert_tampered_reverted():
+            result = run([
+                kubectl, "get", "configmap", cm_name, "-n", NAMESPACE,
+                "-o", "jsonpath={.data.ingress}",
+            ])
+            assert "TAMPERED" not in result.stdout
+
+        wait_for(assert_tampered_reverted, timeout=TIMEOUT_60S, interval=5)
+
+        def assert_provisioning_succeeded():
+            conditions = get_conditions(kubectl)
+            assert conditions["ProvisioningSucceeded"]["status"] == "True"
+
+        wait_for(assert_provisioning_succeeded, timeout=TIMEOUT_60S, interval=5)

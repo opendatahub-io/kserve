@@ -55,6 +55,12 @@ def is_cr_ready(cr):
     return any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
 
 
+def get_conditions(kubectl_bin, name=KSERVE_CR_NAME):
+    """Fetch conditions as a dict keyed by condition type."""
+    cr = get_cr(kubectl_bin, name)
+    return {c["type"]: c for c in cr.get("status", {}).get("conditions", [])}
+
+
 # ---------------------------------------------------------------------------
 # Helper functions - shell / kubectl
 # ---------------------------------------------------------------------------
@@ -110,6 +116,23 @@ def create_kserve_cr(kubectl_bin, cr_dict=None):
 # ---------------------------------------------------------------------------
 # Helper functions - polling / wait
 # ---------------------------------------------------------------------------
+def wait_for(assertion_fn, timeout=60.0, interval=5.0):
+    """Poll until assertion_fn() succeeds or timeout expires."""
+    deadline = time.time() + timeout
+    last_error = None
+    while True:
+        try:
+            return assertion_fn()
+        except (AssertionError, Exception) as e:
+            last_error = e
+            if time.time() >= deadline:
+                raise AssertionError(
+                    f"Timed out after {timeout}s waiting for assertion. "
+                    f"Last error: {last_error}"
+                ) from e
+            time.sleep(interval)
+
+
 def _poll_cr(kubectl_bin, name, predicate, timeout, msg):
     """Poll the Kserve CR until predicate(cr) returns True."""
     deadline = time.time() + timeout
