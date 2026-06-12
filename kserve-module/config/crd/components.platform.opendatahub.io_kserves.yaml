@@ -46,6 +46,9 @@ spec:
             type: object
           spec:
             properties:
+              enableLLMInferenceServiceTLS:
+                description: Enables TLS for LLMInferenceService deployments
+                type: boolean
               managementState:
                 default: Managed
                 description: |-

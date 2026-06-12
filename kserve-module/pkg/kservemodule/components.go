@@ -55,7 +55,7 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
 
 	isHeadless := kserve.Spec.RawDeploymentServiceConfig != platformv1alpha1.KserveRawHeaded
-	resources, err := customizeKserveConfigMap(resources, isHeadless)
+	resources, err := customizeKserveConfigMap(resources, isHeadless, kserve.Spec.EnableLLMInferenceServiceTLS)
 	if err != nil {
 		return nil, fmt.Errorf("customizing configmap: %w", err)
 	}

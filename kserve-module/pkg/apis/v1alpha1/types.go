@@ -44,6 +44,8 @@ type KserveSpec struct {
 	RawDeploymentServiceConfig RawServiceConfig `json:"rawDeploymentServiceConfig,omitempty"`
 	NIM                        NIMSpec          `json:"nim,omitempty"`
 	WVA                        WVASpec          `json:"wva,omitempty"`
+	// Enables TLS for LLMInferenceService deployments
+	EnableLLMInferenceServiceTLS *bool `json:"enableLLMInferenceServiceTLS,omitempty"`
 }
 
 type NIMSpec struct {

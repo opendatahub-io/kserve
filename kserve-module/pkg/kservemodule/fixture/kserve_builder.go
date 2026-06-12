@@ -51,6 +51,12 @@ func WithWVAManagementState(state common.ManagementState) KserveOption {
 	}
 }
 
+func WithEnableLLMInferenceServiceTLS(val *bool) KserveOption {
+	return func(k *platformv1alpha1.Kserve) {
+		k.Spec.EnableLLMInferenceServiceTLS = val
+	}
+}
+
 func WithAnnotation(key, value string) KserveOption {
 	return func(k *platformv1alpha1.Kserve) {
 		if k.Annotations == nil {

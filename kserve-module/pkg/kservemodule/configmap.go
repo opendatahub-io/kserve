@@ -21,7 +21,7 @@ var (
 	deploymentGVK       = schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}
 )
 
-func customizeKserveConfigMap(resources []unstructured.Unstructured, headless bool) ([]unstructured.Unstructured, error) {
+func customizeKserveConfigMap(resources []unstructured.Unstructured, headless bool, enableTLS *bool) ([]unstructured.Unstructured, error) {
 	cmIdx, cm, err := getIndexedResource[corev1.ConfigMap](resources, configMapGVK, kserveConfigMapName)
 	if err != nil {
 		if errors.Is(err, errResourceNotFound) {
@@ -30,7 +30,7 @@ func customizeKserveConfigMap(resources []unstructured.Unstructured, headless bo
 		return nil, err
 	}
 
-	if err := updateInferenceCM(cm, headless); err != nil {
+	if err := updateInferenceCM(cm, headless, enableTLS); err != nil {
 		return nil, err
 	}
 
@@ -61,9 +61,12 @@ func customizeKserveConfigMap(resources []unstructured.Unstructured, headless bo
 	return resources, nil
 }
 
-func updateInferenceCM(cm *corev1.ConfigMap, headless bool) error {
+func updateInferenceCM(cm *corev1.ConfigMap, headless bool, enableTLS *bool) error {
 	if err := updateCMJSONKey(cm, ingressConfigKeyName, func(data map[string]any) {
 		data["disableIngressCreation"] = true
+		if enableTLS != nil {
+			data["enableLLMInferenceServiceTLS"] = *enableTLS
+		}
 	}); err != nil {
 		return err
 	}
