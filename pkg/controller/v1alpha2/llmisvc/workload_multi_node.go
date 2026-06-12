@@ -250,8 +250,8 @@ func (r *LLMISVCReconciler) expectedMainMultiNodeLWS(ctx context.Context, llmSvc
 
 	r.propagateTopLevelLeaderWorkerSetMetadata(llmSvc, expected)
 
-	if err := r.applyHardwareProfileToLWS(ctx, llmSvc, expected); err != nil {
-		return nil, fmt.Errorf("failed to apply HardwareProfile to main LWS: %w", err)
+	if err := extendExpectedLWS(ctx, r, llmSvc, expected); err != nil {
+		return nil, fmt.Errorf("failed to extend expected main LWS with platform stanzas: %w", err)
 	}
 
 	if expected.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
@@ -360,8 +360,8 @@ func (r *LLMISVCReconciler) expectedPrefillMultiNodeLWS(ctx context.Context, llm
 
 	r.propagateTopLevelLeaderWorkerSetMetadata(llmSvc, expected)
 
-	if err := r.applyHardwareProfileToLWS(ctx, llmSvc, expected); err != nil {
-		return nil, fmt.Errorf("failed to apply HardwareProfile to prefill LWS: %w", err)
+	if err := extendExpectedLWS(ctx, r, llmSvc, expected); err != nil {
+		return nil, fmt.Errorf("failed to extend expected prefill LWS with platform stanzas: %w", err)
 	}
 
 	if llmSvc.Spec.Prefill != nil {

@@ -1,3 +1,5 @@
+//go:build distro
+
 /*
 Copyright 2026 The KServe Authors.
 
@@ -20,6 +22,7 @@ import (
 	"context"
 	"fmt"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
@@ -120,4 +123,16 @@ func (r *LLMISVCReconciler) applyHardwareProfileToLWS(
 	)
 
 	return nil
+}
+
+// extendExpectedDeployment applies distribution-specific scheduling stanzas to the
+// expected single-node Deployment by resolving the referenced HardwareProfile.
+func extendExpectedDeployment(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService, d *appsv1.Deployment) error {
+	return r.applyHardwareProfileToDeployment(ctx, llmSvc, &d.Spec.Template.Spec, &d.ObjectMeta, &d.Spec.Template.ObjectMeta)
+}
+
+// extendExpectedLWS applies distribution-specific scheduling stanzas to an expected
+// LeaderWorkerSet by resolving the referenced HardwareProfile.
+func extendExpectedLWS(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService, lws *lwsapi.LeaderWorkerSet) error {
+	return r.applyHardwareProfileToLWS(ctx, llmSvc, lws)
 }

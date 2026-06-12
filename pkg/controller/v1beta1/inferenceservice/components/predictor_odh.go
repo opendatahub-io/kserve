@@ -1,3 +1,5 @@
+//go:build distro
+
 /*
 Copyright 2026 The KServe Authors.
 
@@ -61,4 +63,10 @@ func (p *Predictor) applyHardwareProfile(ctx context.Context, isvc *v1beta1.Infe
 	)
 
 	return nil
+}
+
+// extendRawDeploymentSpec applies distribution-specific scheduling stanzas to
+// the pod spec and object meta of a raw Deployment by resolving the referenced HardwareProfile.
+func extendRawDeploymentSpec(ctx context.Context, p *Predictor, isvc *v1beta1.InferenceService, podSpec *corev1.PodSpec, objectMeta *metav1.ObjectMeta) error {
+	return p.applyHardwareProfile(ctx, isvc, podSpec, objectMeta)
 }
