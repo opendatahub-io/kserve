@@ -151,6 +151,7 @@ var (
 	StorageSpecAnnotationKey                         = InferenceServiceInternalAnnotationsPrefix + "/storage-spec"
 	StorageSpecParamAnnotationKey                    = InferenceServiceInternalAnnotationsPrefix + "/storage-spec-param"
 	StorageSpecKeyAnnotationKey                      = InferenceServiceInternalAnnotationsPrefix + "/storage-spec-key"
+	StorageContainerNameAnnotationKey                = InferenceServiceInternalAnnotationsPrefix + "/storage-container-name"
 	LoggerInternalAnnotationKey                      = InferenceServiceInternalAnnotationsPrefix + "/logger"
 	LoggerSinkUrlInternalAnnotationKey               = InferenceServiceInternalAnnotationsPrefix + "/logger-sink-url"
 	LoggerModeInternalAnnotationKey                  = InferenceServiceInternalAnnotationsPrefix + "/logger-mode"
@@ -574,6 +575,7 @@ const (
 	LGBServer         = "kserve-lgbserver"
 	PaddleServer      = "kserve-paddleserver"
 	HuggingFaceServer = "kserve-huggingfaceserver"
+	VLLMServer        = "kserve-vllmserver"
 )
 
 // Server type annotation values
@@ -591,6 +593,7 @@ const (
 	ServerTypePyTorchServer     = "pytorchserver"
 	ServerTypeSKLearnServer     = "sklearnserver"
 	ServerTypeXGBoostServer     = "xgbserver"
+	ServerTypeVLLMServer        = "vllmserver"
 )
 
 // GetServerTypeFromRuntimeName converts runtime name to server type for backward compatibility.
@@ -603,6 +606,12 @@ func GetServerTypeFromRuntimeName(runtimeName string) string {
 		return ServerTypeTorchServe
 	case TritonServer:
 		return ServerTypeTritonServer
+	case TFServing:
+		return ServerTypeTensorflowServing
+	case HuggingFaceServer:
+		return ServerTypeHuggingFaceServer
+	case VLLMServer:
+		return ServerTypeVLLMServer
 	default:
 		return ""
 	}
@@ -649,6 +658,7 @@ const (
 	SupportedModelPaddle      = "paddle"
 	SupportedModelTriton      = "triton"
 	SupportedModelMLFlow      = "mlflow"
+	SupportedModelVLLM        = "vLLM"
 )
 
 type ProtocolVersion int
