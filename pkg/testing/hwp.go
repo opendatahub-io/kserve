@@ -51,6 +51,9 @@ func HardwareProfile(name, namespace string, spec map[string]interface{}) *unstr
 func HWPResourceSpec(identifiers ...[]string) map[string]interface{} {
 	items := make([]interface{}, 0, len(identifiers))
 	for _, id := range identifiers {
+		if len(id) == 0 {
+			continue
+		}
 		item := map[string]interface{}{
 			"identifier": id[0],
 		}
