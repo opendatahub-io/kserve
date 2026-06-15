@@ -29,21 +29,21 @@ type componentConfig struct {
 
 var components = []componentConfig{
 	{
-		name:          kserveComponentName,
-		sourcePath:    kserveManifestSourcePath,
-		sourcePathXKS: kserveManifestSourcePathXKS,
+		name:          KserveComponentName,
+		sourcePath:    KserveManifestSourcePath,
+		sourcePathXKS: KserveManifestSourcePathXKS,
 		imageMap:      kserveImageParamMap,
 		postRender:    kservePostRender,
 	},
 	{
-		name:        odhModelControllerComponentName,
-		sourcePath:  modelControllerSourcePath,
+		name:        OdhModelControllerComponentName,
+		sourcePath:  ModelControllerSourcePath,
 		imageMap:    modelControllerImageParamMap,
 		extraParams: modelControllerExtraParams,
 	},
 	{
-		name:       wvaComponentName,
-		sourcePath: wvaManifestSourcePathOCP,
+		name:       WVAComponentName,
+		sourcePath: WVAManifestSourcePathOCP,
 		imageMap:   wvaImageParamMap,
 		enabled:    isWVAEnabled,
 		postRender: wvaPostRender,

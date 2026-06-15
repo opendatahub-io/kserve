@@ -60,7 +60,7 @@ func TestComponentsConfig_WVAHasEnabled(t *testing.T) {
 	g := NewWithT(t)
 	var wva *componentConfig
 	for i := range components {
-		if components[i].name == wvaComponentName {
+		if components[i].name == WVAComponentName {
 			wva = &components[i]
 			break
 		}

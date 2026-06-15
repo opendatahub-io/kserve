@@ -153,7 +153,7 @@ func (r *KserveModuleReconciler) setReleaseStatus(kserve *platformv1alpha1.Kserv
 	}
 
 	releases, err := loadComponentReleases(r.ManifestsTemplatePath,
-		[]string{kserveComponentName, odhModelControllerComponentName})
+		[]string{KserveComponentName, OdhModelControllerComponentName})
 	if err != nil {
 		ctrl.Log.Error(err, "failed to load component releases")
 		return

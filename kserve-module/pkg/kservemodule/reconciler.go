@@ -241,7 +241,7 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 		}
 	}
 
-	commonPostRender(resources, kserveComponentName)
+	commonPostRender(resources, KserveComponentName)
 
 	log.Info("component rendering complete", "component", comp.name, "resources", len(resources))
 	return resources, nil

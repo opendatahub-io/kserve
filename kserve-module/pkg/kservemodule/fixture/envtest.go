@@ -135,10 +135,10 @@ spec:
       - name: manager
         image: ghcr.io/llm-d/llm-d-workload-variant-autoscaler:latest
 `
-	writeKustomizeDir(filepath.Join(workDir, "kserve", "overlays", "odh"), kserveManifest)
-	writeKustomizeDir(filepath.Join(workDir, "kserve", "overlays", "odh-xks"), kserveManifest)
-	writeKustomizeDir(filepath.Join(workDir, "modelcontroller", "base"), modelCtrlManifest)
-	writeKustomizeDir(filepath.Join(workDir, "wva", "openshift"), wvaManifest)
+	writeKustomizeDir(filepath.Join(workDir, kservemodule.KserveComponentName, kservemodule.KserveManifestSourcePath), kserveManifest)
+	writeKustomizeDir(filepath.Join(workDir, kservemodule.KserveComponentName, kservemodule.KserveManifestSourcePathXKS), kserveManifest)
+	writeKustomizeDir(filepath.Join(workDir, kservemodule.OdhModelControllerComponentName, kservemodule.ModelControllerSourcePath), modelCtrlManifest)
+	writeKustomizeDir(filepath.Join(workDir, kservemodule.WVAComponentName, kservemodule.WVAManifestSourcePathOCP), wvaManifest)
 }
 
 func writeKustomizeDir(dir, manifest string) {

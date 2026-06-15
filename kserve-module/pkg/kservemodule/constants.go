@@ -2,15 +2,15 @@ package kservemodule
 
 const (
 	// Component names
-	kserveComponentName             = "kserve"
-	odhModelControllerComponentName = "modelcontroller"
-	wvaComponentName                = "wva"
+	KserveComponentName             = "kserve"
+	OdhModelControllerComponentName = "modelcontroller"
+	WVAComponentName                = "wva"
 
 	// Manifest source paths
-	kserveManifestSourcePath    = "overlays/odh"
-	kserveManifestSourcePathXKS = "overlays/odh-xks"
-	modelControllerSourcePath   = "base"
-	wvaManifestSourcePathOCP = "openshift"
+	KserveManifestSourcePath    = "overlays/odh"
+	KserveManifestSourcePathXKS = "overlays/odh-xks"
+	ModelControllerSourcePath   = "base"
+	WVAManifestSourcePathOCP    = "openshift"
 
 	// Deployment names
 	kserveControllerDeployment  = "kserve-controller-manager"
