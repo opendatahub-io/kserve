@@ -46,6 +46,7 @@ var components = []componentConfig{
 		sourcePath: wvaManifestSourcePathOCP,
 		imageMap:   wvaImageParamMap,
 		enabled:    isWVAEnabled,
+		postRender: wvaPostRender,
 	},
 }
 
@@ -66,6 +67,23 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 	}
 
 	return resources, nil
+}
+
+func wvaPostRender(ctx context.Context, r *KserveModuleReconciler,
+	kserve *platformv1alpha1.Kserve,
+	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
+	return filterOutNamespaces(resources), nil
+}
+
+func filterOutNamespaces(resources []unstructured.Unstructured) []unstructured.Unstructured {
+	filtered := make([]unstructured.Unstructured, 0, len(resources))
+	for i := range resources {
+		if resources[i].GetKind() == "Namespace" {
+			continue
+		}
+		filtered = append(filtered, resources[i])
+	}
+	return filtered
 }
 
 func isWVAEnabled(kserve *platformv1alpha1.Kserve) bool {

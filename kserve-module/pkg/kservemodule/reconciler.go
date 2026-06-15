@@ -32,7 +32,7 @@ import (
 // +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=kserves/finalizers,resourceNames=default-kserve,verbs=update
 // +kubebuilder:rbac:groups=config.openshift.io,resources=clusterversions,verbs=get
 // +kubebuilder:rbac:groups="",resources=configmaps;services;serviceaccounts,verbs=create;delete;get;list;patch;update;watch
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=create;delete;get;list;patch;watch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=create;delete;patch;update,resourceNames=kserve-webhook-server-secret;workload-variant-autoscaler-epp-metrics-token;workload-variant-autoscaler-metrics-reader-token
 // +kubebuilder:rbac:groups="",resources=configmaps/status,verbs=get;update;patch
@@ -61,21 +61,6 @@ import (
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheuses/api,resourceNames=k8s,verbs=get;create;update
 // +kubebuilder:rbac:groups=operators.coreos.com,resources=subscriptions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=operator.openshift.io,resources=leaderworkersets,verbs=get;list;watch
-// WVA manager-role escalation: permissions the WVA controller needs
-// +kubebuilder:rbac:groups="",resources=nodes;nodes/status,verbs=get;list;patch;update;watch
-// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
-// +kubebuilder:rbac:groups=apps,resources=deployments/scale,verbs=get;update
-// +kubebuilder:rbac:groups=apps,resources=replicasets;statefulsets,verbs=get;list;watch
-// +kubebuilder:rbac:groups=autoscaling,resources=horizontalpodautoscalers,verbs=get;list;watch
-// +kubebuilder:rbac:groups=inference.networking.k8s.io;inference.networking.x-k8s.io,resources=inferencepools,verbs=get;list;watch
-// +kubebuilder:rbac:groups=keda.sh,resources=scaledobjects,verbs=get;list;watch
-// +kubebuilder:rbac:groups=leaderworkerset.x-k8s.io,resources=leaderworkersets;leaderworkersets/scale,verbs=get;list;patch;update;watch
-// +kubebuilder:rbac:groups=llmd.ai,resources=variantautoscalings,verbs=create;delete;get;list;patch;update;watch
-// +kubebuilder:rbac:groups=llmd.ai,resources=variantautoscalings/finalizers,verbs=update
-// +kubebuilder:rbac:groups=llmd.ai,resources=variantautoscalings/status,verbs=get;patch;update
-// +kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
-// +kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
-// +kubebuilder:rbac:urls=/metrics;/debug/pprof/*,verbs=get
 
 type ResourceDeployer interface {
 	Deploy(ctx context.Context, input deploy.DeployInput) error
