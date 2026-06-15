@@ -1194,6 +1194,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "{{ .Spec.Model.Name }}",
                         "--mode",
                         "random",
+                        "--ssl-certfile",
+                        "/var/run/kserve/tls/tls.crt",
+                        "--ssl-keyfile",
+                        "/var/run/kserve/tls/tls.key",
                     ],
                     "resources": {
                         "limits": {"cpu": "1", "memory": "2Gi"},
@@ -1217,6 +1221,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                             "{{ .Spec.Model.Name }}",
                             "--mode",
                             "random",
+                            "--ssl-certfile",
+                            "/var/run/kserve/tls/tls.crt",
+                            "--ssl-keyfile",
+                            "/var/run/kserve/tls/tls.key",
                         ],
                         "resources": {
                             "limits": {"cpu": "1", "memory": "2Gi"},

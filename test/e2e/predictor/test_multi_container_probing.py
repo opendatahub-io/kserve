@@ -16,7 +16,7 @@
 import os
 import pytest
 import logging
-from kubernetes import client
+from kubernetes import client, config
 
 from kubernetes.client import (
     V1ResourceRequirements,
@@ -43,6 +43,7 @@ from ..common.utils import KSERVE_TEST_NAMESPACE
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+config.load_kube_config(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
 kserve_client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
 
 
