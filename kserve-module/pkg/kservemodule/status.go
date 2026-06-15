@@ -6,6 +6,9 @@ import (
 	"slices"
 	"strings"
 
+	k8serr "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
@@ -127,12 +130,8 @@ func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, k
 }
 
 func (r *KserveModuleReconciler) updateStatus(ctx context.Context, kserve *platformv1alpha1.Kserve, condMgr *conditions.Manager) error {
-	log := ctrl.LoggerFrom(ctx)
-
 	r.setReleaseStatus(kserve)
-
 	condMgr.Sort()
-	kserve.Status.ObservedGeneration = kserve.Generation
 
 	if condMgr.IsHappy() {
 		kserve.Status.Phase = common.PhaseReady
@@ -140,11 +139,19 @@ func (r *KserveModuleReconciler) updateStatus(ctx context.Context, kserve *platf
 		kserve.Status.Phase = common.PhaseNotReady
 	}
 
-	if err := r.Status().Update(ctx, kserve); err != nil {
-		log.Error(err, "failed to update status")
-		return err
-	}
-	return nil
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &platformv1alpha1.Kserve{}
+		if err := r.Get(ctx, types.NamespacedName{Name: kserve.Name}, latest); err != nil {
+			if k8serr.IsNotFound(err) {
+				ctrl.LoggerFrom(ctx).Info("CR deleted, skipping status update")
+				return nil
+			}
+			return err
+		}
+		latest.Status = kserve.Status
+		latest.Status.ObservedGeneration = kserve.Generation
+		return r.Status().Update(ctx, latest)
+	})
 }
 
 func (r *KserveModuleReconciler) setReleaseStatus(kserve *platformv1alpha1.Kserve) {
