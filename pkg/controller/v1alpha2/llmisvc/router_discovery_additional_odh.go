@@ -114,6 +114,19 @@ func discoverRouteURLs(ctx context.Context, c client.Client, gw gatewayWithPaths
 			continue
 		}
 
+		// Routes with path-based routing are incompatible with gateway URL
+		// discovery. HAProxy uses different regex patterns for rewrite-target
+		// "/" vs other values, making reliable reverse-computation of the
+		// client-facing URL fragile. In practice, Routes fronting gateway
+		// services are host-only; path-based variants are rare and likely
+		// misconfigured for this use case.
+		if route.Spec.Path != "" {
+			log.FromContext(ctx).V(1).Info("skipping Route with path-based routing incompatible with gateway URL discovery",
+				"route", route.Name, "namespace", route.Namespace, "path", route.Spec.Path)
+
+			continue
+		}
+
 		origin := &gwapiv1.ObjectReference{
 			Group:     gwapiv1.Group(routev1.GroupName),
 			Kind:      "Route",
@@ -123,11 +136,7 @@ func discoverRouteURLs(ctx context.Context, c client.Client, gw gatewayWithPaths
 
 		for _, gwPath := range gw.paths {
 			u := routeURL(route, host)
-			if route.Spec.Path != "" {
-				u.Path = route.Spec.Path + gwPath
-			} else {
-				u.Path = gwPath
-			}
+			u.Path = gwPath
 
 			urls = append(urls, DiscoveredURL{URL: u, Origin: origin})
 		}

@@ -27,6 +27,7 @@ import (
 	istioapi "istio.io/client-go/pkg/apis/networking/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -65,7 +66,7 @@ func (r *LLMISVCReconciler) extendControllerSetup(mgr manager.Manager, b *builde
 }
 
 // routeChangePredicate fires on Route events that could affect URL discovery:
-// admission state changes, host changes, or backend retargeting.
+// admission state changes, host changes, path changes, or backend retargeting.
 func routeChangePredicate() predicate.Predicate {
 	return predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
@@ -84,7 +85,8 @@ func routeChangePredicate() predicate.Predicate {
 				return true
 			}
 
-			return oldRoute.Spec.To.Name != newRoute.Spec.To.Name ||
+			return oldRoute.Spec.Path != newRoute.Spec.Path ||
+				oldRoute.Spec.To.Name != newRoute.Spec.To.Name ||
 				oldRoute.Spec.To.Kind != newRoute.Spec.To.Kind ||
 				!equality.Semantic.DeepEqual(oldRoute.Spec.TLS, newRoute.Spec.TLS)
 		},
@@ -152,8 +154,6 @@ func (r *LLMISVCReconciler) mapRouteToRequests(ctx context.Context, logger logr.
 	httpRouteList := &gwapiv1.HTTPRouteList{}
 	if err := r.List(ctx, httpRouteList, client.MatchingLabels(ChildResourcesLabelSelector.MatchLabels)); err != nil {
 		logger.Error(err, "failed to list HTTPRoutes")
-
-		return reqs
 	}
 
 	for i := range httpRouteList.Items {
@@ -258,8 +258,13 @@ func (r *LLMISVCReconciler) resolveGatewayFromRoute(ctx context.Context, logger 
 		Namespace: route.Namespace,
 		Name:      route.Spec.To.Name,
 	}, svc); err != nil {
-		logger.V(1).Info("service not found for route",
-			"route", route.Name, "service", route.Spec.To.Name)
+		if apierrors.IsNotFound(err) {
+			logger.V(1).Info("service not found for route",
+				"route", route.Name, "service", route.Spec.To.Name)
+		} else {
+			logger.Error(err, "failed to get service for route",
+				"route", route.Name, "service", route.Spec.To.Name)
+		}
 
 		return "", ""
 	}

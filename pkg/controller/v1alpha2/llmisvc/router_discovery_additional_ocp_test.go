@@ -93,7 +93,7 @@ func admittedRoute(name, ns, host, targetServiceName string) *routev1.Route {
 	}
 }
 
-func gwService(name, ns, gwName string) *corev1.Service { //nolint:unparam // ns varies in envtest tests
+func gwService(name, ns, gwName string) *corev1.Service {
 	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -218,7 +218,7 @@ func TestDiscoverRouteURLs(t *testing.T) {
 			wantURLs: []string{"https://my-gateway.apps.example.com/demo-ns/my-model"},
 		},
 		{
-			name: "Route with Spec.Path composes with gateway path",
+			name: "Route with path-based routing is skipped",
 			objects: []client.Object{
 				gwService("my-gateway-openshift-default", gwNS, gwName),
 				func() *routev1.Route {
@@ -230,7 +230,25 @@ func TestDiscoverRouteURLs(t *testing.T) {
 					return r
 				}(),
 			},
-			wantURLs: []string{"https://my-gateway.apps.example.com/prefix/demo-ns/my-model"},
+			wantNil: true,
+		},
+		{
+			name: "mixed: host-only Route discovered, path-based Route skipped",
+			objects: []client.Object{
+				gwService("my-gateway-openshift-default", gwNS, gwName),
+				admittedRoute("host-only", gwNS,
+					"my-gateway.apps.example.com",
+					"my-gateway-openshift-default"),
+				func() *routev1.Route {
+					r := admittedRoute("path-based", gwNS,
+						"my-gateway-alt.apps.example.com",
+						"my-gateway-openshift-default")
+					r.Spec.Path = "/prefix"
+
+					return r
+				}(),
+			},
+			wantURLs: []string{"https://my-gateway.apps.example.com/demo-ns/my-model"},
 		},
 		{
 			name: "no services with gateway selector",
@@ -421,6 +439,44 @@ func TestRouteChangePredicate(t *testing.T) {
 			old: func() *routev1.Route {
 				r := admittedRoute("r", "ns", "host.example.com", "svc")
 				r.Spec.TLS = nil
+
+				return r
+			}(),
+			new:    admittedRoute("r", "ns", "host.example.com", "svc"),
+			expect: true,
+		},
+		{
+			name: "path added triggers update",
+			old:  admittedRoute("r", "ns", "host.example.com", "svc"),
+			new: func() *routev1.Route {
+				r := admittedRoute("r", "ns", "host.example.com", "svc")
+				r.Spec.Path = "/prefix"
+
+				return r
+			}(),
+			expect: true,
+		},
+		{
+			name: "path changed triggers update",
+			old: func() *routev1.Route {
+				r := admittedRoute("r", "ns", "host.example.com", "svc")
+				r.Spec.Path = "/old"
+
+				return r
+			}(),
+			new: func() *routev1.Route {
+				r := admittedRoute("r", "ns", "host.example.com", "svc")
+				r.Spec.Path = "/new"
+
+				return r
+			}(),
+			expect: true,
+		},
+		{
+			name: "path removed triggers update",
+			old: func() *routev1.Route {
+				r := admittedRoute("r", "ns", "host.example.com", "svc")
+				r.Spec.Path = "/prefix"
 
 				return r
 			}(),
