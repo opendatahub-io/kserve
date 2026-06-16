@@ -85,6 +85,13 @@ func (r *KserveModuleReconciler) defaultCleanup(ctx context.Context, comp compon
 		return fmt.Errorf("rendering %s manifests for cleanup: %w", comp.name, err)
 	}
 
+	if comp.postRender != nil {
+		resources, err = comp.postRender(ctx, r, nil, resources)
+		if err != nil {
+			return fmt.Errorf("post-render for cleanup %s: %w", comp.name, err)
+		}
+	}
+
 	var errs []string
 	for i := range resources {
 		res := &resources[i]
