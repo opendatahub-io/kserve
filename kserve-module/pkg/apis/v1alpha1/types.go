@@ -44,7 +44,8 @@ type KserveSpec struct {
 	RawDeploymentServiceConfig RawServiceConfig `json:"rawDeploymentServiceConfig,omitempty"`
 	NIM                        NIMSpec          `json:"nim,omitempty"`
 	WVA                        WVASpec          `json:"wva,omitempty"`
-	// Enables TLS for LLMInferenceService deployments
+	// Enables TLS for LLMInferenceService deployments.
+	// When unset, the KServe default (TLS enabled) is preserved.
 	EnableLLMInferenceServiceTLS *bool `json:"enableLLMInferenceServiceTLS,omitempty"`
 }
 
