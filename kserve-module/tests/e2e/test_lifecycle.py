@@ -18,6 +18,7 @@ from conftest import (
     NAMESPACE,
     OPERATOR_DEPLOYMENT,
     WVA_DEPLOYMENT,
+    MODEL_CONTROLLER_DEPLOYMENT,
     TIMEOUT_120S,
     TIMEOUT_60S,
 )
@@ -157,6 +158,7 @@ class TestCELValidation:
         assert result.returncode != 0, "Invalid CR should not exist"
 
 
+@pytest.mark.sanity
 class TestManagementState:
     """Verify managementState transitions for sub-components (WVA, NIM)."""
 
@@ -210,6 +212,71 @@ class TestManagementState:
         wait_for_deployment_gone(kubectl, WVA_DEPLOYMENT)
 
         _verify_deployments_available(kubectl, is_openshift=True)
+
+    def test_nim_default_managed_env_var(self, kubectl, cluster_info, apply_kserve_cr):
+        """NIM defaults to Managed — odh-model-controller should have NIM_STATE=managed."""
+        if not cluster_info.is_openshift:
+            pytest.skip("odh-model-controller is OCP-only")
+
+        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+        wait_for_deployment(kubectl, MODEL_CONTROLLER_DEPLOYMENT)
+
+        result = run([
+            kubectl, "get", "deployment", MODEL_CONTROLLER_DEPLOYMENT,
+            "-n", NAMESPACE, "-o",
+            "jsonpath={.spec.template.spec.containers[?(@.name=='manager')].env[?(@.name=='NIM_STATE')].value}",
+        ])
+        assert result.stdout.strip() == "managed", \
+            f"NIM_STATE should be 'managed' by default, got '{result.stdout.strip()}'"
+
+    def test_nim_managed_to_removed_updates_env(self, kubectl, cluster_info, apply_kserve_cr):
+        """Switching NIM to Removed updates odh-model-controller NIM_STATE env var."""
+        if not cluster_info.is_openshift:
+            pytest.skip("odh-model-controller is OCP-only")
+
+        wait_for_deployment(kubectl, MODEL_CONTROLLER_DEPLOYMENT)
+
+        patch = json.dumps({"spec": {"nim": {"managementState": "Removed"}}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+
+        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+
+        wait_for_deployment(kubectl, MODEL_CONTROLLER_DEPLOYMENT)
+
+        result = run([
+            kubectl, "get", "deployment", MODEL_CONTROLLER_DEPLOYMENT,
+            "-n", NAMESPACE, "-o",
+            "jsonpath={.spec.template.spec.containers[?(@.name=='manager')].env[?(@.name=='NIM_STATE')].value}",
+        ])
+        assert result.stdout.strip() == "removed", \
+            f"NIM_STATE should be 'removed' after patch, got '{result.stdout.strip()}'"
+
+    def test_nim_removed_to_managed_updates_env(self, kubectl, cluster_info, apply_kserve_cr):
+        """Switching NIM back to Managed updates odh-model-controller NIM_STATE env var."""
+        if not cluster_info.is_openshift:
+            pytest.skip("odh-model-controller is OCP-only")
+
+        patch = json.dumps({"spec": {"nim": {"managementState": "Removed"}}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+
+        patch = json.dumps({"spec": {"nim": {"managementState": "Managed"}}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+
+        wait_for_deployment(kubectl, MODEL_CONTROLLER_DEPLOYMENT)
+
+        result = run([
+            kubectl, "get", "deployment", MODEL_CONTROLLER_DEPLOYMENT,
+            "-n", NAMESPACE, "-o",
+            "jsonpath={.spec.template.spec.containers[?(@.name=='manager')].env[?(@.name=='NIM_STATE')].value}",
+        ])
+        assert result.stdout.strip() == "managed", \
+            f"NIM_STATE should be 'managed' after reverting, got '{result.stdout.strip()}'"
 
 
 @pytest.mark.sanity

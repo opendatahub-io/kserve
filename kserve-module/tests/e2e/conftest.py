@@ -28,6 +28,7 @@ OPERAND_DEPLOYMENTS_OCP = [
 ]
 
 WVA_DEPLOYMENT = "workload-variant-autoscaler-controller-manager"
+MODEL_CONTROLLER_DEPLOYMENT = "odh-model-controller"
 
 KSERVE_CR_TEMPLATE = {
     "apiVersion": "components.platform.opendatahub.io/v1alpha1",
