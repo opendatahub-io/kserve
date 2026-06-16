@@ -47,7 +47,9 @@ spec:
           spec:
             properties:
               enableLLMInferenceServiceTLS:
-                description: Enables TLS for LLMInferenceService deployments
+                description: |-
+                  Enables TLS for LLMInferenceService deployments.
+                  When unset, the KServe default (TLS enabled) is preserved.
                 type: boolean
               managementState:
                 default: Managed
