@@ -135,7 +135,7 @@ func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, k
 			conditions.WithReason("Disabled"))
 	} else if err := r.checkModelCacheReadiness(ctx); err != nil {
 		condMgr.MarkFalse(ConditionModelCacheReady,
-			conditions.WithReason("ResourcesNotReady"),
+			conditions.WithReason(modelCacheReadinessReason(err)),
 			conditions.WithMessage("%s", err.Error()))
 	} else {
 		condMgr.MarkTrue(ConditionModelCacheReady,

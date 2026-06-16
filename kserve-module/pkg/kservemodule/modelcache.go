@@ -379,6 +379,17 @@ func modelCacheComponentPostRender(
 		return nil, fmt.Errorf("reconciling modelcache resources: %w", err)
 	}
 
+	if !r.isKubernetes(ctx) {
+		mcsLevel, err := r.resolveNamespaceMCSLevel(ctx, r.getApplicationsNamespace())
+		if err != nil {
+			return nil, fmt.Errorf("resolving namespace MCS level: %w", err)
+		}
+		resources, err = patchLocalModelNodeAgentMCSLevel(resources, mcsLevel)
+		if err != nil {
+			return nil, fmt.Errorf("patching localmodelnode-agent MCS level: %w", err)
+		}
+	}
+
 	return resources, nil
 }
 
@@ -456,6 +467,12 @@ func (r *KserveModuleReconciler) checkModelCacheReadiness(ctx context.Context) e
 			return fmt.Errorf("LocalModelNodeGroup CRD not installed")
 		}
 		return fmt.Errorf("LocalModelNodeGroup %s: %w", localModelNodeGroupName, err)
+	}
+
+	if !r.isKubernetes(ctx) {
+		if err := r.checkModelCacheDaemonSetMCS(ctx); err != nil {
+			return err
+		}
 	}
 
 	return nil

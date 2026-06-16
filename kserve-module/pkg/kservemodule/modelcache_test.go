@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -418,11 +419,21 @@ func newReconcilerWithFakeClient(objects ...client.Object) *KserveModuleReconcil
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = platformv1alpha1.AddToScheme(scheme)
+	_ = appsv1.AddToScheme(scheme)
 
-	ns := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-ns"},
+	allObjects := objects
+	hasTestNS := false
+	for _, obj := range objects {
+		if ns, ok := obj.(*corev1.Namespace); ok && ns.Name == "test-ns" {
+			hasTestNS = true
+			break
+		}
 	}
-	allObjects := append([]client.Object{ns}, objects...)
+	if !hasTestNS {
+		allObjects = append([]client.Object{&corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-ns"},
+		}}, objects...)
+	}
 
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(allObjects...).Build()
 	return &KserveModuleReconciler{
