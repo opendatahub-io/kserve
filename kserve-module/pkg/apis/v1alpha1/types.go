@@ -2,6 +2,7 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
@@ -38,12 +39,30 @@ type Kserve struct {
 	Status            KserveStatus `json:"status,omitempty"`
 }
 
+// OAuthProxyResourceRequirements describes the resource requirements
+// for the OAuth proxy sidecar container.
+type OAuthProxyResourceRequirements struct {
+	// +optional
+	Requests corev1.ResourceList `json:"requests,omitempty"`
+	// +optional
+	Limits corev1.ResourceList `json:"limits,omitempty"`
+}
+
+// OAuthProxyConfig configures the OAuth proxy sidecar container in the
+// inferenceservice-config ConfigMap.
+type OAuthProxyConfig struct {
+	// +optional
+	Resources *OAuthProxyResourceRequirements `json:"resources,omitempty"`
+}
+
 type KserveSpec struct {
 	common.ManagementSpec `json:",inline"`
 	// +kubebuilder:default=Headless
 	RawDeploymentServiceConfig RawServiceConfig `json:"rawDeploymentServiceConfig,omitempty"`
-	NIM                        NIMSpec          `json:"nim,omitempty"`
-	WVA                        WVASpec          `json:"wva,omitempty"`
+	// +optional
+	OAuthProxy                   *OAuthProxyConfig `json:"oauthProxy,omitempty"`
+	NIM                          NIMSpec           `json:"nim,omitempty"`
+	WVA                          WVASpec           `json:"wva,omitempty"`
 	// Enables TLS for LLMInferenceService deployments.
 	// When unset, the KServe default (TLS enabled) is preserved.
 	EnableLLMInferenceServiceTLS *bool `json:"enableLLMInferenceServiceTLS,omitempty"`

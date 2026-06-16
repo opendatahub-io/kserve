@@ -10,7 +10,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/utils/ptr"
 
+	"k8s.io/apimachinery/pkg/api/resource"
+
 	. "github.com/onsi/gomega"
+
+	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
 func TestCustomizeKserveConfigMap_Headless(t *testing.T) {
@@ -18,7 +22,7 @@ func TestCustomizeKserveConfigMap_Headless(t *testing.T) {
 
 	resources := buildTestResources(t)
 
-	result, err := customizeKserveConfigMap(resources, true, nil)
+	result, err := customizeKserveConfigMap(resources, true, nil, nil)
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -32,7 +36,7 @@ func TestCustomizeKserveConfigMap_Headed(t *testing.T) {
 
 	resources := buildTestResources(t)
 
-	result, err := customizeKserveConfigMap(resources, false, nil)
+	result, err := customizeKserveConfigMap(resources, false, nil, nil)
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -45,7 +49,7 @@ func TestCustomizeKserveConfigMap_AddsHashToDeployment(t *testing.T) {
 
 	resources := buildTestResources(t)
 
-	result, err := customizeKserveConfigMap(resources, true, nil)
+	result, err := customizeKserveConfigMap(resources, true, nil, nil)
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, deploy, err := getIndexedResource[appsv1.Deployment](result, deploymentGVK, kserveControllerDeployment)
@@ -58,7 +62,7 @@ func TestCustomizeKserveConfigMap_NoConfigMap(t *testing.T) {
 	g := NewWithT(t)
 
 	resources := []unstructured.Unstructured{}
-	result, err := customizeKserveConfigMap(resources, true, nil)
+	result, err := customizeKserveConfigMap(resources, true, nil, nil)
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(result).Should(BeEmpty())
 }
@@ -68,7 +72,7 @@ func TestCustomizeKserveConfigMap_EnableTLS_Nil(t *testing.T) {
 
 	resources := buildTestResources(t)
 
-	result, err := customizeKserveConfigMap(resources, true, nil)
+	result, err := customizeKserveConfigMap(resources, true, nil, nil)
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -81,7 +85,7 @@ func TestCustomizeKserveConfigMap_EnableTLS_True(t *testing.T) {
 
 	resources := buildTestResources(t)
 
-	result, err := customizeKserveConfigMap(resources, true, ptr.To(true))
+	result, err := customizeKserveConfigMap(resources, true, ptr.To(true), nil)
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -94,7 +98,7 @@ func TestCustomizeKserveConfigMap_EnableTLS_False(t *testing.T) {
 
 	resources := buildTestResources(t)
 
-	result, err := customizeKserveConfigMap(resources, true, ptr.To(false))
+	result, err := customizeKserveConfigMap(resources, true, ptr.To(false), nil)
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -130,12 +134,127 @@ func TestCustomizeKserveConfigMap_EnableTLS_NilPreservesExisting(t *testing.T) {
 
 	resources := []unstructured.Unstructured{{Object: cmU}, {Object: deployU}}
 
-	result, err := customizeKserveConfigMap(resources, true, nil)
+	result, err := customizeKserveConfigMap(resources, true, nil, nil)
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, resultCM, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(resultCM.Data[ingressConfigKeyName]).Should(ContainSubstring(`"enableLLMInferenceServiceTLS": true`))
+}
+
+func TestCustomizeKserveConfigMap_OAuthProxy_FullOverride(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := buildTestResourcesWithOAuthProxy(t)
+	oauthProxy := &platformv1alpha1.OAuthProxyConfig{
+		Resources: &platformv1alpha1.OAuthProxyResourceRequirements{
+			Requests: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+				corev1.ResourceCPU:    resource.MustParse("200m"),
+			},
+			Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("512Mi"),
+				corev1.ResourceCPU:    resource.MustParse("500m"),
+			},
+		},
+	}
+
+	result, err := customizeKserveConfigMap(resources, true, nil, oauthProxy)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(cm.Data[oauthProxyConfigKeyName]).Should(ContainSubstring(`"memoryRequest": "256Mi"`))
+	g.Expect(cm.Data[oauthProxyConfigKeyName]).Should(ContainSubstring(`"memoryLimit": "512Mi"`))
+	g.Expect(cm.Data[oauthProxyConfigKeyName]).Should(ContainSubstring(`"cpuRequest": "200m"`))
+	g.Expect(cm.Data[oauthProxyConfigKeyName]).Should(ContainSubstring(`"cpuLimit": "500m"`))
+}
+
+func TestCustomizeKserveConfigMap_OAuthProxy_PartialOverride(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := buildTestResourcesWithOAuthProxy(t)
+	oauthProxy := &platformv1alpha1.OAuthProxyConfig{
+		Resources: &platformv1alpha1.OAuthProxyResourceRequirements{
+			Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("512Mi"),
+			},
+		},
+	}
+
+	result, err := customizeKserveConfigMap(resources, true, nil, oauthProxy)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(cm.Data[oauthProxyConfigKeyName]).Should(ContainSubstring(`"memoryLimit": "512Mi"`))
+	g.Expect(cm.Data[oauthProxyConfigKeyName]).Should(ContainSubstring(`"memoryRequest": "64Mi"`))
+	g.Expect(cm.Data[oauthProxyConfigKeyName]).Should(ContainSubstring(`"cpuRequest": "100m"`))
+}
+
+func TestCustomizeKserveConfigMap_OAuthProxy_NilConfig(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := buildTestResourcesWithOAuthProxy(t)
+
+	result, err := customizeKserveConfigMap(resources, true, nil, nil)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(cm.Data[oauthProxyConfigKeyName]).Should(ContainSubstring(`"memoryRequest": "64Mi"`))
+	g.Expect(cm.Data[oauthProxyConfigKeyName]).Should(ContainSubstring(`"memoryLimit": "128Mi"`))
+}
+
+func TestCustomizeKserveConfigMap_OAuthProxy_MissingKey(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := buildTestResources(t)
+	oauthProxy := &platformv1alpha1.OAuthProxyConfig{
+		Resources: &platformv1alpha1.OAuthProxyResourceRequirements{
+			Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("512Mi"),
+			},
+		},
+	}
+
+	result, err := customizeKserveConfigMap(resources, true, nil, oauthProxy)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(cm.Data).ShouldNot(HaveKey(oauthProxyConfigKeyName))
+}
+
+func buildTestResourcesWithOAuthProxy(t *testing.T) []unstructured.Unstructured {
+	t.Helper()
+	g := NewWithT(t)
+
+	cm := &corev1.ConfigMap{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "ConfigMap"},
+		ObjectMeta: metav1.ObjectMeta{Name: kserveConfigMapName, Namespace: "opendatahub"},
+		Data: map[string]string{
+			ingressConfigKeyName:    `{"ingressDomain": "example.com"}`,
+			serviceConfigKeyName:    `{"serviceType": "ClusterIP"}`,
+			oauthProxyConfigKeyName: `{"image": "registry.example.com/oauth-proxy:latest", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+		},
+	}
+	cmU, err := runtime.DefaultUnstructuredConverter.ToUnstructured(cm)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	deploy := &appsv1.Deployment{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
+		ObjectMeta: metav1.ObjectMeta{Name: kserveControllerDeployment, Namespace: "opendatahub"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}},
+			},
+		},
+	}
+	deployU, err := runtime.DefaultUnstructuredConverter.ToUnstructured(deploy)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	return []unstructured.Unstructured{{Object: cmU}, {Object: deployU}}
 }
 
 func buildTestResources(t *testing.T) []unstructured.Unstructured {

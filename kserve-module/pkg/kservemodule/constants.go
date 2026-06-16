@@ -27,7 +27,8 @@ const (
 	kserveConfigMapName     = "inferenceservice-config"
 	ingressConfigKeyName    = "ingress"
 	serviceConfigKeyName    = "service"
-	configHashAnnotationKey = "kserve-module/config-hash"
+	configHashAnnotationKey  = "kserve-module/config-hash"
+	oauthProxyConfigKeyName = "oauthProxy"
 
 	// LLMInferenceServiceConfig versioning
 	wellKnownAnnotationKey   = "serving.kserve.io/well-known-config"

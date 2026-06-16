@@ -74,6 +74,38 @@ spec:
                     - Removed
                     type: string
                 type: object
+              oauthProxy:
+                description: |-
+                  OAuthProxyConfig configures the OAuth proxy sidecar container in the
+                  inferenceservice-config ConfigMap.
+                properties:
+                  resources:
+                    description: |-
+                      OAuthProxyResourceRequirements describes the resource requirements
+                      for the OAuth proxy sidecar container.
+                    properties:
+                      limits:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: ResourceList is a set of (resource name, quantity)
+                          pairs.
+                        type: object
+                      requests:
+                        additionalProperties:
+                          anyOf:
+                          - type: integer
+                          - type: string
+                          pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
+                          x-kubernetes-int-or-string: true
+                        description: ResourceList is a set of (resource name, quantity)
+                          pairs.
+                        type: object
+                    type: object
+                type: object
               rawDeploymentServiceConfig:
                 default: Headless
                 enum:
