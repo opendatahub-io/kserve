@@ -5,7 +5,9 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -307,6 +309,118 @@ var _ = Describe("KserveModule Reconciler", func() {
 				cond := fixture.FindCondition(cr, kservemodule.ConditionWVAReady)
 				g.Expect(cond).To(BeNil(), "WVAReady condition should be cleared when WVA is disabled")
 			}).WithContext(ctx).Should(Succeed())
+		})
+	})
+
+	Context("oauthProxy configuration", Ordered, func() {
+		var cr *platformv1alpha1.Kserve
+
+		BeforeAll(func(ctx SpecContext) {
+			cr = fixture.KserveCR()
+			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
+
+			DeferCleanup(func(ctx SpecContext) {
+				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, cr))).To(Succeed())
+			})
+		})
+
+		BeforeEach(func() {
+			testEnv.Deployer = &fixture.MockDeployer{}
+			testEnv.Reconciler.Deployer = testEnv.Deployer
+		})
+
+		It("overrides oauthProxy on patch and restores defaults on removal", func(ctx SpecContext) {
+			triggerReconcile(ctx, cr, "oauth-proxy-default")
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				cond := fixture.FindCondition(cr, string(common.ConditionTypeProvisioningSucceeded))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			}).WithContext(ctx).Should(Succeed())
+
+			lastCall := testEnv.Deployer.LastCall()
+			Expect(lastCall).NotTo(BeNil())
+			oauthData, err := fixture.ExtractConfigMapJSONKey(lastCall.Resources, "inferenceservice-config", "oauthProxy")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(oauthData["memoryRequest"]).To(Equal("64Mi"))
+			Expect(oauthData["memoryLimit"]).To(Equal("128Mi"))
+			Expect(oauthData["cpuRequest"]).To(Equal("100m"))
+			Expect(oauthData["cpuLimit"]).To(Equal("200m"))
+			Expect(oauthData["image"]).To(Equal("registry.example.com/oauth-proxy:latest"))
+
+			By("patching CR with oauthProxy overrides")
+			testEnv.Deployer = &fixture.MockDeployer{}
+			testEnv.Reconciler.Deployer = testEnv.Deployer
+
+			err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
+					return err
+				}
+				cr.Spec.OAuthProxy = &platformv1alpha1.OAuthProxyConfig{
+					Resources: &platformv1alpha1.OAuthProxyResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("256Mi"),
+							corev1.ResourceCPU:    resource.MustParse("200m"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceMemory: resource.MustParse("512Mi"),
+							corev1.ResourceCPU:    resource.MustParse("500m"),
+						},
+					},
+				}
+				return testEnv.Client.Update(ctx, cr)
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Wait for reconcile with one field; remaining fields verified below to give immediate failure feedback.
+			Eventually(func(g Gomega) {
+				lastCall := testEnv.Deployer.LastCall()
+				g.Expect(lastCall).NotTo(BeNil())
+				data, extractErr := fixture.ExtractConfigMapJSONKey(lastCall.Resources, "inferenceservice-config", "oauthProxy")
+				g.Expect(extractErr).NotTo(HaveOccurred())
+				g.Expect(data["memoryRequest"]).To(Equal("256Mi"))
+			}).WithContext(ctx).Should(Succeed())
+
+			lastCall = testEnv.Deployer.LastCall()
+			oauthData, err = fixture.ExtractConfigMapJSONKey(lastCall.Resources, "inferenceservice-config", "oauthProxy")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(oauthData["memoryRequest"]).To(Equal("256Mi"))
+			Expect(oauthData["memoryLimit"]).To(Equal("512Mi"))
+			Expect(oauthData["cpuRequest"]).To(Equal("200m"))
+			Expect(oauthData["cpuLimit"]).To(Equal("500m"))
+			Expect(oauthData["image"]).To(Equal("registry.example.com/oauth-proxy:latest"))
+
+			By("removing oauthProxy from CR restores defaults")
+			testEnv.Deployer = &fixture.MockDeployer{}
+			testEnv.Reconciler.Deployer = testEnv.Deployer
+
+			err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
+					return err
+				}
+				cr.Spec.OAuthProxy = nil
+				return testEnv.Client.Update(ctx, cr)
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Wait for reconcile with one field; remaining fields verified below to give immediate failure feedback.
+			Eventually(func(g Gomega) {
+				lastCall := testEnv.Deployer.LastCall()
+				g.Expect(lastCall).NotTo(BeNil())
+				data, extractErr := fixture.ExtractConfigMapJSONKey(lastCall.Resources, "inferenceservice-config", "oauthProxy")
+				g.Expect(extractErr).NotTo(HaveOccurred())
+				g.Expect(data["memoryRequest"]).To(Equal("64Mi"))
+			}).WithContext(ctx).Should(Succeed())
+
+			lastCall = testEnv.Deployer.LastCall()
+			oauthData, err = fixture.ExtractConfigMapJSONKey(lastCall.Resources, "inferenceservice-config", "oauthProxy")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(oauthData["memoryRequest"]).To(Equal("64Mi"))
+			Expect(oauthData["memoryLimit"]).To(Equal("128Mi"))
+			Expect(oauthData["cpuRequest"]).To(Equal("100m"))
+			Expect(oauthData["cpuLimit"]).To(Equal("200m"))
+			Expect(oauthData["image"]).To(Equal("registry.example.com/oauth-proxy:latest"))
 		})
 	})
 })

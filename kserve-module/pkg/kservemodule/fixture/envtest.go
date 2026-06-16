@@ -108,6 +108,8 @@ metadata:
   namespace: opendatahub
 data:
   ingress: "{}"
+  service: "{}"
+  oauthProxy: '{"image":"registry.example.com/oauth-proxy:latest","memoryRequest":"64Mi","memoryLimit":"128Mi","cpuRequest":"100m","cpuLimit":"200m"}'
 `
 	modelCtrlManifest := `apiVersion: v1
 kind: ConfigMap
