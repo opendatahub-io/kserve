@@ -19,6 +19,7 @@ var (
 	errResourceNotFound = errors.New("resource not found")
 	configMapGVK        = schema.GroupVersionKind{Group: "", Version: "v1", Kind: "ConfigMap"}
 	deploymentGVK       = schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}
+	daemonSetGVK        = schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "DaemonSet"}
 )
 
 func customizeKserveConfigMap(resources []unstructured.Unstructured, headless bool, enableTLS *bool) ([]unstructured.Unstructured, error) {
