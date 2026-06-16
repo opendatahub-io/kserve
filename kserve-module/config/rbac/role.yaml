@@ -8,6 +8,8 @@ rules:
   - ""
   resources:
   - configmaps
+  - persistentvolumeclaims
+  - persistentvolumes
   - serviceaccounts
   - services
   verbs:
@@ -37,6 +39,16 @@ rules:
   - ""
   resources:
   - namespaces
+  - nodes
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - secrets
   verbs:
   - get
@@ -88,6 +100,7 @@ rules:
 - apiGroups:
   - apps
   resources:
+  - daemonsets
   - deployments
   verbs:
   - create
@@ -220,13 +233,7 @@ rules:
   - rolebindings
   - roles
   verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
+  - '*'
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
@@ -299,6 +306,7 @@ rules:
   resources:
   - clusterstoragecontainers
   - llminferenceserviceconfigs
+  - localmodelnodegroups
   verbs:
   - create
   - delete
