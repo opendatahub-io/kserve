@@ -75,7 +75,7 @@ func (r *KserveModuleReconciler) defaultCleanup(ctx context.Context, comp compon
 		sourcePath = comp.sourcePathXKS
 	}
 
-	renderPath := filepath.Join(manifestDir, comp.name, sourcePath)
+	renderPath := filepath.Join(manifestDir, comp.dirName(), sourcePath)
 	if _, err := os.Stat(renderPath); os.IsNotExist(err) {
 		log.Info("manifest directory not found, nothing to clean up", "component", comp.name, "path", renderPath)
 		return nil
