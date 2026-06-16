@@ -70,6 +70,57 @@ func TestComponentsConfig_WVAHasEnabled(t *testing.T) {
 	g.Expect(wva.sourcePathXKS).Should(BeEmpty(), "WVA is OCP-only, must not have XKS overlay")
 }
 
+func TestModelControllerExtraParams(t *testing.T) {
+	tests := []struct {
+		name           string
+		kserveState    common.ManagementState
+		nimState       common.ManagementState
+		expectedNIM    string
+		expectedKserve string
+	}{
+		{
+			name:           "Kserve Managed + NIM Managed",
+			kserveState:    common.Managed,
+			nimState:       common.Managed,
+			expectedNIM:    "managed",
+			expectedKserve: "managed",
+		},
+		{
+			name:           "Kserve Managed + NIM Removed",
+			kserveState:    common.Managed,
+			nimState:       common.Removed,
+			expectedNIM:    "removed",
+			expectedKserve: "managed",
+		},
+		{
+			name:           "Kserve Managed + NIM empty defaults to managed",
+			kserveState:    common.Managed,
+			nimState:       "",
+			expectedNIM:    "managed",
+			expectedKserve: "managed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			kserve := &platformv1alpha1.Kserve{
+				Spec: platformv1alpha1.KserveSpec{
+					ManagementSpec: common.ManagementSpec{
+						ManagementState: tt.kserveState,
+					},
+					NIM: platformv1alpha1.NIMSpec{
+						ManagementState: tt.nimState,
+					},
+				},
+			}
+			params := modelControllerExtraParams(kserve)
+			g.Expect(params["nim-state"]).To(Equal(tt.expectedNIM))
+			g.Expect(params["kserve-state"]).To(Equal(tt.expectedKserve))
+		})
+	}
+}
+
 func TestApplyManagedByLabel(t *testing.T) {
 	g := NewWithT(t)
 

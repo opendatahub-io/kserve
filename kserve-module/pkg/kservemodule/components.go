@@ -91,9 +91,12 @@ func isWVAEnabled(kserve *platformv1alpha1.Kserve) bool {
 }
 
 func modelControllerExtraParams(kserve *platformv1alpha1.Kserve) map[string]string {
-	nimState := string(common.Managed)
-	if kserve.Spec.NIM.ManagementState == common.Removed {
-		nimState = string(common.Removed)
+	nimState := string(common.Removed)
+	if platformv1alpha1.GetManagementState(kserve) == common.Managed {
+		nimState = string(kserve.Spec.NIM.ManagementState)
+		if nimState == "" {
+			nimState = string(common.Managed)
+		}
 	}
 	return map[string]string{
 		"nim-state":    strings.ToLower(nimState),
