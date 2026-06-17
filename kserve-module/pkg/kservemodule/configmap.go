@@ -23,7 +23,7 @@ var (
 	deploymentGVK       = schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}
 )
 
-func customizeKserveConfigMap(resources []unstructured.Unstructured, headless bool, enableTLS *bool, oauthProxy *platformv1alpha1.OAuthProxyConfig) ([]unstructured.Unstructured, error) {
+func customizeKserveConfigMap(resources []unstructured.Unstructured, kserve *platformv1alpha1.Kserve) ([]unstructured.Unstructured, error) {
 	cmIdx, cm, err := getIndexedResource[corev1.ConfigMap](resources, configMapGVK, kserveConfigMapName)
 	if err != nil {
 		if errors.Is(err, errResourceNotFound) {
@@ -32,7 +32,7 @@ func customizeKserveConfigMap(resources []unstructured.Unstructured, headless bo
 		return nil, err
 	}
 
-	if err := updateInferenceCM(cm, headless, enableTLS, oauthProxy); err != nil {
+	if err := updateInferenceCM(cm, kserve); err != nil {
 		return nil, err
 	}
 
@@ -63,11 +63,13 @@ func customizeKserveConfigMap(resources []unstructured.Unstructured, headless bo
 	return resources, nil
 }
 
-func updateInferenceCM(cm *corev1.ConfigMap, headless bool, enableTLS *bool, oauthProxy *platformv1alpha1.OAuthProxyConfig) error {
+func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) error {
+	headless := kserve.Spec.RawDeploymentServiceConfig != platformv1alpha1.KserveRawHeaded
+
 	if err := updateCMJSONKey(cm, ingressConfigKeyName, func(data map[string]any) {
 		data["disableIngressCreation"] = true
-		if enableTLS != nil {
-			data["enableLLMInferenceServiceTLS"] = *enableTLS
+		if kserve.Spec.EnableLLMInferenceServiceTLS != nil {
+			data["enableLLMInferenceServiceTLS"] = *kserve.Spec.EnableLLMInferenceServiceTLS
 		}
 	}); err != nil {
 		return err
@@ -79,6 +81,7 @@ func updateInferenceCM(cm *corev1.ConfigMap, headless bool, enableTLS *bool, oau
 		return err
 	}
 
+	oauthProxy := kserve.Spec.OAuthProxy
 	if oauthProxy != nil && oauthProxy.Resources != nil {
 		if err := updateCMJSONKey(cm, oauthProxyConfigKeyName, func(data map[string]any) {
 			if v, ok := oauthProxy.Resources.Requests[corev1.ResourceMemory]; ok {

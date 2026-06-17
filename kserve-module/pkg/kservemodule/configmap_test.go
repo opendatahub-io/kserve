@@ -22,7 +22,7 @@ func TestCustomizeKserveConfigMap_Headless(t *testing.T) {
 
 	resources := buildTestResources(t)
 
-	result, err := customizeKserveConfigMap(resources, true, nil, nil)
+	result, err := customizeKserveConfigMap(resources, buildTestKserve(platformv1alpha1.KserveRawHeadless, nil, nil))
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -36,7 +36,7 @@ func TestCustomizeKserveConfigMap_Headed(t *testing.T) {
 
 	resources := buildTestResources(t)
 
-	result, err := customizeKserveConfigMap(resources, false, nil, nil)
+	result, err := customizeKserveConfigMap(resources, buildTestKserve(platformv1alpha1.KserveRawHeaded, nil, nil))
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -49,7 +49,7 @@ func TestCustomizeKserveConfigMap_AddsHashToDeployment(t *testing.T) {
 
 	resources := buildTestResources(t)
 
-	result, err := customizeKserveConfigMap(resources, true, nil, nil)
+	result, err := customizeKserveConfigMap(resources, buildTestKserve(platformv1alpha1.KserveRawHeadless, nil, nil))
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, deploy, err := getIndexedResource[appsv1.Deployment](result, deploymentGVK, kserveControllerDeployment)
@@ -62,7 +62,7 @@ func TestCustomizeKserveConfigMap_NoConfigMap(t *testing.T) {
 	g := NewWithT(t)
 
 	resources := []unstructured.Unstructured{}
-	result, err := customizeKserveConfigMap(resources, true, nil, nil)
+	result, err := customizeKserveConfigMap(resources, buildTestKserve(platformv1alpha1.KserveRawHeadless, nil, nil))
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(result).Should(BeEmpty())
 }
@@ -72,7 +72,7 @@ func TestCustomizeKserveConfigMap_EnableTLS_Nil(t *testing.T) {
 
 	resources := buildTestResources(t)
 
-	result, err := customizeKserveConfigMap(resources, true, nil, nil)
+	result, err := customizeKserveConfigMap(resources, buildTestKserve(platformv1alpha1.KserveRawHeadless, nil, nil))
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -85,7 +85,7 @@ func TestCustomizeKserveConfigMap_EnableTLS_True(t *testing.T) {
 
 	resources := buildTestResources(t)
 
-	result, err := customizeKserveConfigMap(resources, true, ptr.To(true), nil)
+	result, err := customizeKserveConfigMap(resources, buildTestKserve(platformv1alpha1.KserveRawHeadless, ptr.To(true), nil))
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -98,7 +98,7 @@ func TestCustomizeKserveConfigMap_EnableTLS_False(t *testing.T) {
 
 	resources := buildTestResources(t)
 
-	result, err := customizeKserveConfigMap(resources, true, ptr.To(false), nil)
+	result, err := customizeKserveConfigMap(resources, buildTestKserve(platformv1alpha1.KserveRawHeadless, ptr.To(false), nil))
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -134,7 +134,7 @@ func TestCustomizeKserveConfigMap_EnableTLS_NilPreservesExisting(t *testing.T) {
 
 	resources := []unstructured.Unstructured{{Object: cmU}, {Object: deployU}}
 
-	result, err := customizeKserveConfigMap(resources, true, nil, nil)
+	result, err := customizeKserveConfigMap(resources, buildTestKserve(platformv1alpha1.KserveRawHeadless, nil, nil))
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, resultCM, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -159,7 +159,7 @@ func TestCustomizeKserveConfigMap_OAuthProxy_FullOverride(t *testing.T) {
 		},
 	}
 
-	result, err := customizeKserveConfigMap(resources, true, nil, oauthProxy)
+	result, err := customizeKserveConfigMap(resources, buildTestKserve(platformv1alpha1.KserveRawHeadless, nil, oauthProxy))
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -182,7 +182,7 @@ func TestCustomizeKserveConfigMap_OAuthProxy_PartialOverride(t *testing.T) {
 		},
 	}
 
-	result, err := customizeKserveConfigMap(resources, true, nil, oauthProxy)
+	result, err := customizeKserveConfigMap(resources, buildTestKserve(platformv1alpha1.KserveRawHeadless, nil, oauthProxy))
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -197,7 +197,7 @@ func TestCustomizeKserveConfigMap_OAuthProxy_NilConfig(t *testing.T) {
 
 	resources := buildTestResourcesWithOAuthProxy(t)
 
-	result, err := customizeKserveConfigMap(resources, true, nil, nil)
+	result, err := customizeKserveConfigMap(resources, buildTestKserve(platformv1alpha1.KserveRawHeadless, nil, nil))
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -218,7 +218,7 @@ func TestCustomizeKserveConfigMap_OAuthProxy_MissingKey(t *testing.T) {
 		},
 	}
 
-	result, err := customizeKserveConfigMap(resources, true, nil, oauthProxy)
+	result, err := customizeKserveConfigMap(resources, buildTestKserve(platformv1alpha1.KserveRawHeadless, nil, oauthProxy))
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -255,6 +255,16 @@ func buildTestResourcesWithOAuthProxy(t *testing.T) []unstructured.Unstructured 
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	return []unstructured.Unstructured{{Object: cmU}, {Object: deployU}}
+}
+
+func buildTestKserve(rawSvc platformv1alpha1.RawServiceConfig, enableTLS *bool, oauthProxy *platformv1alpha1.OAuthProxyConfig) *platformv1alpha1.Kserve {
+	return &platformv1alpha1.Kserve{
+		Spec: platformv1alpha1.KserveSpec{
+			RawDeploymentServiceConfig:  rawSvc,
+			EnableLLMInferenceServiceTLS: enableTLS,
+			OAuthProxy:                  oauthProxy,
+		},
+	}
 }
 
 func buildTestResources(t *testing.T) []unstructured.Unstructured {
