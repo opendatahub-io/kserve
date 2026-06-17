@@ -8,7 +8,8 @@ metadata:
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/cancel-in-progress: "false"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch == "release-v0.17"
+    pipelinesascode.tekton.dev/on-target-branch: "[refs/tags/odh-v3.5-EA2]"
+    pipelinesascode.tekton.dev/on-event: "[push]"
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
@@ -23,7 +24,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-kserve-module-operator:odh-stable
+    value: quay.io/opendatahub/odh-kserve-module-operator:odh-v3.5-EA2
   - name: dockerfile
     value: kserve-module-controller.Dockerfile
   - name: path-context
