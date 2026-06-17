@@ -245,7 +245,13 @@ rules:
   - rolebindings
   - roles
   verbs:
-  - '*'
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
@@ -264,6 +270,11 @@ rules:
   - kserve-edit
   - kserve-llmisvc-distro-role
   - kserve-llmisvc-manager-role
+  - kserve-localmodel-distro-role
+  - kserve-localmodel-manager-role
+  - kserve-localmodel-permfix-role
+  - kserve-localmodelnode-agent-role
+  - kserve-localmodelnode-distro-role
   - kserve-manager-role
   - kserve-metrics-reader-cluster-role
   - kserve-prometheus-k8s
