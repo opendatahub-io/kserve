@@ -36,9 +36,10 @@ trap print_e2e_environment_summary EXIT
 : "${BUILD_KSERVE_IMAGES:=true}"
 : "${BUILD_GRAPH_IMAGES:=true}"
 
+export IMAGE_TRANSFORMER_IMG_TAG="${IMAGE_TRANSFORMER_IMG_TAG:-kserve/image-transformer:latest}"
+
 if [[ "$RUNNING_LOCAL" == "true" ]]; then
   export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
-  export IMAGE_TRANSFORMER_IMG_TAG=kserve/image-transformer:latest
   export GITHUB_SHA=master
 
   if [[ "$BUILD_KSERVE_IMAGES" == "true" ]]; then

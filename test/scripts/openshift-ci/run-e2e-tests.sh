@@ -72,9 +72,10 @@ export SKIP_DELETION_ON_FAILURE="${SKIP_DELETION_ON_FAILURE:=true}"
 # (e.g. storage version migration) can find the controller.
 export KSERVE_NAMESPACE=${KSERVE_NAMESPACE:-"kserve"}
 
+export IMAGE_TRANSFORMER_IMG_TAG="${IMAGE_TRANSFORMER_IMG_TAG:-kserve/image-transformer:latest}"
+
 if [[ "$RUNNING_LOCAL" == "true" ]]; then
   export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
-  export IMAGE_TRANSFORMER_IMG_TAG=kserve/image-transformer:latest
   export GITHUB_SHA=master
 fi
 
