@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -108,6 +109,14 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve, ap
 		data["jobNamespace"] = applicationsNamespace
 	}); err != nil {
 		return err
+	}
+
+	if agentImage := os.Getenv(kserveImageParamMap["kserve-agent"]); agentImage != "" {
+		if err := updateCMJSONKey(cm, openshiftConfigKeyName, func(data map[string]any) {
+			data["modelcachePermissionFixImage"] = agentImage
+		}); err != nil {
+			return err
+		}
 	}
 
 	return nil
