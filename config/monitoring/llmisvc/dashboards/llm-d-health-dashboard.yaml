@@ -101,7 +101,7 @@ spec:
       kind: Panel
       spec:
         display:
-          name: Total tokens (tokens/s)
+          name: Token throughput (tokens/s)
         plugin:
           kind: TimeSeriesChart
           spec:
