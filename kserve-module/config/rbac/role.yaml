@@ -265,6 +265,7 @@ rules:
   - metrics-reader
   - model-serving-api
   - odh-model-controller-role
+  - openshift-ai-inferenceservice-image-volume-scc
   - openshift-ai-llminferenceservice-scc
   - proxy-role
   - workload-variant-autoscaler-epp-metrics-reader-role
