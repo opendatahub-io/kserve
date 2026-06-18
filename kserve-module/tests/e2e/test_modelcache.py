@@ -102,6 +102,8 @@ class TestModelCacheDisable:
         """After enabling then disabling ModelCache, all managed resources
         are removed and the Kserve CR remains Ready.
         """
+        if not cluster_info.is_openshift:
+            pytest.skip("ModelCache reconciliation requires OpenShift")
         worker = get_worker_node(kubectl, is_openshift=cluster_info.is_openshift)
         enable_model_cache(kubectl, worker)
         _poll_cr(

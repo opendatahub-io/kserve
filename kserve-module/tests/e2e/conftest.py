@@ -364,7 +364,11 @@ def apply_kserve_cr(kubectl, cluster_info):
 
 @pytest.fixture
 def model_cache_enabled(kubectl, cluster_info, apply_kserve_cr):
-    """Enable ModelCache before the test and disable it after."""
+    """Enable ModelCache before the test and disable it after.
+    Skipped on non-OpenShift clusters (no XKS overlay for modelcache).
+    """
+    if not cluster_info.is_openshift:
+        pytest.skip("ModelCache reconciliation requires OpenShift")
     worker = get_worker_node(kubectl, is_openshift=cluster_info.is_openshift)
     enable_model_cache(kubectl, worker)
     _poll_cr(
