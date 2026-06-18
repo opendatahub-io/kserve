@@ -242,13 +242,11 @@ def enable_model_cache(kubectl_bin, worker_node, cache_size="5Gi"):
 
 
 def disable_model_cache(kubectl_bin):
-    """Patch the Kserve CR to disable ModelCache."""
+    """Remove the modelCache spec entirely from the Kserve CR."""
     import json
 
-    patch = json.dumps({"spec": {"modelCache": {"managementState": "Removed"}}})
-    run(
-        [kubectl_bin, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch]
-    )
+    patch = json.dumps([{"op": "remove", "path": "/spec/modelCache"}])
+    run([kubectl_bin, "patch", "kserve", KSERVE_CR_NAME, "--type", "json", "-p", patch])
 
 
 def generation_matches(cr):
@@ -286,7 +284,9 @@ def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_
         )
         if result.returncode == 0:
             dep = yaml.safe_load(result.stdout)
-            conditions = {c["type"]: c for c in dep.get("status", {}).get("conditions", [])}
+            conditions = {
+                c["type"]: c for c in dep.get("status", {}).get("conditions", [])
+            }
             avail = conditions.get("Available", {})
             if avail.get("status") == "True":
                 return dep
@@ -294,16 +294,24 @@ def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_
     raise TimeoutError(f"deployment {name} not Available within {timeout}s")
 
 
-def wait_for_deployment_gone(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_60S):
+def wait_for_deployment_gone(
+    kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_60S
+):
     """Wait until a deployment no longer exists."""
-    result = run([
-        kubectl_bin, "wait", "--for=delete", f"deployment/{name}",
-        "-n", namespace, f"--timeout={timeout}s",
-    ], check=False)
+    result = run(
+        [
+            kubectl_bin,
+            "wait",
+            "--for=delete",
+            f"deployment/{name}",
+            "-n",
+            namespace,
+            f"--timeout={timeout}s",
+        ],
+        check=False,
+    )
     if result.returncode != 0 and "not found" not in result.stderr.lower():
-        raise RuntimeError(
-            f"wait_for_deployment_gone failed: {result.stderr}"
-        )
+        raise RuntimeError(f"wait_for_deployment_gone failed: {result.stderr}")
 
 
 def _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S):
@@ -326,7 +334,9 @@ def cluster_info():
 
     result = subprocess.run(
         [cli, "api-resources", "--api-group=config.openshift.io"],
-        capture_output=True, text=True, timeout=10
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     is_ocp = result.returncode == 0 and "clusterversions" in result.stdout.lower()
     return ClusterInfo(is_openshift=is_ocp, kubectl=cli)

@@ -49,9 +49,9 @@ var watchedSubscriptions = map[string]bool{
 }
 
 type dynamicWatch struct {
-	groupKind schema.GroupKind
-	gvk       schema.GroupVersionKind
-	filterFn  func(*unstructured.Unstructured) bool
+	groupKind  schema.GroupKind
+	gvk        schema.GroupVersionKind
+	filterFn   func(*unstructured.Unstructured) bool
 	registered bool
 }
 
@@ -73,7 +73,6 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&appsv1.Deployment{}).
 		Owns(&appsv1.DaemonSet{}).
 		Owns(&networkingv1.NetworkPolicy{}).
-		Owns(&securityv1.SecurityContextConstraints{}).
 		Owns(&rbacv1.Role{}).
 		Owns(&rbacv1.RoleBinding{}).
 		Owns(&rbacv1.ClusterRole{}).
@@ -93,6 +92,12 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				predicate.LabelChangedPredicate{},
 			)),
 		)
+
+	// SecurityContextConstraints CRD is always present on OpenShift (OLM); never on XKS.
+	sccGK := schema.GroupKind{Group: "security.openshift.io", Kind: "SecurityContextConstraints"}
+	if err := cluster.CustomResourceDefinitionExists(context.Background(), mgr.GetAPIReader(), sccGK); err == nil {
+		b.Owns(&securityv1.SecurityContextConstraints{})
+	}
 
 	// Subscription CRD is always present on OpenShift (OLM); never on XKS.
 	// One-time conditional watch at startup — no dynamic retry needed.
@@ -218,4 +223,3 @@ func crdNamePredicate() predicate.Predicate {
 		return false
 	})
 }
-

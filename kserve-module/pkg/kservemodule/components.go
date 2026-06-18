@@ -58,7 +58,7 @@ var components = []componentConfig{
 	{
 		name:         ModelCacheComponentName,
 		manifestName: KserveComponentName,
-		sourcePath:   KserveManifestSourcePathModelCache,
+		sourcePath:   ModelCacheManifestSourcePath,
 		imageMap:     kserveImageParamMap,
 		enabled:      isModelCacheEnabled,
 		postRender:   modelCacheComponentPostRender,
@@ -145,4 +145,3 @@ func applyManagedByLabel(resources []unstructured.Unstructured, componentName st
 		resources[i].SetLabels(labels)
 	}
 }
-

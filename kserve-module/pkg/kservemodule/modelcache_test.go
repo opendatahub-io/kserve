@@ -133,6 +133,32 @@ func TestCreateOrUpdateModelCachePVC(t *testing.T) {
 	g.Expect(pvc.OwnerReferences[0].Name).To(Equal(platformv1alpha1.KserveInstanceName))
 }
 
+func TestCreateOrUpdateModelCachePVC_UpdatePreservesImmutableFields(t *testing.T) {
+	g := NewWithT(t)
+	ctx := context.Background()
+
+	r := newReconcilerWithFakeClient()
+	kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"node1"})
+
+	// Create the PVC
+	g.Expect(r.createOrUpdateModelCachePVC(ctx, kserve)).To(Succeed())
+
+	// Update with different cacheSize
+	kserve2 := testKserveWithModelCache(common.Managed, "200Gi", []string{"node1"})
+	g.Expect(r.createOrUpdateModelCachePVC(ctx, kserve2)).To(Succeed())
+
+	pvc := &corev1.PersistentVolumeClaim{}
+	g.Expect(r.Get(ctx, client.ObjectKey{Name: modelCachePVCName, Namespace: "test-ns"}, pvc)).To(Succeed())
+
+	// Mutable field should be updated
+	g.Expect(pvc.Spec.Resources.Requests[corev1.ResourceStorage]).To(Equal(resource.MustParse("200Gi")))
+
+	// Immutable fields should be preserved from initial create
+	g.Expect(pvc.Spec.VolumeName).To(Equal(modelCachePVName))
+	g.Expect(pvc.Spec.AccessModes).To(ContainElement(corev1.ReadWriteOnce))
+	g.Expect(*pvc.Spec.StorageClassName).To(Equal("local-storage"))
+}
+
 func TestCreateOrUpdateLocalModelNodeGroup(t *testing.T) {
 	g := NewWithT(t)
 
@@ -525,27 +551,46 @@ func TestLabelModelCacheNodes(t *testing.T) {
 	})
 }
 
-func TestCleanupModelCache_UnlabelsNodes(t *testing.T) {
+func TestCleanupModelCache_DeletesResources(t *testing.T) {
 	g := NewWithT(t)
+	ctx := context.Background()
 
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
 		Name:   "worker-1",
 		Labels: map[string]string{modelCacheLabelKey: modelCacheLabelValue},
 	}}
 
+	kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"worker-1"})
 	r := newReconcilerWithFakeClient(node)
 
-	err := r.cleanupModelCache(context.Background())
+	// Seed PV, PVC, and LMNG so cleanup actually deletes them
+	g.Expect(r.createOrUpdateModelCachePV(ctx, kserve)).To(Succeed())
+	g.Expect(r.createOrUpdateModelCachePVC(ctx, kserve)).To(Succeed())
+	g.Expect(r.createOrUpdateLocalModelNodeGroup(ctx, kserve)).To(Succeed())
+
+	err := r.cleanupModelCache(ctx)
 	g.Expect(err).NotTo(HaveOccurred())
 
+	// Verify node label removed
 	updated := &corev1.Node{}
-	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: "worker-1"}, updated)).To(Succeed())
+	g.Expect(r.Get(ctx, client.ObjectKey{Name: "worker-1"}, updated)).To(Succeed())
 	_, hasLabel := updated.Labels[modelCacheLabelKey]
 	g.Expect(hasLabel).To(BeFalse())
 
+	// Verify PSA reverted
 	ns := &corev1.Namespace{}
-	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: "test-ns"}, ns)).To(Succeed())
+	g.Expect(r.Get(ctx, client.ObjectKey{Name: "test-ns"}, ns)).To(Succeed())
 	g.Expect(ns.Labels[securityEnforceLabel]).To(Equal("baseline"))
+
+	// Verify PV deleted
+	pv := &corev1.PersistentVolume{}
+	err = r.Get(ctx, client.ObjectKey{Name: modelCachePVName}, pv)
+	g.Expect(err).To(HaveOccurred())
+
+	// Verify PVC deleted
+	pvc := &corev1.PersistentVolumeClaim{}
+	err = r.Get(ctx, client.ObjectKey{Name: modelCachePVCName, Namespace: "test-ns"}, pvc)
+	g.Expect(err).To(HaveOccurred())
 }
 
 // --- SELinux MCS tests ---
@@ -646,6 +691,19 @@ func TestModelCacheComponentPostRender_PatchesMCS(t *testing.T) {
 	g.Expect(ds.Spec.Template.Spec.SecurityContext.SELinuxOptions.Level).To(Equal("s0:c28,c27"))
 }
 
+func readyLocalModelControllerDeployment() *appsv1.Deployment {
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      localmodelControllerDeployment,
+			Namespace: "test-ns",
+		},
+		Status: appsv1.DeploymentStatus{
+			AvailableReplicas: 1,
+		},
+	}
+	return dep
+}
+
 func seedModelCacheReadinessObjects(t *testing.T, r *KserveModuleReconciler, dsMCS string) {
 	t.Helper()
 	g := NewWithT(t)
@@ -654,6 +712,7 @@ func seedModelCacheReadinessObjects(t *testing.T, r *KserveModuleReconciler, dsM
 	g.Expect(r.createOrUpdateModelCachePV(ctx, kserve)).To(Succeed())
 	g.Expect(r.createOrUpdateModelCachePVC(ctx, kserve)).To(Succeed())
 	g.Expect(r.createOrUpdateLocalModelNodeGroup(ctx, kserve)).To(Succeed())
+	g.Expect(r.Create(ctx, readyLocalModelControllerDeployment())).To(Succeed())
 	if dsMCS != "" {
 		g.Expect(r.Create(ctx, testDaemonSet(dsMCS))).To(Succeed())
 	}
