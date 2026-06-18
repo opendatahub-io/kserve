@@ -36,12 +36,15 @@ func getServerTypeFromPod(pod *corev1.Pod) string {
 
 // getOciStorageMutator returns the appropriate mutator for OCI storage based on the runtime type.
 // In distro builds, MLServer runtime uses image volumes while others use modelcar.
+// The annotation check is deferred to execution time to avoid TOCTOU issues (CWE-367).
 func getOciStorageMutator(pod *corev1.Pod, storageInitializer *StorageInitializerInjector) func(*corev1.Pod) error {
-	// Read server type from pod annotation (propagated from ServingRuntime during component reconciliation)
-	serverType := getServerTypeFromPod(pod)
+	return func(p *corev1.Pod) error {
+		// Read server type from pod annotation at execution time, after prior mutators have run
+		serverType := getServerTypeFromPod(p)
 
-	if serverType == constants.ServerTypeMLServer {
-		return storageInitializer.InjectImageVolume
+		if serverType == constants.ServerTypeMLServer {
+			return storageInitializer.InjectImageVolume(p)
+		}
+		return storageInitializer.InjectModelcar(p)
 	}
-	return storageInitializer.InjectModelcar
 }
