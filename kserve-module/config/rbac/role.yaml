@@ -255,6 +255,7 @@ rules:
   - account-viewer-role
   - kserve-admin
   - kserve-edit
+  - kserve-inferenceservice-distro-role
   - kserve-llmisvc-distro-role
   - kserve-llmisvc-manager-role
   - kserve-manager-role
