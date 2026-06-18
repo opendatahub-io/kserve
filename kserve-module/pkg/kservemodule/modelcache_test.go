@@ -301,6 +301,56 @@ func TestUpdateNamespacePSA(t *testing.T) {
 	}
 }
 
+func TestUpdateNamespacePSA_SkipsDowngradeWhenNotOwnedByUs(t *testing.T) {
+	g := NewWithT(t)
+
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "test-ns",
+			Labels:      map[string]string{securityEnforceLabel: "privileged"},
+			Annotations: map[string]string{psaElevatedByAnnotation: "some-other-controller"},
+		},
+	}
+
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns).Build()
+	r := &KserveModuleReconciler{Client: cli, applicationsNamespace: "test-ns"}
+
+	err := r.updateNamespacePSA(context.Background(), "baseline")
+	g.Expect(err).NotTo(HaveOccurred())
+
+	updated := &corev1.Namespace{}
+	g.Expect(cli.Get(context.Background(), client.ObjectKey{Name: "test-ns"}, updated)).To(Succeed())
+	g.Expect(updated.Labels[securityEnforceLabel]).To(Equal("privileged"))
+	g.Expect(updated.Annotations[psaElevatedByAnnotation]).To(Equal("some-other-controller"))
+}
+
+func TestUpdateNamespacePSA_SkipsDowngradeWhenNoAnnotation(t *testing.T) {
+	g := NewWithT(t)
+
+	scheme := runtime.NewScheme()
+	_ = corev1.AddToScheme(scheme)
+
+	ns := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "test-ns",
+			Labels: map[string]string{securityEnforceLabel: "privileged"},
+		},
+	}
+
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns).Build()
+	r := &KserveModuleReconciler{Client: cli, applicationsNamespace: "test-ns"}
+
+	err := r.updateNamespacePSA(context.Background(), "baseline")
+	g.Expect(err).NotTo(HaveOccurred())
+
+	updated := &corev1.Namespace{}
+	g.Expect(cli.Get(context.Background(), client.ObjectKey{Name: "test-ns"}, updated)).To(Succeed())
+	g.Expect(updated.Labels[securityEnforceLabel]).To(Equal("privileged"))
+}
+
 func TestUpdateNamespacePSA_NoOpWhenAlreadySet(t *testing.T) {
 	g := NewWithT(t)
 
@@ -553,6 +603,45 @@ func TestLabelModelCacheNodes(t *testing.T) {
 	})
 }
 
+func TestLabelModelCacheNodes_ErrorsWhenNoSelectionCriteria(t *testing.T) {
+	g := NewWithT(t)
+
+	labeled := &corev1.Node{ObjectMeta: metav1.ObjectMeta{
+		Name:   "worker-1",
+		Labels: map[string]string{modelCacheLabelKey: modelCacheLabelValue},
+	}}
+
+	r := newReconcilerWithFakeClient(labeled)
+	kserve := &platformv1alpha1.Kserve{
+		ObjectMeta: metav1.ObjectMeta{Name: platformv1alpha1.KserveInstanceName},
+		Spec: platformv1alpha1.KserveSpec{
+			ModelCache: &platformv1alpha1.ModelCacheSpec{
+				ManagementState: common.Managed,
+			},
+		},
+	}
+
+	err := r.labelModelCacheNodes(context.Background(), kserve)
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("no nodeNames or nodeSelector"))
+
+	// Verify the existing label was NOT removed
+	node := &corev1.Node{}
+	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: "worker-1"}, node)).To(Succeed())
+	g.Expect(node.Labels[modelCacheLabelKey]).To(Equal(modelCacheLabelValue))
+}
+
+func TestModelCacheComponentPostRender_NilKserve(t *testing.T) {
+	g := NewWithT(t)
+	r := newReconcilerWithFakeClient()
+	resources := []unstructured.Unstructured{
+		toUnstructuredDaemonSet(testDaemonSet("")),
+	}
+	result, err := modelCacheComponentPostRender(context.Background(), r, nil, resources)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(result).To(HaveLen(1))
+}
+
 func TestCleanupModelCache_DeletesResources(t *testing.T) {
 	g := NewWithT(t)
 	ctx := context.Background()
@@ -565,7 +654,8 @@ func TestCleanupModelCache_DeletesResources(t *testing.T) {
 	kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"worker-1"})
 	r := newReconcilerWithFakeClient(node)
 
-	// Seed PV, PVC, and LMNG so cleanup actually deletes them
+	// Simulate enable: elevate PSA and seed resources
+	g.Expect(r.updateNamespacePSA(ctx, "privileged")).To(Succeed())
 	g.Expect(r.createOrUpdateModelCachePV(ctx, kserve)).To(Succeed())
 	g.Expect(r.createOrUpdateModelCachePVC(ctx, kserve)).To(Succeed())
 	g.Expect(r.createOrUpdateLocalModelNodeGroup(ctx, kserve)).To(Succeed())
