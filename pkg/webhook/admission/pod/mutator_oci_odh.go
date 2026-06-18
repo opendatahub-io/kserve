@@ -22,14 +22,23 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/kserve/kserve/pkg/constants"
-	"github.com/kserve/kserve/pkg/runtime"
 )
+
+// getServerTypeFromPod reads the server type from the pod's opendatahub.io/kserve-runtime annotation.
+// This annotation is propagated from the ServingRuntime during component reconciliation.
+// Returns empty string if the annotation is not present.
+func getServerTypeFromPod(pod *corev1.Pod) string {
+	if pod == nil || pod.Annotations == nil {
+		return ""
+	}
+	return pod.Annotations[constants.ODHKserveRuntimeAnnotation]
+}
 
 // getOciStorageMutator returns the appropriate mutator for OCI storage based on the runtime type.
 // In distro builds, MLServer runtime uses image volumes while others use modelcar.
 func getOciStorageMutator(pod *corev1.Pod, storageInitializer *StorageInitializerInjector) func(*corev1.Pod) error {
 	// Read server type from pod annotation (propagated from ServingRuntime during component reconciliation)
-	serverType := runtime.GetServerTypeFromPod(pod)
+	serverType := getServerTypeFromPod(pod)
 
 	if serverType == constants.ServerTypeMLServer {
 		return storageInitializer.InjectImageVolume

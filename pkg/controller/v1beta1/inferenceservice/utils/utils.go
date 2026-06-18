@@ -347,6 +347,39 @@ func GetServingRuntime(ctx context.Context, cl client.Client, name string, names
 	return nil, nil, goerrors.New("No ServingRuntimes or ClusterServingRuntimes with the name: " + name), false
 }
 
+// GetServerTypeFromIsvc fetches the runtime for the InferenceService and returns its server-type annotation.
+// Returns empty string if:
+//   - InferenceService is nil
+//   - Runtime name is not populated in status
+//   - Runtime doesn't have the serving.kserve.io/server-type annotation
+//
+// Returns error if runtime fetch fails.
+func GetServerTypeFromIsvc(ctx context.Context, cl client.Client, isvc *v1beta1.InferenceService) (string, error) {
+	if isvc == nil {
+		return "", nil
+	}
+
+	// Get runtime name from status (namespaced takes precedence, matching GetServingRuntime priority)
+	var runtimeName string
+	if isvc.Status.ServingRuntimeName != "" {
+		runtimeName = isvc.Status.ServingRuntimeName
+	} else if isvc.Status.ClusterServingRuntimeName != "" {
+		runtimeName = isvc.Status.ClusterServingRuntimeName
+	}
+
+	if runtimeName == "" {
+		return "", nil
+	}
+
+	// Fetch the runtime (tries namespaced first, then cluster)
+	_, annotations, err, _ := GetServingRuntime(ctx, cl, runtimeName, isvc.Namespace)
+	if err != nil {
+		return "", err
+	}
+
+	return annotations[constants.ServerTypeAnnotationKey], nil
+}
+
 // ReplacePlaceholders Replace placeholders in runtime container by values from inferenceservice metadata
 func ReplacePlaceholders(container *corev1.Container, meta metav1.ObjectMeta) error {
 	data, _ := json.Marshal(container)

@@ -34,7 +34,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
-	"github.com/kserve/kserve/pkg/runtime"
+	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
@@ -77,7 +77,7 @@ func (r *InferenceServiceReconciler) reconcileWorkloadPlatformPermissions(ctx co
 // Returns error if runtime lookup fails to prevent accidental RoleBinding deletion on transient errors.
 func getServiceAccountsRequiringImageVolumeSCC(ctx context.Context, cl client.Client, isvc *v1beta1.InferenceService) ([]string, error) {
 	// Only MLServer runtime uses image volumes
-	serverType, err := runtime.GetServerTypeFromIsvc(ctx, cl, isvc)
+	serverType, err := isvcutils.GetServerTypeFromIsvc(ctx, cl, isvc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve server type for isvc %s: %w", isvc.Name, err)
 	}
