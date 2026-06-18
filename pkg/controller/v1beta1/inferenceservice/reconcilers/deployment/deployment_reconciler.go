@@ -1151,8 +1151,10 @@ func mountTransformerTLSInfrastructure(deployment *appsv1.Deployment, componentM
 		constants.PredictorServiceName(isvcName), componentMeta.Namespace)
 
 	// Add volume mount + env vars to kserve-container
+	containerFound := false
 	for i, container := range podSpec.Containers {
 		if container.Name == constants.InferenceServiceContainerName {
+			containerFound = true
 			podSpec.Containers[i].VolumeMounts = append(
 				podSpec.Containers[i].VolumeMounts,
 				corev1.VolumeMount{
@@ -1185,6 +1187,9 @@ func mountTransformerTLSInfrastructure(deployment *appsv1.Deployment, componentM
 			)
 			break
 		}
+	}
+	if !containerFound {
+		return fmt.Errorf("container %q not found in transformer deployment %q", constants.InferenceServiceContainerName, componentMeta.Name)
 	}
 	return nil
 }

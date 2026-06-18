@@ -13,70 +13,38 @@
 
 import logging
 import os
-import time
 
+import httpx
 import pytest
-import requests
 
 from kserve import (
     KServeClient,
     V1beta1InferenceService,
     V1beta1InferenceServiceSpec,
-    V1beta1ModelFormat,
-    V1beta1ModelSpec,
     V1beta1PredictorSpec,
+    V1beta1TorchServeSpec,
     V1beta1TransformerSpec,
     constants,
 )
 from kubernetes import client
 from kubernetes.client import V1Container, V1EnvVar, V1ResourceRequirements
 
-from ..common.utils import KSERVE_TEST_NAMESPACE, get_isvc_endpoint
+from ..common.utils import KSERVE_TEST_NAMESPACE, predict_isvc
 
 logger = logging.getLogger(__name__)
-
-
-def _log_pod_status(kserve_client, service_name):
-    """Log pod status for debugging test failures."""
-    try:
-        pods = kserve_client.core_api.list_namespaced_pod(
-            KSERVE_TEST_NAMESPACE,
-            label_selector=f"serving.kserve.io/inferenceservice={service_name}",
-        )
-        for pod in pods.items:
-            logger.info("Pod: %s  Phase: %s", pod.metadata.name, pod.status.phase)
-    except Exception:
-        pass
-
-
-def _should_skip_deletion(test_failed):
-    """Check if resource deletion should be skipped based on env vars."""
-    skip_all = os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in (
-        "true",
-        "1",
-        "t",
-    )
-    skip_on_failure = os.getenv("SKIP_DELETION_ON_FAILURE", "False").lower() in (
-        "true",
-        "1",
-        "t",
-    )
-    return skip_all or (skip_on_failure and test_failed)
 
 
 @pytest.mark.transformer
 @pytest.mark.auth
 @pytest.mark.raw
-def test_predictor_auth():
+@pytest.mark.asyncio(scope="session")
+async def test_predictor_auth(rest_v1_client, network_layer):
     """Verify kube-rbac-proxy auth enforcement on an InferenceService.
 
     The ODH model controller injects a kube-rbac-proxy sidecar when the
     ``security.opendatahub.io/enable-auth`` annotation is set to ``"true"``.
     The proxy performs a SubjectAccessReview that requires the caller to have
     ``get`` permission on the specific ``inferenceservices`` resource.
-
-    This test uses the model readiness endpoint (GET) to validate auth
-    enforcement without requiring model-specific inference input data.
 
     Checks:
       - Request WITHOUT a bearer token is rejected (401 or 403).
@@ -85,23 +53,44 @@ def test_predictor_auth():
     service_name = "isvc-predictor-auth"
     sa_name = f"{service_name}-test-sa"
 
-    ca_bundle = os.environ.get("REQUESTS_CA_BUNDLE", True)
-
     annotations = {
         "security.opendatahub.io/enable-auth": "true",
         "serving.kserve.io/deploymentMode": "RawDeployment",
     }
 
+    labels = {"networking.kserve.io/visibility": "exposed"}
+
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
-        model=V1beta1ModelSpec(
-            model_format=V1beta1ModelFormat(name="sklearn"),
-            storage_uri="gs://kfserving-examples/models/sklearn/1.0/model",
+        pytorch=V1beta1TorchServeSpec(
+            storage_uri="gs://kfserving-examples/models/torchserve/image_classifier/v1",
+            protocol_version="v1",
             resources=V1ResourceRequirements(
-                requests={"cpu": "50m", "memory": "256Mi"},
-                limits={"cpu": "1", "memory": "2Gi"},
+                requests={"cpu": "10m", "memory": "128Mi"},
+                limits={"cpu": "1", "memory": "1Gi"},
             ),
         ),
+    )
+
+    transformer = V1beta1TransformerSpec(
+        min_replicas=1,
+        containers=[
+            V1Container(
+                image=os.environ.get("IMAGE_TRANSFORMER_IMG_TAG"),
+                name="kserve-container",
+                resources=V1ResourceRequirements(
+                    requests={"cpu": "10m", "memory": "128Mi"},
+                    limits={"cpu": "100m", "memory": "1Gi"},
+                ),
+                args=["--model_name", "mnist"],
+                env=[
+                    V1EnvVar(
+                        name="STORAGE_URI",
+                        value="gs://kfserving-examples/models/torchserve/image_classifier/v1",
+                    )
+                ],
+            )
+        ],
     )
 
     isvc = V1beta1InferenceService(
@@ -111,8 +100,9 @@ def test_predictor_auth():
             name=service_name,
             namespace=KSERVE_TEST_NAMESPACE,
             annotations=annotations,
+            labels=labels,
         ),
-        spec=V1beta1InferenceServiceSpec(predictor=predictor),
+        spec=V1beta1InferenceServiceSpec(predictor=predictor, transformer=transformer),
     )
 
     kserve_client = KServeClient(
@@ -122,18 +112,8 @@ def test_predictor_auth():
     test_failed = False
 
     try:
-        # Deploy ISVC with auth enabled
         kserve_client.create(isvc)
         kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
-
-        # Retrieve the ISVC endpoint
-        isvc_status = kserve_client.get(
-            service_name,
-            namespace=KSERVE_TEST_NAMESPACE,
-            version=constants.KSERVE_V1BETA1_VERSION,
-        )
-        scheme, cluster_ip, host, path = get_isvc_endpoint(isvc_status)
-        url = f"{scheme}://{cluster_ip}{path}/v2/models/{service_name}/ready"
 
         # Setup RBAC — simulate what the ODH Dashboard does
         token = create_sa_with_isvc_access(
@@ -142,47 +122,32 @@ def test_predictor_auth():
 
         # Pre-check: request without token should be rejected
         logger.info("Testing request WITHOUT token (should fail)")
-        response_no_token = requests.get(
-            url,
-            headers={"Host": host},
-            verify=ca_bundle,
-            timeout=30,
-        )
-        assert response_no_token.status_code in [401, 403], (
-            f"Expected 401/403 without token, got {response_no_token.status_code}: "
-            f"{response_no_token.text}"
-        )
-        logger.info("Request without token rejected: %s", response_no_token.status_code)
-
-        # Main check: request with valid token should succeed.
-        # Retry to handle RBAC propagation delay.
-        logger.info("Testing request WITH valid token (should succeed)")
-        response_with_token = None
-        for attempt in range(24):  # up to ~120s
-            response_with_token = requests.get(
-                url,
-                headers={
-                    "Host": host,
-                    "Authorization": f"Bearer {token}",
-                },
-                verify=ca_bundle,
-                timeout=30,
+        try:
+            await predict_isvc(
+                rest_v1_client,
+                service_name,
+                "./data/transformer.json",
+                model_name="mnist",
+                network_layer=network_layer,
             )
-            if response_with_token.status_code == 200:
-                break
-            if response_with_token.status_code in [401, 403]:
-                logger.info(
-                    "Attempt %d: got %s, waiting for RBAC propagation...",
-                    attempt + 1,
-                    response_with_token.status_code,
-                )
-                time.sleep(5)
-            else:
-                break
-        assert response_with_token.status_code == 200, (
-            f"Expected 200 with token, got {response_with_token.status_code}: "
-            f"{response_with_token.text}"
+            pytest.fail("Expected request without token to be rejected")
+        except httpx.HTTPStatusError as auth_err:
+            assert auth_err.response.status_code in (401, 403), (
+                f"Expected 401 or 403, got {auth_err.response.status_code}"
+            )
+            logger.info("Request without token rejected as expected: %s", auth_err)
+
+        # Main check: request with valid token should succeed
+        logger.info("Testing request WITH valid token (should succeed)")
+        res = await predict_isvc(
+            rest_v1_client,
+            service_name,
+            "./data/transformer.json",
+            model_name="mnist",
+            network_layer=network_layer,
+            extra_headers={"Authorization": f"Bearer {token}"},
         )
+        assert res["predictions"][0] == 2
         logger.info("Request with valid token succeeded")
         logger.info("Auth enforcement test passed")
 
@@ -204,6 +169,8 @@ def test_predictor_auth():
                 )
         except Exception as e:
             logger.warning("Failed to cleanup %s: %s", service_name, e)
+            if not test_failed:
+                raise
 
 
 @pytest.mark.transformer
@@ -226,32 +193,31 @@ def test_transformer_auth_tls_infrastructure():
 
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
-        model=V1beta1ModelSpec(
-            model_format=V1beta1ModelFormat(name="sklearn"),
-            storage_uri="gs://kfserving-examples/models/sklearn/1.0/model",
+        pytorch=V1beta1TorchServeSpec(
+            storage_uri="gs://kfserving-examples/models/torchserve/image_classifier/v1",
+            protocol_version="v1",
             resources=V1ResourceRequirements(
-                requests={"cpu": "50m", "memory": "256Mi"},
-                limits={"cpu": "1", "memory": "2Gi"},
+                requests={"cpu": "10m", "memory": "128Mi"},
+                limits={"cpu": "1", "memory": "1Gi"},
             ),
         ),
     )
-    transformer_image = os.environ["IMAGE_TRANSFORMER_IMG_TAG"]
 
     transformer = V1beta1TransformerSpec(
         min_replicas=1,
         containers=[
             V1Container(
-                image=transformer_image,
+                image=os.environ["IMAGE_TRANSFORMER_IMG_TAG"],
                 name="kserve-container",
                 resources=V1ResourceRequirements(
-                    requests={"cpu": "50m", "memory": "128Mi"},
+                    requests={"cpu": "10m", "memory": "128Mi"},
                     limits={"cpu": "100m", "memory": "1Gi"},
                 ),
-                args=["--model_name", service_name],
+                args=["--model_name", "mnist"],
                 env=[
                     V1EnvVar(
                         name="STORAGE_URI",
-                        value="gs://kfserving-examples/models/sklearn/1.0/model",
+                        value="gs://kfserving-examples/models/torchserve/image_classifier/v1",
                     )
                 ],
             )
@@ -368,17 +334,22 @@ def test_transformer_auth_tls_infrastructure():
             ),
             None,
         )
-        if predictor_kserve_container and predictor_kserve_container.env:
-            predictor_env_names = [env.name for env in predictor_kserve_container.env]
-            assert "PREDICTOR_HOST" not in predictor_env_names, (
-                "Predictor should NOT have PREDICTOR_HOST env var"
-            )
-            assert "PREDICTOR_PORT" not in predictor_env_names, (
-                "Predictor should NOT have PREDICTOR_PORT env var"
-            )
-            assert "PREDICTOR_PROTOCOL" not in predictor_env_names, (
-                "Predictor should NOT have PREDICTOR_PROTOCOL env var"
-            )
+        assert predictor_kserve_container is not None, (
+            "Predictor deployment should have a kserve-container"
+        )
+        assert predictor_kserve_container.env is not None, (
+            "Predictor kserve-container should have env vars"
+        )
+        predictor_env_names = [env.name for env in predictor_kserve_container.env]
+        assert "PREDICTOR_HOST" not in predictor_env_names, (
+            "Predictor should NOT have PREDICTOR_HOST env var"
+        )
+        assert "PREDICTOR_PORT" not in predictor_env_names, (
+            "Predictor should NOT have PREDICTOR_PORT env var"
+        )
+        assert "PREDICTOR_PROTOCOL" not in predictor_env_names, (
+            "Predictor should NOT have PREDICTOR_PROTOCOL env var"
+        )
 
         logger.info("TLS infrastructure verification passed for transformer deployment")
 
@@ -399,6 +370,8 @@ def test_transformer_auth_tls_infrastructure():
                 )
         except Exception as e:
             logger.warning("Failed to cleanup %s: %s", service_name, e)
+            if not test_failed:
+                raise
 
 
 # ---------------------------------------------------------------------------
@@ -485,9 +458,10 @@ def create_sa_with_isvc_access(kserve_client, sa_name, isvc_name, namespace):
 
 def get_sa_token(kserve_client, sa_name, namespace):
     """Create a short-lived token via the TokenRequest API."""
+    audiences = os.environ.get("TOKEN_AUDIENCES", "https://kubernetes.default.svc").split(",")
     token_request = client.AuthenticationV1TokenRequest(
         spec=client.V1TokenRequestSpec(
-            audiences=[],
+            audiences=audiences,
             expiration_seconds=3600,
         )
     )
@@ -496,7 +470,7 @@ def get_sa_token(kserve_client, sa_name, namespace):
         namespace=namespace,
         body=token_request,
     )
-    logger.info("Created token for ServiceAccount %s", sa_name)
+    logger.info("Created token for ServiceAccount %s (audiences=%s)", sa_name, audiences)
     return token_response.status.token
 
 
@@ -531,3 +505,31 @@ def cleanup_sa(kserve_client, sa_name, namespace):
                 continue
             logger.warning("Failed to delete %s: %s", resource_name, e)
             raise
+
+
+def _log_pod_status(kserve_client, service_name):
+    """Log pod status for debugging test failures."""
+    try:
+        pods = kserve_client.core_api.list_namespaced_pod(
+            KSERVE_TEST_NAMESPACE,
+            label_selector=f"serving.kserve.io/inferenceservice={service_name}",
+        )
+        for pod in pods.items:
+            logger.info("Pod: %s  Phase: %s", pod.metadata.name, pod.status.phase)
+    except client.rest.ApiException as e:
+        logger.warning("Failed to list pods for %s: %s", service_name, e)
+
+
+def _should_skip_deletion(test_failed):
+    """Check if resource deletion should be skipped based on env vars."""
+    skip_all = os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in (
+        "true",
+        "1",
+        "t",
+    )
+    skip_on_failure = os.getenv("SKIP_DELETION_ON_FAILURE", "False").lower() in (
+        "true",
+        "1",
+        "t",
+    )
+    return skip_all or (skip_on_failure and test_failed)
