@@ -239,12 +239,11 @@ func (r *KserveModuleReconciler) updateNamespacePSA(ctx context.Context, desired
 	currentAnnotation := ns.Annotations[psaElevatedByAnnotation]
 	needsUpdate := false
 
-	if current != desiredLevel {
-		needsUpdate = true
-	}
-	if desiredLevel == "privileged" && currentAnnotation != psaElevatedByValue {
-		needsUpdate = true
-	} else if desiredLevel != "privileged" && currentAnnotation != "" {
+	if desiredLevel == "privileged" {
+		if current != desiredLevel || currentAnnotation != psaElevatedByValue {
+			needsUpdate = true
+		}
+	} else if currentAnnotation == psaElevatedByValue {
 		needsUpdate = true
 	}
 
@@ -261,11 +260,11 @@ func (r *KserveModuleReconciler) updateNamespacePSA(ctx context.Context, desired
 		ns.Annotations = make(map[string]string)
 	}
 
-	ns.Labels[securityEnforceLabel] = desiredLevel
-
 	if desiredLevel == "privileged" {
+		ns.Labels[securityEnforceLabel] = desiredLevel
 		ns.Annotations[psaElevatedByAnnotation] = psaElevatedByValue
 	} else {
+		ns.Labels[securityEnforceLabel] = desiredLevel
 		delete(ns.Annotations, psaElevatedByAnnotation)
 	}
 
@@ -281,6 +280,10 @@ func (r *KserveModuleReconciler) labelModelCacheNodes(ctx context.Context, kserv
 	log := ctrl.LoggerFrom(ctx)
 
 	var nodes []corev1.Node
+
+	if len(kserve.Spec.ModelCache.NodeNames) == 0 && kserve.Spec.ModelCache.NodeSelector == nil {
+		return fmt.Errorf("no nodeNames or nodeSelector specified for model cache")
+	}
 
 	switch {
 	case len(kserve.Spec.ModelCache.NodeNames) > 0:
@@ -375,6 +378,10 @@ func modelCacheComponentPostRender(
 	kserve *platformv1alpha1.Kserve,
 	resources []unstructured.Unstructured,
 ) ([]unstructured.Unstructured, error) {
+	// kserve is nil when called from defaultCleanup; skip imperative creation.
+	if kserve == nil {
+		return resources, nil
+	}
 	if err := r.reconcileModelCacheResources(ctx, kserve); err != nil {
 		return nil, fmt.Errorf("reconciling modelcache resources: %w", err)
 	}

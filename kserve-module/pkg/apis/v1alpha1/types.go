@@ -94,6 +94,7 @@ type ModelCacheSpec struct {
 	CacheSize *resource.Quantity `json:"cacheSize,omitempty"`
 	// +optional
 	// +kubebuilder:validation:MinItems=1
+	// +kubebuilder:validation:items:MinLength=1
 	NodeNames []string `json:"nodeNames,omitempty"`
 	// +optional
 	NodeSelector *metav1.LabelSelector `json:"nodeSelector,omitempty"`
