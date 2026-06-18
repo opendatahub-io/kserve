@@ -18,13 +18,10 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	goerrors "github.com/pkg/errors"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -54,20 +51,23 @@ func GetServerTypeFromIsvc(ctx context.Context, cl client.Client, isvc *v1beta1.
 		return "", nil
 	}
 
-	// Get runtime name from status
-	runtimeName := ""
+	// Get runtime name and scope from status
+	var runtimeName string
+	var isCluster bool
 	if isvc.Status.ClusterServingRuntimeName != "" {
 		runtimeName = isvc.Status.ClusterServingRuntimeName
+		isCluster = true
 	} else if isvc.Status.ServingRuntimeName != "" {
 		runtimeName = isvc.Status.ServingRuntimeName
+		isCluster = false
 	}
 
 	if runtimeName == "" {
 		return "", nil
 	}
 
-	// Fetch the runtime and return its server-type annotation
-	_, annotations, err, _ := getServingRuntimeFromIsvc(ctx, cl, runtimeName, isvc.Namespace)
+	// Fetch the runtime respecting the scope selected in status
+	_, annotations, err, _ := getServingRuntime(ctx, cl, runtimeName, isvc.Namespace, isCluster)
 	if err != nil {
 		return "", err
 	}
@@ -75,26 +75,26 @@ func GetServerTypeFromIsvc(ctx context.Context, cl client.Client, isvc *v1beta1.
 	return annotations[constants.ServerTypeAnnotationKey], nil
 }
 
-// getServingRuntimeFromIsvc Get a ServingRuntime by name. First, ServingRuntimes in the given namespace will be checked.
-// If a resource of the specified name is not found, then ClusterServingRuntimes will be checked.
-// getServingRuntimeFromIsvc returns the ServingRuntimeSpec, annotations, error, and whether it's a ClusterServingRuntime
-// Second value will be the runtime's metadata.annotations
-// Fourth value will be true if the ServingRuntime is a ClusterServingRuntime
-func getServingRuntimeFromIsvc(ctx context.Context, cl client.Client, name string, namespace string) (*v1alpha1.ServingRuntimeSpec, map[string]string, error, bool) {
-	runtime := &v1alpha1.ServingRuntime{}
-	err := cl.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, runtime)
-	if err == nil {
-		return &runtime.Spec, runtime.Annotations, nil, false
-	} else if !apierrors.IsNotFound(err) {
-		return nil, nil, err, false
+// getServingRuntime fetches a ServingRuntime by name, respecting the scope (cluster vs namespaced).
+// If isCluster is true, only ClusterServingRuntime is fetched.
+// If isCluster is false, only namespaced ServingRuntime is fetched.
+// Returns the ServingRuntimeSpec, annotations, error, and whether it's a ClusterServingRuntime.
+func getServingRuntime(ctx context.Context, cl client.Client, name string, namespace string, isCluster bool) (*v1alpha1.ServingRuntimeSpec, map[string]string, error, bool) {
+	if isCluster {
+		// Fetch ClusterServingRuntime
+		clusterRuntime := &v1alpha1.ClusterServingRuntime{}
+		err := cl.Get(ctx, client.ObjectKey{Name: name}, clusterRuntime)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get ClusterServingRuntime %s: %w", name, err), false
+		}
+		return &clusterRuntime.Spec, clusterRuntime.Annotations, nil, true
 	}
 
-	clusterRuntime := &v1alpha1.ClusterServingRuntime{}
-	err = cl.Get(ctx, client.ObjectKey{Name: name}, clusterRuntime)
-	if err == nil {
-		return &clusterRuntime.Spec, clusterRuntime.Annotations, nil, true
-	} else if !apierrors.IsNotFound(err) && !apimeta.IsNoMatchError(err) {
-		return nil, nil, err, false
+	// Fetch namespaced ServingRuntime
+	runtime := &v1alpha1.ServingRuntime{}
+	err := cl.Get(ctx, client.ObjectKey{Name: name, Namespace: namespace}, runtime)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get ServingRuntime %s in namespace %s: %w", name, namespace, err), false
 	}
-	return nil, nil, goerrors.New("No ServingRuntimes or ClusterServingRuntimes with the name: " + name), false
+	return &runtime.Spec, runtime.Annotations, nil, false
 }

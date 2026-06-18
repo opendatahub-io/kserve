@@ -632,6 +632,13 @@ func ConfigureImageVolumeToContainer(modelUri string, podSpec *corev1.PodSpec, t
 	volumeExists := false
 	for _, v := range podSpec.Volumes {
 		if v.Name == volName {
+			// Validate it's the correct type and reference
+			if v.Image == nil {
+				return fmt.Errorf("volume %q already exists but is not an image volume", volName)
+			}
+			if v.Image.Reference != imageRef {
+				return fmt.Errorf("volume %q already exists with different image reference %q (expected %q)", volName, v.Image.Reference, imageRef)
+			}
 			volumeExists = true
 			break
 		}

@@ -52,7 +52,10 @@ func (r *InferenceServiceReconciler) reconcileWorkloadPlatformPermissions(ctx co
 	}
 
 	// Collect all service accounts that need image volume SCC
-	serviceAccounts := getServiceAccountsRequiringImageVolumeSCC(ctx, r.Client, isvc)
+	serviceAccounts, err := getServiceAccountsRequiringImageVolumeSCC(ctx, r.Client, isvc)
+	if err != nil {
+		return err
+	}
 
 	// Delete RoleBinding if runtime is being stopped or no service accounts need the SCC
 	if utils.GetForceStopRuntime(isvc) || len(serviceAccounts) == 0 {
@@ -67,19 +70,19 @@ func (r *InferenceServiceReconciler) reconcileWorkloadPlatformPermissions(ctx co
 // components that use OCI storage with legacy storageUri + MLServer runtime.
 // Note: Explainer is not included as image volumes are not injected into explainer containers
 // (explainers use storage-initializer instead due to custom container layouts).
-func getServiceAccountsRequiringImageVolumeSCC(ctx context.Context, cl client.Client, isvc *v1beta1.InferenceService) []string {
+// Returns error if runtime lookup fails to prevent accidental RoleBinding deletion on transient errors.
+func getServiceAccountsRequiringImageVolumeSCC(ctx context.Context, cl client.Client, isvc *v1beta1.InferenceService) ([]string, error) {
 	// Only MLServer runtime uses image volumes
 	serverType, err := runtime.GetServerTypeFromIsvc(ctx, cl, isvc)
 	if err != nil {
-		log.FromContext(ctx).Error(err, "Failed to fetch runtime for server-type check, skipping SCC RoleBinding creation", "isvc", isvc.Name)
-		return nil
+		return nil, fmt.Errorf("failed to resolve server type for isvc %s: %w", isvc.Name, err)
 	}
 	if serverType == "" {
 		log.FromContext(ctx).Info("Runtime server-type not available, skipping SCC RoleBinding creation", "isvc", isvc.Name)
-		return nil
+		return nil, nil
 	}
 	if serverType != constants.ServerTypeMLServer {
-		return nil
+		return nil, nil
 	}
 
 	accountSet := make(map[string]bool)
@@ -111,7 +114,7 @@ func getServiceAccountsRequiringImageVolumeSCC(ctx context.Context, cl client.Cl
 		}
 	}
 
-	return accounts
+	return accounts, nil
 }
 
 // componentRequiresImageVolumeSCC checks if a component uses OCI storage with legacy storageUri.
