@@ -195,6 +195,50 @@ func (mi *StorageInitializerInjector) InjectModelcar(pod *corev1.Pod) error {
 	return nil
 }
 
+// InjectImageVolume injects a Kubernetes image volume for OCI model storage.
+// This method mounts the OCI image directly as a read-only volume to the inference
+// container using native Kubernetes image volumes (requires K8s 1.33+ with ImageVolume
+// feature gate enabled for image volumes + mount subpath). This is an alternative to
+// InjectModelcar that doesn't require sidecar containers or process namespace sharing.
+// This method is idempotent so can be called multiple times.
+func (mi *StorageInitializerInjector) InjectImageVolume(pod *corev1.Pod) error {
+	srcURI, ok := pod.Annotations[constants.StorageInitializerSourceUriInternalAnnotationKey]
+	if !ok {
+		return nil
+	}
+
+	// Only inject image volume for OCI URIs
+	if !strings.HasPrefix(srcURI, constants.OciURIPrefix) {
+		return nil
+	}
+
+	// Find the kserve-container (this is the model inference server) and worker-container
+	userContainer := utils.GetContainerWithName(&pod.Spec, constants.InferenceServiceContainerName)
+	workerContainer := utils.GetContainerWithName(&pod.Spec, constants.WorkerContainerName)
+
+	if userContainer == nil {
+		if workerContainer == nil {
+			return fmt.Errorf("Invalid configuration: cannot find container: %s", constants.InferenceServiceContainerName)
+		} else {
+			// Use worker container for multi-node scenarios
+			if err := utils.ConfigureImageVolumeToContainer(srcURI, &pod.Spec, constants.WorkerContainerName, constants.DefaultModelLocalMountPath); err != nil {
+				return err
+			}
+		}
+	} else {
+		if err := utils.ConfigureImageVolumeToContainer(srcURI, &pod.Spec, constants.InferenceServiceContainerName, constants.DefaultModelLocalMountPath); err != nil {
+			return err
+		}
+	}
+
+	// Configure image volume for transformer container if it exists
+	if utils.GetContainerWithName(&pod.Spec, constants.TransformerContainerName) != nil {
+		return utils.ConfigureImageVolumeToContainer(srcURI, &pod.Spec, constants.TransformerContainerName, constants.DefaultModelLocalMountPath)
+	}
+
+	return nil
+}
+
 func GetStorageInitializerReadOnlyFlag(annotations map[string]string) bool {
 	isvcReadonlyStringFlag := true
 	isvcReadonlyString, ok := annotations[constants.StorageReadonlyAnnotationKey]

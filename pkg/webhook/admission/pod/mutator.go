@@ -30,6 +30,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/credentials"
+	"github.com/kserve/kserve/pkg/runtime"
 )
 
 // +kubebuilder:webhook:path=/mutate-pods,mutating=true,failurePolicy=fail,groups="",resources=pods,verbs=create,versions=v1,name=inferenceservice.kserve-webhook-server.pod-mutator,reinvocationPolicy=IfNeeded
@@ -138,7 +139,14 @@ func (mutator *Mutator) mutate(ctx context.Context, pod *corev1.Pod, configMap *
 	}
 
 	if storageInitializer.config.EnableOciImageSource {
-		mutators = append(mutators, storageInitializer.InjectModelcar)
+		// Read server type from pod annotation (propagated from ServingRuntime during component reconciliation)
+		serverType := runtime.GetServerTypeFromPod(pod)
+
+		if serverType == constants.ServerTypeMLServer {
+			mutators = append(mutators, storageInitializer.InjectImageVolume)
+		} else {
+			mutators = append(mutators, storageInitializer.InjectModelcar)
+		}
 	}
 
 	for _, mutator := range mutators {
