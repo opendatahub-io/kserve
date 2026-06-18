@@ -347,7 +347,7 @@ func (r *KserveModuleReconciler) cleanupModelCache(ctx context.Context) error {
 	}
 
 	for _, obj := range modelCacheResources(r.getApplicationsNamespace()) {
-		if err := deleteIfExists(ctx, r.Client, obj, fmt.Sprintf("%T", obj)); err != nil {
+		if err := deleteResourceIfPresent(ctx, r.Client, obj); err != nil {
 			return err
 		}
 	}
@@ -366,20 +366,6 @@ func (r *KserveModuleReconciler) cleanupModelCache(ctx context.Context) error {
 		log.Info("Removed model cache label from node", "node", node.Name)
 	}
 
-	return nil
-}
-
-func deleteIfExists(ctx context.Context, cli client.Client, obj client.Object, description string) error {
-	key := client.ObjectKeyFromObject(obj)
-	if err := cli.Get(ctx, key, obj); err != nil {
-		if k8serr.IsNotFound(err) || meta.IsNoMatchError(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to check %s %s: %w", description, key, err)
-	}
-	if err := cli.Delete(ctx, obj); err != nil && !k8serr.IsNotFound(err) {
-		return fmt.Errorf("failed to delete %s %s: %w", description, key, err)
-	}
 	return nil
 }
 
@@ -464,6 +450,10 @@ func forceReconcileKserveAgentImage(resources []unstructured.Unstructured) ([]un
 }
 
 func (r *KserveModuleReconciler) checkModelCacheReadiness(ctx context.Context) error {
+	if err := checkDeploymentsReady(ctx, r.Client, r.getApplicationsNamespace(), []string{localmodelControllerDeployment}); err != nil {
+		return err
+	}
+
 	pv := &corev1.PersistentVolume{}
 	if err := r.Get(ctx, client.ObjectKey{Name: modelCachePVName}, pv); err != nil {
 		return fmt.Errorf("PV %s: %w", modelCachePVName, err)

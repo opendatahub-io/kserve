@@ -8,17 +8,16 @@ const (
 	ModelCacheComponentName         = "modelcache"
 
 	// Manifest source paths
-	KserveManifestSourcePath           = "overlays/odh"
-	KserveManifestSourcePathXKS        = "overlays/odh-xks"
-	KserveManifestSourcePathModelCache = "overlays/odh-modelcache"
-	ModelControllerSourcePath          = "base"
-	WVAManifestSourcePathOCP           = "openshift"
+	KserveManifestSourcePath     = "overlays/odh"
+	KserveManifestSourcePathXKS  = "overlays/odh-xks"
+	ModelCacheManifestSourcePath = "overlays/odh-modelcache"
+	ModelControllerSourcePath    = "base"
+	WVAManifestSourcePathOCP     = "openshift"
 
 	// Deployment names
 	kserveControllerDeployment  = "kserve-controller-manager"
 	llmISVCControllerDeployment = "llmisvc-controller-manager"
-	//TO-DO
-	// localmodelControllerDeployment = "kserve-localmodel-controller-manager"
+	localmodelControllerDeployment = "kserve-localmodel-controller-manager"
 	odhModelControllerDeployment = "odh-model-controller"
 	wvaControllerDeployment      = "workload-variant-autoscaler-controller-manager"
 

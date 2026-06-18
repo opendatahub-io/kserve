@@ -7,6 +7,7 @@ import pytest
 from conftest import (
     run,
     _poll_cr,
+    get_cr,
     resource_exists,
     get_jsonpath,
     get_worker_node,
@@ -29,20 +30,12 @@ from conftest import (
 class TestModelCacheEnable:
     """Verify enabling ModelCache creates all expected resources."""
 
-    def test_enable_creates_resources(self, kubectl, cluster_info, apply_kserve_cr):
+    def test_enable_creates_resources(self, kubectl, cluster_info, model_cache_enabled):
         """Patching modelCache.managementState=Managed creates PV, PVC,
         LocalModelNodeGroup, labels the worker node, elevates namespace PSA,
         and updates the inferenceservice-config ConfigMap.
         """
-        worker = get_worker_node(kubectl, is_openshift=cluster_info.is_openshift)
-        enable_model_cache(kubectl, worker)
-        _poll_cr(
-            kubectl,
-            KSERVE_CR_NAME,
-            generation_matches,
-            TIMEOUT_120S,
-            f"ModelCache enable not reconciled within {TIMEOUT_120S}s",
-        )
+        worker = model_cache_enabled
 
         assert resource_exists(kubectl, "pv", PV_NAME), f"PV {PV_NAME} should exist"
         assert resource_exists(kubectl, "pvc", PVC_NAME, namespace=NAMESPACE), (
@@ -92,14 +85,12 @@ class TestModelCacheEnable:
             f"localModel.jobNamespace should be '{NAMESPACE}', got {cfg.get('jobNamespace')}"
         )
 
-        # Cleanup: disable so other tests start clean
-        disable_model_cache(kubectl)
-        _poll_cr(
-            kubectl,
-            KSERVE_CR_NAME,
-            generation_matches,
-            TIMEOUT_120S,
-            f"ModelCache disable not reconciled within {TIMEOUT_120S}s",
+        # Verify ModelCacheReady condition
+        cr = get_cr(kubectl)
+        conditions = {c["type"]: c for c in cr.get("status", {}).get("conditions", [])}
+        assert "ModelCacheReady" in conditions, "ModelCacheReady condition should exist"
+        assert conditions["ModelCacheReady"]["status"] == "True", (
+            f"ModelCacheReady should be True, got {conditions['ModelCacheReady']['status']}"
         )
 
 
@@ -198,6 +189,12 @@ class TestModelCacheDisable:
             f"Kserve CR not Ready after ModelCache disable within {TIMEOUT_120S}s",
         )
         assert cr is not None, "Kserve CR should still be Ready"
+
+        # Verify ModelCacheReady condition is cleared
+        conditions = {c["type"]: c for c in cr.get("status", {}).get("conditions", [])}
+        assert "ModelCacheReady" not in conditions, (
+            "ModelCacheReady condition should be cleared when disabled"
+        )
 
 
 @pytest.mark.modelcache
