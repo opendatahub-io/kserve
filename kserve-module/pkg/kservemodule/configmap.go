@@ -24,7 +24,7 @@ var (
 	daemonSetGVK        = schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "DaemonSet"}
 )
 
-func customizeKserveConfigMap(resources []unstructured.Unstructured, kserve *platformv1alpha1.Kserve) ([]unstructured.Unstructured, error) {
+func customizeKserveConfigMap(resources []unstructured.Unstructured, kserve *platformv1alpha1.Kserve, applicationsNamespace string) ([]unstructured.Unstructured, error) {
 	cmIdx, cm, err := getIndexedResource[corev1.ConfigMap](resources, configMapGVK, kserveConfigMapName)
 	if err != nil {
 		if errors.Is(err, errResourceNotFound) {
@@ -33,7 +33,7 @@ func customizeKserveConfigMap(resources []unstructured.Unstructured, kserve *pla
 		return nil, err
 	}
 
-	if err := updateInferenceCM(cm, kserve); err != nil {
+	if err := updateInferenceCM(cm, kserve, applicationsNamespace); err != nil {
 		return nil, err
 	}
 
@@ -64,7 +64,7 @@ func customizeKserveConfigMap(resources []unstructured.Unstructured, kserve *pla
 	return resources, nil
 }
 
-func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) error {
+func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve, applicationsNamespace string) error {
 	headless := kserve.Spec.RawDeploymentServiceConfig != platformv1alpha1.KserveRawHeaded
 
 	if err := updateCMJSONKey(cm, ingressConfigKeyName, func(data map[string]any) {
@@ -100,6 +100,14 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 		}); err != nil {
 			return err
 		}
+	}
+
+	modelCacheEnabled := kserve.Spec.ModelCache != nil && kserve.Spec.ModelCache.ManagementState == "Managed"
+	if err := updateCMJSONKey(cm, localModelConfigKeyName, func(data map[string]any) {
+		data["enabled"] = modelCacheEnabled
+		data["jobNamespace"] = applicationsNamespace
+	}); err != nil {
+		return err
 	}
 
 	return nil

@@ -329,21 +329,23 @@ func toUnstructuredConfigMap(cm *corev1.ConfigMap) unstructured.Unstructured {
 	return u
 }
 
-func TestUpdateLocalModelConfig(t *testing.T) {
+func TestLocalModelConfigViaCustomizeKserveConfigMap(t *testing.T) {
 	g := NewWithT(t)
 
 	cm := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: kserveConfigMapName, Namespace: "test-ns"},
 		Data: map[string]string{
 			localModelConfigKeyName: `{"enabled": false}`,
+			ingressConfigKeyName:    `{}`,
+			serviceConfigKeyName:    `{}`,
 		},
 	}
 
+	kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"node1"})
 	resources := []unstructured.Unstructured{toUnstructuredConfigMap(cm)}
 
-	result, err := updateLocalModelConfig(resources, true, "my-namespace")
+	result, err := customizeKserveConfigMap(resources, kserve, "my-namespace")
 	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(result).To(HaveLen(1))
 
 	_, updatedCM, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
 	g.Expect(err).NotTo(HaveOccurred())

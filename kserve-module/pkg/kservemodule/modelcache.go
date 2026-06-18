@@ -397,22 +397,6 @@ func cleanupModelCacheComponent(ctx context.Context, r *KserveModuleReconciler) 
 	return r.cleanupModelCache(ctx)
 }
 
-func updateLocalModelConfig(resources []unstructured.Unstructured, enabled bool, namespace string) ([]unstructured.Unstructured, error) {
-	cmIdx, cm, err := getIndexedResource[corev1.ConfigMap](resources, configMapGVK, kserveConfigMapName)
-	if err != nil {
-		return resources, nil
-	}
-
-	if err := updateCMJSONKey(cm, localModelConfigKeyName, func(data map[string]any) {
-		data["enabled"] = enabled
-		data["jobNamespace"] = namespace
-	}); err != nil {
-		return nil, err
-	}
-
-	return replaceResourceAtIndex(resources, cmIdx, cm)
-}
-
 func forceReconcileKserveAgentImage(resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
 	expectedImage := os.Getenv(kserveImageParamMap["kserve-agent"])
 	if expectedImage == "" {

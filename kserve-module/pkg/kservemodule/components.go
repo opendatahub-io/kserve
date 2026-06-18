@@ -84,11 +84,6 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 		return nil, fmt.Errorf("customizing configmap: %w", err)
 	}
 
-	resources, err = updateLocalModelConfig(resources, isModelCacheEnabled(kserve), r.getApplicationsNamespace())
-	if err != nil {
-		return nil, fmt.Errorf("updating localModel config: %w", err)
-	}
-
 	if isModelCacheEnabled(kserve) {
 		resources, err = forceReconcileKserveAgentImage(resources)
 		if err != nil {
