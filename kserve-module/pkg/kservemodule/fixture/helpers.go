@@ -2,6 +2,7 @@ package fixture
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -132,6 +133,30 @@ func CreateSubscription(ctx context.Context, cli client.Client, name, namespace 
 
 	gomega.ExpectWithOffset(1, cli.Create(ctx, sub)).To(gomega.Succeed())
 	return sub
+}
+
+func ExtractConfigMapJSONKey(resources []unstructured.Unstructured, cmName, key string) (map[string]any, error) {
+	for _, res := range resources {
+		if res.GetKind() == "ConfigMap" && res.GetName() == cmName {
+			dataField, ok, err := unstructured.NestedMap(res.Object, "data")
+			if err != nil {
+				return nil, fmt.Errorf("failed to read data from ConfigMap %s: %w", cmName, err)
+			}
+			if !ok {
+				return nil, fmt.Errorf("ConfigMap %s has no data field", cmName)
+			}
+			raw, ok := dataField[key].(string)
+			if !ok {
+				return nil, fmt.Errorf("key %s not found in ConfigMap %s", key, cmName)
+			}
+			var result map[string]any
+			if err := json.Unmarshal([]byte(raw), &result); err != nil {
+				return nil, err
+			}
+			return result, nil
+		}
+	}
+	return nil, fmt.Errorf("ConfigMap %s not found", cmName)
 }
 
 func ProjectRoot() string {

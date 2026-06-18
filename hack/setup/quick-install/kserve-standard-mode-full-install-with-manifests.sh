@@ -2271,7 +2271,7 @@ spec:
         httpGet:
           path: /health
           port: 8001
-          scheme: HTTPS
+          scheme: '{{ if .GlobalConfig.EnableTLS }}HTTPS{{else}}HTTP{{- end }}'
         periodSeconds: 10
         timeoutSeconds: 5
       securityContext:
@@ -3981,7 +3981,8 @@ spec:
           - --grpc-health-port
           - "9003"
           - '{{ if .GlobalConfig.EnableTLS }}--enable-cert-reload=true{{- end }}'
-          - '{{ if .GlobalConfig.EnableTLS }}--secure-serving=true{{- end }}'
+          - '{{ if .GlobalConfig.EnableTLS }}--secure-serving=true{{else}}--secure-serving=false{{-
+            end }}'
           - '{{ if .GlobalConfig.EnableTLS }}--model-server-metrics-scheme=https{{-
             end }}'
           - '{{ if .GlobalConfig.EnableTLS }}--cert-path=/var/run/kserve/tls{{- end

@@ -15,6 +15,13 @@
 # Fixture factory - not called explicitly, but must be imported for pytest to discover it.
 from .fixtures import test_case  # noqa: F401
 
+import pytest
+
+_HARDCODED_TLS_WORKLOADS = (
+    "workload-llmd-simulator",
+    "workload-simulated-dp-ep-cpu",
+)
+
 
 # This hook is used to ensure that the test names are unique and to ensure that
 # the test names are consistent with the cluster marks.
@@ -29,6 +36,9 @@ def pytest_collection_modifyitems(config, items):
             continue
         base, rest = item.nodeid.split("[", 1)
         rest = rest.rstrip("]")
+
+        if any(w in rest for w in _HARDCODED_TLS_WORKLOADS):
+            item.add_marker(pytest.mark.llmd_simulator)
 
         cluster_marks = [
             m.name for m in item.iter_markers() if m.name.startswith("cluster_")
@@ -55,3 +65,7 @@ def pytest_configure(config):
         "markers", "model_routing: mark test as a model-based routing test"
     )
     config.addinivalue_line("markers", "lora: mark test as a LoRA adapter test")
+    config.addinivalue_line(
+        "markers",
+        "llmd_simulator: mark test as using the llm-d simulator with hardcoded TLS args",
+    )

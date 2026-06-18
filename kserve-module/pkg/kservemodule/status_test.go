@@ -94,6 +94,7 @@ func markAllHealthy(condMgr *conditions.Manager) {
 		conditions.WithReason("AllDeploymentsAvailable"))
 	condMgr.MarkTrue(ConditionDependenciesAvailable,
 		conditions.WithReason("AllDependenciesMet"))
+	condMgr.ClearCondition(ConditionWVAReady)
 }
 
 func TestHappyCondition_AllHealthy(t *testing.T) {

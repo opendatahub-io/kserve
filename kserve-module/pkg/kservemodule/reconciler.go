@@ -32,8 +32,9 @@ import (
 // +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=kserves/finalizers,resourceNames=default-kserve,verbs=update
 // +kubebuilder:rbac:groups=config.openshift.io,resources=clusterversions,verbs=get
 // +kubebuilder:rbac:groups="",resources=configmaps;services;serviceaccounts,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=create;delete;patch;update,resourceNames=kserve-webhook-server-secret
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=create;delete;patch;update,resourceNames=kserve-webhook-server-secret;workload-variant-autoscaler-epp-metrics-token;workload-variant-autoscaler-metrics-reader-token
 // +kubebuilder:rbac:groups="",resources=configmaps/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
@@ -45,10 +46,10 @@ import (
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/status,verbs=get;update
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=account-editor-role;account-viewer-role;kserve-admin;kserve-edit;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;openshift-ai-inferenceservice-image-volume-scc;odh-model-controller-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=bind;escalate,resourceNames=kserve-leader-election-role;llmisvc-leader-election-role;leader-election-role
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=account-editor-role;account-viewer-role;kserve-admin;kserve-edit;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;openshift-ai-inferenceservice-image-volume-scc;odh-model-controller-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s;workload-variant-autoscaler-manager-role;workload-variant-autoscaler-metrics-auth-role;workload-variant-autoscaler-epp-metrics-reader-role;workload-variant-autoscaler-variantautoscaling-admin-role;workload-variant-autoscaler-variantautoscaling-editor-role;workload-variant-autoscaler-variantautoscaling-viewer-role;workload-variant-autoscaler-metrics-reader
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=bind;escalate,resourceNames=kserve-leader-election-role;llmisvc-leader-election-role;leader-election-role;workload-variant-autoscaler-leader-election-role
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles/finalizers;rolebindings/finalizers;clusterroles/finalizers;clusterrolebindings/finalizers,verbs=update
-// no delete — CRDs survive CR deletion
+// no delete — CRDs survive component removal (consistent with odh-operator GC unremovables)
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=create;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificates;issuers,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=clusterissuers,verbs=create;delete;get;list;patch;update;watch
@@ -57,6 +58,7 @@ import (
 // +kubebuilder:rbac:groups=security.openshift.io,resources=securitycontextconstraints,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheuses/api,resourceNames=k8s,verbs=get;create;update
 // +kubebuilder:rbac:groups=operators.coreos.com,resources=subscriptions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=operator.openshift.io,resources=leaderworkersets,verbs=get;list;watch
 
@@ -100,7 +102,7 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 	}()
 
-	depResult := r.checkDependencies(ctx)
+	depResult := r.checkDependencies(ctx, kserve)
 	applyDependencyConditions(condMgr, depResult)
 	if len(depResult.criticalErrors) > 0 {
 		applyProvisioningCondition(condMgr, map[string]error{
@@ -120,7 +122,7 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, fmt.Errorf("reconciliation failed: %s", strings.Join(msgs, "; "))
 	}
 
-	r.updateComponentReadiness(ctx, condMgr)
+	r.updateComponentReadiness(ctx, kserve, condMgr)
 
 	if !condMgr.IsHappy() {
 		log.Info("not all components ready, requeueing")
@@ -146,6 +148,19 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 	componentErrors := make(map[string]error, len(components))
 
 	for _, comp := range components {
+		if comp.enabled != nil && !comp.enabled(kserve) {
+			if err := r.defaultCleanup(ctx, comp); err != nil {
+				componentErrors[comp.name] = fmt.Errorf("cleanup: %w", err)
+				continue
+			}
+			if comp.extraCleanup != nil {
+				if err := comp.extraCleanup(ctx, r); err != nil {
+					componentErrors[comp.name] = fmt.Errorf("extra cleanup: %w", err)
+					continue
+				}
+			}
+			continue
+		}
 		resources, err := r.reconcileComponent(ctx, kserve, manifestDir, comp)
 		if err != nil {
 			componentErrors[comp.name] = err
@@ -213,7 +228,7 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 	}
 
 	renderPath := filepath.Join(manifestDir, comp.name, sourcePath)
-	resources, err := kustomize.Render(renderPath, nil)
+	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(r.getApplicationsNamespace()))
 	if err != nil {
 		return nil, fmt.Errorf("rendering %s kustomize: %w", comp.name, err)
 	}
@@ -226,7 +241,7 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 		}
 	}
 
-	commonPostRender(resources, kserveComponentName)
+	commonPostRender(resources, KserveComponentName)
 
 	log.Info("component rendering complete", "component", comp.name, "resources", len(resources))
 	return resources, nil
