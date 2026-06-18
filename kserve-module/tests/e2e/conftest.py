@@ -378,6 +378,16 @@ def model_cache_enabled(kubectl, cluster_info, apply_kserve_cr):
         TIMEOUT_120S,
         f"ModelCache enable not reconciled within {TIMEOUT_120S}s",
     )
+    _poll_cr(
+        kubectl,
+        KSERVE_CR_NAME,
+        lambda cr: any(
+            c.get("type") == "ModelCacheReady" and c.get("status") == "True"
+            for c in cr.get("status", {}).get("conditions", [])
+        ),
+        TIMEOUT_120S,
+        f"ModelCacheReady not True within {TIMEOUT_120S}s",
+    )
     yield worker
     disable_model_cache(kubectl)
     _poll_cr(
