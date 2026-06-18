@@ -70,18 +70,13 @@ func TestIsModelCacheEnabled(t *testing.T) {
 	}
 }
 
-func TestCreateOrUpdateModelCachePV(t *testing.T) {
+func TestBuildModelCachePV(t *testing.T) {
 	g := NewWithT(t)
 
-	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-1"}}
-	r := newReconcilerWithFakeClient(node)
-
-	kserve := testKserveWithModelCache(common.Managed, "500Gi", []string{"worker-1"})
-	err := r.createOrUpdateModelCachePV(context.Background(), kserve)
+	pv, err := buildModelCachePV(resource.MustParse("500Gi"))
 	g.Expect(err).NotTo(HaveOccurred())
 
-	pv := &corev1.PersistentVolume{}
-	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: modelCachePVName}, pv)).To(Succeed())
+	g.Expect(pv.Name).To(Equal(modelCachePVName))
 	g.Expect(pv.Spec.Capacity[corev1.ResourceStorage]).To(Equal(resource.MustParse("500Gi")))
 	g.Expect(pv.Spec.StorageClassName).To(Equal("local-storage"))
 	g.Expect(pv.Spec.PersistentVolumeReclaimPolicy).To(Equal(corev1.PersistentVolumeReclaimRetain))
@@ -92,87 +87,29 @@ func TestCreateOrUpdateModelCachePV(t *testing.T) {
 	g.Expect(pv.Spec.NodeAffinity.Required.NodeSelectorTerms).To(HaveLen(1))
 	g.Expect(pv.Spec.NodeAffinity.Required.NodeSelectorTerms[0].MatchExpressions[0].Key).To(Equal(modelCacheLabelKey))
 	g.Expect(pv.Spec.NodeAffinity.Required.NodeSelectorTerms[0].MatchExpressions[0].Values).To(ContainElement(modelCacheLabelValue))
-	g.Expect(pv.OwnerReferences).To(HaveLen(1))
-	g.Expect(pv.OwnerReferences[0].Name).To(Equal(platformv1alpha1.KserveInstanceName))
 }
 
-func TestCreateOrUpdateModelCachePV_NilCacheSize(t *testing.T) {
+func TestBuildModelCachePVC(t *testing.T) {
 	g := NewWithT(t)
 
-	r := newReconcilerWithFakeClient()
-	kserve := &platformv1alpha1.Kserve{
-		ObjectMeta: metav1.ObjectMeta{Name: platformv1alpha1.KserveInstanceName},
-		Spec: platformv1alpha1.KserveSpec{
-			ModelCache: &platformv1alpha1.ModelCacheSpec{
-				ManagementState: common.Managed,
-			},
-		},
-	}
-
-	err := r.createOrUpdateModelCachePV(context.Background(), kserve)
-	g.Expect(err).To(HaveOccurred())
-	g.Expect(err.Error()).To(ContainSubstring("cacheSize is required"))
-}
-
-func TestCreateOrUpdateModelCachePVC(t *testing.T) {
-	g := NewWithT(t)
-
-	r := newReconcilerWithFakeClient()
-	kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"node1"})
-
-	err := r.createOrUpdateModelCachePVC(context.Background(), kserve)
+	pvc, err := buildModelCachePVC(resource.MustParse("100Gi"), "test-ns")
 	g.Expect(err).NotTo(HaveOccurred())
 
-	pvc := &corev1.PersistentVolumeClaim{}
-	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: modelCachePVCName, Namespace: "test-ns"}, pvc)).To(Succeed())
+	g.Expect(pvc.Name).To(Equal(modelCachePVCName))
+	g.Expect(pvc.Namespace).To(Equal("test-ns"))
 	g.Expect(pvc.Spec.VolumeName).To(Equal(modelCachePVName))
 	g.Expect(pvc.Spec.Resources.Requests[corev1.ResourceStorage]).To(Equal(resource.MustParse("100Gi")))
 	g.Expect(*pvc.Spec.StorageClassName).To(Equal("local-storage"))
 	g.Expect(pvc.Spec.AccessModes).To(ContainElement(corev1.ReadWriteOnce))
-	g.Expect(pvc.OwnerReferences).To(HaveLen(1))
-	g.Expect(pvc.OwnerReferences[0].Name).To(Equal(platformv1alpha1.KserveInstanceName))
 }
 
-func TestCreateOrUpdateModelCachePVC_UpdatePreservesImmutableFields(t *testing.T) {
-	g := NewWithT(t)
-	ctx := context.Background()
-
-	r := newReconcilerWithFakeClient()
-	kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"node1"})
-
-	// Create the PVC
-	g.Expect(r.createOrUpdateModelCachePVC(ctx, kserve)).To(Succeed())
-
-	// Update with different cacheSize
-	kserve2 := testKserveWithModelCache(common.Managed, "200Gi", []string{"node1"})
-	g.Expect(r.createOrUpdateModelCachePVC(ctx, kserve2)).To(Succeed())
-
-	pvc := &corev1.PersistentVolumeClaim{}
-	g.Expect(r.Get(ctx, client.ObjectKey{Name: modelCachePVCName, Namespace: "test-ns"}, pvc)).To(Succeed())
-
-	// Mutable field should be updated
-	g.Expect(pvc.Spec.Resources.Requests[corev1.ResourceStorage]).To(Equal(resource.MustParse("200Gi")))
-
-	// Immutable fields should be preserved from initial create
-	g.Expect(pvc.Spec.VolumeName).To(Equal(modelCachePVName))
-	g.Expect(pvc.Spec.AccessModes).To(ContainElement(corev1.ReadWriteOnce))
-	g.Expect(*pvc.Spec.StorageClassName).To(Equal("local-storage"))
-}
-
-func TestCreateOrUpdateLocalModelNodeGroup(t *testing.T) {
+func TestBuildLocalModelNodeGroup(t *testing.T) {
 	g := NewWithT(t)
 
-	r := newReconcilerWithFakeClient()
-	kserve := testKserveWithModelCache(common.Managed, "200Gi", []string{"node1"})
+	obj := buildLocalModelNodeGroup("200Gi")
 
-	err := r.createOrUpdateLocalModelNodeGroup(context.Background(), kserve)
-	g.Expect(err).NotTo(HaveOccurred())
-
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(localModelNodeGroupGVK)
-	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: localModelNodeGroupName}, obj)).To(Succeed())
-	g.Expect(obj.GetOwnerReferences()).To(HaveLen(1))
-	g.Expect(obj.GetOwnerReferences()[0].Name).To(Equal(platformv1alpha1.KserveInstanceName))
+	g.Expect(obj.GetName()).To(Equal(localModelNodeGroupName))
+	g.Expect(obj.GroupVersionKind()).To(Equal(localModelNodeGroupGVK))
 
 	spec, found, err := unstructured.NestedMap(obj.Object, "spec")
 	g.Expect(err).NotTo(HaveOccurred())
@@ -186,6 +123,37 @@ func TestCreateOrUpdateLocalModelNodeGroup(t *testing.T) {
 	hostPath, ok := pvSpec["hostPath"].(map[string]any)
 	g.Expect(ok).To(BeTrue())
 	g.Expect(hostPath["path"]).To(Equal(modelCacheHostDir))
+}
+
+func TestBuildModelCacheResources_NilCacheSize(t *testing.T) {
+	g := NewWithT(t)
+
+	kserve := &platformv1alpha1.Kserve{
+		Spec: platformv1alpha1.KserveSpec{
+			ModelCache: &platformv1alpha1.ModelCacheSpec{
+				ManagementState: common.Managed,
+			},
+		},
+	}
+	_, err := buildModelCacheResources(kserve, "test-ns")
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(ContainSubstring("cacheSize is required"))
+}
+
+func TestBuildModelCacheResources(t *testing.T) {
+	g := NewWithT(t)
+
+	kserve := testKserveWithModelCache(common.Managed, "500Gi", []string{"node1"})
+	resources, err := buildModelCacheResources(kserve, "test-ns")
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(resources).To(HaveLen(3))
+
+	g.Expect(resources[0].GetKind()).To(Equal("PersistentVolume"))
+	g.Expect(resources[0].GetName()).To(Equal(modelCachePVName))
+	g.Expect(resources[1].GetKind()).To(Equal("PersistentVolumeClaim"))
+	g.Expect(resources[1].GetName()).To(Equal(modelCachePVCName))
+	g.Expect(resources[2].GetKind()).To(Equal("LocalModelNodeGroup"))
+	g.Expect(resources[2].GetName()).To(Equal(localModelNodeGroupName))
 }
 
 func TestLabelModelCacheNodes_ByNodeNames(t *testing.T) {
@@ -531,29 +499,34 @@ func TestIsModelCacheEnabled_ControlsComponentRouting(t *testing.T) {
 	g.Expect(isModelCacheEnabled(testKserveWithModelCache(common.Managed, "100Gi", []string{"node1"}))).To(BeTrue())
 }
 
-func TestReconcileModelCacheResources_CreatesResources(t *testing.T) {
+func TestModelCachePostRender_AppendsResourcesAndLabelsNodes(t *testing.T) {
 	g := NewWithT(t)
+	ctx := context.Background()
 
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-1"}}
 	r := newReconcilerWithFakeClient(node)
 
 	kserve := testKserveWithModelCache(common.Managed, "500Gi", []string{"worker-1"})
-	err := r.reconcileModelCacheResources(context.Background(), kserve)
+	initial := []unstructured.Unstructured{toUnstructuredDaemonSet(testDaemonSet(""))}
+
+	result, err := modelCacheComponentPostRender(ctx, r, kserve, initial)
 	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(len(result)).To(BeNumerically(">", len(initial)))
 
-	pv := &corev1.PersistentVolume{}
-	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: modelCachePVName}, pv)).To(Succeed())
-	g.Expect(pv.Spec.Capacity[corev1.ResourceStorage]).To(Equal(resource.MustParse("500Gi")))
-
-	pvc := &corev1.PersistentVolumeClaim{}
-	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: modelCachePVCName, Namespace: "test-ns"}, pvc)).To(Succeed())
+	kinds := make(map[string]bool)
+	for _, res := range result {
+		kinds[res.GetKind()] = true
+	}
+	g.Expect(kinds).To(HaveKey("PersistentVolume"))
+	g.Expect(kinds).To(HaveKey("PersistentVolumeClaim"))
+	g.Expect(kinds).To(HaveKey("LocalModelNodeGroup"))
 
 	updatedNode := &corev1.Node{}
-	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: "worker-1"}, updatedNode)).To(Succeed())
+	g.Expect(r.Get(ctx, client.ObjectKey{Name: "worker-1"}, updatedNode)).To(Succeed())
 	g.Expect(updatedNode.Labels[modelCacheLabelKey]).To(Equal(modelCacheLabelValue))
 
 	ns := &corev1.Namespace{}
-	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: "test-ns"}, ns)).To(Succeed())
+	g.Expect(r.Get(ctx, client.ObjectKey{Name: "test-ns"}, ns)).To(Succeed())
 	g.Expect(ns.Labels[securityEnforceLabel]).To(Equal("privileged"))
 }
 
@@ -656,9 +629,7 @@ func TestCleanupModelCache_DeletesResources(t *testing.T) {
 
 	// Simulate enable: elevate PSA and seed resources
 	g.Expect(r.updateNamespacePSA(ctx, "privileged")).To(Succeed())
-	g.Expect(r.createOrUpdateModelCachePV(ctx, kserve)).To(Succeed())
-	g.Expect(r.createOrUpdateModelCachePVC(ctx, kserve)).To(Succeed())
-	g.Expect(r.createOrUpdateLocalModelNodeGroup(ctx, kserve)).To(Succeed())
+	seedModelCacheObjects(t, r, kserve)
 
 	err := r.cleanupModelCache(ctx)
 	g.Expect(err).NotTo(HaveOccurred())
@@ -796,14 +767,27 @@ func readyLocalModelControllerDeployment() *appsv1.Deployment {
 	return dep
 }
 
+func seedModelCacheObjects(t *testing.T, r *KserveModuleReconciler, kserve *platformv1alpha1.Kserve) {
+	t.Helper()
+	g := NewWithT(t)
+	ctx := context.Background()
+	resources, err := buildModelCacheResources(kserve, r.getApplicationsNamespace())
+	g.Expect(err).NotTo(HaveOccurred())
+	for i := range resources {
+		existing := resources[i].DeepCopy()
+		if err := r.Get(ctx, client.ObjectKeyFromObject(existing), existing); err == nil {
+			continue
+		}
+		g.Expect(r.Create(ctx, &resources[i])).To(Succeed())
+	}
+}
+
 func seedModelCacheReadinessObjects(t *testing.T, r *KserveModuleReconciler, dsMCS string) {
 	t.Helper()
 	g := NewWithT(t)
 	ctx := context.Background()
 	kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"worker-1"})
-	g.Expect(r.createOrUpdateModelCachePV(ctx, kserve)).To(Succeed())
-	g.Expect(r.createOrUpdateModelCachePVC(ctx, kserve)).To(Succeed())
-	g.Expect(r.createOrUpdateLocalModelNodeGroup(ctx, kserve)).To(Succeed())
+	seedModelCacheObjects(t, r, kserve)
 	g.Expect(r.Create(ctx, readyLocalModelControllerDeployment())).To(Succeed())
 	if dsMCS != "" {
 		g.Expect(r.Create(ctx, testDaemonSet(dsMCS))).To(Succeed())
