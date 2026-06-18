@@ -208,8 +208,8 @@ def resource_exists(kubectl_bin, resource_type, name, namespace=None):
     cmd = [kubectl_bin, "get", resource_type, name, "--ignore-not-found"]
     if namespace:
         cmd.extend(["-n", namespace])
-    result = run(cmd)
-    return bool(result.stdout.strip())
+    result = run(cmd, check=False)
+    return result.returncode == 0 and bool(result.stdout.strip())
 
 
 def get_jsonpath(kubectl_bin, resource_type, name, jsonpath, namespace=None):
