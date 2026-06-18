@@ -70,14 +70,9 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 	kserve *platformv1alpha1.Kserve,
 	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
 
-	resources, err := customizeKserveConfigMap(resources, kserve)
+	resources, err := customizeKserveConfigMap(resources, kserve, r.getApplicationsNamespace())
 	if err != nil {
 		return nil, fmt.Errorf("customizing configmap: %w", err)
-	}
-
-	resources, err = updateLocalModelConfig(resources, isModelCacheEnabled(kserve), r.getApplicationsNamespace())
-	if err != nil {
-		return nil, fmt.Errorf("updating localModel config: %w", err)
 	}
 
 	if isModelCacheEnabled(kserve) {
