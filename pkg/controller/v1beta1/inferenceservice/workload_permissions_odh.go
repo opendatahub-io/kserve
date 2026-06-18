@@ -66,10 +66,14 @@ func (r *InferenceServiceReconciler) reconcileWorkloadPlatformPermissions(ctx co
 }
 
 // getServiceAccountsRequiringImageVolumeSCC returns a list of unique service account names
-// that need the image volume SCC. This includes accounts for predictor and transformer
-// components that use OCI storage with legacy storageUri + MLServer runtime.
-// Note: Explainer is not included as image volumes are not injected into explainer containers
-// (explainers use storage-initializer instead due to custom container layouts).
+// that need the image volume SCC. This includes accounts for:
+//   - Predictor head pods (use predictor service account)
+//   - Predictor worker pods in multi-node deployments (use worker service account)
+//   - Transformer pods in separate service mode (use transformer service account)
+//
+// All must use OCI storage with legacy storageUri + MLServer runtime.
+// Note: Explainer is not included as image volumes are not injected into explainer containers.
+// Collocated transformers share the predictor's service account (same pod).
 // Returns error if runtime lookup fails to prevent accidental RoleBinding deletion on transient errors.
 func getServiceAccountsRequiringImageVolumeSCC(ctx context.Context, cl client.Client, isvc *v1beta1.InferenceService) ([]string, error) {
 	// Only MLServer runtime uses image volumes
@@ -88,7 +92,7 @@ func getServiceAccountsRequiringImageVolumeSCC(ctx context.Context, cl client.Cl
 	accountSet := make(map[string]bool)
 	var accounts []string
 
-	// Check predictor
+	// Check predictor (head pod)
 	if componentRequiresImageVolumeSCC(isvc.Spec.Predictor.StorageUris, isvc.Spec.Predictor.GetImplementation().GetStorageUri()) {
 		saName := isvc.Spec.Predictor.ServiceAccountName
 		if saName == "" {
@@ -98,9 +102,21 @@ func getServiceAccountsRequiringImageVolumeSCC(ctx context.Context, cl client.Cl
 			accountSet[saName] = true
 			accounts = append(accounts, saName)
 		}
+
+		// Also check worker pods (multi-node)
+		if isvc.Spec.Predictor.WorkerSpec != nil {
+			workerSAName := isvc.Spec.Predictor.WorkerSpec.ServiceAccountName
+			if workerSAName == "" {
+				workerSAName = "default"
+			}
+			if !accountSet[workerSAName] {
+				accountSet[workerSAName] = true
+				accounts = append(accounts, workerSAName)
+			}
+		}
 	}
 
-	// Check transformer
+	// Check transformer (separate service only - collocated transformers use predictor SA)
 	if isvc.Spec.Transformer != nil {
 		if componentRequiresImageVolumeSCC(isvc.Spec.Transformer.StorageUris, isvc.Spec.Transformer.GetImplementation().GetStorageUri()) {
 			saName := isvc.Spec.Transformer.ServiceAccountName
