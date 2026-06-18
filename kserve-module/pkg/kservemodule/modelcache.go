@@ -2,10 +2,8 @@ package kservemodule
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 
@@ -39,7 +37,6 @@ const (
 	localModelNodeGroupName = "workers"
 
 	localModelConfigKeyName = "localModel"
-	openshiftConfigKeyName  = "openshiftConfig"
 	psaElevatedByAnnotation = "opendatahub.io/psa-elevated-by"
 	psaElevatedByValue      = "kserve-modelcache"
 	securityEnforceLabel    = "pod-security.kubernetes.io/enforce"
@@ -388,41 +385,6 @@ func cleanupModelCacheComponent(ctx context.Context, r *KserveModuleReconciler) 
 	return r.cleanupModelCache(ctx)
 }
 
-func forceReconcileKserveAgentImage(resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
-	expectedImage := os.Getenv(kserveImageParamMap["kserve-agent"])
-	if expectedImage == "" {
-		return resources, nil
-	}
-
-	cmIdx, cm, err := getIndexedResource[corev1.ConfigMap](resources, configMapGVK, kserveConfigMapName)
-	if err != nil {
-		return resources, nil
-	}
-
-	raw, ok := cm.Data[openshiftConfigKeyName]
-	if !ok {
-		return resources, nil
-	}
-
-	var openshiftConfig map[string]any
-	if err := json.Unmarshal([]byte(raw), &openshiftConfig); err != nil {
-		return nil, fmt.Errorf("parsing %s in ConfigMap: %w", openshiftConfigKeyName, err)
-	}
-
-	currentImage, _ := openshiftConfig["modelcachePermissionFixImage"].(string)
-	if currentImage == expectedImage {
-		return resources, nil
-	}
-
-	openshiftConfig["modelcachePermissionFixImage"] = expectedImage
-	updated, err := json.MarshalIndent(openshiftConfig, "", " ")
-	if err != nil {
-		return nil, fmt.Errorf("marshaling %s: %w", openshiftConfigKeyName, err)
-	}
-	cm.Data[openshiftConfigKeyName] = string(updated)
-
-	return replaceResourceAtIndex(resources, cmIdx, cm)
-}
 
 func (r *KserveModuleReconciler) checkModelCacheReadiness(ctx context.Context) error {
 	if err := checkDeploymentsReady(ctx, r.Client, r.getApplicationsNamespace(), []string{localmodelControllerDeployment}); err != nil {

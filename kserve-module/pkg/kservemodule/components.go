@@ -84,13 +84,6 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 		return nil, fmt.Errorf("customizing configmap: %w", err)
 	}
 
-	if isModelCacheEnabled(kserve) {
-		resources, err = forceReconcileKserveAgentImage(resources)
-		if err != nil {
-			return nil, fmt.Errorf("reconciling agent image: %w", err)
-		}
-	}
-
 	versionPrefix := r.getVersionPrefix(kserve)
 	resources, err = versionedWellKnownLLMInferenceServiceConfigs(resources, versionPrefix)
 	if err != nil {

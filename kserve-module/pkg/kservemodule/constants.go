@@ -30,6 +30,7 @@ const (
 	serviceConfigKeyName    = "service"
 	configHashAnnotationKey  = "kserve-module/config-hash"
 	oauthProxyConfigKeyName = "oauthProxy"
+	openshiftConfigKeyName  = "openshiftConfig"
 
 	// LLMInferenceServiceConfig versioning
 	wellKnownAnnotationKey   = "serving.kserve.io/well-known-config"

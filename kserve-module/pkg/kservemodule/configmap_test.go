@@ -226,6 +226,80 @@ func TestCustomizeKserveConfigMap_OAuthProxy_MissingKey(t *testing.T) {
 	g.Expect(cm.Data).ShouldNot(HaveKey(oauthProxyConfigKeyName))
 }
 
+func TestCustomizeKserveConfigMap_OpenshiftConfig_SetsAgentImage(t *testing.T) {
+	g := NewWithT(t)
+
+	t.Setenv("RELATED_IMAGE_ODH_KSERVE_AGENT_IMAGE", "quay.io/test/agent:v2")
+
+	cm := &corev1.ConfigMap{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "ConfigMap"},
+		ObjectMeta: metav1.ObjectMeta{Name: kserveConfigMapName, Namespace: "opendatahub"},
+		Data: map[string]string{
+			ingressConfigKeyName:   `{"ingressDomain": "example.com"}`,
+			serviceConfigKeyName:   `{"serviceType": "ClusterIP"}`,
+			openshiftConfigKeyName: `{"modelcachePermissionFixImage": "REPLACE_IMAGE"}`,
+		},
+	}
+	cmU, err := runtime.DefaultUnstructuredConverter.ToUnstructured(cm)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	deploy := &appsv1.Deployment{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
+		ObjectMeta: metav1.ObjectMeta{Name: kserveControllerDeployment, Namespace: "opendatahub"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}},
+			},
+		},
+	}
+	deployU, err := runtime.DefaultUnstructuredConverter.ToUnstructured(deploy)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	resources := []unstructured.Unstructured{{Object: cmU}, {Object: deployU}}
+	result, err := customizeKserveConfigMap(resources, buildTestKserve(platformv1alpha1.KserveRawHeadless, nil, nil), "opendatahub")
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	_, resultCM, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(resultCM.Data[openshiftConfigKeyName]).Should(ContainSubstring(`"modelcachePermissionFixImage": "quay.io/test/agent:v2"`))
+}
+
+func TestCustomizeKserveConfigMap_OpenshiftConfig_NoOpWithoutEnvVar(t *testing.T) {
+	g := NewWithT(t)
+
+	cm := &corev1.ConfigMap{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "ConfigMap"},
+		ObjectMeta: metav1.ObjectMeta{Name: kserveConfigMapName, Namespace: "opendatahub"},
+		Data: map[string]string{
+			ingressConfigKeyName:   `{"ingressDomain": "example.com"}`,
+			serviceConfigKeyName:   `{"serviceType": "ClusterIP"}`,
+			openshiftConfigKeyName: `{"modelcachePermissionFixImage": "REPLACE_IMAGE"}`,
+		},
+	}
+	cmU, err := runtime.DefaultUnstructuredConverter.ToUnstructured(cm)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	deploy := &appsv1.Deployment{
+		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "Deployment"},
+		ObjectMeta: metav1.ObjectMeta{Name: kserveControllerDeployment, Namespace: "opendatahub"},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}},
+			},
+		},
+	}
+	deployU, err := runtime.DefaultUnstructuredConverter.ToUnstructured(deploy)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	resources := []unstructured.Unstructured{{Object: cmU}, {Object: deployU}}
+	result, err := customizeKserveConfigMap(resources, buildTestKserve(platformv1alpha1.KserveRawHeadless, nil, nil), "opendatahub")
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	_, resultCM, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(resultCM.Data[openshiftConfigKeyName]).Should(ContainSubstring(`"modelcachePermissionFixImage": "REPLACE_IMAGE"`))
+}
+
 func buildTestResourcesWithOAuthProxy(t *testing.T) []unstructured.Unstructured {
 	t.Helper()
 	g := NewWithT(t)
