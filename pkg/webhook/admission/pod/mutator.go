@@ -141,6 +141,10 @@ func (mutator *Mutator) mutate(ctx context.Context, pod *corev1.Pod, configMap *
 		mutators = append(mutators, storageInitializer.InjectModelcar)
 	}
 
+	// AUTOMERGE(keep): distro-specific post-injection hook for storage initializer
+	mutators = append(mutators, storageInitializer.postInjectStorageInitializer)
+	// AUTOMERGE(end)
+
 	for _, mutator := range mutators {
 		if err := mutator(pod); err != nil {
 			return err
