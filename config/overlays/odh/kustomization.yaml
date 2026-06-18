@@ -79,6 +79,17 @@ replacements:
       name: kserve-controller-manager
     fieldPaths:
     - spec.template.spec.containers.[name=manager].image
+# Propagate kserve-controller-manager ServiceAccount namespace to distro ClusterRoleBinding subjects
+- source:
+    kind: ServiceAccount
+    name: kserve-controller-manager
+    fieldPath: metadata.namespace
+  targets:
+  - select:
+      kind: ClusterRoleBinding
+      name: kserve-inferenceservice-distro-rolebinding
+    fieldPaths:
+    - subjects.[kind=ServiceAccount].namespace
 # Replace base LLMInferenceServiceConfig images with Red Hat CUDA image
 - source:
     kind: ConfigMap
