@@ -36,6 +36,12 @@ uv-update-lockfiles:
 	bash -ec 'for value in $$(find . -name uv.lock -exec dirname {} \;); do (cd "$${value}" && echo "Updating $${value}/uv.lock" && uv update --lock); done'
 
 manifests-distro: controller-gen
+	@$(CONTROLLER_GEN) rbac:roleName=kserve-isvc-distro-role \
+		paths=./pkg/controller/v1beta1/inferenceservice/distro \
+		output:rbac:artifacts:config=config/overlays/odh/rbac/inferenceservice
+	@$(CONTROLLER_GEN) rbac:roleName=kserve-inferencegraph-distro-role \
+		paths=./pkg/controller/v1alpha1/inferencegraph/distro \
+		output:rbac:artifacts:config=config/overlays/odh/rbac/inferencegraph
 	@$(CONTROLLER_GEN) rbac:roleName=kserve-llmisvc-distro-role \
 		paths=./pkg/controller/v1alpha2/llmisvc/distro \
 		output:rbac:artifacts:config=config/overlays/odh/rbac/llmisvc

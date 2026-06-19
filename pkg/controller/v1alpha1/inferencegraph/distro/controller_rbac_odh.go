@@ -1,5 +1,5 @@
 /*
-Copyright 2023 The KServe Authors.
+Copyright 2025 The KServe Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,12 +16,9 @@ limitations under the License.
 
 package distro
 
-// Distro-specific RBAC rules for the LLMInferenceService controller.
+// Distro-specific RBAC rules for the InferenceGraph controller.
 // Processed by a separate controller-gen invocation (see Makefile.overrides.mk)
 // to generate a dedicated ClusterRole included only in distro overlays.
 
-//+kubebuilder:rbac:groups=networking.istio.io,resources=destinationrules,verbs=get;list;watch;create;update;delete
-//+kubebuilder:rbac:groups=security.openshift.io,resources=securitycontextconstraints,resourceNames=openshift-ai-llminferenceservice-scc,verbs=use
-
-// Monitoring RBAC - move back to controller.go if upstream kserve/kserve#5208 lands.
-//+kubebuilder:rbac:groups=monitoring.coreos.com,resources=podmonitors;servicemonitors,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=create;get;update;patch;watch;delete
+//+kubebuilder:rbac:groups=route.openshift.io,resources=routes/status,verbs=get
