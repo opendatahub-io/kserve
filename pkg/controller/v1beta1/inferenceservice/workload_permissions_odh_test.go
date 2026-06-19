@@ -845,7 +845,9 @@ func TestReconcileWorkloadPlatformPermissions(t *testing.T) {
 			}
 			// Convert runtime.Object to client.Object
 			for _, rt := range scenario.runtimes {
-				existingObjects = append(existingObjects, rt.(client.Object))
+				obj, ok := rt.(client.Object)
+				g.Expect(ok).To(gomega.BeTrue(), "runtime fixture must implement client.Object")
+				existingObjects = append(existingObjects, obj)
 			}
 
 			cl := fake.NewClientBuilder().WithScheme(s).WithObjects(existingObjects...).Build()
@@ -896,6 +898,10 @@ func TestReconcileWorkloadPlatformPermissions(t *testing.T) {
 						g.Expect(subjectNames).To(gomega.ContainElements("predictor-sa", "worker-sa"),
 							"RoleBinding should include both predictor and worker SAs")
 					}
+				} else {
+					// No existing RoleBinding - verify none was created (deny-path assertion)
+					g.Expect(apierrors.IsNotFound(err)).To(gomega.BeTrue(),
+						"RoleBinding should NOT be created for non-MLServer or non-OCI storage")
 				}
 			}
 		})
