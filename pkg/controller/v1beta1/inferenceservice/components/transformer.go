@@ -218,7 +218,7 @@ func (p *Transformer) reconcileTransformerRawDeployment(ctx context.Context, isv
 
 	var storageContainerSpec *v1alpha1.StorageContainerSpec
 	if len(isvc.Spec.Transformer.StorageUris) > 0 {
-		storageContainerSpec, err = pod.GetStorageContainerSpec(ctx, isvc.Spec.Transformer.StorageUris[0].Uri, p.client)
+		storageContainerSpec, err = pod.GetStorageContainerSpec(ctx, isvc.Spec.Transformer.StorageUris[0].Uri, nil, p.client)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get storage container spec")
 		}
@@ -276,7 +276,7 @@ func (p *Transformer) reconcileTransformerKnativeDeployment(ctx context.Context,
 
 	var storageContainerSpec *v1alpha1.StorageContainerSpec
 	if len(isvc.Spec.Transformer.StorageUris) > 0 {
-		storageContainerSpec, err = pod.GetStorageContainerSpec(ctx, isvc.Spec.Transformer.StorageUris[0].Uri, p.client)
+		storageContainerSpec, err = pod.GetStorageContainerSpec(ctx, isvc.Spec.Transformer.StorageUris[0].Uri, nil, p.client)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get storage container spec")
 		}

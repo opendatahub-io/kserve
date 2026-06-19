@@ -69,3 +69,7 @@ def pytest_configure(config):
         "markers",
         "llmd_simulator: mark test as using the llm-d simulator with hardcoded TLS args",
     )
+    config.addinivalue_line("markers", "pvc_storage: mark test as a PVC storage test")
+    config.addinivalue_line(
+        "markers", "tracing: mark test as a distributed tracing test"
+    )

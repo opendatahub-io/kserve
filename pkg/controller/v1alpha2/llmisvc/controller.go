@@ -42,6 +42,7 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
+	resourcev1 "k8s.io/api/resource/v1"
 
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
@@ -152,6 +153,7 @@ type LLMISVCReconciler struct {
 //+kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes;gateways;gatewayclasses,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=inference.networking.x-k8s.io,resources=inferencepools;inferenceobjectives;inferencemodels;inferencemodelrewrites;inferencepoolimports,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=inference.networking.k8s.io,resources=inferencepools;inferenceobjectives;inferencemodels,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaims;resourceclaimtemplates,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
@@ -387,7 +389,7 @@ func (r *LLMISVCReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.EnqueueOnLLMInferenceServicePods),
 			builder.WithPredicates(PodStatusPredicate()))
 
-	if err := extendControllerSetup(r, mgr, b); err != nil {
+	if err := r.extendControllerSetup(mgr, b); err != nil {
 		return fmt.Errorf("failed to extend controller setup: %w", err)
 	}
 
@@ -427,6 +429,10 @@ func (r *LLMISVCReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), monitoringGroup, "ServiceMonitor"); ok && err == nil {
 		b = b.Owns(&monitoringv1.ServiceMonitor{}, builder.WithPredicates(childResourcesPredicate))
+	}
+
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), resourcev1.SchemeGroupVersion.String(), "ResourceClaimTemplate"); ok && err == nil {
+		b = b.Owns(&resourcev1.ResourceClaimTemplate{}, builder.WithPredicates(childResourcesPredicate))
 	}
 
 	return b.Complete(r)

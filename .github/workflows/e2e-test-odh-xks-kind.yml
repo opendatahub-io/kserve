@@ -130,11 +130,12 @@ jobs:
           GATEWAY_CLASS_NAME: "istio"
           RUN_AS_NON_ROOT: "false"
           OPT_125M_MODEL_URI: "s3://example-models/facebook/opt-125m"
+          STORAGE_INITIALIZER_IMAGE: "local/storage-initializer:dev"
           INFERENCE_POOL_GROUP: ${{ matrix.istio-version == '1.27.5' && 'inference.networking.x-k8s.io' || 'inference.networking.k8s.io' }}
           ENABLE_LLM_INFERENCE_SERVICE_TLS: ${{ matrix.enable-tls }}
         run: |
           export PYTEST_MAXFAIL=3
-          MARKER="llminferenceservice and cluster_cpu and not auth and not custom_gateway and not autoscaling"
+          MARKER="llminferenceservice and cluster_cpu and not auth and not custom_gateway and not autoscaling and not tracing"
           if [ "${ENABLE_LLM_INFERENCE_SERVICE_TLS}" = "false" ]; then
             MARKER="${MARKER} and not llmd_simulator"
           fi

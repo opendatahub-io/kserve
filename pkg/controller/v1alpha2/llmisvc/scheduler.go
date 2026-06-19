@@ -56,6 +56,7 @@ const (
 
 	precisePrefixCacheScorerPlugin = "precise-prefix-cache-scorer"
 	prefixCacheScorerPlugin        = "prefix-cache-scorer"
+	loraAffinityScorerPlugin       = "lora-affinity-scorer"
 	coreMetricsExtractorPlugin     = "model-server-protocol-metrics"
 	udsTokenizerBaseModelName      = "base"
 	udsTokenizerSocketFile         = "/tmp/tokenizer/tokenizer-uds.socket" //nolint:gosec // G101: not a credential, UDS socket path
@@ -408,6 +409,9 @@ func (r *LLMISVCReconciler) expectedSchedulerDeployment(ctx context.Context, llm
 			mainContainer.Args = append(mainContainer.Args,
 				preserveSchedulerConfig(llmSvc, curr)...,
 			)
+
+			// Inject tracing instrumentation when spec.tracing is set
+			injectSchedulerTracing(llmSvc.Spec.Tracing, llmSvc.GetNamespace(), llmSvc.GetName(), mainContainer)
 		}
 
 		if isUsingTokenizerSidecar(llmSvc.Spec) {
@@ -490,7 +494,12 @@ func schedulerConfigText(llmSvc *v1alpha2.LLMInferenceService) string {
 	switch {
 	case llmSvc.Spec.Prefill != nil:
 		// Always do P/D by default (threshold 0)
-		return `
+		var loraPlugin, loraProfileEntry string
+		if llmSvc.Spec.Model.LoRA != nil && len(llmSvc.Spec.Model.LoRA.Adapters) > 0 {
+			loraPlugin = fmt.Sprintf("- type: %s\n", loraAffinityScorerPlugin)
+			loraProfileEntry = fmt.Sprintf("  - pluginRef: %s\n    weight: 4\n", loraAffinityScorerPlugin)
+		}
+		return fmt.Sprintf(`
 apiVersion: inference.networking.x-k8s.io/v1alpha1
 kind: EndpointPickerConfig
 plugins:
@@ -505,11 +514,11 @@ plugins:
   parameters:
     deciders:
       prefill: always-disagg-pd-decider
-schedulingProfiles:
+%sschedulingProfiles:
 - name: prefill
   plugins:
   - pluginRef: prefill-filter
-  - pluginRef: queue-scorer
+%s  - pluginRef: queue-scorer
     weight: 2
   - pluginRef: prefix-cache-scorer
     weight: 3
@@ -517,14 +526,19 @@ schedulingProfiles:
 - name: decode
   plugins:
   - pluginRef: decode-filter
-  - pluginRef: queue-scorer
+%s  - pluginRef: queue-scorer
     weight: 2
   - pluginRef: prefix-cache-scorer
     weight: 3
   - pluginRef: max-score-picker
-`
+`, loraPlugin, loraProfileEntry, loraProfileEntry)
 	default:
-		return `
+		var loraPlugin, loraProfileEntry string
+		if llmSvc.Spec.Model.LoRA != nil && len(llmSvc.Spec.Model.LoRA.Adapters) > 0 {
+			loraPlugin = fmt.Sprintf("- type: %s\n", loraAffinityScorerPlugin)
+			loraProfileEntry = fmt.Sprintf("  - pluginRef: %s\n    weight: 4\n", loraAffinityScorerPlugin)
+		}
+		return fmt.Sprintf(`
 apiVersion: inference.networking.x-k8s.io/v1alpha1
 kind: EndpointPickerConfig
 plugins:
@@ -532,15 +546,15 @@ plugins:
 - type: queue-scorer
 - type: prefix-cache-scorer
 - type: max-score-picker
-schedulingProfiles:
+%sschedulingProfiles:
 - name: default
   plugins:
-  - pluginRef: queue-scorer
+%s  - pluginRef: queue-scorer
     weight: 2
   - pluginRef: prefix-cache-scorer
     weight: 3
   - pluginRef: max-score-picker
-`
+`, loraPlugin, loraProfileEntry)
 	}
 }
 

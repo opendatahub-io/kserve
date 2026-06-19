@@ -73,6 +73,7 @@ echo "Using namespace: $KSERVE_NAMESPACE for KServe components"
 : "${SUCCESS_200_ISVC_IMAGE:=success-200-isvc:latest}"
 : "${STORAGE_INITIALIZER_IMAGE:=$(grep '^kserve-storage-initializer=' "${PROJECT_ROOT}/config/overlays/odh/params.env" | cut -d= -f2-)}"
 
+
 : "${OPT_125M_MODEL_URI:=s3://example-models/facebook/opt-125m}"
 export OPT_125M_MODEL_URI
 
