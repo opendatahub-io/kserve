@@ -875,12 +875,13 @@ func TestReconcileWorkloadPlatformPermissions(t *testing.T) {
 				Namespace: namespace,
 			}, rb)
 
-			if scenario.expectRBCreated {
+			switch {
+			case scenario.expectRBCreated:
 				g.Expect(err).NotTo(gomega.HaveOccurred(), "RoleBinding should have been created")
 				g.Expect(rb.Subjects).NotTo(gomega.BeEmpty(), "RoleBinding should have subjects")
-			} else if scenario.expectRBDeleted {
+			case scenario.expectRBDeleted:
 				g.Expect(apierrors.IsNotFound(err)).To(gomega.BeTrue(), "RoleBinding should have been deleted")
-			} else {
+			default:
 				// If neither created nor deleted, check if it exists or doesn't based on initial state
 				if scenario.existingRB != nil {
 					// Should still exist (possibly updated)

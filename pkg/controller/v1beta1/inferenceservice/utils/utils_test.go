@@ -17,6 +17,7 @@ limitations under the License.
 package utils
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"testing"
@@ -884,7 +885,7 @@ func TestGetServerTypeFromIsvc(t *testing.T) {
 
 			client := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(scenario.runtimes...).Build()
 
-			serverType, err := GetServerTypeFromIsvc(nil, client, scenario.isvc)
+			serverType, err := GetServerTypeFromIsvc(context.Background(), client, scenario.isvc)
 
 			if scenario.expectError {
 				g.Expect(err).To(scenario.errorMatcher)
