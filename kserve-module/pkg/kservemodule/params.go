@@ -63,6 +63,43 @@ func writeParamsEnv(params map[string]string, dir string) (string, error) {
 	return tmp.Name(), nil
 }
 
+func imageOverridesFromComponent(manifestDir string, comp componentConfig, sourcePath string) (map[string]string, error) {
+	var sourceComp *componentConfig
+	for i := range components {
+		if components[i].name == comp.imageOverridesFrom {
+			sourceComp = &components[i]
+			break
+		}
+	}
+	if sourceComp == nil {
+		return nil, fmt.Errorf("component %q not found", comp.imageOverridesFrom)
+	}
+
+	sourceParams, err := parseParams(filepath.Join(manifestDir, sourceComp.name, sourceComp.sourcePath, "params.env"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	targetParams, err := parseParams(filepath.Join(manifestDir, comp.name, sourcePath, "params.env"))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	overrides := make(map[string]string)
+	for key, value := range sourceParams {
+		if _, exists := targetParams[key]; exists {
+			overrides[key] = value
+		}
+	}
+	return overrides, nil
+}
+
 func applyParams(componentPath string, imageParamsMap map[string]string, extraParamsMaps ...map[string]string) error {
 	paramsFile := filepath.Join(componentPath, "params.env")
 

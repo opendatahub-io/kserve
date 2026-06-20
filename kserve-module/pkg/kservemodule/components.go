@@ -23,8 +23,9 @@ type componentConfig struct {
 	postRender    func(ctx context.Context, r *KserveModuleReconciler,
 		kserve *platformv1alpha1.Kserve,
 		resources []unstructured.Unstructured) ([]unstructured.Unstructured, error)
-	enabled      func(kserve *platformv1alpha1.Kserve) bool
-	extraCleanup func(ctx context.Context, r *KserveModuleReconciler) error
+	enabled            func(kserve *platformv1alpha1.Kserve) bool
+	extraCleanup       func(ctx context.Context, r *KserveModuleReconciler) error
+	imageOverridesFrom string
 }
 
 var components = []componentConfig{
@@ -42,11 +43,12 @@ var components = []componentConfig{
 		extraParams: modelControllerExtraParams,
 	},
 	{
-		name:       WVAComponentName,
-		sourcePath: WVAManifestSourcePathOCP,
-		imageMap:   wvaImageParamMap,
-		enabled:    isWVAEnabled,
-		postRender: wvaPostRender,
+		name:               WVAComponentName,
+		sourcePath:         WVAManifestSourcePathOCP,
+		imageMap:           wvaImageParamMap,
+		enabled:            isWVAEnabled,
+		postRender:         wvaPostRender,
+		imageOverridesFrom: KserveComponentName,
 	},
 }
 

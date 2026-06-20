@@ -200,6 +200,21 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 		sourcePath = comp.sourcePathXKS
 	}
 
+	if comp.imageOverridesFrom != "" {
+		overrides, err := imageOverridesFromComponent(manifestDir, comp, sourcePath)
+		if err != nil {
+			return nil, fmt.Errorf("reading %s image overrides: %w", comp.name, err)
+		}
+		if len(overrides) > 0 {
+			if err := applyParams(
+				filepath.Join(manifestDir, comp.name, sourcePath),
+				nil, overrides,
+			); err != nil {
+				return nil, fmt.Errorf("applying %s image overrides: %w", comp.name, err)
+			}
+		}
+	}
+
 	if err := applyParams(
 		filepath.Join(manifestDir, comp.name, sourcePath),
 		comp.imageMap,

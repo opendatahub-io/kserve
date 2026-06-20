@@ -92,6 +92,107 @@ func TestApplyParams_ExtraParamsMap(t *testing.T) {
 	g.Expect(params["NAMESPACE"]).Should(Equal("opendatahub"))
 }
 
+func TestImageOverridesFromComponent_OverlappingKeys(t *testing.T) {
+	g := NewWithT(t)
+
+	dir := t.TempDir()
+
+	sourceDir := filepath.Join(dir, KserveComponentName, KserveManifestSourcePath)
+	g.Expect(os.MkdirAll(sourceDir, 0o755)).ShouldNot(HaveOccurred())
+	g.Expect(os.WriteFile(filepath.Join(sourceDir, "params.env"),
+		[]byte("wva-controller-image=quay.io/new-image:v2.0\nkserve-controller=quay.io/kserve:latest\n"), 0o644)).
+		ShouldNot(HaveOccurred())
+
+	targetDir := filepath.Join(dir, WVAComponentName, WVAManifestSourcePathOCP)
+	g.Expect(os.MkdirAll(targetDir, 0o755)).ShouldNot(HaveOccurred())
+	g.Expect(os.WriteFile(filepath.Join(targetDir, "params.env"),
+		[]byte("wva-controller-image=ghcr.io/old-image:v1.0\n"), 0o644)).
+		ShouldNot(HaveOccurred())
+
+	comp := componentConfig{
+		name:               WVAComponentName,
+		sourcePath:         WVAManifestSourcePathOCP,
+		imageOverridesFrom: KserveComponentName,
+	}
+
+	overrides, err := imageOverridesFromComponent(dir, comp, WVAManifestSourcePathOCP)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(overrides).Should(HaveLen(1))
+	g.Expect(overrides["wva-controller-image"]).Should(Equal("quay.io/new-image:v2.0"))
+}
+
+func TestImageOverridesFromComponent_NoOverlapReturnsEmpty(t *testing.T) {
+	g := NewWithT(t)
+
+	dir := t.TempDir()
+
+	sourceDir := filepath.Join(dir, KserveComponentName, KserveManifestSourcePath)
+	g.Expect(os.MkdirAll(sourceDir, 0o755)).ShouldNot(HaveOccurred())
+	g.Expect(os.WriteFile(filepath.Join(sourceDir, "params.env"),
+		[]byte("kserve-controller=quay.io/kserve:latest\n"), 0o644)).
+		ShouldNot(HaveOccurred())
+
+	targetDir := filepath.Join(dir, WVAComponentName, WVAManifestSourcePathOCP)
+	g.Expect(os.MkdirAll(targetDir, 0o755)).ShouldNot(HaveOccurred())
+	g.Expect(os.WriteFile(filepath.Join(targetDir, "params.env"),
+		[]byte("wva-controller-image=ghcr.io/old-image:v1.0\n"), 0o644)).
+		ShouldNot(HaveOccurred())
+
+	comp := componentConfig{
+		name:               WVAComponentName,
+		sourcePath:         WVAManifestSourcePathOCP,
+		imageOverridesFrom: KserveComponentName,
+	}
+
+	overrides, err := imageOverridesFromComponent(dir, comp, WVAManifestSourcePathOCP)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(overrides).Should(BeEmpty())
+}
+
+func TestImageOverridesFromComponent_MissingSourceParamsEnv(t *testing.T) {
+	g := NewWithT(t)
+
+	dir := t.TempDir()
+
+	targetDir := filepath.Join(dir, WVAComponentName, WVAManifestSourcePathOCP)
+	g.Expect(os.MkdirAll(targetDir, 0o755)).ShouldNot(HaveOccurred())
+	g.Expect(os.WriteFile(filepath.Join(targetDir, "params.env"),
+		[]byte("wva-controller-image=ghcr.io/old-image:v1.0\n"), 0o644)).
+		ShouldNot(HaveOccurred())
+
+	comp := componentConfig{
+		name:               WVAComponentName,
+		sourcePath:         WVAManifestSourcePathOCP,
+		imageOverridesFrom: KserveComponentName,
+	}
+
+	overrides, err := imageOverridesFromComponent(dir, comp, WVAManifestSourcePathOCP)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(overrides).Should(BeNil())
+}
+
+func TestImageOverridesFromComponent_MissingTargetParamsEnv(t *testing.T) {
+	g := NewWithT(t)
+
+	dir := t.TempDir()
+
+	sourceDir := filepath.Join(dir, KserveComponentName, KserveManifestSourcePath)
+	g.Expect(os.MkdirAll(sourceDir, 0o755)).ShouldNot(HaveOccurred())
+	g.Expect(os.WriteFile(filepath.Join(sourceDir, "params.env"),
+		[]byte("wva-controller-image=quay.io/new-image:v2.0\n"), 0o644)).
+		ShouldNot(HaveOccurred())
+
+	comp := componentConfig{
+		name:               WVAComponentName,
+		sourcePath:         WVAManifestSourcePathOCP,
+		imageOverridesFrom: KserveComponentName,
+	}
+
+	overrides, err := imageOverridesFromComponent(dir, comp, WVAManifestSourcePathOCP)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(overrides).Should(BeNil())
+}
+
 func TestBuildCertManagerParams_Defaults(t *testing.T) {
 	g := NewWithT(t)
 
