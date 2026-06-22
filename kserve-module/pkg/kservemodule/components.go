@@ -70,7 +70,7 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 	kserve *platformv1alpha1.Kserve,
 	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
 
-	resources, err := customizeKserveConfigMap(resources, kserve, r.getApplicationsNamespace())
+	resources, err := customizeKserveConfigMap(resources, kserve)
 	if err != nil {
 		return nil, fmt.Errorf("customizing configmap: %w", err)
 	}

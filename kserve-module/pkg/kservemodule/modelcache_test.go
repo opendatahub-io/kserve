@@ -362,7 +362,7 @@ func TestLocalModelConfigViaCustomizeKserveConfigMap(t *testing.T) {
 	kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"node1"})
 	resources := []unstructured.Unstructured{toUnstructuredConfigMap(cm)}
 
-	result, err := customizeKserveConfigMap(resources, kserve, "my-namespace")
+	result, err := customizeKserveConfigMap(resources, kserve)
 	g.Expect(err).NotTo(HaveOccurred())
 
 	_, updatedCM, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -372,7 +372,7 @@ func TestLocalModelConfigViaCustomizeKserveConfigMap(t *testing.T) {
 	err = json.Unmarshal([]byte(updatedCM.Data[localModelConfigKeyName]), &localModelData)
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(localModelData["enabled"]).To(Equal(true))
-	g.Expect(localModelData["jobNamespace"]).To(Equal("my-namespace"))
+	g.Expect(localModelData["jobNamespace"]).To(Equal("test-ns"))
 }
 
 
