@@ -29,6 +29,33 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+func TestValidatePodSpecSecurity_HostAliases(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+
+	isvc := &InferenceService{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-isvc", Namespace: "default"},
+		Spec: InferenceServiceSpec{
+			Predictor: PredictorSpec{
+				PodSpec: PodSpec{
+					HostAliases: []corev1.HostAlias{
+						{IP: "127.0.0.1", Hostnames: []string{"malicious.example.com"}},
+					},
+				},
+				Tensorflow: &TFServingSpec{
+					PredictorExtensionSpec: PredictorExtensionSpec{
+						StorageURI: proto.String("gs://testbucket/testmodel"),
+					},
+				},
+			},
+		},
+	}
+
+	err := validatePodSpecSecurity(isvc)
+	g.Expect(err).To(gomega.HaveOccurred())
+	g.Expect(err.Error()).To(gomega.ContainSubstring("hostAliases are not allowed"))
+	g.Expect(err.Error()).To(gomega.ContainSubstring("predictor"))
+}
+
 func TestValidatePodSpecSecurity_HostNetwork(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 
@@ -470,6 +497,41 @@ func TestValidatePodSpecSecurity_MultipleProjectedSourcesWithSAToken(t *testing.
 	g.Expect(err.Error()).To(gomega.ContainSubstring("serviceAccountToken source"))
 }
 
+func TestValidatePodSpecSecurity_HostPathVolume(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+
+	isvc := &InferenceService{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-isvc", Namespace: "default"},
+		Spec: InferenceServiceSpec{
+			Predictor: PredictorSpec{
+				PodSpec: PodSpec{
+					Volumes: []corev1.Volume{
+						{
+							Name: "host-root",
+							VolumeSource: corev1.VolumeSource{
+								HostPath: &corev1.HostPathVolumeSource{
+									Path: "/",
+								},
+							},
+						},
+					},
+				},
+				Tensorflow: &TFServingSpec{
+					PredictorExtensionSpec: PredictorExtensionSpec{
+						StorageURI: proto.String("gs://testbucket/testmodel"),
+					},
+				},
+			},
+		},
+	}
+
+	err := validatePodSpecSecurity(isvc)
+	g.Expect(err).To(gomega.HaveOccurred())
+	g.Expect(err.Error()).To(gomega.ContainSubstring("hostPath volume"))
+	g.Expect(err.Error()).To(gomega.ContainSubstring("host-root"))
+	g.Expect(err.Error()).To(gomega.ContainSubstring("predictor"))
+}
+
 func TestValidatePodSpecSecurity_NonProjectedVolumesAllowed(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 
@@ -534,6 +596,51 @@ func TestValidatePodSpecSecurity_AllFieldsTable(t *testing.T) {
 				},
 			},
 			expectErr: false,
+		},
+		"PredictorHostAliases": {
+			isvc: &InferenceService{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+				Spec: InferenceServiceSpec{
+					Predictor: PredictorSpec{
+						PodSpec: PodSpec{
+							HostAliases: []corev1.HostAlias{{IP: "1.2.3.4", Hostnames: []string{"bad"}}},
+						},
+						Tensorflow: &TFServingSpec{
+							PredictorExtensionSpec: PredictorExtensionSpec{
+								StorageURI: proto.String("gs://bucket/model"),
+							},
+						},
+					},
+				},
+			},
+			expectErr: true,
+			errSubstr: "hostAliases",
+		},
+		"PredictorHostPathVolume": {
+			isvc: &InferenceService{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+				Spec: InferenceServiceSpec{
+					Predictor: PredictorSpec{
+						PodSpec: PodSpec{
+							Volumes: []corev1.Volume{
+								{
+									Name: "host-vol",
+									VolumeSource: corev1.VolumeSource{
+										HostPath: &corev1.HostPathVolumeSource{Path: "/etc"},
+									},
+								},
+							},
+						},
+						Tensorflow: &TFServingSpec{
+							PredictorExtensionSpec: PredictorExtensionSpec{
+								StorageURI: proto.String("gs://bucket/model"),
+							},
+						},
+					},
+				},
+			},
+			expectErr: true,
+			errSubstr: "hostPath volume",
 		},
 		"PredictorHostNetwork": {
 			isvc: &InferenceService{

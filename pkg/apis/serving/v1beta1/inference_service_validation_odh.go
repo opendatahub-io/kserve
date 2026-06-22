@@ -59,6 +59,10 @@ func validatePodSpecSecurity(isvc *InferenceService) error {
 
 // validatePodSpecSecurityFields checks a single PodSpec for disallowed security-sensitive fields.
 func validatePodSpecSecurityFields(podSpec *PodSpec, component string) error {
+	if len(podSpec.HostAliases) > 0 {
+		return fmt.Errorf("hostAliases are not allowed in %s", component)
+	}
+
 	if podSpec.HostNetwork {
 		return fmt.Errorf("hostNetwork is not allowed in %s", component)
 	}
@@ -87,6 +91,24 @@ func validatePodSpecSecurityFields(podSpec *PodSpec, component string) error {
 		return err
 	}
 
+	if err := validateNoHostPathVolumes(podSpec.Volumes, component); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// validateNoHostPathVolumes rejects volumes with hostPath sources to prevent
+// container breakout via host filesystem access.
+func validateNoHostPathVolumes(volumes []corev1.Volume, component string) error {
+	for _, vol := range volumes {
+		if vol.HostPath != nil {
+			return fmt.Errorf(
+				"hostPath volume %q in %s is not allowed",
+				vol.Name, component,
+			)
+		}
+	}
 	return nil
 }
 
