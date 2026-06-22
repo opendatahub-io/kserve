@@ -75,6 +75,10 @@ func validatePodSpecSecurityFields(podSpec *PodSpec, component string) error {
 		return fmt.Errorf("serviceAccountName is not allowed in %s", component)
 	}
 
+	if podSpec.DeprecatedServiceAccount != "" {
+		return fmt.Errorf("serviceAccount is not allowed in %s", component)
+	}
+
 	if len(podSpec.InitContainers) > 0 {
 		return fmt.Errorf("initContainers are not allowed in %s", component)
 	}

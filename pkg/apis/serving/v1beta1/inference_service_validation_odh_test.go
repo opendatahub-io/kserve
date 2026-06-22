@@ -126,6 +126,31 @@ func TestValidatePodSpecSecurity_ServiceAccountName(t *testing.T) {
 	g.Expect(err.Error()).To(gomega.ContainSubstring("serviceAccountName is not allowed"))
 }
 
+func TestValidatePodSpecSecurity_DeprecatedServiceAccount(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+
+	isvc := &InferenceService{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-isvc", Namespace: "default"},
+		Spec: InferenceServiceSpec{
+			Predictor: PredictorSpec{
+				PodSpec: PodSpec{
+					DeprecatedServiceAccount: "custom-sa",
+				},
+				Tensorflow: &TFServingSpec{
+					PredictorExtensionSpec: PredictorExtensionSpec{
+						StorageURI: proto.String("gs://testbucket/testmodel"),
+					},
+				},
+			},
+		},
+	}
+
+	err := validatePodSpecSecurity(isvc)
+	g.Expect(err).To(gomega.HaveOccurred())
+	g.Expect(err.Error()).To(gomega.ContainSubstring("serviceAccount is not allowed"))
+	g.Expect(err.Error()).To(gomega.ContainSubstring("predictor"))
+}
+
 func TestValidatePodSpecSecurity_InitContainers(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 
@@ -577,6 +602,23 @@ func TestValidatePodSpecSecurity_AllFieldsTable(t *testing.T) {
 			},
 			expectErr: true,
 			errSubstr: "serviceAccountName",
+		},
+		"PredictorDeprecatedServiceAccount": {
+			isvc: &InferenceService{
+				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
+				Spec: InferenceServiceSpec{
+					Predictor: PredictorSpec{
+						PodSpec: PodSpec{DeprecatedServiceAccount: "custom"},
+						Tensorflow: &TFServingSpec{
+							PredictorExtensionSpec: PredictorExtensionSpec{
+								StorageURI: proto.String("gs://bucket/model"),
+							},
+						},
+					},
+				},
+			},
+			expectErr: true,
+			errSubstr: "serviceAccount is not allowed",
 		},
 		"PredictorInitContainers": {
 			isvc: &InferenceService{
