@@ -20,7 +20,6 @@ var (
 	kserveDeploymentsOCP = []string{
 		kserveControllerDeployment,
 		llmISVCControllerDeployment,
-		// TODO: add localmodelControllerDeployment once localmodel manifests are included in OCP overlay
 	}
 	kserveDeploymentsXKS = []string{
 		llmISVCControllerDeployment,
