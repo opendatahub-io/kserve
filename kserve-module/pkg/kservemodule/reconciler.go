@@ -96,6 +96,14 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	kserve := &platformv1alpha1.Kserve{}
 	if err := r.Get(ctx, req.NamespacedName, kserve); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			if psaErr := r.updateNamespacePSA(ctx, "baseline"); psaErr != nil {
+				log.Error(psaErr, "failed to revert namespace PSA on CR deletion")
+			}
+			if labelErr := r.unlabelAllModelCacheNodes(ctx); labelErr != nil {
+				log.Error(labelErr, "failed to remove model cache node labels on CR deletion")
+			}
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
