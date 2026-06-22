@@ -315,8 +315,6 @@ func (r *KserveModuleReconciler) labelModelCacheNodes(ctx context.Context, kserv
 }
 
 func (r *KserveModuleReconciler) cleanupModelCache(ctx context.Context) error {
-	log := ctrl.LoggerFrom(ctx)
-
 	if err := r.updateNamespacePSA(ctx, "baseline"); err != nil {
 		return err
 	}
@@ -326,6 +324,12 @@ func (r *KserveModuleReconciler) cleanupModelCache(ctx context.Context) error {
 			return err
 		}
 	}
+
+	return r.unlabelAllModelCacheNodes(ctx)
+}
+
+func (r *KserveModuleReconciler) unlabelAllModelCacheNodes(ctx context.Context) error {
+	log := ctrl.LoggerFrom(ctx)
 
 	nodeList := &corev1.NodeList{}
 	if err := r.List(ctx, nodeList, client.MatchingLabels{modelCacheLabelKey: modelCacheLabelValue}); err != nil {
