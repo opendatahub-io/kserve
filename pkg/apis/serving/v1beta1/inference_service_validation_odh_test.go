@@ -29,33 +29,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func TestValidatePodSpecSecurity_HostAliases(t *testing.T) {
-	g := gomega.NewGomegaWithT(t)
-
-	isvc := &InferenceService{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-isvc", Namespace: "default"},
-		Spec: InferenceServiceSpec{
-			Predictor: PredictorSpec{
-				PodSpec: PodSpec{
-					HostAliases: []corev1.HostAlias{
-						{IP: "127.0.0.1", Hostnames: []string{"malicious.example.com"}},
-					},
-				},
-				Tensorflow: &TFServingSpec{
-					PredictorExtensionSpec: PredictorExtensionSpec{
-						StorageURI: proto.String("gs://testbucket/testmodel"),
-					},
-				},
-			},
-		},
-	}
-
-	err := validatePodSpecSecurity(isvc)
-	g.Expect(err).To(gomega.HaveOccurred())
-	g.Expect(err.Error()).To(gomega.ContainSubstring("hostAliases are not allowed"))
-	g.Expect(err.Error()).To(gomega.ContainSubstring("predictor"))
-}
-
 func TestValidatePodSpecSecurity_HostNetwork(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 
@@ -127,84 +100,6 @@ func TestValidatePodSpecSecurity_HostIPC(t *testing.T) {
 	err := validatePodSpecSecurity(isvc)
 	g.Expect(err).To(gomega.HaveOccurred())
 	g.Expect(err.Error()).To(gomega.ContainSubstring("hostIPC is not allowed"))
-}
-
-func TestValidatePodSpecSecurity_ServiceAccountName(t *testing.T) {
-	g := gomega.NewGomegaWithT(t)
-
-	isvc := &InferenceService{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-isvc", Namespace: "default"},
-		Spec: InferenceServiceSpec{
-			Predictor: PredictorSpec{
-				PodSpec: PodSpec{
-					ServiceAccountName: "custom-sa",
-				},
-				Tensorflow: &TFServingSpec{
-					PredictorExtensionSpec: PredictorExtensionSpec{
-						StorageURI: proto.String("gs://testbucket/testmodel"),
-					},
-				},
-			},
-		},
-	}
-
-	err := validatePodSpecSecurity(isvc)
-	g.Expect(err).To(gomega.HaveOccurred())
-	g.Expect(err.Error()).To(gomega.ContainSubstring("serviceAccountName is not allowed"))
-}
-
-func TestValidatePodSpecSecurity_DeprecatedServiceAccount(t *testing.T) {
-	g := gomega.NewGomegaWithT(t)
-
-	isvc := &InferenceService{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-isvc", Namespace: "default"},
-		Spec: InferenceServiceSpec{
-			Predictor: PredictorSpec{
-				PodSpec: PodSpec{
-					DeprecatedServiceAccount: "custom-sa",
-				},
-				Tensorflow: &TFServingSpec{
-					PredictorExtensionSpec: PredictorExtensionSpec{
-						StorageURI: proto.String("gs://testbucket/testmodel"),
-					},
-				},
-			},
-		},
-	}
-
-	err := validatePodSpecSecurity(isvc)
-	g.Expect(err).To(gomega.HaveOccurred())
-	g.Expect(err.Error()).To(gomega.ContainSubstring("serviceAccount is not allowed"))
-	g.Expect(err.Error()).To(gomega.ContainSubstring("predictor"))
-}
-
-func TestValidatePodSpecSecurity_InitContainers(t *testing.T) {
-	g := gomega.NewGomegaWithT(t)
-
-	isvc := &InferenceService{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-isvc", Namespace: "default"},
-		Spec: InferenceServiceSpec{
-			Predictor: PredictorSpec{
-				PodSpec: PodSpec{
-					InitContainers: []corev1.Container{
-						{
-							Name:  "evil-init",
-							Image: "attacker/image:latest",
-						},
-					},
-				},
-				Tensorflow: &TFServingSpec{
-					PredictorExtensionSpec: PredictorExtensionSpec{
-						StorageURI: proto.String("gs://testbucket/testmodel"),
-					},
-				},
-			},
-		},
-	}
-
-	err := validatePodSpecSecurity(isvc)
-	g.Expect(err).To(gomega.HaveOccurred())
-	g.Expect(err.Error()).To(gomega.ContainSubstring("initContainers are not allowed"))
 }
 
 func TestValidatePodSpecSecurity_ProjectedSATokenVolume(t *testing.T) {
@@ -341,7 +236,7 @@ func TestValidatePodSpecSecurity_TransformerHostNetwork(t *testing.T) {
 	g.Expect(err.Error()).To(gomega.ContainSubstring("hostNetwork is not allowed in transformer"))
 }
 
-func TestValidatePodSpecSecurity_ExplainerServiceAccountName(t *testing.T) {
+func TestValidatePodSpecSecurity_ExplainerHostIPC(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 
 	isvc := &InferenceService{
@@ -356,13 +251,8 @@ func TestValidatePodSpecSecurity_ExplainerServiceAccountName(t *testing.T) {
 			},
 			Explainer: &ExplainerSpec{
 				PodSpec: PodSpec{
-					ServiceAccountName: "custom-sa",
-					Containers: []corev1.Container{
-						{
-							Name:  "kserve-container",
-							Image: "explainer:latest",
-						},
-					},
+					HostIPC:    true,
+					Containers: []corev1.Container{{Name: "kserve-container", Image: "img"}},
 				},
 			},
 		},
@@ -370,7 +260,7 @@ func TestValidatePodSpecSecurity_ExplainerServiceAccountName(t *testing.T) {
 
 	err := validatePodSpecSecurity(isvc)
 	g.Expect(err).To(gomega.HaveOccurred())
-	g.Expect(err.Error()).To(gomega.ContainSubstring("serviceAccountName is not allowed in explainer"))
+	g.Expect(err.Error()).To(gomega.ContainSubstring("hostIPC is not allowed in explainer"))
 }
 
 func TestValidatePodSpecSecurity_WorkerSpecHostPID(t *testing.T) {
@@ -397,34 +287,6 @@ func TestValidatePodSpecSecurity_WorkerSpecHostPID(t *testing.T) {
 	err := validatePodSpecSecurity(isvc)
 	g.Expect(err).To(gomega.HaveOccurred())
 	g.Expect(err.Error()).To(gomega.ContainSubstring("hostPID is not allowed in predictor.workerSpec"))
-}
-
-func TestValidatePodSpecSecurity_WorkerSpecInitContainers(t *testing.T) {
-	g := gomega.NewGomegaWithT(t)
-
-	isvc := &InferenceService{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-isvc", Namespace: "default"},
-		Spec: InferenceServiceSpec{
-			Predictor: PredictorSpec{
-				WorkerSpec: &WorkerSpec{
-					PodSpec: PodSpec{
-						InitContainers: []corev1.Container{
-							{Name: "init", Image: "init:latest"},
-						},
-					},
-				},
-				Tensorflow: &TFServingSpec{
-					PredictorExtensionSpec: PredictorExtensionSpec{
-						StorageURI: proto.String("gs://testbucket/testmodel"),
-					},
-				},
-			},
-		},
-	}
-
-	err := validatePodSpecSecurity(isvc)
-	g.Expect(err).To(gomega.HaveOccurred())
-	g.Expect(err.Error()).To(gomega.ContainSubstring("initContainers are not allowed in predictor.workerSpec"))
 }
 
 func TestValidatePodSpecSecurity_ErrorIncludesIsvcName(t *testing.T) {
@@ -497,41 +359,6 @@ func TestValidatePodSpecSecurity_MultipleProjectedSourcesWithSAToken(t *testing.
 	g.Expect(err.Error()).To(gomega.ContainSubstring("serviceAccountToken source"))
 }
 
-func TestValidatePodSpecSecurity_HostPathVolume(t *testing.T) {
-	g := gomega.NewGomegaWithT(t)
-
-	isvc := &InferenceService{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-isvc", Namespace: "default"},
-		Spec: InferenceServiceSpec{
-			Predictor: PredictorSpec{
-				PodSpec: PodSpec{
-					Volumes: []corev1.Volume{
-						{
-							Name: "host-root",
-							VolumeSource: corev1.VolumeSource{
-								HostPath: &corev1.HostPathVolumeSource{
-									Path: "/",
-								},
-							},
-						},
-					},
-				},
-				Tensorflow: &TFServingSpec{
-					PredictorExtensionSpec: PredictorExtensionSpec{
-						StorageURI: proto.String("gs://testbucket/testmodel"),
-					},
-				},
-			},
-		},
-	}
-
-	err := validatePodSpecSecurity(isvc)
-	g.Expect(err).To(gomega.HaveOccurred())
-	g.Expect(err.Error()).To(gomega.ContainSubstring("hostPath volume"))
-	g.Expect(err.Error()).To(gomega.ContainSubstring("host-root"))
-	g.Expect(err.Error()).To(gomega.ContainSubstring("predictor"))
-}
-
 func TestValidatePodSpecSecurity_NonProjectedVolumesAllowed(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 
@@ -597,51 +424,6 @@ func TestValidatePodSpecSecurity_AllFieldsTable(t *testing.T) {
 			},
 			expectErr: false,
 		},
-		"PredictorHostAliases": {
-			isvc: &InferenceService{
-				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
-				Spec: InferenceServiceSpec{
-					Predictor: PredictorSpec{
-						PodSpec: PodSpec{
-							HostAliases: []corev1.HostAlias{{IP: "1.2.3.4", Hostnames: []string{"bad"}}},
-						},
-						Tensorflow: &TFServingSpec{
-							PredictorExtensionSpec: PredictorExtensionSpec{
-								StorageURI: proto.String("gs://bucket/model"),
-							},
-						},
-					},
-				},
-			},
-			expectErr: true,
-			errSubstr: "hostAliases",
-		},
-		"PredictorHostPathVolume": {
-			isvc: &InferenceService{
-				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
-				Spec: InferenceServiceSpec{
-					Predictor: PredictorSpec{
-						PodSpec: PodSpec{
-							Volumes: []corev1.Volume{
-								{
-									Name: "host-vol",
-									VolumeSource: corev1.VolumeSource{
-										HostPath: &corev1.HostPathVolumeSource{Path: "/etc"},
-									},
-								},
-							},
-						},
-						Tensorflow: &TFServingSpec{
-							PredictorExtensionSpec: PredictorExtensionSpec{
-								StorageURI: proto.String("gs://bucket/model"),
-							},
-						},
-					},
-				},
-			},
-			expectErr: true,
-			errSubstr: "hostPath volume",
-		},
 		"PredictorHostNetwork": {
 			isvc: &InferenceService{
 				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
@@ -693,59 +475,6 @@ func TestValidatePodSpecSecurity_AllFieldsTable(t *testing.T) {
 			expectErr: true,
 			errSubstr: "hostIPC",
 		},
-		"PredictorServiceAccountName": {
-			isvc: &InferenceService{
-				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
-				Spec: InferenceServiceSpec{
-					Predictor: PredictorSpec{
-						PodSpec: PodSpec{ServiceAccountName: "custom"},
-						Tensorflow: &TFServingSpec{
-							PredictorExtensionSpec: PredictorExtensionSpec{
-								StorageURI: proto.String("gs://bucket/model"),
-							},
-						},
-					},
-				},
-			},
-			expectErr: true,
-			errSubstr: "serviceAccountName",
-		},
-		"PredictorDeprecatedServiceAccount": {
-			isvc: &InferenceService{
-				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
-				Spec: InferenceServiceSpec{
-					Predictor: PredictorSpec{
-						PodSpec: PodSpec{DeprecatedServiceAccount: "custom"},
-						Tensorflow: &TFServingSpec{
-							PredictorExtensionSpec: PredictorExtensionSpec{
-								StorageURI: proto.String("gs://bucket/model"),
-							},
-						},
-					},
-				},
-			},
-			expectErr: true,
-			errSubstr: "serviceAccount is not allowed",
-		},
-		"PredictorInitContainers": {
-			isvc: &InferenceService{
-				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
-				Spec: InferenceServiceSpec{
-					Predictor: PredictorSpec{
-						PodSpec: PodSpec{
-							InitContainers: []corev1.Container{{Name: "init", Image: "img"}},
-						},
-						Tensorflow: &TFServingSpec{
-							PredictorExtensionSpec: PredictorExtensionSpec{
-								StorageURI: proto.String("gs://bucket/model"),
-							},
-						},
-					},
-				},
-			},
-			expectErr: true,
-			errSubstr: "initContainers",
-		},
 		"PredictorProjectedSAToken": {
 			isvc: &InferenceService{
 				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
@@ -776,7 +505,7 @@ func TestValidatePodSpecSecurity_AllFieldsTable(t *testing.T) {
 			expectErr: true,
 			errSubstr: "serviceAccountToken",
 		},
-		"TransformerInitContainers": {
+		"TransformerHostNetwork": {
 			isvc: &InferenceService{
 				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 				Spec: InferenceServiceSpec{
@@ -789,14 +518,14 @@ func TestValidatePodSpecSecurity_AllFieldsTable(t *testing.T) {
 					},
 					Transformer: &TransformerSpec{
 						PodSpec: PodSpec{
-							InitContainers: []corev1.Container{{Name: "init", Image: "img"}},
-							Containers:     []corev1.Container{{Name: "kserve-container", Image: "img"}},
+							HostNetwork: true,
+							Containers:  []corev1.Container{{Name: "kserve-container", Image: "img"}},
 						},
 					},
 				},
 			},
 			expectErr: true,
-			errSubstr: "initContainers are not allowed in transformer",
+			errSubstr: "hostNetwork is not allowed in transformer",
 		},
 		"ExplainerHostIPC": {
 			isvc: &InferenceService{
@@ -820,13 +549,13 @@ func TestValidatePodSpecSecurity_AllFieldsTable(t *testing.T) {
 			expectErr: true,
 			errSubstr: "hostIPC is not allowed in explainer",
 		},
-		"WorkerSpecServiceAccountName": {
+		"WorkerSpecHostPID": {
 			isvc: &InferenceService{
 				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 				Spec: InferenceServiceSpec{
 					Predictor: PredictorSpec{
 						WorkerSpec: &WorkerSpec{
-							PodSpec: PodSpec{ServiceAccountName: "worker-sa"},
+							PodSpec: PodSpec{HostPID: true},
 						},
 						Tensorflow: &TFServingSpec{
 							PredictorExtensionSpec: PredictorExtensionSpec{
@@ -837,7 +566,7 @@ func TestValidatePodSpecSecurity_AllFieldsTable(t *testing.T) {
 				},
 			},
 			expectErr: true,
-			errSubstr: "serviceAccountName is not allowed in predictor.workerSpec",
+			errSubstr: "hostPID is not allowed in predictor.workerSpec",
 		},
 	}
 
