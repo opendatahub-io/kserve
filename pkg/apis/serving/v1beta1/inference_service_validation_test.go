@@ -594,7 +594,7 @@ func TestRejectMultipleModelSpecs(t *testing.T) {
 func TestCustomizeDeploymentStrategyUnsupportedForServerless(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 	isvc := makeTestInferenceService()
-	isvc.Spec.Predictor.PodSpec = PodSpec{ServiceAccountName: "test"}
+	isvc.Spec.Predictor.PodSpec = PodSpec{NodeName: "test-node"}
 	isvc.Spec.Predictor.DeploymentStrategy = &appsv1.DeploymentStrategy{
 		Type: appsv1.RecreateDeploymentStrategyType,
 	}
@@ -607,7 +607,7 @@ func TestCustomizeDeploymentStrategyUnsupportedForServerless(t *testing.T) {
 func TestModelSpecAndCustomOverridesIsValid(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 	isvc := makeTestInferenceService()
-	isvc.Spec.Predictor.PodSpec = PodSpec{ServiceAccountName: "test"}
+	isvc.Spec.Predictor.PodSpec = PodSpec{NodeName: "test-node"}
 	validator := InferenceServiceValidator{}
 	warnings, err := validator.ValidateCreate(t.Context(), &isvc)
 	g.Expect(err).Should(gomega.Succeed())
