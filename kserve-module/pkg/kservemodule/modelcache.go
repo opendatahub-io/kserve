@@ -11,7 +11,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -29,10 +28,10 @@ const (
 	modelCacheLabelKey   = "kserve/localmodel"
 	modelCacheLabelValue = "worker"
 
-	modelCachePVName         = "kserve-localmodelnode-pv"
-	modelCachePVCName        = "kserve-localmodelnode-pvc"
-	modelCacheHostDir        = "/var/lib/kserve/models"
-	modelCacheStorageClass   = "local-storage"
+	modelCachePVName       = "kserve-localmodelnode-pv"
+	modelCachePVCName      = "kserve-localmodelnode-pvc"
+	modelCacheHostDir      = "/var/lib/kserve/models"
+	modelCacheStorageClass = "local-storage"
 
 	localModelNodeGroupName = "workers"
 
@@ -62,11 +61,38 @@ func isModelCacheEnabled(kserve *platformv1alpha1.Kserve) bool {
 	return kserve.Spec.ModelCache != nil && kserve.Spec.ModelCache.ManagementState == common.Managed
 }
 
-func buildModelCachePV(cacheSize resource.Quantity) (*corev1.PersistentVolume, error) {
+func buildModelCacheResources(kserve *platformv1alpha1.Kserve, namespace string) ([]unstructured.Unstructured, error) {
 	pv := &corev1.PersistentVolume{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "PersistentVolume"},
 		ObjectMeta: metav1.ObjectMeta{Name: modelCachePVName},
-		Spec: corev1.PersistentVolumeSpec{
+	}
+
+	pvc := &corev1.PersistentVolumeClaim{
+		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "PersistentVolumeClaim"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      modelCachePVCName,
+			Namespace: namespace,
+		},
+	}
+
+	// Create a LocalModelNodeGroup unstructured object
+	// using unstructured.Unstructured to avoid circular dependency on the LocalModelNodeGroup type
+	lmng := unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": localModelNodeGroupGVK.Group + "/" + localModelNodeGroupGVK.Version,
+		"kind":       localModelNodeGroupGVK.Kind,
+		"metadata": map[string]any{
+			"name": localModelNodeGroupName,
+		},
+	}}
+
+	if kserve != nil {
+		if kserve.Spec.ModelCache.CacheSize == nil {
+			return nil, fmt.Errorf("cacheSize is required when ModelCache is Managed")
+		}
+		cacheSize := *kserve.Spec.ModelCache.CacheSize
+		cacheSizeStr := cacheSize.String()
+
+		pv.Spec = corev1.PersistentVolumeSpec{
 			Capacity:                      corev1.ResourceList{corev1.ResourceStorage: cacheSize},
 			VolumeMode:                    ptr.To(corev1.PersistentVolumeFilesystem),
 			AccessModes:                   []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
@@ -89,19 +115,9 @@ func buildModelCachePV(cacheSize resource.Quantity) (*corev1.PersistentVolume, e
 					}},
 				},
 			},
-		},
-	}
-	return pv, nil
-}
+		}
 
-func buildModelCachePVC(cacheSize resource.Quantity, namespace string) (*corev1.PersistentVolumeClaim, error) {
-	pvc := &corev1.PersistentVolumeClaim{
-		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "PersistentVolumeClaim"},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      modelCachePVCName,
-			Namespace: namespace,
-		},
-		Spec: corev1.PersistentVolumeClaimSpec{
+		pvc.Spec = corev1.PersistentVolumeClaimSpec{
 			VolumeName:       modelCachePVName,
 			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 			VolumeMode:       ptr.To(corev1.PersistentVolumeFilesystem),
@@ -109,41 +125,25 @@ func buildModelCachePVC(cacheSize resource.Quantity, namespace string) (*corev1.
 			Resources: corev1.VolumeResourceRequirements{
 				Requests: corev1.ResourceList{corev1.ResourceStorage: cacheSize},
 			},
-		},
-	}
-	return pvc, nil
-}
+		}
 
-func buildLocalModelNodeGroup(cacheSizeStr string) unstructured.Unstructured {
-	obj := unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": localModelNodeGroupGVK.Group + "/" + localModelNodeGroupGVK.Version,
-		"kind":       localModelNodeGroupGVK.Kind,
-		"metadata": map[string]any{
-			"name": localModelNodeGroupName,
-		},
-		"spec": map[string]any{
+		lmng.Object["spec"] = map[string]any{
 			"storageLimit": cacheSizeStr,
 			"persistentVolumeSpec": map[string]any{
-				"capacity": map[string]any{
-					"storage": cacheSizeStr,
-				},
+				"capacity":                      map[string]any{"storage": cacheSizeStr},
 				"volumeMode":                    "Filesystem",
 				"accessModes":                   []any{"ReadWriteOnce"},
 				"persistentVolumeReclaimPolicy": "Delete",
 				"storageClassName":              modelCacheStorageClass,
-				"hostPath": map[string]any{
-					"path": modelCacheHostDir,
-					"type": "DirectoryOrCreate",
-				},
+				"hostPath":                      map[string]any{"path": modelCacheHostDir, "type": "DirectoryOrCreate"},
 				"nodeAffinity": map[string]any{
 					"required": map[string]any{
 						"nodeSelectorTerms": []any{
 							map[string]any{
 								"matchExpressions": []any{
 									map[string]any{
-										"key":      modelCacheLabelKey,
-										"operator": "In",
-										"values":   []any{modelCacheLabelValue},
+										"key": modelCacheLabelKey, "operator": "In",
+										"values": []any{modelCacheLabelValue},
 									},
 								},
 							},
@@ -152,51 +152,24 @@ func buildLocalModelNodeGroup(cacheSizeStr string) unstructured.Unstructured {
 				},
 			},
 			"persistentVolumeClaimSpec": map[string]any{
-				"accessModes": []any{"ReadWriteOnce"},
-				"volumeMode":  "Filesystem",
-				"resources": map[string]any{
-					"requests": map[string]any{
-						"storage": cacheSizeStr,
-					},
-				},
+				"accessModes":      []any{"ReadWriteOnce"},
+				"volumeMode":       "Filesystem",
+				"resources":        map[string]any{"requests": map[string]any{"storage": cacheSizeStr}},
 				"storageClassName": modelCacheStorageClass,
 			},
-		},
-	}}
-	return obj
-}
-
-func buildModelCacheResources(kserve *platformv1alpha1.Kserve, namespace string) ([]unstructured.Unstructured, error) {
-	if kserve.Spec.ModelCache.CacheSize == nil {
-		return nil, fmt.Errorf("cacheSize is required when ModelCache is Managed")
+		}
 	}
-	cacheSize := *kserve.Spec.ModelCache.CacheSize
 
-	pv, err := buildModelCachePV(cacheSize)
-	if err != nil {
-		return nil, err
-	}
 	pvU, err := runtime.DefaultUnstructuredConverter.ToUnstructured(pv)
 	if err != nil {
 		return nil, fmt.Errorf("converting PV to unstructured: %w", err)
-	}
-
-	pvc, err := buildModelCachePVC(cacheSize, namespace)
-	if err != nil {
-		return nil, err
 	}
 	pvcU, err := runtime.DefaultUnstructuredConverter.ToUnstructured(pvc)
 	if err != nil {
 		return nil, fmt.Errorf("converting PVC to unstructured: %w", err)
 	}
 
-	lmng := buildLocalModelNodeGroup(cacheSize.String())
-
-	return []unstructured.Unstructured{
-		{Object: pvU},
-		{Object: pvcU},
-		lmng,
-	}, nil
+	return []unstructured.Unstructured{{Object: pvU}, {Object: pvcU}, lmng}, nil
 }
 
 func (r *KserveModuleReconciler) updateNamespacePSA(ctx context.Context, desiredLevel string) error {
@@ -348,6 +321,11 @@ func modelCacheComponentPostRender(
 	kserve *platformv1alpha1.Kserve,
 	resources []unstructured.Unstructured,
 ) ([]unstructured.Unstructured, error) {
+	extra, err := buildModelCacheResources(kserve, r.getApplicationsNamespace())
+	if err != nil {
+		return nil, fmt.Errorf("building modelcache resources: %w", err)
+	}
+	resources = append(resources, extra...)
 	if kserve == nil {
 		return resources, nil
 	}
@@ -358,12 +336,6 @@ func modelCacheComponentPostRender(
 	if err := r.labelModelCacheNodes(ctx, kserve); err != nil {
 		return nil, fmt.Errorf("labeling model cache nodes: %w", err)
 	}
-
-	extra, err := buildModelCacheResources(kserve, r.getApplicationsNamespace())
-	if err != nil {
-		return nil, fmt.Errorf("building modelcache resources: %w", err)
-	}
-	resources = append(resources, extra...)
 
 	if !r.isKubernetes(ctx) {
 		mcsLevel, err := r.resolveNamespaceMCSLevel(ctx, r.getApplicationsNamespace())
@@ -382,7 +354,6 @@ func modelCacheComponentPostRender(
 func cleanupModelCacheComponent(ctx context.Context, r *KserveModuleReconciler) error {
 	return r.cleanupModelCache(ctx)
 }
-
 
 func (r *KserveModuleReconciler) checkModelCacheReadiness(ctx context.Context) error {
 	if err := checkDeploymentsReady(ctx, r.Client, r.getApplicationsNamespace(), []string{localmodelControllerDeployment}); err != nil {
@@ -416,7 +387,6 @@ func (r *KserveModuleReconciler) checkModelCacheReadiness(ctx context.Context) e
 
 	return nil
 }
-
 
 type modelCacheReadinessError struct {
 	reason string

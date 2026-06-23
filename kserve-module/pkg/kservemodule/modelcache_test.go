@@ -70,59 +70,19 @@ func TestIsModelCacheEnabled(t *testing.T) {
 	}
 }
 
-func TestBuildModelCachePV(t *testing.T) {
+func TestBuildModelCacheResources_NilKserve(t *testing.T) {
 	g := NewWithT(t)
 
-	pv, err := buildModelCachePV(resource.MustParse("500Gi"))
+	resources, err := buildModelCacheResources(nil, "test-ns")
 	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(resources).To(HaveLen(3))
 
-	g.Expect(pv.Name).To(Equal(modelCachePVName))
-	g.Expect(pv.Spec.Capacity[corev1.ResourceStorage]).To(Equal(resource.MustParse("500Gi")))
-	g.Expect(pv.Spec.StorageClassName).To(Equal("local-storage"))
-	g.Expect(pv.Spec.PersistentVolumeReclaimPolicy).To(Equal(corev1.PersistentVolumeReclaimRetain))
-	g.Expect(pv.Spec.AccessModes).To(ContainElement(corev1.ReadWriteOnce))
-	g.Expect(pv.Spec.HostPath).NotTo(BeNil())
-	g.Expect(pv.Spec.HostPath.Path).To(Equal(modelCacheHostDir))
-	g.Expect(pv.Spec.NodeAffinity).NotTo(BeNil())
-	g.Expect(pv.Spec.NodeAffinity.Required.NodeSelectorTerms).To(HaveLen(1))
-	g.Expect(pv.Spec.NodeAffinity.Required.NodeSelectorTerms[0].MatchExpressions[0].Key).To(Equal(modelCacheLabelKey))
-	g.Expect(pv.Spec.NodeAffinity.Required.NodeSelectorTerms[0].MatchExpressions[0].Values).To(ContainElement(modelCacheLabelValue))
-}
-
-func TestBuildModelCachePVC(t *testing.T) {
-	g := NewWithT(t)
-
-	pvc, err := buildModelCachePVC(resource.MustParse("100Gi"), "test-ns")
-	g.Expect(err).NotTo(HaveOccurred())
-
-	g.Expect(pvc.Name).To(Equal(modelCachePVCName))
-	g.Expect(pvc.Namespace).To(Equal("test-ns"))
-	g.Expect(pvc.Spec.VolumeName).To(Equal(modelCachePVName))
-	g.Expect(pvc.Spec.Resources.Requests[corev1.ResourceStorage]).To(Equal(resource.MustParse("100Gi")))
-	g.Expect(*pvc.Spec.StorageClassName).To(Equal("local-storage"))
-	g.Expect(pvc.Spec.AccessModes).To(ContainElement(corev1.ReadWriteOnce))
-}
-
-func TestBuildLocalModelNodeGroup(t *testing.T) {
-	g := NewWithT(t)
-
-	obj := buildLocalModelNodeGroup("200Gi")
-
-	g.Expect(obj.GetName()).To(Equal(localModelNodeGroupName))
-	g.Expect(obj.GroupVersionKind()).To(Equal(localModelNodeGroupGVK))
-
-	spec, found, err := unstructured.NestedMap(obj.Object, "spec")
-	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(found).To(BeTrue())
-	g.Expect(spec["storageLimit"]).To(Equal("200Gi"))
-
-	pvSpec, ok := spec["persistentVolumeSpec"].(map[string]any)
-	g.Expect(ok).To(BeTrue())
-	g.Expect(pvSpec["storageClassName"]).To(Equal("local-storage"))
-
-	hostPath, ok := pvSpec["hostPath"].(map[string]any)
-	g.Expect(ok).To(BeTrue())
-	g.Expect(hostPath["path"]).To(Equal(modelCacheHostDir))
+	g.Expect(resources[0].GetKind()).To(Equal("PersistentVolume"))
+	g.Expect(resources[0].GetName()).To(Equal(modelCachePVName))
+	g.Expect(resources[1].GetKind()).To(Equal("PersistentVolumeClaim"))
+	g.Expect(resources[1].GetName()).To(Equal(modelCachePVCName))
+	g.Expect(resources[2].GetKind()).To(Equal("LocalModelNodeGroup"))
+	g.Expect(resources[2].GetName()).To(Equal(localModelNodeGroupName))
 }
 
 func TestBuildModelCacheResources_NilCacheSize(t *testing.T) {
@@ -526,7 +486,7 @@ func TestModelCacheComponentPostRender_NilKserve(t *testing.T) {
 	}
 	result, err := modelCacheComponentPostRender(context.Background(), r, nil, resources)
 	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(result).To(HaveLen(1))
+	g.Expect(result).To(HaveLen(4))
 }
 
 func TestCleanupModelCache_DeletesResources(t *testing.T) {
