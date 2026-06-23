@@ -310,7 +310,6 @@ rules:
   - list
   - patch
   - update
-  - use
   - watch
 - apiGroups:
   - serving.kserve.io
