@@ -1,0 +1,18 @@
+map:
+  kserve:
+    src: config
+    dest: kserve
+    git.url: https://github.com/opendatahub-io/kserve
+    ref_type: branch
+    branch: release-v0.17
+  odh-model-controller:
+    src: config
+    dest: modelcontroller
+    git.url: https://github.com/opendatahub-io/odh-model-controller
+    ref_type: branch
+    branch: incubating
+  workload-variant-autoscaler:
+    src: config
+    dest: wva
+    git.url: https://github.com/opendatahub-io/workload-variant-autoscaler
+    git.commit: "0641ee03e8430cce5821797137b1b53bf70b98a2"

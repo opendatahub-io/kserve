@@ -18,7 +18,12 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # Collect kserve + odh-model-controller manifests
 COPY kserve-module/hack/  hack/
 COPY config/               ../config/
-RUN bash hack/get_kserve_manifests.sh
+RUN if [ -d /cachi2/prefetched-manifests ]; then \
+      mkdir -p opt/manifests && \
+      cp -r /cachi2/prefetched-manifests/* opt/manifests/; \
+    else \
+      bash hack/get_kserve_manifests.sh; \
+    fi
 
 # Runtime
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
