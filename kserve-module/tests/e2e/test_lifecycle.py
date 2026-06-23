@@ -36,12 +36,14 @@ def _verify_deployments_available(kubectl, is_openshift):
     deployments = yaml.safe_load(result.stdout)
     items = {d["metadata"]["name"]: d for d in deployments.get("items", [])}
     for name in expected:
-        assert name in items, \
-            f"{name} not found. Deployments: {list(items.keys())}"
-        conditions = {c["type"]: c for c in items[name].get("status", {}).get("conditions", [])}
+        assert name in items, f"{name} not found. Deployments: {list(items.keys())}"
+        conditions = {
+            c["type"]: c for c in items[name].get("status", {}).get("conditions", [])
+        }
         avail = conditions.get("Available", {})
-        assert avail.get("status") == "True", \
+        assert avail.get("status") == "True", (
             f"{name} not Available. Condition: {avail}"
+        )
 
 
 @pytest.mark.sanity
@@ -61,7 +63,9 @@ class TestCreate:
 class TestDelete:
     """Verify CR deletion removes managed resources and preserves CRDs."""
 
-    def test_delete_cleans_up_managed_resources(self, kubectl, cluster_info, apply_kserve_cr):
+    def test_delete_cleans_up_managed_resources(
+        self, kubectl, cluster_info, apply_kserve_cr
+    ):
         """Kserve CR deletion removes managed deployments but keeps the operator running.
 
         Verifies GC cleans up operand deployments via ownerReference,
@@ -79,11 +83,13 @@ class TestDelete:
         dep_names = [d["metadata"]["name"] for d in deployments.get("items", [])]
 
         for operand in expected:
-            assert operand not in dep_names, \
+            assert operand not in dep_names, (
                 f"{operand} should be deleted. Found: {dep_names}"
+            )
 
-        assert OPERATOR_DEPLOYMENT in dep_names, \
+        assert OPERATOR_DEPLOYMENT in dep_names, (
             "Operator deployment should still be running"
+        )
 
 
 @pytest.mark.sanity
@@ -98,32 +104,59 @@ class TestUpdate:
         """
         gen_before = apply_kserve_cr["metadata"]["generation"]
 
-        result = run([
-            kubectl, "get", "configmap", "inferenceservice-config",
-            "-n", NAMESPACE, "-o", "jsonpath={.data.service}",
-        ])
-        assert '"serviceClusterIPNone": true' in result.stdout, \
+        result = run(
+            [
+                kubectl,
+                "get",
+                "configmap",
+                "inferenceservice-config",
+                "-n",
+                NAMESPACE,
+                "-o",
+                "jsonpath={.data.service}",
+            ]
+        )
+        assert '"serviceClusterIPNone": true' in result.stdout, (
             "ConfigMap should have serviceClusterIPNone=true before update"
+        )
 
         patch = json.dumps({"spec": {"rawDeploymentServiceConfig": "Headed"}})
-        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+        run(
+            [kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch]
+        )
 
-        cr_after = _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-                            f"observedGeneration not matching within {TIMEOUT_120S}s")
+        cr_after = _poll_cr(
+            kubectl,
+            KSERVE_CR_NAME,
+            _generation_matches,
+            TIMEOUT_120S,
+            f"observedGeneration not matching within {TIMEOUT_120S}s",
+        )
         gen_after = cr_after["metadata"]["generation"]
 
-        assert gen_after > gen_before, \
+        assert gen_after > gen_before, (
             f"Generation should increment: {gen_before} -> {gen_after}"
-        assert cr_after["spec"]["rawDeploymentServiceConfig"] == "Headed", \
+        )
+        assert cr_after["spec"]["rawDeploymentServiceConfig"] == "Headed", (
             "Spec should reflect update: expected Headed"
+        )
 
         expected_headless = "false"
-        result = run([
-            kubectl, "get", "configmap", "inferenceservice-config",
-            "-n", NAMESPACE, "-o", "jsonpath={.data.service}",
-        ])
-        assert f'"serviceClusterIPNone": {expected_headless}' in result.stdout, \
+        result = run(
+            [
+                kubectl,
+                "get",
+                "configmap",
+                "inferenceservice-config",
+                "-n",
+                NAMESPACE,
+                "-o",
+                "jsonpath={.data.service}",
+            ]
+        )
+        assert f'"serviceClusterIPNone": {expected_headless}' in result.stdout, (
             f"ConfigMap should reflect serviceClusterIPNone={expected_headless}"
+        )
 
 
 @pytest.mark.sanity
@@ -145,14 +178,12 @@ class TestCELValidation:
             "  managementState: Managed\n"
         )
 
-        result = run(
-            [kubectl, "apply", "-f", "-"], check=False, input_text=invalid_cr
-        )
+        result = run([kubectl, "apply", "-f", "-"], check=False, input_text=invalid_cr)
 
-        assert result.returncode != 0, \
-            "CR with invalid name should be rejected"
-        assert "Kserve name must be 'default-kserve'" in result.stderr, \
+        assert result.returncode != 0, "CR with invalid name should be rejected"
+        assert "Kserve name must be 'default-kserve'" in result.stderr, (
             f"Error should reference CEL name validation. stderr: {result.stderr}"
+        )
 
         result = run([kubectl, "get", "kserve", "invalid-name"], check=False)
         assert result.returncode != 0, "Invalid CR should not exist"
@@ -162,75 +193,123 @@ class TestCELValidation:
 class TestManagementState:
     """Verify managementState transitions for sub-components (WVA, NIM)."""
 
-    def test_wva_default_removed_has_no_deployment(self, kubectl, cluster_info, apply_kserve_cr):
+    def test_wva_default_removed_has_no_deployment(
+        self, kubectl, cluster_info, apply_kserve_cr
+    ):
         """WVA defaults to Removed — no WVA deployment should exist."""
         if not cluster_info.is_openshift:
             pytest.skip("WVA is OCP-only")
 
         patch = json.dumps({"spec": {"wva": {"managementState": "Removed"}}})
-        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
-        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+        run(
+            [kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch]
+        )
+        _poll_cr(
+            kubectl,
+            KSERVE_CR_NAME,
+            _generation_matches,
+            TIMEOUT_120S,
+            f"observedGeneration not matching within {TIMEOUT_120S}s",
+        )
         wait_for_deployment_gone(kubectl, WVA_DEPLOYMENT)
 
         result = run(
             [kubectl, "get", "deployment", WVA_DEPLOYMENT, "-n", NAMESPACE],
             check=False,
         )
-        assert result.returncode != 0, \
+        assert result.returncode != 0, (
             f"{WVA_DEPLOYMENT} should not exist when WVA is Removed"
+        )
 
-    def test_wva_managed_deploys_resources(self, kubectl, cluster_info, apply_kserve_cr):
+    def test_wva_managed_deploys_resources(
+        self, kubectl, cluster_info, apply_kserve_cr
+    ):
         """Setting wva.managementState to Managed deploys WVA resources."""
         if not cluster_info.is_openshift:
             pytest.skip("WVA is OCP-only")
 
         patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
-        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+        run(
+            [kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch]
+        )
 
-        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+        _poll_cr(
+            kubectl,
+            KSERVE_CR_NAME,
+            _generation_matches,
+            TIMEOUT_120S,
+            f"observedGeneration not matching within {TIMEOUT_120S}s",
+        )
 
         wait_for_deployment(kubectl, WVA_DEPLOYMENT)
         _verify_deployments_available(kubectl, is_openshift=True)
 
-    def test_wva_managed_to_removed_cleans_up(self, kubectl, cluster_info, apply_kserve_cr):
+    def test_wva_managed_to_removed_cleans_up(
+        self, kubectl, cluster_info, apply_kserve_cr
+    ):
         """Switching WVA from Managed to Removed removes WVA deployment but keeps others."""
         if not cluster_info.is_openshift:
             pytest.skip("WVA is OCP-only")
 
         patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
-        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+        run(
+            [kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch]
+        )
         wait_for_deployment(kubectl, WVA_DEPLOYMENT)
 
         patch = json.dumps({"spec": {"wva": {"managementState": "Removed"}}})
-        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+        run(
+            [kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch]
+        )
 
-        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+        _poll_cr(
+            kubectl,
+            KSERVE_CR_NAME,
+            _generation_matches,
+            TIMEOUT_120S,
+            f"observedGeneration not matching within {TIMEOUT_120S}s",
+        )
 
         wait_for_deployment_gone(kubectl, WVA_DEPLOYMENT)
 
-        _verify_deployments_available(kubectl, is_openshift=True)
+        wait_for(
+            lambda: _verify_deployments_available(kubectl, is_openshift=True),
+            timeout=TIMEOUT_120S,
+        )
 
     def test_nim_default_managed_env_var(self, kubectl, cluster_info, apply_kserve_cr):
         """NIM defaults to Managed — odh-model-controller should have NIM_STATE=managed."""
         if not cluster_info.is_openshift:
             pytest.skip("odh-model-controller is OCP-only")
 
-        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+        _poll_cr(
+            kubectl,
+            KSERVE_CR_NAME,
+            _generation_matches,
+            TIMEOUT_120S,
+            f"observedGeneration not matching within {TIMEOUT_120S}s",
+        )
         wait_for_deployment(kubectl, MODEL_CONTROLLER_DEPLOYMENT)
 
-        result = run([
-            kubectl, "get", "deployment", MODEL_CONTROLLER_DEPLOYMENT,
-            "-n", NAMESPACE, "-o",
-            "jsonpath={.spec.template.spec.containers[?(@.name=='manager')].env[?(@.name=='NIM_STATE')].value}",
-        ])
-        assert result.stdout.strip() == "managed", \
+        result = run(
+            [
+                kubectl,
+                "get",
+                "deployment",
+                MODEL_CONTROLLER_DEPLOYMENT,
+                "-n",
+                NAMESPACE,
+                "-o",
+                "jsonpath={.spec.template.spec.containers[?(@.name=='manager')].env[?(@.name=='NIM_STATE')].value}",
+            ]
+        )
+        assert result.stdout.strip() == "managed", (
             f"NIM_STATE should be 'managed' by default, got '{result.stdout.strip()}'"
+        )
 
-    def test_nim_managed_to_removed_updates_env(self, kubectl, cluster_info, apply_kserve_cr):
+    def test_nim_managed_to_removed_updates_env(
+        self, kubectl, cluster_info, apply_kserve_cr
+    ):
         """Switching NIM to Removed updates odh-model-controller NIM_STATE env var."""
         if not cluster_info.is_openshift:
             pytest.skip("odh-model-controller is OCP-only")
@@ -238,45 +317,84 @@ class TestManagementState:
         wait_for_deployment(kubectl, MODEL_CONTROLLER_DEPLOYMENT)
 
         patch = json.dumps({"spec": {"nim": {"managementState": "Removed"}}})
-        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+        run(
+            [kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch]
+        )
 
-        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+        _poll_cr(
+            kubectl,
+            KSERVE_CR_NAME,
+            _generation_matches,
+            TIMEOUT_120S,
+            f"observedGeneration not matching within {TIMEOUT_120S}s",
+        )
 
         wait_for_deployment(kubectl, MODEL_CONTROLLER_DEPLOYMENT)
 
-        result = run([
-            kubectl, "get", "deployment", MODEL_CONTROLLER_DEPLOYMENT,
-            "-n", NAMESPACE, "-o",
-            "jsonpath={.spec.template.spec.containers[?(@.name=='manager')].env[?(@.name=='NIM_STATE')].value}",
-        ])
-        assert result.stdout.strip() == "removed", \
+        result = run(
+            [
+                kubectl,
+                "get",
+                "deployment",
+                MODEL_CONTROLLER_DEPLOYMENT,
+                "-n",
+                NAMESPACE,
+                "-o",
+                "jsonpath={.spec.template.spec.containers[?(@.name=='manager')].env[?(@.name=='NIM_STATE')].value}",
+            ]
+        )
+        assert result.stdout.strip() == "removed", (
             f"NIM_STATE should be 'removed' after patch, got '{result.stdout.strip()}'"
+        )
 
-    def test_nim_removed_to_managed_updates_env(self, kubectl, cluster_info, apply_kserve_cr):
+    def test_nim_removed_to_managed_updates_env(
+        self, kubectl, cluster_info, apply_kserve_cr
+    ):
         """Switching NIM back to Managed updates odh-model-controller NIM_STATE env var."""
         if not cluster_info.is_openshift:
             pytest.skip("odh-model-controller is OCP-only")
 
         patch = json.dumps({"spec": {"nim": {"managementState": "Removed"}}})
-        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
-        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+        run(
+            [kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch]
+        )
+        _poll_cr(
+            kubectl,
+            KSERVE_CR_NAME,
+            _generation_matches,
+            TIMEOUT_120S,
+            f"observedGeneration not matching within {TIMEOUT_120S}s",
+        )
 
         patch = json.dumps({"spec": {"nim": {"managementState": "Managed"}}})
-        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
-        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+        run(
+            [kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch]
+        )
+        _poll_cr(
+            kubectl,
+            KSERVE_CR_NAME,
+            _generation_matches,
+            TIMEOUT_120S,
+            f"observedGeneration not matching within {TIMEOUT_120S}s",
+        )
 
         wait_for_deployment(kubectl, MODEL_CONTROLLER_DEPLOYMENT)
 
-        result = run([
-            kubectl, "get", "deployment", MODEL_CONTROLLER_DEPLOYMENT,
-            "-n", NAMESPACE, "-o",
-            "jsonpath={.spec.template.spec.containers[?(@.name=='manager')].env[?(@.name=='NIM_STATE')].value}",
-        ])
-        assert result.stdout.strip() == "managed", \
+        result = run(
+            [
+                kubectl,
+                "get",
+                "deployment",
+                MODEL_CONTROLLER_DEPLOYMENT,
+                "-n",
+                NAMESPACE,
+                "-o",
+                "jsonpath={.spec.template.spec.containers[?(@.name=='manager')].env[?(@.name=='NIM_STATE')].value}",
+            ]
+        )
+        assert result.stdout.strip() == "managed", (
             f"NIM_STATE should be 'managed' after reverting, got '{result.stdout.strip()}'"
+        )
 
 
 @pytest.mark.sanity
@@ -287,25 +405,50 @@ class TestDriftCorrection:
         """Manual ConfigMap edit is reverted by SSA on next reconcile."""
         cm_name = "inferenceservice-config"
 
-        run([
-            kubectl, "patch", "configmap", cm_name, "-n", NAMESPACE,
-            "--type", "merge",
-            "-p", '{"data":{"ingress":"{\\"ingressClassName\\":\\"TAMPERED\\"}"}}',
-        ])
+        run(
+            [
+                kubectl,
+                "patch",
+                "configmap",
+                cm_name,
+                "-n",
+                NAMESPACE,
+                "--type",
+                "merge",
+                "-p",
+                '{"data":{"ingress":"{\\"ingressClassName\\":\\"TAMPERED\\"}"}}',
+            ]
+        )
 
-        result = run([
-            kubectl, "get", "configmap", cm_name, "-n", NAMESPACE,
-            "-o", "jsonpath={.data.ingress}",
-        ])
+        result = run(
+            [
+                kubectl,
+                "get",
+                "configmap",
+                cm_name,
+                "-n",
+                NAMESPACE,
+                "-o",
+                "jsonpath={.data.ingress}",
+            ]
+        )
         assert "TAMPERED" in result.stdout
 
         trigger_reconcile(kubectl, trigger_id="drift-001")
 
         def assert_tampered_reverted():
-            result = run([
-                kubectl, "get", "configmap", cm_name, "-n", NAMESPACE,
-                "-o", "jsonpath={.data.ingress}",
-            ])
+            result = run(
+                [
+                    kubectl,
+                    "get",
+                    "configmap",
+                    cm_name,
+                    "-n",
+                    NAMESPACE,
+                    "-o",
+                    "jsonpath={.data.ingress}",
+                ]
+            )
             assert "TAMPERED" not in result.stdout
 
         wait_for(assert_tampered_reverted, timeout=TIMEOUT_60S, interval=5)
