@@ -2808,7 +2808,7 @@ spec:
         capabilities:
           drop:
           - ALL
-        readOnlyRootFilesystem: true
+        readOnlyRootFilesystem: false
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
@@ -2885,7 +2885,7 @@ spec:
         capabilities:
           drop:
           - ALL
-        readOnlyRootFilesystem: true
+        readOnlyRootFilesystem: false
         runAsNonRoot: true
       terminationMessagePath: /dev/termination-log
       terminationMessagePolicy: FallbackToLogsOnError
@@ -3151,7 +3151,7 @@ spec:
           - NET_RAW
           drop:
           - ALL
-        readOnlyRootFilesystem: true
+        readOnlyRootFilesystem: false
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
@@ -3227,7 +3227,7 @@ spec:
         capabilities:
           drop:
           - ALL
-        readOnlyRootFilesystem: true
+        readOnlyRootFilesystem: false
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
@@ -3472,7 +3472,7 @@ spec:
           - NET_RAW
           drop:
           - ALL
-        readOnlyRootFilesystem: true
+        readOnlyRootFilesystem: false
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
@@ -3714,7 +3714,7 @@ spec:
           capabilities:
             drop:
             - ALL
-          readOnlyRootFilesystem: true
+          readOnlyRootFilesystem: false
           runAsNonRoot: true
           seccompProfile:
             type: RuntimeDefault
@@ -3998,7 +3998,7 @@ spec:
             - NET_RAW
             drop:
             - ALL
-          readOnlyRootFilesystem: true
+          readOnlyRootFilesystem: false
           runAsNonRoot: true
           seccompProfile:
             type: RuntimeDefault
@@ -4256,7 +4256,7 @@ spec:
             - NET_RAW
             drop:
             - ALL
-          readOnlyRootFilesystem: true
+          readOnlyRootFilesystem: false
           runAsNonRoot: true
           seccompProfile:
             type: RuntimeDefault
@@ -4916,7 +4916,7 @@ spec:
         capabilities:
           drop:
           - ALL
-        readOnlyRootFilesystem: true
+        readOnlyRootFilesystem: false
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
@@ -5211,7 +5211,7 @@ spec:
           - NET_RAW
           drop:
           - ALL
-        readOnlyRootFilesystem: true
+        readOnlyRootFilesystem: false
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
@@ -5469,7 +5469,7 @@ spec:
           - NET_RAW
           drop:
           - ALL
-        readOnlyRootFilesystem: true
+        readOnlyRootFilesystem: false
         runAsNonRoot: true
         seccompProfile:
           type: RuntimeDefault
