@@ -146,7 +146,6 @@ def get_model_routing_url(
             kserve_client,
             llm_isvc.metadata.name,
             llm_isvc.metadata.namespace,
-            llm_isvc.api_version.split("/")[1],
         )
 
         status = llm_isvc_status.get("status", {})
@@ -1037,7 +1036,7 @@ def get_llmisvc(
     kserve_client: KServeClient,
     name,
     namespace,
-    version=constants.KSERVE_V1ALPHA1_VERSION,
+    version=constants.KSERVE_V1ALPHA2_VERSION,
 ):
     try:
         return kserve_client.api_instance.get_namespaced_custom_object(
@@ -1132,7 +1131,6 @@ def get_llm_service_url(
             kserve_client,
             llm_isvc.metadata.name,
             llm_isvc.metadata.namespace,
-            llm_isvc.api_version.split("/")[1],
         )
 
         if "status" not in llm_isvc:
@@ -1175,7 +1173,6 @@ def wait_for_llm_isvc_ready(
             kserve_client,
             given.metadata.name,
             given.metadata.namespace,
-            given.api_version.split("/")[1],
         )
 
         if "status" not in out:
