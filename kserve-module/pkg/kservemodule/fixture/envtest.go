@@ -108,6 +108,8 @@ metadata:
   namespace: opendatahub
 data:
   ingress: "{}"
+  service: "{}"
+  oauthProxy: '{"image":"registry.example.com/oauth-proxy:latest","memoryRequest":"64Mi","memoryLimit":"128Mi","cpuRequest":"100m","cpuLimit":"200m"}'
 `
 	modelCtrlManifest := `apiVersion: v1
 kind: ConfigMap
@@ -117,9 +119,28 @@ metadata:
 data:
   enabled: "true"
 `
-	writeKustomizeDir(filepath.Join(workDir, "kserve", "overlays", "odh"), kserveManifest)
-	writeKustomizeDir(filepath.Join(workDir, "kserve", "overlays", "odh-xks"), kserveManifest)
-	writeKustomizeDir(filepath.Join(workDir, "modelcontroller", "base"), modelCtrlManifest)
+	wvaManifest := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workload-variant-autoscaler-controller-manager
+  namespace: opendatahub
+spec:
+  selector:
+    matchLabels:
+      control-plane: workload-variant-autoscaler-controller-manager
+  template:
+    metadata:
+      labels:
+        control-plane: workload-variant-autoscaler-controller-manager
+    spec:
+      containers:
+      - name: manager
+        image: ghcr.io/llm-d/llm-d-workload-variant-autoscaler:latest
+`
+	writeKustomizeDir(filepath.Join(workDir, kservemodule.KserveComponentName, kservemodule.KserveManifestSourcePath), kserveManifest)
+	writeKustomizeDir(filepath.Join(workDir, kservemodule.KserveComponentName, kservemodule.KserveManifestSourcePathXKS), kserveManifest)
+	writeKustomizeDir(filepath.Join(workDir, kservemodule.OdhModelControllerComponentName, kservemodule.ModelControllerSourcePath), modelCtrlManifest)
+	writeKustomizeDir(filepath.Join(workDir, kservemodule.WVAComponentName, kservemodule.WVAManifestSourcePathOCP), wvaManifest)
 }
 
 func writeKustomizeDir(dir, manifest string) {

@@ -48,7 +48,7 @@ const MountPath = "/var/lib/kserve"
 // Categories may be comma-separated (typical on OCP) or dot-separated (e.g. Fedora: s0-s0:c0.c1023).
 var validMCSLevel = regexp.MustCompile(`^s\d+(-s\d+)?(:c\d{1,4}([,.]c\d{1,4})*)?$`)
 
-func enhanceDownloadJob(ctx context.Context, c *LocalModelNodeReconciler, job *batchv1.Job, storageKey string) error {
+func (c *LocalModelNodeReconciler) enhanceDownloadJob(ctx context.Context, job *batchv1.Job, storageKey string) error {
 	containers := job.Spec.Template.Spec.Containers
 	if len(containers) == 0 || len(containers[0].VolumeMounts) == 0 || len(containers[0].Args) == 0 {
 		return errors.New("download job spec is missing required containers, volume mounts, or args")
@@ -75,24 +75,47 @@ func enhanceDownloadJob(ctx context.Context, c *LocalModelNodeReconciler, job *b
 	return nil
 }
 
-func ensureModelRootFolderExistsAndIsWritable(ctx context.Context, c *LocalModelNodeReconciler,
+func (c *LocalModelNodeReconciler) ensureModelRootFolderExistsAndIsWritable(ctx context.Context,
 	localModelConfig *v1beta1.LocalModelConfig,
 ) (*ensureModelRootFolderResult, error) {
+	needsPermFix := false
+
 	// Create model root folder — tolerate permission errors
 	if err := fsHelper.ensureModelRootFolderExists(); err != nil {
 		if os.IsPermission(err) {
-			c.Log.Info("Model root folder not writable, will launch permission fix job", "path", modelsRootFolder, "error", err)
+			c.Log.Info("Model root folder not writable, need permission fix", "path", modelsRootFolder, "error", err)
+			needsPermFix = true
 		} else {
 			return nil, fmt.Errorf("failed to ensure model root folder: %w", err)
 		}
 	}
 
-	// If already writable, nothing to do
-	if isModelRootWritable() {
-		return &ensureModelRootFolderResult{Continue: true}, nil
+	// Check existing subdirectories for permission issues — a download job or prior
+	// agent run may have created subdirectories with different ownership (e.g.
+	// root:root), leaving them inaccessible to the current agent UID.
+	if !needsPermFix && isModelRootWritable() {
+		entries, readErr := os.ReadDir(modelsRootFolder)
+		if readErr != nil && os.IsPermission(readErr) {
+			needsPermFix = true
+		} else if readErr == nil {
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					continue
+				}
+				subdir := filepath.Join(modelsRootFolder, entry.Name())
+				if _, err := os.ReadDir(subdir); err != nil && os.IsPermission(err) {
+					c.Log.Info("Subdirectory has permission issues", "path", subdir, "error", err)
+					needsPermFix = true
+					break
+				}
+			}
+		}
+		if !needsPermFix {
+			return &ensureModelRootFolderResult{Continue: true}, nil
+		}
 	}
 
-	c.Log.Info("Model root directory is not writable, launching permission fix job", "path", modelsRootFolder)
+	c.Log.Info("Launching permission fix job", "path", modelsRootFolder)
 
 	// Load OpenShift config for permission fix image
 	openshiftConfig, err := v1beta1.NewOpenShiftConfig(c.IsvcConfigMap)

@@ -36,6 +36,7 @@ rules:
 - apiGroups:
   - ""
   resources:
+  - namespaces
   - secrets
   verbs:
   - get
@@ -45,6 +46,8 @@ rules:
   - ""
   resourceNames:
   - kserve-webhook-server-secret
+  - workload-variant-autoscaler-epp-metrics-token
+  - workload-variant-autoscaler-metrics-reader-token
   resources:
   - secrets
   verbs:
@@ -154,6 +157,16 @@ rules:
   - watch
 - apiGroups:
   - monitoring.coreos.com
+  resourceNames:
+  - k8s
+  resources:
+  - prometheuses/api
+  verbs:
+  - create
+  - get
+  - update
+- apiGroups:
+  - monitoring.coreos.com
   resources:
   - servicemonitors
   verbs:
@@ -242,6 +255,7 @@ rules:
   - account-viewer-role
   - kserve-admin
   - kserve-edit
+  - kserve-inferenceservice-distro-role
   - kserve-llmisvc-distro-role
   - kserve-llmisvc-manager-role
   - kserve-manager-role
@@ -252,8 +266,16 @@ rules:
   - metrics-reader
   - model-serving-api
   - odh-model-controller-role
+  - openshift-ai-inferenceservice-image-volume-scc
   - openshift-ai-llminferenceservice-scc
   - proxy-role
+  - workload-variant-autoscaler-epp-metrics-reader-role
+  - workload-variant-autoscaler-manager-role
+  - workload-variant-autoscaler-metrics-auth-role
+  - workload-variant-autoscaler-metrics-reader
+  - workload-variant-autoscaler-variantautoscaling-admin-role
+  - workload-variant-autoscaler-variantautoscaling-editor-role
+  - workload-variant-autoscaler-variantautoscaling-viewer-role
   resources:
   - clusterroles
   verbs:
@@ -265,6 +287,7 @@ rules:
   - kserve-leader-election-role
   - leader-election-role
   - llmisvc-leader-election-role
+  - workload-variant-autoscaler-leader-election-role
   resources:
   - roles
   verbs:

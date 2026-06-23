@@ -205,7 +205,6 @@ func NewRawKubeReconciler(ctx context.Context,
 		reconcilers.ServiceReconcilerParams{
 			Client:           client,
 			Scheme:           scheme,
-			ResourceType:     resourceType,
 			ComponentMeta:    componentMeta,
 			ComponentExt:     componentExt,
 			PodSpec:          podSpec,
@@ -240,8 +239,9 @@ func createRawURL(ingressConfig *v1beta1.IngressConfig, metadata metav1.ObjectMe
 
 // Reconcile ...
 func (r *RawKubeReconciler) Reconcile(ctx context.Context) ([]*appsv1.Deployment, error) {
-	// reconciling service before deployment because we want to use "service.beta.openshift.io/serving-cert-secret-name"
-	// reconcile Service
+	// reconcile Service first to avoid transient pod startup delays when
+	// platform-specific service annotations (e.g. serving-cert) trigger
+	// secret creation that the deployment's pods mount.
 	_, err := r.Service.Reconcile(ctx)
 	if err != nil {
 		return nil, err

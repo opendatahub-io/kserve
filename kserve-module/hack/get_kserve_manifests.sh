@@ -16,12 +16,14 @@ DST_MANIFESTS_DIR="${1:-${MODULE_DIR}/opt/manifests}"
 declare -A ODH_COMPONENT_MANIFESTS=(
     ["kserve"]="opendatahub-io:kserve:release-v0.17:config"
     ["modelcontroller"]="opendatahub-io:odh-model-controller:incubating:config"
+    ["wva"]="opendatahub-io:workload-variant-autoscaler:main@0641ee03e8430cce5821797137b1b53bf70b98a2:config"
 )
 
 # RHOAI Component Manifests
 declare -A RHOAI_COMPONENT_MANIFESTS=(
     ["kserve"]="red-hat-data-services:kserve:rhoai-3.5-ea.1:config"
-    ["modelcontroller"]="red-hat-data-services:odh-model-controller:rhoai-3.5-ea.1:config"
+    ["modelcontroller"]="red-hat-data-services:odh-model-controller:rhoai-3.5-ea.2:config"
+    ["wva"]="red-hat-data-services:workload-variant-autoscaler:rhoai-3.5-ea.2@a3a58e17d82ae982f8f7c145394782bacb6c410c:config"
 )
 
 # Select manifests based on platform type

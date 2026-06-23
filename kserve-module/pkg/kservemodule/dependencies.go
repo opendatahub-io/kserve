@@ -12,6 +12,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster/olm"
 )
 
@@ -39,14 +40,15 @@ type conditionFilterFunc func(conditionType string, status string) bool
 type dependencyCheck struct {
 	name             string
 	checkType        checkType
-	crdName          string                  // Full CRD name (e.g. "authorizationpolicies.security.istio.io")
-	subscriptionName string                  // Subscription check
-	operatorGVK      schema.GroupVersionKind // Operator CR GVK
-	operatorCRName   string                  // Operator CR name (empty = list first)
-	conditionFilter  conditionFilterFunc     // Operator condition filter
-	critical         bool                    // true → Ready=False, false → Degraded
-	platform         string                  // "ocp", "xks", "" (both)
-	conditionGroup   string                  // group into same condition
+	crdName          string                                          // Full CRD name (e.g. "authorizationpolicies.security.istio.io")
+	subscriptionName string                                          // Subscription check
+	operatorGVK      schema.GroupVersionKind                         // Operator CR GVK
+	operatorCRName   string                                          // Operator CR name (empty = list first)
+	conditionFilter  conditionFilterFunc                             // Operator condition filter
+	critical         bool                                            // true → Ready=False, false → Degraded
+	platform         string                                          // "ocp", "xks", "" (both)
+	conditionGroup   string                                          // group into same condition
+	skipFunc         func(kserve *platformv1alpha1.Kserve) bool      // true → skip this check
 }
 
 type dependencyResult struct {
@@ -129,7 +131,17 @@ var kserveDependencies = []dependencyCheck{
 }
 
 var modelControllerDependencies = []dependencyCheck{
-	subscriptionDep("Custom Metrics Autoscaler", cmaSubscription, conditionLLMDWVADeps, "ocp", false),
+	{
+		name:             "Custom Metrics Autoscaler",
+		checkType:        checkSubscription,
+		subscriptionName: cmaSubscription,
+		conditionGroup:   conditionLLMDWVADeps,
+		platform:         "ocp",
+		critical:         false,
+		skipFunc: func(k *platformv1alpha1.Kserve) bool {
+			return !isWVAEnabled(k)
+		},
+	},
 }
 
 var allDependencies = slices.Concat(kserveDependencies, modelControllerDependencies)
@@ -139,7 +151,7 @@ type checkResultItem struct {
 	reasons []string
 }
 
-func (r *KserveModuleReconciler) checkDependencies(ctx context.Context) dependencyResult {
+func (r *KserveModuleReconciler) checkDependencies(ctx context.Context, kserve *platformv1alpha1.Kserve) dependencyResult {
 	log := ctrl.LoggerFrom(ctx)
 	isXKS := r.isKubernetes(ctx)
 
@@ -159,6 +171,9 @@ func (r *KserveModuleReconciler) checkDependencies(ctx context.Context) dependen
 			continue
 		}
 		if dep.platform == "xks" && !isXKS {
+			continue
+		}
+		if dep.skipFunc != nil && dep.skipFunc(kserve) {
 			continue
 		}
 

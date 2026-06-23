@@ -2759,6 +2759,168 @@ func TestGetStorageContainerSpec(t *testing.T) {
 	}
 }
 
+func TestExplicitStorageContainerName(t *testing.T) {
+	// Create two CSCs that both match "hf://" - "default" and "hf-custom"
+	// Without explicit selection, "default" wins alphabetically (the bug in #5299)
+	defaultCSC := &v1alpha1.ClusterStorageContainer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "default",
+		},
+		Spec: v1alpha1.StorageContainerSpec{
+			Container: corev1.Container{
+				Name:  "storage-initializer",
+				Image: "kserve/storage-initializer:latest",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceMemory: resource.MustParse("100Mi"),
+						corev1.ResourceCPU:    resource.MustParse("100m"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+						corev1.ResourceCPU:    resource.MustParse("1"),
+					},
+				},
+			},
+			SupportedUriFormats: []v1alpha1.SupportedUriFormat{
+				{Prefix: "gs://"},
+				{Prefix: "s3://"},
+				{Prefix: "hf://"},
+			},
+		},
+	}
+	hfCustomCSC := &v1alpha1.ClusterStorageContainer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "hf-custom",
+		},
+		Spec: v1alpha1.StorageContainerSpec{
+			Container: corev1.Container{
+				Name:  "storage-initializer",
+				Image: "kserve/hf-custom:latest",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
+					},
+					Limits: corev1.ResourceList{
+						corev1.ResourceMemory: resource.MustParse("4Gi"),
+					},
+				},
+				Env: []corev1.EnvVar{
+					{Name: "HF_TOKEN", Value: "test-token"},
+				},
+			},
+			SupportedUriFormats: []v1alpha1.SupportedUriFormat{
+				{Prefix: "hf://"},
+			},
+		},
+	}
+	disabledCSC := &v1alpha1.ClusterStorageContainer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "disabled-csc",
+		},
+		Spec: v1alpha1.StorageContainerSpec{
+			Container: corev1.Container{
+				Name:  "storage-initializer",
+				Image: "kserve/disabled:latest",
+			},
+			SupportedUriFormats: []v1alpha1.SupportedUriFormat{
+				{Prefix: "hf://"},
+			},
+		},
+		Disabled: ptr.Bool(true),
+	}
+	s3OnlyCSC := &v1alpha1.ClusterStorageContainer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "s3-only",
+		},
+		Spec: v1alpha1.StorageContainerSpec{
+			Container: corev1.Container{
+				Name:  "storage-initializer",
+				Image: "kserve/s3-only:latest",
+			},
+			SupportedUriFormats: []v1alpha1.SupportedUriFormat{
+				{Prefix: "s3://"},
+			},
+		},
+	}
+	downloadJobCSC := &v1alpha1.ClusterStorageContainer{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "download-job",
+		},
+		Spec: v1alpha1.StorageContainerSpec{
+			Container: corev1.Container{
+				Name:  "storage-initializer",
+				Image: "kserve/download-job:latest",
+			},
+			SupportedUriFormats: []v1alpha1.SupportedUriFormat{
+				{Prefix: "hf://"},
+			},
+			WorkloadType: v1alpha1.LocalModelDownloadJob,
+		},
+	}
+
+	require.NoError(t, c.Create(t.Context(), defaultCSC))
+	require.NoError(t, c.Create(t.Context(), hfCustomCSC))
+	require.NoError(t, c.Create(t.Context(), disabledCSC))
+	require.NoError(t, c.Create(t.Context(), s3OnlyCSC))
+	require.NoError(t, c.Create(t.Context(), downloadJobCSC))
+	defer func() {
+		_ = c.Delete(t.Context(), defaultCSC)
+		_ = c.Delete(t.Context(), hfCustomCSC)
+		_ = c.Delete(t.Context(), disabledCSC)
+		_ = c.Delete(t.Context(), s3OnlyCSC)
+		_ = c.Delete(t.Context(), downloadJobCSC)
+	}()
+
+	t.Run("auto-match returns first alphabetical CSC when name not specified", func(t *testing.T) {
+		spec, err := GetStorageContainerSpec(t.Context(), "hf://my-model", nil, c)
+		require.NoError(t, err)
+		require.NotNil(t, spec)
+		// "default" sorts before "hf-custom", so auto-match returns default
+		assert.Equal(t, "kserve/storage-initializer:latest", spec.Container.Image)
+	})
+
+	t.Run("explicit name returns the correct CSC", func(t *testing.T) {
+		name := "hf-custom"
+		spec, err := GetStorageContainerSpec(t.Context(), "hf://my-model", &name, c)
+		require.NoError(t, err)
+		require.NotNil(t, spec)
+		assert.Equal(t, "kserve/hf-custom:latest", spec.Container.Image)
+		assert.Equal(t, resource.MustParse("2Gi"), spec.Container.Resources.Requests[corev1.ResourceMemory])
+	})
+
+	t.Run("explicit name for non-existent CSC returns error", func(t *testing.T) {
+		name := "does-not-exist"
+		spec, err := GetStorageContainerSpec(t.Context(), "hf://my-model", &name, c)
+		assert.Error(t, err)
+		assert.Nil(t, spec)
+		assert.Contains(t, err.Error(), "not found")
+	})
+
+	t.Run("explicit name for disabled CSC returns error", func(t *testing.T) {
+		name := "disabled-csc"
+		spec, err := GetStorageContainerSpec(t.Context(), "hf://my-model", &name, c)
+		assert.Error(t, err)
+		assert.Nil(t, spec)
+		assert.Contains(t, err.Error(), "disabled")
+	})
+
+	t.Run("explicit name for CSC that does not support the URI returns error", func(t *testing.T) {
+		name := "s3-only"
+		spec, err := GetStorageContainerSpec(t.Context(), "hf://my-model", &name, c)
+		assert.Error(t, err)
+		assert.Nil(t, spec)
+		assert.Contains(t, err.Error(), "does not support")
+	})
+
+	t.Run("explicit name for CSC with wrong workloadType returns error", func(t *testing.T) {
+		name := "download-job"
+		spec, err := GetStorageContainerSpec(t.Context(), "hf://my-model", &name, c)
+		assert.Error(t, err)
+		assert.Nil(t, spec)
+		assert.Contains(t, err.Error(), "workloadType")
+	})
+}
+
 func TestStorageContainerCRDInjection(t *testing.T) {
 	customSpec := v1alpha1.ClusterStorageContainer{
 		ObjectMeta: metav1.ObjectMeta{
@@ -5100,6 +5262,317 @@ func createTestPodForModelcarWithWorkerAndTransformer() *corev1.Pod {
 	}
 }
 
+func TestInjectImageVolume(t *testing.T) {
+	// Test when annotation key is not set
+	{
+		pod := &corev1.Pod{}
+		mi := &StorageInitializerInjector{}
+		err := mi.InjectImageVolume(pod)
+		if err != nil {
+			t.Errorf("Expected nil error but got %v", err)
+		}
+		if len(pod.Spec.Containers) != 0 {
+			t.Errorf("Expected no containers but got %d", len(pod.Spec.Containers))
+		}
+	}
+
+	// Test when srcURI does not start with OciURIPrefix
+	{
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					constants.StorageInitializerSourceUriInternalAnnotationKey: "s3://bucket/model",
+				},
+			},
+		}
+		mi := &StorageInitializerInjector{}
+		err := mi.InjectImageVolume(pod)
+		if err != nil {
+			t.Errorf("Expected nil error but got %v", err)
+		}
+		if len(pod.Spec.Containers) != 0 {
+			t.Errorf("Expected no containers but got %d", len(pod.Spec.Containers))
+		}
+	}
+
+	// Test when srcURI starts with OciURIPrefix
+	{
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					constants.StorageInitializerSourceUriInternalAnnotationKey: constants.OciURIPrefix + "ghcr.io/org/model:v1",
+				},
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: constants.InferenceServiceContainerName},
+				},
+			},
+		}
+		mi := &StorageInitializerInjector{
+			config: &kserveTypes.StorageInitializerConfig{},
+		}
+		err := mi.InjectImageVolume(pod)
+		if err != nil {
+			t.Errorf("Expected nil error but got %v", err)
+		}
+
+		// Check that an image volume has been attached
+		if len(pod.Spec.Volumes) != 1 || pod.Spec.Volumes[0].Name != constants.StorageInitializerVolumeName {
+			t.Errorf("Expected one volume with name %s, but got %v", constants.StorageInitializerVolumeName, pod.Spec.Volumes)
+		}
+
+		// Verify it's an image volume, not emptyDir
+		if pod.Spec.Volumes[0].Image == nil {
+			t.Error("Expected image volume but got nil")
+		} else {
+			if pod.Spec.Volumes[0].Image.Reference != "ghcr.io/org/model:v1" {
+				t.Errorf("Expected image reference ghcr.io/org/model:v1 but got %s", pod.Spec.Volumes[0].Image.Reference)
+			}
+			if pod.Spec.Volumes[0].Image.PullPolicy != corev1.PullIfNotPresent {
+				t.Errorf("Expected PullIfNotPresent but got %v", pod.Spec.Volumes[0].Image.PullPolicy)
+			}
+		}
+
+		// Check that NO sidecar container was injected (unlike modelcar)
+		if len(pod.Spec.Containers) != 1 {
+			t.Errorf("Expected one container (user container only, no sidecar) but got %d", len(pod.Spec.Containers))
+		}
+
+		// Check that NO init container was injected (unlike modelcar)
+		if len(pod.Spec.InitContainers) != 0 {
+			t.Errorf("Expected zero init containers but got %d", len(pod.Spec.InitContainers))
+		}
+
+		// Check volume mount in user container
+		if len(pod.Spec.Containers[0].VolumeMounts) != 1 {
+			t.Errorf("Expected one volume mount in user container but got %d", len(pod.Spec.Containers[0].VolumeMounts))
+		} else {
+			mount := pod.Spec.Containers[0].VolumeMounts[0]
+			if mount.Name != constants.StorageInitializerVolumeName {
+				t.Errorf("Expected mount name %s but got %s", constants.StorageInitializerVolumeName, mount.Name)
+			}
+			if mount.MountPath != constants.DefaultModelLocalMountPath {
+				t.Errorf("Expected mount path %s but got %s", constants.DefaultModelLocalMountPath, mount.MountPath)
+			}
+			if !mount.ReadOnly {
+				t.Error("Expected ReadOnly mount but got ReadWrite")
+			}
+			if mount.SubPath != "models" {
+				t.Errorf("Expected SubPath 'models' but got '%s'", mount.SubPath)
+			}
+		}
+
+		// Check that ShareProcessNamespace is NOT set (unlike modelcar)
+		if pod.Spec.ShareProcessNamespace != nil {
+			t.Errorf("Expected ShareProcessNamespace to be nil but got %v", *pod.Spec.ShareProcessNamespace)
+		}
+	}
+}
+
+func TestInjectImageVolumeMultiNode(t *testing.T) {
+	t.Run("Test InjectImageVolume with worker-container only (multi-node scenario)", func(t *testing.T) {
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					constants.StorageInitializerSourceUriInternalAnnotationKey: constants.OciURIPrefix + "ghcr.io/org/model:v1",
+				},
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: constants.WorkerContainerName},
+				},
+			},
+		}
+		injector := &StorageInitializerInjector{config: &kserveTypes.StorageInitializerConfig{}}
+
+		err := injector.InjectImageVolume(pod)
+		require.NoError(t, err)
+
+		// Verify that image volume was created
+		assert.Len(t, pod.Spec.Volumes, 1, "Should have exactly one volume")
+		assert.Equal(t, constants.StorageInitializerVolumeName, pod.Spec.Volumes[0].Name)
+		assert.NotNil(t, pod.Spec.Volumes[0].Image, "Should be an image volume")
+
+		workerContainer := utils.GetContainerWithName(&pod.Spec, constants.WorkerContainerName)
+		assert.NotNil(t, workerContainer, "Worker container should exist")
+
+		// Verify that worker container has the correct volume mount
+		found := false
+		for _, mount := range workerContainer.VolumeMounts {
+			if mount.Name == constants.StorageInitializerVolumeName {
+				found = true
+				assert.True(t, mount.ReadOnly, "Mount should be read-only")
+				assert.Equal(t, "models", mount.SubPath, "SubPath should be 'models'")
+				break
+			}
+		}
+		assert.True(t, found, "Worker container should have storage initializer volume mount")
+
+		// Verify NO ShareProcessNamespace (unlike modelcar)
+		assert.Nil(t, pod.Spec.ShareProcessNamespace, "ShareProcessNamespace should not be set")
+	})
+
+	t.Run("Test InjectImageVolume error when no valid container found", func(t *testing.T) {
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					constants.StorageInitializerSourceUriInternalAnnotationKey: constants.OciURIPrefix + "ghcr.io/org/model:v1",
+				},
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: "some-other-container"},
+				},
+			},
+		}
+		injector := &StorageInitializerInjector{config: &kserveTypes.StorageInitializerConfig{}}
+
+		err := injector.InjectImageVolume(pod)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "Invalid configuration: cannot find container: kserve-container")
+	})
+
+	t.Run("Test InjectImageVolume prioritizes kserve-container over worker-container", func(t *testing.T) {
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					constants.StorageInitializerSourceUriInternalAnnotationKey: constants.OciURIPrefix + "ghcr.io/org/model:v1",
+				},
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: constants.InferenceServiceContainerName},
+					{Name: constants.WorkerContainerName},
+				},
+			},
+		}
+		injector := &StorageInitializerInjector{config: &kserveTypes.StorageInitializerConfig{}}
+
+		err := injector.InjectImageVolume(pod)
+		require.NoError(t, err)
+
+		kserveContainer := utils.GetContainerWithName(&pod.Spec, constants.InferenceServiceContainerName)
+		workerContainer := utils.GetContainerWithName(&pod.Spec, constants.WorkerContainerName)
+
+		assert.NotNil(t, kserveContainer)
+		assert.NotNil(t, workerContainer)
+
+		// Check that kserve-container got the volume mount
+		kserveHasMount := false
+		for _, mount := range kserveContainer.VolumeMounts {
+			if mount.Name == constants.StorageInitializerVolumeName {
+				kserveHasMount = true
+				break
+			}
+		}
+		assert.True(t, kserveHasMount, "kserve-container should have storage initializer volume mount")
+
+		// Worker should NOT have mount when kserve-container is present
+		workerHasMount := false
+		for _, mount := range workerContainer.VolumeMounts {
+			if mount.Name == constants.StorageInitializerVolumeName {
+				workerHasMount = true
+				break
+			}
+		}
+		assert.False(t, workerHasMount, "worker-container should not have mount when kserve-container exists")
+	})
+
+	t.Run("Test InjectImageVolume with transformer container", func(t *testing.T) {
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					constants.StorageInitializerSourceUriInternalAnnotationKey: constants.OciURIPrefix + "ghcr.io/org/transformer:v1",
+				},
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: constants.InferenceServiceContainerName},
+					{Name: constants.TransformerContainerName},
+				},
+			},
+		}
+		injector := &StorageInitializerInjector{config: &kserveTypes.StorageInitializerConfig{}}
+
+		err := injector.InjectImageVolume(pod)
+		require.NoError(t, err)
+
+		// Both kserve and transformer containers should get image volumes
+		kserveContainer := utils.GetContainerWithName(&pod.Spec, constants.InferenceServiceContainerName)
+		transformerContainer := utils.GetContainerWithName(&pod.Spec, constants.TransformerContainerName)
+
+		assert.NotNil(t, kserveContainer)
+		assert.NotNil(t, transformerContainer)
+
+		// Check kserve container has mount
+		kserveHasMount := false
+		for _, mount := range kserveContainer.VolumeMounts {
+			if mount.Name == constants.StorageInitializerVolumeName {
+				kserveHasMount = true
+				break
+			}
+		}
+		assert.True(t, kserveHasMount, "kserve-container should have storage initializer volume mount")
+
+		// Check transformer container has mount
+		transformerHasMount := false
+		for _, mount := range transformerContainer.VolumeMounts {
+			if mount.Name == constants.StorageInitializerVolumeName {
+				transformerHasMount = true
+				break
+			}
+		}
+		assert.True(t, transformerHasMount, "Transformer container should have storage initializer volume mount")
+	})
+
+	t.Run("Test InjectImageVolume with worker and transformer containers", func(t *testing.T) {
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Annotations: map[string]string{
+					constants.StorageInitializerSourceUriInternalAnnotationKey: constants.OciURIPrefix + "ghcr.io/org/model:v1",
+				},
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: constants.WorkerContainerName},
+					{Name: constants.TransformerContainerName},
+				},
+			},
+		}
+		injector := &StorageInitializerInjector{config: &kserveTypes.StorageInitializerConfig{}}
+
+		err := injector.InjectImageVolume(pod)
+		require.NoError(t, err)
+
+		// Check both worker and transformer containers got volume mounts
+		workerContainer := utils.GetContainerWithName(&pod.Spec, constants.WorkerContainerName)
+		transformerContainer := utils.GetContainerWithName(&pod.Spec, constants.TransformerContainerName)
+
+		assert.NotNil(t, workerContainer)
+		assert.NotNil(t, transformerContainer)
+
+		// Both should have volume mounts
+		workerHasMount := false
+		for _, mount := range workerContainer.VolumeMounts {
+			if mount.Name == constants.StorageInitializerVolumeName {
+				workerHasMount = true
+				break
+			}
+		}
+		assert.True(t, workerHasMount, "Worker container should have storage initializer volume mount")
+
+		transformerHasMount := false
+		for _, mount := range transformerContainer.VolumeMounts {
+			if mount.Name == constants.StorageInitializerVolumeName {
+				transformerHasMount = true
+				break
+			}
+		}
+		assert.True(t, transformerHasMount, "Transformer container should have storage initializer volume mount")
+	})
+}
+
 func TestOVMSAutoVersioning(t *testing.T) {
 	scenarios := map[string]struct {
 		original *corev1.Pod
@@ -5723,6 +6196,77 @@ func TestMergeContainerSpecs_EnvHandling(t *testing.T) {
 			}
 
 			scenario.assert(t, target.Env)
+		})
+	}
+}
+
+func TestApplyConfidentialConfig(t *testing.T) {
+	scenarios := map[string]struct {
+		initContainer corev1.Container
+		annotations   map[string]string
+		expectedImage string
+		expectedEnvs  map[string]string
+	}{
+		"no confidential annotation": {
+			initContainer: corev1.Container{
+				Name:  constants.StorageInitializerContainerName,
+				Image: "kserve/storage-initializer:latest",
+			},
+			annotations:   map[string]string{},
+			expectedImage: "kserve/storage-initializer:latest",
+			expectedEnvs:  map[string]string{},
+		},
+		"confidential enabled sets env vars without swapping image": {
+			initContainer: corev1.Container{
+				Name:  constants.StorageInitializerContainerName,
+				Image: "kserve/storage-initializer:latest",
+			},
+			annotations: map[string]string{
+				constants.ConfidentialEnabledAnnotationKey:    "true",
+				constants.ConfidentialResourceIdAnnotationKey: "kbs:///default/key/model-key",
+			},
+			expectedImage: "kserve/storage-initializer:latest",
+			expectedEnvs: map[string]string{
+				constants.ConfidentialEnabledEnvVar:    "true",
+				constants.ConfidentialResourceIdEnvVar: "kbs:///default/key/model-key",
+			},
+		},
+		"confidential enabled without resourceId": {
+			initContainer: corev1.Container{
+				Name:  constants.StorageInitializerContainerName,
+				Image: "kserve/storage-initializer:latest",
+			},
+			annotations: map[string]string{
+				constants.ConfidentialEnabledAnnotationKey: "true",
+			},
+			expectedImage: "kserve/storage-initializer:latest",
+			expectedEnvs: map[string]string{
+				constants.ConfidentialEnabledEnvVar: "true",
+			},
+		},
+	}
+
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			container := scenario.initContainer.DeepCopy()
+			applyConfidentialConfig(container, scenario.annotations)
+
+			assert.Equal(t, scenario.expectedImage, container.Image, "unexpected image")
+
+			envMap := make(map[string]string)
+			for _, env := range container.Env {
+				envMap[env.Name] = env.Value
+			}
+			for key, expectedVal := range scenario.expectedEnvs {
+				assert.Equal(t, expectedVal, envMap[key], "unexpected env var %s", key)
+			}
+			// Ensure no unexpected confidential env vars
+			for _, env := range container.Env {
+				if env.Name == constants.ConfidentialEnabledEnvVar || env.Name == constants.ConfidentialResourceIdEnvVar {
+					_, expected := scenario.expectedEnvs[env.Name]
+					assert.True(t, expected, "unexpected env var %s", env.Name)
+				}
+			}
 		})
 	}
 }

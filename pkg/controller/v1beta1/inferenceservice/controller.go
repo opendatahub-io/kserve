@@ -289,10 +289,25 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			}
 			return reconcile.Result{}, errors.Wrapf(err, "fails to reconcile component")
 		}
-		if result.Requeue || result.RequeueAfter > 0 {
+		if result.RequeueAfter > 0 {
 			return result, nil
 		}
 	}
+
+	// Reconcile platform-specific permissions (e.g., SCC RoleBindings for image volumes)
+	// This runs after component reconciliation so that isvc.Status.ClusterServingRuntimeName
+	// or isvc.Status.ServingRuntimeName is populated with the selected runtime.
+	// Only reconcile if OCI image source feature is enabled (aligns with webhook behavior)
+	storageInitializerConfig, err := v1beta1.GetStorageInitializerConfigs(isvcConfigMap)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "fails to get storage initializer config")
+	}
+	if storageInitializerConfig.EnableOciImageSource {
+		if err := r.reconcileWorkloadPlatformPermissions(ctx, isvc); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile workload platform permissions")
+		}
+	}
+
 	// Handle InferenceService status updates based on the force stop annotation.
 	// If true, transition the service to a stopped and unready state; otherwise, ensure it's not marked as stopped.
 	existingStoppedCondition := isvc.Status.GetCondition(v1beta1.Stopped)
@@ -382,7 +397,7 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 		return result, errors.Wrapf(err, "fails to reconcile ingress")
 	}
-	if result.Requeue || result.RequeueAfter > 0 {
+	if result.RequeueAfter > 0 {
 		// Persist status before requeue so deployment errors are visible on the ISVC
 		if err := r.updateStatus(ctx, isvc, deploymentMode); err != nil {
 			r.Log.Error(err, "Error updating status before requeue")

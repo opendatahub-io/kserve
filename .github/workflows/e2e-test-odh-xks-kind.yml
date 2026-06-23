@@ -25,7 +25,8 @@ jobs:
       fail-fast: false
       matrix:
         istio-version: ["1.27.5", "1.28.3"]
-    name: test-odh-xks-kind (istio-${{ matrix.istio-version }})
+        enable-tls: [true, false]
+    name: test-odh-xks-kind (istio-${{ matrix.istio-version }}, tls-${{ matrix.enable-tls }})
     steps:
       - name: Checkout source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -100,6 +101,17 @@ jobs:
           # Script creates KinD cluster, installs deps, builds & loads controller, deploys overlay
           ./test/scripts/kind/setup-odh-xks.sh
 
+      - name: Disable LLMInferenceService TLS
+        if: ${{ matrix.enable-tls == false }}
+        env:
+          KSERVE_NAMESPACE: "opendatahub"
+        run: |
+          kubectl get configmap inferenceservice-config -n "${KSERVE_NAMESPACE}" -o json \
+            | jq '.data.ingress = (.data.ingress | fromjson | .enableLLMInferenceServiceTLS = false | tojson)' \
+            | kubectl apply -f -
+          kubectl rollout restart deployment/llmisvc-controller-manager -n "${KSERVE_NAMESPACE}"
+          kubectl rollout status deployment/llmisvc-controller-manager -n "${KSERVE_NAMESPACE}" --timeout=120s
+
       - name: Install UV
         run: ./test/scripts/gh-actions/setup-uv.sh
 
@@ -118,10 +130,16 @@ jobs:
           GATEWAY_CLASS_NAME: "istio"
           RUN_AS_NON_ROOT: "false"
           OPT_125M_MODEL_URI: "s3://example-models/facebook/opt-125m"
+          STORAGE_INITIALIZER_IMAGE: "local/storage-initializer:dev"
           INFERENCE_POOL_GROUP: ${{ matrix.istio-version == '1.27.5' && 'inference.networking.x-k8s.io' || 'inference.networking.k8s.io' }}
+          ENABLE_LLM_INFERENCE_SERVICE_TLS: ${{ matrix.enable-tls }}
         run: |
           export PYTEST_MAXFAIL=3
-          ./test/scripts/gh-actions/run-e2e-tests.sh "llminferenceservice and cluster_cpu and not auth and not custom_gateway and not autoscaling" 0 "istio-gatewayapi-ext"
+          MARKER="llminferenceservice and cluster_cpu and not auth and not custom_gateway and not autoscaling and not tracing"
+          if [ "${ENABLE_LLM_INFERENCE_SERVICE_TLS}" = "false" ]; then
+            MARKER="${MARKER} and not llmd_simulator"
+          fi
+          ./test/scripts/gh-actions/run-e2e-tests.sh "${MARKER}" 0 "istio-gatewayapi-ext"
 
       - name: Check system status
         if: always()

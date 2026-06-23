@@ -33,10 +33,10 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # Install Python dependencies
 COPY storage/pyproject.toml storage/uv.lock storage/
-RUN cd storage && uv sync --active --no-cache 
+RUN cd storage && uv sync --active --extra confidential --no-cache
 
 COPY storage storage
-RUN cd storage && uv pip install . --no-cache 
+RUN cd storage && uv pip install ".[confidential]" --no-cache
 
 # Install Kerberos-related packages
 RUN uv pip install --no-cache-dir krbcontext==0.10 hdfs~=2.6.0 requests-kerberos==0.14.0

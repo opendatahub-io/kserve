@@ -210,7 +210,7 @@ func (c *LocalModelNodeReconciler) launchJob(ctx context.Context, localModelNode
 			},
 		},
 	}
-	if err := enhanceDownloadJob(ctx, c, job, storageKey); err != nil {
+	if err := c.enhanceDownloadJob(ctx, job, storageKey); err != nil {
 		c.Log.Error(err, "Failed to enhance download job", "name", modelInfo.ModelName)
 		return nil, err
 	}
@@ -569,7 +569,7 @@ func (c *LocalModelNodeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		fsHelper = NewFileSystemHelper(modelsRootFolder)
 	}
 
-	folderResult, err := ensureModelRootFolderExistsAndIsWritable(ctx, c, localModelConfig)
+	folderResult, err := c.ensureModelRootFolderExistsAndIsWritable(ctx, localModelConfig)
 	if err != nil || !folderResult.Continue {
 		if folderResult != nil {
 			return folderResult.Result, err

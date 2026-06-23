@@ -24,22 +24,31 @@ type componentConfig struct {
 	postRender    func(ctx context.Context, r *KserveModuleReconciler,
 		kserve *platformv1alpha1.Kserve,
 		resources []unstructured.Unstructured) ([]unstructured.Unstructured, error)
+	enabled      func(kserve *platformv1alpha1.Kserve) bool
+	extraCleanup func(ctx context.Context, r *KserveModuleReconciler) error
 }
 
 var components = []componentConfig{
 	{
-		name:          kserveComponentName,
-		sourcePath:    kserveManifestSourcePath,
-		sourcePathXKS: kserveManifestSourcePathXKS,
+		name:          KserveComponentName,
+		sourcePath:    KserveManifestSourcePath,
+		sourcePathXKS: KserveManifestSourcePathXKS,
 		imageMap:      kserveImageParamMap,
 		postRender:    kservePostRender,
 	},
 	{
-		name:        odhModelControllerComponentName,
-		sourcePath:  modelControllerSourcePath,
+		name:        OdhModelControllerComponentName,
+		sourcePath:  ModelControllerSourcePath,
 		imageMap:    modelControllerImageParamMap,
 		extraParams: modelControllerExtraParams,
 		postRender:  modelControllerPostRender,
+	},
+	{
+		name:       WVAComponentName,
+		sourcePath: WVAManifestSourcePathOCP,
+		imageMap:   wvaImageParamMap,
+		enabled:    isWVAEnabled,
+		postRender: wvaPostRender,
 	},
 }
 
@@ -54,8 +63,7 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 		log.Info("filtered fast-variant resources", "before", beforeCount, "after", afterCount, "removed", beforeCount-afterCount)
 	}
 
-	isHeadless := kserve.Spec.RawDeploymentServiceConfig != platformv1alpha1.KserveRawHeaded
-	resources, err := customizeKserveConfigMap(resources, isHeadless)
+	resources, err := customizeKserveConfigMap(resources, kserve)
 	if err != nil {
 		return nil, fmt.Errorf("customizing configmap: %w", err)
 	}
@@ -69,10 +77,34 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 	return resources, nil
 }
 
+func wvaPostRender(ctx context.Context, r *KserveModuleReconciler,
+	kserve *platformv1alpha1.Kserve,
+	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
+	return filterOutNamespaces(resources), nil
+}
+
+func filterOutNamespaces(resources []unstructured.Unstructured) []unstructured.Unstructured {
+	filtered := make([]unstructured.Unstructured, 0, len(resources))
+	for i := range resources {
+		if resources[i].GetKind() == "Namespace" {
+			continue
+		}
+		filtered = append(filtered, resources[i])
+	}
+	return filtered
+}
+
+func isWVAEnabled(kserve *platformv1alpha1.Kserve) bool {
+	return kserve.Spec.WVA.ManagementState == common.Managed
+}
+
 func modelControllerExtraParams(kserve *platformv1alpha1.Kserve) map[string]string {
-	nimState := string(common.Managed)
-	if kserve.Spec.NIM.ManagementState == common.Removed {
-		nimState = string(common.Removed)
+	nimState := string(common.Removed)
+	if platformv1alpha1.GetManagementState(kserve) == common.Managed {
+		nimState = string(kserve.Spec.NIM.ManagementState)
+		if nimState == "" {
+			nimState = string(common.Managed)
+		}
 	}
 	return map[string]string{
 		"nim-state":    strings.ToLower(nimState),

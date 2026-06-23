@@ -2,13 +2,15 @@ package kservemodule
 
 const (
 	// Component names
-	kserveComponentName             = "kserve"
-	odhModelControllerComponentName = "modelcontroller"
+	KserveComponentName             = "kserve"
+	OdhModelControllerComponentName = "modelcontroller"
+	WVAComponentName                = "wva"
 
 	// Manifest source paths
-	kserveManifestSourcePath    = "overlays/odh"
-	kserveManifestSourcePathXKS = "overlays/odh-xks"
-	modelControllerSourcePath   = "base"
+	KserveManifestSourcePath    = "overlays/odh"
+	KserveManifestSourcePathXKS = "overlays/odh-xks"
+	ModelControllerSourcePath   = "base"
+	WVAManifestSourcePathOCP    = "openshift"
 
 	// Deployment names
 	kserveControllerDeployment  = "kserve-controller-manager"
@@ -16,6 +18,7 @@ const (
 	//TO-DO
 	// localmodelControllerDeployment = "kserve-localmodel-controller-manager"
 	odhModelControllerDeployment = "odh-model-controller"
+	wvaControllerDeployment      = "workload-variant-autoscaler-controller-manager"
 
 	// SSA field manager
 	fieldOwner = "kserve-module-controller"
@@ -24,7 +27,8 @@ const (
 	kserveConfigMapName     = "inferenceservice-config"
 	ingressConfigKeyName    = "ingress"
 	serviceConfigKeyName    = "service"
-	configHashAnnotationKey = "kserve-module/config-hash"
+	configHashAnnotationKey  = "kserve-module/config-hash"
+	oauthProxyConfigKeyName = "oauthProxy"
 
 	// LLMInferenceServiceConfig versioning
 	wellKnownAnnotationKey   = "serving.kserve.io/well-known-config"

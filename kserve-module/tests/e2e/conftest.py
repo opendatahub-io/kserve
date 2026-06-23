@@ -27,6 +27,9 @@ OPERAND_DEPLOYMENTS_OCP = [
     "model-serving-api",
 ]
 
+WVA_DEPLOYMENT = "workload-variant-autoscaler-controller-manager"
+MODEL_CONTROLLER_DEPLOYMENT = "odh-model-controller"
+
 KSERVE_CR_TEMPLATE = {
     "apiVersion": "components.platform.opendatahub.io/v1alpha1",
     "kind": "Kserve",
@@ -53,6 +56,12 @@ def is_cr_ready(cr):
     """Check if a Kserve CR dict has Ready=True."""
     conditions = cr.get("status", {}).get("conditions", [])
     return any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
+
+
+def get_conditions(kubectl_bin, name=KSERVE_CR_NAME):
+    """Fetch conditions as a dict keyed by condition type."""
+    cr = get_cr(kubectl_bin, name)
+    return {c["type"]: c for c in cr.get("status", {}).get("conditions", [])}
 
 
 # ---------------------------------------------------------------------------
@@ -110,6 +119,23 @@ def create_kserve_cr(kubectl_bin, cr_dict=None):
 # ---------------------------------------------------------------------------
 # Helper functions - polling / wait
 # ---------------------------------------------------------------------------
+def wait_for(assertion_fn, timeout=60.0, interval=5.0):
+    """Poll until assertion_fn() succeeds or timeout expires."""
+    deadline = time.time() + timeout
+    last_error = None
+    while True:
+        try:
+            return assertion_fn()
+        except (AssertionError, Exception) as e:
+            last_error = e
+            if time.time() >= deadline:
+                raise AssertionError(
+                    f"Timed out after {timeout}s waiting for assertion. "
+                    f"Last error: {last_error}"
+                ) from e
+            time.sleep(interval)
+
+
 def _poll_cr(kubectl_bin, name, predicate, timeout, msg):
     """Poll the Kserve CR until predicate(cr) returns True."""
     deadline = time.time() + timeout
@@ -135,16 +161,40 @@ def wait_for_kserve_cleanup(kubectl_bin, name=KSERVE_CR_NAME, is_openshift=False
     _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S)
 
 
+def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120S):
+    """Wait until a deployment exists and has Available=True."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        result = run(
+            [kubectl_bin, "get", "deployment", name, "-n", namespace, "-o", "yaml"],
+            check=False,
+        )
+        if result.returncode == 0:
+            dep = yaml.safe_load(result.stdout)
+            conditions = {c["type"]: c for c in dep.get("status", {}).get("conditions", [])}
+            avail = conditions.get("Available", {})
+            if avail.get("status") == "True":
+                return dep
+        time.sleep(5)
+    raise TimeoutError(f"deployment {name} not Available within {timeout}s")
+
+
+def wait_for_deployment_gone(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_60S):
+    """Wait until a deployment no longer exists."""
+    result = run([
+        kubectl_bin, "wait", "--for=delete", f"deployment/{name}",
+        "-n", namespace, f"--timeout={timeout}s",
+    ], check=False)
+    if result.returncode != 0 and "not found" not in result.stderr.lower():
+        raise RuntimeError(
+            f"wait_for_deployment_gone failed: {result.stderr}"
+        )
+
+
 def _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S):
     """Wait until managed deployments are cleaned up by garbage collection."""
-    expected = operand_deployments(is_openshift)
-    for dep in expected:
-        result = run([kubectl_bin, "get", "deployment", dep, "-n", NAMESPACE, "--ignore-not-found"])
-        if result.stdout.strip():
-            run([
-                kubectl_bin, "wait", "--for=delete", f"deployment/{dep}",
-                "-n", NAMESPACE, f"--timeout={timeout}s",
-            ])
+    for dep in operand_deployments(is_openshift):
+        wait_for_deployment_gone(kubectl_bin, dep, timeout=timeout)
 
 
 # ---------------------------------------------------------------------------
@@ -152,13 +202,19 @@ def _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_
 # ---------------------------------------------------------------------------
 @pytest.fixture(scope="session")
 def cluster_info():
-    """Detect cluster type by checking for OpenShift API resources."""
+    """Detect cluster type and pick the right CLI binary (oc or kubectl)."""
+    import shutil
+
+    cli = "oc" if shutil.which("oc") else "kubectl"
+    if not shutil.which(cli):
+        pytest.fail("Neither 'oc' nor 'kubectl' found in PATH")
+
     result = subprocess.run(
-        ["kubectl", "api-resources", "--api-group=config.openshift.io"],
+        [cli, "api-resources", "--api-group=config.openshift.io"],
         capture_output=True, text=True, timeout=10
     )
     is_ocp = result.returncode == 0 and "clusterversions" in result.stdout.lower()
-    return ClusterInfo(is_openshift=is_ocp, kubectl="kubectl")
+    return ClusterInfo(is_openshift=is_ocp, kubectl=cli)
 
 
 @pytest.fixture(scope="session")

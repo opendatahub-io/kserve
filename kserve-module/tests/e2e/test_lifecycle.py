@@ -7,12 +7,20 @@ import pytest
 from conftest import (
     run,
     _poll_cr,
+    get_conditions,
+    wait_for,
     wait_for_kserve_cleanup,
+    trigger_reconcile,
+    wait_for_deployment,
+    wait_for_deployment_gone,
     operand_deployments,
     KSERVE_CR_NAME,
     NAMESPACE,
     OPERATOR_DEPLOYMENT,
+    WVA_DEPLOYMENT,
+    MODEL_CONTROLLER_DEPLOYMENT,
     TIMEOUT_120S,
+    TIMEOUT_60S,
 )
 
 
@@ -150,20 +158,160 @@ class TestCELValidation:
         assert result.returncode != 0, "Invalid CR should not exist"
 
 
+@pytest.mark.sanity
 class TestManagementState:
-    """Verify managementState transitions update sub-component config."""
+    """Verify managementState transitions for sub-components (WVA, NIM)."""
 
-    @pytest.mark.skip(reason="managementState: Removed not yet implemented")
-    def test_removed_updates_subcomponent_config(self, kubectl, apply_kserve_cr):
-        """Setting nim.managementState to Removed updates sub-component config.
+    def test_wva_default_removed_has_no_deployment(self, kubectl, cluster_info, apply_kserve_cr):
+        """WVA defaults to Removed — no WVA deployment should exist."""
+        if not cluster_info.is_openshift:
+            pytest.skip("WVA is OCP-only")
 
-        Not yet implemented - skipped until managementState: Removed is supported.
-        """
+        patch = json.dumps({"spec": {"wva": {"managementState": "Removed"}}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+        wait_for_deployment_gone(kubectl, WVA_DEPLOYMENT)
+
+        result = run(
+            [kubectl, "get", "deployment", WVA_DEPLOYMENT, "-n", NAMESPACE],
+            check=False,
+        )
+        assert result.returncode != 0, \
+            f"{WVA_DEPLOYMENT} should not exist when WVA is Removed"
+
+    def test_wva_managed_deploys_resources(self, kubectl, cluster_info, apply_kserve_cr):
+        """Setting wva.managementState to Managed deploys WVA resources."""
+        if not cluster_info.is_openshift:
+            pytest.skip("WVA is OCP-only")
+
+        patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+
+        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+
+        wait_for_deployment(kubectl, WVA_DEPLOYMENT)
+        _verify_deployments_available(kubectl, is_openshift=True)
+
+    def test_wva_managed_to_removed_cleans_up(self, kubectl, cluster_info, apply_kserve_cr):
+        """Switching WVA from Managed to Removed removes WVA deployment but keeps others."""
+        if not cluster_info.is_openshift:
+            pytest.skip("WVA is OCP-only")
+
+        patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+        wait_for_deployment(kubectl, WVA_DEPLOYMENT)
+
+        patch = json.dumps({"spec": {"wva": {"managementState": "Removed"}}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+
+        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+
+        wait_for_deployment_gone(kubectl, WVA_DEPLOYMENT)
+
+        _verify_deployments_available(kubectl, is_openshift=True)
+
+    def test_nim_default_managed_env_var(self, kubectl, cluster_info, apply_kserve_cr):
+        """NIM defaults to Managed — odh-model-controller should have NIM_STATE=managed."""
+        if not cluster_info.is_openshift:
+            pytest.skip("odh-model-controller is OCP-only")
+
+        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+        wait_for_deployment(kubectl, MODEL_CONTROLLER_DEPLOYMENT)
+
+        result = run([
+            kubectl, "get", "deployment", MODEL_CONTROLLER_DEPLOYMENT,
+            "-n", NAMESPACE, "-o",
+            "jsonpath={.spec.template.spec.containers[?(@.name=='manager')].env[?(@.name=='NIM_STATE')].value}",
+        ])
+        assert result.stdout.strip() == "managed", \
+            f"NIM_STATE should be 'managed' by default, got '{result.stdout.strip()}'"
+
+    def test_nim_managed_to_removed_updates_env(self, kubectl, cluster_info, apply_kserve_cr):
+        """Switching NIM to Removed updates odh-model-controller NIM_STATE env var."""
+        if not cluster_info.is_openshift:
+            pytest.skip("odh-model-controller is OCP-only")
+
+        wait_for_deployment(kubectl, MODEL_CONTROLLER_DEPLOYMENT)
+
         patch = json.dumps({"spec": {"nim": {"managementState": "Removed"}}})
         run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
 
-        cr = _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-                      f"observedGeneration not matching within {TIMEOUT_120S}s")
+        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                 f"observedGeneration not matching within {TIMEOUT_120S}s")
 
-        nim_state = cr.get("spec", {}).get("nim", {}).get("managementState")
-        assert nim_state == "Removed", f"Expected Removed, got {nim_state}"
+        wait_for_deployment(kubectl, MODEL_CONTROLLER_DEPLOYMENT)
+
+        result = run([
+            kubectl, "get", "deployment", MODEL_CONTROLLER_DEPLOYMENT,
+            "-n", NAMESPACE, "-o",
+            "jsonpath={.spec.template.spec.containers[?(@.name=='manager')].env[?(@.name=='NIM_STATE')].value}",
+        ])
+        assert result.stdout.strip() == "removed", \
+            f"NIM_STATE should be 'removed' after patch, got '{result.stdout.strip()}'"
+
+    def test_nim_removed_to_managed_updates_env(self, kubectl, cluster_info, apply_kserve_cr):
+        """Switching NIM back to Managed updates odh-model-controller NIM_STATE env var."""
+        if not cluster_info.is_openshift:
+            pytest.skip("odh-model-controller is OCP-only")
+
+        patch = json.dumps({"spec": {"nim": {"managementState": "Removed"}}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+
+        patch = json.dumps({"spec": {"nim": {"managementState": "Managed"}}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+
+        wait_for_deployment(kubectl, MODEL_CONTROLLER_DEPLOYMENT)
+
+        result = run([
+            kubectl, "get", "deployment", MODEL_CONTROLLER_DEPLOYMENT,
+            "-n", NAMESPACE, "-o",
+            "jsonpath={.spec.template.spec.containers[?(@.name=='manager')].env[?(@.name=='NIM_STATE')].value}",
+        ])
+        assert result.stdout.strip() == "managed", \
+            f"NIM_STATE should be 'managed' after reverting, got '{result.stdout.strip()}'"
+
+
+@pytest.mark.sanity
+class TestDriftCorrection:
+    """SSA drift correction — manual edits reverted on reconcile."""
+
+    def test_configmap_edit_reverted(self, kubectl, apply_kserve_cr):
+        """Manual ConfigMap edit is reverted by SSA on next reconcile."""
+        cm_name = "inferenceservice-config"
+
+        run([
+            kubectl, "patch", "configmap", cm_name, "-n", NAMESPACE,
+            "--type", "merge",
+            "-p", '{"data":{"ingress":"{\\"ingressClassName\\":\\"TAMPERED\\"}"}}',
+        ])
+
+        result = run([
+            kubectl, "get", "configmap", cm_name, "-n", NAMESPACE,
+            "-o", "jsonpath={.data.ingress}",
+        ])
+        assert "TAMPERED" in result.stdout
+
+        trigger_reconcile(kubectl, trigger_id="drift-001")
+
+        def assert_tampered_reverted():
+            result = run([
+                kubectl, "get", "configmap", cm_name, "-n", NAMESPACE,
+                "-o", "jsonpath={.data.ingress}",
+            ])
+            assert "TAMPERED" not in result.stdout
+
+        wait_for(assert_tampered_reverted, timeout=TIMEOUT_60S, interval=5)
+
+        def assert_provisioning_succeeded():
+            conditions = get_conditions(kubectl)
+            assert conditions["ProvisioningSucceeded"]["status"] == "True"
+
+        wait_for(assert_provisioning_succeeded, timeout=TIMEOUT_60S, interval=5)

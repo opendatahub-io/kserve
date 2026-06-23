@@ -12,6 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+
+	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
 
@@ -21,7 +23,7 @@ var (
 	deploymentGVK       = schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}
 )
 
-func customizeKserveConfigMap(resources []unstructured.Unstructured, headless bool) ([]unstructured.Unstructured, error) {
+func customizeKserveConfigMap(resources []unstructured.Unstructured, kserve *platformv1alpha1.Kserve) ([]unstructured.Unstructured, error) {
 	cmIdx, cm, err := getIndexedResource[corev1.ConfigMap](resources, configMapGVK, kserveConfigMapName)
 	if err != nil {
 		if errors.Is(err, errResourceNotFound) {
@@ -30,7 +32,7 @@ func customizeKserveConfigMap(resources []unstructured.Unstructured, headless bo
 		return nil, err
 	}
 
-	if err := updateInferenceCM(cm, headless); err != nil {
+	if err := updateInferenceCM(cm, kserve); err != nil {
 		return nil, err
 	}
 
@@ -61,16 +63,45 @@ func customizeKserveConfigMap(resources []unstructured.Unstructured, headless bo
 	return resources, nil
 }
 
-func updateInferenceCM(cm *corev1.ConfigMap, headless bool) error {
+func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) error {
+	headless := kserve.Spec.RawDeploymentServiceConfig != platformv1alpha1.KserveRawHeaded
+
 	if err := updateCMJSONKey(cm, ingressConfigKeyName, func(data map[string]any) {
 		data["disableIngressCreation"] = true
+		if kserve.Spec.EnableLLMInferenceServiceTLS != nil {
+			data["enableLLMInferenceServiceTLS"] = *kserve.Spec.EnableLLMInferenceServiceTLS
+		}
 	}); err != nil {
 		return err
 	}
 
-	return updateCMJSONKey(cm, serviceConfigKeyName, func(data map[string]any) {
+	if err := updateCMJSONKey(cm, serviceConfigKeyName, func(data map[string]any) {
 		data["serviceClusterIPNone"] = headless
-	})
+	}); err != nil {
+		return err
+	}
+
+	oauthProxy := kserve.Spec.OAuthProxy
+	if oauthProxy != nil && oauthProxy.Resources != nil {
+		if err := updateCMJSONKey(cm, oauthProxyConfigKeyName, func(data map[string]any) {
+			if v, ok := oauthProxy.Resources.Requests[corev1.ResourceMemory]; ok {
+				data["memoryRequest"] = v.String()
+			}
+			if v, ok := oauthProxy.Resources.Limits[corev1.ResourceMemory]; ok {
+				data["memoryLimit"] = v.String()
+			}
+			if v, ok := oauthProxy.Resources.Requests[corev1.ResourceCPU]; ok {
+				data["cpuRequest"] = v.String()
+			}
+			if v, ok := oauthProxy.Resources.Limits[corev1.ResourceCPU]; ok {
+				data["cpuLimit"] = v.String()
+			}
+		}); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func updateCMJSONKey(cm *corev1.ConfigMap, key string, mutate func(map[string]any)) error {

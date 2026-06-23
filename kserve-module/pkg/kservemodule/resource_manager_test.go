@@ -85,6 +85,35 @@ func TestCheckKServeReadiness_Missing(t *testing.T) {
 	g.Expect(err).Should(HaveOccurred())
 }
 
+func TestDeleteResourceIfPresent_Deletes(t *testing.T) {
+	g := NewWithT(t)
+
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-deploy", Namespace: "ns"},
+	}
+	cli := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(dep).Build()
+
+	err := deleteResourceIfPresent(context.Background(), cli, dep)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	got := &appsv1.Deployment{}
+	err = cli.Get(context.Background(), client.ObjectKeyFromObject(dep), got)
+	g.Expect(err).Should(HaveOccurred())
+	g.Expect(client.IgnoreNotFound(err)).Should(BeNil())
+}
+
+func TestDeleteResourceIfPresent_SkipsWhenAbsent(t *testing.T) {
+	g := NewWithT(t)
+
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "nonexistent", Namespace: "ns"},
+	}
+	cli := fake.NewClientBuilder().WithScheme(testScheme()).Build()
+
+	err := deleteResourceIfPresent(context.Background(), cli, dep)
+	g.Expect(err).ShouldNot(HaveOccurred())
+}
+
 func buildDeployment(name string, available int32) appsv1.Deployment {
 	return appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "opendatahub"},

@@ -31,6 +31,10 @@ var kserveImageParamMap = map[string]string{
 
 var modelControllerImageParamMap = map[string]string{
 	"odh-model-controller":    "RELATED_IMAGE_ODH_MODEL_CONTROLLER_IMAGE",
+	"odh-model-serving-api":   "RELATED_IMAGE_ODH_MODEL_SERVING_API_IMAGE",
+	"caikit-standalone-image": "RELATED_IMAGE_ODH_CAIKIT_NLP_IMAGE",
+	"ovms-image":              "RELATED_IMAGE_ODH_OPENVINO_MODEL_SERVER_IMAGE",
+	"mlserver-image":          "RELATED_IMAGE_ODH_MLSERVER_IMAGE",
 	"vllm-cuda-image":         "RELATED_IMAGE_RHAII_VLLM_CUDA_IMAGE",
 	"vllm-cuda-image-fast-1":  "RELATED_IMAGE_RHAII_VLLM_CUDA_FAST_1_IMAGE",
 	"vllm-cuda-image-fast-2":  "RELATED_IMAGE_RHAII_VLLM_CUDA_FAST_2_IMAGE",
@@ -49,6 +53,11 @@ var modelControllerImageParamMap = map[string]string{
 	"vllm-cpu-x86-image":          "RELATED_IMAGE_RHAII_VLLM_CPU_IMAGE",
 	"vllm-cpu-x86-image-fast-1":   "RELATED_IMAGE_RHAII_VLLM_CPU_FAST_1_IMAGE",
 	"vllm-cpu-x86-image-fast-2":   "RELATED_IMAGE_RHAII_VLLM_CPU_FAST_2_IMAGE",
+	"guardrails-detector-huggingface-runtime-image": "RELATED_IMAGE_ODH_GUARDRAILS_DETECTOR_HUGGINGFACE_RUNTIME_IMAGE",
+}
+
+var wvaImageParamMap = map[string]string{
+	"wva-controller-image": "RELATED_IMAGE_ODH_WORKLOAD_VARIANT_AUTOSCALER_CONTROLLER_IMAGE",
 }
 
 
