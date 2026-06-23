@@ -155,10 +155,6 @@ func (r *KserveModuleReconciler) updateStatus(ctx context.Context, kserve *platf
 }
 
 func (r *KserveModuleReconciler) setReleaseStatus(kserve *platformv1alpha1.Kserve) {
-	if len(kserve.Status.Releases) > 0 {
-		return
-	}
-
 	releases, err := loadComponentReleases(r.ManifestsTemplatePath,
 		[]string{KserveComponentName, OdhModelControllerComponentName})
 	if err != nil {
