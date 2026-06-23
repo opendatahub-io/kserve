@@ -47,7 +47,7 @@ export KUBE_CLI=${KUBE_CLI_COMMAND:-oc}
 export GITHUB_SHA=stable # Need to use stable as this is what the CI tags the images to for success-200 and error-404
 export BUILD_GRAPH_IMAGES="${BUILD_GRAPH_IMAGES:-true}"
 export RUNNING_LOCAL="${RUNNING_LOCAL:-false}"
-export SKIP_DELETION_ON_FAILURE="${SKIP_DELETION_ON_FAILURE:=true}"
+export SKIP_DELETION_ON_FAILURE="${SKIP_DELETION_ON_FAILURE:=false}"
 
 # Export the controller namespace so that E2E tests
 # (e.g. storage version migration) can find the controller.
