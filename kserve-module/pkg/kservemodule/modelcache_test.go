@@ -376,23 +376,6 @@ func TestLocalModelConfigViaCustomizeKserveConfigMap(t *testing.T) {
 }
 
 
-func TestModelCacheResources(t *testing.T) {
-	g := NewWithT(t)
-
-	objects := modelCacheResources("test-ns")
-	g.Expect(objects).To(HaveLen(3))
-
-	pvc := objects[0].(*corev1.PersistentVolumeClaim)
-	g.Expect(pvc.Name).To(Equal(modelCachePVCName))
-	g.Expect(pvc.Namespace).To(Equal("test-ns"))
-
-	pv := objects[1].(*corev1.PersistentVolume)
-	g.Expect(pv.Name).To(Equal(modelCachePVName))
-
-	lmng := objects[2].(*unstructured.Unstructured)
-	g.Expect(lmng.GetName()).To(Equal(localModelNodeGroupName))
-	g.Expect(lmng.GroupVersionKind()).To(Equal(localModelNodeGroupGVK))
-}
 
 func newReconcilerWithFakeClient(objects ...client.Object) *KserveModuleReconciler {
 	scheme := runtime.NewScheme()
@@ -555,12 +538,10 @@ func TestCleanupModelCache_DeletesResources(t *testing.T) {
 		Labels: map[string]string{modelCacheLabelKey: modelCacheLabelValue},
 	}}
 
-	kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"worker-1"})
 	r := newReconcilerWithFakeClient(node)
 
-	// Simulate enable: elevate PSA and seed resources
+	// Simulate enable: elevate PSA
 	g.Expect(r.updateNamespacePSA(ctx, "privileged")).To(Succeed())
-	seedModelCacheObjects(t, r, kserve)
 
 	err := r.cleanupModelCache(ctx)
 	g.Expect(err).NotTo(HaveOccurred())
@@ -575,16 +556,6 @@ func TestCleanupModelCache_DeletesResources(t *testing.T) {
 	ns := &corev1.Namespace{}
 	g.Expect(r.Get(ctx, client.ObjectKey{Name: "test-ns"}, ns)).To(Succeed())
 	g.Expect(ns.Labels[securityEnforceLabel]).To(Equal("baseline"))
-
-	// Verify PV deleted
-	pv := &corev1.PersistentVolume{}
-	err = r.Get(ctx, client.ObjectKey{Name: modelCachePVName}, pv)
-	g.Expect(err).To(HaveOccurred())
-
-	// Verify PVC deleted
-	pvc := &corev1.PersistentVolumeClaim{}
-	err = r.Get(ctx, client.ObjectKey{Name: modelCachePVCName, Namespace: "test-ns"}, pvc)
-	g.Expect(err).To(HaveOccurred())
 }
 
 // --- SELinux MCS tests ---

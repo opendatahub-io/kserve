@@ -2,6 +2,7 @@ package kservemodule
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
@@ -121,11 +122,8 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	kserve := &platformv1alpha1.Kserve{}
 	if err := r.Get(ctx, req.NamespacedName, kserve); err != nil {
 		if client.IgnoreNotFound(err) == nil {
-			if psaErr := r.updateNamespacePSA(ctx, "baseline"); psaErr != nil {
-				log.Error(psaErr, "failed to revert namespace PSA on CR deletion")
-			}
-			if labelErr := r.unlabelAllModelCacheNodes(ctx); labelErr != nil {
-				log.Error(labelErr, "failed to remove model cache node labels on CR deletion")
+			if cleanupErr := r.cleanupOnDelete(ctx); cleanupErr != nil {
+				log.Error(cleanupErr, "component extra-cleanup failed during CR deletion")
 			}
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -224,6 +222,19 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 	log.Info("deployed all resources", "count", len(allResources))
 
 	return nil
+}
+
+func (r *KserveModuleReconciler) cleanupOnDelete(ctx context.Context) error {
+	var errs []error
+	for _, comp := range components {
+		if comp.extraCleanup == nil {
+			continue
+		}
+		if err := comp.extraCleanup(ctx, r); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", comp.name, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,

@@ -319,12 +319,6 @@ func (r *KserveModuleReconciler) cleanupModelCache(ctx context.Context) error {
 		return err
 	}
 
-	for _, obj := range modelCacheResources(r.getApplicationsNamespace()) {
-		if err := deleteResourceIfPresent(ctx, r.Client, obj); err != nil {
-			return err
-		}
-	}
-
 	return r.unlabelAllModelCacheNodes(ctx)
 }
 
@@ -423,26 +417,6 @@ func (r *KserveModuleReconciler) checkModelCacheReadiness(ctx context.Context) e
 	return nil
 }
 
-func modelCacheResources(namespace string) []client.Object {
-	lmng := &unstructured.Unstructured{}
-	lmng.SetGroupVersionKind(localModelNodeGroupGVK)
-	lmng.SetName(localModelNodeGroupName)
-
-	return []client.Object{
-		&corev1.PersistentVolumeClaim{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      modelCachePVCName,
-				Namespace: namespace,
-			},
-		},
-		&corev1.PersistentVolume{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: modelCachePVName,
-			},
-		},
-		lmng,
-	}
-}
 
 type modelCacheReadinessError struct {
 	reason string
