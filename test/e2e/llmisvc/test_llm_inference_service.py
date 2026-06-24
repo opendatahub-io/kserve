@@ -1036,7 +1036,7 @@ def get_llmisvc(
     kserve_client: KServeClient,
     name,
     namespace,
-    version=constants.KSERVE_V1ALPHA2_VERSION,
+    version=constants.KSERVE_V1ALPHA1_VERSION,
 ):
     try:
         return kserve_client.api_instance.get_namespaced_custom_object(
