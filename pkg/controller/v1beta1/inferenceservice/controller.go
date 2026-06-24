@@ -294,18 +294,11 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 	}
 
-	// Reconcile platform-specific permissions (e.g., SCC RoleBindings for image volumes)
+	// Reconcile platform-specific permissions (e.g., SCC RoleBindings for OpenShift)
 	// This runs after component reconciliation so that isvc.Status.ClusterServingRuntimeName
 	// or isvc.Status.ServingRuntimeName is populated with the selected runtime.
-	// Only reconcile if OCI image source feature is enabled (aligns with webhook behavior)
-	storageInitializerConfig, err := v1beta1.GetStorageInitializerConfigs(isvcConfigMap)
-	if err != nil {
-		return ctrl.Result{}, errors.Wrapf(err, "fails to get storage initializer config")
-	}
-	if storageInitializerConfig.EnableOciImageSource {
-		if err := r.reconcileWorkloadPlatformPermissions(ctx, isvc); err != nil {
-			return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile workload platform permissions")
-		}
+	if err := r.reconcileWorkloadPlatformPermissions(ctx, isvc, isvcConfigMap); err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile workload platform permissions")
 	}
 
 	// Handle InferenceService status updates based on the force stop annotation.

@@ -45,7 +45,20 @@ var sccDisabled, _ = env.GetBool("ISVC_SCC_DISABLED", false)
 
 // reconcileWorkloadPlatformPermissions reconciles platform-specific permissions (e.g., SCC RoleBindings)
 // for InferenceService workloads that require special volume types like image volumes.
-func (r *InferenceServiceReconciler) reconcileWorkloadPlatformPermissions(ctx context.Context, isvc *v1beta1.InferenceService) error {
+func (r *InferenceServiceReconciler) reconcileWorkloadPlatformPermissions(ctx context.Context, isvc *v1beta1.InferenceService, isvcConfigMap *corev1.ConfigMap) error {
+	// Get storage initializer config to check if OCI image source is enabled
+	storageInitializerConfig, err := v1beta1.GetStorageInitializerConfigs(isvcConfigMap)
+	if err != nil {
+		return fmt.Errorf("fails to get storage initializer config: %w", err)
+	}
+
+	// Only reconcile if OCI image source feature is enabled (aligns with webhook behavior).
+	// When disabled, existing RoleBindings are left in place to avoid disrupting running workloads.
+	// They will be garbage collected when the InferenceService is deleted (via owner references).
+	if !storageInitializerConfig.EnableOciImageSource {
+		return nil
+	}
+
 	if sccDisabled {
 		log.FromContext(ctx).V(2).Info("SCC is disabled via ISVC_SCC_DISABLED, skipping SCC role binding reconciliation")
 		return nil
@@ -77,7 +90,7 @@ func (r *InferenceServiceReconciler) reconcileWorkloadPlatformPermissions(ctx co
 // Returns error if runtime lookup fails to prevent accidental RoleBinding deletion on transient errors.
 func getServiceAccountsRequiringImageVolumeSCC(ctx context.Context, cl client.Client, isvc *v1beta1.InferenceService) ([]string, error) {
 	// Only MLServer runtime uses image volumes
-	serverType, err := isvcutils.GetServerTypeFromIsvc(ctx, cl, isvc)
+	serverType, err := getServerTypeFromIsvc(ctx, cl, isvc)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve server type for isvc %s: %w", isvc.Name, err)
 	}
@@ -238,4 +251,37 @@ func semanticRoleBindingEquals(desired, existing *rbacv1.RoleBinding) bool {
 		equality.Semantic.DeepDerivative(desired.RoleRef, existing.RoleRef) &&
 		equality.Semantic.DeepDerivative(desired.Labels, existing.Labels) &&
 		equality.Semantic.DeepDerivative(desired.OwnerReferences, existing.OwnerReferences)
+}
+
+// getServerTypeFromIsvc fetches the runtime for the InferenceService and returns its server-type annotation.
+// Returns empty string if:
+//   - InferenceService is nil
+//   - Runtime name is not populated in status
+//   - Runtime doesn't have the serving.kserve.io/server-type annotation
+//
+// Returns error if runtime fetch fails.
+func getServerTypeFromIsvc(ctx context.Context, cl client.Client, isvc *v1beta1.InferenceService) (string, error) {
+	if isvc == nil {
+		return "", nil
+	}
+
+	// Get runtime name from status (namespaced takes precedence, matching GetServingRuntime priority)
+	var runtimeName string
+	if isvc.Status.ServingRuntimeName != "" {
+		runtimeName = isvc.Status.ServingRuntimeName
+	} else if isvc.Status.ClusterServingRuntimeName != "" {
+		runtimeName = isvc.Status.ClusterServingRuntimeName
+	}
+
+	if runtimeName == "" {
+		return "", nil
+	}
+
+	// Fetch the runtime (tries namespaced first, then cluster)
+	_, annotations, err, _ := isvcutils.GetServingRuntime(ctx, cl, runtimeName, isvc.Namespace)
+	if err != nil {
+		return "", err
+	}
+
+	return annotations[constants.ServerTypeAnnotationKey], nil
 }
