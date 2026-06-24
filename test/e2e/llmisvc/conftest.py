@@ -17,8 +17,6 @@ import pytest
 # Fixture factory - not called explicitly, but must be imported for pytest to discover it.
 from .fixtures import test_case  # noqa: F401
 
-import pytest
-
 _HARDCODED_TLS_WORKLOADS = (
     "workload-llmd-simulator",
     "workload-simulated-dp-ep-cpu",
@@ -80,18 +78,28 @@ def pytest_configure(config):
 
 @pytest.fixture
 def flow_control_auth():
-    """Auth provider hook for downstream deployments.
+    """Midstream override: enables auth pipeline testing for flow control.
 
-    Override this fixture in a downstream conftest.py to enable auth pipeline
-    testing. Return a dict with:
-
-        {
-            "annotations": dict,   # LLMISVC metadata annotations to enable auth
-            "setup": callable,     # (kserve_client, service_name) -> token_str
-            "cleanup": callable,   # (kserve_client, service_name) -> None
-        }
-
-    When this fixture returns None (upstream default), the auth verification
-    section is skipped.
+    The upstream default returns None (auth skipped). This midstream version
+    enables auth on the LLMISVC and provides SA token setup/cleanup so the
+    test verifies: unauthenticated -> 401, authenticated -> 200.
     """
-    return None
+    from .test_llm_auth import (
+        create_service_account_with_inference_access,
+        cleanup_service_account,
+    )
+
+    def setup(kserve_client, service_name):
+        sa = f"{service_name}-fc-sa"
+        return create_service_account_with_inference_access(
+            kserve_client, sa, service_name
+        )
+
+    def cleanup(kserve_client, service_name):
+        cleanup_service_account(kserve_client, f"{service_name}-fc-sa")
+
+    return {
+        "annotations": {"security.opendatahub.io/enable-auth": "true"},
+        "setup": setup,
+        "cleanup": cleanup,
+    }
