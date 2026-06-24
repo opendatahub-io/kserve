@@ -2,7 +2,7 @@ kind: SecurityContextConstraints
 apiVersion: security.openshift.io/v1
 metadata:
   name: openshift-ai-inferenceservice-image-volume-scc
-priority: 10
+priority: null
 allowHostDirVolumePlugin: false
 allowHostIPC: false
 allowHostNetwork: false
