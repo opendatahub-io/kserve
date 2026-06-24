@@ -124,7 +124,6 @@ func main() {
 	ctx := signals.SetupSignalHandler()
 	options := GetOptions()
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&options.zapOpts)))
-	setupLog.Info("starting llmisvc-controller")
 
 	defaults := DefaultOptions()
 	if options.migrationTimeout <= 0 {

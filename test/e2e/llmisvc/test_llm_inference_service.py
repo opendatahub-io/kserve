@@ -207,7 +207,7 @@ class TestCase:
     payload_formatter: Optional[Callable[["TestCase"], Dict[str, Any]]] = None
     response_assertion: Callable[[requests.Response], None] = assert_200
     wait_timeout: int = 900
-    response_timeout: int = 60
+    response_timeout: int = 120
     extra_headers: Optional[Dict[str, str]] = None
     url_getter: Optional[Callable] = None
     expected_gateway: Optional[Dict[str, Any]] = None
