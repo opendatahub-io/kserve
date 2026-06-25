@@ -48,6 +48,7 @@ export GITHUB_SHA=stable # Need to use stable as this is what the CI tags the im
 export BUILD_GRAPH_IMAGES="${BUILD_GRAPH_IMAGES:-true}"
 export RUNNING_LOCAL="${RUNNING_LOCAL:-false}"
 export SKIP_DELETION_ON_FAILURE="${SKIP_DELETION_ON_FAILURE:=true}"
+export PYTEST_MAXFAIL="${PYTEST_MAXFAIL:-3}"
 
 # Export the controller namespace so that E2E tests
 # (e.g. storage version migration) can find the controller.
