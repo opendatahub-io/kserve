@@ -58,7 +58,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: data-science-prometheus-datasource
-                  query: sum(rate(inference_model_request_error_total{namespace=~"$namespace"}[$__rate_interval]))
+                  query: sum(rate(inference_model_request_error_total{namespace=~"$namespace"}[$__rate_interval])) or vector(0)
                   seriesNameFormat: Errors/s
       throughput:
         kind: Panel
