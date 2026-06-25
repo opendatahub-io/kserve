@@ -1,12 +1,13 @@
-apiVersion: perses.dev/v1alpha1
+apiVersion: perses.dev/v1alpha2
 kind: PersesDashboard
 metadata:
   name: dashboard-4-llm-d-performance-admin
 spec:
-  display:
-    name: LLM Performance
-  duration: 1h
-  variables:
+  config:
+    display:
+      name: LLM Performance
+    duration: 1h
+    variables:
     - kind: ListVariable
       spec:
         name: namespace
@@ -15,8 +16,8 @@ spec:
           description: Filter by project
         allowMultiple: true
         allowAllValue: true
-        customAllValue: ".*"
-        defaultValue: "$__all"
+        customAllValue: .*
+        defaultValue: $__all
         plugin:
           kind: PrometheusLabelValuesVariable
           spec:
@@ -24,30 +25,30 @@ spec:
               kind: PrometheusDatasource
             labelName: namespace
             matchers:
-              - kserve_vllm:num_requests_running
-  panels:
-    ttft:
-      kind: Panel
-      spec:
-        display:
-          name: Time to first token (TTFT)
-        plugin:
-          kind: TimeSeriesChart
-          spec:
-            legend:
-              mode: list
-              position: bottom
-              values: []
-            visual:
-              areaOpacity: 0
-              connectNulls: false
-              display: line
-              lineWidth: 1.5
-            yAxis:
-              format:
-                unit: seconds
-              min: 0
-        queries:
+            - kserve_vllm:num_requests_running
+    panels:
+      ttft:
+        kind: Panel
+        spec:
+          display:
+            name: Time to first token (TTFT)
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                mode: list
+                position: bottom
+                values: []
+              visual:
+                areaOpacity: 0
+                connectNulls: false
+                display: line
+                lineWidth: 1.5
+              yAxis:
+                format:
+                  unit: seconds
+                min: 0
+          queries:
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -55,8 +56,9 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
-                  query: (histogram_quantile(0.50, sum by (le) (rate(kserve_vllm:time_to_first_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval]))) > -Inf) or vector(0)
-                  seriesNameFormat: "P50"
+                  query: (histogram_quantile(0.50, sum by (le) (rate(kserve_vllm:time_to_first_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: P50
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -64,8 +66,9 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
-                  query: (histogram_quantile(0.95, sum by (le) (rate(kserve_vllm:time_to_first_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval]))) > -Inf) or vector(0)
-                  seriesNameFormat: "P95"
+                  query: (histogram_quantile(0.95, sum by (le) (rate(kserve_vllm:time_to_first_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: P95
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -73,30 +76,31 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
-                  query: (histogram_quantile(0.99, sum by (le) (rate(kserve_vllm:time_to_first_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval]))) > -Inf) or vector(0)
-                  seriesNameFormat: "P99"
-    e2eLatency:
-      kind: Panel
-      spec:
-        display:
-          name: E2E request latency
-        plugin:
-          kind: TimeSeriesChart
-          spec:
-            legend:
-              mode: list
-              position: bottom
-              values: []
-            visual:
-              areaOpacity: 0
-              connectNulls: false
-              display: line
-              lineWidth: 1.5
-            yAxis:
-              format:
-                unit: seconds
-              min: 0
-        queries:
+                  query: (histogram_quantile(0.99, sum by (le) (rate(kserve_vllm:time_to_first_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: P99
+      e2eLatency:
+        kind: Panel
+        spec:
+          display:
+            name: E2E request latency
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                mode: list
+                position: bottom
+                values: []
+              visual:
+                areaOpacity: 0
+                connectNulls: false
+                display: line
+                lineWidth: 1.5
+              yAxis:
+                format:
+                  unit: seconds
+                min: 0
+          queries:
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -104,8 +108,9 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
-                  query: (histogram_quantile(0.50, sum by (le) (rate(kserve_vllm:e2e_request_latency_seconds_bucket{namespace=~"$namespace"}[$__rate_interval]))) > -Inf) or vector(0)
-                  seriesNameFormat: "P50"
+                  query: (histogram_quantile(0.50, sum by (le) (rate(kserve_vllm:e2e_request_latency_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: P50
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -113,8 +118,9 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
-                  query: (histogram_quantile(0.95, sum by (le) (rate(kserve_vllm:e2e_request_latency_seconds_bucket{namespace=~"$namespace"}[$__rate_interval]))) > -Inf) or vector(0)
-                  seriesNameFormat: "P95"
+                  query: (histogram_quantile(0.95, sum by (le) (rate(kserve_vllm:e2e_request_latency_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: P95
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -122,30 +128,31 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
-                  query: (histogram_quantile(0.99, sum by (le) (rate(kserve_vllm:e2e_request_latency_seconds_bucket{namespace=~"$namespace"}[$__rate_interval]))) > -Inf) or vector(0)
-                  seriesNameFormat: "P99"
-    interTokenLatency:
-      kind: Panel
-      spec:
-        display:
-          name: Inter-token latency
-        plugin:
-          kind: TimeSeriesChart
-          spec:
-            legend:
-              mode: list
-              position: bottom
-              values: []
-            visual:
-              areaOpacity: 0
-              connectNulls: false
-              display: line
-              lineWidth: 1.5
-            yAxis:
-              format:
-                unit: seconds
-              min: 0
-        queries:
+                  query: (histogram_quantile(0.99, sum by (le) (rate(kserve_vllm:e2e_request_latency_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: P99
+      interTokenLatency:
+        kind: Panel
+        spec:
+          display:
+            name: Inter-token latency
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                mode: list
+                position: bottom
+                values: []
+              visual:
+                areaOpacity: 0
+                connectNulls: false
+                display: line
+                lineWidth: 1.5
+              yAxis:
+                format:
+                  unit: seconds
+                min: 0
+          queries:
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -153,8 +160,9 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
-                  query: (histogram_quantile(0.50, sum by (le) (rate(kserve_vllm:time_per_output_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval]))) > -Inf) or vector(0)
-                  seriesNameFormat: "P50"
+                  query: (histogram_quantile(0.50, sum by (le) (rate(kserve_vllm:time_per_output_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: P50
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -162,8 +170,9 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
-                  query: (histogram_quantile(0.95, sum by (le) (rate(kserve_vllm:time_per_output_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval]))) > -Inf) or vector(0)
-                  seriesNameFormat: "P95"
+                  query: (histogram_quantile(0.95, sum by (le) (rate(kserve_vllm:time_per_output_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: P95
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -171,30 +180,31 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
-                  query: (histogram_quantile(0.99, sum by (le) (rate(kserve_vllm:time_per_output_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval]))) > -Inf) or vector(0)
-                  seriesNameFormat: "P99"
-    kvCacheHitRate:
-      kind: Panel
-      spec:
-        display:
-          name: KV cache hit rate
-        plugin:
-          kind: TimeSeriesChart
-          spec:
-            legend:
-              mode: list
-              position: bottom
-              values: []
-            visual:
-              areaOpacity: 0
-              connectNulls: false
-              display: line
-              lineWidth: 1.5
-            yAxis:
-              format:
-                unit: percent-decimal
-              min: 0
-        queries:
+                  query: (histogram_quantile(0.99, sum by (le) (rate(kserve_vllm:time_per_output_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: P99
+      kvCacheHitRate:
+        kind: Panel
+        spec:
+          display:
+            name: KV cache hit rate
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                mode: list
+                position: bottom
+                values: []
+              visual:
+                areaOpacity: 0
+                connectNulls: false
+                display: line
+                lineWidth: 1.5
+              yAxis:
+                format:
+                  unit: percent-decimal
+                min: 0
+          queries:
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -202,31 +212,33 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
-                  query: sum(rate(kserve_vllm:prefix_cache_hits_total{namespace=~"$namespace"}[$__rate_interval])) / (sum(rate(kserve_vllm:prefix_cache_queries_total{namespace=~"$namespace"}[$__rate_interval])) > 0)
-                  seriesNameFormat: "Hit rate"
-    kvCacheUsage:
-      kind: Panel
-      spec:
-        display:
-          name: KV cache usage
-        plugin:
-          kind: TimeSeriesChart
-          spec:
-            legend:
-              mode: list
-              position: bottom
-              values: []
-            visual:
-              areaOpacity: 0
-              connectNulls: false
-              display: line
-              lineWidth: 1.5
-            yAxis:
-              format:
-                unit: percent-decimal
-              min: 0
-              max: 1
-        queries:
+                  query: sum(rate(kserve_vllm:prefix_cache_hits_total{namespace=~"$namespace"}[$__rate_interval]))
+                    / (sum(rate(kserve_vllm:prefix_cache_queries_total{namespace=~"$namespace"}[$__rate_interval]))
+                    > 0)
+                  seriesNameFormat: Hit rate
+      kvCacheUsage:
+        kind: Panel
+        spec:
+          display:
+            name: KV cache usage
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                mode: list
+                position: bottom
+                values: []
+              visual:
+                areaOpacity: 0
+                connectNulls: false
+                display: line
+                lineWidth: 1.5
+              yAxis:
+                format:
+                  unit: percent-decimal
+                min: 0
+                max: 1
+          queries:
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -235,8 +247,8 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                   query: avg(kserve_vllm:kv_cache_usage_perc{namespace=~"$namespace"})
-                  seriesNameFormat: "Usage"
-  layouts:
+                  seriesNameFormat: Usage
+    layouts:
     - kind: Grid
       spec:
         display:
@@ -244,24 +256,24 @@ spec:
           collapse:
             open: true
         items:
-          - x: 0
-            'y': 0
-            width: 8
-            height: 8
-            content:
-              '$ref': '#/spec/panels/ttft'
-          - x: 8
-            'y': 0
-            width: 8
-            height: 8
-            content:
-              '$ref': '#/spec/panels/e2eLatency'
-          - x: 16
-            'y': 0
-            width: 8
-            height: 8
-            content:
-              '$ref': '#/spec/panels/interTokenLatency'
+        - x: 0
+          y: 0
+          width: 8
+          height: 8
+          content:
+            $ref: '#/spec/panels/ttft'
+        - x: 8
+          y: 0
+          width: 8
+          height: 8
+          content:
+            $ref: '#/spec/panels/e2eLatency'
+        - x: 16
+          y: 0
+          width: 8
+          height: 8
+          content:
+            $ref: '#/spec/panels/interTokenLatency'
     - kind: Grid
       spec:
         display:
@@ -269,15 +281,15 @@ spec:
           collapse:
             open: true
         items:
-          - x: 0
-            'y': 0
-            width: 12
-            height: 8
-            content:
-              '$ref': '#/spec/panels/kvCacheHitRate'
-          - x: 12
-            'y': 0
-            width: 12
-            height: 8
-            content:
-              '$ref': '#/spec/panels/kvCacheUsage'
+        - x: 0
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/kvCacheHitRate'
+        - x: 12
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/kvCacheUsage'

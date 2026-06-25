@@ -1,12 +1,13 @@
-apiVersion: perses.dev/v1alpha1
+apiVersion: perses.dev/v1alpha2
 kind: PersesDashboard
 metadata:
   name: dashboard-3-llm-d-replica-admin
 spec:
-  display:
-    name: LLM Replica Detail
-  duration: 1h
-  variables:
+  config:
+    display:
+      name: LLM Replica Detail
+    duration: 1h
+    variables:
     - kind: ListVariable
       spec:
         name: namespace
@@ -15,8 +16,8 @@ spec:
           description: Filter by project
         allowMultiple: true
         allowAllValue: true
-        customAllValue: ".*"
-        defaultValue: "$__all"
+        customAllValue: .*
+        defaultValue: $__all
         plugin:
           kind: PrometheusLabelValuesVariable
           spec:
@@ -24,30 +25,30 @@ spec:
               kind: PrometheusDatasource
             labelName: namespace
             matchers:
-              - kserve_vllm:num_requests_running
-  panels:
-    gpuUtilization:
-      kind: Panel
-      spec:
-        display:
-          name: GPU utilization
-        plugin:
-          kind: TimeSeriesChart
-          spec:
-            legend:
-              mode: list
-              position: bottom
-              values: []
-            visual:
-              areaOpacity: 0
-              connectNulls: false
-              display: line
-              lineWidth: 1.5
-            yAxis:
-              format:
-                unit: percent
-              min: 0
-        queries:
+            - kserve_vllm:num_requests_running
+    panels:
+      gpuUtilization:
+        kind: Panel
+        spec:
+          display:
+            name: GPU utilization
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                mode: list
+                position: bottom
+                values: []
+              visual:
+                areaOpacity: 0
+                connectNulls: false
+                display: line
+                lineWidth: 1.5
+              yAxis:
+                format:
+                  unit: percent
+                min: 0
+          queries:
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -56,29 +57,29 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                   query: avg by (pod) (accelerator_gpu_utilization{exported_namespace=~"$namespace"})
-                  seriesNameFormat: "{{pod}}"
-    queueDepthRunning:
-      kind: Panel
-      spec:
-        display:
-          name: Requests running
-        plugin:
-          kind: TimeSeriesChart
-          spec:
-            legend:
-              mode: list
-              position: bottom
-              values: []
-            visual:
-              areaOpacity: 0
-              connectNulls: false
-              display: line
-              lineWidth: 1.5
-            yAxis:
-              format:
-                unit: decimal
-              min: 0
-        queries:
+                  seriesNameFormat: '{{pod}}'
+      queueDepthRunning:
+        kind: Panel
+        spec:
+          display:
+            name: Requests running
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                mode: list
+                position: bottom
+                values: []
+              visual:
+                areaOpacity: 0
+                connectNulls: false
+                display: line
+                lineWidth: 1.5
+              yAxis:
+                format:
+                  unit: decimal
+                min: 0
+          queries:
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -87,29 +88,29 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                   query: sum by (pod) (kserve_vllm:num_requests_running{namespace=~"$namespace"})
-                  seriesNameFormat: "{{pod}}"
-    queueDepthWaiting:
-      kind: Panel
-      spec:
-        display:
-          name: Requests waiting
-        plugin:
-          kind: TimeSeriesChart
-          spec:
-            legend:
-              mode: list
-              position: bottom
-              values: []
-            visual:
-              areaOpacity: 0
-              connectNulls: false
-              display: line
-              lineWidth: 1.5
-            yAxis:
-              format:
-                unit: decimal
-              min: 0
-        queries:
+                  seriesNameFormat: '{{pod}}'
+      queueDepthWaiting:
+        kind: Panel
+        spec:
+          display:
+            name: Requests waiting
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                mode: list
+                position: bottom
+                values: []
+              visual:
+                areaOpacity: 0
+                connectNulls: false
+                display: line
+                lineWidth: 1.5
+              yAxis:
+                format:
+                  unit: decimal
+                min: 0
+          queries:
           - kind: TimeSeriesQuery
             spec:
               plugin:
@@ -118,8 +119,8 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                   query: sum by (pod) (kserve_vllm:num_requests_waiting{namespace=~"$namespace"})
-                  seriesNameFormat: "{{pod}}"
-  layouts:
+                  seriesNameFormat: '{{pod}}'
+    layouts:
     - kind: Grid
       spec:
         display:
@@ -127,12 +128,12 @@ spec:
           collapse:
             open: true
         items:
-          - x: 0
-            'y': 0
-            width: 24
-            height: 8
-            content:
-              '$ref': '#/spec/panels/gpuUtilization'
+        - x: 0
+          y: 0
+          width: 24
+          height: 8
+          content:
+            $ref: '#/spec/panels/gpuUtilization'
     - kind: Grid
       spec:
         display:
@@ -140,15 +141,15 @@ spec:
           collapse:
             open: true
         items:
-          - x: 0
-            'y': 0
-            width: 12
-            height: 8
-            content:
-              '$ref': '#/spec/panels/queueDepthRunning'
-          - x: 12
-            'y': 0
-            width: 12
-            height: 8
-            content:
-              '$ref': '#/spec/panels/queueDepthWaiting'
+        - x: 0
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/queueDepthRunning'
+        - x: 12
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/queueDepthWaiting'
