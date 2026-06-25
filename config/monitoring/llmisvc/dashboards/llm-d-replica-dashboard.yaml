@@ -77,7 +77,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: data-science-prometheus-datasource
-                  query: avg by (pod) (accelerator_gpu_utilization{exported_namespace=~"$namespace"})
+                  query: avg by (pod) (accelerator_gpu_utilization{exported_namespace=~"$namespace",model_name=~"$model_name"})
                   seriesNameFormat: '{{pod}}'
       queueDepthRunning:
         kind: Panel
@@ -109,7 +109,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: data-science-prometheus-datasource
-                  query: sum by (pod) (kserve_vllm:num_requests_running{namespace=~"$namespace"})
+                  query: sum by (pod) (kserve_vllm:num_requests_running{namespace=~"$namespace",model_name=~"$model_name"})
                   seriesNameFormat: '{{pod}}'
       queueDepthWaiting:
         kind: Panel
@@ -141,7 +141,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: data-science-prometheus-datasource
-                  query: sum by (pod) (kserve_vllm:num_requests_waiting{namespace=~"$namespace"})
+                  query: sum by (pod) (kserve_vllm:num_requests_waiting{namespace=~"$namespace",model_name=~"$model_name"})
                   seriesNameFormat: '{{pod}}'
     layouts:
     - kind: Grid
