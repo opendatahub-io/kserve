@@ -27,6 +27,25 @@ spec:
             labelName: namespace
             matchers:
             - kserve_vllm:num_requests_running
+    - kind: ListVariable
+      spec:
+        name: model_name
+        display:
+          name: Model
+          description: Filter by model
+        allowMultiple: true
+        allowAllValue: true
+        customAllValue: .*
+        defaultValue: $__all
+        plugin:
+          kind: PrometheusLabelValuesVariable
+          spec:
+            datasource:
+              kind: PrometheusDatasource
+              name: data-science-prometheus-datasource
+            labelName: model_name
+            matchers:
+            - kserve_vllm:num_requests_running{namespace=~"$namespace"}
     panels:
       gpuUtilization:
         kind: Panel
