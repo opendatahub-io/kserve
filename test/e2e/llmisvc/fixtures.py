@@ -1416,8 +1416,11 @@ def _setup_test_case_service(kserve_client, tc, test_node_name, peer_index=None)
         suffix = f"-peer-{peer_index}" if peer_index is not None else ""
         tc.service_name = generate_service_name(test_node_name + suffix, tc.base_refs)
     config_model_name = _get_model_name_from_configs(tc.base_refs)
-    model_name_suffix = hashlib.sha256(tc.service_name.encode()).hexdigest()[:6]
-    unique_model_name = f"{config_model_name}-{model_name_suffix}"
+    if tc.url_getter is not None:
+        model_name_suffix = hashlib.sha256(tc.service_name.encode()).hexdigest()[:6]
+        unique_model_name = f"{config_model_name}-{model_name_suffix}"
+    else:
+        unique_model_name = config_model_name
     if tc.model_name == "default/model":
         tc.model_name = unique_model_name
 
