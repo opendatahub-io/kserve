@@ -23,6 +23,7 @@ spec:
           spec:
             datasource:
               kind: PrometheusDatasource
+              name: data-science-prometheus-datasource
             labelName: namespace
             matchers:
             - kserve_vllm:num_requests_running
@@ -56,6 +57,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: (histogram_quantile(0.50, sum by (le) (rate(kserve_vllm:time_to_first_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
                     > -Inf) or vector(0)
                   seriesNameFormat: P50
@@ -66,6 +68,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: (histogram_quantile(0.95, sum by (le) (rate(kserve_vllm:time_to_first_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
                     > -Inf) or vector(0)
                   seriesNameFormat: P95
@@ -76,6 +79,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: (histogram_quantile(0.99, sum by (le) (rate(kserve_vllm:time_to_first_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
                     > -Inf) or vector(0)
                   seriesNameFormat: P99
@@ -108,6 +112,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: (histogram_quantile(0.50, sum by (le) (rate(kserve_vllm:e2e_request_latency_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
                     > -Inf) or vector(0)
                   seriesNameFormat: P50
@@ -118,6 +123,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: (histogram_quantile(0.95, sum by (le) (rate(kserve_vllm:e2e_request_latency_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
                     > -Inf) or vector(0)
                   seriesNameFormat: P95
@@ -128,6 +134,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: (histogram_quantile(0.99, sum by (le) (rate(kserve_vllm:e2e_request_latency_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
                     > -Inf) or vector(0)
                   seriesNameFormat: P99
@@ -160,6 +167,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: (histogram_quantile(0.50, sum by (le) (rate(kserve_vllm:time_per_output_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
                     > -Inf) or vector(0)
                   seriesNameFormat: P50
@@ -170,6 +178,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: (histogram_quantile(0.95, sum by (le) (rate(kserve_vllm:time_per_output_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
                     > -Inf) or vector(0)
                   seriesNameFormat: P95
@@ -180,6 +189,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: (histogram_quantile(0.99, sum by (le) (rate(kserve_vllm:time_per_output_token_seconds_bucket{namespace=~"$namespace"}[$__rate_interval])))
                     > -Inf) or vector(0)
                   seriesNameFormat: P99
@@ -212,6 +222,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: sum(rate(kserve_vllm:prefix_cache_hits_total{namespace=~"$namespace"}[$__rate_interval]))
                     / (sum(rate(kserve_vllm:prefix_cache_queries_total{namespace=~"$namespace"}[$__rate_interval]))
                     > 0)
@@ -246,6 +257,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: avg(kserve_vllm:kv_cache_usage_perc{namespace=~"$namespace"})
                   seriesNameFormat: Usage
     layouts:

@@ -23,6 +23,7 @@ spec:
           spec:
             datasource:
               kind: PrometheusDatasource
+              name: data-science-prometheus-datasource
             labelName: namespace
             matchers:
             - kserve_vllm:num_requests_running
@@ -56,6 +57,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: avg by (pod) (accelerator_gpu_utilization{exported_namespace=~"$namespace"})
                   seriesNameFormat: '{{pod}}'
       queueDepthRunning:
@@ -87,6 +89,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: sum by (pod) (kserve_vllm:num_requests_running{namespace=~"$namespace"})
                   seriesNameFormat: '{{pod}}'
       queueDepthWaiting:
@@ -118,6 +121,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: sum by (pod) (kserve_vllm:num_requests_waiting{namespace=~"$namespace"})
                   seriesNameFormat: '{{pod}}'
     layouts:

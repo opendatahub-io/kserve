@@ -23,6 +23,7 @@ spec:
           spec:
             datasource:
               kind: PrometheusDatasource
+              name: data-science-prometheus-datasource
             labelName: namespace
             matchers:
             - kserve_vllm:num_requests_running
@@ -56,6 +57,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: sum(rate(inference_model_request_error_total{namespace=~"$namespace"}[$__rate_interval]))
                   seriesNameFormat: Errors/s
       throughput:
@@ -87,6 +89,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: sum(rate(kserve_vllm:request_success_total{namespace=~"$namespace",
                     finished_reason=~"length|stop"}[$__rate_interval]))
                   seriesNameFormat: Successful
@@ -97,6 +100,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: sum(rate(inference_model_request_error_total{namespace=~"$namespace"}[$__rate_interval]))
                   seriesNameFormat: Errors
       totalTokens:
@@ -128,6 +132,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: sum(rate(kserve_vllm:prompt_tokens_total{namespace=~"$namespace"}[$__rate_interval]))
                     + sum(rate(kserve_vllm:generation_tokens_total{namespace=~"$namespace"}[$__rate_interval]))
                   seriesNameFormat: Total
@@ -138,6 +143,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: sum(rate(kserve_vllm:prompt_tokens_total{namespace=~"$namespace"}[$__rate_interval]))
                   seriesNameFormat: Input
           - kind: TimeSeriesQuery
@@ -147,6 +153,7 @@ spec:
                 spec:
                   datasource:
                     kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
                   query: sum(rate(kserve_vllm:generation_tokens_total{namespace=~"$namespace"}[$__rate_interval]))
                   seriesNameFormat: Output
     layouts:
