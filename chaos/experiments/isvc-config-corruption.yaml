@@ -2,7 +2,7 @@ apiVersion: chaos.operatorchaos.io/v1alpha1
 kind: ChaosExperiment
 metadata:
   name: kserve-isvc-config-corruption
-  namespace: kserve
+  namespace: redhat-ods-applications
 spec:
   tier: 2
   target:
@@ -15,8 +15,8 @@ spec:
         apiVersion: v1
         kind: ConfigMap
         name: inferenceservice-config
-        namespace: kserve
-    timeout: "30s"
+        namespace: redhat-ods-applications
+    timeout: "60s"
   injection:
     type: ConfigDrift
     dangerLevel: high
@@ -38,5 +38,5 @@ spec:
   blastRadius:
     maxPodsAffected: 1
     allowedNamespaces:
-      - kserve
+      - redhat-ods-applications
     allowDangerous: true

@@ -2,7 +2,7 @@ apiVersion: chaos.operatorchaos.io/v1alpha1
 kind: ChaosExperiment
 metadata:
   name: kserve-isvc-validator-disrupt
-  namespace: kserve
+  namespace: redhat-ods-applications
 spec:
   tier: 4
   target:
@@ -15,9 +15,9 @@ spec:
         apiVersion: apps/v1
         kind: Deployment
         name: kserve-controller-manager
-        namespace: kserve
+        namespace: redhat-ods-applications
         conditionType: Available
-    timeout: "30s"
+    timeout: "60s"
   injection:
     type: WebhookDisrupt
     dangerLevel: high

@@ -13,7 +13,7 @@ spec:
         apiVersion: apps/v1
         kind: Deployment
         name: kserve-controller-manager
-        namespace: opendatahub
+        namespace: redhat-ods-applications
         conditionType: Available
     timeout: "30s"
   injection:
@@ -31,4 +31,4 @@ spec:
   blastRadius:
     maxPodsAffected: 1
     allowedNamespaces:
-      - opendatahub
+      - redhat-ods-applications

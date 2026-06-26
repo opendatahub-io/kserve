@@ -16,7 +16,7 @@ spec:
         name: kserve-controller-manager
         namespace: redhat-ods-applications
         conditionType: Available
-    timeout: "30s"
+    timeout: "60s"
   injection:
     type: CrashLoopInject
     dangerLevel: high

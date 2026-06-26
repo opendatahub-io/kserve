@@ -14,7 +14,7 @@ that touch API types, controllers, CRDs, or the knowledge model and:
 
 ## Directory structure
 
-```
+```text
 chaos/
   knowledge/
     kserve.yaml          # Knowledge model describing operator topology

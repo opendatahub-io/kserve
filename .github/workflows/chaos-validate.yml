@@ -42,7 +42,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${RUNNER_TEMP}/bin"
-          GOBIN="${RUNNER_TEMP}/bin" go install github.com/opendatahub-io/operator-chaos/cmd/operator-chaos@latest
+          GOBIN="${RUNNER_TEMP}/bin" go install github.com/opendatahub-io/operator-chaos/cmd/operator-chaos@v0.0.0-20260616171738-edb1c045f677
           echo "${RUNNER_TEMP}/bin" >> "${GITHUB_PATH}"
 
       - name: Checkout base branch assets

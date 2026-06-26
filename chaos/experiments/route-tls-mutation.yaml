@@ -14,9 +14,9 @@ spec:
         apiVersion: apps/v1
         kind: Deployment
         name: kserve-controller-manager
-        namespace: kserve
+        namespace: redhat-ods-applications
         conditionType: Available
-    timeout: "30s"
+    timeout: "60s"
   injection:
     type: CRDMutation
     dangerLevel: high
@@ -42,5 +42,5 @@ spec:
   blastRadius:
     maxPodsAffected: 1
     allowedNamespaces:
-      - kserve
+      - redhat-ods-applications
     allowDangerous: true

@@ -51,7 +51,7 @@ manifests-distro: controller-gen
 
 ## operator-chaos tooling
 OPERATOR_CHAOS = $(LOCALBIN)/operator-chaos
-OPERATOR_CHAOS_VERSION ?= latest
+OPERATOR_CHAOS_VERSION ?= v0.0.0-20260616171738-edb1c045f677
 
 .PHONY: operator-chaos
 operator-chaos: $(OPERATOR_CHAOS)
