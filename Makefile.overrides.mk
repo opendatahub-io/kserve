@@ -16,7 +16,7 @@ AGENT_IMG = kserve-agent
 ROUTER_IMG = kserve-router
 STORAGE_INIT_IMG = kserve-storage-initializer
 
-.PHONY: deploy-dev-llm-ocp deploy-ci uv-update-lockfiles
+.PHONY: deploy-dev-llm-ocp deploy-ci uv-update-lockfiles chaos-validate
 
 -include Makefile.ocp.mk
 
@@ -48,6 +48,27 @@ manifests-distro: controller-gen
 	@$(CONTROLLER_GEN) rbac:roleName=kserve-localmodelnode-distro-role \
 		paths=./pkg/controller/v1alpha1/localmodelnode/distro \
 		output:rbac:artifacts:config=config/overlays/odh-modelcache/rbac/localmodelnode
+
+## operator-chaos tooling
+OPERATOR_CHAOS = $(LOCALBIN)/operator-chaos
+OPERATOR_CHAOS_VERSION ?= latest
+
+.PHONY: operator-chaos
+operator-chaos: $(OPERATOR_CHAOS)
+$(OPERATOR_CHAOS): $(LOCALBIN)
+	test -s $(LOCALBIN)/operator-chaos || GOTOOLCHAIN=auto GOBIN=$(LOCALBIN) go install github.com/opendatahub-io/operator-chaos/cmd/operator-chaos@$(OPERATOR_CHAOS_VERSION)
+
+chaos-validate: operator-chaos ## Validate chaos knowledge model and experiments.
+	$(OPERATOR_CHAOS) validate --knowledge chaos/knowledge/kserve.yaml
+	$(OPERATOR_CHAOS) preflight --knowledge chaos/knowledge/kserve.yaml --local
+	@status=0; \
+	for f in chaos/experiments/*.yaml; do \
+		echo "--- $$f ---"; \
+		if ! $(OPERATOR_CHAOS) validate "$$f"; then \
+			status=1; \
+		fi; \
+	done; \
+	exit $$status
 
 -include Makefile.kserve-module.mk
 

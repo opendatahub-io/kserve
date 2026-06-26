@@ -1,0 +1,36 @@
+apiVersion: chaos.operatorchaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: kserve-crashloop-inject
+spec:
+  tier: 3
+  target:
+    operator: kserve
+    component: kserve
+    resource: Deployment/kserve-controller-manager
+  steadyState:
+    checks:
+      - type: conditionTrue
+        apiVersion: apps/v1
+        kind: Deployment
+        name: kserve-controller-manager
+        namespace: redhat-ods-applications
+        conditionType: Available
+    timeout: "30s"
+  injection:
+    type: CrashLoopInject
+    dangerLevel: high
+    parameters:
+      name: kserve-controller-manager
+    ttl: "300s"
+  hypothesis:
+    description: >-
+      Replacing the container command with a nonexistent binary causes
+      CrashLoopBackOff. Tests whether the operator detects the degraded
+      deployment and takes corrective action.
+    recoveryTimeout: 180s
+  blastRadius:
+    maxPodsAffected: 2
+    allowDangerous: true
+    allowedNamespaces:
+      - redhat-ods-applications

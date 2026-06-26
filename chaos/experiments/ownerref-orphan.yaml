@@ -1,0 +1,34 @@
+apiVersion: chaos.operatorchaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: kserve-ownerref-orphan
+spec:
+  tier: 3
+  target:
+    operator: kserve
+    component: kserve-controller
+  steadyState:
+    checks:
+      - type: conditionTrue
+        apiVersion: apps/v1
+        kind: Deployment
+        name: kserve-controller-manager
+        namespace: opendatahub
+        conditionType: Available
+    timeout: "30s"
+  injection:
+    type: OwnerRefOrphan
+    parameters:
+      apiVersion: "apps/v1"
+      kind: "Deployment"
+      name: "kserve-controller-manager"
+    ttl: "120s"
+  hypothesis:
+    description: >-
+      Removing ownerReferences from the kserve-controller-manager Deployment
+      should trigger the operator to re-adopt it within the recovery timeout.
+    recoveryTimeout: 60s
+  blastRadius:
+    maxPodsAffected: 1
+    allowedNamespaces:
+      - opendatahub

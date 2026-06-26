@@ -1,0 +1,42 @@
+apiVersion: chaos.operatorchaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: kserve-isvc-config-corruption
+  namespace: kserve
+spec:
+  tier: 2
+  target:
+    operator: kserve
+    component: kserve-controller-manager
+    resource: ConfigMap/inferenceservice-config
+  steadyState:
+    checks:
+      - type: resourceExists
+        apiVersion: v1
+        kind: ConfigMap
+        name: inferenceservice-config
+        namespace: kserve
+    timeout: "30s"
+  injection:
+    type: ConfigDrift
+    dangerLevel: high
+    parameters:
+      name: inferenceservice-config
+      key: deploy
+      value: "{}"
+      resourceType: ConfigMap
+    ttl: "300s"
+  hypothesis:
+    description: >-
+      When the deploy key in the inferenceservice-config ConfigMap is
+      overwritten with an empty JSON object, kserve should detect the
+      partial config corruption and recover within 120s. Existing
+      InferenceService resources should continue serving, and the
+      controller should either fall back to built-in defaults or
+      surface clear error conditions rather than silently failing.
+    recoveryTimeout: 120s
+  blastRadius:
+    maxPodsAffected: 1
+    allowedNamespaces:
+      - kserve
+    allowDangerous: true

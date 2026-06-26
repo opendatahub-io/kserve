@@ -1,0 +1,46 @@
+apiVersion: chaos.operatorchaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: kserve-route-tls-mutation
+spec:
+  tier: 3
+  target:
+    operator: kserve
+    component: kserve-controller-manager
+    resource: Route/kserve-isvc-route
+  steadyState:
+    checks:
+      - type: conditionTrue
+        apiVersion: apps/v1
+        kind: Deployment
+        name: kserve-controller-manager
+        namespace: kserve
+        conditionType: Available
+    timeout: "30s"
+  injection:
+    type: CRDMutation
+    dangerLevel: high
+    # NOTE: Replace "kserve-isvc-route" with the actual Route name for
+    # your InferenceService.
+    parameters:
+      apiVersion: "route.openshift.io/v1"
+      kind: "Route"
+      name: "kserve-isvc-route"
+      path: "spec.tls.termination"
+      value: "passthrough"
+    ttl: "300s"
+  hypothesis:
+    description: >-
+      Changing TLS termination on a KServe InferenceService Route from
+      edge/reencrypt to passthrough breaks HTTPS inference endpoints.
+      The KServe controller or RHOAI operator should detect the TLS
+      drift and restore the correct termination mode. NOTE: The Route
+      name must be customized for each InferenceService deployment.
+      Expected verdict: Resilient if restored, Vulnerable if inference
+      endpoints stay broken.
+    recoveryTimeout: 120s
+  blastRadius:
+    maxPodsAffected: 1
+    allowedNamespaces:
+      - kserve
+    allowDangerous: true
