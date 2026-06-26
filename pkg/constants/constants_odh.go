@@ -25,6 +25,7 @@ const (
 // Midstream annotation keys
 var (
 	OVMSAutoVersioningAnnotationKey = "storage.kserve.io/ovms-auto-versioning"
+	ODHKserveRuntimeAnnotation      = "opendatahub.io/kserve-runtime"
 )
 
 // Midstream networking constants

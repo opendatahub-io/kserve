@@ -5,6 +5,7 @@ import (
 	"flag"
 	"os"
 
+	securityv1 "github.com/openshift/api/security/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -27,6 +28,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(apiextensionsv1.AddToScheme(scheme))
+	utilruntime.Must(securityv1.Install(scheme))
 	utilruntime.Must(platformv1alpha1.AddToScheme(scheme))
 }
 

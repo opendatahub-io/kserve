@@ -8,6 +8,8 @@ rules:
   - ""
   resources:
   - configmaps
+  - persistentvolumeclaims
+  - persistentvolumes
   - serviceaccounts
   - services
   verbs:
@@ -37,6 +39,16 @@ rules:
   - ""
   resources:
   - namespaces
+  - nodes
+  verbs:
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
   - secrets
   verbs:
   - get
@@ -88,6 +100,7 @@ rules:
 - apiGroups:
   - apps
   resources:
+  - daemonsets
   - deployments
   verbs:
   - create
@@ -143,18 +156,6 @@ rules:
   - clusterversions
   verbs:
   - get
-- apiGroups:
-  - coordination.k8s.io
-  resources:
-  - leases
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - monitoring.coreos.com
   resourceNames:
@@ -255,8 +256,14 @@ rules:
   - account-viewer-role
   - kserve-admin
   - kserve-edit
+  - kserve-inferenceservice-distro-role
   - kserve-llmisvc-distro-role
   - kserve-llmisvc-manager-role
+  - kserve-localmodel-distro-role
+  - kserve-localmodel-manager-role
+  - kserve-localmodel-permfix-role
+  - kserve-localmodelnode-agent-role
+  - kserve-localmodelnode-distro-role
   - kserve-manager-role
   - kserve-metrics-reader-cluster-role
   - kserve-prometheus-k8s
@@ -265,6 +272,7 @@ rules:
   - metrics-reader
   - model-serving-api
   - odh-model-controller-role
+  - openshift-ai-inferenceservice-image-volume-scc
   - openshift-ai-llminferenceservice-scc
   - proxy-role
   - workload-variant-autoscaler-epp-metrics-reader-role
@@ -308,6 +316,7 @@ rules:
   resources:
   - clusterstoragecontainers
   - llminferenceserviceconfigs
+  - localmodelnodegroups
   verbs:
   - create
   - delete
