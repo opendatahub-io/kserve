@@ -6,6 +6,8 @@ const (
 	OdhModelControllerComponentName = "modelcontroller"
 	WVAComponentName                = "wva"
 	ModelCacheComponentName         = "modelcache"
+	modelCacheNamespace             = "model-serving-cache"
+	kserveConfigNamespaceEnv        = "KSERVE_CONFIG_NAMESPACE"
 
 	// Manifest source paths
 	KserveManifestSourcePath     = "overlays/odh"

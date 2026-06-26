@@ -91,7 +91,7 @@ import (
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;patch;update
 // +kubebuilder:rbac:groups="",resources=persistentvolumes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;patch;update
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;patch;update
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodegroups,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
 
@@ -279,7 +279,11 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 	}
 
 	renderPath := filepath.Join(manifestDir, comp.dirName(), sourcePath)
-	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(r.getApplicationsNamespace()))
+	deployNamespace := r.getApplicationsNamespace()
+	if comp.deployNamespace != nil {
+		deployNamespace = comp.deployNamespace(r)
+	}
+	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(deployNamespace))
 	if err != nil {
 		return nil, fmt.Errorf("rendering %s kustomize: %w", comp.name, err)
 	}
