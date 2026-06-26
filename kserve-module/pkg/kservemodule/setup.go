@@ -159,6 +159,13 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	r.controller = c
 
+	if err := mgr.Add(&upgradeRunnable{
+		client:        mgr.GetClient(),
+		applicationNS: r.getApplicationsNamespace(),
+	}); err != nil {
+		return fmt.Errorf("error registering upgrade runnable: %w", err)
+	}
+
 	return nil
 }
 

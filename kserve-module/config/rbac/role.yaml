@@ -157,6 +157,19 @@ rules:
   verbs:
   - get
 - apiGroups:
+  - dashboard.opendatahub.io
+  resources:
+  - acceleratorprofiles
+  verbs:
+  - list
+- apiGroups:
+  - infrastructure.opendatahub.io
+  resources:
+  - hardwareprofiles
+  verbs:
+  - get
+  - list
+- apiGroups:
   - monitoring.coreos.com
   resourceNames:
   - k8s
@@ -209,6 +222,12 @@ rules:
   verbs:
   - get
   - update
+- apiGroups:
+  - opendatahub.io
+  resources:
+  - odhdashboardconfigs
+  verbs:
+  - get
 - apiGroups:
   - operator.openshift.io
   resources:
@@ -325,6 +344,20 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - inferenceservices
+  verbs:
+  - list
+  - patch
+  - update
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - servingruntimes
+  verbs:
+  - get
 - apiGroups:
   - template.openshift.io
   resources:
