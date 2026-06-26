@@ -2,6 +2,7 @@ apiVersion: chaos.operatorchaos.io/v1alpha1
 kind: ChaosExperiment
 metadata:
   name: kserve-ownerref-orphan
+  namespace: redhat-ods-applications
 spec:
   tier: 3
   target:

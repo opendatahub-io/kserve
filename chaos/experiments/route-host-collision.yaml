@@ -2,6 +2,7 @@ apiVersion: chaos.operatorchaos.io/v1alpha1
 kind: ChaosExperiment
 metadata:
   name: kserve-route-host-collision
+  namespace: redhat-ods-applications
 spec:
   tier: 3
   target:

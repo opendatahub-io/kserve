@@ -2,6 +2,7 @@ apiVersion: chaos.operatorchaos.io/v1alpha1
 kind: ChaosExperiment
 metadata:
   name: kserve-pdb-block
+  namespace: redhat-ods-applications
 spec:
   tier: 2
   target:
