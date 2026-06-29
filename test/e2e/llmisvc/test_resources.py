@@ -19,6 +19,39 @@ from .fixtures import KSERVE_TEST_NAMESPACE, INFERENCE_POOL_GROUP
 # GatewayClass name - can be overridden via GATEWAY_CLASS_NAME env var (e.g., "istio")
 GATEWAY_CLASS_NAME = os.environ.get("GATEWAY_CLASS_NAME", "envoy")
 
+GATEWAY_PROXY_CONFIG_NAME = "gateway-proxy-config"
+
+GATEWAY_PROXY_CONFIG = {
+    "apiVersion": "v1",
+    "kind": "ConfigMap",
+    "metadata": {
+        "name": GATEWAY_PROXY_CONFIG_NAME,
+        "namespace": KSERVE_TEST_NAMESPACE,
+    },
+    "data": {
+        "deployment": (
+            "spec:\n"
+            "  template:\n"
+            "    spec:\n"
+            "      containers:\n"
+            "      - name: istio-proxy\n"
+            "        resources:\n"
+            "          limits:\n"
+            "            memory: 2Gi\n"
+            "          requests:\n"
+            "            memory: 256Mi\n"
+        ),
+    },
+}
+
+_GATEWAY_PARAMS_REF = {
+    "parametersRef": {
+        "group": "",
+        "kind": "ConfigMap",
+        "name": GATEWAY_PROXY_CONFIG_NAME,
+    },
+}
+
 ROUTER_GATEWAYS = [
     {
         "apiVersion": "gateway.networking.k8s.io/v1",
@@ -29,6 +62,7 @@ ROUTER_GATEWAYS = [
         },
         "spec": {
             "gatewayClassName": GATEWAY_CLASS_NAME,
+            "infrastructure": _GATEWAY_PARAMS_REF,
             "listeners": [
                 {
                     "name": "http",
@@ -52,6 +86,7 @@ ROUTER_GATEWAYS = [
         },
         "spec": {
             "gatewayClassName": GATEWAY_CLASS_NAME,
+            "infrastructure": _GATEWAY_PARAMS_REF,
             "listeners": [
                 {
                     "name": "http",
