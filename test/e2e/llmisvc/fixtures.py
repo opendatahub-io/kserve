@@ -1561,45 +1561,16 @@ def generate_test_id(test_case) -> str:
     return "-".join(test_case.base_refs)
 
 
-def _ensure_configmap(kserve_client, cm):
-    """Create or update a ConfigMap."""
-    core_api = client.CoreV1Api(client.ApiClient())
-    name = cm["metadata"]["name"]
-    ns = cm["metadata"]["namespace"]
-    try:
-        existing = core_api.read_namespaced_config_map(name, ns)
-        existing.data = cm.get("data", {})
-        core_api.replace_namespaced_config_map(name, ns, existing)
-        logger.info(f"✓ Updated ConfigMap {name}")
-    except client.rest.ApiException as e:
-        if e.status == 404:
-            body = client.V1ConfigMap(
-                metadata=client.V1ObjectMeta(
-                    name=name,
-                    namespace=ns,
-                ),
-                data=cm.get("data", {}),
-            )
-            core_api.create_namespaced_config_map(ns, body)
-            logger.info(f"✓ Created ConfigMap {name}")
-        else:
-            raise
-
-
 def create_router_resources(gateways, routes=None, kserve_client=None):
     """Create router resources (gateways and routes). These resources are shared and not deleted.
 
     The create_or_update functions are idempotent, so multiple tests creating the same
     resource will not cause errors.
     """
-    from .test_resources import GATEWAY_PROXY_CONFIG
-
     if not kserve_client:
         kserve_client = KServeClient(
             config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
         )
-
-    _ensure_configmap(kserve_client, GATEWAY_PROXY_CONFIG)
 
     for gateway in gateways:
         gateway_name = gateway.get("metadata", {}).get("name", "unknown")
