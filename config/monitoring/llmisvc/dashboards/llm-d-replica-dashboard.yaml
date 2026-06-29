@@ -52,6 +52,8 @@ spec:
         spec:
           display:
             name: GPU utilization
+            description: GPU compute utilization per pod. Low utilization with high
+              queue depth may indicate a CPU or memory bottleneck.
           plugin:
             kind: TimeSeriesChart
             spec:
@@ -84,6 +86,8 @@ spec:
         spec:
           display:
             name: Requests running
+            description: Number of requests actively being processed per pod. Sustained
+              high values indicate saturation.
           plugin:
             kind: TimeSeriesChart
             spec:
@@ -116,6 +120,8 @@ spec:
         spec:
           display:
             name: Requests waiting
+            description: Number of requests queued and waiting per pod. Growth here
+              signals the system is falling behind.
           plugin:
             kind: TimeSeriesChart
             spec:

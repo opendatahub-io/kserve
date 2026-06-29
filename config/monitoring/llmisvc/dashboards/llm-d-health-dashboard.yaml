@@ -52,6 +52,8 @@ spec:
         spec:
           display:
             name: Error rate
+            description: Rate of failed requests across all models. A sustained increase
+              may indicate backend issues or model overload.
           plugin:
             kind: TimeSeriesChart
             spec:
@@ -84,6 +86,8 @@ spec:
         spec:
           display:
             name: Throughput (req/s)
+            description: Successful and failed requests per second. Compare the two
+              to gauge overall system reliability.
           plugin:
             kind: TimeSeriesChart
             spec:
@@ -127,6 +131,8 @@ spec:
         spec:
           display:
             name: Token throughput (tokens/s)
+            description: Combined input and output token processing rate. Indicates
+              how much work the system is doing.
           plugin:
             kind: TimeSeriesChart
             spec:

@@ -52,6 +52,8 @@ spec:
         spec:
           display:
             name: Time to first token (TTFT)
+            description: Time from request arrival to first generated token. Sensitive
+              to prompt length, cache hits, and queue depth.
           plugin:
             kind: TimeSeriesChart
             spec:
@@ -107,6 +109,8 @@ spec:
         spec:
           display:
             name: E2E request latency
+            description: Total request duration from submission to final token. Combines
+              queuing, prefill, and generation time.
           plugin:
             kind: TimeSeriesChart
             spec:
@@ -162,6 +166,8 @@ spec:
         spec:
           display:
             name: Inter-token latency
+            description: Time between consecutive output tokens during generation.
+              Affects streaming responsiveness.
           plugin:
             kind: TimeSeriesChart
             spec:
@@ -217,6 +223,8 @@ spec:
         spec:
           display:
             name: KV cache hit rate
+            description: Fraction of prompt prefill served from cache. Higher rates
+              reduce TTFT for repeated or similar prompts.
           plugin:
             kind: TimeSeriesChart
             spec:
@@ -251,6 +259,8 @@ spec:
         spec:
           display:
             name: KV cache usage
+            description: Percentage of GPU memory allocated to KV cache that is currently
+              in use. Near 100% triggers evictions.
           plugin:
             kind: TimeSeriesChart
             spec:
