@@ -279,6 +279,28 @@ spec:
                     name: data-science-prometheus-datasource
                   query: avg(kserve_vllm:kv_cache_usage_perc{exported_namespace=~"$namespace",model_name=~"$model_name"})
                   seriesNameFormat: Usage
+      drillDownHints:
+        kind: Panel
+        spec:
+          display:
+            name: Drill-down commands
+          plugin:
+            kind: Markdown
+            spec:
+              text: '**Per-pod cache hit rate:**
+
+                `sum by (k8s_pod_name) (rate(kserve_vllm:prefix_cache_hits_total{exported_namespace=~"<namespace>"}[5m]))
+                / sum by (k8s_pod_name) (rate(kserve_vllm:prefix_cache_queries_total{exported_namespace=~"<namespace>"}[5m]))`
+
+
+                **Per-pod KV cache usage:**
+
+                `kserve_vllm:kv_cache_usage_perc{exported_namespace=~"<namespace>"}`
+
+
+                **Per-pod TTFT P99:**
+
+                `histogram_quantile(0.99, sum by (le, k8s_pod_name) (rate(kserve_vllm:time_to_first_token_seconds_bucket{exported_namespace=~"<namespace>"}[5m])))`'
     layouts:
     - kind: Grid
       spec:
@@ -324,3 +346,16 @@ spec:
           height: 8
           content:
             $ref: '#/spec/panels/kvCacheUsage'
+    - kind: Grid
+      spec:
+        display:
+          title: Drill-down
+          collapse:
+            open: false
+        items:
+        - x: 0
+          y: 0
+          width: 24
+          height: 6
+          content:
+            $ref: '#/spec/panels/drillDownHints'
