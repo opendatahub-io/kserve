@@ -40,7 +40,7 @@ case "${DEPLOYMENT_PROFILE}" in
 esac
 
 export GATEWAY_CLASS_NAME=${GATEWAY_CLASS_NAME:-"openshift-default"}
-export INFERENCE_POOL_GROUP="${INFERENCE_POOL_GROUP:-inference.networking.x-k8s.io}"
+export INFERENCE_POOL_GROUP="${INFERENCE_POOL_GROUP:-inference.networking.k8s.io}"
 export RUN_AS_NON_ROOT="${RUN_AS_NON_ROOT:-true}"
 export KUBE_CLI=${KUBE_CLI_COMMAND:-oc}
 
