@@ -5,7 +5,7 @@ metadata:
 spec:
   config:
     display:
-      name: LLM Health
+      name: LLM Traffic
     duration: 1h
     variables:
     - kind: ListVariable

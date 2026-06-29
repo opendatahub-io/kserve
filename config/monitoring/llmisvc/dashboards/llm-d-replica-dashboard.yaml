@@ -5,7 +5,7 @@ metadata:
 spec:
   config:
     display:
-      name: LLM Replica Detail
+      name: LLM Utilization
     duration: 1h
     variables:
     - kind: ListVariable
