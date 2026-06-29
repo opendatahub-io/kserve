@@ -83,6 +83,9 @@ sed -i "s|kserve-agent=.*|kserve-agent=${KSERVE_AGENT_IMAGE}|" "${PARAMS_ENV}"
 sed -i "s|kserve-router=.*|kserve-router=${KSERVE_ROUTER_IMAGE}|" "${PARAMS_ENV}"
 sed -i "s|kserve-storage-initializer=.*|kserve-storage-initializer=${STORAGE_INITIALIZER_IMAGE}|" "${PARAMS_ENV}"
 
+echo "=== Final params.env"
+cat "${PARAMS_ENV}"
+
 ODH_MANIFESTS=$(kustomize build "${PROJECT_ROOT}/config/overlays/odh-test")
 
 # Apply CRDs first and wait for them to be established before applying the rest
@@ -102,15 +105,10 @@ echo "${ODH_MANIFESTS}" | oc apply --server-side=true --force-conflicts -f - || 
 echo "Waiting for llmisvc-controller-manager to be ready..."
 wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=llmisvc-controller-manager" 600s
 
-# Re-apply LLMInferenceServiceConfig resources now that webhook is ready
-echo "Re-applying LLMInferenceServiceConfig resources with webhook validation..."
-kustomize build "${PROJECT_ROOT}/config/llmisvcconfig" | oc apply --server-side=true --force-conflicts -f -
-
-if [[ "${1:-}" =~ "llm-d" ]]; then
-  echo "Restarting llmisvc-controller to apply configuration changes"
-  oc delete pod -n "${KSERVE_NAMESPACE}" -l control-plane=llmisvc-controller-manager
-  wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=llmisvc-controller-manager" 300s
-fi
+# We cannot apply individual overlays with `kustomize build "${PROJECT_ROOT}/config/llmisvcconfig"` because it will
+# override ODH images that are only injected for the odh overlay.
+echo "Re-Applying all resources..."
+echo "${ODH_MANIFESTS}" | oc apply --server-side=true --force-conflicts -f -
 
 echo "Applying DSC/DSCI resources..."
 oc apply -f "${PROJECT_ROOT}/config/overlays/odh-test/dsci.yaml"
