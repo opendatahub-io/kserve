@@ -7,6 +7,6 @@ labels:
     app.kubernetes.io/part-of: kserve
 
 resources:
-- llm-d-health-dashboard.yaml
-- llm-d-replica-dashboard.yaml
+- llm-d-traffic-dashboard.yaml
+- llm-d-utilization-dashboard.yaml
 - llm-d-performance-dashboard.yaml
