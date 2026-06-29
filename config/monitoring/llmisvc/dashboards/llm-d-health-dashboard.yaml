@@ -184,19 +184,11 @@ spec:
           plugin:
             kind: Markdown
             spec:
-              text: '**Error breakdown by error code:**
-
-                `sum by (error_code) (rate(inference_model_request_error_total{exported_namespace=~"<namespace>"}[5m]))`
-
-
-                **Per-model token consumption:**
-
-                `sum by (model_name) (rate(kserve_vllm:prompt_tokens_total{exported_namespace=~"<namespace>"}[5m]))`
-
-
-                **Request outcome breakdown (aborted vs completed):**
-
-                `sum by (finished_reason) (rate(kserve_vllm:request_success_total{exported_namespace=~"<namespace>"}[5m]))`'
+              text: <p><strong>Error breakdown by error code:</strong><br/><code>sum
+                by (error_code) (rate(inference_model_request_error_total{exported_namespace=~"&lt;namespace&gt;"}[5m]))</code></p><p><strong>Per-model
+                token consumption:</strong><br/><code>sum by (model_name) (rate(kserve_vllm:prompt_tokens_total{exported_namespace=~"&lt;namespace&gt;"}[5m]))</code></p><p><strong>Request
+                outcome breakdown (aborted vs completed):</strong><br/><code>sum by
+                (finished_reason) (rate(kserve_vllm:request_success_total{exported_namespace=~"&lt;namespace&gt;"}[5m]))</code></p>
     layouts:
     - kind: Grid
       spec:

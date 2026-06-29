@@ -288,20 +288,12 @@ spec:
           plugin:
             kind: Markdown
             spec:
-              text: '**Per-pod cache hit rate:**
-
-                `sum by (k8s_pod_name) (rate(kserve_vllm:prefix_cache_hits_total{exported_namespace=~"<namespace>"}[5m]))
-                / sum by (k8s_pod_name) (rate(kserve_vllm:prefix_cache_queries_total{exported_namespace=~"<namespace>"}[5m]))`
-
-
-                **Per-pod KV cache usage:**
-
-                `kserve_vllm:kv_cache_usage_perc{exported_namespace=~"<namespace>"}`
-
-
-                **Per-pod TTFT P99:**
-
-                `histogram_quantile(0.99, sum by (le, k8s_pod_name) (rate(kserve_vllm:time_to_first_token_seconds_bucket{exported_namespace=~"<namespace>"}[5m])))`'
+              text: <p><strong>Per-pod cache hit rate:</strong><br/><code>sum by (k8s_pod_name)
+                (rate(kserve_vllm:prefix_cache_hits_total{exported_namespace=~"&lt;namespace&gt;"}[5m]))
+                / sum by (k8s_pod_name) (rate(kserve_vllm:prefix_cache_queries_total{exported_namespace=~"&lt;namespace&gt;"}[5m]))</code></p><p><strong>Per-pod
+                KV cache usage:</strong><br/><code>kserve_vllm:kv_cache_usage_perc{exported_namespace=~"&lt;namespace&gt;"}</code></p><p><strong>Per-pod
+                TTFT P99:</strong><br/><code>histogram_quantile(0.99, sum by (le,
+                k8s_pod_name) (rate(kserve_vllm:time_to_first_token_seconds_bucket{exported_namespace=~"&lt;namespace&gt;"}[5m])))</code></p>
     layouts:
     - kind: Grid
       spec:

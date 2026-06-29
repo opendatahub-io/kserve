@@ -152,21 +152,10 @@ spec:
           plugin:
             kind: Markdown
             spec:
-              text: '**Preemption count (scheduler thrashing):**
-
-                `sum by (k8s_pod_name) (rate(kserve_vllm:num_preemptions_total{exported_namespace=~"<namespace>"}[5m]))`
-
-
-                **EPP pool health (ready pods + queue size):**
-
-                `inference_pool_ready_pods{exported_namespace=~"<namespace>"}`
-
-                `inference_pool_average_queue_size{exported_namespace=~"<namespace>"}`
-
-
-                **Per-pod queue size from scheduler:**
-
-                `inference_pool_per_pod_queue_size{exported_namespace=~"<namespace>"}`'
+              text: <p><strong>Preemption count (scheduler thrashing):</strong><br/><code>sum
+                by (k8s_pod_name) (rate(kserve_vllm:num_preemptions_total{exported_namespace=~"&lt;namespace&gt;"}[5m]))</code></p><p><strong>EPP
+                pool health (ready pods + queue size):</strong><br/><code>inference_pool_ready_pods{exported_namespace=~"&lt;namespace&gt;"}</code><br/><code>inference_pool_average_queue_size{exported_namespace=~"&lt;namespace&gt;"}</code></p><p><strong>Per-pod
+                queue size from scheduler:</strong><br/><code>inference_pool_per_pod_queue_size{exported_namespace=~"&lt;namespace&gt;"}</code></p>
     layouts:
     - kind: Grid
       spec:
