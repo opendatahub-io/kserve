@@ -60,7 +60,8 @@ pandas =  ">=2.2.0,<2.3.0"
 pydantic = "^2.5.0"
 pyyaml = "^6.0.0"
 # CVE-2025-66418 urllib3: Unbounded decompression chain leads to resource exhaustion
-urllib3 = ">=2.6.0"
+# CVE-2026-44432 urllib3: Denial of Service due to excessive HTTP response decompression
+urllib3 = ">=2.7.0,<3.0.0"
 # CVE-2025-69223 AIOHTTP's HTTP Parser auto_decompress feature is vulnerable to zip bomb
 aiohttp = ">=3.13.3"
 # CVE-2026-32597 PyJWT accepts unknown `crit` header extensions (RFC 7515 §4.1.11 MUST violation)
