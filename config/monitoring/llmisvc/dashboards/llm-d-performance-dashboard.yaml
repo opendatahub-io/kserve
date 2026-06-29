@@ -298,12 +298,26 @@ spec:
           plugin:
             kind: Markdown
             spec:
-              text: <p><strong>Per-pod cache hit rate:</strong><br/><code>sum by (k8s_pod_name)
-                (rate(kserve_vllm:prefix_cache_hits_total{exported_namespace=~"&lt;namespace&gt;"}[5m]))
-                / sum by (k8s_pod_name) (rate(kserve_vllm:prefix_cache_queries_total{exported_namespace=~"&lt;namespace&gt;"}[5m]))</code></p><p><strong>Per-pod
-                KV cache usage:</strong><br/><code>kserve_vllm:kv_cache_usage_perc{exported_namespace=~"&lt;namespace&gt;"}</code></p><p><strong>Per-pod
-                TTFT P99:</strong><br/><code>histogram_quantile(0.99, sum by (le,
-                k8s_pod_name) (rate(kserve_vllm:time_to_first_token_seconds_bucket{exported_namespace=~"&lt;namespace&gt;"}[5m])))</code></p>
+              text: "<dl class=\"pf-v6-c-description-list pf-m-auto-column-widths\
+                \ pf-m-horizontal\">\n  <div class=\"pf-v6-c-description-list__group\"\
+                >\n    <dt class=\"pf-v6-c-description-list__term\">\n      <span\
+                \ class=\"pf-v6-c-description-list__text\">Per-pod cache hit rate</span>\n\
+                \    </dt>\n    <dd class=\"pf-v6-c-description-list__description\"\
+                >\n      <div class=\"pf-v6-c-description-list__text\">sum by (k8s_pod_name)\
+                \ (rate(kserve_vllm:prefix_cache_hits_total{exported_namespace=~\"\
+                $namespace\"}[5m])) / sum by (k8s_pod_name) (rate(kserve_vllm:prefix_cache_queries_total{exported_namespace=~\"\
+                $namespace\"}[5m]))</div>\n    </dd>\n  </div>\n  <div class=\"pf-v6-c-description-list__group\"\
+                >\n    <dt class=\"pf-v6-c-description-list__term\">\n      <span\
+                \ class=\"pf-v6-c-description-list__text\">Per-pod KV cache usage</span>\n\
+                \    </dt>\n    <dd class=\"pf-v6-c-description-list__description\"\
+                >\n      <div class=\"pf-v6-c-description-list__text\">kserve_vllm:kv_cache_usage_perc{exported_namespace=~\"\
+                $namespace\"}</div>\n    </dd>\n  </div>\n  <div class=\"pf-v6-c-description-list__group\"\
+                >\n    <dt class=\"pf-v6-c-description-list__term\">\n      <span\
+                \ class=\"pf-v6-c-description-list__text\">Per-pod TTFT P99</span>\n\
+                \    </dt>\n    <dd class=\"pf-v6-c-description-list__description\"\
+                >\n      <div class=\"pf-v6-c-description-list__text\">histogram_quantile(0.99,\
+                \ sum by (le, k8s_pod_name) (rate(kserve_vllm:time_to_first_token_seconds_bucket{exported_namespace=~\"\
+                $namespace\"}[5m])))</div>\n    </dd>\n  </div>\n</dl>"
     layouts:
     - kind: Grid
       spec:

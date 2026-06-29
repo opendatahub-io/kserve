@@ -158,10 +158,29 @@ spec:
           plugin:
             kind: Markdown
             spec:
-              text: <p><strong>Preemption count (scheduler thrashing):</strong><br/><code>sum
-                by (k8s_pod_name) (rate(kserve_vllm:num_preemptions_total{exported_namespace=~"&lt;namespace&gt;"}[5m]))</code></p><p><strong>EPP
-                pool health (ready pods + queue size):</strong><br/><code>inference_pool_ready_pods{exported_namespace=~"&lt;namespace&gt;"}</code><br/><code>inference_pool_average_queue_size{exported_namespace=~"&lt;namespace&gt;"}</code></p><p><strong>Per-pod
-                queue size from scheduler:</strong><br/><code>inference_pool_per_pod_queue_size{exported_namespace=~"&lt;namespace&gt;"}</code></p>
+              text: "<dl class=\"pf-v6-c-description-list pf-m-auto-column-widths\
+                \ pf-m-horizontal\">\n  <div class=\"pf-v6-c-description-list__group\"\
+                >\n    <dt class=\"pf-v6-c-description-list__term\">\n      <span\
+                \ class=\"pf-v6-c-description-list__text\">Preemption count</span>\n\
+                \    </dt>\n    <dd class=\"pf-v6-c-description-list__description\"\
+                >\n      <div class=\"pf-v6-c-description-list__text\">sum by (k8s_pod_name)\
+                \ (rate(kserve_vllm:num_preemptions_total{exported_namespace=~\"$namespace\"\
+                }[5m]))</div>\n    </dd>\n  </div>\n  <div class=\"pf-v6-c-description-list__group\"\
+                >\n    <dt class=\"pf-v6-c-description-list__term\">\n      <span\
+                \ class=\"pf-v6-c-description-list__text\">EPP pool health - ready\
+                \ pods</span>\n    </dt>\n    <dd class=\"pf-v6-c-description-list__description\"\
+                >\n      <div class=\"pf-v6-c-description-list__text\">inference_pool_ready_pods{exported_namespace=~\"\
+                $namespace\"}</div>\n    </dd>\n  </div>\n  <div class=\"pf-v6-c-description-list__group\"\
+                >\n    <dt class=\"pf-v6-c-description-list__term\">\n      <span\
+                \ class=\"pf-v6-c-description-list__text\">EPP pool health - avg queue\
+                \ size</span>\n    </dt>\n    <dd class=\"pf-v6-c-description-list__description\"\
+                >\n      <div class=\"pf-v6-c-description-list__text\">inference_pool_average_queue_size{exported_namespace=~\"\
+                $namespace\"}</div>\n    </dd>\n  </div>\n  <div class=\"pf-v6-c-description-list__group\"\
+                >\n    <dt class=\"pf-v6-c-description-list__term\">\n      <span\
+                \ class=\"pf-v6-c-description-list__text\">Per-pod queue size from\
+                \ scheduler</span>\n    </dt>\n    <dd class=\"pf-v6-c-description-list__description\"\
+                >\n      <div class=\"pf-v6-c-description-list__text\">inference_pool_per_pod_queue_size{exported_namespace=~\"\
+                $namespace\"}</div>\n    </dd>\n  </div>\n</dl>"
     layouts:
     - kind: Grid
       spec:
