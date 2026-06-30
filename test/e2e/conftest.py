@@ -347,12 +347,21 @@ def _take_snapshot(cli, snapshot_index, out_path):
 def _monitor_loop(cli, out_path, stop_event):
     """Background loop taking periodic snapshots."""
     index = 0
-    _take_snapshot(cli, index, out_path)
+    try:
+        _take_snapshot(cli, index, out_path)
+    except Exception:
+        _envoy_logger.exception("Snapshot %d failed", index)
     while not stop_event.wait(_SNAPSHOT_INTERVAL):
         index += 1
-        _take_snapshot(cli, index, out_path)
+        try:
+            _take_snapshot(cli, index, out_path)
+        except Exception:
+            _envoy_logger.exception("Snapshot %d failed", index)
     index += 1
-    _take_snapshot(cli, index, out_path)
+    try:
+        _take_snapshot(cli, index, out_path)
+    except Exception:
+        _envoy_logger.exception("Final snapshot %d failed", index)
 
 
 @pytest.fixture(scope="session", autouse=True)
