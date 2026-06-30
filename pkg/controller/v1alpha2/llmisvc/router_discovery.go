@@ -45,6 +45,8 @@ import (
 	"github.com/kserve/kserve/pkg/constants"
 )
 
+const gatewayNameLabel = "gateway.networking.k8s.io/gateway-name"
+
 var wildcardHostname = constants.GetEnvOrDefault("GATEWAY_API_WILDCARD_HOSTNAME", "inference")
 
 // DiscoveredURL pairs a URL with the networking resource that produced it.
@@ -98,7 +100,7 @@ func DiscoverGatewayServiceHost(ctx context.Context, c client.Client, gateway *g
 	if err := c.List(ctx, svcList,
 		client.InNamespace(gateway.Namespace),
 		client.MatchingLabels{
-			"gateway.networking.k8s.io/gateway-name": gateway.Name,
+			gatewayNameLabel: gateway.Name,
 		},
 	); err != nil {
 		return "", fmt.Errorf("failed to list services for gateway %s/%s: %w", gateway.Namespace, gateway.Name, err)
