@@ -82,6 +82,10 @@ else
   echo "REQUESTS_CA_BUNDLE=${REQUESTS_CA_BUNDLE}"
 fi
 
+if [[ "${NETWORK_LAYER}" == "gateway-api" ]]; then
+  export PYTEST_ARGS="${PYTEST_ARGS:-} -p gateway_diagnostics"
+fi
+
 echo "Run E2E tests: ${MARKERS}"
 pushd $PROJECT_ROOT >/dev/null
 ./test/scripts/gh-actions/run-e2e-tests.sh "${MARKERS}" "${PARALLELISM}" "${NETWORK_LAYER}" 2>&1 | tee ./test/scripts/openshift-ci/run-e2e-tests-"${MARKERS// /_}".log

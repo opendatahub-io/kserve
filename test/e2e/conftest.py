@@ -31,8 +31,6 @@ from .common.http_retry import (
     DEFAULT_RETRY_TOTAL,
 )
 
-pytest_plugins = ["gateway_diagnostics"]
-
 
 @pytest.fixture(scope="session", autouse=True)
 def configure_logger():
