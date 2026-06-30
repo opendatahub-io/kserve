@@ -31,8 +31,9 @@ echo "⏳ Creating a Gateway"
 INGRESS_NS=openshift-ingress
 oc create namespace ${INGRESS_NS} || true
 
-echo "⏳ Creating gateway memory ConfigMap for parametersRef"
-oc apply -f - <<EOF
+if [[ -n "${GATEWAY_PROXY_MEMORY:-}" ]]; then
+  echo "⏳ Creating gateway memory ConfigMap for parametersRef (${GATEWAY_PROXY_MEMORY})"
+  oc apply -f - <<EOF
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -47,10 +48,11 @@ data:
           - name: istio-proxy
             resources:
               limits:
-                memory: 2Gi
+                memory: ${GATEWAY_PROXY_MEMORY}
               requests:
                 memory: 256Mi
 EOF
+fi
 
 oc apply -f - <<EOF
 apiVersion: gateway.networking.k8s.io/v1
@@ -67,6 +69,7 @@ spec:
      allowedRoutes:
        namespaces:
          from: All
+$(if [[ -n "${GATEWAY_PROXY_MEMORY:-}" ]]; then cat <<INFRA
   infrastructure:
     parametersRef:
       group: ""
@@ -74,6 +77,13 @@ spec:
       name: gateway-proxy-config
     labels:
       serving.kserve.io/gateway: kserve-ingress-gateway
+INFRA
+else cat <<INFRA
+  infrastructure:
+    labels:
+      serving.kserve.io/gateway: kserve-ingress-gateway
+INFRA
+fi)
 EOF
 
 wait_for_pod_ready "openshift-ingress" "serving.kserve.io/gateway=kserve-ingress-gateway"
