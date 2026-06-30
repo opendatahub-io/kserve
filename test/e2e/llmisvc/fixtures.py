@@ -1571,9 +1571,13 @@ def _ensure_gateway_proxy_configmap(namespace):
     }
     data = {"deployment": yaml.dump(patch, default_flow_style=False)}
     try:
-        existing = core_api.read_namespaced_config_map(_GATEWAY_PROXY_CONFIG_NAME, namespace)
+        existing = core_api.read_namespaced_config_map(
+            _GATEWAY_PROXY_CONFIG_NAME, namespace
+        )
         existing.data = data
-        core_api.replace_namespaced_config_map(_GATEWAY_PROXY_CONFIG_NAME, namespace, existing)
+        core_api.replace_namespaced_config_map(
+            _GATEWAY_PROXY_CONFIG_NAME, namespace, existing
+        )
         logger.info(f"✓ Updated ConfigMap {_GATEWAY_PROXY_CONFIG_NAME}")
     except client.rest.ApiException as e:
         if e.status == 404:
