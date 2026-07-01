@@ -43,7 +43,7 @@ var _ = Describe("LLMInferenceService Route Discovery", func() {
 
 		gateway := Gateway("route-test-gateway",
 			InNamespace[*gwapiv1.Gateway](gatewayNs),
-			WithListener(gwapiv1.HTTPProtocolType),
+			WithListener(gwapiv1.HTTPSProtocolType),
 			WithHostnameAddresses("route-test-gateway-svc."+gatewayNs+".svc.cluster.local"),
 		)
 		Expect(envTest.Client.Create(ctx, gateway)).To(Succeed())
