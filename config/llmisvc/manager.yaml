@@ -94,3 +94,4 @@ spec:
           secret:
             defaultMode: 420
             secretName: llmisvc-webhook-server-cert
+            optional: true
