@@ -124,6 +124,94 @@ var _ = Describe("LLMInferenceService Route Discovery", func() {
 			g.Expect(hasRouteAddress).To(BeTrue(), "expected at least one address with Route origin")
 		}).WithTimeout(30 * time.Second).WithPolling(time.Second).WithContext(ctx).Should(Succeed())
 	})
+
+	It("should advertise Route host with edge TLS termination over HTTP gateway", func(ctx SpecContext) {
+		svcName := "test-llm-route-edge"
+		testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
+
+		gatewayNs := testNs.Name
+
+		gateway := Gateway("edge-gw",
+			InNamespace[*gwapiv1.Gateway](gatewayNs),
+			WithListener(gwapiv1.HTTPProtocolType),
+			WithHostnameAddresses("edge-gw-svc."+gatewayNs+".svc.cluster.local"),
+		)
+		Expect(envTest.Client.Create(ctx, gateway)).To(Succeed())
+		ensureGatewayReady(ctx, envTest.Client, gateway)
+
+		gwService := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "edge-gw-svc",
+				Namespace: gatewayNs,
+				Labels: map[string]string{
+					"gateway.networking.k8s.io/gateway-name": "edge-gw",
+				},
+			},
+			Spec: corev1.ServiceSpec{
+				Selector: map[string]string{
+					"gateway.networking.k8s.io/gateway-name": "edge-gw",
+				},
+				Ports: []corev1.ServicePort{
+					{Name: "http", Port: 80, Protocol: corev1.ProtocolTCP},
+				},
+			},
+		}
+		Expect(envTest.Client.Create(ctx, gwService)).To(Succeed())
+
+		route := &routev1.Route{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "edge-gw-route",
+				Namespace: gatewayNs,
+			},
+			Spec: routev1.RouteSpec{
+				Host: "edge-gw.apps.example.com",
+				To: routev1.RouteTargetReference{
+					Kind: "Service",
+					Name: gwService.Name,
+				},
+				TLS: &routev1.TLSConfig{
+					Termination:                   routev1.TLSTerminationEdge,
+					InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
+				},
+			},
+		}
+		Expect(envTest.Client.Create(ctx, route)).To(Succeed())
+		ensureRouteAdmitted(ctx, envTest.Client, route)
+
+		defer func() {
+			testNs.DeleteAndWait(ctx, route)
+			testNs.DeleteAndWait(ctx, gwService)
+			testNs.DeleteAndWait(ctx, gateway)
+		}()
+
+		llmSvc := LLMInferenceService(svcName,
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedRoute(),
+			WithGatewayRefs(LLMGatewayRef("edge-gw", gatewayNs)),
+		)
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() {
+			testNs.DeleteAndWait(ctx, llmSvc)
+		}()
+
+		Eventually(func(g Gomega, ctx context.Context) {
+			current := &v1alpha2.LLMInferenceService{}
+			g.Expect(envTest.Client.Get(ctx, client.ObjectKeyFromObject(llmSvc), current)).To(Succeed())
+
+			g.Expect(current.Status.Addresses).ToNot(BeEmpty(), "expected addresses in status")
+
+			var hasRouteAddress bool
+			for _, addr := range current.Status.Addresses {
+				if addr.Origin != nil && string(addr.Origin.Kind) == "Route" {
+					hasRouteAddress = true
+					g.Expect(addr.URL.Scheme).To(Equal("https"), "edge-terminated Route should produce HTTPS URL")
+					g.Expect(addr.URL.String()).To(ContainSubstring("edge-gw.apps.example.com"))
+				}
+			}
+			g.Expect(hasRouteAddress).To(BeTrue(), "expected at least one address with Route origin")
+		}).WithTimeout(30 * time.Second).WithPolling(time.Second).WithContext(ctx).Should(Succeed())
+	})
 })
 
 func ensureRouteAdmitted(ctx context.Context, c client.Client, route *routev1.Route) {
