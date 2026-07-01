@@ -1549,9 +1549,9 @@ GATEWAY_PROXY_MEMORY = os.environ.get("GATEWAY_PROXY_MEMORY")
 _GATEWAY_PROXY_CONFIG_NAME = "gateway-proxy-config"
 
 
-def _ensure_gateway_proxy_configmap(namespace):
+def _ensure_gateway_proxy_configmap(namespace, kserve_client):
     """Create or update the gateway proxy ConfigMap for parametersRef."""
-    core_api = client.CoreV1Api(client.ApiClient())
+    core_api = client.CoreV1Api(kserve_client.api_instance.api_client)
     patch = {
         "spec": {
             "template": {
@@ -1616,7 +1616,7 @@ def create_router_resources(gateways, routes=None, kserve_client=None):
 
     if GATEWAY_PROXY_MEMORY:
         ns = gateways[0]["metadata"]["namespace"] if gateways else KSERVE_TEST_NAMESPACE
-        _ensure_gateway_proxy_configmap(ns)
+        _ensure_gateway_proxy_configmap(ns, kserve_client)
         for gw in gateways:
             _inject_gateway_proxy_params(gw)
 
