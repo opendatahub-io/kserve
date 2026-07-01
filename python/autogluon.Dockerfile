@@ -36,11 +36,11 @@ RUN cd autogluonserver && uv sync --active --no-cache
 
 # Generate third-party licenses
 COPY pyproject.toml pyproject.toml
-COPY third_party/pip-licenses.py pip-licenses.py
+COPY third_party third_party
 
 RUN pip install --no-cache-dir tomli
 
-RUN mkdir -p third_party/library && python3 pip-licenses.py
+RUN mkdir -p third_party/library && python3 third_party/pip-licenses.py
 
 # =================== Final stage ===================
 FROM ${BASE_IMAGE} AS prod
@@ -50,9 +50,7 @@ USER 0
 # Runtime deps for AutoGluon backends (LightGBM, XGBoost, etc.) that use OpenMP
 RUN dnf install -y libgomp && dnf clean all
 
-COPY third_party third_party
-
-# Activate virtual env
+# Set up virtual environment in runtime stage
 ARG VENV_PATH
 ENV VIRTUAL_ENV=${VENV_PATH}
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
