@@ -1,4 +1,4 @@
-ARG BASE_IMAGE="registry.access.redhat.com/ubi9/python-312:latest"
+ARG BASE_IMAGE="registry.access.redhat.com/ubi9/python-312:9.8"
 
 ARG VENV_PATH=/prod_venv
 
