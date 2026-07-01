@@ -1,12 +1,13 @@
-ARG BASE_IMAGE="quay.io/aipcc/base-images/cpu:3.5"
+ARG BASE_IMAGE="registry.access.redhat.com/ubi9/python-312:latest"
 
 ARG VENV_PATH=/prod_venv
 
 FROM ${BASE_IMAGE} AS builder
 
+USER 0
+
 # Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends python3-dev curl build-essential && apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+RUN dnf install -y python3-devel && dnf clean all
 
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
@@ -44,9 +45,10 @@ RUN mkdir -p third_party/library && python3 pip-licenses.py
 # =================== Final stage ===================
 FROM ${BASE_IMAGE} AS prod
 
+USER 0
+
 # Runtime deps for AutoGluon backends (LightGBM, XGBoost, etc.) that use OpenMP
-RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+RUN dnf install -y libgomp && dnf clean all
 
 COPY third_party third_party
 
