@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import copy
 import hashlib
 import os
 import re
@@ -1414,14 +1415,32 @@ def _setup_test_case_service(kserve_client, tc, test_node_name, peer_index=None)
     if not tc.service_name:
         suffix = f"-peer-{peer_index}" if peer_index is not None else ""
         tc.service_name = generate_service_name(test_node_name + suffix, tc.base_refs)
+    config_model_name = _get_model_name_from_configs(tc.base_refs)
+    if tc.url_getter is not None:
+        model_name_suffix = hashlib.sha256(tc.service_name.encode()).hexdigest()[:6]
+        unique_model_name = f"{config_model_name}-{model_name_suffix}"
+    else:
+        unique_model_name = config_model_name
     if tc.model_name == "default/model":
-        tc.model_name = _get_model_name_from_configs(tc.base_refs)
+        tc.model_name = unique_model_name
+
+    if tc.url_getter is not None and tc.extra_headers is None:
+        tc.extra_headers = {
+            "X-Gateway-Model-Name": f"publishers/{KSERVE_TEST_NAMESPACE}/models/{tc.model_name}",
+        }
+
+    if tc.response_assertion_factory is not None:
+        tc.response_assertion = tc.response_assertion_factory(tc.model_name)
 
     created_configs = []
     unique_base_refs = []
     for base_ref in tc.base_refs:
         unique_config_name = generate_k8s_safe_suffix(base_ref, [tc.service_name])
         unique_base_refs.append(unique_config_name)
+
+        spec = copy.deepcopy(LLMINFERENCESERVICE_CONFIGS[base_ref])
+        if "model" in spec and "name" in spec["model"]:
+            spec["model"]["name"] = unique_model_name
 
         unique_config_body = {
             "apiVersion": "serving.kserve.io/v1alpha1",
@@ -1430,7 +1449,7 @@ def _setup_test_case_service(kserve_client, tc, test_node_name, peer_index=None)
                 "name": unique_config_name,
                 "namespace": KSERVE_TEST_NAMESPACE,
             },
-            "spec": LLMINFERENCESERVICE_CONFIGS[base_ref],
+            "spec": spec,
         }
 
         _create_or_update_llmisvc_config(
@@ -1542,16 +1561,45 @@ def generate_test_id(test_case) -> str:
     return "-".join(test_case.base_refs)
 
 
+def _ensure_configmap(kserve_client, cm):
+    """Create or update a ConfigMap."""
+    core_api = client.CoreV1Api(client.ApiClient())
+    name = cm["metadata"]["name"]
+    ns = cm["metadata"]["namespace"]
+    try:
+        existing = core_api.read_namespaced_config_map(name, ns)
+        existing.data = cm.get("data", {})
+        core_api.replace_namespaced_config_map(name, ns, existing)
+        logger.info(f"✓ Updated ConfigMap {name}")
+    except client.rest.ApiException as e:
+        if e.status == 404:
+            body = client.V1ConfigMap(
+                metadata=client.V1ObjectMeta(
+                    name=name,
+                    namespace=ns,
+                ),
+                data=cm.get("data", {}),
+            )
+            core_api.create_namespaced_config_map(ns, body)
+            logger.info(f"✓ Created ConfigMap {name}")
+        else:
+            raise
+
+
 def create_router_resources(gateways, routes=None, kserve_client=None):
     """Create router resources (gateways and routes). These resources are shared and not deleted.
 
     The create_or_update functions are idempotent, so multiple tests creating the same
     resource will not cause errors.
     """
+    from .test_resources import GATEWAY_PROXY_CONFIG
+
     if not kserve_client:
         kserve_client = KServeClient(
             config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
         )
+
+    _ensure_configmap(kserve_client, GATEWAY_PROXY_CONFIG)
 
     for gateway in gateways:
         gateway_name = gateway.get("metadata", {}).get("name", "unknown")
