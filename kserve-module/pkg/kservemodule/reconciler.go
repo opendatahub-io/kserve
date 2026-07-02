@@ -95,6 +95,13 @@ import (
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodegroups,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
 
+// --- Upgrade path: HardwareProfile migration ---
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=list;update;patch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes,verbs=get
+// +kubebuilder:rbac:groups=infrastructure.opendatahub.io,resources=hardwareprofiles,verbs=get;list
+// +kubebuilder:rbac:groups=dashboard.opendatahub.io,resources=acceleratorprofiles,verbs=list
+// +kubebuilder:rbac:groups=opendatahub.io,resources=odhdashboardconfigs,verbs=get
+
 type ResourceDeployer interface {
 	Deploy(ctx context.Context, input deploy.DeployInput) error
 }
