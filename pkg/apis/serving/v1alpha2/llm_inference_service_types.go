@@ -20,6 +20,7 @@ import (
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"knative.dev/pkg/apis"
@@ -54,12 +55,29 @@ type LLMInferenceService struct {
 // It acts as a template to provide base configurations that can be inherited by multiple LLMInferenceService instances.
 // +k8s:openapi-gen=true
 // +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Ready",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].status"
+// +kubebuilder:printcolumn:name="Reason",type="string",JSONPath=".status.conditions[?(@.type=='Ready')].reason"
+// +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
 // +kubebuilder:storageversion
 type LLMInferenceServiceConfig struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec LLMInferenceServiceSpec `json:"spec,omitempty"`
+	Spec   LLMInferenceServiceSpec         `json:"spec,omitempty"`
+	Status LLMInferenceServiceConfigStatus `json:"status,omitempty"`
+}
+
+// LLMInferenceServiceConfigStatus defines the observed state of LLMInferenceServiceConfig.
+type LLMInferenceServiceConfigStatus struct {
+	// Conditions of the resource.
+	duckv1.Status `json:",inline"`
+
+	// ReferencedBy lists the LLMInferenceService instances that reference this config
+	// via spec.baseRefs, status.annotations, or implicitly as a well-known default.
+	// +optional
+	// +listType=atomic
+	ReferencedBy []UntypedObjectReference `json:"referencedBy,omitempty"`
 }
 
 // LLMInferenceServiceSpec defines the desired state of LLMInferenceService.
@@ -153,6 +171,25 @@ type WorkloadSpec struct {
 	// The controller is responsible for enabling discovery between head and worker pods.
 	// +optional
 	Worker *corev1.PodSpec `json:"worker,omitempty"`
+
+	// KVCacheOffloading configures multi-tier KV cache CPU offloading for this workload.
+	// The controller translates this into --kv-transfer-config for the vLLM serve command.
+	// +optional
+	KVCacheOffloading *KVCacheOffloadingSpec `json:"kvCacheOffloading,omitempty"`
+}
+
+// KVCacheOffloadingSpec configures KV cache offloading via vLLM's OffloadingConnector.
+type KVCacheOffloadingSpec struct {
+	// CPU is the amount of CPU RAM to allocate as the primary KV cache tier
+	// (maps to vLLM kv_connector_extra_config.cpu_bytes_to_use). Accepts standard
+	// Kubernetes quantity notation, e.g. "10Gi".
+	CPU resource.Quantity `json:"cpu"`
+
+	// EvictionPolicy for the primary CPU KV cache tier. Defaults to "lru".
+	// +optional
+	// +kubebuilder:validation:Enum=lru;arc
+	// +kubebuilder:default=lru
+	EvictionPolicy string `json:"evictionPolicy,omitempty"`
 }
 
 // ConfidentialSpec enables confidential model serving with encrypted model artifacts.
