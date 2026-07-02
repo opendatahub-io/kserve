@@ -186,14 +186,29 @@ replacements:
   targets:
   - select:
       kind: LLMInferenceServiceConfig
-      name: kserve-config-llm-template-nvidia-cuda
+      name: kserve-config-llm-single-node-template-nvidia-cuda
     fieldPaths:
     - spec.template.containers.[name=main].image
   - select:
       kind: LLMInferenceServiceConfig
-      name: kserve-config-llm-prefill-template-nvidia-cuda
+      name: kserve-config-llm-single-node-pd-template-nvidia-cuda
     fieldPaths:
+    - spec.template.containers.[name=main].image
     - spec.prefill.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-multi-node-template-nvidia-cuda
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+    - spec.worker.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-multi-node-pd-template-nvidia-cuda
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+    - spec.worker.containers.[name=main].image
+    - spec.prefill.template.containers.[name=main].image
+    - spec.prefill.worker.containers.[name=main].image
 - source:
     kind: ConfigMap
     name: kserve-parameters
@@ -242,14 +257,29 @@ replacements:
   targets:
   - select:
       kind: LLMInferenceServiceConfig
-      name: kserve-config-llm-template-nvidia-cuda-fast-1
+      name: kserve-config-llm-single-node-template-nvidia-cuda-fast-1
     fieldPaths:
     - spec.template.containers.[name=main].image
   - select:
       kind: LLMInferenceServiceConfig
-      name: kserve-config-llm-prefill-template-nvidia-cuda-fast-1
+      name: kserve-config-llm-single-node-pd-template-nvidia-cuda-fast-1
     fieldPaths:
+    - spec.template.containers.[name=main].image
     - spec.prefill.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-multi-node-template-nvidia-cuda-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+    - spec.worker.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-multi-node-pd-template-nvidia-cuda-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+    - spec.worker.containers.[name=main].image
+    - spec.prefill.template.containers.[name=main].image
+    - spec.prefill.worker.containers.[name=main].image
 - source:
     kind: ConfigMap
     name: kserve-parameters
@@ -298,14 +328,29 @@ replacements:
   targets:
   - select:
       kind: LLMInferenceServiceConfig
-      name: kserve-config-llm-template-nvidia-cuda-fast-2
+      name: kserve-config-llm-single-node-template-nvidia-cuda-fast-2
     fieldPaths:
     - spec.template.containers.[name=main].image
   - select:
       kind: LLMInferenceServiceConfig
-      name: kserve-config-llm-prefill-template-nvidia-cuda-fast-2
+      name: kserve-config-llm-single-node-pd-template-nvidia-cuda-fast-2
     fieldPaths:
+    - spec.template.containers.[name=main].image
     - spec.prefill.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-multi-node-template-nvidia-cuda-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+    - spec.worker.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-multi-node-pd-template-nvidia-cuda-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+    - spec.worker.containers.[name=main].image
+    - spec.prefill.template.containers.[name=main].image
+    - spec.prefill.worker.containers.[name=main].image
 - source:
     kind: ConfigMap
     name: kserve-parameters
