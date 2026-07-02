@@ -12,10 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import pytest
+
 # Fixture factory - not called explicitly, but must be imported for pytest to discover it.
 from .fixtures import test_case  # noqa: F401
-
-import pytest
 
 _HARDCODED_TLS_WORKLOADS = (
     "workload-llmd-simulator",
@@ -73,3 +73,33 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "tracing: mark test as a distributed tracing test"
     )
+    config.addinivalue_line("markers", "flow_control: mark test as a flow control test")
+
+
+@pytest.fixture
+def flow_control_auth():
+    """Midstream override: enables auth pipeline testing for flow control.
+
+    The upstream default returns None (auth skipped). This midstream version
+    enables auth on the LLMISVC and provides SA token setup/cleanup so the
+    test verifies: unauthenticated -> 401, authenticated -> 200.
+    """
+    from .test_llm_auth import (
+        create_service_account_with_inference_access,
+        cleanup_service_account,
+    )
+
+    def setup(kserve_client, service_name):
+        sa = f"{service_name}-fc-sa"
+        return create_service_account_with_inference_access(
+            kserve_client, sa, service_name
+        )
+
+    def cleanup(kserve_client, service_name):
+        cleanup_service_account(kserve_client, f"{service_name}-fc-sa")
+
+    return {
+        "annotations": {"security.opendatahub.io/enable-auth": "true"},
+        "setup": setup,
+        "cleanup": cleanup,
+    }
