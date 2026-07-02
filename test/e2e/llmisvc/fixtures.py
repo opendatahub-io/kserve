@@ -17,9 +17,12 @@ import os
 import re
 import time
 
-import yaml
-
 import pytest
+from ..common.gateway_proxy import (
+    GATEWAY_PROXY_MEMORY,
+    ensure_proxy_resource,
+    inject_proxy_params,
+)
 from ..common.gw_api import (
     create_or_update_gateway,
     create_or_update_route,
@@ -1544,65 +1547,6 @@ def generate_test_id(test_case) -> str:
     return "-".join(test_case.base_refs)
 
 
-GATEWAY_PROXY_MEMORY = os.environ.get("GATEWAY_PROXY_MEMORY")
-
-_GATEWAY_PROXY_CONFIG_NAME = "gateway-proxy-config"
-
-
-def _ensure_gateway_proxy_configmap(namespace, kserve_client):
-    """Create or update the gateway proxy ConfigMap for parametersRef."""
-    core_api = client.CoreV1Api(kserve_client.api_instance.api_client)
-    patch = {
-        "spec": {
-            "template": {
-                "spec": {
-                    "containers": [
-                        {
-                            "name": "istio-proxy",
-                            "resources": {
-                                "limits": {"memory": GATEWAY_PROXY_MEMORY},
-                                "requests": {"memory": "256Mi"},
-                            },
-                        }
-                    ]
-                }
-            }
-        }
-    }
-    data = {"deployment": yaml.dump(patch, default_flow_style=False)}
-    try:
-        existing = core_api.read_namespaced_config_map(
-            _GATEWAY_PROXY_CONFIG_NAME, namespace
-        )
-        existing.data = data
-        core_api.replace_namespaced_config_map(
-            _GATEWAY_PROXY_CONFIG_NAME, namespace, existing
-        )
-        logger.info(f"✓ Updated ConfigMap {_GATEWAY_PROXY_CONFIG_NAME}")
-    except client.rest.ApiException as e:
-        if e.status == 404:
-            body = client.V1ConfigMap(
-                metadata=client.V1ObjectMeta(
-                    name=_GATEWAY_PROXY_CONFIG_NAME,
-                    namespace=namespace,
-                ),
-                data=data,
-            )
-            core_api.create_namespaced_config_map(namespace, body)
-            logger.info(f"✓ Created ConfigMap {_GATEWAY_PROXY_CONFIG_NAME}")
-        else:
-            raise
-
-
-def _inject_gateway_proxy_params(gateway):
-    """Inject parametersRef into a gateway spec for proxy memory override."""
-    gateway.setdefault("spec", {}).setdefault("infrastructure", {})["parametersRef"] = {
-        "group": "",
-        "kind": "ConfigMap",
-        "name": _GATEWAY_PROXY_CONFIG_NAME,
-    }
-
-
 def create_router_resources(gateways, routes=None, kserve_client=None):
     """Create router resources (gateways and routes). These resources are shared and not deleted.
 
@@ -1616,9 +1560,9 @@ def create_router_resources(gateways, routes=None, kserve_client=None):
 
     if GATEWAY_PROXY_MEMORY:
         ns = gateways[0]["metadata"]["namespace"] if gateways else KSERVE_TEST_NAMESPACE
-        _ensure_gateway_proxy_configmap(ns, kserve_client)
+        ensure_proxy_resource(ns, kserve_client.api_instance.api_client)
         for gw in gateways:
-            _inject_gateway_proxy_params(gw)
+            inject_proxy_params(gw)
 
     for gateway in gateways:
         gateway_name = gateway.get("metadata", {}).get("name", "unknown")
