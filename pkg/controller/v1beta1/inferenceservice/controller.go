@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync/atomic"
 
 	"github.com/go-logr/logr"
 	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
@@ -117,9 +118,36 @@ type InferenceServiceReconciler struct {
 	Recorder     record.EventRecorder
 	// VirtualServiceAvailable indicates whether the Istio VirtualService CRD exists in the cluster.
 	VirtualServiceAvailable bool
+	// onReconcile is an optional test hook invoked at the start of each Reconcile call
+	// with the reconciled object's NamespacedName. It is zero-valued in production.
+	// Access via SetOnReconcile / getOnReconcile to avoid data races between the
+	// test goroutine (writer) and the manager goroutine (reader).
+	onReconcile atomic.Value // stores func(types.NamespacedName)
+}
+
+// SetOnReconcile atomically stores a test callback invoked at the start of
+// each Reconcile call. Pass nil to clear.
+func (r *InferenceServiceReconciler) SetOnReconcile(fn func(types.NamespacedName)) {
+	if fn == nil {
+		r.onReconcile.Store((func(types.NamespacedName))(nil))
+	} else {
+		r.onReconcile.Store(fn)
+	}
+}
+
+// getOnReconcile atomically loads the test callback, returning nil when unset.
+func (r *InferenceServiceReconciler) getOnReconcile() func(types.NamespacedName) {
+	v := r.onReconcile.Load()
+	if v == nil {
+		return nil
+	}
+	return v.(func(types.NamespacedName))
 }
 
 func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	if fn := r.getOnReconcile(); fn != nil {
+		fn(req.NamespacedName)
+	}
 	// Fetch the InferenceService instance
 	isvc := &v1beta1.InferenceService{}
 	if err := r.Get(ctx, req.NamespacedName, isvc); err != nil {
