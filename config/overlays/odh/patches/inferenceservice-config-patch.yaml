@@ -22,8 +22,7 @@ data:
         "cpuLimit": "1",
         "cpuModelcar": "10m",
         "memoryModelcar": "15Mi",
-        "enableModelcar": true,
-        "ovmsVersioningImage": "REPLACE_IMAGE"
+        "enableModelcar": true
     }
   ingress: |-
     {
