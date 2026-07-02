@@ -66,6 +66,13 @@ var components = []componentConfig{
 		postRender:   modelCacheComponentPostRender,
 		extraCleanup: cleanupModelCacheComponent,
 	},
+	{
+		name:         ObservabilityComponentName,
+		manifestName: KserveComponentName,
+		sourcePath:   ObservabilityManifestSourcePath,
+		enabled:      isObservabilityEnabled,
+		postRender:   observabilityPostRender,
+	},
 }
 
 func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
