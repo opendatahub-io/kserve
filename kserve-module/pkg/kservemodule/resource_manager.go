@@ -80,7 +80,11 @@ func (r *KserveModuleReconciler) defaultCleanup(ctx context.Context, comp compon
 		log.Info("manifest directory not found, nothing to clean up", "component", comp.name, "path", renderPath)
 		return nil
 	}
-	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(r.getApplicationsNamespace()))
+	deployNamespace := r.getApplicationsNamespace()
+	if comp.deployNamespace != nil {
+		deployNamespace = comp.deployNamespace(r)
+	}
+	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(deployNamespace))
 	if err != nil {
 		return fmt.Errorf("rendering %s manifests for cleanup: %w", comp.name, err)
 	}

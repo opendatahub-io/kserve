@@ -15,12 +15,13 @@ import (
 )
 
 type componentConfig struct {
-	name          string
-	manifestName  string // overrides name for manifest directory lookup; defaults to name if empty
-	sourcePath    string
-	sourcePathXKS string
-	imageMap      map[string]string
-	extraParams   func(kserve *platformv1alpha1.Kserve) map[string]string
+	name            string
+	manifestName    string // overrides name for manifest directory lookup; defaults to name if empty
+	sourcePath      string
+	sourcePathXKS   string
+	imageMap        map[string]string
+	deployNamespace func(r *KserveModuleReconciler) string
+	extraParams     func(kserve *platformv1alpha1.Kserve) map[string]string
 	postRender    func(ctx context.Context, r *KserveModuleReconciler,
 		kserve *platformv1alpha1.Kserve,
 		resources []unstructured.Unstructured) ([]unstructured.Unstructured, error)
@@ -62,6 +63,9 @@ var components = []componentConfig{
 		manifestName: KserveComponentName,
 		sourcePath:   ModelCacheManifestSourcePath,
 		imageMap:     kserveImageParamMap,
+		deployNamespace: func(r *KserveModuleReconciler) string {
+			return modelCacheNamespace
+		},
 		enabled:      isModelCacheEnabled,
 		postRender:   modelCacheComponentPostRender,
 		extraCleanup: cleanupModelCacheComponent,
