@@ -116,14 +116,21 @@ func filterOutNamespaces(resources []unstructured.Unstructured) []unstructured.U
 	return filtered
 }
 
-func isObservabilityEnabled(_ *platformv1alpha1.Kserve) bool {
-	// TODO: check if PersesDashboard CRD exists on cluster
-	return true
-}
-
-func observabilityPostRender(_ context.Context, r *KserveModuleReconciler,
+func observabilityPostRender(ctx context.Context, r *KserveModuleReconciler,
 	_ *platformv1alpha1.Kserve,
 	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
+
+	log := ctrl.LoggerFrom(ctx)
+
+	reasons := r.checkCRD(ctx, dependencyCheck{
+		name:    "PersesDashboard",
+		crdName: "persesdashboards.perses.dev",
+	})
+	if len(reasons) > 0 {
+		log.Info("PersesDashboard CRD not available, skipping observability dashboards")
+		return nil, nil
+	}
+
 	// TODO: override namespace to monitoring namespace from getMonitoringNamespace()
 	return resources, nil
 }
