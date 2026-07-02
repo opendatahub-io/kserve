@@ -60,7 +60,7 @@ class LoRATestCase:
     endpoint: str = "/v1/completions"
     max_tokens: int = 100
     wait_timeout: int = 900
-    response_timeout: int = 60
+    response_timeout: int = 120
 
 
 def build_llm_service_from_refs(

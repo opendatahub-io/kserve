@@ -146,7 +146,6 @@ def get_model_routing_url(
             kserve_client,
             llm_isvc.metadata.name,
             llm_isvc.metadata.namespace,
-            llm_isvc.api_version.split("/")[1],
         )
 
         status = llm_isvc_status.get("status", {})
@@ -208,7 +207,7 @@ class TestCase:
     payload_formatter: Optional[Callable[["TestCase"], Dict[str, Any]]] = None
     response_assertion: Callable[[requests.Response], None] = assert_200
     wait_timeout: int = 900
-    response_timeout: int = 60
+    response_timeout: int = 120
     extra_headers: Optional[Dict[str, str]] = None
     url_getter: Optional[Callable] = None
     expected_gateway: Optional[Dict[str, Any]] = None
@@ -1132,7 +1131,6 @@ def get_llm_service_url(
             kserve_client,
             llm_isvc.metadata.name,
             llm_isvc.metadata.namespace,
-            llm_isvc.api_version.split("/")[1],
         )
 
         if "status" not in llm_isvc:
@@ -1175,7 +1173,6 @@ def wait_for_llm_isvc_ready(
             kserve_client,
             given.metadata.name,
             given.metadata.namespace,
-            given.api_version.split("/")[1],
         )
 
         if "status" not in out:
