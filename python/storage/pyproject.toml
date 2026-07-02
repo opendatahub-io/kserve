@@ -18,8 +18,9 @@ dependencies = [
     "dulwich>=0.21.0",
     "cryptography>=46.0.5", # CVE-2026-26007 cryptography Subgroup Attack Due to Missing Subgroup Validation for SECT Curves
     # CVE-2026-32597 PyJWT accepts unknown `crit` header extensions (RFC 7515 §4.1.11 MUST violation)
+    # CVE-2026-48526 PyJWT authentication bypass via JWK accepted as HMAC secret
     # Pinning because it is a transitive dependency.
-    "pyjwt>=2.12.0",
+    "pyjwt>=2.13.0",
     # CVE-2026-30922 pyasn1 Vulnerable to Denial of Service via Unbounded Recursion
     # Pinning because it is a transitive dependency.
     "pyasn1>=0.6.3",
