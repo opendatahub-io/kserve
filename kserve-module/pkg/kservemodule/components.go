@@ -70,7 +70,6 @@ var components = []componentConfig{
 		name:         ObservabilityComponentName,
 		manifestName: KserveComponentName,
 		sourcePath:   ObservabilityManifestSourcePath,
-		enabled:      isObservabilityEnabled,
 		postRender:   observabilityPostRender,
 	},
 }
