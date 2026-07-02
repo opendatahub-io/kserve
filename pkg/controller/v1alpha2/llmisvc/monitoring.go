@@ -267,7 +267,15 @@ func (r *LLMISVCReconciler) expectedVLLMEngineMonitor(llmSvc *v1alpha2.LLMInfere
 					HTTPConfigWithProxy: monitoringv1.HTTPConfigWithProxy{
 						HTTPConfig: monitoringv1.HTTPConfig{
 							TLSConfig: &monitoringv1.SafeTLSConfig{
-								InsecureSkipVerify: ptr.To(true),
+								InsecureSkipVerify: ptr.To(!llmSvcHasTlsRotationEnabled(llmSvc)),
+								CA: monitoringv1.SecretOrConfigMap{
+									Secret: &corev1.SecretKeySelector{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: kmeta.ChildName(llmSvc.GetName(), "-kserve-self-signed-certs"),
+										},
+										Key: "ca.crt",
+									},
+								},
 							},
 						},
 					},
