@@ -10,6 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -141,7 +142,7 @@ func attachHardwareProfileToInferenceServices(ctx context.Context, cli client.Cl
 		return nil
 	}
 
-	containerSizes, err := getContainerSizes(odhConfig, "modelServerSizes")
+	containerSizes, err := getContainerSizes(ctx, odhConfig, "modelServerSizes")
 	if err != nil {
 		return fmt.Errorf("failed to get modelServerSizes from OdhDashboardConfig: %w", err)
 	}
@@ -314,6 +315,9 @@ func getInferenceServiceResources(isvc *unstructured.Unstructured) (map[string]a
 
 // findContainerSizeByResources matches the given resource map against the known container sizes
 // and returns the name of the first match, or an empty string when no size matches.
+//
+// Comparison uses resource.Quantity semantics so that equivalent values like "1" and "1000m"
+// are treated as equal, matching Kubernetes resource handling.
 func findContainerSizeByResources(sizes []containerSize, resources map[string]any) string {
 	if resources == nil {
 		return ""
@@ -325,16 +329,39 @@ func findContainerSizeByResources(sizes []containerSize, resources map[string]an
 		return ""
 	}
 
-	for _, size := range sizes {
-		reqCpu, _ := requests["cpu"].(string)
-		reqMem, _ := requests["memory"].(string)
-		limCpu, _ := limits["cpu"].(string)
-		limMem, _ := limits["memory"].(string)
+	parseQ := func(m map[string]any, key string) (resource.Quantity, bool) {
+		s, ok := m[key].(string)
+		if !ok || s == "" {
+			return resource.Quantity{}, false
+		}
+		q, err := resource.ParseQuantity(s)
+		return q, err == nil
+	}
 
-		if reqCpu == size.Resources.Requests.Cpu &&
-			reqMem == size.Resources.Requests.Memory &&
-			limCpu == size.Resources.Limits.Cpu &&
-			limMem == size.Resources.Limits.Memory {
+	isvcReqCPU, ok1 := parseQ(requests, "cpu")
+	isvcReqMem, ok2 := parseQ(requests, "memory")
+	isvcLimCPU, ok3 := parseQ(limits, "cpu")
+	isvcLimMem, ok4 := parseQ(limits, "memory")
+	if !ok1 || !ok2 || !ok3 || !ok4 {
+		// ISVC resource values are admission-validated by Kubernetes using the same parser, so
+		// parse failures are impossible in practice. custom-serving is the safe fallback either way.
+		return ""
+	}
+
+	for _, size := range sizes {
+		szReqCPU, e1 := resource.ParseQuantity(size.Resources.Requests.Cpu)
+		szReqMem, e2 := resource.ParseQuantity(size.Resources.Requests.Memory)
+		szLimCPU, e3 := resource.ParseQuantity(size.Resources.Limits.Cpu)
+		szLimMem, e4 := resource.ParseQuantity(size.Resources.Limits.Memory)
+		if e1 != nil || e2 != nil || e3 != nil || e4 != nil {
+			// Sizes are pre-validated by getContainerSizes; ParseQuantity will not fail in practice.
+			continue
+		}
+
+		if isvcReqCPU.Cmp(szReqCPU) == 0 &&
+			isvcReqMem.Cmp(szReqMem) == 0 &&
+			isvcLimCPU.Cmp(szLimCPU) == 0 &&
+			isvcLimMem.Cmp(szLimMem) == 0 {
 			return size.Name
 		}
 	}
@@ -368,8 +395,12 @@ func isNamespaceManagedByKueue(ctx context.Context, cli client.Client, namespace
 // getContainerSizes extracts the container size entries from spec.<sizeType> in OdhDashboardConfig
 // and maps each entry to a containerSize struct.
 //
-// Returns an empty slice (not an error) when the sizeType key is absent from the spec.
-func getContainerSizes(odhConfig *unstructured.Unstructured, sizeType string) ([]containerSize, error) {
+// Entries with missing or unparseable resource quantity strings are skipped with a warning log,
+// since a silently-skipped size would cause ISVCs to fall through to the custom-serving fallback
+// with no indication of why. Returns an empty slice (not an error) when the sizeType key is absent.
+func getContainerSizes(ctx context.Context, odhConfig *unstructured.Unstructured, sizeType string) ([]containerSize, error) {
+	log := ctrl.LoggerFrom(ctx)
+
 	sizes, found, err := unstructured.NestedSlice(odhConfig.Object, "spec", sizeType)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read spec.%s from OdhDashboardConfig: %w", sizeType, err)
@@ -409,9 +440,35 @@ func getContainerSizes(odhConfig *unstructured.Unstructured, sizeType string) ([
 			}
 		}
 
+		if err := validateContainerSizeQuantities(cs); err != nil {
+			log.Info("Skipping OdhDashboardConfig container size entry: invalid resource quantity",
+				"size", cs.Name, "sizeType", sizeType, "error", err)
+			continue
+		}
+
 		result = append(result, cs)
 	}
 	return result, nil
+}
+
+// validateContainerSizeQuantities checks that all four resource quantity strings in a containerSize
+// are parseable as Kubernetes resource.Quantity values.
+func validateContainerSizeQuantities(cs containerSize) error {
+	fields := []struct {
+		label string
+		value string
+	}{
+		{"requests.cpu", cs.Resources.Requests.Cpu},
+		{"requests.memory", cs.Resources.Requests.Memory},
+		{"limits.cpu", cs.Resources.Limits.Cpu},
+		{"limits.memory", cs.Resources.Limits.Memory},
+	}
+	for _, f := range fields {
+		if _, err := resource.ParseQuantity(f.value); err != nil {
+			return fmt.Errorf("invalid %s %q: %w", f.label, f.value, err)
+		}
+	}
+	return nil
 }
 
 // setHWPAnnotation locates the HardwareProfile named hwpName by searching namespaces in
@@ -423,6 +480,10 @@ func getContainerSizes(odhConfig *unstructured.Unstructured, sizeType string) ([
 // is set and a warning Kubernetes Event is emitted.
 func setHWPAnnotation(ctx context.Context, cli client.Client, isvc *unstructured.Unstructured, hwpName, apNamespace, applicationNS string) error {
 	log := ctrl.LoggerFrom(ctx)
+
+	// Capture the base before any mutation so Patch sends only the annotation diff,
+	// avoiding lost-update conflicts from concurrent writes to other ISVC fields.
+	base := isvc.DeepCopy()
 
 	annotations := isvc.GetAnnotations()
 	if annotations == nil {
@@ -466,7 +527,7 @@ func setHWPAnnotation(ctx context.Context, cli client.Client, isvc *unstructured
 	}
 
 	isvc.SetAnnotations(annotations)
-	return cli.Update(ctx, isvc)
+	return cli.Patch(ctx, isvc, client.MergeFrom(base))
 }
 
 // getHardwareProfile fetches the HardwareProfile with the given name from the given namespace

@@ -759,23 +759,27 @@ func TestHandleISVCSetHWPAnnotationError(t *testing.T) {
 			handled := handleISVCSetHWPAnnotationError(ctx, cli, isvc, errors.New(tc.errStr))
 			g.Expect(handled).To(Equal(tc.wantHandled))
 
+			var events corev1.EventList
+			g.Expect(cli.List(ctx, &events)).To(Succeed())
 			if tc.wantHandled {
-				var events corev1.EventList
-				g.Expect(cli.List(ctx, &events)).To(Succeed())
 				g.Expect(events.Items).To(HaveLen(1))
 				g.Expect(events.Items[0].Type).To(Equal(corev1.EventTypeWarning))
 				g.Expect(events.Items[0].Reason).To(Equal(tc.wantReason))
+			} else {
+				g.Expect(events.Items).To(BeEmpty())
 			}
 		})
 	}
 }
 
 func TestGetContainerSizes(t *testing.T) {
+	ctx := context.Background()
+
 	t.Run("Normal", func(t *testing.T) {
 		g := NewWithT(t)
 
 		odhConfig := makeTestOdhDashboardConfig("test-namespace")
-		sizes, err := getContainerSizes(odhConfig, "modelServerSizes")
+		sizes, err := getContainerSizes(ctx, odhConfig, "modelServerSizes")
 
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(sizes).To(HaveLen(2))
@@ -802,7 +806,7 @@ func TestGetContainerSizes(t *testing.T) {
 		cfg.SetNamespace("test-namespace")
 		_ = unstructured.SetNestedMap(cfg.Object, map[string]any{}, "spec")
 
-		sizes, err := getContainerSizes(cfg, "modelServerSizes")
+		sizes, err := getContainerSizes(ctx, cfg, "modelServerSizes")
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(sizes).To(BeEmpty())
 	})
@@ -815,7 +819,8 @@ func TestGetContainerSizes(t *testing.T) {
 		cfg.SetName("odh-dashboard-config")
 		cfg.SetNamespace("test-namespace")
 		_ = unstructured.SetNestedSlice(cfg.Object, []any{
-			// Malformed: resources is a string, not a map. Entry is included with empty resource fields.
+			// Malformed: resources is a string, not a map — quantity fields end up empty and fail
+			// validation, so the entry is skipped entirely.
 			map[string]any{"name": "Malformed", "resources": "invalid"},
 			map[string]any{
 				"name": "Valid",
@@ -826,13 +831,42 @@ func TestGetContainerSizes(t *testing.T) {
 			},
 		}, "spec", "modelServerSizes")
 
-		sizes, err := getContainerSizes(cfg, "modelServerSizes")
+		sizes, err := getContainerSizes(ctx, cfg, "modelServerSizes")
 		g.Expect(err).NotTo(HaveOccurred())
-		g.Expect(sizes).To(HaveLen(2))
-		g.Expect(sizes[0].Name).To(Equal("Malformed"))
-		g.Expect(sizes[0].Resources.Requests.Cpu).To(BeEmpty())
-		g.Expect(sizes[1].Name).To(Equal("Valid"))
-		g.Expect(sizes[1].Resources.Requests.Cpu).To(Equal("1"))
+		g.Expect(sizes).To(HaveLen(1))
+		g.Expect(sizes[0].Name).To(Equal("Valid"))
+		g.Expect(sizes[0].Resources.Requests.Cpu).To(Equal("1"))
+	})
+
+	t.Run("InvalidQuantityEntry", func(t *testing.T) {
+		g := NewWithT(t)
+
+		cfg := &unstructured.Unstructured{}
+		cfg.SetGroupVersionKind(odhDashboardConfigGVK)
+		cfg.SetName("odh-dashboard-config")
+		cfg.SetNamespace("test-namespace")
+		_ = unstructured.SetNestedSlice(cfg.Object, []any{
+			// Invalid quantity string in a structurally valid entry — skipped with a warning log.
+			map[string]any{
+				"name": "BadQuantity",
+				"resources": map[string]any{
+					"requests": map[string]any{"cpu": "not-a-quantity", "memory": "4Gi"},
+					"limits":   map[string]any{"cpu": "2", "memory": "8Gi"},
+				},
+			},
+			map[string]any{
+				"name": "Valid",
+				"resources": map[string]any{
+					"requests": map[string]any{"cpu": "1", "memory": "4Gi"},
+					"limits":   map[string]any{"cpu": "2", "memory": "8Gi"},
+				},
+			},
+		}, "spec", "modelServerSizes")
+
+		sizes, err := getContainerSizes(ctx, cfg, "modelServerSizes")
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(sizes).To(HaveLen(1))
+		g.Expect(sizes[0].Name).To(Equal("Valid"))
 	})
 }
 
@@ -860,6 +894,13 @@ func TestFindContainerSizeByResources(t *testing.T) {
 	t.Run("ExactMatch", func(t *testing.T) {
 		g := NewWithT(t)
 		g.Expect(findContainerSizeByResources(sizes, makeResources("1", "4Gi", "2", "8Gi"))).To(Equal("Small"))
+	})
+
+	t.Run("SemanticEquivalentMatch", func(t *testing.T) {
+		g := NewWithT(t)
+		// "1000m" CPU and "4096Mi" memory are semantically equal to "1" and "4Gi" respectively;
+		// string comparison would miss this, Quantity comparison must not.
+		g.Expect(findContainerSizeByResources(sizes, makeResources("1000m", "4096Mi", "2000m", "8192Mi"))).To(Equal("Small"))
 	})
 
 	t.Run("PartialMatchCPUOnly", func(t *testing.T) {
@@ -979,11 +1020,11 @@ func TestAttachHardwareProfileToInferenceServices_ErrorAggregation(t *testing.T)
 		hwp := makeTestHardwareProfile(namespace, "custom-serving")
 
 		funcs := interceptor.Funcs{
-			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+			Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
 				if obj.GetName() == "isvc-2" {
-					return k8serr.NewInternalError(errors.New("update failed for isvc-2"))
+					return k8serr.NewInternalError(errors.New("patch failed for isvc-2"))
 				}
-				return c.Update(ctx, obj, opts...)
+				return c.Patch(ctx, obj, patch, opts...)
 			},
 		}
 		cli := fake.NewClientBuilder().
@@ -996,6 +1037,7 @@ func TestAttachHardwareProfileToInferenceServices_ErrorAggregation(t *testing.T)
 		err := attachHardwareProfileToInferenceServices(ctx, cli, namespace, odhConfig)
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).To(ContainSubstring("isvc-2"))
+		g.Expect(err.Error()).To(ContainSubstring("patch failed for isvc-2"))
 
 		// isvc-1 and isvc-3 must be annotated despite isvc-2 failure.
 		for _, name := range []string{"isvc-1", "isvc-3"} {

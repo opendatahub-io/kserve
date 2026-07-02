@@ -157,12 +157,6 @@ rules:
   verbs:
   - get
 - apiGroups:
-  - dashboard.opendatahub.io
-  resources:
-  - acceleratorprofiles
-  verbs:
-  - list
-- apiGroups:
   - infrastructure.opendatahub.io
   resources:
   - hardwareprofiles
@@ -351,7 +345,6 @@ rules:
   verbs:
   - list
   - patch
-  - update
 - apiGroups:
   - serving.kserve.io
   resources:
