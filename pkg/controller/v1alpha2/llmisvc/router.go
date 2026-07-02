@@ -360,7 +360,7 @@ func (r *LLMISVCReconciler) updateRoutingStatus(ctx context.Context, llmSvc *v1a
 		}
 	}
 
-	additional, err := r.discoverAdditionalURLs(ctx, discovered)
+	additional, err := r.discoverAdditionalURLs(ctx, llmSvc, discovered)
 	if err != nil {
 		return nil, fmt.Errorf("failed to discover additional URLs: %w", err)
 	}
