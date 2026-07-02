@@ -117,6 +117,18 @@ func filterOutNamespaces(resources []unstructured.Unstructured) []unstructured.U
 	return filtered
 }
 
+func isObservabilityEnabled(_ *platformv1alpha1.Kserve) bool {
+	// TODO: check if PersesDashboard CRD exists on cluster
+	return true
+}
+
+func observabilityPostRender(_ context.Context, r *KserveModuleReconciler,
+	_ *platformv1alpha1.Kserve,
+	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
+	// TODO: override namespace to monitoring namespace from getMonitoringNamespace()
+	return resources, nil
+}
+
 func isWVAEnabled(kserve *platformv1alpha1.Kserve) bool {
 	return kserve.Spec.WVA.ManagementState == common.Managed
 }
