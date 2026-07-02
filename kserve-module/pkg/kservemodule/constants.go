@@ -12,14 +12,14 @@ const (
 	KserveManifestSourcePathXKS  = "overlays/odh-xks"
 	ModelCacheManifestSourcePath = "overlays/odh-modelcache"
 	ModelControllerSourcePath    = "base"
-	WVAManifestSourcePathOCP     = "openshift"
+	WVAManifestSourcePathOCP     = "overlays/namespace-scoped/openshift"
 
 	// Deployment names
-	kserveControllerDeployment  = "kserve-controller-manager"
-	llmISVCControllerDeployment = "llmisvc-controller-manager"
+	kserveControllerDeployment     = "kserve-controller-manager"
+	llmISVCControllerDeployment    = "llmisvc-controller-manager"
 	localmodelControllerDeployment = "kserve-localmodel-controller-manager"
-	odhModelControllerDeployment = "odh-model-controller"
-	wvaControllerDeployment      = "workload-variant-autoscaler-controller-manager"
+	odhModelControllerDeployment   = "odh-model-controller"
+	wvaControllerDeployment        = "workload-variant-autoscaler-controller-manager"
 
 	// SSA field manager
 	fieldOwner = "kserve-module-controller"
@@ -28,7 +28,7 @@ const (
 	kserveConfigMapName     = "inferenceservice-config"
 	ingressConfigKeyName    = "ingress"
 	serviceConfigKeyName    = "service"
-	configHashAnnotationKey  = "kserve-module/config-hash"
+	configHashAnnotationKey = "kserve-module/config-hash"
 	oauthProxyConfigKeyName = "oauthProxy"
 	openshiftConfigKeyName  = "openshiftConfig"
 

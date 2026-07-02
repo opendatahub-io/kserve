@@ -58,6 +58,7 @@ rules:
   - ""
   resourceNames:
   - kserve-webhook-server-secret
+  - workload-variant-autoscaler-controller-manager-token
   - workload-variant-autoscaler-epp-metrics-token
   - workload-variant-autoscaler-metrics-reader-token
   resources:

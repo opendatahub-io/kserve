@@ -40,7 +40,7 @@ import (
 // +kubebuilder:rbac:groups="",resources=configmaps;services;serviceaccounts,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=create;delete;patch;update,resourceNames=kserve-webhook-server-secret;workload-variant-autoscaler-epp-metrics-token;workload-variant-autoscaler-metrics-reader-token
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=create;delete;patch;update,resourceNames=kserve-webhook-server-secret;workload-variant-autoscaler-controller-manager-token;workload-variant-autoscaler-epp-metrics-token;workload-variant-autoscaler-metrics-reader-token
 // +kubebuilder:rbac:groups="",resources=configmaps/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
