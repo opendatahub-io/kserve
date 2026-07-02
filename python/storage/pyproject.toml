@@ -29,8 +29,9 @@ azure-identity = { version = "^1.15.0"}
 boto3 = { version = "^1.29.0"}
 huggingface-hub = { version = "^0.30.0", extras = ["hf-transfer"]}
 # CVE-2026-32597 PyJWT accepts unknown `crit` header extensions (RFC 7515 §4.1.11 MUST violation)
+# CVE-2026-48526 PyJWT authentication bypass via JWK accepted as HMAC secret
 # Pinning because it is a transitive dependency.
-PyJWT = {version = ">=2.12.0"}
+PyJWT = {version = ">=2.13.0"}
 # CVE-2026-26007 cryptography fails to validate EC public key subgroup membership (SECT curves)
 # Pinning because it is a transitive dependency.
 cryptography = {version = ">=46.0.5"}
