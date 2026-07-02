@@ -811,13 +811,9 @@ func (mi *StorageInitializerInjector) InjectOVMSAutoVersioning(pod *corev1.Pod) 
 	}
 
 	// Create the OVMS versioning init container
-	ovmsVersioningImage := mi.config.OvmsVersioningImage
-	if ovmsVersioningImage == "" {
-		ovmsVersioningImage = "registry.redhat.io/ubi9/ubi-micro:latest"
-	}
 	ovmsVersioningContainer := corev1.Container{
 		Name:    constants.OVMSVersioningContainerName,
-		Image:   ovmsVersioningImage,
+		Image:   "registry.redhat.io/ubi9/ubi-micro@sha256:35de56a9413112f1474e392ebc35e0cf6f0fb484c8e8877bbae59b513694b41f",
 		Command: []string{"/bin/sh"},
 		Args: []string{
 			"-c",

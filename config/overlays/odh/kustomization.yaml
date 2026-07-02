@@ -447,16 +447,6 @@ replacements:
 - source:
     kind: ConfigMap
     name: kserve-parameters
-    fieldPath: data.kserve-ovms-versioning-image
-  targets:
-  - select:
-      kind: ConfigMap
-      name: inferenceservice-config
-    fieldPaths:
-    - data.storageInitializer.ovmsVersioningImage
-- source:
-    kind: ConfigMap
-    name: kserve-parameters
     fieldPath: data.kserve-agent
   targets:
   - select:
