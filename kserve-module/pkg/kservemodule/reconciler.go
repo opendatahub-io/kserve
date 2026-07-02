@@ -98,7 +98,7 @@ import (
 // --- Upgrade path: HardwareProfile migration ---
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=list;patch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes,verbs=get
-// +kubebuilder:rbac:groups=infrastructure.opendatahub.io,resources=hardwareprofiles,verbs=get;list
+// +kubebuilder:rbac:groups=infrastructure.opendatahub.io,resources=hardwareprofiles,verbs=get
 // +kubebuilder:rbac:groups=opendatahub.io,resources=odhdashboardconfigs,verbs=get
 
 type ResourceDeployer interface {

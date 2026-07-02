@@ -162,7 +162,6 @@ rules:
   - hardwareprofiles
   verbs:
   - get
-  - list
 - apiGroups:
   - monitoring.coreos.com
   resourceNames:
