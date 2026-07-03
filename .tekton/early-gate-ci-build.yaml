@@ -5,8 +5,11 @@ metadata:
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-event: "[issue_comment]"
-    pipelinesascode.tekton.dev/on-comment: "^/early-gate(-build)?$"
+    pipelinesascode.tekton.dev/on-cel-expression: |
+      event == "issue_comment" &&
+      body.action == "created" &&
+      body.comment.author_association in ["OWNER", "MEMBER", "COLLABORATOR"] &&
+      body.comment.body.matches("^/early-gate(-build)?$")
   labels:
     appstudio.openshift.io/application: early-gate
     appstudio.openshift.io/component: early-gate-ci
@@ -25,7 +28,7 @@ spec:
     - name: url
       value: https://github.com/opendatahub-io/odh-konflux-central.git
     - name: revision
-      value: 'main'
+      value: '2a2bf87df1262625bd91e3dfd5750507b24dbf5f'
     - name: pathInRepo
       value: early-gate/early-gate-component-pipeline.yaml
   taskRunTemplate:
