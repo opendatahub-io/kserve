@@ -328,6 +328,29 @@ wait_for_crds() {
     log_success "All CRDs are established!"
 }
 
+# Check that cert-manager is installed and its CRDs are established.
+# Fails fast with a clear error if cert-manager is absent, preventing
+# a cryptic "resource mapping not found" error from kubectl apply under
+# set -o errexit when cert-manager.io/v1 resources are applied.
+# Usage: check_cert_manager_installed [timeout]
+check_cert_manager_installed() {
+    local timeout="${1:-30s}"
+    local cert_crd="certificates.cert-manager.io"
+
+    log_info "Checking cert-manager prerequisite (CRD: ${cert_crd})..."
+
+    if ! kubectl get crd "${cert_crd}" &>/dev/null; then
+        log_error "cert-manager is not installed: CRD '${cert_crd}' not found."
+        log_error "Please install cert-manager before running this script."
+        log_error "See: https://cert-manager.io/docs/installation/"
+        exit 1
+    fi
+
+    # CRD exists; wait for it to be fully established
+    wait_for_crd "${cert_crd}" "${timeout}"
+    log_success "cert-manager is installed and ready."
+}
+
 # Update multiple fields in KServe inferenceservice-config ConfigMap
 # Usage: update_isvc_config "ingress.enableGatewayApi=true" "deploy.defaultDeploymentMode=Standard"
 # Example:
@@ -791,6 +814,7 @@ install_prometheus_helm() {
     log_info "Adding prometheus-community Helm repository..."
     helm repo add prometheus-community https://prometheus-community.github.io/helm-charts --force-update
 
+    check_cert_manager_installed
     log_info "Creating self-signed TLS certificate for Prometheus via cert-manager..."
     kubectl create namespace "${PROMETHEUS_NAMESPACE}" 2>/dev/null || true
 
