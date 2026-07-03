@@ -200,7 +200,8 @@ ENV VIRTUAL_ENV=${WORKSPACE_DIR}/${VENV_PATH}
 ENV PATH="${WORKSPACE_DIR}/${VENV_PATH}/bin:$PATH"
 
 # Create non-root user
-RUN userdel -r ubuntu && useradd kserve -m -u 1000 -d /home/kserve
+RUN if getent passwd ubuntu >/dev/null; then userdel -r ubuntu; fi \
+    && useradd -m -u 1000 -d /home/kserve kserve
 
 COPY --from=build /opt/uv_python /opt/uv_python
 COPY --from=build --chown=kserve:kserve ${WORKSPACE_DIR}/third_party third_party
