@@ -565,9 +565,14 @@ set_env_with_priority() {
     local global_value="$3"
     local default_value="$4"
 
-    # Get current value
-    local current_value
-    eval "current_value=\${${var_name}}"
+    # Validate var_name is a legal shell identifier to prevent injection via the name itself
+    if [[ ! "$var_name" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+        echo "set_env_with_priority: invalid variable name: '$var_name'" >&2
+        return 1
+    fi
+
+    # Get current value using safe bash indirect expansion (no eval required)
+    local current_value="${!var_name}"
 
     # If current value exists and differs from default, it's a runtime value - keep it
     if [ -n "$current_value" ] && [ -n "$default_value" ] && [ "$current_value" != "$default_value" ]; then
@@ -576,10 +581,11 @@ set_env_with_priority() {
     fi
 
     # Apply priority: component env > global env > default
+    # Use 'export "NAME=VALUE"' form — safe, no word-splitting or glob expansion on VALUE
     if [ -n "$component_value" ]; then
-        eval "export $var_name=\"$component_value\""
+        export "$var_name=$component_value"
     elif [ -n "$global_value" ]; then
-        eval "export $var_name=\"$global_value\""
+        export "$var_name=$global_value"
     fi
     # If both are empty, variable keeps its default value
 }
