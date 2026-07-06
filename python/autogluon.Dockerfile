@@ -7,7 +7,7 @@ FROM ${BASE_IMAGE} AS builder
 USER 0
 
 # Install system dependencies
-RUN dnf install -y python3-devel && dnf clean all
+RUN dnf install -y python3-devel curl && dnf clean all
 
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
@@ -45,17 +45,16 @@ RUN mkdir -p third_party/library && python3 third_party/pip-licenses.py
 # =================== Final stage ===================
 FROM ${BASE_IMAGE} AS prod
 
-USER 0
-
-# Runtime deps for AutoGluon backends (LightGBM, XGBoost, etc.) that use OpenMP
-RUN dnf install -y libgomp && dnf clean all
-
 # Set up virtual environment in runtime stage
 ARG VENV_PATH
 ENV VIRTUAL_ENV=${VENV_PATH}
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-RUN useradd kserve -m -u 1000 -d /home/kserve
+# Runtime deps and user creation (scoped privilege elevation)
+USER 0
+RUN dnf install -y libgomp && dnf clean all && \
+    useradd --no-log-init kserve -m -u 1000 -d /home/kserve
+USER 1000
 
 COPY --from=builder --chown=kserve:kserve /opt/app-root/src/third_party third_party
 COPY --from=builder --chown=kserve:kserve $VIRTUAL_ENV $VIRTUAL_ENV
@@ -65,7 +64,5 @@ COPY --from=builder --chown=kserve:kserve /opt/app-root/src/autogluonserver auto
 
 WORKDIR /home/kserve
 ENV MPLCONFIGDIR=/tmp/matplotlib
-
-USER 1000
 ENV PYTHONPATH=/autogluonserver
 ENTRYPOINT ["python", "-m", "autogluonserver"]
