@@ -71,8 +71,12 @@ def _ensure_configmap(namespace, api_client):
                 metadata=client.V1ObjectMeta(name=_RESOURCE_NAME, namespace=namespace),
                 data=data,
             )
-            core_api.create_namespaced_config_map(namespace, body)
-            logger.info("Created ConfigMap %s/%s", namespace, _RESOURCE_NAME)
+            try:
+                core_api.create_namespaced_config_map(namespace, body)
+                logger.info("Created ConfigMap %s/%s", namespace, _RESOURCE_NAME)
+            except client.rest.ApiException as create_err:
+                if create_err.status != 409:
+                    raise
         else:
             raise
     _ensured_namespaces.add(namespace)
