@@ -68,9 +68,7 @@ def _ensure_configmap(namespace, api_client):
     except client.rest.ApiException as e:
         if e.status == 404:
             body = client.V1ConfigMap(
-                metadata=client.V1ObjectMeta(
-                    name=_RESOURCE_NAME, namespace=namespace
-                ),
+                metadata=client.V1ObjectMeta(name=_RESOURCE_NAME, namespace=namespace),
                 data=data,
             )
             core_api.create_namespaced_config_map(namespace, body)
