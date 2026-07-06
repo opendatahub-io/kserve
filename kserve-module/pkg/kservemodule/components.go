@@ -117,7 +117,7 @@ func filterOutNamespaces(resources []unstructured.Unstructured) []unstructured.U
 }
 
 func observabilityPostRender(ctx context.Context, r *KserveModuleReconciler,
-	_ *platformv1alpha1.Kserve,
+	kserve *platformv1alpha1.Kserve,
 	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
 
 	log := ctrl.LoggerFrom(ctx)
@@ -134,6 +134,9 @@ func observabilityPostRender(ctx context.Context, r *KserveModuleReconciler,
 	ns := r.getMonitoringNamespace()
 	for i := range resources {
 		resources[i].SetNamespace(ns)
+		if err := ctrl.SetControllerReference(kserve, &resources[i], r.Scheme); err != nil {
+			return nil, fmt.Errorf("failed to set owner reference on %s: %w", resources[i].GetName(), err)
+		}
 	}
 	log.Info("set monitoring namespace on observability resources", "namespace", ns, "count", len(resources))
 
