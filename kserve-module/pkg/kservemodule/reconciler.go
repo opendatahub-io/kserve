@@ -319,6 +319,14 @@ func (r *KserveModuleReconciler) isKubernetes(ctx context.Context) bool {
 	return ct == cluster.ClusterTypeKubernetes
 }
 
+func (r *KserveModuleReconciler) getMonitoringNamespace() string {
+	if ns := os.Getenv("MONITORING_NAMESPACE"); ns != "" {
+		return ns
+	}
+
+	return r.getApplicationsNamespace()
+}
+
 func (r *KserveModuleReconciler) getApplicationsNamespace() string {
 	if r.applicationsNamespace != "" {
 		return r.applicationsNamespace
