@@ -131,7 +131,12 @@ func observabilityPostRender(ctx context.Context, r *KserveModuleReconciler,
 		return nil, nil
 	}
 
-	// TODO: override namespace to monitoring namespace from getMonitoringNamespace()
+	ns := r.getMonitoringNamespace()
+	for i := range resources {
+		resources[i].SetNamespace(ns)
+	}
+	log.Info("set monitoring namespace on observability resources", "namespace", ns, "count", len(resources))
+
 	return resources, nil
 }
 
