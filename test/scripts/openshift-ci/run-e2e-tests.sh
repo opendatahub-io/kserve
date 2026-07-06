@@ -53,6 +53,8 @@ if [[ -z "${INFERENCE_POOL_GROUP:-}" ]]; then
   fi
   echo "INFERENCE_POOL_GROUP=${INFERENCE_POOL_GROUP} (detected from OCP ${server_version})"
 fi
+export GATEWAY_PROXY_MEMORY="${GATEWAY_PROXY_MEMORY:-2Gi}"
+export PYTEST_ARGS="${PYTEST_ARGS:-} -p common.gateway_proxy_istio"
 export RUN_AS_NON_ROOT="${RUN_AS_NON_ROOT:-true}"
 export KUBE_CLI=${KUBE_CLI_COMMAND:-oc}
 
