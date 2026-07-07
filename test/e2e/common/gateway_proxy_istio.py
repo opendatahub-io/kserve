@@ -15,16 +15,16 @@
 """Istio gateway proxy memory tuning -- pytest plugin.
 
 Activate via ``-p common.gateway_proxy_istio`` when GATEWAY_PROXY_MEMORY
-is set.  After each test's ``test_case`` fixture creates router gateways,
-this plugin ensures a ConfigMap with an Istio deployment strategic merge
+is set.  Ensures a ConfigMap with an Istio deployment strategic merge
 patch exists and patches every Gateway in the test namespace to reference
-it via ``parametersRef``.
+it via ``parametersRef``, then waits for gateways to become Programmed.
 
 No upstream files are modified.
 """
 
 import logging
 import os
+import time
 
 import pytest
 import yaml
@@ -90,11 +90,15 @@ _PARAMETERS_REF = {
 
 
 def _patch_gateways(namespace, api_client):
-    """Patch all Gateways in namespace to include parametersRef."""
+    """Patch all Gateways in namespace to include parametersRef.
+
+    Returns the list of gateway names that were actually patched.
+    """
     custom_api = client.CustomObjectsApi(api_client)
     gateways = custom_api.list_namespaced_custom_object(
         "gateway.networking.k8s.io", "v1", namespace, "gateways"
     )
+    patched = []
     for gw in gateways.get("items", []):
         infra = gw.get("spec", {}).get("infrastructure", {})
         if infra.get("parametersRef") == _PARAMETERS_REF:
@@ -116,6 +120,32 @@ def _patch_gateways(namespace, api_client):
             patch,
         )
         logger.info("Patched Gateway %s/%s with parametersRef", namespace, name)
+        patched.append(name)
+    return patched
+
+
+def _wait_for_gateways_programmed(namespace, api_client, names, timeout=120):
+    """Wait until all named Gateways have Programmed=True."""
+    custom_api = client.CustomObjectsApi(api_client)
+    deadline = time.monotonic() + timeout
+    pending = set(names)
+    while pending and time.monotonic() < deadline:
+        for name in list(pending):
+            gw = custom_api.get_namespaced_custom_object(
+                "gateway.networking.k8s.io", "v1", namespace, "gateways", name
+            )
+            conditions = gw.get("status", {}).get("conditions", [])
+            for c in conditions:
+                if c.get("type") == "Programmed" and c.get("status") == "True":
+                    logger.info("Gateway %s/%s is Programmed", namespace, name)
+                    pending.discard(name)
+                    break
+        if pending:
+            time.sleep(2)
+    if pending:
+        logger.warning(
+            "Gateways not Programmed after %ds: %s", timeout, sorted(pending)
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -137,4 +167,6 @@ def ensure_gateway_proxy_memory(request):
 
     namespace = os.environ.get("KSERVE_TEST_NAMESPACE", "kserve-ci-e2e-test")
     _ensure_configmap(namespace, api_client)
-    _patch_gateways(namespace, api_client)
+    patched = _patch_gateways(namespace, api_client)
+    if patched:
+        _wait_for_gateways_programmed(namespace, api_client, patched)
