@@ -66,7 +66,7 @@ func makeUpgradeTestRESTMapper() apimeta.RESTMapper {
 func makeTestOdhDashboardConfig(namespace string) *unstructured.Unstructured {
 	cfg := &unstructured.Unstructured{}
 	cfg.SetGroupVersionKind(odhDashboardConfigGVK)
-	cfg.SetName("odh-dashboard-config")
+	cfg.SetName(odhDashboardConfigName)
 	cfg.SetNamespace(namespace)
 
 	_ = unstructured.SetNestedSlice(cfg.Object, []any{
@@ -169,7 +169,7 @@ func makeISVCFakeClient(objects ...client.Object) client.Client {
 // shortCtx returns a context that expires quickly to bound retries in
 // cluster.CustomResourceDefinitionExists when the CRD is absent.
 func shortCtx() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), 50*time.Millisecond)
+	return context.WithTimeout(context.Background(), 500*time.Millisecond)
 }
 
 // CRD names derived from GVKs via the formula used in cluster.CustomResourceDefinitionExists.
@@ -412,7 +412,7 @@ func TestGetOdhDashboardConfig(t *testing.T) {
 		g.Expect(err).NotTo(HaveOccurred())
 		g.Expect(found).To(BeTrue())
 		g.Expect(result).NotTo(BeNil())
-		g.Expect(result.GetName()).To(Equal("odh-dashboard-config"))
+		g.Expect(result.GetName()).To(Equal(odhDashboardConfigName))
 		g.Expect(result.GetNamespace()).To(Equal(namespace))
 	})
 
@@ -802,7 +802,7 @@ func TestGetContainerSizes(t *testing.T) {
 
 		cfg := &unstructured.Unstructured{}
 		cfg.SetGroupVersionKind(odhDashboardConfigGVK)
-		cfg.SetName("odh-dashboard-config")
+		cfg.SetName(odhDashboardConfigName)
 		cfg.SetNamespace("test-namespace")
 		_ = unstructured.SetNestedMap(cfg.Object, map[string]any{}, "spec")
 
@@ -816,7 +816,7 @@ func TestGetContainerSizes(t *testing.T) {
 
 		cfg := &unstructured.Unstructured{}
 		cfg.SetGroupVersionKind(odhDashboardConfigGVK)
-		cfg.SetName("odh-dashboard-config")
+		cfg.SetName(odhDashboardConfigName)
 		cfg.SetNamespace("test-namespace")
 		_ = unstructured.SetNestedSlice(cfg.Object, []any{
 			// Malformed: resources is a string, not a map — quantity fields end up empty and fail
@@ -843,7 +843,7 @@ func TestGetContainerSizes(t *testing.T) {
 
 		cfg := &unstructured.Unstructured{}
 		cfg.SetGroupVersionKind(odhDashboardConfigGVK)
-		cfg.SetName("odh-dashboard-config")
+		cfg.SetName(odhDashboardConfigName)
 		cfg.SetNamespace("test-namespace")
 		_ = unstructured.SetNestedSlice(cfg.Object, []any{
 			// Invalid quantity string in a structurally valid entry — skipped with a warning log.

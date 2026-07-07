@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -21,6 +22,7 @@ import (
 )
 
 const (
+	odhDashboardConfigName         = "odh-dashboard-config"
 	hwpNameAnnotation              = "opendatahub.io/hardware-profile-name"
 	hwpNamespaceAnnotation         = "opendatahub.io/hardware-profile-namespace"
 	acceleratorNameAnnotation      = "opendatahub.io/accelerator-name"
@@ -113,7 +115,7 @@ func getOdhDashboardConfig(ctx context.Context, cli client.Client, applicationNS
 	odhConfig := &unstructured.Unstructured{}
 	odhConfig.SetGroupVersionKind(odhDashboardConfigGVK)
 
-	err := cli.Get(ctx, client.ObjectKey{Name: "odh-dashboard-config", Namespace: applicationNS}, odhConfig)
+	err := cli.Get(ctx, client.ObjectKey{Name: odhDashboardConfigName, Namespace: applicationNS}, odhConfig)
 	if err == nil {
 		return odhConfig, true, nil
 	}
@@ -185,13 +187,21 @@ func attachHardwareProfileToInferenceServices(ctx context.Context, cli client.Cl
 
 		// Prefer AcceleratorProfile annotation from the associated ServingRuntime.
 		servingRuntime, srErr := getSRFromISVC(ctx, cli, isvc)
-		if srErr == nil {
+		if srErr != nil {
+			log.V(1).Info("Could not get ServingRuntime for InferenceService; falling back to container-size matching",
+				"isvc", isvc.GetName(), "namespace", isvc.GetNamespace(), "error", srErr)
+		} else {
 			runtimeAnnotations := servingRuntime.GetAnnotations()
 			if runtimeAnnotations == nil {
 				runtimeAnnotations = map[string]string{}
 			}
 			if apName := runtimeAnnotations[acceleratorNameAnnotation]; apName != "" {
 				hwpName := fmt.Sprintf("%s-serving", strings.ReplaceAll(strings.ToLower(apName), " ", "-"))
+				if errsMsg := validation.IsDNS1123Label(hwpName); len(errsMsg) > 0 {
+					log.Info("Skipping HardwareProfile migration: derived HWP name is not a valid DNS label",
+						"isvc", isvc.GetName(), "hwpName", hwpName, "reasons", errsMsg)
+					continue
+				}
 				hwpNS := runtimeAnnotations[acceleratorProfileNSAnnotation]
 				if annotErr := setHWPAnnotation(ctx, cli, isvc, hwpName, hwpNS, applicationNS); annotErr != nil {
 					if !handleISVCSetHWPAnnotationError(ctx, cli, isvc, annotErr) {
