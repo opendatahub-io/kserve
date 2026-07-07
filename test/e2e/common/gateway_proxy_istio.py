@@ -119,10 +119,14 @@ def _patch_gateways(namespace, api_client):
 
 
 @pytest.fixture(autouse=True)
-def ensure_gateway_proxy_memory(test_case):
-    """After test_case creates router gateways, patch them for proxy memory."""
+def ensure_gateway_proxy_memory(request):
+    """After test setup creates gateways, patch them for proxy memory."""
     if not GATEWAY_PROXY_MEMORY:
         return
+
+    # Establish ordering: if the test uses test_case (llmisvc), let it run first
+    if "test_case" in request.fixturenames:
+        request.getfixturevalue("test_case")
 
     from kserve import KServeClient
 
