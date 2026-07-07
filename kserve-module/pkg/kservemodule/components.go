@@ -70,6 +70,7 @@ var components = []componentConfig{
 		name:         ObservabilityComponentName,
 		manifestName: KserveComponentName,
 		sourcePath:   ObservabilityManifestSourcePath,
+		imageMap:     map[string]string{},
 		postRender:   observabilityPostRender,
 	},
 }
