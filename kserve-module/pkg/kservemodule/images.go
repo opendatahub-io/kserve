@@ -35,10 +35,11 @@ var kserveImageParamMap = map[string]string{
 	"kserve-llm-d-ibm-spyre-fast-2-upstream-version":   "RELATED_IMAGE_RHAII_VLLM_SPYRE_FAST_2_IMAGE_UPSTREAM_VERSION",
 	"kserve-llm-d-inference-scheduler":                 "RELATED_IMAGE_ODH_LLM_D_ROUTER_ENDPOINT_PICKER_IMAGE",
 	"kserve-llm-d-routing-sidecar":                     "RELATED_IMAGE_ODH_LLM_D_ROUTER_DISAGG_SIDECAR_IMAGE",
-	"kserve-llm-d-uds-tokenizer":                       "RELATED_IMAGE_ODH_LLM_D_KV_CACHE_IMAGE",
 	"kube-rbac-proxy":                                  "RELATED_IMAGE_ODH_KUBE_RBAC_PROXY_IMAGE",
 	"kserve-localmodel-controller":                     "RELATED_IMAGE_ODH_KSERVE_LOCALMODEL_CONTROLLER_IMAGE",
 	"kserve-localmodelnode-agent":                      "RELATED_IMAGE_ODH_KSERVE_LOCALMODELNODE_AGENT_IMAGE",
+	"kserve-llm-d-latency-predictor-prediction":        "RELATED_IMAGE_ODH_LATENCY_PREDICTOR_PREDICTION_IMAGE",
+	"kserve-llm-d-latency-predictor-training":          "RELATED_IMAGE_ODH_LATENCY_PREDICTOR_TEST_IMAGE",
 }
 
 var modelControllerImageParamMap = map[string]string{
