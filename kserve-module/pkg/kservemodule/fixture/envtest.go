@@ -142,7 +142,7 @@ spec:
 	observabilityManifest := `apiVersion: perses.dev/v1alpha2
 kind: PersesDashboard
 metadata:
-  name: dashboard-2-llm-d-health-admin
+  name: dashboard-2-llm-d-traffic-admin
 spec:
   config:
     display:
