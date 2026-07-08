@@ -1,7 +1,6 @@
 ---
 apiVersion: tekton.dev/v1
 kind: PipelineRun
-#test
 metadata:
   annotations:
     build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/kserve?rev={{revision}}
@@ -51,8 +50,6 @@ spec:
   taskRunSpecs:
     - pipelineTaskName: clone-repository
       serviceAccountName: build-pipeline-kserve-group
-#    - pipelineTaskName: build-odh-kserve-llmisvc-controller
-#      serviceAccountName: build-pipeline-kserve-group
     - pipelineTaskName: build-sklearn-serving-runtime
       serviceAccountName: build-pipeline-kserve-group
     - pipelineTaskName: build-custom-transformer

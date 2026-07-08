@@ -1,21 +1,23 @@
 apiVersion: tekton.dev/v1
 kind: PipelineRun
-#
 metadata:
   annotations:
     build.appstudio.openshift.io/repo: https://github.com/opendatahub-io/kserve?rev={{revision}}
     build.appstudio.redhat.com/commit_sha: '{{revision}}'
     build.appstudio.redhat.com/target_branch: '{{target_branch}}'
-    pipelinesascode.tekton.dev/cancel-in-progress: "false"
+    build.appstudio.redhat.com/pull_request_number: '{{pull_request_number}}'
+    pipelinesascode.tekton.dev/on-comment: "^/build-konflux"
+    pipelinesascode.tekton.dev/cancel-in-progress: "true"
     pipelinesascode.tekton.dev/max-keep-runs: "3"
-    pipelinesascode.tekton.dev/on-cel-expression: event == "push" && target_branch
-      == "release-v0.17"
+    pipelinesascode.tekton.dev/on-cel-expression: |
+      event == "pull_request"
+      && target_branch == "release-v0.17"
   creationTimestamp: null
   labels:
     appstudio.openshift.io/application: opendatahub-builds
-    appstudio.openshift.io/component: odh-kserve-module-operator-ci
+    appstudio.openshift.io/component: odh-kserve-autogluon-server-ci
     pipelines.appstudio.openshift.io/type: build
-  name: odh-kserve-module-operator-on-push
+  name: odh-kserve-autogluon-server-on-pull-request
   namespace: open-data-hub-tenant
 spec:
   params:
@@ -24,11 +26,16 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-kserve-module-operator:odh-stable
+    value: quay.io/opendatahub/odh-kserve-autogluon-server:odh-pr
   - name: dockerfile
-    value: kserve-module-controller.Dockerfile
+    value: python/autogluon.Dockerfile
   - name: path-context
-    value: .
+    value: python
+  - name: pipeline-type
+    value: pull-request
+  - name: additional-tags
+    value:
+    - 'odh-pr-{{revision}}'
   pipelineRef:
     resolver: git
     params:
@@ -38,17 +45,8 @@ spec:
       value: main
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
-  taskRunSpecs:
-    - pipelineTaskName: sast-shell-check
-      computeResources:
-        requests:
-          cpu: '2'
-          memory: 16Gi
-        limits:
-          cpu: '2'
-          memory: 16Gi
   taskRunTemplate:
-    serviceAccountName: build-pipeline-odh-kserve-module-operator-ci
+    serviceAccountName: build-pipeline-odh-kserve-autogluon-server-ci
   workspaces:
   - name: git-auth
     secret:
