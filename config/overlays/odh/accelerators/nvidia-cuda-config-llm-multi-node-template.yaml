@@ -6,6 +6,7 @@ metadata:
     openshift.io/display-name: vLLM NVIDIA CUDA GPU LLMInferenceServiceConfig Multi Node
     openshift.io/description: vLLM NVIDIA CUDA GPU LLMInferenceServiceConfig Multi Node for LLMInferenceService.
     opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
+    opendatahub.io/runtime-version: ""
     # supported-topologies values must be consistent with the samples API and Dashboard usage.
     # See https://github.com/opendatahub-io/odh-model-controller/blob/incubating/server/docs/features/samples/llm-d/llm-d-ui-flow-mechanics.md
     # and https://github.com/opendatahub-io/odh-model-controller/blob/incubating/server/docs/features/llm-d/samples/samples-api.md
