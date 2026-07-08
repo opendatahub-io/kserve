@@ -1,0 +1,39 @@
+apiVersion: chaos.operatorchaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: kserve-resource-deletion-service
+  namespace: redhat-ods-applications
+spec:
+  tier: 3
+  target:
+    operator: kserve
+    component: kserve
+    resource: Deployment/kserve-controller-manager
+  steadyState:
+    checks:
+      - type: conditionTrue
+        apiVersion: apps/v1
+        kind: Deployment
+        name: kserve-controller-manager
+        namespace: redhat-ods-applications
+        conditionType: Available
+    timeout: "60s"
+  injection:
+    type: ResourceDeletion
+    dangerLevel: high
+    parameters:
+      apiVersion: v1
+      kind: Service
+      name: kserve-controller-manager-metrics-service
+    ttl: "300s"
+  hypothesis:
+    description: >-
+      Deleting the metrics Service tests whether the operator
+      recreates it during reconciliation. Without the Service,
+      metrics scraping fails.
+    recoveryTimeout: 180s
+  blastRadius:
+    maxPodsAffected: 2
+    allowDangerous: true
+    allowedNamespaces:
+      - redhat-ods-applications
