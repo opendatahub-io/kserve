@@ -67,6 +67,7 @@ var components = []componentConfig{
 		extraCleanup: cleanupModelCacheComponent,
 	},
 	{
+		// No enabled func: CRD check requires API client, handled in postRender.
 		name:         ObservabilityComponentName,
 		manifestName: KserveComponentName,
 		sourcePath:   ObservabilityManifestSourcePath,
