@@ -139,8 +139,21 @@ spec:
       - name: manager
         image: ghcr.io/llm-d/llm-d-workload-variant-autoscaler:latest
 `
+	observabilityManifest := `apiVersion: perses.dev/v1alpha2
+kind: PersesDashboard
+metadata:
+  name: dashboard-2-llm-d-health-admin
+spec:
+  config:
+    display:
+      name: LLM Traffic
+    duration: 1h
+    panels: {}
+    layouts: []
+`
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.KserveComponentName, kservemodule.KserveManifestSourcePath), kserveManifest)
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.KserveComponentName, kservemodule.KserveManifestSourcePathXKS), kserveManifest)
+	writeKustomizeDir(filepath.Join(workDir, kservemodule.KserveComponentName, kservemodule.ObservabilityManifestSourcePath), observabilityManifest)
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.OdhModelControllerComponentName, kservemodule.ModelControllerSourcePath), modelCtrlManifest)
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.WVAComponentName, kservemodule.WVAManifestSourcePathOCP), wvaManifest)
 }
