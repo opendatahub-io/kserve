@@ -70,5 +70,17 @@ chaos-validate: operator-chaos ## Validate chaos knowledge model and experiments
 	done; \
 	exit $$status
 
+## ODH overlay verification
+# Verify the opendatahub.io/runtime-version annotation stamping on the
+# accelerator LLMInferenceServiceConfig presets rendered by config/overlays/odh.
+.PHONY: verify-odh-runtime-version
+verify-odh-runtime-version: kustomize yq
+	@KUSTOMIZE=$(KUSTOMIZE) YQ=$(YQ) bash hack/verify-odh-runtime-version.sh
+
+# Chain into upstream's precommit (and thus `make check` in precommit-check CI)
+# from this midstream-only file, so the upstream-owned precommit line in the
+# main Makefile stays untouched across upstream syncs.
+precommit: verify-odh-runtime-version
+
 -include Makefile.kserve-module.mk
 
