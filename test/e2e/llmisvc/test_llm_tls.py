@@ -26,6 +26,7 @@ from .fixtures import (
     inject_k8s_proxy,
 )
 from .logging import log_execution
+from .diagnostic import collect_diagnostics
 from .test_llm_inference_service import (
     TestCase,
     completions_payload,
@@ -34,7 +35,6 @@ from .test_llm_inference_service import (
     delete_llmisvc,
     wait_for_llm_isvc_ready,
     wait_for_model_response,
-    _collect_diagnostics,
 )
 
 logger = logging.getLogger(__name__)
@@ -146,7 +146,12 @@ def test_llm_tls_resources(test_case: TestCase):
 
     except Exception as e:
         logger.error(f"Failed TLS verification for {service_name}: {e}")
-        _collect_diagnostics(kserve_client, test_case.llm_service)
+        collect_diagnostics(
+            service_name,
+            test_case.llm_service.metadata.namespace,
+            kserve_client=kserve_client,
+            log=logger.info,
+        )
         raise
     finally:
         try:
