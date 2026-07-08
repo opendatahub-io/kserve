@@ -135,6 +135,9 @@ verify-helm-helpers-consistency:
 verify-minimal-crd-sync:
 	@bash hack/verify-minimal-crd-sync.sh
 
+verify-odh-runtime-version: kustomize yq
+	@KUSTOMIZE=$(KUSTOMIZE) YQ=$(YQ) bash hack/verify-odh-runtime-version.sh
+
 # Generate manifests e.g. CRD, RBAC etc.
 manifests: controller-gen kustomize yq
 	@$(CONTROLLER_GEN) $(CRD_OPTIONS) paths=./pkg/apis/serving/... output:crd:dir=config/crd/full	
@@ -339,7 +342,7 @@ boilerplate:
 	hack/boilerplate.sh
 
 # This runs all necessary steps to prepare for a commit.
-precommit: ensure-go-version-upgrade sync-deps sync-img-env vet go-lint py-fmt py-lint generate tidy manifests uv-lock generate-quick-install-scripts generate-chart-manifests sync-helm-common-helpers sync-helm-common-resource-helpers sync-helm-multi-resource-helpers verify-pinned-actions verify-minimal-crd-sync boilerplate
+precommit: ensure-go-version-upgrade sync-deps sync-img-env vet go-lint py-fmt py-lint generate tidy manifests uv-lock generate-quick-install-scripts generate-chart-manifests sync-helm-common-helpers sync-helm-common-resource-helpers sync-helm-multi-resource-helpers verify-pinned-actions verify-minimal-crd-sync verify-odh-runtime-version boilerplate
 
 # This is used by CI to ensure that the precommit checks are met.
 # Requires a clean working tree after precommit: run "make precommit", then git add/commit
