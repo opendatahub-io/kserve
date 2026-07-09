@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -14,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -75,12 +77,82 @@ func (u *upgradeRunnable) Start(ctx context.Context) error {
 // matching the pattern used by opendatahub-operator's LeaderElectionRunnableFunc.
 func (u *upgradeRunnable) NeedLeaderElection() bool { return true }
 
-// runUpgradeTasks checks whether both the HardwareProfile and AcceleratorProfile CRDs are present,
-// fetches OdhDashboardConfig, and delegates to attachHardwareProfileToInferenceServices.
+// legacySelectorDeployment defines a deployment that may carry legacy selector labels
+// injected by the in-tree ODH operator via kustomize.WithLabel.
+type legacySelectorDeployment struct {
+	name           string
+	legacyLabelKey string
+}
+
+// legacySelectorDeployments lists deployments whose spec.selector.matchLabels may contain
+// labels injected by the in-tree ODH operator (app.opendatahub.io/* and app.kubernetes.io/part-of).
+// Since Deployment spec.selector is immutable, these must be deleted so the reconciler can
+// recreate them with the correct selectors.
+var legacySelectorDeployments = []legacySelectorDeployment{
+	{name: "kserve-controller-manager", legacyLabelKey: "app.opendatahub.io/kserve"},
+	{name: "llmisvc-controller-manager", legacyLabelKey: "app.opendatahub.io/kserve"},
+	{name: "odh-model-controller", legacyLabelKey: "app.opendatahub.io/odh-model-controller"},
+	{name: "model-serving-api", legacyLabelKey: "app.opendatahub.io/odh-model-controller"},
+}
+
+// deleteLegacySelectorDeployments checks each deployment for legacy selector labels and
+// deletes those that carry them. The reconciler will recreate them with the correct selectors.
+func deleteLegacySelectorDeployments(ctx context.Context, cli client.Client, namespace string) error {
+	log := ctrl.LoggerFrom(ctx)
+	var errs []error
+
+	for _, ld := range legacySelectorDeployments {
+		dep := &appsv1.Deployment{}
+		if err := cli.Get(ctx, types.NamespacedName{Name: ld.name, Namespace: namespace}, dep); err != nil {
+			if k8serr.IsNotFound(err) {
+				continue
+			}
+			errs = append(errs, fmt.Errorf("failed to get deployment %s: %w", ld.name, err))
+			continue
+		}
+
+		if dep.Spec.Selector == nil || dep.Spec.Selector.MatchLabels == nil {
+			continue
+		}
+
+		if _, hasLegacy := dep.Spec.Selector.MatchLabels[ld.legacyLabelKey]; !hasLegacy {
+			continue
+		}
+
+		log.Info("Deleting deployment with legacy selector labels",
+			"deployment", ld.name, "legacyLabel", ld.legacyLabelKey)
+
+		if err := cli.Delete(ctx, dep); err != nil && !k8serr.IsNotFound(err) {
+			errs = append(errs, fmt.Errorf("failed to delete deployment %s: %w", ld.name, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// runUpgradeTasks performs one-time migration tasks on startup:
+//  1. Deletes deployments carrying legacy selector labels from the in-tree ODH operator.
+//  2. Migrates HardwareProfile annotations on InferenceServices.
+func runUpgradeTasks(ctx context.Context, cli client.Client, applicationNS string) error {
+	log := ctrl.LoggerFrom(ctx)
+
+	if err := deleteLegacySelectorDeployments(ctx, cli, applicationNS); err != nil {
+		log.Error(err, "legacy selector deployment cleanup encountered errors")
+	}
+
+	if err := migrateHardwareProfileAnnotations(ctx, cli, applicationNS); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// migrateHardwareProfileAnnotations checks whether both the HardwareProfile and AcceleratorProfile
+// CRDs are present, fetches OdhDashboardConfig, and delegates to attachHardwareProfileToInferenceServices.
 //
 // Returns nil (with an informational log) when either CRD is absent or when OdhDashboardConfig
 // is not found, since those conditions are expected on clusters that haven't deployed the relevant features.
-func runUpgradeTasks(ctx context.Context, cli client.Client, applicationNS string) error {
+func migrateHardwareProfileAnnotations(ctx context.Context, cli client.Client, applicationNS string) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	hwpGK := schema.GroupKind{Group: hardwareProfileGVK.Group, Kind: hardwareProfileGVK.Kind}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
@@ -32,10 +33,11 @@ var (
 	testClusterScope   = testRESTScope{name: apimeta.RESTScopeNameRoot}
 )
 
-// makeUpgradeTestScheme returns a scheme with corev1 and apiextensionsv1 registered.
+// makeUpgradeTestScheme returns a scheme with corev1, appsv1, and apiextensionsv1 registered.
 func makeUpgradeTestScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = corev1.AddToScheme(s)
+	_ = appsv1.AddToScheme(s)
 	_ = apiextensionsv1.AddToScheme(s)
 	return s
 }
@@ -48,6 +50,9 @@ func makeUpgradeTestRESTMapper() apimeta.RESTMapper {
 	rm.Add(schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Namespace"}, testClusterScope)
 	rm.Add(schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Event"}, testNamespaceScope)
 	rm.Add(schema.GroupVersionKind{Group: "apiextensions.k8s.io", Version: "v1", Kind: "CustomResourceDefinition"}, testClusterScope)
+
+	// Typed GVKs
+	rm.Add(schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}, testNamespaceScope)
 
 	// Unstructured GVKs from upgrade.go
 	rm.Add(inferenceServiceGVK, testNamespaceScope)
@@ -1047,5 +1052,115 @@ func TestAttachHardwareProfileToInferenceServices_ErrorAggregation(t *testing.T)
 			g.Expect(updated.GetAnnotations()).To(HaveKey(hwpNameAnnotation),
 				"expected %s to have HWP annotation", name)
 		}
+	})
+}
+
+// ─── Legacy Selector Deployment Cleanup ─────────────────────────────────────
+
+func makeLegacyDeployment(name, namespace string, selectorLabels map[string]string) *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: selectorLabels},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: selectorLabels},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "img"}}},
+			},
+		},
+	}
+}
+
+func TestDeleteLegacySelectorDeployments(t *testing.T) {
+	ctx := context.Background()
+	const namespace = "test-namespace"
+
+	t.Run("DeletesAllFourLegacyDeployments", func(t *testing.T) {
+		g := NewWithT(t)
+
+		deps := []client.Object{
+			makeLegacyDeployment("kserve-controller-manager", namespace, map[string]string{
+				"control-plane":             "kserve-controller-manager",
+				"app.opendatahub.io/kserve": "true",
+			}),
+			makeLegacyDeployment("llmisvc-controller-manager", namespace, map[string]string{
+				"control-plane":             "llmisvc-controller-manager",
+				"app.opendatahub.io/kserve": "true",
+			}),
+			makeLegacyDeployment("odh-model-controller", namespace, map[string]string{
+				"control-plane":                            "odh-model-controller",
+				"app.opendatahub.io/odh-model-controller": "true",
+			}),
+			makeLegacyDeployment("model-serving-api", namespace, map[string]string{
+				"app":                                      "model-serving-api",
+				"app.opendatahub.io/odh-model-controller": "true",
+			}),
+		}
+
+		cli := makeISVCFakeClient(deps...)
+		g.Expect(deleteLegacySelectorDeployments(ctx, cli, namespace)).To(Succeed())
+
+		for _, name := range []string{"kserve-controller-manager", "llmisvc-controller-manager", "odh-model-controller", "model-serving-api"} {
+			got := &appsv1.Deployment{}
+			err := cli.Get(ctx, client.ObjectKeyFromObject(&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}), got)
+			g.Expect(k8serr.IsNotFound(err)).To(BeTrue(), "deployment %s should be deleted", name)
+		}
+	})
+
+	t.Run("SkipsDeploymentsWithoutLegacySelector", func(t *testing.T) {
+		g := NewWithT(t)
+
+		dep := makeLegacyDeployment("kserve-controller-manager", namespace, map[string]string{
+			"control-plane":           "kserve-controller-manager",
+			"controller-tools.k8s.io": "1.0",
+		})
+
+		cli := makeISVCFakeClient(dep)
+		g.Expect(deleteLegacySelectorDeployments(ctx, cli, namespace)).To(Succeed())
+
+		got := &appsv1.Deployment{}
+		g.Expect(cli.Get(ctx, client.ObjectKeyFromObject(dep), got)).To(Succeed())
+	})
+
+	t.Run("SkipsMissingDeployments", func(t *testing.T) {
+		g := NewWithT(t)
+		cli := makeISVCFakeClient()
+		g.Expect(deleteLegacySelectorDeployments(ctx, cli, namespace)).To(Succeed())
+	})
+
+	t.Run("PartialErrorContinuesProcessing", func(t *testing.T) {
+		g := NewWithT(t)
+
+		dep1 := makeLegacyDeployment("kserve-controller-manager", namespace, map[string]string{
+			"control-plane":             "kserve-controller-manager",
+			"app.opendatahub.io/kserve": "true",
+		})
+		dep2 := makeLegacyDeployment("llmisvc-controller-manager", namespace, map[string]string{
+			"control-plane":             "llmisvc-controller-manager",
+			"app.opendatahub.io/kserve": "true",
+		})
+
+		funcs := interceptor.Funcs{
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				if obj.GetName() == "kserve-controller-manager" {
+					return errors.New("simulated delete error")
+				}
+				return c.Delete(ctx, obj, opts...)
+			},
+		}
+
+		cli := fake.NewClientBuilder().
+			WithScheme(makeUpgradeTestScheme()).
+			WithRESTMapper(makeUpgradeTestRESTMapper()).
+			WithObjects(dep1, dep2).
+			WithInterceptorFuncs(funcs).
+			Build()
+
+		err := deleteLegacySelectorDeployments(ctx, cli, namespace)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("kserve-controller-manager"))
+
+		got := &appsv1.Deployment{}
+		g.Expect(k8serr.IsNotFound(cli.Get(ctx, client.ObjectKeyFromObject(dep2), got))).
+			To(BeTrue(), "llmisvc-controller-manager should be deleted despite kserve error")
 	})
 }
