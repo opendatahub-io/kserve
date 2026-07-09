@@ -63,11 +63,18 @@ type KserveSpec struct {
 	// +optional
 	OAuthProxy                   *OAuthProxyConfig `json:"oauthProxy,omitempty"`
 	NIM                          NIMSpec           `json:"nim,omitempty"`
+	ModelsAsService              ModelsAsServiceSpec `json:"modelsAsService,omitempty"`
 	WVA                          WVASpec           `json:"wva,omitempty"`
 	// Enables TLS for LLMInferenceService deployments.
 	// When unset, the KServe default (TLS enabled) is preserved.
 	EnableLLMInferenceServiceTLS *bool `json:"enableLLMInferenceServiceTLS,omitempty"`
 	ModelCache                   *ModelCacheSpec  `json:"modelCache,omitempty"`
+}
+
+type ModelsAsServiceSpec struct {
+	// +kubebuilder:validation:Enum=Managed;Removed
+	// +kubebuilder:default=Removed
+	ManagementState common.ManagementState `json:"managementState,omitempty"`
 }
 
 type NIMSpec struct {

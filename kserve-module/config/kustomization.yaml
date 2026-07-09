@@ -10,5 +10,5 @@ resources:
 
 images:
 - name: kserve-module-controller
-  newName: quay.io/opendatahub/kserve-module-controller
+  newName: quay.io/opendatahub/odh-kserve-module-controller
   newTag: latest
