@@ -132,7 +132,7 @@ runs:
           EXPECTED_CONFLICTS="$CONFLICTED"
           echo "Resolving expected conflicts by taking ${SOURCE_BRANCH}'s version"
           echo "$CONFLICTED" | xargs git checkout --theirs --
-          git add .tekton/ config/overlays/
+          git add -f .tekton/ config/overlays/
         fi
 
         # Source branch uses source tags and target_branch == source_branch.
@@ -140,7 +140,7 @@ runs:
         # target_branch == release_branch.
         sed -i "s|${SOURCE_TAG}|${RELEASE_TAG}|g" .tekton/*-push*.yaml .tekton/*-push.yaml config/overlays/*/params.env 2>/dev/null || true
         sed -i "s|== \"${SOURCE_BRANCH}\"|== \"${RELEASE_BRANCH}\"|g" .tekton/*.yaml
-        git add .tekton/ config/overlays/
+        git add -f .tekton/ config/overlays/
 
         git commit -m "Sync ${SOURCE_BRANCH} to ${RELEASE_BRANCH}"
 
