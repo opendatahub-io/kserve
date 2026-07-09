@@ -24,7 +24,11 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/odh-kserve-module-operator:odh-stable
+    value: quay.io/opendatahub/odh-kserve-module-operator:odh-master
+  - name: additional-tags
+    value:
+    - 'odh-master'
+    - 'odh-master-{{revision}}'
   - name: dockerfile
     value: kserve-module-controller.Dockerfile
   - name: path-context
