@@ -45,6 +45,7 @@ import (
 	"github.com/kserve/kserve/pkg/controller/v1alpha1/trainedmodel/reconcilers/modelconfig"
 	v1beta1controller "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice"
 	kservescheme "github.com/kserve/kserve/pkg/scheme"
+	kservetls "github.com/kserve/kserve/pkg/tls"
 	kserveutils "github.com/kserve/kserve/pkg/utils"
 	"github.com/kserve/kserve/pkg/webhook/admission/pod"
 	"github.com/kserve/kserve/pkg/webhook/admission/servingruntime"
@@ -115,6 +116,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Resolve the cluster TLS security profile before creating the manager.
+	// On non-OpenShift clusters this returns hardened Intermediate defaults.
+	tlsResult, err := kservetls.Resolve(context.Background(), cfg)
+	if err != nil {
+		setupLog.Error(err, "unable to resolve cluster TLS profile")
+		os.Exit(1)
+	}
+
 	// Create a new Cmd to provide shared dependencies and start components
 	setupLog.Info("Setting up manager")
 
@@ -127,9 +136,11 @@ func main() {
 	mgr, err := manager.New(cfg, manager.Options{
 		Metrics: metricsserver.Options{
 			BindAddress: options.metricsAddr,
+			TLSOpts:     tlsResult.TLSOpts,
 		},
 		WebhookServer: webhook.NewServer(webhook.Options{
-			Port: options.webhookPort,
+			Port:    options.webhookPort,
+			TLSOpts: tlsResult.TLSOpts,
 		}),
 		LeaderElection:         options.enableLeaderElection,
 		LeaderElectionID:       LeaderLockName,

@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
 	"os"
 
@@ -36,6 +37,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	localmodelcontroller "github.com/kserve/kserve/pkg/controller/v1alpha1/localmodel"
 	kservescheme "github.com/kserve/kserve/pkg/scheme"
+	kservetls "github.com/kserve/kserve/pkg/tls"
 	localmodelwebhook "github.com/kserve/kserve/pkg/webhook/admission/localmodelcache"
 	localmodelnamespacecachewebhook "github.com/kserve/kserve/pkg/webhook/admission/localmodelnamespacecache"
 )
@@ -99,14 +101,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Resolve the cluster TLS security profile before creating the manager.
+	// On non-OpenShift clusters this returns hardened Intermediate defaults.
+	tlsResult, err := kservetls.Resolve(context.Background(), cfg)
+	if err != nil {
+		setupLog.Error(err, "unable to resolve cluster TLS profile")
+		os.Exit(1)
+	}
+
 	// Create a new Cmd to provide shared dependencies and start components
 	setupLog.Info("Setting up manager")
 	mgr, err := manager.New(cfg, manager.Options{
 		Metrics: metricsserver.Options{
 			BindAddress: options.metricsAddr,
+			TLSOpts:     tlsResult.TLSOpts,
 		},
 		WebhookServer: webhook.NewServer(webhook.Options{
-			Port: options.webhookPort,
+			Port:    options.webhookPort,
+			TLSOpts: tlsResult.TLSOpts,
 		}),
 		LeaderElection:         options.enableLeaderElection,
 		LeaderElectionID:       LeaderLockName,
