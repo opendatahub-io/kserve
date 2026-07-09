@@ -1,13 +1,13 @@
 # Composite action that keeps a release branch in sync with a source branch
 # by creating a merge PR. The merge is straightforward except for .tekton
-# pipelines, which intentionally differ between branches:
+# pipelines and params.env files, which intentionally differ between branches:
 #   - source branch tags images with the source tag (e.g., "odh-master")
 #   - release branch tags images with the release tag (e.g., "odh-stable")
 #   - CEL expressions target the branch they live on
-# Because these files always diverge, the action auto-resolves .tekton
-# conflicts by taking the source branch's version and transforming the
-# tags/CEL expressions for the release branch. Non-.tekton conflicts
-# require manual intervention (an issue is opened).
+# Because these files always diverge, the action auto-resolves .tekton and
+# params.env conflicts by taking the source branch's version and transforming
+# the tags/CEL expressions for the release branch. Other conflicts require
+# manual intervention (an issue is opened).
 #
 # The calling workflow must set permissions for contents, pull-requests,
 # and issues to write.
@@ -104,25 +104,24 @@ runs:
         git checkout -B "$SYNC_BRANCH"
 
         # --no-commit keeps the merge staged so we can transform .tekton
-        # files before creating a single merge commit (avoids a separate
-        # "fix tekton tags" commit on every sync).
-        TEKTON_CONFLICTS=""
+        # and params.env files before creating a single merge commit.
+        EXPECTED_CONFLICTS=""
         if ! git merge "origin/${SOURCE_BRANCH}" --no-commit --no-edit; then
           CONFLICTED=$(git diff --name-only --diff-filter=U)
-          NON_TEKTON=$(echo "$CONFLICTED" | grep -v '^\.tekton/' || true)
+          # .tekton and params.env conflicts are expected (tags diverge by
+          # design). Anything else means real source conflicts that need a human.
+          UNEXPECTED=$(echo "$CONFLICTED" | grep -v '^\.tekton/' | grep -v 'params\.env$' || true)
 
-          # .tekton conflicts are expected (tags/CEL diverge by design).
-          # Anything else means real source conflicts that need a human.
-          if [ -n "$NON_TEKTON" ]; then
-            echo "::error::Merge conflicts in non-.tekton files require manual resolution:"
-            echo "$NON_TEKTON"
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::Merge conflicts in unexpected files require manual resolution:"
+            echo "$UNEXPECTED"
 
             # Capture the conflict markers so the issue shows what failed
-            CONFLICT_DIFF=$(git diff --diff-filter=U -- $NON_TEKTON)
+            CONFLICT_DIFF=$(git diff --diff-filter=U -- $UNEXPECTED)
             git merge --abort
 
             echo "has_source_conflicts=true" >> "$GITHUB_OUTPUT"
-            ESCAPED=$(echo "$NON_TEKTON" | sed ':a;N;$!ba;s/\n/\\n/g')
+            ESCAPED=$(echo "$UNEXPECTED" | sed ':a;N;$!ba;s/\n/\\n/g')
             echo "source_conflicts=$ESCAPED" >> "$GITHUB_OUTPUT"
 
             # Use a file to pass the diff (too large for GITHUB_OUTPUT)
@@ -130,28 +129,28 @@ runs:
             exit 0
           fi
 
-          TEKTON_CONFLICTS="$CONFLICTED"
-          echo "Resolving .tekton conflicts by taking ${SOURCE_BRANCH}'s version"
+          EXPECTED_CONFLICTS="$CONFLICTED"
+          echo "Resolving expected conflicts by taking ${SOURCE_BRANCH}'s version"
           echo "$CONFLICTED" | xargs git checkout --theirs --
-          git add .tekton/
+          git add .tekton/ config/overlays/
         fi
 
         # Source branch uses source tags and target_branch == source_branch.
         # The release branch needs the release tag and
         # target_branch == release_branch.
-        sed -i "s|${SOURCE_TAG}|${RELEASE_TAG}|g" .tekton/*-push*.yaml .tekton/*-push.yaml 2>/dev/null || true
+        sed -i "s|${SOURCE_TAG}|${RELEASE_TAG}|g" .tekton/*-push*.yaml .tekton/*-push.yaml config/overlays/*/params.env 2>/dev/null || true
         sed -i "s|== \"${SOURCE_BRANCH}\"|== \"${RELEASE_BRANCH}\"|g" .tekton/*.yaml
-        git add .tekton/
+        git add .tekton/ config/overlays/
 
         git commit -m "Sync ${SOURCE_BRANCH} to ${RELEASE_BRANCH}"
 
         echo "branch=$SYNC_BRANCH" >> "$GITHUB_OUTPUT"
 
-        # Surface which .tekton files conflicted so the PR description
+        # Surface which files conflicted so the PR description
         # can call them out for reviewers.
-        if [ -n "$TEKTON_CONFLICTS" ]; then
+        if [ -n "$EXPECTED_CONFLICTS" ]; then
           echo "had_conflicts=true" >> "$GITHUB_OUTPUT"
-          ESCAPED=$(echo "$TEKTON_CONFLICTS" | sed ':a;N;$!ba;s/\n/\\n/g')
+          ESCAPED=$(echo "$EXPECTED_CONFLICTS" | sed ':a;N;$!ba;s/\n/\\n/g')
           echo "conflicted_files=$ESCAPED" >> "$GITHUB_OUTPUT"
         else
           echo "had_conflicts=false" >> "$GITHUB_OUTPUT"
@@ -185,7 +184,7 @@ runs:
           CONFLICT_NOTE=$(cat <<'NOTEEOF'
 
         > [!NOTE]
-        > The following `.tekton` files had merge conflicts and were auto-resolved
+        > The following files had merge conflicts and were auto-resolved
         > by taking the source branch's version and transforming the tags for the
         > release branch:
         NOTEEOF
@@ -201,7 +200,7 @@ runs:
         ## What this PR does
 
         - Merges latest changes from ${SOURCE_BRANCH} into ${RELEASE_BRANCH}
-        - Transforms \`.tekton\` pipeline files for the release branch:
+        - Transforms \`.tekton\` pipeline files and \`params.env\` for the release branch:
           - Image tags: \`${SOURCE_TAG}\` -> \`${RELEASE_TAG}\`
           - CEL expressions: \`target_branch == \"${SOURCE_BRANCH}\"\` -> \`target_branch == \"${RELEASE_BRANCH}\"\`
         ${CONFLICT_NOTE}
@@ -210,7 +209,8 @@ runs:
 
         - [ ] \`.tekton\` push files use \`${RELEASE_TAG}\` image tags
         - [ ] \`.tekton\` CEL expressions reference \`${RELEASE_BRANCH}\`
-        - [ ] No unintended changes outside \`.tekton\`
+        - [ ] \`params.env\` files use \`${RELEASE_TAG}\` image tags
+        - [ ] No unintended changes outside \`.tekton\` and \`params.env\`
 
         _This PR was created automatically by the sync-branches action._"
 
