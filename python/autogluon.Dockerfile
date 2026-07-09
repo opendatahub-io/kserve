@@ -7,9 +7,9 @@ FROM ${BASE_IMAGE} AS builder
 USER 0
 
 # Install system dependencies
-RUN dnf install -y python3-devel curl && dnf clean all
+RUN dnf install -y python3-devel && dnf clean all
 
-# Install uv
+# Install uv (curl-minimal from base image is sufficient)
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \
     ln -s /root/.local/bin/uv /usr/local/bin/uv
 
