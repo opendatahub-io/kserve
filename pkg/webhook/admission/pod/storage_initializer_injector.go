@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -47,6 +48,13 @@ const (
 	PvcSourceMountPath = "/mnt/pvc"
 	CaBundleVolumeName = "cabundle-cert"
 )
+
+func getOVMSVersioningImage() string {
+	if image := os.Getenv("RELATED_IMAGE_ODH_UBI_MICRO_IMAGE"); image != "" {
+		return image
+	}
+	return "registry.redhat.io/ubi9/ubi-micro:latest"
+}
 
 type StorageInitializerInjector struct {
 	credentialBuilder *credentials.CredentialBuilder
@@ -769,7 +777,7 @@ func (mi *StorageInitializerInjector) InjectOVMSAutoVersioning(pod *corev1.Pod) 
 	// Create the OVMS versioning init container
 	ovmsVersioningContainer := corev1.Container{
 		Name:    constants.OVMSVersioningContainerName,
-		Image:   "registry.redhat.io/ubi9/ubi-micro:latest",
+		Image:   getOVMSVersioningImage(),
 		Command: []string{"/bin/sh"},
 		Args: []string{
 			"-c",
