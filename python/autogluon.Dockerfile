@@ -66,5 +66,5 @@ COPY --from=builder --chown=kserve:kserve /opt/app-root/src/autogluonserver auto
 
 WORKDIR /home/kserve
 ENV MPLCONFIGDIR=/tmp/matplotlib
-ENV PYTHONPATH=/autogluonserver
+ENV PYTHONPATH=/opt/app-root/src/autogluonserver
 ENTRYPOINT ["python", "-m", "autogluonserver"]
