@@ -69,6 +69,23 @@ func TestApplyParams_PreservesWhenEnvNotSet(t *testing.T) {
 	g.Expect(params["my-image"]).Should(Equal("original"))
 }
 
+func TestApplyParams_PreservesWhenEnvEmpty(t *testing.T) {
+	g := NewWithT(t)
+
+	dir := t.TempDir()
+	g.Expect(os.WriteFile(filepath.Join(dir, "params.env"), []byte("my-image=original\n"), 0o644)).ShouldNot(HaveOccurred())
+
+	imageMap := map[string]string{"my-image": "EMPTY_ENV_VAR"}
+	t.Setenv("EMPTY_ENV_VAR", "")
+
+	err := applyParams(dir, imageMap)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	params, err := parseParams(filepath.Join(dir, "params.env"))
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(params["my-image"]).Should(Equal("original"))
+}
+
 func TestApplyParams_FileNotExist(t *testing.T) {
 	g := NewWithT(t)
 

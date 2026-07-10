@@ -1,0 +1,40 @@
+apiVersion: chaos.operatorchaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: kserve-isvc-validator-disrupt
+  namespace: redhat-ods-applications
+spec:
+  tier: 4
+  target:
+    operator: kserve
+    component: kserve-controller-manager
+    resource: ValidatingWebhookConfiguration/inferenceservice.serving.kserve.io
+  steadyState:
+    checks:
+      - type: conditionTrue
+        apiVersion: apps/v1
+        kind: Deployment
+        name: kserve-controller-manager
+        namespace: redhat-ods-applications
+        conditionType: Available
+    timeout: "60s"
+  injection:
+    type: WebhookDisrupt
+    dangerLevel: high
+    parameters:
+      webhookName: "inferenceservice.serving.kserve.io"
+      action: "setFailurePolicy"
+      value: "Ignore"
+    ttl: "60s"
+  hypothesis:
+    description: >-
+      When the ValidatingWebhookConfiguration for InferenceService has
+      its failurePolicy weakened from Fail to Ignore, invalid
+      InferenceService resources can bypass validation. This tests the
+      blast radius of a weakened admission policy. Recovery is provided
+      by the chaos framework's TTL-based cleanup after 60s, since kserve
+      does not self-heal webhook configuration drift.
+    recoveryTimeout: 120s
+  blastRadius:
+    maxPodsAffected: 1
+    allowDangerous: true

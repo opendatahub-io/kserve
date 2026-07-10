@@ -6,6 +6,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/opendatahub-io/odh-platform-utilities v0.0.0-20260506180717-e15e712db78d
+	github.com/openshift/api v0.0.0-20260601143908-70f01b82bb53
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.35.2
 	k8s.io/apiextensions-apiserver v0.35.2
