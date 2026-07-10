@@ -77,27 +77,32 @@ func (u *upgradeRunnable) Start(ctx context.Context) error {
 // matching the pattern used by opendatahub-operator's LeaderElectionRunnableFunc.
 func (u *upgradeRunnable) NeedLeaderElection() bool { return true }
 
-// legacySelectorDeployment defines a deployment that may carry legacy selector labels
-// injected by the in-tree ODH operator via kustomize.WithLabel.
-type legacySelectorDeployment struct {
+// legacySelectorWorkload defines a Deployment or DaemonSet that may carry legacy selector
+// labels injected by the in-tree ODH operator via kustomize.WithLabel.
+type legacySelectorWorkload struct {
 	name           string
 	legacyLabelKey string
 }
 
-// legacySelectorDeployments lists deployments whose spec.selector.matchLabels may contain
+// legacySelectorDeployments lists Deployments whose spec.selector.matchLabels may contain
 // labels injected by the in-tree ODH operator (app.opendatahub.io/* and app.kubernetes.io/part-of).
-// Since Deployment spec.selector is immutable, these must be deleted so the reconciler can
-// recreate them with the correct selectors.
-var legacySelectorDeployments = []legacySelectorDeployment{
+// Since spec.selector is immutable, these must be deleted so the reconciler can recreate them.
+var legacySelectorDeployments = []legacySelectorWorkload{
 	{name: "kserve-controller-manager", legacyLabelKey: "app.opendatahub.io/kserve"},
 	{name: "llmisvc-controller-manager", legacyLabelKey: "app.opendatahub.io/kserve"},
+	{name: "kserve-localmodel-controller-manager", legacyLabelKey: "app.opendatahub.io/kserve"},
 	{name: "odh-model-controller", legacyLabelKey: "app.opendatahub.io/odh-model-controller"},
 	{name: "model-serving-api", legacyLabelKey: "app.opendatahub.io/odh-model-controller"},
 }
 
-// deleteLegacySelectorDeployments checks each deployment for legacy selector labels and
-// deletes those that carry them. The reconciler will recreate them with the correct selectors.
-func deleteLegacySelectorDeployments(ctx context.Context, cli client.Client, namespace string) error {
+// legacySelectorDaemonSets lists DaemonSets with the same legacy selector problem.
+var legacySelectorDaemonSets = []legacySelectorWorkload{
+	{name: "kserve-localmodelnode-agent", legacyLabelKey: "app.opendatahub.io/kserve"},
+}
+
+// deleteLegacySelectorWorkloads checks each Deployment and DaemonSet for legacy selector
+// labels and deletes those that carry them. The reconciler will recreate them with the correct selectors.
+func deleteLegacySelectorWorkloads(ctx context.Context, cli client.Client, namespace string) error {
 	log := ctrl.LoggerFrom(ctx)
 	var errs []error
 
@@ -127,16 +132,42 @@ func deleteLegacySelectorDeployments(ctx context.Context, cli client.Client, nam
 		}
 	}
 
+	for _, ld := range legacySelectorDaemonSets {
+		ds := &appsv1.DaemonSet{}
+		if err := cli.Get(ctx, types.NamespacedName{Name: ld.name, Namespace: namespace}, ds); err != nil {
+			if k8serr.IsNotFound(err) {
+				continue
+			}
+			errs = append(errs, fmt.Errorf("failed to get daemonset %s: %w", ld.name, err))
+			continue
+		}
+
+		if ds.Spec.Selector == nil || ds.Spec.Selector.MatchLabels == nil {
+			continue
+		}
+
+		if _, hasLegacy := ds.Spec.Selector.MatchLabels[ld.legacyLabelKey]; !hasLegacy {
+			continue
+		}
+
+		log.Info("Deleting daemonset with legacy selector labels",
+			"daemonset", ld.name, "legacyLabel", ld.legacyLabelKey)
+
+		if err := cli.Delete(ctx, ds); err != nil && !k8serr.IsNotFound(err) {
+			errs = append(errs, fmt.Errorf("failed to delete daemonset %s: %w", ld.name, err))
+		}
+	}
+
 	return errors.Join(errs...)
 }
 
 // runUpgradeTasks performs one-time migration tasks on startup:
-//  1. Deletes deployments carrying legacy selector labels from the in-tree ODH operator.
+//  1. Deletes Deployments and DaemonSets carrying legacy selector labels from the in-tree ODH operator.
 //  2. Migrates HardwareProfile annotations on InferenceServices.
 func runUpgradeTasks(ctx context.Context, cli client.Client, applicationNS string) error {
 	log := ctrl.LoggerFrom(ctx)
 
-	if err := deleteLegacySelectorDeployments(ctx, cli, applicationNS); err != nil {
+	if err := deleteLegacySelectorWorkloads(ctx, cli, applicationNS); err != nil {
 		log.Error(err, "legacy selector deployment cleanup encountered errors")
 	}
 

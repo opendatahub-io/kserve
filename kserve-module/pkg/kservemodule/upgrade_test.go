@@ -1070,20 +1070,37 @@ func makeLegacyDeployment(name, namespace string, selectorLabels map[string]stri
 	}
 }
 
-func TestDeleteLegacySelectorDeployments(t *testing.T) {
+func makeLegacyDaemonSet(name, namespace string, selectorLabels map[string]string) *appsv1.DaemonSet {
+	return &appsv1.DaemonSet{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec: appsv1.DaemonSetSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: selectorLabels},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: selectorLabels},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "c", Image: "img"}}},
+			},
+		},
+	}
+}
+
+func TestDeleteLegacySelectorWorkloads(t *testing.T) {
 	ctx := context.Background()
 	const namespace = "test-namespace"
 
-	t.Run("DeletesAllFourLegacyDeployments", func(t *testing.T) {
+	t.Run("DeletesAllLegacyWorkloads", func(t *testing.T) {
 		g := NewWithT(t)
 
-		deps := []client.Object{
+		workloads := []client.Object{
 			makeLegacyDeployment("kserve-controller-manager", namespace, map[string]string{
 				"control-plane":             "kserve-controller-manager",
 				"app.opendatahub.io/kserve": "true",
 			}),
 			makeLegacyDeployment("llmisvc-controller-manager", namespace, map[string]string{
 				"control-plane":             "llmisvc-controller-manager",
+				"app.opendatahub.io/kserve": "true",
+			}),
+			makeLegacyDeployment("kserve-localmodel-controller-manager", namespace, map[string]string{
+				"control-plane":             "kserve-localmodel-controller-manager",
 				"app.opendatahub.io/kserve": "true",
 			}),
 			makeLegacyDeployment("odh-model-controller", namespace, map[string]string{
@@ -1094,16 +1111,24 @@ func TestDeleteLegacySelectorDeployments(t *testing.T) {
 				"app":                                      "model-serving-api",
 				"app.opendatahub.io/odh-model-controller": "true",
 			}),
+			makeLegacyDaemonSet("kserve-localmodelnode-agent", namespace, map[string]string{
+				"control-plane":             "kserve-localmodelnode-agent",
+				"app.opendatahub.io/kserve": "true",
+			}),
 		}
 
-		cli := makeISVCFakeClient(deps...)
-		g.Expect(deleteLegacySelectorDeployments(ctx, cli, namespace)).To(Succeed())
+		cli := makeISVCFakeClient(workloads...)
+		g.Expect(deleteLegacySelectorWorkloads(ctx, cli, namespace)).To(Succeed())
 
-		for _, name := range []string{"kserve-controller-manager", "llmisvc-controller-manager", "odh-model-controller", "model-serving-api"} {
+		for _, name := range []string{"kserve-controller-manager", "llmisvc-controller-manager", "kserve-localmodel-controller-manager", "odh-model-controller", "model-serving-api"} {
 			got := &appsv1.Deployment{}
 			err := cli.Get(ctx, client.ObjectKeyFromObject(&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}}), got)
 			g.Expect(k8serr.IsNotFound(err)).To(BeTrue(), "deployment %s should be deleted", name)
 		}
+
+		ds := &appsv1.DaemonSet{}
+		dsErr := cli.Get(ctx, client.ObjectKeyFromObject(&appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "kserve-localmodelnode-agent", Namespace: namespace}}), ds)
+		g.Expect(k8serr.IsNotFound(dsErr)).To(BeTrue(), "daemonset kserve-localmodelnode-agent should be deleted")
 	})
 
 	t.Run("SkipsDeploymentsWithoutLegacySelector", func(t *testing.T) {
@@ -1115,7 +1140,7 @@ func TestDeleteLegacySelectorDeployments(t *testing.T) {
 		})
 
 		cli := makeISVCFakeClient(dep)
-		g.Expect(deleteLegacySelectorDeployments(ctx, cli, namespace)).To(Succeed())
+		g.Expect(deleteLegacySelectorWorkloads(ctx, cli, namespace)).To(Succeed())
 
 		got := &appsv1.Deployment{}
 		g.Expect(cli.Get(ctx, client.ObjectKeyFromObject(dep), got)).To(Succeed())
@@ -1124,7 +1149,7 @@ func TestDeleteLegacySelectorDeployments(t *testing.T) {
 	t.Run("SkipsMissingDeployments", func(t *testing.T) {
 		g := NewWithT(t)
 		cli := makeISVCFakeClient()
-		g.Expect(deleteLegacySelectorDeployments(ctx, cli, namespace)).To(Succeed())
+		g.Expect(deleteLegacySelectorWorkloads(ctx, cli, namespace)).To(Succeed())
 	})
 
 	t.Run("PartialErrorContinuesProcessing", func(t *testing.T) {
@@ -1155,7 +1180,7 @@ func TestDeleteLegacySelectorDeployments(t *testing.T) {
 			WithInterceptorFuncs(funcs).
 			Build()
 
-		err := deleteLegacySelectorDeployments(ctx, cli, namespace)
+		err := deleteLegacySelectorWorkloads(ctx, cli, namespace)
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).To(ContainSubstring("kserve-controller-manager"))
 
