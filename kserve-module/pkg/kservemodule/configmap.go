@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -21,6 +22,7 @@ var (
 	errResourceNotFound = errors.New("resource not found")
 	configMapGVK        = schema.GroupVersionKind{Group: "", Version: "v1", Kind: "ConfigMap"}
 	deploymentGVK       = schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}
+	daemonSetGVK        = schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "DaemonSet"}
 )
 
 func customizeKserveConfigMap(resources []unstructured.Unstructured, kserve *platformv1alpha1.Kserve) ([]unstructured.Unstructured, error) {
@@ -96,6 +98,22 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 			if v, ok := oauthProxy.Resources.Limits[corev1.ResourceCPU]; ok {
 				data["cpuLimit"] = v.String()
 			}
+		}); err != nil {
+			return err
+		}
+	}
+
+	modelCacheEnabled := kserve.Spec.ModelCache != nil && kserve.Spec.ModelCache.ManagementState == "Managed"
+	if err := updateCMJSONKey(cm, localModelConfigKeyName, func(data map[string]any) {
+		data["enabled"] = modelCacheEnabled
+		data["jobNamespace"] = cm.Namespace
+	}); err != nil {
+		return err
+	}
+
+	if agentImage := os.Getenv(kserveImageParamMap["kserve-agent"]); agentImage != "" {
+		if err := updateCMJSONKey(cm, openshiftConfigKeyName, func(data map[string]any) {
+			data["modelcachePermissionFixImage"] = agentImage
 		}); err != nil {
 			return err
 		}

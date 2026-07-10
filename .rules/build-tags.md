@@ -79,8 +79,9 @@ All midstream companion files use the `_odh.go` suffix (e.g. `router_odh.go`,
    - If the upstream file needs to call the new logic: add a **hook function** - define the
      function signature in a `*_default.go` (no-op, `//go:build !distro`) and provide the real
      implementation in a `*_odh.go` (`//go:build distro`). The upstream file just calls the hook.
-     Reference the canonical pattern: `controller.go` calls `extendControllerSetup()`, implemented
-     as no-op in `controller_setup_default.go` and as ODH setup in `controller_setup_odh.go`.
+     Reference the canonical pattern: `controller.go` calls `r.extendControllerSetup()` (a receiver
+     method on the reconciler), implemented as no-op in `controller_setup_default.go` and as ODH
+     setup in `controller_setup_odh.go`.
    - **Hook functions that need the reconciler must be receiver methods** - When a hook is called
      from a reconciler and the distro implementation needs API client access (via the reconciler),
      define the hook as a receiver method on the reconciler type, not as a standalone function

@@ -23,14 +23,15 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/kserve-storage-initializer:odh-stable
+    value: quay.io/opendatahub/kserve-storage-initializer:odh-master
   - name: dockerfile
     value: storage-initializer.Dockerfile
   - name: path-context
     value: python
   - name: additional-tags
     value:
-    - 'odh-stable'
+    - 'odh-master'
+    - 'odh-master-{{revision}}'
   pipelineRef:
     resolver: git
     params:

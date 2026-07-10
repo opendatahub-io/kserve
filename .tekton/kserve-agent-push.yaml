@@ -23,7 +23,7 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/kserve-agent:odh-stable
+    value: quay.io/opendatahub/kserve-agent:odh-master
   - name: dockerfile
     value: agent.Dockerfile
   - name: path-context
@@ -33,7 +33,8 @@ spec:
     - "GOTAGS=distro"
   - name: additional-tags
     value:
-    - 'odh-stable'
+    - 'odh-master'
+    - 'odh-master-{{revision}}'
   pipelineRef:
     resolver: git
     params:

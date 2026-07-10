@@ -1,0 +1,311 @@
+# Composite action that keeps a release branch in sync with a source branch
+# by creating a merge PR. The merge is straightforward except for .tekton
+# pipelines and params.env files, which intentionally differ between branches:
+#   - source branch tags images with the source tag (e.g., "odh-master")
+#   - release branch tags images with the release tag (e.g., "odh-stable")
+#   - CEL expressions target the branch they live on
+# Because these files always diverge, the action auto-resolves .tekton and
+# params.env conflicts by taking the source branch's version and transforming
+# the tags/CEL expressions for the release branch. Other conflicts require
+# manual intervention (an issue is opened).
+#
+# The calling workflow must set permissions for contents, pull-requests,
+# and issues to write.
+
+name: 'Sync branches'
+description: 'Merges a source branch into a release branch, transforming .tekton tags/CEL expressions'
+
+inputs:
+  source_branch:
+    description: 'Branch to sync from (e.g., master, main)'
+    required: true
+  release_branch:
+    description: 'Target release branch (e.g., release-v0.17)'
+    required: true
+  source_tag:
+    description: 'Image tag used on the source branch (e.g., odh-master)'
+    required: true
+  release_tag:
+    description: 'Image tag for the release branch (e.g., odh-stable)'
+    required: true
+  release_captain:
+    description: 'GitHub username assigned to conflict issues'
+    required: false
+    default: 'jlost'
+
+runs:
+  using: "composite"
+  steps:
+    # Guard against malformed input -- the branch name and tag are
+    # interpolated into sed patterns and git commands.
+    - name: Validate inputs
+      shell: bash
+      env:
+        SOURCE_BRANCH: ${{ inputs.source_branch }}
+        RELEASE_BRANCH: ${{ inputs.release_branch }}
+        SOURCE_TAG: ${{ inputs.source_tag }}
+        RELEASE_TAG: ${{ inputs.release_tag }}
+      run: |
+        if [[ ! "$SOURCE_BRANCH" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+          echo "::error::Invalid source branch name: '$SOURCE_BRANCH'"
+          exit 1
+        fi
+        if [[ ! "$RELEASE_BRANCH" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+          echo "::error::Invalid release branch name: '$RELEASE_BRANCH'"
+          exit 1
+        fi
+        if [[ ! "$SOURCE_TAG" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+          echo "::error::Invalid source tag: '$SOURCE_TAG'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+          exit 1
+        fi
+        if [[ ! "$RELEASE_TAG" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+          echo "::error::Invalid release tag: '$RELEASE_TAG'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+          exit 1
+        fi
+
+    - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      with:
+        ref: ${{ inputs.release_branch }}
+        fetch-depth: 0
+
+    - name: Configure git
+      shell: bash
+      run: |
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+    - name: Check for new changes
+      id: check
+      shell: bash
+      env:
+        SOURCE_BRANCH: ${{ inputs.source_branch }}
+        RELEASE_BRANCH: ${{ inputs.release_branch }}
+      run: |
+        BEHIND=$(git rev-list --count "HEAD..origin/${SOURCE_BRANCH}")
+        if [ "$BEHIND" -eq 0 ]; then
+          echo "${RELEASE_BRANCH} is up to date with ${SOURCE_BRANCH}, nothing to sync"
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "$BEHIND commit(s) to sync from ${SOURCE_BRANCH}"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Create sync branch and merge
+      if: steps.check.outputs.skip != 'true'
+      id: merge
+      shell: bash
+      env:
+        SOURCE_BRANCH: ${{ inputs.source_branch }}
+        RELEASE_BRANCH: ${{ inputs.release_branch }}
+        SOURCE_TAG: ${{ inputs.source_tag }}
+        RELEASE_TAG: ${{ inputs.release_tag }}
+      run: |
+        SYNC_BRANCH="auto-sync/${SOURCE_BRANCH}-to-${RELEASE_BRANCH}"
+        git checkout -B "$SYNC_BRANCH"
+
+        # --no-commit keeps the merge staged so we can transform .tekton
+        # and params.env files before creating a single merge commit.
+        EXPECTED_CONFLICTS=""
+        if ! git merge "origin/${SOURCE_BRANCH}" --no-commit --no-edit; then
+          CONFLICTED=$(git diff --name-only --diff-filter=U)
+          # .tekton and params.env conflicts are expected (tags diverge by
+          # design). Anything else means real source conflicts that need a human.
+          UNEXPECTED=$(echo "$CONFLICTED" | grep -v '^\.tekton/' | grep -v 'params\.env$' || true)
+
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::Merge conflicts in unexpected files require manual resolution:"
+            echo "$UNEXPECTED"
+
+            # Capture the conflict markers so the issue shows what failed
+            CONFLICT_DIFF=$(git diff --diff-filter=U -- $UNEXPECTED)
+            git merge --abort
+
+            echo "has_source_conflicts=true" >> "$GITHUB_OUTPUT"
+            ESCAPED=$(echo "$UNEXPECTED" | sed ':a;N;$!ba;s/\n/\\n/g')
+            echo "source_conflicts=$ESCAPED" >> "$GITHUB_OUTPUT"
+
+            # Use a file to pass the diff (too large for GITHUB_OUTPUT)
+            echo "$CONFLICT_DIFF" > /tmp/conflict_diff.txt
+            exit 0
+          fi
+
+          EXPECTED_CONFLICTS="$CONFLICTED"
+          echo "Resolving expected conflicts by taking ${SOURCE_BRANCH}'s version"
+          echo "$CONFLICTED" | xargs git checkout --theirs --
+          git add -f .tekton/ config/overlays/
+        fi
+
+        # Source branch uses source tags and target_branch == source_branch.
+        # The release branch needs the release tag and
+        # target_branch == release_branch.
+        sed -i "s|${SOURCE_TAG}|${RELEASE_TAG}|g" .tekton/*-push*.yaml .tekton/*-push.yaml config/overlays/*/params.env 2>/dev/null || true
+        sed -i "s|== \"${SOURCE_BRANCH}\"|== \"${RELEASE_BRANCH}\"|g" .tekton/*.yaml
+        git add -f .tekton/ config/overlays/
+
+        git commit -m "Sync ${SOURCE_BRANCH} to ${RELEASE_BRANCH}"
+
+        echo "branch=$SYNC_BRANCH" >> "$GITHUB_OUTPUT"
+
+        # Surface which files conflicted so the PR description
+        # can call them out for reviewers.
+        if [ -n "$EXPECTED_CONFLICTS" ]; then
+          echo "had_conflicts=true" >> "$GITHUB_OUTPUT"
+          ESCAPED=$(echo "$EXPECTED_CONFLICTS" | sed ':a;N;$!ba;s/\n/\\n/g')
+          echo "conflicted_files=$ESCAPED" >> "$GITHUB_OUTPUT"
+        else
+          echo "had_conflicts=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Push sync branch
+      if: steps.check.outputs.skip != 'true' && steps.merge.outputs.has_source_conflicts != 'true'
+      shell: bash
+      env:
+        SOURCE_BRANCH: ${{ inputs.source_branch }}
+        RELEASE_BRANCH: ${{ inputs.release_branch }}
+      run: |
+        git push --force-with-lease origin "auto-sync/${SOURCE_BRANCH}-to-${RELEASE_BRANCH}"
+
+    - name: Create or update pull request
+      if: steps.check.outputs.skip != 'true' && steps.merge.outputs.has_source_conflicts != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SOURCE_BRANCH: ${{ inputs.source_branch }}
+        RELEASE_BRANCH: ${{ inputs.release_branch }}
+        SOURCE_TAG: ${{ inputs.source_tag }}
+        RELEASE_TAG: ${{ inputs.release_tag }}
+        RELEASE_CAPTAIN: ${{ inputs.release_captain }}
+        SYNC_BRANCH: ${{ steps.merge.outputs.branch }}
+        HAD_CONFLICTS: ${{ steps.merge.outputs.had_conflicts }}
+        CONFLICTED_FILES: ${{ steps.merge.outputs.conflicted_files }}
+      run: |
+        CONFLICT_NOTE=""
+        if [ "$HAD_CONFLICTS" = "true" ]; then
+          CONFLICT_NOTE=$(cat <<'NOTEEOF'
+
+        > [!NOTE]
+        > The following files had merge conflicts and were auto-resolved
+        > by taking the source branch's version and transforming the tags for the
+        > release branch:
+        NOTEEOF
+        )
+          while IFS= read -r file; do
+            CONFLICT_NOTE="${CONFLICT_NOTE}
+        > - \`${file}\`"
+          done <<< "$(echo -e "$CONFLICTED_FILES")"
+        fi
+
+        BODY="Automated sync of ${SOURCE_BRANCH} into ${RELEASE_BRANCH}.
+
+        ## What this PR does
+
+        - Merges latest changes from ${SOURCE_BRANCH} into ${RELEASE_BRANCH}
+        - Transforms \`.tekton\` pipeline files and \`params.env\` for the release branch:
+          - Image tags: \`${SOURCE_TAG}\` -> \`${RELEASE_TAG}\`
+          - CEL expressions: \`target_branch == \"${SOURCE_BRANCH}\"\` -> \`target_branch == \"${RELEASE_BRANCH}\"\`
+        ${CONFLICT_NOTE}
+
+        ## Verification
+
+        - [ ] \`.tekton\` push files use \`${RELEASE_TAG}\` image tags
+        - [ ] \`.tekton\` CEL expressions reference \`${RELEASE_BRANCH}\`
+        - [ ] \`params.env\` files use \`${RELEASE_TAG}\` image tags
+        - [ ] No unintended changes outside \`.tekton\` and \`params.env\`
+
+        _This PR was created automatically by the sync-branches action._"
+
+        # Reuse an existing open sync PR instead of creating duplicates.
+        EXISTING_PR=$(gh pr list --base "$RELEASE_BRANCH" --head "$SYNC_BRANCH" --json number --jq '.[0].number // empty')
+
+        if [ -n "$EXISTING_PR" ]; then
+          echo "Updating existing PR #$EXISTING_PR"
+          gh pr comment "$EXISTING_PR" --body "Sync branch updated with latest changes from ${SOURCE_BRANCH}."
+        else
+          gh pr create \
+            --base "$RELEASE_BRANCH" \
+            --head "$SYNC_BRANCH" \
+            --title "Sync ${SOURCE_BRANCH} to ${RELEASE_BRANCH}" \
+            --body "$BODY" \
+            --label "tide/merge-method-merge" \
+            --assignee "$RELEASE_CAPTAIN"
+        fi
+
+    # Non-.tekton merge conflicts cannot be resolved automatically.
+    # Open (or update) an issue so the team is aware and can resolve
+    # manually, rather than silently failing.
+    - name: Open or update conflict issue
+      if: steps.merge.outputs.has_source_conflicts == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SOURCE_BRANCH: ${{ inputs.source_branch }}
+        RELEASE_BRANCH: ${{ inputs.release_branch }}
+        SOURCE_TAG: ${{ inputs.source_tag }}
+        RELEASE_CAPTAIN: ${{ inputs.release_captain }}
+        SOURCE_CONFLICTS: ${{ steps.merge.outputs.source_conflicts }}
+      run: |
+        TITLE="Sync ${SOURCE_BRANCH} to ${RELEASE_BRANCH}: merge conflicts need manual resolution"
+        FILE_LIST=""
+        while IFS= read -r file; do
+          FILE_LIST="${FILE_LIST}
+        - \`${file}\`"
+        done <<< "$(echo -e "$SOURCE_CONFLICTS")"
+
+        CONFLICT_DIFF=""
+        if [ -f /tmp/conflict_diff.txt ]; then
+          # Truncate to stay within GitHub's 65536-char issue body limit,
+          # leaving room for the surrounding markdown template.
+          CONFLICT_DIFF=$(head -c 40000 /tmp/conflict_diff.txt)
+          if [ "$(wc -c < /tmp/conflict_diff.txt)" -gt 40000 ]; then
+            CONFLICT_DIFF="${CONFLICT_DIFF}
+        ... (truncated, see workflow run for full output)"
+          fi
+        fi
+
+        BODY="The automated sync from ${SOURCE_BRANCH} to \`${RELEASE_BRANCH}\` failed due to merge conflicts in the following files:
+        ${FILE_LIST}
+
+        ### Conflict diff
+
+        \`\`\`diff
+        ${CONFLICT_DIFF}
+        \`\`\`
+
+        ### How to resolve
+
+        \`\`\`bash
+        git fetch origin
+        git checkout -b sync-${SOURCE_BRANCH}-to-${RELEASE_BRANCH} origin/${RELEASE_BRANCH}
+        git merge origin/${SOURCE_BRANCH}
+        # resolve conflicts
+        git push origin sync-${SOURCE_BRANCH}-to-${RELEASE_BRANCH}
+        # open a PR targeting ${RELEASE_BRANCH}
+        \`\`\`
+
+        Once the sync PR is merged into \`${RELEASE_BRANCH}\`, this issue can be closed.
+
+        _Workflow run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}_"
+
+        EXISTING=$(gh issue list --search "\"${TITLE}\" in:title" --state open --json number --jq '.[0].number // empty')
+
+        if [ -n "$EXISTING" ]; then
+          gh issue edit "$EXISTING" --body "$BODY"
+          COMMENT="@${RELEASE_CAPTAIN} sync failed again at $(date -u +%Y-%m-%dT%H:%M:%SZ). [Workflow run](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID})
+
+        <details>
+        <summary>Release captain responsibilities</summary>
+
+        As the current release captain, you are responsible for:
+        - Resolving merge conflicts between ${SOURCE_BRANCH} and \`${RELEASE_BRANCH}\`
+        - Ensuring the release branch stays in sync before each code freeze
+        - Opening the sync PR manually when the automation cannot proceed
+        - Closing this issue once the sync is complete
+
+        If you are no longer on rotation, update the \`release_captain\` input in
+        the caller workflow and reassign this issue.
+        </details>"
+          gh issue comment "$EXISTING" --body "$COMMENT"
+          echo "Updated existing issue #$EXISTING"
+        else
+          gh issue create --title "$TITLE" --body "$BODY" --assignee "$RELEASE_CAPTAIN" --label "area/release" --label "p0"
+        fi

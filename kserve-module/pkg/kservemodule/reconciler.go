@@ -2,6 +2,7 @@ package kservemodule
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
@@ -26,40 +27,79 @@ import (
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
+// --- Module CR (cluster-scoped singleton) ---
 // +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=kserves,verbs=list;watch
 // +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=kserves,resourceNames=default-kserve,verbs=get;update;patch
 // +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=kserves/status,resourceNames=default-kserve,verbs=get;update;patch
 // +kubebuilder:rbac:groups=components.platform.opendatahub.io,resources=kserves/finalizers,resourceNames=default-kserve,verbs=update
+
+// --- Cluster environment detection ---
 // +kubebuilder:rbac:groups=config.openshift.io,resources=clusterversions,verbs=get
+
+// --- Operand resources (namespace-scoped, cluster-wide because operands may span user namespaces) ---
 // +kubebuilder:rbac:groups="",resources=configmaps;services;serviceaccounts,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=create;delete;patch;update,resourceNames=kserve-webhook-server-secret;workload-variant-autoscaler-epp-metrics-token;workload-variant-autoscaler-metrics-reader-token
+// +kubebuilder:rbac:groups="",resources=secrets,verbs=create;delete;patch;update,resourceNames=kserve-webhook-server-secret;workload-variant-autoscaler-controller-manager-token;workload-variant-autoscaler-epp-metrics-token;workload-variant-autoscaler-metrics-reader-token
 // +kubebuilder:rbac:groups="",resources=configmaps/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups="",resources=serviceaccounts/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=create;delete;get;list;patch;watch
+
+// --- Operand RBAC (cluster-scoped: operand ClusterRoles grant end-user access across namespaces) ---
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterroles;clusterrolebindings,verbs=create;delete;get;list;patch;update;watch
 // escalate/bind scoped to the exact roles and clusterroles deployed by this controller
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=account-editor-role;account-viewer-role;kserve-admin;kserve-edit;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-inferenceservice-distro-role;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;openshift-ai-inferenceservice-image-volume-scc;odh-model-controller-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s;workload-variant-autoscaler-manager-role;workload-variant-autoscaler-metrics-auth-role;workload-variant-autoscaler-epp-metrics-reader-role;workload-variant-autoscaler-variantautoscaling-admin-role;workload-variant-autoscaler-variantautoscaling-editor-role;workload-variant-autoscaler-variantautoscaling-viewer-role;workload-variant-autoscaler-metrics-reader;kserve-localmodel-manager-role;kserve-localmodel-distro-role;kserve-localmodel-permfix-role;kserve-localmodelnode-agent-role;kserve-localmodelnode-distro-role
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=bind;escalate,resourceNames=kserve-leader-election-role;llmisvc-leader-election-role;leader-election-role;workload-variant-autoscaler-leader-election-role
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles/finalizers;rolebindings/finalizers;clusterroles/finalizers;clusterrolebindings/finalizers,verbs=update
+
+// --- NIM account CRD (cluster-scoped: NIM accounts are managed across namespaces) ---
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/status,verbs=get;update
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=account-editor-role;account-viewer-role;kserve-admin;kserve-edit;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-inferenceservice-distro-role;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;openshift-ai-inferenceservice-image-volume-scc;odh-model-controller-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s;workload-variant-autoscaler-manager-role;workload-variant-autoscaler-metrics-auth-role;workload-variant-autoscaler-epp-metrics-reader-role;workload-variant-autoscaler-variantautoscaling-admin-role;workload-variant-autoscaler-variantautoscaling-editor-role;workload-variant-autoscaler-variantautoscaling-viewer-role;workload-variant-autoscaler-metrics-reader
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=bind;escalate,resourceNames=kserve-leader-election-role;llmisvc-leader-election-role;leader-election-role;workload-variant-autoscaler-leader-election-role
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles/finalizers;rolebindings/finalizers;clusterroles/finalizers;clusterrolebindings/finalizers,verbs=update
+
+// --- Operand CRDs (cluster-scoped: controller deploys KServe, LLMInferenceService, and related CRDs) ---
 // no delete — CRDs survive component removal (consistent with odh-operator GC unremovables)
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=create;get;list;patch;update;watch
+
+// --- cert-manager (cluster-scoped: ClusterIssuers are cluster-scoped; Issuers/Certificates for webhook TLS) ---
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificates;issuers,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=cert-manager.io,resources=clusterissuers,verbs=create;delete;get;list;patch;update;watch
+
+// --- Admission webhooks (cluster-scoped: webhook configs are cluster resources) ---
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations;validatingwebhookconfigurations,verbs=create;delete;get;list;patch;update;watch
+
+// --- KServe cluster-scoped operand resources ---
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceserviceconfigs;clusterstoragecontainers,verbs=create;delete;get;list;patch;update;watch
+
+// --- OpenShift-specific cluster-scoped resources ---
+// SCCs: required for InferenceService and LLMInferenceService workload pods
 // +kubebuilder:rbac:groups=security.openshift.io,resources=securitycontextconstraints,verbs=create;delete;get;list;patch;update;watch
+// Templates: OpenShift template objects deployed by operand manifests
 // +kubebuilder:rbac:groups=template.openshift.io,resources=templates,verbs=create;delete;get;list;patch;update;watch
+
+// --- Monitoring (cluster-scoped: ServiceMonitors and Prometheus API for metrics collection) ---
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheuses/api,resourceNames=k8s,verbs=get;create;update
+
+// --- Dependency detection (read-only: check if required operators are installed) ---
 // +kubebuilder:rbac:groups=operators.coreos.com,resources=subscriptions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=operator.openshift.io,resources=leaderworkersets,verbs=get;list;watch
+//
+// ModelCache RBAC
+// +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;patch;update
+// +kubebuilder:rbac:groups="",resources=persistentvolumes,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;patch;update
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodegroups,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
+
+// --- Upgrade path: HardwareProfile migration ---
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=list;patch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes,verbs=get
+// +kubebuilder:rbac:groups=infrastructure.opendatahub.io,resources=hardwareprofiles,verbs=get
+// +kubebuilder:rbac:groups=opendatahub.io,resources=odhdashboardconfigs,verbs=get
 
 type ResourceDeployer interface {
 	Deploy(ctx context.Context, input deploy.DeployInput) error
@@ -87,6 +127,11 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	kserve := &platformv1alpha1.Kserve{}
 	if err := r.Get(ctx, req.NamespacedName, kserve); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			if cleanupErr := r.cleanupOnDelete(ctx); cleanupErr != nil {
+				log.Error(cleanupErr, "component extra-cleanup failed during CR deletion")
+			}
+		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -185,6 +230,19 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 	return nil
 }
 
+func (r *KserveModuleReconciler) cleanupOnDelete(ctx context.Context) error {
+	var errs []error
+	for _, comp := range components {
+		if comp.extraCleanup == nil {
+			continue
+		}
+		if err := comp.extraCleanup(ctx, r); err != nil {
+			errs = append(errs, fmt.Errorf("%s: %w", comp.name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
 func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 	kserve *platformv1alpha1.Kserve, manifestDir string, comp componentConfig) ([]unstructured.Unstructured, error) {
 
@@ -200,7 +258,7 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 	}
 
 	if err := applyParams(
-		filepath.Join(manifestDir, comp.name, sourcePath),
+		filepath.Join(manifestDir, comp.dirName(), sourcePath),
 		comp.imageMap,
 	); err != nil {
 		return nil, fmt.Errorf("applying %s image params: %w", comp.name, err)
@@ -209,7 +267,7 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 	if r.isKubernetes(ctx) {
 		ns := r.getApplicationsNamespace()
 		if err := applyParams(
-			filepath.Join(manifestDir, comp.name, comp.sourcePathXKS),
+			filepath.Join(manifestDir, comp.dirName(), comp.sourcePathXKS),
 			nil, buildCertManagerParams(ns),
 		); err != nil {
 			return nil, fmt.Errorf("applying cert-manager params: %w", err)
@@ -219,14 +277,14 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 	if comp.extraParams != nil {
 		extra := comp.extraParams(kserve)
 		if err := applyParams(
-			filepath.Join(manifestDir, comp.name, sourcePath),
+			filepath.Join(manifestDir, comp.dirName(), sourcePath),
 			nil, extra,
 		); err != nil {
 			return nil, fmt.Errorf("applying %s extra params: %w", comp.name, err)
 		}
 	}
 
-	renderPath := filepath.Join(manifestDir, comp.name, sourcePath)
+	renderPath := filepath.Join(manifestDir, comp.dirName(), sourcePath)
 	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(r.getApplicationsNamespace()))
 	if err != nil {
 		return nil, fmt.Errorf("rendering %s kustomize: %w", comp.name, err)
