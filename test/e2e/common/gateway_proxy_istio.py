@@ -76,28 +76,18 @@ def _ensure_configmap(namespace, api_client):
     }
     data = {"deployment": yaml.dump(patch, default_flow_style=False)}
     try:
-        existing = core_api.read_namespaced_config_map(
-            _RESOURCE_NAME, namespace
-        )
+        existing = core_api.read_namespaced_config_map(_RESOURCE_NAME, namespace)
         existing.data = data
-        core_api.replace_namespaced_config_map(
-            _RESOURCE_NAME, namespace, existing
-        )
-        logger.info(
-            "Updated ConfigMap %s/%s", namespace, _RESOURCE_NAME
-        )
+        core_api.replace_namespaced_config_map(_RESOURCE_NAME, namespace, existing)
+        logger.info("Updated ConfigMap %s/%s", namespace, _RESOURCE_NAME)
     except client.rest.ApiException as e:
         if e.status == 404:
             body = client.V1ConfigMap(
-                metadata=client.V1ObjectMeta(
-                    name=_RESOURCE_NAME, namespace=namespace
-                ),
+                metadata=client.V1ObjectMeta(name=_RESOURCE_NAME, namespace=namespace),
                 data=data,
             )
             try:
-                core_api.create_namespaced_config_map(
-                    namespace, body
-                )
+                core_api.create_namespaced_config_map(namespace, body)
                 logger.info(
                     "Created ConfigMap %s/%s",
                     namespace,
@@ -243,13 +233,17 @@ def _run_cli(cli, args, timeout=15):
     except subprocess.TimeoutExpired:
         logger.debug(
             "CLI timeout after %ds: %s %s",
-            timeout, cli, " ".join(args[:3]),
+            timeout,
+            cli,
+            " ".join(args[:3]),
         )
         return None
     except Exception as e:
         logger.debug(
             "CLI failed (%s): %s %s",
-            type(e).__name__, cli, " ".join(args[:3]),
+            type(e).__name__,
+            cli,
+            " ".join(args[:3]),
         )
         return None
 
@@ -492,8 +486,7 @@ def gateway_diagnostics_monitor(request):
     )
     thread.start()
     logger.info(
-        "Gateway diagnostics started "
-        "(interval=%ds, cli=%s, output=%s)",
+        "Gateway diagnostics started (interval=%ds, cli=%s, output=%s)",
         _SNAPSHOT_INTERVAL,
         cli,
         out_path,
@@ -505,6 +498,5 @@ def gateway_diagnostics_monitor(request):
     thread.join(timeout=30)
     if thread.is_alive():
         logger.warning(
-            "Monitor thread did not stop within 30s;"
-            " final snapshot may be missing"
+            "Monitor thread did not stop within 30s; final snapshot may be missing"
         )
