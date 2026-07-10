@@ -19,6 +19,7 @@ package tls
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"time"
 
@@ -112,7 +113,7 @@ func Resolve(ctx context.Context, cfg *rest.Config) (Result, error) {
 
 	minVersion, ciphers := parseProfile(apiServer.Spec.TLSSecurityProfile)
 	if ciphers != nil && len(ciphers) == 0 {
-		return result, fmt.Errorf("custom TLS profile specified ciphers but none are supported by Go")
+		return result, errors.New("custom TLS profile specified ciphers but none are supported by Go")
 	}
 
 	result.TLSOpts = append(result.TLSOpts, func(c *tls.Config) {
