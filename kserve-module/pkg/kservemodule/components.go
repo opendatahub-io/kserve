@@ -84,7 +84,7 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 		return nil, fmt.Errorf("customizing configmap: %w", err)
 	}
 
-	versionPrefix := r.getVersionPrefix(kserve)
+	versionPrefix := r.getVersionPrefix(ctx, kserve)
 	resources, err = versionedWellKnownLLMInferenceServiceConfigs(resources, versionPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("versioning LLMInferenceServiceConfigs: %w", err)

@@ -397,3 +397,49 @@ def model_cache_enabled(kubectl, cluster_info, apply_kserve_cr):
         TIMEOUT_120S,
         f"ModelCache disable not reconciled within {TIMEOUT_120S}s",
     )
+
+
+PLATFORM_VERSION_CM = "odh-kserve-config"
+TEST_PLATFORM_VERSION = "99.0.0"
+
+
+def platform_configmap_exists(kubectl_bin):
+    """Check if the platform version ConfigMap already exists."""
+    return resource_exists(kubectl_bin, "configmap", PLATFORM_VERSION_CM, namespace=NAMESPACE)
+
+
+@pytest.fixture
+def ensure_platform_configmap(kubectl, apply_kserve_cr):
+    """Ensure odh-kserve-config ConfigMap exists with a platformVersion.
+
+    If it already exists (e.g. platform operator created it), leave it alone.
+    Otherwise create a test one and clean up after.
+    """
+    already_existed = platform_configmap_exists(kubectl)
+
+    if not already_existed:
+        cm_yaml = yaml.safe_dump({
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {"name": PLATFORM_VERSION_CM, "namespace": NAMESPACE},
+            "data": {"platformVersion": TEST_PLATFORM_VERSION},
+        })
+        run([kubectl, "apply", "-f", "-"], input_text=cm_yaml)
+        _poll_cr(
+            kubectl,
+            KSERVE_CR_NAME,
+            lambda cr: any(
+                r.get("name") == "platform"
+                for r in cr.get("status", {}).get("releases", [])
+            ),
+            TIMEOUT_60S,
+            "platform release not reported after ConfigMap creation",
+        )
+
+    yield
+
+    if not already_existed:
+        run(
+            [kubectl, "delete", "configmap", PLATFORM_VERSION_CM, "-n", NAMESPACE, "--ignore-not-found"],
+            check=False,
+        )

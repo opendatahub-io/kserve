@@ -24,6 +24,10 @@ const (
 	// SSA field manager
 	fieldOwner = "kserve-module-controller"
 
+	// Platform version ConfigMap
+	platformVersionConfigMap    = "odh-kserve-config"
+	platformVersionConfigMapKey = "platformVersion"
+
 	// ConfigMap keys
 	kserveConfigMapName     = "inferenceservice-config"
 	ingressConfigKeyName    = "ingress"

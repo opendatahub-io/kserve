@@ -143,7 +143,7 @@ func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, k
 }
 
 func (r *KserveModuleReconciler) updateStatus(ctx context.Context, kserve *platformv1alpha1.Kserve, condMgr *conditions.Manager) error {
-	r.setReleaseStatus(kserve)
+	r.setReleaseStatus(ctx, kserve)
 	condMgr.Sort()
 
 	if condMgr.IsHappy() {
@@ -167,12 +167,19 @@ func (r *KserveModuleReconciler) updateStatus(ctx context.Context, kserve *platf
 	})
 }
 
-func (r *KserveModuleReconciler) setReleaseStatus(kserve *platformv1alpha1.Kserve) {
+func (r *KserveModuleReconciler) setReleaseStatus(ctx context.Context, kserve *platformv1alpha1.Kserve) {
 	releases, err := loadComponentReleases(r.ManifestsTemplatePath,
 		[]string{KserveComponentName, OdhModelControllerComponentName})
 	if err != nil {
 		ctrl.Log.Error(err, "failed to load component releases")
 		return
+	}
+
+	if v := r.getPlatformVersion(ctx); v != "" {
+		releases = append(releases, common.ComponentRelease{
+			Name:    "platform",
+			Version: v,
+		})
 	}
 
 	kserve.SetReleaseStatus(common.ComponentReleaseStatus{Releases: releases})

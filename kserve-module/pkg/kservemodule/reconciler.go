@@ -13,8 +13,10 @@ import (
 	"sync"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -332,9 +334,21 @@ func (r *KserveModuleReconciler) getApplicationsNamespace() string {
 	return "opendatahub"
 }
 
-// TODO: for now, we can use the annotation but the version will be set by data of configmap
-// We need to confirm with platform team what configmap name is used for the version.
-func (r *KserveModuleReconciler) getVersionPrefix(kserve *platformv1alpha1.Kserve) string {
+func (r *KserveModuleReconciler) getPlatformVersion(ctx context.Context) string {
+	cm := &corev1.ConfigMap{}
+	key := types.NamespacedName{Name: platformVersionConfigMap, Namespace: r.getApplicationsNamespace()}
+	if err := r.Get(ctx, key, cm); err != nil {
+		ctrl.LoggerFrom(ctx).V(1).Info("ConfigMap not found, platform version unknown",
+			"configmap", key, "error", err)
+		return ""
+	}
+	return cm.Data[platformVersionConfigMapKey]
+}
+
+func (r *KserveModuleReconciler) getVersionPrefix(ctx context.Context, kserve *platformv1alpha1.Kserve) string {
+	if v := r.getPlatformVersion(ctx); v != "" {
+		return "v" + strings.ReplaceAll(v, ".", "-")
+	}
 	if ann := kserve.GetAnnotations(); ann != nil {
 		if v := ann["platform.opendatahub.io/version"]; v != "" {
 			return "v" + strings.ReplaceAll(v, ".", "-")
