@@ -481,3 +481,23 @@ func GetStorageInitializerConfigs(configMap *corev1.ConfigMap) (*types.StorageIn
 
 	return storageInitializerConfig, nil
 }
+
+// GetOVMSVersioningConfig parses the OVMS versioning configuration from the provided ConfigMap.
+// It extracts and unmarshals the "ovmsVersioning" section.
+//
+// Parameters:
+//   - configMap: The ConfigMap containing the OVMS versioning configuration.
+//
+// Returns:
+//	*types.OVMSVersioningConfig: The parsed OVMS versioning configuration.
+//	error: An error if the configuration is invalid.
+func GetOVMSVersioningConfig(configMap *corev1.ConfigMap) (*types.OVMSVersioningConfig, error) {
+	ovmsVersioningConfig := &types.OVMSVersioningConfig{}
+	if versioningConfig, ok := configMap.Data["ovmsVersioning"]; ok {
+		err := json.Unmarshal([]byte(versioningConfig), &ovmsVersioningConfig)
+		if err != nil {
+			return nil, fmt.Errorf("unable to unmarshal ovmsVersioning json string: %w", err)
+		}
+	}
+	return ovmsVersioningConfig, nil
+}

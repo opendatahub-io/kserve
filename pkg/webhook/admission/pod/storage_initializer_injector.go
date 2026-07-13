@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -49,17 +48,18 @@ const (
 	CaBundleVolumeName = "cabundle-cert"
 )
 
-func getOVMSVersioningImage() string {
-	if image := os.Getenv("RELATED_IMAGE_ODH_UBI_MICRO_IMAGE"); image != "" {
-		return image
+func getOVMSVersioningImage(config *types.OVMSVersioningConfig) string {
+	if config != nil && config.Image != "" {
+		return config.Image
 	}
 	return "registry.redhat.io/ubi9/ubi-micro:latest"
 }
 
 type StorageInitializerInjector struct {
-	credentialBuilder *credentials.CredentialBuilder
-	config            *types.StorageInitializerConfig
-	client            client.Client
+	credentialBuilder     *credentials.CredentialBuilder
+	config                *types.StorageInitializerConfig
+	ovmsVersioningConfig  *types.OVMSVersioningConfig
+	client                client.Client
 }
 
 // StorageInitializerParams contains all the parameters needed for storage initialization
@@ -777,7 +777,7 @@ func (mi *StorageInitializerInjector) InjectOVMSAutoVersioning(pod *corev1.Pod) 
 	// Create the OVMS versioning init container
 	ovmsVersioningContainer := corev1.Container{
 		Name:    constants.OVMSVersioningContainerName,
-		Image:   getOVMSVersioningImage(),
+		Image:   getOVMSVersioningImage(mi.ovmsVersioningConfig),
 		Command: []string{"/bin/sh"},
 		Args: []string{
 			"-c",

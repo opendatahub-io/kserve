@@ -160,3 +160,7 @@ data:
     {
       "modelcachePermissionFixImage": "REPLACE_IMAGE"
     }
+  ovmsVersioning: |-
+    {
+      "image": "REPLACE_IMAGE"
+    }
