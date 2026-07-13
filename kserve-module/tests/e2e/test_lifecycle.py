@@ -32,8 +32,16 @@ def _generation_matches(cr):
 
 def _verify_deployments_available(kubectl, is_openshift):
     expected = operand_deployments(is_openshift)
+    result = run([kubectl, "get", "deployments", "-n", NAMESPACE, "-o", "yaml"])
+    deployments = yaml.safe_load(result.stdout)
+    items = {d["metadata"]["name"]: d for d in deployments.get("items", [])}
     for name in expected:
-        wait_for_deployment(kubectl, name)
+        assert name in items, \
+            f"{name} not found. Deployments: {list(items.keys())}"
+        conditions = {c["type"]: c for c in items[name].get("status", {}).get("conditions", [])}
+        avail = conditions.get("Available", {})
+        assert avail.get("status") == "True", \
+            f"{name} not Available. Condition: {avail}"
 
 
 @pytest.mark.sanity

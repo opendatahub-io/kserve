@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 	odhLabels "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
@@ -14,9 +13,9 @@ import (
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
+
 type componentConfig struct {
 	name          string
-	manifestName  string // overrides name for manifest directory lookup; defaults to name if empty
 	sourcePath    string
 	sourcePathXKS string
 	imageMap      map[string]string
@@ -26,13 +25,6 @@ type componentConfig struct {
 		resources []unstructured.Unstructured) ([]unstructured.Unstructured, error)
 	enabled      func(kserve *platformv1alpha1.Kserve) bool
 	extraCleanup func(ctx context.Context, r *KserveModuleReconciler) error
-}
-
-func (c componentConfig) dirName() string {
-	if c.manifestName != "" {
-		return c.manifestName
-	}
-	return c.name
 }
 
 var components = []componentConfig{
@@ -48,7 +40,6 @@ var components = []componentConfig{
 		sourcePath:  ModelControllerSourcePath,
 		imageMap:    modelControllerImageParamMap,
 		extraParams: modelControllerExtraParams,
-		postRender:  modelControllerPostRender,
 	},
 	{
 		name:       WVAComponentName,
@@ -57,34 +48,18 @@ var components = []componentConfig{
 		enabled:    isWVAEnabled,
 		postRender: wvaPostRender,
 	},
-	{
-		name:         ModelCacheComponentName,
-		manifestName: KserveComponentName,
-		sourcePath:   ModelCacheManifestSourcePath,
-		imageMap:     kserveImageParamMap,
-		enabled:      isModelCacheEnabled,
-		postRender:   modelCacheComponentPostRender,
-		extraCleanup: cleanupModelCacheComponent,
-	},
 }
 
 func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 	kserve *platformv1alpha1.Kserve,
 	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
 
-	log := ctrl.LoggerFrom(ctx)
-	beforeCount := len(resources)
-	resources = filterFastResources(resources)
-	if afterCount := len(resources); beforeCount != afterCount {
-		log.Info("filtered fast-variant resources", "before", beforeCount, "after", afterCount, "removed", beforeCount-afterCount)
-	}
-
 	resources, err := customizeKserveConfigMap(resources, kserve)
 	if err != nil {
 		return nil, fmt.Errorf("customizing configmap: %w", err)
 	}
 
-	versionPrefix := r.getVersionPrefix(ctx, kserve)
+	versionPrefix := r.getVersionPrefix(kserve)
 	resources, err = versionedWellKnownLLMInferenceServiceConfigs(resources, versionPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("versioning LLMInferenceServiceConfigs: %w", err)
@@ -128,19 +103,6 @@ func modelControllerExtraParams(kserve *platformv1alpha1.Kserve) map[string]stri
 	}
 }
 
-func modelControllerPostRender(ctx context.Context, _ *KserveModuleReconciler,
-	_ *platformv1alpha1.Kserve,
-	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
-
-	log := ctrl.LoggerFrom(ctx)
-	beforeCount := len(resources)
-	result := filterFastResources(resources)
-	if afterCount := len(result); beforeCount != afterCount {
-		log.Info("filtered fast-variant resources", "before", beforeCount, "after", afterCount, "removed", beforeCount-afterCount)
-	}
-	return result, nil
-}
-
 func commonPostRender(resources []unstructured.Unstructured, componentName string) {
 	applyManagedByLabel(resources, componentName)
 }
@@ -155,3 +117,4 @@ func applyManagedByLabel(resources []unstructured.Unstructured, componentName st
 		resources[i].SetLabels(labels)
 	}
 }
+

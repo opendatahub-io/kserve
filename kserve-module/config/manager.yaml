@@ -77,16 +77,9 @@ spec:
           mountPath: /opt/manifests
         - name: tmp
           mountPath: /tmp
-        - name: trusted-ca
-          mountPath: /etc/pki/tls/custom
-          readOnly: true
       volumes:
       - name: manifests
         emptyDir:
           sizeLimit: 256Mi
       - name: tmp
         emptyDir: {}
-      - name: trusted-ca
-        configMap:
-          name: odh-trusted-ca-bundle
-          optional: true

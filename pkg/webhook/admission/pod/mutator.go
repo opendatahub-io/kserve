@@ -138,7 +138,7 @@ func (mutator *Mutator) mutate(ctx context.Context, pod *corev1.Pod, configMap *
 	}
 
 	if storageInitializer.config.EnableOciImageSource {
-		mutators = append(mutators, getOciStorageMutator(pod, storageInitializer))
+		mutators = append(mutators, storageInitializer.InjectModelcar)
 	}
 
 	for _, mutator := range mutators {

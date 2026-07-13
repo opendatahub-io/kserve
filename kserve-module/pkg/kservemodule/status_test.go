@@ -92,8 +92,6 @@ func markAllHealthy(condMgr *conditions.Manager) {
 		conditions.WithReason("AllDeploymentsAvailable"))
 	condMgr.MarkTrue(ConditionModelControllerReady,
 		conditions.WithReason("AllDeploymentsAvailable"))
-	condMgr.MarkTrue(ConditionModelCacheReady,
-		conditions.WithReason("Disabled"))
 	condMgr.MarkTrue(ConditionDependenciesAvailable,
 		conditions.WithReason("AllDependenciesMet"))
 	condMgr.ClearCondition(ConditionWVAReady)

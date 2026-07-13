@@ -67,7 +67,6 @@ func TestComponentsConfig_WVAHasEnabled(t *testing.T) {
 	}
 	g.Expect(wva).ShouldNot(BeNil(), "WVA component not registered")
 	g.Expect(wva.enabled).ShouldNot(BeNil(), "WVA must have enabled predicate")
-	g.Expect(wva.sourcePath).Should(Equal(WVAManifestSourcePathOCP), "WVA OCP source path must match upstream WVA kustomize overlay")
 	g.Expect(wva.sourcePathXKS).Should(BeEmpty(), "WVA is OCP-only, must not have XKS overlay")
 }
 

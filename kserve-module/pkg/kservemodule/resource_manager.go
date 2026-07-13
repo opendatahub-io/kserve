@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/apimachinery/pkg/api/meta"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -20,6 +19,7 @@ var (
 	kserveDeploymentsOCP = []string{
 		kserveControllerDeployment,
 		llmISVCControllerDeployment,
+		// TODO: add localmodelControllerDeployment once localmodel manifests are included in OCP overlay
 	}
 	kserveDeploymentsXKS = []string{
 		llmISVCControllerDeployment,
@@ -75,7 +75,7 @@ func (r *KserveModuleReconciler) defaultCleanup(ctx context.Context, comp compon
 		sourcePath = comp.sourcePathXKS
 	}
 
-	renderPath := filepath.Join(manifestDir, comp.dirName(), sourcePath)
+	renderPath := filepath.Join(manifestDir, comp.name, sourcePath)
 	if _, err := os.Stat(renderPath); os.IsNotExist(err) {
 		log.Info("manifest directory not found, nothing to clean up", "component", comp.name, "path", renderPath)
 		return nil
@@ -117,7 +117,7 @@ func deleteResourceIfPresent(ctx context.Context, cli client.Client, obj client.
 	key := client.ObjectKeyFromObject(obj)
 	lookup := obj.DeepCopyObject().(client.Object)
 	if err := cli.Get(ctx, key, lookup); err != nil {
-		if client.IgnoreNotFound(err) == nil || meta.IsNoMatchError(err) {
+		if client.IgnoreNotFound(err) == nil {
 			return nil
 		}
 		return fmt.Errorf("failed to check %s %s: %w", obj.GetObjectKind().GroupVersionKind().Kind, key, err)

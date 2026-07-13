@@ -16,15 +16,7 @@ components:
 
 patches:
 # Delete localmodel cert-manager cert (replaced by OpenShift serving cert)
-- target:
-    kind: Certificate
-    name: localmodel-serving-cert
-  patch: |
-    $patch: delete
-    apiVersion: cert-manager.io/v1
-    kind: Certificate
-    metadata:
-      name: localmodel-serving-cert
+- path: patches/remove-localmodel-cert-manager.yaml
 # OpenShift CA injection for localmodel webhooks/CRDs
 - target:
     kind: ValidatingWebhookConfiguration

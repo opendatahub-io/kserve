@@ -27,10 +27,6 @@ spec:
     value: '{{revision}}'
   - name: output-image
     value: quay.io/opendatahub/odh-kserve-autogluon-server:odh-stable
-  - name: additional-tags
-    value:
-    - 'odh-stable'
-    - 'odh-stable-{{revision}}'
   - name: dockerfile
     value: python/autogluon.Dockerfile
   - name: path-context

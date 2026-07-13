@@ -31,7 +31,6 @@ spec:
   - name: additional-tags
     value:
     - 'odh-stable'
-    - 'odh-stable-{{revision}}'
   - name: build-args
     value:
     - "GOTAGS=distro"

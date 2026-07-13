@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	securityv1 "github.com/openshift/api/security/v1"
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -49,9 +48,9 @@ var watchedSubscriptions = map[string]bool{
 }
 
 type dynamicWatch struct {
-	groupKind  schema.GroupKind
-	gvk        schema.GroupVersionKind
-	filterFn   func(*unstructured.Unstructured) bool
+	groupKind schema.GroupKind
+	gvk       schema.GroupVersionKind
+	filterFn  func(*unstructured.Unstructured) bool
 	registered bool
 }
 
@@ -68,10 +67,7 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Secret{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.ServiceAccount{}).
-		Owns(&corev1.PersistentVolume{}).
-		Owns(&corev1.PersistentVolumeClaim{}).
 		Owns(&appsv1.Deployment{}).
-		Owns(&appsv1.DaemonSet{}).
 		Owns(&networkingv1.NetworkPolicy{}).
 		Owns(&rbacv1.Role{}).
 		Owns(&rbacv1.RoleBinding{}).
@@ -83,28 +79,7 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&apiextensionsv1.CustomResourceDefinition{},
 			handler.EnqueueRequestsFromMapFunc(mapToKserve),
 			builder.WithPredicates(crdNamePredicate()),
-		).
-		Watches(&corev1.ConfigMap{},
-			handler.EnqueueRequestsFromMapFunc(mapToKserve),
-			builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
-				return o.GetName() == platformVersionConfigMap &&
-					o.GetNamespace() == r.getApplicationsNamespace()
-			})),
-		).
-		// Watch Nodes so that newly added or relabeled nodes trigger
-		// reconciliation of labelModelCacheNodes.
-		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(mapToKserve),
-			builder.WithPredicates(predicate.Or(
-				predicate.GenerationChangedPredicate{},
-				predicate.LabelChangedPredicate{},
-			)),
 		)
-
-	// SecurityContextConstraints CRD is always present on OpenShift (OLM); never on XKS.
-	sccGK := schema.GroupKind{Group: "security.openshift.io", Kind: "SecurityContextConstraints"}
-	if err := cluster.CustomResourceDefinitionExists(context.Background(), mgr.GetAPIReader(), sccGK); err == nil {
-		b.Owns(&securityv1.SecurityContextConstraints{})
-	}
 
 	// Subscription CRD is always present on OpenShift (OLM); never on XKS.
 	// One-time conditional watch at startup — no dynamic retry needed.
@@ -128,10 +103,6 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		{
 			groupKind: schema.GroupKind{Group: "operator.openshift.io", Kind: "LeaderWorkerSet"},
 			gvk:       schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSet"},
-		},
-		{
-			groupKind: schema.GroupKind{Group: "serving.kserve.io", Kind: "LocalModelNodeGroup"},
-			gvk:       localModelNodeGroupGVK,
 		},
 	}
 
@@ -165,13 +136,6 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 	r.controller = c
-
-	if err := mgr.Add(&upgradeRunnable{
-		client:        mgr.GetClient(),
-		applicationNS: r.getApplicationsNamespace(),
-	}); err != nil {
-		return fmt.Errorf("error registering upgrade runnable: %w", err)
-	}
 
 	return nil
 }
@@ -237,3 +201,4 @@ func crdNamePredicate() predicate.Predicate {
 		return false
 	})
 }
+

@@ -59,8 +59,9 @@ echo "Deleting custom-manifests PVC"
 oc delete pvc kserve-custom-manifests -n "${OPERATOR_NAMESPACE}" --ignore-not-found || true
 
 echo "Deleting ImageDigestMirrorSets created for operator install"
-idms=rhoai-quay-mirror
-oc delete imagedigestmirrorset "${idms}" --ignore-not-found || true
+for idms in rhoai-quay-mirror; do
+  oc delete imagedigestmirrorset "${idms}" --ignore-not-found || true
+done
 
 echo "Deleting KServe (raw overlay, if present)"
 kustomize build "$PROJECT_ROOT/config/overlays/odh-test" 2>/dev/null |

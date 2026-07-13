@@ -151,8 +151,6 @@ github.com/opencontainers/image-spec v1.1.1 h1:y0fUlFfIZhPF1W537XOLg0/fcx6zcHCJw
 github.com/opencontainers/image-spec v1.1.1/go.mod h1:qpqAh3Dmcf36wStyyWU+kCeDgrGnAve2nCC8+7h8Q0M=
 github.com/opendatahub-io/odh-platform-utilities v0.0.0-20260506180717-e15e712db78d h1:0IuciRgQR5moi+g3nxmoZL32EdH+BiR1cyTqHMZPhSM=
 github.com/opendatahub-io/odh-platform-utilities v0.0.0-20260506180717-e15e712db78d/go.mod h1:QEysGTqJgWEKTVPlKaym3DrUcbYtfhOLNRxiJ+rfSfg=
-github.com/openshift/api v0.0.0-20260601143908-70f01b82bb53 h1:I9aH3KSRGfBxVacrjpA7r5AZQj12VCHBHMWEypeKBWE=
-github.com/openshift/api v0.0.0-20260601143908-70f01b82bb53/go.mod h1:pyVjK0nZ4sRs4fuQVQ4rubsJdahI1PB94LnQ8sGdvxo=
 github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
 github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
