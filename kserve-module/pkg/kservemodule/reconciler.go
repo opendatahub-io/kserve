@@ -117,6 +117,7 @@ type KserveModuleReconciler struct {
 	workDir               string
 	initDone              bool
 	applicationsNamespace string
+	monitoringNamespace   string
 	clusterType           *cluster.ClusterType
 
 	controller     controller.Controller
@@ -323,7 +324,12 @@ func (r *KserveModuleReconciler) isKubernetes(ctx context.Context) bool {
 }
 
 func (r *KserveModuleReconciler) getMonitoringNamespace() string {
+	if r.monitoringNamespace != "" {
+		return r.monitoringNamespace
+	}
+
 	if ns := os.Getenv("MONITORING_NAMESPACE"); ns != "" {
+		r.monitoringNamespace = ns
 		return ns
 	}
 
