@@ -17,6 +17,7 @@ limitations under the License.
 package utils
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"testing"
@@ -699,6 +700,200 @@ func TestIsMemoryResourceAvailable(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestGetServerTypeFromIsvc(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+	namespace := "default"
+
+	scenarios := map[string]struct {
+		isvc         *InferenceService
+		runtimes     []runtime.Object
+		expectedType string
+		expectError  bool
+		errorMatcher types.GomegaMatcher
+	}{
+		"NilInferenceService": {
+			isvc:         nil,
+			runtimes:     []runtime.Object{},
+			expectedType: "",
+			expectError:  false,
+		},
+		"NoRuntimeInStatus": {
+			isvc: &InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: InferenceServiceStatus{},
+			},
+			runtimes:     []runtime.Object{},
+			expectedType: "",
+			expectError:  false,
+		},
+		"NamespacedRuntimeWithServerTypeAnnotation": {
+			isvc: &InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: InferenceServiceStatus{
+					ServingRuntimeName: "mlserver-runtime",
+				},
+			},
+			runtimes: []runtime.Object{
+				&v1alpha1.ServingRuntime{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "mlserver-runtime",
+						Namespace: namespace,
+						Annotations: map[string]string{
+							constants.ServerTypeAnnotationKey: constants.ServerTypeMLServer,
+						},
+					},
+					Spec: v1alpha1.ServingRuntimeSpec{
+						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+							{Name: "sklearn"},
+						},
+					},
+				},
+			},
+			expectedType: constants.ServerTypeMLServer,
+			expectError:  false,
+		},
+		"ClusterRuntimeWithServerTypeAnnotation": {
+			isvc: &InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: InferenceServiceStatus{
+					ClusterServingRuntimeName: "global-mlserver",
+				},
+			},
+			runtimes: []runtime.Object{
+				&v1alpha1.ClusterServingRuntime{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "global-mlserver",
+						Annotations: map[string]string{
+							constants.ServerTypeAnnotationKey: constants.ServerTypeMLServer,
+						},
+					},
+					Spec: v1alpha1.ServingRuntimeSpec{
+						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+							{Name: "sklearn"},
+						},
+					},
+				},
+			},
+			expectedType: constants.ServerTypeMLServer,
+			expectError:  false,
+		},
+		"RuntimeWithoutAnnotation": {
+			isvc: &InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: InferenceServiceStatus{
+					ServingRuntimeName: "custom-runtime",
+				},
+			},
+			runtimes: []runtime.Object{
+				&v1alpha1.ServingRuntime{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "custom-runtime",
+						Namespace: namespace,
+					},
+					Spec: v1alpha1.ServingRuntimeSpec{
+						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+							{Name: "custom"},
+						},
+					},
+				},
+			},
+			expectedType: "",
+			expectError:  false,
+		},
+		"RuntimeNotFound": {
+			isvc: &InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: InferenceServiceStatus{
+					ServingRuntimeName: "nonexistent-runtime",
+				},
+			},
+			runtimes:     []runtime.Object{},
+			expectedType: "",
+			expectError:  true,
+			errorMatcher: gomega.MatchError(gomega.ContainSubstring("No ServingRuntimes or ClusterServingRuntimes")),
+		},
+		"NamespacedRuntimeTakesPrecedence": {
+			isvc: &InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: InferenceServiceStatus{
+					ServingRuntimeName:        "namespaced-runtime",
+					ClusterServingRuntimeName: "cluster-runtime",
+				},
+			},
+			runtimes: []runtime.Object{
+				&v1alpha1.ServingRuntime{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "namespaced-runtime",
+						Namespace: namespace,
+						Annotations: map[string]string{
+							constants.ServerTypeAnnotationKey: "namespaced-type",
+						},
+					},
+					Spec: v1alpha1.ServingRuntimeSpec{
+						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+							{Name: "sklearn"},
+						},
+					},
+				},
+				&v1alpha1.ClusterServingRuntime{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cluster-runtime",
+						Annotations: map[string]string{
+							constants.ServerTypeAnnotationKey: "cluster-type",
+						},
+					},
+					Spec: v1alpha1.ServingRuntimeSpec{
+						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+							{Name: "sklearn"},
+						},
+					},
+				},
+			},
+			expectedType: "namespaced-type",
+			expectError:  false,
+		},
+	}
+
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			err := v1alpha1.AddToScheme(scheme)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			err = SchemeBuilder.AddToScheme(scheme)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+
+			client := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(scenario.runtimes...).Build()
+
+			serverType, err := GetServerTypeFromIsvc(context.Background(), client, scenario.isvc)
+
+			if scenario.expectError {
+				g.Expect(err).To(scenario.errorMatcher)
+			} else {
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(serverType).To(gomega.Equal(scenario.expectedType))
+			}
+		})
 	}
 }
 

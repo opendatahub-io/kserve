@@ -37,6 +37,11 @@ KSERVE_CR_TEMPLATE = {
     "spec": {"managementState": "Managed"},
 }
 
+PV_NAME = "kserve-localmodelnode-pv"
+PVC_NAME = "kserve-localmodelnode-pvc"
+LMNG_NAME = "workers"
+LMNG_RESOURCE = "localmodelnodegroups.serving.kserve.io"
+
 
 @dataclass
 class ClusterInfo:
@@ -55,7 +60,9 @@ def operand_deployments(is_openshift):
 def is_cr_ready(cr):
     """Check if a Kserve CR dict has Ready=True."""
     conditions = cr.get("status", {}).get("conditions", [])
-    return any(c.get("type") == "Ready" and c.get("status") == "True" for c in conditions)
+    return any(
+        c.get("type") == "Ready" and c.get("status") == "True" for c in conditions
+    )
 
 
 def get_conditions(kubectl_bin, name=KSERVE_CR_NAME):
@@ -99,21 +106,37 @@ def cr_exists(kubectl_bin, name=KSERVE_CR_NAME):
 def trigger_reconcile(kubectl_bin, name=KSERVE_CR_NAME, trigger_id=None):
     """Trigger reconcile by patching an annotation."""
     trigger_id = trigger_id or f"e2e-{int(time.time())}"
-    run([
-        kubectl_bin, "annotate", "kserve", name,
-        f"test-trigger={trigger_id}", "--overwrite",
-    ])
+    run(
+        [
+            kubectl_bin,
+            "annotate",
+            "kserve",
+            name,
+            f"test-trigger={trigger_id}",
+            "--overwrite",
+        ]
+    )
 
 
 def create_kserve_cr(kubectl_bin, cr_dict=None):
     """Create a Kserve CR if it doesn't already exist."""
     if cr_exists(kubectl_bin):
-        return _poll_cr(kubectl_bin, KSERVE_CR_NAME, is_cr_ready, TIMEOUT_120S,
-                        f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_120S}s")
+        return _poll_cr(
+            kubectl_bin,
+            KSERVE_CR_NAME,
+            is_cr_ready,
+            TIMEOUT_120S,
+            f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_120S}s",
+        )
     cr = yaml.safe_dump(cr_dict or KSERVE_CR_TEMPLATE)
     run([kubectl_bin, "create", "-f", "-"], input_text=cr)
-    return _poll_cr(kubectl_bin, KSERVE_CR_NAME, is_cr_ready, TIMEOUT_120S,
-                    f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_120S}s")
+    return _poll_cr(
+        kubectl_bin,
+        KSERVE_CR_NAME,
+        is_cr_ready,
+        TIMEOUT_120S,
+        f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_120S}s",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -150,14 +173,104 @@ def _poll_cr(kubectl_bin, name, predicate, timeout, msg):
     raise TimeoutError(msg)
 
 
-def wait_for_kserve_cleanup(kubectl_bin, name=KSERVE_CR_NAME, is_openshift=False, timeout=TIMEOUT_120S):
+def get_worker_node(kubectl_bin, is_openshift=True):
+    """Return the name of a worker node."""
+    if is_openshift:
+        result = run(
+            [
+                kubectl_bin,
+                "get",
+                "nodes",
+                "-l",
+                "node-role.kubernetes.io/worker",
+                "-o",
+                "jsonpath={.items[0].metadata.name}",
+            ]
+        )
+    else:
+        result = run(
+            [
+                kubectl_bin,
+                "get",
+                "nodes",
+                "-o",
+                "jsonpath={.items[0].metadata.name}",
+            ]
+        )
+    name = result.stdout.strip()
+    if not name:
+        raise RuntimeError("No worker node found")
+    return name
+
+
+def resource_exists(kubectl_bin, resource_type, name, namespace=None):
+    """Check if a kubernetes resource exists."""
+    cmd = [kubectl_bin, "get", resource_type, name, "--ignore-not-found"]
+    if namespace:
+        cmd.extend(["-n", namespace])
+    result = run(cmd, check=False)
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
+def get_jsonpath(kubectl_bin, resource_type, name, jsonpath, namespace=None):
+    """Get a jsonpath value from a resource. Returns empty string if not found."""
+    cmd = [kubectl_bin, "get", resource_type, name, "-o", f"jsonpath={jsonpath}"]
+    if namespace:
+        cmd.extend(["-n", namespace])
+    result = run(cmd, check=False)
+    return result.stdout.strip()
+
+
+def enable_model_cache(kubectl_bin, worker_node, cache_size="5Gi"):
+    """Patch the Kserve CR to enable ModelCache with nodeNames."""
+    import json
+
+    patch = json.dumps(
+        {
+            "spec": {
+                "modelCache": {
+                    "managementState": "Managed",
+                    "cacheSize": cache_size,
+                    "nodeNames": [worker_node],
+                }
+            }
+        }
+    )
+    run(
+        [kubectl_bin, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch]
+    )
+
+
+def disable_model_cache(kubectl_bin):
+    """Remove the modelCache spec entirely from the Kserve CR."""
+    import json
+
+    patch = json.dumps([{"op": "remove", "path": "/spec/modelCache"}])
+    run([kubectl_bin, "patch", "kserve", KSERVE_CR_NAME, "--type", "json", "-p", patch])
+
+
+def generation_matches(cr):
+    """Check if observedGeneration matches generation."""
+    gen = cr.get("metadata", {}).get("generation", -1)
+    observed = cr.get("status", {}).get("observedGeneration", -2)
+    return gen == observed
+
+
+def wait_for_kserve_cleanup(
+    kubectl_bin, name=KSERVE_CR_NAME, is_openshift=False, timeout=TIMEOUT_120S
+):
     """Wait until the Kserve CR is fully deleted."""
     result = run([kubectl_bin, "get", "kserve", name, "--ignore-not-found"])
     if result.stdout.strip():
-        run([
-            kubectl_bin, "wait", "--for=delete", f"kserve/{name}",
-            f"--timeout={timeout}s",
-        ])
+        run(
+            [
+                kubectl_bin,
+                "wait",
+                "--for=delete",
+                f"kserve/{name}",
+                f"--timeout={timeout}s",
+            ]
+        )
     _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S)
 
 
@@ -171,7 +284,9 @@ def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_
         )
         if result.returncode == 0:
             dep = yaml.safe_load(result.stdout)
-            conditions = {c["type"]: c for c in dep.get("status", {}).get("conditions", [])}
+            conditions = {
+                c["type"]: c for c in dep.get("status", {}).get("conditions", [])
+            }
             avail = conditions.get("Available", {})
             if avail.get("status") == "True":
                 return dep
@@ -179,16 +294,24 @@ def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_
     raise TimeoutError(f"deployment {name} not Available within {timeout}s")
 
 
-def wait_for_deployment_gone(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_60S):
+def wait_for_deployment_gone(
+    kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_60S
+):
     """Wait until a deployment no longer exists."""
-    result = run([
-        kubectl_bin, "wait", "--for=delete", f"deployment/{name}",
-        "-n", namespace, f"--timeout={timeout}s",
-    ], check=False)
+    result = run(
+        [
+            kubectl_bin,
+            "wait",
+            "--for=delete",
+            f"deployment/{name}",
+            "-n",
+            namespace,
+            f"--timeout={timeout}s",
+        ],
+        check=False,
+    )
     if result.returncode != 0 and "not found" not in result.stderr.lower():
-        raise RuntimeError(
-            f"wait_for_deployment_gone failed: {result.stderr}"
-        )
+        raise RuntimeError(f"wait_for_deployment_gone failed: {result.stderr}")
 
 
 def _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S):
@@ -211,7 +334,9 @@ def cluster_info():
 
     result = subprocess.run(
         [cli, "api-resources", "--api-group=config.openshift.io"],
-        capture_output=True, text=True, timeout=10
+        capture_output=True,
+        text=True,
+        timeout=10,
     )
     is_ocp = result.returncode == 0 and "clusterversions" in result.stdout.lower()
     return ClusterInfo(is_openshift=is_ocp, kubectl=cli)
@@ -230,5 +355,91 @@ def apply_kserve_cr(kubectl, cluster_info):
     cr = create_kserve_cr(kubectl)
     yield cr
     if created:
-        run([kubectl, "delete", "kserve", KSERVE_CR_NAME, "--ignore-not-found"], check=False)
+        run(
+            [kubectl, "delete", "kserve", KSERVE_CR_NAME, "--ignore-not-found"],
+            check=False,
+        )
         wait_for_kserve_cleanup(kubectl, is_openshift=cluster_info.is_openshift)
+
+
+@pytest.fixture
+def model_cache_enabled(kubectl, cluster_info, apply_kserve_cr):
+    """Enable ModelCache before the test and disable it after.
+    Skipped on non-OpenShift clusters (no XKS overlay for modelcache).
+    """
+    if not cluster_info.is_openshift:
+        pytest.skip("ModelCache reconciliation requires OpenShift")
+    worker = get_worker_node(kubectl, is_openshift=cluster_info.is_openshift)
+    enable_model_cache(kubectl, worker)
+    _poll_cr(
+        kubectl,
+        KSERVE_CR_NAME,
+        generation_matches,
+        TIMEOUT_120S,
+        f"ModelCache enable not reconciled within {TIMEOUT_120S}s",
+    )
+    _poll_cr(
+        kubectl,
+        KSERVE_CR_NAME,
+        lambda cr: any(
+            c.get("type") == "ModelCacheReady" and c.get("status") == "True"
+            for c in cr.get("status", {}).get("conditions", [])
+        ),
+        TIMEOUT_120S,
+        f"ModelCacheReady not True within {TIMEOUT_120S}s",
+    )
+    yield worker
+    disable_model_cache(kubectl)
+    _poll_cr(
+        kubectl,
+        KSERVE_CR_NAME,
+        generation_matches,
+        TIMEOUT_120S,
+        f"ModelCache disable not reconciled within {TIMEOUT_120S}s",
+    )
+
+
+PLATFORM_VERSION_CM = "odh-kserve-config"
+TEST_PLATFORM_VERSION = "99.0.0"
+
+
+def platform_configmap_exists(kubectl_bin):
+    """Check if the platform version ConfigMap already exists."""
+    return resource_exists(kubectl_bin, "configmap", PLATFORM_VERSION_CM, namespace=NAMESPACE)
+
+
+@pytest.fixture
+def ensure_platform_configmap(kubectl, apply_kserve_cr):
+    """Ensure odh-kserve-config ConfigMap exists with a platformVersion.
+
+    If it already exists (e.g. platform operator created it), leave it alone.
+    Otherwise create a test one and clean up after.
+    """
+    already_existed = platform_configmap_exists(kubectl)
+
+    if not already_existed:
+        cm_yaml = yaml.safe_dump({
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {"name": PLATFORM_VERSION_CM, "namespace": NAMESPACE},
+            "data": {"platformVersion": TEST_PLATFORM_VERSION},
+        })
+        run([kubectl, "apply", "-f", "-"], input_text=cm_yaml)
+        _poll_cr(
+            kubectl,
+            KSERVE_CR_NAME,
+            lambda cr: any(
+                r.get("name") == "platform"
+                for r in cr.get("status", {}).get("releases", [])
+            ),
+            TIMEOUT_60S,
+            "platform release not reported after ConfigMap creation",
+        )
+
+    yield
+
+    if not already_existed:
+        run(
+            [kubectl, "delete", "configmap", PLATFORM_VERSION_CM, "-n", NAMESPACE, "--ignore-not-found"],
+            check=False,
+        )

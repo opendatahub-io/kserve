@@ -21,6 +21,7 @@ const (
 	ConditionKServeReady           = "KServeReady"
 	ConditionModelControllerReady  = "ModelControllerReady"
 	ConditionWVAReady              = "WVAReady"
+	ConditionModelCacheReady       = "ModelCacheReady"
 	ConditionDependenciesAvailable = "DependenciesAvailable"
 )
 
@@ -31,6 +32,7 @@ func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
 		ConditionKServeReady,
 		ConditionModelControllerReady,
 		ConditionWVAReady,
+		ConditionModelCacheReady,
 		ConditionDependenciesAvailable,
 	)
 }
@@ -127,10 +129,21 @@ func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, k
 	} else {
 		condMgr.ClearCondition(ConditionWVAReady)
 	}
+
+	if !isModelCacheEnabled(kserve) {
+		condMgr.ClearCondition(ConditionModelCacheReady)
+	} else if err := r.checkModelCacheReadiness(ctx); err != nil {
+		condMgr.MarkFalse(ConditionModelCacheReady,
+			conditions.WithReason(modelCacheReadinessReason(err)),
+			conditions.WithMessage("%s", err.Error()))
+	} else {
+		condMgr.MarkTrue(ConditionModelCacheReady,
+			conditions.WithReason("ResourcesReady"))
+	}
 }
 
 func (r *KserveModuleReconciler) updateStatus(ctx context.Context, kserve *platformv1alpha1.Kserve, condMgr *conditions.Manager) error {
-	r.setReleaseStatus(kserve)
+	r.setReleaseStatus(ctx, kserve)
 	condMgr.Sort()
 
 	if condMgr.IsHappy() {
@@ -154,16 +167,19 @@ func (r *KserveModuleReconciler) updateStatus(ctx context.Context, kserve *platf
 	})
 }
 
-func (r *KserveModuleReconciler) setReleaseStatus(kserve *platformv1alpha1.Kserve) {
-	if len(kserve.Status.Releases) > 0 {
-		return
-	}
-
+func (r *KserveModuleReconciler) setReleaseStatus(ctx context.Context, kserve *platformv1alpha1.Kserve) {
 	releases, err := loadComponentReleases(r.ManifestsTemplatePath,
 		[]string{KserveComponentName, OdhModelControllerComponentName})
 	if err != nil {
 		ctrl.Log.Error(err, "failed to load component releases")
 		return
+	}
+
+	if v := r.getPlatformVersion(ctx); v != "" {
+		releases = append(releases, common.ComponentRelease{
+			Name:    "platform",
+			Version: v,
+		})
 	}
 
 	kserve.SetReleaseStatus(common.ComponentReleaseStatus{Releases: releases})

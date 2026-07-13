@@ -40,7 +40,26 @@ case "${DEPLOYMENT_PROFILE}" in
 esac
 
 export GATEWAY_CLASS_NAME=${GATEWAY_CLASS_NAME:-"openshift-default"}
-export INFERENCE_POOL_GROUP="${INFERENCE_POOL_GROUP:-inference.networking.x-k8s.io}"
+# Detect the correct InferencePool API group from the cluster version.
+# setup-kserve.sh does this too, but its export doesn't survive across CI steps.
+if [[ -z "${INFERENCE_POOL_GROUP:-}" ]]; then
+  source "$SCRIPT_DIR/version.sh"
+  server_version=$(get_openshift_server_version)
+  ocp_major_minor=$(echo "$server_version" | awk -F. '{print $1"."$2}')
+  if awk "BEGIN{exit !($ocp_major_minor <= 4.20)}"; then
+    export INFERENCE_POOL_GROUP="inference.networking.x-k8s.io"
+  else
+    export INFERENCE_POOL_GROUP="inference.networking.k8s.io"
+  fi
+  echo "INFERENCE_POOL_GROUP=${INFERENCE_POOL_GROUP} (detected from OCP ${server_version})"
+fi
+export GATEWAY_PROXY_MEMORY="${GATEWAY_PROXY_MEMORY:-2Gi}"
+if [[ -n "${PYTHONPATH:-}" ]]; then
+  export PYTHONPATH="${PYTHONPATH}:${PROJECT_ROOT}/test/e2e"
+else
+  export PYTHONPATH="${PROJECT_ROOT}/test/e2e"
+fi
+export PYTEST_ARGS="${PYTEST_ARGS:-} -p common.gateway_proxy_istio"
 export RUN_AS_NON_ROOT="${RUN_AS_NON_ROOT:-true}"
 export KUBE_CLI=${KUBE_CLI_COMMAND:-oc}
 
