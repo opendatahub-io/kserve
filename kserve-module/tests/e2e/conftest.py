@@ -13,6 +13,8 @@ import yaml
 # ---------------------------------------------------------------------------
 KSERVE_CR_NAME = "default-kserve"
 NAMESPACE = "opendatahub"
+MODEL_CACHE_NAMESPACE = "model-serving-cache"
+KSERVE_CONFIG_NAMESPACE_ENV = "KSERVE_CONFIG_NAMESPACE"
 OPERATOR_DEPLOYMENT = "kserve-module-controller-manager"
 TIMEOUT_120S = 120
 TIMEOUT_60S = 60

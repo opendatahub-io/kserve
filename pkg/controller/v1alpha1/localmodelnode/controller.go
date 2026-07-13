@@ -44,6 +44,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -436,8 +437,29 @@ func (c *LocalModelNodeReconciler) downloadModels(ctx context.Context, localMode
 		return nil
 	}
 
-	localModelNode.Status.ModelStatus = newStatus
-	if err := c.Status().Update(ctx, localModelNode); err != nil {
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		latest := &v1alpha1.LocalModelNode{}
+		if err := c.Get(ctx, client.ObjectKeyFromObject(localModelNode), latest); err != nil {
+			if errors.IsNotFound(err) {
+				c.Log.Info("LocalModelNode deleted, skipping status update", "name", localModelNode.Name)
+				return nil
+			}
+			return err
+		}
+		if maps.Equal(latest.Status.ModelStatus, newStatus) {
+			return nil
+		}
+		latest.Status.ModelStatus = newStatus
+		if err := c.Status().Update(ctx, latest); err != nil {
+			if errors.IsNotFound(err) {
+				c.Log.Info("LocalModelNode deleted, skipping status update", "name", localModelNode.Name)
+				return nil
+			}
+			return err
+		}
+		localModelNode.Status.ModelStatus = latest.Status.ModelStatus
+		return nil
+	}); err != nil {
 		c.Log.Error(err, "Update local model cache status error", "name", localModelNode.Name)
 		return err
 	}

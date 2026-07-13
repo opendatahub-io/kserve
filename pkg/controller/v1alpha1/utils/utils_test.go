@@ -19,8 +19,9 @@ package utils
 import (
 	"testing"
 
-	"github.com/kserve/kserve/pkg/constants"
 	"github.com/onsi/gomega"
+
+	"github.com/kserve/kserve/pkg/constants"
 )
 
 func TestInferenceServiceConfigNamespace(t *testing.T) {

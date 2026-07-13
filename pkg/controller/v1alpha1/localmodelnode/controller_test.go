@@ -1315,26 +1315,27 @@ var _ = Describe("LocalModelNode controller", func() {
 			Expect(k8sClient.Create(ctx, localModelNode)).Should(Succeed())
 			defer k8sClient.Delete(ctx, localModelNode)
 
-			// Wait for jobs to be created in both namespaces
+			// Wait for both jobs; a single Eventually avoids racing separate assertions
+			// when concurrent reconciles update status between job creations.
 			clusterJobs := &batchv1.JobList{}
+			nsJobs := &batchv1.JobList{}
 			clusterLabelSelector := map[string]string{
 				"model": clusterModelName,
 				"node":  nodeName,
 			}
-			Eventually(func() bool {
-				err := k8sClient.List(ctx, clusterJobs, client.InNamespace(jobNamespace), client.MatchingLabels(clusterLabelSelector))
-				return err == nil && len(clusterJobs.Items) == 1
-			}, timeout, interval).Should(BeTrue(), "Cluster-scoped job should be in default jobNamespace")
-
-			nsJobs := &batchv1.JobList{}
 			nsLabelSelector := map[string]string{
 				"model": nsModelName,
 				"node":  nodeName,
 			}
 			Eventually(func() bool {
-				err := k8sClient.List(ctx, nsJobs, client.InNamespace(modelCacheNamespace), client.MatchingLabels(nsLabelSelector))
-				return err == nil && len(nsJobs.Items) == 1
-			}, timeout, interval).Should(BeTrue(), "Namespace-scoped job should be in jobNamespace")
+				if err := k8sClient.List(ctx, clusterJobs, client.InNamespace(jobNamespace), client.MatchingLabels(clusterLabelSelector)); err != nil || len(clusterJobs.Items) != 1 {
+					return false
+				}
+				if err := k8sClient.List(ctx, nsJobs, client.InNamespace(jobNamespace), client.MatchingLabels(nsLabelSelector)); err != nil || len(nsJobs.Items) != 1 {
+					return false
+				}
+				return true
+			}, timeout, interval).Should(BeTrue(), "Cluster and namespace-scoped jobs should be created in jobNamespace")
 
 			// Update both jobs to succeeded
 			clusterJob := &clusterJobs.Items[0]
