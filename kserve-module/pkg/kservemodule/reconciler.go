@@ -327,7 +327,7 @@ func (r *KserveModuleReconciler) getMonitoringNamespace() string {
 		return ns
 	}
 
-	return r.getApplicationsNamespace()
+	return "opendatahub"
 }
 
 func (r *KserveModuleReconciler) getApplicationsNamespace() string {
