@@ -143,14 +143,19 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	log.Info("reconciling Kserve CR", "name", kserve.Name)
 
-	r.registerDynamicWatches(ctx)
-
 	condMgr := newConditionManager(kserve)
 	defer func() {
 		if err := r.updateStatus(ctx, kserve, condMgr); err != nil && retErr == nil {
 			retErr = err
 		}
 	}()
+
+	if kserve.Generation == kserve.Status.ObservedGeneration {
+		r.updateComponentReadiness(ctx, kserve, condMgr)
+		return ctrl.Result{}, nil
+	}
+
+	r.registerDynamicWatches(ctx)
 
 	depResult := r.checkDependencies(ctx, kserve)
 	applyDependencyConditions(condMgr, depResult)
