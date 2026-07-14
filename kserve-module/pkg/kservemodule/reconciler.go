@@ -85,6 +85,9 @@ import (
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheuses/api,resourceNames=k8s,verbs=get;create;update
 
+// --- Observability (Perses dashboards deployed to monitoring namespace when COO is present) ---
+// +kubebuilder:rbac:groups=perses.dev,resources=persesdashboards,verbs=create;delete;get;list;patch;update;watch
+
 // --- Dependency detection (read-only: check if required operators are installed) ---
 // +kubebuilder:rbac:groups=operators.coreos.com,resources=subscriptions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=operator.openshift.io,resources=leaderworkersets,verbs=get;list;watch
@@ -116,6 +119,7 @@ type KserveModuleReconciler struct {
 	workDir               string
 	initDone              bool
 	applicationsNamespace string
+	monitoringNamespace   string
 	clusterType           *cluster.ClusterType
 
 	controller     controller.Controller
@@ -319,6 +323,19 @@ func (r *KserveModuleReconciler) isKubernetes(ctx context.Context) bool {
 
 	r.clusterType = &ct
 	return ct == cluster.ClusterTypeKubernetes
+}
+
+func (r *KserveModuleReconciler) getMonitoringNamespace() string {
+	if r.monitoringNamespace != "" {
+		return r.monitoringNamespace
+	}
+
+	if ns := os.Getenv("MONITORING_NAMESPACE"); ns != "" {
+		r.monitoringNamespace = ns
+		return ns
+	}
+
+	return "opendatahub"
 }
 
 func (r *KserveModuleReconciler) getApplicationsNamespace() string {

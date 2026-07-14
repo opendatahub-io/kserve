@@ -6,13 +6,15 @@ const (
 	OdhModelControllerComponentName = "modelcontroller"
 	WVAComponentName                = "wva"
 	ModelCacheComponentName         = "modelcache"
+	ObservabilityComponentName      = "observability"
 
 	// Manifest source paths
-	KserveManifestSourcePath     = "overlays/odh"
-	KserveManifestSourcePathXKS  = "overlays/odh-xks"
-	ModelCacheManifestSourcePath = "overlays/odh-modelcache"
-	ModelControllerSourcePath    = "base"
-	WVAManifestSourcePathOCP     = "overlays/namespace-scoped/openshift"
+	KserveManifestSourcePath        = "overlays/odh"
+	KserveManifestSourcePathXKS     = "overlays/odh-xks"
+	ModelCacheManifestSourcePath    = "overlays/odh-modelcache"
+	ModelControllerSourcePath       = "base"
+	WVAManifestSourcePathOCP        = "overlays/namespace-scoped/openshift"
+	ObservabilityManifestSourcePath = "monitoring/llmisvc/dashboards"
 
 	// Deployment names
 	kserveControllerDeployment     = "kserve-controller-manager"

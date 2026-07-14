@@ -39,6 +39,7 @@ var dependencyCRDSuffixes = []string{
 var dependencyCRDNames = map[string]bool{
 	"leaderworkersets.operator.openshift.io": true,
 	"subscriptions.operators.coreos.com":     true,
+	"persesdashboards.perses.dev":            true,
 }
 
 var watchedSubscriptions = map[string]bool{

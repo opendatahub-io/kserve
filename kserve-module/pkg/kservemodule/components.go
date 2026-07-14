@@ -66,6 +66,14 @@ var components = []componentConfig{
 		postRender:   modelCacheComponentPostRender,
 		extraCleanup: cleanupModelCacheComponent,
 	},
+	{
+		// No enabled func: CRD check requires API client, handled in postRender.
+		name:         ObservabilityComponentName,
+		manifestName: KserveComponentName,
+		sourcePath:   ObservabilityManifestSourcePath,
+		imageMap:     map[string]string{},
+		postRender:   observabilityPostRender,
+	},
 }
 
 func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
@@ -108,6 +116,30 @@ func filterOutNamespaces(resources []unstructured.Unstructured) []unstructured.U
 		filtered = append(filtered, resources[i])
 	}
 	return filtered
+}
+
+func observabilityPostRender(ctx context.Context, r *KserveModuleReconciler,
+	_ *platformv1alpha1.Kserve,
+	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
+
+	log := ctrl.LoggerFrom(ctx)
+
+	reasons := r.checkCRD(ctx, dependencyCheck{
+		name:    "PersesDashboard",
+		crdName: "persesdashboards.perses.dev",
+	})
+	if len(reasons) > 0 {
+		log.Info("PersesDashboard CRD not available, skipping observability dashboards")
+		return nil, nil
+	}
+
+	ns := r.getMonitoringNamespace()
+	for i := range resources {
+		resources[i].SetNamespace(ns)
+	}
+	log.Info("set monitoring namespace on observability resources", "namespace", ns, "count", len(resources))
+
+	return resources, nil
 }
 
 func isWVAEnabled(kserve *platformv1alpha1.Kserve) bool {
