@@ -111,8 +111,13 @@ EOF
 
   echo ""
   echo "=== Applying ${job_type} job '${job_name}' ==="
-  kustomize build "${tmpdir}" | kubectl apply -f -
+  local apply_rc=0
+  kustomize build "${tmpdir}" | kubectl apply -f - || apply_rc=$?
   rm -rf "${tmpdir}"
+  if [ "${apply_rc}" -ne 0 ]; then
+    echo "Failed to apply ${job_type} job" >&2
+    return 1
+  fi
 
   echo "Waiting for pod to start..."
   while ! kubectl get pod -l "job-name=${job_name}" -n "${NAMESPACE}" -o jsonpath='{.items[0].status.phase}' 2>/dev/null | grep -qE 'Running|Succeeded|Failed'; do

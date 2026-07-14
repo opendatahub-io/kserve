@@ -463,7 +463,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (le, pod))",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (le, pod))",
           "interval": "",
           "legendFormat": "{{pod}}",
           "refId": "A"
