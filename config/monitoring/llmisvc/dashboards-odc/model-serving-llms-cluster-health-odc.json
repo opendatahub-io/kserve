@@ -579,12 +579,151 @@
     },
     {
       "datasource": "$datasource",
+      "description": "Total successful request rate across all model servers",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 18
+      },
+      "id": 3,
+      "options": {
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": false
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(vllm:request_success_total{namespace=~\"$namespace\"}[5m])) or vector(0)",
+          "interval": "",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "Total Request Rate",
+      "type": "gauge",
+      "span": 4
+    },
+    {
+      "datasource": "$datasource",
+      "description": "Percentage of non-2xx HTTP responses across all model servers. Green < 1%, yellow >= 1%, red >= 5%.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 18
+      },
+      "id": 23,
+      "options": {
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "expr": "100 * (sum(rate(http_requests_total{llm_isvc_name!=\"\",namespace=~\"$namespace\",status!=\"2xx\"}[5m])) / (sum(rate(http_requests_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m])) > 0)) or vector(0)",
+          "interval": "",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "HTTP Error Rate",
+      "type": "gauge",
+      "span": 4
+    },
+    {
+      "datasource": "$datasource",
+      "description": "P99 end-to-end request latency across all model servers",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 18
+      },
+      "id": 24,
+      "options": {
+        "orientation": "auto",
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "expr": "(histogram_quantile(0.99, sum(rate(vllm:e2e_request_latency_seconds_bucket{namespace=~\"$namespace\"}[5m])) by (le)) >= 0) or vector(0)",
+          "interval": "",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "title": "E2E Latency P99",
+      "type": "gauge",
+      "span": 4
+    },
+    {
+      "datasource": "$datasource",
       "description": "User-facing model names currently being served, with the model server (LLMInferenceService) they map to.",
       "gridPos": {
         "h": 6,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 26
       },
       "id": 22,
       "targets": [
@@ -695,7 +834,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 32
       },
       "id": 200,
       "title": "Per-Model-Server Health",
@@ -715,7 +854,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 25
+        "y": 33
       },
       "hiddenSeries": false,
       "id": 5,
@@ -812,7 +951,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 25
+        "y": 33
       },
       "hiddenSeries": false,
       "id": 6,
@@ -926,7 +1065,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 25
+        "y": 33
       },
       "hiddenSeries": false,
       "id": 7,
@@ -1017,7 +1156,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 33
+        "y": 41
       },
       "id": 300,
       "title": "Capacity & Scheduling",
@@ -1037,7 +1176,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 34
+        "y": 42
       },
       "hiddenSeries": false,
       "id": 8,
@@ -1145,7 +1284,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 34
+        "y": 42
       },
       "hiddenSeries": false,
       "id": 9,
@@ -1237,7 +1376,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 34
+        "y": 42
       },
       "hiddenSeries": false,
       "id": 10,
@@ -1323,7 +1462,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 42
+        "y": 50
       },
       "id": 400,
       "title": "Staleness & Token Throughput",
@@ -1343,7 +1482,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 43
+        "y": 51
       },
       "hiddenSeries": false,
       "id": 11,
@@ -1454,7 +1593,7 @@
         "h": 8,
         "w": 16,
         "x": 8,
-        "y": 43
+        "y": 51
       },
       "hiddenSeries": false,
       "id": 12,
@@ -1545,7 +1684,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 51
+        "y": 59
       },
       "id": 500,
       "title": "SLO & Scheduler Signals",
@@ -1565,7 +1704,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 52
+        "y": 60
       },
       "hiddenSeries": false,
       "id": 13,
@@ -1656,7 +1795,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 52
+        "y": 60
       },
       "hiddenSeries": false,
       "id": 14,
@@ -1770,7 +1909,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 52
+        "y": 60
       },
       "hiddenSeries": false,
       "id": 15,
@@ -1864,7 +2003,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 60
+        "y": 68
       },
       "hiddenSeries": false,
       "id": 16,
@@ -1972,7 +2111,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 60
+        "y": 68
       },
       "hiddenSeries": false,
       "id": 17,
@@ -2057,7 +2196,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 68
+        "y": 76
       },
       "id": 600,
       "title": "Disaggregation Health",
@@ -2077,7 +2216,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 69
+        "y": 77
       },
       "hiddenSeries": false,
       "id": 601,
@@ -2168,7 +2307,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 69
+        "y": 77
       },
       "hiddenSeries": false,
       "id": 602,

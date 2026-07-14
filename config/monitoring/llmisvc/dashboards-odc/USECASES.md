@@ -52,16 +52,21 @@ If all are green, the cluster is healthy. Move on.
 | CH: Gateway Request Rate by Response Code | 19 | `sum by (response_code) (rate(istio_requests_total{llm_isvc_gateway="true",destination_service_namespace=~"$namespace"}[5m]))` |
 | CH: Gateway Latency P95 by Gateway | 20 | `histogram_quantile(0.95, sum by (le, source_workload) (rate(istio_request_duration_milliseconds_bucket{llm_isvc_gateway="true",destination_service_namespace=~"$namespace"}[5m])))` |
 
-**SLI Summary:**
+**SLI Summary (resource inventory):**
 
 | Panel | ID | Query |
 |---|---|---|
-| CH: Total Request Rate | 1 | `sum(rate(vllm:request_success_total{namespace=~"$namespace"}[5m]))` |
-| CH: HTTP Error Rate | 2 | `100 * (sum(rate(inference_objective_request_error_total{namespace=~"$namespace"}[5m])) / (sum(rate(inference_objective_request_total{namespace=~"$namespace"}[5m])) > 0))` |
-| CH: E2E Latency P99 | 3 | `histogram_quantile(0.99, sum(rate(inference_objective_request_duration_seconds_bucket{namespace=~"$namespace"}[5m])) by (le))` |
-| CH: Ready Pods | 4 | `sum(inference_pool_ready_pods{namespace=~"$namespace"})` |
+| CH: LLMInferenceServices | 1 | `cluster:usage:resources:sum{resource="llminferenceservices.serving.kserve.io"} or vector(0)` |
+| CH: LLMInferenceServiceConfigs | 2 | `cluster:usage:resources:sum{resource="llminferenceserviceconfigs.serving.kserve.io"} or vector(0)` |
+| CH: Ready Pods | 4 | `sum(inference_pool_ready_pods{namespace=~"$namespace"}) or vector(0)` |
 
-The HTTP Error Rate and E2E Latency gauges use a dual-source strategy: they try scheduler metrics (`inference_objective_*`) first, then fall back to vLLM metrics (`vllm:*` / `http_*`) if the scheduler is not available.
+**SLI Summary (serving health):**
+
+| Panel | ID | Query |
+|---|---|---|
+| CH: Total Request Rate | 3 | `sum(rate(vllm:request_success_total{namespace=~"$namespace"}[5m])) or vector(0)` |
+| CH: HTTP Error Rate | 23 | `100 * (sum(rate(http_requests_total{llm_isvc_name!="",namespace=~"$namespace",status!="2xx"}[5m])) / (sum(rate(http_requests_total{llm_isvc_name!="",namespace=~"$namespace"}[5m])) > 0)) or vector(0)` |
+| CH: E2E Latency P99 | 24 | `(histogram_quantile(0.99, sum(rate(vllm:e2e_request_latency_seconds_bucket{namespace=~"$namespace"}[5m])) by (le)) >= 0) or vector(0)` |
 
 ---
 
