@@ -20,7 +20,10 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
+
+	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
 const (
@@ -161,14 +164,65 @@ func deleteLegacySelectorWorkloads(ctx context.Context, cli client.Client, names
 	return errors.Join(errs...)
 }
 
+// knownConditionTypes lists all condition types managed by kserve-module.
+// Conditions not in this set (e.g. from the in-tree ODH operator) are removed on upgrade.
+// TODO(3.6): remove removeStaleConditions and knownConditionTypes — only needed for 3.5 migration from in-tree operator.
+var knownConditionTypes = map[string]bool{
+	string(common.ConditionTypeReady):                true,
+	string(common.ConditionTypeProvisioningSucceeded): true,
+	string(common.ConditionTypeDegraded):              true,
+	ConditionKServeReady:                              true,
+	ConditionModelControllerReady:                     true,
+	ConditionWVAReady:                                 true,
+	ConditionModelCacheReady:                          true,
+	ConditionDependenciesAvailable:                    true,
+	conditionLLMISVCDeps:                              true,
+	conditionLLMISVCWideEPDeps:                        true,
+	conditionLLMDWVADeps:                              true,
+}
+
+func removeStaleConditions(ctx context.Context, cli client.Client, crName string) error {
+	kserve := &platformv1alpha1.Kserve{}
+	if err := cli.Get(ctx, types.NamespacedName{Name: crName}, kserve); err != nil {
+		if k8serr.IsNotFound(err) {
+			return nil
+		}
+		return err
+	}
+
+	existing := kserve.GetConditions()
+	if len(existing) == 0 {
+		return nil
+	}
+
+	clean := make([]common.Condition, 0, len(existing))
+	for _, c := range existing {
+		if knownConditionTypes[c.Type] {
+			clean = append(clean, c)
+		}
+	}
+
+	if len(clean) == len(existing) {
+		return nil
+	}
+
+	kserve.SetConditions(clean)
+	return cli.Status().Update(ctx, kserve)
+}
+
 // runUpgradeTasks performs one-time migration tasks on startup:
 //  1. Deletes Deployments and DaemonSets carrying legacy selector labels from the in-tree ODH operator.
-//  2. Migrates HardwareProfile annotations on InferenceServices.
+//  2. Removes stale conditions left by the in-tree ODH operator.
+//  3. Migrates HardwareProfile annotations on InferenceServices.
 func runUpgradeTasks(ctx context.Context, cli client.Client, applicationNS string) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	if err := deleteLegacySelectorWorkloads(ctx, cli, applicationNS); err != nil {
 		log.Error(err, "legacy selector deployment cleanup encountered errors")
+	}
+
+	if err := removeStaleConditions(ctx, cli, platformv1alpha1.KserveInstanceName); err != nil {
+		log.Error(err, "stale condition cleanup encountered errors")
 	}
 
 	if err := migrateHardwareProfileAnnotations(ctx, cli, applicationNS); err != nil {

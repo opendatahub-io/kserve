@@ -203,11 +203,12 @@ func (r *KserveModuleReconciler) checkDependencies(ctx context.Context, kserve *
 
 			if item.dep.critical {
 				result.criticalErrors = append(result.criticalErrors, msg)
-			} else if item.dep.conditionGroup != "" {
-				result.groupReasons[item.dep.conditionGroup] = append(
-					result.groupReasons[item.dep.conditionGroup], msg)
 			} else {
 				result.degradedReasons = append(result.degradedReasons, msg)
+				if item.dep.conditionGroup != "" {
+					result.groupReasons[item.dep.conditionGroup] = append(
+						result.groupReasons[item.dep.conditionGroup], msg)
+				}
 			}
 		}
 	}
