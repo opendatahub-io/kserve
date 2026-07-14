@@ -21,6 +21,9 @@ import (
 
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/types"
 )
 
 func TestFindCommonParentPath(t *testing.T) {
@@ -230,4 +233,424 @@ func TestAddDefaultHuggingFaceEnvVars(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestModelcarNames(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+
+	t.Run("Index 0 returns original constants", func(t *testing.T) {
+		sidecar, init, volume := ModelcarNames(0)
+		g.Expect(sidecar).To(gomega.Equal(constants.ModelcarContainerName))
+		g.Expect(init).To(gomega.Equal(constants.ModelcarInitContainerName))
+		g.Expect(volume).To(gomega.Equal(constants.StorageInitializerVolumeName))
+	})
+
+	t.Run("Index 1 returns suffixed names", func(t *testing.T) {
+		sidecar, init, volume := ModelcarNames(1)
+		g.Expect(sidecar).To(gomega.Equal(constants.ModelcarContainerName + "-1"))
+		g.Expect(init).To(gomega.Equal(constants.ModelcarInitContainerName + "-1"))
+		g.Expect(volume).To(gomega.Equal(constants.StorageInitializerVolumeName + "-1"))
+	})
+
+	t.Run("Index 2 returns suffixed names", func(t *testing.T) {
+		sidecar, init, volume := ModelcarNames(2)
+		g.Expect(sidecar).To(gomega.Equal(constants.ModelcarContainerName + "-2"))
+		g.Expect(init).To(gomega.Equal(constants.ModelcarInitContainerName + "-2"))
+		g.Expect(volume).To(gomega.Equal(constants.StorageInitializerVolumeName + "-2"))
+	})
+}
+
+func TestConfigureModelcarToContainerMultipleOCI(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+	storageConfig := &types.StorageInitializerConfig{}
+
+	t.Run("Single OCI URI produces original container names", func(t *testing.T) {
+		podSpec := &corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: constants.InferenceServiceContainerName},
+			},
+		}
+
+		err := ConfigureModelcarToContainer(
+			"oci://registry.example.com/model-a:v1",
+			podSpec,
+			constants.InferenceServiceContainerName,
+			constants.DefaultModelLocalMountPath,
+			storageConfig,
+			0,
+		)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+
+		// Sidecar container should use the original constant name
+		modelcar := GetContainerWithName(podSpec, constants.ModelcarContainerName)
+		g.Expect(modelcar).ToNot(gomega.BeNil(), "modelcar sidecar should be present")
+		g.Expect(modelcar.Image).To(gomega.Equal("registry.example.com/model-a:v1"))
+
+		// Init container should use the original constant name
+		g.Expect(podSpec.InitContainers).To(gomega.HaveLen(1))
+		g.Expect(podSpec.InitContainers[0].Name).To(gomega.Equal(constants.ModelcarInitContainerName))
+
+		// Volume should use the original constant name
+		g.Expect(podSpec.Volumes).To(gomega.HaveLen(1))
+		g.Expect(podSpec.Volumes[0].Name).To(gomega.Equal(constants.StorageInitializerVolumeName))
+
+		// ShareProcessNamespace should be enabled
+		g.Expect(podSpec.ShareProcessNamespace).ToNot(gomega.BeNil())
+		g.Expect(*podSpec.ShareProcessNamespace).To(gomega.BeTrue())
+	})
+
+	t.Run("Two OCI URIs produce uniquely named sidecars", func(t *testing.T) {
+		podSpec := &corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: constants.InferenceServiceContainerName},
+			},
+		}
+
+		// First OCI URI (index 0) — uses original names
+		err := ConfigureModelcarToContainer(
+			"oci://registry.example.com/model-a:v1",
+			podSpec,
+			constants.InferenceServiceContainerName,
+			"/mnt/models/model-a",
+			storageConfig,
+			0,
+		)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+
+		// Second OCI URI (index 1) — uses suffixed names
+		err = ConfigureModelcarToContainer(
+			"oci://registry.example.com/model-b:v2",
+			podSpec,
+			constants.InferenceServiceContainerName,
+			"/mnt/models/model-b",
+			storageConfig,
+			1,
+		)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+
+		// Should have 3 containers: kserve-container + modelcar + modelcar-1
+		g.Expect(podSpec.Containers).To(gomega.HaveLen(3), "should have kserve-container + 2 modelcar sidecars")
+
+		modelcarA := GetContainerWithName(podSpec, constants.ModelcarContainerName)
+		g.Expect(modelcarA).ToNot(gomega.BeNil(), "first modelcar sidecar should exist")
+		g.Expect(modelcarA.Image).To(gomega.Equal("registry.example.com/model-a:v1"))
+
+		modelcarB := GetContainerWithName(podSpec, constants.ModelcarContainerName+"-1")
+		g.Expect(modelcarB).ToNot(gomega.BeNil(), "second modelcar sidecar should exist")
+		g.Expect(modelcarB.Image).To(gomega.Equal("registry.example.com/model-b:v2"))
+
+		// Should have 2 init containers: modelcar-init + modelcar-init-1
+		g.Expect(podSpec.InitContainers).To(gomega.HaveLen(2), "should have 2 modelcar init containers")
+		g.Expect(podSpec.InitContainers[0].Name).To(gomega.Equal(constants.ModelcarInitContainerName))
+		g.Expect(podSpec.InitContainers[1].Name).To(gomega.Equal(constants.ModelcarInitContainerName + "-1"))
+
+		// Should have 2 volumes with distinct names
+		g.Expect(podSpec.Volumes).To(gomega.HaveLen(2), "should have 2 emptyDir volumes")
+		g.Expect(podSpec.Volumes[0].Name).To(gomega.Equal(constants.StorageInitializerVolumeName))
+		g.Expect(podSpec.Volumes[1].Name).To(gomega.Equal(constants.StorageInitializerVolumeName + "-1"))
+
+		// Verify the kserve-container has volume mounts for BOTH volumes
+		kserveContainer := GetContainerWithName(podSpec, constants.InferenceServiceContainerName)
+		g.Expect(kserveContainer).ToNot(gomega.BeNil())
+		g.Expect(kserveContainer.VolumeMounts).To(gomega.HaveLen(2), "kserve-container should have mounts for both volumes")
+
+		mountNames := make([]string, 0, 2)
+		for _, m := range kserveContainer.VolumeMounts {
+			mountNames = append(mountNames, m.Name)
+		}
+		g.Expect(mountNames).To(gomega.ContainElement(constants.StorageInitializerVolumeName))
+		g.Expect(mountNames).To(gomega.ContainElement(constants.StorageInitializerVolumeName + "-1"))
+
+		// Each modelcar sidecar should reference its own volume
+		g.Expect(modelcarA.VolumeMounts[0].Name).To(gomega.Equal(constants.StorageInitializerVolumeName))
+		g.Expect(modelcarB.VolumeMounts[0].Name).To(gomega.Equal(constants.StorageInitializerVolumeName + "-1"))
+	})
+
+	t.Run("Three OCI URIs produce three distinct sidecars", func(t *testing.T) {
+		podSpec := &corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: constants.InferenceServiceContainerName},
+			},
+		}
+
+		uris := []string{
+			"oci://registry.example.com/base-model:v1",
+			"oci://registry.example.com/adapter-a:v1",
+			"oci://registry.example.com/adapter-b:v1",
+		}
+		paths := []string{
+			"/mnt/models/base",
+			"/mnt/models/adapter-a",
+			"/mnt/models/adapter-b",
+		}
+
+		for i, uri := range uris {
+			err := ConfigureModelcarToContainer(uri, podSpec, constants.InferenceServiceContainerName, paths[i], storageConfig, i)
+			g.Expect(err).ToNot(gomega.HaveOccurred())
+		}
+
+		// 1 user container + 3 modelcar sidecars
+		g.Expect(podSpec.Containers).To(gomega.HaveLen(4))
+		g.Expect(podSpec.InitContainers).To(gomega.HaveLen(3))
+		g.Expect(podSpec.Volumes).To(gomega.HaveLen(3))
+
+		// Verify naming: modelcar, modelcar-1, modelcar-2
+		g.Expect(GetContainerWithName(podSpec, "modelcar")).ToNot(gomega.BeNil())
+		g.Expect(GetContainerWithName(podSpec, "modelcar-1")).ToNot(gomega.BeNil())
+		g.Expect(GetContainerWithName(podSpec, "modelcar-2")).ToNot(gomega.BeNil())
+	})
+
+	t.Run("Error when target container not found", func(t *testing.T) {
+		podSpec := &corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "some-other-container"},
+			},
+		}
+
+		err := ConfigureModelcarToContainer(
+			"oci://registry.example.com/model:v1",
+			podSpec,
+			constants.InferenceServiceContainerName,
+			constants.DefaultModelLocalMountPath,
+			storageConfig,
+			0,
+		)
+		g.Expect(err).To(gomega.HaveOccurred())
+		g.Expect(err.Error()).To(gomega.ContainSubstring("no container found with name"))
+	})
+
+	t.Run("Idempotent - calling twice with same index does not duplicate", func(t *testing.T) {
+		podSpec := &corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: constants.InferenceServiceContainerName},
+			},
+		}
+
+		for range 2 {
+			err := ConfigureModelcarToContainer(
+				"oci://registry.example.com/model:v1",
+				podSpec,
+				constants.InferenceServiceContainerName,
+				constants.DefaultModelLocalMountPath,
+				storageConfig,
+				0,
+			)
+			g.Expect(err).ToNot(gomega.HaveOccurred())
+		}
+
+		// Should still only have 1 modelcar sidecar and 1 init container
+		g.Expect(podSpec.Containers).To(gomega.HaveLen(2)) // kserve-container + 1 modelcar
+		g.Expect(podSpec.InitContainers).To(gomega.HaveLen(1))
+		g.Expect(podSpec.Volumes).To(gomega.HaveLen(1))
+	})
+}
+
+func TestValidateOCIMountPaths(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+
+	t.Run("Single path is always valid", func(t *testing.T) {
+		err := ValidateOCIMountPaths([]string{"/mnt/models"})
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+	})
+
+	t.Run("Empty paths are valid", func(t *testing.T) {
+		err := ValidateOCIMountPaths(nil)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+	})
+
+	t.Run("Distinct parent directories are valid", func(t *testing.T) {
+		err := ValidateOCIMountPaths([]string{
+			"/mnt/model-a/data",
+			"/mnt/model-b/data",
+		})
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+	})
+
+	t.Run("Shared parent directory is rejected", func(t *testing.T) {
+		err := ValidateOCIMountPaths([]string{
+			"/mnt/models/model-a",
+			"/mnt/models/model-b",
+		})
+		g.Expect(err).To(gomega.HaveOccurred())
+		g.Expect(err.Error()).To(gomega.ContainSubstring("volume mount shadowing"))
+		g.Expect(err.Error()).To(gomega.ContainSubstring("/mnt/models"))
+	})
+
+	t.Run("Three paths with collision on second pair", func(t *testing.T) {
+		err := ValidateOCIMountPaths([]string{
+			"/mnt/alpha/data",
+			"/mnt/beta/model-x",
+			"/mnt/beta/model-y", // collides with previous
+		})
+		g.Expect(err).To(gomega.HaveOccurred())
+		g.Expect(err.Error()).To(gomega.ContainSubstring("/mnt/beta"))
+	})
+
+	t.Run("Default mount path used twice is rejected", func(t *testing.T) {
+		err := ValidateOCIMountPaths([]string{
+			constants.DefaultModelLocalMountPath,
+			constants.DefaultModelLocalMountPath,
+		})
+		g.Expect(err).To(gomega.HaveOccurred())
+	})
+}
+
+func TestMaxOCISourcesPerPod(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+	// Ensure the constant is reasonable and matches documented limit
+	g.Expect(MaxOCISourcesPerPod).To(gomega.Equal(10),
+		"MaxOCISourcesPerPod should be 10 — each URI adds 2 containers + 1 volume")
+}
+
+func TestConfigureImageVolumeToContainer(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+
+	createTestPodSpec := func() *corev1.PodSpec {
+		return &corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: constants.InferenceServiceContainerName},
+			},
+		}
+	}
+
+	t.Run("SuccessfullyConfigureImageVolume", func(t *testing.T) {
+		podSpec := createTestPodSpec()
+		modelUri := constants.OciURIPrefix + "ghcr.io/org/model:v1"
+		modelPath := constants.DefaultModelLocalMountPath
+
+		err := ConfigureImageVolumeToContainer(modelUri, podSpec, constants.InferenceServiceContainerName, modelPath)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+
+		// Verify volume was created
+		g.Expect(podSpec.Volumes).To(gomega.HaveLen(1))
+		g.Expect(podSpec.Volumes[0].Name).To(gomega.Equal(constants.StorageInitializerVolumeName))
+		g.Expect(podSpec.Volumes[0].Image).ToNot(gomega.BeNil())
+		g.Expect(podSpec.Volumes[0].Image.Reference).To(gomega.Equal("ghcr.io/org/model:v1"))
+		g.Expect(podSpec.Volumes[0].Image.PullPolicy).To(gomega.Equal(corev1.PullIfNotPresent))
+
+		// Verify volume mount was added to container
+		container := GetContainerWithName(podSpec, constants.InferenceServiceContainerName)
+		g.Expect(container).ToNot(gomega.BeNil())
+		g.Expect(container.VolumeMounts).To(gomega.HaveLen(1))
+		g.Expect(container.VolumeMounts[0].Name).To(gomega.Equal(constants.StorageInitializerVolumeName))
+		g.Expect(container.VolumeMounts[0].MountPath).To(gomega.Equal(modelPath))
+		g.Expect(container.VolumeMounts[0].ReadOnly).To(gomega.BeTrue())
+		g.Expect(container.VolumeMounts[0].SubPath).To(gomega.Equal("models"))
+	})
+
+	t.Run("IdempotentWhenAlreadyConfigured", func(t *testing.T) {
+		podSpec := createTestPodSpec()
+		modelUri := constants.OciURIPrefix + "ghcr.io/org/model:v1"
+		modelPath := constants.DefaultModelLocalMountPath
+
+		// Configure once
+		err := ConfigureImageVolumeToContainer(modelUri, podSpec, constants.InferenceServiceContainerName, modelPath)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+
+		// Configure again - should be idempotent
+		err = ConfigureImageVolumeToContainer(modelUri, podSpec, constants.InferenceServiceContainerName, modelPath)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+
+		// Should still have only 1 volume and 1 mount
+		g.Expect(podSpec.Volumes).To(gomega.HaveLen(1))
+		container := GetContainerWithName(podSpec, constants.InferenceServiceContainerName)
+		g.Expect(container.VolumeMounts).To(gomega.HaveLen(1))
+	})
+
+	t.Run("ErrorWhenContainerNotFound", func(t *testing.T) {
+		podSpec := createTestPodSpec()
+		modelUri := constants.OciURIPrefix + "ghcr.io/org/model:v1"
+
+		err := ConfigureImageVolumeToContainer(modelUri, podSpec, "nonexistent-container", constants.DefaultModelLocalMountPath)
+		g.Expect(err).To(gomega.HaveOccurred())
+		g.Expect(err.Error()).To(gomega.ContainSubstring("no container found"))
+	})
+
+	t.Run("ErrorWhenVolumeSameNameDifferentImage", func(t *testing.T) {
+		podSpec := createTestPodSpec()
+		// Pre-add a volume with same name but different type
+		podSpec.Volumes = []corev1.Volume{
+			{
+				Name: constants.StorageInitializerVolumeName,
+				VolumeSource: corev1.VolumeSource{
+					EmptyDir: &corev1.EmptyDirVolumeSource{},
+				},
+			},
+		}
+
+		modelUri := constants.OciURIPrefix + "ghcr.io/org/model:v1"
+		err := ConfigureImageVolumeToContainer(modelUri, podSpec, constants.InferenceServiceContainerName, constants.DefaultModelLocalMountPath)
+		g.Expect(err).To(gomega.HaveOccurred())
+		g.Expect(err.Error()).To(gomega.ContainSubstring("not an image volume"))
+	})
+
+	t.Run("ErrorWhenDifferentImageReference", func(t *testing.T) {
+		podSpec := createTestPodSpec()
+		// Pre-add volume with different image reference
+		podSpec.Volumes = []corev1.Volume{
+			{
+				Name: constants.StorageInitializerVolumeName,
+				VolumeSource: corev1.VolumeSource{
+					Image: &corev1.ImageVolumeSource{
+						Reference:  "ghcr.io/org/different:v1",
+						PullPolicy: corev1.PullIfNotPresent,
+					},
+				},
+			},
+		}
+
+		modelUri := constants.OciURIPrefix + "ghcr.io/org/model:v1"
+		err := ConfigureImageVolumeToContainer(modelUri, podSpec, constants.InferenceServiceContainerName, constants.DefaultModelLocalMountPath)
+		g.Expect(err).To(gomega.HaveOccurred())
+		g.Expect(err.Error()).To(gomega.ContainSubstring("different image reference"))
+	})
+
+	t.Run("ErrorWhenSameVolumeDifferentMountPath", func(t *testing.T) {
+		podSpec := createTestPodSpec()
+		modelUri := constants.OciURIPrefix + "ghcr.io/org/model:v1"
+
+		// Configure with first mount path
+		err := ConfigureImageVolumeToContainer(modelUri, podSpec, constants.InferenceServiceContainerName, "/mnt/models")
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+
+		// Try to mount same volume at different path
+		err = ConfigureImageVolumeToContainer(modelUri, podSpec, constants.InferenceServiceContainerName, "/opt/models")
+		g.Expect(err).To(gomega.HaveOccurred())
+		g.Expect(err.Error()).To(gomega.ContainSubstring("already mounted"))
+	})
+
+	t.Run("ConfigureWorkerContainer", func(t *testing.T) {
+		podSpec := &corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: constants.WorkerContainerName},
+			},
+		}
+		modelUri := constants.OciURIPrefix + "ghcr.io/org/model:v1"
+		modelPath := constants.DefaultModelLocalMountPath
+
+		err := ConfigureImageVolumeToContainer(modelUri, podSpec, constants.WorkerContainerName, modelPath)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+
+		container := GetContainerWithName(podSpec, constants.WorkerContainerName)
+		g.Expect(container).ToNot(gomega.BeNil())
+		g.Expect(container.VolumeMounts).To(gomega.HaveLen(1))
+		g.Expect(container.VolumeMounts[0].MountPath).To(gomega.Equal(modelPath))
+	})
+
+	t.Run("ConfigureTransformerContainer", func(t *testing.T) {
+		podSpec := &corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: constants.TransformerContainerName},
+			},
+		}
+		modelUri := constants.OciURIPrefix + "ghcr.io/org/transformer:v1"
+		modelPath := constants.DefaultModelLocalMountPath
+
+		err := ConfigureImageVolumeToContainer(modelUri, podSpec, constants.TransformerContainerName, modelPath)
+		g.Expect(err).ToNot(gomega.HaveOccurred())
+
+		container := GetContainerWithName(podSpec, constants.TransformerContainerName)
+		g.Expect(container).ToNot(gomega.BeNil())
+		g.Expect(container.VolumeMounts).To(gomega.HaveLen(1))
+	})
 }

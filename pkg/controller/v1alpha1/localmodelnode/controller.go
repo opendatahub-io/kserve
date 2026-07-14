@@ -18,6 +18,7 @@ limitations under the License.
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=clusterstoragecontainers,verbs=get;list;watch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodes/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodes/finalizers,verbs=update
 // +kubebuilder:rbac:groups=core,resources=configmaps,verbs=get
 // +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=core,resources=nodes/status,verbs=get;watch
@@ -198,7 +199,7 @@ func (c *LocalModelNodeReconciler) launchJob(ctx context.Context, localModelNode
 			TTLSecondsAfterFinished: &jobTTLSecondsAfterFinished,
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
-					NodeName:      nodeName,
+					NodeSelector:  map[string]string{"kubernetes.io/hostname": nodeName},
 					Containers:    []corev1.Container{*container},
 					RestartPolicy: corev1.RestartPolicyNever,
 					Volumes:       volumes,
@@ -209,7 +210,7 @@ func (c *LocalModelNodeReconciler) launchJob(ctx context.Context, localModelNode
 			},
 		},
 	}
-	if err := enhanceDownloadJob(ctx, c, job, storageKey); err != nil {
+	if err := c.enhanceDownloadJob(ctx, job, storageKey); err != nil {
 		c.Log.Error(err, "Failed to enhance download job", "name", modelInfo.ModelName)
 		return nil, err
 	}
@@ -568,7 +569,7 @@ func (c *LocalModelNodeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		fsHelper = NewFileSystemHelper(modelsRootFolder)
 	}
 
-	folderResult, err := ensureModelRootFolderExistsAndIsWritable(ctx, c, localModelConfig)
+	folderResult, err := c.ensureModelRootFolderExistsAndIsWritable(ctx, localModelConfig)
 	if err != nil || !folderResult.Continue {
 		if folderResult != nil {
 			return folderResult.Result, err

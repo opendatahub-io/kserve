@@ -15,7 +15,7 @@ metadata:
     appstudio.openshift.io/application: opendatahub-builds
     appstudio.openshift.io/component: kserve-controller-ci
     pipelines.appstudio.openshift.io/type: build
-  name: kserve-controller-on-pull-request
+  name: kserve-controller-on-pull
   namespace: open-data-hub-tenant
 spec:
   params:
@@ -24,17 +24,17 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/kserve-controller:master-pr
+    value: quay.io/opendatahub/kserve-controller:odh-pr
   - name: dockerfile
     value: Dockerfile
   - name: path-context
     value: .
-  - name: additional-tags
-    value:
-    - 'master-pr-{{revision}}'
   - name: build-args
     value:
     - "GOTAGS=distro"
+  - name: additional-tags
+    value:
+    - 'odh-pr-{{revision}}'
   - name: pipeline-type
     value: pull-request
   - name: enable-group-testing
@@ -48,6 +48,15 @@ spec:
       value: main
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
+  taskRunSpecs:
+    - pipelineTaskName: sast-shell-check
+      computeResources:
+        requests:
+          cpu: '2'
+          memory: 16Gi
+        limits:
+          cpu: '2'
+          memory: 16Gi
   taskRunTemplate:
     serviceAccountName: build-pipeline-kserve-controller
   workspaces:

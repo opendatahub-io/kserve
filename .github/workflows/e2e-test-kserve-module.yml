@@ -1,0 +1,103 @@
+name: kserve-module E2E Tests
+
+on:
+  push:
+    branches: [master, release*, stable]
+    paths:
+      - "kserve-module/**"
+  pull_request:
+    branches: [master, release*, stable]
+    paths:
+      - "kserve-module/**"
+  workflow_dispatch:
+
+env:
+  IMG_NAME: kserve-module-controller
+  IMG_TAG: e2e
+
+jobs:
+  kserve-module-image-build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Build controller image
+        run: |
+          docker build --load \
+            -t ${{ env.IMG_NAME }}:${{ env.IMG_TAG }} \
+            -f kserve-module-controller.Dockerfile .
+
+      - name: Save image as artifact
+        run: |
+          docker save ${{ env.IMG_NAME }}:${{ env.IMG_TAG }} \
+            -o /tmp/${{ env.IMG_NAME }}.tar
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ env.IMG_NAME }}
+          path: /tmp/${{ env.IMG_NAME }}.tar
+          retention-days: 1
+
+  e2e-test:
+    needs: kserve-module-image-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Minikube
+        uses: ./.github/actions/minikube-setup
+
+      - name: Download controller image
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ env.IMG_NAME }}
+          path: /tmp
+
+      - name: Load controller image
+        run: |
+          docker image load -i /tmp/${{ env.IMG_NAME }}.tar
+          minikube image load ${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: pip install pytest pyyaml
+
+      - name: Setup cluster and deploy controller
+        run: make e2e-setup-kserve-module PLATFORM=xks E2E_IMG=${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
+
+      - name: Run E2E tests
+        run: make e2e-kserve-module
+
+      - name: Collect debug logs
+        if: failure()
+        run: |
+          echo "=== Controller logs ==="
+          kubectl logs deployment/kserve-module-controller-manager -n opendatahub --tail=200 || true
+          echo "=== Kserve CR ==="
+          kubectl get kserve -A -o yaml || true
+          echo "=== Pods ==="
+          kubectl get pods -n opendatahub || true
+          echo "=== Events ==="
+          kubectl get events -n opendatahub --sort-by='.lastTimestamp' | tail -30 || true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: e2e-test-results
+          path: kserve-module/tests/e2e/.pytest_cache/
+          retention-days: 7

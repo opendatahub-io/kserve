@@ -16,7 +16,7 @@
 import os
 import pytest
 import logging
-from kubernetes import client
+from kubernetes import client, config as k8s_config
 
 from kubernetes.client import (
     V1ResourceRequirements,
@@ -43,7 +43,9 @@ from ..common.utils import KSERVE_TEST_NAMESPACE
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-kserve_client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
+_kubeconfig = os.environ.get("KUBECONFIG", "~/.kube/config")
+kserve_client = KServeClient(config_file=_kubeconfig)
+_api_client = k8s_config.new_client_from_config(config_file=_kubeconfig)
 
 
 def get_deployment(
@@ -145,7 +147,7 @@ async def test_multi_container_probing(rest_v1_client):
     kserve_client.wait_isvc_ready(service_name, KSERVE_TEST_NAMESPACE)
 
     # Get the Kubernetes Deployment for RawDeployment mode
-    k8s_client = client.AppsV1Api()
+    k8s_client = client.AppsV1Api(api_client=_api_client)
     try:
         for deployment in TimeoutSampler(
             wait_timeout=60,

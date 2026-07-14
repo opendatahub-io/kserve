@@ -22,22 +22,55 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-export GATEWAY_CLASS_NAME=${GATEWAY_CLASS_NAME:-"openshift-default"}
-export INFERENCE_POOL_GROUP="${INFERENCE_POOL_GROUP:-inference.networking.x-k8s.io}"
-export RUN_AS_NON_ROOT="${RUN_AS_NON_ROOT:-true}"
-export SKIP_DELETION_ON_FAILURE=${SKIP_DELETION_ON_FAILURE:-true}
-export KUBE_CLI=${KUBE_CLI_COMMAND:-oc}
-export KSERVE_NAMESPACE=${KSERVE_NAMESPACE:-"kserve"}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/common.sh"
+PROJECT_ROOT="$(find_project_root "$SCRIPT_DIR")"
 
-MY_PATH=$(dirname "$0")
-PROJECT_ROOT=$MY_PATH/../../../
-export CI_USE_ISVC_HOST="1"
+readonly MARKERS="${1:-raw}"
+readonly PARALLELISM="${2:-1}"
+
+readonly DEPLOYMENT_PROFILE="${3:-raw}"
+validate_deployment_profile "${DEPLOYMENT_PROFILE}"
+
+# Map deployment profile to network layer for pytest
+case "${DEPLOYMENT_PROFILE}" in
+  serverless) NETWORK_LAYER="istio" ;;
+  llm-d)      NETWORK_LAYER="gateway-api" ;;
+  *)          NETWORK_LAYER="openshift-route" ;;
+esac
+
+export GATEWAY_CLASS_NAME=${GATEWAY_CLASS_NAME:-"openshift-default"}
+# Detect the correct InferencePool API group from the cluster version.
+# setup-kserve.sh does this too, but its export doesn't survive across CI steps.
+if [[ -z "${INFERENCE_POOL_GROUP:-}" ]]; then
+  source "$SCRIPT_DIR/version.sh"
+  server_version=$(get_openshift_server_version)
+  ocp_major_minor=$(echo "$server_version" | awk -F. '{print $1"."$2}')
+  if awk "BEGIN{exit !($ocp_major_minor <= 4.20)}"; then
+    export INFERENCE_POOL_GROUP="inference.networking.x-k8s.io"
+  else
+    export INFERENCE_POOL_GROUP="inference.networking.k8s.io"
+  fi
+  echo "INFERENCE_POOL_GROUP=${INFERENCE_POOL_GROUP} (detected from OCP ${server_version})"
+fi
+export GATEWAY_PROXY_MEMORY="${GATEWAY_PROXY_MEMORY:-2Gi}"
+if [[ -n "${PYTHONPATH:-}" ]]; then
+  export PYTHONPATH="${PYTHONPATH}:${PROJECT_ROOT}/test/e2e"
+else
+  export PYTHONPATH="${PROJECT_ROOT}/test/e2e"
+fi
+export PYTEST_ARGS="${PYTEST_ARGS:-} -p common.gateway_proxy_istio"
+export RUN_AS_NON_ROOT="${RUN_AS_NON_ROOT:-true}"
+export KUBE_CLI=${KUBE_CLI_COMMAND:-oc}
+
+export GITHUB_SHA=stable # Need to use stable as this is what the CI tags the images to for success-200 and error-404
+export BUILD_GRAPH_IMAGES="${BUILD_GRAPH_IMAGES:-true}"
+export RUNNING_LOCAL="${RUNNING_LOCAL:-false}"
+export SKIP_DELETION_ON_FAILURE="${SKIP_DELETION_ON_FAILURE:=true}"
 
 # Export the controller namespace so that E2E tests
 # (e.g. storage version migration) can find the controller.
-export KSERVE_NAMESPACE="${KSERVE_NAMESPACE:-opendatahub}"
-: "${RUNNING_LOCAL:=false}"
-export GITHUB_SHA=stable # CI tags images to "stable" for success-200 and error-404
+export KSERVE_NAMESPACE=${KSERVE_NAMESPACE:-"kserve"}
 
 if [[ "$RUNNING_LOCAL" == "true" ]]; then
   export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
@@ -49,26 +82,27 @@ cp ./test/e2e/conftest.py ./test/e2e/conftest.py.bak
 trap 'mv ./test/e2e/conftest.py.bak ./test/e2e/conftest.py 2>/dev/null || true' EXIT
 
 : "${SETUP_E2E:=true}"
-
 if [ "$SETUP_E2E" = "true" ]; then
   echo "Installing on cluster"
   pushd $PROJECT_ROOT >/dev/null
-  ./test/scripts/openshift-ci/setup-e2e-tests.sh "$1" | tee 2>&1 "./test/scripts/openshift-ci/setup-e2e-tests-${1// /-}.log"
+  ./test/scripts/openshift-ci/setup-e2e-tests.sh "${MARKERS}" 2>&1 | tee ./test/scripts/openshift-ci/setup-e2e-tests-"${MARKERS// /_}".log
   popd
 fi
 
-PARALLELISM="${2:-1}"
-
 # Use certify go module to get the CA certs
-if [ ! -f "/tmp/ca.crt" ]; then
-  echo "❌ Error: CA certificate file '/tmp/ca.crt' not found. Please ensure the setup script ran successfully."
-  exit 1
+# For serverless it is configured here: infra/deploy.serverless.sh
+# For Raw: setup-e2e-tests.sh
+if [ ! -s "/tmp/ca.crt" ]; then
+  echo "Failed to extract CA certificate, using system defaults... tests might fail as certificates are not present."
+  unset REQUESTS_CA_BUNDLE
+else
+  echo "CA certificate extracted"
+  export REQUESTS_CA_BUNDLE="/tmp/ca.crt"
+  echo "REQUESTS_CA_BUNDLE=${REQUESTS_CA_BUNDLE}"
 fi
 
-export REQUESTS_CA_BUNDLE="/tmp/ca.crt"
-echo "REQUESTS_CA_BUNDLE=$(cat ${REQUESTS_CA_BUNDLE})"
-
-echo "Run E2E tests: $1"
+echo "Run E2E tests: ${MARKERS}"
 pushd $PROJECT_ROOT >/dev/null
-./test/scripts/gh-actions/run-e2e-tests.sh "$1" $PARALLELISM | tee 2>&1 "./test/scripts/openshift-ci/run-e2e-tests-${1// /-}.log"
+./test/scripts/gh-actions/run-e2e-tests.sh "${MARKERS}" "${PARALLELISM}" "${NETWORK_LAYER}" 2>&1 | tee ./test/scripts/openshift-ci/run-e2e-tests-"${MARKERS// /_}".log
 popd
+

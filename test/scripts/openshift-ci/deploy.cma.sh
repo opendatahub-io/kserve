@@ -17,8 +17,8 @@ set -eu # Exit on error and undefined variables
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 source "${SCRIPT_DIR}/common.sh"
 
-: "${SUBSCRIPTION_NAME:=openshift-custom-metrics-autoscaler-operator}"
-: "${KEDA_NAMESPACE:=openshift-keda}"
+: "${SUBSCRIPTION_NAME:=${CMA_NAME}}"
+: "${KEDA_NAMESPACE:=${CMA_NAMESPACE}}"
 : "${KEDA_OPERATOR_POD_LABEL:=app=keda-operator}"
 : "${KEDA_METRICS_API_SERVER_POD_LABEL:=app=keda-metrics-apiserver}"
 : "${KEDA_WEBHOOK_POD_LABEL:=app=keda-admission-webhooks}"
@@ -60,7 +60,7 @@ metadata:
   name: ${SUBSCRIPTION_NAME}
   namespace: ${KEDA_NAMESPACE}
 spec:
-  channel: stable
+  channel: ${CMA_CHANNEL}
   installPlanApproval: Automatic
   name: ${SUBSCRIPTION_NAME}
   source: redhat-operators

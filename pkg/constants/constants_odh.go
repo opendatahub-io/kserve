@@ -25,6 +25,7 @@ const (
 // Midstream annotation keys
 var (
 	OVMSAutoVersioningAnnotationKey = "storage.kserve.io/ovms-auto-versioning"
+	ODHKserveRuntimeAnnotation      = "opendatahub.io/kserve-runtime"
 )
 
 // Midstream networking constants
@@ -62,6 +63,9 @@ const (
 const (
 	OpenShiftServiceCaConfigMapName = "openshift-service-ca.crt"
 )
+
+// ODH Connections API
+const ODHS3Endpoint = "AWS_S3_ENDPOINT"
 
 type ResourceType string
 

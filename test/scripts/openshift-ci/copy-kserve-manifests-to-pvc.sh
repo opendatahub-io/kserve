@@ -19,15 +19,29 @@ set -eu
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 PROJECT_ROOT="${SCRIPT_DIR}/../../../"
 
-: "${ODH_OPERATOR_NAMESPACE:=openshift-operators}"
+: "${OPERATOR_NAMESPACE:=openshift-operators}"
 : "${KSERVE_MANIFESTS_PVC:=kserve-custom-manifests}"
 
-# Image environment variables (should be set by caller)
-: "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:latest}"
-: "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
-: "${KSERVE_ROUTER_IMAGE:=quay.io/opendatahub/kserve-router:latest}"
-: "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
-: "${LLMISVC_CONTROLLER_IMAGE:=quay.io/opendatahub/llmisvc-controller:latest}"
+# Image environment variables. When QUAY_REPO is set, prefer locally-built images
+# (tagged :${GITHUB_SHA:-master}) over the upstream defaults. This mirrors the logic
+# in deploy.kserve-manual.sh and covers both BUILD_KSERVE_IMAGES=true (where
+# build-kserve-images.sh exports these vars) and BUILD_KSERVE_IMAGES=false / standalone
+# deploy-ocp invocations (where the vars are not yet set but images are pushed).
+if [[ -n "${QUAY_REPO:-}" ]]; then
+  _repo="${QUAY_REPO}"
+  _tag="${GITHUB_SHA:-master}"
+  : "${KSERVE_CONTROLLER_IMAGE:=${_repo}/kserve-controller:${_tag}}"
+  : "${KSERVE_AGENT_IMAGE:=${_repo}/kserve-agent:${_tag}}"
+  : "${KSERVE_ROUTER_IMAGE:=${_repo}/kserve-router:${_tag}}"
+  : "${STORAGE_INITIALIZER_IMAGE:=${_repo}/kserve-storage-initializer:${_tag}}"
+  : "${LLMISVC_CONTROLLER_IMAGE:=${_repo}/llmisvc-controller:${_tag}}"
+else
+  : "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:latest}"
+  : "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
+  : "${KSERVE_ROUTER_IMAGE:=quay.io/opendatahub/kserve-router:latest}"
+  : "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
+  : "${LLMISVC_CONTROLLER_IMAGE:=quay.io/opendatahub/llmisvc-controller:latest}"
+fi
 : "${ODH_MODEL_CONTROLLER_IMAGE:=quay.io/opendatahub/odh-model-controller:fast}"
 : "${ODH_MODEL_CONTROLLER_REF:=incubating}"
 
@@ -40,28 +54,42 @@ echo "  KSERVE_ROUTER_IMAGE=$KSERVE_ROUTER_IMAGE"
 echo "  STORAGE_INITIALIZER_IMAGE=$STORAGE_INITIALIZER_IMAGE"
 echo "  ODH_MODEL_CONTROLLER_IMAGE=$ODH_MODEL_CONTROLLER_IMAGE"
 
-# Get the ODH operator pod name
-POD_NAME=$(oc get po -l name=opendatahub-operator -n ${ODH_OPERATOR_NAMESPACE} -o jsonpath="{.items[0].metadata.name}")
+: "${OPERATOR_TYPE:=odh}"
+case "${OPERATOR_TYPE}" in
+  odh|opendatahub) OPERATOR_DEPLOYMENT="opendatahub-operator-controller-manager" ;;
+  rhods|rhoai)     OPERATOR_DEPLOYMENT="rhods-operator" ;;
+  *)               echo "Error: Unknown OPERATOR_TYPE '${OPERATOR_TYPE}'"; exit 1 ;;
+esac
+
+_selector=$(oc get deployment "${OPERATOR_DEPLOYMENT}" -n "${OPERATOR_NAMESPACE}" \
+  -o go-template='{{range $k,$v := .spec.selector.matchLabels}}{{$k}}={{$v}},{{end}}' 2>/dev/null || true)
+_selector="${_selector%,}"
+if [[ -z "${_selector}" ]]; then
+    echo "Error: Could not get pod selector for deployment ${OPERATOR_DEPLOYMENT} (namespace: ${OPERATOR_NAMESPACE})"
+    exit 1
+fi
+POD_NAME=$(oc get po -n "${OPERATOR_NAMESPACE}" -l "${_selector}" \
+  -o jsonpath="{.items[0].metadata.name}" 2>/dev/null || true)
 
 if [ -z "$POD_NAME" ]; then
-  echo "Error: Could not find ODH operator pod"
+  echo "Error: Could not find operator pod for deployment ${OPERATOR_DEPLOYMENT}"
   exit 1
 fi
 
-echo "Found ODH operator pod: $POD_NAME"
+echo "Found operator pod: $POD_NAME (deployment: ${OPERATOR_DEPLOYMENT})"
 
 # Clean up any existing manifests in the PVC (but not the mount point itself)
 echo "Cleaning up existing manifests in PVC..."
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "rm -rf /opt/manifests/kserve/* /opt/manifests/odh-model-controller/*" || true
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "rm -rf /opt/manifests/kserve/* /opt/manifests/odh-model-controller/*" || true
 
 # Copy config directory to PVC using oc cp
 echo "Copying config directory to PVC..."
-oc cp "${PROJECT_ROOT}/config/." ${ODH_OPERATOR_NAMESPACE}/${POD_NAME}:/opt/manifests/kserve
+oc cp "${PROJECT_ROOT}/config/." ${OPERATOR_NAMESPACE}/${POD_NAME}:/opt/manifests/kserve
 
 # Updating params.env
 echo ""
 echo "Updating params.envs..."
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "
   sed -i 's|kserve-controller=.*|kserve-controller=${KSERVE_CONTROLLER_IMAGE}|' /opt/manifests/kserve/overlays/odh/params.env
   sed -i 's|llmisvc-controller=.*|llmisvc-controller=${LLMISVC_CONTROLLER_IMAGE}|' /opt/manifests/kserve/overlays/odh/params.env
   sed -i 's|kserve-agent=.*|kserve-agent=${KSERVE_AGENT_IMAGE}|' /opt/manifests/kserve/overlays/odh/params.env
@@ -72,7 +100,7 @@ oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "
 # Verify the images were updated
 echo ""
 echo "Verifying updated KServe params.env:"
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- cat /opt/manifests/kserve/overlays/odh/params.env
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- cat /opt/manifests/kserve/overlays/odh/params.env
 
 # Download and copy odh-model-controller manifests
 echo ""
@@ -95,34 +123,34 @@ echo "Found odh-model-controller at: $ODH_MC_DIR"
 
 # Copy the config directory to the PVC
 echo "Copying odh-model-controller config to PVC..."
-oc cp "${ODH_MC_DIR}/config/." ${ODH_OPERATOR_NAMESPACE}/${POD_NAME}:/opt/manifests/odh-model-controller/
+oc cp "${ODH_MC_DIR}/config/." ${OPERATOR_NAMESPACE}/${POD_NAME}:/opt/manifests/odh-model-controller/
 
 # Update params.env with PR image
 echo ""
 echo "Updating odh-model-controller params.env with PR image..."
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- bash -c "
   sed -i 's|odh-model-controller=.*|odh-model-controller=${ODH_MODEL_CONTROLLER_IMAGE}|' /opt/manifests/odh-model-controller/base/params.env
 "
 
 # Verify the odh-model-controller params.env was updated
 echo ""
 echo "Verifying updated odh-model-controller params.env:"
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- cat /opt/manifests/odh-model-controller/base/params.env
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- cat /opt/manifests/odh-model-controller/base/params.env
 
 # Verify the copy
 echo ""
 echo "Verifying manifest structure..."
 echo "Checking kserve directory..."
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/kserve/
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/kserve/
 echo ""
 echo "Checking kserve overlays/odh directory..."
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/kserve/overlays/odh/
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/kserve/overlays/odh/
 echo ""
 echo "Checking odh-model-controller directory..."
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/odh-model-controller/
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/odh-model-controller/
 echo ""
 echo "Checking odh-model-controller/base directory..."
-oc exec -n ${ODH_OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/odh-model-controller/base/
+oc exec -n ${OPERATOR_NAMESPACE} ${POD_NAME} -- ls -la /opt/manifests/odh-model-controller/base/
 
 echo ""
 echo "Manifests successfully copied to PVC!"

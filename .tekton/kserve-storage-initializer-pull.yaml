@@ -15,7 +15,7 @@ metadata:
     appstudio.openshift.io/application: opendatahub-builds
     appstudio.openshift.io/component: kserve-storage-initializer-ci
     pipelines.appstudio.openshift.io/type: build
-  name: kserve-storage-initializer-on-pull-request
+  name: kserve-storage-initializer-on-pull
   namespace: open-data-hub-tenant
 spec:
   params:
@@ -24,14 +24,14 @@ spec:
   - name: revision
     value: '{{revision}}'
   - name: output-image
-    value: quay.io/opendatahub/kserve-storage-initializer:master-pr
+    value: quay.io/opendatahub/kserve-storage-initializer:odh-pr
   - name: dockerfile
     value: storage-initializer.Dockerfile
   - name: path-context
     value: python
   - name: additional-tags
     value:
-    - 'master-pr-{{revision}}'
+    - 'odh-pr-{{revision}}'
   - name: pipeline-type
     value: pull-request
   - name: enable-group-testing
@@ -45,6 +45,15 @@ spec:
       value: main
     - name: pathInRepo
       value: pipeline/multi-arch-container-build.yaml
+  taskRunSpecs:
+    - pipelineTaskName: sast-shell-check
+      computeResources:
+        requests:
+          cpu: '2'
+          memory: 16Gi
+        limits:
+          cpu: '2'
+          memory: 16Gi
   taskRunTemplate:
     serviceAccountName: build-pipeline-kserve-storage-initializer
   workspaces:

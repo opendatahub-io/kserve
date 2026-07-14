@@ -289,10 +289,25 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			}
 			return reconcile.Result{}, errors.Wrapf(err, "fails to reconcile component")
 		}
-		if result.Requeue || result.RequeueAfter > 0 {
+		if result.RequeueAfter > 0 {
 			return result, nil
 		}
 	}
+
+	// Reconcile platform-specific permissions (e.g., SCC RoleBindings for image volumes)
+	// This runs after component reconciliation so that isvc.Status.ClusterServingRuntimeName
+	// or isvc.Status.ServingRuntimeName is populated with the selected runtime.
+	// Only reconcile if OCI image source feature is enabled (aligns with webhook behavior)
+	storageInitializerConfig, err := v1beta1.GetStorageInitializerConfigs(isvcConfigMap)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "fails to get storage initializer config")
+	}
+	if storageInitializerConfig.EnableOciImageSource {
+		if err := r.reconcileWorkloadPlatformPermissions(ctx, isvc); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile workload platform permissions")
+		}
+	}
+
 	// Handle InferenceService status updates based on the force stop annotation.
 	// If true, transition the service to a stopped and unready state; otherwise, ensure it's not marked as stopped.
 	existingStoppedCondition := isvc.Status.GetCondition(v1beta1.Stopped)
@@ -382,7 +397,7 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 		return result, errors.Wrapf(err, "fails to reconcile ingress")
 	}
-	if result.Requeue || result.RequeueAfter > 0 {
+	if result.RequeueAfter > 0 {
 		// Persist status before requeue so deployment errors are visible on the ISVC
 		if err := r.updateStatus(ctx, isvc, deploymentMode); err != nil {
 			r.Log.Error(err, "Error updating status before requeue")
@@ -503,39 +518,39 @@ func (r *InferenceServiceReconciler) servingRuntimeFunc(ctx context.Context, obj
 	return requests
 }
 
-// func (r *InferenceServiceReconciler) clusterServingRuntimeFunc(ctx context.Context, obj client.Object) []reconcile.Request {
-//	clusterServingRuntimeObj, ok := obj.(*v1alpha1.ClusterServingRuntime)
-//
-//	if !ok || clusterServingRuntimeObj == nil {
-//		return nil
-//	}
-//
-//	var isvcList v1beta1.InferenceServiceList
-//	if err := r.List(ctx, &isvcList, client.InNamespace(clusterServingRuntimeObj.Namespace)); err != nil {
-//		r.Log.Error(err, "unable to list InferenceServices", "clusterServingRuntime", clusterServingRuntimeObj.Name)
-//		return nil
-//	}
-//
-//	requests := make([]reconcile.Request, 0, len(isvcList.Items))
-//	for _, isvc := range isvcList.Items {
-//		annotations := isvc.GetAnnotations()
-//		if annotations != nil {
-//			if disableAutoUpdate, found := annotations[constants.DisableAutoUpdateAnnotationKey]; found && disableAutoUpdate == "true" && isvc.Status.IsReady() {
-//				r.Log.Info("Auto-update is disabled for InferenceService", "InferenceService", isvc.Name)
-//				continue
-//			}
-//		}
-//		if isvc.Status.ClusterServingRuntimeName == clusterServingRuntimeObj.Name {
-//			requests = append(requests, reconcile.Request{
-//				NamespacedName: types.NamespacedName{
-//					Namespace: isvc.Namespace,
-//					Name:      isvc.Name,
-//				},
-//			})
-//		}
-//	}
-//	return requests
-//}
+func (r *InferenceServiceReconciler) clusterServingRuntimeFunc(ctx context.Context, obj client.Object) []reconcile.Request {
+	clusterServingRuntimeObj, ok := obj.(*v1alpha1.ClusterServingRuntime)
+
+	if !ok || clusterServingRuntimeObj == nil {
+		return nil
+	}
+
+	var isvcList v1beta1.InferenceServiceList
+	if err := r.List(ctx, &isvcList, client.InNamespace(clusterServingRuntimeObj.Namespace)); err != nil {
+		r.Log.Error(err, "unable to list InferenceServices", "clusterServingRuntime", clusterServingRuntimeObj.Name)
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(isvcList.Items))
+	for _, isvc := range isvcList.Items {
+		annotations := isvc.GetAnnotations()
+		if annotations != nil {
+			if disableAutoUpdate, found := annotations[constants.DisableAutoUpdateAnnotationKey]; found && disableAutoUpdate == "true" && isvc.Status.IsReady() {
+				r.Log.Info("Auto-update is disabled for InferenceService", "InferenceService", isvc.Name)
+				continue
+			}
+		}
+		if isvc.Status.ClusterServingRuntimeName == clusterServingRuntimeObj.Name {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{
+					Namespace: isvc.Namespace,
+					Name:      isvc.Name,
+				},
+			})
+		}
+	}
+	return requests
+}
 
 func (r *InferenceServiceReconciler) podInitContainersFunc(ctx context.Context, obj client.Object) []reconcile.Request {
 	pod, ok := obj.(*corev1.Pod)
@@ -555,36 +570,6 @@ func (r *InferenceServiceReconciler) podInitContainersFunc(ctx context.Context, 
 	}
 	// If label is missing, this pod is not managed by an InferenceService
 	return nil
-}
-
-// servingRuntimesPredicate returns a predicate that filters ServingRuntime updates
-// to only include those where the Spec has changed.
-func servingRuntimesPredicate() predicate.Funcs {
-	return predicate.Funcs{
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldServingRuntime := e.ObjectOld.(*v1alpha1.ServingRuntime)
-			newServingRuntime := e.ObjectNew.(*v1alpha1.ServingRuntime)
-			return !reflect.DeepEqual(oldServingRuntime.Spec, newServingRuntime.Spec)
-		},
-		CreateFunc:  func(e event.CreateEvent) bool { return false },
-		DeleteFunc:  func(e event.DeleteEvent) bool { return false },
-		GenericFunc: func(e event.GenericEvent) bool { return false },
-	}
-}
-
-// clusterServingRuntimesPredicate returns a predicate that filters ClusterServingRuntime updates
-// to only include those where the Spec has changed.
-func clusterServingRuntimesPredicate() predicate.Funcs {
-	return predicate.Funcs{
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldClusterServingRuntime := e.ObjectOld.(*v1alpha1.ClusterServingRuntime)
-			newClusterServingRuntime := e.ObjectNew.(*v1alpha1.ClusterServingRuntime)
-			return !reflect.DeepEqual(oldClusterServingRuntime.Spec, newClusterServingRuntime.Spec)
-		},
-		CreateFunc:  func(e event.CreateEvent) bool { return false },
-		DeleteFunc:  func(e event.DeleteEvent) bool { return false },
-		GenericFunc: func(e event.GenericEvent) bool { return false },
-	}
 }
 
 // podInitContainersPredicate returns a predicate that filters pod updates to only
@@ -647,9 +632,9 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, deployCo
 		if isvc.Status.ServingRuntimeName != "" {
 			return []string{isvc.Status.ServingRuntimeName}
 		}
-		// if isvc.Status.ClusterServingRuntimeName != "" {
-		//	return []string{isvc.Status.ClusterServingRuntimeName}
-		// }
+		if isvc.Status.ClusterServingRuntimeName != "" {
+			return []string{isvc.Status.ClusterServingRuntimeName}
+		}
 		return nil
 	}); err != nil {
 		return err
@@ -665,18 +650,16 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, deployCo
 		DeleteFunc:  func(e event.DeleteEvent) bool { return false },
 		GenericFunc: func(e event.GenericEvent) bool { return false },
 	}
-
-	// TODO: Find a way to distinguish if the ServingRuntime is a ClusterServingRuntime or not
-	// clusterServingRuntimesPredicate := predicate.Funcs{
-	//	UpdateFunc: func(e event.UpdateEvent) bool {
-	//		oldClusterServingRuntime := e.ObjectOld.(*v1alpha1.ClusterServingRuntime)
-	//		newClusterServingRuntime := e.ObjectNew.(*v1alpha1.ClusterServingRuntime)
-	//		return !reflect.DeepEqual(oldClusterServingRuntime.Spec, newClusterServingRuntime.Spec)
-	//	},
-	//	CreateFunc:  func(e event.CreateEvent) bool { return false },
-	//	DeleteFunc:  func(e event.DeleteEvent) bool { return false },
-	//	GenericFunc: func(e event.GenericEvent) bool { return false },
-	// }
+	clusterServingRuntimesPredicate := predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldClusterServingRuntime := e.ObjectOld.(*v1alpha1.ClusterServingRuntime)
+			newClusterServingRuntime := e.ObjectNew.(*v1alpha1.ClusterServingRuntime)
+			return !reflect.DeepEqual(oldClusterServingRuntime.Spec, newClusterServingRuntime.Spec)
+		},
+		CreateFunc:  func(e event.CreateEvent) bool { return false },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return false },
+		GenericFunc: func(e event.GenericEvent) bool { return false },
+	}
 
 	ctrlBuilder := ctrl.NewControllerManagedBy(mgr).
 		For(&v1beta1.InferenceService{}).
@@ -734,10 +717,20 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, deployCo
 		ctrlBuilder = ctrlBuilder.Owns(&netv1.Ingress{})
 	}
 
-	return ctrlBuilder.Watches(&v1alpha1.ServingRuntime{}, handler.EnqueueRequestsFromMapFunc(r.servingRuntimeFunc), builder.WithPredicates(servingRuntimesPredicate)).
-		// Watches(&v1alpha1.ClusterServingRuntime{}, handler.EnqueueRequestsFromMapFunc(r.clusterServingRuntimeFunc), builder.WithPredicates(clusterServingRuntimesPredicate())).
-		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.podInitContainersFunc), builder.WithPredicates(podInitContainersPredicate())).
-		Complete(r)
+	ctrlBuilder = ctrlBuilder.Watches(&v1alpha1.ServingRuntime{}, handler.EnqueueRequestsFromMapFunc(r.servingRuntimeFunc), builder.WithPredicates(servingRuntimesPredicate)).
+		Watches(&corev1.Pod{}, handler.EnqueueRequestsFromMapFunc(r.podInitContainersFunc), builder.WithPredicates(podInitContainersPredicate()))
+
+	csrFound, err := utils.IsCrdAvailable(r.ClientConfig, v1alpha1.SchemeGroupVersion.String(), "ClusterServingRuntime")
+	if err != nil {
+		return err
+	}
+	if csrFound {
+		ctrlBuilder = ctrlBuilder.Watches(&v1alpha1.ClusterServingRuntime{}, handler.EnqueueRequestsFromMapFunc(r.clusterServingRuntimeFunc), builder.WithPredicates(clusterServingRuntimesPredicate))
+	} else {
+		r.Log.Info("The InferenceService controller won't watch serving.kserve.io/v1alpha1/ClusterServingRuntime resources because the CRD is not available.")
+	}
+
+	return ctrlBuilder.Complete(r)
 }
 
 func (r *InferenceServiceReconciler) deleteExternalResources(ctx context.Context, isvc *v1beta1.InferenceService) error {

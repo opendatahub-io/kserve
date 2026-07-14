@@ -15,93 +15,122 @@ The list of pytest markers available are defined in [https://github.com/kserve/k
    2. A brand new cluster is highly recommended because the e2e setup does not play well with existing objects.
    3. Login to the cluster in your terminal
 
-## \[Optional\] Build images
+## macOS: install bash 4+
 
-```
-export KO_DOCKER_REPO=quay.io/<your_username>
-export TAG=master
-```
+The test scripts use bash 4+ features (`readarray`, associative arrays, etc.).
+macOS ships bash 3.2, which is too old. Install a modern bash via Homebrew and
+put it on your PATH:
 
-### Sklearn
-
-```
-make docker-build-sklearn git@github.com:opendatahub-io/kserve.git
-docker tag ${KO_DOCKER_REPO}/sklearnserver
-${KO_DOCKER_REPO}/kserve-sklearn:${TAG}
-docker push ${KO_DOCKER_REPO}/kserve-sklearn:${TAG}
-export SKLEARN_IMAGE=${KO_DOCKER_REPO}/kserve-sklearn:${TAG}
+```bash
+brew install bash
 ```
 
-### Storage Initializer
+Add Homebrew's bin directory to your PATH **before** `/bin`.
+Add this to your `~/.zshrc` (or `~/.zprofile`):
 
-```
-make docker-build-storageInitializer
-docker tag ${KO_DOCKER_REPO}/storage-initializer ${KO_DOCKER_REPO}/kserve-storage-initializer:${TAG}
-docker push ${KO_DOCKER_REPO}/kserve-storage-initializer:${TAG}
-export STORAGE_INITIALIZER_IMAGE=${KO_DOCKER_REPO}/kserve-storage-initializer:${TAG}
+```bash
+export PATH="/opt/homebrew/bin:$PATH"
 ```
 
-### Kserve agent
+Open a new terminal and verify:
 
-```
-make docker-build-agent
-docker tag ${KO_DOCKER_REPO}/agent ${KO_DOCKER_REPO}/kserve-agent:${TAG}
-docker push ${KO_DOCKER_REPO}/kserve-agent:${TAG}
-export KSERVE_AGENT_IMAGE=${KO_DOCKER_REPO}/kserve-agent:${TAG}
+```bash
+which bash          # should print /opt/homebrew/bin/bash
+bash --version      # should print 5.x
 ```
 
-### Kserve router
+This does not change your default shell (still zsh). The test scripts use
+`#!/usr/bin/env bash`, so they will pick up the Homebrew version from PATH.
 
-```
-make docker-build-router
-docker tag ${KO_DOCKER_REPO}/router $ {KO_DOCKER_REPO}/kserve-router:${TAG}
-docker push ${KO_DOCKER_REPO}/kserve-router:${TAG}
-export KSERVE_ROUTER_IMAGE=${KO_DOCKER_REPO}/kserve-router:${TAG}
-```
+## Quick start (Makefile targets)
 
-### Kserve controller
+The recommended way to set up and run E2E tests locally is through the Makefile
+targets defined in `Makefile.ocp.mk` (included by `Makefile.overrides.mk`).
+These wrap the CI scripts with sensible defaults and a consistent interface.
 
-```
-make docker-build
-docker tag docker.io/library/kserve-controller:latest ${KO_DOCKER_REPO}/kserve-controller:${TAG}
-docker push ${KO_DOCKER_REPO}/kserve-controller:${TAG}
-export KSERVE_CONTROLLER_IMAGE=${KO_DOCKER_REPO}/kserve-controller:${TAG}
-```
+### 1. Set up the test environment
 
-## Set environment variables
+```bash
+# Without an operator (manual kustomize deploy, like CI):
+make deploy-e2e-ocp E2E_MARKER=predictor
 
-Base:
-*  `$ export RUNNING_LOCAL=true`
+# With the ODH operator:
+make deploy-e2e-ocp E2E_MARKER=predictor OPERATOR_TYPE=odh
 
-To build kserve images:
-* `$ export BUILD_KSERVE_IMAGES=true`
-
-For Graph tests:  
-* `$ export BUILD_GRAPH_IMAGES=true` will build images, false, to not build images, defaults to true  
-* `$ export QUAY_REPO=quay.io/<your_username>` to push images to quay  
-* `$ export BUILDER=podman` to use podman BUILDER=docker to use docker, defaults to docker  
-* `$ export ERROR_404_ISVC_IMAGE=$QUAY_REPO/kserve/error-404-isvc:latest`  
-* `$ export SUCCESS_200_ISVC_IMAGE=$QUAY_REPO/kserve/success-200-isvc:latest`
-
-## Perform initial setup 
-Substitute `marker` with e.g. `predictor` or `raw` for the tests you want to run:
-
-```
-$ cd ../../
-$ ./test/scripts/openshift-ci/setup-e2e-tests.sh <marker>
+# With the ODH operator pinned to a specific catalog image:
+make deploy-e2e-ocp E2E_MARKER=predictor \
+  OPERATOR_TYPE=odh \
+  OPERATOR_VERSION=3.4.0-ea.1 \
+  CATALOG_SOURCE=quay.io/opendatahub/opendatahub-operator-catalog:v3.4.0-ea.1
 ```
 
-##  Run the e2e test script
-```
-$ ./test/scripts/openshift-ci/run-e2e-tests.sh <marker>
+| Variable | Description | Default |
+|---|---|---|
+| `E2E_MARKER` | Pytest marker to select tests (e.g. `predictor`, `raw`, `graph`) | `predictor` |
+| `OPERATOR_TYPE` | Operator to install: `odh` or empty for manual deploy | (empty) |
+| `OPERATOR_VERSION` | Pin to a specific operator version (e.g. `3.4.0-ea.1`) | (latest) |
+| `CATALOG_SOURCE` | FBC fragment image or CatalogSource name | (default catalog) |
+| `COPY_PR_MANIFESTS` | Copy local branch manifests into the operator PVC (operator mode only) | `true` |
+| `RUNNING_LOCAL` | Build and push local KServe images before setup | `true` |
+| `BUILD_KSERVE_IMAGES` | Build images during setup (only when `RUNNING_LOCAL=true`) | `true` |
+| `KSERVE_NAMESPACE` | Namespace where KServe controller runs (derived from `OPERATOR_TYPE`) | `kserve` |
+| `PYTEST_ARGS` | Extra pytest flags passed to the test runner (e.g. `-k test_sklearn_v2`) | (empty) |
+
+When `OPERATOR_TYPE` is set, the setup will install the operator, apply
+DSCI/DSC resources, and wait for the kserve-controller-manager deployment to
+roll out. SeaweedFS storage is deployed automatically in operator mode.
+
+### 2. Run the tests
+
+```bash
+make run-e2e-ocp E2E_MARKER=predictor
 ```
 
-## To rerun: 
-Reset the e2e test context:
+### 3. Rerun or teardown
+
+To reset test namespaces without tearing down the full environment:
+
+```bash
+make reset-e2e-ocp
+make run-e2e-ocp E2E_MARKER=predictor
 ```
-$ ./test/scripts/openshift-ci/setup-ci-namespace.sh <marker>
-``` 
-Then rerun the command from the previous step.
+
+To fully tear down the test setup:
+
+```bash
+make undeploy-ocp
+```
+
+## \[Optional\] Build and push custom images
+
+`Makefile.overrides.mk` aligns image names with ODH registry conventions so
+that `make docker-build-*` produces images matching CI expectations without
+re-tagging. Set `QUAY_REPO` and `GITHUB_SHA` (used as the image tag), then run
+the build script:
+
+```bash
+make build-images-ocp QUAY_REPO=quay.io/<your_username> GITHUB_SHA=master
+```
+
+This builds the controller, agent, router, storage-initializer, and sklearn
+images, tags them as `$QUAY_REPO/kserve/<name>:$GITHUB_SHA`, and pushes them.
+
+For Graph tests, also set:
+* `BUILD_GRAPH_IMAGES=true`
+* `BUILDER=podman` (or `docker`, the default)
+* `ERROR_404_ISVC_IMAGE=$QUAY_REPO/kserve/error-404-isvc:latest`
+* `SUCCESS_200_ISVC_IMAGE=$QUAY_REPO/kserve/success-200-isvc:latest`
+
+## Legacy manual setup
+
+The Makefile targets above call these scripts under the hood. You can still
+invoke them directly if needed:
+
+```bash
+export RUNNING_LOCAL=true
+./test/scripts/openshift-ci/setup-e2e-tests.sh <marker>
+./test/scripts/openshift-ci/run-e2e-tests.sh <marker>
+```
 
 # Debugging e2e tests
 

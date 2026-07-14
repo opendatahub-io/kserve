@@ -497,9 +497,9 @@ class InferenceRESTClient:
                 headers["content-type"] = "application/octet-stream"
         if isinstance(data, dict):
             data = orjson.dumps(data)
-            headers = headers or {}
-            headers.setdefault(INFERENCE_CONTENT_LENGTH_HEADER, str(len(data)))
-            headers.setdefault("content-type", "application/octet-stream")
+            headers = dict(headers) if headers else {}
+            if not any(k.lower() == "content-type" for k in headers):
+                headers["content-type"] = "application/json"
         response = await self._client.post(
             url, content=data, headers=headers, timeout=timeout
         )
@@ -555,6 +555,9 @@ class InferenceRESTClient:
             logger.info("url: %s", url)
             logger.info("request data: %s", data)
         data = orjson.dumps(data)
+        headers = dict(headers) if headers else {}
+        if not any(k.lower() == "content-type" for k in headers):
+            headers["content-type"] = "application/json"
         response = await self._client.post(
             url, content=data, headers=headers, timeout=timeout
         )

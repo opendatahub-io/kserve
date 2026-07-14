@@ -17,6 +17,7 @@ limitations under the License.
 package utils
 
 import (
+	"context"
 	"errors"
 	"strconv"
 	"testing"
@@ -702,6 +703,200 @@ func TestIsMemoryResourceAvailable(t *testing.T) {
 	}
 }
 
+func TestGetServerTypeFromIsvc(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+	namespace := "default"
+
+	scenarios := map[string]struct {
+		isvc         *InferenceService
+		runtimes     []runtime.Object
+		expectedType string
+		expectError  bool
+		errorMatcher types.GomegaMatcher
+	}{
+		"NilInferenceService": {
+			isvc:         nil,
+			runtimes:     []runtime.Object{},
+			expectedType: "",
+			expectError:  false,
+		},
+		"NoRuntimeInStatus": {
+			isvc: &InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: InferenceServiceStatus{},
+			},
+			runtimes:     []runtime.Object{},
+			expectedType: "",
+			expectError:  false,
+		},
+		"NamespacedRuntimeWithServerTypeAnnotation": {
+			isvc: &InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: InferenceServiceStatus{
+					ServingRuntimeName: "mlserver-runtime",
+				},
+			},
+			runtimes: []runtime.Object{
+				&v1alpha1.ServingRuntime{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "mlserver-runtime",
+						Namespace: namespace,
+						Annotations: map[string]string{
+							constants.ServerTypeAnnotationKey: constants.ServerTypeMLServer,
+						},
+					},
+					Spec: v1alpha1.ServingRuntimeSpec{
+						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+							{Name: "sklearn"},
+						},
+					},
+				},
+			},
+			expectedType: constants.ServerTypeMLServer,
+			expectError:  false,
+		},
+		"ClusterRuntimeWithServerTypeAnnotation": {
+			isvc: &InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: InferenceServiceStatus{
+					ClusterServingRuntimeName: "global-mlserver",
+				},
+			},
+			runtimes: []runtime.Object{
+				&v1alpha1.ClusterServingRuntime{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "global-mlserver",
+						Annotations: map[string]string{
+							constants.ServerTypeAnnotationKey: constants.ServerTypeMLServer,
+						},
+					},
+					Spec: v1alpha1.ServingRuntimeSpec{
+						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+							{Name: "sklearn"},
+						},
+					},
+				},
+			},
+			expectedType: constants.ServerTypeMLServer,
+			expectError:  false,
+		},
+		"RuntimeWithoutAnnotation": {
+			isvc: &InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: InferenceServiceStatus{
+					ServingRuntimeName: "custom-runtime",
+				},
+			},
+			runtimes: []runtime.Object{
+				&v1alpha1.ServingRuntime{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "custom-runtime",
+						Namespace: namespace,
+					},
+					Spec: v1alpha1.ServingRuntimeSpec{
+						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+							{Name: "custom"},
+						},
+					},
+				},
+			},
+			expectedType: "",
+			expectError:  false,
+		},
+		"RuntimeNotFound": {
+			isvc: &InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: InferenceServiceStatus{
+					ServingRuntimeName: "nonexistent-runtime",
+				},
+			},
+			runtimes:     []runtime.Object{},
+			expectedType: "",
+			expectError:  true,
+			errorMatcher: gomega.MatchError(gomega.ContainSubstring("No ServingRuntimes or ClusterServingRuntimes")),
+		},
+		"NamespacedRuntimeTakesPrecedence": {
+			isvc: &InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: InferenceServiceStatus{
+					ServingRuntimeName:        "namespaced-runtime",
+					ClusterServingRuntimeName: "cluster-runtime",
+				},
+			},
+			runtimes: []runtime.Object{
+				&v1alpha1.ServingRuntime{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "namespaced-runtime",
+						Namespace: namespace,
+						Annotations: map[string]string{
+							constants.ServerTypeAnnotationKey: "namespaced-type",
+						},
+					},
+					Spec: v1alpha1.ServingRuntimeSpec{
+						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+							{Name: "sklearn"},
+						},
+					},
+				},
+				&v1alpha1.ClusterServingRuntime{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cluster-runtime",
+						Annotations: map[string]string{
+							constants.ServerTypeAnnotationKey: "cluster-type",
+						},
+					},
+					Spec: v1alpha1.ServingRuntimeSpec{
+						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+							{Name: "sklearn"},
+						},
+					},
+				},
+			},
+			expectedType: "namespaced-type",
+			expectError:  false,
+		},
+	}
+
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			err := v1alpha1.AddToScheme(scheme)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			err = SchemeBuilder.AddToScheme(scheme)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+
+			client := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(scenario.runtimes...).Build()
+
+			serverType, err := GetServerTypeFromIsvc(context.Background(), client, scenario.isvc)
+
+			if scenario.expectError {
+				g.Expect(err).To(scenario.errorMatcher)
+			} else {
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(serverType).To(gomega.Equal(scenario.expectedType))
+			}
+		})
+	}
+}
+
 func TestMergeRuntimeContainers(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 
@@ -1037,7 +1232,7 @@ func TestGetServingRuntime(t *testing.T) {
 		if !g.Expect(res).To(gomega.BeNil()) {
 			t.Errorf("got %v, want %v", res, nil)
 		}
-		g.Expect(err.Error()).To(gomega.ContainSubstring("No ServingRuntimes with the name"))
+		g.Expect(err.Error()).To(gomega.ContainSubstring("No ServingRuntimes or ClusterServingRuntimes with the name"))
 	})
 }
 
@@ -1118,11 +1313,12 @@ func TestUpdateImageTag(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 
 	scenarios := map[string]struct {
-		container      *corev1.Container
-		runtimeVersion *string
-		servingRuntime string
-		isvcConfig     *InferenceServicesConfig
-		expected       string
+		container          *corev1.Container
+		runtimeVersion     *string
+		servingRuntime     string
+		runtimeAnnotations map[string]string
+		isvcConfig         *InferenceServicesConfig
+		expected           string
 	}{
 		"UpdateRuntimeVersion": {
 			container: &corev1.Container{
@@ -1296,10 +1492,171 @@ func TestUpdateImageTag(t *testing.T) {
 			servingRuntime: constants.TFServing,
 			expected:       "huggingfaceserver@sha256:abcdef1234567890",
 		},
+		"VLLMServerGPUKeepsDefaultImage": {
+			container: &corev1.Container{
+				Name:  "kserve-container",
+				Image: "vllm/vllm-openai:latest",
+				Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{
+						"nvidia.com/gpu": resource.MustParse("1"),
+					},
+				},
+			},
+			runtimeVersion: nil,
+			servingRuntime: constants.VLLMServer,
+			expected:       "vllm/vllm-openai:latest",
+		},
+		"VLLMServerCPURewritesImageName": {
+			container: &corev1.Container{
+				Name:  "kserve-container",
+				Image: "vllm/vllm-openai:latest",
+				Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("2"),
+						corev1.ResourceMemory: resource.MustParse("4Gi"),
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
+					},
+				},
+			},
+			runtimeVersion: nil,
+			servingRuntime: constants.VLLMServer,
+			expected:       "vllm/vllm-openai-cpu:latest",
+		},
+		"VLLMServerCPUWithProxyRewritesImageName": {
+			container: &corev1.Container{
+				Name:  "kserve-container",
+				Image: "localhost:8888/vllm/vllm-openai:v0.5.0",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
+					},
+				},
+			},
+			runtimeVersion: nil,
+			servingRuntime: constants.VLLMServer,
+			expected:       "localhost:8888/vllm/vllm-openai-cpu:v0.5.0",
+		},
+		"VLLMServerCPUSkipsWhenImageNameAlreadyCpu": {
+			container: &corev1.Container{
+				Name:  "kserve-container",
+				Image: "vllm/vllm-openai-cpu:v0.5.0",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
+					},
+				},
+			},
+			runtimeVersion: nil,
+			servingRuntime: constants.VLLMServer,
+			expected:       "vllm/vllm-openai-cpu:v0.5.0",
+		},
+		"VLLMServerCPUSkipsWhenImageHasNoTag": {
+			container: &corev1.Container{
+				Name:  "kserve-container",
+				Image: "vllm/vllm-openai",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
+					},
+				},
+			},
+			runtimeVersion: nil,
+			servingRuntime: constants.VLLMServer,
+			expected:       "vllm/vllm-openai",
+		},
+		"VLLMServerRuntimeVersionTakesPrecedence": {
+			container: &corev1.Container{
+				Name:  "kserve-container",
+				Image: "vllm/vllm-openai:latest",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
+					},
+				},
+			},
+			runtimeVersion: proto.String("v0.5.0"),
+			servingRuntime: constants.VLLMServer,
+			expected:       "vllm/vllm-openai:v0.5.0",
+		},
+		"VLLMServerCPURewriteViaAnnotationForCustomRuntime": {
+			container: &corev1.Container{
+				Name:  "kserve-container",
+				Image: "vllm/vllm-openai:latest",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
+					},
+				},
+			},
+			runtimeVersion: nil,
+			servingRuntime: "my-custom-vllm",
+			runtimeAnnotations: map[string]string{
+				constants.ServerTypeAnnotationKey: constants.ServerTypeVLLMServer,
+			},
+			expected: "vllm/vllm-openai-cpu:latest",
+		},
+		"VLLMServerAnnotationTakesPrecedenceOverRuntimeName": {
+			container: &corev1.Container{
+				Name:  "kserve-container",
+				Image: "vllm/vllm-openai:latest",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
+					},
+				},
+			},
+			runtimeVersion: nil,
+			servingRuntime: constants.MLServer,
+			runtimeAnnotations: map[string]string{
+				constants.ServerTypeAnnotationKey: constants.ServerTypeVLLMServer,
+			},
+			expected: "vllm/vllm-openai-cpu:latest",
+		},
+		"HuggingFaceServerGPUViaAnnotationForCustomRuntime": {
+			container: &corev1.Container{
+				Name:  "kserve-container",
+				Image: "huggingfaceserver:1.14.0",
+				Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{
+						"nvidia.com/gpu": resource.MustParse("1"),
+					},
+				},
+			},
+			runtimeVersion: nil,
+			servingRuntime: "my-custom-hf",
+			runtimeAnnotations: map[string]string{
+				constants.ServerTypeAnnotationKey: constants.ServerTypeHuggingFaceServer,
+			},
+			expected: "huggingfaceserver:1.14.0-gpu",
+		},
+		"UnknownRuntimeWithoutAnnotationIsLeftAlone": {
+			container: &corev1.Container{
+				Name:  "kserve-container",
+				Image: "vllm/vllm-openai:latest",
+				Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
+					},
+				},
+			},
+			runtimeVersion: nil,
+			servingRuntime: "my-custom-vllm",
+			expected:       "vllm/vllm-openai:latest",
+		},
 	}
 	for name, scenario := range scenarios {
 		t.Run(name, func(t *testing.T) {
-			UpdateImageTag(scenario.container, scenario.runtimeVersion, &scenario.servingRuntime)
+			UpdateImageTag(scenario.container, scenario.runtimeVersion, &scenario.servingRuntime, scenario.runtimeAnnotations)
 			if !g.Expect(scenario.container.Image).To(gomega.Equal(scenario.expected)) {
 				t.Errorf("got %v, want %v", scenario.container.Image, scenario.expected)
 			}
