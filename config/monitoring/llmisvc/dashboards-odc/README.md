@@ -6,7 +6,7 @@ This directory contains Grafana-compatible dashboards for monitoring LLMInferenc
 
 The dashboards are organized as a drill-down hierarchy:
 
-```
+```text
 Cluster Health Overview            "Is my cluster healthy?"
     |                       \
     v                        v

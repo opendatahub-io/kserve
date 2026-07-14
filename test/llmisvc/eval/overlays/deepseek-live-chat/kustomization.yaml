@@ -7,6 +7,7 @@ resources:
 patches:
   - target:
       kind: Job
+      name: lm-eval
     patch: |-
       - op: replace
         path: /metadata/name
@@ -19,4 +20,4 @@ patches:
         value: "http://openshift-ai-inference-openshift-default.openshift-ingress.svc.cluster.local/llm-test/deepseek-v2-lite-chat"
       - op: replace
         path: /spec/template/spec/containers/0/env/2/value
-        value: "gsm8k,mmlu_abstract_algebra,hellaswag,lambada_openai"
+        value: "gsm8k,mmlu_abstract_algebra"

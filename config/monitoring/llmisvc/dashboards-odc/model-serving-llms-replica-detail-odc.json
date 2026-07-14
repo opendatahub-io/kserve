@@ -173,7 +173,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "100 * (rate(http_requests_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",status!=\"2xx\"}[5m]) / (rate(http_requests_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m]) > 0))",
+          "expr": "100 * (sum(rate(http_requests_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",status!=\"2xx\"}[5m])) by (pod) / (sum(rate(http_requests_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (pod) > 0))",
           "interval": "",
           "legendFormat": "{{pod}}",
           "refId": "A"
@@ -463,7 +463,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(vllm:request_time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (le, pod))",
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\"}[5m])) by (le, pod))",
           "interval": "",
           "legendFormat": "{{pod}}",
           "refId": "A"
@@ -2118,6 +2118,572 @@
         "alignLevel": null
       },
       "span": 6
+    },
+    {
+      "collapsed": false,
+      "datasource": null,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 74
+      },
+      "id": 300,
+      "title": "NIXL Transfer Performance",
+      "type": "row",
+      "span": 12
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "P95 NIXL KV cache transfer duration per replica. Measures time to complete the RDMA/network transfer of KV cache blocks between disaggregated prefill and decode instances.",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 75
+      },
+      "hiddenSeries": false,
+      "id": 301,
+      "legend": {
+        "alignAsTable": true,
+        "avg": true,
+        "current": true,
+        "max": true,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": true
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:nixl_xfer_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",llm_isvc_role=~\"$llm_isvc_role\",llm_isvc_component=~\"$llm_isvc_component\"}[5m])) by (le, pod))",
+          "interval": "",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "NIXL Transfer Time P95 per Replica",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "s",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "P95 NIXL transfer post time per replica. Measures the overhead of posting/initiating NIXL transfers (descriptor setup, notification).",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 75
+      },
+      "hiddenSeries": false,
+      "id": 302,
+      "legend": {
+        "alignAsTable": true,
+        "avg": true,
+        "current": true,
+        "max": true,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": true
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:nixl_post_time_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",llm_isvc_role=~\"$llm_isvc_role\",llm_isvc_component=~\"$llm_isvc_component\"}[5m])) by (le, pod))",
+          "interval": "",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "NIXL Post Time P95 per Replica",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "s",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "P95 bytes transferred per NIXL KV cache transfer per replica. Large transfers indicate big prompt KV blocks being moved between P and D instances.",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 75
+      },
+      "hiddenSeries": false,
+      "id": 303,
+      "legend": {
+        "alignAsTable": true,
+        "avg": true,
+        "current": true,
+        "max": true,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": true
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(vllm:nixl_bytes_transferred_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",llm_isvc_role=~\"$llm_isvc_role\",llm_isvc_component=~\"$llm_isvc_component\"}[5m])) by (le, pod))",
+          "interval": "",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "NIXL Bytes per Transfer P95 per Replica",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "decbytes",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Rate of failed NIXL transfers and notifications per replica. Any non-zero value indicates RDMA/network issues between P and D instances.",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 83
+      },
+      "hiddenSeries": false,
+      "id": 304,
+      "legend": {
+        "alignAsTable": true,
+        "avg": true,
+        "current": true,
+        "max": true,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": true
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "rate(vllm:nixl_num_failed_transfers_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",llm_isvc_role=~\"$llm_isvc_role\",llm_isvc_component=~\"$llm_isvc_component\"}[5m])",
+          "interval": "",
+          "legendFormat": "{{pod}} failed xfers",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(vllm:nixl_num_failed_notifications_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",llm_isvc_role=~\"$llm_isvc_role\",llm_isvc_component=~\"$llm_isvc_component\"}[5m])",
+          "interval": "",
+          "legendFormat": "{{pod}} failed notifs",
+          "refId": "B"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "NIXL Failed Transfers & Notifications per Replica",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Rate of requests whose KV cache expired before the decode instance could consume it. Tracked on the prefill instance. Non-zero values indicate the decode side is too slow to pick up KV blocks.",
+      "fill": 1,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 83
+      },
+      "hiddenSeries": false,
+      "id": 305,
+      "legend": {
+        "alignAsTable": true,
+        "avg": true,
+        "current": true,
+        "max": true,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": true
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "rate(vllm:nixl_num_kv_expired_reqs_total{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",llm_isvc_role=~\"$llm_isvc_role\",llm_isvc_component=~\"$llm_isvc_component\"}[5m])",
+          "interval": "",
+          "legendFormat": "{{pod}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "NIXL KV Expired Requests per Replica",
+      "tooltip": {
+        "shared": true,
+        "sort": 2,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
+    },
+    {
+      "aliasColors": {},
+      "bars": false,
+      "dashLength": 10,
+      "dashes": false,
+      "datasource": "$datasource",
+      "description": "Engine sleep state per replica: awake=1 means engine is active, weights_offloaded=1 means sleep level 1 (weights moved to CPU), discard_all=1 means sleep level 2 (all state discarded). Sleeping engines save GPU memory but have cold-start latency on wakeup.",
+      "fill": 0,
+      "fillGradient": 0,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 83
+      },
+      "hiddenSeries": false,
+      "id": 306,
+      "legend": {
+        "alignAsTable": false,
+        "avg": false,
+        "current": false,
+        "max": false,
+        "min": false,
+        "show": true,
+        "total": false,
+        "values": false
+      },
+      "lines": true,
+      "linewidth": 2,
+      "nullPointMode": "null",
+      "options": {
+        "dataLinks": []
+      },
+      "percentage": false,
+      "pointradius": 2,
+      "points": false,
+      "renderer": "flot",
+      "seriesOverrides": [],
+      "spaceLength": 10,
+      "stack": false,
+      "steppedLine": false,
+      "targets": [
+        {
+          "expr": "vllm:engine_sleep_state{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\",pod=~\"$pod\",llm_isvc_role=~\"$llm_isvc_role\",llm_isvc_component=~\"$llm_isvc_component\"}",
+          "interval": "",
+          "legendFormat": "{{pod}} {{sleep_state}}",
+          "refId": "A"
+        }
+      ],
+      "thresholds": [],
+      "timeFrom": null,
+      "timeRegions": [],
+      "timeShift": null,
+      "title": "Engine Sleep State per Replica",
+      "tooltip": {
+        "shared": true,
+        "sort": 0,
+        "value_type": "individual"
+      },
+      "type": "graph",
+      "xaxis": {
+        "buckets": null,
+        "mode": "time",
+        "name": null,
+        "show": true,
+        "values": []
+      },
+      "yAxes": [
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": 0,
+          "show": true
+        },
+        {
+          "format": "short",
+          "label": null,
+          "logBase": 1,
+          "max": null,
+          "min": null,
+          "show": true
+        }
+      ],
+      "yAxis": {
+        "align": false,
+        "alignLevel": null
+      },
+      "span": 4
     }
   ],
   "refresh": "30s",

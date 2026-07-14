@@ -7,7 +7,7 @@ spec:
     uri: hf://Qwen/Qwen2.5-7B-Instruct
     name: Qwen/Qwen2.5-7B-Instruct
   # Three replicas for load balancing
-  replicas: 3
+  replicas: 2
   router:
     scheduler:
       config:
@@ -16,10 +16,6 @@ spec:
           kind: EndpointPickerConfig
           featureGates:
             - "flowControl"
-          saturationDetector:
-            queueDepthThreshold: 5
-            kvCacheUtilThreshold: 0.8
-            metricsStalenessThreshold: 200ms
           plugins:
             - type: single-profile-handler
             - type: queue-scorer

@@ -22,7 +22,7 @@ patches:
         value: "http://openshift-ai-inference-openshift-default.openshift-ingress.svc.cluster.local/llm-d-observability/qwen2-7b-instruct-single"
       - op: replace
         path: /spec/template/spec/containers/0/env/2/value
-        value: "gsm8k,mmlu_abstract_algebra,hellaswag,lambada_openai"
+        value: "gsm8k,mmlu_abstract_algebra"
       - op: replace
         path: /spec/template/spec/containers/0/env/3/value
         value: "10"

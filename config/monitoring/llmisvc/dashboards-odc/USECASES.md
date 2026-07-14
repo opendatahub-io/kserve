@@ -147,9 +147,9 @@ The **Latency: Scheduler vs Engine** row provides a complementary view:
 
 | Panel | ID | Query |
 |---|---|---|
-| MP: TTFT P99: Scheduler vs Engine | 141 | Scheduler: `histogram_quantile(0.99, sum(rate(inference_objective_request_ttft_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le, model_name))` |
+| MP: TTFT P99: Scheduler vs Engine | 141 | Scheduler: `histogram_quantile(0.99, sum(rate(llm_d_epp_request_ttft_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le, model_name))` |
 | | | Engine: `histogram_quantile(0.99, sum(rate(vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le))` |
-| MP: TPOT P99: Scheduler vs Engine | 142 | Scheduler: `histogram_quantile(0.99, sum(rate(inference_objective_request_tpot_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le, model_name))` |
+| MP: TPOT P99: Scheduler vs Engine | 142 | Scheduler: `histogram_quantile(0.99, sum(rate(inference_objective_normalized_time_per_output_token_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le, model_name))` |
 | | | Engine: `histogram_quantile(0.99, sum(rate(vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le))` |
 
 The delta between Scheduler (E2E) and Engine (vLLM) reveals scheduling/routing overhead.
@@ -466,11 +466,114 @@ The `model_name` label is the model name from the client request (the `model` fi
 
 ---
 
+### 16. NIXL KV Cache Transfer Health (Disaggregated Serving)
+
+> "Is the KV cache transfer between prefill and decode instances working properly? How fast are transfers?"
+
+**Dashboard**: Cluster Health Overview → Disaggregation Health row (cluster-wide failure signal)
+
+Start with CH to see if any model server has NIXL transfer failures:
+
+- **NIXL Failed Transfers by Model Server** — any non-zero rate means RDMA/network issues between prefill and decode instances
+- **Engine Sleep State (Cluster-Wide)** — sleeping engines save GPU memory but cause cold-start latency on wakeup
+
+If failures appear, drill into MP for the specific model:
+
+**Dashboard**: Model Performance & Usage → NIXL Transfer Performance row
+
+- **NIXL Transfer Latency P95 by Role** — is the transfer taking too long on prefill or decode side?
+- **NIXL Post Time P95 by Role** — is the overhead in posting/initiating transfers?
+- **NIXL Throughput (Bytes/s)** — total data volume flowing between instances
+- **NIXL Descriptors per Transfer P95** — fragmented KV blocks increase transfer overhead
+
+Then drill into RD for per-pod detail:
+
+**Dashboard**: Replica Detail → NIXL Transfer Performance row
+
+Per-replica variants of all NIXL metrics, plus KV Expired Requests and Engine Sleep State per pod.
+
+#### Panels & Queries
+
+**Cluster-wide (CH):**
+
+| Panel | ID | Query |
+|---|---|---|
+| CH: NIXL Failed Transfers by Model Server | 601 | `sum by (llm_isvc_name) (rate(vllm:nixl_num_failed_transfers_total{llm_isvc_name!="",namespace=~"$namespace"}[5m]))` |
+| CH: Engine Sleep State (Cluster-Wide) | 602 | `sum by (sleep_state) (vllm:engine_sleep_state{llm_isvc_name!="",namespace=~"$namespace"})` |
+
+**Per-model (MP):**
+
+| Panel | ID | Query |
+|---|---|---|
+| MP: NIXL Transfer Latency P95 by Role | 181 | `histogram_quantile(0.95, sum(rate(vllm:nixl_xfer_time_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace",llm_isvc_role=~"$llm_isvc_role"}[5m])) by (le, llm_isvc_role))` |
+| MP: NIXL Post Time P95 by Role | 182 | `histogram_quantile(0.95, sum(rate(vllm:nixl_post_time_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace",llm_isvc_role=~"$llm_isvc_role"}[5m])) by (le, llm_isvc_role))` |
+| MP: NIXL Throughput (Bytes/s) | 183 | `sum(rate(vllm:nixl_bytes_transferred_sum{llm_isvc_name!="",namespace=~"$namespace",llm_isvc_role=~"$llm_isvc_role"}[5m])) by (llm_isvc_role)` |
+| MP: NIXL Descriptors per Transfer P95 | 185 | `histogram_quantile(0.95, sum(rate(vllm:nixl_num_descriptors_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace",llm_isvc_role=~"$llm_isvc_role"}[5m])) by (le, llm_isvc_role))` |
+
+**Per-replica (RD):**
+
+| Panel | ID | Query |
+|---|---|---|
+| RD: NIXL Transfer Time P95 per Replica | 301 | `histogram_quantile(0.95, sum(rate(vllm:nixl_xfer_time_seconds_bucket{...,pod=~"$pod"}[5m])) by (le, pod))` |
+| RD: NIXL Post Time P95 per Replica | 302 | `histogram_quantile(0.95, sum(rate(vllm:nixl_post_time_seconds_bucket{...,pod=~"$pod"}[5m])) by (le, pod))` |
+| RD: NIXL Bytes per Transfer P95 per Replica | 303 | `histogram_quantile(0.95, sum(rate(vllm:nixl_bytes_transferred_bucket{...,pod=~"$pod"}[5m])) by (le, pod))` |
+| RD: NIXL Failed Transfers & Notifications per Replica | 304 | `rate(vllm:nixl_num_failed_transfers_total{...,pod=~"$pod"}[5m])` + `rate(vllm:nixl_num_failed_notifications_total{...}[5m])` |
+| RD: NIXL KV Expired Requests per Replica | 305 | `rate(vllm:nixl_num_kv_expired_reqs_total{...,pod=~"$pod"}[5m])` |
+| RD: Engine Sleep State per Replica | 306 | `vllm:engine_sleep_state{...,pod=~"$pod"}` |
+
+---
+
+### 17. Token Caching Efficiency (Cached vs Recomputed)
+
+> "How effective is our prompt caching? Are we recomputing tokens we already cached?"
+
+**Dashboard**: Model Performance & Usage → NIXL Transfer Performance row
+
+- **Prompt Tokens: Cached vs Recomputed** — stacked view of cached tokens (local + external) vs tokens recomputed despite being cached. A high recomputed rate indicates prefix mismatches or cache invalidation pressure.
+
+**Dashboard**: Failure & Diagnostics → NIXL & KV Transfer Failures row
+
+- Same metric at aggregate level, useful for diagnosing caching layer issues alongside failure signals.
+
+#### Panels & Queries
+
+| Panel | ID | Query |
+|---|---|---|
+| MP: Prompt Tokens: Cached vs Recomputed | 184 | Cached: `sum(rate(vllm:prompt_tokens_cached_total{llm_isvc_name!="",namespace=~"$namespace",llm_isvc_role=~"$llm_isvc_role"}[5m])) by (llm_isvc_role)` |
+| | | Recomputed: `sum(rate(vllm:prompt_tokens_recomputed_total{llm_isvc_name!="",namespace=~"$namespace",llm_isvc_role=~"$llm_isvc_role"}[5m])) by (llm_isvc_role)` |
+| FD: Prompt Tokens: Cached vs Recomputed | 704 | Cached: `sum(rate(vllm:prompt_tokens_cached_total{llm_isvc_name!="",namespace=~"$namespace",llm_isvc_role=~"$llm_isvc_role"}[5m]))` |
+| | | Recomputed: `sum(rate(vllm:prompt_tokens_recomputed_total{...}[5m]))` |
+
+---
+
+### 18. NIXL Failure Diagnostics
+
+> "NIXL transfers are failing. Where exactly is the problem?"
+
+**Dashboard**: Failure & Diagnostics → NIXL & KV Transfer Failures row
+
+- **NIXL Failed Transfers & Notifications** — split by model server, shows both transfer failures (data path) and notification failures (control path)
+- **NIXL KV Expired Requests** — requests whose KV expired before decode consumed it, indicating timing mismatch
+- **Engine Sleep State Summary** — are engines sleeping and causing cold-start issues?
+
+Then drill into RD for per-pod isolation: which specific pod is failing?
+
+#### Panels & Queries
+
+| Panel | ID | Query |
+|---|---|---|
+| FD: NIXL Failed Transfers & Notifications | 701 | Xfers: `sum by (llm_isvc_name) (rate(vllm:nixl_num_failed_transfers_total{llm_isvc_name!="",namespace=~"$namespace",llm_isvc_role=~"$llm_isvc_role"}[5m]))` |
+| | | Notifs: `sum by (llm_isvc_name) (rate(vllm:nixl_num_failed_notifications_total{...}[5m]))` |
+| FD: NIXL KV Expired Requests | 702 | `sum by (llm_isvc_name) (rate(vllm:nixl_num_kv_expired_reqs_total{llm_isvc_name!="",namespace=~"$namespace",llm_isvc_role=~"$llm_isvc_role"}[5m]))` |
+| FD: Engine Sleep State Summary | 703 | `sum by (sleep_state) (vllm:engine_sleep_state{llm_isvc_name!="",namespace=~"$namespace",llm_isvc_role=~"$llm_isvc_role"})` |
+
+---
+
 ## Drill-Down Workflow Summary
 
 Most investigations follow this path:
 
-```
+```text
 1. Cluster Health Overview          "Is something wrong?"
    └─ Gateway & Ingress row          (first check: is traffic reaching the cluster?)
    └─ SLI Summary gauges             (second check: is the serving layer healthy?)
