@@ -28,6 +28,10 @@ inputs:
   release_tag:
     description: 'Image tag for the release branch (e.g., odh-stable)'
     required: true
+  config_path:
+    description: 'Path to the config directory containing params.env (e.g., config/overlays, config/base)'
+    required: false
+    default: 'config/overlays'
   release_captain:
     description: 'GitHub username assigned to conflict issues'
     required: false
@@ -45,6 +49,7 @@ runs:
         RELEASE_BRANCH: ${{ inputs.release_branch }}
         SOURCE_TAG: ${{ inputs.source_tag }}
         RELEASE_TAG: ${{ inputs.release_tag }}
+        CONFIG_PATH: ${{ inputs.config_path }}
       run: |
         if [[ ! "$SOURCE_BRANCH" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
           echo "::error::Invalid source branch name: '$SOURCE_BRANCH'"
@@ -60,6 +65,18 @@ runs:
         fi
         if [[ ! "$RELEASE_TAG" =~ ^[a-zA-Z0-9._-]+$ ]]; then
           echo "::error::Invalid release tag: '$RELEASE_TAG'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+          exit 1
+        fi
+        if [[ -z "$CONFIG_PATH" ]] || [[ "$CONFIG_PATH" = /* ]]; then
+          echo "::error::Invalid config path: '$CONFIG_PATH'. Must be a non-empty relative path."
+          exit 1
+        fi
+        if [[ "$CONFIG_PATH" =~ (^|/)\.\.(/|$) ]]; then
+          echo "::error::Invalid config path: '$CONFIG_PATH'. Path traversal ('..') is not allowed."
+          exit 1
+        fi
+        if [[ ! "$CONFIG_PATH" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+          echo "::error::Invalid config path: '$CONFIG_PATH'. Only alphanumeric characters, dots, hyphens, underscores, and slashes are allowed."
           exit 1
         fi
 
@@ -99,6 +116,7 @@ runs:
         RELEASE_BRANCH: ${{ inputs.release_branch }}
         SOURCE_TAG: ${{ inputs.source_tag }}
         RELEASE_TAG: ${{ inputs.release_tag }}
+        CONFIG_PATH: ${{ inputs.config_path }}
       run: |
         SYNC_BRANCH="auto-sync/${SOURCE_BRANCH}-to-${RELEASE_BRANCH}"
         git checkout -B "$SYNC_BRANCH"
@@ -110,7 +128,7 @@ runs:
           CONFLICTED=$(git diff --name-only --diff-filter=U)
           # .tekton and params.env conflicts are expected (tags diverge by
           # design). Anything else means real source conflicts that need a human.
-          UNEXPECTED=$(echo "$CONFLICTED" | grep -v '^\.tekton/' | grep -v 'params\.env$' || true)
+          UNEXPECTED=$(echo "$CONFLICTED" | grep -v '^\.tekton/' | grep -v "^${CONFIG_PATH}/.*params\.env$" || true)
 
           if [ -n "$UNEXPECTED" ]; then
             echo "::error::Merge conflicts in unexpected files require manual resolution:"
@@ -132,15 +150,18 @@ runs:
           EXPECTED_CONFLICTS="$CONFLICTED"
           echo "Resolving expected conflicts by taking ${SOURCE_BRANCH}'s version"
           echo "$CONFLICTED" | xargs git checkout --theirs --
-          git add -f .tekton/ config/overlays/
+          git add -f .tekton/
+          find "${CONFIG_PATH}" -name 'params.env' -exec git add -f -- {} +
         fi
 
         # Source branch uses source tags and target_branch == source_branch.
         # The release branch needs the release tag and
         # target_branch == release_branch.
-        sed -i "s|${SOURCE_TAG}|${RELEASE_TAG}|g" .tekton/*-push*.yaml .tekton/*-push.yaml config/overlays/*/params.env 2>/dev/null || true
+        find "${CONFIG_PATH}" -name 'params.env' -exec sed -i "s|${SOURCE_TAG}|${RELEASE_TAG}|g" {} + 2>/dev/null || true
+        sed -i "s|${SOURCE_TAG}|${RELEASE_TAG}|g" .tekton/*-push*.yaml .tekton/*-push.yaml 2>/dev/null || true
         sed -i "s|== \"${SOURCE_BRANCH}\"|== \"${RELEASE_BRANCH}\"|g" .tekton/*.yaml
-        git add -f .tekton/ config/overlays/
+        git add -f .tekton/
+        find "${CONFIG_PATH}" -name 'params.env' -exec git add -f -- {} +
 
         git commit -m "Sync ${SOURCE_BRANCH} to ${RELEASE_BRANCH}"
 
