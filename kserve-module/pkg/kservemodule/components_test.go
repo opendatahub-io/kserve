@@ -71,6 +71,23 @@ func TestComponentsConfig_WVAHasEnabled(t *testing.T) {
 	g.Expect(wva.sourcePathXKS).Should(BeEmpty(), "WVA is OCP-only, must not have XKS overlay")
 }
 
+func TestComponentsConfig_ConsoleDashboardsRegistration(t *testing.T) {
+	g := NewWithT(t)
+	var cd *componentConfig
+	for i := range components {
+		if components[i].name == ConsoleDashboardsComponentName {
+			cd = &components[i]
+			break
+		}
+	}
+	g.Expect(cd).ShouldNot(BeNil(), "console-dashboards component not registered")
+	g.Expect(cd.sourcePath).Should(Equal(ConsoleDashboardsManifestSourcePath))
+	g.Expect(cd.dirName()).Should(Equal(KserveComponentName), "manifestName must resolve to kserve dir")
+	g.Expect(cd.sourcePathXKS).Should(BeEmpty(), "console-dashboards is OCP-only, must not have XKS overlay")
+	g.Expect(cd.enabled).Should(BeNil(), "gating is done in postRender, not enabled")
+	g.Expect(cd.postRender).ShouldNot(BeNil(), "postRender must be set for namespace check")
+}
+
 func TestModelControllerExtraParams(t *testing.T) {
 	tests := []struct {
 		name           string

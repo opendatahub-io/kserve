@@ -7,6 +7,7 @@ const (
 	WVAComponentName                = "wva"
 	ModelCacheComponentName         = "modelcache"
 	ObservabilityComponentName      = "observability"
+	ConsoleDashboardsComponentName  = "console-dashboards"
 
 	// Manifest source paths
 	KserveManifestSourcePath        = "overlays/odh"
@@ -14,7 +15,8 @@ const (
 	ModelCacheManifestSourcePath    = "overlays/odh-modelcache"
 	ModelControllerSourcePath       = "base"
 	WVAManifestSourcePathOCP        = "overlays/namespace-scoped/openshift"
-	ObservabilityManifestSourcePath = "monitoring/llmisvc/dashboards"
+	ObservabilityManifestSourcePath      = "monitoring/llmisvc/dashboards"
+	ConsoleDashboardsManifestSourcePath = "monitoring/llmisvc/dashboards-odc"
 
 	// Deployment names
 	kserveControllerDeployment     = "kserve-controller-manager"
@@ -22,6 +24,9 @@ const (
 	localmodelControllerDeployment = "kserve-localmodel-controller-manager"
 	odhModelControllerDeployment   = "odh-model-controller"
 	wvaControllerDeployment        = "workload-variant-autoscaler-controller-manager"
+
+	// Console dashboards target namespace
+	consoleDashboardsNamespace = "openshift-config-managed"
 
 	// SSA field manager
 	fieldOwner = "kserve-module-controller"

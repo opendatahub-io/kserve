@@ -312,6 +312,67 @@ var _ = Describe("KserveModule Reconciler", func() {
 		})
 	})
 
+	Context("console dashboards lifecycle", Ordered, func() {
+		var cr *platformv1alpha1.Kserve
+
+		BeforeAll(func(ctx SpecContext) {
+			cr = fixture.KserveCR()
+			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
+
+			DeferCleanup(func(ctx SpecContext) {
+				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, cr))).To(Succeed())
+			})
+		})
+
+		BeforeEach(func() {
+			testEnv.Deployer = &fixture.MockDeployer{}
+			testEnv.Reconciler.Deployer = testEnv.Deployer
+		})
+
+		It("does not include console dashboard resources when namespace does not exist", func(ctx SpecContext) {
+			triggerReconcile(ctx, cr, "console-dashboards-no-ns")
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				cond := fixture.FindCondition(cr, string(common.ConditionTypeProvisioningSucceeded))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			}).WithContext(ctx).Should(Succeed())
+
+			lastCall := testEnv.Deployer.LastCall()
+			Expect(lastCall).NotTo(BeNil())
+			for _, res := range lastCall.Resources {
+				Expect(res.GetName()).NotTo(Equal("model-serving-llms-cluster-health"),
+					"console dashboard ConfigMaps should not be deployed when namespace does not exist")
+			}
+		})
+
+		It("includes console dashboard resources when namespace exists", func(ctx SpecContext) {
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "openshift-config-managed"}}
+			Expect(testEnv.Client.Create(ctx, ns)).To(Succeed())
+			DeferCleanup(func(ctx SpecContext) {
+				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, ns))).To(Succeed())
+			})
+
+			triggerReconcile(ctx, cr, "console-dashboards-with-ns")
+
+			Eventually(func(g Gomega) {
+				lastCall := testEnv.Deployer.LastCall()
+				g.Expect(lastCall).NotTo(BeNil())
+
+				hasDashboard := false
+				for _, res := range lastCall.Resources {
+					if res.GetKind() == "ConfigMap" && res.GetName() == "model-serving-llms-cluster-health" {
+						g.Expect(res.GetNamespace()).To(Equal("openshift-config-managed"))
+						hasDashboard = true
+						break
+					}
+				}
+				g.Expect(hasDashboard).To(BeTrue(), "console dashboard ConfigMap should be in deployed resources")
+			}).WithContext(ctx).Should(Succeed())
+		})
+	})
+
 	Context("oauthProxy configuration", Ordered, func() {
 		var cr *platformv1alpha1.Kserve
 

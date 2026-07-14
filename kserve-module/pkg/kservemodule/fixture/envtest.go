@@ -151,9 +151,17 @@ spec:
     panels: {}
     layouts: []
 `
+	consoleDashboardsManifest := `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: model-serving-llms-cluster-health
+data:
+  model-serving-llms-cluster-health-odc.json: "{}"
+`
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.KserveComponentName, kservemodule.KserveManifestSourcePath), kserveManifest)
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.KserveComponentName, kservemodule.KserveManifestSourcePathXKS), kserveManifest)
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.KserveComponentName, kservemodule.ObservabilityManifestSourcePath), observabilityManifest)
+	writeKustomizeDir(filepath.Join(workDir, kservemodule.KserveComponentName, kservemodule.ConsoleDashboardsManifestSourcePath), consoleDashboardsManifest)
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.OdhModelControllerComponentName, kservemodule.ModelControllerSourcePath), modelCtrlManifest)
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.WVAComponentName, kservemodule.WVAManifestSourcePathOCP), wvaManifest)
 }
