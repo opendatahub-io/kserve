@@ -97,16 +97,16 @@ func (mutator *Mutator) mutate(ctx context.Context, pod *corev1.Pod, configMap *
 		return err
 	}
 
-	ovmsVersioningConfig, err := v1beta1.GetOVMSVersioningConfig(configMap)
+	openshiftConfig, err := v1beta1.NewOpenShiftConfig(configMap)
 	if err != nil {
 		return err
 	}
 
 	storageInitializer := &StorageInitializerInjector{
-		credentialBuilder:    credentialBuilder,
-		config:               storageInitializerConfig,
-		ovmsVersioningConfig: ovmsVersioningConfig,
-		client:               mutator.Client,
+		credentialBuilder: credentialBuilder,
+		config:            storageInitializerConfig,
+		openshiftConfig:   openshiftConfig,
+		client:            mutator.Client,
 	}
 
 	loggerConfig, err := getLoggerConfigs(pod, configMap, isvc)

@@ -158,9 +158,6 @@ data:
     }
   openshiftConfig: |-
     {
-      "modelcachePermissionFixImage": "REPLACE_IMAGE"
-    }
-  ovmsVersioning: |-
-    {
-      "image": "REPLACE_IMAGE"
+      "modelcachePermissionFixImage": "REPLACE_IMAGE",
+      "ovmsVersioningImage": "REPLACE_IMAGE"
     }

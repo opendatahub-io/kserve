@@ -48,18 +48,18 @@ const (
 	CaBundleVolumeName = "cabundle-cert"
 )
 
-func getOVMSVersioningImage(config *types.OVMSVersioningConfig) string {
-	if config != nil && config.Image != "" {
-		return config.Image
+func getOVMSVersioningImage(openshiftConfig *v1beta1.OpenShiftConfig) (string, error) {
+	if openshiftConfig == nil || openshiftConfig.OvmsVersioningImage == "" {
+		return "", fmt.Errorf("ovmsVersioningImage not configured in inferenceservice-config openshiftConfig")
 	}
-	return "registry.redhat.io/ubi9/ubi-micro:latest"
+	return openshiftConfig.OvmsVersioningImage, nil
 }
 
 type StorageInitializerInjector struct {
-	credentialBuilder     *credentials.CredentialBuilder
-	config                *types.StorageInitializerConfig
-	ovmsVersioningConfig  *types.OVMSVersioningConfig
-	client                client.Client
+	credentialBuilder *credentials.CredentialBuilder
+	config            *types.StorageInitializerConfig
+	openshiftConfig   *v1beta1.OpenShiftConfig
+	client            client.Client
 }
 
 // StorageInitializerParams contains all the parameters needed for storage initialization
@@ -774,10 +774,16 @@ func (mi *StorageInitializerInjector) InjectOVMSAutoVersioning(pod *corev1.Pod) 
 		}
 	}
 
+	// Get the OVMS versioning image from config
+	ovmsImage, err := getOVMSVersioningImage(mi.openshiftConfig)
+	if err != nil {
+		return fmt.Errorf("failed to get OVMS versioning image: %w", err)
+	}
+
 	// Create the OVMS versioning init container
 	ovmsVersioningContainer := corev1.Container{
 		Name:    constants.OVMSVersioningContainerName,
-		Image:   getOVMSVersioningImage(mi.ovmsVersioningConfig),
+		Image:   ovmsImage,
 		Command: []string{"/bin/sh"},
 		Args: []string{
 			"-c",

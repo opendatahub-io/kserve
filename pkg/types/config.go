@@ -29,7 +29,3 @@ type StorageInitializerConfig struct {
 	EnableOciImageSource    bool   `json:"enableModelcar"`
 	UidModelcar             *int64 `json:"uidModelcar"`
 }
-
-type OVMSVersioningConfig struct {
-	Image string `json:"image"`
-}
