@@ -174,6 +174,9 @@ func consoleDashboardsPostRender(ctx context.Context, r *KserveModuleReconciler,
 	}
 
 	for i := range resources {
+		if kind := resources[i].GetKind(); kind != "ConfigMap" {
+			return nil, fmt.Errorf("unauthorized resource kind %s in console dashboards manifest", kind)
+		}
 		resources[i].SetNamespace(consoleDashboardsNamespace)
 	}
 	log.Info("set namespace on console dashboard resources", "namespace", consoleDashboardsNamespace, "count", len(resources))
