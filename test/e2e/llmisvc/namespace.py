@@ -80,11 +80,13 @@ def create_test_namespace(namespace: str) -> None:
 
 
 def provision_namespace_secrets(namespace: str) -> None:
-    """Copy secrets from the seed namespace and patch the default SA."""
+    """Copy secrets and configmaps from the seed namespace and patch the default SA."""
     core_v1 = client.CoreV1Api()
     _copy_secret(core_v1, S3_CREDENTIALS_SECRET, SEED_NAMESPACE, namespace)
     _copy_secret(core_v1, "storage-config", SEED_NAMESPACE, namespace)
     _patch_default_sa_secret(core_v1, namespace, S3_CREDENTIALS_SECRET)
+    _copy_configmap(core_v1, "odh-kserve-custom-ca-bundle", SEED_NAMESPACE, namespace)
+    _copy_configmap(core_v1, "odh-trusted-ca-bundle", SEED_NAMESPACE, namespace)
 
 
 def delete_test_namespace(namespace: str) -> None:
@@ -122,6 +124,34 @@ def _copy_secret(
     except client.rest.ApiException as e:
         if e.status == 409:
             logger.info(f"Secret {secret_name} already exists in {dst_ns}")
+        else:
+            raise
+
+
+def _copy_configmap(
+    core_v1: client.CoreV1Api, cm_name: str, src_ns: str, dst_ns: str
+) -> None:
+    """Copy a configmap from one namespace to another, skipping if source doesn't exist."""
+    try:
+        cm = core_v1.read_namespaced_config_map(cm_name, src_ns)
+    except client.rest.ApiException as e:
+        if e.status == 404:
+            logger.info(f"ConfigMap {cm_name} not found in {src_ns}, skipping copy")
+            return
+        raise
+
+    cm.metadata = client.V1ObjectMeta(
+        name=cm_name,
+        namespace=dst_ns,
+        annotations=cm.metadata.annotations,
+        labels=cm.metadata.labels,
+    )
+    try:
+        core_v1.create_namespaced_config_map(dst_ns, cm)
+        logger.info(f"Copied ConfigMap {cm_name} from {src_ns} to {dst_ns}")
+    except client.rest.ApiException as e:
+        if e.status == 409:
+            logger.info(f"ConfigMap {cm_name} already exists in {dst_ns}")
         else:
             raise
 
