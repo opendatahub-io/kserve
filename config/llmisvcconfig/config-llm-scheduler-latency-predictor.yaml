@@ -2,7 +2,6 @@ apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
   name: kserve-config-llm-scheduler-latency-predictor
-  namespace: kserve
 spec:
   router:
     scheduler:
