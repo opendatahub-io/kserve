@@ -18,6 +18,7 @@ const (
 	// Manifest source paths
 	KserveManifestSourcePath        = "overlays/odh"
 	KserveManifestSourcePathXKS     = "overlays/odh-xks"
+	KserveCRDManifestSourcePath     = "overlays/odh-crds"
 	ModelCacheManifestSourcePath    = "overlays/odh-modelcache"
 	ModelControllerSourcePath       = "base"
 	WVAManifestSourcePathOCP        = "overlays/namespace-scoped/openshift"
