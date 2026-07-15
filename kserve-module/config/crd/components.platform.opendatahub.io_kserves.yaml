@@ -46,6 +46,11 @@ spec:
             type: object
           spec:
             properties:
+              enableLLMInferenceServiceConsoleDashboards:
+                description: |-
+                  Enables OpenShift Developer Console dashboards for LLMInferenceService.
+                  Enabled by default.
+                type: boolean
               enableLLMInferenceServiceTLS:
                 description: |-
                   Enables TLS for LLMInferenceService deployments.

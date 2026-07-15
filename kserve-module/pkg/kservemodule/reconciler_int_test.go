@@ -10,6 +10,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
@@ -369,6 +370,53 @@ var _ = Describe("KserveModule Reconciler", func() {
 					}
 				}
 				g.Expect(hasDashboard).To(BeTrue(), "console dashboard ConfigMap should be in deployed resources")
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("does not include console dashboard resources when explicitly disabled", func(ctx SpecContext) {
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
+					return err
+				}
+				cr.Spec.EnableLLMInferenceServiceConsoleDashboards = ptr.To(false)
+				return testEnv.Client.Update(ctx, cr)
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				lastCall := testEnv.Deployer.LastCall()
+				g.Expect(lastCall).NotTo(BeNil())
+
+				for _, res := range lastCall.Resources {
+					g.Expect(res.GetName()).NotTo(Equal("model-serving-llms-cluster-health"),
+						"console dashboard ConfigMaps should not be deployed when explicitly disabled")
+				}
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("re-enables console dashboard resources when flag is set back to true", func(ctx SpecContext) {
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
+					return err
+				}
+				cr.Spec.EnableLLMInferenceServiceConsoleDashboards = ptr.To(true)
+				return testEnv.Client.Update(ctx, cr)
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				lastCall := testEnv.Deployer.LastCall()
+				g.Expect(lastCall).NotTo(BeNil())
+
+				hasDashboard := false
+				for _, res := range lastCall.Resources {
+					if res.GetKind() == "ConfigMap" && res.GetName() == "model-serving-llms-cluster-health" {
+						g.Expect(res.GetNamespace()).To(Equal("openshift-config-managed"))
+						hasDashboard = true
+						break
+					}
+				}
+				g.Expect(hasDashboard).To(BeTrue(), "console dashboard ConfigMap should be deployed after re-enabling")
 			}).WithContext(ctx).Should(Succeed())
 		})
 	})

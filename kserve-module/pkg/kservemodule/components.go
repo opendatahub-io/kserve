@@ -7,6 +7,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -153,10 +154,15 @@ func observabilityPostRender(ctx context.Context, r *KserveModuleReconciler,
 }
 
 func consoleDashboardsPostRender(ctx context.Context, r *KserveModuleReconciler,
-	_ *platformv1alpha1.Kserve,
+	kserve *platformv1alpha1.Kserve,
 	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
 
 	log := ctrl.LoggerFrom(ctx)
+
+	if kserve == nil || !ptr.Deref(kserve.Spec.EnableLLMInferenceServiceConsoleDashboards, true) {
+		log.Info("EnableLLMInferenceServiceConsoleDashboards is disabled, skipping console dashboards")
+		return nil, nil
+	}
 
 	ns := &corev1.Namespace{}
 	if err := r.Client.Get(ctx, client.ObjectKey{Name: consoleDashboardsNamespace}, ns); err != nil {
