@@ -86,6 +86,8 @@ sed -i "s|kserve-storage-initializer=.*|kserve-storage-initializer=${STORAGE_INI
 echo "=== Final params.env"
 cat "${PARAMS_ENV}"
 
+kustomize build "${PROJECT_ROOT}/config/overlays/odh-crds" | oc apply --server-side=true --force-conflicts -f -
+
 ODH_MANIFESTS=$(kustomize build "${PROJECT_ROOT}/config/overlays/odh-test")
 
 # Apply CRDs first and wait for them to be established before applying the rest

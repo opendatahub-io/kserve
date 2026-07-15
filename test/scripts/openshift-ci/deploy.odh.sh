@@ -105,6 +105,9 @@ else
     "${PROJECT_ROOT}/config/overlays/odh-test/dsci.yaml" | oc apply -f -
 fi
 
+echo "Installing KServe CRDs..."
+kustomize build "${PROJECT_ROOT}/config/overlays/odh-crds" | oc apply --server-side=true --force-conflicts -f -
+
 echo "Applying DSC to trigger operator deployment..."
 oc apply -f "${PROJECT_ROOT}/config/overlays/odh-test/dsc.yaml"
 
