@@ -24,6 +24,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/utils"
 )
@@ -70,4 +71,14 @@ func (mi *StorageInitializerInjector) InjectImageVolume(pod *corev1.Pod) error {
 	}
 
 	return nil
+}
+
+func getOVMSVersioningImage(openshiftConfig *v1beta1.OpenShiftConfig) (string, error) {
+	if openshiftConfig == nil || openshiftConfig.OvmsVersioningImage == "" {
+		return "", fmt.Errorf("ovmsVersioningImage not configured in inferenceservice-config openshiftConfig")
+	}
+	if !strings.Contains(openshiftConfig.OvmsVersioningImage, "@sha256:") {
+		return "", fmt.Errorf("ovmsVersioningImage must be a digest-pinned reference (e.g. @sha256:...), got: %s", openshiftConfig.OvmsVersioningImage)
+	}
+	return openshiftConfig.OvmsVersioningImage, nil
 }

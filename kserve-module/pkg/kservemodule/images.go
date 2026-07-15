@@ -40,6 +40,7 @@ var kserveImageParamMap = map[string]string{
 	"kserve-localmodelnode-agent":                      "RELATED_IMAGE_ODH_KSERVE_LOCALMODELNODE_AGENT_IMAGE",
 	"kserve-llm-d-latency-predictor-prediction":        "RELATED_IMAGE_ODH_LATENCY_PREDICTOR_PREDICTION_IMAGE",
 	"kserve-llm-d-latency-predictor-training":          "RELATED_IMAGE_ODH_LATENCY_PREDICTOR_TEST_IMAGE",
+	"ovms-versioning-ubi-micro":                        "RELATED_IMAGE_ODH_UBI_MICRO_IMAGE",
 }
 
 var modelControllerImageParamMap = map[string]string{

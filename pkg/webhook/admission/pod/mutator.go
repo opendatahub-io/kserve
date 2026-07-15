@@ -97,7 +97,7 @@ func (mutator *Mutator) mutate(ctx context.Context, pod *corev1.Pod, configMap *
 		return err
 	}
 
-	openshiftConfig, err := v1beta1.NewOpenShiftConfig(configMap)
+	openshiftConfig, err := getOpenShiftConfig(configMap)
 	if err != nil {
 		return err
 	}

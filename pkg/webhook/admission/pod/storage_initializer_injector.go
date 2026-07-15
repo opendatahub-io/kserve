@@ -48,13 +48,6 @@ const (
 	CaBundleVolumeName = "cabundle-cert"
 )
 
-func getOVMSVersioningImage(openshiftConfig *v1beta1.OpenShiftConfig) (string, error) {
-	if openshiftConfig == nil || openshiftConfig.OvmsVersioningImage == "" {
-		return "", fmt.Errorf("ovmsVersioningImage not configured in inferenceservice-config openshiftConfig")
-	}
-	return openshiftConfig.OvmsVersioningImage, nil
-}
-
 type StorageInitializerInjector struct {
 	credentialBuilder *credentials.CredentialBuilder
 	config            *types.StorageInitializerConfig
