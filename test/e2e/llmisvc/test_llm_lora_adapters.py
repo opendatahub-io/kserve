@@ -220,7 +220,6 @@ def run_lora_test(test_case: LoRATestCase):
                 service_name="lora-single-adapter-test",
             ),
             marks=[
-                pytest.mark.llminferenceservice,
                 pytest.mark.cluster_cpu,
                 pytest.mark.lora,
             ],
@@ -238,7 +237,6 @@ def run_lora_test(test_case: LoRATestCase):
                 service_name="lora-multiple-adapters-test",
             ),
             marks=[
-                pytest.mark.llminferenceservice,
                 pytest.mark.cluster_cpu,
                 pytest.mark.lora,
             ],
