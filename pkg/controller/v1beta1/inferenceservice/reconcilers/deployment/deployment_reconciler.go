@@ -231,13 +231,8 @@ func createRawDeploymentODH(ctx context.Context,
 	}
 
 	// Mount TLS infrastructure for transformer-to-predictor communication when auth is explicitly enabled
-	if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
-		if componentLabel, ok := componentMeta.Labels[constants.KServiceComponentLabel]; ok &&
-			componentLabel == string(v1beta1.TransformerComponent) {
-			if err := mountTransformerTLSInfrastructure(headDeployment, componentMeta); err != nil {
-				return nil, false, fmt.Errorf("failed to mount transformer TLS infrastructure: %w", err)
-			}
-		}
+	if err := mountTransformerTLSInfrastructure(headDeployment, componentMeta); err != nil {
+		return nil, false, fmt.Errorf("failed to mount transformer TLS infrastructure: %w", err)
 	}
 
 	return deploymentList, authProxyPreserved, nil
@@ -1121,75 +1116,4 @@ func getOauthProxyConfig(ctx context.Context, clientset kubernetes.Interface) (*
 		return nil, err
 	}
 	return oauthProxyConfig, nil
-}
-
-// mountTransformerTLSInfrastructure injects the OpenShift service-ca bundle volume and
-// TLS endpoint discovery env vars into the transformer deployment's kserve-container.
-// This enables the transformer to verify the predictor's TLS certificate and discover
-// the predictor's HTTPS endpoint when auth is enabled.
-func mountTransformerTLSInfrastructure(deployment *appsv1.Deployment, componentMeta metav1.ObjectMeta) error {
-	// Validate isvcName before any mutation to avoid orphaned volumes
-	isvcName := componentMeta.Labels[constants.InferenceServicePodLabelKey]
-	if isvcName == "" {
-		return fmt.Errorf("InferenceServicePodLabelKey label missing on transformer deployment %q", componentMeta.Name)
-	}
-
-	podSpec := &deployment.Spec.Template.Spec
-
-	// Add openshift-service-ca.crt ConfigMap volume
-	podSpec.Volumes = append(podSpec.Volumes, corev1.Volume{
-		Name: constants.ServiceCaBundleVolumeName,
-		VolumeSource: corev1.VolumeSource{
-			ConfigMap: &corev1.ConfigMapVolumeSource{
-				LocalObjectReference: corev1.LocalObjectReference{
-					Name: constants.OpenShiftServiceCaConfigMapName,
-				},
-			},
-		},
-	})
-	predictorHost := fmt.Sprintf("%s.%s.svc",
-		constants.PredictorServiceName(isvcName), componentMeta.Namespace)
-
-	// Add volume mount + env vars to kserve-container
-	containerFound := false
-	for i, container := range podSpec.Containers {
-		if container.Name == constants.InferenceServiceContainerName {
-			containerFound = true
-			podSpec.Containers[i].VolumeMounts = append(
-				podSpec.Containers[i].VolumeMounts,
-				corev1.VolumeMount{
-					Name:      constants.ServiceCaBundleVolumeName,
-					MountPath: constants.ServiceCaBundleMountPath,
-					ReadOnly:  true,
-				},
-			)
-			podSpec.Containers[i].Env = append(podSpec.Containers[i].Env,
-				corev1.EnvVar{
-					Name:  "SSL_CERT_DIR",
-					Value: constants.ServiceCaBundleMountPath,
-				},
-				corev1.EnvVar{
-					Name:  "REQUESTS_CA_BUNDLE",
-					Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
-				},
-				corev1.EnvVar{
-					Name:  constants.PredictorHostEnvVar,
-					Value: predictorHost,
-				},
-				corev1.EnvVar{
-					Name:  constants.PredictorPortEnvVar,
-					Value: strconv.Itoa(constants.OauthProxyPort),
-				},
-				corev1.EnvVar{
-					Name:  constants.PredictorProtocolEnvVar,
-					Value: "https",
-				},
-			)
-			break
-		}
-	}
-	if !containerFound {
-		return fmt.Errorf("container %q not found in transformer deployment %q", constants.InferenceServiceContainerName, componentMeta.Name)
-	}
-	return nil
 }
