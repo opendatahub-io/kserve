@@ -85,9 +85,18 @@ UPSTREAM_K8S_VLLM_ENV_OVERRIDES = [
     {"name": "TORCHINDUCTOR_CACHE_DIR", "value": "/tmp/torchinductor-cache"},
 ]
 
+STORAGE_INITIALIZER_INIT_CONTAINER = {
+    "name": "storage-initializer",
+    "env": [
+        {"name": "TOKIO_WORKER_THREADS", "value": "1"},
+    ],
+}
+
+
 LLMINFERENCESERVICE_CONFIGS = {
     "workload-single-cpu": {
         "template": {
+            "initContainers": [STORAGE_INITIALIZER_INIT_CONTAINER],
             "containers": [
                 {
                     "name": "main",
@@ -104,11 +113,12 @@ LLMINFERENCESERVICE_CONFIGS = {
                     },
                     "securityContext": UPSTREAM_K8S_NON_ROOT_SECURITY_CONTEXT.copy(),
                 }
-            ]
+            ],
         },
     },
     "workload-pd-cpu": {
         "template": {
+            "initContainers": [STORAGE_INITIALIZER_INIT_CONTAINER],
             "containers": [
                 {
                     "name": "main",
@@ -139,10 +149,11 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "failureThreshold": 3,
                     },
                 }
-            ]
+            ],
         },
         "prefill": {
             "template": {
+                "initContainers": [STORAGE_INITIALIZER_INIT_CONTAINER],
                 "containers": [
                     {
                         "name": "main",
@@ -173,7 +184,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                         },
                         "securityContext": UPSTREAM_K8S_NON_ROOT_SECURITY_CONTEXT.copy(),
                     }
-                ]
+                ],
             }
         },
     },
@@ -239,6 +250,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             "tensor": 1,
         },
         "template": {
+            "initContainers": [STORAGE_INITIALIZER_INIT_CONTAINER],
             "containers": [
                 {
                     "name": "main",
@@ -276,9 +288,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "failureThreshold": 3,
                     },
                 }
-            ]
+            ],
         },
         "worker": {
+            "initContainers": [STORAGE_INITIALIZER_INIT_CONTAINER],
             "containers": [
                 {
                     "name": "main",
@@ -309,7 +322,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                         },
                     },
                 }
-            ]
+            ],
         },
     },
     "workload-dp-ep-prefill-gpu": {
@@ -321,6 +334,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                 "tensor": 1,
             },
             "template": {
+                "initContainers": [STORAGE_INITIALIZER_INIT_CONTAINER],
                 "containers": [
                     {
                         "name": "main",
@@ -362,9 +376,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                             "failureThreshold": 3,
                         },
                     }
-                ]
+                ],
             },
             "worker": {
+                "initContainers": [STORAGE_INITIALIZER_INIT_CONTAINER],
                 "containers": [
                     {
                         "name": "main",
@@ -395,12 +410,30 @@ LLMINFERENCESERVICE_CONFIGS = {
                             },
                         },
                     }
-                ]
+                ],
             },
         },
     },
     "router-managed": {
-        "router": {"scheduler": {}, "route": {}, "gateway": {}},
+        "router": {
+            "scheduler": {
+                "template": {
+                    "containers": [
+                        {
+                            "name": "main",
+                            "resources": {
+                                "requests": {
+                                    "cpu": "256m",
+                                    "memory": "500Mi",
+                                },
+                            },
+                        }
+                    ],
+                },
+            },
+            "route": {},
+            "gateway": {},
+        },
     },
     "router-no-scheduler": {
         "router": {"route": {}},
@@ -416,6 +449,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             "tensor": 1,
         },
         "template": {
+            "initContainers": [STORAGE_INITIALIZER_INIT_CONTAINER],
             "containers": [
                 {
                     "name": "main",
@@ -443,9 +477,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                     },
                     "securityContext": UPSTREAM_K8S_NON_ROOT_SECURITY_CONTEXT.copy(),
                 }
-            ]
+            ],
         },
         "worker": {
+            "initContainers": [STORAGE_INITIALIZER_INIT_CONTAINER],
             "containers": [
                 {
                     "name": "main",
@@ -473,7 +508,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                     },
                     "securityContext": UPSTREAM_K8S_NON_ROOT_SECURITY_CONTEXT.copy(),
                 }
-            ]
+            ],
         },
     },
     "router-custom-route-timeout": {
@@ -742,7 +777,21 @@ LLMINFERENCESERVICE_CONFIGS = {
     },
     "scheduler-managed": {
         "router": {
-            "scheduler": {},
+            "scheduler": {
+                "template": {
+                    "containers": [
+                        {
+                            "name": "main",
+                            "resources": {
+                                "requests": {
+                                    "cpu": "256m",
+                                    "memory": "500Mi",
+                                },
+                            },
+                        }
+                    ],
+                },
+            },
         },
     },
     "scheduler-with-inline-config": {
@@ -957,6 +1006,19 @@ LLMINFERENCESERVICE_CONFIGS = {
         "router": {
             "scheduler": {
                 "replicas": 2,
+                "template": {
+                    "containers": [
+                        {
+                            "name": "main",
+                            "resources": {
+                                "requests": {
+                                    "cpu": "256m",
+                                    "memory": "500Mi",
+                                },
+                            },
+                        }
+                    ],
+                },
             },
         },
     },
@@ -1075,7 +1137,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             "containers": [
                 {
                     "name": "main",
-                    "image": "ghcr.io/llm-d/llm-d-inference-sim:v0.8.2",
+                    "image": "ghcr.io/llm-d/llm-d-inference-sim-dev:1d5ad96",
                     "command": ["/app/llm-d-inference-sim"],
                     "args": [
                         "--port",
@@ -1084,10 +1146,11 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "{{ .Spec.Model.Name }}",
                         "--mode",
                         "random",
-                        "--ssl-certfile",
-                        "/var/run/kserve/tls/tls.crt",
-                        "--ssl-keyfile",
-                        "/var/run/kserve/tls/tls.key",
+                        "--force-dummy-tokenizer",
+                        "{{ if .GlobalConfig.EnableTLS }}--ssl-certfile{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}/var/run/kserve/tls/tls.crt{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}--ssl-keyfile{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}/var/run/kserve/tls/tls.key{{- end }}",
                     ],
                     "resources": {
                         "limits": {"cpu": "1", "memory": "2Gi"},
@@ -1105,7 +1168,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             "containers": [
                 {
                     "name": "main",
-                    "image": "ghcr.io/llm-d/llm-d-inference-sim:v0.8.2",
+                    "image": "ghcr.io/llm-d/llm-d-inference-sim-dev:1d5ad96",
                     "command": ["/app/llm-d-inference-sim"],
                     "args": [
                         "--port",
@@ -1114,6 +1177,11 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "{{ .Spec.Model.Name }}",
                         "--mode",
                         "random",
+                        "--force-dummy-tokenizer",
+                        "{{ if .GlobalConfig.EnableTLS }}--ssl-certfile{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}/var/run/kserve/tls/tls.crt{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}--ssl-keyfile{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}/var/run/kserve/tls/tls.key{{- end }}",
                     ],
                     "resources": {
                         "limits": {"cpu": "1", "memory": "2Gi"},
@@ -1137,7 +1205,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             "containers": [
                 {
                     "name": "main",
-                    "image": "ghcr.io/llm-d/llm-d-inference-sim:v0.8.2",
+                    "image": "ghcr.io/llm-d/llm-d-inference-sim-dev:1d5ad96",
                     "command": ["/app/llm-d-inference-sim"],
                     "args": [
                         "--port",
@@ -1146,6 +1214,11 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "{{ .Spec.Model.Name }}",
                         "--mode",
                         "random",
+                        "--force-dummy-tokenizer",
+                        "{{ if .GlobalConfig.EnableTLS }}--ssl-certfile{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}/var/run/kserve/tls/tls.crt{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}--ssl-keyfile{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}/var/run/kserve/tls/tls.key{{- end }}",
                     ],
                     "resources": {
                         "limits": {"cpu": "1", "memory": "2Gi"},
@@ -1159,7 +1232,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             "containers": [
                 {
                     "name": "main",
-                    "image": "ghcr.io/llm-d/llm-d-inference-sim:v0.8.2",
+                    "image": "ghcr.io/llm-d/llm-d-inference-sim-dev:1d5ad96",
                     "command": ["/app/llm-d-inference-sim"],
                     "args": [
                         "--port",
@@ -1168,6 +1241,11 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "{{ .Spec.Model.Name }}",
                         "--mode",
                         "random",
+                        "--force-dummy-tokenizer",
+                        "{{ if .GlobalConfig.EnableTLS }}--ssl-certfile{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}/var/run/kserve/tls/tls.crt{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}--ssl-keyfile{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}/var/run/kserve/tls/tls.key{{- end }}",
                     ],
                     "resources": {
                         "limits": {"cpu": "1", "memory": "2Gi"},
@@ -1185,7 +1263,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             "containers": [
                 {
                     "name": "main",
-                    "image": "ghcr.io/llm-d/llm-d-inference-sim:v0.8.2",
+                    "image": "ghcr.io/llm-d/llm-d-inference-sim-dev:1d5ad96",
                     "command": ["/app/llm-d-inference-sim"],
                     "args": [
                         "--port",
@@ -1194,10 +1272,11 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "{{ .Spec.Model.Name }}",
                         "--mode",
                         "random",
-                        "--ssl-certfile",
-                        "/var/run/kserve/tls/tls.crt",
-                        "--ssl-keyfile",
-                        "/var/run/kserve/tls/tls.key",
+                        "--force-dummy-tokenizer",
+                        "{{ if .GlobalConfig.EnableTLS }}--ssl-certfile{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}/var/run/kserve/tls/tls.crt{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}--ssl-keyfile{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}/var/run/kserve/tls/tls.key{{- end }}",
                     ],
                     "resources": {
                         "limits": {"cpu": "1", "memory": "2Gi"},
@@ -1212,7 +1291,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                 "containers": [
                     {
                         "name": "main",
-                        "image": "ghcr.io/llm-d/llm-d-inference-sim:v0.8.2",
+                        "image": "ghcr.io/llm-d/llm-d-inference-sim-dev:1d5ad96",
                         "command": ["/app/llm-d-inference-sim"],
                         "args": [
                             "--port",
@@ -1221,10 +1300,11 @@ LLMINFERENCESERVICE_CONFIGS = {
                             "{{ .Spec.Model.Name }}",
                             "--mode",
                             "random",
-                            "--ssl-certfile",
-                            "/var/run/kserve/tls/tls.crt",
-                            "--ssl-keyfile",
-                            "/var/run/kserve/tls/tls.key",
+                            "--force-dummy-tokenizer",
+                            "{{ if .GlobalConfig.EnableTLS }}--ssl-certfile{{- end }}",
+                            "{{ if .GlobalConfig.EnableTLS }}/var/run/kserve/tls/tls.crt{{- end }}",
+                            "{{ if .GlobalConfig.EnableTLS }}--ssl-keyfile{{- end }}",
+                            "{{ if .GlobalConfig.EnableTLS }}/var/run/kserve/tls/tls.key{{- end }}",
                         ],
                         "resources": {
                             "limits": {"cpu": "1", "memory": "2Gi"},
@@ -1342,10 +1422,11 @@ LLMINFERENCESERVICE_CONFIGS = {
         "model": {"uri": OPT_125M_MODEL_URI, "name": "facebook/opt-125m"},
         # Important: storage initializer is required for precise-prefix-scorer
         "template": {
+            "initContainers": [STORAGE_INITIALIZER_INIT_CONTAINER],
             "containers": [
                 {
                     "name": "main",
-                    "image": "ghcr.io/llm-d/llm-d-inference-sim:v0.8.2",
+                    "image": "ghcr.io/llm-d/llm-d-inference-sim-dev:1d5ad96",
                     "command": ["/app/llm-d-inference-sim"],
                     "args": [
                         "--port",
@@ -1354,6 +1435,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "{{ .Spec.Model.Name }}",
                         "--mode",
                         "random",
+                        "--force-dummy-tokenizer",
                         "--enable-kvcache",
                         "--block-size",
                         "16",
@@ -1363,10 +1445,10 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "42",
                         "--event-batch-size",
                         "1",
-                        "--ssl-certfile",
-                        "/var/run/kserve/tls/tls.crt",
-                        "--ssl-keyfile",
-                        "/var/run/kserve/tls/tls.key",
+                        "{{ if .GlobalConfig.EnableTLS }}--ssl-certfile{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}/var/run/kserve/tls/tls.crt{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}--ssl-keyfile{{- end }}",
+                        "{{ if .GlobalConfig.EnableTLS }}/var/run/kserve/tls/tls.key{{- end }}",
                     ],
                     "env": [
                         {
@@ -1385,7 +1467,100 @@ LLMINFERENCESERVICE_CONFIGS = {
                     },
                     "securityContext": LLMD_SIMULATOR_SECURITY_CONTEXT.copy(),
                 }
-            ]
+            ],
+        },
+    },
+    # --- Flow Control configurations ---
+    "scheduler-flow-control-round-robin": {
+        "router": {
+            "scheduler": {
+                "config": {
+                    "inline": {
+                        "apiVersion": "inference.networking.x-k8s.io/v1alpha1",
+                        "kind": "EndpointPickerConfig",
+                        "featureGates": ["flowControl"],
+                        "plugins": [
+                            {"type": "queue-scorer"},
+                            {"type": "kv-cache-utilization-scorer"},
+                            {
+                                "type": "round-robin-fairness-policy",
+                                "name": "round-robin",
+                            },
+                            {
+                                "type": "edf-ordering-policy",
+                                "name": "edf",
+                            },
+                            {
+                                "type": "slo-deadline-ordering-policy",
+                                "name": "slo-deadline",
+                            },
+                        ],
+                        "flowControl": {
+                            "priorityBands": [
+                                {
+                                    "priority": 100,
+                                    "fairnessPolicyRef": "round-robin",
+                                    "orderingPolicyRef": "edf",
+                                },
+                                {
+                                    "priority": 0,
+                                    "fairnessPolicyRef": "round-robin",
+                                },
+                                {
+                                    "priority": -1,
+                                    "fairnessPolicyRef": "round-robin",
+                                    "orderingPolicyRef": "slo-deadline",
+                                },
+                            ],
+                        },
+                        "schedulingProfiles": [
+                            {
+                                "name": "default",
+                                "plugins": [
+                                    {"pluginRef": "queue-scorer", "weight": 2},
+                                    {
+                                        "pluginRef": "kv-cache-utilization-scorer",
+                                        "weight": 2,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            },
+        },
+    },
+    "scheduler-flow-control-concurrency-detector": {
+        "router": {
+            "scheduler": {
+                "config": {
+                    "inline": {
+                        "apiVersion": "inference.networking.x-k8s.io/v1alpha1",
+                        "kind": "EndpointPickerConfig",
+                        "featureGates": ["flowControl"],
+                        "plugins": [
+                            {"type": "queue-scorer"},
+                            {"type": "kv-cache-utilization-scorer"},
+                            {"type": "concurrency-detector"},
+                        ],
+                        "saturationDetector": {
+                            "pluginRef": "concurrency-detector",
+                        },
+                        "schedulingProfiles": [
+                            {
+                                "name": "default",
+                                "plugins": [
+                                    {"pluginRef": "queue-scorer", "weight": 2},
+                                    {
+                                        "pluginRef": "kv-cache-utilization-scorer",
+                                        "weight": 2,
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                },
+            },
         },
     },
     "tracing-enabled": {
@@ -1711,6 +1886,82 @@ def delete_scheduler_configmap():
     except client.rest.ApiException as e:
         if e.status != 404:  # Ignore not found
             raise
+
+
+INFERENCE_OBJECTIVE_GROUP = "llm-d.ai"
+INFERENCE_OBJECTIVE_VERSION = "v1alpha2"
+INFERENCE_OBJECTIVE_PLURAL = "inferenceobjectives"
+
+
+def create_inference_objectives(pool_name, objectives):
+    """Create InferenceObjective resources for flow control priority testing.
+
+    Args:
+        pool_name: Name of the InferencePool to reference.
+        objectives: List of dicts with 'name' and 'priority' keys.
+    """
+    inject_k8s_proxy()
+    api = client.CustomObjectsApi()
+
+    for obj in objectives:
+        body = {
+            "apiVersion": f"{INFERENCE_OBJECTIVE_GROUP}/{INFERENCE_OBJECTIVE_VERSION}",
+            "kind": "InferenceObjective",
+            "metadata": {
+                "name": obj["name"],
+                "namespace": KSERVE_TEST_NAMESPACE,
+            },
+            "spec": {
+                "poolRef": {"name": pool_name},
+                "priority": obj["priority"],
+            },
+        }
+        try:
+            api.create_namespaced_custom_object(
+                INFERENCE_OBJECTIVE_GROUP,
+                INFERENCE_OBJECTIVE_VERSION,
+                KSERVE_TEST_NAMESPACE,
+                INFERENCE_OBJECTIVE_PLURAL,
+                body,
+            )
+            logger.info(
+                f"Created InferenceObjective {obj['name']} (priority={obj['priority']})"
+            )
+        except client.rest.ApiException as e:
+            if e.status == 409:
+                api.replace_namespaced_custom_object(
+                    INFERENCE_OBJECTIVE_GROUP,
+                    INFERENCE_OBJECTIVE_VERSION,
+                    KSERVE_TEST_NAMESPACE,
+                    INFERENCE_OBJECTIVE_PLURAL,
+                    obj["name"],
+                    body,
+                )
+                logger.info(
+                    f"Updated InferenceObjective {obj['name']} (priority={obj['priority']})"
+                )
+            else:
+                raise
+
+
+def delete_inference_objectives(names):
+    """Delete InferenceObjective resources."""
+    inject_k8s_proxy()
+    api = client.CustomObjectsApi()
+
+    for name in names:
+        try:
+            api.delete_namespaced_custom_object(
+                INFERENCE_OBJECTIVE_GROUP,
+                INFERENCE_OBJECTIVE_VERSION,
+                KSERVE_TEST_NAMESPACE,
+                INFERENCE_OBJECTIVE_PLURAL,
+                name,
+            )
+            logger.info(f"Deleted InferenceObjective {name}")
+        except client.rest.ApiException as e:
+            if e.status != 404:
+                raise
 
 
 def create_pvc(
