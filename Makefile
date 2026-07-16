@@ -19,7 +19,7 @@ KSERVE_ENABLE_SELF_SIGNED_CA ?= false
 ENVTEST ?= $(LOCALBIN)/setup-envtest
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_VERSION ?= $(shell go list -m -f "{{ .Version }}" sigs.k8s.io/controller-runtime | awk -F'[v.]' '{printf "release-%d.%d", $$2, $$3}')
-ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ .Version }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
+ENVTEST_K8S_VERSION ?= $(shell go list -m -f "{{ if .Replace }}{{ .Replace.Version }}{{ else }}{{ .Version }}{{ end }}" k8s.io/api | awk -F'[v.]' '{printf "1.%d", $$3}')
 
 ENGINE ?= docker
 # Empty string for local build when using podman, it allows to build different architectures
@@ -147,7 +147,13 @@ manifests: controller-gen kustomize yq
 
 	# DO NOT COPY to helm chart. It needs to be created before the Envoy Gateway or you will need to restart the Envoy Gateway controller.
 	# The llmisvc helm chart needs to be installed after the Envoy Gateway as well, so it needs to be created before the llmisvc helm chart.
-	$(KUSTOMIZE) build https://github.com/kubernetes-sigs/gateway-api-inference-extension.git/config/crd?ref=$(GIE_VERSION) > config/llmisvc/gateway-inference-extension.yaml
+	# Pull upstream GIE v1 CRDs (InferencePool, etc.) from release artifact
+	curl -sL https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/$(GIE_VERSION)/v1-manifests.yaml > config/llmisvc/gateway-inference-extension.yaml
+	# Append llm-d.ai CRDs (InferenceObjective, InferenceModelRewrite) from llm-d-router release
+	@echo "---" >> config/llmisvc/gateway-inference-extension.yaml
+	curl -sL https://github.com/llm-d/llm-d-router/releases/download/$(LLMD_ROUTER_VERSION)/manifests.yaml >> config/llmisvc/gateway-inference-extension.yaml
+	# Workaround to update main-dev version from llm-d-router release as annotation
+	sed -i 's|llm-d.ai/bundle-version: main-dev|llm-d.ai/bundle-version: $(LLMD_ROUTER_VERSION)|' config/llmisvc/gateway-inference-extension.yaml
 	cp config/llmisvc/gateway-inference-extension.yaml test/crds/gateway-inference-extension.yaml
 	cat test/crds/gateway-inference-extension-v1alpha2pool.yaml >> config/llmisvc/gateway-inference-extension.yaml
 	cat test/crds/gateway-inference-extension-v1alpha2pool.yaml >> test/crds/gateway-inference-extension.yaml
@@ -221,11 +227,14 @@ manifests: controller-gen kustomize yq
 	@$(YQ) '.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties | .. | select(has("protocol")) | path' config/crd/full/serving.kserve.io_clusterservingruntimes.yaml -o j | jq -r '. | map(select(numbers)="["+tostring+"]") | join(".")' | awk '{print "."$$0".protocol.default"}' | xargs -n1 -I{} $(YQ) '{} = "TCP"' -i config/crd/full/serving.kserve.io_clusterservingruntimes.yaml
 	@$(YQ) '.spec.versions[0].schema.openAPIV3Schema.properties.spec.properties | .. | select(has("protocol")) | path' config/crd/full/serving.kserve.io_servingruntimes.yaml -o j | jq -r '. | map(select(numbers)="["+tostring+"]") | join(".")' | awk '{print "."$$0".protocol.default"}' | xargs -n1 -I{} $(YQ) '{} = "TCP"' -i config/crd/full/serving.kserve.io_servingruntimes.yaml
 	
-	# Copy the full crd to the helm chart
-	cp config/crd/full/*.yaml charts/kserve-crd/templates/	
+	# Copy kserve crd (with conversion webhook patches applied via kustomize)
+	$(KUSTOMIZE) build config/crd/full | $(YQ) 'select(.metadata.name == "inferenceservices.serving.kserve.io")' > charts/kserve-crd/templates/serving.kserve.io_inferenceservices.yaml
+	$(KUSTOMIZE) build config/crd/full | $(YQ) 'select(.metadata.name == "trainedmodels.serving.kserve.io")' > charts/kserve-crd/templates/serving.kserve.io_trainedmodels.yaml
+	$(KUSTOMIZE) build config/crd/full | $(YQ) 'select(.metadata.name == "clusterservingruntimes.serving.kserve.io")' > charts/kserve-crd/templates/serving.kserve.io_clusterservingruntimes.yaml
+	$(KUSTOMIZE) build config/crd/full | $(YQ) 'select(.metadata.name == "servingruntimes.serving.kserve.io")' > charts/kserve-crd/templates/serving.kserve.io_servingruntimes.yaml
+	$(KUSTOMIZE) build config/crd/full | $(YQ) 'select(.metadata.name == "inferencegraphs.serving.kserve.io")' > charts/kserve-crd/templates/serving.kserve.io_inferencegraphs.yaml
 	cp config/crd/full/clusterstoragecontainer/serving.kserve.io_clusterstoragecontainers.yaml charts/kserve-crd/files/
-	cp config/crd/full/clusterstoragecontainer/serving.kserve.io_clusterstoragecontainers.yaml charts/kserve-llmisvc-crd/files/	
-	rm charts/kserve-crd/templates/kustomization.yaml
+	cp config/crd/full/clusterstoragecontainer/serving.kserve.io_clusterstoragecontainers.yaml charts/kserve-llmisvc-crd/files/
 	cp -f config/crd/full/localmodel/*.yaml charts/kserve-localmodel-crd/templates/
 	rm charts/kserve-localmodel-crd/templates/kustomization.yaml
 	
@@ -248,12 +257,15 @@ manifests: controller-gen kustomize yq
 	# Generate minimal crd
 	./hack/minimal-crdgen.sh
 	
-	# Copy the minimal crd to the helm chart
-	cp -f config/crd/minimal/*.yaml charts/kserve-crd-minimal/templates/
+	# Copy kserve minimal crd (with conversion webhook patches applied via kustomize)
+	$(KUSTOMIZE) build config/crd/minimal | $(YQ) 'select(.metadata.name == "inferenceservices.serving.kserve.io")' > charts/kserve-crd-minimal/templates/serving.kserve.io_inferenceservices.yaml
+	$(KUSTOMIZE) build config/crd/minimal | $(YQ) 'select(.metadata.name == "trainedmodels.serving.kserve.io")' > charts/kserve-crd-minimal/templates/serving.kserve.io_trainedmodels.yaml
+	$(KUSTOMIZE) build config/crd/minimal | $(YQ) 'select(.metadata.name == "clusterservingruntimes.serving.kserve.io")' > charts/kserve-crd-minimal/templates/serving.kserve.io_clusterservingruntimes.yaml
+	$(KUSTOMIZE) build config/crd/minimal | $(YQ) 'select(.metadata.name == "servingruntimes.serving.kserve.io")' > charts/kserve-crd-minimal/templates/serving.kserve.io_servingruntimes.yaml
+	$(KUSTOMIZE) build config/crd/minimal | $(YQ) 'select(.metadata.name == "inferencegraphs.serving.kserve.io")' > charts/kserve-crd-minimal/templates/serving.kserve.io_inferencegraphs.yaml
 	cp -f config/crd/minimal/localmodel/*.yaml charts/kserve-localmodel-crd-minimal/templates/
 	cp -f config/crd/minimal/clusterstoragecontainer/serving.kserve.io_clusterstoragecontainers.yaml charts/kserve-crd-minimal/files/
 	cp -f config/crd/minimal/clusterstoragecontainer/serving.kserve.io_clusterstoragecontainers.yaml charts/kserve-llmisvc-crd-minimal/files/
-	rm charts/kserve-crd-minimal/templates/kustomization.yaml
 	rm charts/kserve-localmodel-crd-minimal/templates/kustomization.yaml
 
 	# Copy minimal llmisvc crd (with conversion webhook patches applied via kustomize)

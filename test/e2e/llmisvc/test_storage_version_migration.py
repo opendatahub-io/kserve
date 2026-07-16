@@ -34,7 +34,6 @@ from kubernetes import client
 from ..common.utils import KSERVE_NAMESPACE
 from .fixtures import (
     inject_k8s_proxy,
-    KSERVE_TEST_NAMESPACE,
     KSERVE_PLURAL_LLMINFERENCESERVICECONFIG,
     OPT_125M_MODEL_URI,
 )
@@ -62,13 +61,12 @@ def wait_for(assertion_fn, timeout: float = 60.0, interval: float = 1.0):
             time.sleep(interval)
 
 
-@pytest.mark.llminferenceservice
 @pytest.mark.conversion
 class TestStorageVersionMigration:
     """Test storage version migration runs correctly during controller startup."""
 
     @pytest.fixture(autouse=True)
-    def setup(self):
+    def setup(self, test_namespace):
         """Setup test fixtures."""
         inject_k8s_proxy()
         self.kserve_client = KServeClient(
@@ -77,7 +75,7 @@ class TestStorageVersionMigration:
         )
         self.apix_client = client.ApiextensionsV1Api()
         self.apps_client = client.AppsV1Api()
-        self.namespace = KSERVE_TEST_NAMESPACE
+        self.namespace = test_namespace
         self.created_resources = []
         yield
         self._cleanup_resources()

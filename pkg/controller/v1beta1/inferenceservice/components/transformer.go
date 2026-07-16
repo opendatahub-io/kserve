@@ -95,7 +95,7 @@ func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServ
 	addBatcherAnnotations(isvc.Spec.Transformer.Batcher, annotations)
 
 	transformerName := constants.TransformerServiceName(isvc.Name)
-	predictorName := constants.PredictorServiceName(isvc.Name)
+	predictorName := constants.PredictorServiceName(isvc.Name, isvc.Spec.Predictor.Name)
 
 	// Labels and annotations from transformer component
 	// Label filter will be handled in ksvc_reconciler and raw reconciler

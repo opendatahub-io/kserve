@@ -496,7 +496,7 @@ func createIngress(isvc *v1beta1.InferenceService, config *v1beta1.IngressConfig
 		})
 		return nil
 	}
-	backend := constants.PredictorServiceName(isvc.Name)
+	backend := constants.PredictorServiceName(isvc.Name, isvc.Spec.Predictor.Name)
 
 	if isvc.Spec.Transformer != nil {
 		backend = constants.TransformerServiceName(isvc.Name)
@@ -751,7 +751,7 @@ func getHostPrefix(isvc *v1beta1.InferenceService, disableIstioVirtualHost bool)
 		if isvc.Spec.Transformer != nil {
 			return constants.TransformerServiceName(isvc.Name)
 		}
-		return constants.PredictorServiceName(isvc.Name)
+		return constants.PredictorServiceName(isvc.Name, isvc.Spec.Predictor.Name)
 	}
 	return isvc.Name
 }
