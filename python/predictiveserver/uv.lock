@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.10, <3.13"
 resolution-markers = [
     "python_full_version >= '3.12'",
@@ -1096,7 +1096,7 @@ requires-dist = [
     { name = "timing-asgi", specifier = ">=0.3.0,<1.0.0" },
     { name = "urllib3", specifier = ">=2.6.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.6,<1.0.0" },
-    { name = "vllm", marker = "extra == 'llm'", specifier = "==0.20.0" },
+    { name = "vllm", marker = "extra == 'llm'", specifier = "==0.23.0" },
 ]
 provides-extras = ["storage", "logging", "ray", "llm"]
 
@@ -1185,7 +1185,7 @@ wheels = [
 [[package]]
 name = "lgbserver"
 version = "0.19.0"
-source = { virtual = "../lgbserver" }
+source = { directory = "../lgbserver" }
 dependencies = [
     { name = "kserve" },
     { name = "kserve-storage" },
@@ -1635,10 +1635,10 @@ test = [
 [package.metadata]
 requires-dist = [
     { name = "kserve", directory = "../kserve" },
-    { name = "kserve-storage", virtual = "../storage" },
-    { name = "lgbserver", virtual = "../lgbserver" },
-    { name = "sklearnserver", virtual = "../sklearnserver" },
-    { name = "xgbserver", virtual = "../xgbserver" },
+    { name = "kserve-storage", directory = "../storage" },
+    { name = "lgbserver", directory = "../lgbserver" },
+    { name = "sklearnserver", directory = "../sklearnserver" },
+    { name = "xgbserver", directory = "../xgbserver" },
 ]
 
 [package.metadata.requires-dev]
@@ -2203,7 +2203,7 @@ wheels = [
 [[package]]
 name = "sklearnserver"
 version = "0.19.0"
-source = { virtual = "../sklearnserver" }
+source = { directory = "../sklearnserver" }
 dependencies = [
     { name = "joblib" },
     { name = "kserve" },
@@ -2546,7 +2546,7 @@ wheels = [
 [[package]]
 name = "xgbserver"
 version = "0.19.0"
-source = { virtual = "../xgbserver" }
+source = { directory = "../xgbserver" }
 dependencies = [
     { name = "kserve" },
     { name = "kserve-storage" },
