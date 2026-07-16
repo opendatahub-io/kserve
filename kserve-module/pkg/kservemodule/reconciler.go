@@ -21,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/deploy"
@@ -139,6 +140,17 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			}
 		}
 		return ctrl.Result{}, client.IgnoreNotFound(err)
+	}
+
+	if !kserve.DeletionTimestamp.IsZero() {
+		log.Info("KServe CR is being deleted, removing platform finalizer")
+		if controllerutil.RemoveFinalizer(kserve, PlatformFinalizerName) {
+			if err := r.Update(ctx, kserve); err != nil {
+				return ctrl.Result{}, fmt.Errorf("removing platform finalizer: %w", err)
+			}
+			log.Info("platform finalizer removed")
+		}
+		return ctrl.Result{}, nil
 	}
 
 	log.Info("reconciling Kserve CR", "name", kserve.Name)

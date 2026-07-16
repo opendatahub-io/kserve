@@ -421,6 +421,25 @@ var _ = Describe("KserveModule Reconciler", func() {
 		})
 	})
 
+	Context("platform finalizer removal", func() {
+		It("removes the platform finalizer on CR deletion", func(ctx SpecContext) {
+			cr := fixture.KserveCR()
+			cr.Finalizers = append(cr.Finalizers, kservemodule.PlatformFinalizerName)
+			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+			}).WithContext(ctx).Should(Succeed())
+
+			Expect(testEnv.Client.Delete(ctx, cr)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)
+				g.Expect(k8serr.IsNotFound(err)).To(BeTrue(), "CR should be fully deleted, not stuck in Deleting")
+			}).WithContext(ctx).Should(Succeed())
+		})
+	})
+
 	Context("oauthProxy configuration", Ordered, func() {
 		var cr *platformv1alpha1.Kserve
 

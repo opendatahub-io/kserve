@@ -54,6 +54,9 @@ const (
 	templateGroup = "template.openshift.io"
 	templateKind  = "Template"
 
+	// Platform finalizer (inherited from ODH operator component reconciler)
+	PlatformFinalizerName = "platform.opendatahub.io/finalizer"
+
 	// cert-manager defaults
 	defaultCAIssuerName    = "opendatahub-ca-issuer"
 	defaultIssuerRefKind   = "ClusterIssuer"
