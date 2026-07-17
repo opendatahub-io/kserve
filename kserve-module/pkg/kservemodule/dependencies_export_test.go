@@ -23,6 +23,12 @@ func parseCRDName(crdName string) CRDInfo {
 	}
 }
 
+var (
+	ConditionLLMISVCDeps       = conditionLLMISVCDeps
+	ConditionLLMISVCWideEPDeps = conditionLLMISVCWideEPDeps
+	ConditionLLMDWVADeps       = conditionLLMDWVADeps
+)
+
 func XKSCRDDependenciesForTest() []CRDInfo {
 	var result []CRDInfo
 	for _, dep := range allDependencies {

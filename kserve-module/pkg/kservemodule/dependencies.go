@@ -24,9 +24,9 @@ const (
 	checkOperator     checkType = "operator"
 
 	// Dependency group condition types
-	conditionLLMISVCDeps       = "LLMInferenceServiceDependencies"
-	conditionLLMISVCWideEPDeps = "LLMInferenceServiceWideEPDependencies"
-	conditionLLMDWVADeps       = "LLMDWVADependencies"
+	conditionLLMISVCDeps       = "KserveLLMInferenceServiceDependencies"
+	conditionLLMISVCWideEPDeps = "KserveLLMInferenceServiceWideEPDependencies"
+	conditionLLMDWVADeps       = "LLM-D-WVADependencies"
 
 	// OLM subscription names
 	rhclSubscription        = "rhcl-operator"

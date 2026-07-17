@@ -15,6 +15,7 @@ import (
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
 
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
+	kservemodule "github.com/opendatahub-io/kserve-module/pkg/kservemodule"
 	"github.com/opendatahub-io/kserve-module/pkg/kservemodule/fixture"
 )
 
@@ -66,7 +67,7 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
-				cond := fixture.FindCondition(kserve, "LLMInferenceServiceDependencies")
+				cond := fixture.FindCondition(kserve, kservemodule.ConditionLLMISVCDeps)
 				g.Expect(cond).NotTo(BeNil())
 				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 				g.Expect(cond.Reason).To(Equal("MissingDependency"))
@@ -80,7 +81,7 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
-				cond := fixture.FindCondition(kserve, "LLMInferenceServiceDependencies")
+				cond := fixture.FindCondition(kserve, kservemodule.ConditionLLMISVCDeps)
 				g.Expect(cond).NotTo(BeNil())
 				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
 				g.Expect(cond.Reason).To(Equal("AllDependenciesSatisfied"))
@@ -98,7 +99,7 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
-				cond := fixture.FindCondition(kserve, "LLMInferenceServiceDependencies")
+				cond := fixture.FindCondition(kserve, kservemodule.ConditionLLMISVCDeps)
 				g.Expect(cond).NotTo(BeNil())
 				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 				g.Expect(cond.Reason).To(Equal("MissingDependency"))
@@ -165,8 +166,8 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
-				cond := fixture.FindCondition(kserve, "LLMInferenceServiceWideEPDependencies")
-				g.Expect(cond).NotTo(BeNil(), "LLMInferenceServiceWideEPDependencies condition should exist")
+				cond := fixture.FindCondition(kserve, kservemodule.ConditionLLMISVCWideEPDeps)
+				g.Expect(cond).NotTo(BeNil(), "KserveLLMInferenceServiceWideEPDependencies condition should exist")
 				g.Expect(cond.Message).To(ContainSubstring("LWS operator is degraded"))
 			}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
 		})
