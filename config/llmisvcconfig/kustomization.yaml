@@ -9,7 +9,6 @@ resources:
   - config-llm-prefill-template.yaml
   - config-llm-prefill-worker-data-parallel.yaml
   - config-llm-router-route.yaml
-  - config-llm-scheduler-latency-predictor.yaml
   - config-llm-scheduler.yaml
   - config-llm-scheduler-latency-predictor.yaml
   - config-llm-template.yaml
