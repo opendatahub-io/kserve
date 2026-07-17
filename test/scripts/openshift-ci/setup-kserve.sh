@@ -79,7 +79,7 @@ fi
 
 # LLMISvc dependencies: cert-manager, LeaderWorkerSet, Gateway API, Kuadrant.
 # These are core cluster infrastructure required for LLMInferenceService to function.
-if [[ "${1:-}" =~ "llminferenceservice" ]]; then
+if [[ "${1:-}" =~ llminferenceservice|llmisvc ]]; then
   "${SCRIPT_DIR}/setup-llm.sh" --skip-kserve --deploy-kuadrant
 fi
 
