@@ -104,8 +104,8 @@ var WellKnownDefaultConfigs = sets.New[string](
 	configPrefillTemplateName,
 	configPrefillWorkerDataParallelName,
 	configRouterSchedulerName,
-	configSchedulerLatencyPredictorName,
 	configRouterRouteName,
+	configSchedulerLatencyPredictorName,
 	configTracingName,
 )
 
