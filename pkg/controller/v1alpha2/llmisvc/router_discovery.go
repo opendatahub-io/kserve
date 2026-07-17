@@ -458,7 +458,7 @@ func listenerMatchesServicePorts(listener *gwapiv1.Listener, svcPorts []corev1.S
 		return true
 	}
 	for _, sp := range svcPorts {
-		if listener.Port == sp.Port {
+		if int32(listener.Port) == sp.Port { //nolint:unconvert // required when gateway-api is pinned to v1.2.x (omc)
 			return true
 		}
 	}
