@@ -97,7 +97,8 @@ schedulingProfiles:
 				current := &v1alpha2.LLMInferenceService{}
 				g.Expect(envTest.Get(ctx, types.NamespacedName{Name: svcName, Namespace: testNs.Name}, current)).To(Succeed())
 				g.Expect(current.Status.Workloads).NotTo(BeNil())
-				g.Expect(current.Status.Workloads.Scheduler).To(Equal(&corev1.TypedLocalObjectReference{
+				g.Expect(current.Status.Workloads.Scheduler).NotTo(BeNil())
+				g.Expect(current.Status.Workloads.Scheduler.TypedLocalObjectReference).To(Equal(corev1.TypedLocalObjectReference{
 					APIGroup: ptr.To("apps"),
 					Kind:     "Deployment",
 					Name:     kmeta.ChildName(svcName, "-kserve-router-scheduler"),
@@ -156,7 +157,7 @@ schedulingProfiles:
 						Containers: []corev1.Container{
 							{
 								Name:  "main",
-								Image: "ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.9.0-rc.2",
+								Image: "ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.9.0",
 								Args: []string{
 									"--config-text",
 									"existing-config-from-template",
@@ -427,12 +428,16 @@ schedulingProfiles:
 				}, expectedDeployment)
 			}).WithContext(ctx).Should(Succeed())
 
-			// Verify default config for non-prefill mode (should contain queue-scorer, kv-cache-utilization-scorer, etc.)
+			// Verify default config for non-prefill mode. The default single-profile
+			// config follows the llm-d optimized baseline: queue-scorer,
+			// kv-cache-utilization-scorer, prefix-cache-scorer, no-hit-lru-scorer, max-score-picker.
 			configText, found := getSchedulerConfigText(expectedDeployment)
 			Expect(found).To(BeTrue(), "Expected default config in scheduler deployment")
 			// Default non-prefill config should contain these plugins
 			Expect(configText).To(ContainSubstring("queue-scorer"))
+			Expect(configText).To(ContainSubstring("kv-cache-utilization-scorer"))
 			Expect(configText).To(ContainSubstring("prefix-cache-scorer"))
+			Expect(configText).To(ContainSubstring("no-hit-lru-scorer"))
 			Expect(configText).To(ContainSubstring("max-score-picker"))
 			Expect(configText).To(ContainSubstring("name: default"))
 		})
@@ -483,6 +488,10 @@ schedulingProfiles:
 			Expect(configText).To(ContainSubstring("disagg-profile-handler"))
 			Expect(configText).To(ContainSubstring("name: prefill"))
 			Expect(configText).To(ContainSubstring("name: decode"))
+			// Upstream optimized P/D baseline: prefill adds kv-cache-utilization-scorer,
+			// decode swaps queue-scorer for active-request-scorer.
+			Expect(configText).To(ContainSubstring("kv-cache-utilization-scorer"))
+			Expect(configText).To(ContainSubstring("active-request-scorer"))
 		})
 	})
 
@@ -904,7 +913,7 @@ schedulingProfiles:
 						Containers: []corev1.Container{
 							{
 								Name:  "main",
-								Image: "ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.9.0-rc.2",
+								Image: "ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.9.0",
 								Args: []string{
 									"--ha-enable-leader-election",
 									"--poolName",
@@ -1009,6 +1018,32 @@ schedulingProfiles:
 				}
 			}
 			Expect(hasLeasesPermission).To(BeTrue(), "Expected scheduler role to have leases permission for leader election")
+
+			// Verify llm-d.ai API group permission exists for inferenceobjectives and inferencemodelrewrites
+			hasLLMDAIPermission := false
+			for _, rule := range expectedRole.Rules {
+				for _, apiGroup := range rule.APIGroups {
+					if apiGroup == "llm-d.ai" {
+						Expect(rule.Resources).To(ContainElements("inferenceobjectives", "inferencemodelrewrites"))
+						Expect(rule.Verbs).To(ContainElements("get", "list", "watch"))
+						hasLLMDAIPermission = true
+					}
+				}
+			}
+			Expect(hasLLMDAIPermission).To(BeTrue(), "Expected scheduler role to have llm-d.ai API group permission for inferenceobjectives and inferencemodelrewrites")
+
+			// Verify inference.networking.k8s.io API group permission exists for inferencepools, inferenceobjectives, and inferencemodels
+			hasGIEPermission := false
+			for _, rule := range expectedRole.Rules {
+				for _, apiGroup := range rule.APIGroups {
+					if apiGroup == "inference.networking.k8s.io" {
+						Expect(rule.Resources).To(ContainElements("inferencepools", "inferenceobjectives", "inferencemodels"))
+						Expect(rule.Verbs).To(ContainElements("get", "list", "watch"))
+						hasGIEPermission = true
+					}
+				}
+			}
+			Expect(hasGIEPermission).To(BeTrue(), "Expected scheduler role to have inference.networking.k8s.io API group permission for inferencepools, inferenceobjectives, and inferencemodels")
 		})
 	})
 
@@ -1782,6 +1817,78 @@ schedulingProfiles:
 			}, amdScheduler)
 			Expect(errors.IsNotFound(err)).To(BeTrue(),
 				"AMD instance should not create a scheduler deployment")
+		})
+	})
+
+	Context("EPP port defaulting for upgrade compatibility", func() {
+		// The port defaulting for configs that omit port (pre-GIE-v1.2.0 upgrade
+		// scenario) is covered by the v1alpha2pool conversion (convertExtensionRefToV1)
+		// and combineBaseRefsConfig. Integration tests for the nil-port case are not
+		// feasible here because the v1alpha2 CEL rule rejects creating configs without
+		// port, and the v1alpha1 conversion defaults port to 9002 during ConvertTo.
+
+		It("should not override explicitly set EPP port", func(ctx SpecContext) {
+			svcName := "test-llm-port-explicit"
+			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
+
+			schedulerCfg := LLMInferenceServiceConfig("kserve-config-llm-scheduler",
+				InNamespace[*v1alpha2.LLMInferenceServiceConfig](testNs.Name),
+			)
+			schedulerCfg.Spec.Router = &v1alpha2.RouterSpec{
+				Scheduler: &v1alpha2.SchedulerSpec{
+					Pool: &v1alpha2.InferencePoolSpec{
+						Spec: &igwapi.InferencePoolSpec{
+							EndpointPickerRef: igwapi.EndpointPickerRef{
+								Kind:        "Service",
+								Name:        igwapi.ObjectName(kmeta.ChildName(svcName, "-epp-service")),
+								Port:        ptr.To(igwapi.Port{Number: 8080}),
+								FailureMode: igwapi.EndpointPickerFailOpen,
+							},
+							Selector: igwapi.LabelSelector{
+								MatchLabels: map[igwapi.LabelKey]igwapi.LabelValue{
+									"app": "placeholder",
+								},
+							},
+							TargetPorts: []igwapi.Port{{Number: 8000}},
+						},
+					},
+					Template: &corev1.PodSpec{
+						Containers: []corev1.Container{{
+							Name:  "main",
+							Image: "ghcr.io/llm-d/llm-d-inference-scheduler:v0.7.1",
+							Ports: []corev1.ContainerPort{
+								{Name: "grpc", ContainerPort: 8080, Protocol: corev1.ProtocolTCP},
+								{Name: "grpc-health", ContainerPort: 9003, Protocol: corev1.ProtocolTCP},
+								{Name: "metrics", ContainerPort: 9090, Protocol: corev1.ProtocolTCP},
+							},
+						}},
+					},
+				},
+			}
+			Expect(envTest.Client.Create(ctx, schedulerCfg)).To(Succeed())
+
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithManagedRoute(),
+				WithManagedGateway(),
+				WithManagedScheduler(),
+			)
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				testNs.DeleteAndWait(ctx, llmSvc)
+			}()
+
+			ip := &igwapi.InferencePool{}
+			Eventually(func(g Gomega, ctx context.Context) {
+				g.Expect(envTest.Get(ctx, client.ObjectKey{
+					Name:      svcName + "-inference-pool",
+					Namespace: testNs.Name,
+				}, ip)).To(Succeed())
+				g.Expect(ip.Spec.EndpointPickerRef.Port).NotTo(BeNil())
+				g.Expect(ip.Spec.EndpointPickerRef.Port.Number).To(Equal(igwapi.PortNumber(8080)))
+			}).WithContext(ctx).Should(Succeed())
 		})
 	})
 })

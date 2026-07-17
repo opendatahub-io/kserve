@@ -42,6 +42,7 @@ echo "Installing KServe using ${INSTALL_METHOD^}..."
 
 echo "Creating a namespace kserve-ci-e2e-test ..."
 kubectl get namespace kserve-ci-e2e-test || kubectl create namespace kserve-ci-e2e-test
+kubectl label namespace kserve-ci-e2e-test kserve.io/e2e-test=true --overwrite 2>/dev/null || true
 
 echo "Installing KServe Python SDK ..."
 pushd python/kserve >/dev/null
@@ -81,7 +82,8 @@ if [[ $ENABLE_LLMISVC == "false" || $ENABLE_KSERVE_WITH_LLMISVC == "true" ]]; th
   echo "Applying test env patches to ClusterServingRuntimes..."
   kubectl patch clusterservingruntime kserve-huggingfaceserver --type=json -p='[
     {"op":"add","path":"/spec/containers/0/env/-","value":{"name":"TOKIO_WORKER_THREADS","value":"1"}},
-    {"op":"add","path":"/spec/containers/0/env/-","value":{"name":"HF_HUB_DISABLE_XET","value":"1"}}
+    {"op":"add","path":"/spec/containers/0/env/-","value":{"name":"HF_HUB_DISABLE_XET","value":"1"}},
+    {"op":"add","path":"/spec/containers/0/env/-","value":{"name":"HF_HUB_ENABLE_HF_TRANSFER","value":"0"}}
   ]'
 
   kubectl get events -A

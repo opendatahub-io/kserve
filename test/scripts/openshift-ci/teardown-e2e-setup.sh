@@ -95,6 +95,20 @@ for ns in "${ALL_NAMESPACES[@]}"; do
   oc delete networkpolicy allow-all -n "$ns" --ignore-not-found || true
 done
 
+echo "Delete Jaeger (Helm) tracing stack"
+# Prefer helm uninstall when available; always delete the namespace as a fallback.
+if command -v helm >/dev/null 2>&1; then
+  helm uninstall --namespace "${JAEGER_NAMESPACE:-observability}" -- "${JAEGER_RELEASE_NAME:-jaeger}" 2>/dev/null || true
+fi
+oc delete namespace --ignore-not-found -- "${JAEGER_NAMESPACE:-observability}" || true
+
+echo "Delete WVA controller and autoscaling auth resources"
+kustomize build "$MY_PATH/infra/wva" 2>/dev/null |
+  oc delete --ignore-not-found -f - || true
+oc delete namespace wva-system --ignore-not-found || true
+oc delete clustertriggerauthentication ai-inference-keda-thanos --ignore-not-found || true
+oc delete clusterrolebinding keda-thanos-sa-monitoring-view --ignore-not-found || true
+
 echo "Delete CMA / KEDA operator"
 oc delete kedacontroller -n openshift-keda keda --ignore-not-found || true
 oc delete subscription -n openshift-keda openshift-custom-metrics-autoscaler-operator --ignore-not-found || true

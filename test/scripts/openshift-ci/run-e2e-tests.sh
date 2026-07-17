@@ -71,6 +71,8 @@ export SKIP_DELETION_ON_FAILURE="${SKIP_DELETION_ON_FAILURE:=true}"
 # Export the controller namespace so that E2E tests
 # (e.g. storage version migration) can find the controller.
 export KSERVE_NAMESPACE=${KSERVE_NAMESPACE:-"kserve"}
+export KEDA_NAMESPACE=${KEDA_NAMESPACE:-"openshift-keda"}
+export KEDA_OPERATOR_POD_LABEL=${KEDA_OPERATOR_POD_LABEL:-"app=keda-operator"}
 
 if [[ "$RUNNING_LOCAL" == "true" ]]; then
   export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest

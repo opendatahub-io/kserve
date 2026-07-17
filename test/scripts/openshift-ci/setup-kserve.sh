@@ -83,6 +83,35 @@ if [[ "${1:-}" =~ "llminferenceservice" ]]; then
   "${SCRIPT_DIR}/setup-llm.sh" --skip-kserve --deploy-kuadrant
 fi
 
+# LLMISvc tracing infrastructure: Jaeger All-in-One via Helm (not OLM).
+# Required by test/e2e/llmisvc/test_tracing.py (OTLP :4317, Query :16686).
+if [[ "${1:-}" =~ "tracing" ]]; then
+  echo "Setting up Jaeger (Helm) for LLMISVC tracing e2e..."
+  "${SCRIPT_DIR}/infra/deploy.jaeger.sh"
+fi
+
+# LLMISvc autoscaling infrastructure (KEDA path only):
+#   1. User Workload Monitoring (provides Prometheus + Thanos Querier)
+#   2. WVA controller (computes desired replicas from saturation metrics)
+#   3. KEDA ClusterTriggerAuthentication (bearer token auth for Thanos)
+#
+# deploy.cma.sh (KEDA/CMA operator) is already called by deploy.kserve-manual.sh.
+# The autoscaling-wva-controller-config in inferenceservice-config is already set
+# by the ODH overlay (config/overlays/odh/patches/inferenceservice-config-patch.yaml).
+if [[ "${1:-}" =~ "autoscaling_keda" ]]; then
+  echo "Setting up KEDA autoscaling infrastructure for LLMISVC..."
+  "${SCRIPT_DIR}/infra/deploy.wva.sh"
+  "${SCRIPT_DIR}/infra/deploy.keda-thanos-auth.sh"
+
+  echo "Restarting llmisvc-controller-manager to pick up autoscaling config..."
+  oc delete pod -n "${KSERVE_NAMESPACE}" -l control-plane=llmisvc-controller-manager
+  wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=llmisvc-controller-manager" 300s
+
+  echo "Running KEDA autoscaling pipeline health check..."
+  KSERVE_NAMESPACE="${KSERVE_NAMESPACE}" "${SCRIPT_DIR}/infra/verify-autoscaling-health.sh"
+  echo "KEDA autoscaling infrastructure ready"
+fi
+
 # Early CA cert extraction for raw deployments. This reads from cluster-wide namespaces
 # (not KSERVE_NAMESPACE) so it can run immediately after the install.
 # setup-e2e-tests.sh overwrites /tmp/ca.crt later with the namespace-scoped cert for

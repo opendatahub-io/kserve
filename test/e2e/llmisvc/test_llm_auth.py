@@ -26,13 +26,13 @@ from .fixtures import (  # noqa: F401
     inject_k8s_proxy,
     test_case,  # noqa: F811
 )
+from .diagnostic import collect_diagnostics
 from .test_llm_inference_service import (
     TestCase,
     create_llmisvc,
     delete_llmisvc,
     wait_for_llm_isvc_ready,
     get_llm_service_url,
-    _collect_diagnostics,
 )
 from .logging import log_execution, logger
 
@@ -343,7 +343,12 @@ def test_llm_auth_enabled_requires_token(test_case: TestCase):  # noqa: F811
     except Exception as e:
         test_failed = True
         logger.error(f"❌ ERROR: Failed test for {service_name}: {e}")
-        _collect_diagnostics(kserve_client, test_case.llm_service)
+        collect_diagnostics(
+            service_name,
+            test_case.llm_service.metadata.namespace,
+            kserve_client=kserve_client,
+            log=logger.info,
+        )
         raise
     finally:
         try:
@@ -474,7 +479,12 @@ def test_llm_auth_invalid_token_rejected(test_case: TestCase):  # noqa: F811
     except Exception as e:
         test_failed = True
         logger.error(f"❌ ERROR: Failed test for {service_name}: {e}")
-        _collect_diagnostics(kserve_client, test_case.llm_service)
+        collect_diagnostics(
+            service_name,
+            test_case.llm_service.metadata.namespace,
+            kserve_client=kserve_client,
+            log=logger.info,
+        )
         raise
     finally:
         try:
@@ -604,7 +614,12 @@ def test_llm_auth_disabled_no_token_required(test_case: TestCase):  # noqa: F811
     except Exception as e:
         test_failed = True
         logger.error(f"❌ ERROR: Failed test for {service_name}: {e}")
-        _collect_diagnostics(kserve_client, test_case.llm_service)
+        collect_diagnostics(
+            service_name,
+            test_case.llm_service.metadata.namespace,
+            kserve_client=kserve_client,
+            log=logger.info,
+        )
         raise
     finally:
         try:
