@@ -137,9 +137,9 @@ replacements:
   targets:
     - select:
         kind: LLMInferenceServiceConfig
-        name: kserve-config-llm-scheduler
+        name: kserve-config-llm-tokenizer
       fieldPaths:
-        - spec.router.scheduler.template.containers.[name=tokenizer].image
+        - spec.router.scheduler.tokenizer.template.containers.[name=main].image
 # Replace routing sidecar init container images with ODH image
 - source:
     kind: ConfigMap
