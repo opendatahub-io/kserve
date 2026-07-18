@@ -132,9 +132,9 @@ replacements:
   targets:
     - select:
         kind: LLMInferenceServiceConfig
-        name: kserve-config-llm-scheduler
+        name: kserve-config-llm-tokenizer
       fieldPaths:
-        - spec.router.scheduler.template.containers.[name=tokenizer].image
+        - spec.router.scheduler.tokenizer.template.containers.[name=main].image
 # Replace latency predictor images with ODH images
 - source:
     kind: ConfigMap
