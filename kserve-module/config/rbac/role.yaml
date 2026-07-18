@@ -291,6 +291,9 @@ rules:
   - kserve-localmodelnode-distro-role
   - kserve-manager-role
   - kserve-metrics-reader-cluster-role
+  - kserve-models-admin
+  - kserve-models-edit
+  - kserve-models-view
   - kserve-prometheus-k8s
   - kserve-proxy-role
   - kserve-view
