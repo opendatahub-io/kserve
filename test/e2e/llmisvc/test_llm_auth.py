@@ -260,6 +260,7 @@ def test_llm_auth_enabled_requires_token(test_case: TestCase):  # noqa: F811
 
     service_name = test_case.llm_service.metadata.name
     sa_name = f"{service_name}-test-sa"
+    ns = test_case.llm_service.metadata.namespace
     test_failed = False
 
     # Enable auth for this test
@@ -278,7 +279,7 @@ def test_llm_auth_enabled_requires_token(test_case: TestCase):  # noqa: F811
 
         # Create ServiceAccount with get+post access (required for inference-access and endpoint-access)
         token = create_service_account_with_inference_access(
-            kserve_client, sa_name, service_name
+            kserve_client, sa_name, service_name, namespace=ns
         )
 
         service_url = get_llm_service_url(kserve_client, test_case.llm_service)
@@ -352,7 +353,7 @@ def test_llm_auth_enabled_requires_token(test_case: TestCase):  # noqa: F811
         raise
     finally:
         try:
-            cleanup_service_account(kserve_client, sa_name)
+            cleanup_service_account(kserve_client, sa_name, namespace=ns)
 
             skip_all_deletion = os.getenv(
                 "SKIP_RESOURCE_DELETION", "False"
@@ -423,6 +424,7 @@ def test_llm_auth_invalid_token_rejected(test_case: TestCase):  # noqa: F811
 
     service_name = test_case.llm_service.metadata.name
     sa_name = f"{service_name}-test-sa"
+    ns = test_case.llm_service.metadata.namespace
     test_failed = False
 
     # Enable auth for this test
@@ -441,7 +443,7 @@ def test_llm_auth_invalid_token_rejected(test_case: TestCase):  # noqa: F811
 
         # Create ServiceAccount to get a valid token format reference
         create_service_account_with_inference_access(
-            kserve_client, sa_name, service_name
+            kserve_client, sa_name, service_name, namespace=ns
         )
 
         service_url = get_llm_service_url(kserve_client, test_case.llm_service)
@@ -488,7 +490,7 @@ def test_llm_auth_invalid_token_rejected(test_case: TestCase):  # noqa: F811
         raise
     finally:
         try:
-            cleanup_service_account(kserve_client, sa_name)
+            cleanup_service_account(kserve_client, sa_name, namespace=ns)
 
             skip_all_deletion = os.getenv(
                 "SKIP_RESOURCE_DELETION", "False"
