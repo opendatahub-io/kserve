@@ -7,6 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -30,7 +31,15 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 		Expect(client.IgnoreAlreadyExists(testEnv.Client.Create(ctx, ns))).To(Succeed())
 
 		kserve = fixture.KserveCR()
-		Expect(client.IgnoreAlreadyExists(testEnv.Client.Create(ctx, kserve))).To(Succeed())
+		// Ensure any leftover CR (possibly deleting with a finalizer) is fully gone.
+		Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, kserve))).To(Succeed())
+		Eventually(func(g Gomega) {
+			err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)
+			g.Expect(k8serr.IsNotFound(err)).To(BeTrue())
+		}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
+
+		kserve = fixture.KserveCR()
+		Expect(testEnv.Client.Create(ctx, kserve)).To(Succeed())
 
 		Eventually(func(g Gomega) {
 			g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
@@ -40,7 +49,11 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 
 	AfterAll(func(ctx SpecContext) {
 		if kserve != nil {
-			client.IgnoreNotFound(testEnv.Client.Delete(ctx, kserve))
+			Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, kserve))).To(Succeed())
+			Eventually(func(g Gomega) {
+				err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)
+				g.Expect(k8serr.IsNotFound(err)).To(BeTrue())
+			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
 		}
 		testEnv.Reconciler.SetClusterType(cluster.ClusterTypeOpenShift)
 	})

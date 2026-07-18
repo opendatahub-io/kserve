@@ -28,4 +28,3 @@ func (m *MockDeployer) LastCall() *deploy.DeployInput {
 	}
 	return &m.Calls[len(m.Calls)-1]
 }
-

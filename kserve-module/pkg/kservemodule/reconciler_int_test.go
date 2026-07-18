@@ -2,6 +2,7 @@ package kservemodule_test
 
 import (
 	"fmt"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -9,6 +10,9 @@ import (
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,7 +44,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 		cr := fixture.KserveCR()
 		Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 		DeferCleanup(func(ctx SpecContext) {
-			Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, cr))).To(Succeed())
+			deleteAndWaitGone(ctx, cr)
 		})
 
 		Eventually(func(g Gomega) {
@@ -61,7 +65,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
 			DeferCleanup(func(ctx SpecContext) {
-				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, cr))).To(Succeed())
+				deleteAndWaitGone(ctx, cr)
 			})
 		})
 
@@ -178,7 +182,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
 			DeferCleanup(func(ctx SpecContext) {
-				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, cr))).To(Succeed())
+				deleteAndWaitGone(ctx, cr)
 			})
 		})
 
@@ -260,7 +264,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
 			DeferCleanup(func(ctx SpecContext) {
-				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, cr))).To(Succeed())
+				deleteAndWaitGone(ctx, cr)
 			})
 		})
 
@@ -321,7 +325,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
 			DeferCleanup(func(ctx SpecContext) {
-				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, cr))).To(Succeed())
+				deleteAndWaitGone(ctx, cr)
 			})
 		})
 
@@ -421,22 +425,179 @@ var _ = Describe("KserveModule Reconciler", func() {
 		})
 	})
 
-	Context("platform finalizer removal", func() {
-		It("removes the platform finalizer on CR deletion", func(ctx SpecContext) {
+	Context("CR deletion without platform finalizer", func() {
+		It("deletes CR immediately and runs cleanup via NotFound path", func(ctx SpecContext) {
 			cr := fixture.KserveCR()
-			cr.Finalizers = append(cr.Finalizers, kservemodule.PlatformFinalizerName)
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
-			}).WithContext(ctx).Should(Succeed())
+				g.Expect(cr.Status.ObservedGeneration).To(Equal(cr.Generation))
+			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
+
+			Expect(cr.Finalizers).To(BeEmpty(),
+				"CR should have no finalizer — platform operator sets it, not module operator")
 
 			Expect(testEnv.Client.Delete(ctx, cr)).To(Succeed())
 
 			Eventually(func(g Gomega) {
 				err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)
-				g.Expect(k8serr.IsNotFound(err)).To(BeTrue(), "CR should be fully deleted, not stuck in Deleting")
-			}).WithContext(ctx).Should(Succeed())
+				g.Expect(k8serr.IsNotFound(err)).To(BeTrue(), "CR should be deleted immediately")
+			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
+		})
+	})
+
+	Context("deletion cleanup for LLMISVCConfig", Ordered, func() {
+		var (
+			llmisvcConfigCRD *apiextensionsv1.CustomResourceDefinition
+			llmisvcCRD       *apiextensionsv1.CustomResourceDefinition
+		)
+
+		BeforeAll(func(ctx SpecContext) {
+			llmisvcConfigCRD = &apiextensionsv1.CustomResourceDefinition{
+				ObjectMeta: metav1.ObjectMeta{Name: "llminferenceserviceconfigs.serving.kserve.io"},
+				Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+					Group: "serving.kserve.io",
+					Names: apiextensionsv1.CustomResourceDefinitionNames{
+						Kind:     "LLMInferenceServiceConfig",
+						Plural:   "llminferenceserviceconfigs",
+						Singular: "llminferenceserviceconfig",
+					},
+					Scope: apiextensionsv1.ClusterScoped,
+					Versions: []apiextensionsv1.CustomResourceDefinitionVersion{{
+						Name:    "v1alpha2",
+						Served:  true,
+						Storage: true,
+						Schema: &apiextensionsv1.CustomResourceValidation{
+							OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{
+								Type:                   "object",
+								XPreserveUnknownFields: ptr.To(true),
+							},
+						},
+					}},
+				},
+			}
+			Expect(testEnv.Client.Create(ctx, llmisvcConfigCRD)).To(Succeed())
+
+			llmisvcCRD = &apiextensionsv1.CustomResourceDefinition{
+				ObjectMeta: metav1.ObjectMeta{Name: "llminferenceservices.serving.kserve.io"},
+				Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+					Group: "serving.kserve.io",
+					Names: apiextensionsv1.CustomResourceDefinitionNames{
+						Kind:     "LLMInferenceService",
+						Plural:   "llminferenceservices",
+						Singular: "llminferenceservice",
+					},
+					Scope: apiextensionsv1.NamespaceScoped,
+					Versions: []apiextensionsv1.CustomResourceDefinitionVersion{{
+						Name:    "v1alpha2",
+						Served:  true,
+						Storage: true,
+						Schema: &apiextensionsv1.CustomResourceValidation{
+							OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{
+								Type:                   "object",
+								XPreserveUnknownFields: ptr.To(true),
+							},
+						},
+					}},
+				},
+			}
+			Expect(testEnv.Client.Create(ctx, llmisvcCRD)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				crd := &apiextensionsv1.CustomResourceDefinition{}
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(llmisvcConfigCRD), crd)).To(Succeed())
+				for _, c := range crd.Status.Conditions {
+					if c.Type == apiextensionsv1.Established {
+						g.Expect(c.Status).To(Equal(apiextensionsv1.ConditionTrue))
+					}
+				}
+			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
+		})
+
+		It("deletes configs when no LLMInferenceService instances exist", func(ctx SpecContext) {
+			config := &unstructured.Unstructured{}
+			config.SetGroupVersionKind(schema.GroupVersionKind{
+				Group: "serving.kserve.io", Version: "v1alpha2", Kind: "LLMInferenceServiceConfig",
+			})
+			config.SetName("test-config")
+			config.SetFinalizers([]string{"serving.kserve.io/llmisvcconfig-finalizer"})
+			Expect(testEnv.Client.Create(ctx, config)).To(Succeed())
+
+			cr := fixture.KserveCR()
+			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				g.Expect(cr.Status.ObservedGeneration).To(Equal(cr.Generation))
+			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
+
+			Expect(testEnv.Client.Delete(ctx, cr)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)
+				g.Expect(k8serr.IsNotFound(err)).To(BeTrue())
+			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(config), config)
+				g.Expect(k8serr.IsNotFound(err)).To(BeTrue(),
+					"LLMInferenceServiceConfig should be deleted when no LLMInferenceService instances exist")
+			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
+		})
+
+		It("preserves configs when LLMInferenceService instances exist", func(ctx SpecContext) {
+			config := &unstructured.Unstructured{}
+			config.SetGroupVersionKind(schema.GroupVersionKind{
+				Group: "serving.kserve.io", Version: "v1alpha2", Kind: "LLMInferenceServiceConfig",
+			})
+			config.SetName("test-config-preserved")
+			config.SetFinalizers([]string{"serving.kserve.io/llmisvcconfig-finalizer"})
+			Expect(testEnv.Client.Create(ctx, config)).To(Succeed())
+			DeferCleanup(func(ctx SpecContext) {
+				cfg := &unstructured.Unstructured{}
+				cfg.SetGroupVersionKind(schema.GroupVersionKind{
+					Group: "serving.kserve.io", Version: "v1alpha2", Kind: "LLMInferenceServiceConfig",
+				})
+				cfg.SetName("test-config-preserved")
+				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cfg), cfg); err == nil {
+					cfg.SetFinalizers(nil)
+					_ = testEnv.Client.Update(ctx, cfg)
+					_ = testEnv.Client.Delete(ctx, cfg)
+				}
+			})
+
+			llmisvc := &unstructured.Unstructured{}
+			llmisvc.SetGroupVersionKind(schema.GroupVersionKind{
+				Group: "serving.kserve.io", Version: "v1alpha2", Kind: "LLMInferenceService",
+			})
+			llmisvc.SetName("test-llmisvc")
+			llmisvc.SetNamespace("opendatahub")
+			Expect(testEnv.Client.Create(ctx, llmisvc)).To(Succeed())
+			DeferCleanup(func(ctx SpecContext) {
+				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, llmisvc))).To(Succeed())
+			})
+
+			cr := fixture.KserveCR()
+			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				g.Expect(cr.Status.ObservedGeneration).To(Equal(cr.Generation))
+			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
+
+			Expect(testEnv.Client.Delete(ctx, cr)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)
+				g.Expect(k8serr.IsNotFound(err)).To(BeTrue())
+			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
+
+			Consistently(func(g Gomega) {
+				err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(config), config)
+				g.Expect(err).NotTo(HaveOccurred(),
+					"LLMInferenceServiceConfig should be preserved when LLMInferenceService instances exist")
+			}).WithContext(ctx).WithTimeout(3 * time.Second).Should(Succeed())
 		})
 	})
 
@@ -448,7 +609,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
 			DeferCleanup(func(ctx SpecContext) {
-				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, cr))).To(Succeed())
+				deleteAndWaitGone(ctx, cr)
 			})
 		})
 
@@ -563,6 +724,15 @@ func createReadyDeployment(ctx SpecContext, name, namespace string) {
 	dep.Status.Replicas = 1
 	dep.Status.ReadyReplicas = 1
 	Expect(testEnv.Client.Status().Update(ctx, dep)).To(Succeed())
+}
+
+func deleteAndWaitGone(ctx SpecContext, obj client.Object) {
+	Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, obj))).To(Succeed())
+	Eventually(func(g Gomega) {
+		err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)
+		g.Expect(k8serr.IsNotFound(err)).To(BeTrue(),
+			"waiting for %s %s to be fully deleted", obj.GetObjectKind().GroupVersionKind().Kind, obj.GetName())
+	}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
 }
 
 func triggerReconcile(ctx SpecContext, cr *platformv1alpha1.Kserve, trigger string) {

@@ -139,6 +139,68 @@ func TestModelControllerExtraParams(t *testing.T) {
 	}
 }
 
+func TestSplitByOwnership(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := []unstructured.Unstructured{
+		{Object: map[string]any{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata":   map[string]any{"name": "kserve-controller"},
+		}},
+		{Object: map[string]any{
+			"apiVersion": "serving.kserve.io/v1alpha2",
+			"kind":       "LLMInferenceServiceConfig",
+			"metadata":   map[string]any{"name": "vllm-config"},
+		}},
+		{Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata":   map[string]any{"name": "inferenceservice-config"},
+		}},
+		{Object: map[string]any{
+			"apiVersion": "serving.kserve.io/v1alpha2",
+			"kind":       "LLMInferenceServiceConfig",
+			"metadata":   map[string]any{"name": "tgis-config"},
+		}},
+	}
+
+	owned, unowned := splitByOwnership(resources)
+
+	g.Expect(owned).To(HaveLen(2))
+	g.Expect(unowned).To(HaveLen(2))
+
+	for _, r := range owned {
+		g.Expect(r.GetKind()).NotTo(Equal("LLMInferenceServiceConfig"))
+	}
+	for _, r := range unowned {
+		g.Expect(r.GetKind()).To(Equal("LLMInferenceServiceConfig"))
+	}
+}
+
+func TestSplitByOwnership_AllOwned(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := []unstructured.Unstructured{
+		{Object: map[string]any{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata":   map[string]any{"name": "deploy"},
+		}},
+	}
+
+	owned, unowned := splitByOwnership(resources)
+	g.Expect(owned).To(HaveLen(1))
+	g.Expect(unowned).To(BeEmpty())
+}
+
+func TestSplitByOwnership_Empty(t *testing.T) {
+	g := NewWithT(t)
+	owned, unowned := splitByOwnership(nil)
+	g.Expect(owned).To(BeNil())
+	g.Expect(unowned).To(BeNil())
+}
+
 func TestApplyManagedByLabel(t *testing.T) {
 	g := NewWithT(t)
 
