@@ -2,6 +2,7 @@ package kservemodule
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -264,11 +265,15 @@ func cleanupKServeComponent(ctx context.Context, r *KserveModuleReconciler) erro
 		return fmt.Errorf("listing LLMInferenceServiceConfigs: %w", err)
 	}
 
+	var deleteErrs []error
 	for i := range configList.Items {
 		config := &configList.Items[i]
 		if err := r.Delete(ctx, config); client.IgnoreNotFound(err) != nil {
-			log.Error(err, "deleting LLMInferenceServiceConfig", "name", config.GetName())
+			deleteErrs = append(deleteErrs, fmt.Errorf("%s: %w", config.GetName(), err))
 		}
+	}
+	if len(deleteErrs) > 0 {
+		return errors.Join(deleteErrs...)
 	}
 
 	err := wait.PollUntilContextTimeout(ctx, 2*time.Second, 60*time.Second, true, func(ctx context.Context) (bool, error) {
