@@ -62,15 +62,15 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 			}
 		})
 
-		It("shows MissingDependency then AllDependenciesSatisfied after installing rhcl-operator", func(ctx SpecContext) {
+		It("shows PreConditionFailed then clears after installing rhcl-operator", func(ctx SpecContext) {
 			triggerReconcile(ctx, kserve, "dw-sub-partial")
 
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
 				cond := fixture.FindCondition(kserve, kservemodule.ConditionLLMISVCDeps)
 				g.Expect(cond).NotTo(BeNil())
-				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
-				g.Expect(cond.Reason).To(Equal("MissingDependency"))
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(Equal("PreConditionFailed"))
 				g.Expect(cond.Message).To(ContainSubstring("Red Hat Connectivity Link"))
 				g.Expect(cond.Message).NotTo(ContainSubstring("cert-manager"))
 			}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
@@ -83,12 +83,11 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
 				cond := fixture.FindCondition(kserve, kservemodule.ConditionLLMISVCDeps)
 				g.Expect(cond).NotTo(BeNil())
-				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(cond.Reason).To(Equal("AllDependenciesSatisfied"))
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 			}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
 		})
 
-		It("shows MissingDependency after Subscription deletion", func(ctx SpecContext) {
+		It("shows PreConditionFailed after Subscription deletion", func(ctx SpecContext) {
 			sub := &unstructured.Unstructured{}
 			sub.SetGroupVersionKind(schema.GroupVersionKind{
 				Group: "operators.coreos.com", Version: "v1alpha1", Kind: "Subscription",
@@ -101,8 +100,8 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
 				cond := fixture.FindCondition(kserve, kservemodule.ConditionLLMISVCDeps)
 				g.Expect(cond).NotTo(BeNil())
-				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
-				g.Expect(cond.Reason).To(Equal("MissingDependency"))
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(Equal("PreConditionFailed"))
 				g.Expect(cond.Message).To(ContainSubstring("Red Hat Connectivity Link"))
 				g.Expect(cond.Message).NotTo(ContainSubstring("cert-manager"))
 			}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())

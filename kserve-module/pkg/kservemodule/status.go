@@ -67,14 +67,13 @@ func applyDependencyConditions(condMgr *conditions.Manager, result dependencyRes
 	for group, reasons := range result.groupReasons {
 		slices.Sort(reasons)
 		if len(reasons) > 0 {
-			condMgr.MarkTrue(group,
-				conditions.WithSeverity(common.ConditionSeverityInfo),
-				conditions.WithReason("MissingDependency"),
-				conditions.WithMessage("%s", strings.Join(reasons, "; ")))
-		} else {
 			condMgr.MarkFalse(group,
 				conditions.WithSeverity(common.ConditionSeverityInfo),
-				conditions.WithReason("AllDependenciesSatisfied"))
+				conditions.WithReason("PreConditionFailed"),
+				conditions.WithMessage("%s", strings.Join(reasons, "; ")))
+		} else {
+			condMgr.MarkTrue(group,
+				conditions.WithSeverity(common.ConditionSeverityInfo))
 		}
 	}
 }
