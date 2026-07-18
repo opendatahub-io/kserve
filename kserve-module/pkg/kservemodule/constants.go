@@ -62,8 +62,11 @@ const (
 	templateGroup = "template.openshift.io"
 	templateKind  = "Template"
 
-	// PlatformFinalizerName is set on the Kserve CR by the platform operator;
-	// the module operator removes it after cleanup is complete.
+	// ModuleFinalizerName is managed by the module operator on the Kserve CR;
+	// added during reconcile, removed after cleanup on deletion.
+	ModuleFinalizerName = "kserve-module.opendatahub.io/finalizer"
+
+	// PlatformFinalizerName is set and removed by the platform operator.
 	PlatformFinalizerName = "platform.opendatahub.io/finalizer"
 
 	// cert-manager defaults

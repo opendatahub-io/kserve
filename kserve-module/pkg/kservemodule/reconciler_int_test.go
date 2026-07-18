@@ -425,8 +425,8 @@ var _ = Describe("KserveModule Reconciler", func() {
 		})
 	})
 
-	Context("CR deletion without platform finalizer", func() {
-		It("deletes CR immediately and runs cleanup via NotFound path", func(ctx SpecContext) {
+	Context("module finalizer lifecycle", func() {
+		It("adds finalizer during reconcile and removes it on deletion after cleanup", func(ctx SpecContext) {
 			cr := fixture.KserveCR()
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
@@ -435,14 +435,14 @@ var _ = Describe("KserveModule Reconciler", func() {
 				g.Expect(cr.Status.ObservedGeneration).To(Equal(cr.Generation))
 			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
 
-			Expect(cr.Finalizers).To(BeEmpty(),
-				"CR should have no finalizer — platform operator sets it, not module operator")
+			Expect(cr.Finalizers).To(ContainElement(kservemodule.ModuleFinalizerName),
+				"module operator should add its own finalizer during reconcile")
 
 			Expect(testEnv.Client.Delete(ctx, cr)).To(Succeed())
 
 			Eventually(func(g Gomega) {
 				err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)
-				g.Expect(k8serr.IsNotFound(err)).To(BeTrue(), "CR should be deleted immediately")
+				g.Expect(k8serr.IsNotFound(err)).To(BeTrue(), "CR should be deleted after module finalizer is removed")
 			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
 		})
 	})
@@ -521,7 +521,6 @@ var _ = Describe("KserveModule Reconciler", func() {
 				Group: "serving.kserve.io", Version: "v1alpha2", Kind: "LLMInferenceServiceConfig",
 			})
 			config.SetName("test-config")
-			config.SetFinalizers([]string{"serving.kserve.io/llmisvcconfig-finalizer"})
 			Expect(testEnv.Client.Create(ctx, config)).To(Succeed())
 
 			cr := fixture.KserveCR()

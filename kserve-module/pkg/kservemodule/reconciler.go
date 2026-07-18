@@ -142,13 +142,20 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			log.Error(cleanupErr, "component extra-cleanup failed during CR deletion")
 			return ctrl.Result{}, cleanupErr
 		}
-		if controllerutil.RemoveFinalizer(kserve, PlatformFinalizerName) {
+		if controllerutil.RemoveFinalizer(kserve, ModuleFinalizerName) {
 			if err := r.Update(ctx, kserve); err != nil {
-				return ctrl.Result{}, fmt.Errorf("removing platform finalizer: %w", err)
+				return ctrl.Result{}, fmt.Errorf("removing module finalizer: %w", err)
 			}
-			log.Info("removed platform finalizer from Kserve CR")
+			log.Info("removed module finalizer from Kserve CR")
 		}
 		return ctrl.Result{}, nil
+	}
+
+	if controllerutil.AddFinalizer(kserve, ModuleFinalizerName) {
+		if err := r.Update(ctx, kserve); err != nil {
+			return ctrl.Result{}, fmt.Errorf("adding module finalizer: %w", err)
+		}
+		log.Info("added module finalizer to Kserve CR")
 	}
 
 	log.Info("reconciling Kserve CR", "name", kserve.Name)

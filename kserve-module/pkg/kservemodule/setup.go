@@ -238,4 +238,3 @@ func crdNamePredicate() predicate.Predicate {
 		return false
 	})
 }
-
