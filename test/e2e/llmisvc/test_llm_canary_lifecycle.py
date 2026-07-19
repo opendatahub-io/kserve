@@ -123,7 +123,11 @@ def apply_divergence_member(api, name, model_name, weight, ns):
     body = {
         "apiVersion": f"{KSERVE_GROUP}/{KSERVE_VERSION}",
         "kind": "LLMInferenceService",
-        "metadata": {"name": name, "namespace": ns},
+        "metadata": {
+            "name": name,
+            "namespace": ns,
+            "annotations": {"security.opendatahub.io/enable-auth": "false"},
+        },
         "spec": {
             "model": model_spec,
             "baseRefs": [{"name": INFERENCE_SIM.name}],
@@ -237,6 +241,7 @@ def apply_member(api, member: MemberSpec, ns):
         "metadata": {
             "name": member.name,
             "namespace": ns,
+            "annotations": {"security.opendatahub.io/enable-auth": "false"},
         },
         "spec": spec,
     }
