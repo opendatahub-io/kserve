@@ -127,12 +127,6 @@ def test_llm_tls_resources(test_case: TestCase):
     )
 
     service_name = test_case.llm_service.metadata.name
-    if not test_case.llm_service.metadata.annotations:
-        test_case.llm_service.metadata.annotations = {}
-
-    test_case.llm_service.metadata.annotations[
-        "security.opendatahub.io/enable-auth"
-    ] = "false"
 
     try:
         create_llmisvc(kserve_client, test_case.llm_service)

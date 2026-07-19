@@ -108,15 +108,11 @@ def test_flow_control_smoke(test_case: TestCase, flow_control_auth):
     prefix = test_case.log_prefix
     test_failed = False
 
-    if not test_case.llm_service.metadata.annotations:
-        test_case.llm_service.metadata.annotations = {}
     if flow_control_auth:
+        if not test_case.llm_service.metadata.annotations:
+            test_case.llm_service.metadata.annotations = {}
         test_case.llm_service.metadata.annotations.update(
             flow_control_auth.get("annotations", {})
-        )
-    else:
-        test_case.llm_service.metadata.annotations.setdefault(
-            "security.opendatahub.io/enable-auth", "false"
         )
 
     try:

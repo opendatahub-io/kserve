@@ -61,6 +61,8 @@ else
 fi
 export PYTEST_ARGS="${PYTEST_ARGS:-} -p common.gateway_proxy_istio"
 export RUN_AS_NON_ROOT="${RUN_AS_NON_ROOT:-true}"
+: ${LLMISVC_DEFAULT_ANNOTATIONS:='{"security.opendatahub.io/enable-auth":"false"}'}
+export LLMISVC_DEFAULT_ANNOTATIONS
 export KUBE_CLI=${KUBE_CLI_COMMAND:-oc}
 
 export GITHUB_SHA=stable # Need to use stable as this is what the CI tags the images to for success-200 and error-404

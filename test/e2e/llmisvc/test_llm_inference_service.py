@@ -838,12 +838,6 @@ def test_llm_inference_service(test_case: TestCase):  # noqa: F811
     )
 
     service_name = test_case.llm_service.metadata.name
-    if not test_case.llm_service.metadata.annotations:
-        test_case.llm_service.metadata.annotations = {}
-
-    test_case.llm_service.metadata.annotations[
-        "security.opendatahub.io/enable-auth"
-    ] = "false"
     prefix = test_case.log_prefix
 
     test_failed = False
