@@ -79,12 +79,6 @@ def test_rolling_upgrade_coordination(test_case: TestCase):
     namespace = test_case.llm_service.metadata.namespace
     test_failed = False
 
-    if not test_case.llm_service.metadata.annotations:
-        test_case.llm_service.metadata.annotations = {}
-    test_case.llm_service.metadata.annotations[
-        "security.opendatahub.io/enable-auth"
-    ] = "false"
-
     try:
         print(f"Creating LLMInferenceService {service_name}")
         create_llmisvc(kserve_client, test_case.llm_service)
