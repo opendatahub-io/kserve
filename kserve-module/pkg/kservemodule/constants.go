@@ -55,7 +55,6 @@ const (
 	llmISVCConfigPrefixEnv   = "LLM_INFERENCE_SERVICE_CONFIG_PREFIX"
 	llmISVCConfigGroup       = "serving.kserve.io"
 	llmISVCConfigKind        = "LLMInferenceServiceConfig"
-	llmISVCKind = "LLMInferenceService"
 
 	// Template (ServingRuntime) resource type
 	templateGroup = "template.openshift.io"

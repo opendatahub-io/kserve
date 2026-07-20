@@ -6,6 +6,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -49,7 +50,11 @@ var _ = Describe("Dependency Integration", Ordered, func() {
 
 	AfterAll(func(ctx SpecContext) {
 		if kserve != nil {
-			client.IgnoreNotFound(testEnv.Client.Delete(ctx, kserve))
+			Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, kserve))).To(Succeed())
+			Eventually(func(g Gomega) {
+				err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)
+				g.Expect(k8serr.IsNotFound(err)).To(BeTrue())
+			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
 		}
 		for _, crd := range testCRDs {
 			client.IgnoreNotFound(testEnv.Client.Delete(ctx, crd))

@@ -2,17 +2,11 @@ package kservemodule
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	k8serr "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -51,7 +45,6 @@ var components = []componentConfig{
 		sourcePathXKS: KserveManifestSourcePathXKS,
 		imageMap:      kserveImageParamMap,
 		postRender:    kservePostRender,
-		extraCleanup:  cleanupKServeComponent,
 	},
 	{
 		name:        OdhModelControllerComponentName,
@@ -237,64 +230,3 @@ func applyManagedByLabel(resources []unstructured.Unstructured, componentName st
 	}
 }
 
-func cleanupKServeComponent(ctx context.Context, r *KserveModuleReconciler) error {
-	log := ctrl.LoggerFrom(ctx)
-
-	llmisvcList := &unstructured.UnstructuredList{}
-	llmisvcList.SetGroupVersionKind(schema.GroupVersionKind{
-		Group: llmISVCConfigGroup, Version: "v1alpha2", Kind: llmISVCKind,
-	})
-	if err := r.Client.List(ctx, llmisvcList, client.Limit(1)); err != nil {
-		if !meta.IsNoMatchError(err) {
-			return fmt.Errorf("listing LLMInferenceServices: %w", err)
-		}
-	}
-	if len(llmisvcList.Items) > 0 {
-		log.Info("LLMInferenceService instances exist, keeping configs")
-		return nil
-	}
-
-	configList := &unstructured.UnstructuredList{}
-	configList.SetGroupVersionKind(schema.GroupVersionKind{
-		Group: llmISVCConfigGroup, Version: "v1alpha2", Kind: llmISVCConfigKind,
-	})
-	if err := r.Client.List(ctx, configList); err != nil {
-		if meta.IsNoMatchError(err) {
-			return nil
-		}
-		return fmt.Errorf("listing LLMInferenceServiceConfigs: %w", err)
-	}
-
-	var deleteErrs []error
-	for i := range configList.Items {
-		config := &configList.Items[i]
-		if err := r.Delete(ctx, config); client.IgnoreNotFound(err) != nil {
-			deleteErrs = append(deleteErrs, fmt.Errorf("%s: %w", config.GetName(), err))
-		}
-	}
-	if len(deleteErrs) > 0 {
-		return errors.Join(deleteErrs...)
-	}
-
-	err := wait.PollUntilContextTimeout(ctx, 2*time.Second, 60*time.Second, true, func(ctx context.Context) (bool, error) {
-		remaining := &unstructured.UnstructuredList{}
-		remaining.SetGroupVersionKind(schema.GroupVersionKind{
-			Group: llmISVCConfigGroup, Version: "v1alpha2", Kind: llmISVCConfigKind,
-		})
-		if err := r.Client.List(ctx, remaining, client.Limit(1)); err != nil {
-			if k8serr.IsNotFound(err) || meta.IsNoMatchError(err) {
-				return true, nil
-			}
-			return false, err
-		}
-		if len(remaining.Items) == 0 {
-			return true, nil
-		}
-		log.V(1).Info("waiting for LLMInferenceServiceConfig deletion", "remaining", len(remaining.Items))
-		return false, nil
-	})
-	if err != nil {
-		return fmt.Errorf("waiting for LLMInferenceServiceConfig deletion: %w", err)
-	}
-	return nil
-}
