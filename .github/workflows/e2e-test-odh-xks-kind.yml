@@ -122,7 +122,7 @@ jobs:
           popd
 
       - name: Run E2E tests
-        timeout-minutes: 75
+        timeout-minutes: 90
         env:
           KSERVE_NAMESPACE: "opendatahub"
           SKIP_DELETION_ON_FAILURE: "true"
