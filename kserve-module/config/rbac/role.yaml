@@ -363,12 +363,6 @@ rules:
 - apiGroups:
   - serving.kserve.io
   resources:
-  - llminferenceservices
-  verbs:
-  - list
-- apiGroups:
-  - serving.kserve.io
-  resources:
   - servingruntimes
   verbs:
   - get

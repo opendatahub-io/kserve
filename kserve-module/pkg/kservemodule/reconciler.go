@@ -75,7 +75,6 @@ import (
 
 // --- KServe cluster-scoped operand resources ---
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceserviceconfigs;clusterstoragecontainers,verbs=create;delete;get;list;patch;update;watch
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=list
 
 // --- OpenShift-specific cluster-scoped resources ---
 // SCCs: required for InferenceService and LLMInferenceService workload pods
