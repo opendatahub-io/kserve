@@ -1,6 +1,7 @@
 """Shared fixtures for kserve-module E2E tests."""
 
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 
@@ -48,6 +49,77 @@ LMNG_RESOURCE = "localmodelnodegroups.serving.kserve.io"
 class ClusterInfo:
     is_openshift: bool
     kubectl: str  # "oc" or "kubectl"
+
+
+# ---------------------------------------------------------------------------
+# Debug helpers (temporary — drop this commit after CI investigation)
+# ---------------------------------------------------------------------------
+def _dbg(msg):
+    """Print a debug message to stderr so pytest captures it."""
+    print(f"[DEBUG] {msg}", file=sys.stderr, flush=True)
+
+
+def _dbg_cr_state(kubectl_bin, name=KSERVE_CR_NAME, label=""):
+    """Dump Kserve CR state for debugging."""
+    prefix = f"[DEBUG][{label}]" if label else "[DEBUG]"
+    result = subprocess.run(
+        [kubectl_bin, "get", "kserve", name, "-o", "yaml", "--ignore-not-found"],
+        capture_output=True, text=True, timeout=15,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        print(f"{prefix} CR {name} not found (rc={result.returncode})",
+              file=sys.stderr, flush=True)
+        return
+    cr = yaml.safe_load(result.stdout)
+    meta = cr.get("metadata", {})
+    status = cr.get("status", {})
+    print(f"{prefix} CR state:", file=sys.stderr, flush=True)
+    print(f"  finalizers: {meta.get('finalizers', [])}", file=sys.stderr, flush=True)
+    print(f"  deletionTimestamp: {meta.get('deletionTimestamp', 'NOT SET')}",
+          file=sys.stderr, flush=True)
+    print(f"  generation: {meta.get('generation')}", file=sys.stderr, flush=True)
+    print(f"  observedGeneration: {status.get('observedGeneration')}",
+          file=sys.stderr, flush=True)
+    print(f"  phase: {status.get('phase', 'N/A')}", file=sys.stderr, flush=True)
+    for c in status.get("conditions", []):
+        print(f"  condition: {c.get('type')}={c.get('status')} "
+              f"reason={c.get('reason', '')} msg={c.get('message', '')[:80]}",
+              file=sys.stderr, flush=True)
+
+
+def _dbg_controller_logs(kubectl_bin, tail=80):
+    """Dump recent controller logs."""
+    result = subprocess.run(
+        [kubectl_bin, "logs", f"deployment/{OPERATOR_DEPLOYMENT}",
+         "-n", NAMESPACE, "--tail", str(tail)],
+        capture_output=True, text=True, timeout=15,
+    )
+    print(f"[DEBUG] controller logs (last {tail} lines):", file=sys.stderr, flush=True)
+    if result.returncode != 0:
+        print(f"  failed to get logs: {result.stderr}", file=sys.stderr, flush=True)
+    else:
+        for line in result.stdout.splitlines():
+            print(f"  {line}", file=sys.stderr, flush=True)
+
+
+def _dbg_cluster_state(kubectl_bin):
+    """Dump pod state and recent events."""
+    result = subprocess.run(
+        [kubectl_bin, "get", "pods", "-n", NAMESPACE, "-o", "wide"],
+        capture_output=True, text=True, timeout=15,
+    )
+    print(f"[DEBUG] pods in {NAMESPACE}:", file=sys.stderr, flush=True)
+    print(result.stdout, file=sys.stderr, flush=True)
+
+    result = subprocess.run(
+        [kubectl_bin, "get", "events", "-n", NAMESPACE,
+         "--sort-by=.lastTimestamp", "--field-selector", "type!=Normal"],
+        capture_output=True, text=True, timeout=15,
+    )
+    if result.stdout.strip():
+        print(f"[DEBUG] warning/error events:", file=sys.stderr, flush=True)
+        for line in result.stdout.splitlines()[-20:]:
+            print(f"  {line}", file=sys.stderr, flush=True)
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +193,11 @@ def trigger_reconcile(kubectl_bin, name=KSERVE_CR_NAME, trigger_id=None):
 
 def create_kserve_cr(kubectl_bin, cr_dict=None):
     """Create a Kserve CR if it doesn't already exist."""
+    _dbg("create_kserve_cr: starting")
+    _dbg_cluster_state(kubectl_bin)
     if cr_exists(kubectl_bin):
+        _dbg("create_kserve_cr: CR already exists, waiting for Ready")
+        _dbg_cr_state(kubectl_bin, label="pre-existing")
         _poll_cr(
             kubectl_bin,
             KSERVE_CR_NAME,
@@ -131,7 +207,9 @@ def create_kserve_cr(kubectl_bin, cr_dict=None):
         )
     else:
         cr = yaml.safe_dump(cr_dict or KSERVE_CR_TEMPLATE)
+        _dbg("create_kserve_cr: creating new CR")
         run([kubectl_bin, "create", "-f", "-"], input_text=cr)
+        _dbg_cr_state(kubectl_bin, label="just-created")
         _poll_cr(
             kubectl_bin,
             KSERVE_CR_NAME,
@@ -139,13 +217,18 @@ def create_kserve_cr(kubectl_bin, cr_dict=None):
             TIMEOUT_180S,
             f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_180S}s",
         )
-    return _poll_cr(
+    _dbg("create_kserve_cr: CR ready, waiting for generation match")
+    _dbg_cr_state(kubectl_bin, label="ready")
+    result = _poll_cr(
         kubectl_bin,
         KSERVE_CR_NAME,
         generation_matches,
         TIMEOUT_180S,
         f"observedGeneration not matching within {TIMEOUT_180S}s after CR ready",
     )
+    _dbg("create_kserve_cr: done")
+    _dbg_cr_state(kubectl_bin, label="generation-matched")
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -269,19 +352,48 @@ def wait_for_kserve_cleanup(
     kubectl_bin, name=KSERVE_CR_NAME, is_openshift=False, timeout=TIMEOUT_180S
 ):
     """Wait until the Kserve CR is fully deleted."""
+    _dbg(f"wait_for_kserve_cleanup: checking if CR {name} still exists")
     result = run([kubectl_bin, "get", "kserve", name, "--ignore-not-found"])
     if result.stdout.strip():
-        run(
+        _dbg("wait_for_kserve_cleanup: CR still exists, dumping state before wait")
+        _dbg_cr_state(kubectl_bin, name, label="before-wait-delete")
+        _dbg_controller_logs(kubectl_bin, tail=30)
+
+        grace = 15
+        _dbg(f"wait_for_kserve_cleanup: waiting {grace}s for controller to remove finalizer")
+        wait_result = run(
             [
                 kubectl_bin,
                 "wait",
                 "--for=delete",
                 f"kserve/{name}",
-                f"--timeout={timeout}s",
+                f"--timeout={grace}s",
             ],
-            timeout=timeout + 10,
+            check=False,
+            timeout=grace + 10,
         )
+        if wait_result.returncode != 0:
+            _dbg(f"wait_for_kserve_cleanup: CR not deleted after {grace}s, dumping diagnostics")
+            _dbg_cr_state(kubectl_bin, name, label=f"still-alive-after-{grace}s")
+            _dbg_controller_logs(kubectl_bin, tail=50)
+            _dbg_cluster_state(kubectl_bin)
+
+            _dbg(f"wait_for_kserve_cleanup: continuing to wait up to {timeout}s total")
+            run(
+                [
+                    kubectl_bin,
+                    "wait",
+                    "--for=delete",
+                    f"kserve/{name}",
+                    f"--timeout={timeout}s",
+                ],
+                timeout=timeout + 10,
+            )
+    else:
+        _dbg("wait_for_kserve_cleanup: CR already gone")
+    _dbg("wait_for_kserve_cleanup: CR deleted, waiting for deployment GC")
     _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_120S)
+    _dbg("wait_for_kserve_cleanup: done")
 
 
 def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120S):
@@ -366,14 +478,27 @@ def apply_kserve_cr(kubectl, cluster_info):
     cr = create_kserve_cr(kubectl)
     yield cr
     if created:
+        _dbg("apply_kserve_cr teardown: deleting CR (--wait=false)")
+        _dbg_cr_state(kubectl, label="teardown-before-delete")
         run(
             [kubectl, "delete", "kserve", KSERVE_CR_NAME,
              "--ignore-not-found", "--wait=false"],
             check=False,
         )
-        wait_for_kserve_cleanup(
-            kubectl, is_openshift=cluster_info.is_openshift, timeout=TIMEOUT_180S,
-        )
+        _dbg("apply_kserve_cr teardown: kubectl delete returned, checking CR state")
+        _dbg_cr_state(kubectl, label="teardown-after-delete-nowait")
+        try:
+            wait_for_kserve_cleanup(
+                kubectl, is_openshift=cluster_info.is_openshift, timeout=TIMEOUT_180S,
+            )
+        except Exception as e:
+            _dbg(f"apply_kserve_cr teardown: cleanup FAILED: {e}")
+            _dbg_cr_state(kubectl, label="teardown-cleanup-failed")
+            _dbg_controller_logs(kubectl, tail=100)
+            _dbg_cluster_state(kubectl)
+            raise
+    else:
+        _dbg("apply_kserve_cr teardown: CR was pre-existing, skipping delete")
 
 
 @pytest.fixture

@@ -51,7 +51,7 @@ e2e-cleanup-kserve-module:
 	bash kserve-module/tests/scripts/setup-cluster.sh --platform $(PLATFORM) --cleanup
 
 e2e-kserve-module:
-	cd kserve-module/tests/e2e && python -m pytest -v
+	cd kserve-module/tests/e2e && python -m pytest -v -x
 
 precommit-km: fmt go-lint generate-kserve-module manifests-kserve-module test-kserve-module
 	cd kserve-module && go mod tidy && go vet ./... && go build ./...

@@ -14,6 +14,10 @@ from conftest import (
     wait_for_deployment,
     wait_for_deployment_gone,
     operand_deployments,
+    _dbg,
+    _dbg_cr_state,
+    _dbg_controller_logs,
+    _dbg_cluster_state,
     KSERVE_CR_NAME,
     NAMESPACE,
     OPERATOR_DEPLOYMENT,
@@ -60,7 +64,12 @@ class TestDelete:
         Verifies GC cleans up operand deployments via ownerReference,
         while the operator deployment itself remains.
         """
+        _dbg("test_delete: about to delete CR")
+        _dbg_cr_state(kubectl, label="test-delete-before")
+        _dbg_controller_logs(kubectl, tail=20)
         run([kubectl, "delete", "kserve", KSERVE_CR_NAME, "--wait=false"])
+        _dbg("test_delete: kubectl delete --wait=false returned")
+        _dbg_cr_state(kubectl, label="test-delete-after-nowait")
         wait_for_kserve_cleanup(
             kubectl, is_openshift=cluster_info.is_openshift, timeout=TIMEOUT_180S,
         )
