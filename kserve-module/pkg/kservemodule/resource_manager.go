@@ -9,6 +9,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -37,6 +38,10 @@ func NewDeployer() *deploy.Deployer {
 		deploy.WithFieldOwner(fieldOwner),
 		deploy.WithApplyOrder(),
 		deploy.WithCache(),
+		deploy.WithMergeStrategy(
+			schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"},
+			deploy.MergeDeployments,
+		),
 	)
 }
 
