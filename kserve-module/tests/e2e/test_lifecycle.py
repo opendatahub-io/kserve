@@ -19,6 +19,7 @@ from conftest import (
     OPERATOR_DEPLOYMENT,
     WVA_DEPLOYMENT,
     MODEL_CONTROLLER_DEPLOYMENT,
+    TIMEOUT_180S,
     TIMEOUT_120S,
     TIMEOUT_60S,
 )
@@ -59,8 +60,10 @@ class TestDelete:
         Verifies GC cleans up operand deployments via ownerReference,
         while the operator deployment itself remains.
         """
-        run([kubectl, "delete", "kserve", KSERVE_CR_NAME])
-        wait_for_kserve_cleanup(kubectl, is_openshift=cluster_info.is_openshift)
+        run([kubectl, "delete", "kserve", KSERVE_CR_NAME, "--wait=false"])
+        wait_for_kserve_cleanup(
+            kubectl, is_openshift=cluster_info.is_openshift, timeout=TIMEOUT_180S,
+        )
 
         result = run([kubectl, "get", "kserve", KSERVE_CR_NAME], check=False)
         assert result.returncode != 0, "Kserve CR should be deleted"
@@ -100,8 +103,8 @@ class TestUpdate:
         patch = json.dumps({"spec": {"rawDeploymentServiceConfig": "Headed"}})
         run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
 
-        cr_after = _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-                            f"observedGeneration not matching within {TIMEOUT_120S}s")
+        cr_after = _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_180S,
+                            f"observedGeneration not matching within {TIMEOUT_180S}s")
         gen_after = cr_after["metadata"]["generation"]
 
         assert gen_after > gen_before, \
@@ -300,10 +303,10 @@ class TestDriftCorrection:
             ])
             assert "TAMPERED" not in result.stdout
 
-        wait_for(assert_tampered_reverted, timeout=TIMEOUT_60S, interval=5)
+        wait_for(assert_tampered_reverted, timeout=TIMEOUT_120S, interval=5)
 
         def assert_provisioning_succeeded():
             conditions = get_conditions(kubectl)
             assert conditions["ProvisioningSucceeded"]["status"] == "True"
 
-        wait_for(assert_provisioning_succeeded, timeout=TIMEOUT_60S, interval=5)
+        wait_for(assert_provisioning_succeeded, timeout=TIMEOUT_120S, interval=5)

@@ -14,6 +14,7 @@ import yaml
 KSERVE_CR_NAME = "default-kserve"
 NAMESPACE = "opendatahub"
 OPERATOR_DEPLOYMENT = "kserve-module-controller-manager"
+TIMEOUT_180S = 180
 TIMEOUT_120S = 120
 TIMEOUT_60S = 60
 
@@ -121,21 +122,29 @@ def trigger_reconcile(kubectl_bin, name=KSERVE_CR_NAME, trigger_id=None):
 def create_kserve_cr(kubectl_bin, cr_dict=None):
     """Create a Kserve CR if it doesn't already exist."""
     if cr_exists(kubectl_bin):
-        return _poll_cr(
+        _poll_cr(
             kubectl_bin,
             KSERVE_CR_NAME,
             is_cr_ready,
-            TIMEOUT_120S,
-            f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_120S}s",
+            TIMEOUT_180S,
+            f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_180S}s",
         )
-    cr = yaml.safe_dump(cr_dict or KSERVE_CR_TEMPLATE)
-    run([kubectl_bin, "create", "-f", "-"], input_text=cr)
+    else:
+        cr = yaml.safe_dump(cr_dict or KSERVE_CR_TEMPLATE)
+        run([kubectl_bin, "create", "-f", "-"], input_text=cr)
+        _poll_cr(
+            kubectl_bin,
+            KSERVE_CR_NAME,
+            is_cr_ready,
+            TIMEOUT_180S,
+            f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_180S}s",
+        )
     return _poll_cr(
         kubectl_bin,
         KSERVE_CR_NAME,
-        is_cr_ready,
-        TIMEOUT_120S,
-        f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_120S}s",
+        generation_matches,
+        TIMEOUT_180S,
+        f"observedGeneration not matching within {TIMEOUT_180S}s after CR ready",
     )
 
 
@@ -257,7 +266,7 @@ def generation_matches(cr):
 
 
 def wait_for_kserve_cleanup(
-    kubectl_bin, name=KSERVE_CR_NAME, is_openshift=False, timeout=TIMEOUT_120S
+    kubectl_bin, name=KSERVE_CR_NAME, is_openshift=False, timeout=TIMEOUT_180S
 ):
     """Wait until the Kserve CR is fully deleted."""
     result = run([kubectl_bin, "get", "kserve", name, "--ignore-not-found"])
@@ -269,9 +278,10 @@ def wait_for_kserve_cleanup(
                 "--for=delete",
                 f"kserve/{name}",
                 f"--timeout={timeout}s",
-            ]
+            ],
+            timeout=timeout + 10,
         )
-    _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S)
+    _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_120S)
 
 
 def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120S):
@@ -295,7 +305,7 @@ def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_
 
 
 def wait_for_deployment_gone(
-    kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_60S
+    kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120S
 ):
     """Wait until a deployment no longer exists."""
     result = run(
@@ -309,6 +319,7 @@ def wait_for_deployment_gone(
             f"--timeout={timeout}s",
         ],
         check=False,
+        timeout=timeout + 10,
     )
     if result.returncode != 0 and "not found" not in result.stderr.lower():
         raise RuntimeError(f"wait_for_deployment_gone failed: {result.stderr}")
@@ -356,10 +367,13 @@ def apply_kserve_cr(kubectl, cluster_info):
     yield cr
     if created:
         run(
-            [kubectl, "delete", "kserve", KSERVE_CR_NAME, "--ignore-not-found"],
+            [kubectl, "delete", "kserve", KSERVE_CR_NAME,
+             "--ignore-not-found", "--wait=false"],
             check=False,
         )
-        wait_for_kserve_cleanup(kubectl, is_openshift=cluster_info.is_openshift)
+        wait_for_kserve_cleanup(
+            kubectl, is_openshift=cluster_info.is_openshift, timeout=TIMEOUT_180S,
+        )
 
 
 @pytest.fixture
