@@ -5389,7 +5389,7 @@ func TestOVMSAutoVersioning(t *testing.T) {
 						},
 						{
 							Name:    constants.OVMSVersioningContainerName,
-							Image:   "registry.redhat.io/ubi9/ubi-micro:latest",
+							Image:   "registry.redhat.io/ubi9/ubi-micro@sha256:38e934147827349f2b8b11ac9c38d7be23cb8e29f128b1c46e5c7ae54a2d23cd",
 							Command: []string{"/bin/sh"},
 							Args: []string{
 								"-c",
@@ -5465,6 +5465,9 @@ ls -la ${VERSIONED_DIR}
 				Data: map[string]string{},
 			}),
 			config: storageInitializerConfig,
+			openshiftConfig: &v1beta1.OpenShiftConfig{
+				OvmsVersioningImage: "registry.redhat.io/ubi9/ubi-micro@sha256:38e934147827349f2b8b11ac9c38d7be23cb8e29f128b1c46e5c7ae54a2d23cd",
+			},
 			client: c,
 		}
 		if err := injector.InjectStorageInitializer(t.Context(), scenario.original); err != nil {
@@ -5532,6 +5535,9 @@ func TestOVMSAutoVersioningInvalidValues(t *testing.T) {
 					Data: map[string]string{},
 				}),
 				config: storageInitializerConfig,
+				openshiftConfig: &v1beta1.OpenShiftConfig{
+					OvmsVersioningImage: "registry.redhat.io/ubi9/ubi-micro@sha256:38e934147827349f2b8b11ac9c38d7be23cb8e29f128b1c46e5c7ae54a2d23cd",
+				},
 				client: c,
 			}
 
@@ -5568,6 +5574,9 @@ func TestOVMSAutoVersioningIdempotency(t *testing.T) {
 			Data: map[string]string{},
 		}),
 		config: storageInitializerConfig,
+		openshiftConfig: &v1beta1.OpenShiftConfig{
+			OvmsVersioningImage: "registry.redhat.io/ubi9/ubi-micro@sha256:38e934147827349f2b8b11ac9c38d7be23cb8e29f128b1c46e5c7ae54a2d23cd",
+		},
 		client: c,
 	}
 
