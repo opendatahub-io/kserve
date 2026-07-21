@@ -13,7 +13,7 @@ on:
 
 env:
   IMG_NAME: kserve-module-controller
-  IMG_TAG: e2e
+  IMG_TAG: e2e-${{ github.sha }}
 
 jobs:
   kserve-module-image-build:
