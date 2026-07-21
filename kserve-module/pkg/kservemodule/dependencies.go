@@ -115,7 +115,14 @@ var kserveDependencies = []dependencyCheck{
 	crdDep("cert-manager-clusterissuer", "clusterissuers.cert-manager.io", "xks", true),
 
 	// LeaderWorkerSet CRD
-	crdDep("leaderworkersets", "leaderworkersets.leaderworkerset.x-k8s.io", "xks", false),
+	{
+		name:           "leaderworkersets",
+		checkType:      checkCRD,
+		crdName:        "leaderworkersets.leaderworkerset.x-k8s.io",
+		platform:       "xks",
+		critical:       false,
+		conditionGroup: conditionLLMISVCWideEPDeps,
+	},
 
 	// OCP Subscription checks
 	subscriptionDep("Red Hat Connectivity Link", rhclSubscription, conditionLLMISVCDeps, "ocp", false),
