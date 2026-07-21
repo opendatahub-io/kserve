@@ -21,6 +21,9 @@ package v1beta1
 // OpenShiftConfig is a stub for non-distro builds.
 // The actual implementation is in configmap_odh.go (distro build).
 type OpenShiftConfig struct {
+	// ModelcachePermissionFixImage is the image used for fixing modelcache permissions.
+	// This field exists in the stub to allow tests to compile in non-distro builds.
+	ModelcachePermissionFixImage string `json:"modelcachePermissionFixImage,omitempty"`
 	// OvmsVersioningImage is the image used for OVMS auto-versioning init container.
 	// This field exists in the stub to allow tests to compile in non-distro builds.
 	OvmsVersioningImage string `json:"ovmsVersioningImage,omitempty"`

@@ -47,24 +47,52 @@ class V1beta1OpenShiftConfig(object):
                             and the value is json key in definition.
     """
     openapi_types = {
+        'modelcache_permission_fix_image': 'str',
         'ovms_versioning_image': 'str'
     }
 
     attribute_map = {
+        'modelcache_permission_fix_image': 'modelcachePermissionFixImage',
         'ovms_versioning_image': 'ovmsVersioningImage'
     }
 
-    def __init__(self, ovms_versioning_image=None, local_vars_configuration=None):  # noqa: E501
+    def __init__(self, modelcache_permission_fix_image=None, ovms_versioning_image=None, local_vars_configuration=None):  # noqa: E501
         """V1beta1OpenShiftConfig - a model defined in OpenAPI"""  # noqa: E501
         if local_vars_configuration is None:
             local_vars_configuration = Configuration()
         self.local_vars_configuration = local_vars_configuration
 
+        self._modelcache_permission_fix_image = None
         self._ovms_versioning_image = None
         self.discriminator = None
 
+        if modelcache_permission_fix_image is not None:
+            self.modelcache_permission_fix_image = modelcache_permission_fix_image
         if ovms_versioning_image is not None:
             self.ovms_versioning_image = ovms_versioning_image
+
+    @property
+    def modelcache_permission_fix_image(self):
+        """Gets the modelcache_permission_fix_image of this V1beta1OpenShiftConfig.  # noqa: E501
+
+        ModelcachePermissionFixImage is the image used for fixing modelcache permissions. This field exists in the stub to allow tests to compile in non-distro builds.  # noqa: E501
+
+        :return: The modelcache_permission_fix_image of this V1beta1OpenShiftConfig.  # noqa: E501
+        :rtype: str
+        """
+        return self._modelcache_permission_fix_image
+
+    @modelcache_permission_fix_image.setter
+    def modelcache_permission_fix_image(self, modelcache_permission_fix_image):
+        """Sets the modelcache_permission_fix_image of this V1beta1OpenShiftConfig.
+
+        ModelcachePermissionFixImage is the image used for fixing modelcache permissions. This field exists in the stub to allow tests to compile in non-distro builds.  # noqa: E501
+
+        :param modelcache_permission_fix_image: The modelcache_permission_fix_image of this V1beta1OpenShiftConfig.  # noqa: E501
+        :type: str
+        """
+
+        self._modelcache_permission_fix_image = modelcache_permission_fix_image
 
     @property
     def ovms_versioning_image(self):
