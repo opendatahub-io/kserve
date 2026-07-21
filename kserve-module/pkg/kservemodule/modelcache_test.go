@@ -189,7 +189,7 @@ func TestEnsureModelCacheNamespace_CreatesWhenMissing(t *testing.T) {
 	g.Expect(ns.Labels[securityEnforceLabel]).To(Equal("privileged"))
 }
 
-func TestEnsureModelCacheNamespace_Idempotent(t *testing.T) {
+func TestEnsureModelCacheNamespace_PatchesExistingPSA(t *testing.T) {
 	g := NewWithT(t)
 
 	existing := &corev1.Namespace{
@@ -205,7 +205,26 @@ func TestEnsureModelCacheNamespace_Idempotent(t *testing.T) {
 
 	ns := &corev1.Namespace{}
 	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: modelCacheNamespaceName}, ns)).To(Succeed())
-	g.Expect(ns.Labels[securityEnforceLabel]).To(Equal("restricted"))
+	g.Expect(ns.Labels[securityEnforceLabel]).To(Equal("privileged"))
+}
+
+func TestEnsureModelCacheNamespace_AlreadyPrivileged(t *testing.T) {
+	g := NewWithT(t)
+
+	existing := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   modelCacheNamespaceName,
+			Labels: map[string]string{securityEnforceLabel: "privileged"},
+		},
+	}
+	r := newReconcilerWithFakeClient(existing)
+
+	err := r.ensureModelCacheNamespace(context.Background())
+	g.Expect(err).NotTo(HaveOccurred())
+
+	ns := &corev1.Namespace{}
+	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: modelCacheNamespaceName}, ns)).To(Succeed())
+	g.Expect(ns.Labels[securityEnforceLabel]).To(Equal("privileged"))
 }
 
 func toUnstructuredConfigMap(cm *corev1.ConfigMap) unstructured.Unstructured {

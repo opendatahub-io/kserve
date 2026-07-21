@@ -191,7 +191,22 @@ func (r *KserveModuleReconciler) ensureModelCacheNamespace(ctx context.Context) 
 			return fmt.Errorf("failed to create model cache namespace: %w", err)
 		}
 		log.Info("Created model cache namespace", "namespace", nsName)
+		return nil
 	}
+
+	if ns.Labels != nil && ns.Labels[securityEnforceLabel] == "privileged" {
+		return nil
+	}
+
+	original := ns.DeepCopy()
+	if ns.Labels == nil {
+		ns.Labels = make(map[string]string)
+	}
+	ns.Labels[securityEnforceLabel] = "privileged"
+	if err := r.Patch(ctx, ns, client.MergeFrom(original)); err != nil {
+		return fmt.Errorf("failed to update model cache namespace PSA label: %w", err)
+	}
+	log.Info("Updated model cache namespace PSA enforcement level", "namespace", nsName, "level", "privileged")
 	return nil
 }
 
