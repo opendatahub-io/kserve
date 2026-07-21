@@ -47,45 +47,47 @@ class V1beta1OpenShiftConfig(object):
                             and the value is json key in definition.
     """
     openapi_types = {
-        'modelcache_permission_fix_image': 'str'
+        'ovms_versioning_image': 'str'
     }
 
     attribute_map = {
-        'modelcache_permission_fix_image': 'modelcachePermissionFixImage'
+        'ovms_versioning_image': 'ovmsVersioningImage'
     }
 
-    def __init__(self, modelcache_permission_fix_image=None, local_vars_configuration=None):  # noqa: E501
+    def __init__(self, ovms_versioning_image=None, local_vars_configuration=None):  # noqa: E501
         """V1beta1OpenShiftConfig - a model defined in OpenAPI"""  # noqa: E501
         if local_vars_configuration is None:
             local_vars_configuration = Configuration()
         self.local_vars_configuration = local_vars_configuration
 
-        self._modelcache_permission_fix_image = None
+        self._ovms_versioning_image = None
         self.discriminator = None
 
-        if modelcache_permission_fix_image is not None:
-            self.modelcache_permission_fix_image = modelcache_permission_fix_image
+        if ovms_versioning_image is not None:
+            self.ovms_versioning_image = ovms_versioning_image
 
     @property
-    def modelcache_permission_fix_image(self):
-        """Gets the modelcache_permission_fix_image of this V1beta1OpenShiftConfig.  # noqa: E501
+    def ovms_versioning_image(self):
+        """Gets the ovms_versioning_image of this V1beta1OpenShiftConfig.  # noqa: E501
 
+        OvmsVersioningImage is the image used for OVMS auto-versioning init container. This field exists in the stub to allow tests to compile in non-distro builds.  # noqa: E501
 
-        :return: The modelcache_permission_fix_image of this V1beta1OpenShiftConfig.  # noqa: E501
+        :return: The ovms_versioning_image of this V1beta1OpenShiftConfig.  # noqa: E501
         :rtype: str
         """
-        return self._modelcache_permission_fix_image
+        return self._ovms_versioning_image
 
-    @modelcache_permission_fix_image.setter
-    def modelcache_permission_fix_image(self, modelcache_permission_fix_image):
-        """Sets the modelcache_permission_fix_image of this V1beta1OpenShiftConfig.
+    @ovms_versioning_image.setter
+    def ovms_versioning_image(self, ovms_versioning_image):
+        """Sets the ovms_versioning_image of this V1beta1OpenShiftConfig.
 
+        OvmsVersioningImage is the image used for OVMS auto-versioning init container. This field exists in the stub to allow tests to compile in non-distro builds.  # noqa: E501
 
-        :param modelcache_permission_fix_image: The modelcache_permission_fix_image of this V1beta1OpenShiftConfig.  # noqa: E501
+        :param ovms_versioning_image: The ovms_versioning_image of this V1beta1OpenShiftConfig.  # noqa: E501
         :type: str
         """
 
-        self._modelcache_permission_fix_image = modelcache_permission_fix_image
+        self._ovms_versioning_image = ovms_versioning_image
 
     def to_dict(self):
         """Returns the model properties as a dict"""

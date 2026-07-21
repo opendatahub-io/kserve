@@ -8481,6 +8481,15 @@ func schema_pkg_apis_serving_v1beta1_OpenShiftConfig(ref common.ReferenceCallbac
 			SchemaProps: spec.SchemaProps{
 				Description: "OpenShiftConfig is a stub for non-distro builds. The actual implementation is in configmap_odh.go (distro build).",
 				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"ovmsVersioningImage": {
+						SchemaProps: spec.SchemaProps{
+							Description: "OvmsVersioningImage is the image used for OVMS auto-versioning init container. This field exists in the stub to allow tests to compile in non-distro builds.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
 			},
 		},
 	}

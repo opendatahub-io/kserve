@@ -4683,7 +4683,13 @@
     },
     "v1beta1.OpenShiftConfig": {
       "description": "OpenShiftConfig is a stub for non-distro builds. The actual implementation is in configmap_odh.go (distro build).",
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "ovmsVersioningImage": {
+          "description": "OvmsVersioningImage is the image used for OVMS auto-versioning init container. This field exists in the stub to allow tests to compile in non-distro builds.",
+          "type": "string"
+        }
+      }
     },
     "v1beta1.OtelCollectorConfig": {
       "type": "object",
