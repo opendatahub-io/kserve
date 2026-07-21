@@ -339,7 +339,7 @@ deploy_kserve_module() {
 
   if [[ -n "${KSERVE_MODULE_IMG}" ]]; then
     log_info "Using custom image: ${KSERVE_MODULE_IMG}"
-    output=$(echo "$output" | sed "s|image: .*kserve-module-controller.*|image: ${KSERVE_MODULE_IMG}|g")
+    output=$(echo "$output" | sed "s|image: .*odh-kserve-module-operator.*|image: ${KSERVE_MODULE_IMG}|g")
   fi
 
   echo "$output" | ${KUBECTL} apply --server-side=true --force-conflicts -f -
