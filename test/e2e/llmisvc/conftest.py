@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+
 import pytest
 from pathlib import Path
 
@@ -23,8 +25,12 @@ from .namespace import (
     generate_namespace_name,
     provision_namespace_secrets,
     skip_deletion,
+    skip_deletion_on_failure,
 )
 from .fixtures import inject_k8s_proxy
+from .traffic import TrafficDriver
+
+logger = logging.getLogger(__name__)
 
 _LLMISVC_DIR = Path(__file__).parent
 _AUTOSCALING_STEM_PREFIX = "test_llm_autoscaling_"
@@ -33,6 +39,24 @@ _AUTOSCALING_STEM_PREFIX = "test_llm_autoscaling_"
 # Autoscaling files (``test_llm_autoscaling_<variant>.py``) are handled
 # separately below; add other special-case filenames here.
 _LLMISVC_CORE_EXCLUDED = {"test_llm_tracing.py"}
+
+
+@pytest.fixture
+def traffic_driver():
+    """Factory fixture - creates TrafficDrivers, auto-starts, auto-stops on teardown."""
+    drivers: list[TrafficDriver] = []
+
+    def factory(url: str, *, warmup: bool = False, **kwargs) -> TrafficDriver:
+        driver = TrafficDriver(url, **kwargs)
+        drivers.append(driver)
+        driver.start(warmup=warmup)
+        return driver
+
+    yield factory
+
+    for d in reversed(drivers):
+        if d.is_running:
+            d.stop()
 
 
 def _auto_assign_group_markers(items):
@@ -63,6 +87,14 @@ def _auto_assign_group_markers(items):
             item.add_marker(pytest.mark.llmisvc_core)
 
 
+@pytest.hookimpl(tryfirst=True, hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Stash test outcome on the node so fixtures can check it at teardown."""
+    outcome = yield
+    rep = outcome.get_result()
+    setattr(item, f"rep_{rep.when}", rep)
+
+
 def pytest_configure(config):
     """Register dynamic autoscaling variant markers derived from filenames.
 
@@ -76,6 +108,10 @@ def pytest_configure(config):
             "markers",
             f"autoscaling_{variant}: auto-discovered autoscaling variant marker",
         )
+    config.addinivalue_line(
+        "markers",
+        "traffic: continuous traffic test (uses TrafficDriver)",
+    )
 
 
 _HARDCODED_TLS_WORKLOADS = (
@@ -119,8 +155,15 @@ def test_namespace(request):
     create_test_namespace(ns)
     provision_namespace_secrets(ns)
     yield ns
-    if not skip_deletion():
-        delete_test_namespace(ns)
+    if skip_deletion():
+        return
+    rep_call = getattr(request.node, "rep_call", None)
+    rep_setup = getattr(request.node, "rep_setup", None)
+    failed = (rep_call and rep_call.failed) or (rep_setup and rep_setup.failed)
+    if failed and skip_deletion_on_failure():
+        logger.info("Skipping deletion of namespace %s (SKIP_DELETION_ON_FAILURE)", ns)
+        return
+    delete_test_namespace(ns)
 
 
 @pytest.fixture
