@@ -4681,6 +4681,10 @@
         }
       }
     },
+    "v1beta1.OpenShiftConfig": {
+      "description": "OpenShiftConfig is a stub for non-distro builds. The actual implementation is in configmap_odh.go (distro build).",
+      "type": "object"
+    },
     "v1beta1.OtelCollectorConfig": {
       "type": "object",
       "properties": {

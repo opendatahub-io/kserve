@@ -19,6 +19,7 @@ limitations under the License.
 package pod
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -75,7 +76,7 @@ func (mi *StorageInitializerInjector) InjectImageVolume(pod *corev1.Pod) error {
 
 func getOVMSVersioningImage(openshiftConfig *v1beta1.OpenShiftConfig) (string, error) {
 	if openshiftConfig == nil || openshiftConfig.OvmsVersioningImage == "" {
-		return "", fmt.Errorf("ovmsVersioningImage not configured in inferenceservice-config openshiftConfig")
+		return "", errors.New("ovmsVersioningImage not configured in inferenceservice-config openshiftConfig")
 	}
 	if !strings.Contains(openshiftConfig.OvmsVersioningImage, "@sha256:") {
 		return "", fmt.Errorf("ovmsVersioningImage must be a digest-pinned reference (e.g. @sha256:...), got: %s", openshiftConfig.OvmsVersioningImage)
