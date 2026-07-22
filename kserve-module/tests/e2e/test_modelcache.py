@@ -27,6 +27,7 @@ from conftest import (
 
 
 @pytest.mark.modelcache
+@pytest.mark.ocp_only
 class TestModelCacheEnable:
     """Verify enabling ModelCache creates all expected resources."""
 
@@ -95,6 +96,7 @@ class TestModelCacheEnable:
 
 
 @pytest.mark.modelcache
+@pytest.mark.ocp_only
 class TestModelCacheDisable:
     """Verify disabling ModelCache cleans up all resources."""
 
@@ -102,8 +104,6 @@ class TestModelCacheDisable:
         """After enabling then disabling ModelCache, all managed resources
         are removed and the Kserve CR remains Ready.
         """
-        if not cluster_info.is_openshift:
-            pytest.skip("ModelCache reconciliation requires OpenShift")
         worker = get_worker_node(kubectl, is_openshift=cluster_info.is_openshift)
         enable_model_cache(kubectl, worker)
         _poll_cr(
@@ -267,6 +267,7 @@ class TestModelCacheCELValidation:
 
 
 @pytest.mark.modelcache
+@pytest.mark.ocp_only
 class TestModelCacheRecovery:
     """Verify deleted ModelCache resources are recreated on reconcile."""
 
