@@ -12,17 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Installs the upstream Kuadrant operator via Helm chart and configures
+# Authorino with TLS for OpenShift.  Replaces the previous RHCL (OLM-based)
+# installation to allow tracking upstream releases independently of the
+# Red Hat Connectivity Link productization cadence.
+
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 source "$SCRIPT_DIR/../common.sh"
-# Seconds to sleep after discovery passes (apiserver RESTMapper can lag discovery).
-KUADRANT_PRE_CREATE_SLEEP="${KUADRANT_PRE_CREATE_SLEEP:-30}"
-# How many times to wait for Ready before delete/recreate and final failure (default: initial + one retry).
+
+"${PROJECT_ROOT}/hack/setup/cli/install-helm.sh"
+export PATH="${PROJECT_ROOT}/bin:${PATH}"
+
+# How many times to wait for Ready before delete/recreate and final failure.
 KUADRANT_READY_MAX_ATTEMPTS="${KUADRANT_READY_MAX_ATTEMPTS:-2}"
 # Seconds to sleep after deleting Kuadrant before recreating (stabilization).
 KUADRANT_POST_DELETE_SLEEP="${KUADRANT_POST_DELETE_SLEEP:-15}"
-# Per-attempt timeout for oc wait on Kuadrant Ready (two attempts default; use 10m on very slow clusters).
+# Per-attempt timeout for oc wait on Kuadrant Ready.
 KUADRANT_READY_TIMEOUT="${KUADRANT_READY_TIMEOUT:-5m}"
 
 create_kuadrant_cr() {
@@ -35,40 +43,20 @@ metadata:
 EOF
 }
 
-echo "⏳ Installing RHCL(Kuadrant) operator"
-oc create ns ${KUADRANT_NS} || true
+echo "⏳ Installing Kuadrant operator v${KUADRANT_VERSION} via Helm"
+oc create ns "${KUADRANT_NS}" || true
 
-{
-cat <<EOF | oc create -f -
-apiVersion: operators.coreos.com/v1alpha1
-kind: Subscription
-metadata:
-  name: ${RHCL_NAME}
-  namespace: ${KUADRANT_NS}
-spec:
-  channel: ${RHCL_CHANNEL}
-  installPlanApproval: Automatic
-  name: ${RHCL_NAME}
-  source: redhat-operators
-  sourceNamespace: openshift-marketplace
----
-kind: OperatorGroup
-apiVersion: operators.coreos.com/v1
-metadata:
-  name: kuadrant
-  namespace: ${KUADRANT_NS}
-spec:
-  upgradeStrategy: Default
-EOF
-} || true
+helm repo add kuadrant "${KUADRANT_HELM_REPO}" --force-update
+helm repo update kuadrant
 
-wait_for_subscription_csv "${RHCL_NAME}" "${KUADRANT_NS}" 600
-wait_for_crd  kuadrants.kuadrant.io  90s
-# Let apiserver discovery include kuadrants before first reconcile creates child resources with owner refs.
+helm install kuadrant-operator kuadrant/kuadrant-operator \
+  --namespace "${KUADRANT_NS}" \
+  --version "${KUADRANT_VERSION}" \
+  --wait \
+  --timeout 10m
+
+wait_for_crd kuadrants.kuadrant.io 90s
 wait_for_api_discovery "kuadrant.io/v1beta1" "kuadrants" 120
-
-echo "⏳ sleeping ${KUADRANT_PRE_CREATE_SLEEP}s after discovery (RESTMapper can trail discovery)…"
-sleep "${KUADRANT_PRE_CREATE_SLEEP}"
 
 create_kuadrant_cr || true
 
@@ -82,18 +70,16 @@ while (( kuadrant_ready_attempt <= KUADRANT_READY_MAX_ATTEMPTS )); do
     oc get Kuadrant -n "${KUADRANT_NS}" kuadrant -oyaml
     oc get pods -n "${KUADRANT_NS}" -oyaml
     oc get deployments -n "${KUADRANT_NS}" -oyaml
-    oc get csv -n "${KUADRANT_NS}" -oyaml
 
     oc describe Kuadrant -n "${KUADRANT_NS}" kuadrant
     oc describe pods -n "${KUADRANT_NS}"
     oc describe deployments -n "${KUADRANT_NS}"
-    oc describe csv -n "${KUADRANT_NS}"
 
     echo "=== Controller manager logs ==="
     oc logs -n "${KUADRANT_NS}" deployment/kuadrant-operator-controller-manager --tail=200 || true
     exit 1
   fi
-  echo "Kuadrant not Ready; deleting and recreating CR to trigger a new Create reconcile (helps operator versions that only subscribe to Create)…"
+  echo "Kuadrant not Ready; deleting and recreating CR…"
   oc delete kuadrant kuadrant -n "${KUADRANT_NS}" --ignore-not-found=true --wait=true --timeout=300s
   echo "⏳ sleeping ${KUADRANT_POST_DELETE_SLEEP}s before recreating Kuadrant…"
   sleep "${KUADRANT_POST_DELETE_SLEEP}"
@@ -103,12 +89,12 @@ done
 
 wait_for_pod_ready "${KUADRANT_NS}" "control-plane=authorino-operator"
 
-# Wait for service to be created
+# Wait for Authorino service to be created
 echo "⏳ waiting for authorino service to be created..."
 cert_secret="authorino-server-cert"
 oc wait --for=jsonpath='{.metadata.name}'=authorino-authorino-authorization svc/authorino-authorino-authorization -n "${KUADRANT_NS}" --timeout=2m
 
-oc annotate svc/authorino-authorino-authorization  service.beta.openshift.io/serving-cert-secret-name="${cert_secret}" -n "${KUADRANT_NS}"
+oc annotate svc/authorino-authorino-authorization service.beta.openshift.io/serving-cert-secret-name="${cert_secret}" -n "${KUADRANT_NS}"
 
 # Update Authorino to configure SSL
 oc apply -f - <<EOF
@@ -116,7 +102,7 @@ apiVersion: operator.authorino.kuadrant.io/v1beta1
 kind: Authorino
 metadata:
   name: authorino
-  namespace: kuadrant-system
+  namespace: ${KUADRANT_NS}
 spec:
   replicas: 1
   clusterWide: true
@@ -133,4 +119,4 @@ EOF
 
 wait_for_pod_ready "${KUADRANT_NS}" "control-plane=authorino-operator"
 
-echo "✅ kuadrant(authorino) installed"
+echo "✅ Kuadrant v${KUADRANT_VERSION} (authorino) installed"

@@ -15,11 +15,10 @@ LWS_NAME="leader-worker-set"
 LWS_NAMESPACE="openshift-lws-operator"
 LWS_CHANNEL="stable-v1.0"
 
-# Kuadrant (RHCL)
-RHCL_NAME="rhcl-operator"
+# Kuadrant (upstream community operator, installed via Helm)
+KUADRANT_VERSION="${KUADRANT_VERSION:-1.5.1}"
 KUADRANT_NS="${KUADRANT_NS:-kuadrant-system}"
-RHCL_NAMESPACE="${KUADRANT_NS}"
-RHCL_CHANNEL="stable"
+KUADRANT_HELM_REPO="https://kuadrant.io/helm-charts/"
 
 # Custom Metrics Autoscaler (KEDA)
 CMA_NAME="openshift-custom-metrics-autoscaler-operator"
