@@ -170,7 +170,7 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	depResult := r.checkDependencies(ctx, kserve)
 	applyDependencyConditions(condMgr, depResult)
-	if len(depResult.criticalErrors) > 0 {
+	if hasCriticalFailure(depResult) {
 		applyProvisioningCondition(condMgr, map[string]error{
 			"dependencies": fmt.Errorf("critical dependencies unavailable"),
 		})

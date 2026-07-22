@@ -12,6 +12,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/opendatahub-io/odh-platform-utilities/api/common"
+
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster/olm"
 )
@@ -23,8 +25,12 @@ const (
 	checkSubscription checkType = "subscription"
 	checkOperator     checkType = "operator"
 
+	// availSeverityNone means failures are not reported to DependenciesAvailable.
+	// Must differ from common.ConditionSeverityError (which is "").
+	availSeverityNone common.ConditionSeverity = "None"
+
 	// Dependency group condition types
-	conditionLLMISVCDeps       = "KserveLLMInferenceServiceDependencies"
+	conditionLLMISVCDeps = "KserveLLMInferenceServiceDependencies"
 	conditionLLMISVCWideEPDeps = "KserveLLMInferenceServiceWideEPDependencies"
 	conditionLLMDWVADeps       = "LLM-D-WVADependencies"
 
@@ -38,113 +44,118 @@ const (
 type conditionFilterFunc func(conditionType string, status string) bool
 
 type dependencyCheck struct {
-	name             string
-	checkType        checkType
-	crdName          string                                          // Full CRD name (e.g. "authorizationpolicies.security.istio.io")
-	subscriptionName string                                          // Subscription check
-	operatorGVK      schema.GroupVersionKind                         // Operator CR GVK
-	operatorCRName   string                                          // Operator CR name (empty = list first)
-	conditionFilter  conditionFilterFunc                             // Operator condition filter
-	critical         bool                                            // true → Ready=False, false → Degraded
-	platform         string                                          // "ocp", "xks", "" (both)
-	conditionGroup   string                                          // group into same condition
-	skipFunc         func(kserve *platformv1alpha1.Kserve) bool      // true → skip this check
+	name                 string
+	checkType            checkType
+	crdName              string                                     // Full CRD name (e.g. "authorizationpolicies.security.istio.io")
+	subscriptionName     string                                     // Subscription check
+	operatorGVK          schema.GroupVersionKind                    // Operator CR GVK
+	operatorCRName       string                                     // Operator CR name (empty = list first)
+	conditionFilter      conditionFilterFunc                        // Operator condition filter
+	availabilitySeverity common.ConditionSeverity                   // availSeverityNone = no report, Error = Ready=False, Info = Ready=True
+	platform             string                                     // "ocp", "xks", "" (both)
+	conditionGroup       string                                     // group into same condition
+	skipFunc             func(kserve *platformv1alpha1.Kserve) bool // true → skip this check
+}
+
+type availabilityReason struct {
+	severity common.ConditionSeverity
+	message  string
 }
 
 type dependencyResult struct {
-	degradedReasons []string
-	criticalErrors  []string
-	groupReasons    map[string][]string
+	availReasons []availabilityReason
+	allReasons   []string
+	groupReasons map[string][]string
 }
 
-func crdDep(name, crdName, platform string, critical bool) dependencyCheck {
+func crdDep(name, crdName, platform string, availSeverity common.ConditionSeverity) dependencyCheck {
 	return dependencyCheck{
-		name:      name,
-		checkType: checkCRD,
-		crdName:   crdName,
-		platform:  platform,
-		critical:  critical,
+		name:                 name,
+		checkType:            checkCRD,
+		crdName:              crdName,
+		platform:             platform,
+		availabilitySeverity: availSeverity,
 	}
 }
 
-func subscriptionDep(name, subName, condGroup, platform string, critical bool) dependencyCheck {
+func subscriptionDep(name, subName, condGroup, platform string, availSeverity common.ConditionSeverity) dependencyCheck {
 	return dependencyCheck{
-		name:             name,
-		checkType:        checkSubscription,
-		subscriptionName: subName,
-		conditionGroup:   condGroup,
-		platform:         platform,
-		critical:         critical,
+		name:                 name,
+		checkType:            checkSubscription,
+		subscriptionName:     subName,
+		conditionGroup:       condGroup,
+		platform:             platform,
+		availabilitySeverity: availSeverity,
 	}
 }
 
-func operatorDep(name string, gvk schema.GroupVersionKind, crName, condGroup, platform string, critical bool, filter conditionFilterFunc) dependencyCheck {
+func operatorDep(name string, gvk schema.GroupVersionKind, crName, condGroup, platform string, availSeverity common.ConditionSeverity, filter conditionFilterFunc) dependencyCheck {
 	return dependencyCheck{
-		name:            name,
-		checkType:       checkOperator,
-		operatorGVK:     gvk,
-		operatorCRName:  crName,
-		conditionGroup:  condGroup,
-		platform:        platform,
-		critical:        critical,
-		conditionFilter: filter,
+		name:                 name,
+		checkType:            checkOperator,
+		operatorGVK:          gvk,
+		operatorCRName:       crName,
+		conditionGroup:       condGroup,
+		platform:             platform,
+		availabilitySeverity: availSeverity,
+		conditionFilter:      filter,
 	}
 }
 
 var kserveDependencies = []dependencyCheck{
 	// xks only checks
-	// Istio CRDs
-	crdDep("istio-destinationrule", "destinationrules.networking.istio.io", "xks", false),
-	crdDep("istio-envoyfilter", "envoyfilters.networking.istio.io", "xks", false),
-	crdDep("istio-gateway", "gateways.networking.istio.io", "xks", false),
-	crdDep("istio-proxyconfig", "proxyconfigs.networking.istio.io", "xks", false),
-	crdDep("istio-serviceentry", "serviceentries.networking.istio.io", "xks", false),
-	crdDep("istio-sidecar", "sidecars.networking.istio.io", "xks", false),
-	crdDep("istio-workloadentry", "workloadentries.networking.istio.io", "xks", false),
-	crdDep("istio-workloadgroup", "workloadgroups.networking.istio.io", "xks", false),
-	crdDep("istio-authorizationpolicy", "authorizationpolicies.security.istio.io", "xks", false),
-	crdDep("istio-peerauthentication", "peerauthentications.security.istio.io", "xks", false),
-	crdDep("istio-requestauthentication", "requestauthentications.security.istio.io", "xks", false),
-	crdDep("istio-telemetry", "telemetries.telemetry.istio.io", "xks", false),
-	crdDep("istio-wasmplugin", "wasmplugins.extensions.istio.io", "xks", false),
+	// Istio CRDs — optional, degraded-only reporting
+	crdDep("istio-destinationrule", "destinationrules.networking.istio.io", "xks", availSeverityNone),
+	crdDep("istio-envoyfilter", "envoyfilters.networking.istio.io", "xks", availSeverityNone),
+	crdDep("istio-gateway", "gateways.networking.istio.io", "xks", availSeverityNone),
+	crdDep("istio-proxyconfig", "proxyconfigs.networking.istio.io", "xks", availSeverityNone),
+	crdDep("istio-serviceentry", "serviceentries.networking.istio.io", "xks", availSeverityNone),
+	crdDep("istio-sidecar", "sidecars.networking.istio.io", "xks", availSeverityNone),
+	crdDep("istio-workloadentry", "workloadentries.networking.istio.io", "xks", availSeverityNone),
+	crdDep("istio-workloadgroup", "workloadgroups.networking.istio.io", "xks", availSeverityNone),
+	crdDep("istio-authorizationpolicy", "authorizationpolicies.security.istio.io", "xks", availSeverityNone),
+	crdDep("istio-peerauthentication", "peerauthentications.security.istio.io", "xks", availSeverityNone),
+	crdDep("istio-requestauthentication", "requestauthentications.security.istio.io", "xks", availSeverityNone),
+	crdDep("istio-telemetry", "telemetries.telemetry.istio.io", "xks", availSeverityNone),
+	crdDep("istio-wasmplugin", "wasmplugins.extensions.istio.io", "xks", availSeverityNone),
 
-	// cert-manager CRDs
-	crdDep("cert-manager-certificate", "certificates.cert-manager.io", "xks", true),
-	crdDep("cert-manager-certificaterequest", "certificaterequests.cert-manager.io", "xks", true),
-	crdDep("cert-manager-issuer", "issuers.cert-manager.io", "xks", true),
-	crdDep("cert-manager-clusterissuer", "clusterissuers.cert-manager.io", "xks", true),
+	// cert-manager CRDs — critical, kserve cannot function without them
+	crdDep("cert-manager-certificate", "certificates.cert-manager.io", "xks", common.ConditionSeverityError),
+	crdDep("cert-manager-certificaterequest", "certificaterequests.cert-manager.io", "xks", common.ConditionSeverityError),
+	crdDep("cert-manager-issuer", "issuers.cert-manager.io", "xks", common.ConditionSeverityError),
+	crdDep("cert-manager-clusterissuer", "clusterissuers.cert-manager.io", "xks", common.ConditionSeverityError),
 
-	// LeaderWorkerSet CRD
+	// LeaderWorkerSet CRD — optional, group condition only
 	{
-		name:           "leaderworkersets",
-		checkType:      checkCRD,
-		crdName:        "leaderworkersets.leaderworkerset.x-k8s.io",
-		platform:       "xks",
-		critical:       false,
-		conditionGroup: conditionLLMISVCWideEPDeps,
+		name:                 "leaderworkersets",
+		checkType:            checkCRD,
+		crdName:              "leaderworkersets.leaderworkerset.x-k8s.io",
+		platform:             "xks",
+		availabilitySeverity: availSeverityNone,
+		conditionGroup:       conditionLLMISVCWideEPDeps,
 	},
 
-	// OCP Subscription checks
-	subscriptionDep("Red Hat Connectivity Link", rhclSubscription, conditionLLMISVCDeps, "ocp", false),
-	subscriptionDep("Red Hat Connectivity Link (Wide EP)", rhclSubscription, conditionLLMISVCWideEPDeps, "ocp", false),
-	subscriptionDep("cert-manager operator", certManagerSubscription, conditionLLMISVCDeps, "ocp", false),
-	subscriptionDep("cert-manager operator (Wide EP)", certManagerSubscription, conditionLLMISVCWideEPDeps, "ocp", false),
-	subscriptionDep("LeaderWorkerSet", lwsSubscription, conditionLLMISVCWideEPDeps, "ocp", false),
+	// OCP Subscription checks — optional, group condition only
+	subscriptionDep("Red Hat Connectivity Link", rhclSubscription, conditionLLMISVCDeps, "ocp", availSeverityNone),
+	subscriptionDep("Red Hat Connectivity Link (Wide EP)", rhclSubscription, conditionLLMISVCWideEPDeps, "ocp", availSeverityNone),
+	subscriptionDep("cert-manager operator", certManagerSubscription, conditionLLMISVCDeps, "ocp", availSeverityNone),
+	subscriptionDep("cert-manager operator (Wide EP)", certManagerSubscription, conditionLLMISVCWideEPDeps, "ocp", availSeverityNone),
+	subscriptionDep("LeaderWorkerSet", lwsSubscription, conditionLLMISVCWideEPDeps, "ocp", availSeverityNone),
 
-	// OCP LWS Operator health
+	// OCP LWS Operator health — report to DependenciesAvailable with Info (Ready stays True)
 	operatorDep("leaderworkerset-operator",
 		schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSet"},
-		"", conditionLLMISVCWideEPDeps, "ocp", false, lwsConditionFilter),
+		"", conditionLLMISVCWideEPDeps, "ocp", common.ConditionSeverityInfo, lwsConditionFilter),
 }
 
 var modelControllerDependencies = []dependencyCheck{
 	{
-		name:             "Custom Metrics Autoscaler",
-		checkType:        checkSubscription,
-		subscriptionName: cmaSubscription,
-		conditionGroup:   conditionLLMDWVADeps,
-		platform:         "ocp",
-		critical:         false,
+		name:                 "Custom Metrics Autoscaler",
+		checkType:            checkSubscription,
+		subscriptionName:     cmaSubscription,
+		conditionGroup:       conditionLLMDWVADeps,
+		platform:             "ocp",
+		availabilitySeverity: availSeverityNone,
 		skipFunc: func(k *platformv1alpha1.Kserve) bool {
 			return !isWVAEnabled(k)
 		},
@@ -206,16 +217,19 @@ func (r *KserveModuleReconciler) checkDependencies(ctx context.Context, kserve *
 		}
 		for _, msg := range item.reasons {
 			log.Info("dependency not satisfied", "dependency", item.dep.name,
-				"type", item.dep.checkType, "critical", item.dep.critical, "message", msg)
+				"type", item.dep.checkType, "availabilitySeverity", item.dep.availabilitySeverity, "message", msg)
 
-			if item.dep.critical {
-				result.criticalErrors = append(result.criticalErrors, msg)
-			} else {
-				result.degradedReasons = append(result.degradedReasons, msg)
-				if item.dep.conditionGroup != "" {
-					result.groupReasons[item.dep.conditionGroup] = append(
-						result.groupReasons[item.dep.conditionGroup], msg)
-				}
+			result.allReasons = append(result.allReasons, msg)
+
+			if item.dep.availabilitySeverity != availSeverityNone {
+				result.availReasons = append(result.availReasons, availabilityReason{
+					severity: item.dep.availabilitySeverity,
+					message:  msg,
+				})
+			}
+			if item.dep.conditionGroup != "" {
+				result.groupReasons[item.dep.conditionGroup] = append(
+					result.groupReasons[item.dep.conditionGroup], msg)
 			}
 		}
 	}
@@ -342,6 +356,15 @@ func collectDegradedConditions(cr *unstructured.Unstructured, dep dependencyChec
 	}
 
 	return degraded
+}
+
+func hasCriticalFailure(result dependencyResult) bool {
+	for _, ar := range result.availReasons {
+		if ar.severity == common.ConditionSeverityError {
+			return true
+		}
+	}
+	return false
 }
 
 // lwsConditionFilter returns true when the given condition indicates an unhealthy state.
