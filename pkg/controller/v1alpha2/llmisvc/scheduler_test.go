@@ -2353,3 +2353,92 @@ func TestMigrateProducerParams(t *testing.T) {
 		})
 	}
 }
+
+func TestWithRemoveUnnecessaryTokenizerStripsModelArtifacts(t *testing.T) {
+	configYAML := `apiVersion: llm-d.ai/v1alpha1
+kind: EndpointPickerConfig
+plugins:
+- type: prefix-cache-scorer
+`
+	tests := []struct {
+		name            string
+		volumes         []corev1.Volume
+		initContainers  []corev1.Container
+		wantVolumes     []string
+		wantInitCounts  int
+	}{
+		{
+			name: "strips PVC volume and storage-initializer when tokenizer removed",
+			volumes: []corev1.Volume{
+				{Name: "kserve-pvc-source"},
+				{Name: "other-volume"},
+			},
+			initContainers: []corev1.Container{
+				{Name: "storage-initializer"},
+				{Name: "other-init"},
+			},
+			wantVolumes:    []string{"other-volume"},
+			wantInitCounts: 1,
+		},
+		{
+			name: "strips storage-initializer emptyDir volume",
+			volumes: []corev1.Volume{
+				{Name: "kserve-provision-location"},
+				{Name: "config"},
+			},
+			initContainers: []corev1.Container{
+				{Name: "storage-initializer"},
+			},
+			wantVolumes:    []string{"config"},
+			wantInitCounts: 0,
+		},
+		{
+			name:            "no-op when no model artifacts present",
+			volumes:         []corev1.Volume{{Name: "config"}},
+			initContainers:  nil,
+			wantVolumes:     []string{"config"},
+			wantInitCounts:  0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewGomegaWithT(t)
+
+			d := &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								"app.kubernetes.io/version": "0.9.0",
+							},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{Name: "main", Args: []string{"--config-text", configYAML}},
+								{Name: "tokenizer"},
+							},
+							Volumes:        tt.volumes,
+							InitContainers: tt.initContainers,
+						},
+					},
+				},
+			}
+
+			g.Expect(schedulerTransform(context.Background(), d, &v1alpha2.LLMInferenceService{}, false)).To(Succeed())
+
+			var containerNames []string
+			for _, c := range d.Spec.Template.Spec.Containers {
+				containerNames = append(containerNames, c.Name)
+			}
+			g.Expect(containerNames).NotTo(ContainElement("tokenizer"), "tokenizer container should be removed")
+
+			var volumeNames []string
+			for _, v := range d.Spec.Template.Spec.Volumes {
+				volumeNames = append(volumeNames, v.Name)
+			}
+			g.Expect(volumeNames).To(ConsistOf(tt.wantVolumes))
+			g.Expect(d.Spec.Template.Spec.InitContainers).To(HaveLen(tt.wantInitCounts))
+		})
+	}
+}

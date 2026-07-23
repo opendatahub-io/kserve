@@ -1490,10 +1490,40 @@ func withRemoveUnnecessaryTokenizer(d *appsv1.Deployment) mutateSchedulerConfigF
 					break
 				}
 			}
+			stripModelArtifactResources(&d.Spec.Template.Spec)
 		}
 
 		return nil
 	}
+}
+
+// stripModelArtifactResources removes model-artifact volumes and init
+// containers from a PodSpec. This is called when the tokenizer sidecar is
+// removed from the scheduler deployment, since the EPP does not need model
+// data — it only routes traffic. Leaving PVC volumes attached causes
+// Multi-Attach errors on multi-node clusters where the PVC (ReadWriteOnce)
+// is already mounted by the model-serving pod on a different node.
+func stripModelArtifactResources(podSpec *corev1.PodSpec) {
+	modelVolumes := sets.New(
+		constants.PvcSourceMountName,
+		constants.StorageInitializerVolumeName,
+	)
+
+	kept := podSpec.Volumes[:0]
+	for _, v := range podSpec.Volumes {
+		if !modelVolumes.Has(v.Name) {
+			kept = append(kept, v)
+		}
+	}
+	podSpec.Volumes = kept
+
+	keptInit := podSpec.InitContainers[:0]
+	for _, c := range podSpec.InitContainers {
+		if c.Name != constants.StorageInitializerContainerName {
+			keptInit = append(keptInit, c)
+		}
+	}
+	podSpec.InitContainers = keptInit
 }
 
 // migrateProducerParams extracts parameters from the old monolithic
