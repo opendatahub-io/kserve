@@ -16,6 +16,15 @@
 # hardcoded, so legitimate version bumps do not break this check; it asserts
 # wiring, not pinned values.
 #
+# Also verified here: every accelerator config must carry a non-empty
+# opendatahub.io/config-base-name annotation equal to its own rendered
+# metadata.name (RHOAIENG-78121). The operators prefix metadata.name with the
+# platform version at reconcile time while annotations pass through untouched,
+# so this annotation is the version-stable identity the Dashboard matches on.
+# In kustomize output the name is still unprefixed, so the assertion is exact
+# equality, which also pins the fast-variant semantic: a -fast-N config must
+# carry its own -fast-N name, not its base template's.
+#
 # The odh-xks and odh-test overlays include the odh overlay without patching
 # or renaming the accelerator configs, so asserting on config/overlays/odh
 # covers all three.
@@ -29,6 +38,7 @@ YQ=${YQ:-yq}
 OVERLAY="config/overlays/odh"
 PARAMS_ENV="config/overlays/odh/params.env"
 ANNOTATION="opendatahub.io/runtime-version"
+BASENAME_ANNOTATION="opendatahub.io/config-base-name"
 FAMILIES="nvidia-cuda amd-rocm intel-gaudi ibm-spyre"
 # 9 base accelerator presets + 18 fast (-fast-1/-fast-2) variants. Update this
 # count (plus a params.env key and replacement block) when adding presets.
@@ -74,7 +84,7 @@ trap 'rm -f "$rendered"' EXIT
 "$KUSTOMIZE" build "$OVERLAY" > "$rendered"
 
 count=0
-while IFS='|' read -r name value; do
+while IFS='|' read -r name value basename_value; do
   count=$((count + 1))
   if [[ "$value" == "$ABSENT_MARKER" ]]; then
     echo "FAIL: $name is missing the $ANNOTATION annotation"
@@ -83,6 +93,16 @@ while IFS='|' read -r name value; do
   fi
   if [[ -z "$value" ]]; then
     echo "FAIL: $name has an empty $ANNOTATION annotation"
+    rc=1
+    continue
+  fi
+  if [[ "$basename_value" == "$ABSENT_MARKER" ]]; then
+    echo "FAIL: $name is missing the $BASENAME_ANNOTATION annotation"
+    rc=1
+    continue
+  fi
+  if [[ "$basename_value" != "$name" ]]; then
+    echo "FAIL: $name has $BASENAME_ANNOTATION '$basename_value'; it must equal the config's own unprefixed name (fast variants carry their own -fast-N name)"
     rc=1
     continue
   fi
@@ -99,7 +119,7 @@ while IFS='|' read -r name value; do
   fi
 done < <("$YQ" eval --no-doc "
   select(.kind == \"LLMInferenceServiceConfig\" and (.metadata.labels // {}).\"opendatahub.io/config-type\" == \"accelerator\")
-  | .metadata.name + \"|\" + (.metadata.annotations.\"$ANNOTATION\" // \"$ABSENT_MARKER\")
+  | .metadata.name + \"|\" + (.metadata.annotations.\"$ANNOTATION\" // \"$ABSENT_MARKER\") + \"|\" + (.metadata.annotations.\"$BASENAME_ANNOTATION\" // \"$ABSENT_MARKER\")
 " "$rendered")
 
 if [[ $count -ne $EXPECTED_TOTAL ]]; then
@@ -108,7 +128,7 @@ if [[ $count -ne $EXPECTED_TOTAL ]]; then
 fi
 
 if [[ $rc -eq 0 ]]; then
-  echo "verify-odh-runtime-version: OK ($count accelerator configs stamped from dedicated keys)"
+  echo "verify-odh-runtime-version: OK ($count accelerator configs stamped from dedicated keys; config-base-name identity verified)"
 fi
 
 exit $rc

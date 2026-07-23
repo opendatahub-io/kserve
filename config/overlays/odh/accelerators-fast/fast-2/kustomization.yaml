@@ -11,3 +11,68 @@ commonAnnotations:
 
 resources:
 - ../../accelerators
+
+patches:
+- patch: |
+    apiVersion: serving.kserve.io/v1alpha2
+    kind: LLMInferenceServiceConfig
+    metadata:
+      name: kserve-config-llm-template-amd-rocm
+      annotations:
+        opendatahub.io/config-base-name: kserve-config-llm-template-amd-rocm-fast-2
+- patch: |
+    apiVersion: serving.kserve.io/v1alpha2
+    kind: LLMInferenceServiceConfig
+    metadata:
+      name: kserve-config-llm-template-ibm-spyre-ppc64le
+      annotations:
+        opendatahub.io/config-base-name: kserve-config-llm-template-ibm-spyre-ppc64le-fast-2
+- patch: |
+    apiVersion: serving.kserve.io/v1alpha2
+    kind: LLMInferenceServiceConfig
+    metadata:
+      name: kserve-config-llm-template-ibm-spyre-s390x
+      annotations:
+        opendatahub.io/config-base-name: kserve-config-llm-template-ibm-spyre-s390x-fast-2
+- patch: |
+    apiVersion: serving.kserve.io/v1alpha2
+    kind: LLMInferenceServiceConfig
+    metadata:
+      name: kserve-config-llm-template-ibm-spyre-x86
+      annotations:
+        opendatahub.io/config-base-name: kserve-config-llm-template-ibm-spyre-x86-fast-2
+- patch: |
+    apiVersion: serving.kserve.io/v1alpha2
+    kind: LLMInferenceServiceConfig
+    metadata:
+      name: kserve-config-llm-template-intel-gaudi
+      annotations:
+        opendatahub.io/config-base-name: kserve-config-llm-template-intel-gaudi-fast-2
+- patch: |
+    apiVersion: serving.kserve.io/v1alpha2
+    kind: LLMInferenceServiceConfig
+    metadata:
+      name: kserve-config-llm-multi-node-pd-template-nvidia-cuda
+      annotations:
+        opendatahub.io/config-base-name: kserve-config-llm-multi-node-pd-template-nvidia-cuda-fast-2
+- patch: |
+    apiVersion: serving.kserve.io/v1alpha2
+    kind: LLMInferenceServiceConfig
+    metadata:
+      name: kserve-config-llm-multi-node-template-nvidia-cuda
+      annotations:
+        opendatahub.io/config-base-name: kserve-config-llm-multi-node-template-nvidia-cuda-fast-2
+- patch: |
+    apiVersion: serving.kserve.io/v1alpha2
+    kind: LLMInferenceServiceConfig
+    metadata:
+      name: kserve-config-llm-single-node-pd-template-nvidia-cuda
+      annotations:
+        opendatahub.io/config-base-name: kserve-config-llm-single-node-pd-template-nvidia-cuda-fast-2
+- patch: |
+    apiVersion: serving.kserve.io/v1alpha2
+    kind: LLMInferenceServiceConfig
+    metadata:
+      name: kserve-config-llm-single-node-template-nvidia-cuda
+      annotations:
+        opendatahub.io/config-base-name: kserve-config-llm-single-node-template-nvidia-cuda-fast-2

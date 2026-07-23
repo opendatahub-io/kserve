@@ -7,6 +7,7 @@ metadata:
     openshift.io/description: vLLM IBM Spyre ppc64le LLMInferenceServiceConfig for LLMInferenceService.
     opendatahub.io/recommended-accelerators: '["ibm.com/spyre_pf"]'
     opendatahub.io/runtime-version: ""
+    opendatahub.io/config-base-name: kserve-config-llm-template-ibm-spyre-ppc64le
     # supported-topologies values must be consistent with the samples API and Dashboard usage.
     # See https://github.com/opendatahub-io/odh-model-controller/blob/incubating/server/docs/features/samples/llm-d/llm-d-ui-flow-mechanics.md
     # and https://github.com/opendatahub-io/odh-model-controller/blob/incubating/server/docs/features/llm-d/samples/samples-api.md
