@@ -1,4 +1,4 @@
-//go:build distro
+//go:build !distro
 
 /*
 Copyright 2026 The KServe Authors.
@@ -18,26 +18,13 @@ limitations under the License.
 
 package v1beta1
 
-import (
-	"encoding/json"
-
-	corev1 "k8s.io/api/core/v1"
-)
-
-const OpenShiftConfigName = "openshiftConfig"
-
-// +kubebuilder:object:generate=false
+// OpenShiftConfig is a stub for non-distro builds.
+// The actual implementation is in configmap_odh.go (distro build).
 type OpenShiftConfig struct {
+	// ModelcachePermissionFixImage is the image used for fixing modelcache permissions.
+	// This field exists in the stub to allow tests to compile in non-distro builds.
 	ModelcachePermissionFixImage string `json:"modelcachePermissionFixImage,omitempty"`
-	OvmsVersioningImage          string `json:"ovmsVersioningImage,omitempty"`
-}
-
-func NewOpenShiftConfig(isvcConfigMap *corev1.ConfigMap) (*OpenShiftConfig, error) {
-	cfg := &OpenShiftConfig{}
-	if data, ok := isvcConfigMap.Data[OpenShiftConfigName]; ok {
-		if err := json.Unmarshal([]byte(data), cfg); err != nil {
-			return nil, err
-		}
-	}
-	return cfg, nil
+	// OvmsVersioningImage is the image used for OVMS auto-versioning init container.
+	// This field exists in the stub to allow tests to compile in non-distro builds.
+	OvmsVersioningImage string `json:"ovmsVersioningImage,omitempty"`
 }

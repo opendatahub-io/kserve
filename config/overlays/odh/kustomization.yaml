@@ -492,6 +492,16 @@ replacements:
       name: inferenceservice-config
     fieldPaths:
     - data.oauthProxy.image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.ovms-versioning-ubi-micro
+  targets:
+  - select:
+      kind: ConfigMap
+      name: inferenceservice-config
+    fieldPaths:
+    - data.openshiftConfig.ovmsVersioningImage
 # Stamp the upstream runtime (vLLM) version annotation on the accelerator
 # LLMInferenceServiceConfig presets. Values are injected into params.env by the
 # build pipeline as raw SBOM versionInfo strings. Each preset is stamped from

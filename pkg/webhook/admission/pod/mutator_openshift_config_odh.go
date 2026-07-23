@@ -16,28 +16,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1beta1
+package pod
 
 import (
-	"encoding/json"
-
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 )
 
-const OpenShiftConfigName = "openshiftConfig"
-
-// +kubebuilder:object:generate=false
-type OpenShiftConfig struct {
-	ModelcachePermissionFixImage string `json:"modelcachePermissionFixImage,omitempty"`
-	OvmsVersioningImage          string `json:"ovmsVersioningImage,omitempty"`
-}
-
-func NewOpenShiftConfig(isvcConfigMap *corev1.ConfigMap) (*OpenShiftConfig, error) {
-	cfg := &OpenShiftConfig{}
-	if data, ok := isvcConfigMap.Data[OpenShiftConfigName]; ok {
-		if err := json.Unmarshal([]byte(data), cfg); err != nil {
-			return nil, err
-		}
-	}
-	return cfg, nil
+// getOpenShiftConfig loads OpenShiftConfig from the ConfigMap in distro builds.
+func getOpenShiftConfig(configMap *corev1.ConfigMap) (*v1beta1.OpenShiftConfig, error) {
+	return v1beta1.NewOpenShiftConfig(configMap)
 }

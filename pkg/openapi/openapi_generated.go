@@ -122,6 +122,7 @@ func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenA
 		"github.com/kserve/kserve/pkg/apis/serving/v1beta1.MultiNodeConfig":                schema_pkg_apis_serving_v1beta1_MultiNodeConfig(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1beta1.ONNXRuntimeSpec":                schema_pkg_apis_serving_v1beta1_ONNXRuntimeSpec(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1beta1.OauthConfig":                    schema_pkg_apis_serving_v1beta1_OauthConfig(ref),
+		"github.com/kserve/kserve/pkg/apis/serving/v1beta1.OpenShiftConfig":                schema_pkg_apis_serving_v1beta1_OpenShiftConfig(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1beta1.OtelCollectorConfig":            schema_pkg_apis_serving_v1beta1_OtelCollectorConfig(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1beta1.PMMLSpec":                       schema_pkg_apis_serving_v1beta1_PMMLSpec(ref),
 		"github.com/kserve/kserve/pkg/apis/serving/v1beta1.PaddleServerSpec":               schema_pkg_apis_serving_v1beta1_PaddleServerSpec(ref),
@@ -8647,6 +8648,33 @@ func schema_pkg_apis_serving_v1beta1_OauthConfig(ref common.ReferenceCallback) c
 					},
 				},
 				Required: []string{"image", "cpuLimit", "cpuRequest", "memoryLimit", "memoryRequest"},
+			},
+		},
+	}
+}
+
+func schema_pkg_apis_serving_v1beta1_OpenShiftConfig(ref common.ReferenceCallback) common.OpenAPIDefinition {
+	return common.OpenAPIDefinition{
+		Schema: spec.Schema{
+			SchemaProps: spec.SchemaProps{
+				Description: "OpenShiftConfig is a stub for non-distro builds. The actual implementation is in configmap_odh.go (distro build).",
+				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"modelcachePermissionFixImage": {
+						SchemaProps: spec.SchemaProps{
+							Description: "ModelcachePermissionFixImage is the image used for fixing modelcache permissions. This field exists in the stub to allow tests to compile in non-distro builds.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+					"ovmsVersioningImage": {
+						SchemaProps: spec.SchemaProps{
+							Description: "OvmsVersioningImage is the image used for OVMS auto-versioning init container. This field exists in the stub to allow tests to compile in non-distro builds.",
+							Type:        []string{"string"},
+							Format:      "",
+						},
+					},
+				},
 			},
 		},
 	}
