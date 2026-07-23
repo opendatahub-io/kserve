@@ -1,5 +1,6 @@
 """Shared fixtures for kserve-module E2E tests."""
 
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -47,6 +48,53 @@ LMNG_RESOURCE = "localmodelnodegroups.serving.kserve.io"
 class ClusterInfo:
     is_openshift: bool
     kubectl: str  # "oc" or "kubectl"
+
+
+# ---------------------------------------------------------------------------
+# Cluster detection (shared by hook and fixture)
+# ---------------------------------------------------------------------------
+_cluster_detection_cache = None
+
+
+def _detect_openshift():
+    """Detect cluster type once; cached for the process lifetime."""
+    global _cluster_detection_cache
+    if _cluster_detection_cache is not None:
+        return _cluster_detection_cache
+
+    cli = "oc" if shutil.which("oc") else "kubectl"
+    if not shutil.which(cli):
+        _cluster_detection_cache = (False, cli)
+        return _cluster_detection_cache
+
+    result = subprocess.run(
+        [cli, "api-resources", "--api-group=config.openshift.io"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    is_ocp = result.returncode == 0 and "clusterversions" in result.stdout.lower()
+    _cluster_detection_cache = (is_ocp, cli)
+    return _cluster_detection_cache
+
+
+# ---------------------------------------------------------------------------
+# Pytest hooks
+# ---------------------------------------------------------------------------
+def pytest_collection_modifyitems(config, items):
+    """Skip @pytest.mark.ocp_only tests on non-OpenShift clusters.
+
+    Runs at collection time — before any fixture setup — so expensive
+    fixtures like apply_kserve_cr never execute on vanilla-k8s clusters.
+    """
+    is_ocp, _ = _detect_openshift()
+    if is_ocp:
+        return
+
+    skip_marker = pytest.mark.skip(reason="OCP-only test (not running on OpenShift)")
+    for item in items:
+        if "ocp_only" in item.keywords:
+            item.add_marker(skip_marker)
 
 
 # ---------------------------------------------------------------------------
@@ -326,19 +374,9 @@ def _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_
 @pytest.fixture(scope="session")
 def cluster_info():
     """Detect cluster type and pick the right CLI binary (oc or kubectl)."""
-    import shutil
-
-    cli = "oc" if shutil.which("oc") else "kubectl"
+    is_ocp, cli = _detect_openshift()
     if not shutil.which(cli):
         pytest.fail("Neither 'oc' nor 'kubectl' found in PATH")
-
-    result = subprocess.run(
-        [cli, "api-resources", "--api-group=config.openshift.io"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    is_ocp = result.returncode == 0 and "clusterversions" in result.stdout.lower()
     return ClusterInfo(is_openshift=is_ocp, kubectl=cli)
 
 
@@ -365,10 +403,10 @@ def apply_kserve_cr(kubectl, cluster_info):
 @pytest.fixture
 def model_cache_enabled(kubectl, cluster_info, apply_kserve_cr):
     """Enable ModelCache before the test and disable it after.
-    Skipped on non-OpenShift clusters (no XKS overlay for modelcache).
+
+    Requires @pytest.mark.ocp_only on the test; the collection hook
+    skips non-OpenShift clusters before this fixture runs.
     """
-    if not cluster_info.is_openshift:
-        pytest.skip("ModelCache reconciliation requires OpenShift")
     worker = get_worker_node(kubectl, is_openshift=cluster_info.is_openshift)
     enable_model_cache(kubectl, worker)
     _poll_cr(

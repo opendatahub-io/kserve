@@ -151,14 +151,12 @@ class TestCELValidation:
 
 
 @pytest.mark.sanity
+@pytest.mark.ocp_only
 class TestManagementState:
     """Verify managementState transitions for sub-components (WVA, NIM)."""
 
     def test_wva_default_removed_has_no_deployment(self, kubectl, cluster_info, apply_kserve_cr):
         """WVA defaults to Removed — no WVA deployment should exist."""
-        if not cluster_info.is_openshift:
-            pytest.skip("WVA is OCP-only")
-
         patch = json.dumps({"spec": {"wva": {"managementState": "Removed"}}})
         run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
         _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
@@ -174,9 +172,6 @@ class TestManagementState:
 
     def test_wva_managed_deploys_resources(self, kubectl, cluster_info, apply_kserve_cr):
         """Setting wva.managementState to Managed deploys WVA resources."""
-        if not cluster_info.is_openshift:
-            pytest.skip("WVA is OCP-only")
-
         patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
         run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
 
@@ -188,9 +183,6 @@ class TestManagementState:
 
     def test_wva_managed_to_removed_cleans_up(self, kubectl, cluster_info, apply_kserve_cr):
         """Switching WVA from Managed to Removed removes WVA deployment but keeps others."""
-        if not cluster_info.is_openshift:
-            pytest.skip("WVA is OCP-only")
-
         patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
         run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
         wait_for_deployment(kubectl, WVA_DEPLOYMENT)
@@ -207,9 +199,6 @@ class TestManagementState:
 
     def test_nim_default_managed_env_var(self, kubectl, cluster_info, apply_kserve_cr):
         """NIM defaults to Managed — odh-model-controller should have NIM_STATE=managed."""
-        if not cluster_info.is_openshift:
-            pytest.skip("odh-model-controller is OCP-only")
-
         _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
                  f"observedGeneration not matching within {TIMEOUT_120S}s")
         wait_for_deployment(kubectl, MODEL_CONTROLLER_DEPLOYMENT)
@@ -224,9 +213,6 @@ class TestManagementState:
 
     def test_nim_managed_to_removed_updates_env(self, kubectl, cluster_info, apply_kserve_cr):
         """Switching NIM to Removed updates odh-model-controller NIM_STATE env var."""
-        if not cluster_info.is_openshift:
-            pytest.skip("odh-model-controller is OCP-only")
-
         wait_for_deployment(kubectl, MODEL_CONTROLLER_DEPLOYMENT)
 
         patch = json.dumps({"spec": {"nim": {"managementState": "Removed"}}})
@@ -247,9 +233,6 @@ class TestManagementState:
 
     def test_nim_removed_to_managed_updates_env(self, kubectl, cluster_info, apply_kserve_cr):
         """Switching NIM back to Managed updates odh-model-controller NIM_STATE env var."""
-        if not cluster_info.is_openshift:
-            pytest.skip("odh-model-controller is OCP-only")
-
         patch = json.dumps({"spec": {"nim": {"managementState": "Removed"}}})
         run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
         _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
