@@ -225,7 +225,7 @@ rules:
 - apiGroups:
   - operator.openshift.io
   resources:
-  - leaderworkersets
+  - leaderworkersetoperators
   verbs:
   - get
   - list

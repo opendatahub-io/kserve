@@ -91,7 +91,7 @@ import (
 
 // --- Dependency detection (read-only: check if required operators are installed) ---
 // +kubebuilder:rbac:groups=operators.coreos.com,resources=subscriptions,verbs=get;list;watch
-// +kubebuilder:rbac:groups=operator.openshift.io,resources=leaderworkersets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=operator.openshift.io,resources=leaderworkersetoperators,verbs=get;list;watch
 //
 // ModelCache RBAC
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;patch;update
@@ -432,10 +432,11 @@ func (r *KserveModuleReconciler) SetWorkDir(dir string) {
 
 func (r *KserveModuleReconciler) installCRDs(ctx context.Context, kserve *platformv1alpha1.Kserve) error {
 	crdPath := filepath.Join(r.ManifestsTemplatePath, KserveComponentName, KserveCRDManifestSourcePath)
-	resources, err := kustomize.Render(crdPath, nil)
+	resources, err := kustomize.Render(crdPath, nil, kustomize.WithNamespace(r.getApplicationsNamespace()))
 	if err != nil {
 		return fmt.Errorf("rendering CRD manifests: %w", err)
 	}
+
 	if err := r.Deployer.Deploy(ctx, deploy.DeployInput{
 		Client:    r.Client,
 		Owner:     kserve,

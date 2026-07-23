@@ -144,7 +144,7 @@ var kserveDependencies = []dependencyCheck{
 
 	// OCP LWS Operator health — report to DependenciesAvailable with Info (Ready stays True)
 	operatorDep("leaderworkerset-operator",
-		schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSet"},
+		schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSetOperator"},
 		"", conditionLLMISVCWideEPDeps, "ocp", common.ConditionSeverityInfo, lwsConditionFilter),
 }
 

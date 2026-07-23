@@ -127,8 +127,8 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	r.dynamicWatches = []*dynamicWatch{
 		{
-			groupKind: schema.GroupKind{Group: "operator.openshift.io", Kind: "LeaderWorkerSet"},
-			gvk:       schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSet"},
+			groupKind: schema.GroupKind{Group: "operator.openshift.io", Kind: "LeaderWorkerSetOperator"},
+			gvk:       schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSetOperator"},
 		},
 		{
 			groupKind: schema.GroupKind{Group: "serving.kserve.io", Kind: "LocalModelNodeGroup"},
