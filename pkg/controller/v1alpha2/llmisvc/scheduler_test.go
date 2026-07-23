@@ -2365,7 +2365,7 @@ plugins:
 		volumes         []corev1.Volume
 		initContainers  []corev1.Container
 		wantVolumes     []string
-		wantInitCounts  int
+		wantInitNames   []string
 	}{
 		{
 			name: "strips PVC volume and storage-initializer when tokenizer removed",
@@ -2377,8 +2377,8 @@ plugins:
 				{Name: "storage-initializer"},
 				{Name: "other-init"},
 			},
-			wantVolumes:    []string{"other-volume"},
-			wantInitCounts: 1,
+			wantVolumes:   []string{"other-volume"},
+			wantInitNames: []string{"other-init"},
 		},
 		{
 			name: "strips storage-initializer emptyDir volume",
@@ -2389,15 +2389,15 @@ plugins:
 			initContainers: []corev1.Container{
 				{Name: "storage-initializer"},
 			},
-			wantVolumes:    []string{"config"},
-			wantInitCounts: 0,
+			wantVolumes:   []string{"config"},
+			wantInitNames: nil,
 		},
 		{
 			name:            "no-op when no model artifacts present",
 			volumes:         []corev1.Volume{{Name: "config"}},
 			initContainers:  nil,
 			wantVolumes:     []string{"config"},
-			wantInitCounts:  0,
+			wantInitNames:   nil,
 		},
 	}
 
@@ -2438,7 +2438,12 @@ plugins:
 				volumeNames = append(volumeNames, v.Name)
 			}
 			g.Expect(volumeNames).To(ConsistOf(tt.wantVolumes))
-			g.Expect(d.Spec.Template.Spec.InitContainers).To(HaveLen(tt.wantInitCounts))
+
+			var initNames []string
+			for _, c := range d.Spec.Template.Spec.InitContainers {
+				initNames = append(initNames, c.Name)
+			}
+			g.Expect(initNames).To(ConsistOf(tt.wantInitNames))
 		})
 	}
 }
