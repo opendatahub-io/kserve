@@ -110,6 +110,8 @@ func Resolve(ctx context.Context, cfg *rest.Config, tlsMinVersion, tlsCipherSuit
 			log.Info("TLS profile not available, using hardened defaults (non-OpenShift cluster)")
 		case apierrors.IsNotFound(err):
 			log.Info("APIServer resource not found, using hardened defaults")
+		case apierrors.IsForbidden(err):
+			log.Info("Insufficient RBAC to read TLS profile, using hardened defaults (RBAC fix tracked in #1716)")
 		case apierrors.IsServiceUnavailable(err),
 			apierrors.IsTimeout(err),
 			apierrors.IsServerTimeout(err),
