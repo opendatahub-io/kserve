@@ -13,7 +13,6 @@
 # limitations under the License.
 
 
-import os
 from timeout_sampler import TimeoutExpiredError, TimeoutSampler
 import pytest
 import logging
@@ -33,10 +32,8 @@ from ..common.utils import KSERVE_TEST_NAMESPACE
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-kserve_client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
 
-
-def get_pods(service_name: str) -> list[client.V1Pod]:
+def get_pods(kserve_client: KServeClient, service_name: str) -> list[client.V1Pod]:
     pods = kserve_client.core_api.list_namespaced_pod(
         KSERVE_TEST_NAMESPACE,
         label_selector=f"serving.kserve.io/inferenceservice={service_name}",
@@ -46,7 +43,7 @@ def get_pods(service_name: str) -> list[client.V1Pod]:
 
 @pytest.mark.kserve_on_openshift
 @pytest.mark.asyncio(scope="session")
-async def test_scheduler_name(rest_v1_client):
+async def test_scheduler_name(kserve_client, rest_v1_client):
     scheduler_name = "kserve-scheduler"
     service_name = "isvc-sklearn-scheduler"
     logger.info("Creating InferenceService %s", service_name)
@@ -87,12 +84,12 @@ async def test_scheduler_name(rest_v1_client):
         for pods in TimeoutSampler(
             wait_timeout=30,
             sleep=2,
-            func=lambda: get_pods(service_name),
+            func=lambda: get_pods(kserve_client, service_name),
         ):
             if len(pods) > 0:
                 break
 
-        pods = get_pods(service_name)
+        pods = get_pods(kserve_client, service_name)
         for pod in pods:
             assert pod.spec.scheduler_name == scheduler_name, (
                 f"Pod {pod.metadata.name} scheduler name {pod.spec.scheduler_name} "

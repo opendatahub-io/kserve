@@ -306,8 +306,10 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 		sourcePath = comp.sourcePathXKS
 	}
 
+	// Image params live in the base overlay (e.g. overlays/odh/params.env), not
+	// the XKS overlay whose params.env only carries cert-manager keys.
 	if err := applyParams(
-		filepath.Join(manifestDir, comp.dirName(), sourcePath),
+		filepath.Join(manifestDir, comp.dirName(), comp.sourcePath),
 		comp.imageMap,
 	); err != nil {
 		return nil, fmt.Errorf("applying %s image params: %w", comp.name, err)
