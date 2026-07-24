@@ -121,6 +121,9 @@ func Resolve(ctx context.Context, cfg *rest.Config, tlsMinVersion, tlsCipherSuit
 			case apierrors.IsNotFound(err):
 				log.Info("APIServer resource not found, using hardened defaults")
 				return true, nil
+			case apierrors.IsForbidden(err):
+				log.Info("Insufficient RBAC to read TLS profile, using hardened defaults (add apiservers get permission to fix)")
+				return true, nil
 			case apierrors.IsServiceUnavailable(err),
 				apierrors.IsTimeout(err),
 				apierrors.IsServerTimeout(err),

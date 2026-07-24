@@ -9,4 +9,6 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: kserve-controller-manager
-  namespace: opendatahub
+- kind: ServiceAccount
+  name: llmisvc-controller-manager
+  namespace: kserve
