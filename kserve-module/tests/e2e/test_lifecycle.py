@@ -8,6 +8,8 @@ from conftest import (
     run,
     _poll_cr,
     get_conditions,
+    get_jsonpath,
+    resource_exists,
     wait_for,
     wait_for_kserve_cleanup,
     trigger_reconcile,
@@ -290,3 +292,71 @@ class TestDriftCorrection:
             assert conditions["ProvisioningSucceeded"]["status"] == "True"
 
         wait_for(assert_provisioning_succeeded, timeout=TIMEOUT_60S, interval=5)
+
+
+@pytest.mark.sanity
+class TestDeletionRecovery:
+    """Owned resources are recreated after external deletion on next reconcile."""
+
+    def test_configmap_recovered_after_deletion(self, kubectl, apply_kserve_cr):
+        """Deleting an owned ConfigMap triggers recreation with a new UID."""
+        cm_name = "inferenceservice-config"
+        uid_before = get_jsonpath(
+            kubectl, "configmap", cm_name, "{.metadata.uid}", namespace=NAMESPACE
+        )
+        assert uid_before, f"{cm_name} should exist before deletion"
+
+        run([kubectl, "delete", "configmap", cm_name, "-n", NAMESPACE])
+        assert not resource_exists(kubectl, "configmap", cm_name, namespace=NAMESPACE)
+
+        def assert_recreated_with_new_uid():
+            uid_after = get_jsonpath(
+                kubectl, "configmap", cm_name, "{.metadata.uid}", namespace=NAMESPACE
+            )
+            assert uid_after, f"{cm_name} should be recreated"
+            assert uid_after != uid_before, (
+                f"{cm_name} should have a new UID after recreation"
+            )
+
+        wait_for(assert_recreated_with_new_uid, timeout=TIMEOUT_120S, interval=5)
+
+    def test_deployment_recovered_after_deletion(self, kubectl, cluster_info, apply_kserve_cr):
+        """Deleting owned Deployments triggers recreation with new UIDs."""
+        targets = list(operand_deployments(cluster_info.is_openshift))
+
+        if cluster_info.is_openshift:
+            patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
+            run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+            _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                     f"observedGeneration not matching within {TIMEOUT_120S}s")
+            wait_for_deployment(kubectl, WVA_DEPLOYMENT)
+            targets.append(WVA_DEPLOYMENT)
+
+        try:
+            for dep_name in targets:
+                uid_before = get_jsonpath(
+                    kubectl, "deployment", dep_name, "{.metadata.uid}", namespace=NAMESPACE
+                )
+                assert uid_before, f"{dep_name} should exist before deletion"
+
+                run([kubectl, "delete", "deployment", dep_name, "-n", NAMESPACE])
+
+                def assert_recreated(name=dep_name, expected_old_uid=uid_before):
+                    uid_after = get_jsonpath(
+                        kubectl, "deployment", name, "{.metadata.uid}", namespace=NAMESPACE
+                    )
+                    assert uid_after, f"{name} should be recreated"
+                    assert uid_after != expected_old_uid, (
+                        f"{name} should have a new UID after recreation"
+                    )
+
+                wait_for(assert_recreated, timeout=TIMEOUT_120S, interval=5)
+                wait_for_deployment(kubectl, dep_name)
+        finally:
+            if cluster_info.is_openshift:
+                patch = json.dumps({"spec": {"wva": {"managementState": "Removed"}}})
+                run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch],
+                    check=False)
+                _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                         f"observedGeneration not matching within {TIMEOUT_120S}s")
+                wait_for_deployment_gone(kubectl, WVA_DEPLOYMENT)
