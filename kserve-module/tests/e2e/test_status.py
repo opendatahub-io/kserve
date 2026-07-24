@@ -31,9 +31,8 @@ class TestStatusConditions:
         assert conditions["Degraded"]["status"] == "False"
         assert conditions["Degraded"]["reason"] == "NoDegradation"
 
-        if cluster_info.is_openshift:
-            assert conditions["ModelControllerReady"]["status"] == "True"
-            assert conditions["ModelControllerReady"]["reason"] == "AllDeploymentsAvailable"
+        assert conditions["ModelControllerReady"]["status"] == "True"
+        assert conditions["ModelControllerReady"]["reason"] == "AllDeploymentsAvailable"
 
         cr = get_cr(kubectl)
         assert cr["status"]["phase"] == "Ready"

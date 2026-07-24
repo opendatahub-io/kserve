@@ -20,6 +20,7 @@ TIMEOUT_60S = 60
 
 OPERAND_DEPLOYMENTS_XKS = [
     "llmisvc-controller-manager",
+    "odh-model-controller",
 ]
 OPERAND_DEPLOYMENTS_OCP = [
     "kserve-controller-manager",

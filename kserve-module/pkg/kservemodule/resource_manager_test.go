@@ -46,6 +46,7 @@ func TestCheckModelControllerReadiness_OCP_Ready(t *testing.T) {
 
 	deps := []appsv1.Deployment{
 		buildDeployment(odhModelControllerDeployment, 1),
+		buildDeployment(modelServingAPIDeployment, 1),
 	}
 
 	cli := buildFakeClient(deps...)
@@ -54,10 +55,14 @@ func TestCheckModelControllerReadiness_OCP_Ready(t *testing.T) {
 	g.Expect(err).ShouldNot(HaveOccurred())
 }
 
-func TestCheckModelControllerReadiness_XKS_Skipped(t *testing.T) {
+func TestCheckModelControllerReadiness_XKS_Ready(t *testing.T) {
 	g := NewWithT(t)
 
-	cli := fake.NewClientBuilder().WithScheme(testScheme()).Build()
+	deps := []appsv1.Deployment{
+		buildDeployment(odhModelControllerDeployment, 1),
+	}
+
+	cli := buildFakeClient(deps...)
 
 	err := checkModelControllerReadiness(context.Background(), cli, "opendatahub", true)
 	g.Expect(err).ShouldNot(HaveOccurred())
