@@ -365,7 +365,10 @@ func mountServingSecretCMVolumeToDeployment(deployment *appsv1.Deployment, compo
 		},
 	}
 
-	updatedPodSpec.Volumes = append(updatedPodSpec.Volumes, tlsSecretVolume, kubeRbacProxyConfigVolume)
+	updatedPodSpec.Volumes = append(updatedPodSpec.Volumes, tlsSecretVolume)
+	if resourceType != constants.InferenceGraphResource {
+		updatedPodSpec.Volumes = append(updatedPodSpec.Volumes, kubeRbacProxyConfigVolume)
+	}
 
 	containerName := "kserve-container"
 	if resourceType == constants.InferenceGraphResource {
