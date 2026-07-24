@@ -169,6 +169,16 @@ func (r *LLMISVCReconciler) reconcileIstioDestinationRuleForScheduler(ctx contex
 }
 
 func (r *LLMISVCReconciler) expectedIstioDestinationRuleForScheduler(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) (*istioapi.DestinationRule, error) {
+	tlsSettings := &istionetworking.ClientTLSSettings{
+		Mode:               istionetworking.ClientTLSSettings_SIMPLE,
+		CaCertificates:     IstioCACertificatePath,
+		InsecureSkipVerify: &wrapperspb.BoolValue{Value: !schedulerTlsRotationEnabled(llmSvc)},
+	}
+
+	if tlsSettings.GetInsecureSkipVerify().Value {
+		tlsSettings.CaCertificates = ""
+	}
+
 	dr := &istioapi.DestinationRule{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-scheduler"),
@@ -185,13 +195,7 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForScheduler(ctx context
 		},
 		Spec: istionetworking.DestinationRule{
 			TrafficPolicy: &istionetworking.TrafficPolicy{
-				Tls: &istionetworking.ClientTLSSettings{
-					Mode: istionetworking.ClientTLSSettings_SIMPLE,
-					// The scheduler doesn't support watching and auto-reloading certificates yet.
-					// Fixed by https://github.com/kubernetes-sigs/gateway-api-inference-extension/pull/1765.
-					// Until that fix is available, skip verification to avoid SAN mismatch errors on upgrade.
-					InsecureSkipVerify: &wrapperspb.BoolValue{Value: true},
-				},
+				Tls: tlsSettings,
 			},
 			ExportTo: []string{"*"},
 		},
@@ -224,6 +228,16 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForShadowService(ctx con
 		return nil, fmt.Errorf("failed to get istio inference pool service: %w", err)
 	}
 
+	tlsSettings := &istionetworking.ClientTLSSettings{
+		Mode:               istionetworking.ClientTLSSettings_SIMPLE,
+		CaCertificates:     IstioCACertificatePath,
+		InsecureSkipVerify: &wrapperspb.BoolValue{Value: !schedulerTlsRotationEnabled(llmSvc)},
+	}
+
+	if tlsSettings.GetInsecureSkipVerify().Value {
+		tlsSettings.CaCertificates = ""
+	}
+
 	dr := &istioapi.DestinationRule{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-shadow-svc"),
@@ -240,13 +254,7 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForShadowService(ctx con
 		},
 		Spec: istionetworking.DestinationRule{
 			TrafficPolicy: &istionetworking.TrafficPolicy{
-				Tls: &istionetworking.ClientTLSSettings{
-					Mode: istionetworking.ClientTLSSettings_SIMPLE,
-					// The shadow service forwards traffic to the workload service. Skip verification
-					// here for the same reason as the scheduler DR — the scheduler doesn't yet support
-					// watching and auto-reloading certificates.
-					InsecureSkipVerify: &wrapperspb.BoolValue{Value: true},
-				},
+				Tls: tlsSettings,
 			},
 			ExportTo: []string{"*"},
 		},
@@ -264,6 +272,18 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForShadowService(ctx con
 
 func (r *LLMISVCReconciler) expectedIstioDestinationRuleForWorkload(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) *istioapi.DestinationRule {
 	hostname := network.GetServiceHostname(kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"), llmSvc.GetNamespace())
+
+	tlsSettings := &istionetworking.ClientTLSSettings{
+		Mode:               istionetworking.ClientTLSSettings_SIMPLE,
+		CaCertificates:     IstioCACertificatePath,
+		InsecureSkipVerify: &wrapperspb.BoolValue{Value: !llmSvcHasTlsRotationEnabled(llmSvc)},
+		Sni:                hostname,
+	}
+
+	if tlsSettings.GetInsecureSkipVerify().Value {
+		tlsSettings.CaCertificates = ""
+	}
+
 	dr := &istioapi.DestinationRule{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"),
@@ -281,21 +301,10 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForWorkload(ctx context.
 		Spec: istionetworking.DestinationRule{
 			Host: hostname,
 			TrafficPolicy: &istionetworking.TrafficPolicy{
-				Tls: &istionetworking.ClientTLSSettings{
-					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
-					CaCertificates:     IstioCACertificatePath,
-					InsecureSkipVerify: &wrapperspb.BoolValue{Value: false},
-					Sni:                hostname,
-				},
+				Tls: tlsSettings,
 			},
 			ExportTo: []string{"*"},
 		},
-	}
-
-	if llmSvc.Spec.Prefill != nil {
-		// The sidecar doesn't support watching and auto-reloading certificates yet.
-		dr.Spec.TrafficPolicy.Tls.CaCertificates = ""
-		dr.Spec.TrafficPolicy.Tls.InsecureSkipVerify = &wrapperspb.BoolValue{Value: true}
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected destination rule for workload service", "destinationrule", dr)
@@ -336,4 +345,33 @@ func semanticDestinationRuleIsEqual(expected *istioapi.DestinationRule, curr *is
 	return cmp.Equal(&expected.Spec, &curr.Spec, protocmp.Transform()) &&
 		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
 		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)
+}
+
+func schedulerTlsRotationEnabled(llmSvc *v1alpha2.LLMInferenceService) bool {
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
+		// With no scheduler, default to rotation enabled, to
+		// deploy FIPS-compatible configurations.
+		return true
+	}
+
+	podSpec := llmSvc.Spec.Router.Scheduler.Template
+	if podSpec == nil {
+		// No managed scheduler template (e.g. external InferencePool ref);
+		// default to rotation enabled for FIPS-compatible configurations.
+		return true
+	}
+	for _, container := range podSpec.Containers {
+		if container.Name != "main" {
+			continue
+		}
+
+		for _, cmdEntry := range container.Command {
+			if cmdEntry == "--enable-cert-reload=true" {
+				return true
+			}
+		}
+		break
+	}
+
+	return false
 }

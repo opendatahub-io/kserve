@@ -19,6 +19,7 @@ package llmisvc
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -234,4 +235,75 @@ func PreserveLWSReplicas() UpdateOption[*lwsapi.LeaderWorkerSet] {
 			expected.Spec.Replicas = curr.Spec.Replicas
 		}
 	})
+}
+
+// llmSvcHasSidecar does a naive check to determine if the workloads of an LLMIsvc
+// may include a routing sidecar
+func llmSvcHasSidecar(llmSvc *v1alpha2.LLMInferenceService) bool {
+	if llmSvc.Spec.Prefill != nil {
+		return true
+	}
+
+	mainPodSpec := llmSvc.Spec.Template
+	secondaryPodSpec := llmSvc.Spec.Worker
+
+	if mainPodSpec != nil {
+		return hasRoutingSidecar(*mainPodSpec)
+	}
+
+	if secondaryPodSpec != nil {
+		return hasRoutingSidecar(*secondaryPodSpec)
+	}
+
+	return false
+}
+
+// llmSvcHasTlsRotationEnabled does a naive check to determine if  an LLMIsvc
+// supports TLS certificate rotation
+func llmSvcHasTlsRotationEnabled(llmSvc *v1alpha2.LLMInferenceService) bool {
+	if llmSvcHasSidecar(llmSvc) {
+		// The routing sidecar doesn't support certificate rotation.
+		// Being the first hop in the request chain, flag the LLMIsvc as
+		// not supporting certificate rotation
+		return false
+	}
+
+	// Use the first engine podSpec available, assuming all LLMIsvcConfigs
+	// will consistently have the SSL reload argument set or unset.
+	var enginePodSpec *corev1.PodSpec
+	switch {
+	case llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker != nil:
+		enginePodSpec = llmSvc.Spec.Prefill.Worker
+	case llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Template != nil:
+		enginePodSpec = llmSvc.Spec.Prefill.Template
+	case llmSvc.Spec.Worker != nil:
+		enginePodSpec = llmSvc.Spec.Worker
+	case llmSvc.Spec.Template != nil:
+		enginePodSpec = llmSvc.Spec.Template
+	default:
+		// This would be a rare situation, assuming the llmSvc
+		// already undergo merge process with base configs.
+		// We flag the LLMIsvc with rotation enabled for a
+		// FIPS-compatible configuration (prevent nil
+		// pointer de-reference of enginePodSpec).
+		return true
+	}
+
+	// The TLS reload flag is hidden in the command string. Search for it
+	// with a regex and assume its presence properly configures the engine.
+	for _, container := range enginePodSpec.Containers {
+		if container.Name != "main" {
+			continue
+		}
+
+		pattern := regexp.MustCompile(`(?m)^\s*--enable-ssl-refresh\s+`)
+		for _, cmdEntry := range container.Command {
+			if pattern.MatchString(cmdEntry) {
+				return true
+			}
+		}
+		break
+	}
+
+	return false
 }
