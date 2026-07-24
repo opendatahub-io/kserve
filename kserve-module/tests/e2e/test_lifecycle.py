@@ -474,6 +474,7 @@ class TestOwnerReferences:
     def test_owned_deployments_have_kserve_owner_reference(self, kubectl, cluster_info, apply_kserve_cr):
         """Each operand deployment should reference the Kserve CR as owner."""
         expected = operand_deployments(cluster_info.is_openshift)
+        cr_uid = apply_kserve_cr["metadata"]["uid"]
 
         for name in expected:
             wait_for_deployment(kubectl, name)
@@ -492,3 +493,6 @@ class TestOwnerReferences:
             assert kserve_owners[0]["name"] == KSERVE_CR_NAME, \
                 f"Deployment {name} ownerReference name should be {KSERVE_CR_NAME}, " \
                 f"got: {kserve_owners[0]['name']}"
+            assert kserve_owners[0]["uid"] == cr_uid, \
+                f"Deployment {name} ownerReference uid should be {cr_uid}, " \
+                f"got: {kserve_owners[0].get('uid')}"
