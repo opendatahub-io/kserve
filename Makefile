@@ -102,7 +102,13 @@ go-lint: golangci-lint
 	@cd qpext && $(GOLANGCI_LINT) run --fix
 
 py-lint: $(RUFF)
-	$(RUFF) check --config ruff.toml 
+	$(RUFF) check --config ruff.toml
+
+# Verify e2e test files parse and collect without errors (catches import errors, syntax errors, fixture issues).
+e2e-collect: $(PYTEST)
+	$(UV) pip install --python $(PYTHON_BIN)/python -e ./python/kserve -q
+	$(UV) pip install --python $(PYTHON_BIN)/python --group test --directory ./python/kserve -q
+	$(PYTEST) --collect-only test/e2e/ -q
 
 pin-actions: pinact
 	GITHUB_TOKEN=$$(gh auth token 2>/dev/null) $(PINACT) run .github/workflows/*.yml .github/workflows/*.yaml
@@ -242,9 +248,6 @@ manifests: controller-gen kustomize yq
 	$(KUSTOMIZE) build config/crd/full/llmisvc | $(YQ) 'select(.metadata.name == "llminferenceservices.serving.kserve.io")' > charts/kserve-llmisvc-crd/templates/serving.kserve.io_llminferenceservices.yaml
 	$(KUSTOMIZE) build config/crd/full/llmisvc | $(YQ) 'select(.metadata.name == "llminferenceserviceconfigs.serving.kserve.io")' > charts/kserve-llmisvc-crd/templates/serving.kserve.io_llminferenceserviceconfigs.yaml
 	
-	# Copy the WVA VariantAutoscaling CRD for envtest
-	$(KUSTOMIZE) build https://github.com/llm-d/llm-d-workload-variant-autoscaler.git/config/crd?ref=$(WVA_VERSION) > test/crds/wva_variantautoscalings.yaml
-
 	# Copy the full crd to the test folder
 	$(KUSTOMIZE) build config/crd/full > test/crds/serving.kserve.io_all_crds.yaml
 	echo "---" >> test/crds/serving.kserve.io_all_crds.yaml
@@ -351,7 +354,7 @@ boilerplate:
 	hack/boilerplate.sh
 
 # This runs all necessary steps to prepare for a commit.
-precommit: ensure-go-version-upgrade sync-deps sync-img-env vet go-lint py-fmt py-lint generate tidy manifests uv-lock generate-quick-install-scripts generate-chart-manifests sync-helm-common-helpers sync-helm-common-resource-helpers sync-helm-multi-resource-helpers verify-pinned-actions verify-minimal-crd-sync boilerplate
+precommit: ensure-go-version-upgrade sync-deps sync-img-env vet go-lint py-fmt py-lint e2e-collect generate tidy manifests uv-lock generate-quick-install-scripts generate-chart-manifests sync-helm-common-helpers sync-helm-common-resource-helpers sync-helm-multi-resource-helpers verify-pinned-actions verify-minimal-crd-sync boilerplate
 
 # This is used by CI to ensure that the precommit checks are met.
 # Requires a clean working tree after precommit: run "make precommit", then git add/commit
