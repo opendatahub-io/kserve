@@ -18,6 +18,8 @@ from conftest import (
     is_cr_ready,
     KSERVE_CR_NAME,
     NAMESPACE,
+    MODEL_CACHE_NAMESPACE,
+    KSERVE_CONFIG_NAMESPACE_ENV,
     PV_NAME,
     PVC_NAME,
     LMNG_NAME,
@@ -33,17 +35,20 @@ class TestModelCacheEnable:
 
     def test_enable_creates_resources(self, kubectl, cluster_info, model_cache_enabled):
         """Patching modelCache.managementState=Managed creates PV, PVC,
-        LocalModelNodeGroup, labels the worker node, elevates namespace PSA,
-        and updates the inferenceservice-config ConfigMap.
+        LocalModelNodeGroup, labels the worker node, creates model-serving-cache
+        namespace, and updates the inferenceservice-config ConfigMap.
         """
         worker = model_cache_enabled
 
         assert resource_exists(kubectl, "pv", PV_NAME), f"PV {PV_NAME} should exist"
-        assert resource_exists(kubectl, "pvc", PVC_NAME, namespace=NAMESPACE), (
-            f"PVC {PVC_NAME} should exist in {NAMESPACE}"
-        )
+        assert resource_exists(
+            kubectl, "pvc", PVC_NAME, namespace=MODEL_CACHE_NAMESPACE
+        ), f"PVC {PVC_NAME} should exist in {MODEL_CACHE_NAMESPACE}"
         assert resource_exists(kubectl, LMNG_RESOURCE, LMNG_NAME), (
             f"LocalModelNodeGroup {LMNG_NAME} should exist"
+        )
+        assert resource_exists(kubectl, "namespace", MODEL_CACHE_NAMESPACE), (
+            f"Namespace {MODEL_CACHE_NAMESPACE} should exist"
         )
 
         label = get_jsonpath(
@@ -53,22 +58,14 @@ class TestModelCacheEnable:
             f"Node {worker} should have label kserve/localmodel=worker, got '{label}'"
         )
 
-        psa = get_jsonpath(
+        cache_psa = get_jsonpath(
             kubectl,
             "namespace",
-            NAMESPACE,
+            MODEL_CACHE_NAMESPACE,
             "{.metadata.labels.pod-security\\.kubernetes\\.io/enforce}",
         )
-        assert psa == "privileged", f"Namespace PSA should be 'privileged', got '{psa}'"
-
-        psa_annot = get_jsonpath(
-            kubectl,
-            "namespace",
-            NAMESPACE,
-            "{.metadata.annotations.opendatahub\\.io/psa-elevated-by}",
-        )
-        assert psa_annot == "kserve-modelcache", (
-            f"PSA annotation should be 'kserve-modelcache', got '{psa_annot}'"
+        assert cache_psa == "privileged", (
+            f"Model cache namespace PSA should be 'privileged', got '{cache_psa}'"
         )
 
         local_model_cfg = get_jsonpath(
@@ -82,8 +79,20 @@ class TestModelCacheEnable:
         assert cfg.get("enabled") is True, (
             f"localModel.enabled should be true, got {cfg.get('enabled')}"
         )
-        assert cfg.get("jobNamespace") == NAMESPACE, (
-            f"localModel.jobNamespace should be '{NAMESPACE}', got {cfg.get('jobNamespace')}"
+        assert cfg.get("jobNamespace") == MODEL_CACHE_NAMESPACE, (
+            f"localModel.jobNamespace should be '{MODEL_CACHE_NAMESPACE}', "
+            f"got {cfg.get('jobNamespace')}"
+        )
+
+        config_ns = get_jsonpath(
+            kubectl,
+            "daemonset",
+            "kserve-localmodelnode-agent",
+            f"{{.spec.template.spec.containers[0].env[?(@.name=='{KSERVE_CONFIG_NAMESPACE_ENV}')].value}}",
+            namespace=MODEL_CACHE_NAMESPACE,
+        )
+        assert config_ns == NAMESPACE, (
+            f"{KSERVE_CONFIG_NAMESPACE_ENV} should be '{NAMESPACE}', got '{config_ns}'"
         )
 
         # Verify ModelCacheReady condition
@@ -130,7 +139,9 @@ class TestModelCacheDisable:
         while time.time() < deadline:
             if (
                 not resource_exists(kubectl, "pv", PV_NAME)
-                and not resource_exists(kubectl, "pvc", PVC_NAME, namespace=NAMESPACE)
+                and not resource_exists(
+                    kubectl, "pvc", PVC_NAME, namespace=MODEL_CACHE_NAMESPACE
+                )
                 and not resource_exists(kubectl, LMNG_RESOURCE, LMNG_NAME)
             ):
                 break
@@ -139,9 +150,9 @@ class TestModelCacheDisable:
         assert not resource_exists(kubectl, "pv", PV_NAME), (
             f"PV {PV_NAME} should be deleted"
         )
-        assert not resource_exists(kubectl, "pvc", PVC_NAME, namespace=NAMESPACE), (
-            f"PVC {PVC_NAME} should be deleted"
-        )
+        assert not resource_exists(
+            kubectl, "pvc", PVC_NAME, namespace=MODEL_CACHE_NAMESPACE
+        ), f"PVC {PVC_NAME} should be deleted"
         assert not resource_exists(kubectl, LMNG_RESOURCE, LMNG_NAME), (
             f"LocalModelNodeGroup {LMNG_NAME} should be deleted"
         )
@@ -152,24 +163,6 @@ class TestModelCacheDisable:
         assert label == "", (
             f"Node label kserve/localmodel should be removed, got '{label}'"
         )
-
-        psa = get_jsonpath(
-            kubectl,
-            "namespace",
-            NAMESPACE,
-            "{.metadata.labels.pod-security\\.kubernetes\\.io/enforce}",
-        )
-        assert psa == "baseline", (
-            f"Namespace PSA should revert to 'baseline', got '{psa}'"
-        )
-
-        psa_annot = get_jsonpath(
-            kubectl,
-            "namespace",
-            NAMESPACE,
-            "{.metadata.annotations.opendatahub\\.io/psa-elevated-by}",
-        )
-        assert psa_annot == "", f"PSA annotation should be removed, got '{psa_annot}'"
 
         local_model_cfg = get_jsonpath(
             kubectl,

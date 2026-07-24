@@ -147,7 +147,7 @@ data:
   localModel: |-
     {
       "enabled": false,
-      "jobNamespace": "opendatahub",
+      "jobNamespace": "model-serving-cache",
       "defaultJobImage" : "REPLACE_IMAGE",
       "fsGroup": 1000,
       "localModelAgentImage": "REPLACE_IMAGE",
