@@ -3,6 +3,9 @@ FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS deps
 # distro: UBI go-toolset does not add GOPATH/bin to PATH
 ENV PATH="$PATH:/opt/app-root/src/go/bin"
 
+# Run as root during build (final image uses nonroot)
+USER 0
+
 WORKDIR /go/src/github.com/kserve/kserve
 COPY --chown=1001:0 go.mod  go.mod
 COPY --chown=1001:0 go.sum  go.sum
@@ -36,7 +39,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go-licenses save --save_path third_party/library ./cmd/${CMD}
 
 # Copy the controller-manager into a thin image
-FROM gcr.io/distroless/static:nonroot
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 COPY --from=license /go/src/github.com/kserve/kserve/third_party /third_party
 COPY --from=builder /go/src/github.com/kserve/kserve/manager /manager
 USER 1000:1000
