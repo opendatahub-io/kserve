@@ -9,6 +9,7 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: kserve-controller-manager
+  namespace: kserve
 - kind: ServiceAccount
   name: llmisvc-controller-manager
   namespace: kserve
