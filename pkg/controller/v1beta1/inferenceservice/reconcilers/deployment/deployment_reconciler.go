@@ -229,6 +229,12 @@ func createRawDeploymentODH(ctx context.Context,
 	if (shouldAddAuthProxy && !authProxyPreserved) || resourceType == constants.InferenceGraphResource {
 		mountServingSecretCMVolumeToDeployment(headDeployment, componentMeta, resourceType, isvcname, sarVolumeName)
 	}
+
+	// Mount TLS infrastructure for transformer-to-predictor communication when auth is explicitly enabled
+	if err := mountTransformerTLSInfrastructure(headDeployment, componentMeta); err != nil {
+		return nil, false, fmt.Errorf("failed to mount transformer TLS infrastructure: %w", err)
+	}
+
 	return deploymentList, authProxyPreserved, nil
 }
 

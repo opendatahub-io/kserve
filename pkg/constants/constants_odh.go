@@ -67,6 +67,18 @@ const (
 // ODH Connections API
 const ODHS3Endpoint = "AWS_S3_ENDPOINT"
 
+// TLS infrastructure for service-ca bundle mounting and transformer-to-predictor communication
+const (
+	ServiceCaBundleVolumeName = "openshift-service-ca-bundle"
+	ServiceCaBundleMountPath  = "/etc/odh/openshift-service-ca-bundle"
+	ServiceCaBundleCertFile   = "service-ca.crt"
+
+	// Env var keys for predictor TLS endpoint discovery
+	PredictorHostEnvVar     = "PREDICTOR_HOST"
+	PredictorPortEnvVar     = "PREDICTOR_PORT"
+	PredictorProtocolEnvVar = "PREDICTOR_PROTOCOL"
+)
+
 type ResourceType string
 
 const (
