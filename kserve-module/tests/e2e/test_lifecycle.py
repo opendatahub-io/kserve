@@ -17,8 +17,6 @@ from conftest import (
     wait_for_deployment,
     wait_for_deployment_gone,
     operand_deployments,
-    get_jsonpath,
-    resource_exists,
     KSERVE_CR_NAME,
     NAMESPACE,
     OPERATOR_DEPLOYMENT,
