@@ -100,6 +100,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 				"kserve-controller-manager",
 				"llmisvc-controller-manager",
 				"odh-model-controller",
+				"model-serving-api",
 			}
 			for _, name := range deployments {
 				createReadyDeployment(ctx, name, "opendatahub")
@@ -131,8 +132,13 @@ var _ = Describe("KserveModule Reconciler", func() {
 				testEnv.Reconciler.SetClusterType(cluster.ClusterTypeOpenShift)
 			})
 
-			// XKS only requires llmisvc-controller-manager
-			createReadyDeployment(ctx, "llmisvc-controller-manager", "opendatahub")
+			deployments := []string{
+				"llmisvc-controller-manager",
+				"odh-model-controller",
+			}
+			for _, name := range deployments {
+				createReadyDeployment(ctx, name, "opendatahub")
+			}
 
 			triggerReconcile(ctx, cr, "readiness-xks")
 
@@ -148,7 +154,6 @@ var _ = Describe("KserveModule Reconciler", func() {
 				g.Expect(kserveReady).NotTo(BeNil())
 				g.Expect(kserveReady.Status).To(Equal(metav1.ConditionTrue))
 
-				// XKS does not deploy model controller, so readiness is always true
 				modelCtrlReady := fixture.FindCondition(cr, kservemodule.ConditionModelControllerReady)
 				g.Expect(modelCtrlReady).NotTo(BeNil())
 				g.Expect(modelCtrlReady.Status).To(Equal(metav1.ConditionTrue))
