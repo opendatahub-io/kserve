@@ -55,6 +55,20 @@ func TestCheckModelControllerReadiness_OCP_Ready(t *testing.T) {
 	g.Expect(err).ShouldNot(HaveOccurred())
 }
 
+func TestCheckModelControllerReadiness_OCP_MissingModelServingAPI(t *testing.T) {
+	g := NewWithT(t)
+
+	deps := []appsv1.Deployment{
+		buildDeployment(odhModelControllerDeployment, 1),
+	}
+
+	cli := buildFakeClient(deps...)
+
+	err := checkModelControllerReadiness(context.Background(), cli, "opendatahub", false)
+	g.Expect(err).Should(HaveOccurred())
+	g.Expect(err.Error()).Should(ContainSubstring("model-serving-api"))
+}
+
 func TestCheckModelControllerReadiness_XKS_Ready(t *testing.T) {
 	g := NewWithT(t)
 
@@ -66,6 +80,16 @@ func TestCheckModelControllerReadiness_XKS_Ready(t *testing.T) {
 
 	err := checkModelControllerReadiness(context.Background(), cli, "opendatahub", true)
 	g.Expect(err).ShouldNot(HaveOccurred())
+}
+
+func TestCheckModelControllerReadiness_XKS_MissingOdhModelController(t *testing.T) {
+	g := NewWithT(t)
+
+	cli := fake.NewClientBuilder().WithScheme(testScheme()).Build()
+
+	err := checkModelControllerReadiness(context.Background(), cli, "opendatahub", true)
+	g.Expect(err).Should(HaveOccurred())
+	g.Expect(err.Error()).Should(ContainSubstring("odh-model-controller"))
 }
 
 func TestCheckKServeReadiness_XKS_AllReady(t *testing.T) {
