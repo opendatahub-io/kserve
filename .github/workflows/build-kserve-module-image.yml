@@ -42,23 +42,35 @@ jobs:
 
       - name: Override imagePullPolicy(kserve,llmisvc)
         if: inputs.image-pull-policy != ''
+        env:
+          IMAGE_PULL_POLICY: ${{ inputs.image-pull-policy }}
         run: |
+          case "${IMAGE_PULL_POLICY}" in
+            Always|IfNotPresent|Never) ;;
+            *) echo "Invalid imagePullPolicy: ${IMAGE_PULL_POLICY}"; exit 1 ;;
+          esac
           find config/manager config/llmisvc -name '*.yaml' -exec \
-            sed -i 's/imagePullPolicy: \w\+/imagePullPolicy: ${{ inputs.image-pull-policy }}/' {} +
+            sed -i "s/imagePullPolicy: \w\+/imagePullPolicy: ${IMAGE_PULL_POLICY}/" {} +
 
       - name: Build controller image
+        env:
+          IMAGE_NAME: ${{ inputs.image-name }}
+          IMAGE_TAG: ${{ inputs.image-tag }}
         run: |
           docker build --load \
-            -t ${{ inputs.image-name }}:${{ inputs.image-tag }} \
+            -t "${IMAGE_NAME}:${IMAGE_TAG}" \
             -f kserve-module-controller.Dockerfile .
 
       - name: Save image as artifact
+        env:
+          IMAGE_NAME: ${{ inputs.image-name }}
+          IMAGE_TAG: ${{ inputs.image-tag }}
         run: |
-          docker save ${{ inputs.image-name }}:${{ inputs.image-tag }} \
-            -o /tmp/${{ inputs.image-name }}.tar
+          docker save "${IMAGE_NAME}:${IMAGE_TAG}" \
+            -o "${RUNNER_TEMP}/${IMAGE_NAME}.tar"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ${{ inputs.image-name }}
-          path: /tmp/${{ inputs.image-name }}.tar
+          path: ${{ runner.temp }}/${{ inputs.image-name }}.tar
           retention-days: 1
