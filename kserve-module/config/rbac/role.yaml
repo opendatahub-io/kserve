@@ -283,6 +283,7 @@ rules:
   - kserve-edit
   - kserve-inferenceservice-distro-role
   - kserve-llmisvc-distro-role
+  - kserve-tls-distro-role
   - kserve-llmisvc-manager-role
   - kserve-localmodel-distro-role
   - kserve-localmodel-manager-role
