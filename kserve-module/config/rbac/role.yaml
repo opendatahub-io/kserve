@@ -283,7 +283,6 @@ rules:
   - kserve-edit
   - kserve-inferenceservice-distro-role
   - kserve-llmisvc-distro-role
-  - kserve-tls-distro-role
   - kserve-llmisvc-manager-role
   - kserve-localmodel-distro-role
   - kserve-localmodel-manager-role
@@ -297,6 +296,7 @@ rules:
   - kserve-models-view
   - kserve-prometheus-k8s
   - kserve-proxy-role
+  - kserve-tls-distro-role
   - kserve-view
   - metrics-reader
   - model-serving-api
