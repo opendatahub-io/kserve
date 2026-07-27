@@ -124,7 +124,7 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 	Context("LeaderWorkerSet operator watch", func() {
 		var lwsCRD *apiextensionsv1.CustomResourceDefinition
 
-		lwsGVK := schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSet"}
+		lwsGVK := schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSetOperator"}
 
 		BeforeAll(func(ctx SpecContext) {
 			lwsCRD = fixture.CreateCRD(ctx, testEnv.Client,

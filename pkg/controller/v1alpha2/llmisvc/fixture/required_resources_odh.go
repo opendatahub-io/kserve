@@ -31,6 +31,8 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
@@ -87,4 +89,31 @@ func additionalRequiredResources(ctx context.Context, c client.Client) {
 			"ca.crt":  caCertPEM,
 		},
 	}))).To(gomega.Succeed())
+}
+
+// IstioShadowService creates an Istio shadow service for the given LLMISVC name.
+func IstioShadowService(name, ns string) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      kmeta.ChildName(name, "istio-shadow"),
+			Namespace: ns,
+			Labels: map[string]string{
+				"istio.io/inferencepool-name": kmeta.ChildName(name, "-inference-pool"),
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "http",
+					Port:       80,
+					TargetPort: intstr.IntOrString{IntVal: 8000},
+				},
+				{
+					Name:       "https",
+					Port:       443,
+					TargetPort: intstr.IntOrString{IntVal: 8001},
+				},
+			},
+		},
+	}
 }

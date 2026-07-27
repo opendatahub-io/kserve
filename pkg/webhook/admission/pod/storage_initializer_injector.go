@@ -49,6 +49,7 @@ const (
 type StorageInitializerInjector struct {
 	credentialBuilder *credentials.CredentialBuilder
 	config            *types.StorageInitializerConfig
+	openshiftConfig   *v1beta1.OpenShiftConfig
 	client            client.Client
 }
 
@@ -814,10 +815,16 @@ func (mi *StorageInitializerInjector) InjectOVMSAutoVersioning(pod *corev1.Pod) 
 		}
 	}
 
+	// Get the OVMS versioning image from config
+	ovmsImage, err := getOVMSVersioningImage(mi.openshiftConfig)
+	if err != nil {
+		return fmt.Errorf("failed to get OVMS versioning image: %w", err)
+	}
+
 	// Create the OVMS versioning init container
 	ovmsVersioningContainer := corev1.Container{
 		Name:    constants.OVMSVersioningContainerName,
-		Image:   "registry.redhat.io/ubi9/ubi-micro:latest",
+		Image:   ovmsImage,
 		Command: []string{"/bin/sh"},
 		Args: []string{
 			"-c",

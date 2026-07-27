@@ -209,8 +209,27 @@ install_cert_manager() {
   log_wait "Waiting for cert-manager to be ready..."
   wait_for_pods "cert-manager" "app in (cert-manager,webhook)" 180s
 
-  # Wait for webhook to be ready
-  sleep 5
+  # Wait for the webhook to accept requests -- pod readiness alone does not
+  # guarantee the API server trusts the webhook's self-signed CA.
+  log_wait "Waiting for cert-manager webhook to accept requests..."
+  local max_wait=60
+  local start=$SECONDS
+  while ! kubectl apply --dry-run=server -f - <<'PROBE' &>/dev/null; do
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: cert-manager-webhook-probe
+spec:
+  selfSigned: {}
+PROBE
+    if (( SECONDS - start >= max_wait )); then
+      log_error "Timed out after ${max_wait}s waiting for cert-manager webhook"
+      kubectl get validatingwebhookconfigurations -o wide || true
+      return 1
+    fi
+    log_wait "  cert-manager webhook not ready yet ($(( SECONDS - start ))s elapsed)..."
+    sleep 2
+  done
 
   log_success "cert-manager installed"
 }

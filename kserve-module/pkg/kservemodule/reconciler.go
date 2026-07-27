@@ -53,7 +53,7 @@ import (
 // --- Operand RBAC (cluster-scoped: operand ClusterRoles grant end-user access across namespaces) ---
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterroles;clusterrolebindings,verbs=create;delete;get;list;patch;update;watch
 // escalate/bind scoped to the exact roles and clusterroles deployed by this controller
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=account-editor-role;account-viewer-role;kserve-admin;kserve-edit;kserve-models-admin;kserve-models-edit;kserve-models-view;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-inferenceservice-distro-role;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;openshift-ai-inferenceservice-image-volume-scc;odh-model-controller-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s;workload-variant-autoscaler-manager-role;workload-variant-autoscaler-metrics-auth-role;workload-variant-autoscaler-epp-metrics-reader-role;workload-variant-autoscaler-variantautoscaling-admin-role;workload-variant-autoscaler-variantautoscaling-editor-role;workload-variant-autoscaler-variantautoscaling-viewer-role;workload-variant-autoscaler-metrics-reader;kserve-localmodel-manager-role;kserve-localmodel-distro-role;kserve-localmodel-permfix-role;kserve-localmodelnode-agent-role;kserve-localmodelnode-distro-role
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=account-editor-role;account-viewer-role;kserve-admin;kserve-edit;kserve-models-admin;kserve-models-edit;kserve-models-view;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-inferenceservice-distro-role;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;openshift-ai-inferenceservice-image-volume-scc;odh-model-controller-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s;workload-variant-autoscaler-manager-role;workload-variant-autoscaler-metrics-auth-role;workload-variant-autoscaler-epp-metrics-reader-role;workload-variant-autoscaler-variantautoscaling-admin-role;workload-variant-autoscaler-variantautoscaling-editor-role;workload-variant-autoscaler-variantautoscaling-viewer-role;workload-variant-autoscaler-metrics-reader;kserve-localmodel-manager-role;kserve-localmodel-distro-role;kserve-localmodel-permfix-role;kserve-localmodelnode-agent-role;kserve-localmodelnode-distro-role;kserve-tls-distro-role
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=bind;escalate,resourceNames=kserve-leader-election-role;llmisvc-leader-election-role;leader-election-role;workload-variant-autoscaler-leader-election-role
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles/finalizers;rolebindings/finalizers;clusterroles/finalizers;clusterrolebindings/finalizers,verbs=update
 
@@ -91,7 +91,7 @@ import (
 
 // --- Dependency detection (read-only: check if required operators are installed) ---
 // +kubebuilder:rbac:groups=operators.coreos.com,resources=subscriptions,verbs=get;list;watch
-// +kubebuilder:rbac:groups=operator.openshift.io,resources=leaderworkersets,verbs=get;list;watch
+// +kubebuilder:rbac:groups=operator.openshift.io,resources=leaderworkersetoperators,verbs=get;list;watch
 //
 // ModelCache RBAC
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;patch;update
@@ -170,7 +170,7 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	depResult := r.checkDependencies(ctx, kserve)
 	applyDependencyConditions(condMgr, depResult)
-	if len(depResult.criticalErrors) > 0 {
+	if hasCriticalFailure(depResult) {
 		applyProvisioningCondition(condMgr, map[string]error{
 			"dependencies": fmt.Errorf("critical dependencies unavailable"),
 		})
@@ -306,8 +306,10 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 		sourcePath = comp.sourcePathXKS
 	}
 
+	// Image params live in the base overlay (e.g. overlays/odh/params.env), not
+	// the XKS overlay whose params.env only carries cert-manager keys.
 	if err := applyParams(
-		filepath.Join(manifestDir, comp.dirName(), sourcePath),
+		filepath.Join(manifestDir, comp.dirName(), comp.sourcePath),
 		comp.imageMap,
 	); err != nil {
 		return nil, fmt.Errorf("applying %s image params: %w", comp.name, err)
@@ -315,9 +317,10 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 
 	if r.isKubernetes(ctx) {
 		ns := r.getApplicationsNamespace()
+		certNS := r.getCertManagerNamespace(ctx)
 		if err := applyParams(
 			filepath.Join(manifestDir, comp.dirName(), comp.sourcePathXKS),
-			nil, buildCertManagerParams(ns),
+			nil, buildCertManagerParams(ns, certNS),
 		); err != nil {
 			return nil, fmt.Errorf("applying cert-manager params: %w", err)
 		}
@@ -402,6 +405,28 @@ func (r *KserveModuleReconciler) getModelCacheNamespace() string {
 	return modelCacheNamespaceName
 }
 
+// getCertManagerNamespace dynamically discovers the namespace where cert-manager
+// stores its CA secrets. It checks (in order):
+// 1. CA_SECRET_NAMESPACE env var (explicit override)
+// 2. "cert-manager" namespace existence on the cluster
+// 3. "cert-manager-operator" namespace existence (OCP OLM install)
+// 4. Falls back to "cert-manager" constant
+func (r *KserveModuleReconciler) getCertManagerNamespace(ctx context.Context) string {
+	if ns := os.Getenv("CA_SECRET_NAMESPACE"); ns != "" {
+		return ns
+	}
+
+	for _, candidate := range []string{certManagerNSCandidate, certManagerOperatorNS} {
+		var ns corev1.Namespace
+		if err := r.Get(ctx, types.NamespacedName{Name: candidate}, &ns); err == nil {
+			ctrl.LoggerFrom(ctx).V(1).Info("Discovered cert-manager namespace", "namespace", candidate)
+			return candidate
+		}
+	}
+
+	return defaultCertManagerNS
+}
+
 func (r *KserveModuleReconciler) getPlatformVersion(ctx context.Context) string {
 	cm := &corev1.ConfigMap{}
 	key := types.NamespacedName{Name: platformVersionConfigMap, Namespace: r.getApplicationsNamespace()}
@@ -440,10 +465,11 @@ func (r *KserveModuleReconciler) SetWorkDir(dir string) {
 
 func (r *KserveModuleReconciler) installCRDs(ctx context.Context, kserve *platformv1alpha1.Kserve) error {
 	crdPath := filepath.Join(r.ManifestsTemplatePath, KserveComponentName, KserveCRDManifestSourcePath)
-	resources, err := kustomize.Render(crdPath, nil)
+	resources, err := kustomize.Render(crdPath, nil, kustomize.WithNamespace(r.getApplicationsNamespace()))
 	if err != nil {
 		return fmt.Errorf("rendering CRD manifests: %w", err)
 	}
+
 	if err := r.Deployer.Deploy(ctx, deploy.DeployInput{
 		Client:    r.Client,
 		Owner:     kserve,
