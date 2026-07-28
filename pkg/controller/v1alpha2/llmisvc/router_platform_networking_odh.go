@@ -65,9 +65,11 @@ var istioGatewayControllerNames = []string{
 // Default is the OpenShift service-ca path. Override via ISTIO_CA_CERTIFICATE_PATH environment variable.
 var IstioCACertificatePath = constants.GetEnvOrDefault("ISTIO_CA_CERTIFICATE_PATH", "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt")
 
-// schedulerCertRotationMinVersion is the minimum scheduler (EPP) version that supports TLS
+// SchedulerCertRotationMinVersionStr is the minimum scheduler (EPP) version that supports TLS
 // certificate rotation via --enable-cert-reload. Older versions must use InsecureSkipVerify=true.
-var schedulerCertRotationMinVersion = semver.New("0.7.0")
+const SchedulerCertRotationMinVersionStr = "0.7.0"
+
+var schedulerCertRotationMinVersion = semver.New(SchedulerCertRotationMinVersionStr)
 
 // enableCertReloadRegexp matches all boolean-true pflag forms of --enable-cert-reload:
 // bare (--enable-cert-reload), or with =VALUE where VALUE is one of the boolean-true strings
