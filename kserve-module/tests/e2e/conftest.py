@@ -341,7 +341,6 @@ def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_
             if avail.get("status") == "True":
                 return dep
         time.sleep(5)
-    dump_modelcache_workload_diagnostics(kubectl_bin, namespace)
     raise TimeoutError(f"deployment {name} not Available within {timeout}s")
 
 
@@ -359,7 +358,6 @@ def wait_for_daemonset_ready(kubectl_bin, name, namespace=NAMESPACE, timeout=TIM
             if status.get("numberReady", 0) >= 1:
                 return ds
         time.sleep(5)
-    dump_modelcache_workload_diagnostics(kubectl_bin, namespace)
     raise TimeoutError(f"daemonset {name} has no ready pods within {timeout}s")
 
 
@@ -422,21 +420,22 @@ def dump_modelcache_workload_diagnostics(kubectl_bin, namespace=NAMESPACE):
             )
             print(f"--- logs {pod} ---")
             print(logs.stdout or logs.stderr)
-    events = run(
-        [
-            kubectl_bin,
-            "get",
-            "events",
-            "-n",
-            namespace,
-            "--field-selector",
-            f"involvedObject.name={LOCALMODEL_CONTROLLER_DEPLOYMENT}",
-            "--sort-by=.lastTimestamp",
-        ],
-        check=False,
-    )
-    print("--- events ---")
-    print(events.stdout or events.stderr)
+    for name in (LOCALMODEL_CONTROLLER_DEPLOYMENT, LOCALMODEL_AGENT_DAEMONSET):
+        events = run(
+            [
+                kubectl_bin,
+                "get",
+                "events",
+                "-n",
+                namespace,
+                "--field-selector",
+                f"involvedObject.name={name}",
+                "--sort-by=.lastTimestamp",
+            ],
+            check=False,
+        )
+        print(f"--- events involvedObject.name={name} ---")
+        print(events.stdout or events.stderr)
 
 
 def wait_for_deployment_gone(
