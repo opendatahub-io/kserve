@@ -22,12 +22,14 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"k8s.io/utils/ptr"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -109,6 +111,7 @@ func (l *LLMInferenceServiceValidator) validate(ctx context.Context, prev *LLMIn
 	allErrs = append(allErrs, l.validateScaling(llmSvc)...)
 	allErrs = append(allErrs, l.validateLoRAAdapters(llmSvc)...)
 	allErrs = append(allErrs, l.validateKVCacheOffloading(llmSvc)...)
+	allErrs = append(allErrs, l.validateRolloutStrategy(llmSvc)...)
 	allErrs = append(allErrs, l.validateManagedDRAAnnotations(llmSvc)...)
 
 	allErrs = append(allErrs, l.validateImmutable(prev, llmSvc)...)
@@ -901,4 +904,83 @@ func (l *LLMInferenceServiceValidator) validateTrafficFields(
 	}
 
 	return allErrs
+}
+
+func (l *LLMInferenceServiceValidator) validateRolloutStrategy(llmSvc *LLMInferenceService) field.ErrorList {
+	var allErrs field.ErrorList
+
+	allErrs = append(allErrs, validateWorkloadRolloutFields(field.NewPath("spec"), llmSvc.Spec.RolloutStrategy)...)
+
+	if llmSvc.Spec.Prefill != nil {
+		allErrs = append(allErrs, validateWorkloadRolloutFields(field.NewPath("spec", "prefill"), llmSvc.Spec.Prefill.RolloutStrategy)...)
+	}
+
+	return allErrs
+}
+
+func validateWorkloadRolloutFields(basePath *field.Path, rs *RolloutStrategy) field.ErrorList {
+	var allErrs field.ErrorList
+
+	if rs == nil {
+		return allErrs
+	}
+
+	rsPath := basePath.Child("rolloutStrategy")
+
+	if rs.MaxUnavailable != nil {
+		allErrs = append(allErrs, validateIntOrPercent(rsPath.Child("maxUnavailable"), *rs.MaxUnavailable)...)
+	}
+
+	if rs.MaxSurge != nil {
+		allErrs = append(allErrs, validateIntOrPercent(rsPath.Child("maxSurge"), *rs.MaxSurge)...)
+	}
+
+	if rs.MaxUnavailable != nil && rs.MaxSurge != nil {
+		if isIntOrStringZero(*rs.MaxUnavailable) && isIntOrStringZero(*rs.MaxSurge) {
+			allErrs = append(allErrs, field.Invalid(
+				rsPath,
+				rs,
+				"maxUnavailable and maxSurge cannot both be zero; this would prevent any rolling update progress",
+			))
+		}
+	}
+
+	return allErrs
+}
+
+func validateIntOrPercent(fldPath *field.Path, val intstr.IntOrString) field.ErrorList {
+	var allErrs field.ErrorList
+
+	switch val.Type {
+	case intstr.Int:
+		if val.IntValue() < 0 {
+			allErrs = append(allErrs, field.Invalid(fldPath, val.IntValue(),
+				"must be a non-negative integer or a percentage string"))
+		}
+	case intstr.String:
+		s := val.StrVal
+		if !strings.HasSuffix(s, "%") {
+			allErrs = append(allErrs, field.Invalid(fldPath, s,
+				"string value must be a percentage (e.g., \"50%\")"))
+		} else {
+			numStr := strings.TrimSuffix(s, "%")
+			num, err := strconv.Atoi(numStr)
+			if err != nil || num < 0 || num > 100 {
+				allErrs = append(allErrs, field.Invalid(fldPath, s,
+					"percentage must be between 0% and 100%"))
+			}
+		}
+	}
+
+	return allErrs
+}
+
+func isIntOrStringZero(val intstr.IntOrString) bool {
+	switch val.Type {
+	case intstr.Int:
+		return val.IntValue() == 0
+	case intstr.String:
+		return val.StrVal == "0%" || val.StrVal == "0"
+	}
+	return false
 }

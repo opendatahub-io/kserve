@@ -22,6 +22,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/runtime"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
@@ -182,6 +183,31 @@ type WorkloadSpec struct {
 	// The controller translates this into --kv-transfer-config for the vLLM serve command.
 	// +optional
 	KVCacheOffloading *KVCacheOffloadingSpec `json:"kvCacheOffloading,omitempty"`
+
+	// RolloutStrategy configures how rolling updates are performed for this workload.
+	// When omitted, Kubernetes/LWS defaults apply (maxUnavailable: 25%, maxSurge: 25%
+	// for Deployments; maxUnavailable: 1, maxSurge: 0 for LeaderWorkerSets).
+	// +optional
+	RolloutStrategy *RolloutStrategy `json:"rolloutStrategy,omitempty"`
+}
+
+// RolloutStrategy configures the rolling update behavior for a workload.
+// These settings apply to both Deployment and LeaderWorkerSet resources
+// created by the controller.
+type RolloutStrategy struct {
+	// MaxUnavailable specifies the maximum number of replicas that can be
+	// unavailable during a rolling update. Value can be an absolute number
+	// (ex: 5) or a percentage of total replicas (ex: "50%").
+	// Defaults to 25% for Deployments, 1 for LeaderWorkerSets when not set.
+	// +optional
+	MaxUnavailable *intstr.IntOrString `json:"maxUnavailable,omitempty"`
+
+	// MaxSurge specifies the maximum number of replicas that can be scheduled
+	// above the desired number of replicas during a rolling update. Value can
+	// be an absolute number (ex: 5) or a percentage of total replicas (ex: "50%").
+	// Defaults to 25% for Deployments, 0 for LeaderWorkerSets when not set.
+	// +optional
+	MaxSurge *intstr.IntOrString `json:"maxSurge,omitempty"`
 }
 
 // KVCacheOffloadingSpec configures KV cache offloading via vLLM's OffloadingConnector.
