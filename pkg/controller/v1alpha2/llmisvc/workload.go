@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"regexp"
 
+	"github.com/coreos/go-semver/semver"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -37,6 +38,30 @@ import (
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/utils"
 )
+
+// routingSidecarVersionAnnotation is the annotation key used to record the routing sidecar
+// version in llmSvc.Spec.Annotations. A dedicated key avoids ambiguity with
+// app.kubernetes.io/version, which may refer to the engine (vLLM) version.
+const routingSidecarVersionAnnotation = "llm-d.ai/routing-sidecar-version"
+
+// sidecarCertRotationMinVersion is the minimum routing sidecar version that supports
+// automatic TLS certificate rotation. Services with an older sidecar must use InsecureSkipVerify=true.
+var sidecarCertRotationMinVersion = semver.New("0.7.0")
+
+// enableSslRefreshRegexp matches all boolean-true pflag forms of --enable-ssl-refresh in either
+// a standalone Command entry or embedded in a bash script.
+//
+// The built-in config templates emit the flag as a bare word inside a multi-line bash script
+// passed as the third element of ["/bin/bash", "-c", "<script>"]. In that form the flag
+// appears at the start of a line with optional leading whitespace and a trailing " \" shell
+// line-continuation, e.g. "              --enable-ssl-refresh \".
+//
+// (?m) makes ^ match at line starts so the pattern finds the flag within the script string.
+// The trailing boundary (\s+|\\|$) matches the space(s) before "\" (bash form), a bare "\"
+// if whitespace was stripped, or end-of-entry (standalone arg form).
+// The value set accepts exactly the boolean-true strings that pflag/strconv.ParseBool recognises:
+// 1, t, T, true, True, TRUE.
+var enableSslRefreshRegexp = regexp.MustCompile(`(?m)^\s*--enable-ssl-refresh(=(1|t|T|true|True|TRUE))?(\s+|\\|$)`)
 
 // sidecarSSRFProtectionRules defines RBAC rules for the routing sidecar
 // These permissions are needed to discover and monitor inference pools and pods.
@@ -258,51 +283,71 @@ func llmSvcHasSidecar(llmSvc *v1alpha2.LLMInferenceService) bool {
 	return false
 }
 
-// llmSvcHasTlsRotationEnabled does a naive check to determine if  an LLMIsvc
-// supports TLS certificate rotation
+// llmSvcHasTlsRotationEnabled returns true when the decode pod supports TLS certificate rotation,
+// either via --enable-ssl-refresh on the main container or via a routing sidecar that meets
+// the version and configuration gates for cert rotation.
+//
+// Only llmSvc.Spec.Template (the decode pod) is inspected; the worker spec is not examined
+// because requests reach decode pods first. When a routing sidecar is present the check is
+// delegated to sidecarTlsRotationEnabled. Returns false (InsecureSkipVerify=true) when the
+// flag is absent or cannot be determined.
 func llmSvcHasTlsRotationEnabled(llmSvc *v1alpha2.LLMInferenceService) bool {
 	if llmSvcHasSidecar(llmSvc) {
-		// The routing sidecar doesn't support certificate rotation.
-		// Being the first hop in the request chain, flag the LLMIsvc as
-		// not supporting certificate rotation
-		return false
+		return sidecarTlsRotationEnabled(llmSvc)
 	}
 
-	// Use the first engine podSpec available, assuming all LLMIsvcConfigs
-	// will consistently have the SSL reload argument set or unset.
-	var enginePodSpec *corev1.PodSpec
-	switch {
-	case llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker != nil:
-		enginePodSpec = llmSvc.Spec.Prefill.Worker
-	case llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Template != nil:
-		enginePodSpec = llmSvc.Spec.Prefill.Template
-	case llmSvc.Spec.Worker != nil:
-		enginePodSpec = llmSvc.Spec.Worker
-	case llmSvc.Spec.Template != nil:
-		enginePodSpec = llmSvc.Spec.Template
-	default:
-		// This would be a rare situation, assuming the llmSvc
-		// already undergo merge process with base configs.
-		// We flag the LLMIsvc with rotation enabled for a
-		// FIPS-compatible configuration (prevent nil
-		// pointer de-reference of enginePodSpec).
+	if llmSvc.Spec.Template == nil {
+		// No decode pod template: assume rotation enabled for the stricter FIPS-safe posture.
 		return true
 	}
 
-	// The TLS reload flag is hidden in the command string. Search for it
-	// with a regex and assume its presence properly configures the engine.
-	for _, container := range enginePodSpec.Containers {
-		if container.Name != "main" {
-			continue
-		}
+	container := utils.GetContainerWithName(llmSvc.Spec.Template, "main")
+	if container == nil {
+		return false
+	}
 
-		pattern := regexp.MustCompile(`(?m)^\s*--enable-ssl-refresh\s+`)
-		for _, cmdEntry := range container.Command {
-			if pattern.MatchString(cmdEntry) {
-				return true
-			}
+	for _, cmdEntry := range container.Command {
+		if enableSslRefreshRegexp.MatchString(cmdEntry) {
+			return true
 		}
-		break
+	}
+
+	return false
+}
+
+// sidecarTlsRotationEnabled returns true when the routing sidecar is at version
+// >= sidecarCertRotationMinVersion AND has --secure-proxy=true in its init container args.
+// Both conditions must hold; either failing alone returns false (InsecureSkipVerify=true).
+//
+// The version is read from llmSvc.Spec.Annotations[routingSidecarVersionAnnotation]; these
+// annotations are propagated to the workload pod template by the workload reconciler.
+// --secure-proxy is always present in the sidecar args (set to true or false by the config
+// overlay), so an exact string match for --secure-proxy=true is used rather than a multi-form
+// pflag regex.
+func sidecarTlsRotationEnabled(llmSvc *v1alpha2.LLMInferenceService) bool {
+	versionStr, ok := llmSvc.Spec.Annotations[routingSidecarVersionAnnotation]
+	if !ok || versionStr == "" {
+		return false
+	}
+
+	v, err := semver.NewVersion(versionStr)
+	if err != nil {
+		return false
+	}
+
+	if v.Compare(*sidecarCertRotationMinVersion) < 0 {
+		return false
+	}
+
+	sidecar := routingSidecar(llmSvc.Spec.Template)
+	if sidecar == nil {
+		return false
+	}
+
+	for _, arg := range sidecar.Args {
+		if arg == "--secure-proxy=true" {
+			return true
+		}
 	}
 
 	return false
