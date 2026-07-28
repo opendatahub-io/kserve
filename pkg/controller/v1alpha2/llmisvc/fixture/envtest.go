@@ -43,6 +43,8 @@ func SetupTestEnv(ctx context.Context) *pkgtest.Client {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.SetDefaultEventuallyTimeout(duration)
 	gomega.SetDefaultEventuallyPollingInterval(250 * time.Millisecond)
+	gomega.SetDefaultConsistentlyDuration(4 * time.Second)
+	gomega.SetDefaultConsistentlyPollingInterval(200 * time.Millisecond)
 	gomega.EnforceDefaultTimeoutsWhenUsingContexts()
 
 	ginkgo.By("Setting up the test environment")

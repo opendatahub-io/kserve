@@ -44,9 +44,11 @@ import (
 // app.kubernetes.io/version, which may refer to the engine (vLLM) version.
 const routingSidecarVersionAnnotation = "llm-d.ai/routing-sidecar-version"
 
-// sidecarCertRotationMinVersion is the minimum routing sidecar version that supports
+// SidecarCertRotationMinVersionStr is the minimum routing sidecar version that supports
 // automatic TLS certificate rotation. Services with an older sidecar must use InsecureSkipVerify=true.
-var sidecarCertRotationMinVersion = semver.New("0.7.0")
+const SidecarCertRotationMinVersionStr = "0.7.0"
+
+var sidecarCertRotationMinVersion = semver.New(SidecarCertRotationMinVersionStr)
 
 // enableSslRefreshRegexp matches all boolean-true pflag forms of --enable-ssl-refresh in either
 // a standalone Command entry or embedded in a bash script.
@@ -289,8 +291,8 @@ func llmSvcHasSidecar(llmSvc *v1alpha2.LLMInferenceService) bool {
 //
 // Only llmSvc.Spec.Template (the decode pod) is inspected; the worker spec is not examined
 // because requests reach decode pods first. When a routing sidecar is present the check is
-// delegated to sidecarTlsRotationEnabled. Returns false (InsecureSkipVerify=true) when the
-// flag is absent or cannot be determined.
+// delegated to sidecarTlsRotationEnabled. Returns true (InsecureSkipVerify=false) when the
+// main container is absent or the flag cannot be determined, for the stricter FIPS-safe posture.
 func llmSvcHasTlsRotationEnabled(llmSvc *v1alpha2.LLMInferenceService) bool {
 	if llmSvcHasSidecar(llmSvc) {
 		return sidecarTlsRotationEnabled(llmSvc)
@@ -303,7 +305,8 @@ func llmSvcHasTlsRotationEnabled(llmSvc *v1alpha2.LLMInferenceService) bool {
 
 	container := utils.GetContainerWithName(llmSvc.Spec.Template, "main")
 	if container == nil {
-		return false
+		// No main container found: assume rotation enabled for the stricter FIPS-safe posture.
+		return true
 	}
 
 	for _, cmdEntry := range container.Command {
