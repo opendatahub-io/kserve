@@ -93,14 +93,14 @@ e2e-graph-ocp: ## Run graph E2E suite.
 	$(MAKE) run-e2e-ocp E2E_MARKER="graph" E2E_PARALLELISM="$(E2E_PARALLELISM)" E2E_PROFILE=raw SETUP_E2E=true
 
 e2e-raw-ocp: ## Run raw E2E suite (includes rawcipn phase).
-	$(MAKE) run-e2e-ocp E2E_MARKER="raw" E2E_PARALLELISM="$(E2E_PARALLELISM)" SETUP_E2E=true
+	$(MAKE) run-e2e-ocp E2E_MARKER="raw" E2E_PARALLELISM="$(E2E_PARALLELISM)" E2E_PROFILE=raw SETUP_E2E=true
 	oc patch configmaps -n $(KSERVE_NAMESPACE) inferenceservice-config \
 	  --patch '{"data":{"service":"{\"serviceClusterIPNone\": true}"}}'
 	sleep 5
 	$(MAKE) run-e2e-ocp E2E_MARKER="rawcipn" E2E_PARALLELISM=1 E2E_PROFILE=raw SETUP_E2E=false
 
 e2e-predictor-ocp: ## Run predictor E2E suite.
-	$(MAKE) run-e2e-ocp E2E_MARKER="predictor or kserve_on_openshift" E2E_PARALLELISM="$(E2E_PARALLELISM)" SETUP_E2E=true
+	$(MAKE) run-e2e-ocp E2E_MARKER="predictor or kserve_on_openshift" E2E_PARALLELISM="$(E2E_PARALLELISM)" E2E_PROFILE=raw SETUP_E2E=true
 
 e2e-llmisvc-ocp: ## Run LLMISvc E2E suite.
 	$(MAKE) run-e2e-ocp E2E_MARKER="llmisvc_core and cluster_cpu and not pvc_storage" E2E_PARALLELISM=2 E2E_PROFILE=llm-d SETUP_E2E=true
