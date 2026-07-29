@@ -656,4 +656,3 @@ func assertPodMonitorGone(ctx context.Context, name, nsName string) {
 		return apierrors.IsNotFound(err)
 	}).WithContext(ctx).Should(BeTrue(), "PodMonitor %s should not exist", name)
 }
-

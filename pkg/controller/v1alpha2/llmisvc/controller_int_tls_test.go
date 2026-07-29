@@ -189,8 +189,8 @@ var _ = Describe("Scheduler DestinationRule TLS Gating", func() {
 		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
 
 		dr := waitForSchedulerDR(ctx, svcName, testNs.Name)
-		Expect(dr.Spec.TrafficPolicy.Tls.InsecureSkipVerify.GetValue()).To(BeFalse())
-		Expect(dr.Spec.TrafficPolicy.Tls.CaCertificates).To(Equal(istioCACertificatePath))
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetInsecureSkipVerify().GetValue()).To(BeFalse())
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetCaCertificates()).To(Equal(istioCACertificatePath))
 	})
 
 	It("should produce InsecureSkipVerify=true when version annotation is absent", func(ctx SpecContext) {
@@ -207,8 +207,8 @@ var _ = Describe("Scheduler DestinationRule TLS Gating", func() {
 		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
 
 		dr := waitForSchedulerDR(ctx, svcName, testNs.Name)
-		Expect(dr.Spec.TrafficPolicy.Tls.InsecureSkipVerify.GetValue()).To(BeTrue())
-		Expect(dr.Spec.TrafficPolicy.Tls.CaCertificates).To(BeEmpty())
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetInsecureSkipVerify().GetValue()).To(BeTrue())
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetCaCertificates()).To(BeEmpty())
 	})
 
 	It("should produce InsecureSkipVerify=true when scheduler version is below 0.7.0", func(ctx SpecContext) {
@@ -225,8 +225,8 @@ var _ = Describe("Scheduler DestinationRule TLS Gating", func() {
 		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
 
 		dr := waitForSchedulerDR(ctx, svcName, testNs.Name)
-		Expect(dr.Spec.TrafficPolicy.Tls.InsecureSkipVerify.GetValue()).To(BeTrue())
-		Expect(dr.Spec.TrafficPolicy.Tls.CaCertificates).To(BeEmpty())
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetInsecureSkipVerify().GetValue()).To(BeTrue())
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetCaCertificates()).To(BeEmpty())
 	})
 
 	It("should produce InsecureSkipVerify=true when version meets minimum but flag is absent", func(ctx SpecContext) {
@@ -243,8 +243,8 @@ var _ = Describe("Scheduler DestinationRule TLS Gating", func() {
 		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
 
 		dr := waitForSchedulerDR(ctx, svcName, testNs.Name)
-		Expect(dr.Spec.TrafficPolicy.Tls.InsecureSkipVerify.GetValue()).To(BeTrue())
-		Expect(dr.Spec.TrafficPolicy.Tls.CaCertificates).To(BeEmpty())
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetInsecureSkipVerify().GetValue()).To(BeTrue())
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetCaCertificates()).To(BeEmpty())
 	})
 
 	It("should produce InsecureSkipVerify=false with CA when both gates pass — =true form", func(ctx SpecContext) {
@@ -261,8 +261,8 @@ var _ = Describe("Scheduler DestinationRule TLS Gating", func() {
 		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
 
 		dr := waitForSchedulerDR(ctx, svcName, testNs.Name)
-		Expect(dr.Spec.TrafficPolicy.Tls.InsecureSkipVerify.GetValue()).To(BeFalse())
-		Expect(dr.Spec.TrafficPolicy.Tls.CaCertificates).To(Equal(istioCACertificatePath))
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetInsecureSkipVerify().GetValue()).To(BeFalse())
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetCaCertificates()).To(Equal(istioCACertificatePath))
 	})
 
 	It("should produce InsecureSkipVerify=false with CA when both gates pass — bare form", func(ctx SpecContext) {
@@ -281,7 +281,7 @@ var _ = Describe("Scheduler DestinationRule TLS Gating", func() {
 		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
 
 		dr := waitForSchedulerDR(ctx, svcName, testNs.Name)
-		Expect(dr.Spec.TrafficPolicy.Tls.InsecureSkipVerify.GetValue()).To(BeFalse())
-		Expect(dr.Spec.TrafficPolicy.Tls.CaCertificates).To(Equal(istioCACertificatePath))
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetInsecureSkipVerify().GetValue()).To(BeFalse())
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetCaCertificates()).To(Equal(istioCACertificatePath))
 	})
 })
