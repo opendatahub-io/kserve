@@ -2611,6 +2611,7 @@ metadata:
   namespace: kserve
 spec:
   annotations:
+    llm-d.ai/routing-sidecar-version: 0.9.0
     serving.kserve.io/model-based-routing-enabled: "true"
   template:
     containers:
@@ -2929,6 +2930,7 @@ metadata:
   namespace: kserve
 spec:
   annotations:
+    llm-d.ai/routing-sidecar-version: 0.9.0
     serving.kserve.io/model-based-routing-enabled: "true"
   template:
     containers:
