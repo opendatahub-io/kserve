@@ -183,6 +183,8 @@ var _ = Describe("Scheduler DestinationRule TLS Gating", func() {
 		llmSvc := LLMInferenceService(svcName,
 			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
 			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedRoute(),
+			WithManagedGateway(),
 			WithSchedulerVersion(llmisvc.SchedulerCertRotationMinVersionStr),
 		)
 		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
@@ -197,10 +199,15 @@ var _ = Describe("Scheduler DestinationRule TLS Gating", func() {
 		svcName := "sched-dr-no-version"
 		testNs := NewTestNamespace(ctx, envTest)
 
-		// Template is present with the flag but no version annotation.
+		// The shared scheduler preset injects app.kubernetes.io/version="0.9.0". Setting an
+		// explicit empty version on the LLMInferenceService spec overrides it in the final
+		// merge layer, so schedulerTlsRotationEnabled sees no usable version and returns false.
 		llmSvc := LLMInferenceService(svcName,
 			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
 			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedRoute(),
+			WithManagedGateway(),
+			WithSchedulerVersion(""),
 			WithSchedulerCommand("scheduler", "--enable-cert-reload=true"),
 		)
 		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
@@ -218,6 +225,8 @@ var _ = Describe("Scheduler DestinationRule TLS Gating", func() {
 		llmSvc := LLMInferenceService(svcName,
 			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
 			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedRoute(),
+			WithManagedGateway(),
 			WithSchedulerVersion("0.6.9"), // one patch below llmisvc.SchedulerCertRotationMinVersionStr
 			WithSchedulerCommand("scheduler", "--enable-cert-reload=true"),
 		)
@@ -236,6 +245,8 @@ var _ = Describe("Scheduler DestinationRule TLS Gating", func() {
 		llmSvc := LLMInferenceService(svcName,
 			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
 			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedRoute(),
+			WithManagedGateway(),
 			WithSchedulerVersion(llmisvc.SchedulerCertRotationMinVersionStr),
 			WithSchedulerCommand("scheduler" /* no --enable-cert-reload */),
 		)
@@ -254,6 +265,8 @@ var _ = Describe("Scheduler DestinationRule TLS Gating", func() {
 		llmSvc := LLMInferenceService(svcName,
 			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
 			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedRoute(),
+			WithManagedGateway(),
 			WithSchedulerVersion(llmisvc.SchedulerCertRotationMinVersionStr),
 			WithSchedulerCommand("scheduler", "--enable-cert-reload=true"),
 		)
@@ -274,6 +287,8 @@ var _ = Describe("Scheduler DestinationRule TLS Gating", func() {
 		llmSvc := LLMInferenceService(svcName,
 			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
 			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedRoute(),
+			WithManagedGateway(),
 			WithSchedulerVersion(llmisvc.SchedulerCertRotationMinVersionStr),
 			WithSchedulerCommand("scheduler", "--enable-cert-reload"),
 		)

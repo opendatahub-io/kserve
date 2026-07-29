@@ -237,7 +237,8 @@ var _ = Describe("PodMonitor TLS configuration", func() {
 			WithModelURI("hf://facebook/opt-125m"),
 			WithTemplate(&corev1.PodSpec{
 				Containers: []corev1.Container{{
-					Name: "not-main",
+					Name:  "not-main",
+					Image: "test-image:latest",
 				}},
 			}),
 		)
@@ -307,8 +308,9 @@ var _ = Describe("PodMonitor TLS configuration", func() {
 			WithModelURI("hf://facebook/opt-125m"),
 			WithTemplate(&corev1.PodSpec{
 				InitContainers: []corev1.Container{{
-					Name: constants.LLMISVCRoutingSidecarContainerName,
-					Args: []string{"--secure-proxy=true"},
+					Name:  constants.LLMISVCRoutingSidecarContainerName,
+					Image: "test-routing-sidecar:latest",
+					Args:  []string{"--secure-proxy=true"},
 				}},
 			}),
 			// No WithSpecAnnotations — routing-sidecar-version absent.
@@ -335,8 +337,9 @@ var _ = Describe("PodMonitor TLS configuration", func() {
 			}),
 			WithTemplate(&corev1.PodSpec{
 				InitContainers: []corev1.Container{{
-					Name: constants.LLMISVCRoutingSidecarContainerName,
-					Args: []string{"--secure-proxy=true"},
+					Name:  constants.LLMISVCRoutingSidecarContainerName,
+					Image: "test-routing-sidecar:latest",
+					Args:  []string{"--secure-proxy=true"},
 				}},
 			}),
 		)
@@ -362,8 +365,9 @@ var _ = Describe("PodMonitor TLS configuration", func() {
 			}),
 			WithTemplate(&corev1.PodSpec{
 				InitContainers: []corev1.Container{{
-					Name: constants.LLMISVCRoutingSidecarContainerName,
-					Args: []string{"--secure-proxy=false"},
+					Name:  constants.LLMISVCRoutingSidecarContainerName,
+					Image: "test-routing-sidecar:latest",
+					Args:  []string{"--secure-proxy=false"},
 				}},
 			}),
 		)
@@ -389,8 +393,9 @@ var _ = Describe("PodMonitor TLS configuration", func() {
 			}),
 			WithTemplate(&corev1.PodSpec{
 				InitContainers: []corev1.Container{{
-					Name: constants.LLMISVCRoutingSidecarContainerName,
-					Args: []string{"--secure-proxy=true"},
+					Name:  constants.LLMISVCRoutingSidecarContainerName,
+					Image: "test-routing-sidecar:latest",
+					Args:  []string{"--secure-proxy=true"},
 				}},
 			}),
 		)
