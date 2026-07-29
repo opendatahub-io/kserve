@@ -619,6 +619,19 @@ func WithSchedulerCommand(cmd ...string) LLMInferenceServiceOption {
 	}
 }
 
+// WithConfigSchedulerVersion sets app.kubernetes.io/version in the scheduler's annotations on
+// an LLMInferenceServiceConfig. Pass an empty string to explicitly clear the version so that
+// a namespace-local config can prevent a shared preset from injecting its version.
+func WithConfigSchedulerVersion(version string) LLMInferenceServiceConfigOption {
+	return func(config *v1alpha2.LLMInferenceServiceConfig) {
+		ensureSchedulerSpec(&config.Spec)
+		if config.Spec.Router.Scheduler.Annotations == nil {
+			config.Spec.Router.Scheduler.Annotations = map[string]string{}
+		}
+		config.Spec.Router.Scheduler.Annotations["app.kubernetes.io/version"] = version
+	}
+}
+
 // WithConfigSchedulerReplicas sets the scheduler replicas on the LLMInferenceServiceConfig.
 func WithConfigSchedulerReplicas(replicas int32) LLMInferenceServiceConfigOption {
 	return func(config *v1alpha2.LLMInferenceServiceConfig) {
