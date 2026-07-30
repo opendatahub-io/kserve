@@ -3,6 +3,7 @@ package kservemodule
 import (
 	"context"
 	"fmt"
+	"runtime"
 	"slices"
 
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
@@ -44,17 +45,18 @@ const (
 type conditionFilterFunc func(conditionType string, status string) bool
 
 type dependencyCheck struct {
-	name                 string
-	checkType            checkType
-	crdName              string                                     // Full CRD name (e.g. "authorizationpolicies.security.istio.io")
-	subscriptionName     string                                     // Subscription check
-	operatorGVK          schema.GroupVersionKind                    // Operator CR GVK
-	operatorCRName       string                                     // Operator CR name (empty = list first)
-	conditionFilter      conditionFilterFunc                        // Operator condition filter
-	availabilitySeverity common.ConditionSeverity                   // availSeverityNone = no report, Error = Ready=False, Info = Ready=True
-	platform             string                                     // "ocp", "xks", "" (both)
-	conditionGroup       string                                     // group into same condition
-	skipFunc             func(kserve *platformv1alpha1.Kserve) bool // true → skip this check
+	name                   string
+	checkType              checkType
+	crdName                string                                     // Full CRD name (e.g. "authorizationpolicies.security.istio.io")
+	subscriptionName       string                                     // Subscription check
+	operatorGVK            schema.GroupVersionKind                    // Operator CR GVK
+	operatorCRName         string                                     // Operator CR name (empty = list first)
+	conditionFilter        conditionFilterFunc                        // Operator condition filter
+	availabilitySeverity   common.ConditionSeverity                   // availSeverityNone = no report, Error = Ready=False, Info = Ready=True
+	platform               string                                     // "ocp", "xks", "" (both)
+	conditionGroup         string                                     // group into same condition
+	skipFunc               func(kserve *platformv1alpha1.Kserve) bool // true → skip this check
+	supportedArchitectures []string                                   // nil/empty = all; non-empty = only run on listed GOARCH values
 }
 
 type availabilityReason struct {
@@ -136,8 +138,25 @@ var kserveDependencies = []dependencyCheck{
 	},
 
 	// OCP Subscription checks — optional, group condition only
-	subscriptionDep("Red Hat Connectivity Link", rhclSubscription, conditionLLMISVCDeps, "ocp", availSeverityNone),
-	subscriptionDep("Red Hat Connectivity Link (Wide EP)", rhclSubscription, conditionLLMISVCWideEPDeps, "ocp", availSeverityNone),
+	// RHCL is not available on ppc64le/s390x; skip on unsupported architectures.
+	{
+		name:                   "Red Hat Connectivity Link",
+		checkType:              checkSubscription,
+		subscriptionName:       rhclSubscription,
+		conditionGroup:         conditionLLMISVCDeps,
+		platform:               "ocp",
+		availabilitySeverity:   availSeverityNone,
+		supportedArchitectures: []string{"amd64"},
+	},
+	{
+		name:                   "Red Hat Connectivity Link (Wide EP)",
+		checkType:              checkSubscription,
+		subscriptionName:       rhclSubscription,
+		conditionGroup:         conditionLLMISVCWideEPDeps,
+		platform:               "ocp",
+		availabilitySeverity:   availSeverityNone,
+		supportedArchitectures: []string{"amd64"},
+	},
 	subscriptionDep("cert-manager operator", certManagerSubscription, conditionLLMISVCDeps, "ocp", availSeverityNone),
 	subscriptionDep("cert-manager operator (Wide EP)", certManagerSubscription, conditionLLMISVCWideEPDeps, "ocp", availSeverityNone),
 	subscriptionDep("LeaderWorkerSet", lwsSubscription, conditionLLMISVCWideEPDeps, "ocp", availSeverityNone),
@@ -189,6 +208,9 @@ func (r *KserveModuleReconciler) checkDependencies(ctx context.Context, kserve *
 			continue
 		}
 		if dep.platform == "xks" && !isXKS {
+			continue
+		}
+		if len(dep.supportedArchitectures) > 0 && !slices.Contains(dep.supportedArchitectures, runtime.GOARCH) {
 			continue
 		}
 		if dep.skipFunc != nil && dep.skipFunc(kserve) {

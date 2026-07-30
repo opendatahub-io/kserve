@@ -1,6 +1,7 @@
 package kservemodule
 
 import (
+	"runtime"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -31,6 +32,11 @@ func assertDependencyValid(g Gomega, dep dependencyCheck) {
 	g.Expect(dep.checkType).ShouldNot(BeEmpty(), "dependency %s must have a checkType", dep.name)
 	g.Expect(dep.platform).Should(BeElementOf("", "ocp", "xks"),
 		"dependency %s has invalid platform %q", dep.name, dep.platform)
+
+	for _, arch := range dep.supportedArchitectures {
+		g.Expect(arch).ShouldNot(BeEmpty(),
+			"dependency %s has empty supportedArchitectures entry", dep.name)
+	}
 
 	switch dep.checkType {
 	case checkCRD:
@@ -74,4 +80,40 @@ func TestLwsConditionFilter_Unknown(t *testing.T) {
 
 	g.Expect(lwsConditionFilter("SomeOther", "True")).Should(BeFalse())
 	g.Expect(lwsConditionFilter("", "")).Should(BeFalse())
+}
+
+func TestRHCLDependencies_RestrictedToAMD64(t *testing.T) {
+	g := NewWithT(t)
+
+	for _, dep := range kserveDependencies {
+		if dep.subscriptionName != rhclSubscription {
+			continue
+		}
+		g.Expect(dep.supportedArchitectures).Should(ContainElement("amd64"),
+			"RHCL dependency %q must list amd64 in supportedArchitectures", dep.name)
+		g.Expect(dep.supportedArchitectures).ShouldNot(ContainElement("ppc64le"),
+			"RHCL dependency %q must not list ppc64le (RHCL unsupported on Power)", dep.name)
+		g.Expect(dep.supportedArchitectures).ShouldNot(ContainElement("s390x"),
+			"RHCL dependency %q must not list s390x (RHCL unsupported on IBM Z)", dep.name)
+	}
+}
+
+func TestSupportedArchitectures_FilterSkipsUnsupported(t *testing.T) {
+	g := NewWithT(t)
+
+	dep := dependencyCheck{
+		name:                   "test-dep",
+		checkType:              checkSubscription,
+		subscriptionName:       "test-sub",
+		conditionGroup:         conditionLLMISVCDeps,
+		supportedArchitectures: []string{"amd64"},
+	}
+
+	if runtime.GOARCH == "amd64" {
+		g.Expect(dep.supportedArchitectures).Should(ContainElement(runtime.GOARCH),
+			"on amd64, dep should match the current architecture")
+	} else {
+		g.Expect(dep.supportedArchitectures).ShouldNot(ContainElement(runtime.GOARCH),
+			"on non-amd64, dep should not match the current architecture")
+	}
 }
