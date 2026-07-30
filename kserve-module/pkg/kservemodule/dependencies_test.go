@@ -91,12 +91,8 @@ func TestRHCLDependencies_RestrictedToAMD64(t *testing.T) {
 			continue
 		}
 		rhclDependencyCount++
-		g.Expect(dep.supportedArchitectures).Should(ContainElement("amd64"),
-			"RHCL dependency %q must list amd64 in supportedArchitectures", dep.name)
-		g.Expect(dep.supportedArchitectures).ShouldNot(ContainElement("ppc64le"),
-			"RHCL dependency %q must not list ppc64le (RHCL unsupported on Power)", dep.name)
-		g.Expect(dep.supportedArchitectures).ShouldNot(ContainElement("s390x"),
-			"RHCL dependency %q must not list s390x (RHCL unsupported on IBM Z)", dep.name)
+		g.Expect(dep.supportedArchitectures).Should(Equal([]string{"amd64"}),
+			"RHCL dependency %q must be restricted to amd64 only", dep.name)
 	}
 	g.Expect(rhclDependencyCount).Should(Equal(2),
 		"expected exactly 2 RHCL dependencies (standard and Wide EP), found %d", rhclDependencyCount)
