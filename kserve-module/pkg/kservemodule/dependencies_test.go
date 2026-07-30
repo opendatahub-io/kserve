@@ -85,10 +85,12 @@ func TestLwsConditionFilter_Unknown(t *testing.T) {
 func TestRHCLDependencies_RestrictedToAMD64(t *testing.T) {
 	g := NewWithT(t)
 
+	rhclDependencyCount := 0
 	for _, dep := range kserveDependencies {
 		if dep.subscriptionName != rhclSubscription {
 			continue
 		}
+		rhclDependencyCount++
 		g.Expect(dep.supportedArchitectures).Should(ContainElement("amd64"),
 			"RHCL dependency %q must list amd64 in supportedArchitectures", dep.name)
 		g.Expect(dep.supportedArchitectures).ShouldNot(ContainElement("ppc64le"),
@@ -96,6 +98,8 @@ func TestRHCLDependencies_RestrictedToAMD64(t *testing.T) {
 		g.Expect(dep.supportedArchitectures).ShouldNot(ContainElement("s390x"),
 			"RHCL dependency %q must not list s390x (RHCL unsupported on IBM Z)", dep.name)
 	}
+	g.Expect(rhclDependencyCount).Should(Equal(2),
+		"expected exactly 2 RHCL dependencies (standard and Wide EP), found %d", rhclDependencyCount)
 }
 
 func TestSupportedArchitectures_FilterSkipsUnsupported(t *testing.T) {
