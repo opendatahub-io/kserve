@@ -38,27 +38,48 @@ func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
 }
 
 func applyDependencyConditions(condMgr *conditions.Manager, result dependencyResult) {
-	slices.Sort(result.criticalErrors)
-	slices.Sort(result.degradedReasons)
+	slices.Sort(result.allReasons)
 
-	if len(result.criticalErrors) > 0 {
+	// DependenciesAvailable: only deps with availabilitySeverity != availSeverityNone contribute.
+	// Severity=Info keeps IsHappy()=True (findUnhappyDependent skips non-Error severities).
+	if len(result.availReasons) > 0 {
+		worstSeverity := common.ConditionSeverityInfo
+		msgs := make([]string, 0, len(result.availReasons))
+		for _, ar := range result.availReasons {
+			msgs = append(msgs, ar.message)
+			if ar.severity == common.ConditionSeverityError {
+				worstSeverity = common.ConditionSeverityError
+			}
+		}
+		slices.Sort(msgs)
 		condMgr.MarkFalse(ConditionDependenciesAvailable,
+			conditions.WithSeverity(worstSeverity),
 			conditions.WithReason("DependencyDegraded"),
-			conditions.WithMessage("%s", strings.Join(result.criticalErrors, "; ")))
-		condMgr.MarkTrue(string(common.ConditionTypeDegraded),
-			conditions.WithSeverity(common.ConditionSeverityError),
-			conditions.WithReason("MissingCriticalDependency"),
-			conditions.WithMessage("%s", strings.Join(result.criticalErrors, "; ")))
-	} else if len(result.degradedReasons) > 0 {
-		condMgr.MarkTrue(ConditionDependenciesAvailable,
-			conditions.WithReason("AllCriticalDependenciesMet"))
-		condMgr.MarkTrue(string(common.ConditionTypeDegraded),
-			conditions.WithSeverity(common.ConditionSeverityInfo),
-			conditions.WithReason("MissingOptionalDependency"),
-			conditions.WithMessage("%s", strings.Join(result.degradedReasons, "; ")))
+			conditions.WithMessage("%s", strings.Join(msgs, "; ")))
 	} else {
 		condMgr.MarkTrue(ConditionDependenciesAvailable,
 			conditions.WithReason("AllDependenciesMet"))
+	}
+
+	// Degraded: any failure contributes, severity escalates if Error-level deps failed
+	if hasCriticalFailure(result) {
+		var criticalMsgs []string
+		for _, ar := range result.availReasons {
+			if ar.severity == common.ConditionSeverityError {
+				criticalMsgs = append(criticalMsgs, ar.message)
+			}
+		}
+		slices.Sort(criticalMsgs)
+		condMgr.MarkTrue(string(common.ConditionTypeDegraded),
+			conditions.WithSeverity(common.ConditionSeverityError),
+			conditions.WithReason("MissingCriticalDependency"),
+			conditions.WithMessage("%s", strings.Join(criticalMsgs, "; ")))
+	} else if len(result.allReasons) > 0 {
+		condMgr.MarkFalse(string(common.ConditionTypeDegraded),
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason("MissingOptionalDependency"),
+			conditions.WithMessage("%s", strings.Join(result.allReasons, "; ")))
+	} else {
 		condMgr.MarkFalse(string(common.ConditionTypeDegraded),
 			conditions.WithSeverity(common.ConditionSeverityInfo),
 			conditions.WithReason("NoDegradation"))
@@ -67,14 +88,13 @@ func applyDependencyConditions(condMgr *conditions.Manager, result dependencyRes
 	for group, reasons := range result.groupReasons {
 		slices.Sort(reasons)
 		if len(reasons) > 0 {
-			condMgr.MarkTrue(group,
-				conditions.WithSeverity(common.ConditionSeverityInfo),
-				conditions.WithReason("MissingDependency"),
-				conditions.WithMessage("%s", strings.Join(reasons, "; ")))
-		} else {
 			condMgr.MarkFalse(group,
 				conditions.WithSeverity(common.ConditionSeverityInfo),
-				conditions.WithReason("AllDependenciesSatisfied"))
+				conditions.WithReason("PreConditionFailed"),
+				conditions.WithMessage("%s", strings.Join(reasons, "; ")))
+		} else {
+			condMgr.MarkTrue(group,
+				conditions.WithSeverity(common.ConditionSeverityInfo))
 		}
 	}
 }
@@ -143,11 +163,17 @@ func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, k
 }
 
 func (r *KserveModuleReconciler) updateStatus(ctx context.Context, kserve *platformv1alpha1.Kserve, condMgr *conditions.Manager) error {
-	r.setReleaseStatus(kserve)
+	r.setReleaseStatus(ctx, kserve)
 	condMgr.Sort()
 
 	if condMgr.IsHappy() {
 		kserve.Status.Phase = common.PhaseReady
+		for i := range kserve.Status.Conditions {
+			if kserve.Status.Conditions[i].Type == string(common.ConditionTypeReady) {
+				kserve.Status.Conditions[i].Reason = ""
+				break
+			}
+		}
 	} else {
 		kserve.Status.Phase = common.PhaseNotReady
 	}
@@ -167,12 +193,19 @@ func (r *KserveModuleReconciler) updateStatus(ctx context.Context, kserve *platf
 	})
 }
 
-func (r *KserveModuleReconciler) setReleaseStatus(kserve *platformv1alpha1.Kserve) {
+func (r *KserveModuleReconciler) setReleaseStatus(ctx context.Context, kserve *platformv1alpha1.Kserve) {
 	releases, err := loadComponentReleases(r.ManifestsTemplatePath,
 		[]string{KserveComponentName, OdhModelControllerComponentName})
 	if err != nil {
 		ctrl.Log.Error(err, "failed to load component releases")
 		return
+	}
+
+	if v := r.getPlatformVersion(ctx); v != "" {
+		releases = append(releases, common.ComponentRelease{
+			Name:    "platform",
+			Version: v,
+		})
 	}
 
 	kserve.SetReleaseStatus(common.ComponentReleaseStatus{Releases: releases})

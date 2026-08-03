@@ -58,6 +58,7 @@ rules:
   - ""
   resourceNames:
   - kserve-webhook-server-secret
+  - workload-variant-autoscaler-controller-manager-token
   - workload-variant-autoscaler-epp-metrics-token
   - workload-variant-autoscaler-metrics-reader-token
   resources:
@@ -157,6 +158,12 @@ rules:
   verbs:
   - get
 - apiGroups:
+  - infrastructure.opendatahub.io
+  resources:
+  - hardwareprofiles
+  verbs:
+  - get
+- apiGroups:
   - monitoring.coreos.com
   resourceNames:
   - k8s
@@ -210,9 +217,15 @@ rules:
   - get
   - update
 - apiGroups:
+  - opendatahub.io
+  resources:
+  - odhdashboardconfigs
+  verbs:
+  - get
+- apiGroups:
   - operator.openshift.io
   resources:
-  - leaderworkersets
+  - leaderworkersetoperators
   verbs:
   - get
   - list
@@ -224,6 +237,18 @@ rules:
   verbs:
   - get
   - list
+  - watch
+- apiGroups:
+  - perses.dev
+  resources:
+  - persesdashboards
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
   - watch
 - apiGroups:
   - rbac.authorization.k8s.io
@@ -266,8 +291,12 @@ rules:
   - kserve-localmodelnode-distro-role
   - kserve-manager-role
   - kserve-metrics-reader-cluster-role
+  - kserve-models-admin
+  - kserve-models-edit
+  - kserve-models-view
   - kserve-prometheus-k8s
   - kserve-proxy-role
+  - kserve-tls-distro-role
   - kserve-view
   - metrics-reader
   - model-serving-api
@@ -325,6 +354,19 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - inferenceservices
+  verbs:
+  - list
+  - patch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - servingruntimes
+  verbs:
+  - get
 - apiGroups:
   - template.openshift.io
   resources:

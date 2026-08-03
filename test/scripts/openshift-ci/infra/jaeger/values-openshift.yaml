@@ -1,0 +1,11 @@
+# OpenShift overrides for jaegertracing/jaeger All-in-One (chart 4.x).
+# Clear fixed UIDs so the restricted SCC can assign IDs from the namespace range.
+# Helm merge does not clear keys with {}; null is required.
+#
+# Keeps the default Service name "jaeger" with OTLP :4317 and Query :16686
+# expected by test/e2e/llmisvc/test_tracing.py.
+jaeger:
+  podSecurityContext:
+    runAsUser: null
+    runAsGroup: null
+    fsGroup: null

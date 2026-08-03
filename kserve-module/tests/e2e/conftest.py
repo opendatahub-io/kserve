@@ -1,5 +1,6 @@
 """Shared fixtures for kserve-module E2E tests."""
 
+import shutil
 import subprocess
 import time
 from dataclasses import dataclass
@@ -28,6 +29,7 @@ OPERAND_DEPLOYMENTS_OCP = [
 ]
 
 WVA_DEPLOYMENT = "workload-variant-autoscaler-controller-manager"
+WVA_CONFIGMAP = "workload-variant-autoscaler-saturation-scaling-config"
 MODEL_CONTROLLER_DEPLOYMENT = "odh-model-controller"
 
 KSERVE_CR_TEMPLATE = {
@@ -47,6 +49,53 @@ LMNG_RESOURCE = "localmodelnodegroups.serving.kserve.io"
 class ClusterInfo:
     is_openshift: bool
     kubectl: str  # "oc" or "kubectl"
+
+
+# ---------------------------------------------------------------------------
+# Cluster detection (shared by hook and fixture)
+# ---------------------------------------------------------------------------
+_cluster_detection_cache = None
+
+
+def _detect_openshift():
+    """Detect cluster type once; cached for the process lifetime."""
+    global _cluster_detection_cache
+    if _cluster_detection_cache is not None:
+        return _cluster_detection_cache
+
+    cli = "oc" if shutil.which("oc") else "kubectl"
+    if not shutil.which(cli):
+        _cluster_detection_cache = (False, cli)
+        return _cluster_detection_cache
+
+    result = subprocess.run(
+        [cli, "api-resources", "--api-group=config.openshift.io"],
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    is_ocp = result.returncode == 0 and "clusterversions" in result.stdout.lower()
+    _cluster_detection_cache = (is_ocp, cli)
+    return _cluster_detection_cache
+
+
+# ---------------------------------------------------------------------------
+# Pytest hooks
+# ---------------------------------------------------------------------------
+def pytest_collection_modifyitems(config, items):
+    """Skip @pytest.mark.ocp_only tests on non-OpenShift clusters.
+
+    Runs at collection time — before any fixture setup — so expensive
+    fixtures like apply_kserve_cr never execute on vanilla-k8s clusters.
+    """
+    is_ocp, _ = _detect_openshift()
+    if is_ocp:
+        return
+
+    skip_marker = pytest.mark.skip(reason="OCP-only test (not running on OpenShift)")
+    for item in items:
+        if "ocp_only" in item.keywords:
+            item.add_marker(skip_marker)
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +206,14 @@ def wait_for(assertion_fn, timeout=60.0, interval=5.0):
                     f"Last error: {last_error}"
                 ) from e
             time.sleep(interval)
+
+
+def wait_consistently(assertion_fn, duration=30.0, interval=5.0):
+    """Poll and assert condition stays true for the entire duration."""
+    deadline = time.time() + duration
+    while time.time() < deadline:
+        assertion_fn()
+        time.sleep(interval)
 
 
 def _poll_cr(kubectl_bin, name, predicate, timeout, msg):
@@ -326,19 +383,9 @@ def _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_
 @pytest.fixture(scope="session")
 def cluster_info():
     """Detect cluster type and pick the right CLI binary (oc or kubectl)."""
-    import shutil
-
-    cli = "oc" if shutil.which("oc") else "kubectl"
+    is_ocp, cli = _detect_openshift()
     if not shutil.which(cli):
         pytest.fail("Neither 'oc' nor 'kubectl' found in PATH")
-
-    result = subprocess.run(
-        [cli, "api-resources", "--api-group=config.openshift.io"],
-        capture_output=True,
-        text=True,
-        timeout=10,
-    )
-    is_ocp = result.returncode == 0 and "clusterversions" in result.stdout.lower()
     return ClusterInfo(is_openshift=is_ocp, kubectl=cli)
 
 
@@ -365,10 +412,10 @@ def apply_kserve_cr(kubectl, cluster_info):
 @pytest.fixture
 def model_cache_enabled(kubectl, cluster_info, apply_kserve_cr):
     """Enable ModelCache before the test and disable it after.
-    Skipped on non-OpenShift clusters (no XKS overlay for modelcache).
+
+    Requires @pytest.mark.ocp_only on the test; the collection hook
+    skips non-OpenShift clusters before this fixture runs.
     """
-    if not cluster_info.is_openshift:
-        pytest.skip("ModelCache reconciliation requires OpenShift")
     worker = get_worker_node(kubectl, is_openshift=cluster_info.is_openshift)
     enable_model_cache(kubectl, worker)
     _poll_cr(
@@ -397,3 +444,49 @@ def model_cache_enabled(kubectl, cluster_info, apply_kserve_cr):
         TIMEOUT_120S,
         f"ModelCache disable not reconciled within {TIMEOUT_120S}s",
     )
+
+
+PLATFORM_VERSION_CM = "odh-kserve-config"
+TEST_PLATFORM_VERSION = "99.0.0"
+
+
+def platform_configmap_exists(kubectl_bin):
+    """Check if the platform version ConfigMap already exists."""
+    return resource_exists(kubectl_bin, "configmap", PLATFORM_VERSION_CM, namespace=NAMESPACE)
+
+
+@pytest.fixture
+def ensure_platform_configmap(kubectl, apply_kserve_cr):
+    """Ensure odh-kserve-config ConfigMap exists with a platformVersion.
+
+    If it already exists (e.g. platform operator created it), leave it alone.
+    Otherwise create a test one and clean up after.
+    """
+    already_existed = platform_configmap_exists(kubectl)
+
+    if not already_existed:
+        cm_yaml = yaml.safe_dump({
+            "apiVersion": "v1",
+            "kind": "ConfigMap",
+            "metadata": {"name": PLATFORM_VERSION_CM, "namespace": NAMESPACE},
+            "data": {"platformVersion": TEST_PLATFORM_VERSION},
+        })
+        run([kubectl, "apply", "-f", "-"], input_text=cm_yaml)
+        _poll_cr(
+            kubectl,
+            KSERVE_CR_NAME,
+            lambda cr: any(
+                r.get("name") == "platform"
+                for r in cr.get("status", {}).get("releases", [])
+            ),
+            TIMEOUT_60S,
+            "platform release not reported after ConfigMap creation",
+        )
+
+    yield
+
+    if not already_existed:
+        run(
+            [kubectl, "delete", "configmap", PLATFORM_VERSION_CM, "-n", NAMESPACE, "--ignore-not-found"],
+            check=False,
+        )

@@ -21,11 +21,13 @@ package inferenceservice
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 )
 
 // reconcileWorkloadPlatformPermissions is a no-op for non-distro builds.
 // Platform-specific permissions (e.g., OpenShift SCCs) are only needed in distro builds.
-func (r *InferenceServiceReconciler) reconcileWorkloadPlatformPermissions(_ context.Context, _ *v1beta1.InferenceService) error {
+func (r *InferenceServiceReconciler) reconcileWorkloadPlatformPermissions(_ context.Context, _ *v1beta1.InferenceService, _ *corev1.ConfigMap) error {
 	return nil
 }

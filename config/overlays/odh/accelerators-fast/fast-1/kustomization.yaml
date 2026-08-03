@@ -6,5 +6,8 @@ nameSuffix: -fast-1
 commonLabels:
   opendatahub.io/config-type: accelerator
 
+commonAnnotations:
+  opendatahub.io/fast-version: '1'
+
 resources:
 - ../../accelerators

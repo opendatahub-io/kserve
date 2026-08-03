@@ -3,4 +3,6 @@ kind: Kustomization
 resources:
   - inferenceservice
   - llmisvc
+  - models
+  - tls
   - user-cluster-roles.yaml

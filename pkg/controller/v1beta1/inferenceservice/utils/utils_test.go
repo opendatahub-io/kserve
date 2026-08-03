@@ -17,7 +17,6 @@ limitations under the License.
 package utils
 
 import (
-	"context"
 	"errors"
 	"strconv"
 	"testing"
@@ -703,200 +702,6 @@ func TestIsMemoryResourceAvailable(t *testing.T) {
 	}
 }
 
-func TestGetServerTypeFromIsvc(t *testing.T) {
-	g := gomega.NewGomegaWithT(t)
-	namespace := "default"
-
-	scenarios := map[string]struct {
-		isvc         *InferenceService
-		runtimes     []runtime.Object
-		expectedType string
-		expectError  bool
-		errorMatcher types.GomegaMatcher
-	}{
-		"NilInferenceService": {
-			isvc:         nil,
-			runtimes:     []runtime.Object{},
-			expectedType: "",
-			expectError:  false,
-		},
-		"NoRuntimeInStatus": {
-			isvc: &InferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-isvc",
-					Namespace: namespace,
-				},
-				Status: InferenceServiceStatus{},
-			},
-			runtimes:     []runtime.Object{},
-			expectedType: "",
-			expectError:  false,
-		},
-		"NamespacedRuntimeWithServerTypeAnnotation": {
-			isvc: &InferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-isvc",
-					Namespace: namespace,
-				},
-				Status: InferenceServiceStatus{
-					ServingRuntimeName: "mlserver-runtime",
-				},
-			},
-			runtimes: []runtime.Object{
-				&v1alpha1.ServingRuntime{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "mlserver-runtime",
-						Namespace: namespace,
-						Annotations: map[string]string{
-							constants.ServerTypeAnnotationKey: constants.ServerTypeMLServer,
-						},
-					},
-					Spec: v1alpha1.ServingRuntimeSpec{
-						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
-							{Name: "sklearn"},
-						},
-					},
-				},
-			},
-			expectedType: constants.ServerTypeMLServer,
-			expectError:  false,
-		},
-		"ClusterRuntimeWithServerTypeAnnotation": {
-			isvc: &InferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-isvc",
-					Namespace: namespace,
-				},
-				Status: InferenceServiceStatus{
-					ClusterServingRuntimeName: "global-mlserver",
-				},
-			},
-			runtimes: []runtime.Object{
-				&v1alpha1.ClusterServingRuntime{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "global-mlserver",
-						Annotations: map[string]string{
-							constants.ServerTypeAnnotationKey: constants.ServerTypeMLServer,
-						},
-					},
-					Spec: v1alpha1.ServingRuntimeSpec{
-						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
-							{Name: "sklearn"},
-						},
-					},
-				},
-			},
-			expectedType: constants.ServerTypeMLServer,
-			expectError:  false,
-		},
-		"RuntimeWithoutAnnotation": {
-			isvc: &InferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-isvc",
-					Namespace: namespace,
-				},
-				Status: InferenceServiceStatus{
-					ServingRuntimeName: "custom-runtime",
-				},
-			},
-			runtimes: []runtime.Object{
-				&v1alpha1.ServingRuntime{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "custom-runtime",
-						Namespace: namespace,
-					},
-					Spec: v1alpha1.ServingRuntimeSpec{
-						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
-							{Name: "custom"},
-						},
-					},
-				},
-			},
-			expectedType: "",
-			expectError:  false,
-		},
-		"RuntimeNotFound": {
-			isvc: &InferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-isvc",
-					Namespace: namespace,
-				},
-				Status: InferenceServiceStatus{
-					ServingRuntimeName: "nonexistent-runtime",
-				},
-			},
-			runtimes:     []runtime.Object{},
-			expectedType: "",
-			expectError:  true,
-			errorMatcher: gomega.MatchError(gomega.ContainSubstring("No ServingRuntimes or ClusterServingRuntimes")),
-		},
-		"NamespacedRuntimeTakesPrecedence": {
-			isvc: &InferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-isvc",
-					Namespace: namespace,
-				},
-				Status: InferenceServiceStatus{
-					ServingRuntimeName:        "namespaced-runtime",
-					ClusterServingRuntimeName: "cluster-runtime",
-				},
-			},
-			runtimes: []runtime.Object{
-				&v1alpha1.ServingRuntime{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      "namespaced-runtime",
-						Namespace: namespace,
-						Annotations: map[string]string{
-							constants.ServerTypeAnnotationKey: "namespaced-type",
-						},
-					},
-					Spec: v1alpha1.ServingRuntimeSpec{
-						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
-							{Name: "sklearn"},
-						},
-					},
-				},
-				&v1alpha1.ClusterServingRuntime{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-runtime",
-						Annotations: map[string]string{
-							constants.ServerTypeAnnotationKey: "cluster-type",
-						},
-					},
-					Spec: v1alpha1.ServingRuntimeSpec{
-						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
-							{Name: "sklearn"},
-						},
-					},
-				},
-			},
-			expectedType: "namespaced-type",
-			expectError:  false,
-		},
-	}
-
-	for name, scenario := range scenarios {
-		t.Run(name, func(t *testing.T) {
-			scheme := runtime.NewScheme()
-			err := v1alpha1.AddToScheme(scheme)
-			g.Expect(err).NotTo(gomega.HaveOccurred())
-			err = SchemeBuilder.AddToScheme(scheme)
-			g.Expect(err).NotTo(gomega.HaveOccurred())
-
-			client := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(scenario.runtimes...).Build()
-
-			serverType, err := GetServerTypeFromIsvc(context.Background(), client, scenario.isvc)
-
-			if scenario.expectError {
-				g.Expect(err).To(scenario.errorMatcher)
-			} else {
-				g.Expect(err).NotTo(gomega.HaveOccurred())
-				g.Expect(serverType).To(gomega.Equal(scenario.expectedType))
-			}
-		})
-	}
-}
-
 func TestMergeRuntimeContainers(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
 
@@ -1119,6 +924,119 @@ func TestMergePodSpec(t *testing.T) {
 				SchedulerName: "isvc-scheduler",
 			},
 		},
+		"RuntimeOnlyResourceClaims": {
+			podSpecBase: &v1alpha1.ServingRuntimePodSpec{
+				ResourceClaims: []corev1.PodResourceClaim{
+					{
+						Name:              "gpu-resource",
+						ResourceClaimName: ptr.To("gpu-l4-claim"),
+					},
+				},
+			},
+			podSpecOverride: &PodSpec{},
+			expected: &corev1.PodSpec{
+				ResourceClaims: []corev1.PodResourceClaim{
+					{
+						Name:              "gpu-resource",
+						ResourceClaimName: ptr.To("gpu-l4-claim"),
+					},
+				},
+			},
+		},
+		"RuntimeOnlyResourceClaimTemplate": {
+			podSpecBase: &v1alpha1.ServingRuntimePodSpec{
+				ResourceClaims: []corev1.PodResourceClaim{
+					{
+						Name:                      "gpu-resource",
+						ResourceClaimTemplateName: ptr.To("gpu-claim-template"),
+					},
+				},
+			},
+			podSpecOverride: &PodSpec{},
+			expected: &corev1.PodSpec{
+				ResourceClaims: []corev1.PodResourceClaim{
+					{
+						Name:                      "gpu-resource",
+						ResourceClaimTemplateName: ptr.To("gpu-claim-template"),
+					},
+				},
+			},
+		},
+		"IsvcOnlyResourceClaims": {
+			podSpecBase: &v1alpha1.ServingRuntimePodSpec{},
+			podSpecOverride: &PodSpec{
+				ResourceClaims: []corev1.PodResourceClaim{
+					{
+						Name:              "gpu-hardware",
+						ResourceClaimName: ptr.To("gpu-l4-claim"),
+					},
+				},
+			},
+			expected: &corev1.PodSpec{
+				ResourceClaims: []corev1.PodResourceClaim{
+					{
+						Name:              "gpu-hardware",
+						ResourceClaimName: ptr.To("gpu-l4-claim"),
+					},
+				},
+			},
+		},
+		"BothDistinctResourceClaims": {
+			podSpecBase: &v1alpha1.ServingRuntimePodSpec{
+				ResourceClaims: []corev1.PodResourceClaim{
+					{
+						Name:              "gpu-a",
+						ResourceClaimName: ptr.To("claim-a"),
+					},
+				},
+			},
+			podSpecOverride: &PodSpec{
+				ResourceClaims: []corev1.PodResourceClaim{
+					{
+						Name:              "gpu-b",
+						ResourceClaimName: ptr.To("claim-b"),
+					},
+				},
+			},
+			expected: &corev1.PodSpec{
+				ResourceClaims: []corev1.PodResourceClaim{
+					{
+						Name:              "gpu-b",
+						ResourceClaimName: ptr.To("claim-b"),
+					},
+					{
+						Name:              "gpu-a",
+						ResourceClaimName: ptr.To("claim-a"),
+					},
+				},
+			},
+		},
+		"OverrideSameNameResourceClaims": {
+			podSpecBase: &v1alpha1.ServingRuntimePodSpec{
+				ResourceClaims: []corev1.PodResourceClaim{
+					{
+						Name:              "gpu",
+						ResourceClaimName: ptr.To("runtime-claim"),
+					},
+				},
+			},
+			podSpecOverride: &PodSpec{
+				ResourceClaims: []corev1.PodResourceClaim{
+					{
+						Name:              "gpu",
+						ResourceClaimName: ptr.To("isvc-claim"),
+					},
+				},
+			},
+			expected: &corev1.PodSpec{
+				ResourceClaims: []corev1.PodResourceClaim{
+					{
+						Name:              "gpu",
+						ResourceClaimName: ptr.To("isvc-claim"),
+					},
+				},
+			},
+		},
 	}
 
 	for name, scenario := range scenarios {
@@ -1188,16 +1106,16 @@ func TestGetServingRuntime(t *testing.T) {
 		},
 	}
 
-	// clusterRuntimes := &v1alpha1.ClusterServingRuntimeList{
-	//	Items: []v1alpha1.ClusterServingRuntime{
-	//		{
-	//			ObjectMeta: metav1.ObjectMeta{
-	//				Name: sklearnRuntime,
-	//			},
-	//			Spec: servingRuntimeSpecs[sklearnRuntime],
-	//		},
-	//	},
-	//}
+	clusterRuntimes := &v1alpha1.ClusterServingRuntimeList{
+		Items: []v1alpha1.ClusterServingRuntime{
+			{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: sklearnRuntime,
+				},
+				Spec: servingRuntimeSpecs[sklearnRuntime],
+			},
+		},
+	}
 
 	scenarios := map[string]struct {
 		runtimeName string
@@ -1207,21 +1125,27 @@ func TestGetServingRuntime(t *testing.T) {
 			runtimeName: tfRuntime,
 			expected:    servingRuntimeSpecs[tfRuntime],
 		},
-		// "ClusterServingRuntime": {
-		//	runtimeName: sklearnRuntime,
-		//	expected:    servingRuntimeSpecs[sklearnRuntime],
-		// },
+		"ClusterServingRuntime": {
+			runtimeName: sklearnRuntime,
+			expected:    servingRuntimeSpecs[sklearnRuntime],
+		},
 	}
 
 	s := runtime.NewScheme()
 	_ = v1alpha1.AddToScheme(s)
 
-	mockClient := fake.NewClientBuilder().WithLists(runtimes /*, clusterRuntimes*/).WithScheme(s).Build()
+	mockClient := fake.NewClientBuilder().WithLists(runtimes, clusterRuntimes).WithScheme(s).Build()
 	for name, scenario := range scenarios {
 		t.Run(name, func(t *testing.T) {
-			res, _, _, _ := GetServingRuntime(t.Context(), mockClient, scenario.runtimeName, namespace)
+			res, _, _, isClusterServingRuntime := GetServingRuntime(t.Context(), mockClient, scenario.runtimeName, namespace)
 			if !g.Expect(res).To(gomega.Equal(&scenario.expected)) {
 				t.Errorf("got %v, want %v", res, &scenario.expected)
+			}
+			// Check if the returned runtime is a cluster serving runtime
+			if name == "ClusterServingRuntime" {
+				g.Expect(isClusterServingRuntime).To(gomega.BeTrue())
+			} else {
+				g.Expect(isClusterServingRuntime).To(gomega.BeFalse())
 			}
 		})
 	}
@@ -2361,6 +2285,7 @@ func TestValidateStorageURIForDefaultStorageInitializer(t *testing.T) {
 		"http://raw.githubusercontent.com/someOrg/someRepo/model.tar.gz",
 		"hdfs://",
 		"webhdfs://",
+		"oci+native://ghcr.io/kserve/oci-native-test-fixture:v1",
 		"some/relative/path",
 		"/",
 		"foo",

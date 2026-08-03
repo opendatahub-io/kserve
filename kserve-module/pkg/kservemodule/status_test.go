@@ -76,12 +76,12 @@ func TestApplyDependencyConditions_Degraded(t *testing.T) {
 	condMgr := newConditionManager(kserve)
 
 	applyDependencyConditions(condMgr, dependencyResult{
-		degradedReasons: []string{"Istio CRD not found"},
+		allReasons: []string{"Istio CRD not found"},
 	})
 
 	cond := condMgr.GetCondition(string(common.ConditionTypeDegraded))
 	g.Expect(cond).ShouldNot(BeNil())
-	g.Expect(cond.Status).Should(Equal(metav1.ConditionTrue))
+	g.Expect(cond.Status).Should(Equal(metav1.ConditionFalse))
 	g.Expect(cond.Severity).Should(Equal(common.ConditionSeverityInfo))
 }
 
@@ -135,6 +135,75 @@ func TestHappyCondition_DependenciesNotAvailable(t *testing.T) {
 	g.Expect(condMgr.IsHappy()).Should(BeFalse())
 }
 
+func depResultWithAvail(severity common.ConditionSeverity, msg string) dependencyResult {
+	return dependencyResult{
+		availReasons: []availabilityReason{{severity: severity, message: msg}},
+		allReasons:   []string{msg},
+	}
+}
+
+func TestApplyDependencyConditions_AvailInfoKeepsReady(t *testing.T) {
+	g := NewWithT(t)
+
+	kserve := &platformv1alpha1.Kserve{}
+	condMgr := newConditionManager(kserve)
+	markAllHealthy(condMgr)
+
+	applyDependencyConditions(condMgr, depResultWithAvail(common.ConditionSeverityInfo, "LWS operator degraded"))
+
+	depCond := condMgr.GetCondition(ConditionDependenciesAvailable)
+	g.Expect(depCond).ShouldNot(BeNil())
+	g.Expect(depCond.Status).Should(Equal(metav1.ConditionFalse))
+	g.Expect(depCond.Severity).Should(Equal(common.ConditionSeverityInfo))
+
+	g.Expect(condMgr.IsHappy()).Should(BeTrue())
+}
+
+func TestApplyDependencyConditions_AvailErrorBreaksReady(t *testing.T) {
+	g := NewWithT(t)
+
+	kserve := &platformv1alpha1.Kserve{}
+	condMgr := newConditionManager(kserve)
+	markAllHealthy(condMgr)
+
+	applyDependencyConditions(condMgr, depResultWithAvail(common.ConditionSeverityError, "cert-manager CRD not found"))
+
+	depCond := condMgr.GetCondition(ConditionDependenciesAvailable)
+	g.Expect(depCond).ShouldNot(BeNil())
+	g.Expect(depCond.Status).Should(Equal(metav1.ConditionFalse))
+
+	g.Expect(condMgr.IsHappy()).Should(BeFalse())
+}
+
+func TestApplyDependencyConditions_MixedSeverityUsesWorst(t *testing.T) {
+	g := NewWithT(t)
+
+	kserve := &platformv1alpha1.Kserve{}
+	condMgr := newConditionManager(kserve)
+	markAllHealthy(condMgr)
+
+	applyDependencyConditions(condMgr, dependencyResult{
+		availReasons: []availabilityReason{
+			{severity: common.ConditionSeverityInfo, message: "LWS operator degraded"},
+			{severity: common.ConditionSeverityError, message: "cert-manager CRD not found"},
+		},
+		allReasons: []string{"LWS operator degraded", "cert-manager CRD not found"},
+	})
+
+	depCond := condMgr.GetCondition(ConditionDependenciesAvailable)
+	g.Expect(depCond).ShouldNot(BeNil())
+	g.Expect(depCond.Status).Should(Equal(metav1.ConditionFalse))
+	g.Expect(depCond.Severity).Should(Equal(common.ConditionSeverityError))
+
+	degradedCond := condMgr.GetCondition(string(common.ConditionTypeDegraded))
+	g.Expect(degradedCond).ShouldNot(BeNil())
+	g.Expect(degradedCond.Status).Should(Equal(metav1.ConditionTrue))
+	g.Expect(degradedCond.Message).Should(ContainSubstring("cert-manager"))
+	g.Expect(degradedCond.Message).ShouldNot(ContainSubstring("LWS"))
+
+	g.Expect(condMgr.IsHappy()).Should(BeFalse())
+}
+
 func TestDegradedDoesNotAffectReady(t *testing.T) {
 	g := NewWithT(t)
 
@@ -143,7 +212,7 @@ func TestDegradedDoesNotAffectReady(t *testing.T) {
 	markAllHealthy(condMgr)
 
 	applyDependencyConditions(condMgr, dependencyResult{
-		degradedReasons: []string{"optional dep missing"},
+		allReasons: []string{"optional dep missing"},
 	})
 
 	g.Expect(condMgr.IsHappy()).Should(BeTrue())
@@ -163,7 +232,7 @@ func TestApplyDependencyConditions_GroupCondition(t *testing.T) {
 
 	cond := condMgr.GetCondition(conditionLLMISVCDeps)
 	g.Expect(cond).ShouldNot(BeNil())
-	g.Expect(cond.Status).Should(Equal(metav1.ConditionTrue))
+	g.Expect(cond.Status).Should(Equal(metav1.ConditionFalse))
 	g.Expect(cond.Severity).Should(Equal(common.ConditionSeverityInfo))
 	g.Expect(cond.Message).Should(ContainSubstring("RHCL"))
 }
@@ -202,5 +271,5 @@ func TestGroupConditionsSetByApply(t *testing.T) {
 
 	cond := condMgr.GetCondition(conditionLLMISVCDeps)
 	g.Expect(cond).ShouldNot(BeNil(), "group condition should be set after apply")
-	g.Expect(cond.Status).Should(Equal(metav1.ConditionTrue))
+	g.Expect(cond.Status).Should(Equal(metav1.ConditionFalse))
 }

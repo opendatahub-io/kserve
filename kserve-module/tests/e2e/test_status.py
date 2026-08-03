@@ -39,4 +39,12 @@ class TestStatusConditions:
         assert cr["status"]["phase"] == "Ready"
         assert cr["status"]["observedGeneration"] == cr["metadata"]["generation"]
 
+    def test_releases_include_platform_version(self, kubectl, ensure_platform_configmap):
+        """status.releases includes a platform entry from the odh-kserve-config ConfigMap."""
+        cr = get_cr(kubectl)
+        releases = cr.get("status", {}).get("releases", [])
+        release_names = {r["name"] for r in releases}
+        assert "platform" in release_names, f"expected 'platform' in releases, got {release_names}"
 
+        platform = next(r for r in releases if r["name"] == "platform")
+        assert platform["version"] != "", "platform version should not be empty"

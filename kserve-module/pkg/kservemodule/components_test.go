@@ -67,7 +67,25 @@ func TestComponentsConfig_WVAHasEnabled(t *testing.T) {
 	}
 	g.Expect(wva).ShouldNot(BeNil(), "WVA component not registered")
 	g.Expect(wva.enabled).ShouldNot(BeNil(), "WVA must have enabled predicate")
+	g.Expect(wva.sourcePath).Should(Equal(WVAManifestSourcePathOCP), "WVA OCP source path must match upstream WVA kustomize overlay")
 	g.Expect(wva.sourcePathXKS).Should(BeEmpty(), "WVA is OCP-only, must not have XKS overlay")
+}
+
+func TestComponentsConfig_ConsoleDashboardsRegistration(t *testing.T) {
+	g := NewWithT(t)
+	var cd *componentConfig
+	for i := range components {
+		if components[i].name == ConsoleDashboardsComponentName {
+			cd = &components[i]
+			break
+		}
+	}
+	g.Expect(cd).ShouldNot(BeNil(), "console-dashboards component not registered")
+	g.Expect(cd.sourcePath).Should(Equal(ConsoleDashboardsManifestSourcePath))
+	g.Expect(cd.dirName()).Should(Equal(KserveComponentName), "manifestName must resolve to kserve dir")
+	g.Expect(cd.sourcePathXKS).Should(BeEmpty(), "console-dashboards is OCP-only, must not have XKS overlay")
+	g.Expect(cd.enabled).Should(BeNil(), "gating is done in postRender, not enabled")
+	g.Expect(cd.postRender).ShouldNot(BeNil(), "postRender must be set for namespace check")
 }
 
 func TestModelControllerExtraParams(t *testing.T) {
@@ -119,6 +137,68 @@ func TestModelControllerExtraParams(t *testing.T) {
 			g.Expect(params["kserve-state"]).To(Equal(tt.expectedKserve))
 		})
 	}
+}
+
+func TestSplitByOwnership(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := []unstructured.Unstructured{
+		{Object: map[string]any{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata":   map[string]any{"name": "kserve-controller"},
+		}},
+		{Object: map[string]any{
+			"apiVersion": "serving.kserve.io/v1alpha2",
+			"kind":       "LLMInferenceServiceConfig",
+			"metadata":   map[string]any{"name": "vllm-config"},
+		}},
+		{Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata":   map[string]any{"name": "inferenceservice-config"},
+		}},
+		{Object: map[string]any{
+			"apiVersion": "serving.kserve.io/v1alpha2",
+			"kind":       "LLMInferenceServiceConfig",
+			"metadata":   map[string]any{"name": "tgis-config"},
+		}},
+	}
+
+	owned, unowned := splitByOwnership(resources)
+
+	g.Expect(owned).To(HaveLen(2))
+	g.Expect(unowned).To(HaveLen(2))
+
+	for _, r := range owned {
+		g.Expect(r.GetKind()).NotTo(Equal("LLMInferenceServiceConfig"))
+	}
+	for _, r := range unowned {
+		g.Expect(r.GetKind()).To(Equal("LLMInferenceServiceConfig"))
+	}
+}
+
+func TestSplitByOwnership_AllOwned(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := []unstructured.Unstructured{
+		{Object: map[string]any{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata":   map[string]any{"name": "deploy"},
+		}},
+	}
+
+	owned, unowned := splitByOwnership(resources)
+	g.Expect(owned).To(HaveLen(1))
+	g.Expect(unowned).To(BeEmpty())
+}
+
+func TestSplitByOwnership_Empty(t *testing.T) {
+	g := NewWithT(t)
+	owned, unowned := splitByOwnership(nil)
+	g.Expect(owned).To(BeNil())
+	g.Expect(unowned).To(BeNil())
 }
 
 func TestApplyManagedByLabel(t *testing.T) {

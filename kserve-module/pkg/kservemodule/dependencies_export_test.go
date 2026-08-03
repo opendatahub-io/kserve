@@ -3,6 +3,8 @@ package kservemodule
 import (
 	"fmt"
 	"strings"
+
+	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 )
 
 type CRDInfo struct {
@@ -23,6 +25,12 @@ func parseCRDName(crdName string) CRDInfo {
 	}
 }
 
+var (
+	ConditionLLMISVCDeps       = conditionLLMISVCDeps
+	ConditionLLMISVCWideEPDeps = conditionLLMISVCWideEPDeps
+	ConditionLLMDWVADeps       = conditionLLMDWVADeps
+)
+
 func XKSCRDDependenciesForTest() []CRDInfo {
 	var result []CRDInfo
 	for _, dep := range allDependencies {
@@ -36,7 +44,7 @@ func XKSCRDDependenciesForTest() []CRDInfo {
 func CriticalCRDDependenciesForTest() []CRDInfo {
 	var result []CRDInfo
 	for _, dep := range allDependencies {
-		if dep.checkType == checkCRD && dep.critical {
+		if dep.checkType == checkCRD && dep.availabilitySeverity == common.ConditionSeverityError {
 			result = append(result, parseCRDName(dep.crdName))
 		}
 	}

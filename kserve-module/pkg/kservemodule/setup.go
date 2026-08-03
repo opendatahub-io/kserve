@@ -39,6 +39,7 @@ var dependencyCRDSuffixes = []string{
 var dependencyCRDNames = map[string]bool{
 	"leaderworkersets.operator.openshift.io": true,
 	"subscriptions.operators.coreos.com":     true,
+	"persesdashboards.perses.dev":            true,
 }
 
 var watchedSubscriptions = map[string]bool{
@@ -84,6 +85,13 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(mapToKserve),
 			builder.WithPredicates(crdNamePredicate()),
 		).
+		Watches(&corev1.ConfigMap{},
+			handler.EnqueueRequestsFromMapFunc(mapToKserve),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
+				return o.GetName() == platformVersionConfigMap &&
+					o.GetNamespace() == r.getApplicationsNamespace()
+			})),
+		).
 		// Watch Nodes so that newly added or relabeled nodes trigger
 		// reconciliation of labelModelCacheNodes.
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(mapToKserve),
@@ -119,8 +127,8 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	r.dynamicWatches = []*dynamicWatch{
 		{
-			groupKind: schema.GroupKind{Group: "operator.openshift.io", Kind: "LeaderWorkerSet"},
-			gvk:       schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSet"},
+			groupKind: schema.GroupKind{Group: "operator.openshift.io", Kind: "LeaderWorkerSetOperator"},
+			gvk:       schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSetOperator"},
 		},
 		{
 			groupKind: schema.GroupKind{Group: "serving.kserve.io", Kind: "LocalModelNodeGroup"},
@@ -158,6 +166,13 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		return err
 	}
 	r.controller = c
+
+	if err := mgr.Add(&upgradeRunnable{
+		client:        mgr.GetClient(),
+		applicationNS: r.getApplicationsNamespace(),
+	}); err != nil {
+		return fmt.Errorf("error registering upgrade runnable: %w", err)
+	}
 
 	return nil
 }

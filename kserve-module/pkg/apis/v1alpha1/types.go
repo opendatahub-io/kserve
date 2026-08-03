@@ -61,13 +61,17 @@ type KserveSpec struct {
 	// +kubebuilder:default=Headless
 	RawDeploymentServiceConfig RawServiceConfig `json:"rawDeploymentServiceConfig,omitempty"`
 	// +optional
-	OAuthProxy                   *OAuthProxyConfig `json:"oauthProxy,omitempty"`
-	NIM                          NIMSpec           `json:"nim,omitempty"`
-	WVA                          WVASpec           `json:"wva,omitempty"`
+	OAuthProxy *OAuthProxyConfig `json:"oauthProxy,omitempty"`
+	NIM        NIMSpec           `json:"nim,omitempty"`
+	WVA        WVASpec           `json:"wva,omitempty"`
 	// Enables TLS for LLMInferenceService deployments.
 	// When unset, the KServe default (TLS enabled) is preserved.
 	EnableLLMInferenceServiceTLS *bool `json:"enableLLMInferenceServiceTLS,omitempty"`
-	ModelCache                   *ModelCacheSpec  `json:"modelCache,omitempty"`
+	// Enables OpenShift Developer Console dashboards for LLMInferenceService.
+	// Enabled by default.
+	EnableLLMInferenceServiceConsoleDashboards *bool `json:"enableLLMInferenceServiceConsoleDashboards,omitempty"`
+
+	ModelCache *ModelCacheSpec `json:"modelCache,omitempty"`
 }
 
 type NIMSpec struct {
@@ -101,7 +105,7 @@ type ModelCacheSpec struct {
 }
 
 type KserveStatus struct {
-	common.Status                `json:",inline"`
+	common.Status                 `json:",inline"`
 	common.ComponentReleaseStatus `json:",inline"`
 }
 

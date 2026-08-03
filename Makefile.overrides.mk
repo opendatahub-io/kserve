@@ -48,6 +48,9 @@ manifests-distro: controller-gen
 	@$(CONTROLLER_GEN) rbac:roleName=kserve-localmodelnode-distro-role \
 		paths=./pkg/controller/v1alpha1/localmodelnode/distro \
 		output:rbac:artifacts:config=config/overlays/odh-modelcache/rbac/localmodelnode
+	@$(CONTROLLER_GEN) rbac:roleName=kserve-tls-distro-role \
+		paths=./pkg/tls/distro \
+		output:rbac:artifacts:config=config/overlays/odh/rbac/tls
 
 ## operator-chaos tooling
 OPERATOR_CHAOS = $(LOCALBIN)/operator-chaos
@@ -69,6 +72,18 @@ chaos-validate: operator-chaos ## Validate chaos knowledge model and experiments
 		fi; \
 	done; \
 	exit $$status
+
+## ODH overlay verification
+# Verify the opendatahub.io/runtime-version annotation stamping on the
+# accelerator LLMInferenceServiceConfig presets rendered by config/overlays/odh.
+.PHONY: verify-odh-runtime-version
+verify-odh-runtime-version: kustomize yq
+	@KUSTOMIZE=$(KUSTOMIZE) YQ=$(YQ) bash hack/verify-odh-runtime-version.sh
+
+# Chain into upstream's precommit (and thus `make check` in precommit-check CI)
+# from this midstream-only file, so the upstream-owned precommit line in the
+# main Makefile stays untouched across upstream syncs.
+precommit: verify-odh-runtime-version
 
 -include Makefile.kserve-module.mk
 

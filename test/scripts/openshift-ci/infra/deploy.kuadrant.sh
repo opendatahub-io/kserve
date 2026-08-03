@@ -120,6 +120,7 @@ metadata:
 spec:
   replicas: 1
   clusterWide: true
+  logLevel: debug
   listener:
     tls:
       enabled: true
