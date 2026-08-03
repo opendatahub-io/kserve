@@ -7,6 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -15,6 +16,7 @@ import (
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
 
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
+	kservemodule "github.com/opendatahub-io/kserve-module/pkg/kservemodule"
 	"github.com/opendatahub-io/kserve-module/pkg/kservemodule/fixture"
 )
 
@@ -29,7 +31,15 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 		Expect(client.IgnoreAlreadyExists(testEnv.Client.Create(ctx, ns))).To(Succeed())
 
 		kserve = fixture.KserveCR()
-		Expect(client.IgnoreAlreadyExists(testEnv.Client.Create(ctx, kserve))).To(Succeed())
+		// Ensure any leftover CR (possibly deleting with a finalizer) is fully gone.
+		Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, kserve))).To(Succeed())
+		Eventually(func(g Gomega) {
+			err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)
+			g.Expect(k8serr.IsNotFound(err)).To(BeTrue())
+		}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
+
+		kserve = fixture.KserveCR()
+		Expect(testEnv.Client.Create(ctx, kserve)).To(Succeed())
 
 		Eventually(func(g Gomega) {
 			g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
@@ -39,7 +49,11 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 
 	AfterAll(func(ctx SpecContext) {
 		if kserve != nil {
-			client.IgnoreNotFound(testEnv.Client.Delete(ctx, kserve))
+			Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, kserve))).To(Succeed())
+			Eventually(func(g Gomega) {
+				err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)
+				g.Expect(k8serr.IsNotFound(err)).To(BeTrue())
+			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
 		}
 		testEnv.Reconciler.SetClusterType(cluster.ClusterTypeOpenShift)
 	})
@@ -61,15 +75,15 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 			}
 		})
 
-		It("shows MissingDependency then AllDependenciesSatisfied after installing rhcl-operator", func(ctx SpecContext) {
+		It("shows PreConditionFailed then clears after installing rhcl-operator", func(ctx SpecContext) {
 			triggerReconcile(ctx, kserve, "dw-sub-partial")
 
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
-				cond := fixture.FindCondition(kserve, "LLMInferenceServiceDependencies")
+				cond := fixture.FindCondition(kserve, kservemodule.ConditionLLMISVCDeps)
 				g.Expect(cond).NotTo(BeNil())
-				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
-				g.Expect(cond.Reason).To(Equal("MissingDependency"))
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(Equal("PreConditionFailed"))
 				g.Expect(cond.Message).To(ContainSubstring("Red Hat Connectivity Link"))
 				g.Expect(cond.Message).NotTo(ContainSubstring("cert-manager"))
 			}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
@@ -80,14 +94,13 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
-				cond := fixture.FindCondition(kserve, "LLMInferenceServiceDependencies")
+				cond := fixture.FindCondition(kserve, kservemodule.ConditionLLMISVCDeps)
 				g.Expect(cond).NotTo(BeNil())
-				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(cond.Reason).To(Equal("AllDependenciesSatisfied"))
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 			}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
 		})
 
-		It("shows MissingDependency after Subscription deletion", func(ctx SpecContext) {
+		It("shows PreConditionFailed after Subscription deletion", func(ctx SpecContext) {
 			sub := &unstructured.Unstructured{}
 			sub.SetGroupVersionKind(schema.GroupVersionKind{
 				Group: "operators.coreos.com", Version: "v1alpha1", Kind: "Subscription",
@@ -98,10 +111,10 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
-				cond := fixture.FindCondition(kserve, "LLMInferenceServiceDependencies")
+				cond := fixture.FindCondition(kserve, kservemodule.ConditionLLMISVCDeps)
 				g.Expect(cond).NotTo(BeNil())
-				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
-				g.Expect(cond.Reason).To(Equal("MissingDependency"))
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(Equal("PreConditionFailed"))
 				g.Expect(cond.Message).To(ContainSubstring("Red Hat Connectivity Link"))
 				g.Expect(cond.Message).NotTo(ContainSubstring("cert-manager"))
 			}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
@@ -111,7 +124,7 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 	Context("LeaderWorkerSet operator watch", func() {
 		var lwsCRD *apiextensionsv1.CustomResourceDefinition
 
-		lwsGVK := schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSet"}
+		lwsGVK := schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSetOperator"}
 
 		BeforeAll(func(ctx SpecContext) {
 			lwsCRD = fixture.CreateCRD(ctx, testEnv.Client,
@@ -165,8 +178,8 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
-				cond := fixture.FindCondition(kserve, "LLMInferenceServiceWideEPDependencies")
-				g.Expect(cond).NotTo(BeNil(), "LLMInferenceServiceWideEPDependencies condition should exist")
+				cond := fixture.FindCondition(kserve, kservemodule.ConditionLLMISVCWideEPDeps)
+				g.Expect(cond).NotTo(BeNil(), "KserveLLMInferenceServiceWideEPDependencies condition should exist")
 				g.Expect(cond.Message).To(ContainSubstring("LWS operator is degraded"))
 			}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
 		})

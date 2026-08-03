@@ -4,8 +4,8 @@ FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS deps
 ENV PATH="$PATH:/opt/app-root/src/go/bin"
 
 WORKDIR /go/src/github.com/kserve/kserve
-COPY go.mod  go.mod
-COPY go.sum  go.sum
+COPY --chown=1001:0 go.mod  go.mod
+COPY --chown=1001:0 go.sum  go.sum
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 

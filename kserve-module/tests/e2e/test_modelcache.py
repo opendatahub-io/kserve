@@ -16,6 +16,7 @@ from conftest import (
     generation_matches,
     trigger_reconcile,
     is_cr_ready,
+    wait_for,
     KSERVE_CR_NAME,
     NAMESPACE,
     PV_NAME,
@@ -27,6 +28,7 @@ from conftest import (
 
 
 @pytest.mark.modelcache
+@pytest.mark.ocp_only
 class TestModelCacheEnable:
     """Verify enabling ModelCache creates all expected resources."""
 
@@ -95,6 +97,7 @@ class TestModelCacheEnable:
 
 
 @pytest.mark.modelcache
+@pytest.mark.ocp_only
 class TestModelCacheDisable:
     """Verify disabling ModelCache cleans up all resources."""
 
@@ -102,8 +105,6 @@ class TestModelCacheDisable:
         """After enabling then disabling ModelCache, all managed resources
         are removed and the Kserve CR remains Ready.
         """
-        if not cluster_info.is_openshift:
-            pytest.skip("ModelCache reconciliation requires OpenShift")
         worker = get_worker_node(kubectl, is_openshift=cluster_info.is_openshift)
         enable_model_cache(kubectl, worker)
         _poll_cr(
@@ -267,32 +268,30 @@ class TestModelCacheCELValidation:
 
 
 @pytest.mark.modelcache
+@pytest.mark.ocp_only
 class TestModelCacheRecovery:
     """Verify deleted ModelCache resources are recreated on reconcile."""
 
     def test_deleted_lmng_is_recreated(self, kubectl, model_cache_enabled):
         """Deleting the LocalModelNodeGroup triggers recreation on next reconcile."""
-        import time
-
         assert resource_exists(kubectl, LMNG_RESOURCE, LMNG_NAME), (
             f"{LMNG_NAME} should exist before deletion"
         )
 
         run([kubectl, "delete", LMNG_RESOURCE, LMNG_NAME])
-        assert not resource_exists(kubectl, LMNG_RESOURCE, LMNG_NAME), (
-            f"{LMNG_NAME} should be deleted"
-        )
+
+        def assert_lmng_deleted():
+            assert not resource_exists(kubectl, LMNG_RESOURCE, LMNG_NAME), (
+                f"{LMNG_NAME} should be deleted"
+            )
+
+        wait_for(assert_lmng_deleted, timeout=TIMEOUT_120S, interval=5)
 
         trigger_reconcile(kubectl)
 
-        # Poll for LMNG recreation — the controller watch on LMNG triggers
-        # reconcile, but the resource creation happens during postRender.
-        deadline = time.time() + TIMEOUT_120S
-        while time.time() < deadline:
-            if resource_exists(kubectl, LMNG_RESOURCE, LMNG_NAME):
-                break
-            time.sleep(5)
+        def assert_lmng_recreated():
+            assert resource_exists(kubectl, LMNG_RESOURCE, LMNG_NAME), (
+                f"{LMNG_NAME} should be recreated after reconcile"
+            )
 
-        assert resource_exists(kubectl, LMNG_RESOURCE, LMNG_NAME), (
-            f"{LMNG_NAME} should be recreated after reconcile"
-        )
+        wait_for(assert_lmng_recreated, timeout=TIMEOUT_120S, interval=5)

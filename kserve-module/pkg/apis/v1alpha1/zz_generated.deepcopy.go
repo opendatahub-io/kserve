@@ -85,6 +85,11 @@ func (in *KserveSpec) DeepCopyInto(out *KserveSpec) {
 		*out = new(bool)
 		**out = **in
 	}
+	if in.EnableLLMInferenceServiceConsoleDashboards != nil {
+		in, out := &in.EnableLLMInferenceServiceConsoleDashboards, &out.EnableLLMInferenceServiceConsoleDashboards
+		*out = new(bool)
+		**out = **in
+	}
 	if in.ModelCache != nil {
 		in, out := &in.ModelCache, &out.ModelCache
 		*out = new(ModelCacheSpec)

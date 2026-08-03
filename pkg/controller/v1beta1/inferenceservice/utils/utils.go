@@ -43,13 +43,13 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
-	"github.com/kserve/kserve/pkg/utils"
+	kserveutils "github.com/kserve/kserve/pkg/utils"
 	"github.com/kserve/kserve/pkg/webhook/admission/pod"
 )
 
 // Constants
 var (
-	SupportedStorageURIPrefixList = []string{"gs://", "s3://", "pvc://", "file://", "https://", "http://", "hdfs://", "webhdfs://", "oci://", "hf://"}
+	SupportedStorageURIPrefixList = []string{"gs://", "s3://", "pvc://", "file://", "https://", "http://", "hdfs://", "webhdfs://", "oci://", "oci+native://", "hf://"}
 )
 
 const (
@@ -251,42 +251,19 @@ func GetDeploymentMode(statusDeploymentMode string, annotations map[string]strin
 	return constants.DeploymentModeType(deployConfig.DefaultDeploymentMode)
 }
 
-// MergeRuntimeContainers Merge the predictor or transformer Container struct with the runtime Container struct, allowing users
-// to override runtime container settings from the predictor spec.
+// MergeRuntimeContainers merges the runtime Container with the InferenceService Container,
+// allowing users to override runtime container settings from the predictor spec.
+// Args are concatenated (runtime + isvc) rather than replaced.
 func MergeRuntimeContainers(runtimeContainer *corev1.Container, isvcContainer *corev1.Container) (*corev1.Container, error) {
-	// Save runtime container name, as the name can be overridden as empty string during the Unmarshal below
-	// since the Name field does not have the 'omitempty' struct tag.
-	runtimeContainerName := runtimeContainer.Name
-
-	// Use JSON Marshal/Unmarshal to merge Container structs using strategic merge patch
-	runtimeContainerJson, err := json.Marshal(runtimeContainer)
+	merged, err := kserveutils.MergeContainerWithPatch(*runtimeContainer, *isvcContainer)
 	if err != nil {
 		return nil, err
 	}
 
-	overrides, err := json.Marshal(isvcContainer)
-	if err != nil {
-		return nil, err
-	}
+	// Concatenate args rather than replacing — isvc extends runtime flags
+	merged.Args = append(append([]string{}, runtimeContainer.Args...), isvcContainer.Args...)
 
-	mergedContainer := corev1.Container{}
-	jsonResult, err := strategicpatch.StrategicMergePatch(runtimeContainerJson, overrides, mergedContainer)
-	if err != nil {
-		return nil, err
-	}
-
-	if err := json.Unmarshal(jsonResult, &mergedContainer); err != nil {
-		return nil, err
-	}
-
-	if mergedContainer.Name == "" {
-		mergedContainer.Name = runtimeContainerName
-	}
-
-	// Strategic merge patch will replace args but more useful behaviour here is to concatenate
-	mergedContainer.Args = append(append([]string{}, runtimeContainer.Args...), isvcContainer.Args...)
-
-	return &mergedContainer, nil
+	return &merged, nil
 }
 
 // MergePodSpec Merge the predictor PodSpec struct with the runtime PodSpec struct, allowing users
@@ -299,6 +276,7 @@ func MergePodSpec(runtimePodSpec *v1alpha1.ServingRuntimePodSpec, predictorPodSp
 		Volumes:          runtimePodSpec.Volumes,
 		ImagePullSecrets: runtimePodSpec.ImagePullSecrets,
 		SchedulerName:    runtimePodSpec.SchedulerName,
+		ResourceClaims:   runtimePodSpec.ResourceClaims,
 	})
 	if err != nil {
 		return nil, err
@@ -345,39 +323,6 @@ func GetServingRuntime(ctx context.Context, cl client.Client, name string, names
 		return nil, nil, err, false
 	}
 	return nil, nil, goerrors.New("No ServingRuntimes or ClusterServingRuntimes with the name: " + name), false
-}
-
-// GetServerTypeFromIsvc fetches the runtime for the InferenceService and returns its server-type annotation.
-// Returns empty string if:
-//   - InferenceService is nil
-//   - Runtime name is not populated in status
-//   - Runtime doesn't have the serving.kserve.io/server-type annotation
-//
-// Returns error if runtime fetch fails.
-func GetServerTypeFromIsvc(ctx context.Context, cl client.Client, isvc *v1beta1.InferenceService) (string, error) {
-	if isvc == nil {
-		return "", nil
-	}
-
-	// Get runtime name from status (namespaced takes precedence, matching GetServingRuntime priority)
-	var runtimeName string
-	if isvc.Status.ServingRuntimeName != "" {
-		runtimeName = isvc.Status.ServingRuntimeName
-	} else if isvc.Status.ClusterServingRuntimeName != "" {
-		runtimeName = isvc.Status.ClusterServingRuntimeName
-	}
-
-	if runtimeName == "" {
-		return "", nil
-	}
-
-	// Fetch the runtime (tries namespaced first, then cluster)
-	_, annotations, err, _ := GetServingRuntime(ctx, cl, runtimeName, isvc.Namespace)
-	if err != nil {
-		return "", err
-	}
-
-	return annotations[constants.ServerTypeAnnotationKey], nil
 }
 
 // ReplacePlaceholders Replace placeholders in runtime container by values from inferenceservice metadata
@@ -430,7 +375,7 @@ func UpdateImageTag(container *corev1.Container, runtimeVersion *string, serving
 	}
 	imageWithoutTag := strings.TrimSuffix(image, tag)
 
-	if utils.IsGPUEnabled(container.Resources) {
+	if kserveutils.IsGPUEnabled(container.Resources) {
 		// For TFServing/TorchServe/HuggingFace the GPU build is published as the same image
 		// with a "-gpu" tag suffix; append it when runtimeVersion is not specified.
 		switch serverType {
@@ -494,7 +439,7 @@ func ValidateStorageURI(ctx context.Context, storageURI *string, client client.C
 		if parts := azureURIMatcher.FindStringSubmatch(*storageURI); parts != nil {
 			return nil
 		}
-	} else if utils.IsPrefixSupported(*storageURI, SupportedStorageURIPrefixList) {
+	} else if kserveutils.IsPrefixSupported(*storageURI, SupportedStorageURIPrefixList) {
 		return nil
 	}
 
@@ -508,7 +453,7 @@ func AddEnvVarToPodSpec(podSpec *corev1.PodSpec, containerName, envName, envValu
 	for i, container := range podSpec.Containers {
 		if container.Name == containerName {
 			updatedResult = true
-			if _, exists := utils.GetEnvVarValue(container.Env, envName); exists {
+			if _, exists := kserveutils.GetEnvVarValue(container.Env, envName); exists {
 				// Overwrite the environment variable
 				for j, envVar := range container.Env {
 					if envVar.Name == envName {

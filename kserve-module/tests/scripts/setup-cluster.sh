@@ -66,6 +66,7 @@ OCP_SUBSCRIPTIONS=(
 # Parse arguments
 # ---------------------------------------------------------------------------
 CLEANUP=false
+SKIP_DEPS=false
 
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -78,6 +79,7 @@ parse_args() {
         fi
         KSERVE_MODULE_IMG="$2"; shift 2 ;;
       --cleanup)    CLEANUP=true; shift ;;
+      --skip-deps)  SKIP_DEPS=true; shift ;;
       -h|--help)    usage; exit 0 ;;
       *)            echo "Unknown option: $1"; usage; exit 1 ;;
     esac
@@ -99,6 +101,7 @@ Options:
   --platform xks|ocp           Target platform (default: xks)
   --image IMAGE                 Controller image (e.g. quay.io/org/kserve-module:tag)
   --cleanup                     Uninstall kserve-module and all platform dependencies
+  --skip-deps                   Skip dependency installation (use when deps are already installed)
   -h, --help                    Show this help
 
 Examples:
@@ -339,7 +342,7 @@ deploy_kserve_module() {
 
   if [[ -n "${KSERVE_MODULE_IMG}" ]]; then
     log_info "Using custom image: ${KSERVE_MODULE_IMG}"
-    output=$(echo "$output" | sed "s|image: .*kserve-module-controller.*|image: ${KSERVE_MODULE_IMG}|g")
+    output=$(echo "$output" | sed "s|image: .*odh-kserve-module-operator.*|image: ${KSERVE_MODULE_IMG}|g")
   fi
 
   echo "$output" | ${KUBECTL} apply --server-side=true --force-conflicts -f -
@@ -385,14 +388,18 @@ main() {
     return
   fi
 
-  case "$PLATFORM" in
-    xks)
-      install_xks_deps
-      ;;
-    ocp)
-      install_ocp_deps
-      ;;
-  esac
+  if [[ "${SKIP_DEPS}" != "true" ]]; then
+    case "$PLATFORM" in
+      xks)
+        install_xks_deps
+        ;;
+      ocp)
+        install_ocp_deps
+        ;;
+    esac
+  else
+    log_info "Skipping dependency installation (--skip-deps)"
+  fi
 
   deploy_kserve_module
 

@@ -2,6 +2,7 @@ package kservemodule_test
 
 import (
 	"fmt"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -10,6 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/util/retry"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
@@ -39,7 +41,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 		cr := fixture.KserveCR()
 		Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 		DeferCleanup(func(ctx SpecContext) {
-			Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, cr))).To(Succeed())
+			deleteAndWaitGone(ctx, cr)
 		})
 
 		Eventually(func(g Gomega) {
@@ -60,7 +62,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
 			DeferCleanup(func(ctx SpecContext) {
-				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, cr))).To(Succeed())
+				deleteAndWaitGone(ctx, cr)
 			})
 		})
 
@@ -177,7 +179,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
 			DeferCleanup(func(ctx SpecContext) {
-				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, cr))).To(Succeed())
+				deleteAndWaitGone(ctx, cr)
 			})
 		})
 
@@ -259,7 +261,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
 			DeferCleanup(func(ctx SpecContext) {
-				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, cr))).To(Succeed())
+				deleteAndWaitGone(ctx, cr)
 			})
 		})
 
@@ -312,6 +314,136 @@ var _ = Describe("KserveModule Reconciler", func() {
 		})
 	})
 
+	Context("console dashboards lifecycle", Ordered, func() {
+		var cr *platformv1alpha1.Kserve
+
+		BeforeAll(func(ctx SpecContext) {
+			cr = fixture.KserveCR()
+			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
+
+			DeferCleanup(func(ctx SpecContext) {
+				deleteAndWaitGone(ctx, cr)
+			})
+		})
+
+		BeforeEach(func() {
+			testEnv.Deployer = &fixture.MockDeployer{}
+			testEnv.Reconciler.Deployer = testEnv.Deployer
+		})
+
+		It("does not include console dashboard resources when namespace does not exist", func(ctx SpecContext) {
+			triggerReconcile(ctx, cr, "console-dashboards-no-ns")
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				cond := fixture.FindCondition(cr, string(common.ConditionTypeProvisioningSucceeded))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			}).WithContext(ctx).Should(Succeed())
+
+			lastCall := testEnv.Deployer.LastCall()
+			Expect(lastCall).NotTo(BeNil())
+			for _, res := range lastCall.Resources {
+				Expect(res.GetName()).NotTo(Equal("model-serving-llms-cluster-health"),
+					"console dashboard ConfigMaps should not be deployed when namespace does not exist")
+			}
+		})
+
+		It("includes console dashboard resources when namespace exists", func(ctx SpecContext) {
+			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "openshift-config-managed"}}
+			Expect(testEnv.Client.Create(ctx, ns)).To(Succeed())
+			DeferCleanup(func(ctx SpecContext) {
+				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, ns))).To(Succeed())
+			})
+
+			triggerReconcile(ctx, cr, "console-dashboards-with-ns")
+
+			Eventually(func(g Gomega) {
+				lastCall := testEnv.Deployer.LastCall()
+				g.Expect(lastCall).NotTo(BeNil())
+
+				hasDashboard := false
+				for _, res := range lastCall.Resources {
+					if res.GetKind() == "ConfigMap" && res.GetName() == "model-serving-llms-cluster-health" {
+						g.Expect(res.GetNamespace()).To(Equal("openshift-config-managed"))
+						hasDashboard = true
+						break
+					}
+				}
+				g.Expect(hasDashboard).To(BeTrue(), "console dashboard ConfigMap should be in deployed resources")
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("does not include console dashboard resources when explicitly disabled", func(ctx SpecContext) {
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
+					return err
+				}
+				cr.Spec.EnableLLMInferenceServiceConsoleDashboards = ptr.To(false)
+				return testEnv.Client.Update(ctx, cr)
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				lastCall := testEnv.Deployer.LastCall()
+				g.Expect(lastCall).NotTo(BeNil())
+
+				for _, res := range lastCall.Resources {
+					g.Expect(res.GetName()).NotTo(Equal("model-serving-llms-cluster-health"),
+						"console dashboard ConfigMaps should not be deployed when explicitly disabled")
+				}
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("re-enables console dashboard resources when flag is set back to true", func(ctx SpecContext) {
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
+					return err
+				}
+				cr.Spec.EnableLLMInferenceServiceConsoleDashboards = ptr.To(true)
+				return testEnv.Client.Update(ctx, cr)
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				lastCall := testEnv.Deployer.LastCall()
+				g.Expect(lastCall).NotTo(BeNil())
+
+				hasDashboard := false
+				for _, res := range lastCall.Resources {
+					if res.GetKind() == "ConfigMap" && res.GetName() == "model-serving-llms-cluster-health" {
+						g.Expect(res.GetNamespace()).To(Equal("openshift-config-managed"))
+						hasDashboard = true
+						break
+					}
+				}
+				g.Expect(hasDashboard).To(BeTrue(), "console dashboard ConfigMap should be deployed after re-enabling")
+			}).WithContext(ctx).Should(Succeed())
+		})
+	})
+
+	Context("module finalizer lifecycle", func() {
+		It("adds finalizer during reconcile and removes it on deletion after cleanup", func(ctx SpecContext) {
+			cr := fixture.KserveCR()
+			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				g.Expect(cr.Status.ObservedGeneration).To(Equal(cr.Generation))
+			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
+
+			Expect(cr.Finalizers).To(ContainElement(kservemodule.ModuleFinalizerName),
+				"module operator should add its own finalizer during reconcile")
+
+			Expect(testEnv.Client.Delete(ctx, cr)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)
+				g.Expect(k8serr.IsNotFound(err)).To(BeTrue(), "CR should be deleted after module finalizer is removed")
+			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
+		})
+	})
+
 	Context("oauthProxy configuration", Ordered, func() {
 		var cr *platformv1alpha1.Kserve
 
@@ -320,7 +452,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
 			DeferCleanup(func(ctx SpecContext) {
-				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, cr))).To(Succeed())
+				deleteAndWaitGone(ctx, cr)
 			})
 		})
 
@@ -435,6 +567,15 @@ func createReadyDeployment(ctx SpecContext, name, namespace string) {
 	dep.Status.Replicas = 1
 	dep.Status.ReadyReplicas = 1
 	Expect(testEnv.Client.Status().Update(ctx, dep)).To(Succeed())
+}
+
+func deleteAndWaitGone(ctx SpecContext, obj client.Object) {
+	Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, obj))).To(Succeed())
+	Eventually(func(g Gomega) {
+		err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(obj), obj)
+		g.Expect(k8serr.IsNotFound(err)).To(BeTrue(),
+			"waiting for %s %s to be fully deleted", obj.GetObjectKind().GroupVersionKind().Kind, obj.GetName())
+	}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
 }
 
 func triggerReconcile(ctx SpecContext, cr *platformv1alpha1.Kserve, trigger string) {

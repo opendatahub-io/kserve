@@ -79,6 +79,8 @@ from kserve.models.v1beta1_authentication_ref import V1beta1AuthenticationRef
 from kserve.models.v1beta1_auto_scaling_spec import V1beta1AutoScalingSpec
 from kserve.models.v1beta1_autoscaler_config import V1beta1AutoscalerConfig
 from kserve.models.v1beta1_batcher import V1beta1Batcher
+from kserve.models.v1beta1_canary_spec import V1beta1CanarySpec
+from kserve.models.v1beta1_canary_status import V1beta1CanaryStatus
 from kserve.models.v1beta1_component_extension_spec import V1beta1ComponentExtensionSpec
 from kserve.models.v1beta1_component_status_spec import V1beta1ComponentStatusSpec
 from kserve.models.v1beta1_confidential_spec import V1beta1ConfidentialSpec
@@ -117,6 +119,7 @@ from kserve.models.v1beta1_model_storage_spec import V1beta1ModelStorageSpec
 from kserve.models.v1beta1_multi_node_config import V1beta1MultiNodeConfig
 from kserve.models.v1beta1_onnx_runtime_spec import V1beta1ONNXRuntimeSpec
 from kserve.models.v1beta1_oauth_config import V1beta1OauthConfig
+from kserve.models.v1beta1_open_shift_config import V1beta1OpenShiftConfig
 from kserve.models.v1beta1_otel_collector_config import V1beta1OtelCollectorConfig
 from kserve.models.v1beta1_pmml_spec import V1beta1PMMLSpec
 from kserve.models.v1beta1_paddle_server_spec import V1beta1PaddleServerSpec

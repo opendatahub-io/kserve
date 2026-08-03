@@ -20,10 +20,13 @@ package inferenceservice
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/onsi/gomega"
+	"github.com/onsi/gomega/types"
 	"google.golang.org/protobuf/proto"
+	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -600,13 +603,14 @@ func TestReconcileWorkloadPlatformPermissions(t *testing.T) {
 	namespace := "default"
 
 	scenarios := map[string]struct {
-		isvc            *v1beta1.InferenceService
-		runtimes        []runtime.Object
-		existingRB      *rbacv1.RoleBinding
-		expectRBCreated bool
-		expectRBDeleted bool
-		forceStop       bool
-		expectError     bool
+		isvc                 *v1beta1.InferenceService
+		runtimes             []runtime.Object
+		existingRB           *rbacv1.RoleBinding
+		expectRBCreated      bool
+		expectRBDeleted      bool
+		forceStop            bool
+		expectError          bool
+		enableOciImageSource bool
 	}{
 		"CreateRoleBindingForMLServerWithOCI": {
 			isvc: &v1beta1.InferenceService{
@@ -642,11 +646,12 @@ func TestReconcileWorkloadPlatformPermissions(t *testing.T) {
 					},
 				},
 			},
-			existingRB:      nil,
-			expectRBCreated: true,
-			expectRBDeleted: false,
-			forceStop:       false,
-			expectError:     false,
+			existingRB:           nil,
+			expectRBCreated:      true,
+			expectRBDeleted:      false,
+			forceStop:            false,
+			expectError:          false,
+			enableOciImageSource: true,
 		},
 		"DeleteRoleBindingWhenForceStop": {
 			isvc: &v1beta1.InferenceService{
@@ -688,10 +693,11 @@ func TestReconcileWorkloadPlatformPermissions(t *testing.T) {
 					Namespace: namespace,
 				},
 			},
-			expectRBCreated: false,
-			expectRBDeleted: true,
-			forceStop:       true,
-			expectError:     false,
+			expectRBCreated:      false,
+			expectRBDeleted:      true,
+			forceStop:            true,
+			expectError:          false,
+			enableOciImageSource: true,
 		},
 		"DeleteRoleBindingWhenNoServiceAccounts": {
 			isvc: &v1beta1.InferenceService{
@@ -730,10 +736,11 @@ func TestReconcileWorkloadPlatformPermissions(t *testing.T) {
 					Namespace: namespace,
 				},
 			},
-			expectRBCreated: false,
-			expectRBDeleted: true,
-			forceStop:       false,
-			expectError:     false,
+			expectRBCreated:      false,
+			expectRBDeleted:      true,
+			forceStop:            false,
+			expectError:          false,
+			enableOciImageSource: true,
 		},
 		"NoOpForNonMLServerRuntime": {
 			isvc: &v1beta1.InferenceService{
@@ -766,11 +773,12 @@ func TestReconcileWorkloadPlatformPermissions(t *testing.T) {
 					},
 				},
 			},
-			existingRB:      nil,
-			expectRBCreated: false,
-			expectRBDeleted: false,
-			forceStop:       false,
-			expectError:     false,
+			existingRB:           nil,
+			expectRBCreated:      false,
+			expectRBDeleted:      false,
+			forceStop:            false,
+			expectError:          false,
+			enableOciImageSource: true,
 		},
 		"UpdateRoleBindingWithWorkerSA": {
 			isvc: &v1beta1.InferenceService{
@@ -825,10 +833,52 @@ func TestReconcileWorkloadPlatformPermissions(t *testing.T) {
 					Name:     "openshift-ai-inferenceservice-image-volume-scc",
 				},
 			},
-			expectRBCreated: false,
-			expectRBDeleted: false,
-			forceStop:       false,
-			expectError:     false,
+			expectRBCreated:      false,
+			expectRBDeleted:      false,
+			forceStop:            false,
+			expectError:          false,
+			enableOciImageSource: true,
+		},
+		"NoOpWhenFeatureDisabled": {
+			isvc: &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+					UID:       "test-uid",
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						PodSpec: v1beta1.PodSpec{
+							ServiceAccountName: "predictor-sa",
+						},
+						Model: &v1beta1.ModelSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI: proto.String(constants.OciURIPrefix + "model:v1"),
+							},
+						},
+					},
+				},
+				Status: v1beta1.InferenceServiceStatus{
+					ServingRuntimeName: "mlserver-runtime",
+				},
+			},
+			runtimes: []runtime.Object{
+				&v1alpha1.ServingRuntime{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "mlserver-runtime",
+						Namespace: namespace,
+						Annotations: map[string]string{
+							constants.ServerTypeAnnotationKey: constants.ServerTypeMLServer,
+						},
+					},
+				},
+			},
+			existingRB:           nil,
+			expectRBCreated:      false,
+			expectRBDeleted:      false,
+			forceStop:            false,
+			expectError:          false,
+			enableOciImageSource: false,
 		},
 	}
 
@@ -850,6 +900,26 @@ func TestReconcileWorkloadPlatformPermissions(t *testing.T) {
 				existingObjects = append(existingObjects, obj)
 			}
 
+			// Add configMap with OCI enabled/disabled based on test scenario
+			// Note: memoryRequest, memoryLimit, cpuRequest, cpuLimit are required by GetStorageInitializerConfigs
+			// which validates them as Kubernetes resource quantities
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: map[string]string{
+					"storageInitializer": fmt.Sprintf(`{
+						"enableModelcar": %t,
+						"memoryRequest": "100Mi",
+						"memoryLimit": "1Gi",
+						"cpuRequest": "100m",
+						"cpuLimit": "1"
+					}`, scenario.enableOciImageSource),
+				},
+			}
+			existingObjects = append(existingObjects, configMap)
+
 			cl := fake.NewClientBuilder().WithScheme(s).WithObjects(existingObjects...).Build()
 
 			// Create a fake event recorder
@@ -860,7 +930,7 @@ func TestReconcileWorkloadPlatformPermissions(t *testing.T) {
 				Recorder: fakeRecorder,
 			}
 
-			err := reconciler.reconcileWorkloadPlatformPermissions(context.Background(), scenario.isvc)
+			err := reconciler.reconcileWorkloadPlatformPermissions(context.Background(), scenario.isvc, configMap)
 
 			if scenario.expectError {
 				g.Expect(err).To(gomega.HaveOccurred())
@@ -903,6 +973,200 @@ func TestReconcileWorkloadPlatformPermissions(t *testing.T) {
 					g.Expect(apierrors.IsNotFound(err)).To(gomega.BeTrue(),
 						"RoleBinding should NOT be created for non-MLServer or non-OCI storage")
 				}
+			}
+		})
+	}
+}
+
+func TestGetServerTypeFromIsvc(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+	namespace := "default"
+
+	scenarios := map[string]struct {
+		isvc         *v1beta1.InferenceService
+		runtimes     []runtime.Object
+		expectedType string
+		expectError  bool
+		errorMatcher types.GomegaMatcher
+	}{
+		"NilInferenceService": {
+			isvc:         nil,
+			runtimes:     []runtime.Object{},
+			expectedType: "",
+			expectError:  false,
+		},
+		"NoRuntimeInStatus": {
+			isvc: &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: v1beta1.InferenceServiceStatus{},
+			},
+			runtimes:     []runtime.Object{},
+			expectedType: "",
+			expectError:  false,
+		},
+		"NamespacedRuntimeWithServerTypeAnnotation": {
+			isvc: &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: v1beta1.InferenceServiceStatus{
+					ServingRuntimeName: "mlserver-runtime",
+				},
+			},
+			runtimes: []runtime.Object{
+				&v1alpha1.ServingRuntime{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "mlserver-runtime",
+						Namespace: namespace,
+						Annotations: map[string]string{
+							constants.ServerTypeAnnotationKey: constants.ServerTypeMLServer,
+						},
+					},
+					Spec: v1alpha1.ServingRuntimeSpec{
+						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+							{Name: "sklearn"},
+						},
+					},
+				},
+			},
+			expectedType: constants.ServerTypeMLServer,
+			expectError:  false,
+		},
+		"ClusterRuntimeWithServerTypeAnnotation": {
+			isvc: &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: v1beta1.InferenceServiceStatus{
+					ClusterServingRuntimeName: "global-mlserver",
+				},
+			},
+			runtimes: []runtime.Object{
+				&v1alpha1.ClusterServingRuntime{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "global-mlserver",
+						Annotations: map[string]string{
+							constants.ServerTypeAnnotationKey: constants.ServerTypeMLServer,
+						},
+					},
+					Spec: v1alpha1.ServingRuntimeSpec{
+						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+							{Name: "sklearn"},
+						},
+					},
+				},
+			},
+			expectedType: constants.ServerTypeMLServer,
+			expectError:  false,
+		},
+		"RuntimeWithoutAnnotation": {
+			isvc: &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: v1beta1.InferenceServiceStatus{
+					ServingRuntimeName: "custom-runtime",
+				},
+			},
+			runtimes: []runtime.Object{
+				&v1alpha1.ServingRuntime{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "custom-runtime",
+						Namespace: namespace,
+					},
+					Spec: v1alpha1.ServingRuntimeSpec{
+						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+							{Name: "custom"},
+						},
+					},
+				},
+			},
+			expectedType: "",
+			expectError:  false,
+		},
+		"RuntimeNotFound": {
+			isvc: &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: v1beta1.InferenceServiceStatus{
+					ServingRuntimeName: "nonexistent-runtime",
+				},
+			},
+			runtimes:     []runtime.Object{},
+			expectedType: "",
+			expectError:  true,
+			errorMatcher: gomega.MatchError(gomega.ContainSubstring("No ServingRuntimes or ClusterServingRuntimes")),
+		},
+		"NamespacedRuntimeTakesPrecedence": {
+			isvc: &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-isvc",
+					Namespace: namespace,
+				},
+				Status: v1beta1.InferenceServiceStatus{
+					ServingRuntimeName:        "namespaced-runtime",
+					ClusterServingRuntimeName: "cluster-runtime",
+				},
+			},
+			runtimes: []runtime.Object{
+				&v1alpha1.ServingRuntime{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "namespaced-runtime",
+						Namespace: namespace,
+						Annotations: map[string]string{
+							constants.ServerTypeAnnotationKey: "namespaced-type",
+						},
+					},
+					Spec: v1alpha1.ServingRuntimeSpec{
+						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+							{Name: "sklearn"},
+						},
+					},
+				},
+				&v1alpha1.ClusterServingRuntime{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: "cluster-runtime",
+						Annotations: map[string]string{
+							constants.ServerTypeAnnotationKey: "cluster-type",
+						},
+					},
+					Spec: v1alpha1.ServingRuntimeSpec{
+						SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+							{Name: "sklearn"},
+						},
+					},
+				},
+			},
+			expectedType: "namespaced-type",
+			expectError:  false,
+		},
+	}
+
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			err := v1alpha1.AddToScheme(scheme)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			err = v1beta1.SchemeBuilder.AddToScheme(scheme)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+
+			client := fake.NewClientBuilder().WithScheme(scheme).WithRuntimeObjects(scenario.runtimes...).Build()
+
+			serverType, err := getServerTypeFromIsvc(context.Background(), client, scenario.isvc)
+
+			if scenario.expectError {
+				g.Expect(err).To(scenario.errorMatcher)
+			} else {
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(serverType).To(gomega.Equal(scenario.expectedType))
 			}
 		})
 	}

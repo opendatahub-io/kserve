@@ -61,6 +61,8 @@ else
 fi
 export PYTEST_ARGS="${PYTEST_ARGS:-} -p common.gateway_proxy_istio"
 export RUN_AS_NON_ROOT="${RUN_AS_NON_ROOT:-true}"
+: ${LLMISVC_DEFAULT_ANNOTATIONS:='{"security.opendatahub.io/enable-auth":"false"}'}
+export LLMISVC_DEFAULT_ANNOTATIONS
 export KUBE_CLI=${KUBE_CLI_COMMAND:-oc}
 
 export GITHUB_SHA=stable # Need to use stable as this is what the CI tags the images to for success-200 and error-404
@@ -71,6 +73,8 @@ export SKIP_DELETION_ON_FAILURE="${SKIP_DELETION_ON_FAILURE:=true}"
 # Export the controller namespace so that E2E tests
 # (e.g. storage version migration) can find the controller.
 export KSERVE_NAMESPACE=${KSERVE_NAMESPACE:-"kserve"}
+export KEDA_NAMESPACE=${KEDA_NAMESPACE:-"openshift-keda"}
+export KEDA_OPERATOR_POD_LABEL=${KEDA_OPERATOR_POD_LABEL:-"app=keda-operator"}
 
 if [[ "$RUNNING_LOCAL" == "true" ]]; then
   export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
@@ -88,6 +92,8 @@ if [ "$SETUP_E2E" = "true" ]; then
   ./test/scripts/openshift-ci/setup-e2e-tests.sh "${MARKERS}" 2>&1 | tee ./test/scripts/openshift-ci/setup-e2e-tests-"${MARKERS// /_}".log
   popd
 fi
+
+export OPT_125M_MODEL_URI="${OPT_125M_MODEL_URI:-s3://example-models/facebook/opt-125m}"
 
 # Use certify go module to get the CA certs
 # For serverless it is configured here: infra/deploy.serverless.sh

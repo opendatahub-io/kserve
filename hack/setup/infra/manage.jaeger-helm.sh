@@ -20,7 +20,8 @@
 #   or:  UNINSTALL=true manage.jaeger-helm.sh
 #
 # Environment variables for custom Helm values:
-#   JAEGER_EXTRA_ARGS   - Additional helm install arguments for Jaeger
+#   JAEGER_VALUES_FILE  - Path to a Helm values file (passed as a single quoted -f arg)
+#   JAEGER_EXTRA_ARGS   - Additional helm install arguments (word-split; use for simple flags)
 
 # INIT
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -46,9 +47,9 @@ JAEGER_RELEASE_NAME="${JAEGER_RELEASE_NAME:-jaeger}"
 
 uninstall() {
     log_info "Uninstalling Jaeger..."
-    helm uninstall "${JAEGER_RELEASE_NAME}" -n "${JAEGER_NAMESPACE}" 2>/dev/null || true
+    helm uninstall --namespace "${JAEGER_NAMESPACE}" -- "${JAEGER_RELEASE_NAME}" 2>/dev/null || true
     kubectl delete all --all -n "${JAEGER_NAMESPACE}" --force --grace-period=0 2>/dev/null || true
-    kubectl delete namespace "${JAEGER_NAMESPACE}" --wait=true --timeout=60s --force --grace-period=0 2>/dev/null || true
+    kubectl delete namespace --wait=true --timeout=60s --force --grace-period=0 -- "${JAEGER_NAMESPACE}" 2>/dev/null || true
     log_success "Jaeger uninstalled"
 }
 
@@ -66,14 +67,24 @@ install() {
     log_info "Adding Jaeger Helm repository..."
     helm repo add jaegertracing https://jaegertracing.github.io/helm-charts --force-update
 
+    local -a helm_extra_args=()
+    if [[ -n "${JAEGER_VALUES_FILE:-}" ]]; then
+        helm_extra_args+=(-f "${JAEGER_VALUES_FILE}")
+    fi
+    # Keep JAEGER_EXTRA_ARGS for simple flags (e.g. --set key=val). Paths with
+    # spaces should use JAEGER_VALUES_FILE instead of embedding -f here.
+    if [[ -n "${JAEGER_EXTRA_ARGS:-}" ]]; then
+        read -ra parsed_extra_args <<< "${JAEGER_EXTRA_ARGS}"
+        helm_extra_args+=("${parsed_extra_args[@]}")
+    fi
+
     log_info "Installing Jaeger All-in-One ${JAEGER_VERSION}..."
-    helm install "${JAEGER_RELEASE_NAME}" jaegertracing/jaeger \
-        --namespace "${JAEGER_NAMESPACE}" \
-        --create-namespace \
+    helm install --namespace "${JAEGER_NAMESPACE}" --create-namespace \
         --version "${JAEGER_VERSION}" \
         --wait \
         --timeout 5m \
-        ${JAEGER_EXTRA_ARGS:-}
+        "${helm_extra_args[@]}" \
+        -- "${JAEGER_RELEASE_NAME}" jaegertracing/jaeger
 
     log_success "Successfully installed Jaeger All-in-One via Helm"
 

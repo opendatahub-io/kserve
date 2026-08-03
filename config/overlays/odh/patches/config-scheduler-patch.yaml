@@ -9,3 +9,8 @@ spec:
         # This annotation is kept for compatibility with previous versions when we needed to restart the scheduler
         # to pick the TLS certs changes. (see https://github.com/opendatahub-io/kserve/commit/3c96712ad0a28b6c89c0997475fd0fac8deb3857)
         "certificates.kserve.io/expiration-v2": "true"
+        # TEMPORARY: remove once upstream preset aligns with the downstream image.
+        # Downstream llm-d-router image is rebuilt from a pre-release branch and
+        # already removed --model-server-metrics-scheme (a 0.10.0 change). Bump
+        # the version gate so the controller-side migration (#5877) fires.
+        "app.kubernetes.io/version": "0.10.0"

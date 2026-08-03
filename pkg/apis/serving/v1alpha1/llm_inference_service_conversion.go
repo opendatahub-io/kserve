@@ -109,6 +109,11 @@ func (src *LLMInferenceServiceConfig) ConvertTo(dstRaw conversion.Hub) error {
 	// Spec conversion
 	dst.Spec = convertSpecToV1Alpha2(&src.Spec)
 
+	// Status conversion (controller-managed, only duckv1.Status)
+	dst.Status = v1alpha2.LLMInferenceServiceConfigStatus{
+		Status: src.Status.Status,
+	}
+
 	return nil
 }
 
@@ -121,6 +126,12 @@ func (dst *LLMInferenceServiceConfig) ConvertFrom(srcRaw conversion.Hub) error {
 
 	// Spec conversion
 	dst.Spec = convertSpecFromV1Alpha2(&src.Spec)
+
+	// ReferencedBy is intentionally not converted: v1alpha1 has no equivalent field,
+	// and the controller re-populates it on the next reconciliation of the hub type.
+	dst.Status = LLMInferenceServiceConfigStatus{
+		Status: src.Status.Status,
+	}
 
 	// Restore criticality values from annotations
 	restoreCriticalityFromAnnotations(&dst.ObjectMeta, &dst.Spec.Model)
@@ -407,6 +418,8 @@ func convertRouterSpecToV1Alpha2(src *RouterSpec) *v1alpha2.RouterSpec {
 				Spec: src.Route.HTTP.Spec,
 			}
 		}
+		dst.Route.Group = src.Route.Group
+		dst.Route.Weight = src.Route.Weight
 	}
 
 	if src.Gateway != nil {
@@ -451,6 +464,11 @@ func convertRouterSpecToV1Alpha2(src *RouterSpec) *v1alpha2.RouterSpec {
 				Ref:    src.Scheduler.Config.Ref,
 			}
 		}
+		if src.Scheduler.Tokenizer != nil {
+			dst.Scheduler.Tokenizer = &v1alpha2.TokenizerSpec{
+				Template: src.Scheduler.Tokenizer.Template,
+			}
+		}
 	}
 
 	return dst
@@ -491,6 +509,8 @@ func convertRouterSpecFromV1Alpha2(src *v1alpha2.RouterSpec) *RouterSpec {
 				Spec: src.Route.HTTP.Spec,
 			}
 		}
+		dst.Route.Group = src.Route.Group
+		dst.Route.Weight = src.Route.Weight
 	}
 
 	if src.Gateway != nil {
@@ -533,6 +553,11 @@ func convertRouterSpecFromV1Alpha2(src *v1alpha2.RouterSpec) *RouterSpec {
 			dst.Scheduler.Config = &SchedulerConfigSpec{
 				Inline: src.Scheduler.Config.Inline,
 				Ref:    src.Scheduler.Config.Ref,
+			}
+		}
+		if src.Scheduler.Tokenizer != nil {
+			dst.Scheduler.Tokenizer = &TokenizerSpec{
+				Template: src.Scheduler.Tokenizer.Template,
 			}
 		}
 	}

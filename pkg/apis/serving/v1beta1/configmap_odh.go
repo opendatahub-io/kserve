@@ -29,6 +29,7 @@ const OpenShiftConfigName = "openshiftConfig"
 // +kubebuilder:object:generate=false
 type OpenShiftConfig struct {
 	ModelcachePermissionFixImage string `json:"modelcachePermissionFixImage,omitempty"`
+	OvmsVersioningImage          string `json:"ovmsVersioningImage,omitempty"`
 }
 
 func NewOpenShiftConfig(isvcConfigMap *corev1.ConfigMap) (*OpenShiftConfig, error) {
