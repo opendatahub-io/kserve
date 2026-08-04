@@ -41,6 +41,8 @@ patches:
     name: llmisvc-controller-manager
   path: patches/secure-metrics-llmisvc-patch.yaml
 - path: patches/config-scheduler-patch.yaml
+- path: patches/config-decode-patch.yaml
+- path: patches/config-decode-worker-dp-patch.yaml
 - target:
     kind: ValidatingWebhookConfiguration
     annotationSelector: cert-manager.io/inject-ca-from
