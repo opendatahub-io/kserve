@@ -84,6 +84,7 @@ var modelControllerImageParamMap = map[string]string{
 	"vllm-cpu-x86-image-fast-1-upstream-version":    "RELATED_IMAGE_RHAII_VLLM_CPU_FAST_1_IMAGE_UPSTREAM_VERSION",
 	"vllm-cpu-x86-image-fast-2-upstream-version":    "RELATED_IMAGE_RHAII_VLLM_CPU_FAST_2_IMAGE_UPSTREAM_VERSION",
 	"guardrails-detector-huggingface-runtime-image": "RELATED_IMAGE_ODH_GUARDRAILS_DETECTOR_HUGGINGFACE_RUNTIME_IMAGE",
+	"autogluon-image":                              "RELATED_IMAGE_ODH_KSERVE_AUTOGLUON_SERVER_IMAGE",
 }
 
 var wvaImageParamMap = map[string]string{
