@@ -46,6 +46,12 @@ spec:
             type: object
           spec:
             properties:
+              enableAuditLogging:
+                description: |-
+                  Enables audit logging for KServe inference requests.
+                  When enabled, the audit logging flag is set in the inferenceservice-config
+                  ConfigMap's openshiftConfig section. Disabled by default.
+                type: boolean
               enableLLMInferenceServiceConsoleDashboards:
                 description: |-
                   Enables OpenShift Developer Console dashboards for LLMInferenceService.
