@@ -83,6 +83,12 @@ var modelControllerImageParamMap = map[string]string{
 	"vllm-cpu-x86-image-upstream-version":           "RELATED_IMAGE_RHAII_VLLM_CPU_IMAGE_UPSTREAM_VERSION",
 	"vllm-cpu-x86-image-fast-1-upstream-version":    "RELATED_IMAGE_RHAII_VLLM_CPU_FAST_1_IMAGE_UPSTREAM_VERSION",
 	"vllm-cpu-x86-image-fast-2-upstream-version":    "RELATED_IMAGE_RHAII_VLLM_CPU_FAST_2_IMAGE_UPSTREAM_VERSION",
+	"vllm-omni-cuda-image":                          "RELATED_IMAGE_RHAII_VLLM_OMNI_CUDA_IMAGE",
+	"vllm-omni-cuda-image-fast-1":                   "RELATED_IMAGE_RHAII_VLLM_OMNI_CUDA_FAST_1_IMAGE",
+	"vllm-omni-cuda-image-fast-2":                   "RELATED_IMAGE_RHAII_VLLM_OMNI_CUDA_FAST_2_IMAGE",
+	"vllm-omni-cuda-image-upstream-version":         "RELATED_IMAGE_RHAII_VLLM_OMNI_CUDA_IMAGE_UPSTREAM_VERSION",
+	"vllm-omni-cuda-image-fast-1-upstream-version":  "RELATED_IMAGE_RHAII_VLLM_OMNI_CUDA_FAST_1_IMAGE_UPSTREAM_VERSION",
+	"vllm-omni-cuda-image-fast-2-upstream-version":  "RELATED_IMAGE_RHAII_VLLM_OMNI_CUDA_FAST_2_IMAGE_UPSTREAM_VERSION",
 	"guardrails-detector-huggingface-runtime-image": "RELATED_IMAGE_ODH_GUARDRAILS_DETECTOR_HUGGINGFACE_RUNTIME_IMAGE",
 }
 
