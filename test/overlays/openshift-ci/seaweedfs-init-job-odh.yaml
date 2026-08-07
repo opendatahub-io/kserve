@@ -20,6 +20,12 @@ spec:
           )
           print("Model download complete")
         env:
+        - name: HF_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: hf-token
+              key: token
+              optional: true
         - name: HF_HUB_DISABLE_PROGRESS_BARS
           value: "1"
         volumeMounts:
