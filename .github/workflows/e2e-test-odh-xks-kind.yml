@@ -138,9 +138,11 @@ jobs:
         env:
           KSERVE_NAMESPACE: "opendatahub"
         run: |
+          # Override tokenizer image: KinD has no registry.redhat.io credentials.
           kubectl set env deployment/kserve-module-controller-manager \
             RELATED_IMAGE_ODH_KSERVE_LLMISVC_CONTROLLER_IMAGE=local/llmisvc-controller:dev \
             RELATED_IMAGE_ODH_KSERVE_STORAGE_INITIALIZER_IMAGE=local/storage-initializer:dev \
+            RELATED_IMAGE_RHAII_VLLM_CPU_IMAGE=docker.io/vllm/vllm-openai-cpu:v0.21.0-x86_64@sha256:eb680690f111f2b26316265716218f31ce0a0f83efdcac1821fc6caeed41baea \
             -n "${KSERVE_NAMESPACE}"
           kubectl rollout status deployment/kserve-module-controller-manager \
             -n "${KSERVE_NAMESPACE}" --timeout=120s
