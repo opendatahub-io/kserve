@@ -338,7 +338,7 @@ deploy_kserve_module() {
   local config_dir="${PROJECT_ROOT}/kserve-module/config"
 
   local output
-  output=$(${KUBECTL} kustomize "$config_dir" | sed "s|namespace: kserve|namespace: ${KSERVE_NAMESPACE}|g")
+  output=$(${KUBECTL} kustomize "$config_dir" | sed "s|namespace: opendatahub|namespace: ${KSERVE_NAMESPACE}|g")
 
   if [[ -n "${KSERVE_MODULE_IMG}" ]]; then
     log_info "Using custom image: ${KSERVE_MODULE_IMG}"

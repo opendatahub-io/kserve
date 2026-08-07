@@ -156,6 +156,8 @@ case "${OPERATOR_TYPE}" in
       [[ -n "${STORAGE_INITIALIZER_IMAGE:-}" ]] && \
         _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_STORAGE_INITIALIZER_IMAGE=${STORAGE_INITIALIZER_IMAGE}")
 
+      _env_overrides+=("APPLICATIONS_NAMESPACE=${KSERVE_NAMESPACE}")
+
       if [[ ${#_env_overrides[@]} -gt 0 ]]; then
         echo "Overriding operand images on kserve-module-controller-manager..."
         oc set env deployment/kserve-module-controller-manager \
