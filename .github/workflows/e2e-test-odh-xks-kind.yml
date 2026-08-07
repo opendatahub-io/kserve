@@ -113,6 +113,7 @@ jobs:
         env:
           ISTIO_VERSION: ${{ matrix.istio-version }}
           SKIP_DEPLOY: "true"
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           ./test/scripts/kind/setup-odh-xks.sh
 
