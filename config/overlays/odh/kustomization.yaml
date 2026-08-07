@@ -124,10 +124,11 @@ replacements:
       name: kserve-config-llm-scheduler
     fieldPaths:
     - spec.router.scheduler.template.containers.[name=main].image
+# Replace tokenizer's vLLM render image with Red Hat CPU image
 - source:
     kind: ConfigMap
     name: kserve-parameters
-    fieldPath: data.kserve-llm-d-uds-tokenizer
+    fieldPath: data.kserve-llm-d-tokenizer
   targets:
     - select:
         kind: LLMInferenceServiceConfig
