@@ -35,6 +35,8 @@ patches:
 - path: patches/set-resources-manager-patch.yaml
 - path: patches/remove-auth-proxy-patch.yaml
 - path: patches/config-scheduler-patch.yaml
+- path: patches/config-decode-patch.yaml
+- path: patches/config-decode-worker-dp-patch.yaml
 - target:
     kind: ValidatingWebhookConfiguration
     annotationSelector: cert-manager.io/inject-ca-from
