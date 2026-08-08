@@ -145,9 +145,12 @@ func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Infe
 		return ctrl.Result{}, err
 	}
 
-	if authEnabled {
-		// When auth is enabled, the OAuth proxy port takes precedence over any
+	if authEnabled && isvc.Spec.Transformer == nil {
+		// When auth is enabled and the entry point is the predictor (which carries
+		// the auth proxy sidecar), the OAuth proxy port takes precedence over any
 		// port set by createAddress (e.g. :8080 for headless services).
+		// Transformer entry points are excluded because the transformer does not
+		// carry the auth proxy — it communicates with the predictor over TLS instead.
 		host := getRawServiceHost(isvc)
 		isvc.Status.Address.URL.Host = host + ":" + strconv.Itoa(constants.OauthProxyPort)
 		isvc.Status.Address.URL.Scheme = "https"
@@ -189,7 +192,7 @@ func createRawURLODH(ctx context.Context, client client.Client, isvc *v1beta1.In
 			Scheme: "http",
 			Path:   "",
 		}
-		if authEnabled {
+		if authEnabled && isvc.Spec.Transformer == nil {
 			url.Host += ":" + strconv.Itoa(constants.OauthProxyPort)
 			url.Scheme = "https"
 		}

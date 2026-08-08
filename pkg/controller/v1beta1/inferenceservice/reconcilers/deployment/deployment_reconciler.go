@@ -156,8 +156,11 @@ func createRawDeploymentODH(ctx context.Context,
 	// For InferenceService: always inject for new deployments (to avoid pod-template rollouts
 	// when auth is later toggled), preserve for existing deployments that already carry the
 	// proxy, and also inject when auth is explicitly enabled via annotation.
+	// Transformer deployments must NOT receive the auth proxy — only the predictor needs
+	// the sidecar; the transformer communicates with the predictor over TLS instead.
+	isTransformer := componentMeta.Labels[constants.KServiceComponentLabel] == string(v1beta1.TransformerComponent)
 	shouldAddAuthProxy := false
-	if resourceType == constants.InferenceServiceResource {
+	if resourceType == constants.InferenceServiceResource && !isTransformer {
 		if !existingDeploymentFound {
 			shouldAddAuthProxy = true
 		} else {
@@ -229,6 +232,12 @@ func createRawDeploymentODH(ctx context.Context,
 	if (shouldAddAuthProxy && !authProxyPreserved) || resourceType == constants.InferenceGraphResource {
 		mountServingSecretCMVolumeToDeployment(headDeployment, componentMeta, resourceType, isvcname, sarVolumeName)
 	}
+
+	// Mount TLS infrastructure for transformer-to-predictor communication when auth is explicitly enabled
+	if err := mountTransformerTLSInfrastructure(headDeployment, componentMeta); err != nil {
+		return nil, false, fmt.Errorf("failed to mount transformer TLS infrastructure: %w", err)
+	}
+
 	return deploymentList, authProxyPreserved, nil
 }
 
