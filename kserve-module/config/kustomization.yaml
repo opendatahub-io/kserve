@@ -10,5 +10,3 @@ resources:
 
 images:
 - name: kserve-module-controller
-  newName: quay.io/opendatahub/odh-kserve-module-operator
-  newTag: odh-stable
