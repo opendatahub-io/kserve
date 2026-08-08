@@ -36,8 +36,6 @@ const (
 	localModelNodeGroupName = "workers"
 
 	localModelConfigKeyName = "localModel"
-	psaElevatedByAnnotation = "opendatahub.io/psa-elevated-by"
-	psaElevatedByValue      = "kserve-modelcache"
 	securityEnforceLabel    = "pod-security.kubernetes.io/enforce"
 
 	openshiftSCCMCSAnnotation        = "openshift.io/sa.scc.mcs"
@@ -172,52 +170,43 @@ func buildModelCacheResources(kserve *platformv1alpha1.Kserve, namespace string)
 	return []unstructured.Unstructured{{Object: pvU}, {Object: pvcU}, lmng}, nil
 }
 
-func (r *KserveModuleReconciler) updateNamespacePSA(ctx context.Context, desiredLevel string) error {
+func (r *KserveModuleReconciler) ensureModelCacheNamespace(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx)
+	nsName := r.getModelCacheNamespace()
 
 	ns := &corev1.Namespace{}
-	if err := r.Get(ctx, client.ObjectKey{Name: r.getApplicationsNamespace()}, ns); err != nil {
-		return fmt.Errorf("failed to get application namespace: %w", err)
-	}
-
-	current := ns.Labels[securityEnforceLabel]
-	currentAnnotation := ns.Annotations[psaElevatedByAnnotation]
-	needsUpdate := false
-
-	if desiredLevel == "privileged" {
-		if current != desiredLevel || currentAnnotation != psaElevatedByValue {
-			needsUpdate = true
+	if err := r.Get(ctx, client.ObjectKey{Name: nsName}, ns); err != nil {
+		if !k8serr.IsNotFound(err) {
+			return fmt.Errorf("failed to get model cache namespace: %w", err)
 		}
-	} else if currentAnnotation == psaElevatedByValue {
-		needsUpdate = true
+		ns = &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: nsName,
+				Labels: map[string]string{
+					securityEnforceLabel: "privileged",
+				},
+			},
+		}
+		if err := r.Create(ctx, ns); err != nil {
+			return fmt.Errorf("failed to create model cache namespace: %w", err)
+		}
+		log.Info("Created model cache namespace", "namespace", nsName)
+		return nil
 	}
 
-	if !needsUpdate {
+	if ns.Labels != nil && ns.Labels[securityEnforceLabel] == "privileged" {
 		return nil
 	}
 
 	original := ns.DeepCopy()
-
 	if ns.Labels == nil {
 		ns.Labels = make(map[string]string)
 	}
-	if ns.Annotations == nil {
-		ns.Annotations = make(map[string]string)
-	}
-
-	if desiredLevel == "privileged" {
-		ns.Labels[securityEnforceLabel] = desiredLevel
-		ns.Annotations[psaElevatedByAnnotation] = psaElevatedByValue
-	} else {
-		ns.Labels[securityEnforceLabel] = desiredLevel
-		delete(ns.Annotations, psaElevatedByAnnotation)
-	}
-
+	ns.Labels[securityEnforceLabel] = "privileged"
 	if err := r.Patch(ctx, ns, client.MergeFrom(original)); err != nil {
-		return fmt.Errorf("failed to update namespace PSA label: %w", err)
+		return fmt.Errorf("failed to update model cache namespace PSA label: %w", err)
 	}
-
-	log.Info("Updated namespace PSA enforcement level", "namespace", ns.Name, "from", current, "to", desiredLevel)
+	log.Info("Updated model cache namespace PSA enforcement level", "namespace", nsName, "level", "privileged")
 	return nil
 }
 
@@ -288,10 +277,6 @@ func (r *KserveModuleReconciler) labelModelCacheNodes(ctx context.Context, kserv
 }
 
 func (r *KserveModuleReconciler) cleanupModelCache(ctx context.Context) error {
-	if err := r.updateNamespacePSA(ctx, "baseline"); err != nil {
-		return err
-	}
-
 	return r.unlabelAllModelCacheNodes(ctx)
 }
 
@@ -321,7 +306,11 @@ func modelCacheComponentPostRender(
 	kserve *platformv1alpha1.Kserve,
 	resources []unstructured.Unstructured,
 ) ([]unstructured.Unstructured, error) {
-	extra, err := buildModelCacheResources(kserve, r.getApplicationsNamespace())
+	if err := r.ensureModelCacheNamespace(ctx); err != nil {
+		return nil, fmt.Errorf("ensuring model cache namespace: %w", err)
+	}
+
+	extra, err := buildModelCacheResources(kserve, r.getModelCacheNamespace())
 	if err != nil {
 		return nil, fmt.Errorf("building modelcache resources: %w", err)
 	}
@@ -330,15 +319,17 @@ func modelCacheComponentPostRender(
 		return resources, nil
 	}
 
-	if err := r.updateNamespacePSA(ctx, "privileged"); err != nil {
-		return nil, fmt.Errorf("updating namespace PSA: %w", err)
-	}
 	if err := r.labelModelCacheNodes(ctx, kserve); err != nil {
 		return nil, fmt.Errorf("labeling model cache nodes: %w", err)
 	}
 
+	resources, err = patchModelCacheConfigNamespace(resources, r.getApplicationsNamespace())
+	if err != nil {
+		return nil, fmt.Errorf("patching modelcache config namespace env: %w", err)
+	}
+
 	if !r.isKubernetes(ctx) {
-		mcsLevel, err := r.resolveNamespaceMCSLevel(ctx, r.getApplicationsNamespace())
+		mcsLevel, err := r.resolveNamespaceMCSLevel(ctx, r.getModelCacheNamespace())
 		if err != nil {
 			return nil, fmt.Errorf("resolving namespace MCS level: %w", err)
 		}
@@ -356,7 +347,8 @@ func cleanupModelCacheComponent(ctx context.Context, r *KserveModuleReconciler) 
 }
 
 func (r *KserveModuleReconciler) checkModelCacheReadiness(ctx context.Context) error {
-	if err := checkDeploymentsReady(ctx, r.Client, r.getApplicationsNamespace(), []string{localmodelControllerDeployment}); err != nil {
+	cacheNS := r.getModelCacheNamespace()
+	if err := checkDeploymentsReady(ctx, r.Client, cacheNS, []string{localmodelControllerDeployment}); err != nil {
 		return err
 	}
 
@@ -366,7 +358,7 @@ func (r *KserveModuleReconciler) checkModelCacheReadiness(ctx context.Context) e
 	}
 
 	pvc := &corev1.PersistentVolumeClaim{}
-	if err := r.Get(ctx, client.ObjectKey{Name: modelCachePVCName, Namespace: r.getApplicationsNamespace()}, pvc); err != nil {
+	if err := r.Get(ctx, client.ObjectKey{Name: modelCachePVCName, Namespace: cacheNS}, pvc); err != nil {
 		return fmt.Errorf("PVC %s: %w", modelCachePVCName, err)
 	}
 
@@ -460,11 +452,59 @@ func patchLocalModelNodeAgentMCSLevel(resources []unstructured.Unstructured, mcs
 	return replaceResourceAtIndex(resources, dsIdx, ds)
 }
 
+func patchModelCacheConfigNamespace(resources []unstructured.Unstructured, applicationsNamespace string) ([]unstructured.Unstructured, error) {
+	log := ctrl.Log.WithName("modelcache")
+
+	if depIdx, dep, err := getIndexedResource[appsv1.Deployment](resources, deploymentGVK, localmodelControllerDeployment); err == nil {
+		if len(dep.Spec.Template.Spec.Containers) == 0 {
+			return nil, fmt.Errorf("Deployment %s has no containers", localmodelControllerDeployment)
+		}
+		patchContainerConfigNamespace(&dep.Spec.Template.Spec.Containers[0].Env, applicationsNamespace)
+		resources, err = replaceResourceAtIndex(resources, depIdx, dep)
+		if err != nil {
+			return nil, err
+		}
+	} else if !errors.Is(err, errResourceNotFound) {
+		return nil, err
+	} else {
+		log.Info("Deployment not found in rendered resources, skipping config namespace patch", "name", localmodelControllerDeployment)
+	}
+
+	dsIdx, ds, err := getIndexedResource[appsv1.DaemonSet](resources, daemonSetGVK, localModelNodeAgentDaemonSetName)
+	if err != nil {
+		if errors.Is(err, errResourceNotFound) {
+			log.Info("DaemonSet not found in rendered resources, skipping config namespace patch", "name", localModelNodeAgentDaemonSetName)
+			return resources, nil
+		}
+		return nil, err
+	}
+
+	if len(ds.Spec.Template.Spec.Containers) == 0 {
+		return nil, fmt.Errorf("DaemonSet %s has no containers", localModelNodeAgentDaemonSetName)
+	}
+	patchContainerConfigNamespace(&ds.Spec.Template.Spec.Containers[0].Env, applicationsNamespace)
+
+	return replaceResourceAtIndex(resources, dsIdx, ds)
+}
+
+func patchContainerConfigNamespace(env *[]corev1.EnvVar, applicationsNamespace string) {
+	for i := range *env {
+		if (*env)[i].Name == kserveConfigNamespaceEnv {
+			(*env)[i].Value = applicationsNamespace
+			return
+		}
+	}
+	*env = append(*env, corev1.EnvVar{
+		Name:  kserveConfigNamespaceEnv,
+		Value: applicationsNamespace,
+	})
+}
+
 func (r *KserveModuleReconciler) checkModelCacheDaemonSetMCS(ctx context.Context) error {
 	ds := &appsv1.DaemonSet{}
 	key := client.ObjectKey{
 		Name:      localModelNodeAgentDaemonSetName,
-		Namespace: r.getApplicationsNamespace(),
+		Namespace: r.getModelCacheNamespace(),
 	}
 	if err := r.Get(ctx, key, ds); err != nil {
 		if k8serr.IsNotFound(err) {
@@ -476,7 +516,7 @@ func (r *KserveModuleReconciler) checkModelCacheDaemonSetMCS(ctx context.Context
 		return fmt.Errorf("DaemonSet %s: %w", localModelNodeAgentDaemonSetName, err)
 	}
 
-	expectedMCS, err := r.resolveNamespaceMCSLevel(ctx, r.getApplicationsNamespace())
+	expectedMCS, err := r.resolveNamespaceMCSLevel(ctx, r.getModelCacheNamespace())
 	if err != nil {
 		return err
 	}

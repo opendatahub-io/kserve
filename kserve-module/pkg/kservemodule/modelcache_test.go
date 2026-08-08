@@ -172,132 +172,59 @@ func TestLabelModelCacheNodes_ByNodeSelector(t *testing.T) {
 	g.Expect(hasLabel).To(BeFalse())
 }
 
-func TestUpdateNamespacePSA(t *testing.T) {
-	tests := []struct {
-		name          string
-		level         string
-		expectLabel   string
-		expectAnnot   bool
-	}{
-		{
-			name:        "privileged sets label and annotation",
-			level:       "privileged",
-			expectLabel: "privileged",
-			expectAnnot: true,
-		},
-		{
-			name:        "baseline sets label and removes annotation",
-			level:       "baseline",
-			expectLabel: "baseline",
-			expectAnnot: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			g := NewWithT(t)
-
-			scheme := runtime.NewScheme()
-			_ = corev1.AddToScheme(scheme)
-
-			ns := &corev1.Namespace{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:        "test-ns",
-					Labels:      map[string]string{securityEnforceLabel: "restricted"},
-					Annotations: map[string]string{psaElevatedByAnnotation: psaElevatedByValue},
-				},
-			}
-
-			cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns).Build()
-			r := &KserveModuleReconciler{Client: cli, applicationsNamespace: "test-ns"}
-
-			err := r.updateNamespacePSA(context.Background(), tt.level)
-			g.Expect(err).NotTo(HaveOccurred())
-
-			updated := &corev1.Namespace{}
-			g.Expect(cli.Get(context.Background(), client.ObjectKey{Name: "test-ns"}, updated)).To(Succeed())
-			g.Expect(updated.Labels[securityEnforceLabel]).To(Equal(tt.expectLabel))
-
-			annot, exists := updated.Annotations[psaElevatedByAnnotation]
-			if tt.expectAnnot {
-				g.Expect(exists).To(BeTrue())
-				g.Expect(annot).To(Equal(psaElevatedByValue))
-			} else {
-				g.Expect(exists).To(BeFalse())
-			}
-		})
-	}
-}
-
-func TestUpdateNamespacePSA_SkipsDowngradeWhenNotOwnedByUs(t *testing.T) {
+func TestEnsureModelCacheNamespace_CreatesWhenMissing(t *testing.T) {
 	g := NewWithT(t)
 
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 
-	ns := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        "test-ns",
-			Labels:      map[string]string{securityEnforceLabel: "privileged"},
-			Annotations: map[string]string{psaElevatedByAnnotation: "some-other-controller"},
-		},
-	}
-
-	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns).Build()
+	cli := fake.NewClientBuilder().WithScheme(scheme).Build()
 	r := &KserveModuleReconciler{Client: cli, applicationsNamespace: "test-ns"}
 
-	err := r.updateNamespacePSA(context.Background(), "baseline")
+	err := r.ensureModelCacheNamespace(context.Background())
 	g.Expect(err).NotTo(HaveOccurred())
 
-	updated := &corev1.Namespace{}
-	g.Expect(cli.Get(context.Background(), client.ObjectKey{Name: "test-ns"}, updated)).To(Succeed())
-	g.Expect(updated.Labels[securityEnforceLabel]).To(Equal("privileged"))
-	g.Expect(updated.Annotations[psaElevatedByAnnotation]).To(Equal("some-other-controller"))
+	ns := &corev1.Namespace{}
+	g.Expect(cli.Get(context.Background(), client.ObjectKey{Name: modelCacheNamespaceName}, ns)).To(Succeed())
+	g.Expect(ns.Labels[securityEnforceLabel]).To(Equal("privileged"))
 }
 
-func TestUpdateNamespacePSA_SkipsDowngradeWhenNoAnnotation(t *testing.T) {
+func TestEnsureModelCacheNamespace_PatchesExistingPSA(t *testing.T) {
 	g := NewWithT(t)
 
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-
-	ns := &corev1.Namespace{
+	existing := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   "test-ns",
+			Name:   modelCacheNamespaceName,
+			Labels: map[string]string{securityEnforceLabel: "restricted"},
+		},
+	}
+	r := newReconcilerWithFakeClient(existing)
+
+	err := r.ensureModelCacheNamespace(context.Background())
+	g.Expect(err).NotTo(HaveOccurred())
+
+	ns := &corev1.Namespace{}
+	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: modelCacheNamespaceName}, ns)).To(Succeed())
+	g.Expect(ns.Labels[securityEnforceLabel]).To(Equal("privileged"))
+}
+
+func TestEnsureModelCacheNamespace_AlreadyPrivileged(t *testing.T) {
+	g := NewWithT(t)
+
+	existing := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   modelCacheNamespaceName,
 			Labels: map[string]string{securityEnforceLabel: "privileged"},
 		},
 	}
+	r := newReconcilerWithFakeClient(existing)
 
-	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns).Build()
-	r := &KserveModuleReconciler{Client: cli, applicationsNamespace: "test-ns"}
-
-	err := r.updateNamespacePSA(context.Background(), "baseline")
+	err := r.ensureModelCacheNamespace(context.Background())
 	g.Expect(err).NotTo(HaveOccurred())
 
-	updated := &corev1.Namespace{}
-	g.Expect(cli.Get(context.Background(), client.ObjectKey{Name: "test-ns"}, updated)).To(Succeed())
-	g.Expect(updated.Labels[securityEnforceLabel]).To(Equal("privileged"))
-}
-
-func TestUpdateNamespacePSA_NoOpWhenAlreadySet(t *testing.T) {
-	g := NewWithT(t)
-
-	scheme := runtime.NewScheme()
-	_ = corev1.AddToScheme(scheme)
-
-	ns := &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        "test-ns",
-			Labels:      map[string]string{securityEnforceLabel: "privileged"},
-			Annotations: map[string]string{psaElevatedByAnnotation: psaElevatedByValue},
-		},
-	}
-
-	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns).Build()
-	r := &KserveModuleReconciler{Client: cli, applicationsNamespace: "test-ns"}
-
-	err := r.updateNamespacePSA(context.Background(), "privileged")
-	g.Expect(err).NotTo(HaveOccurred())
+	ns := &corev1.Namespace{}
+	g.Expect(r.Get(context.Background(), client.ObjectKey{Name: modelCacheNamespaceName}, ns)).To(Succeed())
+	g.Expect(ns.Labels[securityEnforceLabel]).To(Equal("privileged"))
 }
 
 func toUnstructuredConfigMap(cm *corev1.ConfigMap) unstructured.Unstructured {
@@ -332,7 +259,7 @@ func TestLocalModelConfigViaCustomizeKserveConfigMap(t *testing.T) {
 	err = json.Unmarshal([]byte(updatedCM.Data[localModelConfigKeyName]), &localModelData)
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(localModelData["enabled"]).To(Equal(true))
-	g.Expect(localModelData["jobNamespace"]).To(Equal("test-ns"))
+	g.Expect(localModelData["jobNamespace"]).To(Equal(modelCacheNamespaceName))
 }
 
 
@@ -400,7 +327,7 @@ func TestModelCachePostRender_AppendsResourcesAndLabelsNodes(t *testing.T) {
 	g.Expect(updatedNode.Labels[modelCacheLabelKey]).To(Equal(modelCacheLabelValue))
 
 	ns := &corev1.Namespace{}
-	g.Expect(r.Get(ctx, client.ObjectKey{Name: "test-ns"}, ns)).To(Succeed())
+	g.Expect(r.Get(ctx, client.ObjectKey{Name: modelCacheNamespaceName}, ns)).To(Succeed())
 	g.Expect(ns.Labels[securityEnforceLabel]).To(Equal("privileged"))
 }
 
@@ -500,9 +427,6 @@ func TestCleanupModelCache_DeletesResources(t *testing.T) {
 
 	r := newReconcilerWithFakeClient(node)
 
-	// Simulate enable: elevate PSA
-	g.Expect(r.updateNamespacePSA(ctx, "privileged")).To(Succeed())
-
 	err := r.cleanupModelCache(ctx)
 	g.Expect(err).NotTo(HaveOccurred())
 
@@ -511,11 +435,6 @@ func TestCleanupModelCache_DeletesResources(t *testing.T) {
 	g.Expect(r.Get(ctx, client.ObjectKey{Name: "worker-1"}, updated)).To(Succeed())
 	_, hasLabel := updated.Labels[modelCacheLabelKey]
 	g.Expect(hasLabel).To(BeFalse())
-
-	// Verify PSA reverted
-	ns := &corev1.Namespace{}
-	g.Expect(r.Get(ctx, client.ObjectKey{Name: "test-ns"}, ns)).To(Succeed())
-	g.Expect(ns.Labels[securityEnforceLabel]).To(Equal("baseline"))
 }
 
 // --- SELinux MCS tests ---
@@ -538,6 +457,13 @@ func namespaceWithMCS(name, mcs string) *corev1.Namespace {
 	}
 }
 
+func toUnstructuredDeployment(dep *appsv1.Deployment) unstructured.Unstructured {
+	raw, _ := runtime.DefaultUnstructuredConverter.ToUnstructured(dep)
+	u := unstructured.Unstructured{Object: raw}
+	u.SetGroupVersionKind(deploymentGVK)
+	return u
+}
+
 func toUnstructuredDaemonSet(ds *appsv1.DaemonSet) unstructured.Unstructured {
 	raw, _ := runtime.DefaultUnstructuredConverter.ToUnstructured(ds)
 	u := unstructured.Unstructured{Object: raw}
@@ -549,11 +475,13 @@ func testDaemonSet(mcsLevel string) *appsv1.DaemonSet {
 	ds := &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      localModelNodeAgentDaemonSetName,
-			Namespace: "test-ns",
+			Namespace: modelCacheNamespaceName,
 		},
 		Spec: appsv1.DaemonSetSpec{
 			Template: corev1.PodTemplateSpec{
-				Spec: corev1.PodSpec{},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "manager"}},
+				},
 			},
 		},
 	}
@@ -567,24 +495,24 @@ func testDaemonSet(mcsLevel string) *appsv1.DaemonSet {
 
 func TestResolveNamespaceMCSLevel_Valid(t *testing.T) {
 	g := NewWithT(t)
-	r := newReconcilerWithFakeClient(namespaceWithMCS("test-ns", "s0:c29,c4"))
-	level, err := r.resolveNamespaceMCSLevel(context.Background(), "test-ns")
+	r := newReconcilerWithFakeClient(namespaceWithMCS(modelCacheNamespaceName, "s0:c29,c4"))
+	level, err := r.resolveNamespaceMCSLevel(context.Background(), modelCacheNamespaceName)
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(level).To(Equal("s0:c29,c4"))
 }
 
 func TestResolveNamespaceMCSLevel_Missing(t *testing.T) {
 	g := NewWithT(t)
-	r := newReconcilerWithFakeClient()
-	_, err := r.resolveNamespaceMCSLevel(context.Background(), "test-ns")
+	r := newReconcilerWithFakeClient(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: modelCacheNamespaceName}})
+	_, err := r.resolveNamespaceMCSLevel(context.Background(), modelCacheNamespaceName)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(modelCacheReadinessReason(err)).To(Equal(modelCacheReasonNamespaceMCSMissing))
 }
 
 func TestResolveNamespaceMCSLevel_Invalid(t *testing.T) {
 	g := NewWithT(t)
-	r := newReconcilerWithFakeClient(namespaceWithMCS("test-ns", "s0:c29,c4; rm -rf /"))
-	_, err := r.resolveNamespaceMCSLevel(context.Background(), "test-ns")
+	r := newReconcilerWithFakeClient(namespaceWithMCS(modelCacheNamespaceName, "s0:c29,c4; rm -rf /"))
+	_, err := r.resolveNamespaceMCSLevel(context.Background(), modelCacheNamespaceName)
 	g.Expect(err).To(HaveOccurred())
 	g.Expect(err.Error()).To(ContainSubstring("invalid MCS level"))
 }
@@ -604,7 +532,7 @@ func TestPatchLocalModelNodeAgentMCSLevel(t *testing.T) {
 func TestModelCacheComponentPostRender_PatchesMCS(t *testing.T) {
 	g := NewWithT(t)
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-1"}}
-	r := newOpenShiftReconciler(node, namespaceWithMCS("test-ns", "s0:c28,c27"))
+	r := newOpenShiftReconciler(node, namespaceWithMCS(modelCacheNamespaceName, "s0:c28,c27"))
 	kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"worker-1"})
 	resources := []unstructured.Unstructured{
 		toUnstructuredDaemonSet(testDaemonSet("")),
@@ -620,7 +548,7 @@ func readyLocalModelControllerDeployment() *appsv1.Deployment {
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      localmodelControllerDeployment,
-			Namespace: "test-ns",
+			Namespace: modelCacheNamespaceName,
 		},
 		Status: appsv1.DeploymentStatus{
 			AvailableReplicas: 1,
@@ -633,7 +561,7 @@ func seedModelCacheObjects(t *testing.T, r *KserveModuleReconciler, kserve *plat
 	t.Helper()
 	g := NewWithT(t)
 	ctx := context.Background()
-	resources, err := buildModelCacheResources(kserve, r.getApplicationsNamespace())
+	resources, err := buildModelCacheResources(kserve, r.getModelCacheNamespace())
 	g.Expect(err).NotTo(HaveOccurred())
 	for i := range resources {
 		existing := resources[i].DeepCopy()
@@ -658,7 +586,7 @@ func seedModelCacheReadinessObjects(t *testing.T, r *KserveModuleReconciler, dsM
 
 func TestCheckModelCacheReadiness_MCSMatch(t *testing.T) {
 	g := NewWithT(t)
-	r := newOpenShiftReconciler(namespaceWithMCS("test-ns", "s0:c29,c4"))
+	r := newOpenShiftReconciler(namespaceWithMCS(modelCacheNamespaceName, "s0:c29,c4"))
 	seedModelCacheReadinessObjects(t, r, "s0:c29,c4")
 	err := r.checkModelCacheReadiness(context.Background())
 	g.Expect(err).NotTo(HaveOccurred())
@@ -666,7 +594,7 @@ func TestCheckModelCacheReadiness_MCSMatch(t *testing.T) {
 
 func TestCheckModelCacheReadiness_MCSMismatch(t *testing.T) {
 	g := NewWithT(t)
-	r := newOpenShiftReconciler(namespaceWithMCS("test-ns", "s0:c29,c4"))
+	r := newOpenShiftReconciler(namespaceWithMCS(modelCacheNamespaceName, "s0:c29,c4"))
 	seedModelCacheReadinessObjects(t, r, "s0:c240,c768")
 	err := r.checkModelCacheReadiness(context.Background())
 	g.Expect(err).To(HaveOccurred())
@@ -675,7 +603,7 @@ func TestCheckModelCacheReadiness_MCSMismatch(t *testing.T) {
 
 func TestCheckModelCacheReadiness_DaemonSetMissing(t *testing.T) {
 	g := NewWithT(t)
-	r := newOpenShiftReconciler(namespaceWithMCS("test-ns", "s0:c29,c4"))
+	r := newOpenShiftReconciler(namespaceWithMCS(modelCacheNamespaceName, "s0:c29,c4"))
 	seedModelCacheReadinessObjects(t, r, "")
 	err := r.checkModelCacheReadiness(context.Background())
 	g.Expect(err).To(HaveOccurred())
@@ -689,7 +617,7 @@ func TestCheckModelCacheReadiness_SkipsMCSOnKubernetes(t *testing.T) {
 	_ = corev1.AddToScheme(scheme)
 	_ = platformv1alpha1.AddToScheme(scheme)
 	_ = appsv1.AddToScheme(scheme)
-	ns := namespaceWithMCS("test-ns", "s0:c29,c4")
+	ns := namespaceWithMCS(modelCacheNamespaceName, "s0:c29,c4")
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns).Build()
 	ct := cluster.ClusterTypeKubernetes
 	r := &KserveModuleReconciler{
@@ -701,6 +629,42 @@ func TestCheckModelCacheReadiness_SkipsMCSOnKubernetes(t *testing.T) {
 	seedModelCacheReadinessObjects(t, r, "")
 	err := r.checkModelCacheReadiness(context.Background())
 	g.Expect(err).NotTo(HaveOccurred())
+}
+
+func TestPatchModelCacheConfigNamespace(t *testing.T) {
+	g := NewWithT(t)
+
+	dep := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: localmodelControllerDeployment},
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "manager"}},
+				},
+			},
+		},
+	}
+	resources := []unstructured.Unstructured{
+		toUnstructuredDeployment(dep),
+		toUnstructuredDaemonSet(testDaemonSet("")),
+	}
+
+	result, err := patchModelCacheConfigNamespace(resources, "app-ns")
+	g.Expect(err).NotTo(HaveOccurred())
+
+	_, patchedDep, err := getIndexedResource[appsv1.Deployment](result, deploymentGVK, localmodelControllerDeployment)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(patchedDep.Spec.Template.Spec.Containers[0].Env).To(ContainElement(corev1.EnvVar{
+		Name:  kserveConfigNamespaceEnv,
+		Value: "app-ns",
+	}))
+
+	_, patchedDS, err := getIndexedResource[appsv1.DaemonSet](result, daemonSetGVK, localModelNodeAgentDaemonSetName)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(patchedDS.Spec.Template.Spec.Containers[0].Env).To(ContainElement(corev1.EnvVar{
+		Name:  kserveConfigNamespaceEnv,
+		Value: "app-ns",
+	}))
 }
 
 func TestModelCacheReadinessReason(t *testing.T) {

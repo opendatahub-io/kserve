@@ -106,7 +106,9 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 	modelCacheEnabled := kserve.Spec.ModelCache != nil && kserve.Spec.ModelCache.ManagementState == "Managed"
 	if err := updateCMJSONKey(cm, localModelConfigKeyName, func(data map[string]any) {
 		data["enabled"] = modelCacheEnabled
-		data["jobNamespace"] = cm.Namespace
+		if modelCacheEnabled {
+			data["jobNamespace"] = modelCacheNamespaceName
+		}
 	}); err != nil {
 		return err
 	}
