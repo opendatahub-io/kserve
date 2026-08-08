@@ -27,6 +27,10 @@ var (
 	}
 	modelControllerDeploymentsOCP = []string{
 		odhModelControllerDeployment,
+		modelServingAPIDeployment,
+	}
+	modelControllerDeploymentsXKS = []string{
+		odhModelControllerDeployment,
 	}
 	wvaDeploymentsOCP = []string{
 		wvaControllerDeployment,
@@ -57,7 +61,7 @@ func checkKServeReadiness(ctx context.Context, cli client.Client, namespace stri
 
 func checkModelControllerReadiness(ctx context.Context, cli client.Client, namespace string, isXKS bool) error {
 	if isXKS {
-		return nil
+		return checkDeploymentsReady(ctx, cli, namespace, modelControllerDeploymentsXKS)
 	}
 	return checkDeploymentsReady(ctx, cli, namespace, modelControllerDeploymentsOCP)
 }

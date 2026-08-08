@@ -21,6 +21,7 @@ const (
 	KserveCRDManifestSourcePath     = "overlays/odh-crds"
 	ModelCacheManifestSourcePath    = "overlays/odh-modelcache"
 	ModelControllerSourcePath       = "base"
+	ModelControllerSourcePathXKS    = "overlays/xks"
 	WVAManifestSourcePathOCP        = "overlays/namespace-scoped/openshift"
 	ObservabilityManifestSourcePath      = "monitoring/llmisvc/dashboards"
 	ConsoleDashboardsManifestSourcePath = "monitoring/llmisvc/dashboards-odc"
@@ -30,6 +31,7 @@ const (
 	llmISVCControllerDeployment    = "llmisvc-controller-manager"
 	localmodelControllerDeployment = "kserve-localmodel-controller-manager"
 	odhModelControllerDeployment   = "odh-model-controller"
+	modelServingAPIDeployment      = "model-serving-api"
 	wvaControllerDeployment        = "workload-variant-autoscaler-controller-manager"
 
 	// Console dashboards target namespace
