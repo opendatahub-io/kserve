@@ -72,8 +72,9 @@ type KserveSpec struct {
 	EnableLLMInferenceServiceConsoleDashboards *bool `json:"enableLLMInferenceServiceConsoleDashboards,omitempty"`
 
 	// Enables audit logging for KServe inference requests.
-	// When enabled, the audit logging flag is set in the inferenceservice-config
-	// ConfigMap's openshiftConfig section. Disabled by default.
+	// When set, the flag is written to the inferenceservice-config ConfigMap's
+	// openshiftConfig section. When unset, any existing
+	// openshiftConfig.enableAuditLogging value is left unchanged.
 	// +optional
 	EnableAuditLogging *bool `json:"enableAuditLogging,omitempty"`
 
