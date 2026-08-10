@@ -66,7 +66,10 @@ OCP_SUBSCRIPTIONS=(
 # Parse arguments
 # ---------------------------------------------------------------------------
 CLEANUP=false
-SKIP_DEPS=false
+# Skip dependency installation (deploy only). Env-overridable.
+SKIP_DEPS="${SKIP_DEPS:-false}"
+# Install dependencies only, skip the kserve-module deploy. Env-overridable.
+SKIP_KM_DEPLOY="${SKIP_KM_DEPLOY:-false}"
 
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -78,9 +81,10 @@ parse_args() {
           exit 1
         fi
         KSERVE_MODULE_IMG="$2"; shift 2 ;;
-      --cleanup)    CLEANUP=true; shift ;;
-      --skip-deps)  SKIP_DEPS=true; shift ;;
-      -h|--help)    usage; exit 0 ;;
+      --cleanup)     CLEANUP=true; shift ;;
+      --skip-deps)      SKIP_DEPS=true; shift ;;
+      --skip-km-deploy) SKIP_KM_DEPLOY=true; shift ;;
+      -h|--help)        usage; exit 0 ;;
       *)            echo "Unknown option: $1"; usage; exit 1 ;;
     esac
   done
@@ -101,7 +105,10 @@ Options:
   --platform xks|ocp           Target platform (default: xks)
   --image IMAGE                 Controller image (e.g. quay.io/org/kserve-module:tag)
   --cleanup                     Uninstall kserve-module and all platform dependencies
-  --skip-deps                   Skip dependency installation (use when deps are already installed)
+  --skip-deps                   Skip dependency installation, deploy only
+                                (or set SKIP_DEPS=true)
+  --skip-km-deploy              Install dependencies only, skip the kserve-module deploy
+                                (or set SKIP_KM_DEPLOY=true)
   -h, --help                    Show this help
 
 Examples:
@@ -110,6 +117,9 @@ Examples:
 
   # Install on OCP with custom image
   $(basename "$0") --platform ocp --image quay.io/my-org/kserve-module:latest
+
+  # Install dependencies only (no module deploy)
+  $(basename "$0") --platform ocp --skip-km-deploy
 
   # Uninstall everything
   $(basename "$0") --cleanup --platform xks
@@ -401,7 +411,12 @@ main() {
     log_info "Skipping dependency installation (--skip-deps)"
   fi
 
-  deploy_kserve_module
+  if [[ "${SKIP_KM_DEPLOY}" != "true" ]]; then
+    deploy_kserve_module
+  else
+    log_info "Skipping kserve-module deploy (--skip-km-deploy / SKIP_KM_DEPLOY=true) — dependencies only"
+    return
+  fi
 
   echo ""
   log_success "Setup complete!"
