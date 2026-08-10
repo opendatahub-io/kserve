@@ -3,10 +3,12 @@ package kservemodule
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	. "github.com/onsi/gomega"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -33,12 +35,14 @@ var (
 	testClusterScope   = testRESTScope{name: apimeta.RESTScopeNameRoot}
 )
 
-// makeUpgradeTestScheme returns a scheme with corev1, appsv1, and apiextensionsv1 registered.
+// makeUpgradeTestScheme returns a scheme with corev1, appsv1, apiextensionsv1,
+// and admissionregistrationv1 registered.
 func makeUpgradeTestScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = corev1.AddToScheme(s)
 	_ = appsv1.AddToScheme(s)
 	_ = apiextensionsv1.AddToScheme(s)
+	_ = admissionregistrationv1.AddToScheme(s)
 	return s
 }
 
@@ -53,6 +57,9 @@ func makeUpgradeTestRESTMapper() apimeta.RESTMapper {
 
 	// Typed GVKs
 	rm.Add(schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}, testNamespaceScope)
+	rm.Add(schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "DaemonSet"}, testNamespaceScope)
+	rm.Add(schema.GroupVersionKind{Group: "admissionregistration.k8s.io", Version: "v1", Kind: "ValidatingWebhookConfiguration"}, testClusterScope)
+	rm.Add(schema.GroupVersionKind{Group: "admissionregistration.k8s.io", Version: "v1", Kind: "MutatingWebhookConfiguration"}, testClusterScope)
 
 	// Unstructured GVKs from upgrade.go
 	rm.Add(inferenceServiceGVK, testNamespaceScope)
@@ -1187,5 +1194,111 @@ func TestDeleteLegacySelectorWorkloads(t *testing.T) {
 		got := &appsv1.Deployment{}
 		g.Expect(k8serr.IsNotFound(cli.Get(ctx, client.ObjectKeyFromObject(dep2), got))).
 			To(BeTrue(), "llmisvc-controller-manager should be deleted despite kserve error")
+	})
+}
+
+// ─── Legacy LLMInference Webhook Cleanup ────────────────────────────────────
+
+func makeWebhookService(name string) *admissionregistrationv1.ServiceReference {
+	return &admissionregistrationv1.ServiceReference{Name: name, Namespace: "opendatahub"}
+}
+
+func makeValidatingWebhookConfig(name string, serviceNames ...string) *admissionregistrationv1.ValidatingWebhookConfiguration {
+	webhooks := make([]admissionregistrationv1.ValidatingWebhook, 0, len(serviceNames))
+	for i, svc := range serviceNames {
+		webhooks = append(webhooks, admissionregistrationv1.ValidatingWebhook{
+			Name:         fmt.Sprintf("%s-%d", name, i),
+			ClientConfig: admissionregistrationv1.WebhookClientConfig{Service: makeWebhookService(svc)},
+		})
+	}
+	return &admissionregistrationv1.ValidatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Webhooks:   webhooks,
+	}
+}
+
+func makeMutatingWebhookConfig(name string, serviceNames ...string) *admissionregistrationv1.MutatingWebhookConfiguration {
+	webhooks := make([]admissionregistrationv1.MutatingWebhook, 0, len(serviceNames))
+	for i, svc := range serviceNames {
+		webhooks = append(webhooks, admissionregistrationv1.MutatingWebhook{
+			Name:         fmt.Sprintf("%s-%d", name, i),
+			ClientConfig: admissionregistrationv1.WebhookClientConfig{Service: makeWebhookService(svc)},
+		})
+	}
+	return &admissionregistrationv1.MutatingWebhookConfiguration{
+		ObjectMeta: metav1.ObjectMeta{Name: name},
+		Webhooks:   webhooks,
+	}
+}
+
+func TestDeleteLegacyLLMInferenceWebhooks(t *testing.T) {
+	ctx := context.Background()
+	const newService = "llmisvc-webhook-server-service"
+
+	t.Run("DeletesWhenAnyWebhookEntryRefsLegacyService", func(t *testing.T) {
+		g := NewWithT(t)
+
+		// Mixed entries: first/new, middle/legacy, last/new — any one legacy forces full delete.
+		vwc := makeValidatingWebhookConfig(
+			"llminferenceserviceconfig.serving.kserve.io",
+			newService,
+			legacyKServeWebhookService,
+			newService,
+		)
+		cli := makeISVCFakeClient(vwc)
+
+		g.Expect(deleteLegacyLLMInferenceWebhooks(ctx, cli)).To(Succeed())
+
+		got := &admissionregistrationv1.ValidatingWebhookConfiguration{}
+		err := cli.Get(ctx, client.ObjectKey{Name: vwc.Name}, got)
+		g.Expect(k8serr.IsNotFound(err)).To(BeTrue(), "config should be deleted when any entry is legacy")
+	})
+
+	t.Run("DeletesAllLegacyLLMInferenceWebhookConfigs", func(t *testing.T) {
+		g := NewWithT(t)
+
+		objects := []client.Object{
+			makeValidatingWebhookConfig("llminferenceservice.serving.kserve.io", legacyKServeWebhookService, legacyKServeWebhookService),
+			makeValidatingWebhookConfig("llminferenceserviceconfig.serving.kserve.io", legacyKServeWebhookService, legacyKServeWebhookService),
+			makeMutatingWebhookConfig("llminferenceservice.serving.kserve.io", legacyKServeWebhookService, legacyKServeWebhookService),
+		}
+		cli := makeISVCFakeClient(objects...)
+
+		g.Expect(deleteLegacyLLMInferenceWebhooks(ctx, cli)).To(Succeed())
+
+		for _, name := range []string{"llminferenceservice.serving.kserve.io", "llminferenceserviceconfig.serving.kserve.io"} {
+			vwc := &admissionregistrationv1.ValidatingWebhookConfiguration{}
+			g.Expect(k8serr.IsNotFound(cli.Get(ctx, client.ObjectKey{Name: name}, vwc))).
+				To(BeTrue(), "ValidatingWebhookConfiguration %s should be deleted", name)
+		}
+		mwc := &admissionregistrationv1.MutatingWebhookConfiguration{}
+		g.Expect(k8serr.IsNotFound(cli.Get(ctx, client.ObjectKey{Name: "llminferenceservice.serving.kserve.io"}, mwc))).
+			To(BeTrue(), "MutatingWebhookConfiguration should be deleted")
+	})
+
+	t.Run("SkipsWhenAllWebhookEntriesUseNewService", func(t *testing.T) {
+		g := NewWithT(t)
+
+		vwc := makeValidatingWebhookConfig(
+			"llminferenceserviceconfig.serving.kserve.io",
+			newService,
+			newService,
+			newService,
+		)
+		mwc := makeMutatingWebhookConfig("llminferenceservice.serving.kserve.io", newService, newService)
+		cli := makeISVCFakeClient(vwc, mwc)
+
+		g.Expect(deleteLegacyLLMInferenceWebhooks(ctx, cli)).To(Succeed())
+
+		gotVWC := &admissionregistrationv1.ValidatingWebhookConfiguration{}
+		g.Expect(cli.Get(ctx, client.ObjectKey{Name: vwc.Name}, gotVWC)).To(Succeed())
+		gotMWC := &admissionregistrationv1.MutatingWebhookConfiguration{}
+		g.Expect(cli.Get(ctx, client.ObjectKey{Name: mwc.Name}, gotMWC)).To(Succeed())
+	})
+
+	t.Run("SkipsMissingWebhookConfigs", func(t *testing.T) {
+		g := NewWithT(t)
+		cli := makeISVCFakeClient()
+		g.Expect(deleteLegacyLLMInferenceWebhooks(ctx, cli)).To(Succeed())
 	})
 }

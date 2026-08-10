@@ -61,7 +61,16 @@ fi
 case "${OPERATOR_TYPE}" in
   rhods|rhoai)       export KSERVE_NAMESPACE="redhat-ods-applications"; export SEAWEEDFS_BUNDLED=false ;;
   odh|opendatahub)   export KSERVE_NAMESPACE="opendatahub";             export SEAWEEDFS_BUNDLED=false ;;
-  "")                export KSERVE_NAMESPACE="kserve";                   export SEAWEEDFS_BUNDLED=true ;;
+  "")
+    export KSERVE_NAMESPACE="kserve"
+    # manual kustomize (odh-test overlay) bundles SeaweedFS; kserve-module only
+    # deploys kserve-module/config and needs SeaweedFS deployed separately.
+    if [[ -n "${KSERVE_MODULE_CONTROLLER_IMAGE:-}" ]]; then
+      export SEAWEEDFS_BUNDLED=false
+    else
+      export SEAWEEDFS_BUNDLED=true
+    fi
+    ;;
   *)                 echo "Error: Unknown OPERATOR_TYPE '${OPERATOR_TYPE}'"; exit 1 ;;
 esac
 
