@@ -83,13 +83,14 @@ var _ = Describe("LLMInferenceService CPU accelerator config ODH", func() {
 			}).WithContext(ctx).Should(Succeed())
 
 			presetImage := config.Spec.Template.Containers[0].Image
-			mainContainer := findContainer(deployment, "main")
-			Expect(mainContainer).ToNot(BeNil())
-			Expect(mainContainer.Image).To(Equal(presetImage))
-			Expect(mainContainer.Env).To(ContainElements(
-				And(HaveField("Name", "VLLM_CPU_KVCACHE_SPACE"), HaveField("Value", "4")),
-				And(HaveField("Name", "OMP_NUM_THREADS"), HaveField("Value", "4")),
-			))
+			Expect(deployment.Spec.Template.Spec.Containers).To(ContainElement(And(
+				HaveField("Name", "main"),
+				HaveField("Image", presetImage),
+				HaveField("Env", ContainElements(
+					And(HaveField("Name", "VLLM_CPU_KVCACHE_SPACE"), HaveField("Value", "4")),
+					And(HaveField("Name", "OMP_NUM_THREADS"), HaveField("Value", "4")),
+				)),
+			)))
 			Expect(deployment.Spec.Template.Spec.NodeSelector).To(
 				HaveKeyWithValue("kubernetes.io/arch", "amd64"))
 		})
@@ -131,13 +132,14 @@ var _ = Describe("LLMInferenceService CPU accelerator config ODH", func() {
 				}, deployment)
 			}).WithContext(ctx).Should(Succeed())
 
-			mainContainer := findContainer(deployment, "main")
-			Expect(mainContainer).ToNot(BeNil())
-			Expect(mainContainer.Image).To(Equal(userImage))
-			Expect(mainContainer.Env).To(ContainElements(
-				And(HaveField("Name", "VLLM_CPU_KVCACHE_SPACE"), HaveField("Value", "4")),
-				And(HaveField("Name", "OMP_NUM_THREADS"), HaveField("Value", "4")),
-			))
+			Expect(deployment.Spec.Template.Spec.Containers).To(ContainElement(And(
+				HaveField("Name", "main"),
+				HaveField("Image", userImage),
+				HaveField("Env", ContainElements(
+					And(HaveField("Name", "VLLM_CPU_KVCACHE_SPACE"), HaveField("Value", "4")),
+					And(HaveField("Name", "OMP_NUM_THREADS"), HaveField("Value", "4")),
+				)),
+			)))
 		})
 	})
 })
