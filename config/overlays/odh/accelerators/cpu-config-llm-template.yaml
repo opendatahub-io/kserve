@@ -23,6 +23,10 @@ spec:
     containers:
       - name: main
         image: placeholder
+        # Defaults from the validated CPU reference configuration (RHAI-194, run on a
+        # 4 vCPU / 16Gi pod): VLLM_CPU_KVCACHE_SPACE is the KV cache size in GiB and
+        # OMP_NUM_THREADS should match the pod's CPU allocation. Override both in the
+        # LLMInferenceService spec when deploying with a different pod size.
         env:
           - name: VLLM_CPU_KVCACHE_SPACE
             value: "4"
