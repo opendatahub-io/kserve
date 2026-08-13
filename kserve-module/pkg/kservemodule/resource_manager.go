@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -64,6 +66,40 @@ func checkModelControllerReadiness(ctx context.Context, cli client.Client, names
 
 func checkWVAReadiness(ctx context.Context, cli client.Client, namespace string) error {
 	return checkDeploymentsReady(ctx, cli, namespace, wvaDeploymentsOCP)
+}
+
+// checkPresetsPresent reports which of the presets we just applied are no longer
+// on the cluster. They carry no ownerReference, so a deleted preset is invisible
+// to the ownerRef cascade and to garbage collection; without this check the CR
+// reports Ready while every LLMInferenceService fails to resolve its baseRefs.
+func checkPresetsPresent(ctx context.Context, cli client.Client, namespace string, expected []string) error {
+	if len(expected) == 0 {
+		return nil
+	}
+
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(llmISVCConfigListGVK)
+	if err := cli.List(ctx, list, client.InNamespace(namespace)); err != nil {
+		return fmt.Errorf("listing %s: %w", llmISVCConfigKind, err)
+	}
+
+	live := make(map[string]struct{}, len(list.Items))
+	for i := range list.Items {
+		live[list.Items[i].GetName()] = struct{}{}
+	}
+
+	var missing []string
+	for _, name := range expected {
+		if _, ok := live[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) > 0 {
+		slices.Sort(missing)
+		return fmt.Errorf("%s presets missing: %s", llmISVCConfigKind, strings.Join(missing, ", "))
+	}
+
+	return nil
 }
 
 func (r *KserveModuleReconciler) defaultCleanup(ctx context.Context, comp componentConfig) error {

@@ -134,6 +134,18 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			groupKind: schema.GroupKind{Group: "serving.kserve.io", Kind: "LocalModelNodeGroup"},
 			gvk:       localModelNodeGroupGVK,
 		},
+		{
+			// Presets are deliberately out of the ownerRef chain (see
+			// unownedGroupKinds), so nothing recreates them when they are deleted.
+			// Watching them turns that into a normal reconcile. Scoped to the
+			// applications namespace: a reconcile renders and applies everything,
+			// so copies a user made elsewhere must not trigger one.
+			groupKind: llmISVCConfigGVK.GroupKind(),
+			gvk:       llmISVCConfigGVK,
+			filterFn: func(u *unstructured.Unstructured) bool {
+				return isShippedPreset(u, r.getApplicationsNamespace())
+			},
+		},
 	}
 
 	for _, dw := range r.dynamicWatches {
