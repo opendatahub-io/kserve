@@ -134,11 +134,7 @@ def _wait_for_workload_deployment(namespace: str, service_name: str):
 
 def _main_container(deployment) -> client.V1Container:
     main = next(
-        (
-            c
-            for c in deployment.spec.template.spec.containers
-            if c.name == "main"
-        ),
+        (c for c in deployment.spec.template.spec.containers if c.name == "main"),
         None,
     )
     assert main is not None, "workload Deployment has no 'main' container"
