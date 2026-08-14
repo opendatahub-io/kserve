@@ -14,9 +14,9 @@ DST_MANIFESTS_DIR="${1:-${MODULE_DIR}/opt/manifests}"
 #   "tag"                 - immutable reference
 #   "branch@commit-sha"  - tracks branch but pinned to specific commit
 declare -A ODH_COMPONENT_MANIFESTS=(
-    ["kserve"]="opendatahub-io:kserve:release-v0.17:config"
-    ["modelcontroller"]="opendatahub-io:odh-model-controller:main:config"
-    ["wva"]="opendatahub-io:workload-variant-autoscaler:odh-v3.5@e303a3af23f4bed3fee0f6b94b8f56db0c43e44d:config"
+    ["kserve"]="opendatahub-io:kserve:odh-v3.5:config"
+    ["modelcontroller"]="opendatahub-io:odh-model-controller:odh-v3.5:config"
+    ["wva"]="opendatahub-io:workload-variant-autoscaler:odh-v3.5:config"
 )
 
 # RHOAI Component Manifests
