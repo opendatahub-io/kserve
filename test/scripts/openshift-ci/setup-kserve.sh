@@ -176,6 +176,7 @@ metadata:
   name: default-kserve
 spec:
   managementState: Managed
+  rawDeploymentServiceConfig: Headed
 KSERVE_CR
       sleep 5
       echo "Waiting for Kserve CR to become Ready..."
