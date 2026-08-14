@@ -9,7 +9,7 @@ resources:
 # This will be created by the operator
 # - localmodelnode-pv-pvc.yaml
 
-namespace: opendatahub
+namespace: model-serving-cache
 
 components:
 - ../../components/localmodel

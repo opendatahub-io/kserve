@@ -97,7 +97,7 @@ import (
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;patch;update
 // +kubebuilder:rbac:groups="",resources=persistentvolumes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;patch;update
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create;patch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodegroups,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
 
@@ -338,7 +338,11 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 	}
 
 	renderPath := filepath.Join(manifestDir, comp.dirName(), sourcePath)
-	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(r.getApplicationsNamespace()))
+	targetNS := r.getApplicationsNamespace()
+	if comp.name == ModelCacheComponentName {
+		targetNS = r.getModelCacheNamespace()
+	}
+	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(targetNS))
 	if err != nil {
 		return nil, fmt.Errorf("rendering %s kustomize: %w", comp.name, err)
 	}
@@ -396,6 +400,10 @@ func (r *KserveModuleReconciler) getApplicationsNamespace() string {
 	}
 
 	return "opendatahub"
+}
+
+func (r *KserveModuleReconciler) getModelCacheNamespace() string {
+	return modelCacheNamespaceName
 }
 
 // getCertManagerNamespace dynamically discovers the namespace where cert-manager
