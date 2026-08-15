@@ -1,0 +1,2 @@
+# Presence of this file switches get_kserve_manifests.sh to
+# ODH_RELEASE_COMPONENT_MANIFESTS (release refs). Do not add to the main branch.
