@@ -104,7 +104,13 @@ class JWEDecryptor:
         # memory.  For very large models this may be a concern; consider splitting
         # large files before encryption or increasing container memory limits.
         key_bytes = self._resolver.resolve_key(rid)
-        symmetric_key = jwk.JWK(kty="oct", k=jwk.base64url_encode(key_bytes))
+        key_str = key_bytes.decode("utf-8")
+        # Try to import as a full JWK JSON object
+        try:
+            symmetric_key = jwk.JWK.from_json(key_str)
+        except (ValueError, jwk.InvalidJWKValue):
+            # Not a JWK object - treat as raw key value
+            symmetric_key = jwk.JWK(kty="oct", k=key_str)
 
         jwe_token = jwe.JWE()
         jwe_token.deserialize(path.read_text())
