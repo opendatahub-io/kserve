@@ -63,8 +63,22 @@ func writeParamsEnv(params map[string]string, dir string) (string, error) {
 	return tmp.Name(), nil
 }
 
+func resolveParamsEnv(componentPath string) string {
+	primary := filepath.Join(componentPath, "params.env")
+	if _, err := os.Stat(primary); err == nil {
+		return primary
+	}
+	if prefix, _, ok := strings.Cut(componentPath, "overlays/"); ok {
+		fallback := filepath.Join(prefix, "base", "params.env")
+		if _, err := os.Stat(fallback); err == nil {
+			return fallback
+		}
+	}
+	return primary
+}
+
 func applyParams(componentPath string, imageParamsMap map[string]string, extraParamsMaps ...map[string]string) error {
-	paramsFile := filepath.Join(componentPath, "params.env")
+	paramsFile := resolveParamsEnv(componentPath)
 
 	paramsEnvMap, err := parseParams(paramsFile)
 	if err != nil {
