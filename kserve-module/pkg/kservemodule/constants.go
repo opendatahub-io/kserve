@@ -20,7 +20,7 @@ const (
 	KserveManifestSourcePathXKS     = "overlays/odh-xks"
 	KserveCRDManifestSourcePath     = "overlays/odh-crds"
 	ModelCacheManifestSourcePath    = "overlays/odh-modelcache"
-	ModelControllerSourcePath       = "base"
+	ModelControllerSourcePath       = "overlays/odh"
 	WVAManifestSourcePathOCP        = "overlays/namespace-scoped/openshift"
 	ObservabilityManifestSourcePath      = "monitoring/llmisvc/dashboards"
 	ConsoleDashboardsManifestSourcePath = "monitoring/llmisvc/dashboards-odc"
