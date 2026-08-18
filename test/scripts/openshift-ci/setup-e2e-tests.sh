@@ -141,9 +141,18 @@ if oc wait --for=condition=complete job/s3-init -n ${KSERVE_NAMESPACE} --timeout
   echo "S3 init job already completed successfully"
 else
   echo "S3 init job not completed, re-creating..."
+  # facebook/opt-125m is only consumed by the llmisvc suite; skip the (slow) HuggingFace
+  # download + upload for predictor/raw/graph. The bucket creation and sklearn model
+  # upload below are needed by all S3-using suites and always run.
+  DOWNLOAD_OPT_125M=false
+  if [[ "${1:-}" =~ llminferenceservice|llmisvc ]]; then
+    DOWNLOAD_OPT_125M=true
+  fi
+  echo "DOWNLOAD_OPT_125M=${DOWNLOAD_OPT_125M} (marker: ${1:-})"
   sed "s/s3-service.kserve/s3-service.${KSERVE_NAMESPACE}/" \
     "$PROJECT_ROOT/test/overlays/openshift-ci/seaweedfs-init-job-odh.yaml" | \
     sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" | \
+    sed "s/__DOWNLOAD_OPT_125M__/${DOWNLOAD_OPT_125M}/" | \
     oc replace --force -n ${KSERVE_NAMESPACE} -f -
 
   echo "Waiting for S3 init job to complete..."
