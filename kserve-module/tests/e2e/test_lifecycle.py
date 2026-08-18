@@ -500,3 +500,68 @@ class TestOwnerReferences:
             assert kserve_owners[0]["uid"] == cr_uid, \
                 f"Deployment {name} ownerReference uid should be {cr_uid}, " \
                 f"got: {kserve_owners[0].get('uid')}"
+
+
+@pytest.mark.sanity
+class TestSSAIdempotency:
+    """No-op reconcile must not churn generation/resourceVersion (SSA idempotency)."""
+
+    def test_noop_reconcile_does_not_bump_generation(self, kubectl, cluster_info, apply_kserve_cr):
+        """Repeated reconciles with no spec change leave operand and CR generation stable.
+
+        A no-op reconcile re-applies the same desired state via SSA. If it is
+        idempotent nothing is persisted: the CR generation, the operand Deployment
+        generations, and the inferenceservice-config ConfigMap resourceVersion all
+        stay put. A bad defaulter or a field written on every pass would surface here
+        as generation churn. Reconcile is provoked with annotation bumps (metadata,
+        not spec), so the CR generation itself must not move either.
+
+        Deployments use generation (spec-bearing, so status churn is irrelevant); the
+        ConfigMap uses resourceVersion (no meaningful generation, and it bumps on any
+        write, so a no-op SSA leaves it untouched).
+        """
+        cm_name = "inferenceservice-config"
+        operands = operand_deployments(cluster_info.is_openshift)
+        for name in operands:
+            wait_for_deployment(kubectl, name)
+
+        # Baseline. Read fresh; adding the module finalizer does not bump generation.
+        cr_gen0 = get_jsonpath(kubectl, "kserve", KSERVE_CR_NAME, "{.metadata.generation}")
+        dep_gen0 = {
+            name: get_jsonpath(kubectl, "deployment", name, "{.metadata.generation}", namespace=NAMESPACE)
+            for name in operands
+        }
+        cm_rv0 = get_jsonpath(kubectl, "configmap", cm_name, "{.metadata.resourceVersion}", namespace=NAMESPACE)
+
+        # Provoke several no-op reconciles (annotation only, no spec change).
+        # trigger_reconcile is async and a no-op reconcile leaves no observable trace
+        # (status writes are deep-equal guarded), so we cannot positively confirm a
+        # reconcile ran; we rely on the watch-based controller reconciling the
+        # annotation change within the window below. TestDriftCorrection already proves
+        # trigger_reconcile drives a real reconcile.
+        for i in range(3):
+            trigger_reconcile(kubectl, trigger_id=f"ssa-idempotency-{i}")
+
+        # None of the recorded values may move while those reconciles run.
+        def assert_unchanged():
+            cr_gen = get_jsonpath(kubectl, "kserve", KSERVE_CR_NAME, "{.metadata.generation}")
+            dep_gen = {
+                name: get_jsonpath(kubectl, "deployment", name, "{.metadata.generation}", namespace=NAMESPACE)
+                for name in operands
+            }
+            cm_rv = get_jsonpath(kubectl, "configmap", cm_name, "{.metadata.resourceVersion}", namespace=NAMESPACE)
+
+            # get_jsonpath returns "" on a transient API error (check=False). A blank
+            # read is not a real change; skip this round (wait_consistently re-checks).
+            if cr_gen == "" or cm_rv == "" or any(v == "" for v in dep_gen.values()):
+                return
+
+            assert cr_gen == cr_gen0, \
+                f"CR generation changed on no-op reconcile: {cr_gen0} -> {cr_gen}"
+            for name in operands:
+                assert dep_gen[name] == dep_gen0[name], \
+                    f"{name} generation changed on no-op reconcile: {dep_gen0[name]} -> {dep_gen[name]}"
+            assert cm_rv == cm_rv0, \
+                f"{cm_name} resourceVersion changed on no-op reconcile: {cm_rv0} -> {cm_rv}"
+
+        wait_consistently(assert_unchanged, duration=10, interval=2)
