@@ -229,7 +229,7 @@ cleanup_kserve_module() {
 
   local config_dir="${PROJECT_ROOT}/kserve-module/config"
   ${KUBECTL} kustomize "$config_dir" | \
-    sed "s|namespace: kserve|namespace: ${KSERVE_NAMESPACE}|g" | \
+    sed "s|namespace: opendatahub|namespace: ${KSERVE_NAMESPACE}|g" | \
     ${KUBECTL} delete --ignore-not-found -f - 2>/dev/null || true
 
   log_success "kserve-module cleaned up"
