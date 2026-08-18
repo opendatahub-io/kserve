@@ -5,7 +5,8 @@ E2E_IMG ?=
 .PHONY: docker-build-kserve-module docker-push-kserve-module deploy-kserve-module \
 	kustomize-build-kserve-module generate-kserve-module manifests-kserve-module \
 	test-kserve-module setup-envtest-kserve-module precommit-km \
-	e2e-setup-kserve-module e2e-cleanup-kserve-module e2e-kserve-module check-km
+	e2e-setup-kserve-module e2e-cleanup-kserve-module e2e-kserve-module \
+	e2e-kserve-module-post-release check-km
 
 
 docker-build-kserve-module:
@@ -52,6 +53,9 @@ e2e-cleanup-kserve-module:
 
 e2e-kserve-module:
 	cd kserve-module/tests/e2e && python -m pytest -v
+
+e2e-kserve-module-post-release:
+	cd kserve-module/tests/e2e && python -m pytest -v -m post_release
 
 precommit-km: fmt go-lint generate-kserve-module manifests-kserve-module test-kserve-module
 	cd kserve-module && go mod tidy && go vet ./... && go build ./...
