@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -178,6 +179,8 @@ var _ = Describe("KserveModule Reconciler", func() {
 	Context("WVA ManagementState lifecycle", Ordered, func() {
 		var cr *platformv1alpha1.Kserve
 		wvaKey := client.ObjectKey{Name: "workload-variant-autoscaler-controller-manager", Namespace: "opendatahub"}
+		// Applied from the WVA rendered set (see fixture.WriteMinimalManifests).
+		wvaCRDKey := client.ObjectKey{Name: "wvatestresources.test.kserve.io"}
 
 		BeforeAll(func(ctx SpecContext) {
 			// Real: assert the WVA Deployment is really applied/deleted. Set before
@@ -220,11 +223,25 @@ var _ = Describe("KserveModule Reconciler", func() {
 				g.Expect(testEnv.Client.Get(ctx, wvaKey, &appsv1.Deployment{})).To(Succeed(),
 					"WVA Deployment should be applied to the cluster when Managed")
 			}).WithContext(ctx).Should(Succeed())
+
+			// The CRD must not carry an ownerReference to the namespaced Kserve CR: that would
+			// make GC cascade-delete it when the CR is removed. envtest has no GC, so assert
+			// the ref's absence rather than the deletion.
+			Eventually(func(g Gomega) {
+				crd := &apiextensionsv1.CustomResourceDefinition{}
+				g.Expect(testEnv.Client.Get(ctx, wvaCRDKey, crd)).To(Succeed(),
+					"WVA CRD should be applied to the cluster when Managed")
+				for _, ref := range crd.GetOwnerReferences() {
+					g.Expect(ref.Kind).NotTo(Equal("Kserve"),
+						"WVA CRD must not be owned by the Kserve CR (would cause GC cascade-delete on CR removal)")
+				}
+			}).WithContext(ctx).Should(Succeed())
 		})
 
-		It("deletes the WVA Deployment when ManagementState changes to Removed", func(ctx SpecContext) {
-			// Precondition: WVA Deployment exists from the previous (Managed) spec.
+		It("deletes the WVA Deployment but preserves the CRD when ManagementState changes to Removed", func(ctx SpecContext) {
+			// Precondition: WVA Deployment and CRD exist from the previous (Managed) spec.
 			Expect(testEnv.Client.Get(ctx, wvaKey, &appsv1.Deployment{})).To(Succeed())
+			Expect(testEnv.Client.Get(ctx, wvaCRDKey, &apiextensionsv1.CustomResourceDefinition{})).To(Succeed())
 
 			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
@@ -240,6 +257,12 @@ var _ = Describe("KserveModule Reconciler", func() {
 				g.Expect(k8serr.IsNotFound(err)).To(BeTrue(),
 					"WVA Deployment should be deleted by defaultCleanup when Removed")
 			}).WithContext(ctx).Should(Succeed())
+
+			// defaultCleanup skips CRDs, so it must survive the same Removed reconcile.
+			Consistently(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, wvaCRDKey, &apiextensionsv1.CustomResourceDefinition{})).To(Succeed(),
+					"WVA CRD must be preserved by defaultCleanup when Removed")
+			}).WithContext(ctx).WithTimeout(3 * time.Second).Should(Succeed())
 		})
 	})
 
