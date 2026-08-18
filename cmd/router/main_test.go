@@ -18,9 +18,12 @@ package main
 
 import (
 	"bytes"
+	"context"
+	crand "crypto/rand"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"io"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -31,16 +34,16 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"knative.dev/pkg/apis"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
+	pkgtest "github.com/kserve/kserve/pkg/testing"
 )
 
 func init() {
-	logf.SetLogger(zap.New())
+	pkgtest.SetupTestLogger()
 }
 
 func Int64Ptr(i int64) *int64 {
@@ -152,7 +155,7 @@ func TestSimpleModelChainer(t *testing.T) {
 	expectedResponse := map[string]interface{}{
 		"predictions": "2",
 	}
-	fmt.Printf("final response:%v\n", response)
+	t.Logf("final response:%v", response)
 	assert.Equal(t, expectedResponse, response)
 }
 
@@ -247,7 +250,7 @@ func TestSimpleModelEnsemble(t *testing.T) {
 			"predictions": "2",
 		},
 	}
-	fmt.Printf("final response:%v\n", response)
+	t.Logf("final response:%v", response)
 	assert.Equal(t, expectedResponse, response)
 }
 
@@ -472,7 +475,7 @@ func TestInferenceGraphWithCondition(t *testing.T) {
 			},
 		},
 	}
-	fmt.Printf("final response:%v\n", response)
+	t.Logf("final response:%v", response)
 	assert.Equal(t, expectedModel3Response, response["model3"])
 	assert.Equal(t, expectedModel4Response, response["model4"])
 }
@@ -561,7 +564,7 @@ func TestInferenceGraphSequenceWithUnmetCondition(t *testing.T) {
 			},
 		},
 	}
-	fmt.Printf("final response:%v\n", response)
+	t.Logf("final response:%v", response)
 	assert.Equal(t, expectedResponse, response)
 }
 
@@ -624,7 +627,7 @@ func TestCallServiceWhenNoneHeadersToPropagateIsEmpty(t *testing.T) {
 	expectedResponse := map[string]interface{}{
 		"predictions": "1",
 	}
-	fmt.Printf("final response:%v\n", response)
+	t.Logf("final response:%v", response)
 	assert.Equal(t, expectedResponse, response)
 }
 
@@ -689,7 +692,7 @@ func TestCallServiceWhen1HeaderToPropagate(t *testing.T) {
 		"predictions":     "1",
 		"Test-Header-Key": "Test-Header-Value",
 	}
-	fmt.Printf("final response:%v\n", response)
+	t.Logf("final response:%v", response)
 	assert.Equal(t, expectedResponse, response)
 }
 
@@ -757,7 +760,7 @@ func TestCallServiceWhenMultipleHeadersToPropagate(t *testing.T) {
 		"Test-Header-Key": "Test-Header-Value",
 		"Authorization":   "Bearer Token",
 	}
-	fmt.Printf("final response:%v\n", response)
+	t.Logf("final response:%v", response)
 	assert.Equal(t, expectedResponse, response)
 }
 
@@ -836,7 +839,7 @@ func TestCallServiceWhenMultipleHeadersToPropagateUsingPatterns(t *testing.T) {
 		"Test-Header-3": "Test-Header-3",
 		"Authorization": "Bearer Token",
 	}
-	fmt.Printf("final response:%v\n", response)
+	t.Logf("final response:%v", response)
 	require.Equal(t, expectedResponse, response)
 }
 
@@ -906,7 +909,7 @@ func TestCallServiceWhenMultipleHeadersToPropagateUsingInvalidPattern(t *testing
 		"predictions":   "1",
 		"Authorization": "Bearer Token",
 	}
-	fmt.Printf("final response:%v\n", response)
+	t.Logf("final response:%v", response)
 	require.Equal(t, expectedResponse, response)
 }
 
@@ -926,7 +929,7 @@ func TestServerTimeout(t *testing.T) {
 		{
 			name:                "timeout",
 			serverTimeout:       Int64Ptr(1),
-			serviceStepDuration: 500 * time.Millisecond,
+			serviceStepDuration: 1 * time.Second,
 			expectError:         true,
 		},
 		{
@@ -940,6 +943,7 @@ func TestServerTimeout(t *testing.T) {
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			drainSleepDuration = 0 * time.Millisecond // instant shutdown
+			isShuttingDown = false
 
 			// Setup and start dummy models
 			model1 := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, req *http.Request) {
@@ -950,7 +954,7 @@ func TestServerTimeout(t *testing.T) {
 				time.Sleep(testCase.serviceStepDuration)
 				response := map[string]interface{}{"predictions": "1"}
 				responseBytes, _ := json.Marshal(response)
-				rw.Write(responseBytes)
+				_, _ = rw.Write(responseBytes)
 			}))
 			model1Url, err := apis.ParseURL(model1.URL)
 			if err != nil {
@@ -966,7 +970,7 @@ func TestServerTimeout(t *testing.T) {
 				time.Sleep(testCase.serviceStepDuration)
 				response := map[string]interface{}{"predictions": "2"}
 				responseBytes, _ := json.Marshal(response)
-				rw.Write(responseBytes)
+				_, _ = rw.Write(responseBytes)
 			}))
 			model2Url, err := apis.ParseURL(model2.URL)
 			if err != nil {
@@ -1015,23 +1019,98 @@ func TestServerTimeout(t *testing.T) {
 			t.Cleanup(func() {
 				http.DefaultServeMux = http.NewServeMux() // reset http handlers
 				signalChan <- syscall.SIGTERM             // shutdown the server
+				time.Sleep(100 * time.Millisecond)        // wait for server to release port before next subtest
 			})
 
-			// Call the InferenceGraph
+			// Retry until the server is up instead of a fixed sleep.
 			client := &http.Client{}
-			time.Sleep(1 * time.Second) // prevent race condition
-			req, _ := http.NewRequest(http.MethodPost, "http://localhost:"+strconv.Itoa(constants.RouterPort), bytes.NewBuffer(nil))
-			resp, err := client.Do(req)
-			if resp != nil {
-				defer resp.Body.Close()
-			}
+			url := "http://localhost:" + strconv.Itoa(constants.RouterPort)
+			var statusCode int
+			var lastErr error
+			err = wait.PollUntilContextTimeout(t.Context(), 50*time.Millisecond, 5*time.Second, true, func(ctx context.Context) (bool, error) {
+				req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(nil))
+				if err != nil {
+					return false, err
+				}
+				resp, reqErr := client.Do(req)
+				if resp != nil {
+					defer resp.Body.Close()
+					statusCode = resp.StatusCode
+				}
+				lastErr = reqErr
+				if reqErr != nil && errors.Is(reqErr, syscall.ECONNREFUSED) {
+					return false, nil
+				}
+				return true, nil
+			})
+			require.NoError(t, err, "server did not become ready")
 
 			if testCase.expectError {
-				assert.Contains(t, err.Error(), "EOF")
+				require.Error(t, lastErr)
+				assert.Contains(t, lastErr.Error(), "EOF")
 			} else {
-				require.NoError(t, err)
-				assert.Equal(t, http.StatusOK, resp.StatusCode)
+				require.NoError(t, lastErr)
+				assert.Equal(t, http.StatusOK, statusCode)
 			}
 		})
+	}
+}
+
+func TestPickupRouteNeverReturnsNil(t *testing.T) {
+	w1, w2 := int64(20), int64(80)
+	routes := []v1alpha1.InferenceStep{
+		{
+			StepName: "model1",
+			InferenceTarget: v1alpha1.InferenceTarget{
+				ServiceURL: "http://example.com/model1",
+			},
+			Weight: &w1,
+		},
+		{
+			StepName: "model2",
+			InferenceTarget: v1alpha1.InferenceTarget{
+				ServiceURL: "http://example.com/model2",
+			},
+			Weight: &w2,
+		},
+	}
+
+	for i := range 10000 {
+		route := pickupRoute(routes)
+		require.NotNil(t, route, "pickupRoute returned nil on iteration %d", i)
+	}
+}
+
+func TestPickupRouteAlwaysReturnsRouteForAllRandValues(t *testing.T) {
+	w1, w2 := int64(30), int64(70)
+	routes := []v1alpha1.InferenceStep{
+		{
+			StepName: "model1",
+			InferenceTarget: v1alpha1.InferenceTarget{
+				ServiceURL: "http://example.com/model1",
+			},
+			Weight: &w1,
+		},
+		{
+			StepName: "model2",
+			InferenceTarget: v1alpha1.InferenceTarget{
+				ServiceURL: "http://example.com/model2",
+			},
+			Weight: &w2,
+		},
+	}
+
+	for i := range 10000 {
+		route := pickupRoute(routes)
+		require.NotNil(t, route, "pickupRoute returned nil on iteration %d", i)
+	}
+}
+
+func TestCryptoRandIntUpperBoundWithFix(t *testing.T) {
+	for i := range 100_000 {
+		n, err := crand.Int(crand.Reader, big.NewInt(100))
+		require.NoError(t, err)
+		require.True(t, n.Int64() >= 0 && n.Int64() < 100,
+			"rand.Int(100) returned out-of-range value %d on iteration %d", n.Int64(), i)
 	}
 }

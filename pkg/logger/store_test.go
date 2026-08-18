@@ -14,65 +14,73 @@ limitations under the License.
 package logger
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/onsi/gomega"
 	pkglogging "knative.dev/pkg/logging"
 
 	"github.com/kserve/kserve/pkg/agent/storage"
 )
 
-func mockStore() (*BlobStore, *MockS3Uploader) {
+func mockStore() (*BlobStore, *MockS3Uploader, *httptest.Server) {
 	uploader := &MockS3Uploader{
-		ReceivedUploadObjectsChan: make(chan s3manager.BatchUploadObject),
+		ReceivedUploadObjectsChan: make(chan *transfermanager.UploadObjectInput),
 	}
 
+	server := httptest.NewServer(NewJSONMarshallerHandler())
+	marshaller := NewHTTPMarshaller(server.URL+"/marshal", &http.Client{})
+
 	log, _ := pkglogging.NewLogger("", "INFO")
-	store := NewBlobStore("/logger", "json", &JSONMarshaller{}, &storage.S3Provider{Uploader: uploader}, log)
-	return store, uploader
+	store := NewBlobStore("/logger", marshaller, &storage.S3Provider{TransferClient: uploader}, log)
+	return store, uploader, server
 }
 
 func TestNilUrl(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	store, _ := mockStore()
-	err := store.Store(nil, LogRequest{})
+	store, _, server := mockStore()
+	defer server.Close()
+	err := store.Store(nil, []LogRequest{{}})
 	g.Expect(err).To(gomega.HaveOccurred())
 	g.Expect(err.Error()).To(gomega.MatchRegexp("url|URL"))
 }
 
 func TestMissingBucket(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	store, _ := mockStore()
+	store, _, server := mockStore()
+	defer server.Close()
 
 	logUrl, err := url.Parse("s3://")
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 
-	err = store.Store(logUrl, LogRequest{
+	err = store.Store(logUrl, []LogRequest{{
 		ReqType: CEInferenceRequest,
-	})
+	}})
 	g.Expect(err).To(gomega.HaveOccurred())
 	g.Expect(err.Error()).To(gomega.MatchRegexp("[b|B]ucket"))
 }
 
 func TestConfiguredPrefix(t *testing.T) {
 	g := gomega.NewGomegaWithT(t)
-	store, uploader := mockStore()
+	store, uploader, server := mockStore()
+	defer server.Close()
 
 	logUrl, err := url.Parse("s3://bucket/prefix")
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 
-	err = store.Store(logUrl, LogRequest{
+	err = store.Store(logUrl, []LogRequest{{
 		Id:               "0123",
 		Namespace:        "ns",
 		InferenceService: "inference",
 		Component:        "predictor",
 		ReqType:          CEInferenceRequest,
-	})
+	}})
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 
 	req := <-uploader.ReceivedUploadObjectsChan
-	g.Expect(*req.Object.Bucket).To(gomega.Equal("bucket"))
-	g.Expect(*req.Object.Key).To(gomega.MatchRegexp("prefix/ns/inference/predictor/logger/0123-request.json"))
+	g.Expect(*req.Bucket).To(gomega.Equal("bucket"))
+	g.Expect(*req.Key).To(gomega.MatchRegexp("prefix/ns/inference/predictor/logger/0123-request.json"))
 }

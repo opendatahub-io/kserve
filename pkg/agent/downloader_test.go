@@ -46,15 +46,15 @@ var _ = Describe("Downloader", func() {
 			ModelDir: modelDir + "/test",
 			Providers: map[storage.Protocol]storage.Provider{
 				storage.S3: &storage.S3Provider{
-					Client:     &mocks.MockS3Client{},
-					Downloader: &mocks.MockS3Downloader{},
+					Client:         &mocks.MockS3Client{},
+					TransferClient: &mocks.MockS3TransferClient{},
 				},
 			},
 			Logger: sugar,
 		}
 	})
 	AfterEach(func() {
-		os.RemoveAll(modelDir)
+		_ = os.RemoveAll(modelDir)
 		logger.Printf("Deleted temp dir %v\n", modelDir)
 	})
 

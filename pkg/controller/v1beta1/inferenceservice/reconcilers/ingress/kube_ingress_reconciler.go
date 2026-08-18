@@ -19,6 +19,8 @@ package ingress
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
@@ -28,12 +30,15 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/apis"
+	knapis "knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	v1beta1utils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
@@ -58,7 +63,7 @@ func NewRawIngressReconciler(client client.Client,
 	}, nil
 }
 
-func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.InferenceService) error {
+func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.InferenceService) (ctrl.Result, error) {
 	var err error
 	isInternal := false
 	// disable ingress creation if service is labelled with cluster local or kserve domain is cluster local
@@ -76,19 +81,19 @@ func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Infe
 	}, existingIngress)
 	ingressIsNotFound := apierr.IsNotFound(getExistingErr)
 	if getExistingErr != nil && !ingressIsNotFound {
-		return fmt.Errorf("failed to get existing ingress: %w", getExistingErr)
+		return ctrl.Result{}, fmt.Errorf("failed to get existing ingress: %w", getExistingErr)
 	}
 
 	// ISVC is stopped, delete the ingress if it exists, otherwise, do nothing
 	forceStopRuntime := utils.GetForceStopRuntime(isvc)
 	if (getExistingErr != nil && ingressIsNotFound) && forceStopRuntime {
-		return nil
+		return ctrl.Result{}, nil
 	}
 	if forceStopRuntime {
-		if ctrl := metav1.GetControllerOf(existingIngress); ctrl != nil && ctrl.UID == isvc.UID {
+		if controller := metav1.GetControllerOf(existingIngress); controller != nil && controller.UID == isvc.UID {
 			log.Info("The InferenceService is marked as stopped — deleting its associated ingress", "name", isvc.Name)
 			if err := r.client.Delete(ctx, existingIngress); err != nil {
-				return err
+				return ctrl.Result{}, err
 			}
 		}
 
@@ -98,51 +103,155 @@ func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Infe
 			Reason: v1beta1.StoppedISVCReason,
 		})
 
-		return nil
+		return ctrl.Result{}, nil
 	}
 
 	// Create or update ingress to match the desired state
 	if !isInternal && !r.ingressConfig.DisableIngressCreation {
 		ingress, err := createRawIngress(r.scheme, isvc, r.ingressConfig, r.isvcConfig)
 		if err != nil {
-			return err
+			return ctrl.Result{}, err
 		}
 		if ingress == nil {
-			return nil
+			return ctrl.Result{}, nil
 		}
 
 		if getExistingErr != nil && ingressIsNotFound {
-			log.Info("creating ingress", "ingressName", isvc.Name, "err", err)
+			log.Info("creating ingress", "ingressName", isvc.Name)
 			if err := r.client.Create(ctx, ingress); err != nil {
 				log.Error(err, "Failed to create ingress", "name", ingress.Name)
-				return err
+				return ctrl.Result{}, err
 			}
 		} else if !semanticIngressEquals(ingress, existingIngress) {
-			log.Info("updating ingress", "ingressName", isvc.Name, "err", err)
+			log.Info("updating ingress", "ingressName", isvc.Name)
 			if err := r.client.Update(ctx, ingress); err != nil {
 				log.Error(err, "Failed to update ingress", "name", ingress.Name)
-				return err
+				return ctrl.Result{}, err
 			}
 		}
 	}
 
-	isvc.Status.URL, err = createRawURL(isvc, r.ingressConfig)
+	authEnabled := false
+	if val, ok := isvc.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
+		authEnabled = true
+	}
+
+	isvc.Status.URL, err = createRawURLODH(ctx, r.client, isvc, authEnabled)
 	if err != nil {
-		return err
+		return ctrl.Result{}, err
 	}
-	isvc.Status.Address = &duckv1.Addressable{
-		URL: &apis.URL{
-			Host:   getRawServiceHost(isvc),
-			Scheme: r.ingressConfig.UrlScheme,
-			Path:   "",
-		},
+	isvc.Status.Address, err = createAddress(ctx, r.client, isvc)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
+
+	if authEnabled && isvc.Spec.Transformer == nil {
+		// When auth is enabled and the entry point is the predictor (which carries
+		// the auth proxy sidecar), the OAuth proxy port takes precedence over any
+		// port set by createAddress (e.g. :8080 for headless services).
+		// Transformer entry points are excluded because the transformer does not
+		// carry the auth proxy — it communicates with the predictor over TLS instead.
+		host := getRawServiceHost(isvc)
+		isvc.Status.Address.URL.Host = host + ":" + strconv.Itoa(constants.OauthProxyPort)
+		isvc.Status.Address.URL.Scheme = "https"
+	}
+
 	isvc.Status.SetCondition(v1beta1.IngressReady, &apis.Condition{
 		Type:   v1beta1.IngressReady,
 		Status: corev1.ConditionTrue,
 	})
 
-	return nil
+	return ctrl.Result{}, nil
+}
+
+func createRawURLODH(ctx context.Context, client client.Client, isvc *v1beta1.InferenceService, authEnabled bool) (*knapis.URL, error) {
+	// upstream implementation
+	// var err error
+	// url := &knapis.URL{}
+	// url.Scheme = ingressConfig.UrlScheme
+	// url.Host, err = GenerateDomainName(isvc.Name, isvc.ObjectMeta, ingressConfig)
+	// if err != nil {
+	//	return nil, err
+	// }
+	// if authEnabled {
+	//	url.Host += ":" + strconv.Itoa(constants.OauthProxyPort)
+	// }
+	// return url, nil
+
+	// ODH changes
+	var url *knapis.URL
+	if val, ok := isvc.Labels[constants.NetworkVisibility]; ok && val == constants.ODHRouteEnabled {
+		var err error
+		url, err = v1beta1utils.GetRouteURLIfExists(ctx, client, isvc.ObjectMeta, isvc.Name)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		url = &apis.URL{
+			Host:   getRawServiceHost(isvc),
+			Scheme: "http",
+			Path:   "",
+		}
+		if authEnabled && isvc.Spec.Transformer == nil {
+			url.Host += ":" + strconv.Itoa(constants.OauthProxyPort)
+			url.Scheme = "https"
+		}
+	}
+	return url, nil
+}
+
+func createAddress(ctx context.Context, cl client.Client, isvc *v1beta1.InferenceService) (*duckv1.Addressable, error) {
+	host := getRawServiceHost(isvc)
+	// Determine the entry point service name.
+	// If a transformer exists, it becomes the entry point; otherwise, the predictor is.
+	entryPointSvcName := constants.PredictorServiceName(isvc.Name, isvc.Spec.Predictor.Name)
+	if isvc.Spec.Transformer != nil {
+		entryPointSvcName = constants.TransformerServiceName(isvc.Name)
+	}
+	// Check if the entry point service is headless
+	entryPointSvc := &corev1.Service{}
+	if err := cl.Get(ctx, types.NamespacedName{
+		Namespace: isvc.Namespace,
+		Name:      entryPointSvcName,
+	}, entryPointSvc); err != nil {
+		return nil, fmt.Errorf("failed to get entry point service %s: %w", entryPointSvcName, err)
+	}
+	if entryPointSvc.Spec.ClusterIP == corev1.ClusterIPNone {
+		port := constants.InferenceServiceDefaultHttpPort
+		if p := httpTargetPort(entryPointSvc); p != "" {
+			port = p
+		} else {
+			log.Info("No HTTP target port found on service, defaulting to InferenceServiceDefaultHttpPort",
+				"defaultPort", constants.InferenceServiceDefaultHttpPort, "service", entryPointSvc.Name)
+		}
+		host = host + ":" + port
+	}
+	return &duckv1.Addressable{
+		URL: &apis.URL{
+			Host:   host,
+			Scheme: "http",
+			Path:   "",
+		},
+	}, nil
+}
+
+// httpTargetPort returns the target port (as a string) of the first non-gRPC
+// port on the Service, which is the port the container actually listens on.
+// For headless Services the address must use this port directly because there
+// is no ClusterIP to perform port remapping.
+func httpTargetPort(svc *corev1.Service) string {
+	for _, p := range svc.Spec.Ports {
+		if isGrpcPortByName(p.Name) {
+			continue
+		}
+		if p.AppProtocol != nil && *p.AppProtocol == "kubernetes.io/h2c" {
+			continue
+		}
+		if p.TargetPort.IntValue() > 0 {
+			return strconv.Itoa(p.TargetPort.IntValue())
+		}
+	}
+	return ""
 }
 
 func generateRule(ingressHost string, componentName string, path string, port int32) netv1.IngressRule { //nolint:unparam
@@ -177,7 +286,7 @@ func generateMetadata(isvc *v1beta1.InferenceService,
 ) metav1.ObjectMeta {
 	// get annotations from isvc
 	annotations := utils.Filter(isvc.Annotations, func(key string) bool {
-		return !utils.Includes(isvcConfig.ServiceAnnotationDisallowedList, key)
+		return !utils.Includes(v1beta1utils.FilterList(isvcConfig.ServiceAnnotationDisallowedList, constants.ODHKserveRawAuth), key)
 	})
 	objectMeta := metav1.ObjectMeta{
 		Name:      name,
@@ -219,7 +328,7 @@ func createRawIngress(scheme *runtime.Scheme, isvc *v1beta1.InferenceService,
 		return nil, nil
 	}
 	var rules []netv1.IngressRule
-	predictorName := constants.PredictorServiceName(isvc.Name)
+	predictorName := constants.PredictorServiceName(isvc.Name, isvc.Spec.Predictor.Name)
 	switch {
 	case isvc.Spec.Transformer != nil:
 		if !isvc.Status.IsConditionReady(v1beta1.TransformerReady) {
@@ -287,8 +396,8 @@ func createRawIngress(scheme *runtime.Scheme, isvc *v1beta1.InferenceService,
 
 	ingress := &netv1.Ingress{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        isvc.ObjectMeta.Name,
-			Namespace:   isvc.ObjectMeta.Namespace,
+			Name:        isvc.Name,
+			Namespace:   isvc.Namespace,
 			Annotations: isvc.Annotations,
 		},
 		Spec: netv1.IngressSpec{

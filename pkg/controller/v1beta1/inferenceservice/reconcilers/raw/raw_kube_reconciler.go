@@ -18,16 +18,16 @@ package raw
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/autoscaler"
-	deployment "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/deployment"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/ingress"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/otel"
-	service "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/service"
 	"github.com/kserve/kserve/pkg/credentials"
 	kserveTypes "github.com/kserve/kserve/pkg/types"
 	"github.com/kserve/kserve/pkg/webhook/admission/pod"
@@ -48,8 +48,8 @@ var log = logf.Log.WithName("RawKubeReconciler")
 type RawKubeReconciler struct {
 	client        client.Client
 	scheme        *runtime.Scheme
-	Deployment    *deployment.DeploymentReconciler
-	Service       *service.ServiceReconciler
+	Workload      reconcilers.WorkloadReconciler
+	Service       reconcilers.ServiceReconciler
 	Scaler        *autoscaler.AutoscalerReconciler
 	OtelCollector *otel.OtelReconciler
 	URL           *knapis.URL
@@ -60,6 +60,7 @@ func NewRawKubeReconciler(ctx context.Context,
 	client client.Client,
 	clientset kubernetes.Interface,
 	scheme *runtime.Scheme,
+	resourceType constants.ResourceType,
 	componentMeta metav1.ObjectMeta,
 	workerComponentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
@@ -174,7 +175,44 @@ func NewRawKubeReconciler(ctx context.Context,
 		deployConfig = nil // Use nil if config is not available
 	}
 
-	deployment, err := deployment.NewDeploymentReconciler(client, scheme, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec, deployConfig)
+	// Parse deployment mode
+	deploymentMode := constants.ParseDeploymentMode(componentMeta.Annotations[constants.DeploymentMode])
+
+	// Use factory to create reconcilers
+	factory := reconcilers.NewReconcilerFactory()
+
+	workloadRec, err := factory.CreateWorkloadReconciler(
+		ctx,
+		deploymentMode,
+		reconcilers.WorkloadReconcilerParams{
+			Client:              client,
+			ClientSet:           clientset,
+			Scheme:              scheme,
+			ResourceType:        resourceType,
+			ComponentMeta:       componentMeta,
+			WorkerComponentMeta: workerComponentMeta,
+			ComponentExt:        componentExt,
+			PodSpec:             podSpec,
+			WorkerPodSpec:       workerPodSpec,
+			DeployConfig:        deployConfig,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	serviceRec, err := factory.CreateServiceReconciler(
+		deploymentMode,
+		reconcilers.ServiceReconcilerParams{
+			Client:           client,
+			Scheme:           scheme,
+			ComponentMeta:    componentMeta,
+			ComponentExt:     componentExt,
+			PodSpec:          podSpec,
+			MultiNodeEnabled: multiNodeEnabled,
+			ServiceConfig:    serviceConfig,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -182,8 +220,8 @@ func NewRawKubeReconciler(ctx context.Context,
 	return &RawKubeReconciler{
 		client:        client,
 		scheme:        scheme,
-		Deployment:    deployment,
-		Service:       service.NewServiceReconciler(client, scheme, componentMeta, componentExt, podSpec, multiNodeEnabled, serviceConfig),
+		Workload:      workloadRec,
+		Service:       serviceRec,
 		Scaler:        as,
 		OtelCollector: otelCollector,
 		URL:           url,
@@ -200,8 +238,40 @@ func createRawURL(ingressConfig *v1beta1.IngressConfig, metadata metav1.ObjectMe
 	return url, nil
 }
 
-// Reconcile ...
-func (r *RawKubeReconciler) Reconcile(ctx context.Context) ([]*appsv1.Deployment, error) {
+// Reconcile stamps owner references (with owner as the controller) on every
+// desired resource and then applies them. Setting refs here rather than in each
+// caller means a component can never accidentally create an orphaned resource.
+func (r *RawKubeReconciler) Reconcile(ctx context.Context, owner metav1.Object) ([]*appsv1.Deployment, error) {
+	// Set owner references on all desired objects before applying them, so nothing
+	// is orphaned if a caller forgets a separate call. Each sub-reconciler stamps
+	// refs on its own resource type (Deployment/Rollout CR, Service, HPA, ...), so
+	// this stays polymorphic across workload types.
+	if owner == nil {
+		return nil, errors.New("owner must not be nil: raw resources would be created orphaned")
+	}
+	if err := r.Service.SetControllerReferences(owner, r.scheme); err != nil {
+		return nil, fmt.Errorf("fails to set service owner reference: %w", err)
+	}
+	if r.OtelCollector != nil {
+		if err := r.OtelCollector.SetControllerReferences(owner, r.scheme); err != nil {
+			return nil, fmt.Errorf("fails to set otel owner reference: %w", err)
+		}
+	}
+	if err := r.Workload.SetControllerReferences(owner, r.scheme); err != nil {
+		return nil, fmt.Errorf("fails to set workload owner reference: %w", err)
+	}
+	if err := r.Scaler.Autoscaler.SetControllerReferences(owner, r.scheme); err != nil {
+		return nil, fmt.Errorf("fails to set autoscaler owner reference: %w", err)
+	}
+
+	// reconcile Service first to avoid transient pod startup delays when
+	// platform-specific service annotations (e.g. serving-cert) trigger
+	// secret creation that the deployment's pods mount.
+	_, err := r.Service.Reconcile(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	// reconcile OTel Collector
 	if r.OtelCollector != nil {
 		err := r.OtelCollector.Reconcile(ctx)
@@ -209,14 +279,9 @@ func (r *RawKubeReconciler) Reconcile(ctx context.Context) ([]*appsv1.Deployment
 			return nil, err
 		}
 	}
-	// reconcile Deployment
-	deploymentList, err := r.Deployment.Reconcile(ctx)
-	if err != nil {
-		return nil, err
-	}
 
-	// reconcile Service
-	_, err = r.Service.Reconcile(ctx)
+	// reconcile Workload (Deployment)
+	deploymentList, err := r.Workload.Reconcile(ctx)
 	if err != nil {
 		return nil, err
 	}

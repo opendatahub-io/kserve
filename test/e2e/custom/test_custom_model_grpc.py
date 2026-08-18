@@ -1,3 +1,17 @@
+# Copyright 2022 The KServe Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -39,6 +53,7 @@ from ..common.utils import (
 )
 
 
+@pytest.mark.skip(reason="Not testable in ODH at the moment")
 @pytest.mark.grpc
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")
@@ -101,6 +116,7 @@ async def test_custom_model_grpc():
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 
+@pytest.mark.skip(reason="Not testable in ODH at the moment")
 @pytest.mark.grpc
 @pytest.mark.transformer
 @pytest.mark.asyncio(scope="session")
@@ -130,7 +146,7 @@ async def test_predictor_grpc_with_transformer_grpc():
             V1Container(
                 name="kserve-container",
                 image="kserve/custom-image-transformer-grpc:"
-                + os.environ.get("GITHUB_SHA"),
+                + (os.environ.get("GITHUB_SHA") or "latest"),
                 resources=V1ResourceRequirements(
                     requests={"cpu": "50m", "memory": "128Mi"},
                     limits={"cpu": "100m", "memory": "1Gi"},
@@ -181,6 +197,7 @@ async def test_predictor_grpc_with_transformer_grpc():
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 
+@pytest.mark.skip(reason="Not testable in ODH at the moment")
 @pytest.mark.grpc
 @pytest.mark.transformer
 @pytest.mark.asyncio(scope="session")
@@ -279,7 +296,7 @@ async def test_predictor_grpc_with_transformer_http(rest_v2_client):
 
 @pytest.mark.transformer
 @pytest.mark.asyncio(scope="session")
-async def test_predictor_rest_with_transformer_rest(rest_v2_client):
+async def test_predictor_rest_with_transformer_rest(rest_v2_client, network_layer):
     service_name = "model-rest-trans-rest"
     model_name = "custom-model"
 
@@ -341,6 +358,7 @@ async def test_predictor_rest_with_transformer_rest(rest_v2_client):
         service_name,
         "./data/custom_model_input_v2.json",
         model_name=model_name,
+        network_layer=network_layer,
     )
     points = ["%.3f" % point for point in list(res.outputs[0].data)]
     assert points == ["14.976", "14.037", "13.966", "12.252", "12.086"]
@@ -365,12 +383,14 @@ async def test_predictor_rest_with_transformer_rest(rest_v2_client):
         service_name,
         infer_request,
         model_name=model_name,
+        network_layer=network_layer,
     )
     points = ["%.3f" % point for point in list(res.outputs[0].data)]
     assert points == ["14.976", "14.037", "13.966", "12.252", "12.086"]
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 
+@pytest.mark.skip(reason="Not testable in ODH at the moment")
 @pytest.mark.raw
 @pytest.mark.asyncio(scope="session")
 async def test_predictor_grpc_with_transformer_grpc_raw(network_layer):
@@ -382,7 +402,8 @@ async def test_predictor_grpc_with_transformer_grpc_raw(network_layer):
         containers=[
             V1Container(
                 name="kserve-container",
-                image="kserve/custom-model-grpc:" + os.environ.get("GITHUB_SHA"),
+                image="kserve/custom-model-grpc:"
+                + (os.environ.get("GITHUB_SHA") or "latest"),
                 resources=V1ResourceRequirements(
                     requests={"cpu": "50m", "memory": "128Mi"},
                     limits={"cpu": "100m", "memory": "1Gi"},
@@ -402,7 +423,7 @@ async def test_predictor_grpc_with_transformer_grpc_raw(network_layer):
             V1Container(
                 name="kserve-container",
                 image="kserve/custom-image-transformer-grpc:"
-                + os.environ.get("GITHUB_SHA"),
+                + (os.environ.get("GITHUB_SHA") or "latest"),
                 resources=V1ResourceRequirements(
                     requests={"cpu": "50m", "memory": "128Mi"},
                     limits={"cpu": "100m", "memory": "1Gi"},

@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import inspect
+import os
 import time
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -40,6 +41,30 @@ from .protocol.grpc.grpc_predict_v2_pb2 import ModelInferRequest
 from .protocol.infer_type import InferRequest, InferResponse
 from .utils.inference_client_factory import InferenceClientFactory
 
+# Headers allowed to be forwarded from incoming requests to predictor/explainer.
+_FORWARDABLE_HEADERS = frozenset({"x-request-id", "x-b3-traceid", "authorization"})
+
+
+def append_forwardable_headers(
+    headers: Optional[Dict[str, str]],
+    base: Optional[Dict[str, str]] = None,
+) -> Dict[str, str]:
+    """Build a header dict by forwarding allowed headers from the incoming request.
+
+    Args:
+        headers: Incoming request headers (may be None).
+        base: Base headers to include (e.g. Content-Type). Defaults to empty dict.
+
+    Returns:
+        Dict containing base headers plus any forwardable headers found in the input.
+    """
+    result = dict(base) if base else {}
+    if headers is not None:
+        for key in _FORWARDABLE_HEADERS:
+            if key in headers:
+                result[key] = headers[key]
+    return result
+
 
 class BaseKServeModel(ABC):
     """
@@ -48,6 +73,7 @@ class BaseKServeModel(ABC):
     This class implements the expectations of model repository and model server.
     """
 
+    @abstractmethod
     def __init__(self, name: str):
         """
         Adds the required attributes
@@ -265,10 +291,17 @@ class Model(InferenceModel):
                 "PredictorConfig is required to create HTTP client but is None."
             )
         if self._http_client_instance is None and self.predictor_config.predictor_host:
+            # When REQUESTS_CA_BUNDLE is set (e.g. by the controller for
+            # transformer→predictor TLS), use it as the CA bundle for httpx.
+            # httpx/certifi do not honour this env var automatically.
+            ca_bundle = os.environ.get("REQUESTS_CA_BUNDLE") or os.environ.get(
+                "CURL_CA_BUNDLE"
+            )
             config = RESTConfig(
                 protocol=self.predictor_config.protocol,
                 timeout=self.predictor_config.timeout,
                 retries=self.predictor_config.retries,
+                verify=ca_bundle if ca_bundle else True,
             )
             self._http_client_instance = InferenceClientFactory().get_rest_client(
                 config=config
@@ -363,14 +396,9 @@ class Model(InferenceModel):
         headers: Dict[str, str] = None,
         response_headers: Dict[str, str] = None,
     ) -> Union[Dict, InferResponse]:
-        # Adjusting headers. Inject content type if not exist.
-        # Also, removing host, as the header is the one passed to transformer and contains transformer's host
-        predict_headers = {"Content-Type": "application/json"}
-        if headers is not None:
-            if "x-request-id" in headers:
-                predict_headers["x-request-id"] = headers["x-request-id"]
-            if "x-b3-traceid" in headers:
-                predict_headers["x-b3-traceid"] = headers["x-b3-traceid"]
+        predict_headers = append_forwardable_headers(
+            headers, {"Content-Type": "application/json"}
+        )
 
         response = await self._http_client.infer(
             self.predictor_config.predictor_base_url,
@@ -389,13 +417,12 @@ class Model(InferenceModel):
     ) -> InferResponse:
         if isinstance(payload, ModelInferRequest):
             payload = InferRequest.from_grpc(payload)
+        filtered = append_forwardable_headers(headers)
+        metadata = [("request_type", "grpc_v2"), ("response_type", "grpc_v2")]
+        metadata.extend((k, v) for k, v in filtered.items())
         async_result = await self._grpc_client.infer(
             infer_request=payload,
-            headers=(
-                ("request_type", "grpc_v2"),
-                ("response_type", "grpc_v2"),
-                ("x-request-id", headers.get("x-request-id", "")),
-            ),
+            headers=tuple(metadata),
         )
         return async_result
 
@@ -445,14 +472,10 @@ class Model(InferenceModel):
         if self.explainer_host is None:
             raise NotImplementedError("Could not find explainer_host.")
 
-        explain_headers = {"content-type": "application/json"}
-        if headers is not None:
-            if "content-type" in headers:
-                explain_headers["content-type"] = headers["content-type"]
-            if "x-request-id" in headers:
-                explain_headers["x-request-id"] = headers["x-request-id"]
-            if "x-b3-traceid" in headers:
-                explain_headers["x-b3-traceid"] = headers["x-b3-traceid"]
+        base = {"content-type": "application/json"}
+        if headers is not None and "content-type" in headers:
+            base["content-type"] = headers["content-type"]
+        explain_headers = append_forwardable_headers(headers, base)
 
         protocol = "https" if self.use_ssl else "http"
         # Currently explainer only supports the kserve v1 endpoints

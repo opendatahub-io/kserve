@@ -32,7 +32,7 @@ from ..common.utils import KSERVE_TEST_NAMESPACE
 
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")
-async def test_mlflow_v2_runtime_kserve(rest_v2_client):
+async def test_mlflow_v2_runtime_kserve(rest_v2_client, network_layer):
     service_name = "isvc-mlflow-v2-runtime"
     protocol_version = "v2"
 
@@ -61,7 +61,11 @@ async def test_mlflow_v2_runtime_kserve(rest_v2_client):
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            labels={
+                constants.KSERVE_LABEL_NETWORKING_VISIBILITY: constants.KSERVE_LABEL_NETWORKING_VISIBILITY_EXPOSED,
+            },
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -75,6 +79,7 @@ async def test_mlflow_v2_runtime_kserve(rest_v2_client):
         rest_v2_client,
         service_name,
         "./data/mlflow_input_v2.json",
+        network_layer=network_layer,
     )
     assert res.outputs[0].data == [5.576883936610762]
 

@@ -51,7 +51,7 @@ var (
 		AdditionalDomain, AdditionalDomainExtra)
 	ServiceConfigData = fmt.Sprintf(`{
 		"serviceClusterIPNone" : %t
-	}`, true)
+	}`, false)
 
 	ISCVWithData = fmt.Sprintf(`{
 		"serviceAnnotationDisallowedList": ["%s","%s"],
@@ -211,6 +211,7 @@ func TestNewServiceConfig(t *testing.T) {
 	emp, err := NewServiceConfig(isvcConfigMap)
 	g.Expect(err).ShouldNot(gomega.HaveOccurred())
 	g.Expect(emp).ShouldNot(gomega.BeNil())
+	g.Expect(emp.ServiceClusterIPNone).Should(gomega.BeTrue()) // In ODH the default is <true>
 
 	// with value
 	withTrue := fakeclientset.NewSimpleClientset(&corev1.ConfigMap{
@@ -225,7 +226,7 @@ func TestNewServiceConfig(t *testing.T) {
 
 	g.Expect(err).ShouldNot(gomega.HaveOccurred())
 	g.Expect(wt).ShouldNot(gomega.BeNil())
-	g.Expect(wt.ServiceClusterIPNone).Should(gomega.BeTrue())
+	g.Expect(wt.ServiceClusterIPNone).Should(gomega.BeFalse())
 
 	// no value, should be nil
 	noValue := fakeclientset.NewSimpleClientset(&corev1.ConfigMap{
@@ -239,7 +240,7 @@ func TestNewServiceConfig(t *testing.T) {
 	nv, err := NewServiceConfig(isvcConfigMap)
 	g.Expect(err).ShouldNot(gomega.HaveOccurred())
 	g.Expect(nv).ShouldNot(gomega.BeNil())
-	g.Expect(nv.ServiceClusterIPNone).Should(gomega.BeFalse())
+	g.Expect(nv.ServiceClusterIPNone).Should(gomega.BeTrue()) // In ODH the default is <true>
 }
 
 func TestInferenceServiceDisallowedLists(t *testing.T) {
@@ -723,5 +724,73 @@ func TestNewIngressConfig_Validation(t *testing.T) {
 		g.Expect(cfg.IngressGateway).To(gomega.Equal("knative-serving/knative-ingress-gateway"))
 		g.Expect(cfg.IngressDomain).To(gomega.Equal("mydomain.com"))
 		g.Expect(cfg.UrlScheme).To(gomega.Equal("https"))
+	})
+}
+
+func TestGetStorageInitializerConfigs(t *testing.T) {
+	g := gomega.NewGomegaWithT(t)
+
+	baseJSON := func(extra string) string {
+		return `{"image":"kserve/storage-initializer:latest","memoryRequest":"100Mi","memoryLimit":"1Gi","cpuRequest":"100m","cpuLimit":"1","caBundleConfigMapName":"","caBundleVolumeMountPath":"/etc/ssl/custom-certs"` + extra + `}`
+	}
+
+	t.Run("parses new OCI fields when both set", func(t *testing.T) {
+		cm := &corev1.ConfigMap{
+			Data: map[string]string{
+				StorageInitializerConfigMapKeyName: baseJSON(`,"enableOciModelSupport":true,"ociModelMode":"native"`),
+			},
+		}
+		cfg, err := GetStorageInitializerConfigs(cm)
+		g.Expect(err).ShouldNot(gomega.HaveOccurred())
+		g.Expect(cfg.EnableOciModelSupport).To(gomega.BeTrue())
+		g.Expect(cfg.OciModelMode).To(gomega.Equal("native"))
+	})
+
+	t.Run("backcompat: only enableModelcar=true, no ociModelMode", func(t *testing.T) {
+		cm := &corev1.ConfigMap{
+			Data: map[string]string{
+				StorageInitializerConfigMapKeyName: baseJSON(`,"enableModelcar":true`),
+			},
+		}
+		cfg, err := GetStorageInitializerConfigs(cm)
+		g.Expect(err).ShouldNot(gomega.HaveOccurred())
+		g.Expect(cfg.EnableOciImageSource).To(gomega.BeTrue())
+		g.Expect(cfg.OciModelMode).To(gomega.Equal(""))
+	})
+
+	t.Run("neither OCI flag set: both false and mode empty", func(t *testing.T) {
+		cm := &corev1.ConfigMap{
+			Data: map[string]string{
+				StorageInitializerConfigMapKeyName: baseJSON(``),
+			},
+		}
+		cfg, err := GetStorageInitializerConfigs(cm)
+		g.Expect(err).ShouldNot(gomega.HaveOccurred())
+		g.Expect(cfg.EnableOciImageSource).To(gomega.BeFalse())
+		g.Expect(cfg.EnableOciModelSupport).To(gomega.BeFalse())
+		g.Expect(cfg.OciModelMode).To(gomega.Equal(""))
+	})
+
+	t.Run("invalid ociModelMode returns error", func(t *testing.T) {
+		cm := &corev1.ConfigMap{
+			Data: map[string]string{
+				StorageInitializerConfigMapKeyName: baseJSON(`,"ociModelMode":"invalid-mode"`),
+			},
+		}
+		_, err := GetStorageInitializerConfigs(cm)
+		g.Expect(err).Should(gomega.HaveOccurred())
+		g.Expect(err.Error()).To(gomega.ContainSubstring("ociModelMode"))
+		g.Expect(err.Error()).To(gomega.ContainSubstring("invalid-mode"))
+	})
+
+	t.Run("ociModelMode fetch is valid", func(t *testing.T) {
+		cm := &corev1.ConfigMap{
+			Data: map[string]string{
+				StorageInitializerConfigMapKeyName: baseJSON(`,"ociModelMode":"fetch"`),
+			},
+		}
+		cfg, err := GetStorageInitializerConfigs(cm)
+		g.Expect(err).ShouldNot(gomega.HaveOccurred())
+		g.Expect(cfg.OciModelMode).To(gomega.Equal("fetch"))
 	})
 }

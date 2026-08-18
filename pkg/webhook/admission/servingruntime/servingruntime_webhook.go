@@ -32,6 +32,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/utils"
+	"github.com/kserve/kserve/pkg/validation"
 )
 
 var log = logf.Log.WithName(constants.ServingRuntimeValidatorWebhookName)
@@ -84,12 +85,11 @@ func (sr *ServingRuntimeValidator) Handle(ctx context.Context, req admission.Req
 	if servingRuntime.Spec.IsDisabled() {
 		return admission.Allowed("")
 	}
+	if err := validateModelFormatPrioritySame(&servingRuntime.Spec); err != nil {
+		return admission.Denied(fmt.Sprintf(ProrityIsNotSameServingRuntimeError, err.Error(), servingRuntime.Name))
+	}
 	existingRuntimeSpec := v1alpha1.ServingRuntimeSpec{}
 	for i := range ExistingRuntimes.Items {
-		if err := validateModelFormatPrioritySame(&servingRuntime.Spec); err != nil {
-			return admission.Denied(fmt.Sprintf(ProrityIsNotSameServingRuntimeError, err.Error(), servingRuntime.Name))
-		}
-
 		if err := validateServingRuntimePriority(&servingRuntime.Spec, &ExistingRuntimes.Items[i].Spec, servingRuntime.Name, ExistingRuntimes.Items[i].Name); err != nil {
 			return admission.Denied(fmt.Sprintf(InvalidPriorityServingRuntimeError, err.Error(), ExistingRuntimes.Items[i].Name, servingRuntime.Name, servingRuntime.Namespace))
 		}
@@ -100,6 +100,10 @@ func (sr *ServingRuntimeValidator) Handle(ctx context.Context, req admission.Req
 	}
 	if err := validateMultiNodeSpec(&servingRuntime.Spec, &existingRuntimeSpec); err != nil {
 		return admission.Denied(fmt.Sprintf(InvalidMultiNodeSpecError, servingRuntime.Kind, servingRuntime.Name, err.Error()))
+	}
+
+	if err := validateBlockedEnvVars(&servingRuntime.Spec); err != nil {
+		return admission.Denied(fmt.Sprintf("the %s %q is invalid: %s", servingRuntime.Kind, servingRuntime.Name, err.Error()))
 	}
 
 	return admission.Allowed("")
@@ -123,11 +127,11 @@ func (csr *ClusterServingRuntimeValidator) Handle(ctx context.Context, req admis
 	if clusterServingRuntime.Spec.IsDisabled() {
 		return admission.Allowed("")
 	}
+	if err := validateModelFormatPrioritySame(&clusterServingRuntime.Spec); err != nil {
+		return admission.Denied(fmt.Sprintf(ProrityIsNotSameClusterServingRuntimeError, err.Error(), clusterServingRuntime.Name))
+	}
 	existingRuntimeSpec := v1alpha1.ServingRuntimeSpec{}
 	for i := range ExistingRuntimes.Items {
-		if err := validateModelFormatPrioritySame(&clusterServingRuntime.Spec); err != nil {
-			return admission.Denied(fmt.Sprintf(ProrityIsNotSameClusterServingRuntimeError, err.Error(), clusterServingRuntime.Name))
-		}
 		if err := validateServingRuntimePriority(&clusterServingRuntime.Spec, &ExistingRuntimes.Items[i].Spec, clusterServingRuntime.Name, ExistingRuntimes.Items[i].Name); err != nil {
 			return admission.Denied(fmt.Sprintf(InvalidPriorityClusterServingRuntimeError, err.Error(), ExistingRuntimes.Items[i].Name, clusterServingRuntime.Name))
 		}
@@ -138,6 +142,10 @@ func (csr *ClusterServingRuntimeValidator) Handle(ctx context.Context, req admis
 
 	if err := validateMultiNodeSpec(&clusterServingRuntime.Spec, &existingRuntimeSpec); err != nil {
 		return admission.Denied(fmt.Sprintf(InvalidMultiNodeSpecError, clusterServingRuntime.Kind, clusterServingRuntime.Name, err.Error()))
+	}
+
+	if err := validateBlockedEnvVars(&clusterServingRuntime.Spec); err != nil {
+		return admission.Denied(fmt.Sprintf("the %s %q is invalid: %s", clusterServingRuntime.Kind, clusterServingRuntime.Name, err.Error()))
 	}
 	return admission.Allowed("")
 }
@@ -154,9 +162,9 @@ func validateModelFormatPrioritySame(newSpec *v1alpha1.ServingRuntimeSpec) error
 	nameToPriority := make(map[string]*int32)
 
 	// Validate when same model format has same priority under same runtime.
-	// If the same model format has different prority value then throws the error
+	// If the same model format has different priority value then throws the error
 	for _, newModelFormat := range newSpec.SupportedModelFormats {
-		// Only validate priority if autoselect is ture
+		// Only validate priority if autoselect is true
 		if newModelFormat.IsAutoSelectEnabled() {
 			if existingPriority, ok := nameToPriority[newModelFormat.Name]; ok {
 				if existingPriority != nil && newModelFormat.Priority != nil && (*existingPriority != *newModelFormat.Priority) {
@@ -186,7 +194,7 @@ func validateServingRuntimePriority(newSpec *v1alpha1.ServingRuntimeSpec, existi
 	if isTheProtocolSame {
 		for _, existingModelFormat := range existingSpec.SupportedModelFormats {
 			for _, newModelFormat := range newSpec.SupportedModelFormats {
-				// Only validate priority if autoselect is ture
+				// Only validate priority if autoselect is true
 				if existingModelFormat.IsAutoSelectEnabled() && newModelFormat.IsAutoSelectEnabled() && areSupportedModelFormatsEqual(existingModelFormat, newModelFormat) {
 					if existingModelFormat.Priority != nil && newModelFormat.Priority != nil && *existingModelFormat.Priority == *newModelFormat.Priority {
 						return fmt.Errorf(InvalidPriorityError, newModelFormat.Name)
@@ -255,5 +263,19 @@ func validateMultiNodeSpec(newSpec *v1alpha1.ServingRuntimeSpec, existingSpec *v
 			return fmt.Errorf(InvalidWorkerSpecTensorParallelSizeValueError, strconv.Itoa(tensorParallelSize))
 		}
 	}
+	return nil
+}
+
+func validateBlockedEnvVars(spec *v1alpha1.ServingRuntimeSpec) error {
+	if err := validation.ValidateBlockedEnvVars(spec.Containers, validation.DefaultBlockedEnvVars); err != nil {
+		return err
+	}
+
+	if spec.WorkerSpec != nil {
+		if err := validation.ValidateBlockedEnvVars(spec.WorkerSpec.Containers, validation.DefaultBlockedEnvVars); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }

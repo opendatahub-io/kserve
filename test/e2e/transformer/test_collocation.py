@@ -40,7 +40,7 @@ from ..common.utils import (
 
 @pytest.mark.collocation
 @pytest.mark.asyncio(scope="session")
-async def test_transformer_collocation(rest_v1_client):
+async def test_transformer_collocation(rest_v1_client, network_layer):
     service_name = "custom-model-transformer-collocation"
     model_name = "mnist"
     predictor = V1beta1PredictorSpec(
@@ -126,7 +126,11 @@ async def test_transformer_collocation(rest_v1_client):
     is_ready = await is_model_ready(rest_v1_client, service_name, model_name) is True
     assert is_ready is True
     res = await predict_isvc(
-        rest_v1_client, service_name, "./data/transformer.json", model_name=model_name
+        rest_v1_client,
+        service_name,
+        "./data/transformer.json",
+        model_name=model_name,
+        network_layer=network_layer,
     )
     assert res["predictions"][0] == 2
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
@@ -134,7 +138,7 @@ async def test_transformer_collocation(rest_v1_client):
 
 @pytest.mark.collocation
 @pytest.mark.asyncio(scope="session")
-async def test_transformer_collocation_runtime(rest_v1_client):
+async def test_transformer_collocation_runtime(rest_v1_client, network_layer):
     service_name = "custom-model-trans-collocation-runtime"
     model_name = "mnist"
     predictor = V1beta1PredictorSpec(
@@ -210,7 +214,11 @@ async def test_transformer_collocation_runtime(rest_v1_client):
     is_ready = await is_model_ready(rest_v1_client, service_name, model_name) is True
     assert is_ready is True
     res = await predict_isvc(
-        rest_v1_client, service_name, "./data/transformer.json", model_name=model_name
+        rest_v1_client,
+        service_name,
+        "./data/transformer.json",
+        model_name=model_name,
+        network_layer=network_layer,
     )
     assert res["predictions"][0] == 2
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
@@ -218,9 +226,11 @@ async def test_transformer_collocation_runtime(rest_v1_client):
 
 @pytest.mark.raw
 @pytest.mark.asyncio(scope="session")
+@pytest.mark.skip(
+    "The torchserve container fails in OpenShift with permission denied errors"
+)
 async def test_raw_transformer_collocation(rest_v1_client, network_layer):
-    suffix = str(uuid.uuid4())[1:6]
-    service_name = "raw-custom-model-collocation-" + suffix
+    service_name = "raw-custom-model-collocation"
     model_name = "mnist"
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
@@ -322,6 +332,9 @@ async def test_raw_transformer_collocation(rest_v1_client, network_layer):
 
 @pytest.mark.raw
 @pytest.mark.asyncio(scope="session")
+@pytest.mark.skip(
+    "The torchserve container fails in OpenShift with permission denied errors and needs the policy add-scc-to-user anyuid to run (RHOAIENG-28459)"
+)
 async def test_raw_transformer_collocation_runtime(rest_v1_client, network_layer):
     suffix = str(uuid.uuid4())[1:5]
     service_name = "raw-custom-pred-collocation-" + suffix

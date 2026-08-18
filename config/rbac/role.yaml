@@ -38,22 +38,17 @@ rules:
   - ""
   resources:
   - secrets
-  - serviceaccounts
   verbs:
   - get
 - apiGroups:
-  - admissionregistration.k8s.io
+  - ""
   resources:
-  - mutatingwebhookconfigurations
-  - validatingwebhookconfigurations
+  - serviceaccounts
   verbs:
   - create
   - delete
   - get
-  - list
   - patch
-  - update
-  - watch
 - apiGroups:
   - apps
   resources:
@@ -166,6 +161,35 @@ rules:
   - patch
   - update
 - apiGroups:
+  - rbac.authorization.k8s.io
+  resourceNames:
+  - kserve-inferencegraph-auth-verifiers
+  resources:
+  - clusterrolebindings
+  verbs:
+  - create
+  - get
+  - patch
+  - update
+- apiGroups:
+  - route.openshift.io
+  resources:
+  - routes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - route.openshift.io
+  resources:
+  - routes/status
+  verbs:
+  - get
+- apiGroups:
   - serving.knative.dev
   resources:
   - services
@@ -223,6 +247,7 @@ rules:
   - serving.kserve.io
   resources:
   - localmodelcaches
+  - localmodelnamespacecaches
   verbs:
   - get
   - list

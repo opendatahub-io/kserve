@@ -12,10 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 from kubernetes import client
 
-from kserve import KServeClient
 from kserve import constants
 from kserve import V1beta1PredictorSpec
 from kserve import V1beta1TFServingSpec
@@ -28,12 +26,12 @@ import pytest
 from ..common.utils import KSERVE_TEST_NAMESPACE
 
 
-kserve_client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
-
-
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
-def test_canary_rollout():
+@pytest.mark.skip(
+    reason="Canary rollouts require Knative Serving and are not supported in RawDeployment mode"
+)
+def test_canary_rollout(kserve_client):
     service_name = "isvc-canary"
     default_endpoint_spec = V1beta1InferenceServiceSpec(
         predictor=V1beta1PredictorSpec(
@@ -52,7 +50,8 @@ def test_canary_rollout():
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
         ),
         spec=default_endpoint_spec,
     )
@@ -82,8 +81,14 @@ def test_canary_rollout():
         spec=canary_endpoint_spec,
     )
 
-    kserve_client.patch(service_name, isvc, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    patch_response = kserve_client.patch(
+        service_name, isvc, namespace=KSERVE_TEST_NAMESPACE
+    )
+    kserve_client.wait_isvc_ready(
+        service_name,
+        namespace=KSERVE_TEST_NAMESPACE,
+        expected_generation=patch_response["metadata"]["generation"],
+    )
 
     canary_isvc = kserve_client.get(service_name, namespace=KSERVE_TEST_NAMESPACE)
     for traffic in canary_isvc["status"]["components"]["predictor"]["traffic"]:
@@ -96,7 +101,10 @@ def test_canary_rollout():
 
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
-def test_canary_rollout_runtime():
+@pytest.mark.skip(
+    reason="Canary rollouts require Knative Serving and are not supported in RawDeployment mode"
+)
+def test_canary_rollout_runtime(kserve_client):
     service_name = "isvc-canary-runtime"
     default_endpoint_spec = V1beta1InferenceServiceSpec(
         predictor=V1beta1PredictorSpec(
@@ -118,7 +126,8 @@ def test_canary_rollout_runtime():
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
         ),
         spec=default_endpoint_spec,
     )
@@ -151,8 +160,14 @@ def test_canary_rollout_runtime():
         spec=canary_endpoint_spec,
     )
 
-    kserve_client.patch(service_name, isvc, namespace=KSERVE_TEST_NAMESPACE)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    patch_response = kserve_client.patch(
+        service_name, isvc, namespace=KSERVE_TEST_NAMESPACE
+    )
+    kserve_client.wait_isvc_ready(
+        service_name,
+        namespace=KSERVE_TEST_NAMESPACE,
+        expected_generation=patch_response["metadata"]["generation"],
+    )
 
     canary_isvc = kserve_client.get(service_name, namespace=KSERVE_TEST_NAMESPACE)
     for traffic in canary_isvc["status"]["components"]["predictor"]["traffic"]:

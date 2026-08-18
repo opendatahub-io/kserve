@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"knative.dev/pkg/apis"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -36,6 +37,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	knutils "github.com/kserve/kserve/pkg/controller/v1alpha1/utils"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/knative"
 	raw "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/raw"
 	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
@@ -53,11 +55,12 @@ type Transformer struct {
 	scheme                 *runtime.Scheme
 	inferenceServiceConfig *v1beta1.InferenceServicesConfig
 	deploymentMode         constants.DeploymentModeType
+	allowZeroInitialScale  bool
 	Log                    logr.Logger
 }
 
 func NewTransformer(client client.Client, clientset kubernetes.Interface, scheme *runtime.Scheme,
-	inferenceServiceConfig *v1beta1.InferenceServicesConfig, deploymentMode constants.DeploymentModeType,
+	inferenceServiceConfig *v1beta1.InferenceServicesConfig, deploymentMode constants.DeploymentModeType, allowZeroInitialScale bool,
 ) Component {
 	return &Transformer{
 		client:                 client,
@@ -65,6 +68,7 @@ func NewTransformer(client client.Client, clientset kubernetes.Interface, scheme
 		scheme:                 scheme,
 		inferenceServiceConfig: inferenceServiceConfig,
 		deploymentMode:         deploymentMode,
+		allowZeroInitialScale:  allowZeroInitialScale,
 		Log:                    ctrl.Log.WithName("TransformerReconciler"),
 	}
 }
@@ -73,13 +77,11 @@ func NewTransformer(client client.Client, clientset kubernetes.Interface, scheme
 func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceService) (ctrl.Result, error) {
 	p.Log.Info("Reconciling Transformer", "TransformerSpec", isvc.Spec.Transformer)
 	transformer := isvc.Spec.Transformer.GetImplementation()
+	annotations := filterServiceAnnotations(isvc.Annotations, p.inferenceServiceConfig.ServiceAnnotationDisallowedList, p.deploymentMode)
+
 	sourceURI := transformer.GetStorageUri()
 
-	annotations := utils.Filter(isvc.Annotations, func(key string) bool {
-		return !utils.Includes(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, key)
-	})
-
-	// Knative does not support INIT containers or mounting, so we add annotations that trigger the
+	// KNative does not support INIT containers or mounting, so we add annotations that trigger the
 	// StorageInitializer injector to mutate the underlying deployment to provision model data
 	if sourceURI != nil {
 		annotations[constants.StorageInitializerSourceUriInternalAnnotationKey] = *sourceURI
@@ -93,14 +95,12 @@ func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServ
 	addBatcherAnnotations(isvc.Spec.Transformer.Batcher, annotations)
 
 	transformerName := constants.TransformerServiceName(isvc.Name)
-	predictorName := constants.PredictorServiceName(isvc.Name)
+	predictorName := constants.PredictorServiceName(isvc.Name, isvc.Spec.Predictor.Name)
 
 	// Labels and annotations from transformer component
-	// Label filter will be handled in ksvc_reconciler
+	// Label filter will be handled in ksvc_reconciler and raw reconciler
 	transformerLabels := isvc.Spec.Transformer.Labels
-	transformerAnnotations := utils.Filter(isvc.Spec.Transformer.Annotations, func(key string) bool {
-		return !utils.Includes(p.inferenceServiceConfig.ServiceAnnotationDisallowedList, key)
-	})
+	transformerAnnotations := filterServiceAnnotations(isvc.Spec.Transformer.Annotations, p.inferenceServiceConfig.ServiceAnnotationDisallowedList, p.deploymentMode)
 
 	// Labels and annotations priority: transformer component > isvc
 	// Labels and annotations from high priority will overwrite that from low priority
@@ -132,19 +132,19 @@ func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServ
 		}
 
 		// add predictor host and protocol to metadata
-		isvc.ObjectMeta.Annotations[constants.PredictorHostAnnotationKey] = predictorURL.Host
+		isvc.Annotations[constants.PredictorHostAnnotationKey] = predictorURL.Host
 		switch predictorURL.Scheme {
 		case "grpc":
-			isvc.ObjectMeta.Annotations[constants.PredictorProtocolAnnotationKey] = string(constants.ProtocolGRPCV2)
+			isvc.Annotations[constants.PredictorProtocolAnnotationKey] = string(constants.ProtocolGRPCV2)
 		case "http", "https":
 			// modelmesh supports v2 only
-			isvc.ObjectMeta.Annotations[constants.PredictorProtocolAnnotationKey] = string(constants.ProtocolV2)
+			isvc.Annotations[constants.PredictorProtocolAnnotationKey] = string(constants.ProtocolV2)
 		default:
 			return ctrl.Result{}, fmt.Errorf("Predictor URL Scheme not supported: %v", predictorURL.Scheme)
 		}
 	}
 
-	if len(isvc.Spec.Transformer.PodSpec.Containers) == 0 {
+	if len(isvc.Spec.Transformer.Containers) == 0 {
 		container := transformer.GetContainer(isvc.ObjectMeta, isvc.Spec.Transformer.GetExtensions(), p.inferenceServiceConfig, predictorName)
 		isvc.Spec.Transformer.PodSpec = v1beta1.PodSpec{
 			Containers: []corev1.Container{
@@ -153,18 +153,34 @@ func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServ
 		}
 	} else {
 		container := transformer.GetContainer(isvc.ObjectMeta, isvc.Spec.Transformer.GetExtensions(), p.inferenceServiceConfig, predictorName)
-		isvc.Spec.Transformer.PodSpec.Containers[0] = *container
+		isvc.Spec.Transformer.Containers[0] = *container
 	}
 
 	podSpec := corev1.PodSpec(isvc.Spec.Transformer.PodSpec)
 
+	// Add InferenceService name as environment variable to transformer container.
+	transformerContainerName := podSpec.Containers[0].Name
+	inject, err := shouldInjectInferenceServiceName(ctx, p.client,
+		types.NamespacedName{Name: constants.TransformerServiceName(isvc.Name), Namespace: isvc.Namespace},
+		transformerContainerName, p.Log)
+	if err != nil {
+		return ctrl.Result{}, errors.Wrapf(err, "failed to check existing transformer deployment for %s", isvc.Name)
+	}
+	if inject {
+		if err := isvcutils.AddEnvVarToPodSpec(&podSpec, transformerContainerName, constants.InferenceServiceNameEnvVarKey, isvc.Name); err != nil {
+			return ctrl.Result{}, errors.Wrapf(err, "failed to add INFERENCE_SERVICE_NAME environment variable to container %s", transformerContainerName)
+		}
+	}
+
 	// Here we allow switch between knative and vanilla deployment
 	if p.deploymentMode == constants.Standard {
 		if err := p.reconcileTransformerRawDeployment(ctx, isvc, &objectMeta, &podSpec); err != nil {
+			isvc.Status.PropagateRawStatusWithMessages(v1beta1.TransformerComponent, "ReconcileFailed", err.Error(), corev1.ConditionFalse)
 			return ctrl.Result{}, err
 		}
 	} else {
 		if err := p.reconcileTransformerKnativeDeployment(ctx, isvc, &objectMeta, &podSpec); err != nil {
+			isvc.Status.PropagateRawStatusWithMessages(v1beta1.TransformerComponent, "ReconcileFailed", err.Error(), corev1.ConditionFalse)
 			return ctrl.Result{}, err
 		}
 	}
@@ -202,7 +218,7 @@ func (p *Transformer) reconcileTransformerRawDeployment(ctx context.Context, isv
 
 	var storageContainerSpec *v1alpha1.StorageContainerSpec
 	if len(isvc.Spec.Transformer.StorageUris) > 0 {
-		storageContainerSpec, err = pod.GetStorageContainerSpec(ctx, isvc.Spec.Transformer.StorageUris[0].Uri, p.client)
+		storageContainerSpec, err = pod.GetStorageContainerSpec(ctx, isvc.Spec.Transformer.StorageUris[0].Uri, nil, p.client)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get storage container spec")
 		}
@@ -213,29 +229,12 @@ func (p *Transformer) reconcileTransformerRawDeployment(ctx context.Context, isv
 		storageSpec = &modelStorageSpec.StorageSpec
 	}
 
-	r, err := raw.NewRawKubeReconciler(ctx, p.client, p.clientset, p.scheme, *objectMeta, metav1.ObjectMeta{},
+	r, err := raw.NewRawKubeReconciler(ctx, p.client, p.clientset, p.scheme, constants.InferenceServiceResource, *objectMeta, metav1.ObjectMeta{},
 		&isvc.Spec.Transformer.ComponentExtensionSpec, podSpec, nil, &isvc.Spec.Transformer.StorageUris, storageInitializerConfig, storageSpec, credentialBuilder, storageContainerSpec)
 	if err != nil {
 		return errors.Wrapf(err, "fails to create NewRawKubeReconciler for transformer")
 	}
-	// set Deployment Controller
-	for _, deployment := range r.Deployment.DeploymentList {
-		if err := controllerutil.SetControllerReference(isvc, deployment, p.scheme); err != nil {
-			return errors.Wrapf(err, "fails to set deployment owner reference for transformer")
-		}
-	}
-	// set Service Controller
-	for _, svc := range r.Service.ServiceList {
-		if err := controllerutil.SetControllerReference(isvc, svc, p.scheme); err != nil {
-			return errors.Wrapf(err, "fails to set service owner reference for transformer")
-		}
-	}
-	// set autoscaler Controller
-	if err := r.Scaler.Autoscaler.SetControllerReferences(isvc, p.scheme); err != nil {
-		return errors.Wrapf(err, "fails to set autoscaler owner references for transformer")
-	}
-
-	deployment, err := r.Reconcile(ctx)
+	deployment, err := r.Reconcile(ctx, isvc)
 	if err != nil {
 		return errors.Wrapf(err, "fails to reconcile transformer")
 	}
@@ -246,6 +245,8 @@ func (p *Transformer) reconcileTransformerRawDeployment(ctx context.Context, isv
 }
 
 func (p *Transformer) reconcileTransformerKnativeDeployment(ctx context.Context, isvc *v1beta1.InferenceService, objectMeta *metav1.ObjectMeta, podSpec *corev1.PodSpec) error {
+	objectMeta.Annotations = knutils.ValidateInitialScaleAnnotationWithReplicas(objectMeta.Annotations, p.allowZeroInitialScale, isvc.Spec.Transformer.MinReplicas, p.Log)
+
 	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(ctx, p.clientset)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get InferenceService ConfigMap")
@@ -261,7 +262,7 @@ func (p *Transformer) reconcileTransformerKnativeDeployment(ctx context.Context,
 
 	var storageContainerSpec *v1alpha1.StorageContainerSpec
 	if len(isvc.Spec.Transformer.StorageUris) > 0 {
-		storageContainerSpec, err = pod.GetStorageContainerSpec(ctx, isvc.Spec.Transformer.StorageUris[0].Uri, p.client)
+		storageContainerSpec, err = pod.GetStorageContainerSpec(ctx, isvc.Spec.Transformer.StorageUris[0].Uri, nil, p.client)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get storage container spec")
 		}

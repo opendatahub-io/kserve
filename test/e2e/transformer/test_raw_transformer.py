@@ -1,3 +1,17 @@
+# Copyright 2021 The KServe Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +26,6 @@
 # limitations under the License.
 
 import os
-import uuid
 
 from kubernetes import client
 from kubernetes.client import V1ResourceRequirements
@@ -34,9 +47,11 @@ from ..common.utils import KSERVE_TEST_NAMESPACE
 
 @pytest.mark.raw
 @pytest.mark.asyncio(scope="session")
+@pytest.mark.skip(
+    "The torchserve container fails in OpenShift with permission denied errors"
+)
 async def test_transformer(rest_v1_client, network_layer):
-    suffix = str(uuid.uuid4())[1:6]
-    service_name = "raw-transformer-" + suffix
+    service_name = "raw-transformer"
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
         pytorch=V1beta1TorchServeSpec(

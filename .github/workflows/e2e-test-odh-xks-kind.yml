@@ -1,0 +1,235 @@
+name: xKS E2E Tests (KinD odh-xks)
+
+on:
+  pull_request:
+    branches: [master, release*]
+    paths:
+      - "pkg/apis/**"
+      - "pkg/controller/**"
+      - "config/**"
+      - "test/e2e/llmisvc/**"
+      - "kserve-module/**"
+      - "!.github/**"
+      - "!docs/**"
+      - "!**.md"
+      - ".github/workflows/e2e-test-odh-xks-kind.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-km-image:
+    uses: ./.github/workflows/build-kserve-module-image.yml
+    with:
+      image-name: kserve-module-controller
+      image-tag: e2e
+      image-pull-policy: Never
+    permissions:
+      contents: read
+
+  test-odh-xks-kind:
+    needs: build-km-image
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        istio-version: ["1.27.5", "1.28.3"]
+        enable-tls: [true, false]
+    name: test-odh-xks-kind (istio-${{ matrix.istio-version }}, tls-${{ matrix.enable-tls }})
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Merge target branch
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          if [[ ! "$BASE_REF" =~ ^[a-zA-Z0-9._/-]+$ ]]; then
+            echo "::error::Invalid base ref: $BASE_REF"
+            exit 1
+          fi
+          git fetch origin -- "$BASE_REF"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git merge --no-edit "origin/$BASE_REF"
+
+      - name: Free-up disk space
+        uses: ./.github/actions/free-up-disk-space
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Install KinD
+        run: |
+          curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.27.0/kind-linux-amd64
+          chmod +x ./kind
+          sudo mv ./kind /usr/local/bin/kind
+          kind version
+
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/v1.32.0/bin/linux/amd64/kubectl"
+          chmod +x ./kubectl
+          sudo mv ./kubectl /usr/local/bin/kubectl
+          kubectl version --client
+
+      - name: Install kustomize
+        run: |
+          source kserve-deps.env
+          curl -LO "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          tar xzf "kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+          chmod +x kustomize
+          sudo mv kustomize /usr/local/bin/
+          kustomize version
+
+      - name: Install cloud-provider-kind
+        run: |
+          go install sigs.k8s.io/cloud-provider-kind@latest
+          echo "$(go env GOPATH)/bin" >> $GITHUB_PATH
+
+      - name: Start cloud-provider-kind
+        run: |
+          # Start in background before cluster creation
+          nohup cloud-provider-kind > /tmp/cloud-provider-kind.log 2>&1 &
+          echo "cloud-provider-kind started in background (PID: $!)"
+
+      - name: Run setup-odh-xks.sh
+        env:
+          ISTIO_VERSION: ${{ matrix.istio-version }}
+          SKIP_DEPLOY: "true"
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          ./test/scripts/kind/setup-odh-xks.sh
+
+      - name: Download kserve-module image
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ needs.build-km-image.outputs.image-name }}
+          path: /tmp
+
+      - name: Load kserve-module image into KinD
+        run: |
+          docker image load -i /tmp/${{ needs.build-km-image.outputs.image-name }}.tar
+          kind load docker-image ${{ needs.build-km-image.outputs.image-name }}:${{ needs.build-km-image.outputs.image-tag }} --name kind
+
+      - name: Deploy kserve-module
+        run: |
+          ./kserve-module/tests/scripts/setup-cluster.sh \
+            --platform xks \
+            --skip-deps \
+            --image ${{ needs.build-km-image.outputs.image-name }}:${{ needs.build-km-image.outputs.image-tag }}
+
+      - name: Inject RELATED_IMAGE env vars
+        env:
+          KSERVE_NAMESPACE: "opendatahub"
+        run: |
+          # Override tokenizer image: KinD has no registry.redhat.io credentials.
+          kubectl set env deployment/kserve-module-controller-manager \
+            RELATED_IMAGE_ODH_KSERVE_LLMISVC_CONTROLLER_IMAGE=local/llmisvc-controller:dev \
+            RELATED_IMAGE_ODH_KSERVE_STORAGE_INITIALIZER_IMAGE=local/storage-initializer:dev \
+            RELATED_IMAGE_RHAII_VLLM_CPU_IMAGE=docker.io/vllm/vllm-openai-cpu:v0.21.0-x86_64@sha256:eb680690f111f2b26316265716218f31ce0a0f83efdcac1821fc6caeed41baea \
+            -n "${KSERVE_NAMESPACE}"
+          kubectl rollout status deployment/kserve-module-controller-manager \
+            -n "${KSERVE_NAMESPACE}" --timeout=120s
+
+      - name: Create Kserve CR and wait for llmisvc
+        env:
+          KSERVE_NAMESPACE: "opendatahub"
+        run: |
+          kubectl apply -f - <<'EOF'
+          apiVersion: components.platform.opendatahub.io/v1alpha1
+          kind: Kserve
+          metadata:
+            name: default-kserve
+          spec:
+            managementState: Managed
+          EOF
+          sleep 5
+          echo "Waiting for Kserve CR to become Ready..."
+          kubectl wait kserve/default-kserve \
+            --for=jsonpath='{.status.conditions[?(@.type=="Ready")].status}'=True \
+            --timeout=300s
+          echo "Waiting for llmisvc-controller-manager deployment..."
+          kubectl wait deployment/llmisvc-controller-manager \
+            -n "${KSERVE_NAMESPACE}" \
+            --for=condition=Available \
+            --timeout=300s
+
+      - name: Disable LLMInferenceService TLS
+        if: ${{ matrix.enable-tls == false }}
+        env:
+          KSERVE_NAMESPACE: "opendatahub"
+        run: |
+          kubectl get configmap inferenceservice-config -n "${KSERVE_NAMESPACE}" -o json \
+            | jq '.data.ingress = (.data.ingress | fromjson | .enableLLMInferenceServiceTLS = false | tojson)' \
+            | kubectl apply -f -
+          kubectl rollout restart deployment/llmisvc-controller-manager -n "${KSERVE_NAMESPACE}"
+          kubectl rollout status deployment/llmisvc-controller-manager -n "${KSERVE_NAMESPACE}" --timeout=120s
+
+      - name: Install UV
+        run: ./test/scripts/gh-actions/setup-uv.sh
+
+      - name: Install Python SDK
+        run: |
+          pushd python/kserve
+          uv sync --group test
+          popd
+
+      - name: Run E2E tests
+        timeout-minutes: 90
+        env:
+          KSERVE_NAMESPACE: "opendatahub"
+          SKIP_DELETION_ON_FAILURE: "true"
+          TOKEN_AUDIENCES: "https://kubernetes.default.svc"
+          GATEWAY_CLASS_NAME: "istio"
+          RUN_AS_NON_ROOT: "false"
+          OPT_125M_MODEL_URI: "s3://example-models/facebook/opt-125m"
+          STORAGE_INITIALIZER_IMAGE: "local/storage-initializer:dev"
+          INFERENCE_POOL_GROUP: ${{ matrix.istio-version == '1.27.5' && 'inference.networking.x-k8s.io' || 'inference.networking.k8s.io' }}
+          ENABLE_LLM_INFERENCE_SERVICE_TLS: ${{ matrix.enable-tls }}
+        run: |
+          export PYTEST_MAXFAIL=3
+          MARKER="llminferenceservice and llmisvc_core and cluster_cpu and not auth and not custom_gateway and not tracing"
+          if [ "${ENABLE_LLM_INFERENCE_SERVICE_TLS}" = "false" ]; then
+            MARKER="${MARKER} and not llmd_simulator"
+          fi
+          ./test/scripts/gh-actions/run-e2e-tests.sh "${MARKER}" 0 "istio-gatewayapi-ext"
+
+      - name: Check system status
+        if: always()
+        run: |
+          ./test/scripts/gh-actions/status-check.sh
+
+      - name: Collect logs on failure
+        if: failure()
+        run: |
+          echo "=== Kserve Module Controller logs ==="
+          kubectl logs -n opendatahub -l control-plane=kserve-module-controller-manager --tail=200 2>/dev/null || echo "No km controller logs"
+          echo ""
+          echo "=== LLMISVC Controller logs ==="
+          kubectl logs -n opendatahub -l control-plane=llmisvc-controller-manager --tail=500 2>/dev/null || echo "No controller logs"
+          echo ""
+          echo "=== Istio logs ==="
+          kubectl logs -n istio-system -l app=istiod --tail=200 2>/dev/null || echo "No istiod logs"
+          echo ""
+          echo "=== Gateway pod logs ==="
+          kubectl logs -n opendatahub -l gateway.networking.k8s.io/gateway-name=inference-gateway --tail=200 2>/dev/null || echo "No gateway logs"
+          echo ""
+          echo "=== cloud-provider-kind logs ==="
+          cat /tmp/cloud-provider-kind.log 2>/dev/null || echo "No cloud-provider-kind logs"

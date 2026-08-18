@@ -34,6 +34,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	knutils "github.com/kserve/kserve/pkg/controller/v1alpha1/utils"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/knative"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/raw"
 	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
@@ -51,11 +52,12 @@ type Explainer struct {
 	scheme                 *runtime.Scheme
 	inferenceServiceConfig *v1beta1.InferenceServicesConfig
 	deploymentMode         constants.DeploymentModeType
+	allowZeroInitialScale  bool
 	Log                    logr.Logger
 }
 
 func NewExplainer(client client.Client, clientset kubernetes.Interface, scheme *runtime.Scheme,
-	inferenceServiceConfig *v1beta1.InferenceServicesConfig, deploymentMode constants.DeploymentModeType,
+	inferenceServiceConfig *v1beta1.InferenceServicesConfig, deploymentMode constants.DeploymentModeType, allowZeroInitialScale bool,
 ) Component {
 	return &Explainer{
 		client:                 client,
@@ -63,6 +65,7 @@ func NewExplainer(client client.Client, clientset kubernetes.Interface, scheme *
 		scheme:                 scheme,
 		inferenceServiceConfig: inferenceServiceConfig,
 		deploymentMode:         deploymentMode,
+		allowZeroInitialScale:  allowZeroInitialScale,
 		Log:                    ctrl.Log.WithName("ExplainerReconciler"),
 	}
 }
@@ -71,13 +74,11 @@ func NewExplainer(client client.Client, clientset kubernetes.Interface, scheme *
 func (e *Explainer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceService) (ctrl.Result, error) {
 	e.Log.Info("Reconciling Explainer", "ExplainerSpec", isvc.Spec.Explainer)
 	explainer := isvc.Spec.Explainer.GetImplementation()
-	annotations := utils.Filter(isvc.Annotations, func(key string) bool {
-		return !utils.Includes(e.inferenceServiceConfig.ServiceAnnotationDisallowedList, key)
-	})
+	annotations := filterServiceAnnotations(isvc.Annotations, e.inferenceServiceConfig.ServiceAnnotationDisallowedList, e.deploymentMode)
 
 	sourceURI := explainer.GetStorageUri()
 
-	// Knative does not support INIT containers or mounting, so we add annotations that trigger the
+	// KNative does not support INIT containers or mounting, so we add annotations that trigger the
 	// StorageInitializer injector to mutate the underlying deployment to provision model data
 	if sourceURI != nil {
 		annotations[constants.StorageInitializerSourceUriInternalAnnotationKey] = *sourceURI
@@ -90,14 +91,12 @@ func (e *Explainer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 	addLoggerAnnotations(isvc.Spec.Explainer.Logger, annotations)
 
 	explainerName := constants.ExplainerServiceName(isvc.Name)
-	predictorName := constants.PredictorServiceName(isvc.Name)
+	predictorName := constants.PredictorServiceName(isvc.Name, isvc.Spec.Predictor.Name)
 
 	// Labels and annotations from explainer component
-	// Label filter will be handled in ksvc_reconciler
+	// Label filter will be handled in ksvc_reconciler and raw reconciler
 	explainerLabels := isvc.Spec.Explainer.Labels
-	explainerAnnotations := utils.Filter(isvc.Spec.Explainer.Annotations, func(key string) bool {
-		return !utils.Includes(e.inferenceServiceConfig.ServiceAnnotationDisallowedList, key)
-	})
+	explainerAnnotations := filterServiceAnnotations(isvc.Spec.Explainer.Annotations, e.inferenceServiceConfig.ServiceAnnotationDisallowedList, e.deploymentMode)
 
 	// Labels and annotations priority: explainer component > isvc
 	// Labels and annotations from high priority will overwrite that from low priority
@@ -119,12 +118,12 @@ func (e *Explainer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 	}
 
 	container := explainer.GetContainer(isvc.ObjectMeta, isvc.Spec.Explainer.GetExtensions(), e.inferenceServiceConfig, predictorName)
-	if len(isvc.Spec.Explainer.PodSpec.Containers) == 0 {
-		isvc.Spec.Explainer.PodSpec.Containers = []corev1.Container{
+	if len(isvc.Spec.Explainer.Containers) == 0 {
+		isvc.Spec.Explainer.Containers = []corev1.Container{
 			*container,
 		}
 	} else {
-		isvc.Spec.Explainer.PodSpec.Containers[0] = *container
+		isvc.Spec.Explainer.Containers[0] = *container
 	}
 
 	podSpec := corev1.PodSpec(isvc.Spec.Explainer.PodSpec)
@@ -132,10 +131,12 @@ func (e *Explainer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 	// Here we allow switch between knative and vanilla deployment
 	if e.deploymentMode == constants.Standard {
 		if err := e.reconcileExplainerRawDeployment(ctx, isvc, &objectMeta, &podSpec); err != nil {
+			isvc.Status.PropagateRawStatusWithMessages(v1beta1.ExplainerComponent, "ReconcileFailed", err.Error(), corev1.ConditionFalse)
 			return ctrl.Result{}, err
 		}
 	} else {
 		if err := e.reconcileExplainerKnativeDeployment(ctx, isvc, &objectMeta, &podSpec); err != nil {
+			isvc.Status.PropagateRawStatusWithMessages(v1beta1.ExplainerComponent, "ReconcileFailed", err.Error(), corev1.ConditionFalse)
 			return ctrl.Result{}, err
 		}
 	}
@@ -173,7 +174,7 @@ func (e *Explainer) reconcileExplainerRawDeployment(ctx context.Context, isvc *v
 
 	var storageContainerSpec *v1alpha1.StorageContainerSpec
 	if len(isvc.Spec.Explainer.StorageUris) > 0 {
-		storageContainerSpec, err = pod.GetStorageContainerSpec(ctx, isvc.Spec.Explainer.StorageUris[0].Uri, e.client)
+		storageContainerSpec, err = pod.GetStorageContainerSpec(ctx, isvc.Spec.Explainer.StorageUris[0].Uri, nil, e.client)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get storage container spec")
 		}
@@ -184,29 +185,12 @@ func (e *Explainer) reconcileExplainerRawDeployment(ctx context.Context, isvc *v
 		storageSpec = &modelStorageSpec.StorageSpec
 	}
 
-	r, err := raw.NewRawKubeReconciler(ctx, e.client, e.clientset, e.scheme, *objectMeta, metav1.ObjectMeta{},
+	r, err := raw.NewRawKubeReconciler(ctx, e.client, e.clientset, e.scheme, constants.InferenceServiceResource, *objectMeta, metav1.ObjectMeta{},
 		&isvc.Spec.Explainer.ComponentExtensionSpec, podSpec, nil, &isvc.Spec.Explainer.StorageUris, storageInitializerConfig, storageSpec, credentialBuilder, storageContainerSpec)
 	if err != nil {
 		return errors.Wrapf(err, "fails to create NewRawKubeReconciler for explainer")
 	}
-	// set Deployment Controller
-	for _, deployment := range r.Deployment.DeploymentList {
-		if err := controllerutil.SetControllerReference(isvc, deployment, e.scheme); err != nil {
-			return errors.Wrapf(err, "fails to set deployment owner reference for explainer")
-		}
-	}
-	// set Service Controller
-	for _, svc := range r.Service.ServiceList {
-		if err := controllerutil.SetControllerReference(isvc, svc, e.scheme); err != nil {
-			return errors.Wrapf(err, "fails to set service owner reference for explainer")
-		}
-	}
-	// set autoscaler Controller
-	if err := r.Scaler.Autoscaler.SetControllerReferences(isvc, e.scheme); err != nil {
-		return errors.Wrapf(err, "fails to set autoscaler owner references for explainer")
-	}
-
-	deployment, err := r.Reconcile(ctx)
+	deployment, err := r.Reconcile(ctx, isvc)
 	if err != nil {
 		return errors.Wrapf(err, "fails to reconcile explainer")
 	}
@@ -217,6 +201,8 @@ func (e *Explainer) reconcileExplainerRawDeployment(ctx context.Context, isvc *v
 }
 
 func (e *Explainer) reconcileExplainerKnativeDeployment(ctx context.Context, isvc *v1beta1.InferenceService, objectMeta *metav1.ObjectMeta, podSpec *corev1.PodSpec) error {
+	objectMeta.Annotations = knutils.ValidateInitialScaleAnnotationWithReplicas(objectMeta.Annotations, e.allowZeroInitialScale, isvc.Spec.Explainer.MinReplicas, e.Log)
+
 	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(ctx, e.clientset)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get InferenceService ConfigMap")
@@ -232,7 +218,7 @@ func (e *Explainer) reconcileExplainerKnativeDeployment(ctx context.Context, isv
 
 	var storageContainerSpec *v1alpha1.StorageContainerSpec
 	if len(isvc.Spec.Explainer.StorageUris) > 0 {
-		storageContainerSpec, err = pod.GetStorageContainerSpec(ctx, isvc.Spec.Explainer.StorageUris[0].Uri, e.client)
+		storageContainerSpec, err = pod.GetStorageContainerSpec(ctx, isvc.Spec.Explainer.StorageUris[0].Uri, nil, e.client)
 		if err != nil {
 			return errors.Wrapf(err, "failed to get storage container spec")
 		}

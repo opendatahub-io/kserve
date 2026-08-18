@@ -1,29 +1,53 @@
 # Build the inference-agent binary
-FROM golang:1.25 AS builder
+FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS deps
+# distro: UBI go-toolset does not add GOPATH/bin to PATH
+ENV PATH="$PATH:/opt/app-root/src/go/bin"
 
-# Copy in the go src
 WORKDIR /go/src/github.com/kserve/kserve
-COPY go.mod  go.mod
-COPY go.sum  go.sum
+COPY --chown=1001:0 go.mod  go.mod
+COPY --chown=1001:0 go.sum  go.sum
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
-RUN go mod download
+# ---- Build stage (parallel with license on BuildKit) ----
+FROM deps AS builder
 
-COPY cmd/    cmd/
+ARG CMD=agent
+ARG GOTAGS=""
+COPY cmd/${CMD}/ cmd/${CMD}/
 COPY pkg/    pkg/
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux GOFLAGS=-mod=readonly go build -tags "${GOTAGS}" -a -o agent ./cmd/${CMD}
 
-# Build
-RUN CGO_ENABLED=0 GOOS=linux go build -a -o agent ./cmd/agent
+# ---- License stage (parallel with build on BuildKit) ----
+FROM deps AS license
 
-# Generate third-party licenses
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go install github.com/google/go-licenses@v1.6.0
+
+ARG CMD=agent
+COPY cmd/${CMD}/ cmd/${CMD}/
+COPY pkg/    pkg/
 COPY LICENSE LICENSE
-RUN go install github.com/google/go-licenses@latest
-# Forbidden Licenses: https://github.com/google/licenseclassifier/blob/e6a9bb99b5a6f71d5a34336b8245e305f5430f99/license_type.go#L341
-RUN go-licenses check ./cmd/... ./pkg/... --disallowed_types="forbidden,unknown"
-RUN go-licenses save --save_path third_party/library ./cmd/agent
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go-licenses check ./cmd/${CMD} ./pkg/... --disallowed_types="forbidden,unknown" && \
+    go-licenses save --save_path third_party/library ./cmd/${CMD}
 
 # Copy the inference-agent into a thin image
-FROM gcr.io/distroless/static:nonroot
-COPY --from=builder /go/src/github.com/kserve/kserve/third_party /third_party
+FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
+
+RUN microdnf install -y --disablerepo=* --enablerepo=ubi-9-baseos-rpms shadow-utils && \
+    microdnf clean all && \
+    useradd kserve -m -u 1000
+RUN microdnf remove -y shadow-utils
+
+COPY --from=license /go/src/github.com/kserve/kserve/third_party /third_party
+
 WORKDIR /ko-app
+
 COPY --from=builder /go/src/github.com/kserve/kserve/agent /ko-app/
+USER 1000:1000
+
 ENTRYPOINT ["/ko-app/agent"]

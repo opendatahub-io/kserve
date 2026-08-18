@@ -72,10 +72,10 @@ func reconcileKsvc(desired *knservingv1.Service, existing *knservingv1.Service) 
 	// Reconcile differences and update
 	// knative mutator defaults the enableServiceLinks to false which would generate a diff despite no changes on desired knative service
 	// https://github.com/knative/serving/blob/main/pkg/apis/serving/v1/revision_defaults.go#L134
-	if desired.Spec.ConfigurationSpec.Template.Spec.EnableServiceLinks == nil &&
-		existing.Spec.ConfigurationSpec.Template.Spec.EnableServiceLinks != nil &&
-		!*existing.Spec.ConfigurationSpec.Template.Spec.EnableServiceLinks {
-		desired.Spec.ConfigurationSpec.Template.Spec.EnableServiceLinks = proto.Bool(false)
+	if desired.Spec.Template.Spec.EnableServiceLinks == nil &&
+		existing.Spec.Template.Spec.EnableServiceLinks != nil &&
+		!*existing.Spec.Template.Spec.EnableServiceLinks {
+		desired.Spec.Template.Spec.EnableServiceLinks = proto.Bool(false)
 	}
 	diff, err := kmp.SafeDiff(desired.Spec.ConfigurationSpec, existing.Spec.ConfigurationSpec)
 	if err != nil {
@@ -83,7 +83,7 @@ func reconcileKsvc(desired *knservingv1.Service, existing *knservingv1.Service) 
 	}
 	log.Info("inference graph knative service configuration diff (-desired, +observed):", "diff", diff)
 	existing.Spec.ConfigurationSpec = desired.Spec.ConfigurationSpec
-	existing.ObjectMeta.Labels = desired.ObjectMeta.Labels
+	existing.Labels = desired.Labels
 	existing.Spec.Traffic = desired.Spec.Traffic
 	return nil
 }
@@ -152,7 +152,7 @@ func (r *GraphKnativeServiceReconciler) Reconcile(ctx context.Context) (*knservi
 
 func semanticEquals(desiredService, service *knservingv1.Service) bool {
 	return equality.Semantic.DeepEqual(desiredService.Spec.ConfigurationSpec, service.Spec.ConfigurationSpec) &&
-		equality.Semantic.DeepEqual(desiredService.ObjectMeta.Labels, service.ObjectMeta.Labels) &&
+		equality.Semantic.DeepEqual(desiredService.Labels, service.Labels) &&
 		equality.Semantic.DeepEqual(desiredService.Spec.RouteSpec, service.Spec.RouteSpec)
 }
 
@@ -227,7 +227,31 @@ func createKnativeService(
 											Drop: []corev1.Capability{corev1.Capability("ALL")},
 										},
 									},
+									VolumeMounts: []corev1.VolumeMount{
+										{
+											Name:      constants.ServiceCaBundleVolumeName,
+											MountPath: constants.ServiceCaBundleMountPath,
+										},
+									},
+									Env: []corev1.EnvVar{
+										{
+											Name:  "SSL_CERT_FILE",
+											Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
+										},
+									},
 									ReadinessProbe: constants.GetRouterReadinessProbe(),
+								},
+							},
+							Volumes: []corev1.Volume{
+								{
+									Name: constants.ServiceCaBundleVolumeName,
+									VolumeSource: corev1.VolumeSource{
+										ConfigMap: &corev1.ConfigMapVolumeSource{
+											LocalObjectReference: corev1.LocalObjectReference{
+												Name: constants.OpenShiftServiceCaConfigMapName,
+											},
+										},
+									},
 								},
 							},
 							Affinity:                     graph.Spec.Affinity,
@@ -247,12 +271,13 @@ func createKnativeService(
 	// Only adding this env variable "PROPAGATE_HEADERS" if router's headers config has the key "propagate"
 	value, exists := config.Headers["propagate"]
 	if exists {
-		service.Spec.ConfigurationSpec.Template.Spec.PodSpec.Containers[0].Env = []corev1.EnvVar{
-			{
-				Name:  constants.RouterHeadersPropagateEnvVar,
-				Value: strings.Join(value, ","),
-			},
+		propagateEnv := corev1.EnvVar{
+			Name:  constants.RouterHeadersPropagateEnvVar,
+			Value: strings.Join(value, ","),
 		}
+		service.Spec.ConfigurationSpec.Template.Spec.PodSpec.Containers[0].Env = append(
+			service.Spec.ConfigurationSpec.Template.Spec.PodSpec.Containers[0].Env,
+			propagateEnv)
 	}
 	return service
 }

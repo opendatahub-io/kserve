@@ -1,3 +1,17 @@
+# Copyright 2019 The KServe Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,10 +26,8 @@
 # limitations under the License.
 
 import asyncio
-import os
 from kubernetes import client
 
-from kserve import KServeClient
 from kserve import constants
 from kserve import V1beta1PredictorSpec
 from kserve import V1beta1SKLearnSpec
@@ -28,13 +40,11 @@ import pytest
 from ..common.utils import predict_isvc
 from ..common.utils import KSERVE_TEST_NAMESPACE
 
-kserve_client = KServeClient(config_file=os.environ.get("KUBECONFIG", "~/.kube/config"))
-
 
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
 @pytest.mark.asyncio(scope="session")
-async def test_kserve_logger(rest_v1_client):
+async def test_kserve_logger(kserve_client, rest_v1_client, network_layer):
     msg_dumper = "message-dumper"
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
@@ -53,7 +63,13 @@ async def test_kserve_logger(rest_v1_client):
     isvc = V1beta1InferenceService(
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
-        metadata=client.V1ObjectMeta(name=msg_dumper, namespace=KSERVE_TEST_NAMESPACE),
+        metadata=client.V1ObjectMeta(
+            name=msg_dumper,
+            namespace=KSERVE_TEST_NAMESPACE,
+            labels={
+                constants.KSERVE_LABEL_NETWORKING_VISIBILITY: constants.KSERVE_LABEL_NETWORKING_VISIBILITY_EXPOSED,
+            },
+        ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
 
@@ -65,7 +81,9 @@ async def test_kserve_logger(rest_v1_client):
         min_replicas=1,
         logger=V1beta1LoggerSpec(
             mode="all",
-            url=f"http://{msg_dumper}." + KSERVE_TEST_NAMESPACE + ".svc.cluster.local",
+            url=f"http://{msg_dumper}-predictor."
+            + KSERVE_TEST_NAMESPACE
+            + ".svc.cluster.local",
         ),
         sklearn=V1beta1SKLearnSpec(
             storage_uri="gs://kfserving-examples/models/sklearn/1.0/model",
@@ -80,7 +98,11 @@ async def test_kserve_logger(rest_v1_client):
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            labels={
+                constants.KSERVE_LABEL_NETWORKING_VISIBILITY: constants.KSERVE_LABEL_NETWORKING_VISIBILITY_EXPOSED,
+            },
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -96,7 +118,12 @@ async def test_kserve_logger(rest_v1_client):
         for pod in pods.items:
             print(pod)
 
-    res = await predict_isvc(rest_v1_client, service_name, "./data/iris_input.json")
+    res = await predict_isvc(
+        rest_v1_client,
+        service_name,
+        "./data/iris_input.json",
+        network_layer=network_layer,
+    )
     assert res["predictions"] == [1, 1]
     pods = kserve_client.core_api.list_namespaced_pod(
         KSERVE_TEST_NAMESPACE,
@@ -113,5 +140,6 @@ async def test_kserve_logger(rest_v1_client):
         print(log)
     assert "org.kubeflow.serving.inference.request" in log
     assert "org.kubeflow.serving.inference.response" in log
+
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
     kserve_client.delete(msg_dumper, KSERVE_TEST_NAMESPACE)

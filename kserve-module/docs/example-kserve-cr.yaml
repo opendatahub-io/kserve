@@ -1,0 +1,68 @@
+apiVersion: components.platform.opendatahub.io/v1alpha1
+kind: Kserve
+metadata:
+  annotations:
+    component.opendatahub.io/management-state: Managed
+    platform.opendatahub.io/instance.generation: "1"
+    platform.opendatahub.io/instance.name: default-dsc
+    platform.opendatahub.io/instance.uid: c89eddbd-6290-4869-bf9e-261ad24cc42e
+    platform.opendatahub.io/type: OpenShift AI Self-Managed
+    platform.opendatahub.io/version: 3.4.0
+  creationTimestamp: "2026-05-04T11:32:24Z"
+  generation: 1
+  labels:
+    platform.opendatahub.io/part-of: datasciencecluster
+  name: default-kserve
+  ownerReferences:
+  - apiVersion: datasciencecluster.opendatahub.io/v2
+    blockOwnerDeletion: true
+    controller: true
+    kind: DataScienceCluster
+    name: default-dsc
+    uid: c89eddbd-6290-4869-bf9e-261ad24cc42e
+  resourceVersion: "23743810"
+  uid: 21c18a1b-0c1f-49de-9cd3-24156e306903
+spec:
+  nim:
+    airGapped: false
+    managementState: Managed
+  rawDeploymentServiceConfig: Headless
+  wva:
+    managementState: Removed
+status:
+  conditions:
+  - lastTransitionTime: "2026-05-08T22:07:29Z"
+    status: "True"
+    type: Ready
+  - lastTransitionTime: "2026-05-08T22:07:32Z"
+    observedGeneration: 1
+    status: "True"
+    type: ProvisioningSucceeded
+  - lastTransitionTime: "2026-05-08T22:07:32Z"
+    observedGeneration: 1
+    status: "True"
+    type: DeploymentsAvailable
+  - lastTransitionTime: "2026-05-08T22:07:29Z"
+    status: "True"
+    type: DependenciesAvailable
+  - lastTransitionTime: "2026-05-08T22:07:29Z"
+    status: "True"
+    type: KserveLLMInferenceServiceDependencies
+  - lastTransitionTime: "2026-05-08T22:07:30Z"
+    status: "True"
+    type: KserveLLMInferenceServiceWideEPDependencies
+  observedGeneration: 1
+  phase: Ready
+  releases:
+  - name: KServe
+    repoUrl: https://github.com/kserve/kserve/
+    version: v0.17.0
+  - name: vLLM
+    repoUrl: https://github.com/vllm-project/vllm
+    version: v0.18.0
+  - name: llm-d-inference-scheduler
+    repoUrl: https://github.com/llm-d/llm-d-inference-scheduler
+    version: v0.7.1
+  - name: llm-d-workload-variant-autoscaler
+    repoUrl: https://github.com/llm-d/llm-d-workload-variant-autoscaler
+    version: v0.6.0

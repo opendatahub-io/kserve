@@ -21,8 +21,9 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/go-logr/logr"
 	"github.com/pkg/errors"
+
+	"github.com/go-logr/logr"
 	"k8s.io/client-go/kubernetes"
 	"knative.dev/serving/pkg/apis/autoscaling"
 
@@ -111,7 +112,7 @@ func CheckZeroInitialScaleAllowed(ctx context.Context, clientset kubernetes.Inte
 // When the annotation is set validation is performed. If any of this validation fails, the annotation will
 // be removed and the default initial scale behavior will be used.
 func ValidateInitialScaleAnnotation(annotations map[string]string, allowZeroInitialScale bool, log logr.Logger) {
-	// Check that the annoation is set.
+	// Check that the annotation is set.
 	_, set := annotations[autoscaling.InitialScaleAnnotationKey]
 	if !set {
 		return

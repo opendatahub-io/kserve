@@ -1,0 +1,45 @@
+name: Build tag verification
+
+on:
+    pull_request:
+        paths:
+            - "**/*.go"
+            - "go.mod"
+            - "go.sum"
+            - ".github/workflows/distro-build-check.yml"
+    merge_group:
+        types: [checks_requested]
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    distro-build-check:
+        name: distro-build-check / ${{ matrix.label }}
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - label: no build tags
+                      tags: ""
+                    - label: distro
+                      tags: distro
+
+        steps:
+            - name: Check out code
+              uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+            - name: Set up Go
+              uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+              with:
+                  go-version-file: go.mod
+                  cache: true
+
+            - name: vet + compile (incl. test files)
+              env:
+                  GOFLAGS: ${{ matrix.tags != '' && format('-tags={0}', matrix.tags) || '' }}
+              run: go test -vet=all -c -o /dev/null ./...

@@ -14,6 +14,8 @@ rules:
   - ""
   resources:
   - nodes
+  - secrets
+  - serviceaccounts
   verbs:
   - get
   - list
@@ -64,6 +66,12 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - localmodelnodes/finalizers
+  verbs:
+  - update
 - apiGroups:
   - serving.kserve.io
   resources:

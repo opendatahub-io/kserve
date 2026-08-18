@@ -33,7 +33,7 @@ from ..common.utils import predict_isvc
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
 @pytest.mark.asyncio(scope="session")
-async def test_triton(rest_v2_client):
+async def test_triton(rest_v2_client, network_layer):
     service_name = "isvc-triton"
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
@@ -50,7 +50,11 @@ async def test_triton(rest_v2_client):
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            labels={
+                constants.KSERVE_LABEL_NETWORKING_VISIBILITY: constants.KSERVE_LABEL_NETWORKING_VISIBILITY_EXPOSED,
+            },
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -64,19 +68,15 @@ async def test_triton(rest_v2_client):
             service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=800
         )
     except RuntimeError as e:
-        print(
-            kserve_client.api_instance.get_namespaced_custom_object(
-                "serving.knative.dev",
-                "v1",
-                KSERVE_TEST_NAMESPACE,
-                "services",
-                service_name + "-predictor",
-            )
+        services = kserve_client.core_api.list_namespaced_service(
+            KSERVE_TEST_NAMESPACE,
+            label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
         )
+        for svc in services.items:
+            print(svc)
         deployments = kserve_client.app_api.list_namespaced_deployment(
             KSERVE_TEST_NAMESPACE,
-            label_selector="serving.kserve.io/"
-            "inferenceservice={}".format(service_name),
+            label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
         )
         for deployment in deployments.items:
             print(deployment)
@@ -86,6 +86,7 @@ async def test_triton(rest_v2_client):
         service_name,
         "./data/cifar10_input_v2.json",
         model_name="cifar10",
+        network_layer=network_layer,
     )
     assert np.argmax(res.outputs[0].data) == 3
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
@@ -94,7 +95,7 @@ async def test_triton(rest_v2_client):
 @pytest.mark.transformer
 @pytest.mark.path_based_routing
 @pytest.mark.asyncio(scope="session")
-async def test_triton_runtime_with_transformer(rest_v1_client):
+async def test_triton_runtime_with_transformer(rest_v1_client, network_layer):
     service_name = "isvc-triton-runtime"
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
@@ -111,12 +112,22 @@ async def test_triton_runtime_with_transformer(rest_v1_client):
         ),
     )
 
+    # Check if IMAGE_TRANSFORMER_IMG_TAG environment variable is set
+    transformer_image = os.environ.get("IMAGE_TRANSFORMER_IMG_TAG")
+    if not transformer_image:
+        error_msg = "ERROR: IMAGE_TRANSFORMER_IMG_TAG environment variable is not set. This is required for the transformer container image."
+        print(error_msg)
+        raise ValueError(error_msg)
+
     transformer = V1beta1TransformerSpec(
         min_replicas=1,
         containers=[
             V1Container(
-                image=os.environ.get("IMAGE_TRANSFORMER_IMG_TAG"),
+                image=transformer_image,
                 name="kserve-container",
+                ports=[
+                    V1ContainerPort(container_port=8080, name="http1", protocol="TCP")
+                ],
                 resources=V1ResourceRequirements(
                     requests={"cpu": "10m", "memory": "128Mi"},
                     limits={"cpu": "100m", "memory": "512Mi"},
@@ -129,7 +140,11 @@ async def test_triton_runtime_with_transformer(rest_v1_client):
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            labels={
+                constants.KSERVE_LABEL_NETWORKING_VISIBILITY: constants.KSERVE_LABEL_NETWORKING_VISIBILITY_EXPOSED,
+            },
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor, transformer=transformer),
     )
@@ -142,26 +157,28 @@ async def test_triton_runtime_with_transformer(rest_v1_client):
         kserve_client.wait_isvc_ready(
             service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=800
         )
+
     except RuntimeError as e:
-        print(
-            kserve_client.api_instance.get_namespaced_custom_object(
-                "serving.knative.dev",
-                "v1",
-                KSERVE_TEST_NAMESPACE,
-                "services",
-                service_name + "-predictor",
-            )
+        services = kserve_client.core_api.list_namespaced_service(
+            KSERVE_TEST_NAMESPACE,
+            label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
         )
+        for svc in services.items:
+            print(svc)
         deployments = kserve_client.app_api.list_namespaced_deployment(
             KSERVE_TEST_NAMESPACE,
-            label_selector="serving.kserve.io/"
-            "inferenceservice={}".format(service_name),
+            label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
         )
         for deployment in deployments.items:
             print(deployment)
         raise e
+
     res = await predict_isvc(
-        rest_v1_client, service_name, "./data/image.json", model_name="cifar10"
+        rest_v1_client,
+        service_name,
+        "./data/image.json",
+        model_name="cifar10",
+        network_layer=network_layer,
     )
     assert np.argmax(res["predictions"][0]) == 5
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)

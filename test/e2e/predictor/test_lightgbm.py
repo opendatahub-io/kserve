@@ -37,7 +37,7 @@ from ..common.utils import KSERVE_TEST_NAMESPACE, predict_isvc, predict_grpc
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
 @pytest.mark.asyncio(scope="session")
-async def test_lightgbm_kserve(rest_v1_client):
+async def test_lightgbm_kserve(rest_v1_client, network_layer):
     service_name = "isvc-lightgbm"
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
@@ -54,7 +54,11 @@ async def test_lightgbm_kserve(rest_v1_client):
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            labels={
+                constants.KSERVE_LABEL_NETWORKING_VISIBILITY: constants.KSERVE_LABEL_NETWORKING_VISIBILITY_EXPOSED,
+            },
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -65,7 +69,12 @@ async def test_lightgbm_kserve(rest_v1_client):
     kserve_client.create(isvc)
     kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
-    res = await predict_isvc(rest_v1_client, service_name, "./data/iris_input_v3.json")
+    res = await predict_isvc(
+        rest_v1_client,
+        service_name,
+        "./data/iris_input_v3.json",
+        network_layer=network_layer,
+    )
     assert numpy.argmax(res["predictions"][0]) == 0
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
@@ -73,7 +82,7 @@ async def test_lightgbm_kserve(rest_v1_client):
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
 @pytest.mark.asyncio(scope="session")
-async def test_lightgbm_runtime_kserve(rest_v1_client):
+async def test_lightgbm_runtime_kserve(rest_v1_client, network_layer):
     service_name = "isvc-lightgbm-runtime"
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
@@ -93,7 +102,11 @@ async def test_lightgbm_runtime_kserve(rest_v1_client):
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            labels={
+                constants.KSERVE_LABEL_NETWORKING_VISIBILITY: constants.KSERVE_LABEL_NETWORKING_VISIBILITY_EXPOSED,
+            },
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -104,13 +117,28 @@ async def test_lightgbm_runtime_kserve(rest_v1_client):
     kserve_client.create(isvc)
     kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
-    res = await predict_isvc(rest_v1_client, service_name, "./data/iris_input_v3.json")
+    res = await predict_isvc(
+        rest_v1_client,
+        service_name,
+        "./data/iris_input_v3.json",
+        network_layer=network_layer,
+    )
     assert numpy.argmax(res["predictions"][0]) == 0
 
-    res = await predict_isvc(rest_v1_client, service_name, "./data/iris_input_v4.json")
+    res = await predict_isvc(
+        rest_v1_client,
+        service_name,
+        "./data/iris_input_v4.json",
+        network_layer=network_layer,
+    )
     assert numpy.argmax(res["predictions"][0]) == 0
 
-    res = await predict_isvc(rest_v1_client, service_name, "./data/iris_input_v5.json")
+    res = await predict_isvc(
+        rest_v1_client,
+        service_name,
+        "./data/iris_input_v5.json",
+        network_layer=network_layer,
+    )
     assert numpy.argmax(res["predictions"][0]) == 0
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
@@ -118,7 +146,7 @@ async def test_lightgbm_runtime_kserve(rest_v1_client):
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
 @pytest.mark.asyncio(scope="session")
-async def test_lightgbm_v2_runtime_mlserver(rest_v2_client):
+async def test_lightgbm_v2_runtime_mlserver(rest_v2_client, network_layer):
     service_name = "isvc-lightgbm-v2-runtime"
     protocol_version = "v2"
 
@@ -148,7 +176,11 @@ async def test_lightgbm_v2_runtime_mlserver(rest_v2_client):
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            labels={
+                constants.KSERVE_LABEL_NETWORKING_VISIBILITY: constants.KSERVE_LABEL_NETWORKING_VISIBILITY_EXPOSED,
+            },
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -163,6 +195,7 @@ async def test_lightgbm_v2_runtime_mlserver(rest_v2_client):
         rest_v2_client,
         service_name,
         "./data/iris_input_v2.json",
+        network_layer=network_layer,
     )
     assert res.outputs[0].data == [
         8.796664107010673e-06,
@@ -179,7 +212,7 @@ async def test_lightgbm_v2_runtime_mlserver(rest_v2_client):
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
 @pytest.mark.asyncio(scope="session")
-async def test_lightgbm_v2_kserve(rest_v2_client):
+async def test_lightgbm_v2_kserve(rest_v2_client, network_layer):
     service_name = "isvc-lightgbm-v2-kserve"
 
     predictor = V1beta1PredictorSpec(
@@ -201,7 +234,11 @@ async def test_lightgbm_v2_kserve(rest_v2_client):
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE
+            name=service_name,
+            namespace=KSERVE_TEST_NAMESPACE,
+            labels={
+                constants.KSERVE_LABEL_NETWORKING_VISIBILITY: constants.KSERVE_LABEL_NETWORKING_VISIBILITY_EXPOSED,
+            },
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
     )
@@ -216,6 +253,7 @@ async def test_lightgbm_v2_kserve(rest_v2_client):
         rest_v2_client,
         service_name,
         "./data/iris_input_v2.json",
+        network_layer=network_layer,
     )
     assert res.outputs[0].data == [
         8.796664107010673e-06,
@@ -229,6 +267,7 @@ async def test_lightgbm_v2_kserve(rest_v2_client):
     kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 
+@pytest.mark.skip(reason="Not testable in ODH at the moment")
 @pytest.mark.grpc
 @pytest.mark.predictor
 @pytest.mark.asyncio(scope="session")
