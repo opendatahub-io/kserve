@@ -2691,6 +2691,130 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				expectIsvcReadyStatus(ctx, serviceKey)
 				expectIsvcTransformerReadyStatus(ctx, serviceKey)
 			})
+
+			It("Should inject TLS infrastructure into transformer deployment when auth is enabled", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "trans-auth-tls-isvc"
+				serviceNamespace := "default"
+				serviceKey := types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+				transformerKey := types.NamespacedName{
+					Name:      constants.TransformerServiceName(serviceName),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(ctx, &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService with auth enabled
+				isvc := defaultTransformerIsvc(serviceKey, v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.ODHKserveRawAuth] = "true"
+				Expect(k8sClient.Create(ctx, isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+				expectDeploymentToBeReady(ctx, transformerKey)
+				expectDeploymentToBeReady(ctx, predictorKey)
+
+				By("Checking that the transformer deployment has the CA bundle volume and TLS env vars")
+				actualTransformerDeployment := &appsv1.Deployment{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, transformerKey, actualTransformerDeployment)
+				}, timeout, interval).Should(Succeed())
+
+				// Check CA bundle volume
+				var caBundleVolumeFound bool
+				for _, v := range actualTransformerDeployment.Spec.Template.Spec.Volumes {
+					if v.Name == constants.ServiceCaBundleVolumeName {
+						caBundleVolumeFound = true
+						Expect(v.VolumeSource.ConfigMap).NotTo(BeNil())
+						Expect(v.VolumeSource.ConfigMap.Name).To(Equal(constants.OpenShiftServiceCaConfigMapName))
+						break
+					}
+				}
+				Expect(caBundleVolumeFound).To(BeTrue(), "transformer should have openshift-service-ca-bundle volume")
+
+				// Check kserve-container has TLS volume mount and env vars
+				transformerContainerFound := false
+				for _, container := range actualTransformerDeployment.Spec.Template.Spec.Containers {
+					if container.Name == constants.InferenceServiceContainerName {
+						transformerContainerFound = true
+						var mountFound bool
+						for _, vm := range container.VolumeMounts {
+							if vm.Name == constants.ServiceCaBundleVolumeName {
+								mountFound = true
+								Expect(vm.MountPath).To(Equal(constants.ServiceCaBundleMountPath))
+								Expect(vm.ReadOnly).To(BeTrue())
+								break
+							}
+						}
+						Expect(mountFound).To(BeTrue(), "kserve-container should have CA bundle volume mount")
+
+						envMap := make(map[string]string)
+						for _, env := range container.Env {
+							envMap[env.Name] = env.Value
+						}
+						Expect(envMap["SSL_CERT_DIR"]).To(Equal(constants.ServiceCaBundleMountPath))
+						Expect(envMap["REQUESTS_CA_BUNDLE"]).To(Equal(constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile))
+						Expect(envMap[constants.PredictorHostEnvVar]).To(Equal(
+							fmt.Sprintf("%s.%s.svc", predictorKey.Name, serviceNamespace)))
+						Expect(envMap[constants.PredictorPortEnvVar]).To(Equal("8443"))
+						Expect(envMap[constants.PredictorProtocolEnvVar]).To(Equal("https"))
+						break
+					}
+				}
+				Expect(transformerContainerFound).To(BeTrue(), "transformer should contain kserve-container")
+
+				By("Checking that the predictor deployment does NOT have TLS env vars")
+				actualPredictorDeployment := &appsv1.Deployment{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, predictorKey, actualPredictorDeployment)
+				}, timeout, interval).Should(Succeed())
+
+				for _, v := range actualPredictorDeployment.Spec.Template.Spec.Volumes {
+					Expect(v.Name).NotTo(Equal(constants.ServiceCaBundleVolumeName),
+						"predictor should not have CA bundle volume")
+				}
+
+				predictorContainerFound := false
+				for _, container := range actualPredictorDeployment.Spec.Template.Spec.Containers {
+					if container.Name == constants.InferenceServiceContainerName {
+						predictorContainerFound = true
+						for _, vm := range container.VolumeMounts {
+							Expect(vm.Name).NotTo(Equal(constants.ServiceCaBundleVolumeName),
+								"predictor should not have CA bundle volume mount")
+						}
+						for _, env := range container.Env {
+							Expect(env.Name).NotTo(Equal(constants.PredictorHostEnvVar),
+								"predictor should not have PREDICTOR_HOST env var")
+							Expect(env.Name).NotTo(Equal(constants.PredictorProtocolEnvVar),
+								"predictor should not have PREDICTOR_PROTOCOL env var")
+							Expect(env.Name).NotTo(Equal("SSL_CERT_DIR"),
+								"predictor should not have SSL_CERT_DIR env var")
+							Expect(env.Name).NotTo(Equal("REQUESTS_CA_BUNDLE"),
+								"predictor should not have REQUESTS_CA_BUNDLE env var")
+							Expect(env.Name).NotTo(Equal(constants.PredictorPortEnvVar),
+								"predictor should not have PREDICTOR_PORT env var")
+						}
+						break
+					}
+				}
+				Expect(predictorContainerFound).To(BeTrue(), "predictor should contain kserve-container")
+			})
 		})
 
 		Describe("inference service with an explainer", func() {
@@ -4567,12 +4691,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									Env: []corev1.EnvVar{
 										{Name: constants.InferenceServiceNameEnvVarKey, Value: serviceName},
 									},
-									VolumeMounts: []corev1.VolumeMount{
-										{
-											Name:      "proxy-tls",
-											MountPath: "/etc/tls/private",
-										},
-									},
 									Resources: defaultResource,
 									ReadinessProbe: &corev1.Probe{
 										ProbeHandler: corev1.ProbeHandler{
@@ -4592,18 +4710,13 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									TerminationMessagePolicy: "File",
 									ImagePullPolicy:          "IfNotPresent",
 								},
-								kubeRbacProxyContainer(ptr.To(int64(30))),
 							},
-							Volumes: proxyVolumes(
-								transformerDeploymentKey.Name+constants.ServingCertSecretSuffix,
-								fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName),
-							),
 							SchedulerName:                 "default-scheduler",
 							RestartPolicy:                 "Always",
 							TerminationGracePeriodSeconds: ptr.To(GRACE_PERIOD),
 							DNSPolicy:                     "ClusterFirst",
 							SecurityContext:               defaultSecurityContext,
-							AutomountServiceAccountToken:  ptr.To(true),
+							AutomountServiceAccountToken:  ptr.To(false),
 						},
 					},
 					Strategy:                getDefaultRollingStrategy(),
@@ -6526,12 +6639,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									Env: []corev1.EnvVar{
 										{Name: constants.InferenceServiceNameEnvVarKey, Value: serviceName},
 									},
-									VolumeMounts: []corev1.VolumeMount{
-										{
-											Name:      "proxy-tls",
-											MountPath: "/etc/tls/private",
-										},
-									},
 									Resources: defaultResource,
 									ReadinessProbe: &corev1.Probe{
 										ProbeHandler: corev1.ProbeHandler{
@@ -6551,18 +6658,13 @@ var _ = Describe("v1beta1 inference service controller", func() {
 									TerminationMessagePolicy: "File",
 									ImagePullPolicy:          "IfNotPresent",
 								},
-								kubeRbacProxyContainer(ptr.To(int64(30))),
 							},
-							Volumes: proxyVolumes(
-								transformerDeploymentKey.Name+constants.ServingCertSecretSuffix,
-								fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName),
-							),
 							SchedulerName:                 "default-scheduler",
 							RestartPolicy:                 "Always",
 							TerminationGracePeriodSeconds: ptr.To(GRACE_PERIOD),
 							DNSPolicy:                     "ClusterFirst",
 							SecurityContext:               defaultSecurityContext,
-							AutomountServiceAccountToken:  ptr.To(true),
+							AutomountServiceAccountToken:  ptr.To(false),
 						},
 					},
 					Strategy:                getDefaultRollingStrategy(),
@@ -10962,6 +11064,172 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				return isvc.Status.Address.URL.Host == expectedHost
 			}, timeout, interval).Should(BeTrue(),
 				"status.address.url should include :8080 for headless service")
+		})
+	})
+
+	Context("When creating inference service with headless service and custom container port", func() {
+		It("Should include the actual container port in status.address.url instead of the default 8080", func() {
+			By("By creating a ServingRuntime with rest_port=8888 and headless service enabled")
+			ctx := context.Background()
+
+			configs := map[string]string{
+				"ingress": `{
+					"ingressGateway": "knative-serving/knative-ingress-gateway",
+					"localGateway": "knative-serving/knative-local-gateway",
+					"localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"
+				}`,
+				"storageInitializer": `{
+					"image": "kserve/storage-initializer:latest",
+					"memoryRequest": "100Mi",
+					"memoryLimit": "1Gi",
+					"cpuRequest": "100m",
+					"cpuLimit": "1",
+					"caBundleConfigMapName": "",
+					"caBundleVolumeMountPath": "/etc/ssl/custom-certs",
+					"cpuModelcar": "10m",
+					"memoryModelcar": "15Mi"
+				}`,
+				"service":    `{"serviceClusterIPNone": true}`,
+				"oauthProxy": `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+			}
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(ctx, configMap)
+
+			// Create a ServingRuntime with a non-default port (8888), similar to OVMS
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ovms-like-runtime",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "tensorflow",
+							Version:    ptr.To("1"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:    constants.InferenceServiceContainerName,
+								Image:   "tensorflow/serving:1.14.0",
+								Command: []string{"/usr/bin/tensorflow_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8888",
+									"--model_base_path=/mnt/models",
+								},
+								Ports: []corev1.ContainerPort{
+									{
+										ContainerPort: 8888,
+										Protocol:      corev1.ProtocolTCP,
+									},
+								},
+								Resources: defaultResource,
+							},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+			Expect(k8sClient.Create(ctx, servingRuntime)).Should(Succeed())
+			defer k8sClient.Delete(ctx, servingRuntime)
+
+			serviceName := "raw-headless-custom-port"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+			storageUri := "s3://test/mnist/export"
+
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						constants.DeploymentMode: string(constants.Standard),
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI:     &storageUri,
+								RuntimeVersion: ptr.To("1.14.0"),
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			inferenceService := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Wait for deployment to be created
+			actualDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, predictorDeploymentKey, actualDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			// Wait for service to be created and verify it's headless
+			actualService := &corev1.Service{}
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, predictorServiceKey, actualService)
+			}, timeout, interval).Should(Succeed())
+
+			Expect(actualService.Spec.ClusterIP).To(Equal(corev1.ClusterIPNone),
+				"Service should be headless (ClusterIP: None)")
+
+			// Verify the service has the correct target port from the ServingRuntime
+			Expect(actualService.Spec.Ports).NotTo(BeEmpty())
+			Expect(actualService.Spec.Ports[0].TargetPort.IntValue()).To(Equal(8888),
+				"Service target port should match the container port from ServingRuntime")
+
+			// Update deployment status to trigger status reconciliation
+			updatedDeployment := actualDeployment.DeepCopy()
+			updatedDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, updatedDeployment)).NotTo(HaveOccurred())
+
+			// Verify status.address.url includes the actual container port (8888), not the default (8080)
+			Eventually(func() bool {
+				isvc := &v1beta1.InferenceService{}
+				if err := k8sClient.Get(ctx, serviceKey, isvc); err != nil {
+					return false
+				}
+				if isvc.Status.Address == nil || isvc.Status.Address.URL == nil {
+					return false
+				}
+				expectedHost := serviceKey.Name + "-predictor." + serviceKey.Namespace + ".svc.cluster.local:8888"
+				return isvc.Status.Address.URL.Host == expectedHost
+			}, timeout, interval).Should(BeTrue(),
+				"status.address.url should include :8888 for headless service with custom container port")
 		})
 	})
 

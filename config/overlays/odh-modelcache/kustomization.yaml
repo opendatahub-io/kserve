@@ -66,6 +66,12 @@ patches:
   target:
     kind: DaemonSet
     name: kserve-localmodelnode-agent
+# SecureServing patches
+- path: patches/secure-metrics-localmodel-patch.yaml
+- target:
+    kind: DaemonSet
+    name: kserve-localmodelnode-agent
+  path: patches/secure-metrics-localmodelnode-patch.yaml
 # ClusterRole SCC use for agent
 - target:
     kind: ClusterRole

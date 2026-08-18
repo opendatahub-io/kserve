@@ -156,6 +156,8 @@ case "${OPERATOR_TYPE}" in
       [[ -n "${STORAGE_INITIALIZER_IMAGE:-}" ]] && \
         _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_STORAGE_INITIALIZER_IMAGE=${STORAGE_INITIALIZER_IMAGE}")
 
+      _env_overrides+=("APPLICATIONS_NAMESPACE=${KSERVE_NAMESPACE}")
+
       if [[ ${#_env_overrides[@]} -gt 0 ]]; then
         echo "Overriding operand images on kserve-module-controller-manager..."
         oc set env deployment/kserve-module-controller-manager \
@@ -180,6 +182,21 @@ KSERVE_CR
       oc wait kserve/default-kserve \
         --for=jsonpath='{.status.conditions[?(@.type=="Ready")].status}'=True \
         --timeout=300s
+
+    # deploy DSC/DSCI CRD for e2e tests
+    echo "Deploying DSC/DSCI CRD for e2e tests..."
+    kustomize build "$PROJECT_ROOT/config/crd/external"| oc apply -f -
+    
+    echo "Waiting for DSC/DSCI CRD to be ready..."
+    oc wait crd/datascienceclusters.datasciencecluster.opendatahub.io --for=condition=established --timeout=300s
+    oc wait crd/dscinitializations.dscinitialization.opendatahub.io   --for=condition=established --timeout=300s
+    echo "DSC/DSCI CRD deployed successfully"
+
+    echo "Applying DSC/DSCI resources..."
+    oc apply -f "${PROJECT_ROOT}/config/overlays/odh-test/dsci.yaml"
+    oc apply -f "${PROJECT_ROOT}/config/overlays/odh-test/dsc.yaml"
+    echo "DSC/DSCI resources applied successfully"
+
     else
       "${SCRIPT_DIR}/deploy.kserve-manual.sh" "${1:-}"
     fi
