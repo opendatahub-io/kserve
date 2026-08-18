@@ -67,11 +67,14 @@ podman create --name bundle-chk $BUNDLE_IMG_OLD && \
 podman cp bundle-chk:/manifests/opendatahub-operator.clusterserviceversion.yaml /tmp/csv-check.yaml && \
 podman rm bundle-chk && \
 grep "image:.*opendatahub-operator" /tmp/csv-check.yaml
-# Output should contain :v${VERSION_OLD} tag. If it shows :latest, IMG was not passed correctly.
-bundle-chk
-                image: quay.io/jooholee/opendatahub-operator:v3.5.0-ea2
-                image: quay.io/jooholee/opendatahub-operator:v3.5.0-ea2
+# If you hit some issues on Mac, try this
+# use /private instead /tmp directly
+# podman cp bundle-chk:/manifests/opendatahub-operator.clusterserviceversion.yaml /private/tmp/csv-check.yaml
 
+# Output should contain :v${VERSION_OLD} tag. If it shows :latest, IMG was not passed correctly.
+#bundle-chk
+#                image: quay.io/jooholee/opendatahub-operator:v3.5.0-ea2
+#                image: quay.io/jooholee/opendatahub-operator:v3.5.0-ea2
 ```
 
 ## Step 3 - Build new operator (kserve-module handler)
@@ -139,6 +142,19 @@ export CATALOG_TAG=$(date +%s)
 make catalog-build catalog-push \
   BUNDLE_IMGS=${IMAGE_TAG_BASE}-bundle:v${VERSION_OLD},${IMAGE_TAG_BASE}-bundle:v${VERSION_NEW} \
   CATALOG_IMG=${IMAGE_TAG_BASE}-catalog:${CATALOG_TAG}
+
+# If you hit any issues on Mac, try the following and do it again:
+#cat << 'EOF' > ~/.config/containers/policy.json
+#{
+#  "default": [
+#    {
+#      "type": "insecureAcceptAnything"
+#    }
+#  ]
+#}
+#EOF
+```
+
 
 ```bash
 cat <<EOF | oc apply -f -
