@@ -36,8 +36,9 @@ PyJWT = {version = ">=2.13.0"}
 # Pinning because it is a transitive dependency.
 cryptography = {version = ">=46.0.5"}
 # CVE-2026-30922 pyasn1 Vulnerable to Denial of Service via Unbounded Recursion.
+# CVE-2026-59885 pyasn1 Denial of Service via crafted ASN.1 OBJECT IDENTIFIER.
 # Pinning because it is a transitive dependency.
-pyasn1 = {version = ">=0.6.3"}
+pyasn1 = {version = ">=0.6.4"}
 
 
 #[tool.poetry-version-plugin]

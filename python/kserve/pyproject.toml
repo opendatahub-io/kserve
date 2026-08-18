@@ -69,8 +69,9 @@ aiohttp = ">=3.14.0,<4.0.0"
 # Pinning because it is a transitive dependency.
 PyJWT = ">=2.12.0"
 # CVE-2026-30922 pyasn1 Vulnerable to Denial of Service via Unbounded Recursion.
+# CVE-2026-59885 pyasn1 Denial of Service via crafted ASN.1 OBJECT IDENTIFIER.
 # Pinning because it is a transitive dependency.
-pyasn1 = ">=0.6.3"
+pyasn1 = ">=0.6.4"
 # CVE-2026-28684 python-dotenv: Arbitrary file overwrite via symbolic link following
 # Pinning because it is a transitive dependency.
 python-dotenv = ">=1.2.2"
