@@ -1,11 +1,13 @@
 package kservemodule_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -58,6 +60,10 @@ var _ = Describe("KserveModule Reconciler", func() {
 		var cr *platformv1alpha1.Kserve
 
 		BeforeAll(func(ctx SpecContext) {
+			// Real: assert operands actually land in the cluster. Set before Create so
+			// the create-time reconcile uses it; Ordered keeps it for all specs.
+			testEnv.Reconciler.Deployer = kservemodule.NewDeployer()
+
 			cr = fixture.KserveCR()
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
@@ -66,12 +72,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 			})
 		})
 
-		BeforeEach(func() {
-			testEnv.Deployer = &fixture.MockDeployer{}
-			testEnv.Reconciler.Deployer = testEnv.Deployer
-		})
-
-		It("sets provisioning succeeded after successful reconcile", func(ctx SpecContext) {
+		It("sets provisioning succeeded and applies the config to the cluster", func(ctx SpecContext) {
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
 				cond := fixture.FindCondition(cr, string(common.ConditionTypeProvisioningSucceeded))
@@ -79,18 +80,10 @@ var _ = Describe("KserveModule Reconciler", func() {
 				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 			}).WithContext(ctx).Should(Succeed())
 
-			lastCall := testEnv.Deployer.LastCall()
-			Expect(lastCall).NotTo(BeNil())
-			Expect(lastCall.Resources).NotTo(BeEmpty())
-
-			hasConfigMap := false
-			for _, res := range lastCall.Resources {
-				if res.GetKind() == "ConfigMap" && res.GetName() == "inferenceservice-config" {
-					hasConfigMap = true
-					break
-				}
-			}
-			Expect(hasConfigMap).To(BeTrue())
+			// The inferenceservice-config ConfigMap is really created (not just intended).
+			cm := &corev1.ConfigMap{}
+			Expect(testEnv.Client.Get(ctx,
+				client.ObjectKey{Name: "inferenceservice-config", Namespace: "opendatahub"}, cm)).To(Succeed())
 		})
 
 		It("reports ready with all OCP deployments", func(ctx SpecContext) {
@@ -155,11 +148,18 @@ var _ = Describe("KserveModule Reconciler", func() {
 			}).WithContext(ctx).Should(Succeed())
 		})
 
-		// deploy error test runs last to avoid polluting CR status for other tests
-		It("sets provisioning failed when deployer returns error", func(ctx SpecContext) {
-			testEnv.Deployer.DeployError = fmt.Errorf("simulated deploy failure")
+	})
 
-			triggerReconcile(ctx, cr, "deploy-error")
+	Context("deploy failure", func() {
+		It("sets provisioning failed when deployer returns error", func(ctx SpecContext) {
+			// Mock: fault injection (DeployError); the real deployer can't be told to fail.
+			testEnv.Reconciler.Deployer = &fixture.MockDeployer{DeployError: fmt.Errorf("simulated deploy failure")}
+
+			cr := fixture.KserveCR()
+			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
+			DeferCleanup(func(ctx SpecContext) {
+				deleteAndWaitGone(ctx, cr)
+			})
 
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
@@ -171,10 +171,19 @@ var _ = Describe("KserveModule Reconciler", func() {
 		})
 	})
 
+	// Uses the real deployer so assertions check actual cluster state: the WVA
+	// Deployment is really applied when Managed and really deleted (via
+	// defaultCleanup, not GC) when Removed. envtest has no garbage collector, so
+	// only defaultCleanup-based removal is observable here.
 	Context("WVA ManagementState lifecycle", Ordered, func() {
 		var cr *platformv1alpha1.Kserve
+		wvaKey := client.ObjectKey{Name: "workload-variant-autoscaler-controller-manager", Namespace: "opendatahub"}
 
 		BeforeAll(func(ctx SpecContext) {
+			// Real: assert the WVA Deployment is really applied/deleted. Set before
+			// Create so the create-time reconcile uses it; Ordered keeps it for all specs.
+			testEnv.Reconciler.Deployer = kservemodule.NewDeployer()
+
 			cr = fixture.KserveCR()
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
@@ -183,12 +192,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 			})
 		})
 
-		BeforeEach(func() {
-			testEnv.Deployer = &fixture.MockDeployer{}
-			testEnv.Reconciler.Deployer = testEnv.Deployer
-		})
-
-		It("does not include WVA resources when ManagementState is Removed (default)", func(ctx SpecContext) {
+		It("does not create the WVA Deployment when ManagementState is Removed (default)", func(ctx SpecContext) {
 			triggerReconcile(ctx, cr, "wva-default-removed")
 
 			Eventually(func(g Gomega) {
@@ -198,15 +202,11 @@ var _ = Describe("KserveModule Reconciler", func() {
 				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 			}).WithContext(ctx).Should(Succeed())
 
-			lastCall := testEnv.Deployer.LastCall()
-			Expect(lastCall).NotTo(BeNil())
-			for _, res := range lastCall.Resources {
-				Expect(res.GetName()).NotTo(Equal("workload-variant-autoscaler-controller-manager"),
-					"WVA resources should not be deployed when Removed")
-			}
+			err := testEnv.Client.Get(ctx, wvaKey, &appsv1.Deployment{})
+			Expect(k8serr.IsNotFound(err)).To(BeTrue(), "WVA Deployment should not exist when Removed")
 		})
 
-		It("includes WVA resources when ManagementState is Managed", func(ctx SpecContext) {
+		It("creates the WVA Deployment when ManagementState is Managed", func(ctx SpecContext) {
 			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
 					return err
@@ -217,21 +217,15 @@ var _ = Describe("KserveModule Reconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			Eventually(func(g Gomega) {
-				lastCall := testEnv.Deployer.LastCall()
-				g.Expect(lastCall).NotTo(BeNil())
-
-				hasWVA := false
-				for _, res := range lastCall.Resources {
-					if res.GetKind() == "Deployment" && res.GetName() == "workload-variant-autoscaler-controller-manager" {
-						hasWVA = true
-						break
-					}
-				}
-				g.Expect(hasWVA).To(BeTrue(), "WVA Deployment should be in allResources when Managed")
+				g.Expect(testEnv.Client.Get(ctx, wvaKey, &appsv1.Deployment{})).To(Succeed(),
+					"WVA Deployment should be applied to the cluster when Managed")
 			}).WithContext(ctx).Should(Succeed())
 		})
 
-		It("removes WVA resources when ManagementState changes to Removed", func(ctx SpecContext) {
+		It("deletes the WVA Deployment when ManagementState changes to Removed", func(ctx SpecContext) {
+			// Precondition: WVA Deployment exists from the previous (Managed) spec.
+			Expect(testEnv.Client.Get(ctx, wvaKey, &appsv1.Deployment{})).To(Succeed())
+
 			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
 					return err
@@ -242,13 +236,9 @@ var _ = Describe("KserveModule Reconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			Eventually(func(g Gomega) {
-				lastCall := testEnv.Deployer.LastCall()
-				g.Expect(lastCall).NotTo(BeNil())
-
-				for _, res := range lastCall.Resources {
-					g.Expect(res.GetName()).NotTo(Equal("workload-variant-autoscaler-controller-manager"),
-						"WVA resources should not be in allResources after Removed")
-				}
+				err := testEnv.Client.Get(ctx, wvaKey, &appsv1.Deployment{})
+				g.Expect(k8serr.IsNotFound(err)).To(BeTrue(),
+					"WVA Deployment should be deleted by defaultCleanup when Removed")
 			}).WithContext(ctx).Should(Succeed())
 		})
 	})
@@ -257,17 +247,16 @@ var _ = Describe("KserveModule Reconciler", func() {
 		var cr *platformv1alpha1.Kserve
 
 		BeforeAll(func(ctx SpecContext) {
+			// Mock: readiness is driven by manually-created Deployments; deployer output
+			// is irrelevant. Set before Create; Ordered keeps it for all specs.
+			testEnv.Reconciler.Deployer = &fixture.MockDeployer{}
+
 			cr = fixture.KserveCR(fixture.WithWVAManagementState(common.Managed))
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
 			DeferCleanup(func(ctx SpecContext) {
 				deleteAndWaitGone(ctx, cr)
 			})
-		})
-
-		BeforeEach(func() {
-			testEnv.Deployer = &fixture.MockDeployer{}
-			testEnv.Reconciler.Deployer = testEnv.Deployer
 		})
 
 		It("reports WVAReady=False when WVA deployment is not available", func(ctx SpecContext) {
@@ -318,17 +307,16 @@ var _ = Describe("KserveModule Reconciler", func() {
 		var cr *platformv1alpha1.Kserve
 
 		BeforeAll(func(ctx SpecContext) {
+			// Mock: assert deploy-set intent via LastCall; console removal is GC-based,
+			// not observable in envtest. Set before Create; Ordered keeps it for all specs.
+			testEnv.Reconciler.Deployer = &fixture.MockDeployer{}
+
 			cr = fixture.KserveCR()
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
 			DeferCleanup(func(ctx SpecContext) {
 				deleteAndWaitGone(ctx, cr)
 			})
-		})
-
-		BeforeEach(func() {
-			testEnv.Deployer = &fixture.MockDeployer{}
-			testEnv.Reconciler.Deployer = testEnv.Deployer
 		})
 
 		It("does not include console dashboard resources when namespace does not exist", func(ctx SpecContext) {
@@ -341,7 +329,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 			}).WithContext(ctx).Should(Succeed())
 
-			lastCall := testEnv.Deployer.LastCall()
+			lastCall := mockDeployer().LastCall()
 			Expect(lastCall).NotTo(BeNil())
 			for _, res := range lastCall.Resources {
 				Expect(res.GetName()).NotTo(Equal("model-serving-llms-cluster-health"),
@@ -359,7 +347,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 			triggerReconcile(ctx, cr, "console-dashboards-with-ns")
 
 			Eventually(func(g Gomega) {
-				lastCall := testEnv.Deployer.LastCall()
+				lastCall := mockDeployer().LastCall()
 				g.Expect(lastCall).NotTo(BeNil())
 
 				hasDashboard := false
@@ -385,7 +373,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			Eventually(func(g Gomega) {
-				lastCall := testEnv.Deployer.LastCall()
+				lastCall := mockDeployer().LastCall()
 				g.Expect(lastCall).NotTo(BeNil())
 
 				for _, res := range lastCall.Resources {
@@ -406,7 +394,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			Eventually(func(g Gomega) {
-				lastCall := testEnv.Deployer.LastCall()
+				lastCall := mockDeployer().LastCall()
 				g.Expect(lastCall).NotTo(BeNil())
 
 				hasDashboard := false
@@ -448,6 +436,10 @@ var _ = Describe("KserveModule Reconciler", func() {
 		var cr *platformv1alpha1.Kserve
 
 		BeforeAll(func(ctx SpecContext) {
+			// Real: assert oauthProxy projection lands in the actual ConfigMap. Set
+			// before Create so the create-time reconcile uses it; Ordered keeps it for all specs.
+			testEnv.Reconciler.Deployer = kservemodule.NewDeployer()
+
 			cr = fixture.KserveCR()
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
@@ -456,36 +448,21 @@ var _ = Describe("KserveModule Reconciler", func() {
 			})
 		})
 
-		BeforeEach(func() {
-			testEnv.Deployer = &fixture.MockDeployer{}
-			testEnv.Reconciler.Deployer = testEnv.Deployer
-		})
-
 		It("overrides oauthProxy on patch and restores defaults on removal", func(ctx SpecContext) {
 			triggerReconcile(ctx, cr, "oauth-proxy-default")
 
+			By("defaults are applied to the ConfigMap")
 			Eventually(func(g Gomega) {
-				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
-				cond := fixture.FindCondition(cr, string(common.ConditionTypeProvisioningSucceeded))
-				g.Expect(cond).NotTo(BeNil())
-				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+				d := oauthProxyFromConfigMap(ctx, g)
+				g.Expect(d["memoryRequest"]).To(Equal("64Mi"))
+				g.Expect(d["memoryLimit"]).To(Equal("128Mi"))
+				g.Expect(d["cpuRequest"]).To(Equal("100m"))
+				g.Expect(d["cpuLimit"]).To(Equal("200m"))
+				g.Expect(d["image"]).To(Equal("registry.example.com/oauth-proxy:latest"))
 			}).WithContext(ctx).Should(Succeed())
 
-			lastCall := testEnv.Deployer.LastCall()
-			Expect(lastCall).NotTo(BeNil())
-			oauthData, err := fixture.ExtractConfigMapJSONKey(lastCall.Resources, "inferenceservice-config", "oauthProxy")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(oauthData["memoryRequest"]).To(Equal("64Mi"))
-			Expect(oauthData["memoryLimit"]).To(Equal("128Mi"))
-			Expect(oauthData["cpuRequest"]).To(Equal("100m"))
-			Expect(oauthData["cpuLimit"]).To(Equal("200m"))
-			Expect(oauthData["image"]).To(Equal("registry.example.com/oauth-proxy:latest"))
-
 			By("patching CR with oauthProxy overrides")
-			testEnv.Deployer = &fixture.MockDeployer{}
-			testEnv.Reconciler.Deployer = testEnv.Deployer
-
-			err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
 					return err
 				}
@@ -505,28 +482,16 @@ var _ = Describe("KserveModule Reconciler", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			// Wait for reconcile with one field; remaining fields verified below to give immediate failure feedback.
 			Eventually(func(g Gomega) {
-				lastCall := testEnv.Deployer.LastCall()
-				g.Expect(lastCall).NotTo(BeNil())
-				data, extractErr := fixture.ExtractConfigMapJSONKey(lastCall.Resources, "inferenceservice-config", "oauthProxy")
-				g.Expect(extractErr).NotTo(HaveOccurred())
-				g.Expect(data["memoryRequest"]).To(Equal("256Mi"))
+				d := oauthProxyFromConfigMap(ctx, g)
+				g.Expect(d["memoryRequest"]).To(Equal("256Mi"))
+				g.Expect(d["memoryLimit"]).To(Equal("512Mi"))
+				g.Expect(d["cpuRequest"]).To(Equal("200m"))
+				g.Expect(d["cpuLimit"]).To(Equal("500m"))
+				g.Expect(d["image"]).To(Equal("registry.example.com/oauth-proxy:latest"))
 			}).WithContext(ctx).Should(Succeed())
 
-			lastCall = testEnv.Deployer.LastCall()
-			oauthData, err = fixture.ExtractConfigMapJSONKey(lastCall.Resources, "inferenceservice-config", "oauthProxy")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(oauthData["memoryRequest"]).To(Equal("256Mi"))
-			Expect(oauthData["memoryLimit"]).To(Equal("512Mi"))
-			Expect(oauthData["cpuRequest"]).To(Equal("200m"))
-			Expect(oauthData["cpuLimit"]).To(Equal("500m"))
-			Expect(oauthData["image"]).To(Equal("registry.example.com/oauth-proxy:latest"))
-
 			By("removing oauthProxy from CR restores defaults")
-			testEnv.Deployer = &fixture.MockDeployer{}
-			testEnv.Reconciler.Deployer = testEnv.Deployer
-
 			err = retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
 					return err
@@ -536,23 +501,14 @@ var _ = Describe("KserveModule Reconciler", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
-			// Wait for reconcile with one field; remaining fields verified below to give immediate failure feedback.
 			Eventually(func(g Gomega) {
-				lastCall := testEnv.Deployer.LastCall()
-				g.Expect(lastCall).NotTo(BeNil())
-				data, extractErr := fixture.ExtractConfigMapJSONKey(lastCall.Resources, "inferenceservice-config", "oauthProxy")
-				g.Expect(extractErr).NotTo(HaveOccurred())
-				g.Expect(data["memoryRequest"]).To(Equal("64Mi"))
+				d := oauthProxyFromConfigMap(ctx, g)
+				g.Expect(d["memoryRequest"]).To(Equal("64Mi"))
+				g.Expect(d["memoryLimit"]).To(Equal("128Mi"))
+				g.Expect(d["cpuRequest"]).To(Equal("100m"))
+				g.Expect(d["cpuLimit"]).To(Equal("200m"))
+				g.Expect(d["image"]).To(Equal("registry.example.com/oauth-proxy:latest"))
 			}).WithContext(ctx).Should(Succeed())
-
-			lastCall = testEnv.Deployer.LastCall()
-			oauthData, err = fixture.ExtractConfigMapJSONKey(lastCall.Resources, "inferenceservice-config", "oauthProxy")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(oauthData["memoryRequest"]).To(Equal("64Mi"))
-			Expect(oauthData["memoryLimit"]).To(Equal("128Mi"))
-			Expect(oauthData["cpuRequest"]).To(Equal("100m"))
-			Expect(oauthData["cpuLimit"]).To(Equal("200m"))
-			Expect(oauthData["image"]).To(Equal("registry.example.com/oauth-proxy:latest"))
 		})
 	})
 })
@@ -567,6 +523,27 @@ func createReadyDeployment(ctx SpecContext, name, namespace string) {
 	dep.Status.Replicas = 1
 	dep.Status.ReadyReplicas = 1
 	Expect(testEnv.Client.Status().Update(ctx, dep)).To(Succeed())
+}
+
+// oauthProxyFromConfigMap reads and parses the oauthProxy JSON block from the
+// real inferenceservice-config ConfigMap in the cluster.
+func oauthProxyFromConfigMap(ctx SpecContext, g Gomega) map[string]any {
+	cm := &corev1.ConfigMap{}
+	g.Expect(testEnv.Client.Get(ctx,
+		client.ObjectKey{Name: "inferenceservice-config", Namespace: "opendatahub"}, cm)).To(Succeed())
+	raw, ok := cm.Data["oauthProxy"]
+	g.Expect(ok).To(BeTrue(), "inferenceservice-config should contain oauthProxy data")
+	var data map[string]any
+	g.Expect(json.Unmarshal([]byte(raw), &data)).To(Succeed())
+	return data
+}
+
+// mockDeployer returns the reconciler's deployer as a *MockDeployer, failing the
+// spec if it isn't one (i.e. this context didn't set the mock).
+func mockDeployer() *fixture.MockDeployer {
+	m, ok := testEnv.Reconciler.Deployer.(*fixture.MockDeployer)
+	Expect(ok).To(BeTrue(), "expected Reconciler.Deployer to be *MockDeployer; did this context set it?")
+	return m
 }
 
 func deleteAndWaitGone(ctx SpecContext, obj client.Object) {

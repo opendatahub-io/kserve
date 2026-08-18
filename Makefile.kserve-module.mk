@@ -35,10 +35,15 @@ manifests-kserve-module: controller-gen
 		paths=./kserve-module/pkg/apis/v1alpha1/... \
 		output:crd:artifacts:config=kserve-module/config/crd
 
+# GINKGO_PROCS controls parallelism for the envtest integration suite.
+# Each process starts its own envtest apiserver; Ordered containers stay on a
+# single process, so parallelism is safe. Set to 1 to run sequentially.
+GINKGO_PROCS ?= 4
+
 test-kserve-module: envtest
 	cd kserve-module && \
 	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
-	go test ./pkg/... -count=1
+	go run github.com/onsi/ginkgo/v2/ginkgo --procs=$(GINKGO_PROCS) --timeout=10m ./pkg/...
 
 setup-envtest-kserve-module: envtest
 	@$(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path

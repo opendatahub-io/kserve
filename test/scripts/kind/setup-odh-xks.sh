@@ -525,7 +525,15 @@ setup_seaweedfs_models() {
 
   log_info "Pre-caching opt-125m model in SeaweedFS..."
   kubectl delete job s3-init -n "${KSERVE_NAMESPACE}" --ignore-not-found
-  sed "s/s3-service.kserve/s3-service.${KSERVE_NAMESPACE}/" \
+  if [[ -n "${HF_TOKEN:-}" ]]; then
+    printf '%s' "${HF_TOKEN}" | kubectl create secret generic hf-token \
+      --from-file=token=/dev/stdin \
+      -n "${KSERVE_NAMESPACE}" \
+      --dry-run=client -o yaml | kubectl apply -f -
+  else
+    kubectl delete secret hf-token -n "${KSERVE_NAMESPACE}" --ignore-not-found
+  fi
+  sed "s|s3-service.kserve|s3-service.${KSERVE_NAMESPACE}|" \
     "${PROJECT_ROOT}/test/overlays/openshift-ci/seaweedfs-init-job-odh.yaml" | \
     kubectl apply -n "${KSERVE_NAMESPACE}" -f -
 
