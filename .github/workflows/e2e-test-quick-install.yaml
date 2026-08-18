@@ -30,6 +30,7 @@ concurrency:
 jobs:
   detect-changes:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       install_methods: ${{ steps.set-matrix.outputs.install_methods }}
     steps:
@@ -67,6 +68,7 @@ jobs:
   controller-image-build:
     if: github.repository == 'kserve/kserve'
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
       - name: Checkout source
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -130,6 +132,7 @@ jobs:
   test-quick-install:
     if: github.repository == 'kserve/kserve'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: [detect-changes, controller-image-build]
     strategy:
       fail-fast: false

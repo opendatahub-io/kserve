@@ -30,7 +30,6 @@ import (
 
 type TestEnv struct {
 	Client     client.Client
-	Deployer   *MockDeployer
 	Reconciler *kservemodule.KserveModuleReconciler
 }
 
@@ -69,12 +68,14 @@ func SetupTestEnv(ctx context.Context) *TestEnv {
 	workDir := ginkgo.GinkgoT().TempDir()
 	WriteMinimalManifests(workDir)
 
-	deployer := &MockDeployer{}
+	// Default to the real deployer so tests assert actual cluster state. Each
+	// Ordered context sets the deployer it needs in its BeforeAll (real or mock),
+	// so this default only applies to deployer-agnostic specs. See fixture/doc.go.
 	reconciler := &kservemodule.KserveModuleReconciler{
 		Client:                mgr.GetClient(),
 		Scheme:                mgr.GetScheme(),
 		ManifestsTemplatePath: workDir,
-		Deployer:              deployer,
+		Deployer:              kservemodule.NewDeployer(),
 	}
 	reconciler.SetWorkDir(workDir)
 	reconciler.SetClusterType(cluster.ClusterTypeOpenShift)
@@ -96,7 +97,6 @@ func SetupTestEnv(ctx context.Context) *TestEnv {
 
 	return &TestEnv{
 		Client:     cli,
-		Deployer:   deployer,
 		Reconciler: reconciler,
 	}
 }

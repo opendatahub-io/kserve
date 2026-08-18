@@ -34,6 +34,12 @@ patches:
 - path: patches/inferenceservice-config-patch.yaml
 - path: patches/set-resources-manager-patch.yaml
 - path: patches/remove-auth-proxy-patch.yaml
+- path: patches/secure-metrics-kserve-patch.yaml
+- path: patches/secure-metrics-service-patch.yaml
+- target:
+    kind: Deployment
+    name: llmisvc-controller-manager
+  path: patches/secure-metrics-llmisvc-patch.yaml
 - path: patches/config-scheduler-patch.yaml
 - target:
     kind: ValidatingWebhookConfiguration
