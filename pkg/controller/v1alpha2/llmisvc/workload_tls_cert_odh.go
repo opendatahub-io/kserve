@@ -80,7 +80,6 @@ func (r *LLMISVCReconciler) createWorkloadCertificate(ctx context.Context, dnsNa
 			BasicConstraintsValid: true,
 			DNSNames:              dnsNames,
 			IPAddresses:           ipAddresses,
-			SignatureAlgorithm:    x509.SHA256WithRSA,
 		}
 
 		priv, err := rsa.GenerateKey(rand.Reader, 4096)
@@ -135,7 +134,8 @@ func loadCAFromSecret(ctx context.Context, c client.Client, secretName, secretNa
 		return nil, nil, nil, errors.New("failed to decode private key PEM from CA secret")
 	}
 
-	// Try PKCS8 first (handles RSA, ECDSA, Ed25519), then fall back to PKCS1 (RSA only).
+	// Try PKCS8 first (handles RSA, ECDSA, Ed25519), then PKCS1 (RSA only),
+	// then SEC 1 EC (e.g. OCP 4.22 service-ca).
 	var signer crypto.Signer
 	if key, err := x509.ParsePKCS8PrivateKey(keyBlock.Bytes); err == nil {
 		var ok bool
@@ -144,6 +144,8 @@ func loadCAFromSecret(ctx context.Context, c client.Client, secretName, secretNa
 			return nil, nil, nil, errors.New("CA private key does not implement crypto.Signer")
 		}
 	} else if key, err := x509.ParsePKCS1PrivateKey(keyBlock.Bytes); err == nil {
+		signer = key
+	} else if key, err := x509.ParseECPrivateKey(keyBlock.Bytes); err == nil {
 		signer = key
 	} else {
 		return nil, nil, nil, fmt.Errorf("failed to parse CA private key: %w", err)
