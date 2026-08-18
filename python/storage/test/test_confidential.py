@@ -31,7 +31,7 @@ class StubSecretResolver(SecretResolver):
     """A test resolver that returns a fixed key."""
 
     def __init__(self, key: bytes):
-        self._key = jwk.base64url_encode(key).encode("utf-8")
+        self._key = key
 
     def resolve_key(self, resource_id: str) -> bytes:
         return self._key
@@ -144,7 +144,8 @@ class TestJWEDecryptorRoundTrip:
         encrypted_file = tmp_path / "model.bin.jwe"
         encrypted_file.write_text(token)
 
-        resolver = StubSecretResolver(key_bytes)
+        kbs_key = jwk.base64url_encode(key_bytes).encode("utf-8")
+        resolver = StubSecretResolver(kbs_key)
         decryptor = JWEDecryptor(resolver, resource_id="kbs:///repo/type/tag")
         output = decryptor.decrypt_file(encrypted_file)
 
@@ -189,7 +190,7 @@ class TestJWEDecryptorRoundTrip:
 
         # Create a full JWK JSON object
         full_jwk = jwk.JWK(kty="oct", k=jwk.base64url_encode(key_bytes))
-        jwk_json = full_jwk.export()  # Returns JSON string
+        jwk_json = full_jwk.export().encode("utf-8")
 
         # Resolver returns the full JWK JSON as bytes
         resolver = StubSecretResolver(jwk_json)
@@ -218,7 +219,7 @@ class TestJWEDecryptorRoundTrip:
             "key_ops": ["encrypt", "decrypt"],
             "kty": "oct",
         }
-        jwk_json = json.dumps(jwk_dict)
+        jwk_json = json.dumps(jwk_dict).encode("utf-8")
 
         # Resolver returns the full JWK JSON as bytes
         resolver = StubSecretResolver(jwk_json)
