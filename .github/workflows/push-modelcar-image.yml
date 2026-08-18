@@ -9,6 +9,12 @@ env:
 
 jobs:
   build-and-push:
+    # Only run from master on the canonical repo, so a fork/side-branch cannot
+    # push with the org's Quay credentials. Note: this is a guardrail against
+    # accidental/casual misuse, not an airtight control (job content runs from
+    # the dispatched ref). Real protection requires environment-scoped secrets
+    # with a master-only deployment branch policy.
+    if: github.repository == 'opendatahub-io/kserve' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
     steps:
       - name: Download model
