@@ -80,6 +80,13 @@ const (
 
 	// CLI arg to enable SSL for transformer→predictor communication
 	ArgumentPredictorUseSSL = "--predictor_use_ssl"
+
+	// Transformer serving-cert volume/mount/env for native TLS (HTTPS on 8443)
+	TransformerTLSVolumeName = "transformer-tls"
+	TransformerTLSMountPath  = "/etc/tls/private"
+	TransformerTLSCertEnvVar = "KSERVE_TLS_CERT_FILE"
+	TransformerTLSKeyEnvVar  = "KSERVE_TLS_KEY_FILE"
+	TransformerHTTPSPort     = int32(8443)
 )
 
 type ResourceType string
