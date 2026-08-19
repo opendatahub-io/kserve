@@ -106,6 +106,35 @@ func TestMountTransformerTLSInfrastructure(t *testing.T) {
 			expectedHost:  "multi-isvc-predictor.test-ns.svc",
 		},
 		{
+			name: "missing kserve-container returns error",
+			componentMeta: metav1.ObjectMeta{
+				Name:      "no-container-transformer",
+				Namespace: "test-ns",
+				Labels: map[string]string{
+					constants.KServiceComponentLabel:      string(v1beta1.TransformerComponent),
+					constants.InferenceServicePodLabelKey: "my-isvc",
+				},
+				Annotations: map[string]string{
+					constants.ODHKserveRawAuth: "true",
+				},
+			},
+			deployment: &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name:  "some-other-container",
+									Image: "other:latest",
+								},
+							},
+						},
+					},
+				},
+			},
+			expectError: true,
+		},
+		{
 			name: "missing InferenceServicePodLabelKey returns error",
 			componentMeta: metav1.ObjectMeta{
 				Name:      "no-label-transformer",
@@ -146,18 +175,30 @@ func TestMountTransformerTLSInfrastructure(t *testing.T) {
 
 			podSpec := tt.deployment.Spec.Template.Spec
 
-			// Check volume
+			// Check CA bundle volume
 			if tt.expectVolume {
-				var volumeFound bool
+				var caVolumeFound bool
 				for _, v := range podSpec.Volumes {
 					if v.Name == constants.ServiceCaBundleVolumeName {
-						volumeFound = true
+						caVolumeFound = true
 						assert.NotNil(t, v.ConfigMap)
 						assert.Equal(t, constants.OpenShiftServiceCaConfigMapName, v.ConfigMap.Name)
 						break
 					}
 				}
-				assert.True(t, volumeFound, "expected openshift-service-ca-bundle volume")
+				assert.True(t, caVolumeFound, "expected openshift-service-ca-bundle volume")
+
+				// Check transformer serving-cert volume
+				var tlsVolumeFound bool
+				for _, v := range podSpec.Volumes {
+					if v.Name == constants.TransformerTLSVolumeName {
+						tlsVolumeFound = true
+						require.NotNil(t, v.Secret, "transformer-tls volume should be a Secret volume")
+						assert.Equal(t, tt.componentMeta.Name+constants.ServingCertSecretSuffix, v.Secret.SecretName)
+						break
+					}
+				}
+				assert.True(t, tlsVolumeFound, "expected transformer-tls volume")
 			}
 
 			// Check kserve-container has volume mount and env vars,
@@ -170,17 +211,29 @@ func TestMountTransformerTLSInfrastructure(t *testing.T) {
 
 				if container.Name == constants.InferenceServiceContainerName {
 					if tt.expectEnvVars {
-						// Volume mount
-						var mountFound bool
+						// CA bundle volume mount
+						var caMountFound bool
 						for _, vm := range container.VolumeMounts {
 							if vm.Name == constants.ServiceCaBundleVolumeName {
-								mountFound = true
+								caMountFound = true
 								assert.Equal(t, constants.ServiceCaBundleMountPath, vm.MountPath)
 								assert.True(t, vm.ReadOnly)
 								break
 							}
 						}
-						assert.True(t, mountFound, "expected CA bundle volume mount on kserve-container")
+						assert.True(t, caMountFound, "expected CA bundle volume mount on kserve-container")
+
+						// Serving-cert volume mount
+						var tlsMountFound bool
+						for _, vm := range container.VolumeMounts {
+							if vm.Name == constants.TransformerTLSVolumeName {
+								tlsMountFound = true
+								assert.Equal(t, constants.TransformerTLSMountPath, vm.MountPath)
+								assert.True(t, vm.ReadOnly)
+								break
+							}
+						}
+						assert.True(t, tlsMountFound, "expected transformer-tls volume mount on kserve-container")
 
 						// Env vars
 						envMap := make(map[string]string)
@@ -192,16 +245,33 @@ func TestMountTransformerTLSInfrastructure(t *testing.T) {
 						assert.Equal(t, tt.expectedHost, envMap[constants.PredictorHostEnvVar])
 						assert.Equal(t, "8443", envMap[constants.PredictorPortEnvVar])
 						assert.Equal(t, "https", envMap[constants.PredictorProtocolEnvVar])
+						assert.Equal(t, constants.TransformerTLSMountPath+"/tls.crt", envMap[constants.TransformerTLSCertEnvVar])
+						assert.Equal(t, constants.TransformerTLSMountPath+"/tls.key", envMap[constants.TransformerTLSKeyEnvVar])
 
 						// --predictor_use_ssl arg
 						assert.Contains(t, container.Args, constants.ArgumentPredictorUseSSL,
 							"expected --predictor_use_ssl arg on kserve-container")
+
+						// HTTPS container port
+						var httpsPortFound bool
+						for _, port := range container.Ports {
+							if port.ContainerPort == constants.TransformerHTTPSPort && port.Protocol == corev1.ProtocolTCP {
+								httpsPortFound = true
+								break
+							}
+						}
+						assert.True(t, httpsPortFound,
+							"expected HTTPS container port %d on kserve-container", constants.TransformerHTTPSPort)
 					}
 				} else {
-					// Other containers should NOT have the TLS env vars
+					// Other containers should NOT have the TLS env vars or ports
 					for _, env := range container.Env {
 						assert.NotEqual(t, constants.PredictorHostEnvVar, env.Name,
 							"container %q should not have %s env var", container.Name, constants.PredictorHostEnvVar)
+					}
+					for _, port := range container.Ports {
+						assert.NotEqual(t, constants.TransformerHTTPSPort, port.ContainerPort,
+							"container %q should not have HTTPS port %d", container.Name, constants.TransformerHTTPSPort)
 					}
 				}
 			}

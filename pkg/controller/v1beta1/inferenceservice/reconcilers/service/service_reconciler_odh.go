@@ -57,18 +57,48 @@ func customizeService(svc *corev1.Service, componentMeta metav1.ObjectMeta) {
 		return
 	}
 
-	// Transformer deployments do not carry the auth proxy sidecar — they communicate
-	// with the predictor's proxy over TLS instead — so skip the port override.
 	isTransformer := componentMeta.Labels[constants.KServiceComponentLabel] == string(v1beta1.TransformerComponent)
+	authEnabled := false
+	if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
+		authEnabled = true
+	}
 
-	// When auth proxy is enabled, replace the default HTTP port with the HTTPS proxy port.
-	if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") && !isTransformer {
+	// When auth proxy is enabled on the predictor, replace the default HTTP port
+	// with the HTTPS proxy port (kube-rbac-proxy sidecar).
+	if authEnabled && !isTransformer {
 		httpsPort := corev1.ServicePort{
 			Name: "https",
 			Port: constants.OauthProxyPort,
 			TargetPort: intstr.IntOrString{
 				Type:   intstr.String,
 				StrVal: "https",
+			},
+			Protocol: corev1.ProtocolTCP,
+		}
+		ports := svc.Spec.Ports
+		replaced := false
+		for i, port := range ports {
+			if port.Port == constants.CommonDefaultHttpPort {
+				ports[i] = httpsPort
+				replaced = true
+			}
+		}
+		if !replaced {
+			ports = append(ports, httpsPort)
+		}
+		svc.Spec.Ports = ports
+	}
+
+	// When auth is enabled on the transformer, replace the default HTTP port with
+	// the transformer's native HTTPS port (8443). This lets odh-model-controller's
+	// setRouteTargetPort() find the "https" port and configure reencrypt termination.
+	if authEnabled && isTransformer {
+		httpsPort := corev1.ServicePort{
+			Name: "https",
+			Port: constants.TransformerHTTPSPort,
+			TargetPort: intstr.IntOrString{
+				Type:   intstr.Int,
+				IntVal: constants.TransformerHTTPSPort,
 			},
 			Protocol: corev1.ProtocolTCP,
 		}
