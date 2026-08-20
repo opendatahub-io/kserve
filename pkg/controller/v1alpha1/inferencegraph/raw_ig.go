@@ -86,21 +86,21 @@ func createInferenceGraphPodSpec(graph *v1alpha1.InferenceGraph, config *RouterC
 				},
 				VolumeMounts: []corev1.VolumeMount{
 					{
-						Name:      "openshift-service-ca-bundle",
-						MountPath: "/etc/odh/openshift-service-ca-bundle",
+						Name:      constants.ServiceCaBundleVolumeName,
+						MountPath: constants.ServiceCaBundleMountPath,
 					},
 				},
 				Env: []corev1.EnvVar{
 					{
 						Name:  "SSL_CERT_FILE",
-						Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+						Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
 					},
 				},
 			},
 		},
 		Volumes: []corev1.Volume{
 			{
-				Name: "openshift-service-ca-bundle",
+				Name: constants.ServiceCaBundleVolumeName,
 				VolumeSource: corev1.VolumeSource{
 					ConfigMap: &corev1.ConfigMapVolumeSource{
 						LocalObjectReference: corev1.LocalObjectReference{
@@ -216,31 +216,20 @@ func handleInferenceGraphRawDeployment(ctx context.Context, cl client.Client, cl
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "fails to create NewRawKubeReconciler for inference graph")
 	}
-	// set Deployment Controller
-	if err := reconciler.Workload.SetControllerReferences(graph, scheme); err != nil {
-		return nil, reconciler.URL, errors.Wrapf(err, "fails to set deployment owner reference for inference graph")
-	}
-	// set Service Controller
+	// set OpenShift serving cert annotation on services before reconciling
 	for _, svc := range reconciler.Service.GetServiceList() {
 		svc.Annotations[constants.OpenshiftServingCertAnnotation] = graph.Name + constants.ServingCertSecretSuffix
 	}
-	if err := reconciler.Service.SetControllerReferences(graph, scheme); err != nil {
-		return nil, reconciler.URL, errors.Wrapf(err, "fails to set service owner reference for inference graph")
-	}
-
-	// set autoscaler Controller
-	if err := reconciler.Scaler.Autoscaler.SetControllerReferences(graph, scheme); err != nil {
-		return nil, reconciler.URL, errors.Wrapf(err, "fails to set autoscaler owner references for inference graph")
-	}
 
 	// reconcile
-	deployment, err := reconciler.Reconcile(ctx)
-	logger.Info("Result of inference graph raw reconcile", "deployment", deployment[0]) // only 1 deployment exist (default deployment)
-	logger.Info("Result of reconcile", "err", err)
-
+	deployment, err := reconciler.Reconcile(ctx, graph)
 	if err != nil {
-		return deployment[0], reconciler.URL, errors.Wrapf(err, "fails to reconcile inference graph raw")
+		return nil, reconciler.URL, errors.Wrapf(err, "fails to reconcile inference graph raw")
 	}
+	if len(deployment) == 0 {
+		return nil, reconciler.URL, errors.New("no deployment returned from inference graph raw reconcile")
+	}
+	logger.Info("Result of inference graph raw reconcile", "deployment", deployment[0]) // only 1 deployment exist (default deployment)
 
 	return deployment[0], reconciler.URL, nil
 }

@@ -1,6 +1,5 @@
 package kservemodule
 
-
 var kserveImageParamMap = map[string]string{
 	"kserve-controller":                                "RELATED_IMAGE_ODH_KSERVE_CONTROLLER_IMAGE",
 	"llmisvc-controller":                               "RELATED_IMAGE_ODH_KSERVE_LLMISVC_CONTROLLER_IMAGE",
@@ -34,6 +33,7 @@ var kserveImageParamMap = map[string]string{
 	"kserve-llm-d-ibm-spyre-fast-2-upstream-version":   "RELATED_IMAGE_RHAII_VLLM_SPYRE_FAST_2_IMAGE_UPSTREAM_VERSION",
 	"kserve-llm-d-inference-scheduler":                 "RELATED_IMAGE_ODH_LLM_D_ROUTER_ENDPOINT_PICKER_IMAGE",
 	"kserve-llm-d-routing-sidecar":                     "RELATED_IMAGE_ODH_LLM_D_ROUTER_DISAGG_SIDECAR_IMAGE",
+	"kserve-llm-d-tokenizer":                           "RELATED_IMAGE_RHAII_VLLM_CPU_IMAGE",
 	"kube-rbac-proxy":                                  "RELATED_IMAGE_ODH_KUBE_RBAC_PROXY_IMAGE",
 	"kserve-localmodel-controller":                     "RELATED_IMAGE_ODH_KSERVE_LOCALMODEL_CONTROLLER_IMAGE",
 	"kserve-localmodelnode-agent":                      "RELATED_IMAGE_ODH_KSERVE_LOCALMODELNODE_AGENT_IMAGE",
@@ -90,6 +90,7 @@ var modelControllerImageParamMap = map[string]string{
 	"vllm-omni-cuda-image-fast-1-upstream-version":  "RELATED_IMAGE_RHAII_VLLM_OMNI_CUDA_FAST_1_IMAGE_UPSTREAM_VERSION",
 	"vllm-omni-cuda-image-fast-2-upstream-version":  "RELATED_IMAGE_RHAII_VLLM_OMNI_CUDA_FAST_2_IMAGE_UPSTREAM_VERSION",
 	"guardrails-detector-huggingface-runtime-image": "RELATED_IMAGE_ODH_GUARDRAILS_DETECTOR_HUGGINGFACE_RUNTIME_IMAGE",
+	"autogluon-image":                               "RELATED_IMAGE_ODH_KSERVE_AUTOGLUON_SERVER_IMAGE",
 }
 
 var wvaImageParamMap = map[string]string{

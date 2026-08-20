@@ -24,6 +24,8 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 	var kserve *platformv1alpha1.Kserve
 
 	BeforeAll(func(ctx SpecContext) {
+		// Mock: status-only context, deployer output is irrelevant. Set before Create;
+		// Ordered keeps it for all specs.
 		testEnv.Reconciler.Deployer = &fixture.MockDeployer{}
 		testEnv.Reconciler.SetClusterType(cluster.ClusterTypeOpenShift)
 
