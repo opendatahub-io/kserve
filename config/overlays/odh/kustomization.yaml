@@ -63,6 +63,10 @@ patches:
 - target:
     kind: Deployment
     name: llmisvc-controller-manager
+  path: patches/disable-well-known-config-deletion-guard.yaml
+- target:
+    kind: Deployment
+    name: llmisvc-controller-manager
   path: patches/remove-kserve-controller-runas.yaml
 - target:
     kind: ClusterStorageContainer

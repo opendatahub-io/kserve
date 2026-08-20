@@ -141,10 +141,32 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	if !kserve.DeletionTimestamp.IsZero() {
+		if !controllerutil.ContainsFinalizer(kserve, ModuleFinalizerName) {
+			return ctrl.Result{}, nil
+		}
+
+		// Check whether config deletion is blocked before running any destructive
+		// cleanup, so a blocked deletion does not tear down still-running operands.
+		outcome, err := r.cleanupLLMISVCConfigsOnDelete(ctx)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("cleaning up LLMInferenceServiceConfigs: %w", err)
+		}
+		if !outcome.done {
+			if err := r.setDeletionBlocked(ctx, kserve, outcome.blockers); err != nil {
+				return ctrl.Result{}, err
+			}
+			log.Info("Kserve CR deletion blocked", "blockers", outcome.blockers)
+			return ctrl.Result{RequeueAfter: deletionRequeueInterval}, nil
+		}
+
 		if cleanupErr := r.cleanupOnDelete(ctx); cleanupErr != nil {
 			log.Error(cleanupErr, "component extra-cleanup failed during CR deletion")
+			if statusErr := r.setDeletionBlocked(ctx, kserve, []string{"component cleanup failed: " + cleanupErr.Error()}); statusErr != nil {
+				log.Error(statusErr, "failed to record component cleanup failure on status")
+			}
 			return ctrl.Result{}, cleanupErr
 		}
+
 		if controllerutil.RemoveFinalizer(kserve, ModuleFinalizerName) {
 			if err := r.Update(ctx, kserve); err != nil {
 				return ctrl.Result{}, fmt.Errorf("removing module finalizer: %w", err)

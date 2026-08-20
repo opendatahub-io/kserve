@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llmisvc-controller-manager
+  namespace: kserve
+spec:
+  template:
+    spec:
+      containers:
+      - name: manager
+        env:
+        - name: PREVENT_WELL_KNOWN_CONFIG_DELETION
+          value: "false"

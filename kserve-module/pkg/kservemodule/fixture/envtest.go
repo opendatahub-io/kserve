@@ -64,6 +64,10 @@ func SetupTestEnv(ctx context.Context) *TestEnv {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	CreateCRD(ctx, cli, "operators.coreos.com", "v1alpha1", "Subscription", apiextensionsv1.NamespaceScoped)
+	// The llmisvc CRD is not in the module's config/crd, but production always has
+	// it (installed by the module, never GC'd). Create it so cleanup-on-delete can
+	// list configs in every spec, matching production.
+	CreateCRD(ctx, cli, "serving.kserve.io", "v1alpha2", "LLMInferenceServiceConfig", apiextensionsv1.NamespaceScoped)
 
 	workDir := ginkgo.GinkgoT().TempDir()
 	WriteMinimalManifests(workDir)

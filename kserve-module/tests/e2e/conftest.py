@@ -1,5 +1,6 @@
 """Shared fixtures for kserve-module E2E tests."""
 
+import json
 import shutil
 import subprocess
 import time
@@ -15,6 +16,7 @@ import yaml
 KSERVE_CR_NAME = "default-kserve"
 NAMESPACE = "opendatahub"
 OPERATOR_DEPLOYMENT = "kserve-module-controller-manager"
+MODULE_FINALIZER = "kserve-module.opendatahub.io/finalizer"
 TIMEOUT_300S = 300  # cold-start: first Kserve CR ready waits on operand image pulls
 TIMEOUT_120S = 120
 TIMEOUT_60S = 60
@@ -327,9 +329,32 @@ def wait_for_kserve_cleanup(
                 "--for=delete",
                 f"kserve/{name}",
                 f"--timeout={timeout}s",
-            ]
+            ],
+            timeout=timeout + 10,
         )
     _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S)
+
+
+def force_delete_kserve_cr(kubectl_bin, is_openshift=False):
+    """Fast teardown: drop the module finalizer so the CR is deleted without
+    running the (correct but slow) well-known-config cleanup. The cleanup path
+    itself is exercised by the dedicated deletion tests, so every other test's
+    teardown does not need to pay for it."""
+    if cr_exists(kubectl_bin):
+        run(
+            [kubectl_bin, "delete", "kserve", KSERVE_CR_NAME, "--ignore-not-found", "--wait=false"],
+            check=False,
+        )
+        cr = get_cr(kubectl_bin, check=False) or {}
+        finalizers = cr.get("metadata", {}).get("finalizers", []) or []
+        if MODULE_FINALIZER in finalizers:
+            remaining = [f for f in finalizers if f != MODULE_FINALIZER]
+            patch = json.dumps([{"op": "replace", "path": "/metadata/finalizers", "value": remaining}])
+            run(
+                [kubectl_bin, "patch", "kserve", KSERVE_CR_NAME, "--type=json", "-p", patch],
+                check=False,
+            )
+    wait_for_kserve_cleanup(kubectl_bin, is_openshift=is_openshift)
 
 
 def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120S):
@@ -403,11 +428,7 @@ def apply_kserve_cr(kubectl, cluster_info):
     cr = create_kserve_cr(kubectl)
     yield cr
     if created:
-        run(
-            [kubectl, "delete", "kserve", KSERVE_CR_NAME, "--ignore-not-found"],
-            check=False,
-        )
-        wait_for_kserve_cleanup(kubectl, is_openshift=cluster_info.is_openshift)
+        force_delete_kserve_cr(kubectl, is_openshift=cluster_info.is_openshift)
 
 
 @pytest.fixture
