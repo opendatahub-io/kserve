@@ -69,9 +69,9 @@ func WithModelRegistryManagementState(state common.ManagementState) KserveOption
 	}
 }
 
-func WithEnableAuditLogging(val *bool) KserveOption {
+func WithAuditLogging(state common.ManagementState) KserveOption {
 	return func(k *platformv1alpha1.Kserve) {
-		k.Spec.EnableAuditLogging = val
+		k.Spec.AuditLogging = state
 	}
 }
 

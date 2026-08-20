@@ -14,6 +14,7 @@ import (
 
 	. "github.com/onsi/gomega"
 
+	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
@@ -142,38 +143,12 @@ func TestCustomizeKserveConfigMap_EnableTLS_NilPreservesExisting(t *testing.T) {
 	g.Expect(resultCM.Data[ingressConfigKeyName]).Should(ContainSubstring(`"enableLLMInferenceServiceTLS": true`))
 }
 
-func TestCustomizeKserveConfigMap_EnableAuditLogging_Nil(t *testing.T) {
+func TestCustomizeKserveConfigMap_AuditLogging_DefaultRemoved(t *testing.T) {
 	g := NewWithT(t)
 
 	resources := buildTestResourcesWithOpenshiftConfig(t)
 
-	result, err := customizeKserveConfigMap(resources, buildTestKserveWithAudit(platformv1alpha1.KserveRawHeadless, nil, nil, nil))
-	g.Expect(err).ShouldNot(HaveOccurred())
-
-	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
-	g.Expect(err).ShouldNot(HaveOccurred())
-	g.Expect(cm.Data[openshiftConfigKeyName]).ShouldNot(ContainSubstring("enableAuditLogging"))
-}
-
-func TestCustomizeKserveConfigMap_EnableAuditLogging_True(t *testing.T) {
-	g := NewWithT(t)
-
-	resources := buildTestResourcesWithOpenshiftConfig(t)
-
-	result, err := customizeKserveConfigMap(resources, buildTestKserveWithAudit(platformv1alpha1.KserveRawHeadless, nil, nil, ptr.To(true)))
-	g.Expect(err).ShouldNot(HaveOccurred())
-
-	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
-	g.Expect(err).ShouldNot(HaveOccurred())
-	g.Expect(cm.Data[openshiftConfigKeyName]).Should(ContainSubstring(`"enableAuditLogging": true`))
-}
-
-func TestCustomizeKserveConfigMap_EnableAuditLogging_False(t *testing.T) {
-	g := NewWithT(t)
-
-	resources := buildTestResourcesWithOpenshiftConfig(t)
-
-	result, err := customizeKserveConfigMap(resources, buildTestKserveWithAudit(platformv1alpha1.KserveRawHeadless, nil, nil, ptr.To(false)))
+	result, err := customizeKserveConfigMap(resources, buildTestKserveWithAudit(platformv1alpha1.KserveRawHeadless, nil, nil, ""))
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
@@ -181,7 +156,33 @@ func TestCustomizeKserveConfigMap_EnableAuditLogging_False(t *testing.T) {
 	g.Expect(cm.Data[openshiftConfigKeyName]).Should(ContainSubstring(`"enableAuditLogging": false`))
 }
 
-func TestCustomizeKserveConfigMap_EnableAuditLogging_NilPreservesExisting(t *testing.T) {
+func TestCustomizeKserveConfigMap_AuditLogging_Managed(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := buildTestResourcesWithOpenshiftConfig(t)
+
+	result, err := customizeKserveConfigMap(resources, buildTestKserveWithAudit(platformv1alpha1.KserveRawHeadless, nil, nil, common.Managed))
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(cm.Data[openshiftConfigKeyName]).Should(ContainSubstring(`"enableAuditLogging": true`))
+}
+
+func TestCustomizeKserveConfigMap_AuditLogging_Removed(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := buildTestResourcesWithOpenshiftConfig(t)
+
+	result, err := customizeKserveConfigMap(resources, buildTestKserveWithAudit(platformv1alpha1.KserveRawHeadless, nil, nil, common.Removed))
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(cm.Data[openshiftConfigKeyName]).Should(ContainSubstring(`"enableAuditLogging": false`))
+}
+
+func TestCustomizeKserveConfigMap_AuditLogging_RemovedOverwritesExisting(t *testing.T) {
 	g := NewWithT(t)
 
 	cm := &corev1.ConfigMap{
@@ -210,12 +211,12 @@ func TestCustomizeKserveConfigMap_EnableAuditLogging_NilPreservesExisting(t *tes
 
 	resources := []unstructured.Unstructured{{Object: cmU}, {Object: deployU}}
 
-	result, err := customizeKserveConfigMap(resources, buildTestKserveWithAudit(platformv1alpha1.KserveRawHeadless, nil, nil, nil))
+	result, err := customizeKserveConfigMap(resources, buildTestKserveWithAudit(platformv1alpha1.KserveRawHeadless, nil, nil, common.Removed))
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, resultCM, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
 	g.Expect(err).ShouldNot(HaveOccurred())
-	g.Expect(resultCM.Data[openshiftConfigKeyName]).Should(ContainSubstring(`"enableAuditLogging": true`))
+	g.Expect(resultCM.Data[openshiftConfigKeyName]).Should(ContainSubstring(`"enableAuditLogging": false`))
 }
 
 func buildTestResourcesWithOpenshiftConfig(t *testing.T) []unstructured.Unstructured {
@@ -439,16 +440,16 @@ func buildTestResourcesWithOAuthProxy(t *testing.T) []unstructured.Unstructured 
 }
 
 func buildTestKserve(rawSvc platformv1alpha1.RawServiceConfig, enableTLS *bool, oauthProxy *platformv1alpha1.OAuthProxyConfig) *platformv1alpha1.Kserve {
-	return buildTestKserveWithAudit(rawSvc, enableTLS, oauthProxy, nil)
+	return buildTestKserveWithAudit(rawSvc, enableTLS, oauthProxy, "")
 }
 
-func buildTestKserveWithAudit(rawSvc platformv1alpha1.RawServiceConfig, enableTLS *bool, oauthProxy *platformv1alpha1.OAuthProxyConfig, enableAudit *bool) *platformv1alpha1.Kserve {
+func buildTestKserveWithAudit(rawSvc platformv1alpha1.RawServiceConfig, enableTLS *bool, oauthProxy *platformv1alpha1.OAuthProxyConfig, auditLogging common.ManagementState) *platformv1alpha1.Kserve {
 	return &platformv1alpha1.Kserve{
 		Spec: platformv1alpha1.KserveSpec{
-			RawDeploymentServiceConfig:  rawSvc,
+			RawDeploymentServiceConfig:   rawSvc,
 			EnableLLMInferenceServiceTLS: enableTLS,
-			OAuthProxy:                  oauthProxy,
-			EnableAuditLogging:          enableAudit,
+			OAuthProxy:                   oauthProxy,
+			AuditLogging:                 auditLogging,
 		},
 	}
 }
