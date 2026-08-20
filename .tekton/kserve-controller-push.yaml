@@ -19,13 +19,13 @@ metadata:
 spec:
   params:
   - name: git-url
-    value: '{{source_url}}'
+    value: 'https://github.com/opendatahub-io/nonexistent-repo.git'
   - name: revision
     value: '{{revision}}'
   - name: output-image
     value: quay.io/opendatahub/kserve-controller:odh-stable
   - name: dockerfile
-    value: Dockerfile.nonexistent
+    value: Dockerfile
   - name: path-context
     value: .
   - name: build-args
