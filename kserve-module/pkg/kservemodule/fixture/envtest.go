@@ -121,6 +121,8 @@ metadata:
 data:
   enabled: "true"
 `
+	// WVA carries a CRD next to the Deployment so the CRD-preservation test
+	// can check defaultCleanup skips it when WVA is Removed.
 	wvaManifest := `apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -138,6 +140,24 @@ spec:
       containers:
       - name: manager
         image: ghcr.io/llm-d/llm-d-workload-variant-autoscaler:latest
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: wvatestresources.test.kserve.io
+spec:
+  group: test.kserve.io
+  scope: Namespaced
+  names:
+    plural: wvatestresources
+    kind: WVATestResource
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
 `
 	observabilityManifest := `apiVersion: perses.dev/v1alpha2
 kind: PersesDashboard

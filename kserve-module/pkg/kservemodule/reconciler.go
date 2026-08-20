@@ -126,6 +126,10 @@ type KserveModuleReconciler struct {
 	cache          cache.Cache
 	dynamicWatches []*dynamicWatch
 	dynamicWatchMu sync.Mutex
+
+	// expectedPresets holds the preset names from the most recent render, written
+	// by reconcile and read by updateComponentReadiness later in the same call.
+	expectedPresets []string
 }
 
 func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
@@ -244,6 +248,8 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 	if len(componentErrors) > 0 {
 		return componentErrors
 	}
+
+	r.expectedPresets = wellKnownPresetNames(allResources)
 
 	owned, unowned := splitByOwnership(allResources)
 	if err := r.Deployer.Deploy(ctx, deploy.DeployInput{
@@ -439,8 +445,10 @@ func (r *KserveModuleReconciler) getVersionPrefix(ctx context.Context, kserve *p
 	if v := r.getPlatformVersion(ctx); v != "" {
 		return "v" + strings.ReplaceAll(v, ".", "-")
 	}
-	if ann := kserve.GetAnnotations(); ann != nil {
-		if v := ann["platform.opendatahub.io/version"]; v != "" {
+	// kserve is nil when defaultCleanup renders; the ConfigMap above still gives
+	// the prefix, which cleanup needs to match the deployed preset names.
+	if kserve != nil {
+		if v := kserve.GetAnnotations()["platform.opendatahub.io/version"]; v != "" {
 			return "v" + strings.ReplaceAll(v, ".", "-")
 		}
 	}

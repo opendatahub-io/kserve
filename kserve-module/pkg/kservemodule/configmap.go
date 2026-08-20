@@ -26,6 +26,12 @@ var (
 )
 
 func customizeKserveConfigMap(resources []unstructured.Unstructured, kserve *platformv1alpha1.Kserve) ([]unstructured.Unstructured, error) {
+	// defaultCleanup renders with a nil CR because it only needs names and kinds
+	// to delete by. There is no spec to read from, and nothing to customize.
+	if kserve == nil {
+		return resources, nil
+	}
+
 	cmIdx, cm, err := getIndexedResource[corev1.ConfigMap](resources, configMapGVK, kserveConfigMapName)
 	if err != nil {
 		if errors.Is(err, errResourceNotFound) {

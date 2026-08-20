@@ -9,9 +9,19 @@ impossible to simulate in E2E.
 import pytest
 
 from conftest import (
+    MODEL_CONTROLLER_DEPLOYMENT,
     get_cr,
     get_conditions,
+    operand_deployments,
 )
+
+
+def _release_version(releases, name):
+    """Return the version of the release entry named `name`, or None if absent."""
+    for r in releases:
+        if r.get("name") == name:
+            return r.get("version")
+    return None
 
 
 @pytest.mark.sanity
@@ -48,3 +58,25 @@ class TestStatusConditions:
 
         platform = next(r for r in releases if r["name"] == "platform")
         assert platform["version"] != "", "platform version should not be empty"
+
+    def test_releases_include_component_versions(
+        self, kubectl, cluster_info, apply_kserve_cr
+    ):
+        """Real component_metadata lands on the CR (envtest only sees the fallback).
+
+        Asserts KServe (always) and, where omc is deployed, one runtime it contributes
+        (MLServer) as proof its metadata was loaded.
+        """
+        cr = get_cr(kubectl)
+        releases = cr.get("status", {}).get("releases", [])
+        names = [r.get("name") for r in releases]
+
+        kserve_version = _release_version(releases, "KServe")
+        assert kserve_version is not None, f"expected 'KServe' in releases, got {names}"
+        assert kserve_version != "", "KServe version should not be empty"
+
+        # Gate on omc being deployed, not on OpenShift — omc runs on XKS too (PR #1798).
+        if MODEL_CONTROLLER_DEPLOYMENT in operand_deployments(cluster_info.is_openshift):
+            mlserver_version = _release_version(releases, "MLServer")
+            assert mlserver_version is not None, f"expected 'MLServer' in releases, got {names}"
+            assert mlserver_version != "", "MLServer version should not be empty"
