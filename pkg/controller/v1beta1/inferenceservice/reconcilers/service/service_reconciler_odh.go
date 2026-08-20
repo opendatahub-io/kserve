@@ -25,6 +25,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
+	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 )
 
@@ -56,8 +57,12 @@ func customizeService(svc *corev1.Service, componentMeta metav1.ObjectMeta) {
 		return
 	}
 
+	// Transformer deployments do not carry the auth proxy sidecar — they communicate
+	// with the predictor's proxy over TLS instead — so skip the port override.
+	isTransformer := componentMeta.Labels[constants.KServiceComponentLabel] == string(v1beta1.TransformerComponent)
+
 	// When auth proxy is enabled, replace the default HTTP port with the HTTPS proxy port.
-	if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
+	if val, ok := componentMeta.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") && !isTransformer {
 		httpsPort := corev1.ServicePort{
 			Name: "https",
 			Port: constants.OauthProxyPort,

@@ -1,0 +1,45 @@
+# Fallback ServingRuntime for when the mlserver-runtime-template
+# OpenShift Template is not available on the cluster.
+# If the template exists, it will be used instead of this file.
+apiVersion: serving.kserve.io/v1alpha1
+kind: ServingRuntime
+metadata:
+  name: mlserver-runtime
+  annotations:
+    opendatahub.io/runtime-version: 1.7.1
+    openshift.io/display-name: MLServer ServingRuntime for KServe
+  labels:
+    opendatahub.io/dashboard: "true"
+spec:
+  annotations:
+    opendatahub.io/kserve-runtime: mlserver
+    prometheus.io/path: /metrics
+    prometheus.io/port: "8082"
+  containers:
+    - env:
+        - name: MLSERVER_MODEL_IMPLEMENTATION
+          value: "{{.Labels.modelClass}}"
+        - name: MLSERVER_HTTP_PORT
+          value: "8080"
+        - name: MLSERVER_MODELS_DIR
+          value: /mnt/models
+      image: quay.io/opendatahub/mlserver:fast
+      name: kserve-container
+      ports:
+        - containerPort: 8080
+          protocol: TCP
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+  multiModel: false
+  protocolVersions:
+    - v2
+    - grpc-v2
+  supportedModelFormats:
+    - autoSelect: true
+      name: sklearn
+      version: "1"

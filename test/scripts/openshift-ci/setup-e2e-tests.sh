@@ -36,9 +36,10 @@ trap print_e2e_environment_summary EXIT
 : "${BUILD_KSERVE_IMAGES:=true}"
 : "${BUILD_GRAPH_IMAGES:=true}"
 
+export IMAGE_TRANSFORMER_IMG_TAG="${IMAGE_TRANSFORMER_IMG_TAG:-kserve/image-transformer:latest}"
+
 if [[ "$RUNNING_LOCAL" == "true" ]]; then
   export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
-  export IMAGE_TRANSFORMER_IMG_TAG=kserve/image-transformer:latest
   export GITHUB_SHA=master
 
   if [[ "$BUILD_KSERVE_IMAGES" == "true" ]]; then
@@ -61,7 +62,16 @@ fi
 case "${OPERATOR_TYPE}" in
   rhods|rhoai)       export KSERVE_NAMESPACE="redhat-ods-applications"; export SEAWEEDFS_BUNDLED=false ;;
   odh|opendatahub)   export KSERVE_NAMESPACE="opendatahub";             export SEAWEEDFS_BUNDLED=false ;;
-  "")                export KSERVE_NAMESPACE="kserve";                   export SEAWEEDFS_BUNDLED=true ;;
+  "")
+    export KSERVE_NAMESPACE="kserve"
+    # manual kustomize (odh-test overlay) bundles SeaweedFS; kserve-module only
+    # deploys kserve-module/config and needs SeaweedFS deployed separately.
+    if [[ -n "${KSERVE_MODULE_CONTROLLER_IMAGE:-}" ]]; then
+      export SEAWEEDFS_BUNDLED=false
+    else
+      export SEAWEEDFS_BUNDLED=true
+    fi
+    ;;
   *)                 echo "Error: Unknown OPERATOR_TYPE '${OPERATOR_TYPE}'"; exit 1 ;;
 esac
 
@@ -76,9 +86,12 @@ echo "Using namespace: $KSERVE_NAMESPACE for KServe components"
 
 : "${OPT_125M_MODEL_URI:=s3://example-models/facebook/opt-125m}"
 export OPT_125M_MODEL_URI
+: "${OPT_125M_OCI_MODEL_URI:=oci://quay.io/opendatahub/opt-125m-modelcar:latest}"
+export OPT_125M_OCI_MODEL_URI
 
 echo "SKLEARN_IMAGE=$SKLEARN_IMAGE"
 echo "OPT_125M_MODEL_URI=$OPT_125M_MODEL_URI"
+echo "OPT_125M_OCI_MODEL_URI=$OPT_125M_OCI_MODEL_URI"
 echo "ERROR_404_ISVC_IMAGE=$ERROR_404_ISVC_IMAGE"
 echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
 
