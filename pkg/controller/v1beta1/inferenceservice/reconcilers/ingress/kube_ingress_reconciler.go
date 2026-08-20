@@ -145,9 +145,12 @@ func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Infe
 		return ctrl.Result{}, err
 	}
 
-	if authEnabled {
-		// When auth is enabled, the OAuth proxy port takes precedence over any
+	if authEnabled && isvc.Spec.Transformer == nil {
+		// When auth is enabled and the entry point is the predictor (which carries
+		// the auth proxy sidecar), the OAuth proxy port takes precedence over any
 		// port set by createAddress (e.g. :8080 for headless services).
+		// Transformer entry points are excluded because the transformer does not
+		// carry the auth proxy — it communicates with the predictor over TLS instead.
 		host := getRawServiceHost(isvc)
 		isvc.Status.Address.URL.Host = host + ":" + strconv.Itoa(constants.OauthProxyPort)
 		isvc.Status.Address.URL.Scheme = "https"
@@ -189,7 +192,7 @@ func createRawURLODH(ctx context.Context, client client.Client, isvc *v1beta1.In
 			Scheme: "http",
 			Path:   "",
 		}
-		if authEnabled {
+		if authEnabled && isvc.Spec.Transformer == nil {
 			url.Host += ":" + strconv.Itoa(constants.OauthProxyPort)
 			url.Scheme = "https"
 		}
@@ -214,7 +217,14 @@ func createAddress(ctx context.Context, cl client.Client, isvc *v1beta1.Inferenc
 		return nil, fmt.Errorf("failed to get entry point service %s: %w", entryPointSvcName, err)
 	}
 	if entryPointSvc.Spec.ClusterIP == corev1.ClusterIPNone {
-		host = host + ":" + constants.InferenceServiceDefaultHttpPort
+		port := constants.InferenceServiceDefaultHttpPort
+		if p := httpTargetPort(entryPointSvc); p != "" {
+			port = p
+		} else {
+			log.Info("No HTTP target port found on service, defaulting to InferenceServiceDefaultHttpPort",
+				"defaultPort", constants.InferenceServiceDefaultHttpPort, "service", entryPointSvc.Name)
+		}
+		host = host + ":" + port
 	}
 	return &duckv1.Addressable{
 		URL: &apis.URL{
@@ -223,6 +233,25 @@ func createAddress(ctx context.Context, cl client.Client, isvc *v1beta1.Inferenc
 			Path:   "",
 		},
 	}, nil
+}
+
+// httpTargetPort returns the target port (as a string) of the first non-gRPC
+// port on the Service, which is the port the container actually listens on.
+// For headless Services the address must use this port directly because there
+// is no ClusterIP to perform port remapping.
+func httpTargetPort(svc *corev1.Service) string {
+	for _, p := range svc.Spec.Ports {
+		if isGrpcPortByName(p.Name) {
+			continue
+		}
+		if p.AppProtocol != nil && *p.AppProtocol == "kubernetes.io/h2c" {
+			continue
+		}
+		if p.TargetPort.IntValue() > 0 {
+			return strconv.Itoa(p.TargetPort.IntValue())
+		}
+	}
+	return ""
 }
 
 func generateRule(ingressHost string, componentName string, path string, port int32) netv1.IngressRule { //nolint:unparam

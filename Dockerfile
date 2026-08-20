@@ -1,6 +1,7 @@
 # Build the manager binary
 FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS deps
-# distro: UBI go-toolset does not add GOPATH/bin to PATH
+# distro: UBI go-toolset runs as non-root (1001); switch to root for build
+USER 0
 ENV PATH="$PATH:/opt/app-root/src/go/bin"
 
 WORKDIR /go/src/github.com/kserve/kserve
