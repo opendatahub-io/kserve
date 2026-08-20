@@ -89,3 +89,4 @@ test/scripts/openshift-ci/tls/certs
 # bkit
 .bkit/
 
+.worktrees/
