@@ -20,6 +20,16 @@ func (m *MockDeployer) Deploy(_ context.Context, input deploy.DeployInput) error
 	return m.DeployError
 }
 
+// CallCount reports how many times Deploy has run. Tests that assert an event
+// reached the reconciler poll this, so it has to take the lock the same way
+// Deploy does.
+func (m *MockDeployer) CallCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return len(m.Calls)
+}
+
 func (m *MockDeployer) LastCall() *deploy.DeployInput {
 	m.mu.Lock()
 	defer m.mu.Unlock()

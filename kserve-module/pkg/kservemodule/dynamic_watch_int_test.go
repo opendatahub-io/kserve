@@ -11,6 +11,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
@@ -186,5 +187,114 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 			}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
 		})
 	})
-})
 
+	// TestPresetWatchFilter covers what the predicate accepts, driving the
+	// filter the controller uses. This spec covers the wiring around it: that
+	// the dynamic watch registers for the preset GVK and that its events reach
+	// the reconciler.
+	//
+	// This context uses the mock deployer, so nothing applies resources and a
+	// restored preset is not observable here; a reconcile having run is the
+	// signal. The fixture pushes periodic requeues out to ten minutes so that
+	// signal is unambiguous rather than a race against the clock.
+	Context("LLMInferenceServiceConfig preset watch", Ordered, func() {
+		var presetCRD *apiextensionsv1.CustomResourceDefinition
+		var deployer *fixture.MockDeployer
+
+		presetGVK := schema.GroupVersionKind{
+			Group: "serving.kserve.io", Version: "v1alpha2", Kind: "LLMInferenceServiceConfig",
+		}
+		const wellKnownAnnotation = "serving.kserve.io/well-known-config"
+
+		// The fixture pushes periodic requeues out to ten minutes, so a reconcile
+		// arriving in this window came from the watch. The window is generous
+		// because it no longer races anything - it only bounds how long a loaded
+		// runner is given.
+		const eventDrivenReconcileWindow = 60 * time.Second
+
+		shippedPreset := func() *unstructured.Unstructured {
+			preset := &unstructured.Unstructured{}
+			preset.SetGroupVersionKind(presetGVK)
+			preset.SetName("v1-2-3-kserve-config-llm-decode")
+			preset.SetNamespace("opendatahub")
+			preset.SetAnnotations(map[string]string{wellKnownAnnotation: "true"})
+
+			return preset
+		}
+
+		BeforeAll(func(ctx SpecContext) {
+			var ok bool
+			deployer, ok = testEnv.Reconciler.Deployer.(*fixture.MockDeployer)
+			Expect(ok).To(BeTrue(), "this context counts Deploy calls to detect reconciles")
+
+			// Dependencies the Subscription context deletes in its AfterAll. A
+			// critical failure returns before the deployer runs, which would
+			// leave nothing to count.
+			for _, name := range []string{"rhcl-operator", "openshift-cert-manager-operator"} {
+				fixture.CreateSubscription(ctx, testEnv.Client, name, "openshift-operators")
+			}
+
+			presetCRD = fixture.CreateCRD(ctx, testEnv.Client,
+				presetGVK.Group, presetGVK.Version, presetGVK.Kind, apiextensionsv1.NamespaceScoped)
+
+			triggerReconcile(ctx, kserve, "dw-preset-crd-created")
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
+				g.Expect(kserve.Status.ObservedGeneration).To(Equal(kserve.Generation))
+			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
+
+			// Wait for registerDynamicWatches to claim the GVK.
+			Eventually(func(g Gomega) {
+				list := &unstructured.UnstructuredList{}
+				list.SetGroupVersionKind(presetGVK)
+				g.Expect(testEnv.Reconciler.Client.List(ctx, list)).To(Succeed())
+			}).WithContext(ctx).WithTimeout(30 * time.Second).Should(Succeed())
+		})
+
+		AfterAll(func(ctx SpecContext) {
+			if presetCRD != nil {
+				client.IgnoreNotFound(testEnv.Client.Delete(ctx, presetCRD))
+			}
+		})
+
+		It("reconciles when a preset loses the annotation that marks it as ours", func(ctx SpecContext) {
+			preset := shippedPreset()
+
+			// Sampled before the create, not after: the reconcile it triggers can
+			// land first, and a baseline taken afterwards would already include it.
+			// The wait would then be for a second reconcile that never comes, since
+			// periodic requeues are ten minutes out.
+			start := deployer.CallCount()
+
+			Expect(testEnv.Client.Create(ctx, preset)).To(Succeed())
+			DeferCleanup(func(ctx SpecContext) {
+				client.IgnoreNotFound(testEnv.Client.Delete(ctx, shippedPreset()))
+			})
+
+			// Wait for the create to be picked up before editing, so the count
+			// below moves for the update rather than for work already queued.
+			Eventually(deployer.CallCount).
+				WithContext(ctx).WithTimeout(60*time.Second).WithPolling(100*time.Millisecond).
+				Should(BeNumerically(">", start), "reconciles must reach the deployer for this spec to mean anything")
+			mark := deployer.CallCount()
+
+			// Stripping the annotation must not change whether the event is
+			// delivered: the filter is scoped by namespace, which the edit
+			// leaves alone.
+			Expect(retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				live := &unstructured.Unstructured{}
+				live.SetGroupVersionKind(presetGVK)
+				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(preset), live); err != nil {
+					return err
+				}
+				live.SetAnnotations(nil)
+
+				return testEnv.Client.Update(ctx, live)
+			})).To(Succeed())
+
+			Eventually(deployer.CallCount).
+				WithContext(ctx).WithTimeout(eventDrivenReconcileWindow).WithPolling(100*time.Millisecond).
+				Should(BeNumerically(">", mark), "the update should have enqueued a reconcile; periodic requeues are ten minutes out")
+		})
+	})
+})

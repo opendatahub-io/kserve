@@ -116,11 +116,18 @@ type KserveModuleReconciler struct {
 	Scheme                *runtime.Scheme
 	ManifestsTemplatePath string
 	Deployer              ResourceDeployer
-	workDir               string
-	initDone              bool
-	applicationsNamespace string
-	monitoringNamespace   string
-	clusterType           *cluster.ClusterType
+
+	// RequeueInterval is how long to wait before reconciling again while
+	// components are still coming up; DependencyRequeueInterval is the same for
+	// the critical-dependency path. Zero selects the default. Tests raise them
+	// so a reconcile arriving just after an event cannot be a periodic one.
+	RequeueInterval           time.Duration
+	DependencyRequeueInterval time.Duration
+	workDir                   string
+	initDone                  bool
+	applicationsNamespace     string
+	monitoringNamespace       string
+	clusterType               *cluster.ClusterType
 
 	controller     controller.Controller
 	cache          cache.Cache
@@ -178,7 +185,7 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		applyProvisioningCondition(condMgr, map[string]error{
 			"dependencies": fmt.Errorf("critical dependencies unavailable"),
 		})
-		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: r.dependencyRequeueInterval()}, nil
 	}
 
 	componentErrors := r.reconcile(ctx, kserve)
@@ -196,7 +203,7 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	if !condMgr.IsHappy() {
 		log.Info("not all components ready, requeueing")
-		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+		return ctrl.Result{RequeueAfter: r.requeueInterval()}, nil
 	}
 
 	return ctrl.Result{}, nil
@@ -271,6 +278,27 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 	log.Info("deployed all resources", "owned", len(owned), "unowned", len(unowned))
 
 	return nil
+}
+
+const (
+	defaultRequeueInterval           = 15 * time.Second
+	defaultDependencyRequeueInterval = 30 * time.Second
+)
+
+func (r *KserveModuleReconciler) requeueInterval() time.Duration {
+	if r.RequeueInterval > 0 {
+		return r.RequeueInterval
+	}
+
+	return defaultRequeueInterval
+}
+
+func (r *KserveModuleReconciler) dependencyRequeueInterval() time.Duration {
+	if r.DependencyRequeueInterval > 0 {
+		return r.DependencyRequeueInterval
+	}
+
+	return defaultDependencyRequeueInterval
 }
 
 func splitByOwnership(resources []unstructured.Unstructured) (owned, unowned []unstructured.Unstructured) {
