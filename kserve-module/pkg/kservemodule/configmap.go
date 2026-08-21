@@ -117,6 +117,13 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 		return err
 	}
 
+	auditLoggingEnabled := kserve.Spec.AuditLogging == "Managed"
+	if err := updateCMJSONKey(cm, openshiftConfigKeyName, func(data map[string]any) {
+		data["enableAuditLogging"] = auditLoggingEnabled
+	}); err != nil {
+		return err
+	}
+
 	if agentImage := os.Getenv(kserveImageParamMap["kserve-agent"]); agentImage != "" {
 		if err := updateCMJSONKey(cm, openshiftConfigKeyName, func(data map[string]any) {
 			data["modelcachePermissionFixImage"] = agentImage
