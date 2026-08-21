@@ -14,9 +14,15 @@ DST_MANIFESTS_DIR="${1:-${MODULE_DIR}/opt/manifests}"
 #   "tag"                 - immutable reference
 #   "branch@commit-sha"  - tracks branch but pinned to specific commit
 declare -A ODH_COMPONENT_MANIFESTS=(
+    ["kserve"]="opendatahub-io:kserve:master:config"
+    ["modelcontroller"]="opendatahub-io:odh-model-controller:incubating:config"
+    ["wva"]="opendatahub-io:workload-variant-autoscaler:main:config"
+)
+
+declare -A ODH_RELEASE_COMPONENT_MANIFESTS=(
     ["kserve"]="opendatahub-io:kserve:release-v0.17:config"
     ["modelcontroller"]="opendatahub-io:odh-model-controller:main:config"
-    ["wva"]="opendatahub-io:workload-variant-autoscaler:odh-v3.5@e303a3af23f4bed3fee0f6b94b8f56db0c43e44d:config"
+    ["wva"]="opendatahub-io:workload-variant-autoscaler:main:config"
 )
 
 # RHOAI Component Manifests
@@ -26,6 +32,7 @@ declare -A RHOAI_COMPONENT_MANIFESTS=(
     ["wva"]="red-hat-data-services:workload-variant-autoscaler:rhoai-3.5@46a9982943a4353ce709f3bea968547bbdabc43f:config"
 )
 
+
 # Select manifests based on platform type
 if [ "${ODH_PLATFORM_TYPE:-OpenDataHub}" = "OpenDataHub" ]; then
     echo "Cloning manifests for ODH"
@@ -33,6 +40,14 @@ if [ "${ODH_PLATFORM_TYPE:-OpenDataHub}" = "OpenDataHub" ]; then
     for key in "${!ODH_COMPONENT_MANIFESTS[@]}"; do
         COMPONENT_MANIFESTS["$key"]="${ODH_COMPONENT_MANIFESTS[$key]}"
     done
+    # Release branches ship a `release` marker file → use ODH_RELEASE_COMPONENT_MANIFESTS.
+    # main has no marker, so behavior is unchanged there.
+    if [ -f "${SCRIPT_DIR}/release" ]; then
+        echo "Release marker found: using ODH_RELEASE_COMPONENT_MANIFESTS"
+        for key in "${!ODH_RELEASE_COMPONENT_MANIFESTS[@]}"; do
+            COMPONENT_MANIFESTS["$key"]="${ODH_RELEASE_COMPONENT_MANIFESTS[$key]}"
+        done
+    fi
 else
     echo "Cloning manifests for RHOAI"
     declare -A COMPONENT_MANIFESTS=()
