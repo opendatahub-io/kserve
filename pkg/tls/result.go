@@ -14,10 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package distro
+package tls
 
-// Distro-specific RBAC rules for the TLS profile resolution.
-// Processed by a separate controller-gen invocation (see Makefile.overrides.mk)
-// to generate a dedicated ClusterRole included only in distro overlays.
+import "crypto/tls"
 
-//+kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
+// Result holds resolved TLS options and metadata for optional cluster profile watching.
+type Result struct {
+	TLSOpts        []func(*tls.Config)
+	ProfileFetched bool
+	APIAvailable   bool
+	InitialSettings Settings
+}

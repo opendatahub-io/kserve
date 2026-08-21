@@ -30,28 +30,30 @@ import (
 // suites strings. When both are empty, it returns hardened Intermediate defaults
 // (TLS 1.2, ECDHE AEAD ciphers, ALPN h2/http1.1).
 // In the default (upstream) build, ctx and cfg are unused.
-func Resolve(_ context.Context, _ *rest.Config, tlsMinVersion, tlsCipherSuites string) ([]func(*tls.Config), error) {
+func Resolve(_ context.Context, _ *rest.Config, tlsMinVersion, tlsCipherSuites string) (Result, error) {
 	minVersion, err := parseMinVersion(tlsMinVersion)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 
 	ciphers, err := parseCipherSuites(tlsCipherSuites)
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 
 	if minVersion >= tls.VersionTLS13 && len(ciphers) > 0 {
-		return nil, errors.New("cipher suites cannot be configured with TLS 1.3 (Go manages TLS 1.3 ciphers internally)")
+		return Result{}, errors.New("cipher suites cannot be configured with TLS 1.3 (Go manages TLS 1.3 ciphers internally)")
 	}
 
-	return []func(*tls.Config){
-		func(c *tls.Config) {
-			c.MinVersion = minVersion
-			if len(ciphers) > 0 {
-				c.CipherSuites = ciphers
-			}
-			c.NextProtos = []string{"h2", "http/1.1"}
+	return Result{
+		TLSOpts: []func(*tls.Config){
+			func(c *tls.Config) {
+				c.MinVersion = minVersion
+				if len(ciphers) > 0 {
+					c.CipherSuites = ciphers
+				}
+				c.NextProtos = []string{"h2", "http/1.1"}
+			},
 		},
 	}, nil
 }

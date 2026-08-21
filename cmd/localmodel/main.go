@@ -121,7 +121,7 @@ func main() {
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   options.metricsAddr,
 		SecureServing: options.metricsSecure,
-		TLSOpts:       tlsResult,
+		TLSOpts:       tlsResult.TLSOpts,
 	}
 	if options.metricsSecure {
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
@@ -134,7 +134,7 @@ func main() {
 		Metrics: metricsServerOptions,
 		WebhookServer: webhook.NewServer(webhook.Options{
 			Port:    options.webhookPort,
-			TLSOpts: tlsResult,
+			TLSOpts: tlsResult.TLSOpts,
 		}),
 		LeaderElection:         options.enableLeaderElection,
 		LeaderElectionID:       LeaderLockName,
@@ -208,7 +208,8 @@ func main() {
 
 	// Start the Cmd
 	setupLog.Info("Starting the Cmd.")
-	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
+	startCtx := kservetls.SetupProfileWatcherRestart(signals.SetupSignalHandler(), mgr, tlsResult)
+	if err := mgr.Start(startCtx); err != nil {
 		setupLog.Error(err, "unable to run the manager")
 		os.Exit(1)
 	}

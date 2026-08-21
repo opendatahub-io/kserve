@@ -18,7 +18,6 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"flag"
 	"fmt"
 	"os"
@@ -166,11 +165,11 @@ func main() {
 		}
 	})
 
-	var tlsOpts []func(*tls.Config)
+	var tlsResult kservetls.Result
 	switch {
 	case options.tlsMinVersion != "" || options.tlsCipherSuites != "":
 		var err error
-		tlsOpts, err = kservetls.Resolve(ctx, cfg, options.tlsMinVersion, options.tlsCipherSuites)
+		tlsResult, err = kservetls.Resolve(ctx, cfg, options.tlsMinVersion, options.tlsCipherSuites)
 		if err != nil {
 			setupLog.Error(err, "unable to resolve TLS configuration")
 			os.Exit(1)
@@ -179,11 +178,11 @@ func main() {
 		setupLog.Info("WARNING: --enable-http2 is deprecated and will be removed in a future release. " +
 			"CVE-2023-44487 is fixed in Go 1.21.3+. Use --tls-min-version and --tls-cipher-suites instead.")
 		if !options.enableHTTP2 {
-			tlsOpts = kservetls.LegacyHTTP2TLSOpts()
+			tlsResult = kservetls.Result{TLSOpts: kservetls.LegacyHTTP2TLSOpts()}
 		}
 	default:
 		var err error
-		tlsOpts, err = kservetls.Resolve(ctx, cfg, "", "")
+		tlsResult, err = kservetls.Resolve(ctx, cfg, "", "")
 		if err != nil {
 			setupLog.Error(err, "unable to resolve TLS configuration")
 			os.Exit(1)
@@ -193,7 +192,7 @@ func main() {
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   options.metricsAddr,
 		SecureServing: options.metricsSecure,
-		TLSOpts:       tlsOpts,
+		TLSOpts:       tlsResult.TLSOpts,
 	}
 
 	if options.metricsSecure {
@@ -208,7 +207,7 @@ func main() {
 	mgrOpts := ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
-		WebhookServer:          webhook.NewServer(webhook.Options{Port: options.webhookPort, TLSOpts: tlsOpts}),
+		WebhookServer:          webhook.NewServer(webhook.Options{Port: options.webhookPort, TLSOpts: tlsResult.TLSOpts}),
 		HealthProbeBindAddress: options.probeAddr,
 		LeaderElection:         options.enableLeaderElection,
 		LeaderElectionID:       "llminferenceservice-kserve-controller-manager",
@@ -398,6 +397,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
+	ctx = kservetls.SetupProfileWatcherRestart(ctx, mgr, tlsResult)
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "unable to run the manager")
 		os.Exit(1)
