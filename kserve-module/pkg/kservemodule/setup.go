@@ -52,7 +52,7 @@ var watchedSubscriptions = map[string]bool{
 type dynamicWatch struct {
 	groupKind  schema.GroupKind
 	gvk        schema.GroupVersionKind
-	filterFn   func(*unstructured.Unstructured) bool
+	filterFn   func(client.Object) bool
 	registered bool
 }
 
@@ -116,11 +116,7 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		b.Watches(subObj,
 			handler.EnqueueRequestsFromMapFunc(mapToKserve),
 			builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
-				u, ok := o.(*unstructured.Unstructured)
-				if !ok {
-					return false
-				}
-				return watchedSubscriptions[u.GetName()]
+				return watchedSubscriptions[o.GetName()]
 			})),
 		)
 	}
@@ -137,14 +133,20 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		{
 			// Presets are deliberately out of the ownerRef chain (see
 			// unownedGroupKinds), so nothing recreates them when they are deleted.
-			// Watching them turns that into a normal reconcile. Scoped to the
-			// applications namespace: a reconcile renders and applies everything,
-			// so copies a user made elsewhere must not trigger one.
+			// Watching them turns that into a normal reconcile. The predicate,
+			// not the cache, is what scopes this to the applications namespace:
+			// a reconcile renders and applies everything, so copies a user made
+			// elsewhere must not trigger one.
+			//
+			// Scoping stops at the namespace on purpose. Narrowing it further by
+			// the annotation that marks a preset as ours would filter on a field
+			// a user can remove, and removing it is precisely the edit that has
+			// to be reverted - the event would be dropped for carrying the change
+			// it was needed for. A reconcile applies this module's own resources,
+			// so the cost of the wider filter is a redundant pass.
 			groupKind: llmISVCConfigGVK.GroupKind(),
 			gvk:       llmISVCConfigGVK,
-			filterFn: func(u *unstructured.Unstructured) bool {
-				return isShippedPreset(u, r.getApplicationsNamespace())
-			},
+			filterFn:  presetWatchFilter(r.getApplicationsNamespace()),
 		},
 	}
 
@@ -154,20 +156,10 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}
 		obj := &unstructured.Unstructured{}
 		obj.SetGroupVersionKind(dw.gvk)
-		if dw.filterFn != nil {
-			b.Watches(obj,
-				handler.EnqueueRequestsFromMapFunc(mapToKserve),
-				builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
-					u, ok := o.(*unstructured.Unstructured)
-					if !ok {
-						return false
-					}
-					return dw.filterFn(u)
-				})),
-			)
-		} else {
-			b.Watches(obj, handler.EnqueueRequestsFromMapFunc(mapToKserve))
-		}
+		b.Watches(obj,
+			handler.EnqueueRequestsFromMapFunc(mapToKserve),
+			builder.WithPredicates(dw.predicates()...),
+		)
 		dw.registered = true
 	}
 
@@ -209,18 +201,7 @@ func (r *KserveModuleReconciler) registerDynamicWatches(ctx context.Context) {
 		obj := &unstructured.Unstructured{}
 		obj.SetGroupVersionKind(dw.gvk)
 
-		var preds []predicate.Predicate
-		if dw.filterFn != nil {
-			preds = append(preds, predicate.NewPredicateFuncs(func(o client.Object) bool {
-				u, ok := o.(*unstructured.Unstructured)
-				if !ok {
-					return false
-				}
-				return dw.filterFn(u)
-			}))
-		}
-
-		if err := r.controller.Watch(source.Kind[client.Object](r.cache, obj, handler.EnqueueRequestsFromMapFunc(mapToKserve), preds...)); err != nil {
+		if err := r.controller.Watch(source.Kind[client.Object](r.cache, obj, handler.EnqueueRequestsFromMapFunc(mapToKserve), dw.predicates()...)); err != nil {
 			ctrl.LoggerFrom(ctx).Error(err, "failed to register dynamic watch", "gvk", dw.gvk)
 			continue
 		}
@@ -228,6 +209,27 @@ func (r *KserveModuleReconciler) registerDynamicWatches(ctx context.Context) {
 		dw.registered = true
 		ctrl.LoggerFrom(ctx).Info("registered dynamic watch", "gvk", dw.gvk)
 	}
+}
+
+// presetWatchFilter accepts events for objects in the applications namespace.
+//
+// Named rather than inlined so tests drive the filter the controller uses.
+// Asserting against a copy declared in the test would let the annotation creep
+// back into this one with everything still green.
+func presetWatchFilter(applicationsNS string) func(client.Object) bool {
+	return func(o client.Object) bool {
+		return o.GetNamespace() == applicationsNS
+	}
+}
+
+// predicates scopes the watch to the objects the filter accepts. A watch
+// without a filter registers none and sees every event for its kind.
+func (dw *dynamicWatch) predicates() []predicate.Predicate {
+	if dw.filterFn == nil {
+		return nil
+	}
+
+	return []predicate.Predicate{predicate.NewPredicateFuncs(dw.filterFn)}
 }
 
 func mapToKserve(_ context.Context, _ client.Object) []ctrl.Request {
