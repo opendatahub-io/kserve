@@ -146,6 +146,10 @@ func main() {
 		setupLog.Error(err, "unable to add controller APIs to scheme")
 		os.Exit(1)
 	}
+	if err := kservescheme.AddDistroAPIs(mgr.GetScheme()); err != nil {
+		setupLog.Error(err, "unable to add distro APIs to scheme")
+		os.Exit(1)
+	}
 
 	// Setup LocalModelNode controller
 	localModelNodeEventBroadcaster := record.NewBroadcaster()
