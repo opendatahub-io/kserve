@@ -71,6 +71,13 @@ type KserveSpec struct {
 	// Enabled by default.
 	EnableLLMInferenceServiceConsoleDashboards *bool `json:"enableLLMInferenceServiceConsoleDashboards,omitempty"`
 
+	// AuditLogging controls inference request audit logging.
+	// Managed writes openshiftConfig.enableAuditLogging=true on inferenceservice-config.
+	// Removed writes openshiftConfig.enableAuditLogging=false.
+	// +kubebuilder:validation:Enum=Managed;Removed
+	// +kubebuilder:default=Removed
+	AuditLogging common.ManagementState `json:"auditLogging,omitempty"`
+
 	ModelCache    *ModelCacheSpec   `json:"modelCache,omitempty"`
 	ModelRegistry ModelRegistrySpec `json:"modelRegistry,omitempty"`
 }

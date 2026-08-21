@@ -191,6 +191,24 @@ jobs:
           uv sync --group test
           popd
 
+      - name: Build and load modelcar image
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          mkdir -p /tmp/model-cache && chmod a+rwx /tmp/model-cache
+          docker run --rm \
+            --network host \
+            -v /tmp/model-cache:/mnt/models \
+            -e HF_HUB_DISABLE_PROGRESS_BARS=1 \
+            -e TOKIO_WORKER_THREADS=1 \
+            -e STORAGE_IGNORE_PATTERNS="*.msgpack,*.h5,flax_model*,tf_model*,rust_model*" \
+            ${{ env.HF_TOKEN && format('-e HF_TOKEN={0}', env.HF_TOKEN) }} \
+            local/storage-initializer:dev \
+            hf://facebook/opt-125m /mnt/models
+          printf 'FROM busybox\nCOPY . /models\n' > /tmp/Dockerfile.modelcar
+          docker build -t kserve/opt-125m-modelcar:e2e -f /tmp/Dockerfile.modelcar /tmp/model-cache
+          kind load docker-image kserve/opt-125m-modelcar:e2e --name kind
+
       - name: Run E2E tests
         timeout-minutes: 90
         env:
@@ -200,6 +218,7 @@ jobs:
           GATEWAY_CLASS_NAME: "istio"
           RUN_AS_NON_ROOT: "false"
           OPT_125M_MODEL_URI: "s3://example-models/facebook/opt-125m"
+          OPT_125M_OCI_MODEL_URI: "oci://kserve/opt-125m-modelcar:e2e"
           STORAGE_INITIALIZER_IMAGE: "local/storage-initializer:dev"
           INFERENCE_POOL_GROUP: ${{ matrix.istio-version == '1.27.5' && 'inference.networking.x-k8s.io' || 'inference.networking.k8s.io' }}
           ENABLE_LLM_INFERENCE_SERVICE_TLS: ${{ matrix.enable-tls }}

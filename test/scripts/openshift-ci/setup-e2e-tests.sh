@@ -86,9 +86,12 @@ echo "Using namespace: $KSERVE_NAMESPACE for KServe components"
 
 : "${OPT_125M_MODEL_URI:=s3://example-models/facebook/opt-125m}"
 export OPT_125M_MODEL_URI
+: "${OPT_125M_OCI_MODEL_URI:=oci://quay.io/opendatahub/opt-125m-modelcar:latest}"
+export OPT_125M_OCI_MODEL_URI
 
 echo "SKLEARN_IMAGE=$SKLEARN_IMAGE"
 echo "OPT_125M_MODEL_URI=$OPT_125M_MODEL_URI"
+echo "OPT_125M_OCI_MODEL_URI=$OPT_125M_OCI_MODEL_URI"
 echo "ERROR_404_ISVC_IMAGE=$ERROR_404_ISVC_IMAGE"
 echo "SUCCESS_200_ISVC_IMAGE=$SUCCESS_200_ISVC_IMAGE"
 
