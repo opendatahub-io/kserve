@@ -21,8 +21,8 @@ declare -A ODH_COMPONENT_MANIFESTS=(
 
 declare -A ODH_RELEASE_COMPONENT_MANIFESTS=(
     ["kserve"]="opendatahub-io:kserve:release-v0.17:config"
-    ["modelcontroller"]="opendatahub-io:odh-model-controller:incubating:config"
-    ["wva"]="opendatahub-io:workload-variant-autoscaler:odh-v3.5@e303a3af23f4bed3fee0f6b94b8f56db0c43e44d:config"
+    ["modelcontroller"]="opendatahub-io:odh-model-controller:main:config"
+    ["wva"]="opendatahub-io:workload-variant-autoscaler:main:config"
 )
 
 # RHOAI Component Manifests
