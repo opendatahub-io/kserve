@@ -93,6 +93,58 @@ func TestApplyParams_FileNotExist(t *testing.T) {
 	g.Expect(err).ShouldNot(HaveOccurred())
 }
 
+func TestResolveParamsEnv_FallsBackToBase(t *testing.T) {
+	g := NewWithT(t)
+
+	root := t.TempDir()
+	baseDir := filepath.Join(root, "base")
+	overlayDir := filepath.Join(root, "overlays", "odh")
+	g.Expect(os.MkdirAll(baseDir, 0o755)).ShouldNot(HaveOccurred())
+	g.Expect(os.MkdirAll(overlayDir, 0o755)).ShouldNot(HaveOccurred())
+	g.Expect(os.WriteFile(filepath.Join(baseDir, "params.env"), []byte("img=val\n"), 0o644)).ShouldNot(HaveOccurred())
+
+	resolved, err := resolveParamsEnv(overlayDir)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(resolved).Should(Equal(filepath.Join(baseDir, "params.env")))
+}
+
+func TestResolveParamsEnv_PrefersOverlay(t *testing.T) {
+	g := NewWithT(t)
+
+	root := t.TempDir()
+	baseDir := filepath.Join(root, "base")
+	overlayDir := filepath.Join(root, "overlays", "odh")
+	g.Expect(os.MkdirAll(baseDir, 0o755)).ShouldNot(HaveOccurred())
+	g.Expect(os.MkdirAll(overlayDir, 0o755)).ShouldNot(HaveOccurred())
+	g.Expect(os.WriteFile(filepath.Join(baseDir, "params.env"), []byte("img=base\n"), 0o644)).ShouldNot(HaveOccurred())
+	g.Expect(os.WriteFile(filepath.Join(overlayDir, "params.env"), []byte("img=overlay\n"), 0o644)).ShouldNot(HaveOccurred())
+
+	resolved, err := resolveParamsEnv(overlayDir)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(resolved).Should(Equal(filepath.Join(overlayDir, "params.env")))
+}
+
+func TestApplyParams_FallsBackToBase(t *testing.T) {
+	g := NewWithT(t)
+
+	root := t.TempDir()
+	baseDir := filepath.Join(root, "base")
+	overlayDir := filepath.Join(root, "overlays", "odh")
+	g.Expect(os.MkdirAll(baseDir, 0o755)).ShouldNot(HaveOccurred())
+	g.Expect(os.MkdirAll(overlayDir, 0o755)).ShouldNot(HaveOccurred())
+	g.Expect(os.WriteFile(filepath.Join(baseDir, "params.env"), []byte("my-image=old-value\n"), 0o644)).ShouldNot(HaveOccurred())
+
+	imageMap := map[string]string{"my-image": "TEST_FALLBACK_IMAGE"}
+	t.Setenv("TEST_FALLBACK_IMAGE", "new-value")
+
+	err := applyParams(overlayDir, imageMap)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	params, err := parseParams(filepath.Join(baseDir, "params.env"))
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(params["my-image"]).Should(Equal("new-value"))
+}
+
 func TestApplyParams_ExtraParamsMap(t *testing.T) {
 	g := NewWithT(t)
 
