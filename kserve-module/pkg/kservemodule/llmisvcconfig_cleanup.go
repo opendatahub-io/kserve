@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	appsv1 "k8s.io/api/apps/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -40,7 +39,6 @@ type configCleanupOutcome struct {
 // its validating webhook gates the delete (failurePolicy=Fail), and the ODH
 // overlay ships PREVENT_WELL_KNOWN_CONFIG_DELETION=false so the webhook permits it.
 func (r *KserveModuleReconciler) cleanupLLMISVCConfigsOnDelete(ctx context.Context) (configCleanupOutcome, error) {
-	log := ctrl.LoggerFrom(ctx)
 	ns := r.getApplicationsNamespace()
 
 	configs, err := r.listWellKnownLLMISVCConfigs(ctx, ns)
@@ -49,19 +47,6 @@ func (r *KserveModuleReconciler) cleanupLLMISVCConfigsOnDelete(ctx context.Conte
 	}
 	if len(configs) == 0 {
 		return configCleanupOutcome{done: true}, nil
-	}
-
-	controllerUnavailable := configCleanupOutcome{blockers: []string{"llmisvc controller is not available"}}
-	dep := &appsv1.Deployment{}
-	key := client.ObjectKey{Namespace: ns, Name: llmISVCControllerDeployment}
-	if err := r.Get(ctx, key, dep); err != nil {
-		if k8serr.IsNotFound(err) {
-			return controllerUnavailable, nil
-		}
-		return configCleanupOutcome{}, fmt.Errorf("getting %s deployment: %w", llmISVCControllerDeployment, err)
-	}
-	if dep.Status.AvailableReplicas < 1 {
-		return controllerUnavailable, nil
 	}
 
 	// check-before-delete: never touch a config that is still referenced.
@@ -73,21 +58,10 @@ func (r *KserveModuleReconciler) cleanupLLMISVCConfigsOnDelete(ctx context.Conte
 		return configCleanupOutcome{}, err
 	}
 
-	// Confirm they are actually gone; the config finalizer may still be running,
-	// or a service could have appeared mid-flight.
-	remaining, err := r.listWellKnownLLMISVCConfigs(ctx, ns)
-	if err != nil {
-		return configCleanupOutcome{}, err
-	}
-	if len(remaining) > 0 {
-		if blockers := referencedConfigBlockers(remaining); len(blockers) > 0 {
-			return configCleanupOutcome{blockers: blockers}, nil
-		}
-		log.Info("well-known configs still terminating, requeueing", "count", len(remaining))
-		return configCleanupOutcome{blockers: []string{"waiting for well-known configs to finish terminating"}}, nil
-	}
-
-	return configCleanupOutcome{done: true}, nil
+	// Configs carry a finalizer, so they terminate asynchronously. Block for now;
+	// the next reconcile re-lists from the top and reports done once they are gone
+	// (or re-blocks if a reference reappeared meanwhile).
+	return configCleanupOutcome{blockers: []string{"waiting for well-known configs to finish terminating"}}, nil
 }
 
 // listWellKnownLLMISVCConfigs returns the LLMInferenceServiceConfigs in ns that

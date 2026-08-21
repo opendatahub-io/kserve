@@ -9,5 +9,7 @@ spec:
       containers:
       - name: manager
         env:
+        # Off so the kserve-module can delete well-known configs during Kserve CR
+        # cleanup. Presets stay protected by the config finalizer and preset restore.
         - name: PREVENT_WELL_KNOWN_CONFIG_DELETION
           value: "false"
