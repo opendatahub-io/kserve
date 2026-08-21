@@ -15,7 +15,7 @@ DST_MANIFESTS_DIR="${1:-${MODULE_DIR}/opt/manifests}"
 #   "branch@commit-sha"  - tracks branch but pinned to specific commit
 declare -A ODH_COMPONENT_MANIFESTS=(
     ["kserve"]="opendatahub-io:kserve:master:config"
-    ["modelcontroller"]="opendatahub-io:odh-model-controller:incubating:config"
+    ["modelcontroller"]="opendatahub-io:odh-model-controller:main:config"
     ["wva"]="opendatahub-io:workload-variant-autoscaler:main:config"
 )
 
