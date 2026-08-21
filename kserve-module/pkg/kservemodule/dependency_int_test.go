@@ -35,6 +35,8 @@ var _ = Describe("Dependency Integration", Ordered, func() {
 	BeforeAll(func(ctx SpecContext) {
 		testCRDs = make(map[string]*apiextensionsv1.CustomResourceDefinition)
 
+		// Mock: status-only context, deployer output is irrelevant. Set before Create;
+		// Ordered keeps it for all specs.
 		testEnv.Reconciler.Deployer = &fixture.MockDeployer{}
 
 		kserve = fixture.KserveCR(fixture.WithName("default-kserve"))

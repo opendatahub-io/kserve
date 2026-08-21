@@ -123,6 +123,10 @@ func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, k
 		condMgr.MarkFalse(ConditionKServeReady,
 			conditions.WithReason("DeploymentNotReady"),
 			conditions.WithMessage("%s", err.Error()))
+	} else if err := checkPresetsPresent(ctx, r.Client, ns, r.expectedPresets); err != nil {
+		condMgr.MarkFalse(ConditionKServeReady,
+			conditions.WithReason("PresetsMissing"),
+			conditions.WithMessage("%s", err.Error()))
 	} else {
 		condMgr.MarkTrue(ConditionKServeReady,
 			conditions.WithReason("AllDeploymentsAvailable"))

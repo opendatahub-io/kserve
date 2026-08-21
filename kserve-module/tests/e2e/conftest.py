@@ -15,6 +15,7 @@ import yaml
 KSERVE_CR_NAME = "default-kserve"
 NAMESPACE = "opendatahub"
 OPERATOR_DEPLOYMENT = "kserve-module-controller-manager"
+TIMEOUT_300S = 300  # cold-start: first Kserve CR ready waits on operand image pulls
 TIMEOUT_120S = 120
 TIMEOUT_60S = 60
 
@@ -174,8 +175,8 @@ def create_kserve_cr(kubectl_bin, cr_dict=None):
             kubectl_bin,
             KSERVE_CR_NAME,
             is_cr_ready,
-            TIMEOUT_120S,
-            f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_120S}s",
+            TIMEOUT_300S,
+            f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_300S}s",
         )
     cr = yaml.safe_dump(cr_dict or KSERVE_CR_TEMPLATE)
     run([kubectl_bin, "create", "-f", "-"], input_text=cr)
@@ -183,8 +184,8 @@ def create_kserve_cr(kubectl_bin, cr_dict=None):
         kubectl_bin,
         KSERVE_CR_NAME,
         is_cr_ready,
-        TIMEOUT_120S,
-        f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_120S}s",
+        TIMEOUT_300S,
+        f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_300S}s",
     )
 
 

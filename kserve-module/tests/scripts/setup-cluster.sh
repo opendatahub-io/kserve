@@ -66,7 +66,10 @@ OCP_SUBSCRIPTIONS=(
 # Parse arguments
 # ---------------------------------------------------------------------------
 CLEANUP=false
-SKIP_DEPS=false
+# Skip dependency installation (deploy only). Env-overridable.
+SKIP_DEPS="${SKIP_DEPS:-false}"
+# Install dependencies only, skip the kserve-module deploy. Env-overridable.
+SKIP_KM_DEPLOY="${SKIP_KM_DEPLOY:-false}"
 
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -78,9 +81,10 @@ parse_args() {
           exit 1
         fi
         KSERVE_MODULE_IMG="$2"; shift 2 ;;
-      --cleanup)    CLEANUP=true; shift ;;
-      --skip-deps)  SKIP_DEPS=true; shift ;;
-      -h|--help)    usage; exit 0 ;;
+      --cleanup)     CLEANUP=true; shift ;;
+      --skip-deps)      SKIP_DEPS=true; shift ;;
+      --skip-km-deploy) SKIP_KM_DEPLOY=true; shift ;;
+      -h|--help)        usage; exit 0 ;;
       *)            echo "Unknown option: $1"; usage; exit 1 ;;
     esac
   done
@@ -101,8 +105,17 @@ Options:
   --platform xks|ocp           Target platform (default: xks)
   --image IMAGE                 Controller image (e.g. quay.io/org/kserve-module:tag)
   --cleanup                     Uninstall kserve-module and all platform dependencies
-  --skip-deps                   Skip dependency installation (use when deps are already installed)
+  --skip-deps                   Skip dependency installation, deploy only
+                                (or set SKIP_DEPS=true)
+  --skip-km-deploy              Install dependencies only, skip the kserve-module deploy
+                                (or set SKIP_KM_DEPLOY=true)
   -h, --help                    Show this help
+
+Environment variables:
+  KSERVE_CONTROLLER_IMAGE, LLMISVC_CONTROLLER_IMAGE, KSERVE_AGENT_IMAGE,
+  KSERVE_ROUTER_IMAGE, STORAGE_INITIALIZER_IMAGE
+                                Override operand images (injected as RELATED_IMAGE_*
+                                on the kserve-module-controller-manager deployment)
 
 Examples:
   # Install on XKS cluster
@@ -110,6 +123,9 @@ Examples:
 
   # Install on OCP with custom image
   $(basename "$0") --platform ocp --image quay.io/my-org/kserve-module:latest
+
+  # Install dependencies only (no module deploy)
+  $(basename "$0") --platform ocp --skip-km-deploy
 
   # Uninstall everything
   $(basename "$0") --cleanup --platform xks
@@ -219,7 +235,7 @@ cleanup_kserve_module() {
 
   local config_dir="${PROJECT_ROOT}/kserve-module/config"
   ${KUBECTL} kustomize "$config_dir" | \
-    sed "s|namespace: kserve|namespace: ${KSERVE_NAMESPACE}|g" | \
+    sed "s|namespace: opendatahub|namespace: ${KSERVE_NAMESPACE}|g" | \
     ${KUBECTL} delete --ignore-not-found -f - 2>/dev/null || true
 
   log_success "kserve-module cleaned up"
@@ -338,7 +354,7 @@ deploy_kserve_module() {
   local config_dir="${PROJECT_ROOT}/kserve-module/config"
 
   local output
-  output=$(${KUBECTL} kustomize "$config_dir" | sed "s|namespace: kserve|namespace: ${KSERVE_NAMESPACE}|g")
+  output=$(${KUBECTL} kustomize "$config_dir" | sed "s|namespace: opendatahub|namespace: ${KSERVE_NAMESPACE}|g")
 
   if [[ -n "${KSERVE_MODULE_IMG}" ]]; then
     log_info "Using custom image: ${KSERVE_MODULE_IMG}"
@@ -347,9 +363,30 @@ deploy_kserve_module() {
 
   echo "$output" | ${KUBECTL} apply --server-side=true --force-conflicts -f -
 
+  # Override operand images on kserve-module controller via RELATED_IMAGE_* env vars
+  _env_overrides=()
+  [[ -n "${KSERVE_CONTROLLER_IMAGE:-}" ]] && \
+    _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_CONTROLLER_IMAGE=${KSERVE_CONTROLLER_IMAGE}")
+  [[ -n "${LLMISVC_CONTROLLER_IMAGE:-}" ]] && \
+    _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_LLMISVC_CONTROLLER_IMAGE=${LLMISVC_CONTROLLER_IMAGE}")
+  [[ -n "${KSERVE_AGENT_IMAGE:-}" ]] && \
+    _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_AGENT_IMAGE=${KSERVE_AGENT_IMAGE}")
+  [[ -n "${KSERVE_ROUTER_IMAGE:-}" ]] && \
+    _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_ROUTER_IMAGE=${KSERVE_ROUTER_IMAGE}")
+  [[ -n "${STORAGE_INITIALIZER_IMAGE:-}" ]] && \
+    _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_STORAGE_INITIALIZER_IMAGE=${STORAGE_INITIALIZER_IMAGE}")
+
+  _env_overrides+=("APPLICATIONS_NAMESPACE=${KSERVE_NAMESPACE}")
+
+  log_info "Overriding operand images on kserve-module-controller-manager..."
   log_info "Waiting for controller rollout..."
+  ${KUBECTL} set env deployment/kserve-module-controller-manager \
+    "${_env_overrides[@]}" \
+    -n "${KSERVE_NAMESPACE}"
   ${KUBECTL} rollout status deployment/kserve-module-controller-manager \
     -n "${KSERVE_NAMESPACE}" --timeout=300s
+
+
   log_success "kserve-module deployed"
 }
 
@@ -401,7 +438,12 @@ main() {
     log_info "Skipping dependency installation (--skip-deps)"
   fi
 
-  deploy_kserve_module
+  if [[ "${SKIP_KM_DEPLOY}" != "true" ]]; then
+    deploy_kserve_module
+  else
+    log_info "Skipping kserve-module deploy (--skip-km-deploy / SKIP_KM_DEPLOY=true) — dependencies only"
+    return
+  fi
 
   echo ""
   log_success "Setup complete!"

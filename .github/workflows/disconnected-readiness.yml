@@ -1,0 +1,12 @@
+name: Disconnected Readiness
+on:
+  pull_request:
+    branches:
+      - main
+      - master
+
+jobs:
+  check:
+    uses: opendatahub-io/disconnected-readiness-scorer/.github/workflows/disconnected-readiness-check.yml@b0046f65fd76210648151640925177568591ca0f # v1.3.0
+    with:
+      rules: ""

@@ -2,9 +2,19 @@ package kservemodule
 
 import "k8s.io/apimachinery/pkg/runtime/schema"
 
-var unownedGroupKinds = map[schema.GroupKind]struct{}{
-	{Group: llmISVCConfigGroup, Kind: llmISVCConfigKind}: {},
-}
+var (
+	llmISVCConfigGVK = schema.GroupVersionKind{
+		Group:   llmISVCConfigGroup,
+		Version: llmISVCConfigVersion,
+		Kind:    llmISVCConfigKind,
+	}
+
+	llmISVCConfigListGVK = llmISVCConfigGVK.GroupVersion().WithKind(llmISVCConfigKind + "List")
+
+	unownedGroupKinds = map[schema.GroupKind]struct{}{
+		llmISVCConfigGVK.GroupKind(): {},
+	}
+)
 
 const (
 	// Component names
@@ -20,7 +30,7 @@ const (
 	KserveManifestSourcePathXKS     = "overlays/odh-xks"
 	KserveCRDManifestSourcePath     = "overlays/odh-crds"
 	ModelCacheManifestSourcePath    = "overlays/odh-modelcache"
-	ModelControllerSourcePath       = "base"
+	ModelControllerSourcePath       = "overlays/odh"
 	WVAManifestSourcePathOCP        = "overlays/namespace-scoped/openshift"
 	ObservabilityManifestSourcePath      = "monitoring/llmisvc/dashboards"
 	ConsoleDashboardsManifestSourcePath = "monitoring/llmisvc/dashboards-odc"
@@ -55,6 +65,7 @@ const (
 	wellKnownAnnotationValue = "true"
 	llmISVCConfigPrefixEnv   = "LLM_INFERENCE_SERVICE_CONFIG_PREFIX"
 	llmISVCConfigGroup       = "serving.kserve.io"
+	llmISVCConfigVersion     = "v1alpha2"
 	llmISVCConfigKind        = "LLMInferenceServiceConfig"
 
 	// Template (ServingRuntime) resource type
