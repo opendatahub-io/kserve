@@ -212,7 +212,7 @@ func main() {
 
 	// Start the Cmd
 	setupLog.Info("Starting the Cmd.")
-	startCtx := kservetls.SetupProfileWatcherRestart(signals.SetupSignalHandler(), mgr, tlsResult)
+	startCtx := localmodelStartContext(signals.SetupSignalHandler(), mgr, tlsResult)
 	if err := mgr.Start(startCtx); err != nil {
 		setupLog.Error(err, "unable to run the manager")
 		os.Exit(1)

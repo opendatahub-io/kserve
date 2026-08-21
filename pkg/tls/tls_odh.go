@@ -102,10 +102,10 @@ func Resolve(ctx context.Context, cfg *rest.Config, tlsMinVersion, tlsCipherSuit
 		return Result{}, fmt.Errorf("creating bootstrap client for TLS profile: %w", err)
 	}
 
-	return resolveClusterProfile(resolveCtx, k8sClient)
+	return resolveClusterProfile(resolveCtx, cfg, k8sClient)
 }
 
-func resolveClusterProfile(ctx context.Context, k8sClient client.Reader) (Result, error) {
+func resolveClusterProfile(ctx context.Context, cfg *rest.Config, k8sClient client.Reader) (Result, error) {
 	apiServer := &configv1.APIServer{}
 	backoff := wait.Backoff{
 		Duration: 1 * time.Second,
@@ -122,6 +122,11 @@ func resolveClusterProfile(ctx context.Context, k8sClient client.Reader) (Result
 				return true, nil
 			case apierrors.IsNotFound(err):
 				log.Info("APIServer resource not found, using hardened defaults")
+				return true, nil
+			case apierrors.IsForbidden(err), apierrors.IsUnauthorized(err):
+				log.Info("APIServer TLS profile forbidden; using hardened defaults",
+					"hint", "ensure ClusterRole grants get/list/watch on config.openshift.io/apiservers",
+					"error", err)
 				return true, nil
 			case apierrors.IsServiceUnavailable(err),
 				apierrors.IsTimeout(err),
@@ -149,13 +154,17 @@ func resolveClusterProfile(ctx context.Context, k8sClient client.Reader) (Result
 		return intermediateResult(false, false), nil
 	}
 
-	settings := settingsFromAPIServer(apiServer)
+	adherence := fetchTLSAdherence(ctx, cfg)
+	settings := settingsFromAPIServer(apiServer, adherence)
 	profile := apiServer.Spec.TLSSecurityProfile
-	if !shouldHonorClusterTLSProfile(settings.Adherence) {
+	if !shouldHonorClusterTLSProfile(adherence) {
 		profile = &configv1.TLSSecurityProfile{Type: configv1.TLSProfileIntermediateType}
 	}
 
 	minVersion, ciphers := parseProfile(profile)
+	if minVersion >= tls.VersionTLS13 && len(ciphers) > 0 {
+		return Result{}, errors.New("custom TLS profiles cannot configure cipher suites with TLS 1.3")
+	}
 	if ciphers != nil && len(ciphers) == 0 {
 		return Result{}, fmt.Errorf("custom TLS profile specified ciphers but none are supported by Go (profile type: %s, ciphers: %v)",
 			profile.Type,

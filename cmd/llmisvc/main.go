@@ -397,7 +397,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	ctx = kservetls.SetupProfileWatcherRestart(ctx, mgr, tlsResult)
+	ctx = llmisvcStartContext(ctx, mgr, tlsResult)
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "unable to run the manager")
 		os.Exit(1)

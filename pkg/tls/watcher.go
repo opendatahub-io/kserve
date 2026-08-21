@@ -22,6 +22,7 @@ import (
 	"context"
 
 	configv1 "github.com/openshift/api/config/v1"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -41,7 +42,8 @@ var watcherLog = ctrl.Log.WithName("tls-profile-watcher")
 // resolved TLS settings (profile + adherence policy) change.
 type ProfileWatcher struct {
 	client.Client
-	InitialSettings Settings
+	RESTConfig       *rest.Config
+	InitialSettings  Settings
 	OnSettingsChange func(ctx context.Context, oldSettings, newSettings Settings)
 
 	lastSettings Settings
@@ -57,7 +59,8 @@ func (w *ProfileWatcher) Reconcile(ctx context.Context, req reconcile.Request) (
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	currentSettings := settingsFromAPIServer(apiServer)
+	adherence := fetchTLSAdherence(ctx, w.RESTConfig)
+	currentSettings := settingsFromAPIServer(apiServer, adherence)
 	if w.OnSettingsChange != nil && !settingsEqual(w.lastSettings, currentSettings) {
 		old := w.lastSettings
 		w.lastSettings = currentSettings
@@ -105,6 +108,7 @@ func SetupProfileWatcherRestart(ctx context.Context, mgr ctrl.Manager, result Re
 	childCtx, cancel := context.WithCancel(ctx)
 	watcher := &ProfileWatcher{
 		Client:          mgr.GetClient(),
+		RESTConfig:      mgr.GetConfig(),
 		InitialSettings: result.InitialSettings,
 		OnSettingsChange: func(_ context.Context, _, _ Settings) {
 			watcherLog.Info("TLS security profile or adherence policy changed, shutting down for restart")

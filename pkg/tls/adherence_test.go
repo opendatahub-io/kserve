@@ -68,3 +68,19 @@ func TestResolveProfileSpec(t *testing.T) {
 		t.Fatalf("resolveProfileSpec modern min version = %q, want %q", got.MinTLSVersion, modern.MinTLSVersion)
 	}
 }
+
+func TestSettingsFromAPIServer_NoOpinionOverridesOldProfile(t *testing.T) {
+	apiServer := &configv1.APIServer{
+		Spec: configv1.APIServerSpec{
+			TLSSecurityProfile: &configv1.TLSSecurityProfile{Type: configv1.TLSProfileOldType},
+		},
+	}
+	settings := settingsFromAPIServer(apiServer, adherenceNoOpinion)
+	intermediate := *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
+	if settings.ProfileSpec.MinTLSVersion != intermediate.MinTLSVersion {
+		t.Fatalf("expected Intermediate profile under NoOpinion, got %q", settings.ProfileSpec.MinTLSVersion)
+	}
+	if settings.Adherence != adherenceNoOpinion {
+		t.Fatalf("expected adherence %q, got %q", adherenceNoOpinion, settings.Adherence)
+	}
+}

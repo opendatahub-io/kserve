@@ -19,16 +19,25 @@ limitations under the License.
 package tls
 
 import (
-	"encoding/json"
+	"context"
 
 	configv1 "github.com/openshift/api/config/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
 )
 
 const (
-	adherenceStrictAllComponents            = "StrictAllComponents"
-	adherenceNoOpinion                      = "NoOpinion"
-	adherenceLegacyAdheringComponentsOnly   = "LegacyAdheringComponentsOnly"
+	adherenceStrictAllComponents          = "StrictAllComponents"
+	adherenceNoOpinion                    = "NoOpinion"
+	adherenceLegacyAdheringComponentsOnly = "LegacyAdheringComponentsOnly"
 )
+
+var apiServerGVR = schema.GroupVersionResource{
+	Group: "config.openshift.io", Version: "v1", Resource: "apiservers",
+}
 
 // Settings captures the cluster TLS profile and adherence policy used to resolve TLS options.
 type Settings struct {
@@ -36,23 +45,24 @@ type Settings struct {
 	Adherence   string
 }
 
-func readTLSAdherence(apiServer *configv1.APIServer) string {
-	if apiServer == nil {
+func fetchTLSAdherence(ctx context.Context, cfg *rest.Config) string {
+	if cfg == nil {
 		return ""
 	}
-	raw, err := json.Marshal(apiServer)
+	dc, err := dynamic.NewForConfig(cfg)
+	if err != nil {
+		log.Info("Unable to create dynamic client for TLS adherence", "error", err)
+		return ""
+	}
+	obj, err := dc.Resource(apiServerGVR).Get(ctx, apiServerName, metav1.GetOptions{})
 	if err != nil {
 		return ""
 	}
-	var payload struct {
-		Spec struct {
-			TLSAdherence string `json:"tlsAdherence"`
-		} `json:"spec"`
-	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
+	adherence, found, err := unstructured.NestedString(obj.Object, "spec", "tlsAdherence")
+	if err != nil || !found {
 		return ""
 	}
-	return payload.Spec.TLSAdherence
+	return adherence
 }
 
 func shouldHonorClusterTLSProfile(adherence string) bool {
@@ -65,8 +75,7 @@ func shouldHonorClusterTLSProfile(adherence string) bool {
 	}
 }
 
-func settingsFromAPIServer(apiServer *configv1.APIServer) Settings {
-	adherence := readTLSAdherence(apiServer)
+func settingsFromAPIServer(apiServer *configv1.APIServer, adherence string) Settings {
 	profileSpec := *resolveProfileSpec(apiServer.Spec.TLSSecurityProfile)
 	if !shouldHonorClusterTLSProfile(adherence) {
 		profileSpec = *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
