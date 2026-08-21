@@ -5,7 +5,8 @@ E2E_IMG ?=
 .PHONY: docker-build-kserve-module docker-push-kserve-module deploy-kserve-module \
 	kustomize-build-kserve-module generate-kserve-module manifests-kserve-module \
 	test-kserve-module setup-envtest-kserve-module precommit-km \
-	e2e-setup-kserve-module e2e-cleanup-kserve-module e2e-kserve-module check-km
+	e2e-setup-kserve-module e2e-cleanup-kserve-module e2e-kserve-module check-km kind-create kind-delete \
+	kind-dev-kserve-module kind-reinstall
 
 
 docker-build-kserve-module:
@@ -72,3 +73,22 @@ check-km: precommit-km
 		echo "Fix: make precommit-km && git add kserve-module/ && git commit --amend"; \
 		exit 1; \
 	fi
+
+kind-create:
+	hack/setup/dev/manage.kind-with-registry.sh
+
+kind-delete:
+	hack/setup/dev/manage.kind-with-registry.sh --uninstall
+
+kind-reinstall:
+	hack/setup/dev/manage.kind-with-registry.sh --reinstall
+
+kind-dev-kserve-module:
+	@set -eo pipefail; \
+	KO_DOCKER_REPO=localhost:5001; \
+	TAG=$${TAG:-dev-$$RANDOM$$RANDOM}; \
+	echo "Building and deploying kserve-module with TAG=$$TAG"; \
+	$(MAKE) docker-build-kserve-module docker-push-kserve-module \
+		KO_DOCKER_REPO=$$KO_DOCKER_REPO ENGINE=$(ENGINE) TAG=$$TAG; \
+	$(MAKE) e2e-setup-kserve-module \
+		E2E_IMG=$$KO_DOCKER_REPO/$(KSERVE_MODULE_IMG):$$TAG PLATFORM=$(PLATFORM)
