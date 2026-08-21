@@ -154,7 +154,11 @@ func resolveClusterProfile(ctx context.Context, cfg *rest.Config, k8sClient clie
 		return intermediateResult(false, false), nil
 	}
 
-	adherence := fetchTLSAdherence(ctx, cfg)
+	adherence, adherenceOK := fetchTLSAdherence(ctx, cfg)
+	if !adherenceOK {
+		log.Info("Failed to read TLS adherence policy, using Intermediate fallback")
+	}
+	adherence = adherenceForResolution(adherence, adherenceOK)
 	settings := settingsFromAPIServer(apiServer, adherence)
 	profile := apiServer.Spec.TLSSecurityProfile
 	if !shouldHonorClusterTLSProfile(adherence) {

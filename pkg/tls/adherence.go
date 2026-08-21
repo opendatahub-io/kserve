@@ -20,6 +20,7 @@ package tls
 
 import (
 	"context"
+	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,6 +28,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
+)
+
+const (
+	adherenceFetchTimeout  = 10 * time.Second
+	adherenceRequeueDelay  = 5 * time.Second
 )
 
 const (
@@ -45,24 +51,37 @@ type Settings struct {
 	Adherence   string
 }
 
-func fetchTLSAdherence(ctx context.Context, cfg *rest.Config) string {
+func fetchTLSAdherence(ctx context.Context, cfg *rest.Config) (string, bool) {
 	if cfg == nil {
-		return ""
+		return "", false
 	}
+	fetchCtx, cancel := context.WithTimeout(ctx, adherenceFetchTimeout)
+	defer cancel()
+
 	dc, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		log.Info("Unable to create dynamic client for TLS adherence", "error", err)
-		return ""
+		return "", false
 	}
-	obj, err := dc.Resource(apiServerGVR).Get(ctx, apiServerName, metav1.GetOptions{})
+	obj, err := dc.Resource(apiServerGVR).Get(fetchCtx, apiServerName, metav1.GetOptions{})
 	if err != nil {
-		return ""
+		return "", false
 	}
 	adherence, found, err := unstructured.NestedString(obj.Object, "spec", "tlsAdherence")
-	if err != nil || !found {
-		return ""
+	if err != nil {
+		return "", false
 	}
-	return adherence
+	if !found {
+		return "", true
+	}
+	return adherence, true
+}
+
+func adherenceForResolution(adherence string, ok bool) string {
+	if ok {
+		return adherence
+	}
+	return adherenceNoOpinion
 }
 
 func shouldHonorClusterTLSProfile(adherence string) bool {

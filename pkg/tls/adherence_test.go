@@ -84,3 +84,30 @@ func TestSettingsFromAPIServer_NoOpinionOverridesOldProfile(t *testing.T) {
 		t.Fatalf("expected adherence %q, got %q", adherenceNoOpinion, settings.Adherence)
 	}
 }
+
+func TestAdherenceForResolution_FetchFailureUsesNoOpinion(t *testing.T) {
+	got := adherenceForResolution("", false)
+	if got != adherenceNoOpinion {
+		t.Fatalf("expected %q on fetch failure, got %q", adherenceNoOpinion, got)
+	}
+}
+
+func TestAdherenceForResolution_PreservesSuccessfulRead(t *testing.T) {
+	got := adherenceForResolution(adherenceStrictAllComponents, true)
+	if got != adherenceStrictAllComponents {
+		t.Fatalf("expected %q, got %q", adherenceStrictAllComponents, got)
+	}
+}
+
+func TestSettingsFromAPIServer_EmptyAdherenceHonorsOldProfile(t *testing.T) {
+	apiServer := &configv1.APIServer{
+		Spec: configv1.APIServerSpec{
+			TLSSecurityProfile: &configv1.TLSSecurityProfile{Type: configv1.TLSProfileOldType},
+		},
+	}
+	settings := settingsFromAPIServer(apiServer, "")
+	old := *configv1.TLSProfiles[configv1.TLSProfileOldType]
+	if settings.ProfileSpec.MinTLSVersion != old.MinTLSVersion {
+		t.Fatalf("expected Old profile when adherence is empty, got %q", settings.ProfileSpec.MinTLSVersion)
+	}
+}

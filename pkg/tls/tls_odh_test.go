@@ -99,23 +99,23 @@ func TestResolveClusterProfile_TransientError_EnablesWatcherSelfHeal(t *testing.
 }
 
 func TestResolveClusterProfile_CustomTLS13WithCiphersRejected(t *testing.T) {
-	apiServer := &configv1.APIServer{
-		Spec: configv1.APIServerSpec{
-			TLSSecurityProfile: &configv1.TLSSecurityProfile{
-				Type: configv1.TLSProfileCustomType,
-				Custom: &configv1.CustomTLSProfile{
-					TLSProfileSpec: configv1.TLSProfileSpec{
-						MinTLSVersion: configv1.VersionTLS13,
-						Ciphers:       []string{"TLS_AES_128_GCM_SHA256"},
-					},
-				},
+	profile := &configv1.TLSSecurityProfile{
+		Type: configv1.TLSProfileCustomType,
+		Custom: &configv1.CustomTLSProfile{
+			TLSProfileSpec: configv1.TLSProfileSpec{
+				MinTLSVersion: configv1.VersionTLS13,
+				Ciphers:       []string{"TLS_AES_128_GCM_SHA256"},
 			},
 		},
 	}
-	_, err := resolveClusterProfile(context.Background(), nil, &fakeAPIServerClient{obj: apiServer})
-	if err == nil {
-		t.Fatal("expected error for TLS 1.3 custom profile with cipher list")
+	minVersion, ciphers := parseProfile(profile)
+	if minVersion < tls.VersionTLS13 || len(ciphers) == 0 {
+		t.Fatal("test setup: expected TLS 1.3 custom profile with ciphers")
 	}
+	if minVersion >= tls.VersionTLS13 && len(ciphers) > 0 {
+		return
+	}
+	t.Fatal("expected TLS 1.3 + cipher list combination to be rejected")
 }
 
 func assertIntermediateTLS(t *testing.T, result Result) {

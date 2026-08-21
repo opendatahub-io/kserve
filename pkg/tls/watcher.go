@@ -59,7 +59,11 @@ func (w *ProfileWatcher) Reconcile(ctx context.Context, req reconcile.Request) (
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	adherence := fetchTLSAdherence(ctx, w.RESTConfig)
+	adherence, adherenceOK := fetchTLSAdherence(ctx, w.RESTConfig)
+	if !adherenceOK {
+		watcherLog.Info("Failed to read TLS adherence policy, will retry")
+		return reconcile.Result{RequeueAfter: adherenceRequeueDelay}, nil
+	}
 	currentSettings := settingsFromAPIServer(apiServer, adherence)
 	if w.OnSettingsChange != nil && !settingsEqual(w.lastSettings, currentSettings) {
 		old := w.lastSettings
@@ -110,6 +114,7 @@ func SetupProfileWatcherRestart(ctx context.Context, mgr ctrl.Manager, result Re
 		Client:          mgr.GetClient(),
 		RESTConfig:      mgr.GetConfig(),
 		InitialSettings: result.InitialSettings,
+		lastSettings:    result.InitialSettings,
 		OnSettingsChange: func(_ context.Context, _, _ Settings) {
 			watcherLog.Info("TLS security profile or adherence policy changed, shutting down for restart")
 			cancel()
