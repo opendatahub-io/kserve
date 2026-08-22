@@ -111,6 +111,12 @@ Options:
                                 (or set SKIP_KM_DEPLOY=true)
   -h, --help                    Show this help
 
+Environment variables:
+  KSERVE_CONTROLLER_IMAGE, LLMISVC_CONTROLLER_IMAGE, KSERVE_AGENT_IMAGE,
+  KSERVE_ROUTER_IMAGE, STORAGE_INITIALIZER_IMAGE
+                                Override operand images (injected as RELATED_IMAGE_*
+                                on the kserve-module-controller-manager deployment)
+
 Examples:
   # Install on XKS cluster
   $(basename "$0") --platform xks
@@ -357,9 +363,30 @@ deploy_kserve_module() {
 
   echo "$output" | ${KUBECTL} apply --server-side=true --force-conflicts -f -
 
+  # Override operand images on kserve-module controller via RELATED_IMAGE_* env vars
+  _env_overrides=()
+  [[ -n "${KSERVE_CONTROLLER_IMAGE:-}" ]] && \
+    _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_CONTROLLER_IMAGE=${KSERVE_CONTROLLER_IMAGE}")
+  [[ -n "${LLMISVC_CONTROLLER_IMAGE:-}" ]] && \
+    _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_LLMISVC_CONTROLLER_IMAGE=${LLMISVC_CONTROLLER_IMAGE}")
+  [[ -n "${KSERVE_AGENT_IMAGE:-}" ]] && \
+    _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_AGENT_IMAGE=${KSERVE_AGENT_IMAGE}")
+  [[ -n "${KSERVE_ROUTER_IMAGE:-}" ]] && \
+    _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_ROUTER_IMAGE=${KSERVE_ROUTER_IMAGE}")
+  [[ -n "${STORAGE_INITIALIZER_IMAGE:-}" ]] && \
+    _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_STORAGE_INITIALIZER_IMAGE=${STORAGE_INITIALIZER_IMAGE}")
+
+  _env_overrides+=("APPLICATIONS_NAMESPACE=${KSERVE_NAMESPACE}")
+
+  log_info "Overriding operand images on kserve-module-controller-manager..."
   log_info "Waiting for controller rollout..."
+  ${KUBECTL} set env deployment/kserve-module-controller-manager \
+    "${_env_overrides[@]}" \
+    -n "${KSERVE_NAMESPACE}"
   ${KUBECTL} rollout status deployment/kserve-module-controller-manager \
     -n "${KSERVE_NAMESPACE}" --timeout=300s
+
+
   log_success "kserve-module deployed"
 }
 
