@@ -46,7 +46,18 @@ type ProfileWatcher struct {
 	InitialSettings  Settings
 	OnSettingsChange func(ctx context.Context, oldSettings, newSettings Settings)
 
-	lastSettings Settings
+	lastSettings   Settings
+	baselineSynced bool
+
+	// fetchAdherence overrides cluster adherence reads in tests.
+	fetchAdherence func(context.Context, *rest.Config) (string, bool)
+}
+
+func (w *ProfileWatcher) readAdherence(ctx context.Context) (string, bool) {
+	if w.fetchAdherence != nil {
+		return w.fetchAdherence(ctx, w.RESTConfig)
+	}
+	return fetchTLSAdherence(ctx, w.RESTConfig)
 }
 
 func (w *ProfileWatcher) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -59,12 +70,17 @@ func (w *ProfileWatcher) Reconcile(ctx context.Context, req reconcile.Request) (
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
-	adherence, adherenceOK := fetchTLSAdherence(ctx, w.RESTConfig)
+	adherence, adherenceOK := w.readAdherence(ctx)
 	if !adherenceOK {
 		watcherLog.Info("Failed to read TLS adherence policy, will retry")
 		return reconcile.Result{RequeueAfter: adherenceRequeueDelay}, nil
 	}
 	currentSettings := settingsFromAPIServer(apiServer, adherence)
+	if !w.baselineSynced {
+		w.lastSettings = currentSettings
+		w.baselineSynced = true
+		return reconcile.Result{}, nil
+	}
 	if w.OnSettingsChange != nil && !settingsEqual(w.lastSettings, currentSettings) {
 		old := w.lastSettings
 		w.lastSettings = currentSettings

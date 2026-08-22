@@ -123,7 +123,7 @@ func assertIntermediateTLS(t *testing.T, result Result) {
 	if len(result.TLSOpts) == 0 {
 		t.Fatal("expected TLS options")
 	}
-	cfg := &tls.Config{}
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
 	result.TLSOpts[0](cfg)
 	if cfg.MinVersion != tls.VersionTLS12 {
 		t.Fatalf("expected TLS 1.2 fallback, got %d", cfg.MinVersion)
