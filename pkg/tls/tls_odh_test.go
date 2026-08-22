@@ -98,7 +98,7 @@ func TestResolveClusterProfile_TransientError_EnablesWatcherSelfHeal(t *testing.
 	assertIntermediateTLS(t, result)
 }
 
-func TestResolveClusterProfile_CustomTLS13WithCiphersRejected(t *testing.T) {
+func TestFinalizeClusterTLSOpts_TLS13IgnoresCiphers(t *testing.T) {
 	profile := &configv1.TLSSecurityProfile{
 		Type: configv1.TLSProfileCustomType,
 		Custom: &configv1.CustomTLSProfile{
@@ -109,13 +109,21 @@ func TestResolveClusterProfile_CustomTLS13WithCiphersRejected(t *testing.T) {
 		},
 	}
 	minVersion, ciphers := parseProfile(profile)
-	if minVersion < tls.VersionTLS13 || len(ciphers) == 0 {
-		t.Fatal("test setup: expected TLS 1.3 custom profile with ciphers")
+	minVersion, ciphers = finalizeClusterTLSOpts(minVersion, ciphers)
+	if minVersion != tls.VersionTLS13 {
+		t.Fatalf("expected TLS 1.3, got %d", minVersion)
 	}
-	if minVersion >= tls.VersionTLS13 && len(ciphers) > 0 {
-		return
+	if len(ciphers) != 0 {
+		t.Fatalf("expected cipher suites to be ignored for TLS 1.3, got %v", ciphers)
 	}
-	t.Fatal("expected TLS 1.3 + cipher list combination to be rejected")
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	tlsOptsFrom(minVersion, ciphers)[0](cfg)
+	if cfg.MinVersion != tls.VersionTLS13 {
+		t.Fatalf("expected TLS 1.3 in tls.Config, got %d", cfg.MinVersion)
+	}
+	if len(cfg.CipherSuites) != 0 {
+		t.Fatalf("expected no cipher suites in tls.Config, got %v", cfg.CipherSuites)
+	}
 }
 
 func assertIntermediateTLS(t *testing.T, result Result) {

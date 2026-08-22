@@ -20,8 +20,8 @@ import "crypto/tls"
 
 // Result holds resolved TLS options and metadata for optional cluster profile watching.
 type Result struct {
-	TLSOpts        []func(*tls.Config)
-	ProfileFetched bool
-	APIAvailable   bool
+	TLSOpts         []func(*tls.Config)
+	ProfileFetched  bool
+	APIAvailable    bool
 	InitialSettings Settings
 }

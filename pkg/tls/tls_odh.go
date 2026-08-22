@@ -166,9 +166,7 @@ func resolveClusterProfile(ctx context.Context, cfg *rest.Config, k8sClient clie
 	}
 
 	minVersion, ciphers := parseProfile(profile)
-	if minVersion >= tls.VersionTLS13 && len(ciphers) > 0 {
-		return Result{}, errors.New("custom TLS profiles cannot configure cipher suites with TLS 1.3")
-	}
+	minVersion, ciphers = finalizeClusterTLSOpts(minVersion, ciphers)
 	if ciphers != nil && len(ciphers) == 0 {
 		return Result{}, fmt.Errorf("custom TLS profile specified ciphers but none are supported by Go (profile type: %s, ciphers: %v)",
 			profile.Type,
@@ -186,6 +184,14 @@ func resolveClusterProfile(ctx context.Context, cfg *rest.Config, k8sClient clie
 		APIAvailable:    true,
 		InitialSettings: settings,
 	}, nil
+}
+
+func finalizeClusterTLSOpts(minVersion uint16, ciphers []uint16) (uint16, []uint16) {
+	if minVersion >= tls.VersionTLS13 && len(ciphers) > 0 {
+		log.Info("Ignoring cipher suites for TLS 1.3 cluster profile; Go manages TLS 1.3 ciphers internally")
+		return minVersion, nil
+	}
+	return minVersion, ciphers
 }
 
 func intermediateResult(fetched, apiAvailable bool) Result {

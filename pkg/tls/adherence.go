@@ -31,8 +31,8 @@ import (
 )
 
 const (
-	adherenceFetchTimeout  = 10 * time.Second
-	adherenceRequeueDelay  = 5 * time.Second
+	adherenceFetchTimeout = 10 * time.Second
+	adherenceRequeueDelay = 5 * time.Second
 )
 
 const (
