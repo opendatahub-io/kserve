@@ -271,6 +271,16 @@ replacements:
       name: kserve-config-llm-template-ibm-spyre-ppc64le
     fieldPaths:
     - spec.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-cpu
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-cpu
+    fieldPaths:
+    - spec.template.containers.[name=main].image
 # Replace fast-1 accelerator LLMInferenceServiceConfig images
 - source:
     kind: ConfigMap
@@ -342,6 +352,16 @@ replacements:
       name: kserve-config-llm-template-ibm-spyre-ppc64le-fast-1
     fieldPaths:
     - spec.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-cpu-fast-1
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-cpu-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].image
 # Replace fast-2 accelerator LLMInferenceServiceConfig images
 - source:
     kind: ConfigMap
@@ -411,6 +431,16 @@ replacements:
   - select:
       kind: LLMInferenceServiceConfig
       name: kserve-config-llm-template-ibm-spyre-ppc64le-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-cpu-fast-2
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-cpu-fast-2
     fieldPaths:
     - spec.template.containers.[name=main].image
 # Set runAsNonRoot: true for all LLMInferenceServiceConfig templates.
@@ -706,6 +736,36 @@ replacements:
   - select:
       kind: LLMInferenceServiceConfig
       name: kserve-config-llm-template-ibm-spyre-s390x-fast-2
+    fieldPaths:
+    - metadata.annotations.[opendatahub.io/runtime-version]
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-cpu-upstream-version
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-cpu
+    fieldPaths:
+    - metadata.annotations.[opendatahub.io/runtime-version]
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-cpu-fast-1-upstream-version
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-cpu-fast-1
+    fieldPaths:
+    - metadata.annotations.[opendatahub.io/runtime-version]
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-cpu-fast-2-upstream-version
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template-cpu-fast-2
     fieldPaths:
     - metadata.annotations.[opendatahub.io/runtime-version]
 
