@@ -66,6 +66,10 @@ func (r *LLMISVCReconciler) reconcileMonitoringResources(ctx context.Context, ll
 		return fmt.Errorf("failed to reconcile scheduler monitor: %w", err)
 	}
 
+	if err := r.reconcileMonitoringNetworkPolicy(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to reconcile monitoring network policy: %w", err)
+	}
+
 	return nil
 }
 
@@ -404,6 +408,10 @@ func (r *LLMISVCReconciler) cleanupMonitoringResources(ctx context.Context, llmS
 	}
 	if err := Delete[*v1alpha2.LLMInferenceService](ctx, r, nil, r.expectedSchedulerMonitor(llmSvc, monitoringv1.RelabelConfig{})); err != nil {
 		return fmt.Errorf("failed to delete scheduler monitor: %w", err)
+	}
+
+	if err := r.cleanupMonitoringNetworkPolicy(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to cleanup monitoring network policy: %w", err)
 	}
 
 	serviceAccount := r.expectedMetricsReaderServiceAccount(llmSvc)
