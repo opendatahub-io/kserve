@@ -9,10 +9,8 @@ impossible to simulate in E2E.
 import pytest
 
 from conftest import (
-    MODEL_CONTROLLER_DEPLOYMENT,
     get_cr,
     get_conditions,
-    operand_deployments,
 )
 
 
@@ -41,9 +39,8 @@ class TestStatusConditions:
         assert conditions["Degraded"]["status"] == "False"
         assert conditions["Degraded"]["reason"] == "NoDegradation"
 
-        if cluster_info.is_openshift:
-            assert conditions["ModelControllerReady"]["status"] == "True"
-            assert conditions["ModelControllerReady"]["reason"] == "AllDeploymentsAvailable"
+        assert conditions["ModelControllerReady"]["status"] == "True"
+        assert conditions["ModelControllerReady"]["reason"] == "AllDeploymentsAvailable"
 
         cr = get_cr(kubectl)
         assert cr["status"]["phase"] == "Ready"
@@ -64,8 +61,9 @@ class TestStatusConditions:
     ):
         """Real component_metadata lands on the CR (envtest only sees the fallback).
 
-        Asserts KServe (always) and, where omc is deployed, one runtime it contributes
-        (MLServer) as proof its metadata was loaded.
+        Asserts KServe (always) and, on OpenShift, one runtime omc contributes
+        (MLServer) as proof its metadata was loaded. On XKS omc is deployed but
+        does not install those runtimes, so they are excluded from status.releases.
         """
         cr = get_cr(kubectl)
         releases = cr.get("status", {}).get("releases", [])
@@ -75,8 +73,12 @@ class TestStatusConditions:
         assert kserve_version is not None, f"expected 'KServe' in releases, got {names}"
         assert kserve_version != "", "KServe version should not be empty"
 
-        # Gate on omc being deployed, not on OpenShift — omc runs on XKS too (PR #1798).
-        if MODEL_CONTROLLER_DEPLOYMENT in operand_deployments(cluster_info.is_openshift):
-            mlserver_version = _release_version(releases, "MLServer")
+        # omc runtime metadata (MLServer, OVMS, ...) is loaded only on OpenShift.
+        # On XKS omc runs but installs no runtimes, so they are dropped from
+        # status.releases (see setReleaseStatus).
+        mlserver_version = _release_version(releases, "MLServer")
+        if cluster_info.is_openshift:
             assert mlserver_version is not None, f"expected 'MLServer' in releases, got {names}"
             assert mlserver_version != "", "MLServer version should not be empty"
+        else:
+            assert mlserver_version is None, f"MLServer should be excluded on XKS, got {names}"
