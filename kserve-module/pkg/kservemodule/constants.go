@@ -26,13 +26,13 @@ const (
 	ConsoleDashboardsComponentName  = "console-dashboards"
 
 	// Manifest source paths
-	KserveManifestSourcePath        = "overlays/odh"
-	KserveManifestSourcePathXKS     = "overlays/odh-xks"
-	KserveCRDManifestSourcePath     = "overlays/odh-crds"
-	ModelCacheManifestSourcePath    = "overlays/odh-modelcache"
-	ModelControllerSourcePath       = "overlays/odh"
-	WVAManifestSourcePathOCP        = "overlays/namespace-scoped/openshift"
-	ObservabilityManifestSourcePath      = "monitoring/llmisvc/dashboards"
+	KserveManifestSourcePath            = "overlays/odh"
+	KserveManifestSourcePathXKS         = "overlays/odh-xks"
+	KserveCRDManifestSourcePath         = "overlays/odh-crds"
+	ModelCacheManifestSourcePath        = "overlays/odh-modelcache"
+	ModelControllerSourcePath           = "overlays/odh"
+	WVAManifestSourcePathOCP            = "overlays/namespace-scoped/openshift"
+	ObservabilityManifestSourcePath     = "monitoring/llmisvc/dashboards"
 	ConsoleDashboardsManifestSourcePath = "monitoring/llmisvc/dashboards-odc"
 
 	// Deployment names
