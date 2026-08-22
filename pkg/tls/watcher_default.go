@@ -1,3 +1,5 @@
+//go:build !distro
+
 /*
 Copyright 2026 The KServe Authors.
 
@@ -14,10 +16,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package distro
+package tls
 
-// Distro-specific RBAC rules for the TLS profile resolution.
-// Processed by a separate controller-gen invocation (see Makefile.overrides.mk)
-// to generate a dedicated ClusterRole included only in distro overlays.
+import (
+	"context"
 
-//+kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
+	ctrl "sigs.k8s.io/controller-runtime"
+)
+
+// SetupProfileWatcherRestart is a no-op in upstream builds.
+func SetupProfileWatcherRestart(ctx context.Context, _ ctrl.Manager, _ Result) context.Context {
+	return ctx
+}

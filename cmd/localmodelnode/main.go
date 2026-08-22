@@ -115,7 +115,7 @@ func main() {
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   options.metricsAddr,
 		SecureServing: options.metricsSecure,
-		TLSOpts:       tlsResult,
+		TLSOpts:       tlsResult.TLSOpts,
 	}
 	if options.metricsSecure {
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
@@ -128,7 +128,7 @@ func main() {
 		Metrics: metricsServerOptions,
 		WebhookServer: webhook.NewServer(webhook.Options{
 			Port:    options.webhookPort,
-			TLSOpts: tlsResult,
+			TLSOpts: tlsResult.TLSOpts,
 		}),
 		LeaderElection:         options.enableLeaderElection,
 		LeaderElectionID:       LeaderLockName,
@@ -144,6 +144,10 @@ func main() {
 	setupLog.Info("Setting up controller schemes")
 	if err := kservescheme.AddControllerAPIs(mgr.GetScheme()); err != nil {
 		setupLog.Error(err, "unable to add controller APIs to scheme")
+		os.Exit(1)
+	}
+	if err := kservescheme.AddDistroAPIs(mgr.GetScheme()); err != nil {
+		setupLog.Error(err, "unable to add distro APIs to scheme")
 		os.Exit(1)
 	}
 
@@ -165,7 +169,8 @@ func main() {
 
 	// Start the Cmd
 	setupLog.Info("Starting the Cmd.")
-	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
+	startCtx := localmodelnodeStartContext(signals.SetupSignalHandler(), mgr, tlsResult)
+	if err := mgr.Start(startCtx); err != nil {
 		setupLog.Error(err, "unable to run the manager")
 		os.Exit(1)
 	}
