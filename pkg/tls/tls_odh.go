@@ -164,6 +164,9 @@ func resolveClusterProfile(ctx context.Context, cfg *rest.Config, k8sClient clie
 	if !shouldHonorClusterTLSProfile(adherence) {
 		profile = &configv1.TLSSecurityProfile{Type: configv1.TLSProfileIntermediateType}
 	}
+	if profile == nil {
+		profile = &configv1.TLSSecurityProfile{Type: configv1.TLSProfileIntermediateType}
+	}
 
 	minVersion, ciphers := parseProfile(profile)
 	minVersion, ciphers = finalizeClusterTLSOpts(minVersion, ciphers)

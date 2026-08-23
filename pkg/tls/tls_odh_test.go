@@ -21,11 +21,16 @@ package tls
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	configv1 "github.com/openshift/api/config/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -94,6 +99,40 @@ func TestResolveClusterProfile_TransientError_EnablesWatcherSelfHeal(t *testing.
 	}
 	if !result.APIAvailable {
 		t.Fatal("expected APIAvailable=true after transient retry exhaustion")
+	}
+	assertIntermediateTLS(t, result)
+}
+
+func TestResolveClusterProfile_NilTLSProfile_NoPanic(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/apis/config.openshift.io/v1/apiservers/cluster" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"apiVersion": "config.openshift.io/v1",
+			"kind":       "APIServer",
+			"metadata":   map[string]any{"name": "cluster"},
+			"spec":       map[string]any{"tlsAdherence": adherenceStrictAllComponents},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := &rest.Config{Host: srv.URL}
+	apiServer := &configv1.APIServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec:       configv1.APIServerSpec{},
+	}
+	result, err := resolveClusterProfile(context.Background(), cfg, &fakeAPIServerClient{obj: apiServer})
+	if err != nil {
+		t.Fatalf("resolveClusterProfile() error = %v", err)
+	}
+	if !result.ProfileFetched {
+		t.Fatal("expected ProfileFetched=true")
+	}
+	if !result.APIAvailable {
+		t.Fatal("expected APIAvailable=true")
 	}
 	assertIntermediateTLS(t, result)
 }
