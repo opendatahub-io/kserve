@@ -68,6 +68,6 @@ CI: `.github/workflows/post-release-e2e.yml` runs on `odh-v*` tag push or
 | Target | Description |
 |--------|-------------|
 | `e2e-setup-kserve-module` | Install dependencies and deploy controller |
-| `e2e-kserve-module` | Run E2E tests |
+| `e2e-kserve-module` | Run E2E tests (`-m "not post_release"`) |
 | `e2e-kserve-module-post-release` | Run post-release validation (`-m post_release`) |
 | `e2e-cleanup-kserve-module` | Uninstall controller and dependencies |

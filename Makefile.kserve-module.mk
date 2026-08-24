@@ -57,7 +57,7 @@ e2e-cleanup-kserve-module:
 	bash kserve-module/tests/scripts/setup-cluster.sh --platform $(PLATFORM) --cleanup
 
 e2e-kserve-module:
-	cd kserve-module/tests/e2e && python -m pytest -v
+	cd kserve-module/tests/e2e && python -m pytest -v -m "not post_release"
 
 e2e-kserve-module-post-release:
 	cd kserve-module/tests/e2e && python -m pytest -v -m post_release
