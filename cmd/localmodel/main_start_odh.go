@@ -21,8 +21,6 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"fmt"
-
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -46,8 +44,8 @@ func setupDistroStartup(ctx context.Context, mgr ctrl.Manager) (context.Context,
 		setupLog.Info("TLS settings changed, shutting down for restart",
 			"oldMinTLS", old.ProfileSpec.MinTLSVersion,
 			"newMinTLS", cur.ProfileSpec.MinTLSVersion,
-			"oldAdherence", fmt.Sprintf("%s", old.Adherence),
-			"newAdherence", fmt.Sprintf("%s", cur.Adherence))
+			"oldAdherence", string(old.Adherence),
+			"newAdherence", string(cur.Adherence))
 		cancel()
 	})
 	if err != nil {
