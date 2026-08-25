@@ -180,6 +180,13 @@ func main() {
 			"CVE-2023-44487 is fixed in Go 1.21.3+. Use --tls-min-version and --tls-cipher-suites instead.")
 		if !options.enableHTTP2 {
 			tlsOpts = kservetls.LegacyHTTP2TLSOpts()
+		} else {
+			var err error
+			tlsOpts, err = resolveTLS(ctx, cfg, "", "")
+			if err != nil {
+				setupLog.Error(err, "unable to resolve TLS configuration")
+				os.Exit(1)
+			}
 		}
 	default:
 		var err error
