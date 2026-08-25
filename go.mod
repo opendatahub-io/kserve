@@ -29,7 +29,7 @@ require (
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/open-telemetry/opentelemetry-operator v0.113.0
-	github.com/openshift/api v0.0.0-20240124164020-e2ce40831f2e
+	github.com/openshift/api v0.0.0-20260317095243-5c75e62da3e7
 	github.com/parquet-go/parquet-go v0.27.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.89.0

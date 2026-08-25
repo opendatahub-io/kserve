@@ -1,5 +1,3 @@
-//go:build distro
-
 /*
 Copyright 2026 The KServe Authors.
 
@@ -16,21 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package tls
+package distro
 
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
 
 	configv1 "github.com/openshift/api/config/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -56,7 +50,7 @@ func (f *fakeAPIServerClient) List(_ context.Context, _ client.ObjectList, _ ...
 
 func TestResolveClusterProfile_Forbidden_UsesHardenedDefaults(t *testing.T) {
 	gr := schema.GroupResource{Group: "config.openshift.io", Resource: "apiservers"}
-	result, err := resolveClusterProfile(context.Background(), nil, &fakeAPIServerClient{
+	result, err := resolveClusterProfile(context.Background(), &fakeAPIServerClient{
 		err: apierrors.NewForbidden(gr, "cluster", nil),
 	})
 	if err != nil {
@@ -72,7 +66,7 @@ func TestResolveClusterProfile_Forbidden_UsesHardenedDefaults(t *testing.T) {
 }
 
 func TestResolveClusterProfile_Unauthorized_UsesHardenedDefaults(t *testing.T) {
-	result, err := resolveClusterProfile(context.Background(), nil, &fakeAPIServerClient{
+	result, err := resolveClusterProfile(context.Background(), &fakeAPIServerClient{
 		err: apierrors.NewUnauthorized("not authenticated"),
 	})
 	if err != nil {
@@ -88,7 +82,7 @@ func TestResolveClusterProfile_Unauthorized_UsesHardenedDefaults(t *testing.T) {
 }
 
 func TestResolveClusterProfile_TransientError_EnablesWatcherSelfHeal(t *testing.T) {
-	result, err := resolveClusterProfile(context.Background(), nil, &fakeAPIServerClient{
+	result, err := resolveClusterProfile(context.Background(), &fakeAPIServerClient{
 		err: apierrors.NewServiceUnavailable("api down"),
 	})
 	if err != nil {
@@ -104,27 +98,13 @@ func TestResolveClusterProfile_TransientError_EnablesWatcherSelfHeal(t *testing.
 }
 
 func TestResolveClusterProfile_NilTLSProfile_NoPanic(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/apis/config.openshift.io/v1/apiservers/cluster" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"apiVersion": "config.openshift.io/v1",
-			"kind":       "APIServer",
-			"metadata":   map[string]any{"name": "cluster"},
-			"spec":       map[string]any{"tlsAdherence": adherenceStrictAllComponents},
-		})
-	}))
-	t.Cleanup(srv.Close)
-
-	cfg := &rest.Config{Host: srv.URL}
 	apiServer := &configv1.APIServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
-		Spec:       configv1.APIServerSpec{},
+		Spec: configv1.APIServerSpec{
+			TLSAdherence: configv1.TLSAdherencePolicyStrictAllComponents,
+		},
 	}
-	result, err := resolveClusterProfile(context.Background(), cfg, &fakeAPIServerClient{obj: apiServer})
+	result, err := resolveClusterProfile(context.Background(), &fakeAPIServerClient{obj: apiServer})
 	if err != nil {
 		t.Fatalf("resolveClusterProfile() error = %v", err)
 	}

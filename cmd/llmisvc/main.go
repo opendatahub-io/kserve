@@ -18,6 +18,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"os"
@@ -165,11 +166,11 @@ func main() {
 		}
 	})
 
-	var tlsResult kservetls.Result
+	var tlsOpts []func(*tls.Config)
 	switch {
 	case options.tlsMinVersion != "" || options.tlsCipherSuites != "":
 		var err error
-		tlsResult, err = kservetls.Resolve(ctx, cfg, options.tlsMinVersion, options.tlsCipherSuites)
+		tlsOpts, err = resolveTLS(ctx, cfg, options.tlsMinVersion, options.tlsCipherSuites)
 		if err != nil {
 			setupLog.Error(err, "unable to resolve TLS configuration")
 			os.Exit(1)
@@ -178,11 +179,11 @@ func main() {
 		setupLog.Info("WARNING: --enable-http2 is deprecated and will be removed in a future release. " +
 			"CVE-2023-44487 is fixed in Go 1.21.3+. Use --tls-min-version and --tls-cipher-suites instead.")
 		if !options.enableHTTP2 {
-			tlsResult = kservetls.Result{TLSOpts: kservetls.LegacyHTTP2TLSOpts()}
+			tlsOpts = kservetls.LegacyHTTP2TLSOpts()
 		}
 	default:
 		var err error
-		tlsResult, err = kservetls.Resolve(ctx, cfg, "", "")
+		tlsOpts, err = resolveTLS(ctx, cfg, "", "")
 		if err != nil {
 			setupLog.Error(err, "unable to resolve TLS configuration")
 			os.Exit(1)
@@ -192,7 +193,7 @@ func main() {
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   options.metricsAddr,
 		SecureServing: options.metricsSecure,
-		TLSOpts:       tlsResult.TLSOpts,
+		TLSOpts:       tlsOpts,
 	}
 
 	if options.metricsSecure {
@@ -207,7 +208,7 @@ func main() {
 	mgrOpts := ctrl.Options{
 		Scheme:                 scheme,
 		Metrics:                metricsServerOptions,
-		WebhookServer:          webhook.NewServer(webhook.Options{Port: options.webhookPort, TLSOpts: tlsResult.TLSOpts}),
+		WebhookServer:          webhook.NewServer(webhook.Options{Port: options.webhookPort, TLSOpts: tlsOpts}),
 		HealthProbeBindAddress: options.probeAddr,
 		LeaderElection:         options.enableLeaderElection,
 		LeaderElectionID:       "llminferenceservice-kserve-controller-manager",
@@ -397,7 +398,7 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	ctx = llmisvcStartContext(ctx, mgr, tlsResult)
+	ctx = llmisvcStartContext(ctx, mgr)
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "unable to run the manager")
 		os.Exit(1)

@@ -1,5 +1,3 @@
-//go:build distro
-
 /*
 Copyright 2026 The KServe Authors.
 
@@ -16,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package tls
+package distro
 
 import (
 	"testing"
@@ -26,18 +24,19 @@ import (
 
 func TestShouldHonorClusterTLSProfile(t *testing.T) {
 	tests := []struct {
-		adherence string
+		name      string
+		adherence configv1.TLSAdherencePolicy
 		want      bool
 	}{
-		{adherenceStrictAllComponents, true},
-		{"", true},
-		{adherenceNoOpinion, false},
-		{adherenceLegacyAdheringComponentsOnly, false},
-		{"FuturePolicy", true},
+		{"StrictAllComponents", configv1.TLSAdherencePolicyStrictAllComponents, true},
+		{"NoOpinion", configv1.TLSAdherencePolicyNoOpinion, false},
+		{"LegacyAdheringComponentsOnly", configv1.TLSAdherencePolicyLegacyAdheringComponentsOnly, false},
+		{"ZeroValue", configv1.TLSAdherencePolicy(""), false},
+		{"FuturePolicy", configv1.TLSAdherencePolicy("FuturePolicy"), true},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.adherence, func(t *testing.T) {
+		t.Run(tt.name, func(t *testing.T) {
 			if got := shouldHonorClusterTLSProfile(tt.adherence); got != tt.want {
 				t.Fatalf("shouldHonorClusterTLSProfile(%q) = %v, want %v", tt.adherence, got, tt.want)
 			}
@@ -49,13 +48,13 @@ func TestSettingsEqual(t *testing.T) {
 	intermediate := *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
 	modern := *configv1.TLSProfiles[configv1.TLSProfileModernType]
 
-	a := Settings{ProfileSpec: intermediate, Adherence: adherenceNoOpinion}
-	b := Settings{ProfileSpec: intermediate, Adherence: adherenceNoOpinion}
+	a := Settings{ProfileSpec: intermediate, Adherence: configv1.TLSAdherencePolicyNoOpinion}
+	b := Settings{ProfileSpec: intermediate, Adherence: configv1.TLSAdherencePolicyNoOpinion}
 	if !settingsEqual(a, b) {
 		t.Fatal("expected equal settings")
 	}
 
-	c := Settings{ProfileSpec: modern, Adherence: adherenceStrictAllComponents}
+	c := Settings{ProfileSpec: modern, Adherence: configv1.TLSAdherencePolicyStrictAllComponents}
 	if settingsEqual(a, c) {
 		t.Fatal("expected different settings")
 	}
@@ -73,41 +72,26 @@ func TestSettingsFromAPIServer_NoOpinionOverridesOldProfile(t *testing.T) {
 	apiServer := &configv1.APIServer{
 		Spec: configv1.APIServerSpec{
 			TLSSecurityProfile: &configv1.TLSSecurityProfile{Type: configv1.TLSProfileOldType},
+			TLSAdherence:       configv1.TLSAdherencePolicyNoOpinion,
 		},
 	}
-	settings := settingsFromAPIServer(apiServer, adherenceNoOpinion)
+	settings := settingsFromAPIServer(apiServer)
 	intermediate := *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
 	if settings.ProfileSpec.MinTLSVersion != intermediate.MinTLSVersion {
 		t.Fatalf("expected Intermediate profile under NoOpinion, got %q", settings.ProfileSpec.MinTLSVersion)
 	}
-	if settings.Adherence != adherenceNoOpinion {
-		t.Fatalf("expected adherence %q, got %q", adherenceNoOpinion, settings.Adherence)
-	}
 }
 
-func TestAdherenceForResolution_FetchFailureUsesNoOpinion(t *testing.T) {
-	got := adherenceForResolution("", false)
-	if got != adherenceNoOpinion {
-		t.Fatalf("expected %q on fetch failure, got %q", adherenceNoOpinion, got)
-	}
-}
-
-func TestAdherenceForResolution_PreservesSuccessfulRead(t *testing.T) {
-	got := adherenceForResolution(adherenceStrictAllComponents, true)
-	if got != adherenceStrictAllComponents {
-		t.Fatalf("expected %q, got %q", adherenceStrictAllComponents, got)
-	}
-}
-
-func TestSettingsFromAPIServer_EmptyAdherenceHonorsOldProfile(t *testing.T) {
+func TestSettingsFromAPIServer_StrictHonorsOldProfile(t *testing.T) {
 	apiServer := &configv1.APIServer{
 		Spec: configv1.APIServerSpec{
 			TLSSecurityProfile: &configv1.TLSSecurityProfile{Type: configv1.TLSProfileOldType},
+			TLSAdherence:       configv1.TLSAdherencePolicyStrictAllComponents,
 		},
 	}
-	settings := settingsFromAPIServer(apiServer, "")
+	settings := settingsFromAPIServer(apiServer)
 	old := *configv1.TLSProfiles[configv1.TLSProfileOldType]
 	if settings.ProfileSpec.MinTLSVersion != old.MinTLSVersion {
-		t.Fatalf("expected Old profile when adherence is empty, got %q", settings.ProfileSpec.MinTLSVersion)
+		t.Fatalf("expected Old profile when adherence is StrictAllComponents, got %q", settings.ProfileSpec.MinTLSVersion)
 	}
 }

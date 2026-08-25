@@ -20,12 +20,18 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	kservetls "github.com/kserve/kserve/pkg/tls"
 )
 
-func localmodelStartContext(ctx context.Context, _ ctrl.Manager, _ kservetls.Result) context.Context {
+func resolveTLS(_ context.Context, _ *rest.Config, minVer, ciphers string) ([]func(*tls.Config), error) {
+	return kservetls.Resolve(minVer, ciphers)
+}
+
+func localmodelStartContext(ctx context.Context, _ ctrl.Manager) context.Context {
 	return ctx
 }

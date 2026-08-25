@@ -36,7 +36,6 @@ import (
 
 	localmodelnodecontroller "github.com/kserve/kserve/pkg/controller/v1alpha1/localmodelnode"
 	kservescheme "github.com/kserve/kserve/pkg/scheme"
-	kservetls "github.com/kserve/kserve/pkg/tls"
 )
 
 var setupLog = ctrl.Log.WithName("setup")
@@ -104,7 +103,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	tlsResult, err := kservetls.Resolve(context.Background(), cfg, options.tlsMinVersion, options.tlsCipherSuites)
+	tlsOpts, err := resolveTLS(context.Background(), cfg, options.tlsMinVersion, options.tlsCipherSuites)
 	if err != nil {
 		setupLog.Error(err, "unable to resolve TLS configuration")
 		os.Exit(1)
@@ -115,7 +114,7 @@ func main() {
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   options.metricsAddr,
 		SecureServing: options.metricsSecure,
-		TLSOpts:       tlsResult.TLSOpts,
+		TLSOpts:       tlsOpts,
 	}
 	if options.metricsSecure {
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
@@ -128,7 +127,7 @@ func main() {
 		Metrics: metricsServerOptions,
 		WebhookServer: webhook.NewServer(webhook.Options{
 			Port:    options.webhookPort,
-			TLSOpts: tlsResult.TLSOpts,
+			TLSOpts: tlsOpts,
 		}),
 		LeaderElection:         options.enableLeaderElection,
 		LeaderElectionID:       LeaderLockName,
@@ -169,7 +168,7 @@ func main() {
 
 	// Start the Cmd
 	setupLog.Info("Starting the Cmd.")
-	startCtx := localmodelnodeStartContext(signals.SetupSignalHandler(), mgr, tlsResult)
+	startCtx := localmodelnodeStartContext(signals.SetupSignalHandler(), mgr)
 	if err := mgr.Start(startCtx); err != nil {
 		setupLog.Error(err, "unable to run the manager")
 		os.Exit(1)

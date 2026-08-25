@@ -1,5 +1,3 @@
-//go:build distro
-
 /*
 Copyright 2026 The KServe Authors.
 
@@ -16,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package tls
+package distro
 
 import (
 	"context"
@@ -31,8 +29,13 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kservetls "github.com/kserve/kserve/pkg/tls"
 )
+
+var log = ctrl.Log.WithName("tls")
 
 var openSSLToGoCipher = map[string]uint16{
 	"TLS_AES_128_GCM_SHA256":               tls.TLS_AES_128_GCM_SHA256,
@@ -64,24 +67,19 @@ var ocpTLSVersionMap = map[configv1.TLSProtocolVersion]uint16{
 	"VersionTLS13": tls.VersionTLS13,
 }
 
+const apiServerName = "cluster"
+
 // Resolve builds TLS option functions from the provided min version and cipher suites strings.
 // When both are empty, reads the cluster TLS security profile and adherence policy from
 // apiservers.config.openshift.io/cluster. Falls back to hardened Intermediate defaults
 // when the profile is unavailable (non-OpenShift cluster or transient error).
 func Resolve(ctx context.Context, cfg *rest.Config, tlsMinVersion, tlsCipherSuites string) (Result, error) {
 	if tlsMinVersion != "" || tlsCipherSuites != "" {
-		minVersion, err := parseMinVersion(tlsMinVersion)
+		tlsOpts, err := kservetls.Resolve(tlsMinVersion, tlsCipherSuites)
 		if err != nil {
 			return Result{}, err
 		}
-		ciphers, err := parseCipherSuites(tlsCipherSuites)
-		if err != nil {
-			return Result{}, err
-		}
-		if minVersion >= tls.VersionTLS13 && len(ciphers) > 0 {
-			return Result{}, errors.New("cipher suites cannot be configured with TLS 1.3 (Go manages TLS 1.3 ciphers internally)")
-		}
-		return Result{TLSOpts: tlsOptsFrom(minVersion, ciphers)}, nil
+		return Result{TLSOpts: tlsOpts}, nil
 	}
 
 	if cfg == nil {
@@ -102,10 +100,10 @@ func Resolve(ctx context.Context, cfg *rest.Config, tlsMinVersion, tlsCipherSuit
 		return Result{}, fmt.Errorf("creating bootstrap client for TLS profile: %w", err)
 	}
 
-	return resolveClusterProfile(resolveCtx, cfg, k8sClient)
+	return resolveClusterProfile(resolveCtx, k8sClient)
 }
 
-func resolveClusterProfile(ctx context.Context, cfg *rest.Config, k8sClient client.Reader) (Result, error) {
+func resolveClusterProfile(ctx context.Context, k8sClient client.Reader) (Result, error) {
 	apiServer := &configv1.APIServer{}
 	backoff := wait.Backoff{
 		Duration: 1 * time.Second,
@@ -154,14 +152,9 @@ func resolveClusterProfile(ctx context.Context, cfg *rest.Config, k8sClient clie
 		return intermediateResult(false, false), nil
 	}
 
-	adherence, adherenceOK := fetchTLSAdherence(ctx, cfg)
-	if !adherenceOK {
-		log.Info("Failed to read TLS adherence policy, using Intermediate fallback")
-	}
-	adherence = adherenceForResolution(adherence, adherenceOK)
-	settings := settingsFromAPIServer(apiServer, adherence)
+	settings := settingsFromAPIServer(apiServer)
 	profile := apiServer.Spec.TLSSecurityProfile
-	if !shouldHonorClusterTLSProfile(adherence) {
+	if !shouldHonorClusterTLSProfile(apiServer.Spec.TLSAdherence) {
 		profile = &configv1.TLSSecurityProfile{Type: configv1.TLSProfileIntermediateType}
 	}
 	if profile == nil {

@@ -20,12 +20,25 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	kservetls "github.com/kserve/kserve/pkg/tls"
+	distrotls "github.com/kserve/kserve/pkg/tls/distro"
 )
 
-func localmodelStartContext(ctx context.Context, mgr ctrl.Manager, tlsResult kservetls.Result) context.Context {
-	return kservetls.SetupProfileWatcherRestart(ctx, mgr, tlsResult)
+var distroTLSResult distrotls.Result
+
+func resolveTLS(ctx context.Context, cfg *rest.Config, minVer, ciphers string) ([]func(*tls.Config), error) {
+	res, err := distrotls.Resolve(ctx, cfg, minVer, ciphers)
+	if err != nil {
+		return nil, err
+	}
+	distroTLSResult = res
+	return res.TLSOpts, nil
+}
+
+func localmodelStartContext(ctx context.Context, mgr ctrl.Manager) context.Context {
+	return distrotls.SetupProfileWatcherRestart(ctx, mgr, distroTLSResult)
 }
