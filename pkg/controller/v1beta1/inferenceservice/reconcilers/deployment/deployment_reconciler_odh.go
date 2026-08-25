@@ -23,12 +23,12 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/kserve/kserve/pkg/constants"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
-	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/kserve/kserve/pkg/constants"
+	"k8s.io/apimachinery/pkg/util/intstr" //nolint:typecheck // build-tag guarded
 )
 
 // mountTransformerTLSInfrastructure injects TLS volumes and env vars into the
@@ -132,12 +132,39 @@ func mountTransformerTLSInfrastructure(deployment *appsv1.Deployment, componentM
 			podSpec.Containers[i].Args = append(podSpec.Containers[i].Args,
 				constants.ArgumentPredictorUseSSL, "true",
 			)
-			// Set the HTTPS container port so the default readiness probe targets 8443
-			// instead of the hardcoded 8080 fallback (see deployment_reconciler.go).
+
+			// Determine the serving port. GetContainer() auto-injects
+			// "--http_port 8080" before this hook runs, so the framework
+			// default is indistinguishable from "absent". Override it to
+			// the HTTPS port; if the user explicitly set a non-default
+			// port, respect their choice.
+			servingPort := constants.TransformerHTTPSPort
+			if userPort, ok := getArgValue(podSpec.Containers[i].Args, constants.ArgumentHttpPort); ok {
+				if userPort != constants.InferenceServiceDefaultHttpPort {
+					if parsed, err := strconv.ParseInt(userPort, 10, 32); err == nil {
+						servingPort = int32(parsed)
+					}
+				}
+			}
+			podSpec.Containers[i].Args = setArgValue(podSpec.Containers[i].Args,
+				constants.ArgumentHttpPort, strconv.Itoa(int(servingPort)))
+
 			podSpec.Containers[i].Ports = append(podSpec.Containers[i].Ports, corev1.ContainerPort{
-				ContainerPort: constants.TransformerHTTPSPort,
+				ContainerPort: servingPort,
 				Protocol:      corev1.ProtocolTCP,
 			})
+
+			// Patch existing probes to target the serving port.
+			// setDefaultPodSpec() already created a readiness probe on the --http_port
+			// value (8080 by default) before this hook runs; update it to match the
+			// actual listening port after the override above.
+			portVal := intstr.IntOrString{IntVal: servingPort}
+			if podSpec.Containers[i].ReadinessProbe != nil && podSpec.Containers[i].ReadinessProbe.TCPSocket != nil {
+				podSpec.Containers[i].ReadinessProbe.TCPSocket.Port = portVal
+			}
+			if podSpec.Containers[i].LivenessProbe != nil && podSpec.Containers[i].LivenessProbe.TCPSocket != nil {
+				podSpec.Containers[i].LivenessProbe.TCPSocket.Port = portVal
+			}
 			break
 		}
 	}
