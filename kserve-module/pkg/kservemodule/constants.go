@@ -63,6 +63,18 @@ const (
 	// LLMInferenceServiceConfig versioning
 	wellKnownAnnotationKey   = "serving.kserve.io/well-known-config"
 	wellKnownAnnotationValue = "true"
+
+	// recommendedAcceleratorsAnnotationKey holds a JSON array of the accelerator
+	// resource names a preset targets, e.g. '["nvidia.com/gpu"]'. Used by hardware-aware
+	// filtering to know which allocatable resource a preset needs.
+	recommendedAcceleratorsAnnotationKey = "opendatahub.io/recommended-accelerators"
+
+	// configTypeLabelKey / configTypeAcceleratorValue mark a preset as accelerator-specific.
+	// The accelerator overlays stamp this label via kustomize commonLabels; generic llm-d
+	// templates do not carry it. It is the canonical identity signal for hardware-aware and
+	// differential handling (see isAcceleratorPreset).
+	configTypeLabelKey         = "opendatahub.io/config-type"
+	configTypeAcceleratorValue = "accelerator"
 	llmISVCConfigPrefixEnv   = "LLM_INFERENCE_SERVICE_CONFIG_PREFIX"
 	llmISVCConfigGroup       = "serving.kserve.io"
 	llmISVCConfigVersion     = "v1alpha2"

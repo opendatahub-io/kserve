@@ -90,6 +90,11 @@ func (in *KserveSpec) DeepCopyInto(out *KserveSpec) {
 		*out = new(bool)
 		**out = **in
 	}
+	if in.EnableHardwareAwarePresets != nil {
+		in, out := &in.EnableHardwareAwarePresets, &out.EnableHardwareAwarePresets
+		*out = new(bool)
+		**out = **in
+	}
 	if in.ModelCache != nil {
 		in, out := &in.ModelCache, &out.ModelCache
 		*out = new(ModelCacheSpec)
