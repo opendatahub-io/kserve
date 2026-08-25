@@ -405,7 +405,10 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	ctx = llmisvcStartContext(ctx, mgr)
+	ctx, err = setupDistroStartup(ctx, mgr)
+	if err != nil {
+		setupLog.Error(err, "Failed to set up distro TLS watcher; profile changes will not trigger a restart")
+	}
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "unable to run the manager")
 		os.Exit(1)

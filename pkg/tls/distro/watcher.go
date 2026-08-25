@@ -35,29 +35,18 @@ var watcherLog = ctrl.Log.WithName("tls-profile-watcher")
 // resolved TLS settings (profile + adherence policy) change.
 type ProfileWatcher struct {
 	client.Client
-	InitialSettings  Settings
 	OnSettingsChange func(ctx context.Context, oldSettings, newSettings Settings)
 
-	lastSettings   Settings
-	baselineSynced bool
+	lastSettings Settings
 }
 
 func (w *ProfileWatcher) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
-	if req.Name != apiServerName {
-		return reconcile.Result{}, nil
-	}
-
 	apiServer := &configv1.APIServer{}
 	if err := w.Get(ctx, req.NamespacedName, apiServer); err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
 	currentSettings := settingsFromAPIServer(apiServer)
-	if !w.baselineSynced {
-		w.lastSettings = currentSettings
-		w.baselineSynced = true
-		return reconcile.Result{}, nil
-	}
 	if w.OnSettingsChange != nil && !settingsEqual(w.lastSettings, currentSettings) {
 		old := w.lastSettings
 		w.lastSettings = currentSettings
@@ -68,8 +57,6 @@ func (w *ProfileWatcher) Reconcile(ctx context.Context, req reconcile.Request) (
 }
 
 func (w *ProfileWatcher) SetupWithManager(mgr ctrl.Manager) error {
-	w.lastSettings = w.InitialSettings
-
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("tls-profile-watcher").
 		WithOptions(controller.Options{NeedLeaderElection: boolPtr(false)}).
@@ -94,32 +81,18 @@ func boolPtr(b bool) *bool {
 	return &b
 }
 
-// SetupProfileWatcherRestart wraps cancel-context setup and registers the profile watcher.
-// When the cluster TLS profile or adherence policy changes, the returned context is cancelled
-// so the manager can shut down and restart with updated TLS settings.
-//
-// Pod restart is intentional for RHOAIENG-78968: controller-runtime applies TLSOpts at
-// listener creation time, so in-process hot-reload would need GetConfigForClient wiring
-// for webhook and metrics listeners.
-func SetupProfileWatcherRestart(ctx context.Context, mgr ctrl.Manager, result Result) context.Context {
+// SetupProfileWatcher registers a controller that watches the APIServer CR and
+// invokes onChange when the resolved TLS settings (profile + adherence policy)
+// change. The caller decides how to react (e.g. cancel a context for restart).
+func SetupProfileWatcher(mgr ctrl.Manager, result Result, onChange func(ctx context.Context, oldSettings, newSettings Settings)) error {
 	if !result.APIAvailable {
-		return ctx
+		return nil
 	}
 
-	childCtx, cancel := context.WithCancel(ctx)
 	watcher := &ProfileWatcher{
-		Client:          mgr.GetClient(),
-		InitialSettings: result.InitialSettings,
-		lastSettings:    result.InitialSettings,
-		OnSettingsChange: func(_ context.Context, _, _ Settings) {
-			watcherLog.Info("TLS security profile or adherence policy changed, shutting down for restart")
-			cancel()
-		},
+		Client:           mgr.GetClient(),
+		lastSettings:     result.InitialSettings,
+		OnSettingsChange: onChange,
 	}
-	if err := watcher.SetupWithManager(mgr); err != nil {
-		cancel()
-		watcherLog.Error(err, "Failed to set up TLS security profile watcher; profile changes will not trigger a restart")
-		return ctx
-	}
-	return childCtx
+	return watcher.SetupWithManager(mgr)
 }

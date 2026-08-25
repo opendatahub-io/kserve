@@ -53,9 +53,8 @@ func TestProfileWatcher_DetectsProfileChange(t *testing.T) {
 
 	changed := false
 	watcher := &ProfileWatcher{
-		Client:          fakeClient,
-		InitialSettings: intermediate,
-		lastSettings:    intermediate,
+		Client:       fakeClient,
+		lastSettings: intermediate,
 		OnSettingsChange: func(_ context.Context, _, _ Settings) {
 			changed = true
 		},
@@ -65,25 +64,10 @@ func TestProfileWatcher_DetectsProfileChange(t *testing.T) {
 		NamespacedName: client.ObjectKey{Name: "cluster"},
 	})
 	if err != nil {
-		t.Fatalf("first Reconcile() error = %v", err)
-	}
-	if changed {
-		t.Fatal("baseline reconcile should not trigger OnSettingsChange")
-	}
-
-	apiServer.Spec.TLSSecurityProfile.Type = configv1.TLSProfileIntermediateType
-	if err := fakeClient.Update(context.Background(), apiServer); err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-
-	_, err = watcher.Reconcile(context.Background(), reconcile.Request{
-		NamespacedName: client.ObjectKey{Name: "cluster"},
-	})
-	if err != nil {
-		t.Fatalf("second Reconcile() error = %v", err)
+		t.Fatalf("Reconcile() error = %v", err)
 	}
 	if !changed {
-		t.Fatal("expected OnSettingsChange when profile differs from baseline settings")
+		t.Fatal("expected OnSettingsChange when cluster profile differs from initial settings")
 	}
 }
 
@@ -106,9 +90,8 @@ func TestProfileWatcher_NoChangeNoCallback(t *testing.T) {
 
 	called := false
 	watcher := &ProfileWatcher{
-		Client:          fakeClient,
-		InitialSettings: intermediate,
-		lastSettings:    intermediate,
+		Client:       fakeClient,
+		lastSettings: intermediate,
 		OnSettingsChange: func(_ context.Context, _, _ Settings) {
 			called = true
 		},
@@ -144,13 +127,13 @@ func TestProfileWatcher_DetectsAdherenceChange(t *testing.T) {
 
 	changed := false
 	watcher := &ProfileWatcher{
-		Client:          fakeClient,
-		InitialSettings: oldProfile,
-		lastSettings:    oldProfile,
+		Client:       fakeClient,
+		lastSettings: oldProfile,
 		OnSettingsChange: func(_ context.Context, _, newSettings Settings) {
 			changed = true
-			if newSettings.ProfileSpec.MinTLSVersion != configv1.VersionTLS10 {
-				t.Fatalf("expected Old profile after adherence change, got %q", newSettings.ProfileSpec.MinTLSVersion)
+			intermediate := *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
+			if newSettings.ProfileSpec.MinTLSVersion != intermediate.MinTLSVersion {
+				t.Fatalf("expected Intermediate fallback under NoOpinion, got %q", newSettings.ProfileSpec.MinTLSVersion)
 			}
 		},
 	}
@@ -159,29 +142,14 @@ func TestProfileWatcher_DetectsAdherenceChange(t *testing.T) {
 		NamespacedName: client.ObjectKey{Name: "cluster"},
 	})
 	if err != nil {
-		t.Fatalf("first Reconcile() error = %v", err)
-	}
-	if changed {
-		t.Fatal("baseline reconcile should not trigger OnSettingsChange")
-	}
-
-	apiServer.Spec.TLSAdherence = configv1.TLSAdherencePolicyStrictAllComponents
-	if err := fakeClient.Update(context.Background(), apiServer); err != nil {
-		t.Fatalf("Update() error = %v", err)
-	}
-
-	_, err = watcher.Reconcile(context.Background(), reconcile.Request{
-		NamespacedName: client.ObjectKey{Name: "cluster"},
-	})
-	if err != nil {
-		t.Fatalf("second Reconcile() error = %v", err)
+		t.Fatalf("Reconcile() error = %v", err)
 	}
 	if !changed {
-		t.Fatal("expected OnSettingsChange when adherence policy changes resolved settings")
+		t.Fatal("expected OnSettingsChange when adherence change alters resolved settings")
 	}
 }
 
-func TestProfileWatcher_BaselineSyncNoSpuriousRestart(t *testing.T) {
+func TestProfileWatcher_MatchingInitialSettingsNoCallback(t *testing.T) {
 	resolveSettings := Settings{
 		ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType],
 		Adherence:   configv1.TLSAdherencePolicyNoOpinion,
@@ -200,9 +168,8 @@ func TestProfileWatcher_BaselineSyncNoSpuriousRestart(t *testing.T) {
 
 	called := false
 	watcher := &ProfileWatcher{
-		Client:          fakeClient,
-		InitialSettings: resolveSettings,
-		lastSettings:    resolveSettings,
+		Client:       fakeClient,
+		lastSettings: resolveSettings,
 		OnSettingsChange: func(_ context.Context, _, _ Settings) {
 			called = true
 		},
@@ -215,6 +182,6 @@ func TestProfileWatcher_BaselineSyncNoSpuriousRestart(t *testing.T) {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 	if called {
-		t.Fatal("baseline reconcile should not restart when resolve-time settings differ")
+		t.Fatal("should not fire when NoOpinion adherence resolves both initial and current to same Intermediate settings")
 	}
 }

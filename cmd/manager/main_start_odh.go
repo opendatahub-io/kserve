@@ -21,6 +21,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -28,17 +29,30 @@ import (
 	distrotls "github.com/kserve/kserve/pkg/tls/distro"
 )
 
-var distroTLSResult distrotls.Result
+var lastTLSResult distrotls.Result
 
 func resolveTLS(ctx context.Context, cfg *rest.Config, minVer, ciphers string) ([]func(*tls.Config), error) {
 	res, err := distrotls.Resolve(ctx, cfg, minVer, ciphers)
 	if err != nil {
 		return nil, err
 	}
-	distroTLSResult = res
+	lastTLSResult = res
 	return res.TLSOpts, nil
 }
 
-func managerStartContext(ctx context.Context, mgr ctrl.Manager) context.Context {
-	return distrotls.SetupProfileWatcherRestart(ctx, mgr, distroTLSResult)
+func setupDistroStartup(ctx context.Context, mgr ctrl.Manager) (context.Context, error) {
+	childCtx, cancel := context.WithCancel(ctx)
+	err := distrotls.SetupProfileWatcher(mgr, lastTLSResult, func(_ context.Context, old, cur distrotls.Settings) {
+		setupLog.Info("TLS settings changed, shutting down for restart",
+			"oldMinTLS", old.ProfileSpec.MinTLSVersion,
+			"newMinTLS", cur.ProfileSpec.MinTLSVersion,
+			"oldAdherence", fmt.Sprintf("%s", old.Adherence),
+			"newAdherence", fmt.Sprintf("%s", cur.Adherence))
+		cancel()
+	})
+	if err != nil {
+		cancel()
+		return ctx, err
+	}
+	return childCtx, nil
 }

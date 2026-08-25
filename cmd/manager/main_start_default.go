@@ -32,6 +32,6 @@ func resolveTLS(_ context.Context, _ *rest.Config, minVer, ciphers string) ([]fu
 	return kservetls.Resolve(minVer, ciphers)
 }
 
-func managerStartContext(ctx context.Context, _ ctrl.Manager) context.Context {
-	return ctx
+func setupDistroStartup(ctx context.Context, _ ctrl.Manager) (context.Context, error) {
+	return ctx, nil
 }
