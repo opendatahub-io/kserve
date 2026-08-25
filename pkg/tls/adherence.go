@@ -20,6 +20,8 @@ package tls
 
 import (
 	"context"
+	"io"
+	"net/http"
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -31,8 +33,9 @@ import (
 )
 
 const (
-	adherenceFetchTimeout = 10 * time.Second
-	adherenceRequeueDelay = 5 * time.Second
+	adherenceFetchTimeout     = 10 * time.Second
+	adherenceRequeueDelay     = 5 * time.Second
+	maxAPIServerResponseBytes = 1 << 20 // 1 MiB; APIServer/cluster is a small object
 )
 
 const (
@@ -58,7 +61,12 @@ func fetchTLSAdherence(ctx context.Context, cfg *rest.Config) (string, bool) {
 	fetchCtx, cancel := context.WithTimeout(ctx, adherenceFetchTimeout)
 	defer cancel()
 
-	dc, err := dynamic.NewForConfig(cfg)
+	limitedCfg := rest.CopyConfig(cfg)
+	limitedCfg.Wrap(func(rt http.RoundTripper) http.RoundTripper {
+		return &responseBodyLimitRoundTripper{base: rt, limit: maxAPIServerResponseBytes}
+	})
+
+	dc, err := dynamic.NewForConfig(limitedCfg)
 	if err != nil {
 		log.Info("Unable to create dynamic client for TLS adherence", "error", err)
 		return "", false
@@ -75,6 +83,20 @@ func fetchTLSAdherence(ctx context.Context, cfg *rest.Config) (string, bool) {
 		return "", true
 	}
 	return adherence, true
+}
+
+type responseBodyLimitRoundTripper struct {
+	base  http.RoundTripper
+	limit int64
+}
+
+func (t *responseBodyLimitRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := t.base.RoundTrip(req)
+	if err != nil || resp == nil || resp.Body == nil {
+		return resp, err
+	}
+	resp.Body = io.NopCloser(io.LimitReader(resp.Body, t.limit))
+	return resp, nil
 }
 
 func adherenceForResolution(adherence string, ok bool) string {

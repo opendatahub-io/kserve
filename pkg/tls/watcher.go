@@ -120,6 +120,10 @@ func boolPtr(b bool) *bool {
 // SetupProfileWatcherRestart wraps cancel-context setup and registers the profile watcher.
 // When the cluster TLS profile or adherence policy changes, the returned context is cancelled
 // so the manager can shut down and restart with updated TLS settings.
+//
+// Pod restart is intentional for RHOAIENG-78968 (matches odh-model-controller #863): controller-runtime
+// applies TLSOpts at listener creation time, so in-process hot-reload would need GetConfigForClient
+// wiring for webhook and metrics. Tracked as a follow-up in kserve/kserve#6071.
 func SetupProfileWatcherRestart(ctx context.Context, mgr ctrl.Manager, result Result) context.Context {
 	if !result.APIAvailable {
 		return ctx
