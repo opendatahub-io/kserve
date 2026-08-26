@@ -1,3 +1,5 @@
+//go:build !distro
+
 /*
 Copyright 2026 The KServe Authors.
 
@@ -14,10 +16,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package distro
+package main
 
-// Distro-specific RBAC rules for the TLS profile resolution.
-// Processed by a separate controller-gen invocation (see Makefile.overrides.mk)
-// to generate a dedicated ClusterRole included only in distro overlays.
+import (
+	"context"
+	"crypto/tls"
 
-//+kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch
+	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
+
+	kservetls "github.com/kserve/kserve/pkg/tls"
+)
+
+func resolveTLS(_ context.Context, _ *rest.Config, minVer, ciphers string) ([]func(*tls.Config), error) {
+	return kservetls.Resolve(minVer, ciphers)
+}
+
+func setupDistroStartup(ctx context.Context, _ ctrl.Manager) (context.Context, error) {
+	return ctx, nil
+}

@@ -46,7 +46,6 @@ import (
 	"github.com/kserve/kserve/pkg/controller/v1alpha1/trainedmodel/reconcilers/modelconfig"
 	v1beta1controller "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice"
 	kservescheme "github.com/kserve/kserve/pkg/scheme"
-	kservetls "github.com/kserve/kserve/pkg/tls"
 	kserveutils "github.com/kserve/kserve/pkg/utils"
 	"github.com/kserve/kserve/pkg/webhook/admission/pod"
 	"github.com/kserve/kserve/pkg/webhook/admission/servingruntime"
@@ -125,7 +124,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	tlsResult, err := kservetls.Resolve(context.Background(), cfg, options.tlsMinVersion, options.tlsCipherSuites)
+	tlsOpts, err := resolveTLS(context.Background(), cfg, options.tlsMinVersion, options.tlsCipherSuites)
 	if err != nil {
 		setupLog.Error(err, "unable to resolve TLS configuration")
 		os.Exit(1)
@@ -143,7 +142,7 @@ func main() {
 	metricsServerOptions := metricsserver.Options{
 		BindAddress:   options.metricsAddr,
 		SecureServing: options.metricsSecure,
-		TLSOpts:       tlsResult,
+		TLSOpts:       tlsOpts,
 	}
 	if options.metricsSecure {
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
@@ -156,7 +155,7 @@ func main() {
 		Metrics: metricsServerOptions,
 		WebhookServer: webhook.NewServer(webhook.Options{
 			Port:    options.webhookPort,
-			TLSOpts: tlsResult,
+			TLSOpts: tlsOpts,
 		}),
 		LeaderElection:         options.enableLeaderElection,
 		LeaderElectionID:       LeaderLockName,
@@ -314,7 +313,11 @@ func main() {
 
 	// Start the Cmd
 	setupLog.Info("Starting the Cmd.")
-	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
+	startCtx, err := setupDistroStartup(signals.SetupSignalHandler(), mgr)
+	if err != nil {
+		setupLog.Error(err, "Failed to set up distro TLS watcher; profile changes will not trigger a restart")
+	}
+	if err := mgr.Start(startCtx); err != nil {
 		setupLog.Error(err, "unable to run the manager")
 		os.Exit(1)
 	}
