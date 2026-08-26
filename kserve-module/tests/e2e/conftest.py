@@ -398,11 +398,14 @@ def get_expected_release_tag():
 
 def image_matches_release_tag(image: str, release_tag: str) -> bool:
     """Return True when a container image uses the expected ODH release tag."""
-    if not image:
+    if not image or not release_tag:
         return False
-    if "@sha256:" in image or "@sha256:" in image.lower():
-        return True
-    return image.endswith(f":{release_tag}") or f":{release_tag}" in image
+    tagged_reference = f":{release_tag.lower()}"
+    image_lower = image.lower()
+    return (
+        image_lower.endswith(tagged_reference)
+        or f"{tagged_reference}@sha256:" in image_lower
+    )
 
 
 def get_deployment_container_image(kubectl_bin, name, namespace=NAMESPACE):
