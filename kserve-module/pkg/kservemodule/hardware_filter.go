@@ -38,6 +38,28 @@ func acceleratorRequirements(obj *unstructured.Unstructured) []string {
 	return out
 }
 
+// draDriverRequirements returns the DRA driver names a preset explicitly targets, parsed
+// from the opendatahub.io/recommended-dra-drivers annotation (a JSON array). It returns nil
+// when the annotation is absent, empty, or unparseable. These are matched exactly against the
+// drivers publishing ResourceSlices, complementing the vendor-domain bridge in acceleratorPresent.
+func draDriverRequirements(obj *unstructured.Unstructured) []string {
+	raw := obj.GetAnnotations()[recommendedDRADriversAnnotationKey]
+	if raw == "" {
+		return nil
+	}
+	var names []string
+	if err := json.Unmarshal([]byte(raw), &names); err != nil {
+		return nil
+	}
+	out := names[:0]
+	for _, n := range names {
+		if n != "" {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // resourceDomain returns the vendor domain of a Kubernetes resource name, i.e. the
 // part before the first "/". For nvidia.com/gpu and nvidia.com/mig-1g.5gb this is
 // "nvidia.com", so MIG-partitioned and vendor-variant devices satisfy a plain
@@ -133,10 +155,13 @@ func acceleratorPresent(req string, names, domains, draDrivers map[string]struct
 	return false
 }
 
-// filterHardwareUnavailablePresets drops accelerator LLMInferenceServiceConfig presets
-// whose required accelerator is not present in any node's status.allocatable. Presets
-// without the recommended-accelerators annotation (generic templates, non-config kinds)
-// are always kept. The behavior is disabled when spec.enableHardwareAwarePresets is false.
+// filterHardwareUnavailablePresets drops accelerator LLMInferenceServiceConfig presets whose
+// required accelerator is present neither in any node's status.allocatable nor via a DRA
+// ResourceSlice. A preset is kept when its recommended-accelerators (matched by exact resource
+// name or vendor domain, including the DRA driver domain bridge) OR its optional
+// recommended-dra-drivers (matched exactly against publishing drivers) are satisfied. Presets
+// carrying neither annotation (generic templates, non-config kinds) are always kept. The
+// behavior is disabled when spec.enableHardwareAwarePresets is false.
 //
 // It fails open: if the node list cannot be read, all presets are kept so a transient
 // API error never blocks a rollout.
@@ -152,7 +177,8 @@ func (r *KserveModuleReconciler) filterHardwareUnavailablePresets(ctx context.Co
 	// Cheap pre-check: skip the node list when nothing is a filterable accelerator preset.
 	hasAccelPreset := false
 	for i := range resources {
-		if isAcceleratorPreset(&resources[i]) && len(acceleratorRequirements(&resources[i])) > 0 {
+		if isAcceleratorPreset(&resources[i]) &&
+			(len(acceleratorRequirements(&resources[i])) > 0 || len(draDriverRequirements(&resources[i])) > 0) {
 			hasAccelPreset = true
 			break
 		}
@@ -176,7 +202,8 @@ func (r *KserveModuleReconciler) filterHardwareUnavailablePresets(ctx context.Co
 	var dropped []string
 	for i := range resources {
 		reqs := acceleratorRequirements(&resources[i])
-		if len(reqs) == 0 || !isAcceleratorPreset(&resources[i]) {
+		draReqs := draDriverRequirements(&resources[i])
+		if (len(reqs) == 0 && len(draReqs) == 0) || !isAcceleratorPreset(&resources[i]) {
 			filtered = append(filtered, resources[i])
 			continue
 		}
@@ -186,6 +213,16 @@ func (r *KserveModuleReconciler) filterHardwareUnavailablePresets(ctx context.Co
 			if acceleratorPresent(req, names, domains, draDrivers) {
 				available = true
 				break
+			}
+		}
+		// An explicit DRA driver requirement is satisfied by an exact driver match,
+		// independent of the vendor-domain bridge above.
+		if !available {
+			for _, req := range draReqs {
+				if _, ok := draDrivers[req]; ok {
+					available = true
+					break
+				}
 			}
 		}
 		if available {

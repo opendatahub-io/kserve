@@ -335,6 +335,74 @@ func TestFilterHardwareUnavailablePresets_NilKserve(t *testing.T) {
 	g.Expect(result).Should(HaveLen(1))
 }
 
+func TestDRADriverRequirements(t *testing.T) {
+	tests := []struct {
+		name string
+		anno string
+		want []string
+	}{
+		{"absent", "", nil},
+		{"single", `["gpu.nvidia.com"]`, []string{"gpu.nvidia.com"}},
+		{"multiple", `["gpu.nvidia.com","gpu.amd.com"]`, []string{"gpu.nvidia.com", "gpu.amd.com"}},
+		{"empty array", `[]`, nil},
+		{"empty entry dropped", `[""]`, nil},
+		{"malformed", `not-json`, nil},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			obj := &unstructured.Unstructured{Object: map[string]any{}}
+			if tc.anno != "" {
+				obj.SetAnnotations(map[string]string{recommendedDRADriversAnnotationKey: tc.anno})
+			}
+			got := draDriverRequirements(obj)
+			if tc.want == nil {
+				g.Expect(got).Should(BeEmpty())
+				return
+			}
+			g.Expect(got).Should(Equal(tc.want))
+		})
+	}
+}
+
+// accelPresetDRADriver builds an accelerator preset targeting an explicit DRA driver via the
+// recommended-dra-drivers annotation, plus a recommended-accelerators resource name whose vendor
+// domain deliberately differs from the driver's (so only the explicit driver match can keep it).
+func accelPresetDRADriver(name, accelerator, draDriver string) unstructured.Unstructured {
+	obj := accelPreset(name, accelerator)
+	anns := obj.GetAnnotations()
+	anns[recommendedDRADriversAnnotationKey] = `["` + draDriver + `"]`
+	obj.SetAnnotations(anns)
+	return obj
+}
+
+func TestFilterHardwareUnavailablePresets_DRADriverAnnotation(t *testing.T) {
+	g := NewWithT(t)
+
+	// The preset's resource domain (custom.example) does not match the driver's domain
+	// (accel.vendor.io), so only the explicit recommended-dra-drivers match can keep it.
+	kserve := &platformv1alpha1.Kserve{}
+
+	// Driver present: kept.
+	rPresent := draReconciler(
+		node("n1", "cpu"),
+		resourceSlice("accel-node", "accel.vendor.io"),
+	)
+	preset := accelPresetDRADriver("custom", "custom.example/device", "accel.vendor.io")
+	result := rPresent.filterHardwareUnavailablePresets(context.Background(), kserve, []unstructured.Unstructured{preset})
+	g.Expect(result).Should(HaveLen(1))
+
+	// Driver absent (a different driver publishes): dropped.
+	rAbsent := draReconciler(
+		node("n1", "cpu"),
+		resourceSlice("other-node", "gpu.nvidia.com"),
+	)
+	result = rAbsent.filterHardwareUnavailablePresets(context.Background(), kserve, []unstructured.Unstructured{
+		accelPresetDRADriver("custom", "custom.example/device", "accel.vendor.io"),
+	})
+	g.Expect(result).Should(BeEmpty())
+}
+
 func TestPresentDRADrivers(t *testing.T) {
 	g := NewWithT(t)
 
