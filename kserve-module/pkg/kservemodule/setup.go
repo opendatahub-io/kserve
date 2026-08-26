@@ -104,6 +104,20 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			)),
 		)
 
+	// Dynamic Resource Allocation ResourceSlices are a built-in API (resource.k8s.io) whose
+	// served version varies by cluster version (v1beta1/v1beta2/v1). Discover the served GVK
+	// via the RESTMapper; when present, watch it so an accelerator appearing/disappearing via
+	// DRA re-renders hardware-aware presets, and record the GVK for the read side to list.
+	draGK := schema.GroupKind{Group: "resource.k8s.io", Kind: "ResourceSlice"}
+	if mapping, err := mgr.GetRESTMapper().RESTMapping(draGK); err == nil {
+		r.draResourceSliceGVK = mapping.GroupVersionKind
+		sliceObj := &unstructured.Unstructured{}
+		sliceObj.SetGroupVersionKind(mapping.GroupVersionKind)
+		b.Watches(sliceObj, handler.EnqueueRequestsFromMapFunc(mapToKserve),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+		)
+	}
+
 	// SecurityContextConstraints CRD is always present on OpenShift (OLM); never on XKS.
 	sccGK := schema.GroupKind{Group: "security.openshift.io", Kind: "SecurityContextConstraints"}
 	if err := cluster.CustomResourceDefinitionExists(context.Background(), mgr.GetAPIReader(), sccGK); err == nil {

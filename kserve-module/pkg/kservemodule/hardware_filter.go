@@ -8,6 +8,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -71,15 +72,61 @@ func (r *KserveModuleReconciler) presentAcceleratorResources(ctx context.Context
 	return names, domains, nil
 }
 
-// acceleratorPresent reports whether an accelerator requirement is satisfied by the
-// cluster: an exact allocatable match, or a match on the vendor domain (covering MIG
-// devices such as nvidia.com/mig-1g.5gb against a nvidia.com/gpu requirement).
-func acceleratorPresent(req string, names, domains map[string]struct{}) bool {
+// presentDRADrivers lists Dynamic Resource Allocation ResourceSlices and returns the set of
+// driver names publishing devices in the cluster (e.g. gpu.nvidia.com). ResourceSlices are
+// the DRA analog of node status.allocatable: a driver only publishes them where its hardware
+// is actually present, so they signal accelerator availability on DRA-based clusters.
+//
+// When the cluster does not serve the resource.k8s.io API (draResourceSliceGVK unset, decided
+// at setup via the RESTMapper), it returns an empty set and no error. A genuine list error is
+// returned so the caller can fail open.
+func (r *KserveModuleReconciler) presentDRADrivers(ctx context.Context) (map[string]struct{}, error) {
+	drivers := make(map[string]struct{})
+	if r.draResourceSliceGVK.Empty() {
+		return drivers, nil
+	}
+
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   r.draResourceSliceGVK.Group,
+		Version: r.draResourceSliceGVK.Version,
+		Kind:    r.draResourceSliceGVK.Kind + "List",
+	})
+	if err := r.List(ctx, list); err != nil {
+		return nil, fmt.Errorf("listing ResourceSlices: %w", err)
+	}
+
+	for i := range list.Items {
+		driver, _, err := unstructured.NestedString(list.Items[i].Object, "spec", "driver")
+		if err != nil || driver == "" {
+			continue
+		}
+		drivers[driver] = struct{}{}
+	}
+	return drivers, nil
+}
+
+// acceleratorPresent reports whether an accelerator requirement is satisfied by the cluster:
+//   - an exact allocatable match (device-plugin extended resources), or
+//   - a match on the vendor domain (covering MIG devices such as nvidia.com/mig-1g.5gb
+//     against a nvidia.com/gpu requirement), or
+//   - a DRA ResourceSlice whose driver belongs to the same vendor domain (e.g. driver
+//     gpu.nvidia.com satisfies a nvidia.com/gpu requirement).
+func acceleratorPresent(req string, names, domains, draDrivers map[string]struct{}) bool {
 	if _, ok := names[req]; ok {
 		return true
 	}
-	if d := resourceDomain(req); d != "" {
-		if _, ok := domains[d]; ok {
+	d := resourceDomain(req)
+	if d == "" {
+		return false
+	}
+	if _, ok := domains[d]; ok {
+		return true
+	}
+	for driver := range draDrivers {
+		// gpu.nvidia.com (and compute-domain.nvidia.com, etc.) all end in ".nvidia.com";
+		// a bare driver equal to the domain is matched too.
+		if driver == d || strings.HasSuffix(driver, "."+d) {
 			return true
 		}
 	}
@@ -119,6 +166,11 @@ func (r *KserveModuleReconciler) filterHardwareUnavailablePresets(ctx context.Co
 		log.Error(err, "hardware-aware filtering: failed to list nodes, keeping all presets")
 		return resources
 	}
+	draDrivers, err := r.presentDRADrivers(ctx)
+	if err != nil {
+		log.Error(err, "hardware-aware filtering: failed to list DRA ResourceSlices, keeping all presets")
+		return resources
+	}
 
 	filtered := make([]unstructured.Unstructured, 0, len(resources))
 	var dropped []string
@@ -131,7 +183,7 @@ func (r *KserveModuleReconciler) filterHardwareUnavailablePresets(ctx context.Co
 
 		available := false
 		for _, req := range reqs {
-			if acceleratorPresent(req, names, domains) {
+			if acceleratorPresent(req, names, domains, draDrivers) {
 				available = true
 				break
 			}

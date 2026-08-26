@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -73,6 +74,35 @@ func nodeSchemeReconciler(objs ...runtime.Object) *KserveModuleReconciler {
 	return &KserveModuleReconciler{Client: cli, applicationsNamespace: "opendatahub"}
 }
 
+// draResourceSliceGVKTest is the ResourceSlice GVK used in DRA-aware tests, mirroring the
+// served GVK the reconciler discovers via the RESTMapper at setup.
+var draResourceSliceGVKTest = schema.GroupVersionKind{Group: "resource.k8s.io", Version: "v1", Kind: "ResourceSlice"}
+
+func resourceSlice(name, driver string) *unstructured.Unstructured {
+	u := &unstructured.Unstructured{}
+	u.SetGroupVersionKind(draResourceSliceGVKTest)
+	u.SetName(name)
+	_ = unstructured.SetNestedField(u.Object, driver, "spec", "driver")
+	return u
+}
+
+// draReconciler builds a reconciler whose scheme knows the ResourceSlice GVK and whose
+// draResourceSliceGVK is set, so presentDRADrivers lists the seeded slices.
+func draReconciler(objs ...runtime.Object) *KserveModuleReconciler {
+	s := runtime.NewScheme()
+	_ = corev1.AddToScheme(s)
+	s.AddKnownTypeWithName(llmISVCConfigGVK, &unstructured.Unstructured{})
+	s.AddKnownTypeWithName(llmISVCConfigListGVK, &unstructured.UnstructuredList{})
+	s.AddKnownTypeWithName(draResourceSliceGVKTest, &unstructured.Unstructured{})
+	s.AddKnownTypeWithName(draResourceSliceGVKTest.GroupVersion().WithKind("ResourceSliceList"), &unstructured.UnstructuredList{})
+	cli := fake.NewClientBuilder().WithScheme(s).WithRuntimeObjects(objs...).Build()
+	return &KserveModuleReconciler{
+		Client:                cli,
+		applicationsNamespace: "opendatahub",
+		draResourceSliceGVK:   draResourceSliceGVKTest,
+	}
+}
+
 func TestAcceleratorRequirements(t *testing.T) {
 	tests := []struct {
 		name string
@@ -124,17 +154,35 @@ func TestResourceDomain(t *testing.T) {
 func TestAcceleratorPresent(t *testing.T) {
 	names := map[string]struct{}{"nvidia.com/mig-1g.5gb": {}, "cpu": {}}
 	domains := map[string]struct{}{"nvidia.com": {}}
+	noDRA := map[string]struct{}{}
 
 	g := NewWithT(t)
 	// Exact match on a MIG device.
-	g.Expect(acceleratorPresent("nvidia.com/mig-1g.5gb", names, domains)).Should(BeTrue())
+	g.Expect(acceleratorPresent("nvidia.com/mig-1g.5gb", names, domains, noDRA)).Should(BeTrue())
 	// Domain match: nvidia.com/gpu satisfied by a MIG device under the same domain.
-	g.Expect(acceleratorPresent("nvidia.com/gpu", names, domains)).Should(BeTrue())
+	g.Expect(acceleratorPresent("nvidia.com/gpu", names, domains, noDRA)).Should(BeTrue())
 	// No node exposes amd.com at all.
-	g.Expect(acceleratorPresent("amd.com/gpu", names, domains)).Should(BeFalse())
+	g.Expect(acceleratorPresent("amd.com/gpu", names, domains, noDRA)).Should(BeFalse())
 	// A domain-less requirement only matches exact names.
-	g.Expect(acceleratorPresent("cpu", names, domains)).Should(BeTrue())
-	g.Expect(acceleratorPresent("hugepages", names, domains)).Should(BeFalse())
+	g.Expect(acceleratorPresent("cpu", names, domains, noDRA)).Should(BeTrue())
+	g.Expect(acceleratorPresent("hugepages", names, domains, noDRA)).Should(BeFalse())
+}
+
+func TestAcceleratorPresent_DRA(t *testing.T) {
+	g := NewWithT(t)
+	// No device-plugin allocatable at all; presence comes only from DRA ResourceSlices.
+	noNames := map[string]struct{}{}
+	noDomains := map[string]struct{}{}
+	draDrivers := map[string]struct{}{"gpu.nvidia.com": {}}
+
+	// A driver under the vendor domain satisfies the requirement.
+	g.Expect(acceleratorPresent("nvidia.com/gpu", noNames, noDomains, draDrivers)).Should(BeTrue())
+	// A different vendor's requirement is not satisfied.
+	g.Expect(acceleratorPresent("amd.com/gpu", noNames, noDomains, draDrivers)).Should(BeFalse())
+	// A driver named exactly as the domain also matches.
+	g.Expect(acceleratorPresent("amd.com/gpu", noNames, noDomains, map[string]struct{}{"amd.com": {}})).Should(BeTrue())
+	// A domain-less requirement never matches a DRA driver.
+	g.Expect(acceleratorPresent("cpu", noNames, noDomains, draDrivers)).Should(BeFalse())
 }
 
 // accelPresetNoLabel builds a well-known preset with the recommended-accelerators annotation
@@ -177,11 +225,11 @@ func TestFilterHardwareUnavailablePresets(t *testing.T) {
 	generic := accelPreset("kserve-config-llm-template")
 
 	tests := []struct {
-		name       string
-		nodes      []runtime.Object
-		enable     *bool
-		resources  []unstructured.Unstructured
-		wantNames  []string
+		name        string
+		nodes       []runtime.Object
+		enable      *bool
+		resources   []unstructured.Unstructured
+		wantNames   []string
 		wantDropped []string
 	}{
 		{
@@ -285,4 +333,49 @@ func TestFilterHardwareUnavailablePresets_NilKserve(t *testing.T) {
 	resources := []unstructured.Unstructured{accelPreset("nvidia", "nvidia.com/gpu")}
 	result := r.filterHardwareUnavailablePresets(context.Background(), nil, resources)
 	g.Expect(result).Should(HaveLen(1))
+}
+
+func TestPresentDRADrivers(t *testing.T) {
+	g := NewWithT(t)
+
+	// GVK unset (DRA not served): empty set, no error, no list attempted.
+	rNoDRA := &KserveModuleReconciler{applicationsNamespace: "opendatahub"}
+	drivers, err := rNoDRA.presentDRADrivers(context.Background())
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(drivers).Should(BeEmpty())
+
+	// GVK set: driver names collected from spec.driver of each ResourceSlice.
+	r := draReconciler(
+		resourceSlice("gpu-node-a", "gpu.nvidia.com"),
+		resourceSlice("gpu-node-b", "gpu.nvidia.com"),
+		resourceSlice("amd-node", "gpu.amd.com"),
+	)
+	drivers, err = r.presentDRADrivers(context.Background())
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(drivers).Should(HaveKey("gpu.nvidia.com"))
+	g.Expect(drivers).Should(HaveKey("gpu.amd.com"))
+	g.Expect(drivers).Should(HaveLen(2))
+}
+
+func TestFilterHardwareUnavailablePresets_DRA(t *testing.T) {
+	g := NewWithT(t)
+
+	// A cluster with no device-plugin GPU allocatable, but an nvidia DRA driver publishing a
+	// ResourceSlice: the nvidia preset must be kept, the amd one dropped.
+	r := draReconciler(
+		node("n1", "cpu"),
+		resourceSlice("gpu-node", "gpu.nvidia.com"),
+	)
+	kserve := &platformv1alpha1.Kserve{}
+	resources := []unstructured.Unstructured{
+		accelPreset("nvidia", "nvidia.com/gpu"),
+		accelPreset("amd", "amd.com/gpu"),
+	}
+	result := r.filterHardwareUnavailablePresets(context.Background(), kserve, resources)
+
+	var names []string
+	for _, res := range result {
+		names = append(names, res.GetName())
+	}
+	g.Expect(names).Should(ConsistOf("nvidia"))
 }
