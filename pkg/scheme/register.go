@@ -126,6 +126,11 @@ func AddLLMISVCAPIs(s *runtime.Scheme) error {
 	}, distroSchemes...)...)
 }
 
+// AddDistroAPIs registers distribution-specific APIs (OpenShift config, monitoring, etc.).
+func AddDistroAPIs(s *runtime.Scheme) error {
+	return addAll(s, distroSchemes...)
+}
+
 // AddAll registers all API groups supported by KServe managers and envtest suites.
 func AddAll(s *runtime.Scheme) error {
 	return addAll(s, append([]addToSchemeFunc{
