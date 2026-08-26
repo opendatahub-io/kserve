@@ -76,9 +76,10 @@ export KSERVE_NAMESPACE=${KSERVE_NAMESPACE:-"kserve"}
 export KEDA_NAMESPACE=${KEDA_NAMESPACE:-"openshift-keda"}
 export KEDA_OPERATOR_POD_LABEL=${KEDA_OPERATOR_POD_LABEL:-"app=keda-operator"}
 
+export IMAGE_TRANSFORMER_IMG_TAG="${IMAGE_TRANSFORMER_IMG_TAG:-kserve/image-transformer:latest}"
+
 if [[ "$RUNNING_LOCAL" == "true" ]]; then
   export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
-  export IMAGE_TRANSFORMER_IMG_TAG=kserve/image-transformer:latest
   export GITHUB_SHA=master
 fi
 
@@ -92,6 +93,10 @@ if [ "$SETUP_E2E" = "true" ]; then
   ./test/scripts/openshift-ci/setup-e2e-tests.sh "${MARKERS}" 2>&1 | tee ./test/scripts/openshift-ci/setup-e2e-tests-"${MARKERS// /_}".log
   popd
 fi
+
+export OPT_125M_MODEL_URI="${OPT_125M_MODEL_URI:-s3://example-models/facebook/opt-125m}"
+: "${OPT_125M_OCI_MODEL_URI:=oci://quay.io/opendatahub/opt-125m-modelcar:latest}"
+export OPT_125M_OCI_MODEL_URI
 
 # Use certify go module to get the CA certs
 # For serverless it is configured here: infra/deploy.serverless.sh

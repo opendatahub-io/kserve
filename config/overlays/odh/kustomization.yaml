@@ -31,10 +31,15 @@ namespace: opendatahub
 patches:
 - path: patches/remove-namespace.yaml
 - path: patches/remove-cert-manager.yaml
-- path: patches/remove-clusterservingruntime.yaml
 - path: patches/inferenceservice-config-patch.yaml
 - path: patches/set-resources-manager-patch.yaml
 - path: patches/remove-auth-proxy-patch.yaml
+- path: patches/secure-metrics-kserve-patch.yaml
+- path: patches/secure-metrics-service-patch.yaml
+- target:
+    kind: Deployment
+    name: llmisvc-controller-manager
+  path: patches/secure-metrics-llmisvc-patch.yaml
 - path: patches/config-scheduler-patch.yaml
 - target:
     kind: ValidatingWebhookConfiguration
@@ -125,10 +130,11 @@ replacements:
       name: kserve-config-llm-scheduler
     fieldPaths:
     - spec.router.scheduler.template.containers.[name=main].image
+# Replace tokenizer's vLLM render image with Red Hat CPU image
 - source:
     kind: ConfigMap
     name: kserve-parameters
-    fieldPath: data.kserve-llm-d-uds-tokenizer
+    fieldPath: data.kserve-llm-d-tokenizer
   targets:
     - select:
         kind: LLMInferenceServiceConfig

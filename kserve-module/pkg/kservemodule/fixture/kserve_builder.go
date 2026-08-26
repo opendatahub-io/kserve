@@ -63,6 +63,18 @@ func WithEnableLLMInferenceServiceConsoleDashboards(val *bool) KserveOption {
 	}
 }
 
+func WithModelRegistryManagementState(state common.ManagementState) KserveOption {
+	return func(k *platformv1alpha1.Kserve) {
+		k.Spec.ModelRegistry.ManagementState = state
+	}
+}
+
+func WithAuditLogging(state common.ManagementState) KserveOption {
+	return func(k *platformv1alpha1.Kserve) {
+		k.Spec.AuditLogging = state
+	}
+}
+
 func WithAnnotation(key, value string) KserveOption {
 	return func(k *platformv1alpha1.Kserve) {
 		if k.Annotations == nil {

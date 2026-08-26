@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
@@ -103,6 +104,23 @@ var legacySelectorDaemonSets = []legacySelectorWorkload{
 	{name: "kserve-localmodelnode-agent", legacyLabelKey: "app.opendatahub.io/kserve"},
 }
 
+// legacyKServeWebhookService is the shared webhook Service name used before llmisvc
+// got its own endpoint (llmisvc-webhook-server-service).
+const legacyKServeWebhookService = "kserve-webhook-server-service"
+
+// legacyLLMInferenceValidatingWebhooks are ValidatingWebhookConfiguration names for
+// LLMInferenceService / LLMInferenceServiceConfig that may still point at the old service.
+var legacyLLMInferenceValidatingWebhooks = []string{
+	"llminferenceservice.serving.kserve.io",
+	"llminferenceserviceconfig.serving.kserve.io",
+}
+
+// legacyLLMInferenceMutatingWebhooks are MutatingWebhookConfiguration names with the
+// same legacy-service migration concern.
+var legacyLLMInferenceMutatingWebhooks = []string{
+	"llminferenceservice.serving.kserve.io",
+}
+
 // deleteLegacySelectorWorkloads checks each Deployment and DaemonSet for legacy selector
 // labels and deletes those that carry them. The reconciler will recreate them with the correct selectors.
 func deleteLegacySelectorWorkloads(ctx context.Context, cli client.Client, namespace string) error {
@@ -164,6 +182,81 @@ func deleteLegacySelectorWorkloads(ctx context.Context, cli client.Client, names
 	return errors.Join(errs...)
 }
 
+// deleteLegacyLLMInferenceWebhooks deletes LLMInferenceService webhook configs whose
+// webhooks still reference kserve-webhook-server-service. If any webhook entry in a
+// config points at the legacy service, the entire configuration is deleted so the
+// reconciler can recreate it with llmisvc-webhook-server-service.
+func deleteLegacyLLMInferenceWebhooks(ctx context.Context, cli client.Client) error {
+	log := ctrl.LoggerFrom(ctx)
+	var errs []error
+
+	for _, name := range legacyLLMInferenceValidatingWebhooks {
+		vwc := &admissionregistrationv1.ValidatingWebhookConfiguration{}
+		if err := cli.Get(ctx, types.NamespacedName{Name: name}, vwc); err != nil {
+			if k8serr.IsNotFound(err) {
+				continue
+			}
+			errs = append(errs, fmt.Errorf("failed to get ValidatingWebhookConfiguration %s: %w", name, err))
+			continue
+		}
+
+		if !validatingWebhookRefsLegacyService(vwc.Webhooks) {
+			continue
+		}
+
+		log.Info("Deleting ValidatingWebhookConfiguration with legacy webhook service",
+			"name", name, "legacyService", legacyKServeWebhookService)
+
+		if err := cli.Delete(ctx, vwc); err != nil && !k8serr.IsNotFound(err) {
+			errs = append(errs, fmt.Errorf("failed to delete ValidatingWebhookConfiguration %s: %w", name, err))
+		}
+	}
+
+	for _, name := range legacyLLMInferenceMutatingWebhooks {
+		mwc := &admissionregistrationv1.MutatingWebhookConfiguration{}
+		if err := cli.Get(ctx, types.NamespacedName{Name: name}, mwc); err != nil {
+			if k8serr.IsNotFound(err) {
+				continue
+			}
+			errs = append(errs, fmt.Errorf("failed to get MutatingWebhookConfiguration %s: %w", name, err))
+			continue
+		}
+
+		if !mutatingWebhookRefsLegacyService(mwc.Webhooks) {
+			continue
+		}
+
+		log.Info("Deleting MutatingWebhookConfiguration with legacy webhook service",
+			"name", name, "legacyService", legacyKServeWebhookService)
+
+		if err := cli.Delete(ctx, mwc); err != nil && !k8serr.IsNotFound(err) {
+			errs = append(errs, fmt.Errorf("failed to delete MutatingWebhookConfiguration %s: %w", name, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+func validatingWebhookRefsLegacyService(webhooks []admissionregistrationv1.ValidatingWebhook) bool {
+	for i := range webhooks {
+		if webhooks[i].ClientConfig.Service != nil &&
+			webhooks[i].ClientConfig.Service.Name == legacyKServeWebhookService {
+			return true
+		}
+	}
+	return false
+}
+
+func mutatingWebhookRefsLegacyService(webhooks []admissionregistrationv1.MutatingWebhook) bool {
+	for i := range webhooks {
+		if webhooks[i].ClientConfig.Service != nil &&
+			webhooks[i].ClientConfig.Service.Name == legacyKServeWebhookService {
+			return true
+		}
+	}
+	return false
+}
+
 // knownConditionTypes lists all condition types managed by kserve-module.
 // Conditions not in this set (e.g. from the in-tree ODH operator) are removed on upgrade.
 // TODO(3.6): remove removeStaleConditions and knownConditionTypes — only needed for 3.5 migration from in-tree operator.
@@ -212,13 +305,18 @@ func removeStaleConditions(ctx context.Context, cli client.Client, crName string
 
 // runUpgradeTasks performs one-time migration tasks on startup:
 //  1. Deletes Deployments and DaemonSets carrying legacy selector labels from the in-tree ODH operator.
-//  2. Removes stale conditions left by the in-tree ODH operator.
-//  3. Migrates HardwareProfile annotations on InferenceServices.
+//  2. Deletes LLMInferenceService webhook configs still pointing at kserve-webhook-server-service.
+//  3. Removes stale conditions left by the in-tree ODH operator.
+//  4. Migrates HardwareProfile annotations on InferenceServices.
 func runUpgradeTasks(ctx context.Context, cli client.Client, applicationNS string) error {
 	log := ctrl.LoggerFrom(ctx)
 
 	if err := deleteLegacySelectorWorkloads(ctx, cli, applicationNS); err != nil {
 		log.Error(err, "legacy selector deployment cleanup encountered errors")
+	}
+
+	if err := deleteLegacyLLMInferenceWebhooks(ctx, cli); err != nil {
+		log.Error(err, "legacy llmisvc webhook cleanup encountered errors")
 	}
 
 	if err := removeStaleConditions(ctx, cli, platformv1alpha1.KserveInstanceName); err != nil {

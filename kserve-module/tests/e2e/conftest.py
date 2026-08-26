@@ -15,6 +15,7 @@ import yaml
 KSERVE_CR_NAME = "default-kserve"
 NAMESPACE = "opendatahub"
 OPERATOR_DEPLOYMENT = "kserve-module-controller-manager"
+TIMEOUT_300S = 300  # cold-start: first Kserve CR ready waits on operand image pulls
 TIMEOUT_120S = 120
 TIMEOUT_60S = 60
 
@@ -29,6 +30,7 @@ OPERAND_DEPLOYMENTS_OCP = [
 ]
 
 WVA_DEPLOYMENT = "workload-variant-autoscaler-controller-manager"
+WVA_CONFIGMAP = "workload-variant-autoscaler-saturation-scaling-config"
 MODEL_CONTROLLER_DEPLOYMENT = "odh-model-controller"
 LOCALMODEL_CONTROLLER_DEPLOYMENT = "kserve-localmodel-controller-manager"
 LOCALMODEL_AGENT_DAEMONSET = "kserve-localmodelnode-agent"
@@ -175,8 +177,8 @@ def create_kserve_cr(kubectl_bin, cr_dict=None):
             kubectl_bin,
             KSERVE_CR_NAME,
             is_cr_ready,
-            TIMEOUT_120S,
-            f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_120S}s",
+            TIMEOUT_300S,
+            f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_300S}s",
         )
     cr = yaml.safe_dump(cr_dict or KSERVE_CR_TEMPLATE)
     run([kubectl_bin, "create", "-f", "-"], input_text=cr)
@@ -184,8 +186,8 @@ def create_kserve_cr(kubectl_bin, cr_dict=None):
         kubectl_bin,
         KSERVE_CR_NAME,
         is_cr_ready,
-        TIMEOUT_120S,
-        f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_120S}s",
+        TIMEOUT_300S,
+        f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_300S}s",
     )
 
 
@@ -207,6 +209,14 @@ def wait_for(assertion_fn, timeout=60.0, interval=5.0):
                     f"Last error: {last_error}"
                 ) from e
             time.sleep(interval)
+
+
+def wait_consistently(assertion_fn, duration=30.0, interval=5.0):
+    """Poll and assert condition stays true for the entire duration."""
+    deadline = time.time() + duration
+    while time.time() < deadline:
+        assertion_fn()
+        time.sleep(interval)
 
 
 def _poll_cr(kubectl_bin, name, predicate, timeout, msg):

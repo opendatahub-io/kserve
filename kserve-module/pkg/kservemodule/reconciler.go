@@ -53,7 +53,7 @@ import (
 // --- Operand RBAC (cluster-scoped: operand ClusterRoles grant end-user access across namespaces) ---
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterroles;clusterrolebindings,verbs=create;delete;get;list;patch;update;watch
 // escalate/bind scoped to the exact roles and clusterroles deployed by this controller
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=account-editor-role;account-viewer-role;kserve-admin;kserve-edit;kserve-models-admin;kserve-models-edit;kserve-models-view;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-inferenceservice-distro-role;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;openshift-ai-inferenceservice-image-volume-scc;odh-model-controller-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s;workload-variant-autoscaler-manager-role;workload-variant-autoscaler-metrics-auth-role;workload-variant-autoscaler-epp-metrics-reader-role;workload-variant-autoscaler-variantautoscaling-admin-role;workload-variant-autoscaler-variantautoscaling-editor-role;workload-variant-autoscaler-variantautoscaling-viewer-role;workload-variant-autoscaler-metrics-reader;kserve-localmodel-manager-role;kserve-localmodel-distro-role;kserve-localmodel-permfix-role;kserve-localmodelnode-agent-role;kserve-localmodelnode-distro-role;kserve-tls-distro-role
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=account-editor-role;account-viewer-role;kserve-admin;kserve-edit;kserve-models-admin;kserve-models-edit;kserve-models-view;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-inferenceservice-distro-role;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;openshift-ai-inferenceservice-image-volume-scc;odh-model-controller-role;odh-model-controller-openshift-distro-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s;workload-variant-autoscaler-manager-role;workload-variant-autoscaler-metrics-auth-role;workload-variant-autoscaler-epp-metrics-reader-role;workload-variant-autoscaler-variantautoscaling-admin-role;workload-variant-autoscaler-variantautoscaling-editor-role;workload-variant-autoscaler-variantautoscaling-viewer-role;workload-variant-autoscaler-metrics-reader;kserve-localmodel-manager-role;kserve-localmodel-distro-role;kserve-localmodel-permfix-role;kserve-localmodelnode-agent-role;kserve-localmodelnode-distro-role;kserve-tls-distro-role
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=bind;escalate,resourceNames=kserve-leader-election-role;llmisvc-leader-election-role;leader-election-role;workload-variant-autoscaler-leader-election-role
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles/finalizers;rolebindings/finalizers;clusterroles/finalizers;clusterrolebindings/finalizers,verbs=update
 
@@ -74,7 +74,7 @@ import (
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations;validatingwebhookconfigurations,verbs=create;delete;get;list;patch;update;watch
 
 // --- KServe cluster-scoped operand resources ---
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceserviceconfigs;clusterstoragecontainers,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=clusterservingruntimes;llminferenceserviceconfigs;clusterstoragecontainers,verbs=create;delete;get;list;patch;update;watch
 
 // --- OpenShift-specific cluster-scoped resources ---
 // SCCs: required for InferenceService and LLMInferenceService workload pods
@@ -126,6 +126,10 @@ type KserveModuleReconciler struct {
 	cache          cache.Cache
 	dynamicWatches []*dynamicWatch
 	dynamicWatchMu sync.Mutex
+
+	// expectedPresets holds the preset names from the most recent render, written
+	// by reconcile and read by updateComponentReadiness later in the same call.
+	expectedPresets []string
 }
 
 func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
@@ -245,6 +249,8 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 		return componentErrors
 	}
 
+	r.expectedPresets = wellKnownPresetNames(allResources)
+
 	owned, unowned := splitByOwnership(allResources)
 	if err := r.Deployer.Deploy(ctx, deploy.DeployInput{
 		Client:    r.Client,
@@ -317,10 +323,11 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 
 	if r.isKubernetes(ctx) {
 		ns := r.getApplicationsNamespace()
-		certNS := r.getCertManagerNamespace(ctx)
+		configData := r.getPlatformConfigData(ctx)
+		certNS := r.getCertManagerNamespace(ctx, configData)
 		if err := applyParams(
 			filepath.Join(manifestDir, comp.dirName(), comp.sourcePathXKS),
-			nil, buildCertManagerParams(ns, certNS),
+			nil, buildCertManagerParams(ns, configData, certNS),
 		); err != nil {
 			return nil, fmt.Errorf("applying cert-manager params: %w", err)
 		}
@@ -399,12 +406,12 @@ func (r *KserveModuleReconciler) getApplicationsNamespace() string {
 
 // getCertManagerNamespace dynamically discovers the namespace where cert-manager
 // stores its CA secrets. It checks (in order):
-// 1. CA_SECRET_NAMESPACE env var (explicit override)
+// 1. Platform ConfigMap (CERT_MANAGER_CA_SECRET_NAMESPACE key)
 // 2. "cert-manager" namespace existence on the cluster
 // 3. "cert-manager-operator" namespace existence (OCP OLM install)
 // 4. Falls back to "cert-manager" constant
-func (r *KserveModuleReconciler) getCertManagerNamespace(ctx context.Context) string {
-	if ns := os.Getenv("CA_SECRET_NAMESPACE"); ns != "" {
+func (r *KserveModuleReconciler) getCertManagerNamespace(ctx context.Context, configData map[string]string) string {
+	if ns, ok := configData[certManagerCASecretNamespaceKey]; ok && ns != "" {
 		return ns
 	}
 
@@ -419,23 +426,29 @@ func (r *KserveModuleReconciler) getCertManagerNamespace(ctx context.Context) st
 	return defaultCertManagerNS
 }
 
-func (r *KserveModuleReconciler) getPlatformVersion(ctx context.Context) string {
+func (r *KserveModuleReconciler) getPlatformConfigData(ctx context.Context) map[string]string {
 	cm := &corev1.ConfigMap{}
 	key := types.NamespacedName{Name: platformVersionConfigMap, Namespace: r.getApplicationsNamespace()}
 	if err := r.Get(ctx, key, cm); err != nil {
-		ctrl.LoggerFrom(ctx).V(1).Info("ConfigMap not found, platform version unknown",
+		ctrl.LoggerFrom(ctx).V(1).Info("Platform ConfigMap not found",
 			"configmap", key, "error", err)
-		return ""
+		return nil
 	}
-	return cm.Data[platformVersionConfigMapKey]
+	return cm.Data
+}
+
+func (r *KserveModuleReconciler) getPlatformVersion(ctx context.Context) string {
+	return configOrDefault(r.getPlatformConfigData(ctx), platformVersionConfigMapKey, "")
 }
 
 func (r *KserveModuleReconciler) getVersionPrefix(ctx context.Context, kserve *platformv1alpha1.Kserve) string {
 	if v := r.getPlatformVersion(ctx); v != "" {
 		return "v" + strings.ReplaceAll(v, ".", "-")
 	}
-	if ann := kserve.GetAnnotations(); ann != nil {
-		if v := ann["platform.opendatahub.io/version"]; v != "" {
+	// kserve is nil when defaultCleanup renders; the ConfigMap above still gives
+	// the prefix, which cleanup needs to match the deployed preset names.
+	if kserve != nil {
+		if v := kserve.GetAnnotations()["platform.opendatahub.io/version"]; v != "" {
 			return "v" + strings.ReplaceAll(v, ".", "-")
 		}
 	}
@@ -505,4 +518,3 @@ func (r *KserveModuleReconciler) ensureWorkDir() (string, error) {
 	r.initDone = true
 	return workDir, nil
 }
-

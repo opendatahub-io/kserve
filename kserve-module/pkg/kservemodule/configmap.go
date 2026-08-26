@@ -26,6 +26,12 @@ var (
 )
 
 func customizeKserveConfigMap(resources []unstructured.Unstructured, kserve *platformv1alpha1.Kserve) ([]unstructured.Unstructured, error) {
+	// defaultCleanup renders with a nil CR because it only needs names and kinds
+	// to delete by. There is no spec to read from, and nothing to customize.
+	if kserve == nil {
+		return resources, nil
+	}
+
 	cmIdx, cm, err := getIndexedResource[corev1.ConfigMap](resources, configMapGVK, kserveConfigMapName)
 	if err != nil {
 		if errors.Is(err, errResourceNotFound) {
@@ -107,6 +113,13 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 	if err := updateCMJSONKey(cm, localModelConfigKeyName, func(data map[string]any) {
 		data["enabled"] = modelCacheEnabled
 		data["jobNamespace"] = cm.Namespace
+	}); err != nil {
+		return err
+	}
+
+	auditLoggingEnabled := kserve.Spec.AuditLogging == "Managed"
+	if err := updateCMJSONKey(cm, openshiftConfigKeyName, func(data map[string]any) {
+		data["enableAuditLogging"] = auditLoggingEnabled
 	}); err != nil {
 		return err
 	}

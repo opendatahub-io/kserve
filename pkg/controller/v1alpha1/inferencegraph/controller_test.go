@@ -647,7 +647,7 @@ var _ = Describe("Inference Graph controller test", func() {
 											Env: []corev1.EnvVar{
 												{
 													Name:  "SSL_CERT_FILE",
-													Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+													Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
 												},
 												{
 													Name:  "PROPAGATE_HEADERS",
@@ -680,8 +680,8 @@ var _ = Describe("Inference Graph controller test", func() {
 											},
 											VolumeMounts: []corev1.VolumeMount{
 												{
-													Name:      "openshift-service-ca-bundle",
-													MountPath: "/etc/odh/openshift-service-ca-bundle",
+													Name:      constants.ServiceCaBundleVolumeName,
+													MountPath: constants.ServiceCaBundleMountPath,
 												},
 											},
 										},
@@ -689,7 +689,7 @@ var _ = Describe("Inference Graph controller test", func() {
 									AutomountServiceAccountToken: proto.Bool(false),
 									Volumes: []corev1.Volume{
 										{
-											Name: "openshift-service-ca-bundle",
+											Name: constants.ServiceCaBundleVolumeName,
 											VolumeSource: corev1.VolumeSource{
 												ConfigMap: &corev1.ConfigMapVolumeSource{
 													LocalObjectReference: corev1.LocalObjectReference{
@@ -808,7 +808,7 @@ var _ = Describe("Inference Graph controller test", func() {
 											Env: []corev1.EnvVar{
 												{
 													Name:  "SSL_CERT_FILE",
-													Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+													Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
 												},
 												{
 													Name:  "PROPAGATE_HEADERS",
@@ -841,8 +841,8 @@ var _ = Describe("Inference Graph controller test", func() {
 											},
 											VolumeMounts: []corev1.VolumeMount{
 												{
-													Name:      "openshift-service-ca-bundle",
-													MountPath: "/etc/odh/openshift-service-ca-bundle",
+													Name:      constants.ServiceCaBundleVolumeName,
+													MountPath: constants.ServiceCaBundleMountPath,
 												},
 											},
 										},
@@ -850,7 +850,7 @@ var _ = Describe("Inference Graph controller test", func() {
 									AutomountServiceAccountToken: proto.Bool(false),
 									Volumes: []corev1.Volume{
 										{
-											Name: "openshift-service-ca-bundle",
+											Name: constants.ServiceCaBundleVolumeName,
 											VolumeSource: corev1.VolumeSource{
 												ConfigMap: &corev1.ConfigMapVolumeSource{
 													LocalObjectReference: corev1.LocalObjectReference{
@@ -982,7 +982,7 @@ var _ = Describe("Inference Graph controller test", func() {
 											Env: []corev1.EnvVar{
 												{
 													Name:  "SSL_CERT_FILE",
-													Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+													Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
 												},
 												{
 													Name:  "PROPAGATE_HEADERS",
@@ -1014,8 +1014,8 @@ var _ = Describe("Inference Graph controller test", func() {
 											},
 											VolumeMounts: []corev1.VolumeMount{
 												{
-													Name:      "openshift-service-ca-bundle",
-													MountPath: "/etc/odh/openshift-service-ca-bundle",
+													Name:      constants.ServiceCaBundleVolumeName,
+													MountPath: constants.ServiceCaBundleMountPath,
 												},
 											},
 											ReadinessProbe: expectedReadinessProbe,
@@ -1047,7 +1047,7 @@ var _ = Describe("Inference Graph controller test", func() {
 									AutomountServiceAccountToken: proto.Bool(false),
 									Volumes: []corev1.Volume{
 										{
-											Name: "openshift-service-ca-bundle",
+											Name: constants.ServiceCaBundleVolumeName,
 											VolumeSource: corev1.VolumeSource{
 												ConfigMap: &corev1.ConfigMapVolumeSource{
 													LocalObjectReference: corev1.LocalObjectReference{
@@ -2056,7 +2056,7 @@ var _ = Describe("Inference Graph controller test", func() {
 											Env: []corev1.EnvVar{
 												{
 													Name:  "SSL_CERT_FILE",
-													Value: "/etc/odh/openshift-service-ca-bundle/service-ca.crt",
+													Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
 												},
 												{
 													Name:  "PROPAGATE_HEADERS",
@@ -2089,8 +2089,8 @@ var _ = Describe("Inference Graph controller test", func() {
 											},
 											VolumeMounts: []corev1.VolumeMount{
 												{
-													Name:      "openshift-service-ca-bundle",
-													MountPath: "/etc/odh/openshift-service-ca-bundle",
+													Name:      constants.ServiceCaBundleVolumeName,
+													MountPath: constants.ServiceCaBundleMountPath,
 												},
 											},
 										},
@@ -2106,7 +2106,7 @@ var _ = Describe("Inference Graph controller test", func() {
 									AutomountServiceAccountToken: proto.Bool(false),
 									Volumes: []corev1.Volume{
 										{
-											Name: "openshift-service-ca-bundle",
+											Name: constants.ServiceCaBundleVolumeName,
 											VolumeSource: corev1.VolumeSource{
 												ConfigMap: &corev1.ConfigMapVolumeSource{
 													LocalObjectReference: corev1.LocalObjectReference{

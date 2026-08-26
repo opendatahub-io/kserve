@@ -2,9 +2,19 @@ package kservemodule
 
 import "k8s.io/apimachinery/pkg/runtime/schema"
 
-var unownedGroupKinds = map[schema.GroupKind]struct{}{
-	{Group: llmISVCConfigGroup, Kind: llmISVCConfigKind}: {},
-}
+var (
+	llmISVCConfigGVK = schema.GroupVersionKind{
+		Group:   llmISVCConfigGroup,
+		Version: llmISVCConfigVersion,
+		Kind:    llmISVCConfigKind,
+	}
+
+	llmISVCConfigListGVK = llmISVCConfigGVK.GroupVersion().WithKind(llmISVCConfigKind + "List")
+
+	unownedGroupKinds = map[schema.GroupKind]struct{}{
+		llmISVCConfigGVK.GroupKind(): {},
+	}
+)
 
 const (
 	// Component names
@@ -20,7 +30,7 @@ const (
 	KserveManifestSourcePathXKS     = "overlays/odh-xks"
 	KserveCRDManifestSourcePath     = "overlays/odh-crds"
 	ModelCacheManifestSourcePath    = "overlays/odh-modelcache"
-	ModelControllerSourcePath       = "base"
+	ModelControllerSourcePath       = "overlays/odh"
 	WVAManifestSourcePathOCP        = "overlays/namespace-scoped/openshift"
 	ObservabilityManifestSourcePath      = "monitoring/llmisvc/dashboards"
 	ConsoleDashboardsManifestSourcePath = "monitoring/llmisvc/dashboards-odc"
@@ -55,6 +65,7 @@ const (
 	wellKnownAnnotationValue = "true"
 	llmISVCConfigPrefixEnv   = "LLM_INFERENCE_SERVICE_CONFIG_PREFIX"
 	llmISVCConfigGroup       = "serving.kserve.io"
+	llmISVCConfigVersion     = "v1alpha2"
 	llmISVCConfigKind        = "LLMInferenceServiceConfig"
 
 	// Template (ServingRuntime) resource type
@@ -73,12 +84,19 @@ const (
 	defaultIssuerRefKind = "ClusterIssuer"
 	defaultCertName      = "opendatahub-ca"
 	// defaultCertManagerNS is the fallback when dynamic detection fails.
-	// Prefer CA_SECRET_NAMESPACE env var or runtime discovery.
+	// Prefer platform ConfigMap or runtime discovery.
 	defaultCertManagerNS   = "cert-manager"
 	defaultIstioCACertPath = "/var/run/secrets/opendatahub/ca.crt"
 
 	// Well-known cert-manager namespace candidates for discovery.
-	certManagerNSCandidate        = "cert-manager"
-	certManagerOperatorNS         = "cert-manager-operator"
-	certManagerWebhookDeployment  = "cert-manager-webhook"
+	certManagerNSCandidate       = "cert-manager"
+	certManagerOperatorNS        = "cert-manager-operator"
+	certManagerWebhookDeployment = "cert-manager-webhook"
+
+	// Platform ConfigMap keys for cert-manager config (injected by ODH operator on XKS).
+	certManagerIssuerRefNameKey     = "CERT_MANAGER_ISSUER_REF_NAME"
+	certManagerIssuerRefKindKey     = "CERT_MANAGER_ISSUER_REF_KIND"
+	certManagerCASecretNameKey      = "CERT_MANAGER_CA_SECRET_NAME"
+	certManagerCASecretNamespaceKey = "CERT_MANAGER_CA_SECRET_NAMESPACE"
+	certManagerIstioCACertPathKey   = "CERT_MANAGER_ISTIO_CA_CERT_PATH"
 )
