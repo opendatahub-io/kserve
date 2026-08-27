@@ -12,7 +12,7 @@ import yaml
 from conftest import (
     ISVC_SMOKE_NAME,
     ISVC_SMOKE_TIMEOUT,
-    LOCALMODEL_AGENT_DEPLOYMENT,
+    LOCALMODEL_AGENT_DAEMONSET,
     LOCALMODEL_CONTROLLER_DEPLOYMENT,
     MODEL_CONTROLLER_DEPLOYMENT,
     NAMESPACE,
@@ -26,6 +26,7 @@ from conftest import (
     operand_deployments,
     resource_exists,
     run,
+    wait_for_daemonset_ready,
     wait_for_deployment,
     wait_for_inference_service_ready,
 )
@@ -102,7 +103,7 @@ class TestReleaseOperandHealth:
     ):
         """ModelCache enablement must deploy localmodel controller operands."""
         wait_for_deployment(kubectl, LOCALMODEL_CONTROLLER_DEPLOYMENT)
-        wait_for_deployment(kubectl, LOCALMODEL_AGENT_DEPLOYMENT)
+        wait_for_daemonset_ready(kubectl, LOCALMODEL_AGENT_DAEMONSET)
 
 
 @pytest.mark.post_release
