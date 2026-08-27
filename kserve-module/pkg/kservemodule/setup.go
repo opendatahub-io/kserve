@@ -63,6 +63,35 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	r.cache = mgr.GetCache()
 
+	// Register dynamic watches up front so their CRD names can be fed to the CRD
+	// watch predicate below. When a CRD this module installs itself (e.g.
+	// serving.kserve.io) is created, that enqueues a reconcile and lets
+	// registerDynamicWatches attach the watch. Without it, watch registration
+	// races startup and, once the reconciler reaches steady state (no requeue),
+	// never retries -- leaving deleted presets unrecreated.
+	r.dynamicWatches = []*dynamicWatch{
+		{
+			groupKind: schema.GroupKind{Group: "operator.openshift.io", Kind: "LeaderWorkerSetOperator"},
+			gvk:       schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSetOperator"},
+		},
+		{
+			groupKind: schema.GroupKind{Group: "serving.kserve.io", Kind: "LocalModelNodeGroup"},
+			gvk:       localModelNodeGroupGVK,
+		},
+		{
+			// Presets are deliberately out of the ownerRef chain (see
+			// unownedGroupKinds), so nothing recreates them when they are deleted.
+			// Watching them turns that into a normal reconcile. Scoped to the
+			// applications namespace: a reconcile renders and applies everything,
+			// so copies a user made elsewhere must not trigger one.
+			groupKind: llmISVCConfigGVK.GroupKind(),
+			gvk:       llmISVCConfigGVK,
+			filterFn: func(u *unstructured.Unstructured) bool {
+				return isShippedPreset(u, r.getApplicationsNamespace())
+			},
+		},
+	}
+
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1alpha1.Kserve{}).
 		Owns(&corev1.ConfigMap{}).
@@ -83,7 +112,7 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WatchesMetadata(
 			&apiextensionsv1.CustomResourceDefinition{},
 			handler.EnqueueRequestsFromMapFunc(mapToKserve),
-			builder.WithPredicates(crdNamePredicate()),
+			builder.WithPredicates(r.crdWatchPredicate()),
 		).
 		Watches(&corev1.ConfigMap{},
 			handler.EnqueueRequestsFromMapFunc(mapToKserve),
@@ -123,29 +152,6 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				return watchedSubscriptions[u.GetName()]
 			})),
 		)
-	}
-
-	r.dynamicWatches = []*dynamicWatch{
-		{
-			groupKind: schema.GroupKind{Group: "operator.openshift.io", Kind: "LeaderWorkerSetOperator"},
-			gvk:       schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSetOperator"},
-		},
-		{
-			groupKind: schema.GroupKind{Group: "serving.kserve.io", Kind: "LocalModelNodeGroup"},
-			gvk:       localModelNodeGroupGVK,
-		},
-		{
-			// Presets are deliberately out of the ownerRef chain (see
-			// unownedGroupKinds), so nothing recreates them when they are deleted.
-			// Watching them turns that into a normal reconcile. Scoped to the
-			// applications namespace: a reconcile renders and applies everything,
-			// so copies a user made elsewhere must not trigger one.
-			groupKind: llmISVCConfigGVK.GroupKind(),
-			gvk:       llmISVCConfigGVK,
-			filterFn: func(u *unstructured.Unstructured) bool {
-				return isShippedPreset(u, r.getApplicationsNamespace())
-			},
-		},
 	}
 
 	for _, dw := range r.dynamicWatches {
@@ -236,10 +242,10 @@ func mapToKserve(_ context.Context, _ client.Object) []ctrl.Request {
 	}}
 }
 
-func crdNamePredicate() predicate.Predicate {
+func crdNamePredicate(extraNames map[string]bool) predicate.Predicate {
 	return predicate.NewPredicateFuncs(func(obj client.Object) bool {
 		name := obj.GetName()
-		if dependencyCRDNames[name] {
+		if dependencyCRDNames[name] || extraNames[name] {
 			return true
 		}
 		for _, suffix := range dependencyCRDSuffixes {
@@ -249,4 +255,32 @@ func crdNamePredicate() predicate.Predicate {
 		}
 		return false
 	})
+}
+
+// crdWatchPredicate builds the predicate for the CustomResourceDefinition watch.
+// It must match both this module's dependency CRDs and the CRDs backing its own
+// dynamic watches, so that installing a serving.kserve.io CRD this module ships
+// itself enqueues a reconcile (RHOAIENG-88471). Feeding it crdNamePredicate(nil)
+// reintroduces that bug: self-installed CRDs would be filtered out and the
+// preset self-heal watch would never register.
+func (r *KserveModuleReconciler) crdWatchPredicate() predicate.Predicate {
+	return crdNamePredicate(r.dynamicWatchCRDNames())
+}
+
+// dynamicWatchCRDNames returns the CRD resource names (e.g.
+// "llminferenceserviceconfigs.serving.kserve.io") backing every dynamic watch,
+// so that creation of a CRD this module installs itself enqueues a reconcile and
+// registerDynamicWatches can attach the watch. The name derivation mirrors
+// cluster.CustomResourceDefinitionExists so the predicate and the existence
+// check always agree.
+func (r *KserveModuleReconciler) dynamicWatchCRDNames() map[string]bool {
+	names := make(map[string]bool, len(r.dynamicWatches))
+	for _, dw := range r.dynamicWatches {
+		names[crdResourceName(dw.groupKind)] = true
+	}
+	return names
+}
+
+func crdResourceName(gk schema.GroupKind) string {
+	return strings.ToLower(fmt.Sprintf("%ss.%s", gk.Kind, gk.Group))
 }
