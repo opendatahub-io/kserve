@@ -6,37 +6,38 @@ import (
 	. "github.com/onsi/gomega"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
 // Deterministic regression guard for RHOAIENG-88471.
 //
 // kserve-module installs the serving.kserve.io CRDs itself and then ships
-// unowned LLMInferenceServiceConfig presets. A dynamic watch is meant to
-// recreate a deleted preset, but it registers only during a reconcile that runs
-// while the CRD exists. The bug: the CustomResourceDefinition watch predicate
-// matched only dependency CRDs, so creating a serving.kserve.io CRD this module
-// installs itself enqueued no reconcile. Once the controller reached a
-// no-requeue steady state the watch never registered and deleted presets were
-// never recreated.
+// unowned LLMInferenceServiceConfig presets. A dynamic watch recreates a deleted
+// preset, but it registers only during a reconcile that runs while the CRD
+// exists and is seen by the client. Two things broke that:
 //
-// The fix makes the predicate also match the CRDs backing the module's own
-// dynamic watches. These tests pin that behavior at the unit level so they are
-// immune to the reconcile-loop timing that makes an end-to-end envtest unable
-// to isolate the change (unconditional status writes and CRD-not-yet-cached
-// error backoff both keep reconciles firing, which registers the watch
-// regardless of the predicate).
+//  1. The self-installed CRD is not in the cached client's store during the
+//     reconcile that installs it, so a cached existence check misses it. The fix
+//     reads through an uncached API reader.
+//  2. Once the controller reached a no-requeue happy state the watch never
+//     registered again. The fix gates the happy path: it requeues until every
+//     selfInstalled watch is registered.
+//
+// A supporting change makes the CustomResourceDefinition watch predicate match
+// the CRDs backing the module's own dynamic watches, so an externally recreated
+// CRD also enqueues a reconcile.
+//
+// These tests pin the wiring at the unit level so they are immune to the
+// reconcile-loop timing that makes an end-to-end envtest unable to isolate the
+// change (unconditional status writes and CRD-not-yet-cached error backoff both
+// keep reconciles firing, which registers the watch regardless).
 
 // reconcilerWithDynamicWatches builds a reconciler carrying the same dynamic
-// watches SetupWithManager wires up, without needing a manager.
+// watches SetupWithManager wires up, without needing a manager. It uses the real
+// buildDynamicWatches so the tests cannot drift from production wiring.
 func reconcilerWithDynamicWatches() *KserveModuleReconciler {
 	r := &KserveModuleReconciler{}
-	r.dynamicWatches = []*dynamicWatch{
-		{groupKind: schema.GroupKind{Group: "operator.openshift.io", Kind: "LeaderWorkerSetOperator"}},
-		{groupKind: schema.GroupKind{Group: "serving.kserve.io", Kind: "LocalModelNodeGroup"}},
-		{groupKind: llmISVCConfigGVK.GroupKind()},
-	}
+	r.dynamicWatches = r.buildDynamicWatches()
 	return r
 }
 
@@ -85,6 +86,32 @@ func TestCRDWatchPredicate_EnqueuesForSelfInstalledCRD(t *testing.T) {
 	g.Expect(pred.Create(event.CreateEvent{
 		Object: crdMeta("widgets.example.com"),
 	})).To(BeFalse())
+}
+
+// TestDynamicWatches_SelfInstalledFlags pins which watches gate the happy path.
+// The reconcile requeues until every selfInstalled watch registers; that must
+// cover exactly the CRDs this module installs itself (serving.kserve.io) and not
+// external/optional CRDs, which would otherwise requeue forever when absent.
+func TestDynamicWatches_SelfInstalledFlags(t *testing.T) {
+	g := NewWithT(t)
+	selfInstalled := map[string]bool{}
+	for _, dw := range reconcilerWithDynamicWatches().dynamicWatches {
+		selfInstalled[crdResourceName(dw.groupKind)] = dw.selfInstalled
+	}
+
+	g.Expect(selfInstalled).To(HaveKeyWithValue("llminferenceserviceconfigs.serving.kserve.io", true))
+	g.Expect(selfInstalled).To(HaveKeyWithValue("localmodelnodegroups.serving.kserve.io", true))
+	// External operator CRD: must not hold up the happy path when absent.
+	g.Expect(selfInstalled).To(HaveKeyWithValue("leaderworkersetoperators.operator.openshift.io", false))
+}
+
+// TestRegisterDynamicWatches_NilControllerNotPending guards that registration
+// reports no pending work before the controller is built, so the happy path is
+// not blocked during setup.
+func TestRegisterDynamicWatches_NilControllerNotPending(t *testing.T) {
+	g := NewWithT(t)
+	r := reconcilerWithDynamicWatches() // r.controller is nil
+	g.Expect(r.registerDynamicWatches(t.Context())).To(BeFalse())
 }
 
 // TestCRDNamePredicate_WithoutDynamicWatchNames_IsTheBug documents that the
