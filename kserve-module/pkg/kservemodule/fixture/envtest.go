@@ -76,6 +76,13 @@ func SetupTestEnv(ctx context.Context) *TestEnv {
 		Scheme:                mgr.GetScheme(),
 		ManifestsTemplatePath: workDir,
 		Deployer:              kservemodule.NewDeployer(),
+
+		// Periodic requeues are pushed far enough out that a reconcile observed
+		// shortly after an event came from a watch and not from the clock. Set
+		// here rather than per context: the manager is already running by the
+		// time a BeforeAll executes, so writing these later would race it.
+		RequeueInterval:           10 * time.Minute,
+		DependencyRequeueInterval: 10 * time.Minute,
 	}
 	reconciler.SetWorkDir(workDir)
 	reconciler.SetClusterType(cluster.ClusterTypeOpenShift)

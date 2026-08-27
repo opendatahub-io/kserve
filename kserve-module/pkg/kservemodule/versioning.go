@@ -7,21 +7,20 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // isWellKnownConfig reports whether the object is an LLMInferenceServiceConfig
 // preset shipped by this module, as opposed to one authored by a user.
-func isWellKnownConfig(obj *unstructured.Unstructured) bool {
-	if obj.GroupVersionKind().GroupKind() != llmISVCConfigGVK.GroupKind() {
+//
+// Takes client.Object rather than *unstructured.Unstructured so watch
+// predicates need no type assertion: a wrong concrete type would otherwise be
+// dropped silently, which disables a watch rather than skipping one event.
+func isWellKnownConfig(obj client.Object) bool {
+	if obj.GetObjectKind().GroupVersionKind().GroupKind() != llmISVCConfigGVK.GroupKind() {
 		return false
 	}
 	return obj.GetAnnotations()[wellKnownAnnotationKey] == wellKnownAnnotationValue
-}
-
-// isShippedPreset reports whether the object is a preset this module applies,
-// as opposed to a copy a user made in their own namespace.
-func isShippedPreset(obj *unstructured.Unstructured, applicationsNS string) bool {
-	return obj.GetNamespace() == applicationsNS && isWellKnownConfig(obj)
 }
 
 // wellKnownPresetNames returns the names of the presets in a rendered resource
