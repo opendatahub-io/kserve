@@ -16,6 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -95,6 +96,7 @@ import (
 //
 // ModelCache RBAC
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;patch;update
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceslices,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=persistentvolumes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;patch;update
@@ -126,6 +128,12 @@ type KserveModuleReconciler struct {
 	cache          cache.Cache
 	dynamicWatches []*dynamicWatch
 	dynamicWatchMu sync.Mutex
+
+	// draResourceSliceGVK is the served resource.k8s.io ResourceSlice GVK discovered at
+	// setup (empty when the cluster does not serve Dynamic Resource Allocation). When set,
+	// hardware-aware filtering also treats accelerators published via DRA ResourceSlices as
+	// present, not just those in a node's status.allocatable.
+	draResourceSliceGVK schema.GroupVersionKind
 
 	// expectedPresets holds the preset names from the most recent render, written
 	// by reconcile and read by updateComponentReadiness later in the same call.

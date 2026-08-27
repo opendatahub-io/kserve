@@ -18,6 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -93,13 +94,29 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			})),
 		).
 		// Watch Nodes so that newly added or relabeled nodes trigger
-		// reconciliation of labelModelCacheNodes.
+		// reconciliation of labelModelCacheNodes, and so a node gaining or losing an
+		// accelerator in status.allocatable re-renders hardware-aware presets.
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(mapToKserve),
 			builder.WithPredicates(predicate.Or(
 				predicate.GenerationChangedPredicate{},
 				predicate.LabelChangedPredicate{},
+				nodeAllocatableChangedPredicate(),
 			)),
 		)
+
+	// Dynamic Resource Allocation ResourceSlices are a built-in API (resource.k8s.io) whose
+	// served version varies by cluster version (v1beta1/v1beta2/v1). Discover the served GVK
+	// via the RESTMapper; when present, watch it so an accelerator appearing/disappearing via
+	// DRA re-renders hardware-aware presets, and record the GVK for the read side to list.
+	draGK := schema.GroupKind{Group: "resource.k8s.io", Kind: "ResourceSlice"}
+	if mapping, err := mgr.GetRESTMapper().RESTMapping(draGK); err == nil {
+		r.draResourceSliceGVK = mapping.GroupVersionKind
+		sliceObj := &unstructured.Unstructured{}
+		sliceObj.SetGroupVersionKind(mapping.GroupVersionKind)
+		b.Watches(sliceObj, handler.EnqueueRequestsFromMapFunc(mapToKserve),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+		)
+	}
 
 	// SecurityContextConstraints CRD is always present on OpenShift (OLM); never on XKS.
 	sccGK := schema.GroupKind{Group: "security.openshift.io", Kind: "SecurityContextConstraints"}
@@ -234,6 +251,40 @@ func mapToKserve(_ context.Context, _ client.Object) []ctrl.Request {
 	return []ctrl.Request{{
 		NamespacedName: client.ObjectKey{Name: platformv1alpha1.KserveInstanceName},
 	}}
+}
+
+// nodeAllocatableChangedPredicate fires on node updates where the set of resource names
+// in status.allocatable changes (e.g. a GPU device plugin registering nvidia.com/gpu),
+// which the generation- and label-based predicates do not observe. Create and delete
+// events default to firing, matching GenerationChangedPredicate.
+func nodeAllocatableChangedPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldNode, ok := e.ObjectOld.(*corev1.Node)
+			if !ok {
+				return false
+			}
+			newNode, ok := e.ObjectNew.(*corev1.Node)
+			if !ok {
+				return false
+			}
+			return !allocatableNamesEqual(oldNode.Status.Allocatable, newNode.Status.Allocatable)
+		},
+	}
+}
+
+// allocatableNamesEqual reports whether two ResourceLists expose the same set of resource
+// names, ignoring quantity changes (device plugins add or remove keys rather than mutate them).
+func allocatableNamesEqual(a, b corev1.ResourceList) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for name := range a {
+		if _, ok := b[name]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 func crdNamePredicate() predicate.Predicate {
