@@ -220,7 +220,7 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // the watch would never register once the happy path stops requeuing
 // (RHOAIENG-88471). External/optional CRDs that are simply absent do not mark
 // work pending.
-func (r *KserveModuleReconciler) registerDynamicWatches(ctx context.Context) (pending bool) {
+func (r *KserveModuleReconciler) registerDynamicWatches(ctx context.Context) bool {
 	r.dynamicWatchMu.Lock()
 	defer r.dynamicWatchMu.Unlock()
 
@@ -233,6 +233,7 @@ func (r *KserveModuleReconciler) registerDynamicWatches(ctx context.Context) (pe
 		reader = r.Client
 	}
 
+	var pending bool
 	for _, dw := range r.dynamicWatches {
 		if dw.registered {
 			continue
