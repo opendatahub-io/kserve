@@ -10,3 +10,5 @@ rules:
   - apiservers
   verbs:
   - get
+  - list
+  - watch

@@ -21,8 +21,10 @@ package llmisvc
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
 
+	"github.com/coreos/go-semver/semver"
 	"github.com/google/go-cmp/cmp"
 	"google.golang.org/protobuf/testing/protocmp"
 	"google.golang.org/protobuf/types/known/wrapperspb"
@@ -62,6 +64,17 @@ var istioGatewayControllerNames = []string{
 // IstioCACertificatePath is the path to the CA certificate used by Istio DestinationRules for TLS verification.
 // Default is the OpenShift service-ca path. Override via ISTIO_CA_CERTIFICATE_PATH environment variable.
 var IstioCACertificatePath = constants.GetEnvOrDefault("ISTIO_CA_CERTIFICATE_PATH", "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt")
+
+// SchedulerCertRotationMinVersionStr is the minimum scheduler (EPP) version that supports TLS
+// certificate rotation via --enable-cert-reload. Older versions must use InsecureSkipVerify=true.
+const SchedulerCertRotationMinVersionStr = "0.7.0"
+
+var schedulerCertRotationMinVersion = semver.New(SchedulerCertRotationMinVersionStr)
+
+// enableCertReloadRegexp matches all boolean-true pflag forms of --enable-cert-reload:
+// bare (--enable-cert-reload), or with =VALUE where VALUE is one of the boolean-true strings
+// accepted by pflag / strconv.ParseBool: 1, t, T, true, True, TRUE.
+var enableCertReloadRegexp = regexp.MustCompile(`^--enable-cert-reload(=(1|t|T|true|True|TRUE))?$`)
 
 func isIstioGatewayController(name string) bool {
 	return slices.Contains(istioGatewayControllerNames, name)
@@ -169,6 +182,8 @@ func (r *LLMISVCReconciler) reconcileIstioDestinationRuleForScheduler(ctx contex
 }
 
 func (r *LLMISVCReconciler) expectedIstioDestinationRuleForScheduler(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) (*istioapi.DestinationRule, error) {
+	tlsSettings := newIstioTlsSettings(schedulerTlsRotationEnabled(llmSvc), "")
+
 	dr := &istioapi.DestinationRule{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-scheduler"),
@@ -185,13 +200,7 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForScheduler(ctx context
 		},
 		Spec: istionetworking.DestinationRule{
 			TrafficPolicy: &istionetworking.TrafficPolicy{
-				Tls: &istionetworking.ClientTLSSettings{
-					Mode: istionetworking.ClientTLSSettings_SIMPLE,
-					// The scheduler doesn't support watching and auto-reloading certificates yet.
-					// Fixed by https://github.com/kubernetes-sigs/gateway-api-inference-extension/pull/1765.
-					// Until that fix is available, skip verification to avoid SAN mismatch errors on upgrade.
-					InsecureSkipVerify: &wrapperspb.BoolValue{Value: true},
-				},
+				Tls: tlsSettings,
 			},
 			ExportTo: []string{"*"},
 		},
@@ -224,6 +233,8 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForShadowService(ctx con
 		return nil, fmt.Errorf("failed to get istio inference pool service: %w", err)
 	}
 
+	tlsSettings := newIstioTlsSettings(schedulerTlsRotationEnabled(llmSvc), "")
+
 	dr := &istioapi.DestinationRule{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-shadow-svc"),
@@ -240,13 +251,7 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForShadowService(ctx con
 		},
 		Spec: istionetworking.DestinationRule{
 			TrafficPolicy: &istionetworking.TrafficPolicy{
-				Tls: &istionetworking.ClientTLSSettings{
-					Mode: istionetworking.ClientTLSSettings_SIMPLE,
-					// The shadow service forwards traffic to the workload service. Skip verification
-					// here for the same reason as the scheduler DR — the scheduler doesn't yet support
-					// watching and auto-reloading certificates.
-					InsecureSkipVerify: &wrapperspb.BoolValue{Value: true},
-				},
+				Tls: tlsSettings,
 			},
 			ExportTo: []string{"*"},
 		},
@@ -264,6 +269,9 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForShadowService(ctx con
 
 func (r *LLMISVCReconciler) expectedIstioDestinationRuleForWorkload(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) *istioapi.DestinationRule {
 	hostname := network.GetServiceHostname(kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"), llmSvc.GetNamespace())
+
+	tlsSettings := newIstioTlsSettings(llmSvcHasTlsRotationEnabled(llmSvc), hostname)
+
 	dr := &istioapi.DestinationRule{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-workload-svc"),
@@ -281,21 +289,10 @@ func (r *LLMISVCReconciler) expectedIstioDestinationRuleForWorkload(ctx context.
 		Spec: istionetworking.DestinationRule{
 			Host: hostname,
 			TrafficPolicy: &istionetworking.TrafficPolicy{
-				Tls: &istionetworking.ClientTLSSettings{
-					Mode:               istionetworking.ClientTLSSettings_SIMPLE,
-					CaCertificates:     IstioCACertificatePath,
-					InsecureSkipVerify: &wrapperspb.BoolValue{Value: false},
-					Sni:                hostname,
-				},
+				Tls: tlsSettings,
 			},
 			ExportTo: []string{"*"},
 		},
-	}
-
-	if llmSvc.Spec.Prefill != nil {
-		// The sidecar doesn't support watching and auto-reloading certificates yet.
-		dr.Spec.TrafficPolicy.Tls.CaCertificates = ""
-		dr.Spec.TrafficPolicy.Tls.InsecureSkipVerify = &wrapperspb.BoolValue{Value: true}
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected destination rule for workload service", "destinationrule", dr)
@@ -336,4 +333,77 @@ func semanticDestinationRuleIsEqual(expected *istioapi.DestinationRule, curr *is
 	return cmp.Equal(&expected.Spec, &curr.Spec, protocmp.Transform()) &&
 		equality.Semantic.DeepDerivative(expected.Labels, curr.Labels) &&
 		equality.Semantic.DeepDerivative(expected.Annotations, curr.Annotations)
+}
+
+// newIstioTlsSettings builds a ClientTLSSettings for SIMPLE TLS mode. When rotationEnabled is
+// true, CA verification is configured against IstioCACertificatePath and InsecureSkipVerify is
+// false; when false, InsecureSkipVerify is true and CaCertificates is cleared so Prometheus does
+// not depend on a CA that will not be used.
+//
+// sni is set on the returned settings; callers that derive the SNI after constructing the struct
+// can overwrite it directly on the returned pointer.
+func newIstioTlsSettings(rotationEnabled bool, sni string) *istionetworking.ClientTLSSettings {
+	settings := &istionetworking.ClientTLSSettings{
+		Mode:               istionetworking.ClientTLSSettings_SIMPLE,
+		CaCertificates:     IstioCACertificatePath,
+		InsecureSkipVerify: &wrapperspb.BoolValue{Value: !rotationEnabled},
+		Sni:                sni,
+	}
+	if settings.GetInsecureSkipVerify().Value {
+		settings.CaCertificates = ""
+	}
+	return settings
+}
+
+// schedulerTlsRotationEnabled returns true when the scheduler spec indicates cert-rotation support:
+// the scheduler's annotations carry app.kubernetes.io/version >= schedulerCertRotationMinVersion
+// AND the main container command includes --enable-cert-reload in any boolean-true pflag form.
+// Both conditions must hold.
+//
+// Reading from llmSvc.Spec (rather than the running Deployment) is correct because the config
+// merge process sets both the version annotation and the --enable-cert-reload flag directly in
+// the spec before this function is called, making the spec the authoritative source and avoiding
+// a dependency on a Deployment that may not yet exist.
+//
+// Returns false when the scheduler spec is absent, the version annotation is missing or below
+// the minimum, or the flag is absent — the safe fallback of InsecureSkipVerify=true.
+func schedulerTlsRotationEnabled(llmSvc *v1alpha2.LLMInferenceService) bool {
+	if llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Scheduler == nil {
+		// No scheduler configured: default to rotation enabled so that any future
+		// caller gets the stricter TLS setting, consistent with FIPS environments.
+		return true
+	}
+
+	scheduler := llmSvc.Spec.Router.Scheduler
+
+	versionStr, ok := scheduler.Annotations["app.kubernetes.io/version"]
+	if !ok || versionStr == "" {
+		return false
+	}
+
+	v, err := semver.NewVersion(versionStr)
+	if err != nil {
+		return false
+	}
+
+	if v.Compare(*schedulerCertRotationMinVersion) < 0 {
+		return false
+	}
+
+	if scheduler.Template == nil {
+		// No managed scheduler template (e.g. external InferencePool ref): default to rotation
+		// enabled for the stricter FIPS-safe posture.
+		return true
+	}
+
+	container := utils.GetContainerWithName(scheduler.Template, "main")
+	if container == nil {
+		return false
+	}
+	for _, cmdEntry := range container.Command {
+		if enableCertReloadRegexp.MatchString(cmdEntry) {
+			return true
+		}
+	}
+	return false
 }

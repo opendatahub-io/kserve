@@ -1,9 +1,9 @@
 releases:
   - name: KServe
-    version: v0.19.0
+    version: v0.20.0
     repoUrl: https://github.com/kserve/kserve/
   - name: vLLM
-    version: v0.24.0
+    version: v0.26.0
     repoUrl: https://github.com/vllm-project/vllm
   - name: llm-d-router
     version: v0.10.0

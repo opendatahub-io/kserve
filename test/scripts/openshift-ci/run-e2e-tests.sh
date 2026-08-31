@@ -95,6 +95,8 @@ if [ "$SETUP_E2E" = "true" ]; then
 fi
 
 export OPT_125M_MODEL_URI="${OPT_125M_MODEL_URI:-s3://example-models/facebook/opt-125m}"
+: "${OPT_125M_OCI_MODEL_URI:=oci://quay.io/opendatahub/opt-125m-modelcar:latest}"
+export OPT_125M_OCI_MODEL_URI
 
 # Use certify go module to get the CA certs
 # For serverless it is configured here: infra/deploy.serverless.sh

@@ -35,6 +35,78 @@ func buildLLMISVCDeployment(t *testing.T) []unstructured.Unstructured {
 	return []unstructured.Unstructured{{Object: u}}
 }
 
+// The preset watch filters on this, so a false here means a deleted preset is
+// never recreated, and a false positive means user copies drive reconciles.
+func TestIsShippedPreset(t *testing.T) {
+	preset := func(namespace string, annotations map[string]any) *unstructured.Unstructured {
+		metadata := map[string]any{"name": "v1-2-3-kserve-config-llm-decode", "namespace": namespace}
+		if annotations != nil {
+			metadata["annotations"] = annotations
+		}
+		return &unstructured.Unstructured{Object: map[string]any{
+			"apiVersion": "serving.kserve.io/v1alpha2",
+			"kind":       "LLMInferenceServiceConfig",
+			"metadata":   metadata,
+		}}
+	}
+	wellKnown := map[string]any{wellKnownAnnotationKey: wellKnownAnnotationValue}
+
+	testCases := map[string]struct {
+		obj      *unstructured.Unstructured
+		expected bool
+	}{
+		"shipped preset":                            {obj: preset("opendatahub", wellKnown), expected: true},
+		"user copy in another namespace":            {obj: preset("user-models", wellKnown), expected: false},
+		"user config in the applications namespace": {obj: preset("opendatahub", nil), expected: false},
+		"other kind carrying the annotation": {
+			obj: &unstructured.Unstructured{Object: map[string]any{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata": map[string]any{
+					"name": "not-a-preset", "namespace": "opendatahub", "annotations": wellKnown,
+				},
+			}},
+			expected: false,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			NewWithT(t).Expect(isShippedPreset(tc.obj, "opendatahub")).Should(Equal(tc.expected))
+		})
+	}
+}
+
+func TestWellKnownPresetNames_SkipsUserConfigsAndOtherKinds(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := []unstructured.Unstructured{
+		{Object: map[string]any{
+			"apiVersion": "serving.kserve.io/v1alpha2",
+			"kind":       "LLMInferenceServiceConfig",
+			"metadata": map[string]any{
+				"name":        "v1-2-3-kserve-config-llm-decode",
+				"annotations": map[string]any{wellKnownAnnotationKey: wellKnownAnnotationValue},
+			},
+		}},
+		{Object: map[string]any{
+			"apiVersion": "serving.kserve.io/v1alpha2",
+			"kind":       "LLMInferenceServiceConfig",
+			"metadata":   map[string]any{"name": "my-own-config"},
+		}},
+		{Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]any{
+				"name":        "not-a-preset",
+				"annotations": map[string]any{wellKnownAnnotationKey: wellKnownAnnotationValue},
+			},
+		}},
+	}
+
+	g.Expect(wellKnownPresetNames(resources)).Should(ConsistOf("v1-2-3-kserve-config-llm-decode"))
+}
+
 func TestVersionLLMInferenceServiceConfigs_RenamesWellKnown(t *testing.T) {
 	g := NewWithT(t)
 
