@@ -38,19 +38,24 @@ make e2e-cleanup-kserve-module
 ## Test Markers
 
 - `sanity` - core lifecycle tests (create, update, delete, CEL validation)
-- `post_release` - post-ODH-release validation (image tags, operand health, serving smoke)
+- `post_release` - post-ODH-release smoke (OMC Running, KServeReady, one LLMISVC Ready)
 
 Run specific markers:
 
 ```bash
 make e2e-kserve-module
-KSERVE_RELEASE_TAG=odh-v3.5 make e2e-kserve-module-post-release
+PLATFORM=ocp make e2e-kserve-module-post-release
 ```
 
 ## Post-Release Validation
 
-After cutting an ODH release tag (e.g. `odh-v3.5`), validate the published
-kserve-module operator image and gathered operands:
+After cutting an ODH release tag (e.g. `odh-v3.5`), validate a **fresh OpenShift
+install**: odh-model-controller Running, KServeReady=True, then one
+LLMInferenceService reaches Ready=True.
+
+`odh-model-controller` and the LLMISVC smoke are OpenShift-only (`ocp_only`).
+Minikube/`xks` skips them. Same cluster convention as Prow `e2e-kserve-module`
+and Konflux group testing (`PLATFORM=ocp`):
 
 ```bash
 export KSERVE_RELEASE_TAG=odh-v3.5
@@ -60,8 +65,9 @@ make e2e-setup-kserve-module \
 make e2e-kserve-module-post-release
 ```
 
-CI: `.github/workflows/post-release-e2e.yml` runs on `odh-v*` tag push or
-`workflow_dispatch` (pulls the Quay image for the release tag).
+CI: `.github/workflows/post-release-e2e.yml` is `workflow_dispatch` and always
+uses `PLATFORM=ocp`. GitHub-hosted runners cannot provision OpenShift, so the
+job fails unless the runner already has an OpenShift kubeconfig.
 
 ## Make Targets
 

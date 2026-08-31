@@ -1,6 +1,5 @@
 """Shared fixtures for kserve-module E2E tests."""
 
-import os
 import shutil
 import subprocess
 import time
@@ -37,19 +36,8 @@ LOCALMODEL_CONTROLLER_DEPLOYMENT = "kserve-localmodel-controller-manager"
 LOCALMODEL_AGENT_DAEMONSET = "kserve-localmodelnode-agent"
 
 RELEASE_TEST_NAMESPACE = "kserve-release-e2e"
-ISVC_SMOKE_NAME = "post-release-sklearn"
-ISVC_SMOKE_TIMEOUT = 600
-
-RELEASE_IMAGE_OPERANDS_OCP = [
-    "kserve-controller-manager",
-    "odh-model-controller",
-    "llmisvc-controller-manager",
-    "workload-variant-autoscaler-controller-manager",
-    "model-serving-api",
-]
-RELEASE_IMAGE_OPERANDS_XKS = [
-    "llmisvc-controller-manager",
-]
+LLMISVC_SMOKE_NAME = "post-release-llmisvc-smoke"
+LLMISVC_SMOKE_TIMEOUT = 600
 
 KSERVE_CR_TEMPLATE = {
     "apiVersion": "components.platform.opendatahub.io/v1alpha1",
@@ -484,110 +472,17 @@ def wait_for_deployment_gone(
         raise RuntimeError(f"wait_for_deployment_gone failed: {result.stderr}")
 
 
-def get_expected_release_tag():
-    """Return the ODH release image tag from KSERVE_RELEASE_TAG, if set."""
-    tag = os.environ.get("KSERVE_RELEASE_TAG", "").strip()
-    return tag or None
-
-
-def image_matches_release_tag(image: str, release_tag: str) -> bool:
-    """Return True when a container image uses the expected ODH release tag."""
-    if not image or not release_tag:
-        return False
-    tagged_reference = f":{release_tag.lower()}"
-    image_lower = image.lower()
-    return (
-        image_lower.endswith(tagged_reference)
-        or f"{tagged_reference}@sha256:" in image_lower
-    )
-
-
-def get_deployment_container_image(kubectl_bin, name, namespace=NAMESPACE):
-    """Return the first container image for a deployment."""
-    result = run(
-        [
-            kubectl_bin,
-            "get",
-            "deployment",
-            name,
-            "-n",
-            namespace,
-            "-o",
-            "jsonpath={.spec.template.spec.containers[0].image}",
-        ],
-        check=False,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"Failed to get image for deployment {name}: {result.stderr}"
-        )
-    return result.stdout.strip()
-
-
-def get_deployment_restart_count(kubectl_bin, name, namespace=NAMESPACE):
-    """Return total restart count across deployment pods."""
-    result = run(
-        [
-            kubectl_bin,
-            "get",
-            "pods",
-            "-n",
-            namespace,
-            "-l",
-            f"app.kubernetes.io/name={name}",
-            "-o",
-            "jsonpath={range .items[*]}{.status.containerStatuses[0].restartCount}{' '}{end}",
-        ],
-        check=False,
-    )
-    if result.returncode != 0:
-        result = run(
-            [
-                kubectl_bin,
-                "get",
-                "pods",
-                "-n",
-                namespace,
-                "--field-selector",
-                f"metadata.name={name}",
-                "-o",
-                "jsonpath={range .items[*]}{.status.containerStatuses[0].restartCount}{' '}{end}",
-            ],
-            check=False,
-        )
-    restarts = [int(x) for x in result.stdout.strip().split() if x.isdigit()]
-    return sum(restarts)
-
-
-def enable_wva(kubectl_bin):
-    """Patch the Kserve CR to manage WVA."""
-    import json
-
-    patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
-    run(
-        [
-            kubectl_bin,
-            "patch",
-            "kserve",
-            KSERVE_CR_NAME,
-            "--type",
-            "merge",
-            "-p",
-            patch,
-        ]
-    )
-
-
-def wait_for_inference_service_ready(
-    kubectl_bin, name, namespace, timeout=ISVC_SMOKE_TIMEOUT
+def wait_for_llm_inference_service_ready(
+    kubectl_bin, name, namespace, timeout=LLMISVC_SMOKE_TIMEOUT
 ):
-    """Poll until InferenceService status shows Ready=True."""
+    """Poll until LLMInferenceService status shows Ready=True."""
+
     def _ready():
         result = run(
             [
                 kubectl_bin,
                 "get",
-                "inferenceservice",
+                "llminferenceservice",
                 name,
                 "-n",
                 namespace,
@@ -596,7 +491,10 @@ def wait_for_inference_service_ready(
             ],
             check=False,
         )
-        return result.stdout.strip() == "True"
+        assert result.stdout.strip() == "True", (
+            f"LLMInferenceService {name} Ready={result.stdout.strip()!r} "
+            f"(want True): {result.stderr}"
+        )
 
     wait_for(_ready, timeout=timeout, interval=10)
 
@@ -758,33 +656,9 @@ def ensure_platform_configmap(kubectl, apply_kserve_cr):
         )
 
 
-@pytest.fixture(scope="session")
-def expected_release_tag():
-    """ODH release image tag (e.g. odh-v3.5) from KSERVE_RELEASE_TAG."""
-    tag = get_expected_release_tag()
-    if not tag:
-        pytest.skip("KSERVE_RELEASE_TAG is not set (required for post_release tests)")
-    return tag
-
-
-@pytest.fixture
-def apply_kserve_cr_with_wva(kubectl, cluster_info, apply_kserve_cr):
-    """Enable WVA on the Kserve CR and wait for the controller deployment."""
-    enable_wva(kubectl)
-    _poll_cr(
-        kubectl,
-        KSERVE_CR_NAME,
-        generation_matches,
-        TIMEOUT_120S,
-        f"WVA enable not reconciled within {TIMEOUT_120S}s",
-    )
-    wait_for_deployment(kubectl, WVA_DEPLOYMENT)
-    yield apply_kserve_cr
-
-
 @pytest.fixture
 def release_test_namespace(kubectl):
-    """Namespace for post-release InferenceService smoke tests."""
+    """Namespace for post-release LLMInferenceService smoke tests."""
     create_release_test_namespace(kubectl)
     yield RELEASE_TEST_NAMESPACE
     run(
