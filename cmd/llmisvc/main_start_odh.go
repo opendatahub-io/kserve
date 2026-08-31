@@ -41,7 +41,7 @@ func resolveTLS(ctx context.Context, cfg *rest.Config, minVer, ciphers string) (
 
 func setupDistroStartup(ctx context.Context, mgr ctrl.Manager) (context.Context, error) {
 	childCtx, cancel := context.WithCancel(ctx)
-	err := distrotls.SetupProfileWatcher(mgr, lastTLSResult, func(_ context.Context, old, cur distrotls.Settings) {
+	err := distrotls.SetupProfileWatcher(ctx, mgr, lastTLSResult, func(_ context.Context, old, cur distrotls.Settings) {
 		setupLog.Info("TLS settings changed, shutting down for restart",
 			"oldMinTLS", old.ProfileSpec.MinTLSVersion,
 			"newMinTLS", cur.ProfileSpec.MinTLSVersion,

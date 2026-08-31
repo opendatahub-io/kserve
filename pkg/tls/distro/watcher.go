@@ -18,6 +18,7 @@ package distro
 
 import (
 	"context"
+	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -28,6 +29,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
+
+// watchPreflightTimeout bounds the one-shot LIST used to confirm the APIServer
+// resource can actually be watched before registering the informer.
+const watchPreflightTimeout = 10 * time.Second
 
 var watcherLog = ctrl.Log.WithName("tls-profile-watcher")
 
@@ -84,8 +89,22 @@ func boolPtr(b bool) *bool {
 // SetupProfileWatcher registers a controller that watches the APIServer CR and
 // invokes onChange when the resolved TLS settings (profile + adherence policy)
 // change. The caller decides how to react (e.g. cancel a context for restart).
-func SetupProfileWatcher(mgr ctrl.Manager, result Result, onChange func(ctx context.Context, oldSettings, newSettings Settings)) error {
+func SetupProfileWatcher(ctx context.Context, mgr ctrl.Manager, result Result, onChange func(ctx context.Context, oldSettings, newSettings Settings)) error {
 	if !result.APIAvailable {
+		return nil
+	}
+
+	// Registering For(&APIServer{}) starts an informer whose cache-sync is fatal
+	// to the manager. A successful GET during Resolve does not prove the resource
+	// is watchable: list/watch RBAC may be missing, or the API may be transiently
+	// unavailable. Preflight with a non-cached LIST; if it fails, skip the watcher
+	// and keep running on the resolved static profile instead of crashlooping.
+	preflightCtx, cancel := context.WithTimeout(ctx, watchPreflightTimeout)
+	defer cancel()
+	if err := mgr.GetAPIReader().List(preflightCtx, &configv1.APIServerList{}, client.Limit(1)); err != nil {
+		watcherLog.Info("APIServer TLS profile not watchable; skipping dynamic profile watcher, using resolved static profile",
+			"hint", "ensure the ClusterRole grants list/watch on config.openshift.io/apiservers",
+			"error", err)
 		return nil
 	}
 
