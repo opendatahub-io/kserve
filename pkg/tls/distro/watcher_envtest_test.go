@@ -18,6 +18,7 @@ package distro
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -117,6 +118,9 @@ func TestSetupProfileWatcher_ForbiddenList_ManagerStaysUp(t *testing.T) {
 	g.Consistently(func() error {
 		select {
 		case err := <-startErr:
+			if err == nil {
+				return errors.New("manager exited cleanly during the observation window; it must keep running")
+			}
 			return err
 		default:
 			return nil
