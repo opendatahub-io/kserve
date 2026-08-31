@@ -58,16 +58,18 @@ Minikube/`xks` skips them. Same cluster convention as Prow `e2e-kserve-module`
 and Konflux group testing (`PLATFORM=ocp`):
 
 ```bash
-export KSERVE_RELEASE_TAG=odh-v3.5
+export RELEASE_TAG=odh-v3.5
 make e2e-setup-kserve-module \
   PLATFORM=ocp \
-  E2E_IMG=quay.io/opendatahub/odh-kserve-module-operator:${KSERVE_RELEASE_TAG}
+  E2E_IMG=quay.io/opendatahub/odh-kserve-module-operator:${RELEASE_TAG}
 make e2e-kserve-module-post-release
 ```
 
-CI: `.github/workflows/post-release-e2e.yml` is `workflow_dispatch` and always
-uses `PLATFORM=ocp`. GitHub-hosted runners cannot provision OpenShift, so the
-job fails unless the runner already has an OpenShift kubeconfig.
+CI: run from [odh-model-controller](https://github.com/opendatahub-io/odh-model-controller)
+via `.github/workflows/post-release-smoke.yaml` (`workflow_dispatch`). It checks
+out this repo at the release tag, uses `PLATFORM=ocp`, and runs the make targets
+above. GitHub-hosted runners cannot provision OpenShift; the workflow expects an
+existing OpenShift kubeconfig on the runner.
 
 ## Make Targets
 
