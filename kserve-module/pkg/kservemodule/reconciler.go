@@ -124,6 +124,7 @@ type KserveModuleReconciler struct {
 
 	controller     controller.Controller
 	cache          cache.Cache
+	apiReader      client.Reader
 	dynamicWatches []*dynamicWatch
 	dynamicWatchMu sync.Mutex
 
@@ -196,6 +197,17 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	if !condMgr.IsHappy() {
 		log.Info("not all components ready, requeueing")
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	}
+
+	// The CRDs this module installs itself exist by now. Register their dynamic
+	// watches before going quiescent: a self-installed CRD is not visible to the
+	// cached client during the reconcile that installs it, so the top-of-reconcile
+	// attempt above misses it. Once the happy path stops requeuing, no further
+	// reconcile runs and the preset self-heal watch would never register
+	// (RHOAIENG-88471). Requeue until every self-installed watch is registered.
+	if r.registerDynamicWatches(ctx) {
+		log.Info("self-installed dynamic watch registration pending, requeueing")
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 
