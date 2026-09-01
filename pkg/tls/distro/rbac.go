@@ -20,4 +20,4 @@ package distro
 // Processed by a separate controller-gen invocation (see Makefile.overrides.mk)
 // to generate a dedicated ClusterRole included only in distro overlays.
 
-//+kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get
+//+kubebuilder:rbac:groups=config.openshift.io,resources=apiservers,verbs=get;list;watch

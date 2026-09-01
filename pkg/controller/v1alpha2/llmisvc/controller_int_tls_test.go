@@ -1,3 +1,5 @@
+//go:build distro
+
 /*
 Copyright 2026 The KServe Authors.
 
@@ -20,16 +22,24 @@ import (
 	"context"
 	"encoding/json"
 
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
+	istioapi "istio.io/client-go/pkg/apis/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/kmeta"
 
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
 	. "github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc/fixture"
 )
+
+// istioCACertificatePath is the default path used by newIstioTlsSettings when rotation is enabled.
+// It mirrors the default of IstioCACertificatePath in router_platform_networking_odh.go.
+const istioCACertificatePath = "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt"
 
 var _ = Describe("LLMInferenceService TLS Toggle", func() {
 	Context("When enableLLMInferenceServiceTLS is false in ConfigMap", func() {
@@ -121,5 +131,172 @@ var _ = Describe("LLMInferenceService TLS Toggle", func() {
 				g.Expect(llmSvc.Status.Addresses[0].URL.Scheme).To(Equal("http"))
 			}).WithContext(ctx).Should(Succeed())
 		})
+	})
+})
+
+var _ = Describe("Scheduler DestinationRule TLS Gating", func() {
+	// waitForSchedulerDR waits until the scheduler DestinationRule appears and returns it.
+	waitForSchedulerDR := func(ctx context.Context, svcName, nsName string) *istioapi.DestinationRule {
+		dr := &istioapi.DestinationRule{}
+		Eventually(func(_ Gomega, ctx context.Context) error {
+			return envTest.Get(ctx, types.NamespacedName{
+				Name:      kmeta.ChildName(svcName, "-kserve-scheduler"),
+				Namespace: nsName,
+			}, dr)
+		}).WithContext(ctx).Should(Succeed())
+		return dr
+	}
+
+	// assertSchedulerDRGone verifies the scheduler DestinationRule does not exist.
+	assertSchedulerDRGone := func(ctx context.Context, svcName, nsName string) {
+		Consistently(func(ctx context.Context) bool {
+			dr := &istioapi.DestinationRule{}
+			err := envTest.Get(ctx, types.NamespacedName{
+				Name:      kmeta.ChildName(svcName, "-kserve-scheduler"),
+				Namespace: nsName,
+			}, dr)
+			return apierrors.IsNotFound(err)
+		}).WithContext(ctx).Should(BeTrue(), "scheduler DestinationRule should not exist when Router is nil")
+	}
+
+	It("should not create a scheduler DestinationRule when Router is nil", func(ctx SpecContext) {
+		svcName := "sched-dr-no-router"
+		testNs := NewTestNamespace(ctx, envTest)
+
+		// LLMInferenceService with no router — reconciler deletes (or never creates) the DR.
+		llmSvc := LLMInferenceService(svcName,
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+		)
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
+
+		assertSchedulerDRGone(ctx, svcName, testNs.Name)
+	})
+
+	It("should produce InsecureSkipVerify=false with CA when scheduler Template is nil (FIPS fallback)", func(ctx SpecContext) {
+		svcName := "sched-dr-no-template"
+		testNs := NewTestNamespace(ctx, envTest)
+
+		// Scheduler is configured with a version meeting the minimum but no Template.
+		// schedulerTlsRotationEnabled returns true (strict posture).
+		llmSvc := LLMInferenceService(svcName,
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedRoute(),
+			WithManagedGateway(),
+			WithSchedulerVersion(llmisvc.SchedulerCertRotationMinVersionStr),
+		)
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
+
+		dr := waitForSchedulerDR(ctx, svcName, testNs.Name)
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetInsecureSkipVerify().GetValue()).To(BeFalse())
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetCaCertificates()).To(Equal(istioCACertificatePath))
+	})
+
+	It("should produce InsecureSkipVerify=true when version annotation is absent", func(ctx SpecContext) {
+		svcName := "sched-dr-no-version"
+		testNs := NewTestNamespace(ctx, envTest)
+
+		// The shared scheduler preset injects app.kubernetes.io/version="0.9.0". Setting an
+		// explicit empty version on the LLMInferenceService spec overrides it in the final
+		// merge layer, so schedulerTlsRotationEnabled sees no usable version and returns false.
+		llmSvc := LLMInferenceService(svcName,
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedRoute(),
+			WithManagedGateway(),
+			WithSchedulerVersion(""),
+			WithSchedulerCommand("scheduler", "--enable-cert-reload=true"),
+		)
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
+
+		dr := waitForSchedulerDR(ctx, svcName, testNs.Name)
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetInsecureSkipVerify().GetValue()).To(BeTrue())
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetCaCertificates()).To(BeEmpty())
+	})
+
+	It("should produce InsecureSkipVerify=true when scheduler version is below 0.7.0", func(ctx SpecContext) {
+		svcName := "sched-dr-old-version"
+		testNs := NewTestNamespace(ctx, envTest)
+
+		llmSvc := LLMInferenceService(svcName,
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedRoute(),
+			WithManagedGateway(),
+			WithSchedulerVersion("0.6.9"), // one patch below llmisvc.SchedulerCertRotationMinVersionStr
+			WithSchedulerCommand("scheduler", "--enable-cert-reload=true"),
+		)
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
+
+		dr := waitForSchedulerDR(ctx, svcName, testNs.Name)
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetInsecureSkipVerify().GetValue()).To(BeTrue())
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetCaCertificates()).To(BeEmpty())
+	})
+
+	It("should produce InsecureSkipVerify=true when version meets minimum but flag is absent", func(ctx SpecContext) {
+		svcName := "sched-dr-no-flag"
+		testNs := NewTestNamespace(ctx, envTest)
+
+		llmSvc := LLMInferenceService(svcName,
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedRoute(),
+			WithManagedGateway(),
+			WithSchedulerVersion(llmisvc.SchedulerCertRotationMinVersionStr),
+			WithSchedulerCommand("scheduler" /* no --enable-cert-reload */),
+		)
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
+
+		dr := waitForSchedulerDR(ctx, svcName, testNs.Name)
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetInsecureSkipVerify().GetValue()).To(BeTrue())
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetCaCertificates()).To(BeEmpty())
+	})
+
+	It("should produce InsecureSkipVerify=false with CA when both gates pass — =true form", func(ctx SpecContext) {
+		svcName := "sched-dr-eq-true"
+		testNs := NewTestNamespace(ctx, envTest)
+
+		llmSvc := LLMInferenceService(svcName,
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedRoute(),
+			WithManagedGateway(),
+			WithSchedulerVersion(llmisvc.SchedulerCertRotationMinVersionStr),
+			WithSchedulerCommand("scheduler", "--enable-cert-reload=true"),
+		)
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
+
+		dr := waitForSchedulerDR(ctx, svcName, testNs.Name)
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetInsecureSkipVerify().GetValue()).To(BeFalse())
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetCaCertificates()).To(Equal(istioCACertificatePath))
+	})
+
+	It("should produce InsecureSkipVerify=false with CA when both gates pass — bare form", func(ctx SpecContext) {
+		// This is the critical regression case: the old exact-string check
+		// (cmdEntry == "--enable-cert-reload=true") would reject the bare flag.
+		svcName := "sched-dr-bare-flag"
+		testNs := NewTestNamespace(ctx, envTest)
+
+		llmSvc := LLMInferenceService(svcName,
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedRoute(),
+			WithManagedGateway(),
+			WithSchedulerVersion(llmisvc.SchedulerCertRotationMinVersionStr),
+			WithSchedulerCommand("scheduler", "--enable-cert-reload"),
+		)
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
+
+		dr := waitForSchedulerDR(ctx, svcName, testNs.Name)
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetInsecureSkipVerify().GetValue()).To(BeFalse())
+		Expect(dr.Spec.GetTrafficPolicy().GetTls().GetCaCertificates()).To(Equal(istioCACertificatePath))
 	})
 })

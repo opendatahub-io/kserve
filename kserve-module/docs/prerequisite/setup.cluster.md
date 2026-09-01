@@ -12,6 +12,27 @@ Prepares a cluster for E2E testing by deploying the KServe manifests and the KSe
 ./hack/setup/dev/manage.kind-with-registry.sh
 ```
 
+* Build the operator image and push it to a registry the cluster can pull from,
+  then pass it via `E2E_IMG`. Keep the default `KSERVE_NAMESPACE=opendatahub` —
+  the e2e tests expect the operator there.
+
+```bash
+export KO_DOCKER_REPO=quay.io/your-org TAG=dev
+make docker-build-kserve-module
+make docker-push-kserve-module
+E2E_IMG=${KO_DOCKER_REPO}/kserve-module-controller:${TAG} make e2e-setup-kserve-module
+```
+
+**Tip (xks/kind):** `manage.kind-with-registry.sh` sets up a local registry at
+`localhost:5001` wired into the cluster, so you can push there instead of an
+external registry — no `kind load` is needed:
+
+```bash
+export KO_DOCKER_REPO=localhost:5001 TAG=dev ENGINE=docker
+make docker-build-kserve-module
+make docker-push-kserve-module
+E2E_IMG=${KO_DOCKER_REPO}/kserve-module-controller:${TAG} make e2e-setup-kserve-module
+```
 
 ## All-in-One
 
@@ -20,7 +41,7 @@ Prepares a cluster for E2E testing by deploying the KServe manifests and the KSe
 
 
 ```bash
-KSERVE_NAMESPACE=kserve \
+KSERVE_NAMESPACE=opendatahub \
 E2E_IMG=quay.io/jooholee/kserve-module-controller:20260806-1 \
 make e2e-setup-kserve-module
 ```

@@ -9,6 +9,32 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
+// isWellKnownConfig reports whether the object is an LLMInferenceServiceConfig
+// preset shipped by this module, as opposed to one authored by a user.
+func isWellKnownConfig(obj *unstructured.Unstructured) bool {
+	if obj.GroupVersionKind().GroupKind() != llmISVCConfigGVK.GroupKind() {
+		return false
+	}
+	return obj.GetAnnotations()[wellKnownAnnotationKey] == wellKnownAnnotationValue
+}
+
+// isShippedPreset reports whether the object is a preset this module applies,
+// as opposed to a copy a user made in their own namespace.
+func isShippedPreset(obj *unstructured.Unstructured, applicationsNS string) bool {
+	return obj.GetNamespace() == applicationsNS && isWellKnownConfig(obj)
+}
+
+// wellKnownPresetNames returns the names of the presets in a rendered resource
+// set, after versionedWellKnownLLMInferenceServiceConfigs has prefixed them.
+func wellKnownPresetNames(resources []unstructured.Unstructured) []string {
+	var names []string
+	for i := range resources {
+		if isWellKnownConfig(&resources[i]) {
+			names = append(names, resources[i].GetName())
+		}
+	}
+	return names
+}
 
 func versionedWellKnownLLMInferenceServiceConfigs(resources []unstructured.Unstructured, versionPrefix string) ([]unstructured.Unstructured, error) {
 	if versionPrefix == "" {
@@ -20,11 +46,8 @@ func versionedWellKnownLLMInferenceServiceConfigs(resources []unstructured.Unstr
 	for i := range resources {
 		gvk := resources[i].GroupVersionKind()
 
-		if gvk.Group == llmISVCConfigGroup && gvk.Kind == llmISVCConfigKind {
-			ann := resources[i].GetAnnotations()
-			if v, ok := ann[wellKnownAnnotationKey]; ok && v == wellKnownAnnotationValue {
-				resources[i].SetName(fmt.Sprintf("%s-%s", versionPrefix, resources[i].GetName()))
-			}
+		if isWellKnownConfig(&resources[i]) {
+			resources[i].SetName(fmt.Sprintf("%s-%s", versionPrefix, resources[i].GetName()))
 		}
 
 		if gvk == deploymentGVK && resources[i].GetName() == llmISVCControllerDeployment {
