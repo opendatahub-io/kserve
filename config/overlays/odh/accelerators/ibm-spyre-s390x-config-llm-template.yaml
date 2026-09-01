@@ -13,7 +13,6 @@ metadata:
     opendatahub.io/supported-topologies: '["workload-single-node"]'
 spec:
   template:
-    schedulerName: default-scheduler
     containers:
       - name: main
         image: placeholder
