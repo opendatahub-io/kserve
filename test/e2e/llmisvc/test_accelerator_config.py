@@ -30,13 +30,14 @@ from __future__ import annotations
 
 import os
 import pytest
-from kserve import KServeClient, constants
+from kserve import KServeClient, V1alpha1LLMInferenceService, constants
 from kubernetes import client
 
 from .fixtures import VLLM_CPU_IMAGE, inject_k8s_proxy
 from .logging import log_execution
 from .test_llm_inference_service import (
-    KSERVE_PLURAL_LLMINFERENCESERVICE,
+    create_llmisvc,
+    delete_llmisvc,
     wait_for,
 )
 from ..common.utils import KSERVE_NAMESPACE
@@ -45,13 +46,6 @@ CPU_PRESET_NAME = "kserve-config-llm-template-cpu"
 KSERVE_PLURAL_LLMINFERENCESERVICECONFIG = "llminferenceserviceconfigs"
 API_VERSION = "v1alpha2"
 DEPLOYMENT_WAIT_SECONDS = 300
-
-
-def _kserve_client() -> KServeClient:
-    return KServeClient(
-        config_file=os.environ.get("KUBECONFIG", "~/.kube/config"),
-        client_configuration=client.Configuration(),
-    )
 
 
 def _get_cpu_preset(kserve_client: KServeClient) -> dict:
@@ -84,35 +78,25 @@ def _preset_main_container(preset: dict) -> dict:
     return main
 
 
-def _create_llmisvc(kserve_client: KServeClient, namespace: str, body: dict) -> None:
-    kserve_client.api_instance.create_namespaced_custom_object(
-        constants.KSERVE_GROUP,
-        API_VERSION,
-        namespace,
-        KSERVE_PLURAL_LLMINFERENCESERVICE,
-        body,
+def _cpu_preset_llmisvc(
+    name: str, namespace: str, template: dict | None = None
+) -> V1alpha1LLMInferenceService:
+    spec: dict = {
+        "baseRefs": [{"name": CPU_PRESET_NAME}],
+        "model": {
+            "uri": "hf://facebook/opt-125m",
+            "name": "facebook/opt-125m",
+        },
+        "replicas": 1,
+    }
+    if template is not None:
+        spec["template"] = template
+    return V1alpha1LLMInferenceService(
+        api_version=f"{constants.KSERVE_GROUP}/{API_VERSION}",
+        kind="LLMInferenceService",
+        metadata=client.V1ObjectMeta(name=name, namespace=namespace),
+        spec=spec,
     )
-
-
-def _delete_llmisvc(kserve_client: KServeClient, namespace: str, name: str) -> None:
-    skip_deletion = os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in (
-        "true",
-        "1",
-        "t",
-    )
-    if skip_deletion:
-        return
-    try:
-        kserve_client.api_instance.delete_namespaced_custom_object(
-            constants.KSERVE_GROUP,
-            API_VERSION,
-            namespace,
-            KSERVE_PLURAL_LLMINFERENCESERVICE,
-            name,
-        )
-    except client.rest.ApiException as e:
-        if e.status != 404:
-            raise
 
 
 def _wait_for_workload_deployment(namespace: str, service_name: str):
@@ -151,41 +135,27 @@ def _assert_preset_env(deployment) -> None:
     )
 
 
-def _llmisvc_body(name: str, namespace: str, template: dict | None = None) -> dict:
-    spec: dict = {
-        "baseRefs": [{"name": CPU_PRESET_NAME}],
-        "model": {
-            "uri": "hf://facebook/opt-125m",
-            "name": "facebook/opt-125m",
-        },
-        "replicas": 1,
-    }
-    if template is not None:
-        spec["template"] = template
-    return {
-        "apiVersion": f"{constants.KSERVE_GROUP}/{API_VERSION}",
-        "kind": "LLMInferenceService",
-        "metadata": {"name": name, "namespace": namespace},
-        "spec": spec,
-    }
+def _skip_resource_deletion() -> bool:
+    return os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in ("true", "1", "t")
 
 
 @log_execution
 def test_cpu_accelerator_preset_applies_to_workload(test_namespace):
     """The shipped CPU preset, referenced via baseRefs, configures the workload."""
     inject_k8s_proxy()
-    kserve_client = _kserve_client()
+    kserve_client = KServeClient(
+        config_file=os.environ.get("KUBECONFIG", "~/.kube/config"),
+        client_configuration=client.Configuration(),
+    )
 
     preset_image = _preset_main_container(_get_cpu_preset(kserve_client))["image"]
-    service_name = "cpu-accel-preset"
+    llm_isvc = _cpu_preset_llmisvc("cpu-accel-preset", test_namespace)
 
-    _create_llmisvc(
-        kserve_client,
-        test_namespace,
-        _llmisvc_body(service_name, test_namespace),
-    )
+    create_llmisvc(kserve_client, llm_isvc)
     try:
-        deployment = _wait_for_workload_deployment(test_namespace, service_name)
+        deployment = _wait_for_workload_deployment(
+            test_namespace, llm_isvc.metadata.name
+        )
 
         main = _main_container(deployment)
         assert main.image == preset_image, (
@@ -198,30 +168,32 @@ def test_cpu_accelerator_preset_applies_to_workload(test_namespace):
             f"arch nodeSelector not merged from preset, got: {node_selector}"
         )
     finally:
-        _delete_llmisvc(kserve_client, test_namespace, service_name)
+        if not _skip_resource_deletion():
+            delete_llmisvc(kserve_client, llm_isvc)
 
 
 @log_execution
 def test_cpu_accelerator_preset_user_image_wins(test_namespace):
     """A user-specified image overrides the preset image; env defaults still merge."""
     inject_k8s_proxy()
-    kserve_client = _kserve_client()
+    kserve_client = KServeClient(
+        config_file=os.environ.get("KUBECONFIG", "~/.kube/config"),
+        client_configuration=client.Configuration(),
+    )
 
     # Ensure the preset exists (skips on non-ODH stacks) before asserting overrides.
     _get_cpu_preset(kserve_client)
-    service_name = "cpu-accel-precedence"
-
-    _create_llmisvc(
-        kserve_client,
+    llm_isvc = _cpu_preset_llmisvc(
+        "cpu-accel-precedence",
         test_namespace,
-        _llmisvc_body(
-            service_name,
-            test_namespace,
-            template={"containers": [{"name": "main", "image": VLLM_CPU_IMAGE}]},
-        ),
+        template={"containers": [{"name": "main", "image": VLLM_CPU_IMAGE}]},
     )
+
+    create_llmisvc(kserve_client, llm_isvc)
     try:
-        deployment = _wait_for_workload_deployment(test_namespace, service_name)
+        deployment = _wait_for_workload_deployment(
+            test_namespace, llm_isvc.metadata.name
+        )
 
         main = _main_container(deployment)
         assert main.image == VLLM_CPU_IMAGE, (
@@ -229,4 +201,5 @@ def test_cpu_accelerator_preset_user_image_wins(test_namespace):
         )
         _assert_preset_env(deployment)
     finally:
-        _delete_llmisvc(kserve_client, test_namespace, service_name)
+        if not _skip_resource_deletion():
+            delete_llmisvc(kserve_client, llm_isvc)
