@@ -19,12 +19,19 @@ TIMEOUT_300S = 300  # cold-start: first Kserve CR ready waits on operand image p
 TIMEOUT_120S = 120
 TIMEOUT_60S = 60
 
+PV_NAME = "kserve-localmodelnode-pv"
+PVC_NAME = "kserve-localmodelnode-pvc"
+LMNG_NAME = "workers"
+LMNG_RESOURCE = "localmodelnodegroups.serving.kserve.io"
+LLMISVC_DEPLOYMENT = "llmisvc-controller-manager"
+LLMISVC_CONFIG_RESOURCE = "llminferenceserviceconfigs.serving.kserve.io"
+
 OPERAND_DEPLOYMENTS_XKS = [
-    "llmisvc-controller-manager",
+    LLMISVC_DEPLOYMENT,
 ]
 OPERAND_DEPLOYMENTS_OCP = [
     "kserve-controller-manager",
-    "llmisvc-controller-manager",
+    LLMISVC_DEPLOYMENT,
     "odh-model-controller",
     "model-serving-api",
 ]
@@ -41,11 +48,6 @@ KSERVE_CR_TEMPLATE = {
     "metadata": {"name": KSERVE_CR_NAME},
     "spec": {"managementState": "Managed"},
 }
-
-PV_NAME = "kserve-localmodelnode-pv"
-PVC_NAME = "kserve-localmodelnode-pvc"
-LMNG_NAME = "workers"
-LMNG_RESOURCE = "localmodelnodegroups.serving.kserve.io"
 
 
 @dataclass
