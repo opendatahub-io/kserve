@@ -1,0 +1,9 @@
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceServiceConfig
+metadata:
+  name: kserve-config-llm-decode-worker-data-parallel
+spec:
+  annotations:
+    # Remove if upstream gets the annotation. This is required
+    # for TLS/FIPS configuration.
+    llm-d.ai/routing-sidecar-version: "0.9.0"
