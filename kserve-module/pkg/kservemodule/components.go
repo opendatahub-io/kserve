@@ -109,6 +109,20 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 		return nil, fmt.Errorf("versioning LLMInferenceServiceConfigs: %w", err)
 	}
 
+	cfg, err := r.resolveTracingPlatformConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolve tracing platform config: %w", err)
+	}
+	resources, err = patchWellKnownTracingPreset(resources, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("patch tracing preset: %w", err)
+	}
+	if cfg == nil || !cfg.Enabled {
+		log.V(1).Info("platform tracing disabled, leaving tracing preset unchanged")
+	} else {
+		log.V(1).Info("patched tracing preset with platform collector", "endpoint", cfg.Endpoint, "sampleRatio", cfg.SampleRatio)
+	}
+
 	return resources, nil
 }
 
@@ -235,4 +249,3 @@ func applyManagedByLabel(resources []unstructured.Unstructured, componentName st
 		resources[i].SetLabels(labels)
 	}
 }
-
