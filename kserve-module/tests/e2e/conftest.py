@@ -139,16 +139,17 @@ def operand_deployments(is_openshift):
 
 
 def expected_webhooks(is_openshift):
-    """Return [(kind, name, service), ...] the platform must register.
+    """Return [(kind, name, service, namespace), ...] the platform must register.
 
     Mirrors operand_deployments(is_openshift): XKS registers llmisvc webhooks
-    only; OCP adds kserve-controller and odh-model-controller. See
-    RHOAIENG-82802.
+    only; OCP adds kserve-controller and odh-model-controller. The operator
+    renders every component into the applications namespace, so each webhook's
+    clientConfig.service must live in NAMESPACE. See RHOAIENG-82802.
     """
-    entries = [(k, n, LLMISVC_WEBHOOK_SERVICE) for k, n in LLMISVC_WEBHOOKS]
+    entries = [(k, n, LLMISVC_WEBHOOK_SERVICE, NAMESPACE) for k, n in LLMISVC_WEBHOOKS]
     if is_openshift:
-        entries += [(k, n, KSERVE_WEBHOOK_SERVICE) for k, n in KSERVE_WEBHOOKS]
-        entries += [(k, n, OMC_WEBHOOK_SERVICE) for k, n in OMC_WEBHOOKS]
+        entries += [(k, n, KSERVE_WEBHOOK_SERVICE, NAMESPACE) for k, n in KSERVE_WEBHOOKS]
+        entries += [(k, n, OMC_WEBHOOK_SERVICE, NAMESPACE) for k, n in OMC_WEBHOOKS]
     return entries
 
 

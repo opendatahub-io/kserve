@@ -59,7 +59,7 @@ def _verify_webhooks_registered(kubectl, is_openshift):
     expected = expected_webhooks(is_openshift)
 
     def assert_webhooks_wired():
-        for kind, name, service in expected:
+        for kind, name, service, namespace in expected:
             resource = _WEBHOOK_KIND_RESOURCE[kind]
             cfg = get_webhook_config(kubectl, resource, name)
             assert cfg is not None, f"{resource}/{name} should exist"
@@ -72,10 +72,11 @@ def _verify_webhooks_registered(kubectl, is_openshift):
                 assert client_config.get("caBundle"), (
                     f"{resource}/{name} webhook {wh.get('name')} has empty caBundle"
                 )
-                svc = client_config.get("service", {}).get("name")
-                assert svc == service, (
-                    f"{resource}/{name} webhook {wh.get('name')} targets "
-                    f"service {svc!r}, expected {service!r}"
+                svc = client_config.get("service", {})
+                assert (svc.get("name"), svc.get("namespace")) == (service, namespace), (
+                    f"{resource}/{name} webhook {wh.get('name')} targets service "
+                    f"{svc.get('namespace')}/{svc.get('name')}, expected "
+                    f"{namespace}/{service}"
                 )
 
     wait_for(assert_webhooks_wired, timeout=TIMEOUT_120S, interval=5)
