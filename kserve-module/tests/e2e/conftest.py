@@ -35,6 +35,35 @@ MODEL_CONTROLLER_DEPLOYMENT = "odh-model-controller"
 LOCALMODEL_CONTROLLER_DEPLOYMENT = "kserve-localmodel-controller-manager"
 LOCALMODEL_AGENT_DAEMONSET = "kserve-localmodelnode-agent"
 
+# Webhook registration contract (RHOAIENG-82802). For each owner, the expected
+# Validating/Mutating webhook configs and the service its clientConfig must
+# target. Asserting the llmisvc service is llmisvc-webhook-server-service also
+# guards against regressing to the legacy shared kserve-webhook-server-service.
+LLMISVC_WEBHOOK_SERVICE = "llmisvc-webhook-server-service"
+KSERVE_WEBHOOK_SERVICE = "kserve-webhook-server-service"
+OMC_WEBHOOK_SERVICE = "odh-model-controller-webhook-service"
+
+# (kind, name); kind is "validating" or "mutating".
+LLMISVC_WEBHOOKS = [
+    ("mutating", "llminferenceservice.serving.kserve.io"),
+    ("validating", "llminferenceservice.serving.kserve.io"),
+    ("validating", "llminferenceserviceconfig.serving.kserve.io"),
+]
+KSERVE_WEBHOOKS = [
+    ("mutating", "inferenceservice.serving.kserve.io"),
+    ("validating", "inferenceservice.serving.kserve.io"),
+    ("validating", "clusterservingruntime.serving.kserve.io"),
+    ("validating", "inferencegraph.serving.kserve.io"),
+    ("validating", "servingruntime.serving.kserve.io"),
+    ("validating", "trainedmodel.serving.kserve.io"),
+]
+# omc is OCP-only today. PR #1798 adds omc to XKS with the mutating webhook only
+# (its overlays/xks deletes the validating one); add that gate when it merges.
+OMC_WEBHOOKS = [
+    ("mutating", "mutating.odh-model-controller.opendatahub.io"),
+    ("validating", "validating.odh-model-controller.opendatahub.io"),
+]
+
 KSERVE_CR_TEMPLATE = {
     "apiVersion": "components.platform.opendatahub.io/v1alpha1",
     "kind": "Kserve",
@@ -109,6 +138,20 @@ def operand_deployments(is_openshift):
     return OPERAND_DEPLOYMENTS_OCP if is_openshift else OPERAND_DEPLOYMENTS_XKS
 
 
+def expected_webhooks(is_openshift):
+    """Return [(kind, name, service), ...] the platform must register.
+
+    Mirrors operand_deployments(is_openshift): XKS registers llmisvc webhooks
+    only; OCP adds kserve-controller and odh-model-controller. See
+    RHOAIENG-82802.
+    """
+    entries = [(k, n, LLMISVC_WEBHOOK_SERVICE) for k, n in LLMISVC_WEBHOOKS]
+    if is_openshift:
+        entries += [(k, n, KSERVE_WEBHOOK_SERVICE) for k, n in KSERVE_WEBHOOKS]
+        entries += [(k, n, OMC_WEBHOOK_SERVICE) for k, n in OMC_WEBHOOKS]
+    return entries
+
+
 def is_cr_ready(cr):
     """Check if a Kserve CR dict has Ready=True."""
     conditions = cr.get("status", {}).get("conditions", [])
@@ -153,6 +196,14 @@ def get_cr(kubectl_bin, name=KSERVE_CR_NAME, check=True):
 def cr_exists(kubectl_bin, name=KSERVE_CR_NAME):
     """Check if the Kserve CR already exists."""
     return get_cr(kubectl_bin, name, check=False) is not None
+
+
+def get_webhook_config(kubectl_bin, resource_type, name):
+    """Fetch a cluster-scoped webhook config as a dict, or None if absent."""
+    result = run([kubectl_bin, "get", resource_type, name, "-o", "yaml"], check=False)
+    if result.returncode != 0:
+        return None
+    return yaml.safe_load(result.stdout)
 
 
 def trigger_reconcile(kubectl_bin, name=KSERVE_CR_NAME, trigger_id=None):
