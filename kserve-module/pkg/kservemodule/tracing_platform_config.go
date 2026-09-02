@@ -3,6 +3,8 @@ package kservemodule
 import (
 	"context"
 	"fmt"
+	"math"
+	"strconv"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
@@ -17,6 +19,7 @@ const (
 	monitoringAPIVersion         = "v1alpha1"
 	monitoringKind               = "Monitoring"
 	defaultTracesSampleRatio     = "0.1"
+	invalidTracesSampleRatio     = "1.0"
 	platformCollectorServiceName = "data-science-collector-collector"
 	platformCollectorPort        = 4317
 	tracingExporter              = "otlp"
@@ -65,6 +68,8 @@ func (r *KserveModuleReconciler) resolveTracingPlatformConfig(ctx context.Contex
 	}
 	if ratio == "" {
 		ratio = defaultTracesSampleRatio
+	} else if !validTracesSampleRatio(ratio) {
+		ratio = invalidTracesSampleRatio
 	}
 
 	return &tracingPlatformConfig{
@@ -72,4 +77,9 @@ func (r *KserveModuleReconciler) resolveTracingPlatformConfig(ctx context.Contex
 		SampleRatio: ratio,
 		Endpoint:    fmt.Sprintf("http://%s.%s.svc:%d", platformCollectorServiceName, r.getMonitoringNamespace(), platformCollectorPort),
 	}, nil
+}
+
+func validTracesSampleRatio(ratio string) bool {
+	parsed, err := strconv.ParseFloat(ratio, 64)
+	return err == nil && !math.IsNaN(parsed) && !math.IsInf(parsed, 0) && parsed >= 0 && parsed <= 1
 }

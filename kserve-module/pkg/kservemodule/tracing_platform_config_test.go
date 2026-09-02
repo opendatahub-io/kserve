@@ -47,6 +47,30 @@ func TestResolveTracingPlatformConfig(t *testing.T) {
 			Enabled: true, SampleRatio: "0.5",
 			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
 		}},
+		{name: "invalid sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "not-a-number"}), expected: &tracingPlatformConfig{
+			Enabled: true, SampleRatio: invalidTracesSampleRatio,
+			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
+		}},
+		{name: "NaN sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "NaN"}), expected: &tracingPlatformConfig{
+			Enabled: true, SampleRatio: invalidTracesSampleRatio,
+			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
+		}},
+		{name: "+Inf sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "+Inf"}), expected: &tracingPlatformConfig{
+			Enabled: true, SampleRatio: invalidTracesSampleRatio,
+			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
+		}},
+		{name: "out-of-range sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "2"}), expected: &tracingPlatformConfig{
+			Enabled: true, SampleRatio: invalidTracesSampleRatio,
+			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
+		}},
+		{name: "zero sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "0"}), expected: &tracingPlatformConfig{
+			Enabled: true, SampleRatio: "0",
+			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
+		}},
+		{name: "one sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "1"}), expected: &tracingPlatformConfig{
+			Enabled: true, SampleRatio: "1",
+			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
+		}},
 	}
 
 	for _, tt := range tests {
