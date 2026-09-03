@@ -2215,6 +2215,45 @@ spec:
       - /bin/bash
       - -c
       - |-
+        # Spyre architecture-specific setup for ppc64le/s390x
+        if [ -d /opt/ibm/spyre ]; then
+          ARCH="$(arch)"
+          case "${ARCH}" in
+            ppc64le)
+              export SENLIB_DEVEL_CONFIG_FILE=$HOME/senlib-power.json
+              /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            s390x)
+              export FLEX_DEVICE=VF
+              if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                source /etc/profile.d/ibm-aiu-setup.sh
+              fi
+              export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+              if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > $HOME/.senlib.json && [ -s "$HOME/.senlib.json" ]; then
+                  export SENLIB_DEVEL_CONFIG_FILE=$HOME/.senlib.json
+                else
+                  echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                  rm -f $HOME/.senlib.json
+                fi
+              else
+                echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+              fi
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            x86_64)
+              export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+              ;;
+          esac
+        fi
+
         if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
           source /etc/profile.d/ibm-aiu-setup.sh
         fi
@@ -2533,6 +2572,45 @@ spec:
       - /bin/bash
       - -c
       - |-
+        # Spyre architecture-specific setup for ppc64le/s390x
+        if [ -d /opt/ibm/spyre ]; then
+          ARCH="$(arch)"
+          case "${ARCH}" in
+            ppc64le)
+              export SENLIB_DEVEL_CONFIG_FILE=$HOME/senlib-power.json
+              /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            s390x)
+              export FLEX_DEVICE=VF
+              if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                source /etc/profile.d/ibm-aiu-setup.sh
+              fi
+              export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+              if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > $HOME/.senlib.json && [ -s "$HOME/.senlib.json" ]; then
+                  export SENLIB_DEVEL_CONFIG_FILE=$HOME/.senlib.json
+                else
+                  echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                  rm -f $HOME/.senlib.json
+                fi
+              else
+                echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+              fi
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            x86_64)
+              export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+              ;;
+          esac
+        fi
+
         if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
           source /etc/profile.d/ibm-aiu-setup.sh
         fi
@@ -2877,6 +2955,45 @@ spec:
       - /bin/bash
       - -c
       - |-
+        # Spyre architecture-specific setup for ppc64le/s390x
+        if [ -d /opt/ibm/spyre ]; then
+          ARCH="$(arch)"
+          case "${ARCH}" in
+            ppc64le)
+              export SENLIB_DEVEL_CONFIG_FILE=$HOME/senlib-power.json
+              /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            s390x)
+              export FLEX_DEVICE=VF
+              if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                source /etc/profile.d/ibm-aiu-setup.sh
+              fi
+              export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+              if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > $HOME/.senlib.json && [ -s "$HOME/.senlib.json" ]; then
+                  export SENLIB_DEVEL_CONFIG_FILE=$HOME/.senlib.json
+                else
+                  echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                  rm -f $HOME/.senlib.json
+                fi
+              else
+                echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+              fi
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            x86_64)
+              export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+              ;;
+          esac
+        fi
+
         if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
           source /etc/profile.d/ibm-aiu-setup.sh
         fi
@@ -3149,6 +3266,45 @@ spec:
         - /bin/bash
         - -c
         - |-
+          # Spyre architecture-specific setup for ppc64le/s390x
+          if [ -d /opt/ibm/spyre ]; then
+            ARCH="$(arch)"
+            case "${ARCH}" in
+              ppc64le)
+                export SENLIB_DEVEL_CONFIG_FILE=$HOME/senlib-power.json
+                /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh
+                if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                  . /opt/rh/gcc-toolset-14/enable
+                  export PATH
+                fi
+                ;;
+              s390x)
+                export FLEX_DEVICE=VF
+                if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                  source /etc/profile.d/ibm-aiu-setup.sh
+                fi
+                export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+                if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                  if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > $HOME/.senlib.json && [ -s "$HOME/.senlib.json" ]; then
+                    export SENLIB_DEVEL_CONFIG_FILE=$HOME/.senlib.json
+                  else
+                    echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                    rm -f $HOME/.senlib.json
+                  fi
+                else
+                  echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+                fi
+                if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                  . /opt/rh/gcc-toolset-14/enable
+                  export PATH
+                fi
+                ;;
+              x86_64)
+                export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+                ;;
+            esac
+          fi
+
           if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
             source /etc/profile.d/ibm-aiu-setup.sh
           fi
@@ -3408,6 +3564,45 @@ spec:
         - /bin/bash
         - -c
         - |-
+          # Spyre architecture-specific setup for ppc64le/s390x
+          if [ -d /opt/ibm/spyre ]; then
+            ARCH="$(arch)"
+            case "${ARCH}" in
+              ppc64le)
+                export SENLIB_DEVEL_CONFIG_FILE=$HOME/senlib-power.json
+                /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh
+                if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                  . /opt/rh/gcc-toolset-14/enable
+                  export PATH
+                fi
+                ;;
+              s390x)
+                export FLEX_DEVICE=VF
+                if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                  source /etc/profile.d/ibm-aiu-setup.sh
+                fi
+                export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+                if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                  if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > $HOME/.senlib.json && [ -s "$HOME/.senlib.json" ]; then
+                    export SENLIB_DEVEL_CONFIG_FILE=$HOME/.senlib.json
+                  else
+                    echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                    rm -f $HOME/.senlib.json
+                  fi
+                else
+                  echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+                fi
+                if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                  . /opt/rh/gcc-toolset-14/enable
+                  export PATH
+                fi
+                ;;
+              x86_64)
+                export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+                ;;
+            esac
+          fi
+
           if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
             source /etc/profile.d/ibm-aiu-setup.sh
           fi
@@ -3691,6 +3886,45 @@ spec:
         - /bin/bash
         - -c
         - |-
+          # Spyre architecture-specific setup for ppc64le/s390x
+          if [ -d /opt/ibm/spyre ]; then
+            ARCH="$(arch)"
+            case "${ARCH}" in
+              ppc64le)
+                export SENLIB_DEVEL_CONFIG_FILE=$HOME/senlib-power.json
+                /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh
+                if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                  . /opt/rh/gcc-toolset-14/enable
+                  export PATH
+                fi
+                ;;
+              s390x)
+                export FLEX_DEVICE=VF
+                if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                  source /etc/profile.d/ibm-aiu-setup.sh
+                fi
+                export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+                if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                  if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > $HOME/.senlib.json && [ -s "$HOME/.senlib.json" ]; then
+                    export SENLIB_DEVEL_CONFIG_FILE=$HOME/.senlib.json
+                  else
+                    echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                    rm -f $HOME/.senlib.json
+                  fi
+                else
+                  echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+                fi
+                if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                  . /opt/rh/gcc-toolset-14/enable
+                  export PATH
+                fi
+                ;;
+              x86_64)
+                export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+                ;;
+            esac
+          fi
+
           if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
             source /etc/profile.d/ibm-aiu-setup.sh
           fi
@@ -4576,6 +4810,45 @@ spec:
       - /bin/bash
       - -c
       - |-
+        # Spyre architecture-specific setup for ppc64le/s390x
+        if [ -d /opt/ibm/spyre ]; then
+          ARCH="$(arch)"
+          case "${ARCH}" in
+            ppc64le)
+              export SENLIB_DEVEL_CONFIG_FILE=$HOME/senlib-power.json
+              /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            s390x)
+              export FLEX_DEVICE=VF
+              if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                source /etc/profile.d/ibm-aiu-setup.sh
+              fi
+              export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+              if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > $HOME/.senlib.json && [ -s "$HOME/.senlib.json" ]; then
+                  export SENLIB_DEVEL_CONFIG_FILE=$HOME/.senlib.json
+                else
+                  echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                  rm -f $HOME/.senlib.json
+                fi
+              else
+                echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+              fi
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            x86_64)
+              export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+              ;;
+          esac
+        fi
+
         if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
           source /etc/profile.d/ibm-aiu-setup.sh
         fi
@@ -4924,6 +5197,45 @@ spec:
       - /bin/bash
       - -c
       - |-
+        # Spyre architecture-specific setup for ppc64le/s390x
+        if [ -d /opt/ibm/spyre ]; then
+          ARCH="$(arch)"
+          case "${ARCH}" in
+            ppc64le)
+              export SENLIB_DEVEL_CONFIG_FILE=$HOME/senlib-power.json
+              /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            s390x)
+              export FLEX_DEVICE=VF
+              if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                source /etc/profile.d/ibm-aiu-setup.sh
+              fi
+              export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+              if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > $HOME/.senlib.json && [ -s "$HOME/.senlib.json" ]; then
+                  export SENLIB_DEVEL_CONFIG_FILE=$HOME/.senlib.json
+                else
+                  echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                  rm -f $HOME/.senlib.json
+                fi
+              else
+                echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+              fi
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            x86_64)
+              export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+              ;;
+          esac
+        fi
+
         if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
           source /etc/profile.d/ibm-aiu-setup.sh
         fi
@@ -5207,6 +5519,45 @@ spec:
       - /bin/bash
       - -c
       - |-
+        # Spyre architecture-specific setup for ppc64le/s390x
+        if [ -d /opt/ibm/spyre ]; then
+          ARCH="$(arch)"
+          case "${ARCH}" in
+            ppc64le)
+              export SENLIB_DEVEL_CONFIG_FILE=$HOME/senlib-power.json
+              /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            s390x)
+              export FLEX_DEVICE=VF
+              if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                source /etc/profile.d/ibm-aiu-setup.sh
+              fi
+              export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+              if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > $HOME/.senlib.json && [ -s "$HOME/.senlib.json" ]; then
+                  export SENLIB_DEVEL_CONFIG_FILE=$HOME/.senlib.json
+                else
+                  echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                  rm -f $HOME/.senlib.json
+                fi
+              else
+                echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+              fi
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            x86_64)
+              export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+              ;;
+          esac
+        fi
+
         if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
           source /etc/profile.d/ibm-aiu-setup.sh
         fi
