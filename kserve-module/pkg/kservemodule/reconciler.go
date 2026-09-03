@@ -124,8 +124,13 @@ type KserveModuleReconciler struct {
 
 	controller     controller.Controller
 	cache          cache.Cache
+	apiReader      client.Reader
 	dynamicWatches []*dynamicWatch
 	dynamicWatchMu sync.Mutex
+
+	// expectedPresets holds the preset names from the most recent render, written
+	// by reconcile and read by updateComponentReadiness later in the same call.
+	expectedPresets []string
 }
 
 func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
@@ -195,6 +200,17 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 
+	// The CRDs this module installs itself exist by now. Register their dynamic
+	// watches before going quiescent: a self-installed CRD is not visible to the
+	// cached client during the reconcile that installs it, so the top-of-reconcile
+	// attempt above misses it. Once the happy path stops requeuing, no further
+	// reconcile runs and the preset self-heal watch would never register
+	// (RHOAIENG-88471). Requeue until every self-installed watch is registered.
+	if r.registerDynamicWatches(ctx) {
+		log.Info("self-installed dynamic watch registration pending, requeueing")
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	}
+
 	return ctrl.Result{}, nil
 }
 
@@ -244,6 +260,8 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 	if len(componentErrors) > 0 {
 		return componentErrors
 	}
+
+	r.expectedPresets = wellKnownPresetNames(allResources)
 
 	owned, unowned := splitByOwnership(allResources)
 	if err := r.Deployer.Deploy(ctx, deploy.DeployInput{
@@ -439,8 +457,10 @@ func (r *KserveModuleReconciler) getVersionPrefix(ctx context.Context, kserve *p
 	if v := r.getPlatformVersion(ctx); v != "" {
 		return "v" + strings.ReplaceAll(v, ".", "-")
 	}
-	if ann := kserve.GetAnnotations(); ann != nil {
-		if v := ann["platform.opendatahub.io/version"]; v != "" {
+	// kserve is nil when defaultCleanup renders; the ConfigMap above still gives
+	// the prefix, which cleanup needs to match the deployed preset names.
+	if kserve != nil {
+		if v := kserve.GetAnnotations()["platform.opendatahub.io/version"]; v != "" {
 			return "v" + strings.ReplaceAll(v, ".", "-")
 		}
 	}

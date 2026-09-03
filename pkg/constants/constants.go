@@ -180,6 +180,7 @@ var (
 	LocalModelPVCNameAnnotationKey                   = InferenceServiceInternalAnnotationsPrefix + "/localmodel-pvc-name"
 	ConfidentialEnabledAnnotationKey                 = InferenceServiceInternalAnnotationsPrefix + "/confidential-enabled"
 	ConfidentialResourceIdAnnotationKey              = InferenceServiceInternalAnnotationsPrefix + "/confidential-resource-id"
+	LocalModelLoRAAnnotationKey                      = InferenceServiceInternalAnnotationsPrefix + "/localmodel-lora"
 )
 
 // kserve networking constants
@@ -201,6 +202,7 @@ var (
 
 const (
 	HfURIPrefix        = "hf://"
+	MsURIPrefix        = "modelscope://"
 	OciURIPrefix       = "oci://"
 	OciNativeURIPrefix = "oci+native://"
 	OciFetchURIPrefix  = "oci+fetch://"

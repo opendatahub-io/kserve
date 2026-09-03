@@ -680,6 +680,43 @@ func WithSchedulerReplicas(replicas int32) LLMInferenceServiceOption {
 	}
 }
 
+// WithSchedulerVersion sets app.kubernetes.io/version in the scheduler's annotations.
+// It is typically paired with WithSchedulerCommand to exercise both gates of schedulerTlsRotationEnabled.
+func WithSchedulerVersion(version string) LLMInferenceServiceOption {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
+		ensureSchedulerSpec(&llmSvc.Spec)
+		if llmSvc.Spec.Router.Scheduler.Annotations == nil {
+			llmSvc.Spec.Router.Scheduler.Annotations = map[string]string{}
+		}
+		llmSvc.Spec.Router.Scheduler.Annotations["app.kubernetes.io/version"] = version
+	}
+}
+
+// WithSchedulerCommand sets the command on the main container of the scheduler Template.
+// Passing no arguments leaves Template nil, which triggers the FIPS-safe fallback in
+// schedulerTlsRotationEnabled (rotation enabled when version gate passes but no template).
+func WithSchedulerCommand(cmd ...string) LLMInferenceServiceOption {
+	return func(llmSvc *v1alpha2.LLMInferenceService) {
+		ensureSchedulerSpec(&llmSvc.Spec)
+		llmSvc.Spec.Router.Scheduler.Template = &corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "main", Command: cmd}},
+		}
+	}
+}
+
+// WithConfigSchedulerVersion sets app.kubernetes.io/version in the scheduler's annotations on
+// an LLMInferenceServiceConfig. Pass an empty string to explicitly clear the version so that
+// a namespace-local config can prevent a shared preset from injecting its version.
+func WithConfigSchedulerVersion(version string) LLMInferenceServiceConfigOption {
+	return func(config *v1alpha2.LLMInferenceServiceConfig) {
+		ensureSchedulerSpec(&config.Spec)
+		if config.Spec.Router.Scheduler.Annotations == nil {
+			config.Spec.Router.Scheduler.Annotations = map[string]string{}
+		}
+		config.Spec.Router.Scheduler.Annotations["app.kubernetes.io/version"] = version
+	}
+}
+
 // WithConfigSchedulerReplicas sets the scheduler replicas on the LLMInferenceServiceConfig.
 func WithConfigSchedulerReplicas(replicas int32) LLMInferenceServiceConfigOption {
 	return func(config *v1alpha2.LLMInferenceServiceConfig) {

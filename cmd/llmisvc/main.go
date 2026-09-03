@@ -170,7 +170,7 @@ func main() {
 	switch {
 	case options.tlsMinVersion != "" || options.tlsCipherSuites != "":
 		var err error
-		tlsOpts, err = kservetls.Resolve(ctx, cfg, options.tlsMinVersion, options.tlsCipherSuites)
+		tlsOpts, err = resolveTLS(ctx, cfg, options.tlsMinVersion, options.tlsCipherSuites)
 		if err != nil {
 			setupLog.Error(err, "unable to resolve TLS configuration")
 			os.Exit(1)
@@ -180,10 +180,17 @@ func main() {
 			"CVE-2023-44487 is fixed in Go 1.21.3+. Use --tls-min-version and --tls-cipher-suites instead.")
 		if !options.enableHTTP2 {
 			tlsOpts = kservetls.LegacyHTTP2TLSOpts()
+		} else {
+			var err error
+			tlsOpts, err = resolveTLS(ctx, cfg, "", "")
+			if err != nil {
+				setupLog.Error(err, "unable to resolve TLS configuration")
+				os.Exit(1)
+			}
 		}
 	default:
 		var err error
-		tlsOpts, err = kservetls.Resolve(ctx, cfg, "", "")
+		tlsOpts, err = resolveTLS(ctx, cfg, "", "")
 		if err != nil {
 			setupLog.Error(err, "unable to resolve TLS configuration")
 			os.Exit(1)
@@ -398,6 +405,10 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
+	ctx, err = setupDistroStartup(ctx, mgr)
+	if err != nil {
+		setupLog.Error(err, "Failed to set up distro TLS watcher; profile changes will not trigger a restart")
+	}
 	if err := mgr.Start(ctx); err != nil {
 		setupLog.Error(err, "unable to run the manager")
 		os.Exit(1)
