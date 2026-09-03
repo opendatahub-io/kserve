@@ -42,6 +42,10 @@ MODEL_CONTROLLER_DEPLOYMENT = "odh-model-controller"
 LOCALMODEL_CONTROLLER_DEPLOYMENT = "kserve-localmodel-controller-manager"
 LOCALMODEL_AGENT_DAEMONSET = "kserve-localmodelnode-agent"
 
+RELEASE_TEST_NAMESPACE = "kserve-release-e2e"
+LLMISVC_SMOKE_NAME = "post-release-llmisvc-smoke"
+LLMISVC_SMOKE_TIMEOUT = 600
+
 KSERVE_CR_TEMPLATE = {
     "apiVersion": "components.platform.opendatahub.io/v1alpha1",
     "kind": "Kserve",
@@ -470,6 +474,51 @@ def wait_for_deployment_gone(
         raise RuntimeError(f"wait_for_deployment_gone failed: {result.stderr}")
 
 
+def wait_for_llm_inference_service_ready(
+    kubectl_bin, name, namespace, timeout=LLMISVC_SMOKE_TIMEOUT
+):
+    """Poll until LLMInferenceService status shows Ready=True."""
+
+    def _ready():
+        result = run(
+            [
+                kubectl_bin,
+                "get",
+                "llminferenceservice",
+                name,
+                "-n",
+                namespace,
+                "-o",
+                "jsonpath={.status.conditions[?(@.type=='Ready')].status}",
+            ],
+            check=False,
+        )
+        assert result.stdout.strip() == "True", (
+            f"LLMInferenceService {name} Ready={result.stdout.strip()!r} "
+            f"(want True): {result.stderr}"
+        )
+
+    wait_for(_ready, timeout=timeout, interval=10)
+
+
+def create_release_test_namespace(kubectl_bin, name=RELEASE_TEST_NAMESPACE):
+    """Create an isolated namespace for post-release serving smoke tests."""
+    ns_yaml = yaml.safe_dump(
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "name": name,
+                "labels": {
+                    "kserve-managed": "true",
+                    "opendatahub.io/dashboard": "true",
+                },
+            },
+        }
+    )
+    run([kubectl_bin, "apply", "-f", "-"], input_text=ns_yaml)
+
+
 def _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S):
     """Wait until managed deployments are cleaned up by garbage collection."""
     for dep in operand_deployments(is_openshift):
@@ -607,3 +656,21 @@ def ensure_platform_configmap(kubectl, apply_kserve_cr):
             [kubectl, "delete", "configmap", PLATFORM_VERSION_CM, "-n", NAMESPACE, "--ignore-not-found"],
             check=False,
         )
+
+
+@pytest.fixture
+def release_test_namespace(kubectl):
+    """Namespace for post-release LLMInferenceService smoke tests."""
+    create_release_test_namespace(kubectl)
+    yield RELEASE_TEST_NAMESPACE
+    run(
+        [
+            kubectl,
+            "delete",
+            "namespace",
+            RELEASE_TEST_NAMESPACE,
+            "--ignore-not-found",
+            "--wait=false",
+        ],
+        check=False,
+    )
