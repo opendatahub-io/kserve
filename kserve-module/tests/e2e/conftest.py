@@ -140,19 +140,38 @@ def operand_deployments(is_openshift):
     return OPERAND_DEPLOYMENTS_OCP if is_openshift else OPERAND_DEPLOYMENTS_XKS
 
 
+@dataclass(frozen=True)
+class ExpectedWebhook:
+    """A webhook config the operator must register, and where it must point."""
+
+    kind: str  # "validating" or "mutating"
+    name: str
+    service: str
+    namespace: str
+
+    @property
+    def resource(self):
+        """kubectl resource type, e.g. validatingwebhookconfiguration."""
+        return f"{self.kind}webhookconfiguration"
+
+
 def expected_webhooks(is_openshift):
-    """Return [(kind, name, service, namespace), ...] the platform must register.
+    """Return [ExpectedWebhook, ...] the platform must register.
 
     Mirrors operand_deployments(is_openshift): XKS registers llmisvc webhooks
     only; OCP adds kserve-controller and odh-model-controller. The operator
     renders every component into the applications namespace, so each webhook's
     clientConfig.service must live in NAMESPACE. See RHOAIENG-82802.
     """
-    entries = [(k, n, LLMISVC_WEBHOOK_SERVICE, NAMESPACE) for k, n in LLMISVC_WEBHOOKS]
+
+    def build(service, entries):
+        return [ExpectedWebhook(k, n, service, NAMESPACE) for k, n in entries]
+
+    webhooks = build(LLMISVC_WEBHOOK_SERVICE, LLMISVC_WEBHOOKS)
     if is_openshift:
-        entries += [(k, n, KSERVE_WEBHOOK_SERVICE, NAMESPACE) for k, n in KSERVE_WEBHOOKS]
-        entries += [(k, n, OMC_WEBHOOK_SERVICE, NAMESPACE) for k, n in OMC_WEBHOOKS]
-    return entries
+        webhooks += build(KSERVE_WEBHOOK_SERVICE, KSERVE_WEBHOOKS)
+        webhooks += build(OMC_WEBHOOK_SERVICE, OMC_WEBHOOKS)
+    return webhooks
 
 
 def is_cr_ready(cr):

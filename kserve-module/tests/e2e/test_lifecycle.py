@@ -42,12 +42,6 @@ def _verify_deployments_available(kubectl, is_openshift):
         wait_for_deployment(kubectl, name)
 
 
-_WEBHOOK_KIND_RESOURCE = {
-    "validating": "validatingwebhookconfiguration",
-    "mutating": "mutatingwebhookconfiguration",
-}
-
-
 def _verify_webhooks_registered(kubectl, is_openshift):
     """Each platform-expected webhook exists, has a caBundle, targets its service.
 
@@ -59,24 +53,26 @@ def _verify_webhooks_registered(kubectl, is_openshift):
     expected = expected_webhooks(is_openshift)
 
     def assert_webhooks_wired():
-        for kind, name, service, namespace in expected:
-            resource = _WEBHOOK_KIND_RESOURCE[kind]
-            cfg = get_webhook_config(kubectl, resource, name)
-            assert cfg is not None, f"{resource}/{name} should exist"
+        for ew in expected:
+            cfg = get_webhook_config(kubectl, ew.resource, ew.name)
+            assert cfg is not None, f"{ew.resource}/{ew.name} should exist"
 
             webhooks = cfg.get("webhooks", [])
-            assert webhooks, f"{resource}/{name} has no webhooks"
+            assert webhooks, f"{ew.resource}/{ew.name} has no webhooks"
 
             for wh in webhooks:
                 client_config = wh.get("clientConfig", {})
                 assert client_config.get("caBundle"), (
-                    f"{resource}/{name} webhook {wh.get('name')} has empty caBundle"
+                    f"{ew.resource}/{ew.name} webhook {wh.get('name')} has empty caBundle"
                 )
                 svc = client_config.get("service", {})
-                assert (svc.get("name"), svc.get("namespace")) == (service, namespace), (
-                    f"{resource}/{name} webhook {wh.get('name')} targets service "
+                assert (svc.get("name"), svc.get("namespace")) == (
+                    ew.service,
+                    ew.namespace,
+                ), (
+                    f"{ew.resource}/{ew.name} webhook {wh.get('name')} targets service "
                     f"{svc.get('namespace')}/{svc.get('name')}, expected "
-                    f"{namespace}/{service}"
+                    f"{ew.namespace}/{ew.service}"
                 )
 
     wait_for(assert_webhooks_wired, timeout=TIMEOUT_120S, interval=5)
