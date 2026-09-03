@@ -15,16 +15,24 @@ import yaml
 KSERVE_CR_NAME = "default-kserve"
 NAMESPACE = "opendatahub"
 OPERATOR_DEPLOYMENT = "kserve-module-controller-manager"
+TIMEOUT_300S = 300  # cold-start: first Kserve CR ready waits on operand image pulls
 TIMEOUT_120S = 120
 TIMEOUT_60S = 60
 
+PV_NAME = "kserve-localmodelnode-pv"
+PVC_NAME = "kserve-localmodelnode-pvc"
+LMNG_NAME = "workers"
+LMNG_RESOURCE = "localmodelnodegroups.serving.kserve.io"
+LLMISVC_DEPLOYMENT = "llmisvc-controller-manager"
+LLMISVC_CONFIG_RESOURCE = "llminferenceserviceconfigs.serving.kserve.io"
+
 OPERAND_DEPLOYMENTS_XKS = [
-    "llmisvc-controller-manager",
+    LLMISVC_DEPLOYMENT,
     "odh-model-controller",
 ]
 OPERAND_DEPLOYMENTS_OCP = [
     "kserve-controller-manager",
-    "llmisvc-controller-manager",
+    LLMISVC_DEPLOYMENT,
     "odh-model-controller",
     "model-serving-api",
 ]
@@ -32,6 +40,8 @@ OPERAND_DEPLOYMENTS_OCP = [
 WVA_DEPLOYMENT = "workload-variant-autoscaler-controller-manager"
 WVA_CONFIGMAP = "workload-variant-autoscaler-saturation-scaling-config"
 MODEL_CONTROLLER_DEPLOYMENT = "odh-model-controller"
+LOCALMODEL_CONTROLLER_DEPLOYMENT = "kserve-localmodel-controller-manager"
+LOCALMODEL_AGENT_DAEMONSET = "kserve-localmodelnode-agent"
 
 KSERVE_CR_TEMPLATE = {
     "apiVersion": "components.platform.opendatahub.io/v1alpha1",
@@ -39,11 +49,6 @@ KSERVE_CR_TEMPLATE = {
     "metadata": {"name": KSERVE_CR_NAME},
     "spec": {"managementState": "Managed"},
 }
-
-PV_NAME = "kserve-localmodelnode-pv"
-PVC_NAME = "kserve-localmodelnode-pvc"
-LMNG_NAME = "workers"
-LMNG_RESOURCE = "localmodelnodegroups.serving.kserve.io"
 
 
 @dataclass
@@ -175,8 +180,8 @@ def create_kserve_cr(kubectl_bin, cr_dict=None):
             kubectl_bin,
             KSERVE_CR_NAME,
             is_cr_ready,
-            TIMEOUT_120S,
-            f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_120S}s",
+            TIMEOUT_300S,
+            f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_300S}s",
         )
     cr = yaml.safe_dump(cr_dict or KSERVE_CR_TEMPLATE)
     run([kubectl_bin, "create", "-f", "-"], input_text=cr)
@@ -184,8 +189,8 @@ def create_kserve_cr(kubectl_bin, cr_dict=None):
         kubectl_bin,
         KSERVE_CR_NAME,
         is_cr_ready,
-        TIMEOUT_120S,
-        f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_120S}s",
+        TIMEOUT_300S,
+        f"Kserve CR {KSERVE_CR_NAME} not ready within {TIMEOUT_300S}s",
     )
 
 
@@ -352,6 +357,100 @@ def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_
     raise TimeoutError(f"deployment {name} not Available within {timeout}s")
 
 
+def wait_for_daemonset_ready(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120S):
+    """Wait until a DaemonSet has at least one ready pod."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        result = run(
+            [kubectl_bin, "get", "daemonset", name, "-n", namespace, "-o", "yaml"],
+            check=False,
+        )
+        if result.returncode == 0:
+            ds = yaml.safe_load(result.stdout)
+            status = ds.get("status", {})
+            if status.get("numberReady", 0) >= 1:
+                return ds
+        time.sleep(5)
+    raise TimeoutError(f"daemonset {name} has no ready pods within {timeout}s")
+
+
+def dump_modelcache_workload_diagnostics(kubectl_bin, namespace=NAMESPACE):
+    """Print localmodel controller/agent status and logs for timeout failures.
+
+    Surfaces CrashLoopBackOff causes such as missing TLS RBAC subjects
+    (403 on apiservers.config.openshift.io) that a bare ModelCacheReady
+    timeout would otherwise hide.
+    """
+    print("\n=== model-cache workload diagnostics ===")
+    for kind, name in (
+        ("deployment", LOCALMODEL_CONTROLLER_DEPLOYMENT),
+        ("daemonset", LOCALMODEL_AGENT_DAEMONSET),
+    ):
+        result = run(
+            [kubectl_bin, "get", kind, name, "-n", namespace, "-o", "yaml"],
+            check=False,
+        )
+        print(f"--- {kind}/{name} ---")
+        print(result.stdout or result.stderr)
+    pods = run(
+        [
+            kubectl_bin,
+            "get",
+            "pods",
+            "-n",
+            namespace,
+            "-l",
+            f"control-plane in ({LOCALMODEL_CONTROLLER_DEPLOYMENT},{LOCALMODEL_AGENT_DAEMONSET})",
+            "-o",
+            "wide",
+        ],
+        check=False,
+    )
+    print("--- pods ---")
+    print(pods.stdout or pods.stderr)
+    for label in (
+        f"control-plane={LOCALMODEL_CONTROLLER_DEPLOYMENT}",
+        f"control-plane={LOCALMODEL_AGENT_DAEMONSET}",
+    ):
+        names = run(
+            [
+                kubectl_bin,
+                "get",
+                "pods",
+                "-n",
+                namespace,
+                "-l",
+                label,
+                "-o",
+                "jsonpath={.items[*].metadata.name}",
+            ],
+            check=False,
+        )
+        for pod in names.stdout.split():
+            logs = run(
+                [kubectl_bin, "logs", pod, "-n", namespace, "--tail=80"],
+                check=False,
+            )
+            print(f"--- logs {pod} ---")
+            print(logs.stdout or logs.stderr)
+    for name in (LOCALMODEL_CONTROLLER_DEPLOYMENT, LOCALMODEL_AGENT_DAEMONSET):
+        events = run(
+            [
+                kubectl_bin,
+                "get",
+                "events",
+                "-n",
+                namespace,
+                "--field-selector",
+                f"involvedObject.name={name}",
+                "--sort-by=.lastTimestamp",
+            ],
+            check=False,
+        )
+        print(f"--- events involvedObject.name={name} ---")
+        print(events.stdout or events.stderr)
+
+
 def wait_for_deployment_gone(
     kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_60S
 ):
@@ -419,23 +518,41 @@ def model_cache_enabled(kubectl, cluster_info, apply_kserve_cr):
     """
     worker = get_worker_node(kubectl, is_openshift=cluster_info.is_openshift)
     enable_model_cache(kubectl, worker)
-    _poll_cr(
-        kubectl,
-        KSERVE_CR_NAME,
-        generation_matches,
-        TIMEOUT_120S,
-        f"ModelCache enable not reconciled within {TIMEOUT_120S}s",
-    )
-    _poll_cr(
-        kubectl,
-        KSERVE_CR_NAME,
-        lambda cr: any(
-            c.get("type") == "ModelCacheReady" and c.get("status") == "True"
-            for c in cr.get("status", {}).get("conditions", [])
-        ),
-        TIMEOUT_120S,
-        f"ModelCacheReady not True within {TIMEOUT_120S}s",
-    )
+    try:
+        _poll_cr(
+            kubectl,
+            KSERVE_CR_NAME,
+            generation_matches,
+            TIMEOUT_120S,
+            f"ModelCache enable not reconciled within {TIMEOUT_120S}s",
+        )
+        _poll_cr(
+            kubectl,
+            KSERVE_CR_NAME,
+            lambda cr: any(
+                c.get("type") == "ModelCacheReady" and c.get("status") == "True"
+                for c in cr.get("status", {}).get("conditions", [])
+            ),
+            TIMEOUT_120S,
+            f"ModelCacheReady not True within {TIMEOUT_120S}s",
+        )
+        # Explicit localmodel workload readiness: CrashLoopBackOff from missing
+        # TLS RBAC subjects fails these waits and dumps pod logs/events.
+        wait_for_deployment(kubectl, LOCALMODEL_CONTROLLER_DEPLOYMENT)
+        wait_for_daemonset_ready(kubectl, LOCALMODEL_AGENT_DAEMONSET)
+    except TimeoutError:
+        cr = get_cr(kubectl, check=False)
+        if cr is not None:
+            conditions = {
+                c["type"]: c for c in cr.get("status", {}).get("conditions", [])
+            }
+            mc = conditions.get("ModelCacheReady", {})
+            print(
+                f"ModelCacheReady status={mc.get('status')} "
+                f"reason={mc.get('reason')} message={mc.get('message')}"
+            )
+        dump_modelcache_workload_diagnostics(kubectl)
+        raise
     yield worker
     disable_model_cache(kubectl)
     _poll_cr(

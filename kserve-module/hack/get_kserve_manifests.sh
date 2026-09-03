@@ -25,34 +25,18 @@ declare -A ODH_RELEASE_COMPONENT_MANIFESTS=(
     ["wva"]="opendatahub-io:workload-variant-autoscaler:main:config"
 )
 
-# RHOAI Component Manifests
-declare -A RHOAI_COMPONENT_MANIFESTS=(
-    ["kserve"]="red-hat-data-services:kserve:rhoai-3.5:config"
-    ["modelcontroller"]="red-hat-data-services:odh-model-controller:rhoai-3.5:config"
-    ["wva"]="red-hat-data-services:workload-variant-autoscaler:rhoai-3.5@46a9982943a4353ce709f3bea968547bbdabc43f:config"
-)
+echo "Cloning manifests for ODH"
+declare -A COMPONENT_MANIFESTS=()
+for key in "${!ODH_COMPONENT_MANIFESTS[@]}"; do
+    COMPONENT_MANIFESTS["$key"]="${ODH_COMPONENT_MANIFESTS[$key]}"
+done
 
-
-# Select manifests based on platform type
-if [ "${ODH_PLATFORM_TYPE:-OpenDataHub}" = "OpenDataHub" ]; then
-    echo "Cloning manifests for ODH"
-    declare -A COMPONENT_MANIFESTS=()
-    for key in "${!ODH_COMPONENT_MANIFESTS[@]}"; do
-        COMPONENT_MANIFESTS["$key"]="${ODH_COMPONENT_MANIFESTS[$key]}"
-    done
-    # Release branches ship a `release` marker file → use ODH_RELEASE_COMPONENT_MANIFESTS.
-    # main has no marker, so behavior is unchanged there.
-    if [ -f "${SCRIPT_DIR}/release" ]; then
-        echo "Release marker found: using ODH_RELEASE_COMPONENT_MANIFESTS"
-        for key in "${!ODH_RELEASE_COMPONENT_MANIFESTS[@]}"; do
-            COMPONENT_MANIFESTS["$key"]="${ODH_RELEASE_COMPONENT_MANIFESTS[$key]}"
-        done
-    fi
-else
-    echo "Cloning manifests for RHOAI"
-    declare -A COMPONENT_MANIFESTS=()
-    for key in "${!RHOAI_COMPONENT_MANIFESTS[@]}"; do
-        COMPONENT_MANIFESTS["$key"]="${RHOAI_COMPONENT_MANIFESTS[$key]}"
+# Release branches ship a `release` marker file → use ODH_RELEASE_COMPONENT_MANIFESTS.
+# main has no marker, so behavior is unchanged there.
+if [ -f "${SCRIPT_DIR}/release" ]; then
+    echo "Release marker found: using ODH_RELEASE_COMPONENT_MANIFESTS"
+    for key in "${!ODH_RELEASE_COMPONENT_MANIFESTS[@]}"; do
+        COMPONENT_MANIFESTS["$key"]="${ODH_RELEASE_COMPONENT_MANIFESTS[$key]}"
     done
 fi
 

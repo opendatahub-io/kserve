@@ -8,7 +8,7 @@ FROM ${BASE_IMAGE} AS builder
 USER 0
 
 # Install system dependencies
-RUN dnf install -y python3.11-devel gcc gcc-c++ make && \
+RUN dnf install -y --allowerasing python3.11-devel gcc gcc-c++ make && \
     dnf clean all
 
 # Install uv

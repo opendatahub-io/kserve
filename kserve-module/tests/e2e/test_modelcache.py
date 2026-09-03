@@ -23,6 +23,8 @@ from conftest import (
     PVC_NAME,
     LMNG_NAME,
     LMNG_RESOURCE,
+    LOCALMODEL_CONTROLLER_DEPLOYMENT,
+    LOCALMODEL_AGENT_DAEMONSET,
     TIMEOUT_120S,
 )
 
@@ -93,6 +95,35 @@ class TestModelCacheEnable:
         assert "ModelCacheReady" in conditions, "ModelCacheReady condition should exist"
         assert conditions["ModelCacheReady"]["status"] == "True", (
             f"ModelCacheReady should be True, got {conditions['ModelCacheReady']['status']}"
+        )
+
+        # Localmodel workloads must be healthy. CrashLoopBackOff from missing
+        # kserve-tls-distro-rolebinding subjects fails these checks on OpenShift.
+        assert resource_exists(
+            kubectl, "deployment", LOCALMODEL_CONTROLLER_DEPLOYMENT, namespace=NAMESPACE
+        ), f"Deployment {LOCALMODEL_CONTROLLER_DEPLOYMENT} should exist"
+        avail = get_jsonpath(
+            kubectl,
+            "deployment",
+            LOCALMODEL_CONTROLLER_DEPLOYMENT,
+            "{.status.availableReplicas}",
+            namespace=NAMESPACE,
+        )
+        assert avail and int(avail) >= 1, (
+            f"{LOCALMODEL_CONTROLLER_DEPLOYMENT} availableReplicas should be >= 1, got '{avail}'"
+        )
+        assert resource_exists(
+            kubectl, "daemonset", LOCALMODEL_AGENT_DAEMONSET, namespace=NAMESPACE
+        ), f"DaemonSet {LOCALMODEL_AGENT_DAEMONSET} should exist"
+        ready = get_jsonpath(
+            kubectl,
+            "daemonset",
+            LOCALMODEL_AGENT_DAEMONSET,
+            "{.status.numberReady}",
+            namespace=NAMESPACE,
+        )
+        assert ready and int(ready) >= 1, (
+            f"{LOCALMODEL_AGENT_DAEMONSET} numberReady should be >= 1, got '{ready}'"
         )
 
 
