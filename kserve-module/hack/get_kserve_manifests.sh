@@ -14,15 +14,15 @@ DST_MANIFESTS_DIR="${1:-${MODULE_DIR}/opt/manifests}"
 #   "tag"                 - immutable reference
 #   "branch@commit-sha"  - tracks branch but pinned to specific commit
 declare -A ODH_COMPONENT_MANIFESTS=(
-    ["kserve"]="opendatahub-io:kserve:master:config"
-    ["modelcontroller"]="opendatahub-io:odh-model-controller:incubating:config"
-    ["wva"]="opendatahub-io:workload-variant-autoscaler:main:config"
+    ["kserve"]="opendatahub-io:kserve:odh-v3.6-ea1:config"
+    ["modelcontroller"]="opendatahub-io:odh-model-controller:odh-v3.6-ea1:config"
+    ["wva"]="opendatahub-io:workload-variant-autoscaler:odh-v3.6-ea1:config"
 )
 
 declare -A ODH_RELEASE_COMPONENT_MANIFESTS=(
-    ["kserve"]="opendatahub-io:kserve:release-v0.17:config"
-    ["modelcontroller"]="opendatahub-io:odh-model-controller:main:config"
-    ["wva"]="opendatahub-io:workload-variant-autoscaler:main:config"
+    ["kserve"]="opendatahub-io:kserve:odh-v3.6-ea1:config"
+    ["modelcontroller"]="opendatahub-io:odh-model-controller:odh-v3.6-ea1:config"
+    ["wva"]="opendatahub-io:workload-variant-autoscaler:odh-v3.6-ea1:config"
 )
 
 echo "Cloning manifests for ODH"
