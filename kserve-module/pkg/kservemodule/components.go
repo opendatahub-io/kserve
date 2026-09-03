@@ -119,6 +119,12 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 	}
 	log.V(1).Info("patched tracing preset with platform collector", "endpoint", cfg.Endpoint, "sampleRatio", cfg.SampleRatio)
 
+	if kserve != nil {
+		resources, err = r.includeExistingTracingPresets(ctx, resources)
+		if err != nil {
+			return nil, fmt.Errorf("include existing tracing presets: %w", err)
+		}
+	}
 	resources, err = patchWellKnownTracingPreset(resources, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("patch tracing preset: %w", err)
