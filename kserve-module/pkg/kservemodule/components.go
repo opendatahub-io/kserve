@@ -113,14 +113,15 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 	if err != nil {
 		return nil, fmt.Errorf("resolve tracing platform config: %w", err)
 	}
+	if cfg == nil || !cfg.Enabled {
+		log.V(1).Info("platform tracing disabled, leaving tracing preset unchanged")
+		return resources, nil
+	}
+	log.V(1).Info("patched tracing preset with platform collector", "endpoint", cfg.Endpoint, "sampleRatio", cfg.SampleRatio)
+
 	resources, err = patchWellKnownTracingPreset(resources, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("patch tracing preset: %w", err)
-	}
-	if cfg == nil || !cfg.Enabled {
-		log.V(1).Info("platform tracing disabled, leaving tracing preset unchanged")
-	} else {
-		log.V(1).Info("patched tracing preset with platform collector", "endpoint", cfg.Endpoint, "sampleRatio", cfg.SampleRatio)
 	}
 
 	return resources, nil

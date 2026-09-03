@@ -22,8 +22,6 @@ const (
 	invalidTracesSampleRatio     = "1.0"
 	platformCollectorServiceName = "data-science-collector-collector"
 	platformCollectorPort        = 4317
-	tracingExporter              = "otlp"
-	tracingSampler               = "parentbased_traceidratio"
 	tracingPresetSuffix          = "kserve-config-llm-tracing"
 )
 

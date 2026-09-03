@@ -20,9 +20,7 @@ func patchWellKnownTracingPreset(resources []unstructured.Unstructured, cfg *tra
 			continue
 		}
 		fields := map[string]string{
-			"exporter":         tracingExporter,
 			"exporterEndpoint": cfg.Endpoint,
-			"sampler":          tracingSampler,
 			"samplerArg":       cfg.SampleRatio,
 		}
 		for field, value := range fields {

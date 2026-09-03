@@ -19,7 +19,9 @@ func tracingPreset(name string, wellKnown bool) unstructured.Unstructured {
 			"name": name, "annotations": annotations,
 		},
 		"spec": map[string]any{"tracing": map[string]any{
+			"exporter":         "otlp",
 			"exporterEndpoint": "http://otel-collector:4317",
+			"sampler":          "parentbased_traceidratio",
 			"samplerArg":       "0.05",
 		}},
 	}}
@@ -36,11 +38,13 @@ func TestPatchWellKnownTracingPreset(t *testing.T) {
 
 	patched, err := patchWellKnownTracingPreset(resources, cfg)
 	g.Expect(err).NotTo(HaveOccurred())
-	exporter, _, _ := unstructured.NestedString(patched[0].Object, "spec", "tracing", "exporter")
 	endpoint, _, _ := unstructured.NestedString(patched[0].Object, "spec", "tracing", "exporterEndpoint")
-	sampler, _, _ := unstructured.NestedString(patched[0].Object, "spec", "tracing", "sampler")
 	ratio, _, _ := unstructured.NestedString(patched[0].Object, "spec", "tracing", "samplerArg")
-	g.Expect([]string{exporter, endpoint, sampler, ratio}).To(Equal([]string{tracingExporter, cfg.Endpoint, tracingSampler, cfg.SampleRatio}))
+	g.Expect([]string{endpoint, ratio}).To(Equal([]string{cfg.Endpoint, cfg.SampleRatio}))
+	exporter, _, _ := unstructured.NestedString(patched[0].Object, "spec", "tracing", "exporter")
+	sampler, _, _ := unstructured.NestedString(patched[0].Object, "spec", "tracing", "sampler")
+	g.Expect(exporter).To(Equal("otlp"))
+	g.Expect(sampler).To(Equal("parentbased_traceidratio"))
 	unchanged, _, _ := unstructured.NestedString(patched[1].Object, "spec", "tracing", "exporterEndpoint")
 	g.Expect(unchanged).To(Equal("http://otel-collector:4317"))
 	unchanged, _, _ = unstructured.NestedString(patched[2].Object, "spec", "tracing", "exporterEndpoint")
