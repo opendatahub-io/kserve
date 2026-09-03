@@ -13,8 +13,22 @@ func isWellKnownTracingPreset(obj *unstructured.Unstructured) bool {
 	return isWellKnownConfig(obj) && strings.HasSuffix(obj.GetName(), tracingPresetSuffix)
 }
 
-// includeExistingTracingPresets adds minimal apply objects for historical
-// versioned presets so their platform-controlled tracing fields stay current.
+func upstreamTracingEndpointFromResources(resources []unstructured.Unstructured) string {
+	for i := range resources {
+		if !isWellKnownTracingPreset(&resources[i]) {
+			continue
+		}
+		endpoint, found, err := unstructured.NestedString(resources[i].Object, "spec", "tracing", "exporterEndpoint")
+		if err == nil && found && endpoint != "" {
+			return endpoint
+		}
+	}
+	return upstreamTracingEndpoint
+}
+
+// includeExistingTracingPresets adds existing specs for historical versioned
+// presets so endpoint updates do not cause server-side apply to remove fields
+// omitted from a minimal desired object.
 func (r *KserveModuleReconciler) includeExistingTracingPresets(ctx context.Context, resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
 	knownNames := make(map[string]struct{}, len(resources))
 	for i := range resources {
@@ -50,6 +64,11 @@ func (r *KserveModuleReconciler) includeExistingTracingPresets(ctx context.Conte
 				},
 			},
 		}}
+		if spec, found, err := unstructured.NestedFieldCopy(preset.Object, "spec"); err != nil {
+			return nil, err
+		} else if found {
+			resource.Object["spec"] = spec
+		}
 		resources = append(resources, resource)
 		knownNames[preset.GetName()] = struct{}{}
 	}
@@ -61,14 +80,22 @@ func patchWellKnownTracingPreset(resources []unstructured.Unstructured, cfg *tra
 	if cfg == nil || !cfg.Enabled {
 		return resources, nil
 	}
+	return patchWellKnownTracingPresetFields(resources, map[string]string{
+		"exporterEndpoint": cfg.Endpoint,
+		"samplerArg":       cfg.SampleRatio,
+	})
+}
 
+func patchWellKnownTracingPresetEndpoint(resources []unstructured.Unstructured, endpoint string) ([]unstructured.Unstructured, error) {
+	return patchWellKnownTracingPresetFields(resources, map[string]string{
+		"exporterEndpoint": endpoint,
+	})
+}
+
+func patchWellKnownTracingPresetFields(resources []unstructured.Unstructured, fields map[string]string) ([]unstructured.Unstructured, error) {
 	for i := range resources {
 		if !isWellKnownTracingPreset(&resources[i]) {
 			continue
-		}
-		fields := map[string]string{
-			"exporterEndpoint": cfg.Endpoint,
-			"samplerArg":       cfg.SampleRatio,
 		}
 		for field, value := range fields {
 			if err := unstructured.SetNestedField(resources[i].Object, value, "spec", "tracing", field); err != nil {

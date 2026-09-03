@@ -113,11 +113,17 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 	if err != nil {
 		return nil, fmt.Errorf("resolve tracing platform config: %w", err)
 	}
+	endpoint := upstreamTracingEndpointFromResources(resources)
 	if cfg == nil || !cfg.Enabled {
-		log.V(1).Info("platform tracing disabled, leaving tracing preset unchanged")
-		return resources, nil
+		log.V(1).Info("platform tracing disabled, restoring upstream tracing endpoint")
+	} else {
+		endpoint = cfg.Endpoint
+		log.V(1).Info("patched tracing preset with platform collector", "endpoint", cfg.Endpoint, "sampleRatio", cfg.SampleRatio)
+		resources, err = patchWellKnownTracingPreset(resources, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("patch tracing preset: %w", err)
+		}
 	}
-	log.V(1).Info("patched tracing preset with platform collector", "endpoint", cfg.Endpoint, "sampleRatio", cfg.SampleRatio)
 
 	if kserve != nil {
 		resources, err = r.includeExistingTracingPresets(ctx, resources)
@@ -125,9 +131,9 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 			return nil, fmt.Errorf("include existing tracing presets: %w", err)
 		}
 	}
-	resources, err = patchWellKnownTracingPreset(resources, cfg)
+	resources, err = patchWellKnownTracingPresetEndpoint(resources, endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("patch tracing preset: %w", err)
+		return nil, fmt.Errorf("patch tracing preset endpoint: %w", err)
 	}
 
 	return resources, nil

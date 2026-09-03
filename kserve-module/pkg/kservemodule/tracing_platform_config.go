@@ -22,6 +22,7 @@ const (
 	invalidTracesSampleRatio     = "1.0"
 	platformCollectorServiceName = "data-science-collector-collector"
 	platformCollectorPort        = 4317
+	upstreamTracingEndpoint      = "http://otel-collector:4317"
 	tracingPresetSuffix          = "kserve-config-llm-tracing"
 )
 
