@@ -15,11 +15,11 @@ adagio==0.2.6 \
 aiohappyeyeballs==2.7.1 \
     --hash=sha256:148c42ea64254eff51702e3643744a5d29e19f1cc7f1adcfb2289d7ac711ae80
     # via aiohttp
-aiohttp==3.14.1 \
-    --hash=sha256:bd49302b6aa79db20905429d539a0a328adf440c0a75508892ae9700d6318857 \
-    --hash=sha256:c958019fc4a4a4536be8308b5efdebb7b31b51dbcf9cc651e16d782ec404d372 \
-    --hash=sha256:dc7528950c7a168f8f70cfba05e112f4a857d658c9f0dfc854d6d4e9b17ecc23 \
-    --hash=sha256:f3c686257c0297a912e82e2582f6587b922f1e7b1e3ff0a2d3d3fb7093db545e
+aiohttp==3.14.3 \
+    --hash=sha256:2b3edde0b0404f61d8a54d224824afe396e2315f6fb448063d0139e5c151e9e4 \
+    --hash=sha256:32c568a8f0b3d4f89f5ab9e355540627b00d48baf8116dde56e419661886b524 \
+    --hash=sha256:6301f6e7863cd0a7893c8cb629e1f1e9673bc5807e29f331b95499a359628113 \
+    --hash=sha256:c6ff96f50c667f18a9a7fcbb91449943658e37a04658acf44885d295ae2b158c
     # via
     #   fsspec
     #   kserve
@@ -60,17 +60,20 @@ attrs==26.1.0 \
 autogluon-common==1.5.0+rhaiv.5 \
     --hash=sha256:479d0a9367d2c5c6e4dc0e66a94734d65e806988b362a32ac7f5c76fa1552f18
     # via
+    #   autogluonserver (pyproject.toml)
     #   autogluon-core
     #   autogluon-features
     #   autogluon-timeseries
 autogluon-core==1.5.0+rhaiv.5 \
     --hash=sha256:59d70751efeb384b113a92bcf01a6a48eb98306a8e893ec4cd5e9751920897c9
     # via
+    #   autogluonserver (pyproject.toml)
     #   autogluon-tabular
     #   autogluon-timeseries
 autogluon-features==1.5.0+rhaiv.5 \
     --hash=sha256:1568faee500c2d7ba2dcdc68f6e12932a39d811d71546f9f1206f8a751b255fc
     # via
+    #   autogluonserver (pyproject.toml)
     #   autogluon-tabular
     #   autogluon-timeseries
 autogluon-tabular==1.5.0+rhaiv.5 \
@@ -131,7 +134,6 @@ certifi==2026.6.17 \
     # via
     #   httpcore
     #   httpx
-    #   kserve-storage
     #   kubernetes
     #   requests
 cffi==2.1.0 \
@@ -1042,7 +1044,7 @@ triad==1.0.2 \
     # via
     #   adagio
     #   fugue
-triton==3.6.0 ; platform_machine != "s390x" \
+triton==3.6.0 \
     --hash=sha256:1fd543ee4b888f749e186f87fb4c669894fd2f74849b820ffee3014a54e99d05 \
     --hash=sha256:669850f373cd9bd588b5a4d86c6849f16be98b3e8087130ad945082842ae631b \
     --hash=sha256:a64f6de7b2d45d0426474a980776161e626ccdcbb35e8b540686411fe204e0c9

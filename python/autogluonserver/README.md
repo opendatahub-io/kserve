@@ -166,8 +166,11 @@ AutoGluon pins its own release (`autogluon.tabular`, `autogluon.timeseries`) but
 
 | Package | Version | Notes |
 |---------|---------|--------|
-| autogluon.tabular | 1.5.0 | |
-| autogluon.timeseries | 1.5.0 | Pulls tabular with catboost/lightgbm/xgboost extras |
+| autogluon.common | 1.5.0+rhaiv.5 | RHOAI-patched wheels from the AIPCC index |
+| autogluon.core | 1.5.0+rhaiv.5 | |
+| autogluon.features | 1.5.0+rhaiv.5 | |
+| autogluon.tabular | 1.5.0+rhaiv.5 | |
+| autogluon.timeseries | 1.5.0+rhaiv.5 | Pulls tabular with catboost/lightgbm/xgboost extras |
 | catboost | 1.2.8 | |
 | lightgbm | 4.6.0 | |
 | xgboost | 3.1.3 | |
@@ -182,6 +185,28 @@ To inspect the resolved versions in the lockfile without installing packages:
 rg '^name = "(autogluon-tabular|autogluon-timeseries|catboost|lightgbm|xgboost|torch|fastai)"' -A1 uv.lock | rg 'name|version'
 ```
 
+### RHOAI release checklist (code-freeze)
+
+Before each RHOAI code-freeze, keep the AIPCC index and `+rhaiv.*` AutoGluon wheels aligned in **both** places downstream consumes them:
+
+1. **`pyproject.toml` / `uv.lock`** (midstream lock used by `uv sync` and autosync):
+   - Update `[[tool.uv.index]]` `url` to the release-specific AIPCC CPU index (for example `https://console.redhat.com/api/pypi/public-rhai/rhoai/3.5/cpu-ubi9/simple/`).
+   - Bump all `autogluon.{common,core,features,tabular,timeseries}` pins to the target `+rhaiv.*` build published in [opendatahub-io/autogluon](https://github.com/opendatahub-io/autogluon).
+   - Regenerate the lockfile from this directory (no extra `--index` flags required):
+
+     ```bash
+     uv lock
+     ```
+
+2. **`autogluon-all-requirements.txt`** (hermetic Konflux build via `make requirements`):
+   - Regenerate after the `pyproject.toml` changes, overriding the index URL if needed:
+
+     ```bash
+     make requirements AIPCC_INDEX_URL=https://console.redhat.com/api/pypi/public-rhai/rhoai/3.5/cpu-ubi9/simple/
+     ```
+
+**Follow-up:** automate index URL and `+rhaiv.*` bumps (Renovate or a GitHub workflow) so autosync does not depend on ad-hoc PRs.
+
 ### Upgrading the AutoGluon stack
 
 Use this procedure when bumping `autogluon.tabular` / `autogluon.timeseries` (for example 1.5.0 → 1.6.0).
@@ -194,11 +219,14 @@ Use this procedure when bumping `autogluon.tabular` / `autogluon.timeseries` (fo
 
 **Steps**
 
-1. Set the target AutoGluon version in `pyproject.toml`:
+1. Set the target AutoGluon `+rhaiv.*` versions and AIPCC index URL in `pyproject.toml` (see [RHOAI release checklist](#rhoai-release-checklist-code-freeze)):
 
    ```toml
-   "autogluon.tabular==1.6.0",
-   "autogluon.timeseries==1.6.0",
+   "autogluon.common==1.6.0+rhaiv.1",
+   "autogluon.core==1.6.0+rhaiv.1",
+   "autogluon.features==1.6.0+rhaiv.1",
+   "autogluon.tabular==1.6.0+rhaiv.1",
+   "autogluon.timeseries==1.6.0+rhaiv.1",
    ```
 
 2. **Resolve backend versions with `uv`** (do not guess versions manually). Temporarily replace explicit backend pins (`catboost==…`, and so on) with unpinned names:
@@ -314,13 +342,13 @@ Use this procedure when bumping `autogluon.tabular` / `autogluon.timeseries` (fo
 
    This step is mandatory because **backend versions are not validated at runtime** (only AutoGluon major/minor via `version_compat.py`). Saved models can depend on exact backend behavior (pickle/load paths, torch/fastai stacks); resolver and unit tests alone do not prove your artifacts load and predict correctly.
 
-7. **Regenerate the Konflux requirements file** (used by `Dockerfiles/autogluon.Dockerfile.konflux` for hermetic builds):
+7. **Regenerate the Konflux requirements file** (used by hermetic downstream builds):
 
    ```bash
    make requirements
    ```
 
-   This runs `uv pip compile` targeting `x86_64-manylinux_2_34` (RHEL UBI9) against the Red Hat internal PyPI index. Override the index URL if needed:
+   This runs `uv pip compile` targeting `x86_64-manylinux_2_34` (RHEL UBI9) against the Red Hat AIPCC index. Override the index URL if needed:
 
    ```bash
    make requirements AIPCC_INDEX_URL=https://console.redhat.com/api/pypi/public-rhai/rhoai/3.5/cpu-ubi9/simple/
