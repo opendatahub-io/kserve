@@ -89,6 +89,14 @@ func (r *KserveModuleReconciler) buildDynamicWatches() []*dynamicWatch {
 				return isShippedPreset(u, r.getApplicationsNamespace())
 			},
 		},
+		{
+			// Monitoring is optional, so its watch never blocks startup when the CRD is absent.
+			groupKind: schema.GroupKind{Group: monitoringAPIGroup, Kind: monitoringKind},
+			gvk:       monitoringGVK,
+			filterFn: func(u *unstructured.Unstructured) bool {
+				return u.GetName() == monitoringCRName
+			},
+		},
 	}
 }
 
