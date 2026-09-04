@@ -314,7 +314,19 @@ Use this procedure when bumping `autogluon.tabular` / `autogluon.timeseries` (fo
 
    This step is mandatory because **backend versions are not validated at runtime** (only AutoGluon major/minor via `version_compat.py`). Saved models can depend on exact backend behavior (pickle/load paths, torch/fastai stacks); resolver and unit tests alone do not prove your artifacts load and predict correctly.
 
-7. **Update the [supported stack table](#inference-stack-and-dependency-versions)** in this README, rebuild the image (`make docker-build-autogluon` from the repository root), and use a **versioned image tag** (for example aligned with the AutoGluon minor release).
+7. **Regenerate the Konflux requirements file** (used by `Dockerfiles/autogluon.Dockerfile.konflux` for hermetic builds):
+
+   ```bash
+   make requirements
+   ```
+
+   This runs `uv pip compile` targeting `x86_64-manylinux_2_34` (RHEL UBI9) against the Red Hat internal PyPI index. Override the index URL if needed:
+
+   ```bash
+   make requirements AIPCC_INDEX_URL=https://console.redhat.com/api/pypi/public-rhai/rhoai/3.5/cpu-ubi9/simple/
+   ```
+
+8. **Update the [supported stack table](#inference-stack-and-dependency-versions)** in this README, rebuild the image (`make docker-build-autogluon` from the repository root), and use a **versioned image tag** (for example aligned with the AutoGluon minor release).
 
 **If `uv lock` fails**
 
