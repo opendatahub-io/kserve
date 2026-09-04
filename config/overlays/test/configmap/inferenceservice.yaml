@@ -540,7 +540,7 @@ data:
              "propagate": [
                 "Authorization",
                 "Test-Header-*",
-                "*Trace-Id*"
+                ".*Trace-Id.*"
              ]
            }
 
