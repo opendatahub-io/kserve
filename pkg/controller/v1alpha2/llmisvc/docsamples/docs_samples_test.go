@@ -163,7 +163,6 @@ var _ = Describe("LLMInferenceService documentation samples", func() {
 var unavailableAPIs = map[string]string{
 	"sriovnetwork.openshift.io": "SR-IOV Network Operator CRDs are not vendored in test/crds",
 	"aigateway.envoyproxy.io":   "Envoy AI Gateway CRDs are not vendored in test/crds",
-	"monitoring.coreos.com":     "Prometheus Operator CRDs are not vendored in test/crds",
 }
 
 // sampleDoc is a single YAML document from a sample file. A document that could not
