@@ -120,7 +120,9 @@ func (r *LLMISVCReconciler) reconcileVLLMEngineMonitor(ctx context.Context, llmS
 		return nil
 	}
 
-	monitor, err := r.expectedVLLMEngineMonitor(llmSvc, config.EnableTLS)
+	enableTLS := config != nil && config.EnableTLS
+
+	monitor, err := r.expectedVLLMEngineMonitor(llmSvc, enableTLS)
 	if err != nil {
 		return fmt.Errorf("failed to build vLLM engine monitor: %w", err)
 	}
@@ -129,7 +131,7 @@ func (r *LLMISVCReconciler) reconcileVLLMEngineMonitor(ctx context.Context, llmS
 	}
 
 	// This is kept for backward compatibility, do not remove.
-	relabeledMonitor, err := r.expectedVLLMEngineMonitor(llmSvc, config.EnableTLS, monitoringv1.RelabelConfig{
+	relabeledMonitor, err := r.expectedVLLMEngineMonitor(llmSvc, enableTLS, monitoringv1.RelabelConfig{
 		SourceLabels: []monitoringv1.LabelName{"__name__"},
 		Action:       "replace",
 		Replacement:  ptr.To("kserve_$1"),
@@ -254,8 +256,13 @@ func (r *LLMISVCReconciler) expectedMetricsReaderClusterRoleBinding(llmSvc *v1al
 // ownerReference ensures Kubernetes GC deletes the monitor when the service is deleted.
 //
 // When relabelConfigs is non-empty the name gets the kserve_ relabeling suffix (backward compat).
-// When InsecureSkipVerify is true the CA field is omitted — Prometheus ignores it when
-// verification is skipped, and the secret may not exist.
+//
+// enableTLS mirrors enableLLMInferenceServiceTLS from the KServe configmap, which is what
+// decides whether the preset renders --ssl-certfile onto the engine. When it is false the
+// endpoint scrapes plain http and carries no tlsConfig at all; when true the scheme is https
+// and verification is gated on llmSvcHasTlsRotationEnabled. In that gated case InsecureSkipVerify
+// is true and the CA field is omitted — Prometheus ignores it when verification is skipped, and
+// the secret may not exist.
 func (r *LLMISVCReconciler) expectedVLLMEngineMonitor(llmSvc *v1alpha2.LLMInferenceService, enableTLS bool, relabelConfigs ...monitoringv1.RelabelConfig) (*monitoringv1.PodMonitor, error) {
 	metricsPort := intstr.FromInt32(8000)
 	nameSuffix := "-kserve-llmisvc-engine-default"
