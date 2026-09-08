@@ -164,8 +164,6 @@ class TestTracingPresetSynchronization:
                         ),
                     ]
                 )
-                trigger_reconcile(kubectl, name=KSERVE_CR_NAME, trigger_id="tracing-enabled")
-
                 wait_for(
                     lambda: _assert_preset_state(
                         kubectl, current_name, endpoint, PLATFORM_SAMPLE_RATIO
@@ -193,7 +191,6 @@ class TestTracingPresetSynchronization:
                         json.dumps({"spec": {"traces": None}}),
                     ]
                 )
-                trigger_reconcile(kubectl, name=KSERVE_CR_NAME, trigger_id="tracing-disabled")
             else:
                 trigger_reconcile(kubectl, name=KSERVE_CR_NAME, trigger_id="tracing-disabled")
 
