@@ -60,6 +60,7 @@ make e2e-cleanup-kserve-module
 ## Test Markers
 
 - `sanity` - core lifecycle tests (create, update, delete, CEL validation)
+- `tracing` - tracing endpoint synchronization across versioned presets
 
 Run specific markers:
 

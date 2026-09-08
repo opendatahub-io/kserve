@@ -85,6 +85,8 @@ import (
 // --- Monitoring (cluster-scoped: ServiceMonitors and Prometheus API for metrics collection) ---
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheuses/api,resourceNames=k8s,verbs=get;create;update
+// +kubebuilder:rbac:groups=services.platform.opendatahub.io,resources=monitorings,resourceNames=default-monitoring,verbs=get
+// +kubebuilder:rbac:groups=services.platform.opendatahub.io,resources=monitorings,verbs=list;watch
 
 // --- Observability (Perses dashboards deployed to monitoring namespace when COO is present) ---
 // +kubebuilder:rbac:groups=perses.dev,resources=persesdashboards,verbs=create;delete;get;list;patch;update;watch
