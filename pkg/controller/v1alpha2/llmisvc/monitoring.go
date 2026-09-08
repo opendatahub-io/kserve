@@ -120,7 +120,7 @@ func (r *LLMISVCReconciler) reconcileVLLMEngineMonitor(ctx context.Context, llmS
 		return nil
 	}
 
-	enableTLS := config != nil && config.EnableTLS
+	enableTLS := config == nil || config.EnableTLS
 
 	monitor, err := r.expectedVLLMEngineMonitor(llmSvc, enableTLS)
 	if err != nil {
