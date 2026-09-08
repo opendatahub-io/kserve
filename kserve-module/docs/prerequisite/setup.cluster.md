@@ -10,7 +10,22 @@ Prepares a cluster for E2E testing by deploying the KServe manifests and the KSe
 * Create KIND Cluster:
 ```bash
 ./hack/setup/dev/manage.kind-with-registry.sh
+
+or
+
+make kind-create
 ```
+
+
+* Rmoeve KIND Cluster:
+```bash
+./hack/setup/dev/manage.kind-with-registry.sh --uninstall
+
+or
+
+make kind-uninstall
+```
+
 
 * Build the operator image and push it to a registry the cluster can pull from,
   then pass it via `E2E_IMG`. Keep the default `KSERVE_NAMESPACE=opendatahub` —
@@ -32,6 +47,10 @@ export KO_DOCKER_REPO=localhost:5001 TAG=dev ENGINE=docker
 make docker-build-kserve-module
 make docker-push-kserve-module
 E2E_IMG=${KO_DOCKER_REPO}/kserve-module-controller:${TAG} make e2e-setup-kserve-module
+
+or 
+
+make kind-dev-kserve-module
 ```
 
 ## All-in-One
