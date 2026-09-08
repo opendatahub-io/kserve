@@ -118,6 +118,33 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 		resources = r.dedupeVersionedAcceleratorPresets(ctx, resources)
 	}
 
+	cfg, err := r.resolveTracingPlatformConfig(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("resolve tracing platform config: %w", err)
+	}
+	endpoint := upstreamTracingEndpointFromResources(resources)
+	if cfg == nil || !cfg.Enabled {
+		log.V(1).Info("platform tracing disabled, restoring upstream tracing endpoint")
+	} else {
+		endpoint = cfg.Endpoint
+		log.V(1).Info("patched tracing preset with platform collector", "endpoint", cfg.Endpoint, "sampleRatio", cfg.SampleRatio)
+		resources, err = patchWellKnownTracingPreset(resources, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("patch tracing preset: %w", err)
+		}
+	}
+
+	if kserve != nil {
+		resources, err = r.includeExistingTracingPresets(ctx, resources)
+		if err != nil {
+			return nil, fmt.Errorf("include existing tracing presets: %w", err)
+		}
+	}
+	resources, err = patchWellKnownTracingPresetEndpoint(resources, endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("patch tracing preset endpoint: %w", err)
+	}
+
 	return resources, nil
 }
 
@@ -244,4 +271,3 @@ func applyManagedByLabel(resources []unstructured.Unstructured, componentName st
 		resources[i].SetLabels(labels)
 	}
 }
-
