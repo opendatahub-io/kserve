@@ -13,7 +13,6 @@ from upgrade.utils import (
     MODULE_CONTROLLER_DEPLOYMENT,
     NEW_ISVC_NAME,
     NEW_LLMISVC_NAME,
-    UPGRADE_NAMESPACE,
     assert_operand_pods_not_recreated,
     assert_pod_uids_unchanged,
     assert_restart_counts_not_increased,
@@ -33,7 +32,7 @@ from upgrade.utils import (
 )
 
 
-@pytest.mark.usefixtures("capture_upgrade_baseline")
+@pytest.mark.usefixtures("ensure_kserve_cr", "capture_upgrade_baseline")
 class TestPreUpgrade:
     """Deploy workloads, verify serving, capture baseline before module roll."""
 

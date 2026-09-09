@@ -5,6 +5,8 @@ import copy
 import pytest
 import yaml
 
+from conftest import create_kserve_cr
+
 from upgrade.utils import (
     ISVC_NAME,
     LLMISVC_NAME,
@@ -27,6 +29,12 @@ from upgrade.utils import (
     wait_for_llmisvc_ready,
     workloads_supported,
 )
+
+
+@pytest.fixture(scope="session")
+def ensure_kserve_cr(kubectl):
+    """Create the singleton Kserve CR before pre-upgrade validation."""
+    create_kserve_cr(kubectl)
 
 
 @pytest.fixture(scope="session")
