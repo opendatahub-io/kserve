@@ -55,7 +55,7 @@ if [ "$#" -ge 2 ]; then
                 COMPONENT_MANIFESTS["$key"]=$value
             else
                 echo "ERROR: '$key' does not exist in COMPONENT_MANIFESTS, it will be skipped."
-                echo "Available components are: [${!COMPONENT_MANIFESTS[@]}]"
+                echo "Available components are: [${!COMPONENT_MANIFESTS[*]}]"
                 exit 1
             fi
         fi

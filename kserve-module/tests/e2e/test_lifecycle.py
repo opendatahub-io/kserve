@@ -17,6 +17,8 @@ from conftest import (
     wait_for_deployment,
     wait_for_deployment_gone,
     operand_deployments,
+    expected_webhooks,
+    get_webhook_config,
     KSERVE_CR_NAME,
     NAMESPACE,
     OPERATOR_DEPLOYMENT,
@@ -40,17 +42,56 @@ def _verify_deployments_available(kubectl, is_openshift):
         wait_for_deployment(kubectl, name)
 
 
+def _verify_webhooks_registered(kubectl, is_openshift):
+    """Each platform-expected webhook exists, has a caBundle, targets its service.
+
+    Registration/wiring only -- functional admission behavior belongs to the
+    operand suite. caBundle injection (OpenShift service-ca on ocp, cert-manager
+    on xks) is asynchronous, so poll until the CA controller populates it. See
+    RHOAIENG-82802 and docs/tests/test.km-e2e.md "Test responsibility boundary".
+    """
+    expected = expected_webhooks(is_openshift)
+
+    def assert_webhooks_wired():
+        for ew in expected:
+            cfg = get_webhook_config(kubectl, ew.resource, ew.name)
+            assert cfg is not None, f"{ew.resource}/{ew.name} should exist"
+
+            webhooks = cfg.get("webhooks", [])
+            assert webhooks, f"{ew.resource}/{ew.name} has no webhooks"
+
+            for wh in webhooks:
+                client_config = wh.get("clientConfig", {})
+                assert client_config.get("caBundle"), (
+                    f"{ew.resource}/{ew.name} webhook {wh.get('name')} has empty caBundle"
+                )
+                svc = client_config.get("service", {})
+                assert (svc.get("name"), svc.get("namespace")) == (
+                    ew.service,
+                    ew.namespace,
+                ), (
+                    f"{ew.resource}/{ew.name} webhook {wh.get('name')} targets service "
+                    f"{svc.get('namespace')}/{svc.get('name')}, expected "
+                    f"{ew.namespace}/{ew.service}"
+                )
+
+    wait_for(assert_webhooks_wired, timeout=TIMEOUT_120S, interval=5)
+
+
 @pytest.mark.sanity
 class TestCreate:
     """Verify CR creation triggers operand resource deployment."""
 
     def test_create_deploys_operands(self, kubectl, cluster_info, apply_kserve_cr):
-        """Kserve CR creation deploys managed deployments with Available status.
+        """Kserve CR creation deploys managed deployments and registers webhooks.
 
-        apply_kserve_cr fixture creates the CR and waits for Ready=True.
-        This test verifies the actual cluster state matches.
+        apply_kserve_cr fixture creates the CR and waits for Ready=True. This
+        test verifies the actual cluster state matches: operand deployments are
+        Available and the platform-expected webhook configs are wired up (exist,
+        caBundle injected, targeting the current service). See RHOAIENG-82802.
         """
         _verify_deployments_available(kubectl, is_openshift=cluster_info.is_openshift)
+        _verify_webhooks_registered(kubectl, is_openshift=cluster_info.is_openshift)
 
 
 @pytest.mark.sanity
