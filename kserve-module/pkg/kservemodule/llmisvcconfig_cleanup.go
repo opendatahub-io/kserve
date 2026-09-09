@@ -2,7 +2,10 @@ package kservemodule
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -11,6 +14,8 @@ import (
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/util/retry"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -23,6 +28,13 @@ import (
 // deletionRequeueInterval is the fallback re-check interval for a blocked
 // deletion; watches drive most re-checks, this re-reads if an event is missed.
 const deletionRequeueInterval = 30 * time.Second
+
+const (
+	configDeletionRetryInterval    = 250 * time.Millisecond
+	configDeletionRetryTimeout     = 10 * time.Second
+	configWebhookRestoreTimeout    = 10 * time.Second
+	configWebhookRestoreAnnotation = "serving.kserve.io/pending-delete-rule-restore"
+)
 
 // configCleanupOutcome reports the result of a well-known config cleanup pass.
 // When done is false the deletion is blocked; blockers describes why.
@@ -38,10 +50,14 @@ type configCleanupOutcome struct {
 // (per status.referencedBy) are left in place and reported as blockers.
 //
 // A dedicated validating webhook rejects deletion of well-known configs
-// (failurePolicy=Fail), so once no config is referenced the webhook is removed
-// before the configs are deleted. The webhook is owned by the Kserve CR and this
-// deletion branch never re-applies operands, so it does not come back.
+// (failurePolicy=Fail). Once no config is referenced, DELETE admission is
+// temporarily disabled only for the v1alpha2 config rule while the delete
+// requests are accepted, then restored before waiting for finalizers.
 func (r *KserveModuleReconciler) cleanupLLMISVCConfigsOnDelete(ctx context.Context) (configCleanupOutcome, error) {
+	// Recover an interrupted pass before any early return, including no configs.
+	if err := r.restoreConfigDeletionWebhookDelete(ctx, configDeletionWebhookPatch{}); err != nil {
+		return configCleanupOutcome{}, err
+	}
 	ns := r.getApplicationsNamespace()
 
 	configs, err := r.listWellKnownLLMISVCConfigs(ctx, ns)
@@ -51,29 +67,50 @@ func (r *KserveModuleReconciler) cleanupLLMISVCConfigsOnDelete(ctx context.Conte
 	if len(configs) == 0 {
 		return configCleanupOutcome{done: true}, nil
 	}
+	configsToDelete := nonTerminatingConfigs(configs)
+	if len(configsToDelete) == 0 {
+		return configCleanupOutcome{blockers: []string{"waiting for well-known configs to finish terminating"}}, nil
+	}
 
 	// check-before-delete: skip deletion while a config looks referenced. This is
 	// a best-effort early guard (the referencedBy read may be slightly stale); the
 	// config's own finalizer is the authoritative guard that keeps an in-use config
 	// alive even if a delete is issued.
-	if blockers := referencedConfigBlockers(configs); len(blockers) > 0 {
+	if blockers := referencedConfigBlockers(configsToDelete); len(blockers) > 0 {
 		return configCleanupOutcome{blockers: blockers}, nil
 	}
 
-	// Nothing references the configs: remove the delete-guard webhook (not
-	// restored for the rest of teardown), then delete the configs.
-	if err := r.deleteConfigDeletionWebhook(ctx); err != nil {
+	// Nothing references the configs: temporarily remove DELETE from the
+	// dedicated v1alpha2 config webhook rule. DELETE is admitted only when the
+	// deletionTimestamp is set; finalizer completion does not require DELETE
+	// admission, so restore the rule as soon as the requests have been accepted.
+	webhookPatch, err := r.disableConfigDeletionWebhookDelete(ctx)
+	if err != nil {
 		return configCleanupOutcome{}, err
 	}
 
-	if err := r.deleteWellKnownConfigs(ctx, configs); err != nil {
-		return configCleanupOutcome{}, err
+	deleteErr := r.deleteWellKnownConfigs(ctx, configsToDelete)
+	restoreCtx, cancelRestore := context.WithTimeout(context.WithoutCancel(ctx), configWebhookRestoreTimeout)
+	restoreErr := r.restoreConfigDeletionWebhookDelete(restoreCtx, webhookPatch)
+	cancelRestore()
+	if deleteErr != nil || restoreErr != nil {
+		return configCleanupOutcome{}, errors.Join(deleteErr, restoreErr)
 	}
 
 	// Configs carry a finalizer, so they terminate asynchronously. Block for now;
 	// the next reconcile re-lists from the top and reports done once they are gone
 	// (or re-blocks if a reference reappeared meanwhile).
 	return configCleanupOutcome{blockers: []string{"waiting for well-known configs to finish terminating"}}, nil
+}
+
+func nonTerminatingConfigs(configs []unstructured.Unstructured) []unstructured.Unstructured {
+	var pending []unstructured.Unstructured
+	for i := range configs {
+		if configs[i].GetDeletionTimestamp().IsZero() {
+			pending = append(pending, configs[i])
+		}
+	}
+	return pending
 }
 
 // listWellKnownLLMISVCConfigs returns the LLMInferenceServiceConfigs in ns that
@@ -209,10 +246,17 @@ func (r *KserveModuleReconciler) deleteWellKnownConfigs(ctx context.Context, con
 		if !configs[i].GetDeletionTimestamp().IsZero() {
 			continue // already terminating
 		}
-		if err := r.Delete(ctx, &configs[i]); err != nil {
-			if k8serr.IsNotFound(err) {
-				continue // already gone
+		err := wait.PollUntilContextTimeout(ctx, configDeletionRetryInterval, configDeletionRetryTimeout, true, func(ctx context.Context) (bool, error) {
+			err := r.Delete(ctx, &configs[i])
+			if err == nil || k8serr.IsNotFound(err) {
+				return true, nil
 			}
+			if k8serr.IsForbidden(err) {
+				return false, nil
+			}
+			return false, err
+		})
+		if err != nil {
 			return fmt.Errorf("deleting LLMInferenceServiceConfig %s: %w", configs[i].GetName(), err)
 		}
 		log.Info("deleted well-known LLMInferenceServiceConfig", "name", configs[i].GetName())
@@ -220,21 +264,176 @@ func (r *KserveModuleReconciler) deleteWellKnownConfigs(ctx context.Context, con
 	return nil
 }
 
-// deleteConfigDeletionWebhook removes the dedicated ValidatingWebhookConfiguration
-// that guards LLMInferenceServiceConfig deletion. It is idempotent: an already
-// absent webhook is treated as success.
-func (r *KserveModuleReconciler) deleteConfigDeletionWebhook(ctx context.Context) error {
-	webhook := &admissionregistrationv1.ValidatingWebhookConfiguration{}
-	webhook.SetName(llmISVCConfigWebhookName)
-	err := r.Delete(ctx, webhook)
-	if k8serr.IsNotFound(err) {
-		return nil
+// configDeletionWebhookPatch records the operations removed from the config
+// webhook. It is used to restore exactly those rules after delete admission.
+type configDeletionWebhookPatch struct {
+	rules []configDeletionWebhookRule
+}
+
+type configDeletionWebhookRule struct {
+	WebhookName string                                  `json:"webhookName"`
+	Rule        admissionregistrationv1.Rule            `json:"rule"`
+	Operations  []admissionregistrationv1.OperationType `json:"operations"`
+}
+
+func (r *KserveModuleReconciler) configWebhookReader() client.Reader {
+	if r.apiReader != nil {
+		return r.apiReader
 	}
+	return r.Client
+}
+
+// disableConfigDeletionWebhookDelete removes DELETE only from v1alpha2
+// LLMInferenceServiceConfig rules. It returns the original operations needed to
+// restore the webhook. An absent webhook is already equivalent to DELETE being
+// disabled and therefore needs no restoration.
+func (r *KserveModuleReconciler) disableConfigDeletionWebhookDelete(ctx context.Context) (configDeletionWebhookPatch, error) {
+	patch := configDeletionWebhookPatch{}
+	err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		webhook := &admissionregistrationv1.ValidatingWebhookConfiguration{}
+		if err := r.configWebhookReader().Get(ctx, client.ObjectKey{Name: llmISVCConfigWebhookName}, webhook); err != nil {
+			if k8serr.IsNotFound(err) {
+				return nil
+			}
+			return fmt.Errorf("getting %s ValidatingWebhookConfiguration: %w", llmISVCConfigWebhookName, err)
+		}
+
+		patch.rules = nil
+		if webhook.Annotations[configWebhookRestoreAnnotation] != "" {
+			return fmt.Errorf("pending config webhook restoration must complete before disabling DELETE")
+		}
+		for webhookIndex := range webhook.Webhooks {
+			for ruleIndex := range webhook.Webhooks[webhookIndex].Rules {
+				rule := &webhook.Webhooks[webhookIndex].Rules[ruleIndex]
+				if !isLLMISVCConfigV1alpha2Rule(*rule) || !hasWebhookOperation(rule.Operations, admissionregistrationv1.Delete) {
+					continue
+				}
+				patch.rules = append(patch.rules, configDeletionWebhookRule{
+					WebhookName: webhook.Webhooks[webhookIndex].Name,
+					Rule:        *rule.Rule.DeepCopy(),
+					Operations:  append([]admissionregistrationv1.OperationType(nil), rule.Operations...),
+				})
+				rule.Operations = withoutWebhookOperation(rule.Operations, admissionregistrationv1.Delete)
+			}
+		}
+		if len(patch.rules) == 0 {
+			return fmt.Errorf("no v1alpha2 LLMInferenceServiceConfig DELETE rule found in %s", llmISVCConfigWebhookName)
+		}
+		saved, err := json.Marshal(patch.rules)
+		if err != nil {
+			return err
+		}
+		if webhook.Annotations == nil {
+			webhook.Annotations = make(map[string]string)
+		}
+		// Persist recovery data atomically with disabling admission.
+		webhook.Annotations[configWebhookRestoreAnnotation] = string(saved)
+		return r.Update(ctx, webhook)
+	})
 	if err != nil {
-		return fmt.Errorf("deleting %s ValidatingWebhookConfiguration: %w", llmISVCConfigWebhookName, err)
+		return configDeletionWebhookPatch{}, err
 	}
-	ctrl.LoggerFrom(ctx).Info("deleted config-deletion validating webhook", "name", llmISVCConfigWebhookName)
+	if len(patch.rules) > 0 {
+		ctrl.LoggerFrom(ctx).Info("temporarily disabled config-deletion validating webhook rule", "name", llmISVCConfigWebhookName)
+	}
+	return patch, nil
+}
+
+// restoreConfigDeletionWebhookDelete restores the DELETE operations removed by
+// disableConfigDeletionWebhookDelete. It uses a fresh read on every conflict so
+// unrelated webhook updates are preserved.
+func (r *KserveModuleReconciler) restoreConfigDeletionWebhookDelete(ctx context.Context, patch configDeletionWebhookPatch) error {
+	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		webhook := &admissionregistrationv1.ValidatingWebhookConfiguration{}
+		if err := r.configWebhookReader().Get(ctx, client.ObjectKey{Name: llmISVCConfigWebhookName}, webhook); err != nil {
+			if k8serr.IsNotFound(err) {
+				return nil
+			}
+			return fmt.Errorf("getting %s ValidatingWebhookConfiguration for restore: %w", llmISVCConfigWebhookName, err)
+		}
+		saved := webhook.Annotations[configWebhookRestoreAnnotation]
+		if saved == "" {
+			return nil
+		}
+		if err := json.Unmarshal([]byte(saved), &patch.rules); err != nil {
+			return fmt.Errorf("reading pending config webhook restoration: %w", err)
+		}
+		for _, savedRule := range patch.rules {
+			webhookIndex := webhookIndexByName(webhook.Webhooks, savedRule.WebhookName)
+			if webhookIndex < 0 {
+				return fmt.Errorf("config webhook %q no longer exists", savedRule.WebhookName)
+			}
+			found := false
+			for i := range webhook.Webhooks[webhookIndex].Rules {
+				rule := &webhook.Webhooks[webhookIndex].Rules[i]
+				if !reflect.DeepEqual(rule.Rule, savedRule.Rule) {
+					continue
+				}
+				found = true
+				// Preserve concurrent operation changes; restore only our removal.
+				if !hasWebhookOperation(rule.Operations, admissionregistrationv1.Delete) &&
+					!hasWebhookOperation(rule.Operations, admissionregistrationv1.OperationAll) {
+					if reflect.DeepEqual(rule.Operations, withoutWebhookOperation(savedRule.Operations, admissionregistrationv1.Delete)) {
+						rule.Operations = append([]admissionregistrationv1.OperationType(nil), savedRule.Operations...)
+					} else {
+						rule.Operations = append(rule.Operations, admissionregistrationv1.Delete)
+					}
+				}
+			}
+			if !found {
+				return fmt.Errorf("config webhook rule %q no longer exists", savedRule.WebhookName)
+			}
+		}
+		delete(webhook.Annotations, configWebhookRestoreAnnotation)
+		return r.Update(ctx, webhook)
+	}); err != nil {
+		return fmt.Errorf("restoring %s ValidatingWebhookConfiguration: %w", llmISVCConfigWebhookName, err)
+	}
+	ctrl.LoggerFrom(ctx).Info("restored config-deletion validating webhook rule", "name", llmISVCConfigWebhookName)
 	return nil
+}
+
+func isLLMISVCConfigV1alpha2Rule(rule admissionregistrationv1.RuleWithOperations) bool {
+	return hasString(rule.APIGroups, "serving.kserve.io") &&
+		hasString(rule.APIVersions, "v1alpha2") &&
+		hasString(rule.Resources, "llminferenceserviceconfigs")
+}
+
+func hasString(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
+}
+
+func hasWebhookOperation(operations []admissionregistrationv1.OperationType, operation admissionregistrationv1.OperationType) bool {
+	for _, candidate := range operations {
+		if candidate == operation {
+			return true
+		}
+	}
+	return false
+}
+
+func withoutWebhookOperation(operations []admissionregistrationv1.OperationType, operation admissionregistrationv1.OperationType) []admissionregistrationv1.OperationType {
+	filtered := make([]admissionregistrationv1.OperationType, 0, len(operations))
+	for _, candidate := range operations {
+		if candidate != operation {
+			filtered = append(filtered, candidate)
+		}
+	}
+	return filtered
+}
+
+func webhookIndexByName(webhooks []admissionregistrationv1.ValidatingWebhook, name string) int {
+	for i := range webhooks {
+		if webhooks[i].Name == name {
+			return i
+		}
+	}
+	return -1
 }
 
 // setDeletionBlocked records the Degraded/DeletionBlocked condition describing
