@@ -44,7 +44,7 @@ var monitoringDisabled, _ = env.GetBool("LLMISVC_MONITORING_DISABLED", false)
 
 // reconcileMonitoringResources reconciles all monitoring-related resources for an LLMInferenceService,
 // including RBAC permissions, Prometheus operator monitors for the llm-d scheduler and the vLLM engine.
-func (r *LLMISVCReconciler) reconcileMonitoringResources(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
+func (r *LLMISVCReconciler) reconcileMonitoringResources(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, config *Config) error {
 	logger := log.FromContext(ctx).WithName("reconcileMonitoring")
 	ctx = log.IntoContext(ctx, logger)
 
@@ -65,6 +65,10 @@ func (r *LLMISVCReconciler) reconcileMonitoringResources(ctx context.Context, ll
 
 	if err := r.reconcileSchedulerMonitor(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to reconcile scheduler monitor: %w", err)
+	}
+
+	if err := r.reconcileMonitoringNetworkPolicy(ctx, llmSvc, config); err != nil {
+		return fmt.Errorf("failed to reconcile monitoring network policy: %w", err)
 	}
 
 	return nil
@@ -406,8 +410,8 @@ func (r *LLMISVCReconciler) expectedSchedulerMonitor(llmSvc *v1alpha2.LLMInferen
 	}
 }
 
-// cleanupMonitoringResources removes LLM monitoring resources when the last LLMInferenceService
-// in the namespace is deleted.
+// cleanupMonitoringResources removes this service's NetworkPolicy, then shared
+// monitoring resources when the last LLMInferenceService in the namespace is deleted.
 func (r *LLMISVCReconciler) cleanupMonitoringResources(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	logger := log.FromContext(ctx).WithName("cleanupMonitoring")
 	ctx = log.IntoContext(ctx, logger)
@@ -415,6 +419,13 @@ func (r *LLMISVCReconciler) cleanupMonitoringResources(ctx context.Context, llmS
 	if monitoringDisabled {
 		// No monitoring resources to clean up when monitoring is disabled
 		return nil
+	}
+
+	// Per-service NetworkPolicy is owned by this LLMInferenceService. Always
+	// delete it here: envtest has no GC, and finalize must not wait for the
+	// last service in the namespace.
+	if err := r.cleanupMonitoringNetworkPolicy(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to cleanup monitoring network policy: %w", err)
 	}
 
 	llmSvcList := &v1alpha2.LLMInferenceServiceList{}
@@ -431,7 +442,7 @@ func (r *LLMISVCReconciler) cleanupMonitoringResources(ctx context.Context, llmS
 	}
 
 	if namespaceHasLlmIsvcs {
-		logger.Info("Other LLMInferenceServices exist in namespace, skipping monitoring cleanup",
+		logger.Info("Other LLMInferenceServices exist in namespace, skipping shared monitoring cleanup",
 			"namespace", llmSvc.GetNamespace())
 		return nil
 	}

@@ -1,5 +1,27 @@
 # E2E Testing
 
+## Test responsibility boundary
+
+This module E2E suite verifies the **orchestration contract**: enabling the module deploys the expected operands and wires them up correctly. 
+It does not test what the operands themselves do once deployed.
+
+What this suite owns:
+
+- Operand deployment per platform (create/update/delete, GC, CRD preservation)
+- Status/condition reporting and platform version transitions
+- **Webhook registration**: each platform-expected Validating/Mutating webhook
+  config exists, has a non-empty `caBundle`, and its `clientConfig.service` names
+  the owning component's service (xks: llmisvc only; ocp: kserve, llmisvc,
+  odh-model-controller).
+
+Out of scope here (operand-level concerns, not the module's orchestration
+contract):
+
+- Model serving end to end and endpoint reachability
+- **Webhook functional behavior**: whether a webhook actually rejects an invalid
+  InferenceService or applies defaults. This suite checks only that the webhooks
+  are registered and wired, not what they do.
+
 ## Prerequisites
 
 - kind or minikube cluster running
