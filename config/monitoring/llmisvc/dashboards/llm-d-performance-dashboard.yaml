@@ -289,6 +289,97 @@ spec:
                     name: data-science-prometheus-datasource
                   query: avg(kserve_vllm:kv_cache_usage_perc{exported_namespace=~"$namespace",model_name=~"$model_name"})
                   seriesNameFormat: Usage
+      phaseLatency:
+        kind: Panel
+        spec:
+          display:
+            name: Prefill / decode latency
+            description: Execution time for prefill and decode phases. Prefill measures
+              scheduled-to-first-token; decode measures first-to-last token. Compare
+              with TTFT/ITL above, which include queueing overhead.
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                mode: list
+                position: bottom
+                values: []
+              visual:
+                areaOpacity: 0
+                connectNulls: false
+                display: line
+                lineWidth: 1.5
+              yAxis:
+                format:
+                  unit: seconds
+                min: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
+                  query: (histogram_quantile(0.50, sum by (le) (rate(kserve_vllm:request_prefill_time_seconds_bucket{exported_namespace=~"$namespace",model_name=~"$model_name"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: Prefill P50
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
+                  query: (histogram_quantile(0.95, sum by (le) (rate(kserve_vllm:request_prefill_time_seconds_bucket{exported_namespace=~"$namespace",model_name=~"$model_name"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: Prefill P95
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
+                  query: (histogram_quantile(0.99, sum by (le) (rate(kserve_vllm:request_prefill_time_seconds_bucket{exported_namespace=~"$namespace",model_name=~"$model_name"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: Prefill P99
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
+                  query: (histogram_quantile(0.50, sum by (le) (rate(kserve_vllm:request_decode_time_seconds_bucket{exported_namespace=~"$namespace",model_name=~"$model_name"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: Decode P50
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
+                  query: (histogram_quantile(0.95, sum by (le) (rate(kserve_vllm:request_decode_time_seconds_bucket{exported_namespace=~"$namespace",model_name=~"$model_name"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: Decode P95
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
+                  query: (histogram_quantile(0.99, sum by (le) (rate(kserve_vllm:request_decode_time_seconds_bucket{exported_namespace=~"$namespace",model_name=~"$model_name"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: Decode P99
       # Drill-down panel covers stretch/deferred panels P13, P14, P17. Remove once those panels are added.
       drillDownHints:
         kind: Panel
@@ -363,6 +454,19 @@ spec:
           height: 8
           content:
             $ref: '#/spec/panels/kvCacheUsage'
+    - kind: Grid
+      spec:
+        display:
+          title: Phase latency
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 24
+          height: 8
+          content:
+            $ref: '#/spec/panels/phaseLatency'
     - kind: Grid
       spec:
         display:
