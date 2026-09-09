@@ -47,6 +47,7 @@ var modelControllerImageParamMap = map[string]string{
 	"odh-model-serving-api":                         "RELATED_IMAGE_ODH_MODEL_SERVING_API_IMAGE",
 	"ovms-image":                                    "RELATED_IMAGE_ODH_OPENVINO_MODEL_SERVER_IMAGE",
 	"mlserver-image":                                "RELATED_IMAGE_ODH_MLSERVER_IMAGE",
+	"mlserver-cuda-image":                           "RELATED_IMAGE_ODH_MLSERVER_CUDA_IMAGE",
 	"vllm-cuda-image":                               "RELATED_IMAGE_RHAII_VLLM_CUDA_IMAGE",
 	"vllm-cuda-image-fast-1":                        "RELATED_IMAGE_RHAII_VLLM_CUDA_FAST_1_IMAGE",
 	"vllm-cuda-image-fast-2":                        "RELATED_IMAGE_RHAII_VLLM_CUDA_FAST_2_IMAGE",
