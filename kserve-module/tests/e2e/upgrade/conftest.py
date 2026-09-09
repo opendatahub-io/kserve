@@ -5,8 +5,6 @@ import copy
 import pytest
 import yaml
 
-from conftest import create_kserve_cr
-
 from upgrade.utils import (
     ISVC_NAME,
     LLMISVC_NAME,
@@ -14,6 +12,7 @@ from upgrade.utils import (
     NEW_LLMISVC_NAME,
     UPGRADE_NAMESPACE,
     apply_manifest,
+    create_kserve_cr,
     build_baseline,
     ensure_namespace,
     is_post_upgrade,

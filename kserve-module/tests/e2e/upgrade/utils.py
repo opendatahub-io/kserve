@@ -22,6 +22,7 @@ def _load_e2e_conftest():
 _e2e = _load_e2e_conftest()
 
 run = _e2e.run
+create_kserve_cr = _e2e.create_kserve_cr
 get_cr = _e2e.get_cr
 get_jsonpath = _e2e.get_jsonpath
 get_resource = _e2e.get_resource
