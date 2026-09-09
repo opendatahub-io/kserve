@@ -25,7 +25,6 @@ from upgrade.utils import (
     is_cr_ready,
     operand_deployments,
     operand_pod_identity_deployments,
-    assert_deployment_available,
     run_isvc_inference,
     run_llmisvc_inference,
     verify_background_probe,
@@ -86,7 +85,6 @@ class TestPostUpgrade:
         """Part A: operand controllers redeployed and reach Available."""
         for dep in operand_deployments(cluster_info.is_openshift):
             wait_for_deployment(kubectl, dep)
-            assert_deployment_available(kubectl, dep)
 
     @pytest.mark.post_upgrade
     def test_operand_pods_not_restarted(self, kubectl, cluster_info, upgrade_baseline):

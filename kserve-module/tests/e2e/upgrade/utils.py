@@ -8,41 +8,50 @@ from pathlib import Path
 
 import yaml
 
-_MANIFESTS_DIR = (
-    Path(__file__).resolve().parents[3] / "docs" / "tests" / "upgrade" / "test-manifests"
-)
 
-
-def _parent_conftest():
+def _load_e2e_conftest():
     path = Path(__file__).resolve().parent.parent / "conftest.py"
-    spec = importlib.util.spec_from_file_location("_e2e_parent_conftest", path)
+    spec = importlib.util.spec_from_file_location("_e2e_conftest", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-_parent = _parent_conftest()
-run = _parent.run
-get_cr = _parent.get_cr
-is_cr_ready = _parent.is_cr_ready
-operand_deployments = _parent.operand_deployments
-resource_exists = _parent.resource_exists
-wait_for = _parent.wait_for
-wait_for_deployment = _parent.wait_for_deployment
-NAMESPACE = _parent.NAMESPACE
+_e2e = _load_e2e_conftest()
+
+run = _e2e.run
+get_cr = _e2e.get_cr
+get_jsonpath = _e2e.get_jsonpath
+get_resource = _e2e.get_resource
+is_cr_ready = _e2e.is_cr_ready
+operand_deployments = _e2e.operand_deployments
+resource_exists = _e2e.resource_exists
+wait_for = _e2e.wait_for
+wait_for_deployment = _e2e.wait_for_deployment
+NAMESPACE = _e2e.NAMESPACE
+MODULE_CONTROLLER_DEPLOYMENT = _e2e.OPERATOR_DEPLOYMENT
+
+MANIFESTS_DIR = (
+    Path(__file__).resolve().parents[3] / "docs" / "tests" / "upgrade" / "test-manifests"
+)
 
 UPGRADE_NAMESPACE = "km-upgrade-e2e"
 BASELINE_CM_NAME = "km-upgrade-baseline"
-MANIFESTS_DIR = _MANIFESTS_DIR
-MODULE_CONTROLLER_DEPLOYMENT = "kserve-module-controller-manager"
 PROBE_POD_NAME = "km-upgrade-probe"
-# Image already present on ODH/OpenShift clusters; has curl for in-cluster probes.
 PROBE_IMAGE = "quay.io/opendatahub/mlserver:fast"
 
 ISVC_NAME = "sklearn-iris"
 LLMISVC_NAME = "facebook-opt-125m-single"
 NEW_ISVC_NAME = "sklearn-iris-post-upgrade"
 NEW_LLMISVC_NAME = "facebook-opt-125m-post-upgrade"
+
+OPERAND_POD_IDENTITY_DEPLOYMENTS_OCP = [
+    "kserve-controller-manager",
+    "llmisvc-controller-manager",
+]
+OPERAND_POD_IDENTITY_DEPLOYMENTS_XKS = [
+    "llmisvc-controller-manager",
+]
 
 
 def is_post_upgrade(pytestconfig):
@@ -58,57 +67,33 @@ def manifest_path(name):
 
 
 def ensure_namespace(kubectl, namespace=UPGRADE_NAMESPACE):
-    if resource_exists(kubectl, "namespace", namespace):
-        run(
-            [
-                kubectl,
-                "label",
-                "namespace",
-                namespace,
-                "pod-security.kubernetes.io/enforce=privileged",
-                "pod-security.kubernetes.io/audit=privileged",
-                "pod-security.kubernetes.io/warn=privileged",
-                "--overwrite",
-            ],
-            check=False,
-        )
-        return
-    run([kubectl, "create", "namespace", namespace])
+    labels = [
+        "pod-security.kubernetes.io/enforce=privileged",
+        "pod-security.kubernetes.io/audit=privileged",
+        "pod-security.kubernetes.io/warn=privileged",
+    ]
+    if not resource_exists(kubectl, "namespace", namespace):
+        run([kubectl, "create", "namespace", namespace])
     run(
-        [
-            kubectl,
-            "label",
-            "namespace",
-            namespace,
-            "pod-security.kubernetes.io/enforce=privileged",
-            "pod-security.kubernetes.io/audit=privileged",
-            "pod-security.kubernetes.io/warn=privileged",
-            "--overwrite",
-        ]
+        [kubectl, "label", "namespace", namespace, *labels, "--overwrite"],
+        check=False,
     )
 
 
 def apply_manifest(kubectl, filename, namespace=UPGRADE_NAMESPACE):
-    path = manifest_path(filename)
-    run([kubectl, "apply", "-n", namespace, "-f", str(path)])
+    run([kubectl, "apply", "-n", namespace, "-f", str(manifest_path(filename))])
 
 
 def wait_for_isvc_ready(kubectl, name=ISVC_NAME, namespace=UPGRADE_NAMESPACE, timeout=600):
     def _ready():
-        result = run(
-            [
-                kubectl,
-                "get",
-                "inferenceservice",
-                name,
-                "-n",
-                namespace,
-                "-o",
-                "jsonpath={.status.conditions[?(@.type=='Ready')].status}",
-            ],
-            check=False,
+        status = get_jsonpath(
+            kubectl,
+            "inferenceservice",
+            name,
+            "{.status.conditions[?(@.type=='Ready')].status}",
+            namespace=namespace,
         )
-        assert result.stdout.strip() == "True"
+        assert status == "True"
 
     wait_for(_ready, timeout=timeout, interval=10)
 
@@ -116,74 +101,17 @@ def wait_for_isvc_ready(kubectl, name=ISVC_NAME, namespace=UPGRADE_NAMESPACE, ti
 def wait_for_llmisvc_ready(
     kubectl, name=LLMISVC_NAME, namespace=UPGRADE_NAMESPACE, timeout=900
 ):
-    """Wait until LLMISVC workloads are ready (matches manual upgrade scripts)."""
-
     def _ready():
-        result = run(
-            [
-                kubectl,
-                "get",
-                "llminferenceservice",
-                name,
-                "-n",
-                namespace,
-                "-o",
-                "jsonpath={.status.conditions[?(@.type=='WorkloadsReady')].status}",
-            ],
-            check=False,
-        )
-        assert result.stdout.strip() == "True"
-
-    wait_for(_ready, timeout=timeout, interval=15)
-
-
-def llmisvc_workload_service(kubectl, name=LLMISVC_NAME, namespace=UPGRADE_NAMESPACE):
-    svc_name = f"{name}-kserve-workload-svc"
-    if resource_exists(kubectl, "service", svc_name, namespace=namespace):
-        return f"http://{svc_name}.{namespace}.svc.cluster.local:8000"
-    return f"http://{name}.{namespace}.svc.cluster.local"
-
-
-def isvc_predictor_url(kubectl, name=ISVC_NAME, namespace=UPGRADE_NAMESPACE):
-    result = run(
-        [
+        status = get_jsonpath(
             kubectl,
-            "get",
-            "inferenceservice",
-            name,
-            "-n",
-            namespace,
-            "-o",
-            "jsonpath={.status.url}",
-        ],
-        check=False,
-    )
-    status_url = result.stdout.strip()
-    if status_url:
-        return status_url.rstrip("/")
-
-    # RawDeployment: in-cluster predictor Service.
-    return f"http://{name}-predictor.{namespace}.svc.cluster.local"
-
-
-def llmisvc_inference_url(kubectl, name=LLMISVC_NAME, namespace=UPGRADE_NAMESPACE):
-    result = run(
-        [
-            kubectl,
-            "get",
             "llminferenceservice",
             name,
-            "-n",
-            namespace,
-            "-o",
-            "jsonpath={.status.url}",
-        ],
-        check=False,
-    )
-    status_url = result.stdout.strip()
-    if status_url:
-        return status_url.rstrip("/")
-    return llmisvc_workload_service(kubectl, name=name, namespace=namespace)
+            "{.status.conditions[?(@.type=='WorkloadsReady')].status}",
+            namespace=namespace,
+        )
+        assert status == "True"
+
+    wait_for(_ready, timeout=timeout, interval=15)
 
 
 def _exec_curl(kubectl, namespace, resource, container, url, method="GET", data=None):
@@ -220,12 +148,10 @@ def _exec_curl(kubectl, namespace, resource, container, url, method="GET", data=
 
 
 def run_isvc_inference(kubectl, namespace=UPGRADE_NAMESPACE, name=ISVC_NAME):
-    """Verify ISVC health endpoint (same check as manual upgrade scripts)."""
-    deploy = f"deploy/{name}-predictor"
     body = _exec_curl(
         kubectl,
         namespace,
-        deploy,
+        f"deploy/{name}-predictor",
         "kserve-container",
         "http://127.0.0.1:8080/v2/health/ready",
     )
@@ -233,42 +159,21 @@ def run_isvc_inference(kubectl, namespace=UPGRADE_NAMESPACE, name=ISVC_NAME):
 
 
 def run_llmisvc_inference(kubectl, namespace=UPGRADE_NAMESPACE, name=LLMISVC_NAME):
-    """Verify LLMISVC WorkloadsReady condition (gateway may be absent on test clusters)."""
-    result = run(
-        [
-            kubectl,
-            "get",
-            "llminferenceservice",
-            name,
-            "-n",
-            namespace,
-            "-o",
-            "jsonpath={.status.conditions[?(@.type=='WorkloadsReady')]}",
-        ]
+    condition = get_jsonpath(
+        kubectl,
+        "llminferenceservice",
+        name,
+        "{.status.conditions[?(@.type=='WorkloadsReady')]}",
+        namespace=namespace,
     )
-    return hashlib.sha256(result.stdout.encode()).hexdigest()
+    return hashlib.sha256(condition.encode()).hexdigest()
 
 
-def get_resource(kubectl, resource_type, name, namespace=None):
-    cmd = [kubectl, "get", resource_type, name, "-o", "yaml"]
-    if namespace:
-        cmd.extend(["-n", namespace])
-    result = run(cmd, check=False)
-    if result.returncode != 0:
-        return None
-    return yaml.safe_load(result.stdout)
-
-
-def deployment_pod_snapshot(kubectl, deployment, namespace=NAMESPACE):
-    dep = get_resource(kubectl, "deployment", deployment, namespace=namespace)
-    if dep is None:
+def _pod_snapshot(kubectl, namespace, labels):
+    if not labels:
         return {"pod_uids": [], "restart_counts": {}}
 
-    selector = dep.get("spec", {}).get("selector", {}).get("matchLabels", {})
-    if not selector:
-        return {"pod_uids": [], "restart_counts": {}}
-
-    label_parts = [f"{k}={v}" for k, v in selector.items()]
+    label_selector = ",".join(f"{k}={v}" for k, v in labels.items())
     result = run(
         [
             kubectl,
@@ -277,37 +182,7 @@ def deployment_pod_snapshot(kubectl, deployment, namespace=NAMESPACE):
             "-n",
             namespace,
             "-l",
-            ",".join(label_parts),
-            "-o",
-            "json",
-        ],
-        check=False,
-    )
-    if result.returncode != 0:
-        return {"pod_uids": [], "restart_counts": {}}
-
-    pods = yaml.safe_load(result.stdout).get("items", [])
-    pod_uids = sorted(p["metadata"]["uid"] for p in pods)
-    restart_counts = {
-        p["metadata"]["name"]: sum(
-            cs.get("restartCount", 0) for cs in p.get("status", {}).get("containerStatuses", [])
-        )
-        for p in pods
-    }
-    return {"pod_uids": pod_uids, "restart_counts": restart_counts}
-
-
-def workload_pod_snapshot(kubectl, labels, namespace=UPGRADE_NAMESPACE):
-    label_parts = [f"{k}={v}" for k, v in labels.items()]
-    result = run(
-        [
-            kubectl,
-            "get",
-            "pods",
-            "-n",
-            namespace,
-            "-l",
-            ",".join(label_parts),
+            label_selector,
             "-o",
             "json",
         ],
@@ -329,6 +204,18 @@ def workload_pod_snapshot(kubectl, labels, namespace=UPGRADE_NAMESPACE):
     }
 
 
+def deployment_pod_snapshot(kubectl, deployment, namespace=NAMESPACE):
+    dep = get_resource(kubectl, "deployment", deployment, namespace=namespace)
+    if dep is None:
+        return {"pod_uids": [], "restart_counts": {}}
+    labels = dep.get("spec", {}).get("selector", {}).get("matchLabels", {})
+    return _pod_snapshot(kubectl, namespace, labels)
+
+
+def workload_pod_snapshot(kubectl, labels, namespace=UPGRADE_NAMESPACE):
+    return _pod_snapshot(kubectl, namespace, labels)
+
+
 def capture_kserve_baseline(kubectl):
     cr = get_cr(kubectl)
     return {
@@ -338,29 +225,17 @@ def capture_kserve_baseline(kubectl):
     }
 
 
-# KServe/LLMISVC reconcilers whose pods must survive a module-operator image roll.
-# odh-model-controller and model-serving-api are sibling components also deployed
-# by kserve-module but outside the ISVC/LLMISVC serving path under test here.
-OPERAND_POD_IDENTITY_DEPLOYMENTS_OCP = [
-    "kserve-controller-manager",
-    "llmisvc-controller-manager",
-]
-OPERAND_POD_IDENTITY_DEPLOYMENTS_XKS = [
-    "llmisvc-controller-manager",
-]
-
-
 def operand_pod_identity_deployments(is_openshift):
-    """Deployments whose pods must not be recreated during a module image roll."""
     if is_openshift:
         return OPERAND_POD_IDENTITY_DEPLOYMENTS_OCP
     return OPERAND_POD_IDENTITY_DEPLOYMENTS_XKS
 
 
 def capture_operand_baselines(kubectl, is_openshift):
-    baselines = {}
-    for dep in operand_pod_identity_deployments(is_openshift):
-        baselines[dep] = deployment_pod_snapshot(kubectl, dep, namespace=NAMESPACE)
+    baselines = {
+        dep: deployment_pod_snapshot(kubectl, dep, namespace=NAMESPACE)
+        for dep in operand_pod_identity_deployments(is_openshift)
+    }
     baselines[MODULE_CONTROLLER_DEPLOYMENT] = deployment_pod_snapshot(
         kubectl, MODULE_CONTROLLER_DEPLOYMENT, namespace=NAMESPACE
     )
@@ -446,19 +321,14 @@ def load_baseline(kubectl, namespace=UPGRADE_NAMESPACE):
             f"Baseline ConfigMap {BASELINE_CM_NAME} not found in {namespace}. "
             "Run pre-upgrade tests first."
         )
-    result = run(
-        [
-            kubectl,
-            "get",
-            "configmap",
-            BASELINE_CM_NAME,
-            "-n",
-            namespace,
-            "-o",
-            "jsonpath={.data.baseline}",
-        ]
+    baseline = get_jsonpath(
+        kubectl,
+        "configmap",
+        BASELINE_CM_NAME,
+        "{.data.baseline}",
+        namespace=namespace,
     )
-    return json.loads(result.stdout)
+    return json.loads(baseline)
 
 
 def assert_restart_counts_not_increased(baseline_counts, current_counts):
@@ -476,11 +346,6 @@ def assert_pod_uids_unchanged(baseline_uids, current_uids):
 
 
 def assert_operand_pods_not_recreated(baseline_uids, current_uids):
-    """Every running operand pod must be one that existed at baseline capture.
-
-    Uses subset semantics so a transient extra pod at baseline (e.g. during a
-    rolling update) does not fail the check.
-    """
     for uid in current_uids:
         assert uid in baseline_uids, (
             f"Operand pod was recreated: uid {uid} not in baseline. "
@@ -488,30 +353,18 @@ def assert_operand_pods_not_recreated(baseline_uids, current_uids):
         )
 
 
-def crd_available(kubectl, resource_type):
-    result = run([kubectl, "api-resources", "--no-headers"], check=False)
-    return resource_type in result.stdout
-
-
 def workloads_supported(kubectl, is_openshift):
     if not is_openshift:
         return False
-    return crd_available(kubectl, "inferenceservices") and crd_available(
-        kubectl, "llminferenceservices"
-    )
+    resources = run([kubectl, "api-resources", "--no-headers"], check=False).stdout
+    return "inferenceservices" in resources and "llminferenceservices" in resources
 
 
 def isvc_health_url(namespace=UPGRADE_NAMESPACE, name=ISVC_NAME):
-    return (
-        f"http://{name}-predictor.{namespace}.svc.cluster.local/v2/health/ready"
-    )
+    return f"http://{name}-predictor.{namespace}.svc.cluster.local/v2/health/ready"
 
 
 def start_background_probe(kubectl, namespace=UPGRADE_NAMESPACE):
-    """Deploy an in-cluster probe pod that polls workload endpoints until stopped.
-
-    Runs across the manual/CI upgrade gap between pre- and post-upgrade pytest phases.
-    """
     run(
         [kubectl, "delete", "pod", PROBE_POD_NAME, "-n", namespace, "--ignore-not-found"],
         check=False,
@@ -552,12 +405,10 @@ done
         },
     }
     run([kubectl, "apply", "-f", "-"], input_text=yaml.safe_dump(pod))
-    # Probe need not be Ready before upgrade starts; give it a moment to begin logging.
     time.sleep(5)
 
 
 def verify_background_probe(kubectl, namespace=UPGRADE_NAMESPACE):
-    """Assert the background probe saw no failed requests during the upgrade window."""
     result = run(
         [kubectl, "logs", PROBE_POD_NAME, "-n", namespace],
         check=False,
@@ -581,14 +432,4 @@ def verify_background_probe(kubectl, namespace=UPGRADE_NAMESPACE):
     assert not failures, (
         f"Background probe detected {len(failures)} failed request(s); "
         f"first failures: {failures[:5]}"
-    )
-
-
-def assert_deployment_available(kubectl, name, namespace=NAMESPACE):
-    """Assert deployment has at least one available replica."""
-    dep = get_resource(kubectl, "deployment", name, namespace=namespace)
-    assert dep is not None, f"deployment {name} not found"
-    available = dep.get("status", {}).get("availableReplicas", 0)
-    assert available >= 1, (
-        f"deployment {name} has availableReplicas={available}, expected >= 1"
     )

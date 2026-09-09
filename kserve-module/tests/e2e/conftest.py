@@ -270,7 +270,15 @@ def cr_exists(kubectl_bin, name=KSERVE_CR_NAME):
 
 def get_webhook_config(kubectl_bin, resource_type, name):
     """Fetch a cluster-scoped webhook config as a dict, or None if absent."""
-    result = run([kubectl_bin, "get", resource_type, name, "-o", "yaml"], check=False)
+    return get_resource(kubectl_bin, resource_type, name)
+
+
+def get_resource(kubectl_bin, resource_type, name, namespace=None):
+    """Fetch a resource as a dict, or None if absent."""
+    cmd = [kubectl_bin, "get", resource_type, name, "-o", "yaml"]
+    if namespace:
+        cmd.extend(["-n", namespace])
+    result = run(cmd, check=False)
     if result.returncode != 0:
         return None
     return yaml.safe_load(result.stdout)
