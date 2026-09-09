@@ -20,7 +20,7 @@ from upgrade.utils import (
     manifest_path,
     run,
     run_isvc_inference,
-    run_llmisvc_inference,
+    check_llmisvc_workloads_ready,
     save_baseline,
     start_background_probe,
     wait_for_isvc_ready,
@@ -42,7 +42,7 @@ def upgrade_workloads_enabled(cluster_info, kubectl):
 
 
 @pytest.fixture(scope="session")
-def upgrade_baseline(pytestconfig, kubectl, cluster_info, upgrade_workloads_enabled):
+def upgrade_baseline(pytestconfig, kubectl):
     """Load baseline ConfigMap during post-upgrade runs."""
     if not is_post_upgrade(pytestconfig):
         return {}
@@ -89,7 +89,7 @@ def capture_upgrade_baseline(
     llmisvc_hash = None
     if upgrade_workloads_enabled:
         isvc_hash = run_isvc_inference(kubectl, namespace=upgrade_namespace)
-        llmisvc_hash = run_llmisvc_inference(kubectl, namespace=upgrade_namespace)
+        llmisvc_hash = check_llmisvc_workloads_ready(kubectl, namespace=upgrade_namespace)
 
     baseline = build_baseline(
         kubectl,

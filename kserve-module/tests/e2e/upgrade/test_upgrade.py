@@ -21,12 +21,13 @@ from upgrade.utils import (
     capture_kserve_baseline,
     capture_llmisvc_baseline,
     capture_operand_baselines,
+    deployment_pod_snapshot,
     get_cr,
     is_cr_ready,
     operand_deployments,
     operand_pod_identity_deployments,
     run_isvc_inference,
-    run_llmisvc_inference,
+    check_llmisvc_workloads_ready,
     verify_background_probe,
     wait_for_deployment,
 )
@@ -53,8 +54,8 @@ class TestPreUpgrade:
 
     @pytest.mark.pre_upgrade
     @pytest.mark.ocp_only
-    def test_llmisvc_inference(self, kubectl, upgrade_namespace, deploy_upgrade_workloads):
-        run_llmisvc_inference(kubectl, namespace=upgrade_namespace, name=LLMISVC_NAME)
+    def test_llmisvc_workloads_ready(self, kubectl, upgrade_namespace, deploy_upgrade_workloads):
+        check_llmisvc_workloads_ready(kubectl, namespace=upgrade_namespace, name=LLMISVC_NAME)
 
 
 class TestPostUpgrade:
@@ -102,9 +103,17 @@ class TestPostUpgrade:
             )
 
     @pytest.mark.post_upgrade
-    def test_module_controller_available(self, kubectl):
+    def test_module_controller_available(self, kubectl, upgrade_baseline):
         """Module controller must be Available after the image roll (pod may be new)."""
         wait_for_deployment(kubectl, MODULE_CONTROLLER_DEPLOYMENT)
+        baseline = upgrade_baseline.get("operands", {}).get(MODULE_CONTROLLER_DEPLOYMENT)
+        if not baseline:
+            return
+        current = deployment_pod_snapshot(kubectl, MODULE_CONTROLLER_DEPLOYMENT)
+        # Image roll may replace the pod; only check restart counts for pods that survived.
+        assert_restart_counts_not_increased(
+            baseline["restart_counts"], current["restart_counts"]
+        )
 
     @pytest.mark.post_upgrade
     @pytest.mark.ocp_only
@@ -142,10 +151,10 @@ class TestPostUpgrade:
 
     @pytest.mark.post_upgrade
     @pytest.mark.ocp_only
-    def test_llmisvc_inference_after_upgrade(
+    def test_llmisvc_workloads_ready_after_upgrade(
         self, kubectl, upgrade_namespace, upgrade_baseline
     ):
-        current_hash = run_llmisvc_inference(
+        current_hash = check_llmisvc_workloads_ready(
             kubectl, namespace=upgrade_namespace, name=LLMISVC_NAME
         )
         assert (
@@ -176,7 +185,7 @@ class TestPostUpgradeNewWorkloads:
 
     @pytest.mark.post_upgrade
     @pytest.mark.ocp_only
-    def test_new_llmisvc_inference(self, kubectl, upgrade_namespace, new_llmisvc_deployed):
-        run_llmisvc_inference(
+    def test_new_llmisvc_workloads_ready(self, kubectl, upgrade_namespace, new_llmisvc_deployed):
+        check_llmisvc_workloads_ready(
             kubectl, namespace=upgrade_namespace, name=new_llmisvc_deployed
         )

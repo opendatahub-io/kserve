@@ -17,7 +17,9 @@ What this suite owns:
 Out of scope here (operand-level concerns, not the module's orchestration
 contract):
 
-- Model serving end to end and endpoint reachability
+- Model serving end to end and endpoint reachability (exception: the
+  [module upgrade e2e](#module-upgrade-e2e-rhoaieng-82811) validates minimal
+  workload health on OCP during a module image roll)
 - **Webhook functional behavior**: whether a webhook actually rejects an invalid
   InferenceService or applies defaults. This suite checks only that the webhooks
   are registered and wired, not what they do.
@@ -94,14 +96,23 @@ build N (main) + N+1 (PR) → install N → pre_upgrade → e2e-roll N+1 → pos
 On xks, ISVC/LLMISVC serving tests are skipped (`ocp_only`); operand pod identity
 and Kserve Ready are still checked.
 
-### OpenShift dev cluster (platform-managed)
+### OpenShift dev cluster (platform-managed / DSC)
 
-Do not run `e2e-setup-kserve-module` on DSC-owned clusters. Roll only the module
-controller image:
+Do not run `e2e-setup-kserve-module` on DSC-owned clusters. Roll the module
+controller image via the ODH subscription env override (DSC reconciles the
+deployment; `oc set image` alone will be reverted):
 
 ```bash
-oc set image deployment/kserve-module-controller-manager \
-  manager=quay.io/<org>/kserve-module-controller:<tag> -n opendatahub
+export IMG=quay.io/<org>/kserve-module-controller:<tag>
+
+oc patch subscription opendatahub-operator -n openshift-operators --type=merge -p "{
+  \"spec\": {\"config\": {\"env\": [{
+    \"name\": \"RELATED_IMAGE_ODH_KSERVE_MODULE_OPERATOR_IMAGE\",
+    \"value\": \"${IMG}\"
+  }]}}
+}"
+
+oc rollout status deployment/kserve-module-controller-manager -n opendatahub --timeout=300s
 ```
 
 Baseline ConfigMap: `km-upgrade-baseline` in namespace `km-upgrade-e2e`.

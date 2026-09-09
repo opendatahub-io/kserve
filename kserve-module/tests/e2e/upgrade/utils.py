@@ -10,6 +10,8 @@ import yaml
 
 
 def _load_e2e_conftest():
+    # upgrade/ has its own conftest.py, so `import conftest` would load that
+    # package and create a circular import. Load the parent e2e conftest by path.
     path = Path(__file__).resolve().parent.parent / "conftest.py"
     spec = importlib.util.spec_from_file_location("_e2e_conftest", path)
     module = importlib.util.module_from_spec(spec)
@@ -45,13 +47,10 @@ LLMISVC_NAME = "facebook-opt-125m-single"
 NEW_ISVC_NAME = "sklearn-iris-post-upgrade"
 NEW_LLMISVC_NAME = "facebook-opt-125m-post-upgrade"
 
-OPERAND_POD_IDENTITY_DEPLOYMENTS_OCP = [
-    "kserve-controller-manager",
-    "llmisvc-controller-manager",
-]
-OPERAND_POD_IDENTITY_DEPLOYMENTS_XKS = [
-    "llmisvc-controller-manager",
-]
+# Operand reconcilers that must keep the same pod identity across a module image roll.
+OPERAND_POD_IDENTITY_NAMES = frozenset(
+    {"kserve-controller-manager", "llmisvc-controller-manager"}
+)
 
 
 def is_post_upgrade(pytestconfig):
@@ -114,7 +113,7 @@ def wait_for_llmisvc_ready(
     wait_for(_ready, timeout=timeout, interval=15)
 
 
-def _exec_curl(kubectl, namespace, resource, container, url, method="GET", data=None):
+def _exec_curl(kubectl, namespace, resource, container, url):
     cmd = [
         kubectl,
         "exec",
@@ -130,14 +129,10 @@ def _exec_curl(kubectl, namespace, resource, container, url, method="GET", data=
         "10",
         "--max-time",
         "60",
-        "-X",
-        method,
         "-w",
         "\n%{http_code}",
+        url,
     ]
-    if data is not None:
-        cmd.extend(["-H", "Content-Type: application/json", "-d", data])
-    cmd.append(url)
     result = run(cmd, timeout=120)
     lines = result.stdout.rsplit("\n", 1)
     body = lines[0] if len(lines) == 2 else result.stdout
@@ -158,7 +153,8 @@ def run_isvc_inference(kubectl, namespace=UPGRADE_NAMESPACE, name=ISVC_NAME):
     return hashlib.sha256(body.encode()).hexdigest()
 
 
-def run_llmisvc_inference(kubectl, namespace=UPGRADE_NAMESPACE, name=LLMISVC_NAME):
+def check_llmisvc_workloads_ready(kubectl, namespace=UPGRADE_NAMESPACE, name=LLMISVC_NAME):
+    """Return a stable hash of the WorkloadsReady condition (readiness, not inference)."""
     condition = get_jsonpath(
         kubectl,
         "llminferenceservice",
@@ -226,9 +222,7 @@ def capture_kserve_baseline(kubectl):
 
 
 def operand_pod_identity_deployments(is_openshift):
-    if is_openshift:
-        return OPERAND_POD_IDENTITY_DEPLOYMENTS_OCP
-    return OPERAND_POD_IDENTITY_DEPLOYMENTS_XKS
+    return [d for d in operand_deployments(is_openshift) if d in OPERAND_POD_IDENTITY_NAMES]
 
 
 def capture_operand_baselines(kubectl, is_openshift):
@@ -405,7 +399,14 @@ done
         },
     }
     run([kubectl, "apply", "-f", "-"], input_text=yaml.safe_dump(pod))
-    time.sleep(5)
+
+    def _probe_running():
+        phase = get_jsonpath(
+            kubectl, "pod", PROBE_POD_NAME, "{.status.phase}", namespace=namespace
+        )
+        assert phase == "Running"
+
+    wait_for(_probe_running, timeout=60, interval=2)
 
 
 def verify_background_probe(kubectl, namespace=UPGRADE_NAMESPACE):
