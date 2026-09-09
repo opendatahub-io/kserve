@@ -103,19 +103,70 @@ func (r *KserveModuleReconciler) listWellKnownLLMISVCConfigs(ctx context.Context
 func referencedConfigBlockers(configs []unstructured.Unstructured) []string {
 	var blockers []string
 	for i := range configs {
-		refs, err := referencedByNames(&configs[i])
+		blocker, err := configDeletionBlocker(&configs[i])
 		if err != nil {
-			// Fail safe: an unreadable status.referencedBy could be hiding a live
-			// reference, so block deletion rather than delete a possibly in-use config.
-			blockers = append(blockers, fmt.Sprintf("%s (status.referencedBy unreadable: %v)", configs[i].GetName(), err))
+			blockers = append(blockers, fmt.Sprintf("%s (status unreadable: %v)", configs[i].GetName(), err))
 			continue
 		}
-		if len(refs) > 0 {
-			blockers = append(blockers, fmt.Sprintf("%s (referenced by %s)", configs[i].GetName(), strings.Join(refs, ", ")))
+		if blocker != "" {
+			blockers = append(blockers, fmt.Sprintf("%s (%s)", configs[i].GetName(), blocker))
 		}
 	}
 	sort.Strings(blockers)
 	return blockers
+}
+
+// configDeletionBlocker reports why cfg cannot safely be deleted. A config is
+// eligible only after the llmisvc controller has observed its current generation
+// and explicitly marked ConfigInUse=False.
+func configDeletionBlocker(cfg *unstructured.Unstructured) (string, error) {
+	observedGeneration, found, err := unstructured.NestedInt64(cfg.Object, "status", "observedGeneration")
+	if err != nil {
+		return "", err
+	}
+	if !found || observedGeneration != cfg.GetGeneration() {
+		return "waiting for llmisvc controller to observe the current generation", nil
+	}
+
+	conditions, found, err := unstructured.NestedSlice(cfg.Object, "status", "conditions")
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "waiting for ConfigInUse condition", nil
+	}
+
+	for _, condition := range conditions {
+		conditionMap, ok := condition.(map[string]any)
+		if !ok {
+			return "", fmt.Errorf("ConfigInUse condition has invalid type %T", condition)
+		}
+		conditionType, _ := conditionMap["type"].(string)
+		if conditionType != "ConfigInUse" {
+			continue
+		}
+		status, ok := conditionMap["status"].(string)
+		if !ok {
+			return "", fmt.Errorf("ConfigInUse condition has invalid status")
+		}
+		switch status {
+		case "False":
+			return "", nil
+		case "True":
+			refs, err := referencedByNames(cfg)
+			if err != nil {
+				return "", err
+			}
+			if len(refs) == 0 {
+				return "ConfigInUse=True", nil
+			}
+			return fmt.Sprintf("referenced by %s", strings.Join(refs, ", ")), nil
+		default:
+			return fmt.Sprintf("ConfigInUse=%s", status), nil
+		}
+	}
+
+	return "waiting for ConfigInUse condition", nil
 }
 
 func referencedByNames(cfg *unstructured.Unstructured) ([]string, error) {

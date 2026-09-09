@@ -59,26 +59,52 @@ func TestReferencedByNames(t *testing.T) {
 func TestReferencedConfigBlockers(t *testing.T) {
 	g := NewWithT(t)
 
-	config := func(name string, refs ...map[string]any) unstructured.Unstructured {
+	config := func(name string, generation, observedGeneration int64, configInUse string, refs ...map[string]any) unstructured.Unstructured {
 		cfg := unstructured.Unstructured{Object: map[string]any{}}
 		cfg.SetName(name)
-		if refs != nil {
-			list := make([]any, len(refs))
-			for i := range refs {
-				list[i] = refs[i]
-			}
-			_ = unstructured.SetNestedSlice(cfg.Object, list, "status", "referencedBy")
+		cfg.SetGeneration(generation)
+		status := map[string]any{
+			"observedGeneration": observedGeneration,
+			"conditions": []any{
+				map[string]any{"type": "ConfigInUse", "status": configInUse},
+			},
 		}
+		if refs != nil {
+			references := make([]any, len(refs))
+			for i := range refs {
+				references[i] = refs[i]
+			}
+			status["referencedBy"] = references
+		}
+		cfg.Object["status"] = status
 		return cfg
 	}
 
 	configs := []unstructured.Unstructured{
-		config("cfg-unused"),
-		config("cfg-used", map[string]any{"name": "svc1", "namespace": "ns1"}),
+		config("cfg-unused", 3, 3, "False"),
+		config("cfg-used", 3, 3, "True", map[string]any{"name": "svc1", "namespace": "ns1"}),
+		config("cfg-pending", 3, 0, "False"),
+		config("cfg-unobserved", 3, 3, "Unknown"),
 	}
 
 	blockers := referencedConfigBlockers(configs)
-	g.Expect(blockers).To(ConsistOf("cfg-used (referenced by ns1/svc1)"))
+	g.Expect(blockers).To(ConsistOf(
+		"cfg-used (referenced by ns1/svc1)",
+		"cfg-pending (waiting for llmisvc controller to observe the current generation)",
+		"cfg-unobserved (ConfigInUse=Unknown)",
+	))
+}
+
+func TestConfigDeletionBlocker(t *testing.T) {
+	g := NewWithT(t)
+	cfg := &unstructured.Unstructured{Object: map[string]any{
+		"status": map[string]any{"observedGeneration": int64(2)},
+	}}
+	cfg.SetGeneration(2)
+
+	blocker, err := configDeletionBlocker(cfg)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(blocker).To(Equal("waiting for ConfigInUse condition"))
 }
 
 func TestDeleteConfigDeletionWebhook(t *testing.T) {
