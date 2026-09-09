@@ -148,7 +148,8 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 		// Check whether config deletion is blocked before running any destructive
 		// cleanup, so a blocked deletion does not tear down still-running operands.
-		outcome, err := r.cleanupLLMISVCConfigsOnDelete(ctx)
+		ns := r.getApplicationsNamespace()
+		outcome, err := r.cleanupLLMISVCConfigsOnDelete(ctx, ns)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("cleaning up LLMInferenceServiceConfigs: %w", err)
 		}

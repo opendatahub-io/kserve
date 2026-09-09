@@ -248,7 +248,7 @@ func TestConfigDeletionWebhookDeleteRule(t *testing.T) {
 			failRestore = false
 			// A new reconciler has no in-memory recovery state.
 			restarted := &KserveModuleReconciler{Client: cli}
-			outcome, err := restarted.cleanupLLMISVCConfigsOnDelete(context.Background())
+			outcome, err := restarted.cleanupLLMISVCConfigsOnDelete(context.Background(), "test")
 			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(outcome.done).To(Equal(!terminating))
 			g.Expect(restoreAttempts).To(Equal(2))

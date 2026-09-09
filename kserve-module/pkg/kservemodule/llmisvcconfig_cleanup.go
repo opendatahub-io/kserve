@@ -53,13 +53,11 @@ type configCleanupOutcome struct {
 // (failurePolicy=Fail). Once no config is referenced, DELETE admission is
 // temporarily disabled only for the v1alpha2 config rule while the delete
 // requests are accepted, then restored before waiting for finalizers.
-func (r *KserveModuleReconciler) cleanupLLMISVCConfigsOnDelete(ctx context.Context) (configCleanupOutcome, error) {
+func (r *KserveModuleReconciler) cleanupLLMISVCConfigsOnDelete(ctx context.Context, ns string) (configCleanupOutcome, error) {
 	// Recover an interrupted pass before any early return, including no configs.
 	if err := r.restoreConfigDeletionWebhookDelete(ctx, configDeletionWebhookPatch{}); err != nil {
 		return configCleanupOutcome{}, err
 	}
-	ns := r.getApplicationsNamespace()
-
 	configs, err := r.listWellKnownLLMISVCConfigs(ctx, ns)
 	if err != nil {
 		return configCleanupOutcome{}, err
