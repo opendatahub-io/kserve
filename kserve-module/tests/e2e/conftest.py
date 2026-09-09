@@ -353,7 +353,10 @@ def force_delete_kserve_cr(kubectl_bin, is_openshift=False):
         finalizers = cr.get("metadata", {}).get("finalizers", []) or []
         if MODULE_FINALIZER in finalizers:
             remaining = [f for f in finalizers if f != MODULE_FINALIZER]
-            patch = json.dumps([{"op": "replace", "path": "/metadata/finalizers", "value": remaining}])
+            patch = json.dumps([
+                {"op": "test", "path": "/metadata/finalizers", "value": finalizers},
+                {"op": "replace", "path": "/metadata/finalizers", "value": remaining},
+            ])
             run(
                 [kubectl_bin, "patch", "kserve", KSERVE_CR_NAME, "--type=json", "-p", patch],
                 check=False,
