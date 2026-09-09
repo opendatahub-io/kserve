@@ -60,17 +60,57 @@ make e2e-cleanup-kserve-module
 ## Test Markers
 
 - `sanity` - core lifecycle tests (create, update, delete, CEL validation)
+- `pre_upgrade` / `post_upgrade` - module image upgrade tests (RHOAIENG-82811)
 
 Run specific markers:
 
 ```bash
 make e2e-kserve-module
+make e2e-kserve-module PYTEST_ARGS='-m pre_upgrade --pre-upgrade'
+make e2e-kserve-module PYTEST_ARGS='-m post_upgrade --post-upgrade'
 ```
+
+## Module upgrade e2e (RHOAIENG-82811)
+
+Validates that rolling the **kserve-module controller image** (N → N+1 via
+`deploy-kserve-module` / SSA manifest re-apply) does not disturb operand CRs or
+running services.
+
+| Ticket | Implementation |
+| --- | --- |
+| N = main, N+1 = PR | CI builds `e2e-base` from base SHA + `e2e` from PR HEAD |
+| Part A: no disruption | Pre: deploy ISVC/LLMISVC, start background ISVC health probe, capture baseline. Post: probe clean, operand pods unchanged, controllers Available, Kserve Ready |
+| Part B: new workloads | Post: create fresh ISVC + LLMISVC, verify Ready and serve |
+| CI two images | `.github/workflows/e2e-test-kserve-module.yml` |
+
+Tests live in `kserve-module/tests/e2e/upgrade/test_upgrade.py`.
+
+### CI flow (xks)
+
+```text
+build N (main) + N+1 (PR) → install N → pre_upgrade → e2e-roll N+1 → post_upgrade → sanity
+```
+
+On xks, ISVC/LLMISVC serving tests are skipped (`ocp_only`); operand pod identity
+and Kserve Ready are still checked.
+
+### OpenShift dev cluster (platform-managed)
+
+Do not run `e2e-setup-kserve-module` on DSC-owned clusters. Roll only the module
+controller image:
+
+```bash
+oc set image deployment/kserve-module-controller-manager \
+  manager=quay.io/<org>/kserve-module-controller:<tag> -n opendatahub
+```
+
+Baseline ConfigMap: `km-upgrade-baseline` in namespace `km-upgrade-e2e`.
 
 ## Make Targets
 
 | Target | Description |
 |--------|-------------|
-| `e2e-setup-kserve-module` | Install dependencies and deploy controller |
-| `e2e-kserve-module` | Run E2E tests |
+| `e2e-setup-kserve-module` | Install dependencies and deploy controller (image N) |
+| `e2e-roll-kserve-module` | Re-deploy controller image only (upgrade to N+1) |
+| `e2e-kserve-module` | Run E2E tests (`PYTEST_ARGS` for upgrade phases) |
 | `e2e-cleanup-kserve-module` | Uninstall controller and dependencies |

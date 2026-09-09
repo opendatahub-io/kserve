@@ -14,6 +14,15 @@ on:
 permissions: {}
 
 jobs:
+  build-image-base:
+    uses: ./.github/workflows/build-kserve-module-image.yml
+    with:
+      image-name: kserve-module-controller-base
+      image-tag: e2e-base
+      ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+    permissions:
+      contents: read
+
   build-image:
     uses: ./.github/workflows/build-kserve-module-image.yml
     with:
@@ -23,12 +32,14 @@ jobs:
       contents: read
 
   e2e-test:
-    needs: build-image
+    needs: [build-image-base, build-image]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     timeout-minutes: 60
     env:
+      BASE_IMG_NAME: ${{ needs.build-image-base.outputs.image-name }}
+      BASE_IMG_TAG: ${{ needs.build-image-base.outputs.image-tag }}
       IMG_NAME: ${{ needs.build-image.outputs.image-name }}
       IMG_TAG: ${{ needs.build-image.outputs.image-tag }}
     steps:
@@ -39,15 +50,23 @@ jobs:
       - name: Setup Minikube
         uses: ./.github/actions/minikube-setup
 
-      - name: Download controller image
+      - name: Download base controller image (N = main)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ env.BASE_IMG_NAME }}
+          path: /tmp/base
+
+      - name: Download PR controller image (N+1)
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ env.IMG_NAME }}
-          path: /tmp
+          path: /tmp/next
 
-      - name: Load controller image
+      - name: Load controller images
         run: |
-          docker image load -i /tmp/${{ env.IMG_NAME }}.tar
+          docker image load -i /tmp/base/${{ env.BASE_IMG_NAME }}.tar
+          docker image load -i /tmp/next/${{ env.IMG_NAME }}.tar
+          minikube image load ${{ env.BASE_IMG_NAME }}:${{ env.BASE_IMG_TAG }}
           minikube image load ${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
 
       - name: Setup Python
@@ -58,11 +77,20 @@ jobs:
       - name: Install test dependencies
         run: pip install pytest pyyaml
 
-      - name: Setup cluster and deploy controller
-        run: make e2e-setup-kserve-module PLATFORM=xks E2E_IMG=${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
+      - name: Setup cluster with base (N) controller image
+        run: make e2e-setup-kserve-module PLATFORM=xks E2E_IMG=${{ env.BASE_IMG_NAME }}:${{ env.BASE_IMG_TAG }}
 
-      - name: Run E2E tests
-        run: make e2e-kserve-module
+      - name: Run pre-upgrade tests (Part A setup)
+        run: make e2e-kserve-module PYTEST_ARGS='-m pre_upgrade --pre-upgrade'
+
+      - name: Roll module controller to N+1 image
+        run: make e2e-roll-kserve-module PLATFORM=xks E2E_IMG=${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
+
+      - name: Run post-upgrade tests (Part A + Part B)
+        run: make e2e-kserve-module PYTEST_ARGS='-m post_upgrade --post-upgrade'
+
+      - name: Run non-upgrade E2E tests
+        run: make e2e-kserve-module PYTEST_ARGS='-m "not pre_upgrade and not post_upgrade"'
 
       - name: Collect debug logs
         if: failure()
@@ -71,6 +99,10 @@ jobs:
           kubectl logs deployment/kserve-module-controller-manager -n opendatahub --tail=200 || true
           echo "=== Kserve CR ==="
           kubectl get kserve -A -o yaml || true
+          echo "=== Upgrade baseline ==="
+          kubectl get configmap km-upgrade-baseline -n km-upgrade-e2e -o yaml || true
+          echo "=== Upgrade probe ==="
+          kubectl logs km-upgrade-probe -n km-upgrade-e2e --tail=50 || true
           echo "=== Pods ==="
           kubectl get pods -n opendatahub || true
           echo "=== Events ==="

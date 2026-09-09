@@ -116,12 +116,60 @@ def _detect_openshift():
 # ---------------------------------------------------------------------------
 # Pytest hooks
 # ---------------------------------------------------------------------------
-def pytest_collection_modifyitems(config, items):
-    """Skip @pytest.mark.ocp_only tests on non-OpenShift clusters.
+def pytest_addoption(parser):
+    """Add upgrade phase flags matching opendatahub-tests upgrade suite."""
+    group = parser.getgroup("upgrade")
+    group.addoption(
+        "--pre-upgrade",
+        action="store_true",
+        default=False,
+        help="Run only @pytest.mark.pre_upgrade tests",
+    )
+    group.addoption(
+        "--post-upgrade",
+        action="store_true",
+        default=False,
+        help="Run only @pytest.mark.post_upgrade tests",
+    )
 
-    Runs at collection time — before any fixture setup — so expensive
-    fixtures like apply_kserve_cr never execute on vanilla-k8s clusters.
-    """
+
+def pytest_configure(config):
+    """Track whether any pre-upgrade test failed (skip baseline capture)."""
+    config._pre_upgrade_test_failed = False  # type: ignore[attr-defined]
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Record pre-upgrade failures so baseline capture can be skipped."""
+    outcome = yield
+    report = outcome.get_result()
+    if call.when == "call" and report.failed and "pre_upgrade" in item.keywords:
+        item.config._pre_upgrade_test_failed = True  # type: ignore[attr-defined]
+
+
+def pytest_collection_modifyitems(config, items):
+    """Filter upgrade tests by phase and skip OCP-only tests on vanilla k8s."""
+    pre_upgrade = config.getoption("--pre-upgrade")
+    post_upgrade = config.getoption("--post-upgrade")
+    if pre_upgrade and post_upgrade:
+        raise pytest.UsageError("Use only one of --pre-upgrade or --post-upgrade")
+
+    if pre_upgrade or post_upgrade:
+        phase_marker = "pre_upgrade" if pre_upgrade else "post_upgrade"
+        skip_other = pytest.mark.skip(
+            reason=f"Not selected for --{phase_marker.replace('_', '-')}"
+        )
+        for item in items:
+            if phase_marker not in item.keywords:
+                item.add_marker(skip_other)
+    else:
+        skip_upgrade = pytest.mark.skip(
+            reason="Upgrade test (use --pre-upgrade or --post-upgrade)"
+        )
+        for item in items:
+            if "pre_upgrade" in item.keywords or "post_upgrade" in item.keywords:
+                item.add_marker(skip_upgrade)
+
     is_ocp, _ = _detect_openshift()
     if is_ocp:
         return
