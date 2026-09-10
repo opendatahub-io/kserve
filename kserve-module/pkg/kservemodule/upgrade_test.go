@@ -1303,6 +1303,65 @@ func TestDeleteLegacyLLMInferenceWebhooks(t *testing.T) {
 	})
 }
 
+// ─── webhookServiceExists error handling (RHOAIENG-94187) ───────────────────
+
+func TestWebhookServiceExists(t *testing.T) {
+	ctx := context.Background()
+	const namespace = "test-namespace"
+
+	t.Run("ServiceExists", func(t *testing.T) {
+		g := NewWithT(t)
+
+		svc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      llmisvcWebhookServiceName,
+				Namespace: namespace,
+			},
+		}
+		cli := makeISVCFakeClient(svc)
+		r := &KserveModuleReconciler{Client: cli, applicationsNamespace: namespace}
+
+		exists, err := r.webhookServiceExists(ctx)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(exists).To(BeTrue())
+	})
+
+	t.Run("ServiceNotFound", func(t *testing.T) {
+		g := NewWithT(t)
+
+		cli := makeISVCFakeClient()
+		r := &KserveModuleReconciler{Client: cli, applicationsNamespace: namespace}
+
+		exists, err := r.webhookServiceExists(ctx)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(exists).To(BeFalse())
+	})
+
+	t.Run("NonNotFoundErrorPropagated", func(t *testing.T) {
+		g := NewWithT(t)
+
+		funcs := interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if key.Name == llmisvcWebhookServiceName {
+					return k8serr.NewForbidden(schema.GroupResource{Resource: "services"}, llmisvcWebhookServiceName, errors.New("forbidden"))
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}
+		cli := fake.NewClientBuilder().
+			WithScheme(makeUpgradeTestScheme()).
+			WithRESTMapper(makeUpgradeTestRESTMapper()).
+			WithInterceptorFuncs(funcs).
+			Build()
+		r := &KserveModuleReconciler{Client: cli, applicationsNamespace: namespace}
+
+		exists, err := r.webhookServiceExists(ctx)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("forbidden"))
+		g.Expect(exists).To(BeFalse())
+	})
+}
+
 // ─── CRD Conversion Webhook Stripping (RHOAIENG-94187) ─────────────────────
 
 func makeCRDWithConversionWebhook(name, serviceName string) unstructured.Unstructured {

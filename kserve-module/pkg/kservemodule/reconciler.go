@@ -14,6 +14,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -509,7 +510,11 @@ func (r *KserveModuleReconciler) installCRDs(ctx context.Context, kserve *platfo
 	// avoid a deadlock where the API server cannot process resources because the
 	// conversion webhook endpoint is unavailable (RHOAIENG-94187). The webhook
 	// config is applied after component reconciliation creates the service.
-	if !r.webhookServiceExists(ctx) {
+	serviceExists, err := r.webhookServiceExists(ctx)
+	if err != nil {
+		return fmt.Errorf("checking llmisvc webhook Service: %w", err)
+	}
+	if !serviceExists {
 		if stripCRDConversionWebhooks(resources) {
 			r.crdWebhooksPending = true
 			log.Info("deferred CRD conversion webhook config (webhook service not yet available)")
@@ -527,14 +532,22 @@ func (r *KserveModuleReconciler) installCRDs(ctx context.Context, kserve *platfo
 }
 
 // webhookServiceExists checks whether the llmisvc webhook Service exists in
-// the applications namespace.
-func (r *KserveModuleReconciler) webhookServiceExists(ctx context.Context) bool {
+// the applications namespace. Only NotFound is treated as absence; other
+// errors are propagated so transient failures don't silently strip webhook
+// config from CRDs.
+func (r *KserveModuleReconciler) webhookServiceExists(ctx context.Context) (bool, error) {
 	svc := &corev1.Service{}
 	err := r.Get(ctx, types.NamespacedName{
 		Name:      llmisvcWebhookServiceName,
 		Namespace: r.getApplicationsNamespace(),
 	}, svc)
-	return err == nil
+	if err == nil {
+		return true, nil
+	}
+	if k8serr.IsNotFound(err) {
+		return false, nil
+	}
+	return false, fmt.Errorf("getting llmisvc webhook Service: %w", err)
 }
 
 // stripCRDConversionWebhooks removes spec.conversion from CRD resources that
