@@ -63,6 +63,7 @@ make e2e-cleanup-kserve-module
 
 - `sanity` - core lifecycle tests (create, update, delete, CEL validation)
 - `pre_upgrade` / `post_upgrade` - module image upgrade tests (RHOAIENG-82811)
+- `post_release` - post-ODH-release smoke (OMC Running, KServeReady, one LLMISVC Ready)
 
 Run specific markers:
 
@@ -70,6 +71,7 @@ Run specific markers:
 make e2e-kserve-module
 make e2e-kserve-module PYTEST_ARGS='-m pre_upgrade --pre-upgrade'
 make e2e-kserve-module PYTEST_ARGS='-m post_upgrade --post-upgrade'
+PLATFORM=ocp make e2e-kserve-module-post-release
 ```
 
 ## Module upgrade e2e (RHOAIENG-82811)
@@ -117,11 +119,36 @@ oc rollout status deployment/kserve-module-controller-manager -n opendatahub --t
 
 Baseline ConfigMap: `km-upgrade-baseline` in namespace `km-upgrade-e2e`.
 
+## Post-Release Validation
+
+After cutting an ODH release tag (e.g. `odh-v3.5`), validate a **fresh OpenShift
+install**: odh-model-controller Running, KServeReady=True, then one
+LLMInferenceService reaches Ready=True.
+
+`odh-model-controller` and the LLMISVC smoke are OpenShift-only (`ocp_only`).
+Minikube/`xks` skips them. Same cluster convention as Prow `e2e-kserve-module`
+and Konflux group testing (`PLATFORM=ocp`):
+
+```bash
+export RELEASE_TAG=odh-v3.5
+make e2e-setup-kserve-module \
+  PLATFORM=ocp \
+  E2E_IMG=quay.io/opendatahub/odh-kserve-module-operator:${RELEASE_TAG}
+make e2e-kserve-module-post-release
+```
+
+CI: run from [odh-model-controller](https://github.com/opendatahub-io/odh-model-controller)
+via `.github/workflows/post-release-smoke.yaml` (`workflow_dispatch`). It checks
+out this repo at the release tag, uses `PLATFORM=ocp`, and runs the make targets
+above. GitHub-hosted runners cannot provision OpenShift; the workflow expects an
+existing OpenShift kubeconfig on the runner.
+
 ## Make Targets
 
 | Target | Description |
 |--------|-------------|
 | `e2e-setup-kserve-module` | Install dependencies and deploy controller (image N) |
 | `e2e-roll-kserve-module` | Re-deploy controller image only (upgrade to N+1) |
-| `e2e-kserve-module` | Run E2E tests (upgrade tests skipped unless `PYTEST_ARGS` sets `--pre-upgrade` / `--post-upgrade`) |
+| `e2e-kserve-module` | Run E2E tests (`-m "not post_release"`; upgrade tests skipped unless `PYTEST_ARGS` sets `--pre-upgrade` / `--post-upgrade`) |
+| `e2e-kserve-module-post-release` | Run post-release validation (`-m post_release`) |
 | `e2e-cleanup-kserve-module` | Uninstall controller and dependencies |
