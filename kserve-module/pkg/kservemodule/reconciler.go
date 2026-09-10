@@ -128,6 +128,12 @@ type KserveModuleReconciler struct {
 	dynamicWatches []*dynamicWatch
 	dynamicWatchMu sync.Mutex
 
+	// crdWebhooksPending is true when CRDs were installed without conversion
+	// webhook config because the webhook service did not exist yet. Once
+	// component reconciliation creates the service, the webhooks are applied
+	// and this flag is cleared.
+	crdWebhooksPending bool
+
 	// expectedPresets holds the preset names from the most recent render, written
 	// by reconcile and read by updateComponentReadiness later in the same call.
 	expectedPresets []string
@@ -281,6 +287,16 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 	}
 
 	log.Info("deployed all resources", "owned", len(owned), "unowned", len(unowned))
+
+	// After all component resources (including webhook services) are deployed,
+	// apply deferred CRD conversion webhook configuration (RHOAIENG-94187).
+	if r.crdWebhooksPending {
+		if err := r.applyCRDConversionWebhooks(ctx, kserve); err != nil {
+			return map[string]error{"crd-webhooks": fmt.Errorf("applying deferred CRD conversion webhooks: %w", err)}
+		}
+		r.crdWebhooksPending = false
+		log.Info("applied deferred CRD conversion webhook config")
+	}
 
 	return nil
 }
@@ -481,10 +497,23 @@ func (r *KserveModuleReconciler) SetWorkDir(dir string) {
 }
 
 func (r *KserveModuleReconciler) installCRDs(ctx context.Context, kserve *platformv1alpha1.Kserve) error {
+	log := ctrl.LoggerFrom(ctx)
 	crdPath := filepath.Join(r.ManifestsTemplatePath, KserveComponentName, KserveCRDManifestSourcePath)
 	resources, err := kustomize.Render(crdPath, nil, kustomize.WithNamespace(r.getApplicationsNamespace()))
 	if err != nil {
 		return fmt.Errorf("rendering CRD manifests: %w", err)
+	}
+
+	// During upgrade or fresh install, the webhook service referenced by CRD
+	// conversion configs may not exist yet. Strip conversion webhook config to
+	// avoid a deadlock where the API server cannot process resources because the
+	// conversion webhook endpoint is unavailable (RHOAIENG-94187). The webhook
+	// config is applied after component reconciliation creates the service.
+	if !r.webhookServiceExists(ctx) {
+		if stripCRDConversionWebhooks(resources) {
+			r.crdWebhooksPending = true
+			log.Info("deferred CRD conversion webhook config (webhook service not yet available)")
+		}
 	}
 
 	if err := r.Deployer.Deploy(ctx, deploy.DeployInput{
@@ -493,6 +522,57 @@ func (r *KserveModuleReconciler) installCRDs(ctx context.Context, kserve *platfo
 		Resources: resources,
 	}); err != nil {
 		return fmt.Errorf("applying CRDs: %w", err)
+	}
+	return nil
+}
+
+// webhookServiceExists checks whether the llmisvc webhook Service exists in
+// the applications namespace.
+func (r *KserveModuleReconciler) webhookServiceExists(ctx context.Context) bool {
+	svc := &corev1.Service{}
+	err := r.Get(ctx, types.NamespacedName{
+		Name:      llmisvcWebhookServiceName,
+		Namespace: r.getApplicationsNamespace(),
+	}, svc)
+	return err == nil
+}
+
+// stripCRDConversionWebhooks removes spec.conversion from CRD resources that
+// use Webhook strategy. This prevents referencing webhook services that may not
+// exist yet, avoiding deadlocks during upgrades. Returns true if any resources
+// were modified.
+func stripCRDConversionWebhooks(resources []unstructured.Unstructured) bool {
+	modified := false
+	for i := range resources {
+		if resources[i].GetKind() != "CustomResourceDefinition" {
+			continue
+		}
+		strategy, found, _ := unstructured.NestedString(resources[i].Object, "spec", "conversion", "strategy")
+		if !found || strategy != "Webhook" {
+			continue
+		}
+		unstructured.RemoveNestedField(resources[i].Object, "spec", "conversion")
+		modified = true
+	}
+	return modified
+}
+
+// applyCRDConversionWebhooks re-renders the CRD manifests and applies them with
+// their full conversion webhook configuration. Called after component
+// reconciliation has created the webhook services.
+func (r *KserveModuleReconciler) applyCRDConversionWebhooks(ctx context.Context, kserve *platformv1alpha1.Kserve) error {
+	crdPath := filepath.Join(r.ManifestsTemplatePath, KserveComponentName, KserveCRDManifestSourcePath)
+	resources, err := kustomize.Render(crdPath, nil, kustomize.WithNamespace(r.getApplicationsNamespace()))
+	if err != nil {
+		return fmt.Errorf("rendering CRD manifests for conversion webhooks: %w", err)
+	}
+
+	if err := r.Deployer.Deploy(ctx, deploy.DeployInput{
+		Client:    r.Client,
+		Owner:     kserve,
+		Resources: resources,
+	}); err != nil {
+		return fmt.Errorf("applying CRD conversion webhooks: %w", err)
 	}
 	return nil
 }
