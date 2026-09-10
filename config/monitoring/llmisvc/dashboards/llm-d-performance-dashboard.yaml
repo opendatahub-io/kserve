@@ -321,7 +321,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: data-science-prometheus-datasource
-                  query: (histogram_quantile(0.50, sum by (le, model_name) (rate(kserve_vllm:time_to_first_token_seconds_bucket{exported_namespace=~"$namespace"}[$__rate_interval])))
+                  query: (histogram_quantile(0.50, sum by (le, model_name) (rate(kserve_vllm:time_to_first_token_seconds_bucket{exported_namespace=~"$namespace",model_name=~"$model_name"}[$__rate_interval])))
                     > -Inf) or vector(0)
                   seriesNameFormat: '{{model_name}} P50'
           - kind: TimeSeriesQuery
@@ -332,7 +332,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: data-science-prometheus-datasource
-                  query: (histogram_quantile(0.95, sum by (le, model_name) (rate(kserve_vllm:time_to_first_token_seconds_bucket{exported_namespace=~"$namespace"}[$__rate_interval])))
+                  query: (histogram_quantile(0.95, sum by (le, model_name) (rate(kserve_vllm:time_to_first_token_seconds_bucket{exported_namespace=~"$namespace",model_name=~"$model_name"}[$__rate_interval])))
                     > -Inf) or vector(0)
                   seriesNameFormat: '{{model_name}} P95'
           - kind: TimeSeriesQuery
@@ -343,7 +343,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: data-science-prometheus-datasource
-                  query: (histogram_quantile(0.99, sum by (le, model_name) (rate(kserve_vllm:time_to_first_token_seconds_bucket{exported_namespace=~"$namespace"}[$__rate_interval])))
+                  query: (histogram_quantile(0.99, sum by (le, model_name) (rate(kserve_vllm:time_to_first_token_seconds_bucket{exported_namespace=~"$namespace",model_name=~"$model_name"}[$__rate_interval])))
                     > -Inf) or vector(0)
                   seriesNameFormat: '{{model_name}} P99'
     layouts:
