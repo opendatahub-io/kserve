@@ -74,7 +74,10 @@ print-kubebuilder-assets: envtest
 
 # Run go fmt against code
 fmt:
-	go fmt ./pkg/... ./cmd/... && cd qpext && go fmt ./...
+	@for dir in . qpext kernelcache/mcv; do \
+	  echo "Formatting $$dir..."; \
+	  (cd $$dir && go fmt ./...) || exit 1; \
+	done
 
 py-fmt: $(RUFF)
 	$(RUFF) format --config ruff.toml ./python ./docs ./test ./hack
@@ -82,10 +85,18 @@ py-fmt: $(RUFF)
 # Run go vet against code
 vet:
 	go vet ./pkg/... ./cmd/... && cd qpext && go vet ./...
+	@if pkg-config --exists gpgme 2>/dev/null; then \
+		echo "Vetting kernelcache/mcv..."; \
+		(cd kernelcache/mcv && CGO_ENABLED=1 go vet ./...) || exit 1; \
+	else \
+		echo "Skipping kernelcache/mcv vet (CGO dependencies not installed, covered by mcv-build-test CI)"; \
+	fi
 
 tidy:
-	go mod tidy
-	cd qpext && go mod tidy
+	@for dir in . qpext kernelcache/mcv; do \
+	  echo "Tidying $$dir..."; \
+	  (cd $$dir && go mod tidy) || exit 1; \
+	done
 
 .PHONY: sync-deps
 sync-deps:
@@ -96,13 +107,37 @@ sync-img-env:
 	@python3 hack/setup/scripts/generate-images-sh.py
 
 go-lint: golangci-lint
-	@echo "Go-linting ."
-	@$(GOLANGCI_LINT) run --fix
-	@echo "Go-linting qpext/"
-	@cd qpext && $(GOLANGCI_LINT) run --fix
+	@for dir in . qpext; do \
+	  echo "Linting $$dir..."; \
+	  (cd $$dir && $(GOLANGCI_LINT) run --fix) || exit 1; \
+	done
+	@if pkg-config --exists gpgme 2>/dev/null; then \
+		echo "Linting kernelcache/mcv..."; \
+		(cd kernelcache/mcv && CGO_ENABLED=1 $(GOLANGCI_LINT) run --fix) || exit 1; \
+	else \
+		echo "Skipping kernelcache/mcv lint (CGO dependencies not installed, covered by mcv-build-test CI)"; \
+	fi
 
 py-lint: $(RUFF)
 	$(RUFF) check --config ruff.toml
+
+# Shell scripts to lint. Expressed as exclusions so a newly added script is
+# linted by default instead of having to be opted in:
+#   install/**                    - frozen per-release install snapshots, never edited after a release is cut
+#   hack/setup/quick-install/*.sh - written by `make generate-quick-install-scripts`
+# Using `git ls-files` also means gitignored output (bin/, venvs, ...) is skipped for free.
+SHELLCHECK_EXCLUDES := ':(exclude)install/**' ':(exclude)hack/setup/quick-install/*.sh'
+
+# Gate at `error`, the severity the tree is already clean at. Tightening to
+# `warning` is a bounded follow-up (mostly SC2155/SC2206/SC2034); run
+# `make sh-lint SHELLCHECK_SEVERITY=warning` to see that backlog.
+SHELLCHECK_SEVERITY ?= error
+
+.PHONY: sh-lint
+sh-lint: $(SHELLCHECK)
+	@echo "Shell-linting scripts (severity: $(SHELLCHECK_SEVERITY))"
+	@git ls-files -z --cached --others --exclude-standard -- '*.sh' $(SHELLCHECK_EXCLUDES) \
+		| xargs -0 -r $(SHELLCHECK) --severity=$(SHELLCHECK_SEVERITY)
 
 # Verify e2e test files parse and collect without errors (catches import errors, syntax errors, fixture issues).
 e2e-collect: $(PYTEST)
@@ -362,7 +397,7 @@ boilerplate:
 	hack/boilerplate.sh
 
 # This runs all necessary steps to prepare for a commit.
-precommit: ensure-go-version-upgrade sync-deps sync-img-env vet go-lint py-fmt py-lint e2e-collect generate tidy manifests uv-lock generate-quick-install-scripts generate-chart-manifests sync-helm-common-helpers sync-helm-common-resource-helpers sync-helm-multi-resource-helpers verify-pinned-actions verify-minimal-crd-sync boilerplate
+precommit: ensure-go-version-upgrade sync-deps sync-img-env vet go-lint py-fmt py-lint sh-lint e2e-collect generate tidy manifests uv-lock generate-quick-install-scripts generate-chart-manifests sync-helm-common-helpers sync-helm-common-resource-helpers sync-helm-multi-resource-helpers verify-pinned-actions verify-minimal-crd-sync boilerplate
 
 # This is used by CI to ensure that the precommit checks are met.
 # Requires a clean working tree after precommit: run "make precommit", then git add/commit
@@ -650,6 +685,12 @@ docker-build-qpext:
 
 docker-build-push-qpext: docker-build-qpext
 	${ENGINE} push ${KO_DOCKER_REPO}/${QPEXT_IMG}:${TAG}
+
+docker-build-mcv:
+	${ENGINE} buildx build ${ARCH} -t ${KO_DOCKER_REPO}/${MCV_IMG} -f kernelcache/mcv/mcv.Dockerfile kernelcache/mcv
+
+docker-push-mcv: docker-build-mcv
+	${ENGINE} push ${KO_DOCKER_REPO}/${MCV_IMG}
 
 deploy-dev-qpext: docker-build-push-qpext
 	kubectl patch cm config-deployment -n knative-serving --type merge --patch '{"data": {"queue-sidecar-image": "${KO_DOCKER_REPO}/${QPEXT_IMG}"}}'

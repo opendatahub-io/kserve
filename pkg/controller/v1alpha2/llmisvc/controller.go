@@ -292,7 +292,7 @@ func (r *LLMISVCReconciler) reconcile(ctx context.Context, llmSvc *v1alpha2.LLMI
 		return fmt.Errorf("failed to reconcile networking: %w", err)
 	}
 
-	if err := r.reconcileMonitoringResources(ctx, llmSvc); err != nil {
+	if err := r.reconcileMonitoringResources(ctx, llmSvc, config); err != nil {
 		return fmt.Errorf("failed to reconcile monitoring resources: %w", err)
 	}
 
