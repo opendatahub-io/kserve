@@ -79,6 +79,9 @@ const (
 	// PlatformFinalizerName is set and removed by the platform operator.
 	PlatformFinalizerName = "platform.opendatahub.io/finalizer"
 
+	// Webhook service names
+	llmisvcWebhookServiceName = "llmisvc-webhook-server-service"
+
 	// cert-manager defaults
 	defaultCAIssuerName  = "opendatahub-ca-issuer"
 	defaultIssuerRefKind = "ClusterIssuer"
