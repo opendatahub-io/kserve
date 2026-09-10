@@ -156,7 +156,8 @@ spec:
             name: Per-pod queue size (scheduler view)
             description: Queue depth per pod as observed by the EPP scheduler. Compare
               with vLLM-reported queue depth above to detect scraping lag or routing
-              asymmetry.
+              asymmetry. This metric is pool-wide and is not filtered by the model
+              selector.
           plugin:
             kind: TimeSeriesChart
             spec:
