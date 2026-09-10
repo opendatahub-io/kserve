@@ -16,14 +16,11 @@
 
 These tests exercise the preset shipped by the ODH overlay
 (kserve-config-llm-template-cpu, installed in the system namespace) through the
-real cluster path: a service in a test namespace references it via
-spec.baseRefs, relying on the controller's system-namespace fallback, and the
-merged result is asserted on the workload Deployment.
-
-The assertions stop at the Deployment spec on purpose: the preset carries the
-productized registry.redhat.io image, and these tests must not depend on that
-registry being pullable from the CI cluster. Full serving with the productized
-image is covered by the product-stack test suites.
+real cluster path: services in a test namespace reference it via
+spec.baseRefs, relying on the controller's system-namespace fallback. The
+preset is discovered rather than assumed, since operator-managed stacks may
+stamp a version suffix onto shipped config names. On stacks without the
+preset (non-ODH), all tests skip.
 """
 
 from __future__ import annotations
@@ -33,42 +30,42 @@ import pytest
 from kserve import KServeClient, V1alpha1LLMInferenceService, constants
 from kubernetes import client
 
-from .fixtures import VLLM_CPU_IMAGE, inject_k8s_proxy
+from .fixtures import (
+    VLLM_CPU_IMAGE,
+    find_system_llmisvc_config,
+    generate_test_id,
+    inject_k8s_proxy,
+)
 from .logging import log_execution
 from .test_llm_inference_service import (
+    TestCase,
+    completions_payload,
     create_llmisvc,
-    delete_llmisvc,
+    create_response_assertion,
+    maybe_delete_llmisvc,
     wait_for,
+)
+from .test_llm_inference_service import (
+    test_llm_inference_service as run_llmisvc_test_case,
 )
 from ..common.utils import KSERVE_NAMESPACE
 
+pytestmark = [pytest.mark.cluster_cpu, pytest.mark.cluster_single_node]
+
 CPU_PRESET_NAME = "kserve-config-llm-template-cpu"
-KSERVE_PLURAL_LLMINFERENCESERVICECONFIG = "llminferenceserviceconfigs"
 API_VERSION = "v1alpha2"
 DEPLOYMENT_WAIT_SECONDS = 300
 
 
 def _get_cpu_preset(kserve_client: KServeClient) -> dict:
-    """Fetch the shipped CPU preset from the system namespace, or skip.
-
-    The preset only exists on ODH overlay deployments; skipping keeps this
-    file harmless on other stacks.
-    """
-    try:
-        return kserve_client.api_instance.get_namespaced_custom_object(
-            constants.KSERVE_GROUP,
-            API_VERSION,
-            KSERVE_NAMESPACE,
-            KSERVE_PLURAL_LLMINFERENCESERVICECONFIG,
-            CPU_PRESET_NAME,
+    """Discover the shipped CPU preset in the system namespace, or skip."""
+    preset = find_system_llmisvc_config(kserve_client, CPU_PRESET_NAME)
+    if preset is None:
+        pytest.skip(
+            f"{CPU_PRESET_NAME} not found in {KSERVE_NAMESPACE}; "
+            "CPU accelerator preset requires the ODH overlay"
         )
-    except client.rest.ApiException as e:
-        if e.status == 404:
-            pytest.skip(
-                f"{CPU_PRESET_NAME} not found in {KSERVE_NAMESPACE}; "
-                "CPU accelerator preset requires the ODH overlay"
-            )
-        raise
+    return preset
 
 
 def _preset_main_container(preset: dict) -> dict:
@@ -79,10 +76,10 @@ def _preset_main_container(preset: dict) -> dict:
 
 
 def _cpu_preset_llmisvc(
-    name: str, namespace: str, template: dict | None = None
+    name: str, namespace: str, preset_name: str, template: dict | None = None
 ) -> V1alpha1LLMInferenceService:
     spec: dict = {
-        "baseRefs": [{"name": CPU_PRESET_NAME}],
+        "baseRefs": [{"name": preset_name}],
         "model": {
             "uri": "hf://facebook/opt-125m",
             "name": "facebook/opt-125m",
@@ -135,10 +132,6 @@ def _assert_preset_env(deployment) -> None:
     )
 
 
-def _skip_resource_deletion() -> bool:
-    return os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in ("true", "1", "t")
-
-
 @log_execution
 def test_cpu_accelerator_preset_applies_to_workload(test_namespace):
     """The shipped CPU preset, referenced via baseRefs, configures the workload."""
@@ -148,10 +141,14 @@ def test_cpu_accelerator_preset_applies_to_workload(test_namespace):
         client_configuration=client.Configuration(),
     )
 
-    preset_image = _preset_main_container(_get_cpu_preset(kserve_client))["image"]
-    llm_isvc = _cpu_preset_llmisvc("cpu-accel-preset", test_namespace)
+    preset = _get_cpu_preset(kserve_client)
+    preset_image = _preset_main_container(preset)["image"]
+    llm_isvc = _cpu_preset_llmisvc(
+        "cpu-accel-preset", test_namespace, preset["metadata"]["name"]
+    )
 
     create_llmisvc(kserve_client, llm_isvc)
+    test_failed = False
     try:
         deployment = _wait_for_workload_deployment(
             test_namespace, llm_isvc.metadata.name
@@ -167,9 +164,11 @@ def test_cpu_accelerator_preset_applies_to_workload(test_namespace):
         assert node_selector.get("kubernetes.io/arch") == "amd64", (
             f"arch nodeSelector not merged from preset, got: {node_selector}"
         )
+    except Exception:
+        test_failed = True
+        raise
     finally:
-        if not _skip_resource_deletion():
-            delete_llmisvc(kserve_client, llm_isvc)
+        maybe_delete_llmisvc(kserve_client, llm_isvc, test_failed)
 
 
 @log_execution
@@ -181,15 +180,16 @@ def test_cpu_accelerator_preset_user_image_wins(test_namespace):
         client_configuration=client.Configuration(),
     )
 
-    # Ensure the preset exists (skips on non-ODH stacks) before asserting overrides.
-    _get_cpu_preset(kserve_client)
+    preset = _get_cpu_preset(kserve_client)
     llm_isvc = _cpu_preset_llmisvc(
         "cpu-accel-precedence",
         test_namespace,
+        preset["metadata"]["name"],
         template={"containers": [{"name": "main", "image": VLLM_CPU_IMAGE}]},
     )
 
     create_llmisvc(kserve_client, llm_isvc)
+    test_failed = False
     try:
         deployment = _wait_for_workload_deployment(
             test_namespace, llm_isvc.metadata.name
@@ -200,6 +200,34 @@ def test_cpu_accelerator_preset_user_image_wins(test_namespace):
             f"user image should win over preset, got {main.image}"
         )
         _assert_preset_env(deployment)
+    except Exception:
+        test_failed = True
+        raise
     finally:
-        if not _skip_resource_deletion():
-            delete_llmisvc(kserve_client, llm_isvc)
+        maybe_delete_llmisvc(kserve_client, llm_isvc, test_failed)
+
+
+@pytest.mark.parametrize(
+    "test_case",
+    [
+        pytest.param(
+            TestCase(
+                base_refs=[
+                    "router-managed",
+                    "model-fb-opt-125m",
+                ],
+                external_base_refs=[CPU_PRESET_NAME],
+                endpoint="/v1/completions",
+                prompt="KServe is a",
+                payload_formatter=completions_payload,
+                response_assertion=create_response_assertion(with_field="choices"),
+            ),
+        ),
+    ],
+    indirect=["test_case"],
+    ids=generate_test_id,
+)
+@log_execution
+def test_cpu_accelerator_preset_serves_inference(test_case: TestCase):
+    """Full e2e through the shipped preset: deploy, reach Ready, serve a completion."""
+    run_llmisvc_test_case(test_case)

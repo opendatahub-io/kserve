@@ -30,6 +30,7 @@ from typing import List, Optional
 
 from .logging import logger
 from .namespace import SEED_NAMESPACE as KSERVE_TEST_NAMESPACE  # noqa: F401
+from ..common.utils import KSERVE_NAMESPACE
 
 KSERVE_PLURAL_LLMINFERENCESERVICECONFIG = "llminferenceserviceconfigs"
 RUN_AS_NON_ROOT = os.environ.get("RUN_AS_NON_ROOT", "false").lower() in (
@@ -1788,11 +1789,34 @@ LLMINFERENCESERVICE_CONFIGS = {
 }
 
 
+def find_system_llmisvc_config(kserve_client, base_name):
+    """Find a shipped LLMInferenceServiceConfig in the system namespace by base name.
+
+    Operator-managed stacks may stamp a version suffix onto shipped config names,
+    so fall back to a prefix match when the exact name is absent. Returns the
+    config object, or None when nothing matches.
+    """
+    configs = kserve_client.api_instance.list_namespaced_custom_object(
+        constants.KSERVE_GROUP,
+        "v1alpha2",
+        KSERVE_NAMESPACE,
+        KSERVE_PLURAL_LLMINFERENCESERVICECONFIG,
+    )
+    items = configs.get("items", [])
+    exact = next((c for c in items if c["metadata"]["name"] == base_name), None)
+    if exact is not None:
+        return exact
+    return next((c for c in items if c["metadata"]["name"].startswith(base_name)), None)
+
+
 def _setup_test_case_service(
     kserve_client, tc, test_node_name, namespace, peer_index=None
 ):
     """Create LLMInferenceServiceConfigs and build the LLMInferenceService for a TestCase.
 
+    Refs in ``base_refs`` are cloned into the test namespace from
+    LLMINFERENCESERVICE_CONFIGS; refs in ``external_base_refs`` are shipped
+    configs resolved from the system namespace and referenced as-is.
     Returns a list of created config names for cleanup tracking.
     """
     missing_refs = [
@@ -1831,6 +1855,14 @@ def _setup_test_case_service(
 
         _create_or_update_llmisvc_config(kserve_client, unique_config_body, namespace)
         created_configs.append(unique_config_name)
+
+    for external_ref in tc.external_base_refs:
+        resolved = find_system_llmisvc_config(kserve_client, external_ref)
+        if resolved is None:
+            pytest.skip(
+                f"external base ref {external_ref} not found in {KSERVE_NAMESPACE}"
+            )
+        unique_base_refs.append(resolved["metadata"]["name"])
 
     tc.llm_service = V1alpha1LLMInferenceService(
         api_version="serving.kserve.io/v1alpha1",
