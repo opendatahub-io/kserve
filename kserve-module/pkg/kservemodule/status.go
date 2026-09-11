@@ -198,8 +198,15 @@ func (r *KserveModuleReconciler) updateStatus(ctx context.Context, kserve *platf
 }
 
 func (r *KserveModuleReconciler) setReleaseStatus(ctx context.Context, kserve *platformv1alpha1.Kserve) {
-	releases, err := loadComponentReleases(r.ManifestsTemplatePath,
-		[]string{KserveComponentName, OdhModelControllerComponentName})
+	// The modelcontroller component_metadata.yaml only lists serving runtime
+	// releases (OVMS, MLServer, Caikit, ...). On XKS those runtimes are not
+	// installed, so exclude them from status.releases.
+	componentDirs := []string{KserveComponentName}
+	if !r.isKubernetes(ctx) {
+		componentDirs = append(componentDirs, OdhModelControllerComponentName)
+	}
+
+	releases, err := loadComponentReleases(r.ManifestsTemplatePath, componentDirs)
 	if err != nil {
 		ctrl.Log.Error(err, "failed to load component releases")
 		return

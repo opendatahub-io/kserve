@@ -49,6 +49,7 @@ var components = []componentConfig{
 	{
 		name:        OdhModelControllerComponentName,
 		sourcePath:  ModelControllerSourcePath,
+		sourcePathXKS: ModelControllerSourcePathXKS,
 		imageMap:    modelControllerImageParamMap,
 		extraParams: modelControllerExtraParams,
 		postRender:  modelControllerPostRender,

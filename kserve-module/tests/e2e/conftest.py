@@ -28,6 +28,7 @@ LLMISVC_CONFIG_RESOURCE = "llminferenceserviceconfigs.serving.kserve.io"
 
 OPERAND_DEPLOYMENTS_XKS = [
     LLMISVC_DEPLOYMENT,
+    "odh-model-controller",
 ]
 OPERAND_DEPLOYMENTS_OCP = [
     "kserve-controller-manager",

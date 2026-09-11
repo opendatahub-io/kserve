@@ -183,6 +183,7 @@ data:
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.KserveComponentName, kservemodule.ObservabilityManifestSourcePath), observabilityManifest)
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.KserveComponentName, kservemodule.ConsoleDashboardsManifestSourcePath), consoleDashboardsManifest)
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.OdhModelControllerComponentName, kservemodule.ModelControllerSourcePath), modelCtrlManifest)
+	writeKustomizeDir(filepath.Join(workDir, kservemodule.OdhModelControllerComponentName, kservemodule.ModelControllerSourcePathXKS), modelCtrlManifest)
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.WVAComponentName, kservemodule.WVAManifestSourcePathOCP), wvaManifest)
 }
 
