@@ -1,12 +1,13 @@
 KSERVE_MODULE_IMG ?= kserve-module-controller
 PLATFORM ?= xks
 E2E_IMG ?=
+PYTEST_ARGS ?=
 
 .PHONY: docker-build-kserve-module docker-push-kserve-module deploy-kserve-module \
 	kustomize-build-kserve-module generate-kserve-module manifests-kserve-module \
 	test-kserve-module setup-envtest-kserve-module precommit-km \
-	e2e-setup-kserve-module e2e-cleanup-kserve-module e2e-kserve-module \
-	e2e-kserve-module-post-release check-km
+	e2e-setup-kserve-module e2e-roll-kserve-module e2e-cleanup-kserve-module \
+	e2e-kserve-module e2e-kserve-module-post-release check-km
 
 
 docker-build-kserve-module:
@@ -53,11 +54,15 @@ e2e-setup-kserve-module:
 	bash kserve-module/tests/scripts/setup-cluster.sh --platform $(PLATFORM) \
 		$(if $(E2E_IMG),--image $(E2E_IMG))
 
+e2e-roll-kserve-module:
+	bash kserve-module/tests/scripts/setup-cluster.sh --platform $(PLATFORM) --skip-deps \
+		$(if $(E2E_IMG),--image $(E2E_IMG))
+
 e2e-cleanup-kserve-module:
 	bash kserve-module/tests/scripts/setup-cluster.sh --platform $(PLATFORM) --cleanup
 
 e2e-kserve-module:
-	cd kserve-module/tests/e2e && python -m pytest -v -m "not post_release"
+	cd kserve-module/tests/e2e && python -m pytest -v -m "not post_release" $(PYTEST_ARGS)
 
 e2e-kserve-module-post-release:
 	cd kserve-module/tests/e2e && python -m pytest -v -m post_release
