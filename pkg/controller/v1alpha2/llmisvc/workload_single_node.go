@@ -110,6 +110,12 @@ func (r *LLMISVCReconciler) expectedSingleNodeMainDeployment(ctx context.Context
 		}
 	}
 
+	// Use separate map copies for selector vs. template labels.
+	// Selector labels are immutable after Deployment creation, so they must
+	// not include user-specified spec.labels which may change over time.
+	selectorLabels := maps.Clone(labels)
+	templateLabels := maps.Clone(labels)
+
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      mainDeploymentName(llmSvc),
@@ -122,11 +128,11 @@ func (r *LLMISVCReconciler) expectedSingleNodeMainDeployment(ctx context.Context
 		Spec: appsv1.DeploymentSpec{
 			Replicas: llmSvc.Spec.Replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
+				MatchLabels: selectorLabels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels:      labels,
+					Labels:      templateLabels,
 					Annotations: deploymentAnnotations,
 				},
 			},
@@ -242,14 +248,20 @@ func (r *LLMISVCReconciler) expectedPrefillMainDeployment(ctx context.Context, l
 	}
 
 	if llmSvc.Spec.Prefill != nil {
+		// Use separate map copies for selector vs. template labels.
+		// Selector labels are immutable after Deployment creation, so they must
+		// not include user-specified spec.prefill.labels which may change.
+		selectorLabels := maps.Clone(labels)
+		templateLabels := maps.Clone(labels)
+
 		d.Spec = appsv1.DeploymentSpec{
 			Replicas: llmSvc.Spec.Prefill.Replicas,
 			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
+				MatchLabels: selectorLabels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
+					Labels: templateLabels,
 				},
 			},
 		}
