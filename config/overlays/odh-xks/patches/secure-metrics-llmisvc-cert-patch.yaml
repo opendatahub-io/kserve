@@ -1,0 +1,15 @@
+- op: add
+  path: /spec/template/spec/containers/0/args/-
+  value: --metrics-cert-path=/etc/metrics-certs
+- op: add
+  path: /spec/template/spec/containers/0/volumeMounts/-
+  value:
+    name: metrics-certs
+    mountPath: /etc/metrics-certs
+    readOnly: true
+- op: add
+  path: /spec/template/spec/volumes/-
+  value:
+    name: metrics-certs
+    secret:
+      secretName: llmisvc-metrics-cert

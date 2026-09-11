@@ -1,0 +1,18 @@
+# Certificate for the LLMInferenceService metrics endpoint.
+# Issued by the OpenDataHub CA ClusterIssuer.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: llmisvc-metrics
+spec:
+  commonName: llmisvc-controller-manager-service.$(NAMESPACE).svc
+  dnsNames:
+    - llmisvc-controller-manager-service.$(NAMESPACE).svc
+    - llmisvc-controller-manager-service.$(NAMESPACE).svc.cluster.local
+  duration: 8760h
+  renewBefore: 720h
+  issuerRef:
+    name: $(ISSUER_REF_NAME)
+    kind: $(ISSUER_REF_KIND)
+    group: $(ISSUER_REF_GROUP)
+  secretName: llmisvc-metrics-cert

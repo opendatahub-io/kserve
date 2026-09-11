@@ -13,6 +13,14 @@ patches:
 # Remove OCP SecurityContextConstraints
 - path: patches/remove-scc.yaml
 
+# Use the cert-manager-issued certificate for the HTTPS metrics endpoint.
+- target:
+    group: apps
+    version: v1
+    kind: Deployment
+    name: llmisvc-controller-manager
+  path: patches/secure-metrics-llmisvc-cert-patch.yaml
+
 # Remove all CRDs except LLMInferenceService and LLMInferenceServiceConfig
 - path: patches/remove-non-llm-crds.yaml
 - path: patches/remove-non-llm.yaml
