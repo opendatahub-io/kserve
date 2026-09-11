@@ -342,6 +342,21 @@ rules:
   - update
   - watch
 - apiGroups:
+  - services.platform.opendatahub.io
+  resources:
+  - monitorings
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - services.platform.opendatahub.io
+  resourceNames:
+  - default-monitoring
+  resources:
+  - monitorings
+  verbs:
+  - get
+- apiGroups:
   - serving.kserve.io
   resources:
   - clusterservingruntimes

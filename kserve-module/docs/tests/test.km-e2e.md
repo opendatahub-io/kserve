@@ -60,6 +60,7 @@ make e2e-cleanup-kserve-module
 ## Test Markers
 
 - `sanity` - core lifecycle tests (create, update, delete, CEL validation)
+- `tracing` - tracing endpoint synchronization across versioned presets
 - `post_release` - post-ODH-release smoke (OMC Running, KServeReady, one LLMISVC Ready)
 
 Run specific markers:
