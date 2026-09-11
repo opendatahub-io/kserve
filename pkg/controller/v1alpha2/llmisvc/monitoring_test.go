@@ -222,6 +222,8 @@ var _ = Describe("PodMonitor TLS configuration", func() {
 		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
 
 		pm := waitForPerServicePodMonitor(ctx, svcName, testNs.Name)
+		endpoint := pm.Spec.PodMetricsEndpoints[0]
+		Expect(endpoint.Scheme).To(HaveValue(Equal(monitoringv1.Scheme("https"))))
 		tlsCfg := pm.Spec.PodMetricsEndpoints[0].TLSConfig
 		Expect(tlsCfg.InsecureSkipVerify).To(HaveValue(BeFalse()))
 		Expect(tlsCfg.CA.Secret).ToNot(BeNil())
