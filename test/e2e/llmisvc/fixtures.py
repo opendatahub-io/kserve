@@ -1789,24 +1789,23 @@ LLMINFERENCESERVICE_CONFIGS = {
 }
 
 
-def find_system_llmisvc_config(kserve_client, base_name):
-    """Find a shipped LLMInferenceServiceConfig in the system namespace by base name.
+def get_system_llmisvc_config(kserve_client, name):
+    """Get a shipped LLMInferenceServiceConfig from the system namespace.
 
-    Operator-managed stacks may stamp a version suffix onto shipped config names,
-    so fall back to a prefix match when the exact name is absent. Returns the
-    config object, or None when nothing matches.
+    Returns the config object, or None when it does not exist.
     """
-    configs = kserve_client.api_instance.list_namespaced_custom_object(
-        constants.KSERVE_GROUP,
-        "v1alpha2",
-        KSERVE_NAMESPACE,
-        KSERVE_PLURAL_LLMINFERENCESERVICECONFIG,
-    )
-    items = configs.get("items", [])
-    exact = next((c for c in items if c["metadata"]["name"] == base_name), None)
-    if exact is not None:
-        return exact
-    return next((c for c in items if c["metadata"]["name"].startswith(base_name)), None)
+    try:
+        return kserve_client.api_instance.get_namespaced_custom_object(
+            constants.KSERVE_GROUP,
+            "v1alpha2",
+            KSERVE_NAMESPACE,
+            KSERVE_PLURAL_LLMINFERENCESERVICECONFIG,
+            name,
+        )
+    except client.rest.ApiException as e:
+        if e.status == 404:
+            return None
+        raise
 
 
 def _setup_test_case_service(
@@ -1815,7 +1814,7 @@ def _setup_test_case_service(
     """Create LLMInferenceServiceConfigs and build the LLMInferenceService for a TestCase.
 
     Refs in ``base_refs`` are cloned into the test namespace from
-    LLMINFERENCESERVICE_CONFIGS; refs in ``external_base_refs`` are shipped
+    LLMINFERENCESERVICE_CONFIGS; refs in ``system_base_refs`` are shipped
     configs resolved from the system namespace and referenced as-is.
     Returns a list of created config names for cleanup tracking.
     """
@@ -1856,13 +1855,10 @@ def _setup_test_case_service(
         _create_or_update_llmisvc_config(kserve_client, unique_config_body, namespace)
         created_configs.append(unique_config_name)
 
-    for external_ref in tc.external_base_refs:
-        resolved = find_system_llmisvc_config(kserve_client, external_ref)
-        if resolved is None:
-            pytest.skip(
-                f"external base ref {external_ref} not found in {KSERVE_NAMESPACE}"
-            )
-        unique_base_refs.append(resolved["metadata"]["name"])
+    for system_ref in tc.system_base_refs:
+        if get_system_llmisvc_config(kserve_client, system_ref) is None:
+            pytest.skip(f"system base ref {system_ref} not found in {KSERVE_NAMESPACE}")
+        unique_base_refs.append(system_ref)
 
     tc.llm_service = V1alpha1LLMInferenceService(
         api_version="serving.kserve.io/v1alpha1",
