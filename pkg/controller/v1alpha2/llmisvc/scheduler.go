@@ -428,6 +428,9 @@ func (r *LLMISVCReconciler) expectedSchedulerDeployment(ctx context.Context, llm
 	}
 
 	r.propagateSchedulerMetadata(llmSvc, d)
+	// Restore internal selector labels so user labels cannot override them,
+	// which would break the template-must-match-selector invariant.
+	maps.Copy(d.Spec.Template.Labels, selectorLabels)
 
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil && llmSvc.Spec.Router.Scheduler.Template != nil {
 		curr := &appsv1.Deployment{}

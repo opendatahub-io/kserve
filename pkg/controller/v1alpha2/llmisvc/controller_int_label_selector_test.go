@@ -224,5 +224,129 @@ var _ = Describe("LLMInferenceService Controller", func() {
 			Expect(len(prefillDeployment.Spec.Template.Labels)).To(BeNumerically(">", len(prefillDeployment.Spec.Selector.MatchLabels)),
 				"template labels should include prefill labels beyond selector labels")
 		})
+
+		It("should preserve internal label value when user spec.labels conflict with main Deployment selector", func(ctx SpecContext) {
+			svcName := "test-conflict-main"
+			testNs := NewTestNamespace(ctx, envTest)
+
+			// User label deliberately collides with an internal selector key
+			userLabels := map[string]string{
+				constants.KServeComponentLabelKey: "user-override-attempt",
+			}
+
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithWorkloadLabels(userLabels),
+			)
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				testNs.DeleteAndWait(ctx, llmSvc)
+			}()
+
+			deployment := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve",
+					Namespace: testNs.Name,
+				}, deployment)
+			}).WithContext(ctx).Should(Succeed())
+
+			// The internal value must be preserved in both selector AND template
+			Expect(deployment.Spec.Selector.MatchLabels).To(HaveKeyWithValue(
+				constants.KServeComponentLabelKey, constants.KServeComponentWorkload),
+				"internal selector label must not be overridden by user label")
+			Expect(deployment.Spec.Template.Labels).To(HaveKeyWithValue(
+				constants.KServeComponentLabelKey, constants.KServeComponentWorkload),
+				"internal template label must not be overridden by user label")
+		})
+
+		It("should preserve internal label value when user prefill labels conflict with prefill Deployment selector", func(ctx SpecContext) {
+			svcName := "test-conflict-pf"
+			testNs := NewTestNamespace(ctx, envTest)
+
+			prefillLabels := map[string]string{
+				constants.KServeComponentLabelKey: "user-override-attempt",
+			}
+
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithTemplate(&corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "main", Image: "test-image:latest"},
+					},
+				}),
+				WithPrefill(&corev1.PodSpec{
+					Containers: []corev1.Container{
+						{Name: "main", Image: "test-prefill-image:latest"},
+					},
+				}),
+			)
+			llmSvc.Spec.Prefill.Labels = prefillLabels
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				testNs.DeleteAndWait(ctx, llmSvc)
+			}()
+
+			prefillDeployment := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-prefill",
+					Namespace: testNs.Name,
+				}, prefillDeployment)
+			}).WithContext(ctx).Should(Succeed())
+
+			// The internal value must be preserved in both selector AND template
+			Expect(prefillDeployment.Spec.Selector.MatchLabels).To(HaveKeyWithValue(
+				constants.KServeComponentLabelKey, constants.KServeComponentWorkload),
+				"internal selector label must not be overridden by user prefill label")
+			Expect(prefillDeployment.Spec.Template.Labels).To(HaveKeyWithValue(
+				constants.KServeComponentLabelKey, constants.KServeComponentWorkload),
+				"internal template label must not be overridden by user prefill label")
+		})
+
+		It("should preserve internal label value when user scheduler labels conflict with scheduler Deployment selector", func(ctx SpecContext) {
+			svcName := "test-conflict-sched"
+			testNs := NewTestNamespace(ctx, envTest)
+
+			schedulerLabels := map[string]string{
+				constants.KubernetesComponentLabelKey: "user-override-attempt",
+			}
+
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithManagedRoute(),
+				WithManagedGateway(),
+				WithManagedScheduler(),
+			)
+			llmSvc.Spec.Router.Scheduler.Labels = schedulerLabels
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				testNs.DeleteAndWait(ctx, llmSvc)
+			}()
+
+			ensureRouterManagedResourcesAreReady(ctx, envTest.Client, llmSvc)
+
+			schedulerDeployment := &appsv1.Deployment{}
+			Eventually(func(g Gomega, ctx context.Context) error {
+				return envTest.Get(ctx, types.NamespacedName{
+					Name:      svcName + "-kserve-router-scheduler",
+					Namespace: testNs.Name,
+				}, schedulerDeployment)
+			}).WithContext(ctx).Should(Succeed())
+
+			// The internal value must be preserved in both selector AND template
+			Expect(schedulerDeployment.Spec.Selector.MatchLabels).To(HaveKeyWithValue(
+				constants.KubernetesComponentLabelKey, constants.LLMComponentRouterScheduler),
+				"internal selector label must not be overridden by user scheduler label")
+			Expect(schedulerDeployment.Spec.Template.Labels).To(HaveKeyWithValue(
+				constants.KubernetesComponentLabelKey, constants.LLMComponentRouterScheduler),
+				"internal template label must not be overridden by user scheduler label")
+		})
 	})
 })

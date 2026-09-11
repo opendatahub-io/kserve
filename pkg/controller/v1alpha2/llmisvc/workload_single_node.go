@@ -185,6 +185,9 @@ func (r *LLMISVCReconciler) expectedSingleNodeMainDeployment(ctx context.Context
 	r.propagateDeploymentMetadata(llmSvc, d)
 
 	utils.PropagateMap(llmSvc.Spec.Labels, &d.Spec.Template.Labels)
+	// Restore internal selector labels so user labels cannot override them,
+	// which would break the template-must-match-selector invariant.
+	maps.Copy(d.Spec.Template.Labels, selectorLabels)
 	utils.PropagateMap(llmSvc.Spec.Annotations, &d.Spec.Template.Annotations, AnnotationModelBasedRoutingEnabled)
 
 	// Inject tracing instrumentation when spec.tracing is set
@@ -296,6 +299,9 @@ func (r *LLMISVCReconciler) expectedPrefillMainDeployment(ctx context.Context, l
 
 	if llmSvc.Spec.Prefill != nil {
 		utils.PropagateMap(llmSvc.Spec.Prefill.Labels, &d.Spec.Template.Labels)
+		// Restore internal selector labels so user labels cannot override them,
+		// which would break the template-must-match-selector invariant.
+		maps.Copy(d.Spec.Template.Labels, d.Spec.Selector.MatchLabels)
 		utils.PropagateMap(llmSvc.Spec.Prefill.Annotations, &d.Spec.Template.Annotations, AnnotationModelBasedRoutingEnabled)
 	}
 
