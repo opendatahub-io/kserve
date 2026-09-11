@@ -1,0 +1,34 @@
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceServiceConfig
+metadata:
+  name: kserve-config-llm-template-cpu
+  annotations:
+    openshift.io/display-name: vLLM CPU LLMInferenceServiceConfig
+    openshift.io/description: vLLM CPU LLMInferenceServiceConfig for LLMInferenceService on x86_64 CPU-only nodes.
+    # CPU inference uses no extended accelerator resource; the empty list keeps the
+    # annotation shape consistent with the other accelerator configs.
+    opendatahub.io/recommended-accelerators: '[]'
+    opendatahub.io/runtime-version: ""
+    # supported-topologies values must be consistent with the samples API and Dashboard usage.
+    # See https://github.com/opendatahub-io/odh-model-controller/blob/incubating/server/docs/features/samples/llm-d/llm-d-ui-flow-mechanics.md
+    # and https://github.com/opendatahub-io/odh-model-controller/blob/incubating/server/docs/features/llm-d/samples/samples-api.md
+    opendatahub.io/supported-topologies: '["workload-single-node"]'
+spec:
+  template:
+    # Unlike the other accelerator configs, CPU has no extended resource request to
+    # steer scheduling onto suitable nodes, so pin the architecture explicitly.
+    # CPU inference support is x86_64-only.
+    nodeSelector:
+      kubernetes.io/arch: amd64
+    containers:
+      - name: main
+        image: placeholder
+        # Defaults from the validated CPU reference configuration (RHAI-194, run on a
+        # 4 vCPU / 16Gi pod): VLLM_CPU_KVCACHE_SPACE is the KV cache size in GiB and
+        # OMP_NUM_THREADS should match the pod's CPU allocation. Override both in the
+        # LLMInferenceService spec when deploying with a different pod size.
+        env:
+          - name: VLLM_CPU_KVCACHE_SPACE
+            value: "4"
+          - name: OMP_NUM_THREADS
+            value: "4"

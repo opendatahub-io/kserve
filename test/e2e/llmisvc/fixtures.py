@@ -30,6 +30,7 @@ from typing import List, Optional
 
 from .logging import logger
 from .namespace import SEED_NAMESPACE as KSERVE_TEST_NAMESPACE  # noqa: F401
+from ..common.utils import KSERVE_NAMESPACE
 
 KSERVE_PLURAL_LLMINFERENCESERVICECONFIG = "llminferenceserviceconfigs"
 RUN_AS_NON_ROOT = os.environ.get("RUN_AS_NON_ROOT", "false").lower() in (
@@ -1788,11 +1789,33 @@ LLMINFERENCESERVICE_CONFIGS = {
 }
 
 
+def get_system_llmisvc_config(kserve_client, name):
+    """Get a shipped LLMInferenceServiceConfig from the system namespace.
+
+    Returns the config object, or None when it does not exist.
+    """
+    try:
+        return kserve_client.api_instance.get_namespaced_custom_object(
+            constants.KSERVE_GROUP,
+            "v1alpha2",
+            KSERVE_NAMESPACE,
+            KSERVE_PLURAL_LLMINFERENCESERVICECONFIG,
+            name,
+        )
+    except client.rest.ApiException as e:
+        if e.status == 404:
+            return None
+        raise
+
+
 def _setup_test_case_service(
     kserve_client, tc, test_node_name, namespace, peer_index=None
 ):
     """Create LLMInferenceServiceConfigs and build the LLMInferenceService for a TestCase.
 
+    Refs in ``base_refs`` are cloned into the test namespace from
+    LLMINFERENCESERVICE_CONFIGS; refs in ``system_base_refs`` are shipped
+    configs resolved from the system namespace and referenced as-is.
     Returns a list of created config names for cleanup tracking.
     """
     missing_refs = [
@@ -1831,6 +1854,11 @@ def _setup_test_case_service(
 
         _create_or_update_llmisvc_config(kserve_client, unique_config_body, namespace)
         created_configs.append(unique_config_name)
+
+    for system_ref in tc.system_base_refs:
+        if get_system_llmisvc_config(kserve_client, system_ref) is None:
+            pytest.skip(f"system base ref {system_ref} not found in {KSERVE_NAMESPACE}")
+        unique_base_refs.append(system_ref)
 
     tc.llm_service = V1alpha1LLMInferenceService(
         api_version="serving.kserve.io/v1alpha1",

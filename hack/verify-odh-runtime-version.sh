@@ -29,10 +29,10 @@ YQ=${YQ:-yq}
 OVERLAY="config/overlays/odh"
 PARAMS_ENV="config/overlays/odh/params.env"
 ANNOTATION="opendatahub.io/runtime-version"
-FAMILIES="nvidia-cuda amd-rocm intel-gaudi ibm-spyre"
-# 9 base accelerator presets + 18 fast (-fast-1/-fast-2) variants. Update this
+FAMILIES="nvidia-cuda amd-rocm intel-gaudi ibm-spyre cpu"
+# 10 base accelerator presets + 20 fast (-fast-1/-fast-2) variants. Update this
 # count (plus a params.env key and replacement block) when adding presets.
-EXPECTED_TOTAL=27
+EXPECTED_TOTAL=30
 ABSENT_MARKER="__ABSENT__"
 
 rc=0
@@ -60,6 +60,8 @@ key_for() {
     *amd-rocm*)    family="amd-rocm" ;;
     *intel-gaudi*) family="intel-gaudi" ;;
     *ibm-spyre*)   family="ibm-spyre" ;;
+    # Keep the bare cpu glob last so vendor-prefixed families always match first.
+    *cpu*)         family="cpu" ;;
     *)             return ;;
   esac
   case "$name" in

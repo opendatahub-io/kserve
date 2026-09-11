@@ -14,3 +14,4 @@ resources:
 - ibm-spyre-s390x-config-llm-template.yaml
 - ibm-spyre-x86-config-llm-template.yaml
 - ibm-spyre-ppc64le-config-llm-template.yaml
+- cpu-config-llm-template.yaml
