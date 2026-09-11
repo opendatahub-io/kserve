@@ -87,7 +87,7 @@ func TestCustomizeServiceAuthProxyPort(t *testing.T) {
 	assert.Equal(t, "https", svc.Spec.Ports[0].Name)
 	assert.Equal(t, intstr.IntOrString{Type: intstr.String, StrVal: "https"}, svc.Spec.Ports[0].TargetPort)
 
-	// Transformer service must NOT get the auth proxy port override — it has no proxy sidecar.
+	// Transformer service with auth gets its own HTTPS port (native TLS, not auth proxy).
 	transformerSvc := &corev1.Service{
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{
@@ -107,10 +107,37 @@ func TestCustomizeServiceAuthProxyPort(t *testing.T) {
 
 	customizeService(transformerSvc, transformerMeta)
 
-	assert.Equal(t, int32(constants.CommonDefaultHttpPort), transformerSvc.Spec.Ports[0].Port,
-		"transformer service should keep the default HTTP port, not the auth proxy port")
-	assert.NotEqual(t, "https", transformerSvc.Spec.Ports[0].Name,
-		"transformer service port should not be renamed to https")
+	assert.Equal(t, constants.TransformerHTTPSPort, transformerSvc.Spec.Ports[0].Port,
+		"transformer service with auth should use the transformer HTTPS port")
+	assert.Equal(t, "https", transformerSvc.Spec.Ports[0].Name,
+		"transformer service port should be named https for reencrypt route")
+	assert.Equal(t, intstr.IntOrString{Type: intstr.Int, IntVal: constants.TransformerHTTPSPort},
+		transformerSvc.Spec.Ports[0].TargetPort,
+		"transformer service target port should point to the transformer HTTPS port")
+}
+
+func TestCustomizeServiceTransformerWithoutAuthKeepsHTTP(t *testing.T) {
+	svc := &corev1.Service{
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{Name: "http", Port: constants.CommonDefaultHttpPort},
+			},
+		},
+	}
+	meta := metav1.ObjectMeta{
+		Name: "test-transformer-no-auth",
+		Labels: map[string]string{
+			constants.KServiceComponentLabel: string(v1beta1.TransformerComponent),
+		},
+		// No ODHKserveRawAuth annotation
+	}
+
+	customizeService(svc, meta)
+
+	assert.Equal(t, int32(constants.CommonDefaultHttpPort), svc.Spec.Ports[0].Port,
+		"transformer without auth should keep the default HTTP port")
+	assert.Equal(t, "http", svc.Spec.Ports[0].Name,
+		"transformer without auth should keep 'http' port name")
 }
 
 func TestCustomizeServiceNoAuthProxyWithoutAnnotation(t *testing.T) {
