@@ -289,35 +289,63 @@ spec:
                     name: data-science-prometheus-datasource
                   query: avg(kserve_vllm:kv_cache_usage_perc{exported_namespace=~"$namespace",model_name=~"$model_name"})
                   seriesNameFormat: Usage
-      # Drill-down panel covers stretch/deferred panels P13, P14, P17. Remove once those panels are added.
-      drillDownHints:
+      perModelTTFT:
         kind: Panel
         spec:
           display:
-            name: Drill-down commands
+            name: Per-model TTFT
+            description: Time to first token per model at P50/P95/P99. Compare across
+              models to identify SLA compliance issues in multi-model deployments.
           plugin:
-            kind: Markdown
+            kind: TimeSeriesChart
             spec:
-              text: "<dl class=\"pf-v6-c-description-list pf-m-auto-column-widths\
-                \ pf-m-horizontal\">\n  <div class=\"pf-v6-c-description-list__group\"\
-                >\n    <dt class=\"pf-v6-c-description-list__term\">\n      <span\
-                \ class=\"pf-v6-c-description-list__text\">Per-pod cache hit rate</span>\n\
-                \    </dt>\n    <dd class=\"pf-v6-c-description-list__description\"\
-                >\n      <div class=\"pf-v6-c-description-list__text\">sum by (k8s_pod_name)\
-                \ (rate(kserve_vllm:prefix_cache_hits_total{exported_namespace=~\"\
-                $namespace\"}[5m])) / sum by (k8s_pod_name) (rate(kserve_vllm:prefix_cache_queries_total{exported_namespace=~\"\
-                $namespace\"}[5m]))</div>\n    </dd>\n  </div>\n  <div class=\"pf-v6-c-description-list__group\"\
-                >\n    <dt class=\"pf-v6-c-description-list__term\">\n      <span\
-                \ class=\"pf-v6-c-description-list__text\">Per-pod KV cache usage</span>\n\
-                \    </dt>\n    <dd class=\"pf-v6-c-description-list__description\"\
-                >\n      <div class=\"pf-v6-c-description-list__text\">kserve_vllm:kv_cache_usage_perc{exported_namespace=~\"\
-                $namespace\"}</div>\n    </dd>\n  </div>\n  <div class=\"pf-v6-c-description-list__group\"\
-                >\n    <dt class=\"pf-v6-c-description-list__term\">\n      <span\
-                \ class=\"pf-v6-c-description-list__text\">Per-pod TTFT P99</span>\n\
-                \    </dt>\n    <dd class=\"pf-v6-c-description-list__description\"\
-                >\n      <div class=\"pf-v6-c-description-list__text\">histogram_quantile(0.99,\
-                \ sum by (le, k8s_pod_name) (rate(kserve_vllm:time_to_first_token_seconds_bucket{exported_namespace=~\"\
-                $namespace\"}[5m])))</div>\n    </dd>\n  </div>\n</dl>"
+              legend:
+                mode: list
+                position: bottom
+                values: []
+              visual:
+                areaOpacity: 0
+                connectNulls: false
+                display: line
+                lineWidth: 1.5
+              yAxis:
+                format:
+                  unit: seconds
+                min: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
+                  query: (histogram_quantile(0.50, sum by (le, model_name) (rate(kserve_vllm:time_to_first_token_seconds_bucket{exported_namespace=~"$namespace",model_name=~"$model_name"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: '{{model_name}} P50'
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
+                  query: (histogram_quantile(0.95, sum by (le, model_name) (rate(kserve_vllm:time_to_first_token_seconds_bucket{exported_namespace=~"$namespace",model_name=~"$model_name"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: '{{model_name}} P95'
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
+                  query: (histogram_quantile(0.99, sum by (le, model_name) (rate(kserve_vllm:time_to_first_token_seconds_bucket{exported_namespace=~"$namespace",model_name=~"$model_name"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: '{{model_name}} P99'
     layouts:
     - kind: Grid
       spec:
@@ -366,13 +394,13 @@ spec:
     - kind: Grid
       spec:
         display:
-          title: Drill-down
+          title: Per-model detail
           collapse:
-            open: false
+            open: true
         items:
         - x: 0
           y: 0
           width: 24
-          height: 6
+          height: 8
           content:
-            $ref: '#/spec/panels/drillDownHints'
+            $ref: '#/spec/panels/perModelTTFT'
