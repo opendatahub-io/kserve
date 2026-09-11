@@ -26,13 +26,13 @@ const (
 	ConsoleDashboardsComponentName  = "console-dashboards"
 
 	// Manifest source paths
-	KserveManifestSourcePath        = "overlays/odh"
-	KserveManifestSourcePathXKS     = "overlays/odh-xks"
-	KserveCRDManifestSourcePath     = "overlays/odh-crds"
-	ModelCacheManifestSourcePath    = "overlays/odh-modelcache"
-	ModelControllerSourcePath       = "overlays/odh"
-	WVAManifestSourcePathOCP        = "overlays/namespace-scoped/openshift"
-	ObservabilityManifestSourcePath      = "monitoring/llmisvc/dashboards"
+	KserveManifestSourcePath            = "overlays/odh"
+	KserveManifestSourcePathXKS         = "overlays/odh-xks"
+	KserveCRDManifestSourcePath         = "overlays/odh-crds"
+	ModelCacheManifestSourcePath        = "overlays/odh-modelcache"
+	ModelControllerSourcePath           = "overlays/odh"
+	WVAManifestSourcePathOCP            = "overlays/namespace-scoped/openshift"
+	ObservabilityManifestSourcePath     = "monitoring/llmisvc/dashboards"
 	ConsoleDashboardsManifestSourcePath = "monitoring/llmisvc/dashboards-odc"
 
 	// Deployment names
@@ -67,6 +67,13 @@ const (
 	llmISVCConfigGroup       = "serving.kserve.io"
 	llmISVCConfigVersion     = "v1alpha2"
 	llmISVCConfigKind        = "LLMInferenceServiceConfig"
+
+	// llmISVCConfigWebhookName is the dedicated ValidatingWebhookConfiguration
+	// that guards LLMInferenceServiceConfig create/update/delete. It is removed
+	// during Kserve CR teardown so the well-known configs can be deleted; it only
+	// covers LLMInferenceServiceConfig, so removing it leaves the separate
+	// LLMInferenceService webhooks untouched.
+	llmISVCConfigWebhookName = "llminferenceserviceconfig.serving.kserve.io"
 
 	// Template (ServingRuntime) resource type
 	templateGroup = "template.openshift.io"
