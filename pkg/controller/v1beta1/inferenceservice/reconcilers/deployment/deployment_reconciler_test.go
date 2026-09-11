@@ -2793,6 +2793,16 @@ func TestNewInferenceGraph_NoOAuthProxy(t *testing.T) {
 		}
 	}
 	assert.True(t, tlsVolumeFound, "TLS volume should be mounted for InferenceGraph")
+
+	// Verify SAR ConfigMap volume is NOT added to InferenceGraph (no createSarCm is called for IG)
+	sarVolumeFound := false
+	for _, vol := range volumes {
+		if vol.Name == constants.OauthProxySARCMName {
+			sarVolumeFound = true
+			break
+		}
+	}
+	assert.False(t, sarVolumeFound, "SAR ConfigMap volume should NOT be added to InferenceGraph resources")
 }
 
 func TestSarVolumeNameForDeployment(t *testing.T) {
