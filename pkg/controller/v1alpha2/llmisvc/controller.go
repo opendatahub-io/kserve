@@ -296,6 +296,10 @@ func (r *LLMISVCReconciler) reconcile(ctx context.Context, llmSvc *v1alpha2.LLMI
 		return fmt.Errorf("failed to reconcile monitoring resources: %w", err)
 	}
 
+	if err := r.reconcileTracingNetworkPolicy(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to reconcile tracing network policy: %w", err)
+	}
+
 	if err := r.observeWorkloadStatus(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to observe workload status: %w", err)
 	}
@@ -317,6 +321,10 @@ func (r *LLMISVCReconciler) finalize(ctx context.Context, llmSvc *v1alpha2.LLMIn
 
 	if err := r.cleanupMonitoringResources(ctx, llmSvc); err != nil {
 		return false, fmt.Errorf("failed to cleanup monitoring resources: %w", err)
+	}
+
+	if err := r.cleanupTracingNetworkPolicy(ctx, llmSvc); err != nil {
+		return false, fmt.Errorf("failed to cleanup tracing network policy: %w", err)
 	}
 
 	if err := r.reconcileSchedulerServiceAccount(ctx, llmSvc); err != nil {
