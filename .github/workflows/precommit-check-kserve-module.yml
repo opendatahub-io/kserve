@@ -40,15 +40,16 @@ jobs:
       - name: Install dependencies
         run: cd kserve-module && go mod download
 
-      - name: Check
-        env:
-          GOPROXY: https://proxy.golang.org,direct
+      - name: Bootstrap golangci-lint
         run: |
           for attempt in 1 2 3; do
-            if make check-km; then
+            if make golangci-lint; then
               exit 0
             fi
-            echo "check-km failed (attempt ${attempt}/3), retrying..."
+            echo "golangci-lint bootstrap failed (attempt ${attempt}/3), retrying..."
             sleep $((attempt * 10))
           done
           exit 1
+
+      - name: Check
+        run: make check-km
