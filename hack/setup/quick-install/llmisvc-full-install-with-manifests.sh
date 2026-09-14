@@ -5245,6 +5245,8 @@ spec:
           fi
         fi
 
+        # Go crypto/tls (IANA) cipher names are canonical. Python ssl/OpenSSL,
+        # which backs vLLM TLS, accepts those names as aliases.
         eval "exec vllm serve /mnt/models \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8000 \

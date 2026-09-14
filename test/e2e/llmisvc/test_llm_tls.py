@@ -15,6 +15,7 @@
 import json
 import logging
 import os
+import ssl
 
 import pytest
 from kserve import KServeClient
@@ -37,6 +38,33 @@ from .test_llm_inference_service import (
 )
 
 logger = logging.getLogger(__name__)
+
+GO_TLS_CIPHER_SUITES = (
+    "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+    "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+    "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+    "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+)
+
+OPENSSL_TLS_CIPHER_SUITES = {
+    "ECDHE-RSA-AES128-GCM-SHA256",
+    "ECDHE-ECDSA-AES128-GCM-SHA256",
+    "ECDHE-RSA-AES256-GCM-SHA384",
+    "ECDHE-ECDSA-AES256-GCM-SHA384",
+}
+
+
+def test_go_tls_cipher_suite_names_are_accepted_by_python_ssl():
+    """The canonical Go/IANA cipher names must also configure vLLM's Python SSL."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.set_ciphers(",".join(GO_TLS_CIPHER_SUITES))
+
+    configured_ciphers = {
+        cipher["name"]
+        for cipher in context.get_ciphers()
+        if cipher["protocol"] != "TLSv1.3"
+    }
+    assert configured_ciphers == OPENSSL_TLS_CIPHER_SUITES
 
 
 def _get_tls_config() -> tuple[bool, str, str]:
