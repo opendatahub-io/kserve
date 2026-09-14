@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -52,7 +51,7 @@ var _ = Describe("RawDeployment audit logging", func() {
 	})
 
 	DescribeTable("renders the effective audit setting and keeps it stable across global changes",
-		func(serviceName string, globalEnabled bool, override *string, auditEnabled bool) {
+		func(serviceName string, globalEnabled bool, override *string, auditEnabled bool, wantAnnotation *string) {
 			ctx := context.Background()
 			configMap := auditLoggingConfigMap(globalEnabled)
 			Expect(k8sClient.Create(ctx, configMap)).To(Succeed())
@@ -60,7 +59,11 @@ var _ = Describe("RawDeployment audit logging", func() {
 
 			isvc := auditLoggingInferenceService(serviceName, override, true)
 			Expect(admitAuditLoggingInferenceService(admissionv1.Create, nil, isvc)).To(Succeed())
-			Expect(isvc.Annotations[constants.ODHKserveAuditLogging]).To(Equal(strconv.FormatBool(auditEnabled)))
+			auditValue, auditPresent := isvc.Annotations[constants.ODHKserveAuditLogging]
+			Expect(auditPresent).To(Equal(wantAnnotation != nil))
+			if wantAnnotation != nil {
+				Expect(auditValue).To(Equal(*wantAnnotation))
+			}
 			Expect(k8sClient.Create(ctx, isvc)).To(Succeed())
 			DeferCleanup(func() { _ = k8sClient.Delete(ctx, isvc) })
 
@@ -75,6 +78,14 @@ var _ = Describe("RawDeployment audit logging", func() {
 			}, timeout, interval).Should(Succeed())
 			originalTemplate := deployment.Spec.Template.DeepCopy()
 
+			persisted := &v1beta1.InferenceService{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, persisted)).To(Succeed())
+			persistedAuditValue, persistedAuditPresent := persisted.Annotations[constants.ODHKserveAuditLogging]
+			Expect(persistedAuditPresent).To(Equal(wantAnnotation != nil))
+			if wantAnnotation != nil {
+				Expect(persistedAuditValue).To(Equal(*wantAnnotation))
+			}
+
 			By("changing the global setting and reconciling an unrelated scaling update")
 			latestConfigMap := &corev1.ConfigMap{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{
@@ -84,12 +95,15 @@ var _ = Describe("RawDeployment audit logging", func() {
 			latestConfigMap.Data[v1beta1.OpenShiftConfigName] = auditLoggingOpenShiftConfig(!globalEnabled)
 			Expect(k8sClient.Update(ctx, latestConfigMap)).To(Succeed())
 
-			persisted := &v1beta1.InferenceService{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, persisted)).To(Succeed())
 			oldIsvc := persisted.DeepCopy()
 			persisted.Spec.Predictor.MaxReplicas = 4
 			Expect(admitAuditLoggingInferenceService(admissionv1.Update, oldIsvc, persisted)).To(Succeed())
-			Expect(persisted.Annotations[constants.ODHKserveAuditLogging]).To(Equal(strconv.FormatBool(auditEnabled)))
+			persistedAuditValue, persistedAuditPresent = persisted.Annotations[constants.ODHKserveAuditLogging]
+			Expect(persistedAuditPresent).To(Equal(wantAnnotation != nil))
+			if wantAnnotation != nil {
+				Expect(persistedAuditValue).To(Equal(*wantAnnotation))
+			}
 			Expect(k8sClient.Update(ctx, persisted)).To(Succeed())
 
 			Eventually(func(g Gomega) {
@@ -104,11 +118,19 @@ var _ = Describe("RawDeployment audit logging", func() {
 				g.Expect(updatedDeployment.Spec.Template).To(Equal(*originalTemplate))
 				g.Expect(auditLoggingArgs(updatedDeployment)).To(Equal(expectedAuditLoggingArgs(isvc, auditEnabled)))
 			}, timeout, interval).Should(Succeed())
+
+			finalIsvc := &v1beta1.InferenceService{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, finalIsvc)).To(Succeed())
+			finalAuditValue, finalAuditPresent := finalIsvc.Annotations[constants.ODHKserveAuditLogging]
+			Expect(finalAuditPresent).To(Equal(wantAnnotation != nil))
+			if wantAnnotation != nil {
+				Expect(finalAuditValue).To(Equal(*wantAnnotation))
+			}
 		},
-		Entry("inherits an enabled global default", "audit-global-on", true, nil, true),
-		Entry("inherits a disabled global default", "audit-global-off", false, nil, false),
-		Entry("allows an explicit opt-in", "audit-override-on", false, ptr.To("true"), true),
-		Entry("allows an explicit opt-out", "audit-override-off", true, ptr.To("false"), false),
+		Entry("inherits an enabled global default", "audit-global-on", true, nil, true, ptr.To("true")),
+		Entry("inherits a disabled global default", "audit-global-off", false, nil, false, nil),
+		Entry("allows an explicit opt-in", "audit-override-on", false, ptr.To("true"), true, ptr.To("true")),
+		Entry("allows an explicit opt-out", "audit-override-off", true, ptr.To("false"), false, ptr.To("false")),
 	)
 
 	DescribeTable("rejects effective audit logging without authentication",

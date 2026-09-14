@@ -149,12 +149,6 @@ func createRawDeploymentODH(ctx context.Context,
 		return nil, false, fmt.Errorf("failed to fetch deployment %s/%s: %w", componentMeta.Namespace, componentMeta.Name, err)
 	}
 	existingDeploymentFound := existingDeployment != nil
-	if resourceType == constants.InferenceServiceResource && !isTransformerComponent(componentMeta) {
-		componentMeta, err = resolvePlatformAuthProxyMetadata(ctx, client, componentMeta, existingDeployment, isvcname)
-		if err != nil {
-			return nil, false, fmt.Errorf("failed to resolve platform auth proxy metadata: %w", err)
-		}
-	}
 
 	sarVolumeName := sarVolumeNameForDeployment(isvcname, existingDeployment)
 

@@ -22,7 +22,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -60,10 +59,13 @@ func defaultAuditLoggingOnCreate(isvc *InferenceService, configMap *corev1.Confi
 	if err != nil {
 		return fmt.Errorf("unable to parse OpenShift audit logging configuration: %w", err)
 	}
+	if !config.EnableAuditLogging {
+		return nil
+	}
 	if isvc.Annotations == nil {
 		isvc.Annotations = map[string]string{}
 	}
-	isvc.Annotations[constants.ODHKserveAuditLogging] = strconv.FormatBool(config.EnableAuditLogging)
+	isvc.Annotations[constants.ODHKserveAuditLogging] = "true"
 	return nil
 }
 

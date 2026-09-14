@@ -19,11 +19,8 @@ limitations under the License.
 package deployment
 
 import (
-	"context"
-
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // NO-OP for non distro
@@ -33,10 +30,6 @@ func mountTransformerTLSInfrastructure(_ *appsv1.Deployment, _ metav1.ObjectMeta
 
 func customizeAuthProxyArgs(_ metav1.ObjectMeta, generated []string, _ string) []string {
 	return generated
-}
-
-func resolvePlatformAuthProxyMetadata(_ context.Context, _ kclient.Client, componentMeta metav1.ObjectMeta, _ *appsv1.Deployment, _ string) (metav1.ObjectMeta, error) {
-	return componentMeta, nil
 }
 
 func platformAuthProxyNeedsUpdate(_ metav1.ObjectMeta, _ *appsv1.Deployment, _ string) bool {

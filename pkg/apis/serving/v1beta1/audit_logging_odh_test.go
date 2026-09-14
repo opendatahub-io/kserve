@@ -61,12 +61,16 @@ func TestAuditLoggingAdmissionPolicy(t *testing.T) {
 			wantError:    "requires authentication",
 		},
 		{
-			name:         "create snapshots disabled global setting",
+			name:         "create leaves disabled global setting annotationless",
+			operation:    admissionv1.Create,
+			annotations:  standardAnnotations(),
+			globalConfig: `{"enableAuditLogging":false}`,
+		},
+		{
+			name:         "create leaves omitted global setting annotationless",
 			operation:    admissionv1.Create,
 			annotations:  standardAnnotations(),
 			globalConfig: `{}`,
-			wantPresent:  true,
-			wantValue:    "false",
 		},
 		{
 			name:      "explicit false overrides enabled global setting",

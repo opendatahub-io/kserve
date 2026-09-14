@@ -19,7 +19,6 @@ limitations under the License.
 package deployment
 
 import (
-	"context"
 	"fmt"
 	"strconv"
 	"strings"
@@ -27,8 +26,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
-	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
@@ -127,58 +124,6 @@ func customizeAuthProxyArgs(componentMeta metav1.ObjectMeta, generated []string,
 	return args
 }
 
-func resolvePlatformAuthProxyMetadata(ctx context.Context, client kclient.Client, componentMeta metav1.ObjectMeta, existing *appsv1.Deployment, isvcName string) (metav1.ObjectMeta, error) {
-	isvc := &v1beta1.InferenceService{}
-	if err := client.Get(ctx, types.NamespacedName{Namespace: componentMeta.Namespace, Name: isvcName}, isvc); err != nil {
-		return componentMeta, fmt.Errorf("get InferenceService %s/%s: %w", componentMeta.Namespace, isvcName, err)
-	}
-
-	resolved := *componentMeta.DeepCopy()
-	if resolved.Annotations == nil {
-		resolved.Annotations = map[string]string{}
-	}
-	if auditValue, present := isvc.Annotations[constants.ODHKserveAuditLogging]; present {
-		resolved.Annotations[constants.ODHKserveAuditLogging] = auditValue
-		return resolved, nil
-	}
-	if !hasAuthProxy(existing) {
-		resolved.Annotations[constants.ODHKserveAuditLogging] = "false"
-		return resolved, nil
-	}
-
-	// Legacy services predate the persisted audit annotation. Snapshot only a complete,
-	// correctly attributed legacy configuration, then use the parent ISVC as the source
-	// of truth for this and all subsequent reconciliations.
-	auditEnabled := validLegacyAuditConfiguration(existing, isvcName, componentMeta.Namespace)
-	if auditEnabled && (!strings.EqualFold(isvc.Annotations[constants.ODHKserveRawAuth], "true") ||
-		isvc.Annotations[constants.DeploymentMode] != string(constants.Standard)) {
-		auditEnabled = false
-	}
-	auditValue := strconv.FormatBool(auditEnabled)
-	original := isvc.DeepCopy()
-	if isvc.Annotations == nil {
-		isvc.Annotations = map[string]string{}
-	}
-	isvc.Annotations[constants.ODHKserveAuditLogging] = auditValue
-	if err := client.Patch(ctx, isvc, kclient.MergeFrom(original)); err != nil {
-		return componentMeta, fmt.Errorf("persist audit logging setting on InferenceService %s/%s: %w", componentMeta.Namespace, isvcName, err)
-	}
-	resolved.Annotations[constants.ODHKserveAuditLogging] = auditValue
-	return resolved, nil
-}
-
-func hasAuthProxy(deployment *appsv1.Deployment) bool {
-	if deployment == nil {
-		return false
-	}
-	for _, container := range deployment.Spec.Template.Spec.Containers {
-		if container.Name == constants.KubeRbacContainerName || container.Name == constants.OauthProxyContainerName {
-			return true
-		}
-	}
-	return false
-}
-
 func platformAuthProxyNeedsUpdate(componentMeta metav1.ObjectMeta, existing *appsv1.Deployment, isvcName string) bool {
 	if existing == nil {
 		return false
@@ -205,35 +150,6 @@ func desiredAuditArgs(componentMeta metav1.ObjectMeta, isvcName string) []string
 		"--audit-isvc-name=" + name,
 		"--audit-isvc-namespace=" + componentMeta.Namespace,
 	}
-}
-
-func validLegacyAuditConfiguration(existing *appsv1.Deployment, isvcName, namespace string) bool {
-	if existing == nil {
-		return false
-	}
-	want := []string{
-		"--audit-log-enabled",
-		"--audit-isvc-name=" + isvcName,
-		"--audit-isvc-namespace=" + namespace,
-	}
-	for _, container := range existing.Spec.Template.Spec.Containers {
-		if container.Name == constants.KubeRbacContainerName || container.Name == constants.OauthProxyContainerName {
-			legacyArgs := removeArgByName(managedAuditArgs(container.Args), "--audit-use-forwarded-for")
-			return sameArgs(legacyArgs, want)
-		}
-	}
-	return false
-}
-
-func removeArgByName(args []string, unwanted string) []string {
-	filtered := make([]string, 0, len(args))
-	for _, arg := range args {
-		name, _, _ := strings.Cut(arg, "=")
-		if name != unwanted {
-			filtered = append(filtered, arg)
-		}
-	}
-	return filtered
 }
 
 func removeManagedAuditArgs(args []string) []string {
@@ -275,10 +191,5 @@ func sameArgs(left, right []string) bool {
 
 func isManagedAuditArg(arg string) bool {
 	name, _, _ := strings.Cut(arg, "=")
-	switch name {
-	case "--audit-log-enabled", "--audit-isvc-name", "--audit-isvc-namespace", "--audit-use-forwarded-for":
-		return true
-	default:
-		return false
-	}
+	return strings.HasPrefix(name, "--audit-")
 }

@@ -18,7 +18,6 @@ limitations under the License.
 package deployment
 
 import (
-	"maps"
 	"strings"
 	"testing"
 
@@ -307,10 +306,9 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 	tests := []struct {
 		name                string
 		annotations         map[string]string
-		isvcAnnotations     map[string]string
 		existingDeployment  *appsv1.Deployment
 		wantAuditArgs       []string
-		wantPersistedAudit  string
+		wantNoISVCPatch     bool
 		wantConfiguredProxy bool
 	}{
 		{
@@ -346,26 +344,17 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			wantConfiguredProxy: true,
 		},
 		{
-			name: "explicit true enables an existing unaudited predictor",
-			annotations: map[string]string{
-				constants.ODHKserveRawAuth:      "true",
-				constants.ODHKserveAuditLogging: "true",
-			},
-			existingDeployment: deploymentWithAuthProxy(),
-			wantAuditArgs: []string{
-				"--audit-log-enabled",
-				"--audit-isvc-name=test-isvc",
-				"--audit-isvc-namespace=test-ns",
-			},
-		},
-		{
-			name: "component override cannot disable parent audit setting",
+			name: "explicit false removes unknown audit arguments",
 			annotations: map[string]string{
 				constants.ODHKserveRawAuth:      "true",
 				constants.ODHKserveAuditLogging: "false",
 			},
-			isvcAnnotations: map[string]string{
-				constants.DeploymentMode:        string(constants.Standard),
+			existingDeployment:  deploymentWithAuthProxyImage("outdated-proxy", "--audit-future-option=unchanged"),
+			wantConfiguredProxy: true,
+		},
+		{
+			name: "explicit true enables an existing unaudited predictor",
+			annotations: map[string]string{
 				constants.ODHKserveRawAuth:      "true",
 				constants.ODHKserveAuditLogging: "true",
 			},
@@ -405,7 +394,7 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			wantConfiguredProxy: true,
 		},
 		{
-			name: "legacy predictor preserves existing audit state",
+			name: "annotationless predictor does not infer audit state",
 			annotations: map[string]string{
 				constants.DeploymentMode:   string(constants.Standard),
 				constants.ODHKserveRawAuth: "true",
@@ -418,48 +407,24 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 				"--audit-use-forwarded-for",
 				"--audit-future-option=unchanged",
 			),
-			wantAuditArgs: []string{
-				"--audit-log-enabled",
-				"--audit-isvc-name=test-isvc",
-				"--audit-isvc-namespace=test-ns",
-			},
-			wantPersistedAudit: "true",
+			wantNoISVCPatch: true,
 		},
 		{
-			name: "legacy unaudited predictor remains unaudited",
+			name: "annotationless predictor remains unaudited without patching parent",
 			annotations: map[string]string{
 				constants.DeploymentMode:   string(constants.Standard),
 				constants.ODHKserveRawAuth: "true",
 			},
 			existingDeployment: deploymentWithAuthProxy("--legacy-unrelated-arg"),
-			wantPersistedAudit: "false",
-		},
-		{
-			name: "legacy spoofed identity is not trusted",
-			annotations: map[string]string{
-				constants.DeploymentMode:   string(constants.Standard),
-				constants.ODHKserveRawAuth: "true",
-			},
-			existingDeployment: deploymentWithAuthProxy(
-				"--audit-log-enabled",
-				"--audit-isvc-name=spoofed",
-				"--audit-isvc-namespace=test-ns",
-			),
-			wantPersistedAudit:  "false",
-			wantConfiguredProxy: true,
+			wantNoISVCPatch:    true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			isvcAnnotations := maps.Clone(tt.isvcAnnotations)
-			if isvcAnnotations == nil {
-				isvcAnnotations = maps.Clone(tt.annotations)
-			}
 			client := &mockClientForAuthProxyDetection{
-				existingDeployment:          tt.existingDeployment,
-				deploymentNotFound:          tt.existingDeployment == nil,
-				inferenceServiceAnnotations: isvcAnnotations,
+				existingDeployment: tt.existingDeployment,
+				deploymentNotFound: tt.existingDeployment == nil,
 			}
 			clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
@@ -501,9 +466,9 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			if tt.wantConfiguredProxy {
 				assert.Equal(t, constants.OauthProxyImage, proxy.Image)
 			}
-			if tt.wantPersistedAudit != "" {
-				require.NotNil(t, client.patchedInferenceService)
-				assert.Equal(t, tt.wantPersistedAudit, client.patchedInferenceService.Annotations[constants.ODHKserveAuditLogging])
+			assert.Equal(t, 1, client.inferenceServiceGets, "only the SAR owner-reference lookup should read the parent InferenceService")
+			if tt.wantNoISVCPatch {
+				assert.Nil(t, client.patchedInferenceService)
 			}
 		})
 	}
