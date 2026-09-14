@@ -39,14 +39,18 @@ from .test_llm_inference_service import (
 logger = logging.getLogger(__name__)
 
 
-def _is_tls_enabled() -> bool:
-    """Read the enableLLMInferenceServiceTLS flag from the inferenceservice-config ConfigMap."""
+def _get_tls_config() -> tuple[bool, str, str]:
+    """Read the LLMInferenceService TLS settings from inferenceservice-config."""
     inject_k8s_proxy()
     core_v1 = client.CoreV1Api()
     kserve_ns = os.environ.get("KSERVE_NAMESPACE", "opendatahub")
     cm = core_v1.read_namespaced_config_map("inferenceservice-config", kserve_ns)
     ingress = json.loads(cm.data.get("ingress", "{}"))
-    return ingress.get("enableLLMInferenceServiceTLS", False)
+    return (
+        ingress.get("enableLLMInferenceServiceTLS", False),
+        ingress.get("llmInferenceServiceTLSMinVersion", ""),
+        ingress.get("llmInferenceServiceTLSCipherSuites", ""),
+    )
 
 
 def _list_destination_rules(namespace, label_selector):
@@ -89,6 +93,32 @@ def _get_service(namespace, name):
         raise
 
 
+def _get_container_commands(namespace, service_name):
+    """Return commands for the EPP and routing sidecar managed by an LLMISVC."""
+    core_v1 = client.CoreV1Api()
+    pods = core_v1.list_namespaced_pod(
+        namespace,
+        label_selector=(
+            f"app.kubernetes.io/part-of=llminferenceservice,"
+            f"app.kubernetes.io/name={service_name}"
+        ),
+    )
+
+    commands = {}
+    for pod in pods.items:
+        containers = [
+            *(pod.spec.init_containers or []),
+            *(pod.spec.containers or []),
+        ]
+        for container in containers:
+            command = [*(container.command or []), *(container.args or [])]
+            if "/app/epp" in command:
+                commands["epp"] = command
+            elif "/app/pd-sidecar" in command:
+                commands["sidecar"] = command
+    return commands
+
+
 @pytest.mark.llminferenceservice
 @pytest.mark.asyncio(loop_scope="session")
 @pytest.mark.parametrize(
@@ -98,7 +128,7 @@ def _get_service(namespace, name):
             TestCase(
                 base_refs=[
                     "router-managed",
-                    "workload-single-cpu",
+                    "workload-pd-cpu",
                     "model-fb-opt-125m",
                 ],
                 prompt="KServe is a",
@@ -118,8 +148,13 @@ def test_llm_tls_resources(test_case: TestCase):
     are correctly present or absent based on the enableLLMInferenceServiceTLS flag."""
     inject_k8s_proxy()
 
-    tls_enabled = _is_tls_enabled()
-    logger.info(f"enableLLMInferenceServiceTLS = {tls_enabled}")
+    tls_enabled, tls_min_version, tls_cipher_suites = _get_tls_config()
+    logger.info(
+        "LLMInferenceService TLS config: enabled=%s, min_version=%s, cipher_suites=%s",
+        tls_enabled,
+        tls_min_version,
+        tls_cipher_suites,
+    )
 
     kserve_client = KServeClient(
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config"),
@@ -136,6 +171,12 @@ def test_llm_tls_resources(test_case: TestCase):
         wait_for_model_response(kserve_client, test_case, test_case.wait_timeout)
 
         _verify_tls_resources(service_name, test_case.namespace, tls_enabled)
+        _verify_tls_arguments(
+            service_name,
+            test_case.namespace,
+            tls_min_version,
+            tls_cipher_suites,
+        )
 
     except Exception as e:
         logger.error(f"Failed TLS verification for {service_name}: {e}")
@@ -220,3 +261,29 @@ def _verify_tls_resources(service_name, namespace, tls_enabled):
         f"cert_secret={'present' if cert_secret else 'absent'}, "
         f"svc_port={workload_svc.spec.ports[0].name if workload_svc else 'N/A'})"
     )
+
+
+def _verify_tls_arguments(service_name, namespace, tls_min_version, tls_cipher_suites):
+    """Assert that the TLS profile is propagated to the EPP and routing sidecar."""
+    commands = _get_container_commands(namespace, service_name)
+    assert "epp" in commands, "Expected to find the EPP container command"
+    assert "sidecar" in commands, "Expected to find the routing sidecar command"
+
+    expected_args = {
+        "--tls-min-version": tls_min_version,
+        "--tls-cipher-suites": tls_cipher_suites,
+    }
+    for component, command in commands.items():
+        for flag, value in expected_args.items():
+            matching_args = [arg for arg in command if arg.startswith(f"{flag}=")]
+            if value:
+                assert matching_args == [f"{flag}={value}"], (
+                    f"Expected {component} to receive {flag}={value}, "
+                    f"got: {matching_args}"
+                )
+            else:
+                assert not matching_args, (
+                    f"Expected {component} to omit {flag}, got: {matching_args}"
+                )
+
+    logger.info("TLS argument verification passed for components: %s", sorted(commands))
