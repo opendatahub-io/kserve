@@ -26,6 +26,7 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 	istioapi "istio.io/client-go/pkg/apis/networking/v1"
 	corev1 "k8s.io/api/core/v1"
+	netv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -43,6 +44,8 @@ import (
 )
 
 func (r *LLMISVCReconciler) extendControllerSetup(mgr manager.Manager, b *builder.Builder) error {
+	b.Owns(&netv1.NetworkPolicy{}, builder.WithPredicates(childResourcesPredicate))
+
 	if err := istioapi.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("failed to add Istio v1 APIs to scheme: %w", err)
 	}

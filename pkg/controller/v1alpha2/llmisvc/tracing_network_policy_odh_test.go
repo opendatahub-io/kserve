@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
@@ -38,13 +39,13 @@ import (
 
 var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 	It("creates a comprehensive per-service OTLP egress policy", func(ctx SpecContext) {
-		GinkgoT().Setenv("MONITORING_NAMESPACE", "test-monitoring-ns")
 		testNs := NewTestNamespace(ctx, envTest)
 		llmSvc := LLMInferenceService("test-llm-tracing-netpol",
 			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
 			WithModelURI("hf://facebook/opt-125m"),
+			WithAnnotations(map[string]string{"serving.kserve.io/enable-tracing-egress-network-policy": "true"}),
 		)
-		llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{}
+		llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{ExporterEndpoint: ptr.To("http://data-science-collector-collector.redhat-ods-monitoring.svc.cluster.local:4317")}
 
 		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
 		defer testNs.DeleteAndWait(ctx, llmSvc)
@@ -77,11 +78,8 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 		Expect(np.Spec.Egress[3].Ports).To(ContainElement(
 			netv1.NetworkPolicyPort{Protocol: ptr.To(corev1.ProtocolTCP), Port: ptr.To(intstr.FromInt32(4317))},
 		))
-		Expect(namespaceNamesFromEgressRule(np.Spec.Egress[3])).To(ConsistOf("redhat-ods-monitoring", "test-monitoring-ns"))
-		Expect(np.Spec.Egress[3].To[0].PodSelector.MatchLabels).To(HaveKeyWithValue(
-			constants.KubernetesAppNameLabelKey, "data-science-collector-collector"))
-		Expect(np.Spec.Egress[3].To[0].PodSelector.MatchLabels).To(HaveKeyWithValue(
-			constants.KubernetesComponentLabelKey, "opentelemetry-collector"))
+		Expect(namespaceNamesFromEgressRule(np.Spec.Egress[3])).To(ConsistOf("redhat-ods-monitoring"))
+		Expect(np.Spec.Egress[3].To[0].PodSelector).To(BeNil())
 
 		monitoringNP := &netv1.NetworkPolicy{}
 		Expect(envTest.Get(ctx, types.NamespacedName{
@@ -90,11 +88,31 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 		}, monitoringNP)).To(Succeed())
 	})
 
+	It("allows a custom cross-namespace OTLP endpoint and port", func(ctx SpecContext) {
+		testNs := NewTestNamespace(ctx, envTest)
+		llmSvc := LLMInferenceService("test-llm-tracing-custom-endpoint",
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithAnnotations(map[string]string{"serving.kserve.io/enable-tracing-egress-network-policy": "true"}),
+		)
+		llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{ExporterEndpoint: ptr.To("http://jaeger.observability.svc:4318")}
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer testNs.DeleteAndWait(ctx, llmSvc)
+
+		np := waitForTracingNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
+		Expect(np.Spec.Egress).To(HaveLen(4))
+		Expect(namespaceNamesFromEgressRule(np.Spec.Egress[3])).To(ConsistOf("observability"))
+		Expect(np.Spec.Egress[3].Ports).To(ContainElement(
+			netv1.NetworkPolicyPort{Protocol: ptr.To(corev1.ProtocolTCP), Port: ptr.To(intstr.FromInt32(4318))},
+		))
+	})
+
 	It("removes the policy when tracing is cleared", func(ctx SpecContext) {
 		testNs := NewTestNamespace(ctx, envTest)
 		llmSvc := LLMInferenceService("test-llm-tracing-clear",
 			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
 			WithModelURI("hf://facebook/opt-125m"),
+			WithAnnotations(map[string]string{"serving.kserve.io/enable-tracing-egress-network-policy": "true"}),
 		)
 		llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{}
 		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
@@ -115,12 +133,41 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 		}).WithContext(ctx).Should(Succeed())
 	})
 
+	It("removes the policy when explicit opt-in is cleared", func(ctx SpecContext) {
+		testNs := NewTestNamespace(ctx, envTest)
+		llmSvc := LLMInferenceService("test-llm-tracing-opt-in-clear",
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithAnnotations(map[string]string{"serving.kserve.io/enable-tracing-egress-network-policy": "true"}),
+		)
+		llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{}
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer testNs.DeleteAndWait(ctx, llmSvc)
+		waitForTracingNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
+
+		updated := &v1alpha2.LLMInferenceService{}
+		Expect(envTest.Get(ctx, types.NamespacedName{Name: llmSvc.Name, Namespace: testNs.Name}, updated)).To(Succeed())
+		updated.Annotations = nil
+		Expect(envTest.Update(ctx, updated)).To(Succeed())
+
+		Eventually(func(g Gomega, ctx context.Context) {
+			err := envTest.Get(ctx, types.NamespacedName{
+				Name:      kmeta.ChildName(llmSvc.Name, "-otlp-egress"),
+				Namespace: testNs.Name,
+			}, &netv1.NetworkPolicy{})
+			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		}).WithContext(ctx).Should(Succeed())
+	})
+
 	It("does not create the policy for a force-stopped service", func(ctx SpecContext) {
 		testNs := NewTestNamespace(ctx, envTest)
 		llmSvc := LLMInferenceService("test-llm-tracing-stopped",
 			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
 			WithModelURI("hf://facebook/opt-125m"),
-			WithAnnotations(map[string]string{constants.StopAnnotationKey: "true"}),
+			WithAnnotations(map[string]string{
+				constants.StopAnnotationKey:                              "true",
+				"serving.kserve.io/enable-tracing-egress-network-policy": "true",
+			}),
 		)
 		llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{}
 		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
@@ -135,18 +182,51 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 		}).WithContext(ctx).Should(Succeed())
 	})
 
-	It("deletes the policy when the service is deleted", func(ctx SpecContext) {
+	It("leaves policy deletion to garbage collection when the service is deleted", func(ctx SpecContext) {
 		testNs := NewTestNamespace(ctx, envTest)
 		llmSvc := LLMInferenceService("test-llm-tracing-delete",
 			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
 			WithModelURI("hf://facebook/opt-125m"),
+			WithAnnotations(map[string]string{"serving.kserve.io/enable-tracing-egress-network-policy": "true"}),
 		)
 		llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{}
 		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
 		waitForTracingNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
 
 		testNs.DeleteAndWait(ctx, llmSvc)
+		Expect(envTest.Get(ctx, types.NamespacedName{
+			Name:      kmeta.ChildName(llmSvc.Name, "-otlp-egress"),
+			Namespace: testNs.Name,
+		}, &netv1.NetworkPolicy{})).To(Succeed())
+
+		// envtest does not run garbage collection, so simulate the API server's
+		// deletion of the owned policy explicitly.
+		Expect(envTest.Delete(ctx, &netv1.NetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      kmeta.ChildName(llmSvc.Name, "-otlp-egress"),
+				Namespace: testNs.Name,
+			},
+		})).To(Succeed())
 		Eventually(func(g Gomega, ctx context.Context) {
+			err := envTest.Get(ctx, types.NamespacedName{
+				Name:      kmeta.ChildName(llmSvc.Name, "-otlp-egress"),
+				Namespace: testNs.Name,
+			}, &netv1.NetworkPolicy{})
+			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+		}).WithContext(ctx).Should(Succeed())
+	})
+
+	It("does not create the policy for tracing without explicit opt-in", func(ctx SpecContext) {
+		testNs := NewTestNamespace(ctx, envTest)
+		llmSvc := LLMInferenceService("test-llm-tracing-no-egress-policy",
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+		)
+		llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{}
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer testNs.DeleteAndWait(ctx, llmSvc)
+
+		Consistently(func(g Gomega, ctx context.Context) {
 			err := envTest.Get(ctx, types.NamespacedName{
 				Name:      kmeta.ChildName(llmSvc.Name, "-otlp-egress"),
 				Namespace: testNs.Name,

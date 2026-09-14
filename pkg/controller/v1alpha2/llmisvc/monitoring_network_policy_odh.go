@@ -135,8 +135,18 @@ func namespaceSelectorPeer(ns string) netv1.NetworkPolicyPeer {
 	}
 }
 
-func (r *LLMISVCReconciler) reconcileMonitoringNetworkPolicy(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, config *Config) error {
-	logger := log.FromContext(ctx).WithName("reconcileMonitoringNetworkPolicy")
+// reconcileNetworkPolicies reconciles the distro-specific per-service network
+// policies. It runs before the monitoring-disabled guard so tracing policy
+// reconciliation remains independent of monitoring resource reconciliation.
+func (r *LLMISVCReconciler) reconcileNetworkPolicies(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, config *Config) error {
+	logger := log.FromContext(ctx).WithName("reconcileNetworkPolicies")
+
+	if err := r.reconcileTracingNetworkPolicy(ctx, llmSvc); err != nil {
+		return fmt.Errorf("failed to reconcile tracing network policy: %w", err)
+	}
+	if monitoringDisabled {
+		return nil
+	}
 
 	if utils.GetForceStopRuntime(llmSvc) {
 		return r.cleanupMonitoringNetworkPolicy(ctx, llmSvc)

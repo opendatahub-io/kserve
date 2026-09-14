@@ -21,12 +21,14 @@ package llmisvc
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"strconv"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/env"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmeta"
 
@@ -36,26 +38,20 @@ import (
 )
 
 const (
-	tracingNetworkPolicySuffix   = "-otlp-egress"
-	tracingNPComponentLabel      = "llm-tracing"
-	platformCollectorServiceName = "data-science-collector-collector"
-	platformCollectorComponent   = "opentelemetry-collector"
-	otlpPort                     = 4317
+	tracingNetworkPolicySuffix = "-otlp-egress"
+	tracingNPComponentLabel    = "llm-tracing"
+	// tracingNetworkPolicyOptInAnnotation enables the workload-side egress policy.
+	// Tracing alone must not implicitly deny unrelated workload egress.
+	tracingNetworkPolicyOptInAnnotation = constants.KServeAPIGroupName + "/enable-tracing-egress-network-policy"
+	defaultOTLPPort                     = 4317
 )
 
 func tracingNetworkPolicyName(llmSvc *v1alpha2.LLMInferenceService) string {
 	return kmeta.ChildName(llmSvc.GetName(), tracingNetworkPolicySuffix)
 }
 
-func otlpTargetMonitoringNamespaces() []string {
-	return uniqueNamespaces(
-		defaultRHOAIMonitoringNamespace,
-		env.GetString(monitoringNamespaceEnvVar, ""),
-	)
-}
-
 func (r *LLMISVCReconciler) reconcileTracingNetworkPolicy(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
-	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Tracing == nil {
+	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Tracing == nil || llmSvc.GetAnnotations()[tracingNetworkPolicyOptInAnnotation] != "true" {
 		return r.cleanupTracingNetworkPolicy(ctx, llmSvc)
 	}
 
@@ -68,7 +64,7 @@ func (r *LLMISVCReconciler) reconcileTracingNetworkPolicy(ctx context.Context, l
 
 func (r *LLMISVCReconciler) cleanupTracingNetworkPolicy(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	expected := expectedTracingNetworkPolicy(llmSvc)
-	if err := Delete[*v1alpha2.LLMInferenceService](ctx, r, nil, expected); err != nil {
+	if err := Delete[*v1alpha2.LLMInferenceService](ctx, r, llmSvc, expected); err != nil {
 		return fmt.Errorf("failed to delete tracing network policy: %w", err)
 	}
 	return nil
@@ -84,18 +80,13 @@ func expectedTracingNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService) *netv1.N
 		}
 	}
 
-	monitoringNamespaces := otlpTargetMonitoringNamespaces()
-	otlpPeers := make([]netv1.NetworkPolicyPeer, 0, len(monitoringNamespaces))
-	for _, namespace := range monitoringNamespaces {
-		peer := namespaceSelectorPeer(namespace)
-		peer.PodSelector = &metav1.LabelSelector{MatchLabels: map[string]string{
-			constants.KubernetesAppNameLabelKey:   platformCollectorServiceName,
-			constants.KubernetesComponentLabelKey: platformCollectorComponent,
-		}}
-		otlpPeers = append(otlpPeers, peer)
+	tracingEndpoint := ""
+	if llmSvc.Spec.Tracing != nil {
+		tracingEndpoint = ptr.Deref(llmSvc.Spec.Tracing.ExporterEndpoint, "")
 	}
+	otlpPeer, otlpPort, hasCrossNamespaceOTLP := otlpPeerForEndpoint(tracingEndpoint, llmSvc.GetNamespace())
 
-	return &netv1.NetworkPolicy{
+	policy := &netv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      tracingNetworkPolicyName(llmSvc),
 			Namespace: llmSvc.GetNamespace(),
@@ -120,8 +111,48 @@ func expectedTracingNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService) *netv1.N
 				}},
 				{Ports: []netv1.NetworkPolicyPort{port(tcp, 443), port(tcp, 6443)}},
 				{To: []netv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{}}}},
-				{Ports: []netv1.NetworkPolicyPort{port(tcp, otlpPort)}, To: otlpPeers},
 			},
 		},
 	}
+	if hasCrossNamespaceOTLP {
+		policy.Spec.Egress = append(policy.Spec.Egress, netv1.NetworkPolicyEgressRule{
+			Ports: []netv1.NetworkPolicyPort{port(tcp, otlpPort)},
+			To:    []netv1.NetworkPolicyPeer{otlpPeer},
+		})
+	}
+	return policy
+}
+
+// otlpPeerForEndpoint maps a cluster-local Service endpoint to a NetworkPolicy
+// peer. Same-namespace endpoints need no extra rule because the policy already
+// allows unrestricted traffic within the namespace.
+func otlpPeerForEndpoint(endpoint, serviceNamespace string) (netv1.NetworkPolicyPeer, int32, bool) {
+	parsed, err := url.Parse(endpoint)
+	if err != nil || parsed.Hostname() == "" {
+		return netv1.NetworkPolicyPeer{}, 0, false
+	}
+
+	hostParts := strings.Split(strings.ToLower(parsed.Hostname()), ".")
+	var namespace string
+	switch {
+	case len(hostParts) == 3 && hostParts[2] == "svc":
+		namespace = hostParts[1]
+	case len(hostParts) == 5 && hostParts[2] == "svc" && hostParts[3] == "cluster" && hostParts[4] == "local":
+		namespace = hostParts[1]
+	default:
+		return netv1.NetworkPolicyPeer{}, 0, false
+	}
+	if namespace == "" || namespace == serviceNamespace {
+		return netv1.NetworkPolicyPeer{}, 0, false
+	}
+
+	port := int32(defaultOTLPPort)
+	if portString := parsed.Port(); portString != "" {
+		value, err := strconv.ParseInt(portString, 10, 32)
+		if err != nil || value < 1 || value > 65535 {
+			return netv1.NetworkPolicyPeer{}, 0, false
+		}
+		port = int32(value)
+	}
+	return namespaceSelectorPeer(namespace), port, true
 }

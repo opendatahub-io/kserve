@@ -33,25 +33,31 @@ import (
 	"github.com/kserve/kserve/pkg/constants"
 )
 
-func TestOtlpTargetMonitoringNamespaces(t *testing.T) {
-	t.Run("uses RHOAI default", func(t *testing.T) {
-		t.Setenv(monitoringNamespaceEnvVar, "")
-		if got, want := otlpTargetMonitoringNamespaces(), []string{defaultRHOAIMonitoringNamespace}; !reflect.DeepEqual(got, want) {
-			t.Fatalf("got %v want %v", got, want)
-		}
-	})
-
-	t.Run("adds configured namespace without duplicates", func(t *testing.T) {
-		t.Setenv(monitoringNamespaceEnvVar, "custom-monitoring")
-		if got, want := otlpTargetMonitoringNamespaces(), []string{defaultRHOAIMonitoringNamespace, "custom-monitoring"}; !reflect.DeepEqual(got, want) {
-			t.Fatalf("got %v want %v", got, want)
-		}
-
-		t.Setenv(monitoringNamespaceEnvVar, defaultRHOAIMonitoringNamespace)
-		if got, want := otlpTargetMonitoringNamespaces(), []string{defaultRHOAIMonitoringNamespace}; !reflect.DeepEqual(got, want) {
-			t.Fatalf("got %v want %v", got, want)
-		}
-	})
+func TestOtlpPeerForEndpoint(t *testing.T) {
+	tests := []struct {
+		name      string
+		endpoint  string
+		namespace string
+		wantNS    string
+		wantPort  int32
+		wantPeer  bool
+	}{
+		{name: "same namespace", endpoint: "http://otel-collector:4317", namespace: "team-a"},
+		{name: "cross namespace", endpoint: "http://jaeger.observability.svc.cluster.local:4317", namespace: "team-a", wantNS: "observability", wantPort: 4317, wantPeer: true},
+		{name: "custom port", endpoint: "http://jaeger.observability.svc:4318", namespace: "team-a", wantNS: "observability", wantPort: 4318, wantPeer: true},
+		{name: "unparseable", endpoint: "not a URL", namespace: "team-a"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			peer, port, hasPeer := otlpPeerForEndpoint(tt.endpoint, tt.namespace)
+			if hasPeer != tt.wantPeer || port != tt.wantPort {
+				t.Fatalf("got peer=%v port=%d, want peer=%v port=%d", hasPeer, port, tt.wantPeer, tt.wantPort)
+			}
+			if hasPeer && peer.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"] != tt.wantNS {
+				t.Fatalf("namespace got %q want %q", peer.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"], tt.wantNS)
+			}
+		})
+	}
 }
 
 func TestTracingNetworkPolicyNameIsPerService(t *testing.T) {
@@ -62,10 +68,11 @@ func TestTracingNetworkPolicyNameIsPerService(t *testing.T) {
 }
 
 func TestExpectedTracingNetworkPolicy(t *testing.T) {
-	t.Setenv(monitoringNamespaceEnvVar, "custom-monitoring")
 	llmSvc := &v1alpha2.LLMInferenceService{
 		ObjectMeta: metav1.ObjectMeta{Name: "svc-a", Namespace: "team-a"},
-		Spec:       v1alpha2.LLMInferenceServiceSpec{Tracing: &v1alpha2.TracingSpec{}},
+		Spec: v1alpha2.LLMInferenceServiceSpec{Tracing: &v1alpha2.TracingSpec{
+			ExporterEndpoint: ptr.To("http://jaeger.observability.svc.cluster.local:4318"),
+		}},
 	}
 
 	np := expectedTracingNetworkPolicy(llmSvc)
@@ -111,16 +118,21 @@ func TestExpectedTracingNetworkPolicy(t *testing.T) {
 	if np.Spec.Egress[2].To[0].PodSelector == nil || len(np.Spec.Egress[2].To[0].PodSelector.MatchLabels) != 0 {
 		t.Fatalf("same-namespace rule is not unrestricted")
 	}
-	if got, want := len(np.Spec.Egress[3].To), 2; got != want {
+	if got, want := len(np.Spec.Egress[3].To), 1; got != want {
 		t.Fatalf("OTLP peer count got %d want %d", got, want)
 	}
+	if got, want := np.Spec.Egress[3].Ports, []netv1.NetworkPolicyPort{{
+		Protocol: ptr.To(corev1.ProtocolTCP),
+		Port:     ptr.To(intstr.FromInt32(4318)),
+	}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("OTLP ports got %v want %v", got, want)
+	}
 	for _, peer := range np.Spec.Egress[3].To {
-		if peer.PodSelector == nil || peer.NamespaceSelector == nil {
-			t.Fatalf("OTLP peer is missing namespace or pod selector: %#v", peer)
+		if peer.PodSelector != nil || peer.NamespaceSelector == nil {
+			t.Fatalf("OTLP peer has unexpected selectors: %#v", peer)
 		}
-		if peer.PodSelector.MatchLabels[constants.KubernetesAppNameLabelKey] != platformCollectorServiceName ||
-			peer.PodSelector.MatchLabels[constants.KubernetesComponentLabelKey] != platformCollectorComponent {
-			t.Fatalf("unexpected collector selector: %v", peer.PodSelector.MatchLabels)
+		if peer.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"] != "observability" {
+			t.Fatalf("unexpected namespace selector: %v", peer.NamespaceSelector.MatchLabels)
 		}
 	}
 }
