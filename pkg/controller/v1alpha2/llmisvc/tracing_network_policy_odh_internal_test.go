@@ -28,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmeta"
+	"knative.dev/pkg/network"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
@@ -43,8 +44,10 @@ func TestOtlpPeerForEndpoint(t *testing.T) {
 		wantPeer  bool
 	}{
 		{name: "same namespace", endpoint: "http://otel-collector:4317", namespace: "team-a"},
-		{name: "cross namespace", endpoint: "http://jaeger.observability.svc.cluster.local:4317", namespace: "team-a", wantNS: "observability", wantPort: 4317, wantPeer: true},
+		{name: "cross namespace", endpoint: "http://jaeger.observability.svc." + network.GetClusterDomainName() + ":4317", namespace: "team-a", wantNS: "observability", wantPort: 4317, wantPeer: true},
+		{name: "cross namespace with search path", endpoint: "http://jaeger.observability:4317", namespace: "team-a", wantNS: "observability", wantPort: 4317, wantPeer: true},
 		{name: "custom port", endpoint: "http://jaeger.observability.svc:4318", namespace: "team-a", wantNS: "observability", wantPort: 4318, wantPeer: true},
+		{name: "trailing dot", endpoint: "http://jaeger.observability.svc." + network.GetClusterDomainName() + ".:4317", namespace: "team-a", wantNS: "observability", wantPort: 4317, wantPeer: true},
 		{name: "unparseable", endpoint: "not a URL", namespace: "team-a"},
 	}
 	for _, tt := range tests {

@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmeta"
+	"knative.dev/pkg/network"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
@@ -132,12 +133,17 @@ func otlpPeerForEndpoint(endpoint, serviceNamespace string) (netv1.NetworkPolicy
 		return netv1.NetworkPolicyPeer{}, 0, false
 	}
 
-	hostParts := strings.Split(strings.ToLower(parsed.Hostname()), ".")
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	hostParts := strings.Split(host, ".")
+	clusterDomain := strings.TrimSuffix(strings.ToLower(network.GetClusterDomainName()), ".")
 	var namespace string
 	switch {
+	case len(hostParts) == 2:
+		// Kubernetes search paths resolve service.namespace from a pod.
+		namespace = hostParts[1]
 	case len(hostParts) == 3 && hostParts[2] == "svc":
 		namespace = hostParts[1]
-	case len(hostParts) == 5 && hostParts[2] == "svc" && hostParts[3] == "cluster" && hostParts[4] == "local":
+	case len(hostParts) > 3 && hostParts[2] == "svc" && strings.Join(hostParts[3:], ".") == clusterDomain:
 		namespace = hostParts[1]
 	default:
 		return netv1.NetworkPolicyPeer{}, 0, false
