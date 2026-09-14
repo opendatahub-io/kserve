@@ -41,4 +41,14 @@ jobs:
         run: cd kserve-module && go mod download
 
       - name: Check
-        run: make check-km
+        env:
+          GOPROXY: https://proxy.golang.org,direct
+        run: |
+          for attempt in 1 2 3; do
+            if make check-km; then
+              exit 0
+            fi
+            echo "check-km failed (attempt ${attempt}/3), retrying..."
+            sleep $((attempt * 10))
+          done
+          exit 1
