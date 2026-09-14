@@ -25,13 +25,14 @@ import (
 )
 
 // filterServiceAnnotations filters annotations against the disallowed list.
-// In Standard (raw deployment) mode the ODHKserveRawAuth annotation is allowed through
-// so the deployment reconciler can read it directly from the component metadata.
+// In Standard (raw deployment) mode the ODH auth and audit annotations are allowed through
+// so the deployment reconciler can read them directly from the component metadata.
 // In Knative (serverless) mode it stays in the disallowed list and is stripped out.
 // https://issues.redhat.com/browse/RHOAIENG-20326
 func filterServiceAnnotations(annotations map[string]string, disallowedList []string, deploymentMode constants.DeploymentModeType) map[string]string {
 	if deploymentMode == constants.Standard {
 		disallowedList = isvcutils.FilterList(disallowedList, constants.ODHKserveRawAuth)
+		disallowedList = isvcutils.FilterList(disallowedList, constants.ODHKserveAuditLogging)
 	}
 	return utils.Filter(annotations, func(key string) bool {
 		return !utils.Includes(disallowedList, key)

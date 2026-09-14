@@ -36,6 +36,7 @@ const (
 // Midstream networking constants
 const (
 	ODHKserveRawAuth               = "security.opendatahub.io/enable-auth"
+	ODHKserveAuditLogging          = "security.opendatahub.io/enable-audit-logging"
 	ODHAuthProxyTypeAnnotation     = "security.opendatahub.io/auth-proxy-type"
 	ODHRouteEnabled                = "exposed"
 	ServingCertSecretSuffix        = "-serving-cert"
@@ -90,5 +91,5 @@ const (
 )
 
 func init() {
-	ServiceAnnotationDisallowedList = append(ServiceAnnotationDisallowedList, ODHKserveRawAuth)
+	ServiceAnnotationDisallowedList = append(ServiceAnnotationDisallowedList, ODHKserveRawAuth, ODHKserveAuditLogging)
 }

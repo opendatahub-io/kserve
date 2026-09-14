@@ -18,6 +18,7 @@ package deployment
 import (
 	"context"
 	"fmt"
+	"maps"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -1617,6 +1618,10 @@ func (m *mockClientForCheckDeploymentExist) Update(ctx context.Context, obj kcli
 	return nil
 }
 
+func (m *mockClientForCheckDeploymentExist) Patch(ctx context.Context, obj kclient.Object, patch kclient.Patch, opts ...kclient.PatchOption) error {
+	return nil
+}
+
 func intStrPtr(s string) *intstr.IntOrString {
 	v := intstr.FromString(s)
 	return &v
@@ -1883,8 +1888,10 @@ func TestSetControllerReferences(t *testing.T) {
 // mockClientForAuthProxyDetection is a mock client for testing auth proxy preservation
 type mockClientForAuthProxyDetection struct {
 	kclient.Client
-	existingDeployment *appsv1.Deployment
-	deploymentNotFound bool
+	existingDeployment          *appsv1.Deployment
+	deploymentNotFound          bool
+	inferenceServiceAnnotations map[string]string
+	patchedInferenceService     *v1beta1.InferenceService
 }
 
 func (m *mockClientForAuthProxyDetection) Get(ctx context.Context, key kclient.ObjectKey, obj kclient.Object, opts ...kclient.GetOption) error {
@@ -1898,9 +1905,10 @@ func (m *mockClientForAuthProxyDetection) Get(ctx context.Context, key kclient.O
 		}
 	case *v1beta1.InferenceService:
 		o.ObjectMeta = metav1.ObjectMeta{
-			Name:      key.Name,
-			Namespace: key.Namespace,
-			UID:       "test-uid-12345",
+			Name:        key.Name,
+			Namespace:   key.Namespace,
+			UID:         "test-uid-12345",
+			Annotations: maps.Clone(m.inferenceServiceAnnotations),
 		}
 	}
 	return nil
@@ -1911,6 +1919,14 @@ func (m *mockClientForAuthProxyDetection) Update(ctx context.Context, obj kclien
 }
 
 func (m *mockClientForAuthProxyDetection) Create(ctx context.Context, obj kclient.Object, opts ...kclient.CreateOption) error {
+	return nil
+}
+
+func (m *mockClientForAuthProxyDetection) Patch(ctx context.Context, obj kclient.Object, patch kclient.Patch, opts ...kclient.PatchOption) error {
+	if isvc, ok := obj.(*v1beta1.InferenceService); ok {
+		m.patchedInferenceService = isvc.DeepCopy()
+		m.inferenceServiceAnnotations = maps.Clone(isvc.Annotations)
+	}
 	return nil
 }
 

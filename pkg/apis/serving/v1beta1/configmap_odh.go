@@ -30,6 +30,7 @@ const OpenShiftConfigName = "openshiftConfig"
 type OpenShiftConfig struct {
 	ModelcachePermissionFixImage string `json:"modelcachePermissionFixImage,omitempty"`
 	OvmsVersioningImage          string `json:"ovmsVersioningImage,omitempty"`
+	EnableAuditLogging           bool   `json:"enableAuditLogging,omitempty"`
 }
 
 func NewOpenShiftConfig(isvcConfigMap *corev1.ConfigMap) (*OpenShiftConfig, error) {

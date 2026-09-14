@@ -149,6 +149,12 @@ func createRawDeploymentODH(ctx context.Context,
 		return nil, false, fmt.Errorf("failed to fetch deployment %s/%s: %w", componentMeta.Namespace, componentMeta.Name, err)
 	}
 	existingDeploymentFound := existingDeployment != nil
+	if resourceType == constants.InferenceServiceResource && !isTransformerComponent(componentMeta) {
+		componentMeta, err = resolvePlatformAuthProxyMetadata(ctx, client, componentMeta, existingDeployment, isvcname)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to resolve platform auth proxy metadata: %w", err)
+		}
+	}
 
 	sarVolumeName := sarVolumeNameForDeployment(isvcname, existingDeployment)
 
@@ -158,7 +164,7 @@ func createRawDeploymentODH(ctx context.Context,
 	// proxy, and also inject when auth is explicitly enabled via annotation.
 	// Transformer deployments must NOT receive the auth proxy — only the predictor needs
 	// the sidecar; the transformer communicates with the predictor over TLS instead.
-	isTransformer := componentMeta.Labels[constants.KServiceComponentLabel] == string(v1beta1.TransformerComponent)
+	isTransformer := isTransformerComponent(componentMeta)
 	shouldAddAuthProxy := false
 	if resourceType == constants.InferenceServiceResource && !isTransformer {
 		if !existingDeploymentFound {
@@ -181,6 +187,7 @@ func createRawDeploymentODH(ctx context.Context,
 
 	authProxyPreserved := false
 	if shouldAddAuthProxy {
+		auditConfigChanged := platformAuthProxyNeedsUpdate(componentMeta, existingDeployment, isvcname)
 		wantsMigration := false
 		if val, ok := componentMeta.Annotations[constants.ODHAuthProxyTypeAnnotation]; ok {
 			wantsMigration = val == constants.KubeRbacProxyType
@@ -194,7 +201,7 @@ func createRawDeploymentODH(ctx context.Context,
 		if existingProxyType != "" {
 			switch existingProxyType {
 			case constants.OauthProxyContainerName:
-				if wantsMigration {
+				if wantsMigration || auditConfigChanged {
 					err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName)
 					if err != nil {
 						return nil, false, err
@@ -209,7 +216,7 @@ func createRawDeploymentODH(ctx context.Context,
 				if oauthConfig != nil {
 					configuredKubeRbacImage = oauthConfig.Image
 				}
-				if configuredKubeRbacImage != "" && existingProxyImage == configuredKubeRbacImage {
+				if auditConfigChanged || (configuredKubeRbacImage != "" && existingProxyImage == configuredKubeRbacImage) {
 					err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName)
 					if err != nil {
 						return nil, false, err
@@ -423,12 +430,17 @@ func addOauthContainerToDeployment(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	oauthProxyContainer.Args = customizeAuthProxyArgs(componentMeta, oauthProxyContainer.Args, isvcName)
 	updatedPodSpec := deployment.Spec.Template.Spec.DeepCopy()
 	// ODH override. See: https://issues.redhat.com/browse/RHOAIENG-19904
 	updatedPodSpec.AutomountServiceAccountToken = proto.Bool(true)
 	updatedPodSpec.Containers = append(updatedPodSpec.Containers, *oauthProxyContainer)
 	deployment.Spec.Template.Spec = *updatedPodSpec
 	return nil
+}
+
+func isTransformerComponent(componentMeta metav1.ObjectMeta) bool {
+	return componentMeta.Labels[constants.KServiceComponentLabel] == string(v1beta1.TransformerComponent)
 }
 
 func createRawWorkerDeployment(componentMeta metav1.ObjectMeta,

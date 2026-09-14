@@ -1,3 +1,5 @@
+//go:build distro
+
 /*
 Copyright 2026 The KServe Authors.
 
@@ -16,6 +18,7 @@ limitations under the License.
 package deployment
 
 import (
+	"maps"
 	"strings"
 	"testing"
 
@@ -24,6 +27,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
@@ -297,4 +301,227 @@ func TestTransformerTLSNotInjectedWithoutAuth(t *testing.T) {
 		assert.Empty(t, container.VolumeMounts, "transformer without auth should not get volume mounts")
 		assert.Empty(t, container.Env, "transformer without auth should not get TLS env vars")
 	}
+}
+
+func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
+	tests := []struct {
+		name                string
+		annotations         map[string]string
+		isvcAnnotations     map[string]string
+		existingDeployment  *appsv1.Deployment
+		wantAuditArgs       []string
+		wantPersistedAudit  string
+		wantConfiguredProxy bool
+	}{
+		{
+			name: "new audited predictor",
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth:      "true",
+				constants.ODHKserveAuditLogging: "true",
+			},
+			wantAuditArgs: []string{
+				"--audit-log-enabled",
+				"--audit-isvc-name=test-isvc",
+				"--audit-isvc-namespace=test-ns",
+			},
+		},
+		{
+			name: "explicitly disabled predictor",
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth:      "true",
+				constants.ODHKserveAuditLogging: "false",
+			},
+		},
+		{
+			name: "explicit false removes an existing audit configuration",
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth:      "true",
+				constants.ODHKserveAuditLogging: "false",
+			},
+			existingDeployment: deploymentWithAuthProxyImage("outdated-proxy",
+				"--audit-log-enabled",
+				"--audit-isvc-name=test-isvc",
+				"--audit-isvc-namespace=test-ns",
+			),
+			wantConfiguredProxy: true,
+		},
+		{
+			name: "explicit true enables an existing unaudited predictor",
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth:      "true",
+				constants.ODHKserveAuditLogging: "true",
+			},
+			existingDeployment: deploymentWithAuthProxy(),
+			wantAuditArgs: []string{
+				"--audit-log-enabled",
+				"--audit-isvc-name=test-isvc",
+				"--audit-isvc-namespace=test-ns",
+			},
+		},
+		{
+			name: "component override cannot disable parent audit setting",
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth:      "true",
+				constants.ODHKserveAuditLogging: "false",
+			},
+			isvcAnnotations: map[string]string{
+				constants.DeploymentMode:        string(constants.Standard),
+				constants.ODHKserveRawAuth:      "true",
+				constants.ODHKserveAuditLogging: "true",
+			},
+			existingDeployment: deploymentWithAuthProxy(),
+			wantAuditArgs: []string{
+				"--audit-log-enabled",
+				"--audit-isvc-name=test-isvc",
+				"--audit-isvc-namespace=test-ns",
+			},
+		},
+		{
+			name: "audit drift overrides image preservation",
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth:      "true",
+				constants.ODHKserveAuditLogging: "true",
+			},
+			existingDeployment: deploymentWithAuthProxyImage("outdated-proxy", "--audit-isvc-name=spoofed"),
+			wantAuditArgs: []string{
+				"--audit-log-enabled",
+				"--audit-isvc-name=test-isvc",
+				"--audit-isvc-namespace=test-ns",
+			},
+			wantConfiguredProxy: true,
+		},
+		{
+			name: "enabling audit migrates a legacy oauth proxy",
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth:      "true",
+				constants.ODHKserveAuditLogging: "true",
+			},
+			existingDeployment: deploymentWithNamedAuthProxy(constants.OauthProxyContainerName, "legacy-oauth"),
+			wantAuditArgs: []string{
+				"--audit-log-enabled",
+				"--audit-isvc-name=test-isvc",
+				"--audit-isvc-namespace=test-ns",
+			},
+			wantConfiguredProxy: true,
+		},
+		{
+			name: "legacy predictor preserves existing audit state",
+			annotations: map[string]string{
+				constants.DeploymentMode:   string(constants.Standard),
+				constants.ODHKserveRawAuth: "true",
+			},
+			existingDeployment: deploymentWithAuthProxy(
+				"--legacy-unrelated-arg",
+				"--audit-log-enabled",
+				"--audit-isvc-name=test-isvc",
+				"--audit-isvc-namespace=test-ns",
+				"--audit-use-forwarded-for",
+				"--audit-future-option=unchanged",
+			),
+			wantAuditArgs: []string{
+				"--audit-log-enabled",
+				"--audit-isvc-name=test-isvc",
+				"--audit-isvc-namespace=test-ns",
+			},
+			wantPersistedAudit: "true",
+		},
+		{
+			name: "legacy unaudited predictor remains unaudited",
+			annotations: map[string]string{
+				constants.DeploymentMode:   string(constants.Standard),
+				constants.ODHKserveRawAuth: "true",
+			},
+			existingDeployment: deploymentWithAuthProxy("--legacy-unrelated-arg"),
+			wantPersistedAudit: "false",
+		},
+		{
+			name: "legacy spoofed identity is not trusted",
+			annotations: map[string]string{
+				constants.DeploymentMode:   string(constants.Standard),
+				constants.ODHKserveRawAuth: "true",
+			},
+			existingDeployment: deploymentWithAuthProxy(
+				"--audit-log-enabled",
+				"--audit-isvc-name=spoofed",
+				"--audit-isvc-namespace=test-ns",
+			),
+			wantPersistedAudit:  "false",
+			wantConfiguredProxy: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			isvcAnnotations := maps.Clone(tt.isvcAnnotations)
+			if isvcAnnotations == nil {
+				isvcAnnotations = maps.Clone(tt.annotations)
+			}
+			client := &mockClientForAuthProxyDetection{
+				existingDeployment:          tt.existingDeployment,
+				deploymentNotFound:          tt.existingDeployment == nil,
+				inferenceServiceAnnotations: isvcAnnotations,
+			}
+			clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+				Data:       map[string]string{oauthProxyISVCConfigKey: oauthProxyConfig},
+			})
+			meta := metav1.ObjectMeta{
+				Name:        "test-predictor",
+				Namespace:   "test-ns",
+				Annotations: tt.annotations,
+				Labels: map[string]string{
+					constants.InferenceServicePodLabelKey: "test-isvc",
+				},
+			}
+			deployments, _, err := createRawDeploymentODH(
+				t.Context(), client, clientset, constants.InferenceServiceResource,
+				meta, metav1.ObjectMeta{}, &v1beta1.ComponentExtensionSpec{},
+				&corev1.PodSpec{Containers: []corev1.Container{{Name: constants.InferenceServiceContainerName}}}, nil, nil,
+			)
+			require.NoError(t, err)
+			require.Len(t, deployments, 1)
+
+			var proxy *corev1.Container
+			for i := range deployments[0].Spec.Template.Spec.Containers {
+				if deployments[0].Spec.Template.Spec.Containers[i].Name == constants.KubeRbacContainerName {
+					proxy = &deployments[0].Spec.Template.Spec.Containers[i]
+					break
+				}
+			}
+			require.NotNil(t, proxy)
+			actualAuditArgs := managedAuditArgs(proxy.Args)
+			if len(tt.wantAuditArgs) == 0 {
+				assert.Empty(t, actualAuditArgs)
+			} else {
+				assert.Equal(t, tt.wantAuditArgs, actualAuditArgs)
+			}
+			assert.NotContains(t, proxy.Args, "--legacy-unrelated-arg")
+			assert.NotContains(t, proxy.Args, "--audit-future-option=unchanged")
+			assert.NotContains(t, proxy.Args, "--audit-use-forwarded-for")
+			if tt.wantConfiguredProxy {
+				assert.Equal(t, constants.OauthProxyImage, proxy.Image)
+			}
+			if tt.wantPersistedAudit != "" {
+				require.NotNil(t, client.patchedInferenceService)
+				assert.Equal(t, tt.wantPersistedAudit, client.patchedInferenceService.Annotations[constants.ODHKserveAuditLogging])
+			}
+		})
+	}
+}
+
+func deploymentWithAuthProxy(args ...string) *appsv1.Deployment {
+	return deploymentWithAuthProxyImage(constants.OauthProxyImage, args...)
+}
+
+func deploymentWithAuthProxyImage(image string, args ...string) *appsv1.Deployment {
+	return deploymentWithNamedAuthProxy(constants.KubeRbacContainerName, image, args...)
+}
+
+func deploymentWithNamedAuthProxy(name, image string, args ...string) *appsv1.Deployment {
+	return &appsv1.Deployment{Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+		Containers: []corev1.Container{
+			{Name: constants.InferenceServiceContainerName},
+			{Name: name, Image: image, Args: args},
+		},
+	}}}}
 }
