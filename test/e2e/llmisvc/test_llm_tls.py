@@ -27,6 +27,7 @@ from .fixtures import (
 )
 from .logging import log_execution
 from .diagnostic import collect_diagnostics
+from ..common.utils import KSERVE_NAMESPACE
 from .test_llm_inference_service import (
     TestCase,
     completions_payload,
@@ -54,10 +55,10 @@ OPENSSL_TLS_CIPHER_SUITES = {
 }
 
 
-def test_go_tls_cipher_suite_names_are_accepted_by_python_ssl():
-    """The canonical Go/IANA cipher names must also configure vLLM's Python SSL."""
+def test_converted_cipher_suite_names_are_accepted_by_python_ssl():
+    """The OpenSSL names rendered for vLLM must configure Python SSL."""
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.set_ciphers(",".join(GO_TLS_CIPHER_SUITES))
+    context.set_ciphers(":".join(OPENSSL_TLS_CIPHER_SUITES))
 
     configured_ciphers = {
         cipher["name"]
@@ -71,14 +72,34 @@ def _get_tls_config() -> tuple[bool, str, str]:
     """Read the LLMInferenceService TLS settings from inferenceservice-config."""
     inject_k8s_proxy()
     core_v1 = client.CoreV1Api()
-    kserve_ns = os.environ.get("KSERVE_NAMESPACE", "opendatahub")
-    cm = core_v1.read_namespaced_config_map("inferenceservice-config", kserve_ns)
+    cm = core_v1.read_namespaced_config_map("inferenceservice-config", KSERVE_NAMESPACE)
     ingress = json.loads(cm.data.get("ingress", "{}"))
     return (
         ingress.get("enableLLMInferenceServiceTLS", False),
         ingress.get("llmInferenceServiceTLSMinVersion", ""),
         ingress.get("llmInferenceServiceTLSCipherSuites", ""),
     )
+
+
+def _set_tls_profile(min_version: str, cipher_suites: str) -> dict:
+    """Set a populated TLS profile and return the original ingress configuration."""
+    inject_k8s_proxy()
+    core_v1 = client.CoreV1Api()
+    cm = core_v1.read_namespaced_config_map("inferenceservice-config", KSERVE_NAMESPACE)
+    original = json.loads(cm.data.get("ingress", "{}"))
+    updated = dict(original)
+    updated["llmInferenceServiceTLSMinVersion"] = min_version
+    updated["llmInferenceServiceTLSCipherSuites"] = cipher_suites
+    cm.data["ingress"] = json.dumps(updated)
+    core_v1.replace_namespaced_config_map("inferenceservice-config", KSERVE_NAMESPACE, cm)
+    return original
+
+
+def _restore_tls_config(original: dict) -> None:
+    core_v1 = client.CoreV1Api()
+    cm = core_v1.read_namespaced_config_map("inferenceservice-config", KSERVE_NAMESPACE)
+    cm.data["ingress"] = json.dumps(original)
+    core_v1.replace_namespaced_config_map("inferenceservice-config", KSERVE_NAMESPACE, cm)
 
 
 def _list_destination_rules(namespace, label_selector):
@@ -122,7 +143,7 @@ def _get_service(namespace, name):
 
 
 def _get_container_commands(namespace, service_name):
-    """Return commands for the EPP and routing sidecar managed by an LLMISVC."""
+    """Return commands for the EPP, routing sidecar, and vLLM workload."""
     core_v1 = client.CoreV1Api()
     pods = core_v1.list_namespaced_pod(
         namespace,
@@ -144,6 +165,8 @@ def _get_container_commands(namespace, service_name):
                 commands["epp"] = command
             elif "/app/pd-sidecar" in command:
                 commands["sidecar"] = command
+            elif any("vllm serve" in arg for arg in command):
+                commands["vllm"] = command
     return commands
 
 
@@ -176,6 +199,10 @@ def test_llm_tls_resources(test_case: TestCase):
     are correctly present or absent based on the enableLLMInferenceServiceTLS flag."""
     inject_k8s_proxy()
 
+    original_ingress = _set_tls_profile(
+        "VersionTLS12",
+        ",".join(GO_TLS_CIPHER_SUITES),
+    )
     tls_enabled, tls_min_version, tls_cipher_suites = _get_tls_config()
     logger.info(
         "LLMInferenceService TLS config: enabled=%s, min_version=%s, cipher_suites=%s",
@@ -216,6 +243,7 @@ def test_llm_tls_resources(test_case: TestCase):
         )
         raise
     finally:
+        _restore_tls_config(original_ingress)
         try:
             if os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in (
                 "false",
@@ -296,12 +324,14 @@ def _verify_tls_arguments(service_name, namespace, tls_min_version, tls_cipher_s
     commands = _get_container_commands(namespace, service_name)
     assert "epp" in commands, "Expected to find the EPP container command"
     assert "sidecar" in commands, "Expected to find the routing sidecar command"
+    assert "vllm" in commands, "Expected to find the vLLM workload command"
 
     expected_args = {
         "--tls-min-version": tls_min_version,
         "--tls-cipher-suites": tls_cipher_suites,
     }
-    for component, command in commands.items():
+    for component in ("epp", "sidecar"):
+        command = commands[component]
         for flag, value in expected_args.items():
             matching_args = [arg for arg in command if arg.startswith(f"{flag}=")]
             if value:
@@ -313,5 +343,15 @@ def _verify_tls_arguments(service_name, namespace, tls_min_version, tls_cipher_s
                 assert not matching_args, (
                     f"Expected {component} to omit {flag}, got: {matching_args}"
                 )
+
+    vllm_command = " ".join(commands["vllm"])
+    if tls_cipher_suites:
+        for cipher_suite in OPENSSL_TLS_CIPHER_SUITES:
+            assert cipher_suite in vllm_command, (
+                f"Expected vLLM command to contain {cipher_suite}, got: {vllm_command}"
+            )
+        assert "--ssl-ciphers" in vllm_command
+    else:
+        assert "--ssl-ciphers" not in vllm_command
 
     logger.info("TLS argument verification passed for components: %s", sorted(commands))

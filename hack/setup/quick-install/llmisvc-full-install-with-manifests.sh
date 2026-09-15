@@ -2748,7 +2748,7 @@ spec:
         # ODH supports older accelerator images, so only pass it when available.
         TLS_CIPHER_ARGS=""
         if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuites }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuites }}{{ end }}"
+          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
         fi
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -3118,7 +3118,7 @@ spec:
         # ODH supports older accelerator images, so only pass it when available.
         TLS_CIPHER_ARGS=""
         if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuites }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuites }}{{ end }}"
+          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
         fi
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -3492,7 +3492,7 @@ spec:
         # ODH supports older accelerator images, so only pass it when available.
         TLS_CIPHER_ARGS=""
         if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuites }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuites }}{{ end }}"
+          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
         fi
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -3768,7 +3768,7 @@ spec:
           # ODH supports older accelerator images, so only pass it when available.
           TLS_CIPHER_ARGS=""
           if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-            TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuites }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuites }}{{ end }}"
+          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
           fi
 
           # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -4075,7 +4075,7 @@ spec:
           # ODH supports older accelerator images, so only pass it when available.
           TLS_CIPHER_ARGS=""
           if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-            TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuites }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuites }}{{ end }}"
+          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
           fi
 
           # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -4384,7 +4384,7 @@ spec:
           # ODH supports older accelerator images, so only pass it when available.
           TLS_CIPHER_ARGS=""
           if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-            TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuites }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuites }}{{ end }}"
+            TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
           fi
 
           # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -5277,7 +5277,7 @@ spec:
         # ODH supports older accelerator images, so only pass it when available.
         TLS_CIPHER_ARGS=""
         if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuites }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuites }}{{ end }}"
+          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
         fi
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -5294,8 +5294,8 @@ spec:
           fi
         fi
 
-        # Go crypto/tls (IANA) cipher names are canonical. Python ssl/OpenSSL,
-        # which backs vLLM TLS, accepts those names as aliases.
+        # The controller validates canonical Go/IANA names and converts them
+        # to OpenSSL names for vLLM compatibility across supported runtimes.
         eval "exec vllm serve /mnt/models \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8000 \
@@ -5413,7 +5413,7 @@ spec:
               # ODH supports older tokenizer images, so only pass it when available.
               TLS_CIPHER_ARGS=""
               if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-                TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuites }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuites }}{{ end }}"
+                TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
               fi
 
               exec vllm launch render /mnt/models/base \
@@ -5666,7 +5666,7 @@ spec:
         # ODH supports older accelerator images, so only pass it when available.
         TLS_CIPHER_ARGS=""
         if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuites }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuites }}{{ end }}"
+          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
         fi
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -5957,7 +5957,7 @@ spec:
         # ODH supports older accelerator images, so only pass it when available.
         TLS_CIPHER_ARGS=""
         if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuites }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuites }}{{ end }}"
+          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
         fi
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).

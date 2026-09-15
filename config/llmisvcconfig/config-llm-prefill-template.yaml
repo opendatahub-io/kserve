@@ -158,7 +158,7 @@ spec:
               # ODH supports older accelerator images, so only pass it when available.
               TLS_CIPHER_ARGS=""
               if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-                TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuites }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuites }}{{ end }}"
+              TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
               fi
 
               # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
