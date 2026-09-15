@@ -1,11 +1,35 @@
 #!/usr/bin/env bash
 set -e
 
-GITHUB_URL="https://github.com"
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+GITHUB_URL="${KSERVE_MANIFESTS_GITHUB_URL:-https://github.com}"
+GIT_RETRIES="${KSERVE_MANIFESTS_GIT_RETRIES:-3}"
+GIT_RETRY_DELAY_SECONDS="${KSERVE_MANIFESTS_GIT_RETRY_DELAY_SECONDS:-5}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODULE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPO_ROOT="$(cd "${MODULE_DIR}/.." && pwd)"
 DST_MANIFESTS_DIR="${1:-${MODULE_DIR}/opt/manifests}"
+
+# Set KSERVE_MANIFESTS_DEBUG=true to log resolved refs and Git commands.
+# KSERVE_MANIFESTS_GITHUB_URL can point to a mirror for isolated testing.
+# Set KSERVE_MANIFESTS_GIT_RETRIES and KSERVE_MANIFESTS_GIT_RETRY_DELAY_SECONDS
+# to control retries for transient Git transport failures.
+if ((BASH_VERSINFO[0] < 4)); then
+    echo "ERROR: get_kserve_manifests.sh requires Bash 4 or newer for associative arrays; found Bash ${BASH_VERSION}." >&2
+    exit 1
+fi
+
+if [[ ! "$GIT_RETRIES" =~ ^[1-9][0-9]*$ || ! "$GIT_RETRY_DELAY_SECONDS" =~ ^[0-9]+$ ]]; then
+    echo "ERROR: KSERVE_MANIFESTS_GIT_RETRIES must be positive and KSERVE_MANIFESTS_GIT_RETRY_DELAY_SECONDS must be non-negative." >&2
+    exit 1
+fi
+
+debug() {
+    if [[ "${KSERVE_MANIFESTS_DEBUG:-false}" == "true" ]]; then
+        printf '[get_kserve_manifests] %s\n' "$*" >&2
+    fi
+}
+
+debug "bash=${BASH_VERSION} git=$(git --version) github_url=${GITHUB_URL} retries=${GIT_RETRIES} retry_delay_seconds=${GIT_RETRY_DELAY_SECONDS} destination=${DST_MANIFESTS_DIR}"
 
 # ODH Component Manifests
 # Format: "repo-org:repo-name:ref-name:source-folder"
@@ -16,13 +40,13 @@ DST_MANIFESTS_DIR="${1:-${MODULE_DIR}/opt/manifests}"
 declare -A ODH_COMPONENT_MANIFESTS=(
     ["kserve"]="opendatahub-io:kserve:master:config"
     ["modelcontroller"]="opendatahub-io:odh-model-controller:incubating:config"
-    ["wva"]="opendatahub-io:workload-variant-autoscaler:main:config"
+    ["wva"]="opendatahub-io:workload-variant-autoscaler:main:legacy/config"
 )
 
 declare -A ODH_RELEASE_COMPONENT_MANIFESTS=(
     ["kserve"]="opendatahub-io:kserve:release-v0.17:config"
     ["modelcontroller"]="opendatahub-io:odh-model-controller:main:config"
-    ["wva"]="opendatahub-io:workload-variant-autoscaler:main:config"
+    ["wva"]="opendatahub-io:workload-variant-autoscaler:main:legacy/config"
 )
 
 echo "Cloning manifests for ODH"
@@ -73,13 +97,38 @@ function try_fetch_ref()
 
     local git_ref="refs/$ref_type/$ref"
 
-    if git ls-remote --exit-code "$repo" "$git_ref" &>/dev/null; then
-        if git fetch -q --depth 1 "$repo" "$git_ref" && git reset -q --hard FETCH_HEAD; then
-            return 0
+    local output reset_output status attempt
+
+    for ((attempt = 1; attempt <= GIT_RETRIES; attempt++)); do
+        reset_output=""
+        if output=$(git ls-remote --exit-code "$repo" "$git_ref" 2>&1); then
+            debug "git ls-remote succeeded: repo=${repo} ref=${git_ref} result=${output//$'\n'/ }"
+            if output=$(git fetch --depth 1 "$repo" "$git_ref" 2>&1) && reset_output=$(git reset -q --hard FETCH_HEAD 2>&1); then
+                debug "git fetch succeeded: repo=${repo} ref=${git_ref}"
+                return 0
+            fi
+            status=$?
+            output="${output} ${reset_output}"
+            echo "WARNING: git fetch failed (attempt ${attempt}/${GIT_RETRIES}, exit ${status}) for ${repo} ${git_ref}: ${output//$'\n'/ }" >&2
         else
-            echo "ERROR: Failed to fetch $ref from $repo"
-            return 1
+            status=$?
+            # Exit code 2 means the ref does not exist; retrying cannot fix it.
+            if ((status == 2)); then
+                debug "git ls-remote ref not found: repo=${repo} ref=${git_ref}"
+                return 1
+            fi
+            echo "WARNING: git ls-remote failed (attempt ${attempt}/${GIT_RETRIES}, exit ${status}) for ${repo} ${git_ref}: ${output//$'\n'/ }" >&2
         fi
+
+        if ((attempt < GIT_RETRIES)); then
+            sleep "$GIT_RETRY_DELAY_SECONDS"
+        fi
+    done
+
+    if [[ -n "${output:-}" ]]; then
+        echo "ERROR: Failed to fetch ${ref} from ${repo}: ${output//$'\n'/ }" >&2
+    else
+        echo "ERROR: Failed to fetch ${ref} from ${repo}" >&2
     fi
     return 1
 }
@@ -90,20 +139,31 @@ function git_fetch_ref()
     local ref=$2
     local dir=$3
 
-    mkdir -p $dir
-    pushd $dir &>/dev/null
+    mkdir -p "$dir"
+    pushd "$dir" &>/dev/null
     git init -q
 
     if [[ $ref =~ ^([a-zA-Z0-9_./-]+)@([a-f0-9]{7,40})$ ]]; then
         local commit_sha="${BASH_REMATCH[2]}"
 
-        git remote add origin $repo
-        if ! git fetch --depth 1 -q origin $commit_sha; then
-            echo "ERROR: Failed to fetch from repository $repo"
+        git remote add origin "$repo"
+        local output status attempt
+        for ((attempt = 1; attempt <= GIT_RETRIES; attempt++)); do
+            if output=$(git fetch --depth 1 origin "$commit_sha" 2>&1); then
+                break
+            fi
+            status=$?
+            echo "WARNING: git fetch failed (attempt ${attempt}/${GIT_RETRIES}, exit ${status}) for ${repo} ${commit_sha}: ${output//$'\n'/ }" >&2
+            if ((attempt < GIT_RETRIES)); then
+                sleep "$GIT_RETRY_DELAY_SECONDS"
+            fi
+        done
+        if ((attempt > GIT_RETRIES)); then
+            echo "ERROR: Failed to fetch commit ${commit_sha} from repository ${repo}: ${output//$'\n'/ }" >&2
             popd &>/dev/null
             return 1
         fi
-        if ! git reset -q --hard $commit_sha 2>/dev/null; then
+        if ! git reset -q --hard "$commit_sha" 2>/dev/null; then
             echo "ERROR: Commit SHA $commit_sha not found in repository $repo"
             popd &>/dev/null
             return 1
@@ -140,8 +200,15 @@ for key in "${!COMPONENT_MANIFESTS[@]}"; do
         repo_url="${GITHUB_URL}/${repo_org}/${repo_name}"
         repo_dir="${TMP_DIR}/${key}"
 
-        if ! git_fetch_ref ${repo_url} ${repo_ref} ${repo_dir}; then
+        if ! git_fetch_ref "$repo_url" "$repo_ref" "$repo_dir"; then
             echo "ERROR: Failed to fetch ref '${repo_ref}' from '${repo_url}' for component '${key}'"
+            exit 1
+        fi
+
+        if [[ ! -d "${repo_dir}/${source_path}" ]]; then
+            echo "ERROR: Source path '${source_path}' does not exist in '${repo_url}' at ref '${repo_ref}'." >&2
+            echo "Available top-level paths:" >&2
+            git -C "$repo_dir" ls-tree --name-only HEAD >&2
             exit 1
         fi
 
