@@ -91,7 +91,9 @@ def _set_tls_profile(min_version: str, cipher_suites: str) -> dict:
     updated["llmInferenceServiceTLSMinVersion"] = min_version
     updated["llmInferenceServiceTLSCipherSuites"] = cipher_suites
     cm.data["ingress"] = json.dumps(updated)
-    core_v1.replace_namespaced_config_map("inferenceservice-config", KSERVE_NAMESPACE, cm)
+    core_v1.replace_namespaced_config_map(
+        "inferenceservice-config", KSERVE_NAMESPACE, cm
+    )
     return original
 
 
@@ -99,7 +101,9 @@ def _restore_tls_config(original: dict) -> None:
     core_v1 = client.CoreV1Api()
     cm = core_v1.read_namespaced_config_map("inferenceservice-config", KSERVE_NAMESPACE)
     cm.data["ingress"] = json.dumps(original)
-    core_v1.replace_namespaced_config_map("inferenceservice-config", KSERVE_NAMESPACE, cm)
+    core_v1.replace_namespaced_config_map(
+        "inferenceservice-config", KSERVE_NAMESPACE, cm
+    )
 
 
 def _list_destination_rules(namespace, label_selector):
@@ -194,7 +198,7 @@ def _get_container_commands(namespace, service_name):
     ids=generate_test_id,
 )
 @log_execution
-def test_llm_tls_resources(test_case: TestCase):
+def test_llm_tls_resources(test_case: TestCase, request: pytest.FixtureRequest):
     """Verify that TLS-related resources (DestinationRules, cert secrets, service port)
     are correctly present or absent based on the enableLLMInferenceServiceTLS flag."""
     inject_k8s_proxy()
@@ -203,6 +207,7 @@ def test_llm_tls_resources(test_case: TestCase):
         "VersionTLS12",
         ",".join(GO_TLS_CIPHER_SUITES),
     )
+    request.addfinalizer(lambda: _restore_tls_config(original_ingress))
     tls_enabled, tls_min_version, tls_cipher_suites = _get_tls_config()
     logger.info(
         "LLMInferenceService TLS config: enabled=%s, min_version=%s, cipher_suites=%s",
@@ -243,7 +248,6 @@ def test_llm_tls_resources(test_case: TestCase):
         )
         raise
     finally:
-        _restore_tls_config(original_ingress)
         try:
             if os.getenv("SKIP_RESOURCE_DELETION", "False").lower() in (
                 "false",
