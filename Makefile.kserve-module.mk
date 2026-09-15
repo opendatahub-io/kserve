@@ -7,7 +7,8 @@ PYTEST_ARGS ?=
 	kustomize-build-kserve-module generate-kserve-module manifests-kserve-module \
 	test-kserve-module setup-envtest-kserve-module precommit-km \
 	e2e-setup-kserve-module e2e-roll-kserve-module e2e-cleanup-kserve-module \
-	e2e-kserve-module e2e-kserve-module-post-release check-km
+	e2e-kserve-module e2e-kserve-module-upgrade-ocp \
+	e2e-kserve-module-post-release check-km
 
 
 docker-build-kserve-module:
@@ -67,6 +68,9 @@ e2e-kserve-module:
 
 e2e-kserve-module-post-release:
 	cd kserve-module/tests/e2e && python -m pytest -v -m post_release
+
+e2e-kserve-module-upgrade-ocp:
+	bash test/scripts/openshift-ci/run-kserve-module-upgrade-e2e.sh
 
 precommit-km: fmt go-lint generate-kserve-module manifests-kserve-module test-kserve-module
 	cd kserve-module && go mod tidy && go vet ./... && go build ./...
