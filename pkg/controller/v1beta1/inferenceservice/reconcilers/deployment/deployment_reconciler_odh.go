@@ -117,6 +117,9 @@ func mountTransformerTLSInfrastructure(deployment *appsv1.Deployment, componentM
 }
 
 func customizeAuthProxyArgs(componentMeta metav1.ObjectMeta, generated []string, isvcName string) []string {
+	if _, explicit := componentMeta.Annotations[constants.ODHKserveAuditLogging]; !explicit {
+		return generated
+	}
 	args := removeManagedAuditArgs(generated)
 	if strings.EqualFold(componentMeta.Annotations[constants.ODHKserveAuditLogging], "true") {
 		args = append(args, desiredAuditArgs(componentMeta, isvcName)...)
@@ -128,6 +131,9 @@ func platformAuthProxyNeedsUpdate(componentMeta metav1.ObjectMeta, existing *app
 	if existing == nil {
 		return false
 	}
+	if platformAuthProxyShouldPreserve(componentMeta, existing) {
+		return false
+	}
 	desired := desiredAuditArgs(componentMeta, isvcName)
 	for _, container := range existing.Spec.Template.Spec.Containers {
 		if container.Name == constants.KubeRbacContainerName || container.Name == constants.OauthProxyContainerName {
@@ -135,6 +141,21 @@ func platformAuthProxyNeedsUpdate(componentMeta metav1.ObjectMeta, existing *app
 		}
 	}
 	return len(desired) > 0
+}
+
+func platformAuthProxyShouldPreserve(componentMeta metav1.ObjectMeta, existing *appsv1.Deployment) bool {
+	if existing == nil {
+		return false
+	}
+	if _, explicit := componentMeta.Annotations[constants.ODHKserveAuditLogging]; explicit {
+		return false
+	}
+	for _, container := range existing.Spec.Template.Spec.Containers {
+		if container.Name == constants.KubeRbacContainerName || container.Name == constants.OauthProxyContainerName {
+			return true
+		}
+	}
+	return false
 }
 
 func desiredAuditArgs(componentMeta metav1.ObjectMeta, isvcName string) []string {
@@ -147,8 +168,10 @@ func desiredAuditArgs(componentMeta metav1.ObjectMeta, isvcName string) []string
 	}
 	return []string{
 		"--audit-log-enabled",
-		"--audit-isvc-name=" + name,
-		"--audit-isvc-namespace=" + componentMeta.Namespace,
+		"--audit-resource-name=" + name,
+		"--audit-resource-namespace=" + componentMeta.Namespace,
+		"--audit-resource-type=InferenceService",
+		"--audit-ai-provider=KServe",
 	}
 }
 

@@ -35,3 +35,7 @@ func customizeAuthProxyArgs(_ metav1.ObjectMeta, generated []string, _ string) [
 func platformAuthProxyNeedsUpdate(_ metav1.ObjectMeta, _ *appsv1.Deployment, _ string) bool {
 	return false
 }
+
+func platformAuthProxyShouldPreserve(_ metav1.ObjectMeta, _ *appsv1.Deployment) bool {
+	return false
+}

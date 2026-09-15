@@ -310,6 +310,9 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 		wantAuditArgs       []string
 		wantNoISVCPatch     bool
 		wantConfiguredProxy bool
+		wantPreservedProxy  bool
+		wantWarning         bool
+		wantProxyArgs       []string
 	}{
 		{
 			name: "new audited predictor",
@@ -319,8 +322,10 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			},
 			wantAuditArgs: []string{
 				"--audit-log-enabled",
-				"--audit-isvc-name=test-isvc",
-				"--audit-isvc-namespace=test-ns",
+				"--audit-resource-name=test-isvc",
+				"--audit-resource-namespace=test-ns",
+				"--audit-resource-type=InferenceService",
+				"--audit-ai-provider=KServe",
 			},
 		},
 		{
@@ -340,6 +345,11 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 				"--audit-log-enabled",
 				"--audit-isvc-name=test-isvc",
 				"--audit-isvc-namespace=test-ns",
+				"--audit-resource-name=stale",
+				"--audit-resource-namespace=stale",
+				"--audit-resource-type=LegacyType",
+				"--audit-ai-provider=LegacyProvider",
+				"--audit-future-option=stale",
 			),
 			wantConfiguredProxy: true,
 		},
@@ -361,8 +371,10 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			existingDeployment: deploymentWithAuthProxy(),
 			wantAuditArgs: []string{
 				"--audit-log-enabled",
-				"--audit-isvc-name=test-isvc",
-				"--audit-isvc-namespace=test-ns",
+				"--audit-resource-name=test-isvc",
+				"--audit-resource-namespace=test-ns",
+				"--audit-resource-type=InferenceService",
+				"--audit-ai-provider=KServe",
 			},
 		},
 		{
@@ -371,11 +383,21 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 				constants.ODHKserveRawAuth:      "true",
 				constants.ODHKserveAuditLogging: "true",
 			},
-			existingDeployment: deploymentWithAuthProxyImage("outdated-proxy", "--audit-isvc-name=spoofed"),
+			existingDeployment: deploymentWithAuthProxyImage("outdated-proxy",
+				"--audit-isvc-name=spoofed",
+				"--audit-isvc-namespace=stale",
+				"--audit-resource-name=stale",
+				"--audit-resource-namespace=stale",
+				"--audit-resource-type=LegacyType",
+				"--audit-ai-provider=LegacyProvider",
+				"--audit-future-option=stale",
+			),
 			wantAuditArgs: []string{
 				"--audit-log-enabled",
-				"--audit-isvc-name=test-isvc",
-				"--audit-isvc-namespace=test-ns",
+				"--audit-resource-name=test-isvc",
+				"--audit-resource-namespace=test-ns",
+				"--audit-resource-type=InferenceService",
+				"--audit-ai-provider=KServe",
 			},
 			wantConfiguredProxy: true,
 		},
@@ -388,8 +410,10 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			existingDeployment: deploymentWithNamedAuthProxy(constants.OauthProxyContainerName, "legacy-oauth"),
 			wantAuditArgs: []string{
 				"--audit-log-enabled",
-				"--audit-isvc-name=test-isvc",
-				"--audit-isvc-namespace=test-ns",
+				"--audit-resource-name=test-isvc",
+				"--audit-resource-namespace=test-ns",
+				"--audit-resource-type=InferenceService",
+				"--audit-ai-provider=KServe",
 			},
 			wantConfiguredProxy: true,
 		},
@@ -407,7 +431,23 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 				"--audit-use-forwarded-for",
 				"--audit-future-option=unchanged",
 			),
-			wantNoISVCPatch: true,
+			wantAuditArgs: []string{
+				"--audit-log-enabled",
+				"--audit-isvc-name=test-isvc",
+				"--audit-isvc-namespace=test-ns",
+				"--audit-use-forwarded-for",
+				"--audit-future-option=unchanged",
+			},
+			wantNoISVCPatch:    true,
+			wantPreservedProxy: true,
+			wantProxyArgs: []string{
+				"--legacy-unrelated-arg",
+				"--audit-log-enabled",
+				"--audit-isvc-name=test-isvc",
+				"--audit-isvc-namespace=test-ns",
+				"--audit-use-forwarded-for",
+				"--audit-future-option=unchanged",
+			},
 		},
 		{
 			name: "annotationless predictor remains unaudited without patching parent",
@@ -417,6 +457,8 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			},
 			existingDeployment: deploymentWithAuthProxy("--legacy-unrelated-arg"),
 			wantNoISVCPatch:    true,
+			wantPreservedProxy: true,
+			wantProxyArgs:      []string{"--legacy-unrelated-arg"},
 		},
 	}
 
@@ -438,7 +480,7 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 					constants.InferenceServicePodLabelKey: "test-isvc",
 				},
 			}
-			deployments, _, err := createRawDeploymentODH(
+			deployments, authProxyPreserved, err := createRawDeploymentODH(
 				t.Context(), client, clientset, constants.InferenceServiceResource,
 				meta, metav1.ObjectMeta{}, &v1beta1.ComponentExtensionSpec{},
 				&corev1.PodSpec{Containers: []corev1.Container{{Name: constants.InferenceServiceContainerName}}}, nil, nil,
@@ -460,16 +502,183 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			} else {
 				assert.Equal(t, tt.wantAuditArgs, actualAuditArgs)
 			}
-			assert.NotContains(t, proxy.Args, "--legacy-unrelated-arg")
-			assert.NotContains(t, proxy.Args, "--audit-future-option=unchanged")
-			assert.NotContains(t, proxy.Args, "--audit-use-forwarded-for")
+			assert.Equal(t, tt.wantWarning, authProxyPreserved)
+			if tt.wantPreservedProxy {
+				assert.Equal(t, tt.wantProxyArgs, proxy.Args)
+			} else {
+				assert.NotContains(t, proxy.Args, "--legacy-unrelated-arg")
+				assert.NotContains(t, proxy.Args, "--audit-future-option=unchanged")
+				assert.NotContains(t, proxy.Args, "--audit-use-forwarded-for")
+			}
 			if tt.wantConfiguredProxy {
 				assert.Equal(t, constants.OauthProxyImage, proxy.Image)
 			}
-			assert.Equal(t, 1, client.inferenceServiceGets, "only the SAR owner-reference lookup should read the parent InferenceService")
+			assert.Equal(t, 1, client.inferenceServiceGets,
+				"proxy generation or configured-image preservation should refresh SAR ownership")
 			if tt.wantNoISVCPatch {
 				assert.Nil(t, client.patchedInferenceService)
 			}
+		})
+	}
+}
+
+func TestCreateRawDeploymentODHPreservesAnnotationlessConfiguredProxy(t *testing.T) {
+	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+		Data:       map[string]string{oauthProxyISVCConfigKey: oauthProxyConfig},
+	})
+	meta := metav1.ObjectMeta{
+		Name:      "test-predictor",
+		Namespace: "test-ns",
+		Annotations: map[string]string{
+			constants.DeploymentMode:   string(constants.Standard),
+			constants.ODHKserveRawAuth: "true",
+		},
+		Labels: map[string]string{
+			constants.InferenceServicePodLabelKey: "test-isvc",
+		},
+	}
+	podSpec := &corev1.PodSpec{Containers: []corev1.Container{{Name: constants.InferenceServiceContainerName}}}
+
+	initialClient := &mockClientForAuthProxyDetection{deploymentNotFound: true}
+	initial, _, err := createRawDeploymentODH(
+		t.Context(), initialClient, clientset, constants.InferenceServiceResource,
+		meta, metav1.ObjectMeta{}, &v1beta1.ComponentExtensionSpec{}, podSpec, nil, nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, initial, 1)
+
+	existing := initial[0].DeepCopy()
+	var existingProxy *corev1.Container
+	for i := range existing.Spec.Template.Spec.Containers {
+		if existing.Spec.Template.Spec.Containers[i].Name == constants.KubeRbacContainerName {
+			existingProxy = &existing.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	require.NotNil(t, existingProxy)
+	assert.Equal(t, constants.OauthProxyImage, existingProxy.Image)
+	existingProxy.Args = append(existingProxy.Args,
+		"--audit-log-enabled",
+		"--audit-isvc-name=test-isvc",
+		"--audit-isvc-namespace=test-ns",
+		"--audit-future-option=unchanged",
+	)
+	wantTemplate := existing.Spec.Template.DeepCopy()
+	sarConfigMapName := "test-isvc-" + constants.OauthProxySARCMName
+	require.NoError(t, clientset.CoreV1().ConfigMaps("test-ns").Delete(
+		t.Context(), sarConfigMapName, metav1.DeleteOptions{},
+	))
+
+	reconcileClient := &mockClientForAuthProxyDetection{existingDeployment: existing}
+	reconciled, authProxyPreserved, err := createRawDeploymentODH(
+		t.Context(), reconcileClient, clientset, constants.InferenceServiceResource,
+		meta, metav1.ObjectMeta{}, &v1beta1.ComponentExtensionSpec{}, podSpec, nil, nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, reconciled, 1)
+	assert.False(t, authProxyPreserved)
+	assert.Equal(t, *wantTemplate, reconciled[0].Spec.Template)
+	assert.Equal(t, 1, reconcileClient.inferenceServiceGets)
+	assert.Nil(t, reconcileClient.patchedInferenceService)
+	_, err = clientset.CoreV1().ConfigMaps("test-ns").Get(t.Context(), sarConfigMapName, metav1.GetOptions{})
+	require.NoError(t, err)
+}
+
+func TestManagedAuditArgumentBoundaries(t *testing.T) {
+	tests := []struct {
+		name string
+		arg  string
+		want bool
+	}{
+		{name: "old option", arg: "--audit-isvc-name=test-isvc", want: true},
+		{name: "current option", arg: "--audit-resource-name=test-isvc", want: true},
+		{name: "unknown option", arg: "--audit-future-option=value", want: true},
+		{name: "audit text in value", arg: "--upstream=https://example.test/--audit-target", want: false},
+		{name: "similar option name", arg: "--auditing-enabled=true", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, isManagedAuditArg(tt.arg))
+		})
+	}
+
+	args := []string{
+		"--audit-log-enabled",
+		"--audit-log-enabled",
+		"--audit-isvc-name=old",
+		"--audit-isvc-name=duplicate",
+		"--audit-resource-name=current",
+		"--audit-resource-name=duplicate",
+		"--audit-future-option=unknown",
+		"--audit-future-option=duplicate",
+		"--upstream=https://example.test/--audit-target",
+		"--v=4",
+	}
+	assert.Equal(t, []string{
+		"--upstream=https://example.test/--audit-target",
+		"--v=4",
+	}, removeManagedAuditArgs(args))
+}
+
+func TestCustomizeAuthProxyArgsAuditSettings(t *testing.T) {
+	generated := []string{
+		"--audit-log-enabled",
+		"--audit-log-enabled",
+		"--audit-isvc-name=old",
+		"--audit-isvc-namespace=old",
+		"--audit-resource-name=current",
+		"--audit-resource-namespace=current",
+		"--audit-resource-type=LegacyType",
+		"--audit-ai-provider=LegacyProvider",
+		"--audit-future-option=unknown",
+		"--audit-future-option=duplicate",
+		"--upstream=https://example.test/--audit-target",
+	}
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		want        []string
+	}{
+		{
+			name: "explicit true collapses all managed arguments",
+			annotations: map[string]string{
+				constants.ODHKserveAuditLogging: "true",
+			},
+			want: []string{
+				"--upstream=https://example.test/--audit-target",
+				"--audit-log-enabled",
+				"--audit-resource-name=test-isvc",
+				"--audit-resource-namespace=test-ns",
+				"--audit-resource-type=InferenceService",
+				"--audit-ai-provider=KServe",
+			},
+		},
+		{
+			name: "explicit false removes all managed arguments",
+			annotations: map[string]string{
+				constants.ODHKserveAuditLogging: "false",
+			},
+			want: []string{"--upstream=https://example.test/--audit-target"},
+		},
+		{
+			name:        "absent setting leaves arguments untouched",
+			annotations: map[string]string{},
+			want:        generated,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			meta := metav1.ObjectMeta{
+				Namespace:   "test-ns",
+				Annotations: tt.annotations,
+				Labels: map[string]string{
+					constants.InferenceServicePodLabelKey: "test-isvc",
+				},
+			}
+			assert.Equal(t, tt.want, customizeAuthProxyArgs(meta, generated, "fallback-isvc"))
 		})
 	}
 }

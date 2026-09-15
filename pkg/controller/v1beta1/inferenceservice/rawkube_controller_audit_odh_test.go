@@ -265,11 +265,10 @@ func auditLoggingArgs(deployment *appsv1.Deployment) []string {
 		if container.Name != constants.KubeRbacContainerName {
 			continue
 		}
-		result := make([]string, 0, 3)
+		result := make([]string, 0, 5)
 		for _, arg := range container.Args {
 			name, _, _ := strings.Cut(arg, "=")
-			switch name {
-			case "--audit-log-enabled", "--audit-isvc-name", "--audit-isvc-namespace", "--audit-use-forwarded-for":
+			if strings.HasPrefix(name, "--audit-") {
 				result = append(result, arg)
 			}
 		}
@@ -284,7 +283,9 @@ func expectedAuditLoggingArgs(isvc *v1beta1.InferenceService, enabled bool) []st
 	}
 	return []string{
 		"--audit-log-enabled",
-		"--audit-isvc-name=" + isvc.Name,
-		"--audit-isvc-namespace=" + isvc.Namespace,
+		"--audit-resource-name=" + isvc.Name,
+		"--audit-resource-namespace=" + isvc.Namespace,
+		"--audit-resource-type=InferenceService",
+		"--audit-ai-provider=KServe",
 	}
 }

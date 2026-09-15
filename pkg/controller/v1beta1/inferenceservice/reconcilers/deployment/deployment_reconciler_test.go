@@ -2518,7 +2518,7 @@ func TestDeploymentReconcilerCondition(t *testing.T) {
 			expectedReason:  "AuthProxyPreserved",
 		},
 		{
-			name: "existing ISVC with kube-rbac-proxy matching config does NOT set condition",
+			name: "existing annotationless ISVC with kube-rbac-proxy matching config does NOT set condition",
 			existingDeployment: &appsv1.Deployment{
 				Spec: appsv1.DeploymentSpec{
 					Template: corev1.PodTemplateSpec{
@@ -3058,10 +3058,21 @@ func TestUpgradePreservesLegacyVolumeName(t *testing.T) {
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
 								{Name: constants.InferenceServiceContainerName},
-								{Name: constants.KubeRbacContainerName, Image: constants.OauthProxyImage},
+								{
+									Name:  constants.KubeRbacContainerName,
+									Image: constants.OauthProxyImage,
+									VolumeMounts: []corev1.VolumeMount{
+										{Name: legacyVolumeName, MountPath: "/etc/kube-rbac-proxy"},
+									},
+								},
 							},
 							Volumes: []corev1.Volume{
-								{Name: legacyVolumeName},
+								{
+									Name: legacyVolumeName,
+									VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+										LocalObjectReference: corev1.LocalObjectReference{Name: isvcName + "-" + constants.OauthProxySARCMName},
+									}},
+								},
 							},
 						},
 					},
@@ -3078,10 +3089,21 @@ func TestUpgradePreservesLegacyVolumeName(t *testing.T) {
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
 								{Name: constants.InferenceServiceContainerName},
-								{Name: constants.KubeRbacContainerName, Image: constants.OauthProxyImage},
+								{
+									Name:  constants.KubeRbacContainerName,
+									Image: constants.OauthProxyImage,
+									VolumeMounts: []corev1.VolumeMount{
+										{Name: constants.OauthProxySARCMName, MountPath: "/etc/kube-rbac-proxy"},
+									},
+								},
 							},
 							Volumes: []corev1.Volume{
-								{Name: constants.OauthProxySARCMName},
+								{
+									Name: constants.OauthProxySARCMName,
+									VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+										LocalObjectReference: corev1.LocalObjectReference{Name: isvcName + "-" + constants.OauthProxySARCMName},
+									}},
+								},
 							},
 						},
 					},

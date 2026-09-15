@@ -179,9 +179,12 @@ func createRawDeploymentODH(ctx context.Context,
 	// Deployment list is for multi-node, we only need to add oauth proxy and serving secret certs to the head deployment
 	headDeployment := deploymentList[0]
 
-	authProxyPreserved := false
+	authProxyReused := false
+	authProxyPreservationWarning := false
+	refreshPreservedSARConfig := false
 	if shouldAddAuthProxy {
 		auditConfigChanged := platformAuthProxyNeedsUpdate(componentMeta, existingDeployment, isvcname)
+		preservePlatformAuthProxy := platformAuthProxyShouldPreserve(componentMeta, existingDeployment)
 		wantsMigration := false
 		if val, ok := componentMeta.Annotations[constants.ODHAuthProxyTypeAnnotation]; ok {
 			wantsMigration = val == constants.KubeRbacProxyType
@@ -202,7 +205,8 @@ func createRawDeploymentODH(ctx context.Context,
 					}
 				} else {
 					log.Info("Preserving existing auth proxy container", "isvc", isvcname, "type", existingProxyType)
-					authProxyPreserved = true
+					authProxyReused = true
+					authProxyPreservationWarning = true
 					copyAuthProxyFromExisting(existingDeployment, headDeployment, existingProxyType)
 				}
 			case constants.KubeRbacContainerName:
@@ -210,16 +214,19 @@ func createRawDeploymentODH(ctx context.Context,
 				if oauthConfig != nil {
 					configuredKubeRbacImage = oauthConfig.Image
 				}
-				if auditConfigChanged || (configuredKubeRbacImage != "" && existingProxyImage == configuredKubeRbacImage) {
+				configuredImageMatches := configuredKubeRbacImage != "" && existingProxyImage == configuredKubeRbacImage
+				if auditConfigChanged || (!preservePlatformAuthProxy && configuredImageMatches) {
 					err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName)
 					if err != nil {
 						return nil, false, err
 					}
 				} else {
-					log.Info("Preserving existing auth proxy container (image differs from config)",
+					log.Info("Preserving existing auth proxy container",
 						"isvc", isvcname, "type", existingProxyType,
 						"existingImage", existingProxyImage, "configImage", configuredKubeRbacImage)
-					authProxyPreserved = true
+					authProxyReused = true
+					authProxyPreservationWarning = !configuredImageMatches
+					refreshPreservedSARConfig = preservePlatformAuthProxy && configuredImageMatches
 					copyAuthProxyFromExisting(existingDeployment, headDeployment, existingProxyType)
 				}
 			}
@@ -230,7 +237,12 @@ func createRawDeploymentODH(ctx context.Context,
 			}
 		}
 	}
-	if (shouldAddAuthProxy && !authProxyPreserved) || resourceType == constants.InferenceGraphResource {
+	if refreshPreservedSARConfig {
+		if err := createSarCm(ctx, client, clientset, componentMeta.Namespace, isvcname); err != nil {
+			return nil, false, fmt.Errorf("failed to refresh preserved SAR configmap: %w", err)
+		}
+	}
+	if (shouldAddAuthProxy && !authProxyReused) || resourceType == constants.InferenceGraphResource {
 		mountServingSecretCMVolumeToDeployment(headDeployment, componentMeta, resourceType, isvcname, sarVolumeName)
 	}
 
@@ -239,7 +251,7 @@ func createRawDeploymentODH(ctx context.Context,
 		return nil, false, fmt.Errorf("failed to mount transformer TLS infrastructure: %w", err)
 	}
 
-	return deploymentList, authProxyPreserved, nil
+	return deploymentList, authProxyPreservationWarning, nil
 }
 
 func createRawDeployment(componentMeta metav1.ObjectMeta, workerComponentMeta metav1.ObjectMeta,
