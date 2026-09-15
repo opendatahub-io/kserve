@@ -27,9 +27,6 @@
 # Operand images (KSERVE_CONTROLLER_IMAGE, LLMISVC_CONTROLLER_IMAGE, etc.) are
 # passed through to setup-cluster.sh unchanged when present.
 #
-# Prerequisites (RHOAIENG-82811 / #1966): e2e-roll-kserve-module, setup-cluster.sh
-# --skip-deps, and upgrade pytest markers (pre_upgrade/post_upgrade).
-#
 # Local example:
 #   export PULL_BASE_SHA="$(git merge-base HEAD origin/master)"
 #   export PULL_PULL_SHA="$(git rev-parse HEAD)"

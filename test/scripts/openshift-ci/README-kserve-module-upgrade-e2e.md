@@ -6,12 +6,6 @@ OpenShift CI entrypoint for rolling the **kserve-module controller image** from 
 This is wired as a separate Prow job (`e2e-kserve-module-upgrade`) alongside the
 existing `e2e-kserve-module` sanity job. It does not replace that job.
 
-## Prerequisites
-
-Requires the upgrade test implementation from [#1966](https://github.com/opendatahub-io/kserve/pull/1966)
-(RHOAIENG-82811): `e2e-roll-kserve-module`, `setup-cluster.sh --skip-deps`, and
-`pre_upgrade` / `post_upgrade` pytest markers.
-
 ## Flow
 
 ```text
