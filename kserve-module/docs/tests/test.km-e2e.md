@@ -77,8 +77,9 @@ PLATFORM=ocp make e2e-kserve-module-post-release
 ## Module upgrade e2e (RHOAIENG-82811)
 
 Validates that rolling the **kserve-module controller image** (N → N+1 via
-`deploy-kserve-module` / SSA manifest re-apply) does not disturb operand CRs or
-running services.
+`e2e-roll-kserve-module`, which re-applies manifests through
+`setup-cluster.sh --skip-deps`) does not disturb operand CRs or running
+services.
 
 | Ticket | Implementation |
 | --- | --- |

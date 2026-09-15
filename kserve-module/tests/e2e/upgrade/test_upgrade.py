@@ -111,7 +111,9 @@ class TestPostUpgrade:
         current = deployment_pod_snapshot(kubectl, MODULE_CONTROLLER_DEPLOYMENT)
         # Image roll may replace the pod; only check restart counts for pods that survived.
         assert_restart_counts_not_increased(
-            baseline["restart_counts"], current["restart_counts"]
+            baseline["restart_counts"],
+            current["restart_counts"],
+            require_baseline_pods=False,
         )
 
     @pytest.mark.post_upgrade

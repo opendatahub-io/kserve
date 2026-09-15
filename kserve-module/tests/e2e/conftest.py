@@ -147,7 +147,7 @@ def pytest_runtest_makereport(item, call):
     """Record pre-upgrade failures so baseline capture can be skipped."""
     outcome = yield
     report = outcome.get_result()
-    if call.when == "call" and report.failed and "pre_upgrade" in item.keywords:
+    if report.failed and "pre_upgrade" in item.keywords:
         item.config._pre_upgrade_test_failed = True  # type: ignore[attr-defined]
 
 

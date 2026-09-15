@@ -239,6 +239,9 @@ def capture_operand_baselines(kubectl, is_openshift):
 
 def capture_isvc_baseline(kubectl, name=ISVC_NAME, namespace=UPGRADE_NAMESPACE):
     isvc = get_resource(kubectl, "inferenceservice", name, namespace=namespace)
+    assert isvc is not None, (
+        f"InferenceService {name} not found in {namespace}; cannot capture baseline"
+    )
     pods = workload_pod_snapshot(
         kubectl,
         {"serving.kserve.io/inferenceservice": name},
@@ -256,6 +259,9 @@ def capture_isvc_baseline(kubectl, name=ISVC_NAME, namespace=UPGRADE_NAMESPACE):
 
 def capture_llmisvc_baseline(kubectl, name=LLMISVC_NAME, namespace=UPGRADE_NAMESPACE):
     llmisvc = get_resource(kubectl, "llminferenceservice", name, namespace=namespace)
+    assert llmisvc is not None, (
+        f"LLMInferenceService {name} not found in {namespace}; cannot capture baseline"
+    )
     pods = workload_pod_snapshot(
         kubectl,
         {"app.kubernetes.io/name": name},
@@ -326,9 +332,16 @@ def load_baseline(kubectl, namespace=UPGRADE_NAMESPACE):
     return json.loads(baseline)
 
 
-def assert_restart_counts_not_increased(baseline_counts, current_counts):
+def assert_restart_counts_not_increased(
+    baseline_counts, current_counts, require_baseline_pods=True
+):
     for pod, count in baseline_counts.items():
-        current = current_counts.get(pod, count)
+        if pod not in current_counts:
+            assert not require_baseline_pods, (
+                f"Pod {pod} from baseline is no longer present"
+            )
+            continue
+        current = current_counts[pod]
         assert current <= count, (
             f"Pod {pod} restart count increased from {count} to {current}"
         )
@@ -341,11 +354,9 @@ def assert_pod_uids_unchanged(baseline_uids, current_uids):
 
 
 def assert_operand_pods_not_recreated(baseline_uids, current_uids):
-    for uid in current_uids:
-        assert uid in baseline_uids, (
-            f"Operand pod was recreated: uid {uid} not in baseline. "
-            f"baseline={baseline_uids} current={current_uids}"
-        )
+    assert set(baseline_uids) == set(current_uids), (
+        f"Operand pod UIDs changed: baseline={baseline_uids} current={current_uids}"
+    )
 
 
 def workloads_supported(kubectl, is_openshift):
@@ -369,7 +380,10 @@ def start_background_probe(kubectl, namespace=UPGRADE_NAMESPACE):
 set -u
 while true; do
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  code=$(curl -sk -o /dev/null -w '%{{http_code}}' --connect-timeout 5 --max-time 10 "{isvc_url}" 2>/dev/null || echo 0)
+  code=$(curl -sk -o /dev/null -w '%{{http_code}}' --connect-timeout 5 --max-time 10 "{isvc_url}" 2>/dev/null || true)
+  case "$code" in
+    ''|*[!0-9]*) code=0 ;;
+  esac
   if [ "$code" -ge 200 ] 2>/dev/null && [ "$code" -lt 300 ] 2>/dev/null; then
     ok=true
   else
@@ -410,6 +424,35 @@ done
     wait_for(_probe_running, timeout=60, interval=2)
 
 
+def _parse_probe_records(log_text):
+    records = []
+    malformed = []
+    for line in log_text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            records.append(json.loads(line))
+        except json.JSONDecodeError:
+            malformed.append(line)
+    return records, malformed
+
+
+def _probe_failures_after_baseline(records):
+    baseline_idx = next(
+        (idx for idx, record in enumerate(records) if record.get("ok") is True),
+        None,
+    )
+    if baseline_idx is None:
+        return None, []
+    failures = [
+        record
+        for record in records[baseline_idx + 1 :]
+        if record.get("ok") is False
+    ]
+    return baseline_idx, failures
+
+
 def verify_background_probe(kubectl, namespace=UPGRADE_NAMESPACE):
     result = run(
         [kubectl, "logs", PROBE_POD_NAME, "-n", namespace],
@@ -420,18 +463,18 @@ def verify_background_probe(kubectl, namespace=UPGRADE_NAMESPACE):
             f"Could not read probe logs: {result.stderr}. "
             "Ensure pre-upgrade started the probe pod before the module roll."
         )
-    failures = []
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            record = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if record.get("ok") is False:
-            failures.append(record)
+    records, malformed = _parse_probe_records(result.stdout)
+    assert not malformed, (
+        f"Background probe emitted {len(malformed)} malformed record(s); "
+        f"first entries: {malformed[:5]}"
+    )
+    assert records, "Background probe produced no valid records"
+
+    baseline_idx, failures = _probe_failures_after_baseline(records)
+    assert baseline_idx is not None, (
+        "Background probe never recorded a successful baseline before upgrade"
+    )
     assert not failures, (
-        f"Background probe detected {len(failures)} failed request(s); "
+        f"Background probe detected {len(failures)} failed request(s) after baseline; "
         f"first failures: {failures[:5]}"
     )

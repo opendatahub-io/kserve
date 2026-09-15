@@ -10,16 +10,46 @@ on:
     paths:
       - "kserve-module/**"
   workflow_dispatch:
+    inputs:
+      base_ref:
+        description: Git ref for the N (base) controller image (e.g. main SHA)
+        required: true
+        type: string
 
 permissions: {}
 
 jobs:
+  resolve-base-ref:
+    runs-on: ubuntu-latest
+    outputs:
+      base_ref: ${{ steps.resolve.outputs.base_ref }}
+    steps:
+      - id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          DISPATCH_BASE_REF: ${{ inputs.base_ref }}
+        run: |
+          case "${EVENT_NAME}" in
+            pull_request) ref="${PR_BASE_SHA}" ;;
+            push)         ref="${PUSH_BEFORE}" ;;
+            workflow_dispatch) ref="${DISPATCH_BASE_REF}" ;;
+            *) echo "Unsupported event: ${EVENT_NAME}"; exit 1 ;;
+          esac
+          if [ -z "${ref}" ] || [ "${ref}" = "0000000000000000000000000000000000000000" ]; then
+            echo "Invalid or missing base ref for upgrade test: '${ref}'"
+            exit 1
+          fi
+          echo "base_ref=${ref}" >> "${GITHUB_OUTPUT}"
+
   build-image-base:
+    needs: [resolve-base-ref]
     uses: ./.github/workflows/build-kserve-module-image.yml
     with:
       image-name: kserve-module-controller-base
       image-tag: e2e-base
-      ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+      ref: ${{ needs.resolve-base-ref.outputs.base_ref }}
     permissions:
       contents: read
 
@@ -32,7 +62,7 @@ jobs:
       contents: read
 
   e2e-test:
-    needs: [build-image-base, build-image]
+    needs: [resolve-base-ref, build-image-base, build-image]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -69,6 +99,17 @@ jobs:
           minikube image load ${{ env.BASE_IMG_NAME }}:${{ env.BASE_IMG_TAG }}
           minikube image load ${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
 
+      - name: Verify N and N+1 images differ
+        run: |
+          BASE_ID=$(docker image inspect --format='{{.Id}}' "${{ env.BASE_IMG_NAME }}:${{ env.BASE_IMG_TAG }}")
+          NEXT_ID=$(docker image inspect --format='{{.Id}}' "${{ env.IMG_NAME }}:${{ env.IMG_TAG }}")
+          echo "Base image: ${BASE_ID}"
+          echo "Next image: ${NEXT_ID}"
+          if [ "${BASE_ID}" = "${NEXT_ID}" ]; then
+            echo "ERROR: Base and next images are identical (N→N); upgrade test would be meaningless"
+            exit 1
+          fi
+
       - name: Setup Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
@@ -77,8 +118,20 @@ jobs:
       - name: Install test dependencies
         run: pip install pytest pyyaml
 
-      - name: Setup cluster with base (N) controller image
+      - name: Checkout base (N) manifests for initial install
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.resolve-base-ref.outputs.base_ref }}
+          persist-credentials: false
+
+      - name: Setup cluster with base (N) controller image and manifests
         run: make e2e-setup-kserve-module PLATFORM=xks E2E_IMG=${{ env.BASE_IMG_NAME }}:${{ env.BASE_IMG_TAG }}
+
+      - name: Checkout PR (N+1) manifests for upgrade tests
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
 
       - name: Run pre-upgrade tests (Part A setup)
         run: make e2e-kserve-module PYTEST_ARGS='-m pre_upgrade --pre-upgrade'
