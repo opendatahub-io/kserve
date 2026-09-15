@@ -96,14 +96,18 @@ Tests live in `kserve-module/tests/e2e/upgrade/test_upgrade.py`.
 build N (main) + N+1 (PR) → install N → pre_upgrade → e2e-roll N+1 → post_upgrade → e2e-kserve-module
 ```
 
-On xks, ISVC/LLMISVC serving tests are skipped (`ocp_only`); operand pod identity
-and Kserve Ready are still checked.
+On xks (minikube CI), ISVC/LLMISVC serving tests are intentionally skipped
+(`ocp_only`): vanilla k8s lacks the OpenShift routes and serving stack those
+tests need. Operand pod identity, Kserve Ready, and the module-controller roll
+are still exercised.
 
 ### OpenShift dev cluster (platform-managed / DSC)
 
 Do not run `e2e-setup-kserve-module` on DSC-owned clusters. Roll the module
-controller image via the ODH subscription env override (DSC reconciles the
-deployment; `oc set image` alone will be reverted):
+controller image via the ODH subscription env override. The DataScienceCluster
+operator owns the deployment, so a direct `oc set image` or manifest-only change
+is rolled back on the next reconcile. The subscription `RELATED_IMAGE_*` env
+persists the desired image across reconciles:
 
 ```bash
 export IMG=quay.io/<org>/kserve-module-controller:<tag>

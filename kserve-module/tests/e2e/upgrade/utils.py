@@ -12,6 +12,8 @@ import yaml
 def _load_e2e_conftest():
     # upgrade/ has its own conftest.py, so `import conftest` would load that
     # package and create a circular import. Load the parent e2e conftest by path.
+    # __file__ -> kserve-module/tests/e2e/upgrade/utils.py
+    # parent.parent -> kserve-module/tests/e2e/conftest.py
     path = Path(__file__).resolve().parent.parent / "conftest.py"
     spec = importlib.util.spec_from_file_location("_e2e_conftest", path)
     module = importlib.util.module_from_spec(spec)

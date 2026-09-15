@@ -80,22 +80,22 @@ jobs:
       - name: Setup Minikube
         uses: ./.github/actions/minikube-setup
 
-      - name: Download base controller image (N = main)
+      - name: Download N controller image (base ref build)
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ env.BASE_IMG_NAME }}
-          path: /tmp/base
+          path: /tmp/n-image
 
-      - name: Download PR controller image (N+1)
+      - name: Download N+1 controller image (PR HEAD build)
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ env.IMG_NAME }}
-          path: /tmp/next
+          path: /tmp/n-plus-one-image
 
       - name: Load controller images
         run: |
-          docker image load -i /tmp/base/${{ env.BASE_IMG_NAME }}.tar
-          docker image load -i /tmp/next/${{ env.IMG_NAME }}.tar
+          docker image load -i /tmp/n-image/${{ env.BASE_IMG_NAME }}.tar
+          docker image load -i /tmp/n-plus-one-image/${{ env.IMG_NAME }}.tar
           minikube image load ${{ env.BASE_IMG_NAME }}:${{ env.BASE_IMG_TAG }}
           minikube image load ${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
 
