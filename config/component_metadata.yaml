@@ -1,16 +1,14 @@
 releases:
   - name: KServe
-    version: v0.20.0
+    version: v0.21.0
     repoUrl: https://github.com/kserve/kserve/
   - name: vLLM
-    version: v0.26.0
+    version: v0.28.0
     repoUrl: https://github.com/vllm-project/vllm
   - name: llm-d-router
-    version: v0.10.0
+    version: v0.11.0
     repoUrl: https://github.com/llm-d/llm-d-router
-  - name: llm-d-workload-variant-autoscaler
+  - name: llm-d-autoscaling
     version: v0.9.0
-    repoUrl: https://github.com/llm-d/llm-d-workload-variant-autoscaler
-  - name: llm-d-latency-predictor
-    version: v0.9.0
-    reporUrl: https://github.com/llm-d/llm-d-latency-predictor
+    repoUrl: https://github.com/llm-d/llm-d-autoscaling
+
