@@ -2612,8 +2612,6 @@ spec:
           ARCH="$(arch)"
           case "${ARCH}" in
             ppc64le)
-              export SENLIB_DEVEL_CONFIG_FILE="$HOME/senlib-power.json"
-              /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh || { echo "ERROR: Card setup failed"; exit 1; }
               if [ -f /opt/rh/gcc-toolset-14/enable ]; then
                 . /opt/rh/gcc-toolset-14/enable
                 export PATH
@@ -2969,8 +2967,6 @@ spec:
           ARCH="$(arch)"
           case "${ARCH}" in
             ppc64le)
-              export SENLIB_DEVEL_CONFIG_FILE="$HOME/senlib-power.json"
-              /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh || { echo "ERROR: Card setup failed"; exit 1; }
               if [ -f /opt/rh/gcc-toolset-14/enable ]; then
                 . /opt/rh/gcc-toolset-14/enable
                 export PATH
@@ -3352,8 +3348,6 @@ spec:
           ARCH="$(arch)"
           case "${ARCH}" in
             ppc64le)
-              export SENLIB_DEVEL_CONFIG_FILE="$HOME/senlib-power.json"
-              /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh || { echo "ERROR: Card setup failed"; exit 1; }
               if [ -f /opt/rh/gcc-toolset-14/enable ]; then
                 . /opt/rh/gcc-toolset-14/enable
                 export PATH
@@ -3663,8 +3657,6 @@ spec:
             ARCH="$(arch)"
             case "${ARCH}" in
               ppc64le)
-                export SENLIB_DEVEL_CONFIG_FILE="$HOME/senlib-power.json"
-                /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh || { echo "ERROR: Card setup failed"; exit 1; }
                 if [ -f /opt/rh/gcc-toolset-14/enable ]; then
                   . /opt/rh/gcc-toolset-14/enable
                   export PATH
@@ -3961,8 +3953,6 @@ spec:
             ARCH="$(arch)"
             case "${ARCH}" in
               ppc64le)
-                export SENLIB_DEVEL_CONFIG_FILE="$HOME/senlib-power.json"
-                /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh || { echo "ERROR: Card setup failed"; exit 1; }
                 if [ -f /opt/rh/gcc-toolset-14/enable ]; then
                   . /opt/rh/gcc-toolset-14/enable
                   export PATH
@@ -4283,8 +4273,6 @@ spec:
             ARCH="$(arch)"
             case "${ARCH}" in
               ppc64le)
-                export SENLIB_DEVEL_CONFIG_FILE="$HOME/senlib-power.json"
-                /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh || { echo "ERROR: Card setup failed"; exit 1; }
                 if [ -f /opt/rh/gcc-toolset-14/enable ]; then
                   . /opt/rh/gcc-toolset-14/enable
                   export PATH
@@ -5207,8 +5195,6 @@ spec:
           ARCH="$(arch)"
           case "${ARCH}" in
             ppc64le)
-              export SENLIB_DEVEL_CONFIG_FILE="$HOME/senlib-power.json"
-              /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh || { echo "ERROR: Card setup failed"; exit 1; }
               if [ -f /opt/rh/gcc-toolset-14/enable ]; then
                 . /opt/rh/gcc-toolset-14/enable
                 export PATH
@@ -5594,8 +5580,6 @@ spec:
           ARCH="$(arch)"
           case "${ARCH}" in
             ppc64le)
-              export SENLIB_DEVEL_CONFIG_FILE="$HOME/senlib-power.json"
-              /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh || { echo "ERROR: Card setup failed"; exit 1; }
               if [ -f /opt/rh/gcc-toolset-14/enable ]; then
                 . /opt/rh/gcc-toolset-14/enable
                 export PATH
@@ -5916,8 +5900,6 @@ spec:
           ARCH="$(arch)"
           case "${ARCH}" in
             ppc64le)
-              export SENLIB_DEVEL_CONFIG_FILE="$HOME/senlib-power.json"
-              /opt/ibm/spyre/bin/ibm-setup-subset-cards.sh || { echo "ERROR: Card setup failed"; exit 1; }
               if [ -f /opt/rh/gcc-toolset-14/enable ]; then
                 . /opt/rh/gcc-toolset-14/enable
                 export PATH
