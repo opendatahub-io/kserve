@@ -1,7 +1,5 @@
 """Unit tests for upgrade helper functions."""
 
-import json
-
 import pytest
 
 from upgrade.utils import (
