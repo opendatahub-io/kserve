@@ -32,7 +32,7 @@ import (
 func filterServiceAnnotations(annotations map[string]string, disallowedList []string, deploymentMode constants.DeploymentModeType) map[string]string {
 	if deploymentMode == constants.Standard {
 		disallowedList = isvcutils.FilterList(disallowedList, constants.ODHKserveRawAuth)
-		disallowedList = isvcutils.FilterList(disallowedList, constants.ODHKserveAuditLogging)
+		disallowedList = isvcutils.FilterList(disallowedList, constants.ODHKserveAuditLoggingProfile)
 	}
 	return utils.Filter(annotations, func(key string) bool {
 		return !utils.Includes(disallowedList, key)

@@ -34,13 +34,17 @@ const (
 )
 
 // Midstream networking constants
+type AuditLoggingProfile string
+
 const (
-	ODHKserveRawAuth               = "security.opendatahub.io/enable-auth"
-	ODHKserveAuditLogging          = "security.opendatahub.io/enable-audit-logging"
-	ODHAuthProxyTypeAnnotation     = "security.opendatahub.io/auth-proxy-type"
-	ODHRouteEnabled                = "exposed"
-	ServingCertSecretSuffix        = "-serving-cert"
-	OpenshiftServingCertAnnotation = "service.beta.openshift.io/serving-cert-secret-name"
+	ODHKserveRawAuth                                   = "security.opendatahub.io/enable-auth"
+	ODHKserveAuditLoggingProfile                       = "security.opendatahub.io/audit-logging-profile"
+	AuditLoggingProfileNone        AuditLoggingProfile = "none"
+	AuditLoggingProfileMetadata    AuditLoggingProfile = "metadata"
+	ODHAuthProxyTypeAnnotation                         = "security.opendatahub.io/auth-proxy-type"
+	ODHRouteEnabled                                    = "exposed"
+	ServingCertSecretSuffix                            = "-serving-cert"
+	OpenshiftServingCertAnnotation                     = "service.beta.openshift.io/serving-cert-secret-name"
 )
 
 // Midstream container names
@@ -91,5 +95,5 @@ const (
 )
 
 func init() {
-	ServiceAnnotationDisallowedList = append(ServiceAnnotationDisallowedList, ODHKserveRawAuth, ODHKserveAuditLogging)
+	ServiceAnnotationDisallowedList = append(ServiceAnnotationDisallowedList, ODHKserveRawAuth, ODHKserveAuditLoggingProfile)
 }

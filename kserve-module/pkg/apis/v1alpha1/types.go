@@ -22,6 +22,13 @@ const (
 	KserveRawHeaded   RawServiceConfig = "Headed"
 )
 
+type AuditProfile string
+
+const (
+	AuditProfileRemoved  AuditProfile = "Removed"
+	AuditProfileMetadata AuditProfile = "Metadata"
+)
+
 // Compile-time check: Kserve must implement common.PlatformObject so the
 // orchestrator (ODH Operator) can read status, conditions, and releases
 // through a uniform interface across all modules.
@@ -71,12 +78,11 @@ type KserveSpec struct {
 	// Enabled by default.
 	EnableLLMInferenceServiceConsoleDashboards *bool `json:"enableLLMInferenceServiceConsoleDashboards,omitempty"`
 
-	// AuditLogging controls inference request audit logging.
-	// Managed writes openshiftConfig.enableAuditLogging=true on inferenceservice-config.
-	// Removed writes openshiftConfig.enableAuditLogging=false.
-	// +kubebuilder:validation:Enum=Managed;Removed
+	// AuditLoggingProfile selects the inference request audit logging profile.
+	// Removed disables audit events; Metadata records request and response metadata without bodies.
+	// +kubebuilder:validation:Enum=Removed;Metadata
 	// +kubebuilder:default=Removed
-	AuditLogging common.ManagementState `json:"auditLogging,omitempty"`
+	AuditLoggingProfile AuditProfile `json:"auditLoggingProfile,omitempty"`
 
 	ModelCache    *ModelCacheSpec   `json:"modelCache,omitempty"`
 	ModelRegistry ModelRegistrySpec `json:"modelRegistry,omitempty"`

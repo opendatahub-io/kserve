@@ -117,14 +117,11 @@ func mountTransformerTLSInfrastructure(deployment *appsv1.Deployment, componentM
 }
 
 func customizeAuthProxyArgs(componentMeta metav1.ObjectMeta, generated []string, isvcName string) []string {
-	if _, explicit := componentMeta.Annotations[constants.ODHKserveAuditLogging]; !explicit {
+	if _, explicit := componentMeta.Annotations[constants.ODHKserveAuditLoggingProfile]; !explicit {
 		return generated
 	}
 	args := removeManagedAuditArgs(generated)
-	if strings.EqualFold(componentMeta.Annotations[constants.ODHKserveAuditLogging], "true") {
-		args = append(args, desiredAuditArgs(componentMeta, isvcName)...)
-	}
-	return args
+	return append(args, desiredAuditArgs(componentMeta, isvcName)...)
 }
 
 func platformAuthProxyNeedsUpdate(componentMeta metav1.ObjectMeta, existing *appsv1.Deployment, isvcName string) bool {
@@ -147,7 +144,7 @@ func platformAuthProxyShouldPreserve(componentMeta metav1.ObjectMeta, existing *
 	if existing == nil {
 		return false
 	}
-	if _, explicit := componentMeta.Annotations[constants.ODHKserveAuditLogging]; explicit {
+	if _, explicit := componentMeta.Annotations[constants.ODHKserveAuditLoggingProfile]; explicit {
 		return false
 	}
 	for _, container := range existing.Spec.Template.Spec.Containers {
@@ -159,7 +156,8 @@ func platformAuthProxyShouldPreserve(componentMeta metav1.ObjectMeta, existing *
 }
 
 func desiredAuditArgs(componentMeta metav1.ObjectMeta, isvcName string) []string {
-	if !strings.EqualFold(componentMeta.Annotations[constants.ODHKserveAuditLogging], "true") {
+	profile := constants.AuditLoggingProfile(componentMeta.Annotations[constants.ODHKserveAuditLoggingProfile])
+	if profile != constants.AuditLoggingProfileMetadata {
 		return nil
 	}
 	name := componentMeta.Labels[constants.InferenceServicePodLabelKey]
@@ -167,7 +165,7 @@ func desiredAuditArgs(componentMeta metav1.ObjectMeta, isvcName string) []string
 		name = isvcName
 	}
 	return []string{
-		"--audit-log-enabled",
+		"--audit-log-profile=metadata",
 		"--audit-resource-name=" + name,
 		"--audit-resource-namespace=" + componentMeta.Namespace,
 		"--audit-resource-type=InferenceService",
@@ -199,15 +197,10 @@ func sameArgs(left, right []string) bool {
 	if len(left) != len(right) {
 		return false
 	}
-	counts := make(map[string]int, len(left))
-	for _, arg := range left {
-		counts[arg]++
-	}
-	for _, arg := range right {
-		if counts[arg] == 0 {
+	for i := range left {
+		if left[i] != right[i] {
 			return false
 		}
-		counts[arg]--
 	}
 	return true
 }

@@ -44,87 +44,100 @@ func TestAuditLoggingAdmissionPolicy(t *testing.T) {
 		wantError      string
 	}{
 		{
-			name:         "create snapshots enabled global setting",
+			name:         "create snapshots metadata global profile",
 			operation:    admissionv1.Create,
 			annotations:  authenticatedStandardAnnotations(),
-			globalConfig: `{"enableAuditLogging":true}`,
+			globalConfig: `{"auditLoggingProfile":"metadata"}`,
 			wantPresent:  true,
-			wantValue:    "true",
+			wantValue:    "metadata",
 		},
 		{
-			name:         "global setting requires authentication",
+			name:         "metadata global profile requires authentication",
 			operation:    admissionv1.Create,
 			annotations:  standardAnnotations(),
-			globalConfig: `{"enableAuditLogging":true}`,
+			globalConfig: `{"auditLoggingProfile":"metadata"}`,
 			wantPresent:  true,
-			wantValue:    "true",
+			wantValue:    "metadata",
 			wantError:    "requires authentication",
 		},
 		{
-			name:         "create leaves disabled global setting annotationless",
+			name:         "create leaves none global profile annotationless",
 			operation:    admissionv1.Create,
 			annotations:  standardAnnotations(),
-			globalConfig: `{"enableAuditLogging":false}`,
+			globalConfig: `{"auditLoggingProfile":"none"}`,
 		},
 		{
-			name:         "create leaves omitted global setting annotationless",
+			name:         "create treats omitted profile as none",
 			operation:    admissionv1.Create,
 			annotations:  standardAnnotations(),
 			globalConfig: `{}`,
 		},
 		{
-			name:      "explicit false overrides enabled global setting",
+			name:      "explicit none overrides metadata global profile",
 			operation: admissionv1.Create,
 			annotations: map[string]string{
-				constants.DeploymentMode:        string(constants.Standard),
-				constants.ODHKserveAuditLogging: "false",
+				constants.DeploymentMode:               string(constants.Standard),
+				constants.ODHKserveAuditLoggingProfile: "none",
 			},
-			globalConfig: `{"enableAuditLogging":true}`,
+			globalConfig: `{"auditLoggingProfile":"metadata"}`,
 			wantPresent:  true,
-			wantValue:    "false",
+			wantValue:    "none",
 		},
 		{
-			name:      "explicit true overrides disabled global setting",
+			name:      "explicit metadata overrides none global profile",
 			operation: admissionv1.Create,
 			annotations: map[string]string{
-				constants.DeploymentMode:        string(constants.Standard),
-				constants.ODHKserveRawAuth:      "true",
-				constants.ODHKserveAuditLogging: "TRUE",
+				constants.DeploymentMode:               string(constants.Standard),
+				constants.ODHKserveRawAuth:             "true",
+				constants.ODHKserveAuditLoggingProfile: "metadata",
 			},
-			globalConfig: `{"enableAuditLogging":false}`,
+			globalConfig: `{"auditLoggingProfile":"none"}`,
 			wantPresent:  true,
-			wantValue:    "TRUE",
+			wantValue:    "metadata",
 		},
 		{
-			name:      "audit logging is limited to standard mode",
+			name:      "request is rejected until implemented",
 			operation: admissionv1.Create,
 			annotations: map[string]string{
-				constants.DeploymentMode:        string(constants.Knative),
-				constants.ODHKserveRawAuth:      "true",
-				constants.ODHKserveAuditLogging: "true",
+				constants.DeploymentMode:               string(constants.Standard),
+				constants.ODHKserveRawAuth:             "true",
+				constants.ODHKserveAuditLoggingProfile: "request",
 			},
 			wantPresent: true,
-			wantValue:   "true",
+			wantValue:   "request",
+			wantError:   `must be one of "none" or "metadata"`,
+		},
+		{
+			name:      "profile matching is case sensitive",
+			operation: admissionv1.Create,
+			annotations: map[string]string{
+				constants.DeploymentMode:               string(constants.Standard),
+				constants.ODHKserveRawAuth:             "true",
+				constants.ODHKserveAuditLoggingProfile: "Metadata",
+			},
+			wantPresent: true,
+			wantValue:   "Metadata",
+			wantError:   `must be one of "none" or "metadata"`,
+		},
+		{
+			name:      "metadata is limited to standard mode",
+			operation: admissionv1.Create,
+			annotations: map[string]string{
+				constants.DeploymentMode:               string(constants.Knative),
+				constants.ODHKserveRawAuth:             "true",
+				constants.ODHKserveAuditLoggingProfile: "metadata",
+			},
+			wantPresent: true,
+			wantValue:   "metadata",
 			wantError:   "only supported",
-		},
-		{
-			name:      "invalid override is rejected",
-			operation: admissionv1.Create,
-			annotations: map[string]string{
-				constants.DeploymentMode:        string(constants.Standard),
-				constants.ODHKserveAuditLogging: "sometimes",
-			},
-			wantPresent: true,
-			wantValue:   "sometimes",
-			wantError:   "must be true or false",
 		},
 		{
 			name:           "update restores persisted setting when annotation is removed",
 			operation:      admissionv1.Update,
 			annotations:    authenticatedStandardAnnotations(),
-			oldAnnotations: map[string]string{constants.ODHKserveAuditLogging: "true"},
+			oldAnnotations: map[string]string{constants.ODHKserveAuditLoggingProfile: "metadata"},
 			wantPresent:    true,
-			wantValue:      "true",
+			wantValue:      "metadata",
 		},
 		{
 			name:        "legacy update remains annotationless",
@@ -137,6 +150,13 @@ func TestAuditLoggingAdmissionPolicy(t *testing.T) {
 			annotations:  standardAnnotations(),
 			globalConfig: `{`,
 			wantError:    "unable to parse OpenShift audit logging configuration",
+		},
+		{
+			name:         "invalid global request profile is rejected",
+			operation:    admissionv1.Create,
+			annotations:  authenticatedStandardAnnotations(),
+			globalConfig: `{"auditLoggingProfile":"request"}`,
+			wantError:    `must be one of "none" or "metadata"`,
 		},
 	}
 
@@ -165,7 +185,7 @@ func TestAuditLoggingAdmissionPolicy(t *testing.T) {
 				t.Fatalf("audit admission error = %v, want substring %q", err, tt.wantError)
 			}
 
-			value, present := isvc.Annotations[constants.ODHKserveAuditLogging]
+			value, present := isvc.Annotations[constants.ODHKserveAuditLoggingProfile]
 			if present != tt.wantPresent || present && value != tt.wantValue {
 				t.Fatalf("audit annotation = %q, present %t; want %q, present %t", value, present, tt.wantValue, tt.wantPresent)
 			}
@@ -183,13 +203,13 @@ func TestAuditLoggingDefaultRequiresAdmissionRequest(t *testing.T) {
 func TestAuditLoggingRejectsComponentOverride(t *testing.T) {
 	isvc := &InferenceService{
 		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
-			constants.DeploymentMode:        string(constants.Standard),
-			constants.ODHKserveRawAuth:      "true",
-			constants.ODHKserveAuditLogging: "true",
+			constants.DeploymentMode:               string(constants.Standard),
+			constants.ODHKserveRawAuth:             "true",
+			constants.ODHKserveAuditLoggingProfile: "metadata",
 		}},
 		Spec: InferenceServiceSpec{Predictor: PredictorSpec{
 			ComponentExtensionSpec: ComponentExtensionSpec{Annotations: map[string]string{
-				constants.ODHKserveAuditLogging: "false",
+				constants.ODHKserveAuditLoggingProfile: "none",
 			}},
 		}},
 	}

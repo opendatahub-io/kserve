@@ -315,13 +315,13 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 		wantProxyArgs       []string
 	}{
 		{
-			name: "new audited predictor",
+			name: "metadata configures a new predictor proxy",
 			annotations: map[string]string{
-				constants.ODHKserveRawAuth:      "true",
-				constants.ODHKserveAuditLogging: "true",
+				constants.ODHKserveRawAuth:             "true",
+				constants.ODHKserveAuditLoggingProfile: "metadata",
 			},
 			wantAuditArgs: []string{
-				"--audit-log-enabled",
+				"--audit-log-profile=metadata",
 				"--audit-resource-name=test-isvc",
 				"--audit-resource-namespace=test-ns",
 				"--audit-resource-type=InferenceService",
@@ -329,17 +329,17 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			},
 		},
 		{
-			name: "explicitly disabled predictor",
+			name: "none configures a new predictor without audit arguments",
 			annotations: map[string]string{
-				constants.ODHKserveRawAuth:      "true",
-				constants.ODHKserveAuditLogging: "false",
+				constants.ODHKserveRawAuth:             "true",
+				constants.ODHKserveAuditLoggingProfile: "none",
 			},
 		},
 		{
-			name: "explicit false removes an existing audit configuration",
+			name: "none removes an existing audit configuration",
 			annotations: map[string]string{
-				constants.ODHKserveRawAuth:      "true",
-				constants.ODHKserveAuditLogging: "false",
+				constants.ODHKserveRawAuth:             "true",
+				constants.ODHKserveAuditLoggingProfile: "none",
 			},
 			existingDeployment: deploymentWithAuthProxyImage("outdated-proxy",
 				"--audit-log-enabled",
@@ -354,23 +354,23 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			wantConfiguredProxy: true,
 		},
 		{
-			name: "explicit false removes unknown audit arguments",
+			name: "none removes unknown audit arguments",
 			annotations: map[string]string{
-				constants.ODHKserveRawAuth:      "true",
-				constants.ODHKserveAuditLogging: "false",
+				constants.ODHKserveRawAuth:             "true",
+				constants.ODHKserveAuditLoggingProfile: "none",
 			},
 			existingDeployment:  deploymentWithAuthProxyImage("outdated-proxy", "--audit-future-option=unchanged"),
 			wantConfiguredProxy: true,
 		},
 		{
-			name: "explicit true enables an existing unaudited predictor",
+			name: "metadata enables an existing unaudited predictor",
 			annotations: map[string]string{
-				constants.ODHKserveRawAuth:      "true",
-				constants.ODHKserveAuditLogging: "true",
+				constants.ODHKserveRawAuth:             "true",
+				constants.ODHKserveAuditLoggingProfile: "metadata",
 			},
 			existingDeployment: deploymentWithAuthProxy(),
 			wantAuditArgs: []string{
-				"--audit-log-enabled",
+				"--audit-log-profile=metadata",
 				"--audit-resource-name=test-isvc",
 				"--audit-resource-namespace=test-ns",
 				"--audit-resource-type=InferenceService",
@@ -378,12 +378,15 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			},
 		},
 		{
-			name: "audit drift overrides image preservation",
+			name: "metadata replaces stale duplicate and unknown audit arguments",
 			annotations: map[string]string{
-				constants.ODHKserveRawAuth:      "true",
-				constants.ODHKserveAuditLogging: "true",
+				constants.ODHKserveRawAuth:             "true",
+				constants.ODHKserveAuditLoggingProfile: "metadata",
 			},
 			existingDeployment: deploymentWithAuthProxyImage("outdated-proxy",
+				"--audit-log-enabled",
+				"--audit-log-profile=none",
+				"--audit-log-profile=metadata",
 				"--audit-isvc-name=spoofed",
 				"--audit-isvc-namespace=stale",
 				"--audit-resource-name=stale",
@@ -393,7 +396,7 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 				"--audit-future-option=stale",
 			),
 			wantAuditArgs: []string{
-				"--audit-log-enabled",
+				"--audit-log-profile=metadata",
 				"--audit-resource-name=test-isvc",
 				"--audit-resource-namespace=test-ns",
 				"--audit-resource-type=InferenceService",
@@ -402,14 +405,36 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			wantConfiguredProxy: true,
 		},
 		{
-			name: "enabling audit migrates a legacy oauth proxy",
+			name: "metadata canonicalizes reordered audit arguments on a differently imaged proxy",
 			annotations: map[string]string{
-				constants.ODHKserveRawAuth:      "true",
-				constants.ODHKserveAuditLogging: "true",
+				constants.ODHKserveRawAuth:             "true",
+				constants.ODHKserveAuditLoggingProfile: "metadata",
+			},
+			existingDeployment: deploymentWithAuthProxyImage("outdated-proxy",
+				"--audit-ai-provider=KServe",
+				"--audit-resource-type=InferenceService",
+				"--audit-resource-namespace=test-ns",
+				"--audit-resource-name=test-isvc",
+				"--audit-log-profile=metadata",
+			),
+			wantAuditArgs: []string{
+				"--audit-log-profile=metadata",
+				"--audit-resource-name=test-isvc",
+				"--audit-resource-namespace=test-ns",
+				"--audit-resource-type=InferenceService",
+				"--audit-ai-provider=KServe",
+			},
+			wantConfiguredProxy: true,
+		},
+		{
+			name: "metadata migrates a legacy oauth proxy",
+			annotations: map[string]string{
+				constants.ODHKserveRawAuth:             "true",
+				constants.ODHKserveAuditLoggingProfile: "metadata",
 			},
 			existingDeployment: deploymentWithNamedAuthProxy(constants.OauthProxyContainerName, "legacy-oauth"),
 			wantAuditArgs: []string{
-				"--audit-log-enabled",
+				"--audit-log-profile=metadata",
 				"--audit-resource-name=test-isvc",
 				"--audit-resource-namespace=test-ns",
 				"--audit-resource-type=InferenceService",
@@ -607,6 +632,8 @@ func TestManagedAuditArgumentBoundaries(t *testing.T) {
 	args := []string{
 		"--audit-log-enabled",
 		"--audit-log-enabled",
+		"--audit-log-profile=metadata",
+		"--audit-log-profile=none",
 		"--audit-isvc-name=old",
 		"--audit-isvc-name=duplicate",
 		"--audit-resource-name=current",
@@ -626,6 +653,8 @@ func TestCustomizeAuthProxyArgsAuditSettings(t *testing.T) {
 	generated := []string{
 		"--audit-log-enabled",
 		"--audit-log-enabled",
+		"--audit-log-profile=none",
+		"--audit-log-profile=metadata",
 		"--audit-isvc-name=old",
 		"--audit-isvc-namespace=old",
 		"--audit-resource-name=current",
@@ -642,13 +671,13 @@ func TestCustomizeAuthProxyArgsAuditSettings(t *testing.T) {
 		want        []string
 	}{
 		{
-			name: "explicit true collapses all managed arguments",
+			name: "metadata collapses all managed arguments",
 			annotations: map[string]string{
-				constants.ODHKserveAuditLogging: "true",
+				constants.ODHKserveAuditLoggingProfile: "metadata",
 			},
 			want: []string{
 				"--upstream=https://example.test/--audit-target",
-				"--audit-log-enabled",
+				"--audit-log-profile=metadata",
 				"--audit-resource-name=test-isvc",
 				"--audit-resource-namespace=test-ns",
 				"--audit-resource-type=InferenceService",
@@ -656,9 +685,9 @@ func TestCustomizeAuthProxyArgsAuditSettings(t *testing.T) {
 			},
 		},
 		{
-			name: "explicit false removes all managed arguments",
+			name: "none removes all managed arguments",
 			annotations: map[string]string{
-				constants.ODHKserveAuditLogging: "false",
+				constants.ODHKserveAuditLoggingProfile: "none",
 			},
 			want: []string{"--upstream=https://example.test/--audit-target"},
 		},

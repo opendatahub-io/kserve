@@ -48,7 +48,7 @@ func defaultPlatformInferenceService(ctx context.Context, isvc *InferenceService
 }
 
 func defaultAuditLoggingOnCreate(isvc *InferenceService, configMap *corev1.ConfigMap) error {
-	if _, present := isvc.Annotations[constants.ODHKserveAuditLogging]; present {
+	if _, present := isvc.Annotations[constants.ODHKserveAuditLoggingProfile]; present {
 		return nil
 	}
 	if isvc.Annotations[constants.DeploymentMode] != string(constants.Standard) {
@@ -59,18 +59,22 @@ func defaultAuditLoggingOnCreate(isvc *InferenceService, configMap *corev1.Confi
 	if err != nil {
 		return fmt.Errorf("unable to parse OpenShift audit logging configuration: %w", err)
 	}
-	if !config.EnableAuditLogging {
+	profile := effectiveAuditLoggingProfile(config.AuditLoggingProfile)
+	if err := validateAuditLoggingProfile(profile); err != nil {
+		return err
+	}
+	if profile == constants.AuditLoggingProfileNone {
 		return nil
 	}
 	if isvc.Annotations == nil {
 		isvc.Annotations = map[string]string{}
 	}
-	isvc.Annotations[constants.ODHKserveAuditLogging] = "true"
+	isvc.Annotations[constants.ODHKserveAuditLoggingProfile] = string(profile)
 	return nil
 }
 
 func restoreAuditLoggingOnUpdate(isvc *InferenceService, oldObject []byte) error {
-	if _, present := isvc.Annotations[constants.ODHKserveAuditLogging]; present || len(oldObject) == 0 {
+	if _, present := isvc.Annotations[constants.ODHKserveAuditLoggingProfile]; present || len(oldObject) == 0 {
 		return nil
 	}
 
@@ -78,11 +82,11 @@ func restoreAuditLoggingOnUpdate(isvc *InferenceService, oldObject []byte) error
 	if err := json.Unmarshal(oldObject, &oldIsvc); err != nil {
 		return fmt.Errorf("unable to restore persisted audit logging setting: %w", err)
 	}
-	if oldValue, present := oldIsvc.Annotations[constants.ODHKserveAuditLogging]; present {
+	if oldValue, present := oldIsvc.Annotations[constants.ODHKserveAuditLoggingProfile]; present {
 		if isvc.Annotations == nil {
 			isvc.Annotations = map[string]string{}
 		}
-		isvc.Annotations[constants.ODHKserveAuditLogging] = oldValue
+		isvc.Annotations[constants.ODHKserveAuditLoggingProfile] = oldValue
 	}
 	return nil
 }
@@ -100,28 +104,48 @@ func validatePlatformInferenceService(isvc *InferenceService) error {
 		componentAnnotations = append(componentAnnotations, annotatedComponent{name: "explainer", annotations: isvc.Spec.Explainer.Annotations})
 	}
 	for _, component := range componentAnnotations {
-		if _, present := component.annotations[constants.ODHKserveAuditLogging]; present {
-			return fmt.Errorf("annotation %q is only supported on InferenceService metadata, not %s annotations", constants.ODHKserveAuditLogging, component.name)
+		if _, present := component.annotations[constants.ODHKserveAuditLoggingProfile]; present {
+			return fmt.Errorf("annotation %q is only supported on InferenceService metadata, not %s annotations", constants.ODHKserveAuditLoggingProfile, component.name)
 		}
 	}
 
-	auditValue, present := isvc.Annotations[constants.ODHKserveAuditLogging]
+	auditValue, present := isvc.Annotations[constants.ODHKserveAuditLoggingProfile]
 	if !present {
 		return nil
 	}
 
-	auditEnabled := strings.EqualFold(auditValue, "true")
-	if !auditEnabled && !strings.EqualFold(auditValue, "false") {
-		return fmt.Errorf("annotation %q must be true or false, got %q", constants.ODHKserveAuditLogging, auditValue)
+	profile := constants.AuditLoggingProfile(auditValue)
+	if err := validateAuditLoggingProfile(profile); err != nil {
+		return err
 	}
-	if !auditEnabled {
+	if profile == constants.AuditLoggingProfileNone {
 		return nil
 	}
 	if !strings.EqualFold(isvc.Annotations[constants.ODHKserveRawAuth], "true") {
-		return fmt.Errorf("audit logging annotation %q requires authentication annotation %q to be true", constants.ODHKserveAuditLogging, constants.ODHKserveRawAuth)
+		return fmt.Errorf("audit logging annotation %q requires authentication annotation %q to be true", constants.ODHKserveAuditLoggingProfile, constants.ODHKserveRawAuth)
 	}
 	if isvc.Annotations[constants.DeploymentMode] != string(constants.Standard) {
-		return fmt.Errorf("audit logging annotation %q is only supported in %s deployment mode", constants.ODHKserveAuditLogging, constants.Standard)
+		return fmt.Errorf("audit logging annotation %q is only supported in %s deployment mode", constants.ODHKserveAuditLoggingProfile, constants.Standard)
 	}
 	return nil
+}
+
+func effectiveAuditLoggingProfile(profile constants.AuditLoggingProfile) constants.AuditLoggingProfile {
+	if profile == "" {
+		return constants.AuditLoggingProfileNone
+	}
+	return profile
+}
+
+func validateAuditLoggingProfile(profile constants.AuditLoggingProfile) error {
+	switch profile {
+	case constants.AuditLoggingProfileNone, constants.AuditLoggingProfileMetadata:
+		return nil
+	default:
+		return fmt.Errorf("audit logging profile must be one of %q or %q, got %q",
+			constants.AuditLoggingProfileNone,
+			constants.AuditLoggingProfileMetadata,
+			profile,
+		)
+	}
 }

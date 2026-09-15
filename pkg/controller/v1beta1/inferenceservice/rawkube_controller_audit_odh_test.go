@@ -50,16 +50,16 @@ var _ = Describe("RawDeployment audit logging", func() {
 		configureAuditLoggingEnvTestKubeconfig()
 	})
 
-	DescribeTable("renders the effective audit setting and keeps it stable across global changes",
-		func(serviceName string, globalEnabled bool, override *string, auditEnabled bool, wantAnnotation *string) {
+	DescribeTable("renders the effective audit profile and keeps it stable across global changes",
+		func(serviceName string, globalProfile constants.AuditLoggingProfile, override *string, effectiveProfile constants.AuditLoggingProfile, wantAnnotation *string) {
 			ctx := context.Background()
-			configMap := auditLoggingConfigMap(globalEnabled)
+			configMap := auditLoggingConfigMap(globalProfile)
 			Expect(k8sClient.Create(ctx, configMap)).To(Succeed())
 			DeferCleanup(func() { _ = k8sClient.Delete(ctx, configMap) })
 
 			isvc := auditLoggingInferenceService(serviceName, override, true)
 			Expect(admitAuditLoggingInferenceService(admissionv1.Create, nil, isvc)).To(Succeed())
-			auditValue, auditPresent := isvc.Annotations[constants.ODHKserveAuditLogging]
+			auditValue, auditPresent := isvc.Annotations[constants.ODHKserveAuditLoggingProfile]
 			Expect(auditPresent).To(Equal(wantAnnotation != nil))
 			if wantAnnotation != nil {
 				Expect(auditValue).To(Equal(*wantAnnotation))
@@ -74,13 +74,13 @@ var _ = Describe("RawDeployment audit logging", func() {
 			deployment := &appsv1.Deployment{}
 			Eventually(func(g Gomega) {
 				g.Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
-				g.Expect(auditLoggingArgs(deployment)).To(Equal(expectedAuditLoggingArgs(isvc, auditEnabled)))
+				g.Expect(auditLoggingArgs(deployment)).To(Equal(expectedAuditLoggingArgs(isvc, effectiveProfile)))
 			}, timeout, interval).Should(Succeed())
 			originalTemplate := deployment.Spec.Template.DeepCopy()
 
 			persisted := &v1beta1.InferenceService{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, persisted)).To(Succeed())
-			persistedAuditValue, persistedAuditPresent := persisted.Annotations[constants.ODHKserveAuditLogging]
+			persistedAuditValue, persistedAuditPresent := persisted.Annotations[constants.ODHKserveAuditLoggingProfile]
 			Expect(persistedAuditPresent).To(Equal(wantAnnotation != nil))
 			if wantAnnotation != nil {
 				Expect(persistedAuditValue).To(Equal(*wantAnnotation))
@@ -92,14 +92,18 @@ var _ = Describe("RawDeployment audit logging", func() {
 				Name:      constants.InferenceServiceConfigMapName,
 				Namespace: constants.KServeNamespace,
 			}, latestConfigMap)).To(Succeed())
-			latestConfigMap.Data[v1beta1.OpenShiftConfigName] = auditLoggingOpenShiftConfig(!globalEnabled)
+			changedGlobalProfile := constants.AuditLoggingProfileMetadata
+			if globalProfile == constants.AuditLoggingProfileMetadata {
+				changedGlobalProfile = constants.AuditLoggingProfileNone
+			}
+			latestConfigMap.Data[v1beta1.OpenShiftConfigName] = auditLoggingOpenShiftConfig(changedGlobalProfile)
 			Expect(k8sClient.Update(ctx, latestConfigMap)).To(Succeed())
 
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, persisted)).To(Succeed())
 			oldIsvc := persisted.DeepCopy()
 			persisted.Spec.Predictor.MaxReplicas = 4
 			Expect(admitAuditLoggingInferenceService(admissionv1.Update, oldIsvc, persisted)).To(Succeed())
-			persistedAuditValue, persistedAuditPresent = persisted.Annotations[constants.ODHKserveAuditLogging]
+			persistedAuditValue, persistedAuditPresent = persisted.Annotations[constants.ODHKserveAuditLoggingProfile]
 			Expect(persistedAuditPresent).To(Equal(wantAnnotation != nil))
 			if wantAnnotation != nil {
 				Expect(persistedAuditValue).To(Equal(*wantAnnotation))
@@ -116,36 +120,55 @@ var _ = Describe("RawDeployment audit logging", func() {
 				updatedDeployment := &appsv1.Deployment{}
 				g.Expect(k8sClient.Get(ctx, deploymentKey, updatedDeployment)).To(Succeed())
 				g.Expect(updatedDeployment.Spec.Template).To(Equal(*originalTemplate))
-				g.Expect(auditLoggingArgs(updatedDeployment)).To(Equal(expectedAuditLoggingArgs(isvc, auditEnabled)))
+				g.Expect(auditLoggingArgs(updatedDeployment)).To(Equal(expectedAuditLoggingArgs(isvc, effectiveProfile)))
 			}, timeout, interval).Should(Succeed())
 
 			finalIsvc := &v1beta1.InferenceService{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, finalIsvc)).To(Succeed())
-			finalAuditValue, finalAuditPresent := finalIsvc.Annotations[constants.ODHKserveAuditLogging]
+			finalAuditValue, finalAuditPresent := finalIsvc.Annotations[constants.ODHKserveAuditLoggingProfile]
 			Expect(finalAuditPresent).To(Equal(wantAnnotation != nil))
 			if wantAnnotation != nil {
 				Expect(finalAuditValue).To(Equal(*wantAnnotation))
 			}
 		},
-		Entry("inherits an enabled global default", "audit-global-on", true, nil, true, ptr.To("true")),
-		Entry("inherits a disabled global default", "audit-global-off", false, nil, false, nil),
-		Entry("allows an explicit opt-in", "audit-override-on", false, ptr.To("true"), true, ptr.To("true")),
-		Entry("allows an explicit opt-out", "audit-override-off", true, ptr.To("false"), false, ptr.To("false")),
+		Entry("inherits metadata", "audit-global-metadata", constants.AuditLoggingProfileMetadata, nil, constants.AuditLoggingProfileMetadata, ptr.To("metadata")),
+		Entry("inherits none without annotation", "audit-global-none", constants.AuditLoggingProfileNone, nil, constants.AuditLoggingProfileNone, nil),
+		Entry("allows explicit metadata", "audit-override-metadata", constants.AuditLoggingProfileNone, ptr.To("metadata"), constants.AuditLoggingProfileMetadata, ptr.To("metadata")),
+		Entry("allows explicit none", "audit-override-none", constants.AuditLoggingProfileMetadata, ptr.To("none"), constants.AuditLoggingProfileNone, ptr.To("none")),
 	)
 
-	DescribeTable("rejects effective audit logging without authentication",
-		func(serviceName string, globalEnabled bool, override *string) {
+	DescribeTable("enforces authentication only for metadata logging",
+		func(serviceName string, globalProfile constants.AuditLoggingProfile, override *string, wantError bool) {
 			ctx := context.Background()
-			configMap := auditLoggingConfigMap(globalEnabled)
+			configMap := auditLoggingConfigMap(globalProfile)
 			Expect(k8sClient.Create(ctx, configMap)).To(Succeed())
 			DeferCleanup(func() { _ = k8sClient.Delete(ctx, configMap) })
 
 			isvc := auditLoggingInferenceService(serviceName, override, false)
-			Expect(admitAuditLoggingInferenceService(admissionv1.Create, nil, isvc)).To(MatchError(ContainSubstring("requires authentication")))
-			Expect(isvc.Annotations[constants.ODHKserveAuditLogging]).To(Equal("true"))
+			err := admitAuditLoggingInferenceService(admissionv1.Create, nil, isvc)
+			if wantError {
+				Expect(err).To(MatchError(ContainSubstring("requires authentication")))
+				Expect(isvc.Annotations[constants.ODHKserveAuditLoggingProfile]).To(Equal("metadata"))
+				return
+			}
+			Expect(err).ToNot(HaveOccurred())
+			Expect(isvc.Annotations).ToNot(HaveKey(constants.ODHKserveAuditLoggingProfile))
+			Expect(k8sClient.Create(ctx, isvc)).To(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, isvc) })
+
+			deploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceName),
+				Namespace: isvc.Namespace,
+			}
+			Eventually(func(g Gomega) {
+				deployment := &appsv1.Deployment{}
+				g.Expect(k8sClient.Get(ctx, deploymentKey, deployment)).To(Succeed())
+				g.Expect(auditLoggingArgs(deployment)).To(BeEmpty())
+			}, timeout, interval).Should(Succeed())
 		},
-		Entry("when inherited from the global setting", "audit-global-no-auth", true, nil),
-		Entry("when explicitly requested", "audit-override-no-auth", false, ptr.To("true")),
+		Entry("rejects inherited metadata", "audit-global-no-auth", constants.AuditLoggingProfileMetadata, nil, true),
+		Entry("rejects explicit metadata", "audit-override-no-auth", constants.AuditLoggingProfileNone, ptr.To("metadata"), true),
+		Entry("admits inherited none without audit arguments", "audit-none-no-auth", constants.AuditLoggingProfileNone, nil, false),
 	)
 })
 
@@ -184,14 +207,14 @@ func configureAuditLoggingEnvTestKubeconfig() {
 	})
 }
 
-func auditLoggingConfigMap(enabled bool) *corev1.ConfigMap {
+func auditLoggingConfigMap(profile constants.AuditLoggingProfile) *corev1.ConfigMap {
 	configMap := createInferenceServiceConfigMap(getRawKubeTestConfigs())
-	configMap.Data[v1beta1.OpenShiftConfigName] = auditLoggingOpenShiftConfig(enabled)
+	configMap.Data[v1beta1.OpenShiftConfigName] = auditLoggingOpenShiftConfig(profile)
 	return configMap
 }
 
-func auditLoggingOpenShiftConfig(enabled bool) string {
-	return fmt.Sprintf(`{"enableAuditLogging":%t}`, enabled)
+func auditLoggingOpenShiftConfig(profile constants.AuditLoggingProfile) string {
+	return fmt.Sprintf(`{"auditLoggingProfile":%q}`, profile)
 }
 
 func auditLoggingInferenceService(name string, override *string, authEnabled bool) *v1beta1.InferenceService {
@@ -200,7 +223,7 @@ func auditLoggingInferenceService(name string, override *string, authEnabled boo
 		annotations[constants.ODHKserveRawAuth] = "true"
 	}
 	if override != nil {
-		annotations[constants.ODHKserveAuditLogging] = *override
+		annotations[constants.ODHKserveAuditLoggingProfile] = *override
 	}
 
 	return &v1beta1.InferenceService{
@@ -277,15 +300,19 @@ func auditLoggingArgs(deployment *appsv1.Deployment) []string {
 	return nil
 }
 
-func expectedAuditLoggingArgs(isvc *v1beta1.InferenceService, enabled bool) []string {
-	if !enabled {
+func expectedAuditLoggingArgs(isvc *v1beta1.InferenceService, profile constants.AuditLoggingProfile) []string {
+	switch profile {
+	case constants.AuditLoggingProfileNone:
 		return []string{}
-	}
-	return []string{
-		"--audit-log-enabled",
-		"--audit-resource-name=" + isvc.Name,
-		"--audit-resource-namespace=" + isvc.Namespace,
-		"--audit-resource-type=InferenceService",
-		"--audit-ai-provider=KServe",
+	case constants.AuditLoggingProfileMetadata:
+		return []string{
+			"--audit-log-profile=metadata",
+			"--audit-resource-name=" + isvc.Name,
+			"--audit-resource-namespace=" + isvc.Namespace,
+			"--audit-resource-type=InferenceService",
+			"--audit-ai-provider=KServe",
+		}
+	default:
+		return nil
 	}
 }
