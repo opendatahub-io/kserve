@@ -39,6 +39,8 @@ cryptography = {version = ">=46.0.5"}
 # CVE-2026-59885 pyasn1 Denial of Service via crafted ASN.1 OBJECT IDENTIFIER.
 # Pinning because it is a transitive dependency.
 pyasn1 = {version = ">=0.6.4"}
+# CVE-2026-69244 AIOHTTP Denial of Service via malformed HTTP responses (out-of-bounds heap read)
+aiohttp = {version = ">=3.14.3"}
 
 
 #[tool.poetry-version-plugin]
