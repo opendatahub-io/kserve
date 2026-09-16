@@ -39,9 +39,10 @@ import (
 // http://onsi.github.io/ginkgo/ to learn more about Ginkgo.
 
 var (
-	cfg       *rest.Config
-	k8sClient client.Client
-	clientset *kubernetes.Clientset
+	cfg            *rest.Config
+	k8sClient      client.Client
+	clientset      *kubernetes.Clientset
+	testReconciler *InferenceServiceReconciler
 )
 
 func TestV1beta1APIs(t *testing.T) {
@@ -69,13 +70,14 @@ var _ = BeforeSuite(func(ctx SpecContext) {
 			DisableIstioVirtualHost: false,
 		}
 
-		return (&InferenceServiceReconciler{
+		testReconciler = &InferenceServiceReconciler{
 			Client:    mgr.GetClient(),
 			Clientset: clientset,
 			Scheme:    mgr.GetScheme(),
 			Log:       ctrl.Log.WithName("V1beta1InferenceServiceController"),
 			Recorder:  mgr.GetEventRecorderFor("V1beta1InferenceServiceController"),
-		}).SetupWithManager(mgr, deployConfig, ingressConfig)
+		}
+		return testReconciler.SetupWithManager(mgr, deployConfig, ingressConfig)
 	}
 
 	envTest := pkgtest.NewEnvTest().
