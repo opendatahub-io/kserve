@@ -13,6 +13,7 @@ from upgrade.utils import (
     assert_restart_counts_not_increased,
     run_isvc_inference,
     verify_module_controller_rolled,
+    wait_for_probe_baseline,
     wait_for_workload_pods_stable,
 )
 
@@ -60,6 +61,55 @@ class TestAssertRestartCountsNotIncreased:
     def test_restart_increase_fails(self):
         with pytest.raises(AssertionError, match="restart count increased"):
             assert_restart_counts_not_increased({"pod-a": 0}, {"pod-a": 1})
+
+
+class TestWaitForProbeBaseline:
+    def test_waits_until_first_success(self, monkeypatch):
+        responses = [
+            '{"ts":"t1","target":"isvc","status":0,"ok":false}\n',
+            '{"ts":"t2","target":"isvc","status":200,"ok":true}\n',
+        ]
+        call_count = 0
+
+        def fake_run(_cmd, check=False):
+            nonlocal call_count
+            stdout = responses[min(call_count, len(responses) - 1)]
+            call_count += 1
+            return type(
+                "R", (), {"returncode": 0, "stdout": stdout, "stderr": ""}
+            )()
+
+        def fake_wait_for(fn, timeout=60, interval=5):
+            for _ in range(3):
+                try:
+                    return fn()
+                except AssertionError:
+                    continue
+            return fn()
+
+        monkeypatch.setattr("upgrade.utils.run", fake_run)
+        monkeypatch.setattr("upgrade.utils.wait_for", fake_wait_for)
+
+        wait_for_probe_baseline("kubectl")
+        assert call_count >= 2
+
+    def test_rejects_malformed_records(self, monkeypatch):
+        monkeypatch.setattr(
+            "upgrade.utils.run",
+            lambda *_a, **_k: type(
+                "R",
+                (),
+                {
+                    "returncode": 0,
+                    "stdout": '{"ts":"t1","target":"isvc","status":000,"ok":false}',
+                    "stderr": "",
+                },
+            )(),
+        )
+        monkeypatch.setattr("upgrade.utils.wait_for", lambda fn, **_kw: fn())
+
+        with pytest.raises(AssertionError, match="malformed"):
+            wait_for_probe_baseline("kubectl")
 
 
 class TestProbeFailuresAfterBaseline:

@@ -76,10 +76,10 @@ PLATFORM=ocp make e2e-kserve-module-post-release
 
 ## Module upgrade e2e (RHOAIENG-82811)
 
-Validates that rolling the **kserve-module controller image** (N → N+1 via
-`e2e-roll-kserve-module`, which re-applies manifests through
-`setup-cluster.sh --skip-deps`) does not disturb operand CRs or running
-services.
+Validates that rolling the **kserve-module controller image** (N → N+1) does
+not disturb operand CRs or running services. The roll is triggered by the
+`e2e-roll-kserve-module` Make target (controller image update plus embedded
+manifest re-apply via `setup-cluster.sh --skip-deps`).
 
 | Ticket | Implementation |
 | --- | --- |

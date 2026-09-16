@@ -43,6 +43,7 @@ def deploy_upgrade_workloads(
         yield
         return
 
+    utils.cleanup_upgrade_workloads(kubectl, namespace=upgrade_namespace)
     utils.apply_manifest(kubectl, "mlserver-runtime.yaml", namespace=upgrade_namespace)
     utils.apply_manifest(kubectl, "sklearn-iris-isvc.yaml", namespace=upgrade_namespace)
     utils.apply_manifest(kubectl, "llmisvc-opt-125m-cpu.yaml", namespace=upgrade_namespace)
@@ -121,6 +122,7 @@ def new_isvc_deployed(
     if not utils.is_post_upgrade(pytestconfig) or not upgrade_workloads_enabled:
         pytest.skip("Post-upgrade workload creation requires OpenShift")
 
+    utils.cleanup_post_upgrade_workloads(kubectl, namespace=upgrade_namespace)
     utils.run(
         [kubectl, "apply", "-n", upgrade_namespace, "-f", "-"],
         input_text=yaml.safe_dump(new_isvc_manifest),
@@ -143,6 +145,7 @@ def new_llmisvc_deployed(
     if not utils.is_post_upgrade(pytestconfig) or not upgrade_workloads_enabled:
         pytest.skip("Post-upgrade workload creation requires OpenShift")
 
+    utils.cleanup_post_upgrade_workloads(kubectl, namespace=upgrade_namespace)
     utils.run(
         [kubectl, "apply", "-n", upgrade_namespace, "-f", "-"],
         input_text=yaml.safe_dump(new_llmisvc_manifest),

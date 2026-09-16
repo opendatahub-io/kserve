@@ -58,6 +58,7 @@ OPERAND_POD_IDENTITY_NAMES = frozenset(
 
 MODULE_CONTROLLER_CONTAINER = "manager"
 UPGRADE_IMAGE_ENV = "KSERVE_MODULE_UPGRADE_IMAGE"
+PROBE_BASELINE_TIMEOUT = 120
 
 
 def is_post_upgrade(pytestconfig):
@@ -503,6 +504,34 @@ def assert_operand_pods_not_recreated(baseline_uids, current_uids):
     )
 
 
+def cleanup_upgrade_workloads(kubectl, namespace=UPGRADE_NAMESPACE):
+    """Remove stale upgrade test resources so reruns start from a clean slate."""
+    for kind, names in [
+        ("inferenceservice", [ISVC_NAME, NEW_ISVC_NAME]),
+        ("llminferenceservice", [LLMISVC_NAME, NEW_LLMISVC_NAME]),
+        ("servingruntime", ["mlserver-runtime"]),
+        ("configmap", [BASELINE_CM_NAME]),
+        ("pod", [PROBE_POD_NAME]),
+    ]:
+        for name in names:
+            run(
+                [kubectl, "delete", kind, name, "-n", namespace, "--ignore-not-found"],
+                check=False,
+            )
+
+
+def cleanup_post_upgrade_workloads(kubectl, namespace=UPGRADE_NAMESPACE):
+    """Delete Part B workloads so post-upgrade reruns do not collide on fixed names."""
+    for kind, name in [
+        ("inferenceservice", NEW_ISVC_NAME),
+        ("llminferenceservice", NEW_LLMISVC_NAME),
+    ]:
+        run(
+            [kubectl, "delete", kind, name, "-n", namespace, "--ignore-not-found"],
+            check=False,
+        )
+
+
 def workloads_supported(kubectl, is_openshift):
     if not is_openshift:
         return False
@@ -527,6 +556,9 @@ while true; do
   code=$(curl -sk -o /dev/null -w '%{{http_code}}' --connect-timeout 5 --max-time 10 "{isvc_url}" 2>/dev/null || true)
   case "$code" in
     ''|*[!0-9]*) code=0 ;;
+    *)
+      code=$((10#$code))
+      ;;
   esac
   if [ "$code" -ge 200 ] 2>/dev/null && [ "$code" -lt 300 ] 2>/dev/null; then
     ok=true
@@ -566,6 +598,26 @@ done
         assert phase == "Running"
 
     wait_for(_probe_running, timeout=60, interval=2)
+    wait_for_probe_baseline(kubectl, namespace=namespace)
+
+
+def wait_for_probe_baseline(kubectl, namespace=UPGRADE_NAMESPACE, timeout=PROBE_BASELINE_TIMEOUT):
+    """Wait until the background probe records at least one successful request."""
+
+    def _assert_baseline():
+        result = run(
+            [kubectl, "logs", PROBE_POD_NAME, "-n", namespace, "--tail=50"],
+            check=False,
+        )
+        assert result.returncode == 0, f"Could not read probe logs: {result.stderr}"
+        records, malformed = _parse_probe_records(result.stdout)
+        assert not malformed, (
+            f"Background probe emitted malformed record(s): {malformed[:3]}"
+        )
+        baseline_idx, _ = _probe_failures_after_baseline(records)
+        assert baseline_idx is not None, "Probe has not recorded ok:true yet"
+
+    wait_for(_assert_baseline, timeout=timeout, interval=2)
 
 
 def _parse_probe_records(log_text):
