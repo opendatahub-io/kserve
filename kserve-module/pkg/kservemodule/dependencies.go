@@ -2,9 +2,12 @@ package kservemodule
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
+	nodev1 "k8s.io/api/node/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -24,21 +27,30 @@ const (
 	checkCRD          checkType = "crd"
 	checkSubscription checkType = "subscription"
 	checkOperator     checkType = "operator"
+	checkOLMOperator  checkType = "olmOperator"
+	checkRuntimeClass checkType = "runtimeClass"
 
 	// availSeverityNone means failures are not reported to DependenciesAvailable.
 	// Must differ from common.ConditionSeverityError (which is "").
 	availSeverityNone common.ConditionSeverity = "None"
 
 	// Dependency group condition types
-	conditionLLMISVCDeps = "KserveLLMInferenceServiceDependencies"
-	conditionLLMISVCWideEPDeps = "KserveLLMInferenceServiceWideEPDependencies"
-	conditionLLMDWVADeps       = "LLM-D-WVADependencies"
+	conditionLLMISVCDeps               = "KserveLLMInferenceServiceDependencies"
+	conditionLLMISVCWideEPDeps         = "KserveLLMInferenceServiceWideEPDependencies"
+	conditionLLMDWVADeps               = "LLM-D-WVADependencies"
+	conditionConfidentialContainerDeps = "KserveConfidentialContainerDependencies"
 
 	// OLM subscription names
 	rhclSubscription        = "rhcl-operator"
 	certManagerSubscription = "openshift-cert-manager-operator"
 	lwsSubscription         = "leader-worker-set"
 	cmaSubscription         = "openshift-custom-metrics-autoscaler-operator"
+
+	// OLM operator prefixes used by olm.OperatorExists.
+	trusteeOperatorPrefix             = "trustee-operator"
+	sandboxedContainersOperatorPrefix = "sandboxed-containers-operator"
+
+	cocoRuntimeClassPrefix = "kata-cc"
 )
 
 type conditionFilterFunc func(conditionType string, status string) bool
@@ -49,11 +61,13 @@ type dependencyCheck struct {
 	crdName              string                                     // Full CRD name (e.g. "authorizationpolicies.security.istio.io")
 	subscriptionName     string                                     // Subscription check
 	operatorGVK          schema.GroupVersionKind                    // Operator CR GVK
+	operatorPrefix       string                                     // OLM operator prefix check
 	operatorCRName       string                                     // Operator CR name (empty = list first)
 	conditionFilter      conditionFilterFunc                        // Operator condition filter
 	availabilitySeverity common.ConditionSeverity                   // availSeverityNone = no report, Error = Ready=False, Info = Ready=True
 	platform             string                                     // "ocp", "xks", "" (both)
 	conditionGroup       string                                     // group into same condition
+	runtimeClassPrefix   string                                     // RuntimeClass name prefix check
 	skipFunc             func(kserve *platformv1alpha1.Kserve) bool // true → skip this check
 }
 
@@ -83,6 +97,28 @@ func subscriptionDep(name, subName, condGroup, platform string, availSeverity co
 		name:                 name,
 		checkType:            checkSubscription,
 		subscriptionName:     subName,
+		conditionGroup:       condGroup,
+		platform:             platform,
+		availabilitySeverity: availSeverity,
+	}
+}
+
+func olmOperatorDep(name, operatorPrefix, condGroup, platform string, availSeverity common.ConditionSeverity) dependencyCheck {
+	return dependencyCheck{
+		name:                 name,
+		checkType:            checkOLMOperator,
+		operatorPrefix:       operatorPrefix,
+		conditionGroup:       condGroup,
+		platform:             platform,
+		availabilitySeverity: availSeverity,
+	}
+}
+
+func runtimeClassDep(name, prefix, condGroup, platform string, availSeverity common.ConditionSeverity) dependencyCheck {
+	return dependencyCheck{
+		name:                 name,
+		checkType:            checkRuntimeClass,
+		runtimeClassPrefix:   prefix,
 		conditionGroup:       condGroup,
 		platform:             platform,
 		availabilitySeverity: availSeverity,
@@ -146,6 +182,16 @@ var kserveDependencies = []dependencyCheck{
 	operatorDep("leaderworkerset-operator",
 		schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSetOperator"},
 		"", conditionLLMISVCWideEPDeps, "ocp", common.ConditionSeverityInfo, lwsConditionFilter),
+
+	// Confidential container support is optional. Keep these checks in a
+	// separate informational condition group so missing CoCo support does not
+	// prevent ordinary KServe reconciliation or readiness.
+	olmOperatorDep("Red Hat build of Trustee operator", trusteeOperatorPrefix,
+		conditionConfidentialContainerDeps, "ocp", availSeverityNone),
+	olmOperatorDep("OpenShift Sandboxed Containers operator", sandboxedContainersOperatorPrefix,
+		conditionConfidentialContainerDeps, "ocp", availSeverityNone),
+	runtimeClassDep("Confidential container RuntimeClass", cocoRuntimeClassPrefix,
+		conditionConfidentialContainerDeps, "ocp", availSeverityNone),
 }
 
 var modelControllerDependencies = []dependencyCheck{
@@ -175,9 +221,10 @@ func (r *KserveModuleReconciler) checkDependencies(ctx context.Context, kserve *
 
 	result := dependencyResult{
 		groupReasons: map[string][]string{
-			conditionLLMISVCDeps:       {},
-			conditionLLMISVCWideEPDeps: {},
-			conditionLLMDWVADeps:       {},
+			conditionLLMISVCDeps:               {},
+			conditionLLMISVCWideEPDeps:         {},
+			conditionLLMDWVADeps:               {},
+			conditionConfidentialContainerDeps: {},
 		},
 	}
 
@@ -205,6 +252,10 @@ func (r *KserveModuleReconciler) checkDependencies(ctx context.Context, kserve *
 				reasons = r.checkSubscription(ctx, d)
 			case checkOperator:
 				reasons = r.checkOperatorHealth(ctx, d)
+			case checkOLMOperator:
+				reasons = r.checkOLMOperator(ctx, d)
+			case checkRuntimeClass:
+				reasons = r.checkRuntimeClass(ctx, d)
 			}
 			ch <- checkResultItem{dep: d, reasons: reasons}
 		}(dep)
@@ -273,6 +324,44 @@ func (r *KserveModuleReconciler) checkSubscription(ctx context.Context, dep depe
 		return []string{fmt.Sprintf("%s not installed", dep.name)}
 	}
 	return nil
+}
+
+func (r *KserveModuleReconciler) checkOLMOperator(ctx context.Context, dep dependencyCheck) []string {
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	_, err := olm.OperatorExists(ctx, r.Client, dep.operatorPrefix)
+	if err == nil {
+		return nil
+	}
+	if meta.IsNoMatchError(err) {
+		return nil
+	}
+	if errors.Is(err, olm.ErrOperatorNotInstalled) {
+		return []string{fmt.Sprintf("%s not installed", dep.name)}
+	}
+	return []string{fmt.Sprintf("%s check failed: %v", dep.name, err)}
+}
+
+func (r *KserveModuleReconciler) checkRuntimeClass(ctx context.Context, dep dependencyCheck) []string {
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	runtimeClasses := &nodev1.RuntimeClassList{}
+	if err := r.Client.List(ctx, runtimeClasses); err != nil {
+		return []string{fmt.Sprintf("%s lookup failed: %v", dep.name, err)}
+	}
+
+	for i := range runtimeClasses.Items {
+		runtimeClass := &runtimeClasses.Items[i]
+		if strings.HasPrefix(runtimeClass.Name, dep.runtimeClassPrefix) && strings.TrimSpace(runtimeClass.Handler) != "" {
+			return nil
+		}
+	}
+
+	return []string{fmt.Sprintf("%s not ready (no RuntimeClass with prefix %q and a runtime handler)", dep.name, dep.runtimeClassPrefix)}
 }
 
 func (r *KserveModuleReconciler) checkOperatorHealth(ctx context.Context, dep dependencyCheck) []string {

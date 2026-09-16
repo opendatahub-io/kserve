@@ -273,6 +273,7 @@ var knownConditionTypes = map[string]bool{
 	conditionLLMISVCDeps:                              true,
 	conditionLLMISVCWideEPDeps:                        true,
 	conditionLLMDWVADeps:                              true,
+	conditionConfidentialContainerDeps:                true,
 }
 
 func removeStaleConditions(ctx context.Context, cli client.Client, crName string) error {
