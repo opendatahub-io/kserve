@@ -1,5 +1,6 @@
 # Build the manager binary
-FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS deps
+FROM registry.access.redhat.com/ubi9/go-toolset:1.26 AS deps
+ENV GOTOOLCHAIN=auto
 # distro: UBI go-toolset runs as non-root (1001); switch to root for build
 USER 0
 ENV PATH="$PATH:/opt/app-root/src/go/bin"

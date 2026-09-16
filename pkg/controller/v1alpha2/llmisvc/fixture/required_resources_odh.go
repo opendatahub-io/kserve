@@ -42,12 +42,15 @@ import (
 // distro (OpenShift) build. The reconciler's createWorkloadCertificate loads
 // this secret to sign workload TLS certificates.
 func additionalRequiredResources(ctx context.Context, c client.Client) {
-	ns := llmisvc.ServiceCASigningSecretNamespace
+	for _, resource := range AdditionalRequiredObjects() {
+		gomega.Expect(client.IgnoreAlreadyExists(c.Create(ctx, resource))).To(gomega.Succeed())
+	}
+}
 
-	// Create the namespace that holds the CA signing secret.
-	gomega.Expect(client.IgnoreAlreadyExists(c.Create(ctx, &corev1.Namespace{
-		ObjectMeta: metav1.ObjectMeta{Name: ns},
-	}))).To(gomega.Succeed())
+// AdditionalRequiredObjects returns distro-only resources needed by clients
+// that do not use the shared envtest client.
+func AdditionalRequiredObjects() []client.Object {
+	ns := llmisvc.ServiceCASigningSecretNamespace
 
 	// Generate a self-signed CA certificate for tests.
 	caKey, err := rsa.GenerateKey(rand.Reader, 2048)
@@ -77,18 +80,23 @@ func additionalRequiredResources(ctx context.Context, c client.Client) {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	caKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: caKeyBytes})
 
-	gomega.Expect(client.IgnoreAlreadyExists(c.Create(ctx, &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      llmisvc.ServiceCASigningSecretName,
-			Namespace: ns,
+	return []client.Object{
+		&corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: ns},
 		},
-		Type: corev1.SecretTypeTLS,
-		Data: map[string][]byte{
-			"tls.crt": caCertPEM,
-			"tls.key": caKeyPEM,
-			"ca.crt":  caCertPEM,
+		&corev1.Secret{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      llmisvc.ServiceCASigningSecretName,
+				Namespace: ns,
+			},
+			Type: corev1.SecretTypeTLS,
+			Data: map[string][]byte{
+				"tls.crt": caCertPEM,
+				"tls.key": caKeyPEM,
+				"ca.crt":  caCertPEM,
+			},
 		},
-	}))).To(gomega.Succeed())
+	}
 }
 
 // IstioShadowService creates an Istio shadow service for the given LLMISVC name.

@@ -157,7 +157,7 @@ def _get_container_commands(namespace, service_name):
         ),
     )
 
-    commands = {}
+    commands = {"epp": [], "sidecar": [], "vllm": []}
     for pod in pods.items:
         containers = [
             *(pod.spec.init_containers or []),
@@ -166,11 +166,11 @@ def _get_container_commands(namespace, service_name):
         for container in containers:
             command = [*(container.command or []), *(container.args or [])]
             if "/app/epp" in command:
-                commands["epp"] = command
+                commands["epp"].append(command)
             elif "/app/pd-sidecar" in command:
-                commands["sidecar"] = command
+                commands["sidecar"].append(command)
             elif any("vllm serve" in arg for arg in command):
-                commands["vllm"] = command
+                commands["vllm"].append(command)
     return commands
 
 
@@ -326,20 +326,24 @@ def _verify_tls_resources(service_name, namespace, tls_enabled):
 def _verify_tls_arguments(service_name, namespace, tls_min_version, tls_cipher_suites):
     """Assert that the TLS profile is propagated to the EPP and routing sidecar."""
     commands = _get_container_commands(namespace, service_name)
-    assert "epp" in commands, "Expected to find the EPP container command"
-    assert "sidecar" in commands, "Expected to find the routing sidecar command"
-    assert "vllm" in commands, "Expected to find the vLLM workload command"
+    assert commands["epp"], "Expected to find the EPP container command"
+    assert commands["sidecar"], "Expected to find the routing sidecar command"
+    assert commands["vllm"], "Expected to find the vLLM workload command"
 
     expected_args = {
         "--tls-min-version": tls_min_version,
         "--tls-cipher-suites": tls_cipher_suites,
     }
     for component in ("epp", "sidecar"):
-        command = commands[component]
         for flag, value in expected_args.items():
-            matching_args = [arg for arg in command if arg.startswith(f"{flag}=")]
+            matching_args = [
+                arg
+                for command in commands[component]
+                for arg in command
+                if arg.startswith(f"{flag}=")
+            ]
             if value:
-                assert matching_args == [f"{flag}={value}"], (
+                assert f"{flag}={value}" in matching_args, (
                     f"Expected {component} to receive {flag}={value}, "
                     f"got: {matching_args}"
                 )
@@ -348,7 +352,7 @@ def _verify_tls_arguments(service_name, namespace, tls_min_version, tls_cipher_s
                     f"Expected {component} to omit {flag}, got: {matching_args}"
                 )
 
-    vllm_command = " ".join(commands["vllm"])
+    vllm_command = " ".join(arg for command in commands["vllm"] for arg in command)
     if tls_cipher_suites:
         for cipher_suite in OPENSSL_TLS_CIPHER_SUITES:
             assert cipher_suite in vllm_command, (
