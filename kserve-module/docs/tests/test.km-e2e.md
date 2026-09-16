@@ -90,13 +90,18 @@ make e2e-kserve-module-post-release
 CI: Konflux integration testing in
 [odh-konflux-central](https://github.com/opendatahub-io/odh-konflux-central)
 ([`post-release-smoke-pipeline.yaml`](https://github.com/opendatahub-io/odh-konflux-central/blob/main/integration-tests/kserve/post-release-smoke-pipeline.yaml)).
-The pipeline provisions an ephemeral OpenShift (Hypershift) cluster, checks out
-this repo at the release tag, and runs the make targets above.
+PAC trigger: [`.tekton/kserve-post-release-smoke.yaml`](../../../.tekton/kserve-post-release-smoke.yaml)
+(mirror of [`pipelineruns/kserve/kserve-post-release-smoke.yaml`](https://github.com/opendatahub-io/odh-konflux-central/blob/main/pipelineruns/kserve/kserve-post-release-smoke.yaml)
+in odh-konflux-central). The pipeline provisions an ephemeral OpenShift
+(Hypershift) cluster, checks out this repo at the release tag, and runs the make
+targets above. Always uses a published release tag and operator image — never PR
+branch code.
 
 **When and how to trigger** (on-demand, not automatic): see
 [odh-model-controller post-release smoke doc](https://github.com/opendatahub-io/odh-model-controller/blob/incubating/docs/post-release-kserve-smoke.md)
-— comment `/post-release-smoke <release_tag>` on a kserve PR or use a manual Konflux
-PipelineRun with `release_tag`.
+— comment `/post-release-smoke <release_tag>` on a kserve PR (e.g.
+`/post-release-smoke odh-v3.6`) or use a manual Konflux PipelineRun with
+`release_tag`.
 
 ## Make Targets
 
