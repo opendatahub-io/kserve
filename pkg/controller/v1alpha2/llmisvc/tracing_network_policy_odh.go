@@ -29,6 +29,7 @@ import (
 	netv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmeta"
 	"knative.dev/pkg/network"
@@ -148,7 +149,7 @@ func otlpPeerForEndpoint(endpoint, serviceNamespace string) (netv1.NetworkPolicy
 	default:
 		return netv1.NetworkPolicyPeer{}, 0, false
 	}
-	if namespace == "" || namespace == serviceNamespace {
+	if len(validation.IsDNS1123Label(namespace)) > 0 || namespace == serviceNamespace {
 		return netv1.NetworkPolicyPeer{}, 0, false
 	}
 

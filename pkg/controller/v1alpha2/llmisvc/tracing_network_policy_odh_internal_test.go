@@ -48,6 +48,8 @@ func TestOtlpPeerForEndpoint(t *testing.T) {
 		{name: "cross namespace with search path", endpoint: "http://jaeger.observability:4317", namespace: "team-a", wantNS: "observability", wantPort: 4317, wantPeer: true},
 		{name: "custom port", endpoint: "http://jaeger.observability.svc:4318", namespace: "team-a", wantNS: "observability", wantPort: 4318, wantPeer: true},
 		{name: "trailing dot", endpoint: "http://jaeger.observability.svc." + network.GetClusterDomainName() + ".:4317", namespace: "team-a", wantNS: "observability", wantPort: 4317, wantPeer: true},
+		{name: "invalid namespace prefix", endpoint: "http://jaeger.-prod.svc:4317", namespace: "team-a"},
+		{name: "invalid namespace suffix", endpoint: "http://jaeger.prod-.svc:4317", namespace: "team-a"},
 		{name: "unparseable", endpoint: "not a URL", namespace: "team-a"},
 	}
 	for _, tt := range tests {
