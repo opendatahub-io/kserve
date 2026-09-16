@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# OpenShift CI entrypoint for kserve-module N→N+1 upgrade e2e tests.
+# OpenShift CI entrypoint for kserve-module N->N+1 upgrade e2e tests.
 #
 # Intended for a dedicated Prow job (e2e-kserve-module-upgrade) alongside the
 # existing e2e-kserve-module sanity job. Unlike other kserve OCP CI jobs, this
@@ -23,6 +23,10 @@
 #   PULL_BASE_SHA                  merge-base / target-branch SHA for image N
 #   PULL_PULL_SHA                  PR HEAD SHA for manifests and tests
 #   KSERVE_MODULE_CONTROLLER_IMAGE   ci-operator-built module controller (N+1)
+#
+# Optional:
+#   KSERVE_MODULE_BASE_IMAGE         Pre-published pullable ref for N (skips build/push)
+#   REGISTRY_NAMESPACE               Namespace for the published N image (default: opendatahub)
 #
 # Operand images (KSERVE_CONTROLLER_IMAGE, LLMISVC_CONTROLLER_IMAGE, etc.) are
 # passed through to setup-cluster.sh unchanged when present.
@@ -39,8 +43,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 
 readonly PLATFORM="${PLATFORM:-ocp}"
-readonly BASE_IMAGE="${KSERVE_MODULE_BASE_IMAGE:-kserve-module-controller:e2e-base}"
+readonly BASE_IMAGE_LOCAL="${KSERVE_MODULE_BASE_IMAGE_LOCAL:-kserve-module-controller:e2e-base}"
 readonly DOCKERFILE="${PROJECT_ROOT}/kserve-module-controller.Dockerfile"
+
+BASE_IMAGE_REF=""
+ORIGINAL_GIT_REF=""
 
 log() {
   echo "[km-upgrade-ocp] $*"
@@ -106,6 +113,18 @@ WRAP
   fi
 }
 
+capture_git_ref() {
+  ORIGINAL_GIT_REF="$(git -C "${PROJECT_ROOT}" symbolic-ref --quiet --short HEAD 2>/dev/null \
+    || git -C "${PROJECT_ROOT}" rev-parse HEAD)"
+}
+
+restore_git_ref() {
+  if [[ -z "${ORIGINAL_GIT_REF}" ]]; then
+    return
+  fi
+  git -C "${PROJECT_ROOT}" checkout "${ORIGINAL_GIT_REF}" >/dev/null 2>&1 || true
+}
+
 collect_debug_logs() {
   local artifact_dir="${ARTIFACT_DIR:-/tmp}"
   local out_dir="${artifact_dir}/km-upgrade-debug"
@@ -152,8 +171,9 @@ verify_images_differ() {
   local base_id next_id
 
   ensure_image_available "${builder}" "${KSERVE_MODULE_CONTROLLER_IMAGE}"
+  ensure_image_available "${builder}" "${BASE_IMAGE_REF}"
 
-  base_id="$("$builder" image inspect --format='{{.Id}}' "${BASE_IMAGE}")"
+  base_id="$("$builder" image inspect --format='{{.Id}}' "${BASE_IMAGE_REF}")"
   next_id="$("$builder" image inspect --format='{{.Id}}' "${KSERVE_MODULE_CONTROLLER_IMAGE}")"
 
   log "Base (N) image id: ${base_id}"
@@ -164,14 +184,72 @@ verify_images_differ() {
   fi
 }
 
+resolve_registry_namespace() {
+  echo "${REGISTRY_NAMESPACE:-${OPENSHIFT_CI_NAMESPACE:-opendatahub}}"
+}
+
+resolve_registry_host() {
+  if [[ -n "${KSERVE_MODULE_BASE_IMAGE_REGISTRY:-}" ]]; then
+    echo "${KSERVE_MODULE_BASE_IMAGE_REGISTRY}"
+    return
+  fi
+  if ! command -v oc &>/dev/null; then
+    die "oc is required to publish the base image to a cluster-pullable registry"
+  fi
+  oc registry info --internal 2>/dev/null || oc registry info 2>/dev/null \
+    || die "could not determine OpenShift integrated registry hostname"
+}
+
+publish_base_image() {
+  local builder="$1"
+  local local_tag="$2"
+  local registry ns tag published
+
+  registry="$(resolve_registry_host)"
+  ns="$(resolve_registry_namespace)"
+  tag="e2e-base-${PULL_BASE_SHA:0:12}"
+  published="${registry}/${ns}/kserve-module-controller:${tag}"
+
+  log "Ensuring namespace ${ns} exists for image publish"
+  oc get ns "${ns}" >/dev/null 2>&1 || oc create ns "${ns}"
+
+  log "Publishing ${local_tag} -> ${published}"
+  oc registry login
+  "${builder}" tag "${local_tag}" "${published}"
+  if ! "${builder}" push --tls-verify=false "${published}"; then
+    die "failed to push base image to ${published} (publish must run from a host that can reach the cluster registry)"
+  fi
+
+  BASE_IMAGE_REF="${published}"
+  log "Base image published at ${BASE_IMAGE_REF}"
+}
+
 build_base_image() {
   local builder="$1"
 
   log "Checking out base ref ${PULL_BASE_SHA} to build N module controller image"
   git -C "${PROJECT_ROOT}" checkout --detach "${PULL_BASE_SHA}"
 
-  log "Building ${BASE_IMAGE} from ${PULL_BASE_SHA}"
-  "$builder" build -f "${DOCKERFILE}" -t "${BASE_IMAGE}" "${PROJECT_ROOT}"
+  log "Building ${BASE_IMAGE_LOCAL} from ${PULL_BASE_SHA}"
+  "${builder}" build -f "${DOCKERFILE}" -t "${BASE_IMAGE_LOCAL}" "${PROJECT_ROOT}"
+}
+
+prepare_base_image() {
+  local builder="$1"
+
+  if [[ -n "${KSERVE_MODULE_BASE_IMAGE:-}" && "${KSERVE_MODULE_BASE_IMAGE}" == */* ]]; then
+    BASE_IMAGE_REF="${KSERVE_MODULE_BASE_IMAGE}"
+    log "Using pre-published base image ${BASE_IMAGE_REF}"
+    return
+  fi
+
+  build_base_image "${builder}"
+  publish_base_image "${builder}" "${BASE_IMAGE_LOCAL}"
+}
+
+checkout_base_tree() {
+  log "Checking out base tree ${PULL_BASE_SHA} for initial setup manifests"
+  git -C "${PROJECT_ROOT}" checkout --detach "${PULL_BASE_SHA}"
 }
 
 checkout_pr_tree() {
@@ -180,8 +258,12 @@ checkout_pr_tree() {
 }
 
 run_upgrade_flow() {
-  make e2e-setup-kserve-module PLATFORM="${PLATFORM}" E2E_IMG="${BASE_IMAGE}"
+  export KSERVE_MODULE_UPGRADE_IMAGE="${KSERVE_MODULE_CONTROLLER_IMAGE}"
 
+  checkout_base_tree
+  make e2e-setup-kserve-module PLATFORM="${PLATFORM}" E2E_IMG="${BASE_IMAGE_REF}"
+
+  checkout_pr_tree
   make e2e-kserve-module PYTEST_ARGS='-m pre_upgrade --pre-upgrade'
 
   make e2e-roll-kserve-module PLATFORM="${PLATFORM}" E2E_IMG="${KSERVE_MODULE_CONTROLLER_IMAGE}"
@@ -193,6 +275,8 @@ main() {
   require_env
   ensure_test_deps
   setup_oc_cli
+  capture_git_ref
+  trap restore_git_ref EXIT
 
   trap on_error ERR
 
@@ -201,9 +285,8 @@ main() {
 
   cd "${PROJECT_ROOT}"
 
-  build_base_image "${builder}"
+  prepare_base_image "${builder}"
   verify_images_differ "${builder}"
-  checkout_pr_tree
   run_upgrade_flow
 
   trap - ERR
