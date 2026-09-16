@@ -387,6 +387,12 @@ func (r *LLMISVCReconciler) expectedSchedulerInferencePoolV1Alpha2(ctx context.C
 
 func (r *LLMISVCReconciler) expectedSchedulerDeployment(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) (*appsv1.Deployment, error) {
 	labels := SchedulerLabels(llmSvc)
+	// Use separate map copies for selector vs. template labels.
+	// Selector labels are immutable after Deployment creation, so they must
+	// not include user-specified scheduler labels which may change.
+	selectorLabels := maps.Clone(labels)
+	templateLabels := maps.Clone(labels)
+
 	d := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      schedulerDeploymentName(llmSvc),
@@ -407,11 +413,11 @@ func (r *LLMISVCReconciler) expectedSchedulerDeployment(ctx context.Context, llm
 				Type: appsv1.RecreateDeploymentStrategyType,
 			},
 			Selector: &metav1.LabelSelector{
-				MatchLabels: labels,
+				MatchLabels: selectorLabels,
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
-					Labels: labels,
+					Labels: templateLabels,
 					// Ensure we don't restart the scheduler.
 					Annotations: map[string]string{
 						"certificates.kserve.io/expiration-v2": "true",
@@ -422,6 +428,9 @@ func (r *LLMISVCReconciler) expectedSchedulerDeployment(ctx context.Context, llm
 	}
 
 	r.propagateSchedulerMetadata(llmSvc, d)
+	// Restore internal selector labels so user labels cannot override them,
+	// which would break the template-must-match-selector invariant.
+	maps.Copy(d.Spec.Template.Labels, selectorLabels)
 
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil && llmSvc.Spec.Router.Scheduler.Template != nil {
 		curr := &appsv1.Deployment{}
