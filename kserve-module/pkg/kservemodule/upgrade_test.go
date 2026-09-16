@@ -612,6 +612,11 @@ func TestUpgradeRunnableNeedLeaderElection(t *testing.T) {
 	})
 }
 
+func TestKnownConditionTypesIncludesConfidentialContainerDependencies(t *testing.T) {
+	g := NewWithT(t)
+	g.Expect(knownConditionTypes[conditionConfidentialContainerDeps]).To(BeTrue())
+}
+
 func TestSetHWPAnnotation(t *testing.T) {
 	ctx := context.Background()
 
@@ -1111,11 +1116,11 @@ func TestDeleteLegacySelectorWorkloads(t *testing.T) {
 				"app.opendatahub.io/kserve": "true",
 			}),
 			makeLegacyDeployment("odh-model-controller", namespace, map[string]string{
-				"control-plane":                            "odh-model-controller",
+				"control-plane": "odh-model-controller",
 				"app.opendatahub.io/odh-model-controller": "true",
 			}),
 			makeLegacyDeployment("model-serving-api", namespace, map[string]string{
-				"app":                                      "model-serving-api",
+				"app": "model-serving-api",
 				"app.opendatahub.io/odh-model-controller": "true",
 			}),
 			makeLegacyDaemonSet("kserve-localmodelnode-agent", namespace, map[string]string{
