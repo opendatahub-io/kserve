@@ -126,9 +126,12 @@ for `branch-ci-opendatahub-io-kserve-master-e2e-kserve-module-post-release`:
     - ^odh-v\d+\.\d+$
 ```
 
-Confirm with DPTP/RHOAI CI owners that tag pushes match this brancher regex on postsubmits.
-Re-apply this edit if a future `make update` regen overwrites it (or ask DPTP for a supported
-`branches` override on postsubmit tests).
+**Root cause:** `ci-operator` has `SkipBranches` for presubmits but no `Branches` field on
+postsubmit tests — prowgen hardcodes `ExactlyBranch(info.Branch)` (`^master$`). See
+[ci-operator tag postsubmit investigation](../../../docs/dev/ci-operator-tag-postsubmit-branches.md).
+
+Re-apply this branches edit after every `make ci-operator-prowgen` for kserve until
+`openshift/ci-tools` adds a `branches` test field (proposed fix documented there).
 
 **Note:** Postsubmit tests are not pj-rehearseable. Validate the job on the first real tag push
 (or dry-run locally with `hack/ci/post-release-smoke.sh`).
