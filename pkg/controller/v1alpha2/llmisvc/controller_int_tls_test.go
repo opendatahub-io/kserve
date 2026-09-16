@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	istioapi "istio.io/client-go/pkg/apis/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -43,7 +44,7 @@ const istioCACertificatePath = "/var/run/secrets/kubernetes.io/serviceaccount/se
 
 var _ = Describe("LLMInferenceService TLS Toggle", func() {
 	Context("When enableLLMInferenceServiceTLS is false in ConfigMap", func() {
-		It("should keep cert secret and should use HTTP port name", func(ctx SpecContext) {
+		It("should keep cert secret, use HTTP port name and scrape metrics over http", func(ctx SpecContext) {
 			svcName := "test-llm-tls-off"
 			testNs := NewTestNamespace(ctx, envTest)
 
@@ -119,6 +120,14 @@ var _ = Describe("LLMInferenceService TLS Toggle", func() {
 				g.Expect(svc.Spec.Ports[0].Name).To(Equal("http"))
 				g.Expect(*svc.Spec.Ports[0].AppProtocol).To(Equal("http"))
 			}).WithContext(ctx).Should(Succeed())
+
+			// Verify: engine PodMonitor scrapes over plain http with no TLS config.
+			// Counterpart to the https assertions in monitoring_test.go, which run
+			// against the suite default of enableLLMInferenceServiceTLS: true.
+			pm := waitForPerServicePodMonitor(ctx, svcName, testNs.Name)
+			Expect(pm.Spec.PodMetricsEndpoints).To(HaveLen(1))
+			Expect(pm.Spec.PodMetricsEndpoints[0].Scheme).To(HaveValue(Equal(monitoringv1.Scheme("http"))))
+			Expect(pm.Spec.PodMetricsEndpoints[0].TLSConfig).To(BeNil())
 
 			// Verify: status URL uses http scheme
 			Eventually(func(g Gomega, ctx context.Context) {
