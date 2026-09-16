@@ -16,13 +16,13 @@ DST_MANIFESTS_DIR="${1:-${MODULE_DIR}/opt/manifests}"
 declare -A ODH_COMPONENT_MANIFESTS=(
     ["kserve"]="opendatahub-io:kserve:master:config"
     ["modelcontroller"]="opendatahub-io:odh-model-controller:incubating:config"
-    ["wva"]="opendatahub-io:workload-variant-autoscaler:main:config"
+    ["wva"]="opendatahub-io:workload-variant-autoscaler:main:legacy/config"
 )
 
 declare -A ODH_RELEASE_COMPONENT_MANIFESTS=(
     ["kserve"]="opendatahub-io:kserve:release-v0.17:config"
     ["modelcontroller"]="opendatahub-io:odh-model-controller:main:config"
-    ["wva"]="opendatahub-io:workload-variant-autoscaler:main:config"
+    ["wva"]="opendatahub-io:workload-variant-autoscaler:main:legacy/config"
 )
 
 echo "Cloning manifests for ODH"
