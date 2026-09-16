@@ -77,7 +77,7 @@ LLMInferenceService reaches Ready=True.
 
 `odh-model-controller` and the LLMISVC smoke are OpenShift-only (`ocp_only`).
 Minikube/`xks` skips them. Same cluster convention as Prow `e2e-kserve-module`
-and Konflux group testing (`PLATFORM=ocp`):
+(`PLATFORM=ocp`):
 
 ```bash
 export RELEASE_TAG=odh-v3.5

@@ -85,7 +85,6 @@ Prowgen would emit the correct `branches` and regen would be safe.
 | Approach | Verdict |
 |----------|---------|
 | Hardcode `RELEASE_TAG` per release in config | Rejected — poor UX |
-| Konflux `/post-release-smoke <tag>` comment | Superseded by OpenShift CI decision |
 | Optional presubmit `/test` | Uses PR code or needs tag pointer file — not tag postsubmit |
 | New ci-operator config per `odh-vX.Y` release branch | Only works if release creates a **branch**, not just a tag |
 | Periodic + `extra_refs` | Static tag in yaml — same hardcoding problem |

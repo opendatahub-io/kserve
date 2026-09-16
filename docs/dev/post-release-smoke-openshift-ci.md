@@ -7,7 +7,7 @@ RHOAIENG-85268: validate a **fresh OpenShift install** after an ODH release cut:
 - one `LLMInferenceService` Ready
 
 Tests and Make targets live in this repo (`post_release` marker, `make e2e-kserve-module-post-release`).
-Orchestration is **OpenShift CI (Prow)** on Hypershift — not Konflux.
+Orchestration is **OpenShift CI (Prow)** on Hypershift.
 
 ## Trigger model
 
@@ -146,13 +146,11 @@ Re-apply this branches edit after every `make ci-operator-prowgen` for kserve un
 
 ### 3. odh-model-controller
 
-Update `docs/post-release-kserve-smoke.md` (#938): point to OpenShift CI tag postsubmit and
-Prow re-run — remove Konflux `/post-release-smoke` and onboarder steps.
+Runbook: `docs/post-release-kserve-smoke.md` ([opendatahub-io/odh-model-controller#938](https://github.com/opendatahub-io/odh-model-controller/pull/938)).
 
-### 4. Close Konflux work
+### 4. openshift/release
 
-- Close **odh-konflux-central #655** (superseded by OpenShift CI)
-- Do not run Konflux onboarder for post-release smoke
+Tag postsubmit config: [openshift/release#85320](https://github.com/openshift/release/pull/85320).
 
 ## Release process checklist
 
