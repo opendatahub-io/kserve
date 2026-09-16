@@ -1789,23 +1789,33 @@ LLMINFERENCESERVICE_CONFIGS = {
 }
 
 
-def get_system_llmisvc_config(kserve_client, name):
-    """Get a shipped LLMInferenceServiceConfig from the system namespace.
+def find_system_llmisvc_config(kserve_client, base_name):
+    """Find one shipped config by its unstamped name in the system namespace.
 
-    Returns the config object, or None when it does not exist.
+    The kserve-module operator prefixes well-known config names with the platform
+    version (for example, ``v0-0-0-kserve-config-llm-template-cpu``). The E2E
+    suite assumes a clean cluster, so more than one matching version is an
+    invalid test environment rather than a reason to select an arbitrary match.
+    Returns the config object, or None when nothing matches.
     """
-    try:
-        return kserve_client.api_instance.get_namespaced_custom_object(
-            constants.KSERVE_GROUP,
-            "v1alpha2",
-            KSERVE_NAMESPACE,
-            KSERVE_PLURAL_LLMINFERENCESERVICECONFIG,
-            name,
+    configs = kserve_client.api_instance.list_namespaced_custom_object(
+        constants.KSERVE_GROUP,
+        "v1alpha2",
+        KSERVE_NAMESPACE,
+        KSERVE_PLURAL_LLMINFERENCESERVICECONFIG,
+    )
+    matches = [
+        config
+        for config in configs.get("items", [])
+        if config.get("metadata", {}).get("name", "").endswith(base_name)
+    ]
+    if len(matches) > 1:
+        names = sorted(config["metadata"]["name"] for config in matches)
+        pytest.fail(
+            f"Expected at most one system LLMInferenceServiceConfig ending with "
+            f"{base_name!r} in {KSERVE_NAMESPACE}, found {names}"
         )
-    except client.rest.ApiException as e:
-        if e.status == 404:
-            return None
-        raise
+    return matches[0] if matches else None
 
 
 def _setup_test_case_service(
@@ -1814,8 +1824,8 @@ def _setup_test_case_service(
     """Create LLMInferenceServiceConfigs and build the LLMInferenceService for a TestCase.
 
     Refs in ``base_refs`` are cloned into the test namespace from
-    LLMINFERENCESERVICE_CONFIGS; refs in ``system_base_refs`` are shipped
-    configs resolved from the system namespace and referenced as-is.
+    LLMINFERENCESERVICE_CONFIGS; unstamped names in ``system_base_refs`` are
+    resolved from the system namespace and their actual names referenced as-is.
     Returns a list of created config names for cleanup tracking.
     """
     missing_refs = [
@@ -1856,9 +1866,10 @@ def _setup_test_case_service(
         created_configs.append(unique_config_name)
 
     for system_ref in tc.system_base_refs:
-        if get_system_llmisvc_config(kserve_client, system_ref) is None:
-            pytest.skip(f"system base ref {system_ref} not found in {KSERVE_NAMESPACE}")
-        unique_base_refs.append(system_ref)
+        resolved = find_system_llmisvc_config(kserve_client, system_ref)
+        if resolved is None:
+            pytest.fail(f"system base ref {system_ref} not found in {KSERVE_NAMESPACE}")
+        unique_base_refs.append(resolved["metadata"]["name"])
 
     tc.llm_service = V1alpha1LLMInferenceService(
         api_version="serving.kserve.io/v1alpha1",

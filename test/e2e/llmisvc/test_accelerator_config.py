@@ -17,8 +17,9 @@
 These tests exercise the preset shipped by the ODH overlay
 (kserve-config-llm-template-cpu, installed in the system namespace) through the
 real cluster path: services in a test namespace reference it via
-spec.baseRefs, relying on the controller's system-namespace fallback. On
-stacks without the preset (non-ODH), all tests skip.
+spec.baseRefs, relying on the controller's system-namespace fallback. The
+preset is discovered by its unstamped name because module-managed stacks add a
+version prefix. Its absence fails the test because the preset is required.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from kubernetes import client
 
 from .fixtures import (
     VLLM_CPU_IMAGE,
-    get_system_llmisvc_config,
+    find_system_llmisvc_config,
     generate_test_id,
     inject_k8s_proxy,
 )
@@ -56,10 +57,10 @@ DEPLOYMENT_WAIT_SECONDS = 300
 
 
 def _get_cpu_preset(kserve_client: KServeClient) -> dict:
-    """Get the shipped CPU preset from the system namespace, or skip."""
-    preset = get_system_llmisvc_config(kserve_client, CPU_PRESET_NAME)
+    """Find the shipped CPU preset in the system namespace."""
+    preset = find_system_llmisvc_config(kserve_client, CPU_PRESET_NAME)
     if preset is None:
-        pytest.skip(
+        pytest.fail(
             f"{CPU_PRESET_NAME} not found in {KSERVE_NAMESPACE}; "
             "CPU accelerator preset requires the ODH overlay"
         )

@@ -198,8 +198,8 @@ class TestCase:
 
     __test__ = False  # So pytest will not try to execute it.
     base_refs: List[str]
-    # Shipped configs resolved from the system namespace and referenced as-is
-    # (not cloned into the test namespace like base_refs).
+    # Unstamped names of shipped configs resolved from the system namespace;
+    # their actual names are referenced as-is rather than cloned like base_refs.
     system_base_refs: List[str] = field(default_factory=list)
     prompt: Optional[str] = None
     service_name: Optional[str] = None
