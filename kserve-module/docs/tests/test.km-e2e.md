@@ -92,7 +92,8 @@ CI: Konflux integration testing in
 ([`post-release-smoke-pipeline.yaml`](https://github.com/opendatahub-io/odh-konflux-central/blob/main/integration-tests/kserve/post-release-smoke-pipeline.yaml)).
 The pipeline provisions an ephemeral OpenShift (Hypershift) cluster, checks out
 this repo at the release tag, and runs the make targets above. Trigger via
-`/post-release-smoke` on a kserve PR or a manual PipelineRun with `release_tag`.
+`/post-release-smoke <release_tag>` on a kserve PR (e.g. `/post-release-smoke odh-v3.6`)
+or a manual PipelineRun with `release_tag`.
 See [post-release-smoke.md](https://github.com/opendatahub-io/odh-konflux-central/blob/main/integration-tests/kserve/post-release-smoke.md)
 and [odh-model-controller docs](https://github.com/opendatahub-io/odh-model-controller/blob/incubating/docs/post-release-kserve-smoke.md).
 
