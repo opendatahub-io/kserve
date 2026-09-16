@@ -10,6 +10,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	nodev1 "k8s.io/api/node/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -147,6 +148,11 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				predicate.GenerationChangedPredicate{},
 				predicate.LabelChangedPredicate{},
 			)),
+		).
+		Watches(&nodev1.RuntimeClass{}, handler.EnqueueRequestsFromMapFunc(mapToKserve),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
+				return strings.HasPrefix(o.GetName(), cocoRuntimeClassPrefix)
+			})),
 		)
 
 	// SecurityContextConstraints CRD is always present on OpenShift (OLM); never on XKS.
@@ -169,6 +175,22 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 					return false
 				}
 				return watchedSubscriptions[u.GetName()]
+			})),
+		)
+	}
+
+	// OperatorCondition is the OLM-native signal used by olm.OperatorExists.
+	operatorConditionGK := schema.GroupKind{Group: "operators.coreos.com", Kind: "OperatorCondition"}
+	if err := cluster.CustomResourceDefinitionExists(context.Background(), mgr.GetAPIReader(), operatorConditionGK); err == nil {
+		operatorCondition := &unstructured.Unstructured{}
+		operatorCondition.SetGroupVersionKind(schema.GroupVersionKind{
+			Group: "operators.coreos.com", Version: "v2", Kind: "OperatorCondition",
+		})
+		b.Watches(operatorCondition,
+			handler.EnqueueRequestsFromMapFunc(mapToKserve),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
+				return strings.HasPrefix(o.GetName(), trusteeOperatorPrefix+".") ||
+					strings.HasPrefix(o.GetName(), sandboxedContainersOperatorPrefix+".")
 			})),
 		)
 	}
