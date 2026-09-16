@@ -84,22 +84,52 @@ services.
 | Ticket | Implementation |
 | --- | --- |
 | N = main, N+1 = PR | CI builds `e2e-base` from base SHA + `e2e` from PR HEAD |
-| Part A: no disruption | Pre: deploy ISVC/LLMISVC, start background ISVC health probe, capture baseline. Post: probe clean, operand pods unchanged, controllers Available, Kserve Ready |
+| Part A: no disruption | Pre: deploy ISVC/LLMISVC, start background ISVC health probe, capture baseline. Post: verify module-controller N+1 image + new pod UID, probe clean, operand pods unchanged, controllers Available, Kserve Ready |
 | Part B: new workloads | Post: create fresh ISVC + LLMISVC, verify Ready and serve |
 | CI two images | `.github/workflows/e2e-test-kserve-module.yml` |
 
 Tests live in `kserve-module/tests/e2e/upgrade/test_upgrade.py`.
 
+Set `KSERVE_MODULE_UPGRADE_IMAGE` to the same ref passed as `E2E_IMG` to
+`e2e-roll-kserve-module` before running `post_upgrade` tests (GHA sets this
+automatically).
+
 ### CI flow (xks)
 
 ```text
-build N (main) + N+1 (PR) → install N → pre_upgrade → e2e-roll N+1 → post_upgrade → e2e-kserve-module
+build N (main) + N+1 (PR) → install N (base manifests) → pre_upgrade → e2e-roll N+1 → post_upgrade → e2e-kserve-module
 ```
 
-On xks (minikube CI), ISVC/LLMISVC serving tests are intentionally skipped
-(`ocp_only`): vanilla k8s lacks the OpenShift routes and serving stack those
-tests need. Operand pod identity, Kserve Ready, and the module-controller roll
-are still exercised.
+### Required CI guarantees (GitHub Actions xks)
+
+| Guarantee | Enforced in required CI? |
+| --- | --- |
+| N and N+1 controller images differ | Yes (`e2e-test-kserve-module.yml`) |
+| Module-controller Deployment uses N+1 image after roll | Yes (`test_module_controller_rolled`, needs `KSERVE_MODULE_UPGRADE_IMAGE`) |
+| Module-controller pod UID changes after roll | Yes (`test_module_controller_rolled`) |
+| Kserve CR stays Ready with same UID | Yes |
+| Operand controller pods (kserve/llmisvc) keep same UID | Yes |
+| Operand controllers reach Available | Yes |
+| ISVC sklearn predict request (pre/post) | **No** — `ocp_only`; skipped on xks |
+| ISVC/LLMISVC workload pod UID survival | **No** — `ocp_only`; skipped on xks |
+| ISVC background health probe during roll | **No** — `ocp_only`; skipped on xks |
+| LLMISVC WorkloadsReady continuity | **No** — `ocp_only`; skipped on xks |
+| Part B: new ISVC/LLMISVC creation | **No** — `ocp_only`; skipped on xks |
+
+On xks (minikube CI), `ocp_only` tests are skipped because vanilla k8s lacks the
+OpenShift routes and serving stack those workloads need. Operand identity, Kserve
+Ready, and the module-controller image roll are still exercised.
+
+### OpenShift serving continuity (not in required CI yet)
+
+The `ocp_only` ISVC/LLMISVC upgrade tests (real sklearn inference, workload pod
+UID survival, background probe, LLMISVC WorkloadsReady) are implemented in
+`test_upgrade.py` but are **not** enforced by the required GitHub Actions job.
+They must be run on OpenShift (`PLATFORM=ocp`). A dedicated Prow job and
+`run-kserve-module-upgrade-e2e.sh` entrypoint are planned in a follow-up OCP CI
+PR (openshift/release registration required). Until that job is registered,
+serving continuity during module upgrade is validated manually on OpenShift dev
+clusters.
 
 ### OpenShift dev cluster (platform-managed / DSC)
 

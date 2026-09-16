@@ -1,12 +1,19 @@
 """Unit tests for upgrade helper functions."""
 
+import json
+
 import pytest
 
 from upgrade.utils import (
+    UPGRADE_IMAGE_ENV,
     _parse_probe_records,
     _probe_failures_after_baseline,
     assert_operand_pods_not_recreated,
+    assert_pod_uids_unchanged,
     assert_restart_counts_not_increased,
+    run_isvc_inference,
+    verify_module_controller_rolled,
+    wait_for_workload_pods_stable,
 )
 
 
@@ -72,6 +79,90 @@ class TestProbeFailuresAfterBaseline:
         baseline_idx, failures = _probe_failures_after_baseline(records)
         assert baseline_idx is None
         assert failures == []
+
+
+class TestRunIsvcInference:
+    def test_hashes_valid_predictions(self, monkeypatch):
+        monkeypatch.setattr(
+            "upgrade.utils._exec_curl",
+            lambda *_args, **_kwargs: json.dumps({"predictions": [1, 1]}),
+        )
+        monkeypatch.setattr(
+            "upgrade.utils.manifest_path",
+            lambda _name: type("P", (), {"read_text": lambda self: "{}"})(),
+        )
+
+        digest = run_isvc_inference("kubectl")
+        assert len(digest) == 64
+
+    def test_rejects_missing_predictions(self, monkeypatch):
+        monkeypatch.setattr(
+            "upgrade.utils._exec_curl",
+            lambda *_args, **_kwargs: json.dumps({"status": "ok"}),
+        )
+        monkeypatch.setattr(
+            "upgrade.utils.manifest_path",
+            lambda _name: type("P", (), {"read_text": lambda self: "{}"})(),
+        )
+
+        with pytest.raises(AssertionError, match="missing predictions"):
+            run_isvc_inference("kubectl")
+
+
+class TestVerifyModuleControllerRolled:
+    def test_requires_upgrade_image_env(self, monkeypatch):
+        monkeypatch.delenv(UPGRADE_IMAGE_ENV, raising=False)
+        with pytest.raises(AssertionError, match=UPGRADE_IMAGE_ENV):
+            verify_module_controller_rolled("kubectl", {"module_controller": {"pod_uids": ["a"]}})
+
+    def test_fails_when_pod_uids_unchanged(self, monkeypatch):
+        monkeypatch.setenv(UPGRADE_IMAGE_ENV, "kserve-module-controller:e2e")
+        monkeypatch.setattr("upgrade.utils.wait_for_deployment", lambda *_a, **_k: None)
+        monkeypatch.setattr(
+            "upgrade.utils.get_module_controller_image",
+            lambda *_a, **_k: "kserve-module-controller:e2e",
+        )
+        monkeypatch.setattr(
+            "upgrade.utils.deployment_pod_snapshot",
+            lambda *_a, **_k: {"pod_uids": ["uid-a"], "restart_counts": {}},
+        )
+
+        baseline = {"module_controller": {"pod_uids": ["uid-a"], "restart_counts": {}}}
+        with pytest.raises(AssertionError, match="UIDs unchanged"):
+            verify_module_controller_rolled("kubectl", baseline)
+
+
+class TestWaitForWorkloadPodsStable:
+    def test_returns_when_uids_stop_changing(self, monkeypatch):
+        calls = iter(
+            [
+                {"pod_uids": ["a"], "pod_names": ["p1"], "restart_counts": {}},
+                {"pod_uids": ["a"], "pod_names": ["p1"], "restart_counts": {}},
+                {"pod_uids": ["a"], "pod_names": ["p1"], "restart_counts": {}},
+            ]
+        )
+
+        def fake_snapshot(*_args, **_kwargs):
+            return next(calls)
+
+        monkeypatch.setattr("upgrade.utils.workload_pod_snapshot", fake_snapshot)
+        monkeypatch.setattr("upgrade.utils.time.sleep", lambda _s: None)
+
+        snap = wait_for_workload_pods_stable(
+            "kubectl", {"app": "x"}, stable_seconds=0, interval=0
+        )
+        assert snap["pod_uids"] == ["a"]
+
+
+class TestAssertPodUidsUnchanged:
+    def test_includes_pod_names_in_error(self):
+        with pytest.raises(AssertionError, match="pod-a"):
+            assert_pod_uids_unchanged(
+                ["uid-a"],
+                ["uid-b"],
+                baseline_names=["pod-a"],
+                current_names=["pod-b"],
+            )
 
 
 class TestAssertOperandPodsNotRecreated:

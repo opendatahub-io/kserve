@@ -3,6 +3,7 @@
 import hashlib
 import importlib.util
 import json
+import os
 import time
 from pathlib import Path
 
@@ -54,6 +55,9 @@ NEW_LLMISVC_NAME = "facebook-opt-125m-post-upgrade"
 OPERAND_POD_IDENTITY_NAMES = frozenset(
     {"kserve-controller-manager", "llmisvc-controller-manager"}
 )
+
+MODULE_CONTROLLER_CONTAINER = "manager"
+UPGRADE_IMAGE_ENV = "KSERVE_MODULE_UPGRADE_IMAGE"
 
 
 def is_post_upgrade(pytestconfig):
@@ -116,7 +120,62 @@ def wait_for_llmisvc_ready(
     wait_for(_ready, timeout=timeout, interval=15)
 
 
-def _exec_curl(kubectl, namespace, resource, container, url):
+def wait_for_workload_pods_stable(
+    kubectl,
+    labels,
+    namespace=UPGRADE_NAMESPACE,
+    timeout=180,
+    stable_seconds=20,
+    interval=5,
+):
+    """Wait until the pod UID set for a label selector stops changing."""
+    deadline = time.time() + timeout
+    last_uids = None
+    stable_until = 0.0
+
+    while time.time() < deadline:
+        snap = workload_pod_snapshot(kubectl, labels, namespace=namespace)
+        uids = tuple(snap["pod_uids"])
+        if not uids:
+            stable_until = 0.0
+            last_uids = None
+        elif uids == last_uids:
+            if stable_until == 0.0:
+                stable_until = time.time() + stable_seconds
+            elif time.time() >= stable_until:
+                return snap
+        else:
+            stable_until = 0.0
+            last_uids = uids
+        time.sleep(interval)
+
+    raise TimeoutError(
+        f"Workload pods did not stabilize within {timeout}s "
+        f"(labels={labels}, last_uids={last_uids})"
+    )
+
+
+def wait_for_upgrade_workloads_settled(kubectl, namespace=UPGRADE_NAMESPACE):
+    """Wait for pre-upgrade ISVC/LLMISVC pods to finish rolling after module image roll."""
+    wait_for_isvc_ready(kubectl, name=ISVC_NAME, namespace=namespace)
+    wait_for_llmisvc_ready(kubectl, name=LLMISVC_NAME, namespace=namespace)
+    wait_for_workload_pods_stable(
+        kubectl,
+        {"serving.kserve.io/inferenceservice": ISVC_NAME},
+        namespace=namespace,
+    )
+    wait_for_workload_pods_stable(
+        kubectl,
+        {"app.kubernetes.io/name": LLMISVC_NAME},
+        namespace=namespace,
+    )
+
+
+def expected_upgrade_image():
+    return os.environ.get(UPGRADE_IMAGE_ENV, "").strip()
+
+
+def _exec_curl(kubectl, namespace, resource, container, url, method="GET", data=None):
     cmd = [
         kubectl,
         "exec",
@@ -128,14 +187,18 @@ def _exec_curl(kubectl, namespace, resource, container, url):
         "--",
         "curl",
         "-sk",
+        "-X",
+        method,
         "--connect-timeout",
         "10",
         "--max-time",
         "60",
         "-w",
         "\n%{http_code}",
-        url,
     ]
+    if data is not None:
+        cmd.extend(["-H", "Content-Type: application/json", "-d", data])
+    cmd.append(url)
     result = run(cmd, timeout=120)
     lines = result.stdout.rsplit("\n", 1)
     body = lines[0] if len(lines) == 2 else result.stdout
@@ -146,14 +209,25 @@ def _exec_curl(kubectl, namespace, resource, container, url):
 
 
 def run_isvc_inference(kubectl, namespace=UPGRADE_NAMESPACE, name=ISVC_NAME):
+    """Run a real sklearn predict request and return a hash of the predictions."""
+    payload = manifest_path("sklearn-iris-input.json").read_text()
     body = _exec_curl(
         kubectl,
         namespace,
         f"deploy/{name}-predictor",
         "kserve-container",
-        "http://127.0.0.1:8080/v2/health/ready",
+        f"http://127.0.0.1:8080/v1/models/{name}:predict",
+        method="POST",
+        data=payload,
     )
-    return hashlib.sha256(body.encode()).hexdigest()
+    predictions = json.loads(body).get("predictions")
+    assert predictions is not None, f"ISVC predict response missing predictions: {body}"
+    assert len(predictions) == 2, f"expected 2 predictions, got {predictions}"
+    for prediction in predictions:
+        label = int(prediction)
+        assert 0 <= label <= 2, f"unexpected iris class label: {prediction}"
+    canonical = json.dumps(predictions, sort_keys=True)
+    return hashlib.sha256(canonical.encode()).hexdigest()
 
 
 def check_llmisvc_workloads_ready(kubectl, namespace=UPGRADE_NAMESPACE, name=LLMISVC_NAME):
@@ -193,6 +267,7 @@ def _pod_snapshot(kubectl, namespace, labels):
     pods = yaml.safe_load(result.stdout).get("items", [])
     return {
         "pod_uids": sorted(p["metadata"]["uid"] for p in pods),
+        "pod_names": sorted(p["metadata"]["name"] for p in pods),
         "restart_counts": {
             p["metadata"]["name"]: sum(
                 cs.get("restartCount", 0)
@@ -228,14 +303,72 @@ def operand_pod_identity_deployments(is_openshift):
     return [d for d in operand_deployments(is_openshift) if d in OPERAND_POD_IDENTITY_NAMES]
 
 
+def get_module_controller_image(kubectl, namespace=NAMESPACE):
+    dep = get_resource(kubectl, "deployment", MODULE_CONTROLLER_DEPLOYMENT, namespace=namespace)
+    assert dep is not None, f"Deployment {MODULE_CONTROLLER_DEPLOYMENT} not found in {namespace}"
+    containers = dep["spec"]["template"]["spec"]["containers"]
+    container = next(
+        (c for c in containers if c["name"] == MODULE_CONTROLLER_CONTAINER),
+        containers[0],
+    )
+    image = container.get("image", "").strip()
+    assert image, f"Module controller deployment has no image in {namespace}"
+    return image
+
+
+def capture_module_controller_baseline(kubectl):
+    pods = deployment_pod_snapshot(kubectl, MODULE_CONTROLLER_DEPLOYMENT, namespace=NAMESPACE)
+    return {
+        "image": get_module_controller_image(kubectl),
+        "pod_uids": pods["pod_uids"],
+        "pod_names": pods.get("pod_names", []),
+        "restart_counts": pods["restart_counts"],
+    }
+
+
+def verify_module_controller_rolled(kubectl, baseline):
+    """Fail clearly when the module-controller image roll did not take effect."""
+    expected_image = expected_upgrade_image()
+    assert expected_image, (
+        f"{UPGRADE_IMAGE_ENV} must be set to the N+1 image ref before post-upgrade tests "
+        "(set it to the same value passed as E2E_IMG to e2e-roll-kserve-module)"
+    )
+
+    wait_for_deployment(kubectl, MODULE_CONTROLLER_DEPLOYMENT)
+    current_image = get_module_controller_image(kubectl)
+    assert current_image == expected_image, (
+        "Module controller deployment image was not updated to N+1: "
+        f"expected={expected_image} actual={current_image}"
+    )
+
+    module_baseline = baseline.get("module_controller")
+    if not module_baseline:
+        module_baseline = baseline.get("operands", {}).get(MODULE_CONTROLLER_DEPLOYMENT, {})
+    baseline_uids = module_baseline.get("pod_uids", [])
+    assert baseline_uids, (
+        "No module-controller pod UIDs in baseline; capture baseline before the roll"
+    )
+
+    current = deployment_pod_snapshot(kubectl, MODULE_CONTROLLER_DEPLOYMENT, namespace=NAMESPACE)
+    current_uids = current["pod_uids"]
+    assert current_uids, "No module-controller pods found after the image roll"
+    assert set(baseline_uids) != set(current_uids), (
+        "Module controller pod UIDs unchanged after image roll; "
+        f"rollout may not have occurred (baseline={baseline_uids} current={current_uids})"
+    )
+
+    assert_restart_counts_not_increased(
+        module_baseline.get("restart_counts", {}),
+        current["restart_counts"],
+        require_baseline_pods=False,
+    )
+
+
 def capture_operand_baselines(kubectl, is_openshift):
     baselines = {
         dep: deployment_pod_snapshot(kubectl, dep, namespace=NAMESPACE)
         for dep in operand_pod_identity_deployments(is_openshift)
     }
-    baselines[MODULE_CONTROLLER_DEPLOYMENT] = deployment_pod_snapshot(
-        kubectl, MODULE_CONTROLLER_DEPLOYMENT, namespace=NAMESPACE
-    )
     return baselines
 
 
@@ -255,6 +388,7 @@ def capture_isvc_baseline(kubectl, name=ISVC_NAME, namespace=UPGRADE_NAMESPACE):
         "observed_generation": isvc.get("status", {}).get("observedGeneration"),
         "url": isvc.get("status", {}).get("url", ""),
         "pod_uids": pods["pod_uids"],
+        "pod_names": pods["pod_names"],
         "restart_counts": pods["restart_counts"],
     }
 
@@ -281,6 +415,7 @@ def capture_llmisvc_baseline(kubectl, name=LLMISVC_NAME, namespace=UPGRADE_NAMES
         "observed_generation": llmisvc.get("status", {}).get("observedGeneration"),
         "url": llmisvc.get("status", {}).get("url", ""),
         "pod_uids": pods["pod_uids"],
+        "pod_names": pods["pod_names"],
         "restart_counts": pods["restart_counts"],
     }
 
@@ -289,12 +424,13 @@ def build_baseline(
     kubectl,
     is_openshift,
     isvc_hash=None,
-    llmisvc_hash=None,
+    llmisvc_workloads_ready_hash=None,
     include_workloads=True,
 ):
     baseline = {
         "kserve": capture_kserve_baseline(kubectl),
         "operands": capture_operand_baselines(kubectl, is_openshift),
+        "module_controller": capture_module_controller_baseline(kubectl),
         "workloads": {},
         "captured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
@@ -302,7 +438,9 @@ def build_baseline(
         baseline["workloads"][ISVC_NAME] = capture_isvc_baseline(kubectl)
         baseline["workloads"][ISVC_NAME]["inference_hash"] = isvc_hash
         baseline["workloads"][LLMISVC_NAME] = capture_llmisvc_baseline(kubectl)
-        baseline["workloads"][LLMISVC_NAME]["inference_hash"] = llmisvc_hash
+        baseline["workloads"][LLMISVC_NAME]["workloads_ready_hash"] = (
+            llmisvc_workloads_ready_hash
+        )
     return baseline
 
 
@@ -349,9 +487,13 @@ def assert_restart_counts_not_increased(
         )
 
 
-def assert_pod_uids_unchanged(baseline_uids, current_uids):
+def assert_pod_uids_unchanged(
+    baseline_uids, current_uids, baseline_names=None, current_names=None
+):
     assert baseline_uids == current_uids, (
-        f"Pod UIDs changed: baseline={baseline_uids} current={current_uids}"
+        "Pod UIDs changed: "
+        f"baseline={baseline_uids} ({baseline_names or 'n/a'}) "
+        f"current={current_uids} ({current_names or 'n/a'})"
     )
 
 

@@ -54,6 +54,7 @@ e2e-setup-kserve-module:
 	bash kserve-module/tests/scripts/setup-cluster.sh --platform $(PLATFORM) \
 		$(if $(E2E_IMG),--image $(E2E_IMG))
 
+# Set KSERVE_MODULE_UPGRADE_IMAGE to the same ref as E2E_IMG before post_upgrade tests.
 e2e-roll-kserve-module:
 	bash kserve-module/tests/scripts/setup-cluster.sh --platform $(PLATFORM) --skip-deps \
 		$(if $(E2E_IMG),--image $(E2E_IMG))

@@ -137,9 +137,13 @@ jobs:
         run: make e2e-kserve-module PYTEST_ARGS='-m pre_upgrade --pre-upgrade'
 
       - name: Roll module controller to N+1 image
+        env:
+          KSERVE_MODULE_UPGRADE_IMAGE: ${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
         run: make e2e-roll-kserve-module PLATFORM=xks E2E_IMG=${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
 
       - name: Run post-upgrade tests (Part A + Part B)
+        env:
+          KSERVE_MODULE_UPGRADE_IMAGE: ${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
         run: make e2e-kserve-module PYTEST_ARGS='-m post_upgrade --post-upgrade'
 
       - name: Run E2E tests

@@ -78,10 +78,10 @@ def capture_upgrade_baseline(
         return
 
     isvc_hash = None
-    llmisvc_hash = None
+    llmisvc_workloads_ready_hash = None
     if upgrade_workloads_enabled:
         isvc_hash = utils.run_isvc_inference(kubectl, namespace=upgrade_namespace)
-        llmisvc_hash = utils.check_llmisvc_workloads_ready(
+        llmisvc_workloads_ready_hash = utils.check_llmisvc_workloads_ready(
             kubectl, namespace=upgrade_namespace
         )
 
@@ -89,7 +89,7 @@ def capture_upgrade_baseline(
         kubectl,
         cluster_info.is_openshift,
         isvc_hash=isvc_hash,
-        llmisvc_hash=llmisvc_hash,
+        llmisvc_workloads_ready_hash=llmisvc_workloads_ready_hash,
         include_workloads=upgrade_workloads_enabled,
     )
     utils.save_baseline(kubectl, baseline, namespace=upgrade_namespace)

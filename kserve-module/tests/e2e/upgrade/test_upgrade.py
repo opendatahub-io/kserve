@@ -10,7 +10,6 @@ import pytest
 from upgrade.utils import (
     ISVC_NAME,
     LLMISVC_NAME,
-    MODULE_CONTROLLER_DEPLOYMENT,
     NEW_ISVC_NAME,
     NEW_LLMISVC_NAME,
     assert_operand_pods_not_recreated,
@@ -20,15 +19,16 @@ from upgrade.utils import (
     capture_kserve_baseline,
     capture_llmisvc_baseline,
     capture_operand_baselines,
-    deployment_pod_snapshot,
+    check_llmisvc_workloads_ready,
     get_cr,
     is_cr_ready,
     operand_deployments,
     operand_pod_identity_deployments,
     run_isvc_inference,
-    check_llmisvc_workloads_ready,
     verify_background_probe,
+    verify_module_controller_rolled,
     wait_for_deployment,
+    wait_for_upgrade_workloads_settled,
 )
 
 
@@ -57,6 +57,23 @@ class TestPreUpgrade:
         check_llmisvc_workloads_ready(kubectl, namespace=upgrade_namespace, name=LLMISVC_NAME)
 
 
+_upgrade_workloads_settled = False
+
+
+@pytest.fixture(autouse=True)
+def settle_upgrade_workloads(
+    pytestconfig, kubectl, upgrade_namespace, upgrade_workloads_enabled
+):
+    """Let operand reconciles finish before comparing workload pod identity."""
+    global _upgrade_workloads_settled
+    if _upgrade_workloads_settled:
+        return
+    if not pytestconfig.getoption("--post-upgrade") or not upgrade_workloads_enabled:
+        return
+    wait_for_upgrade_workloads_settled(kubectl, namespace=upgrade_namespace)
+    _upgrade_workloads_settled = True
+
+
 class TestPostUpgrade:
     """Verify platform and workloads survived the module image roll."""
 
@@ -65,6 +82,12 @@ class TestPostUpgrade:
         assert upgrade_baseline, "Baseline ConfigMap must exist from pre-upgrade phase"
         assert "kserve" in upgrade_baseline
         assert "operands" in upgrade_baseline
+        assert "module_controller" in upgrade_baseline
+
+    @pytest.mark.post_upgrade
+    def test_module_controller_rolled(self, kubectl, upgrade_baseline):
+        """Module controller must roll to N+1 image and replace its pod."""
+        verify_module_controller_rolled(kubectl, upgrade_baseline)
 
     @pytest.mark.post_upgrade
     def test_kserve_still_ready(self, kubectl, upgrade_baseline):
@@ -77,7 +100,7 @@ class TestPostUpgrade:
     @pytest.mark.post_upgrade
     @pytest.mark.ocp_only
     def test_background_probe_no_downtime(self, kubectl, upgrade_namespace):
-        """Part A: background probe against ISVC/LLMISVC had no failures during roll."""
+        """Part A: background probe against ISVC health had no failures during roll."""
         verify_background_probe(kubectl, namespace=upgrade_namespace)
 
     @pytest.mark.post_upgrade
@@ -102,28 +125,18 @@ class TestPostUpgrade:
             )
 
     @pytest.mark.post_upgrade
-    def test_module_controller_available(self, kubectl, upgrade_baseline):
-        """Module controller must be Available after the image roll (pod may be new)."""
-        wait_for_deployment(kubectl, MODULE_CONTROLLER_DEPLOYMENT)
-        baseline = upgrade_baseline.get("operands", {}).get(MODULE_CONTROLLER_DEPLOYMENT)
-        if not baseline:
-            return
-        current = deployment_pod_snapshot(kubectl, MODULE_CONTROLLER_DEPLOYMENT)
-        # Image roll may replace the pod; only check restart counts for pods that survived.
-        assert_restart_counts_not_increased(
-            baseline["restart_counts"],
-            current["restart_counts"],
-            require_baseline_pods=False,
-        )
-
-    @pytest.mark.post_upgrade
     @pytest.mark.ocp_only
     def test_isvc_survived(self, kubectl, upgrade_namespace, upgrade_baseline):
         baseline = upgrade_baseline["workloads"][ISVC_NAME]
         current = capture_isvc_baseline(kubectl, name=ISVC_NAME, namespace=upgrade_namespace)
         assert current["uid"] == baseline["uid"]
         assert current["generation"] == baseline["generation"]
-        assert_pod_uids_unchanged(baseline["pod_uids"], current["pod_uids"])
+        assert_pod_uids_unchanged(
+            baseline["pod_uids"],
+            current["pod_uids"],
+            baseline_names=baseline.get("pod_names"),
+            current_names=current.get("pod_names"),
+        )
         assert_restart_counts_not_increased(
             baseline["restart_counts"], current["restart_counts"]
         )
@@ -145,7 +158,12 @@ class TestPostUpgrade:
         )
         assert current["uid"] == baseline["uid"]
         assert current["generation"] == baseline["generation"]
-        assert_pod_uids_unchanged(baseline["pod_uids"], current["pod_uids"])
+        assert_pod_uids_unchanged(
+            baseline["pod_uids"],
+            current["pod_uids"],
+            baseline_names=baseline.get("pod_names"),
+            current_names=current.get("pod_names"),
+        )
         assert_restart_counts_not_increased(
             baseline["restart_counts"], current["restart_counts"]
         )
@@ -158,10 +176,11 @@ class TestPostUpgrade:
         current_hash = check_llmisvc_workloads_ready(
             kubectl, namespace=upgrade_namespace, name=LLMISVC_NAME
         )
-        assert (
-            current_hash
-            == upgrade_baseline["workloads"][LLMISVC_NAME]["inference_hash"]
+        baseline_hash = upgrade_baseline["workloads"][LLMISVC_NAME].get(
+            "workloads_ready_hash",
+            upgrade_baseline["workloads"][LLMISVC_NAME].get("inference_hash"),
         )
+        assert current_hash == baseline_hash
 
 
 class TestPostUpgradeNewWorkloads:
