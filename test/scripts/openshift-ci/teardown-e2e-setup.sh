@@ -15,7 +15,7 @@
 # This is a helper script to run E2E tests on the openshift-ci operator.
 # This script assumes to be run inside a container/machine that has
 # python pre-installed and the `oc` command available. Additional tooling,
-# like kustomize and the minio client are installed by the script if not available.
+# like kustomize are installed by the script if not available.
 # The oc CLI is assumed to be configured with the credentials of the
 # target cluster. The target cluster is assumed to be a clean cluster.
 set -o errexit
@@ -67,7 +67,7 @@ if [ "$1" != "raw" ]; then
   oc delete namespace openshift-serverless --ignore-not-found
 fi
 
-echo "Installing KServe with Minio"
+echo "Deleting KServe with SeaweedFS"
 kustomize build $PROJECT_ROOT/config/overlays/test |
   sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
   sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
@@ -124,7 +124,17 @@ spec:
 EOF
 fi
 
-oc delete -f $PROJECT_ROOT/config/overlays/test/minio/minio-user-secret.yaml -n kserve-ci-e2e-test
+oc delete -f $PROJECT_ROOT/config/overlays/test/s3-local-backend/mlpipeline-s3-artifact-secret.yaml -n kserve-ci-e2e-test --ignore-not-found || true
+oc delete secret storage-config -n kserve-ci-e2e-test --ignore-not-found || true
+
+if [[ "${1:-}" == *"kserve_on_openshift"* ]]; then
+  echo "Deleting SeaweedFS TLS resources and generated certificates"
+  kustomize build $PROJECT_ROOT/test/overlays/openshift-ci |
+    oc delete -n "${S3_NAMESPACE:-${NS:-opendatahub}}" -f - --ignore-not-found || true
+  oc delete secret seaweedfs-tls-custom -n "${S3_NAMESPACE:-${NS:-opendatahub}}" --ignore-not-found || true
+  oc delete secret seaweedfs-tls-serving -n "${S3_NAMESPACE:-${NS:-opendatahub}}" --ignore-not-found || true
+  rm -rf $PROJECT_ROOT/test/scripts/openshift-ci/tls/certs
+fi
 
 kustomize build $PROJECT_ROOT/config/overlays/test/clusterresources |
   sed 's/ClusterServingRuntime/ServingRuntime/' |
