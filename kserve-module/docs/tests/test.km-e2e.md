@@ -87,16 +87,19 @@ make e2e-setup-kserve-module \
 make e2e-kserve-module-post-release
 ```
 
-CI: Konflux integration testing in
-[odh-konflux-central](https://github.com/opendatahub-io/odh-konflux-central)
-([`post-release-smoke-pipeline.yaml`](https://github.com/opendatahub-io/odh-konflux-central/blob/main/integration-tests/kserve/post-release-smoke-pipeline.yaml)).
-The pipeline provisions an ephemeral OpenShift (Hypershift) cluster, checks out
-this repo at the release tag, and runs the make targets above.
+CI: OpenShift CI (Prow) tag postsubmit `e2e-kserve-module-post-release` — runs when an
+`odh-vX.Y` tag is pushed to this repo (Hypershift cluster, published operator image only,
+never PR-built images). See
+[post-release smoke runbook](../../../docs/dev/post-release-smoke-openshift-ci.md).
 
-**When and how to trigger** (on-demand, not automatic): see
-[odh-model-controller post-release smoke doc](https://github.com/opendatahub-io/odh-model-controller/blob/incubating/docs/post-release-kserve-smoke.md)
-— comment `/post-release-smoke <release_tag>` on a kserve PR or use a manual Konflux
-PipelineRun with `release_tag`.
+Local or scripted (same commands as CI):
+
+```bash
+export RELEASE_TAG=odh-v3.5
+bash hack/ci/post-release-smoke.sh
+```
+
+Release-process overview: [odh-model-controller post-release smoke doc](https://github.com/opendatahub-io/odh-model-controller/blob/incubating/docs/post-release-kserve-smoke.md).
 
 ## Make Targets
 
