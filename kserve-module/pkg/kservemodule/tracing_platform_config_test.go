@@ -33,12 +33,12 @@ func TestResolveTracingPlatformConfig(t *testing.T) {
 		{name: "traces absent", monitoring: &unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": monitoringGVK.GroupVersion().String(), "kind": monitoringKind,
 			"metadata": map[string]any{"name": monitoringCRName},
-		}}},
+		}}, expected: &tracingPlatformConfig{}},
 		{name: "traces null", monitoring: &unstructured.Unstructured{Object: map[string]any{
 			"apiVersion": monitoringGVK.GroupVersion().String(), "kind": monitoringKind,
 			"metadata": map[string]any{"name": monitoringCRName},
 			"spec":     map[string]any{"traces": nil},
-		}}},
+		}}, expected: &tracingPlatformConfig{}},
 		{name: "traces empty", monitoring: monitoringResource(map[string]any{}), expected: &tracingPlatformConfig{
 			Enabled: true, SampleRatio: defaultTracesSampleRatio,
 			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
@@ -48,19 +48,19 @@ func TestResolveTracingPlatformConfig(t *testing.T) {
 			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
 		}},
 		{name: "invalid sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "not-a-number"}), expected: &tracingPlatformConfig{
-			Enabled: true, SampleRatio: invalidTracesSampleRatio,
+			Enabled: true, SampleRatio: defaultTracesSampleRatio,
 			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
 		}},
 		{name: "NaN sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "NaN"}), expected: &tracingPlatformConfig{
-			Enabled: true, SampleRatio: invalidTracesSampleRatio,
+			Enabled: true, SampleRatio: defaultTracesSampleRatio,
 			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
 		}},
 		{name: "+Inf sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "+Inf"}), expected: &tracingPlatformConfig{
-			Enabled: true, SampleRatio: invalidTracesSampleRatio,
+			Enabled: true, SampleRatio: defaultTracesSampleRatio,
 			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
 		}},
 		{name: "out-of-range sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "2"}), expected: &tracingPlatformConfig{
-			Enabled: true, SampleRatio: invalidTracesSampleRatio,
+			Enabled: true, SampleRatio: defaultTracesSampleRatio,
 			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
 		}},
 		{name: "zero sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "0"}), expected: &tracingPlatformConfig{

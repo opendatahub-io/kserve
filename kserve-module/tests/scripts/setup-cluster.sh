@@ -44,6 +44,8 @@ readonly SUB_CERT_MANAGER="${CERT_MANAGER_NAME}|${CERT_MANAGER_NAMESPACE}|${CERT
 readonly SUB_LWS="${LWS_NAME}|${LWS_NAMESPACE}|${LWS_CHANNEL}|OwnNamespace"
 readonly SUB_RHCL="${RHCL_NAME}|${RHCL_NAMESPACE}|${RHCL_CHANNEL}|AllNamespaces"
 readonly SUB_CMA="${CMA_NAME}|${CMA_NAMESPACE}|${CMA_CHANNEL}|AllNamespaces"
+readonly TEST_MONITORING_CRD="monitorings.services.platform.opendatahub.io"
+readonly TEST_MONITORING_LABEL="kserve-module-e2e"
 
 # --- Per-platform component lists ---
 # xks: install via helm scripts from hack/setup/infra
@@ -143,6 +145,74 @@ setup_cert_manager_pki() {
   ${KUBECTL} wait --for=condition=Ready certificate/opendatahub-ca -n cert-manager --timeout=120s
   ${KUBECTL} wait --for=condition=Ready clusterissuer/opendatahub-ca-issuer --timeout=60s
   log_success "PKI chain created"
+}
+
+# ---------------------------------------------------------------------------
+# setup_test_monitoring — provide the optional Monitoring API for tracing tests
+# ---------------------------------------------------------------------------
+setup_test_monitoring() {
+  if [[ "${PLATFORM}" != "xks" ]]; then
+    log_info "Skipping test Monitoring fixture on ${PLATFORM}; using the platform Monitoring API"
+    return
+  fi
+
+  if ! ${KUBECTL} get crd "${TEST_MONITORING_CRD}" &>/dev/null; then
+    log_info "Installing test Monitoring CRD..."
+    ${KUBECTL} apply -f - <<'EOF'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: monitorings.services.platform.opendatahub.io
+  labels:
+    kserve-module-e2e: "true"
+spec:
+  group: services.platform.opendatahub.io
+  names:
+    kind: Monitoring
+    listKind: MonitoringList
+    plural: monitorings
+    singular: monitoring
+  scope: Cluster
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                traces:
+                  type: object
+                  nullable: true
+                  properties:
+                    sampleRatio:
+                      type: string
+                  additionalProperties: true
+              additionalProperties: true
+EOF
+    ${KUBECTL} wait --for=condition=Established "crd/${TEST_MONITORING_CRD}" --timeout=60s
+  elif [[ "$(${KUBECTL} get crd "${TEST_MONITORING_CRD}" -o jsonpath='{.metadata.labels.kserve-module-e2e}' 2>/dev/null)" != "true" ]]; then
+    log_info "Using existing Monitoring CRD; not creating the test fixture resource"
+    return
+  fi
+
+  if ! ${KUBECTL} get monitoring default-monitoring &>/dev/null; then
+    log_info "Creating test default-monitoring resource..."
+    ${KUBECTL} apply -f - <<'EOF'
+apiVersion: services.platform.opendatahub.io/v1alpha1
+kind: Monitoring
+metadata:
+  name: default-monitoring
+  labels:
+    kserve-module-e2e: "true"
+spec:
+  traces:
+    sampleRatio: "0.1"
+EOF
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -345,6 +415,15 @@ cleanup_xks_deps() {
   log_success "xks dependencies cleaned up"
 }
 
+cleanup_test_monitoring() {
+  if ${KUBECTL} get monitoring default-monitoring -l "${TEST_MONITORING_LABEL}=true" &>/dev/null; then
+    ${KUBECTL} delete monitoring default-monitoring --ignore-not-found
+  fi
+  if [[ "$(${KUBECTL} get crd "${TEST_MONITORING_CRD}" -o jsonpath='{.metadata.labels.kserve-module-e2e}' 2>/dev/null)" == "true" ]]; then
+    ${KUBECTL} delete crd "${TEST_MONITORING_CRD}" --ignore-not-found
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # deploy_kserve_module
 # ---------------------------------------------------------------------------
@@ -421,6 +500,9 @@ main() {
   if [[ "${CLEANUP}" == "true" ]]; then
     echo "  Action:    cleanup"
     cleanup_kserve_module
+    if [[ "${PLATFORM}" == "xks" ]]; then
+      cleanup_test_monitoring
+    fi
     case "$PLATFORM" in
       xks) cleanup_xks_deps ;;
       ocp) cleanup_ocp_deps ;;
@@ -442,6 +524,8 @@ main() {
   else
     log_info "Skipping dependency installation (--skip-deps)"
   fi
+
+  setup_test_monitoring
 
   if [[ "${SKIP_KM_DEPLOY}" != "true" ]]; then
     deploy_kserve_module

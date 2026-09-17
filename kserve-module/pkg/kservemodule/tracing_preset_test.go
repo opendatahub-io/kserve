@@ -2,11 +2,16 @@ package kservemodule
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
 func tracingPreset(name string, wellKnown bool) unstructured.Unstructured {
@@ -128,4 +133,72 @@ func TestPatchWellKnownTracingPreset_SkipsWhenDisabled(t *testing.T) {
 		endpoint, _, _ := unstructured.NestedString(patched[0].Object, "spec", "tracing", "exporterEndpoint")
 		g.Expect(endpoint).To(Equal("http://otel-collector:4317"))
 	}
+}
+
+func TestKservePostRender_LeavesPresetsUnchangedWhenMonitoringUnavailable(t *testing.T) {
+	g := NewWithT(t)
+	wantErr := errors.New("monitoring api unavailable")
+	historical := tracingPreset("v1-1-0-kserve-config-llm-tracing", true)
+	historical.SetNamespace("opendatahub")
+	r := &KserveModuleReconciler{
+		Client: fake.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
+				return wantErr
+			},
+		}).WithObjects(&historical).Build(),
+		applicationsNamespace: "opendatahub",
+	}
+	resources := []unstructured.Unstructured{tracingPreset("v1-2-3-kserve-config-llm-tracing", true)}
+
+	patched, err := kservePostRender(context.Background(), r, &platformv1alpha1.Kserve{}, resources)
+
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(r.tracingConfigError).To(MatchError(wantErr.Error()))
+	g.Expect(patched).To(HaveLen(2))
+	endpoint, _, err := unstructured.NestedString(patched[0].Object, "spec", "tracing", "exporterEndpoint")
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(endpoint).To(Equal(upstreamTracingEndpoint))
+	g.Expect(patched[1].GetName()).To(Equal(historical.GetName()))
+	g.Expect(r.expectedPresets).To(HaveLen(1))
+}
+
+func TestKservePostRender_LeavesPresetsUnchangedWhenMonitoringMissing(t *testing.T) {
+	g := NewWithT(t)
+	historical := tracingPreset("v1-1-0-kserve-config-llm-tracing", true)
+	historical.SetNamespace("opendatahub")
+	r := &KserveModuleReconciler{
+		Client:                fake.NewClientBuilder().WithObjects(&historical).Build(),
+		applicationsNamespace: "opendatahub",
+	}
+	resources := []unstructured.Unstructured{tracingPreset("v1-2-3-kserve-config-llm-tracing", true)}
+
+	patched, err := kservePostRender(context.Background(), r, &platformv1alpha1.Kserve{}, resources)
+
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(r.tracingConfigError).To(BeNil())
+	g.Expect(patched).To(HaveLen(2))
+	endpoint, _, err := unstructured.NestedString(patched[0].Object, "spec", "tracing", "exporterEndpoint")
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(endpoint).To(Equal(upstreamTracingEndpoint))
+	g.Expect(patched[1].GetName()).To(Equal(historical.GetName()))
+}
+
+func TestKservePostRender_DoesNotRequireHistoricalPresets(t *testing.T) {
+	g := NewWithT(t)
+	historical := tracingPreset("v1-1-0-kserve-config-llm-tracing", true)
+	historical.SetNamespace("opendatahub")
+	monitoring := monitoringResource(map[string]any{"sampleRatio": "0.5"})
+	r := &KserveModuleReconciler{
+		Client:                fake.NewClientBuilder().WithObjects(monitoring, &historical).Build(),
+		applicationsNamespace: "opendatahub",
+	}
+	resources := []unstructured.Unstructured{tracingPreset("v1-2-3-kserve-config-llm-tracing", true)}
+
+	patched, err := kservePostRender(context.Background(), r, &platformv1alpha1.Kserve{}, resources)
+
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(patched).To(HaveLen(2))
+	g.Expect(r.expectedPresets).To(HaveLen(1))
+	g.Expect(r.expectedPresets[0]).To(Equal(patched[0].GetName()))
+	g.Expect(patched[1].GetName()).To(Equal(historical.GetName()))
 }
