@@ -171,6 +171,7 @@ func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServ
 			return ctrl.Result{}, errors.Wrapf(err, "failed to add INFERENCE_SERVICE_NAME environment variable to container %s", transformerContainerName)
 		}
 	}
+	isvcutils.InjectComponentTracing(isvc.Spec.Tracing, isvc.Namespace, isvc.Name, "", "", string(v1beta1.TransformerComponent), &podSpec.Containers[0])
 
 	// Here we allow switch between knative and vanilla deployment
 	if p.deploymentMode == constants.Standard {
