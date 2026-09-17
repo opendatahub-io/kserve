@@ -1810,6 +1810,24 @@ def get_system_llmisvc_config(kserve_client, name):
         raise
 
 
+def system_llmisvc_config_name(base_name):
+    """Resolve a shipped preset's unstamped name to its name on this cluster.
+
+    kserve-module renames well-known presets and sets the controller's
+    LLM_INFERENCE_SERVICE_CONFIG_PREFIX in the same pass. Installs without
+    the module leave it unset, matching the controller default "kserve-".
+    """
+    deploy = client.AppsV1Api().read_namespaced_deployment(
+        "llmisvc-controller-manager", KSERVE_NAMESPACE
+    )
+    prefix = next(
+        (e.value for c in deploy.spec.template.spec.containers
+         for e in (c.env or []) if e.name == "LLM_INFERENCE_SERVICE_CONFIG_PREFIX"),
+        "kserve-",
+    )
+    return prefix + base_name.removeprefix("kserve-")
+
+
 _ACCELERATOR_DIR = Path(__file__).resolve().parents[3] / "config/overlays/odh/accelerators"
 
 
@@ -1877,9 +1895,11 @@ def _setup_test_case_service(
         created_configs.append(unique_config_name)
 
     for system_ref in tc.system_base_refs:
-        if get_system_llmisvc_config(kserve_client, system_ref) is None:
+        resolved = system_llmisvc_config_name(system_ref)
+        if get_system_llmisvc_config(kserve_client, resolved) is None:
             _ensure_system_llmisvc_config(kserve_client, system_ref)
-        unique_base_refs.append(system_ref)
+            resolved = system_ref
+        unique_base_refs.append(resolved)
 
     tc.llm_service = V1alpha1LLMInferenceService(
         api_version="serving.kserve.io/v1alpha1",

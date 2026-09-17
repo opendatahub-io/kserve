@@ -37,6 +37,7 @@ from .fixtures import (
     get_system_llmisvc_config,
     generate_test_id,
     inject_k8s_proxy,
+    system_llmisvc_config_name,
 )
 from .logging import log_execution
 from .test_llm_inference_service import (
@@ -64,7 +65,8 @@ DEPLOYMENT_WAIT_SECONDS = 300
 
 def _get_cpu_preset(kserve_client: KServeClient) -> dict:
     """Get the CPU preset from the system namespace, creating it if absent."""
-    preset = get_system_llmisvc_config(kserve_client, CPU_PRESET_NAME)
+    resolved = system_llmisvc_config_name(CPU_PRESET_NAME)
+    preset = get_system_llmisvc_config(kserve_client, resolved)
     if preset is not None:
         return preset
 
