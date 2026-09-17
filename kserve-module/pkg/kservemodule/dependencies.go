@@ -47,11 +47,10 @@ const (
 	cmaSubscription         = "openshift-custom-metrics-autoscaler-operator"
 
 	// OLM operator prefixes used by olm.OperatorExists.
-	trusteeOperatorPrefix             = "trustee-operator"
-	sandboxedContainersOperatorPrefix = "sandboxed-containers-operator"
-
-	cocoRuntimeClassPrefix = "kata-cc"
+	trusteeOperatorPrefix = "trustee-operator"
 )
+
+var cocoRuntimeClassPrefixes = []string{"kata", "ccruntime", "enclave-cc"}
 
 type conditionFilterFunc func(conditionType string, status string) bool
 
@@ -67,7 +66,7 @@ type dependencyCheck struct {
 	availabilitySeverity common.ConditionSeverity                   // availSeverityNone = no report, Error = Ready=False, Info = Ready=True
 	platform             string                                     // "ocp", "xks", "" (both)
 	conditionGroup       string                                     // group into same condition
-	runtimeClassPrefix   string                                     // RuntimeClass name prefix check
+	runtimeClassPrefixes []string                                   // RuntimeClass name prefixes to check
 	skipFunc             func(kserve *platformv1alpha1.Kserve) bool // true → skip this check
 }
 
@@ -114,11 +113,11 @@ func olmOperatorDep(name, operatorPrefix, condGroup, platform string, availSever
 	}
 }
 
-func runtimeClassDep(name, prefix, condGroup, platform string, availSeverity common.ConditionSeverity) dependencyCheck {
+func runtimeClassDep(name string, prefixes []string, condGroup, platform string, availSeverity common.ConditionSeverity) dependencyCheck {
 	return dependencyCheck{
 		name:                 name,
 		checkType:            checkRuntimeClass,
-		runtimeClassPrefix:   prefix,
+		runtimeClassPrefixes: prefixes,
 		conditionGroup:       condGroup,
 		platform:             platform,
 		availabilitySeverity: availSeverity,
@@ -188,9 +187,7 @@ var kserveDependencies = []dependencyCheck{
 	// prevent ordinary KServe reconciliation or readiness.
 	olmOperatorDep("Red Hat build of Trustee operator", trusteeOperatorPrefix,
 		conditionConfidentialContainerDeps, "ocp", availSeverityNone),
-	olmOperatorDep("OpenShift Sandboxed Containers operator", sandboxedContainersOperatorPrefix,
-		conditionConfidentialContainerDeps, "ocp", availSeverityNone),
-	runtimeClassDep("Confidential container RuntimeClass", cocoRuntimeClassPrefix,
+	runtimeClassDep("Confidential container RuntimeClass", cocoRuntimeClassPrefixes,
 		conditionConfidentialContainerDeps, "ocp", availSeverityNone),
 }
 
@@ -356,12 +353,22 @@ func (r *KserveModuleReconciler) checkRuntimeClass(ctx context.Context, dep depe
 
 	for i := range runtimeClasses.Items {
 		runtimeClass := &runtimeClasses.Items[i]
-		if strings.HasPrefix(runtimeClass.Name, dep.runtimeClassPrefix) && strings.TrimSpace(runtimeClass.Handler) != "" {
+		if hasRuntimeClassPrefix(runtimeClass.Name, dep.runtimeClassPrefixes) && strings.TrimSpace(runtimeClass.Handler) != "" {
 			return nil
 		}
 	}
 
-	return []string{fmt.Sprintf("%s not ready (no RuntimeClass with prefix %q and a runtime handler)", dep.name, dep.runtimeClassPrefix)}
+	return []string{fmt.Sprintf("%s not ready (no RuntimeClass matching any of %q and a runtime handler)",
+		dep.name, dep.runtimeClassPrefixes)}
+}
+
+func hasRuntimeClassPrefix(name string, prefixes []string) bool {
+	for _, prefix := range prefixes {
+		if name == prefix || strings.HasPrefix(name, prefix+"-") {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *KserveModuleReconciler) checkOperatorHealth(ctx context.Context, dep dependencyCheck) []string {
