@@ -91,6 +91,7 @@ import (
 
 // --- Dependency detection (read-only: check if required operators are installed) ---
 // +kubebuilder:rbac:groups=operators.coreos.com,resources=subscriptions,verbs=get;list;watch
+// +kubebuilder:rbac:groups=olm.operatorframework.io,resources=clusterextensions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=operator.openshift.io,resources=leaderworkersetoperators,verbs=get;list;watch
 //
 // ModelCache RBAC

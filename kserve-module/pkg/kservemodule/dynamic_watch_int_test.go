@@ -123,6 +123,39 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 		})
 	})
 
+	Context("ClusterExtension watch", Ordered, func() {
+		var extension *unstructured.Unstructured
+
+		AfterAll(func(ctx SpecContext) {
+			if extension != nil {
+				client.IgnoreNotFound(testEnv.Client.Delete(ctx, extension))
+			}
+		})
+
+		It("clears a missing dependency after a matching ClusterExtension is created", func(ctx SpecContext) {
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
+				cond := fixture.FindCondition(kserve, kservemodule.ConditionLLMISVCDeps)
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Message).To(ContainSubstring("Red Hat Connectivity Link"))
+				g.Expect(cond.Message).To(ContainSubstring("cert-manager"))
+			}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
+
+			extension = fixture.CreateClusterExtension(ctx, testEnv.Client,
+				"cert-manager-extension", "openshift-cert-manager-operator")
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
+				cond := fixture.FindCondition(kserve, kservemodule.ConditionLLMISVCDeps)
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Message).To(ContainSubstring("Red Hat Connectivity Link"))
+				g.Expect(cond.Message).NotTo(ContainSubstring("cert-manager"))
+			}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
+		})
+	})
+
 	Context("LeaderWorkerSet operator watch", func() {
 		var lwsCRD *apiextensionsv1.CustomResourceDefinition
 
@@ -187,4 +220,3 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 		})
 	})
 })
-
