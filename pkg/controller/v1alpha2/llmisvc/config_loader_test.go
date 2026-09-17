@@ -19,6 +19,7 @@ package llmisvc_test
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -38,6 +39,38 @@ func TestNewConfigConvertsCipherSuitesForOpenSSL(t *testing.T) {
 	got := llmisvc.NewConfig(ingressConfig, nil, nil, nil)
 	if want := "ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384"; got.TLSCipherSuitesOpenSSL != want {
 		t.Fatalf("TLSCipherSuitesOpenSSL = %q, want %q", got.TLSCipherSuitesOpenSSL, want)
+	}
+}
+
+func TestLoadConfigLoRAModelRoutingStrategy(t *testing.T) {
+	for _, tt := range []struct {
+		input   string
+		want    llmisvc.LoRAModelRoutingStrategy
+		wantErr bool
+	}{
+		{input: "", want: llmisvc.LoRAModelRoutingStrategyExact},
+		{input: "exact", want: llmisvc.LoRAModelRoutingStrategyExact},
+		{input: "Exact", want: llmisvc.LoRAModelRoutingStrategyExact},
+		{input: "REGEX", want: llmisvc.LoRAModelRoutingStrategyRegex},
+		{input: "RegEx", want: llmisvc.LoRAModelRoutingStrategyRegex},
+		{input: "Unsupported", wantErr: true},
+	} {
+		t.Run(tt.input, func(t *testing.T) {
+			cm := fixture.InferenceServiceCfgMap(constants.KServeNamespace)
+			if tt.input != "" {
+				fixture.SetIngressConfigKey(cm, "loraModelRoutingStrategy", tt.input)
+			}
+			c := fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).WithObjects(cm).Build()
+
+			got, err := llmisvc.LoadConfig(t.Context(), c)
+
+			if tt.wantErr {
+				require.ErrorContains(t, err, "loraModelRoutingStrategy", "an unsupported value fails config loading like any other invalid ingress key")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got.LoRAModelRoutingStrategy, "the loaded value is defaulted and lowercased")
+		})
 	}
 }
 

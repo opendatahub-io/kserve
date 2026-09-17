@@ -63,6 +63,7 @@ class V1beta1IngressConfig(object):
         'llm_inference_service_tls_min_version': 'str',
         'local_gateway': 'str',
         'local_gateway_service': 'str',
+        'lora_model_routing_strategy': 'str',
         'model_based_routing_header_name': 'str',
         'model_based_routing_mode': 'str',
         'path_template': 'str',
@@ -86,13 +87,14 @@ class V1beta1IngressConfig(object):
         'llm_inference_service_tls_min_version': 'llmInferenceServiceTLSMinVersion',
         'local_gateway': 'localGateway',
         'local_gateway_service': 'localGatewayService',
+        'lora_model_routing_strategy': 'loraModelRoutingStrategy',
         'model_based_routing_header_name': 'modelBasedRoutingHeaderName',
         'model_based_routing_mode': 'modelBasedRoutingMode',
         'path_template': 'pathTemplate',
         'url_scheme': 'urlScheme'
     }
 
-    def __init__(self, additional_ingress_domains=None, disable_http_route_timeout=None, disable_ingress_creation=None, disable_istio_virtual_host=None, domain_template=None, enable_gateway_api=None, enable_llm_inference_service_tls=None, ingress_class_name=None, ingress_domain=None, ingress_gateway=None, knative_local_gateway_service=None, kserve_ingress_gateway=None, local_gateway=None, local_gateway_service=None, model_based_routing_header_name=None, model_based_routing_mode=None, path_template=None, url_scheme=None, local_vars_configuration=None, *, llm_inference_service_tls_cipher_suites=None, llm_inference_service_tls_min_version=None):  # noqa: E501
+    def __init__(self, additional_ingress_domains=None, disable_http_route_timeout=None, disable_ingress_creation=None, disable_istio_virtual_host=None, domain_template=None, enable_gateway_api=None, enable_llm_inference_service_tls=None, ingress_class_name=None, ingress_domain=None, ingress_gateway=None, knative_local_gateway_service=None, kserve_ingress_gateway=None, local_gateway=None, local_gateway_service=None, lora_model_routing_strategy=None, model_based_routing_header_name=None, model_based_routing_mode=None, path_template=None, url_scheme=None, local_vars_configuration=None, *, llm_inference_service_tls_cipher_suites=None, llm_inference_service_tls_min_version=None):  # noqa: E501
         """V1beta1IngressConfig - a model defined in OpenAPI"""  # noqa: E501
         if local_vars_configuration is None:
             local_vars_configuration = Configuration()
@@ -114,6 +116,7 @@ class V1beta1IngressConfig(object):
         self._llm_inference_service_tls_min_version = None
         self._local_gateway = None
         self._local_gateway_service = None
+        self._lora_model_routing_strategy = None
         self._model_based_routing_header_name = None
         self._model_based_routing_mode = None
         self._path_template = None
@@ -152,6 +155,8 @@ class V1beta1IngressConfig(object):
             self.local_gateway = local_gateway
         if local_gateway_service is not None:
             self.local_gateway_service = local_gateway_service
+        if lora_model_routing_strategy is not None:
+            self.lora_model_routing_strategy = lora_model_routing_strategy
         if model_based_routing_header_name is not None:
             self.model_based_routing_header_name = model_based_routing_header_name
         if model_based_routing_mode is not None:
@@ -496,6 +501,29 @@ class V1beta1IngressConfig(object):
         """
 
         self._local_gateway_service = local_gateway_service
+
+    @property
+    def lora_model_routing_strategy(self):
+        """Gets the lora_model_routing_strategy of this V1beta1IngressConfig.  # noqa: E501
+
+        LoRAModelRoutingStrategy selects how LLMInferenceService LoRA adapter expansion represents model identities in generated HTTPRoutes: \"exact\" (the default) or \"regex\", compared case-insensitively. Any other value fails config loading like the other ingress keys.  # noqa: E501
+
+        :return: The lora_model_routing_strategy of this V1beta1IngressConfig.  # noqa: E501
+        :rtype: str
+        """
+        return self._lora_model_routing_strategy
+
+    @lora_model_routing_strategy.setter
+    def lora_model_routing_strategy(self, lora_model_routing_strategy):
+        """Sets the lora_model_routing_strategy of this V1beta1IngressConfig.
+
+        LoRAModelRoutingStrategy selects how LLMInferenceService LoRA adapter expansion represents model identities in generated HTTPRoutes: \"exact\" (the default) or \"regex\", compared case-insensitively. Any other value fails config loading like the other ingress keys.  # noqa: E501
+
+        :param lora_model_routing_strategy: The lora_model_routing_strategy of this V1beta1IngressConfig.  # noqa: E501
+        :type: str
+        """
+
+        self._lora_model_routing_strategy = lora_model_routing_strategy
 
     @property
     def model_based_routing_header_name(self):

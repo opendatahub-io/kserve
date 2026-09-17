@@ -59,6 +59,7 @@ const (
 
 	DefaultModelBasedRoutingHeaderName = "X-Gateway-Model-Name"
 	DefaultModelBasedRoutingMode       = "enabled"
+	DefaultLoRAModelRoutingStrategy    = constants.LoRAModelRoutingStrategyExact
 )
 
 // Error messages
@@ -136,6 +137,12 @@ type IngressConfig struct {
 
 	ModelBasedRoutingHeaderName string `json:"modelBasedRoutingHeaderName,omitempty"`
 	ModelBasedRoutingMode       string `json:"modelBasedRoutingMode,omitempty"`
+
+	// LoRAModelRoutingStrategy selects how LLMInferenceService LoRA adapter
+	// expansion represents model identities in generated HTTPRoutes: "exact"
+	// (the default) or "regex", compared case-insensitively. Any other value
+	// fails config loading like the other ingress keys.
+	LoRAModelRoutingStrategy string `json:"loraModelRoutingStrategy,omitempty"`
 }
 
 // +kubebuilder:object:generate=false
@@ -367,6 +374,16 @@ func NewIngressConfig(isvcConfigMap *corev1.ConfigMap) (*IngressConfig, error) {
 
 	if ingressConfig.ModelBasedRoutingMode == "" {
 		ingressConfig.ModelBasedRoutingMode = DefaultModelBasedRoutingMode
+	}
+
+	switch strategy := strings.ToLower(strings.TrimSpace(ingressConfig.LoRAModelRoutingStrategy)); strategy {
+	case "":
+		ingressConfig.LoRAModelRoutingStrategy = DefaultLoRAModelRoutingStrategy
+	case constants.LoRAModelRoutingStrategyExact, constants.LoRAModelRoutingStrategyRegex:
+		ingressConfig.LoRAModelRoutingStrategy = strategy
+	default:
+		return nil, fmt.Errorf("invalid ingress config - loraModelRoutingStrategy must be %q or %q, got %q",
+			constants.LoRAModelRoutingStrategyExact, constants.LoRAModelRoutingStrategyRegex, ingressConfig.LoRAModelRoutingStrategy)
 	}
 
 	return ingressConfig, nil
