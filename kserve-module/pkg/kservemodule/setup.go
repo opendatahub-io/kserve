@@ -151,7 +151,7 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		).
 		Watches(&nodev1.RuntimeClass{}, handler.EnqueueRequestsFromMapFunc(mapToKserve),
 			builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
-				return strings.HasPrefix(o.GetName(), cocoRuntimeClassPrefix)
+				return hasRuntimeClassPrefix(o.GetName(), cocoRuntimeClassPrefixes)
 			})),
 		)
 
@@ -189,8 +189,7 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		b.Watches(operatorCondition,
 			handler.EnqueueRequestsFromMapFunc(mapToKserve),
 			builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
-				return strings.HasPrefix(o.GetName(), trusteeOperatorPrefix+".") ||
-					strings.HasPrefix(o.GetName(), sandboxedContainersOperatorPrefix+".")
+				return strings.HasPrefix(o.GetName(), trusteeOperatorPrefix+".")
 			})),
 		)
 	}
