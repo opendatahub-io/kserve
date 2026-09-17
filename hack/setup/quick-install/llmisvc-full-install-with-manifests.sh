@@ -10661,6 +10661,11 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
+                      schedulingGroup:
+                        properties:
+                          podGroupName:
+                            type: string
+                        type: object
                       securityContext:
                         properties:
                           appArmorProfile:
@@ -11630,18 +11635,6 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
-                      workloadRef:
-                        properties:
-                          name:
-                            type: string
-                          podGroup:
-                            type: string
-                          podGroupReplicaKey:
-                            type: string
-                        required:
-                        - name
-                        - podGroup
-                        type: object
                     type: object
                   worker:
                     properties:
@@ -14428,6 +14421,11 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
+                      schedulingGroup:
+                        properties:
+                          podGroupName:
+                            type: string
+                        type: object
                       securityContext:
                         properties:
                           appArmorProfile:
@@ -15397,18 +15395,6 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
-                      workloadRef:
-                        properties:
-                          name:
-                            type: string
-                          podGroup:
-                            type: string
-                          podGroupReplicaKey:
-                            type: string
-                        required:
-                        - name
-                        - podGroup
-                        type: object
                     type: object
                 type: object
                 x-kubernetes-validations:
@@ -19295,6 +19281,11 @@ spec:
                             x-kubernetes-list-map-keys:
                             - name
                             x-kubernetes-list-type: map
+                          schedulingGroup:
+                            properties:
+                              podGroupName:
+                                type: string
+                            type: object
                           securityContext:
                             properties:
                               appArmorProfile:
@@ -20264,18 +20255,6 @@ spec:
                             x-kubernetes-list-map-keys:
                             - name
                             x-kubernetes-list-type: map
-                          workloadRef:
-                            properties:
-                              name:
-                                type: string
-                              podGroup:
-                                type: string
-                              podGroupReplicaKey:
-                                type: string
-                            required:
-                            - name
-                            - podGroup
-                            type: object
                         type: object
                       tokenizer:
                         properties:
@@ -23064,6 +23043,11 @@ spec:
                                 x-kubernetes-list-map-keys:
                                 - name
                                 x-kubernetes-list-type: map
+                              schedulingGroup:
+                                properties:
+                                  podGroupName:
+                                    type: string
+                                type: object
                               securityContext:
                                 properties:
                                   appArmorProfile:
@@ -24033,18 +24017,6 @@ spec:
                                 x-kubernetes-list-map-keys:
                                 - name
                                 x-kubernetes-list-type: map
-                              workloadRef:
-                                properties:
-                                  name:
-                                    type: string
-                                  podGroup:
-                                    type: string
-                                  podGroupReplicaKey:
-                                    type: string
-                                required:
-                                - name
-                                - podGroup
-                                type: object
                             required:
                             - containers
                             type: object
@@ -27287,6 +27259,11 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
+                  schedulingGroup:
+                    properties:
+                      podGroupName:
+                        type: string
+                    type: object
                   securityContext:
                     properties:
                       appArmorProfile:
@@ -28256,18 +28233,6 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
-                  workloadRef:
-                    properties:
-                      name:
-                        type: string
-                      podGroup:
-                        type: string
-                      podGroupReplicaKey:
-                        type: string
-                    required:
-                    - name
-                    - podGroup
-                    type: object
                 type: object
               tracing:
                 properties:
@@ -31067,6 +31032,11 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
+                  schedulingGroup:
+                    properties:
+                      podGroupName:
+                        type: string
+                    type: object
                   securityContext:
                     properties:
                       appArmorProfile:
@@ -32036,18 +32006,6 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
-                  workloadRef:
-                    properties:
-                      name:
-                        type: string
-                      podGroup:
-                        type: string
-                      podGroupReplicaKey:
-                        type: string
-                    required:
-                    - name
-                    - podGroup
-                    type: object
                 type: object
             type: object
             x-kubernetes-validations:
@@ -35745,6 +35703,11 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
+                      schedulingGroup:
+                        properties:
+                          podGroupName:
+                            type: string
+                        type: object
                       securityContext:
                         properties:
                           appArmorProfile:
@@ -36714,18 +36677,6 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
-                      workloadRef:
-                        properties:
-                          name:
-                            type: string
-                          podGroup:
-                            type: string
-                          podGroupReplicaKey:
-                            type: string
-                        required:
-                        - name
-                        - podGroup
-                        type: object
                     type: object
                   worker:
                     properties:
@@ -39512,6 +39463,11 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
+                      schedulingGroup:
+                        properties:
+                          podGroupName:
+                            type: string
+                        type: object
                       securityContext:
                         properties:
                           appArmorProfile:
@@ -40481,18 +40437,6 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
-                      workloadRef:
-                        properties:
-                          name:
-                            type: string
-                          podGroup:
-                            type: string
-                          podGroupReplicaKey:
-                            type: string
-                        required:
-                        - name
-                        - podGroup
-                        type: object
                     type: object
                 type: object
                 x-kubernetes-validations:
@@ -44410,6 +44354,11 @@ spec:
                             x-kubernetes-list-map-keys:
                             - name
                             x-kubernetes-list-type: map
+                          schedulingGroup:
+                            properties:
+                              podGroupName:
+                                type: string
+                            type: object
                           securityContext:
                             properties:
                               appArmorProfile:
@@ -45379,18 +45328,6 @@ spec:
                             x-kubernetes-list-map-keys:
                             - name
                             x-kubernetes-list-type: map
-                          workloadRef:
-                            properties:
-                              name:
-                                type: string
-                              podGroup:
-                                type: string
-                              podGroupReplicaKey:
-                                type: string
-                            required:
-                            - name
-                            - podGroup
-                            type: object
                         type: object
                       tokenizer:
                         properties:
@@ -48179,6 +48116,11 @@ spec:
                                 x-kubernetes-list-map-keys:
                                 - name
                                 x-kubernetes-list-type: map
+                              schedulingGroup:
+                                properties:
+                                  podGroupName:
+                                    type: string
+                                type: object
                               securityContext:
                                 properties:
                                   appArmorProfile:
@@ -49148,18 +49090,6 @@ spec:
                                 x-kubernetes-list-map-keys:
                                 - name
                                 x-kubernetes-list-type: map
-                              workloadRef:
-                                properties:
-                                  name:
-                                    type: string
-                                  podGroup:
-                                    type: string
-                                  podGroupReplicaKey:
-                                    type: string
-                                required:
-                                - name
-                                - podGroup
-                                type: object
                             required:
                             - containers
                             type: object
@@ -52402,6 +52332,11 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
+                  schedulingGroup:
+                    properties:
+                      podGroupName:
+                        type: string
+                    type: object
                   securityContext:
                     properties:
                       appArmorProfile:
@@ -53371,18 +53306,6 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
-                  workloadRef:
-                    properties:
-                      name:
-                        type: string
-                      podGroup:
-                        type: string
-                      podGroupReplicaKey:
-                        type: string
-                    required:
-                    - name
-                    - podGroup
-                    type: object
                 type: object
               tracing:
                 properties:
@@ -56182,6 +56105,11 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
+                  schedulingGroup:
+                    properties:
+                      podGroupName:
+                        type: string
+                    type: object
                   securityContext:
                     properties:
                       appArmorProfile:
@@ -57151,18 +57079,6 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
-                  workloadRef:
-                    properties:
-                      name:
-                        type: string
-                      podGroup:
-                        type: string
-                      podGroupReplicaKey:
-                        type: string
-                    required:
-                    - name
-                    - podGroup
-                    type: object
                 type: object
             type: object
             x-kubernetes-validations:
@@ -60650,6 +60566,11 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
+                      schedulingGroup:
+                        properties:
+                          podGroupName:
+                            type: string
+                        type: object
                       securityContext:
                         properties:
                           appArmorProfile:
@@ -61624,18 +61545,6 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
-                      workloadRef:
-                        properties:
-                          name:
-                            type: string
-                          podGroup:
-                            type: string
-                          podGroupReplicaKey:
-                            type: string
-                        required:
-                        - name
-                        - podGroup
-                        type: object
                     type: object
                   worker:
                     properties:
@@ -64434,6 +64343,11 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
+                      schedulingGroup:
+                        properties:
+                          podGroupName:
+                            type: string
+                        type: object
                       securityContext:
                         properties:
                           appArmorProfile:
@@ -65408,18 +65322,6 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
-                      workloadRef:
-                        properties:
-                          name:
-                            type: string
-                          podGroup:
-                            type: string
-                          podGroupReplicaKey:
-                            type: string
-                        required:
-                        - name
-                        - podGroup
-                        type: object
                     type: object
                 type: object
                 x-kubernetes-validations:
@@ -69948,6 +69850,11 @@ spec:
                             x-kubernetes-list-map-keys:
                             - name
                             x-kubernetes-list-type: map
+                          schedulingGroup:
+                            properties:
+                              podGroupName:
+                                type: string
+                            type: object
                           securityContext:
                             properties:
                               appArmorProfile:
@@ -70922,18 +70829,6 @@ spec:
                             x-kubernetes-list-map-keys:
                             - name
                             x-kubernetes-list-type: map
-                          workloadRef:
-                            properties:
-                              name:
-                                type: string
-                              podGroup:
-                                type: string
-                              podGroupReplicaKey:
-                                type: string
-                            required:
-                            - name
-                            - podGroup
-                            type: object
                         type: object
                       tokenizer:
                         properties:
@@ -73734,6 +73629,11 @@ spec:
                                 x-kubernetes-list-map-keys:
                                 - name
                                 x-kubernetes-list-type: map
+                              schedulingGroup:
+                                properties:
+                                  podGroupName:
+                                    type: string
+                                type: object
                               securityContext:
                                 properties:
                                   appArmorProfile:
@@ -74708,18 +74608,6 @@ spec:
                                 x-kubernetes-list-map-keys:
                                 - name
                                 x-kubernetes-list-type: map
-                              workloadRef:
-                                properties:
-                                  name:
-                                    type: string
-                                  podGroup:
-                                    type: string
-                                  podGroupReplicaKey:
-                                    type: string
-                                required:
-                                - name
-                                - podGroup
-                                type: object
                             required:
                             - containers
                             type: object
@@ -77974,6 +77862,11 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
+                  schedulingGroup:
+                    properties:
+                      podGroupName:
+                        type: string
+                    type: object
                   securityContext:
                     properties:
                       appArmorProfile:
@@ -78948,18 +78841,6 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
-                  workloadRef:
-                    properties:
-                      name:
-                        type: string
-                      podGroup:
-                        type: string
-                      podGroupReplicaKey:
-                        type: string
-                    required:
-                    - name
-                    - podGroup
-                    type: object
                 type: object
               tracing:
                 properties:
@@ -81771,6 +81652,11 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
+                  schedulingGroup:
+                    properties:
+                      podGroupName:
+                        type: string
+                    type: object
                   securityContext:
                     properties:
                       appArmorProfile:
@@ -82745,18 +82631,6 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
-                  workloadRef:
-                    properties:
-                      name:
-                        type: string
-                      podGroup:
-                        type: string
-                      podGroupReplicaKey:
-                        type: string
-                    required:
-                    - name
-                    - podGroup
-                    type: object
                 type: object
             type: object
             x-kubernetes-validations:
@@ -86619,6 +86493,11 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
+                      schedulingGroup:
+                        properties:
+                          podGroupName:
+                            type: string
+                        type: object
                       securityContext:
                         properties:
                           appArmorProfile:
@@ -87593,18 +87472,6 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
-                      workloadRef:
-                        properties:
-                          name:
-                            type: string
-                          podGroup:
-                            type: string
-                          podGroupReplicaKey:
-                            type: string
-                        required:
-                        - name
-                        - podGroup
-                        type: object
                     type: object
                   worker:
                     properties:
@@ -90403,6 +90270,11 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
+                      schedulingGroup:
+                        properties:
+                          podGroupName:
+                            type: string
+                        type: object
                       securityContext:
                         properties:
                           appArmorProfile:
@@ -91377,18 +91249,6 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
-                      workloadRef:
-                        properties:
-                          name:
-                            type: string
-                          podGroup:
-                            type: string
-                          podGroupReplicaKey:
-                            type: string
-                        required:
-                        - name
-                        - podGroup
-                        type: object
                     type: object
                 type: object
                 x-kubernetes-validations:
@@ -95959,6 +95819,11 @@ spec:
                             x-kubernetes-list-map-keys:
                             - name
                             x-kubernetes-list-type: map
+                          schedulingGroup:
+                            properties:
+                              podGroupName:
+                                type: string
+                            type: object
                           securityContext:
                             properties:
                               appArmorProfile:
@@ -96933,18 +96798,6 @@ spec:
                             x-kubernetes-list-map-keys:
                             - name
                             x-kubernetes-list-type: map
-                          workloadRef:
-                            properties:
-                              name:
-                                type: string
-                              podGroup:
-                                type: string
-                              podGroupReplicaKey:
-                                type: string
-                            required:
-                            - name
-                            - podGroup
-                            type: object
                         type: object
                       tokenizer:
                         properties:
@@ -99745,6 +99598,11 @@ spec:
                                 x-kubernetes-list-map-keys:
                                 - name
                                 x-kubernetes-list-type: map
+                              schedulingGroup:
+                                properties:
+                                  podGroupName:
+                                    type: string
+                                type: object
                               securityContext:
                                 properties:
                                   appArmorProfile:
@@ -100719,18 +100577,6 @@ spec:
                                 x-kubernetes-list-map-keys:
                                 - name
                                 x-kubernetes-list-type: map
-                              workloadRef:
-                                properties:
-                                  name:
-                                    type: string
-                                  podGroup:
-                                    type: string
-                                  podGroupReplicaKey:
-                                    type: string
-                                required:
-                                - name
-                                - podGroup
-                                type: object
                             required:
                             - containers
                             type: object
@@ -103985,6 +103831,11 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
+                  schedulingGroup:
+                    properties:
+                      podGroupName:
+                        type: string
+                    type: object
                   securityContext:
                     properties:
                       appArmorProfile:
@@ -104959,18 +104810,6 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
-                  workloadRef:
-                    properties:
-                      name:
-                        type: string
-                      podGroup:
-                        type: string
-                      podGroupReplicaKey:
-                        type: string
-                    required:
-                    - name
-                    - podGroup
-                    type: object
                 type: object
               tracing:
                 properties:
@@ -107782,6 +107621,11 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
+                  schedulingGroup:
+                    properties:
+                      podGroupName:
+                        type: string
+                    type: object
                   securityContext:
                     properties:
                       appArmorProfile:
@@ -108756,18 +108600,6 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
-                  workloadRef:
-                    properties:
-                      name:
-                        type: string
-                      podGroup:
-                        type: string
-                      podGroupReplicaKey:
-                        type: string
-                    required:
-                    - name
-                    - podGroup
-                    type: object
                 type: object
             type: object
             x-kubernetes-validations:
@@ -109897,6 +109729,25 @@ data:
            # disableHTTPRouteTimeout controls whether to omit the timeout field from HTTPRoute rules.
            # Set to true for Gateway controllers (e.g. GKE Gateway) that do not support the optional timeouts field.
            "disableHTTPRouteTimeout": false,
+
+           # loraModelRoutingStrategy selects how LLMInferenceService LoRA adapter expansion represents
+           # model identities in generated HTTPRoutes. It only applies where model-based routing is in
+           # effect, and a change reaches every LoRA service on its next reconcile unless the service pins
+           # its own value with the spec annotation serving.kserve.io/lora-model-routing-strategy,
+           # which a preset may carry. "exact" (the default when omitted) renders one Exact header match
+           # per identity; "regex" collapses the base model and all adapters into a single anchored
+           # RegularExpression match. Any other value fails config loading, like the other ingress keys.
+           # A route the strategy cannot be applied to (a user-supplied model-routing match the regex
+           # transform does not recognize) reports HTTPRoutesReady=False with reason
+           # RoutingPreconditionNotMet while workload and scheduler reconciliation continue; the existing
+           # HTTPRoute keeps serving as-is (deleted group peers are still pruned from it) but is not
+           # recreated if removed. The practical "regex" ceiling depends on the gateway: Envoy Gateway
+           # disables Envoy's RE2 program-size check, so the 4096-character header value limit binds
+           # (Envoy logs a size warning past roughly 70 adapters); Istio allows a program size of 32768;
+           # a provider left at Envoy's default of 100 fits only a couple of adapters. A proxy that
+           # rejects the pattern reports an xDS NACK in the gateway controller's logs, not on the
+           # HTTPRoute.
+           "loraModelRoutingStrategy": "exact",
 
            # pathTemplate specifies the template for generating path based url for each inference service.
            # The following variables can be used in the template for generating url.

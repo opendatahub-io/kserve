@@ -42,6 +42,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/kserve/kserve/pkg/constants"
 )
 
 const MountPath = "/var/lib/kserve"
@@ -383,7 +384,7 @@ func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, p
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{
-									Name:      PvcSourceMountName,
+									Name:      constants.PvcSourceMountName,
 									MountPath: MountPath,
 								},
 							},
@@ -391,7 +392,7 @@ func (c *LocalModelNodeReconciler) launchPermissionFixJob(ctx context.Context, p
 					},
 					Volumes: []corev1.Volume{
 						{
-							Name: PvcSourceMountName,
+							Name: constants.PvcSourceMountName,
 							VolumeSource: corev1.VolumeSource{
 								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 									ClaimName: pvcName,
