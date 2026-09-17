@@ -18,8 +18,9 @@ These tests exercise the preset shipped by the ODH overlay
 (kserve-config-llm-template-cpu, installed in the system namespace) through the
 real cluster path: services in a test namespace reference it via
 spec.baseRefs, relying on the controller's system-namespace fallback. The
-preset is discovered by its unstamped name because module-managed stacks add a
-version prefix. Its absence fails the test because the preset is required.
+preset is named by its unstamped name and resolved against the prefix the
+controller itself uses, because module-managed stacks add a version prefix.
+Its absence fails the test because the preset is required.
 """
 
 from __future__ import annotations
@@ -31,8 +32,8 @@ from kubernetes import client
 
 from .fixtures import (
     VLLM_CPU_IMAGE,
-    find_system_llmisvc_config,
     generate_test_id,
+    get_system_llmisvc_config,
     inject_k8s_proxy,
 )
 from .logging import log_execution
@@ -47,7 +48,6 @@ from .test_llm_inference_service import (
 from .test_llm_inference_service import (
     test_llm_inference_service as run_llmisvc_test_case,
 )
-from ..common.utils import KSERVE_NAMESPACE
 
 pytestmark = [pytest.mark.cluster_cpu, pytest.mark.cluster_single_node]
 
@@ -57,14 +57,12 @@ DEPLOYMENT_WAIT_SECONDS = 300
 
 
 def _get_cpu_preset(kserve_client: KServeClient) -> dict:
-    """Find the shipped CPU preset in the system namespace."""
-    preset = find_system_llmisvc_config(kserve_client, CPU_PRESET_NAME)
-    if preset is None:
-        pytest.fail(
-            f"{CPU_PRESET_NAME} not found in {KSERVE_NAMESPACE}; "
-            "CPU accelerator preset requires the ODH overlay"
-        )
-    return preset
+    """Get the shipped CPU preset from the system namespace.
+
+    Absence fails the test: the preset is required, and a stack without the ODH
+    overlay is not a valid environment for this suite.
+    """
+    return get_system_llmisvc_config(kserve_client, CPU_PRESET_NAME)
 
 
 def _preset_main_container(preset: dict) -> dict:
@@ -214,6 +212,9 @@ def test_cpu_accelerator_preset_user_image_wins(test_namespace):
                 base_refs=[
                     "router-managed",
                     "model-fb-opt-125m",
+                    # The preset supplies the workload; this only adds the
+                    # non-root UID vanilla Kubernetes needs.
+                    "workload-non-root",
                 ],
                 system_base_refs=[CPU_PRESET_NAME],
                 endpoint="/v1/completions",
