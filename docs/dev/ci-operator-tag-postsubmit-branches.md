@@ -1,6 +1,6 @@
 # ci-operator tag postsubmit: `branches` gap
 
-Post-release smoke uses a **tag postsubmit**: push `odh-vX.Y` on `opendatahub-io/kserve` → Prow
+Post-release smoke uses a **tag postsubmit**: push `odh-vX.Y` on `opendatahub-io/kserve` -> Prow
 runs `e2e-kserve-module-post-release`.
 
 ## The problem
@@ -17,7 +17,7 @@ branches:
 
 ODH release cuts use **git tags** (`odh-v3.6`), not pushes to `master`. Prow matches postsubmit
 `branches` regexes against the **ref name** on the push event. For a tag push, that ref is
-`odh-v3.6`, which does **not** match `^master$` — so the job **never runs** unless we patch
+`odh-v3.6`, which does **not** match `^master$` - so the job **never runs** unless we patch
 the generated prow job.
 
 ## What we verified
@@ -27,7 +27,7 @@ the generated prow job.
 | **Prow postsubmit** | `branches` is a list of regexes matched against the push ref (tag names work) |
 | **ci-operator `Test` struct** | Has `SkipBranches` for **presubmits only**; no `Branches` for postsubmits |
 | **prowgen `generatePostsubmitForTest`** | Always sets `Brancher.Branches: []string{ExactlyBranch(info.Branch)}` |
-| **Existing ODH pattern** | Release **branches** (e.g. `v1.23.0`) get a separate config file + `branches: ^v1\.23\.0$` — not suitable for many `odh-v*` **tags** on `master` |
+| **Existing ODH pattern** | Release **branches** (e.g. `v1.23.0`) get a separate config file + `branches: ^v1\.23\.0$` - not suitable for many `odh-v*` **tags** on `master` |
 
 ## Workaround (current PR)
 
@@ -84,10 +84,10 @@ Prowgen would emit the correct `branches` and regen would be safe.
 
 | Approach | Verdict |
 |----------|---------|
-| Hardcode `RELEASE_TAG` per release in config | Rejected — poor UX |
-| Optional presubmit `/test` | Uses PR code or needs tag pointer file — not tag postsubmit |
+| Hardcode `RELEASE_TAG` per release in config | Rejected - poor UX |
+| Optional presubmit `/test` | Uses PR code or needs tag pointer file - not tag postsubmit |
 | New ci-operator config per `odh-vX.Y` release branch | Only works if release creates a **branch**, not just a tag |
-| Periodic + `extra_refs` | Static tag in yaml — same hardcoding problem |
+| Periodic + `extra_refs` | Static tag in yaml - same hardcoding problem |
 
 ## Validation before first tag push
 

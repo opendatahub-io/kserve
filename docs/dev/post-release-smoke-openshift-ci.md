@@ -11,7 +11,7 @@ Orchestration is **OpenShift CI (Prow)** on Hypershift.
 
 ## Trigger model
 
-**Tag postsubmit:** push git tag `odh-vX.Y` to `opendatahub-io/kserve` → Prow runs
+**Tag postsubmit:** push git tag `odh-vX.Y` to `opendatahub-io/kserve` -> Prow runs
 `e2e-kserve-module-post-release` once. The tag name is the release parameter (no per-release
 edit to `openshift/release`).
 
@@ -127,7 +127,7 @@ for `branch-ci-opendatahub-io-kserve-master-e2e-kserve-module-post-release`:
 ```
 
 **Root cause:** `ci-operator` has `SkipBranches` for presubmits but no `Branches` field on
-postsubmit tests — prowgen hardcodes `ExactlyBranch(info.Branch)` (`^master$`). See
+postsubmit tests - prowgen hardcodes `ExactlyBranch(info.Branch)` (`^master$`). See
 [ci-operator tag postsubmit investigation](../../../docs/dev/ci-operator-tag-postsubmit-branches.md).
 
 Re-apply this branches edit after every `make ci-operator-prowgen` for kserve until
@@ -157,7 +157,7 @@ Tag postsubmit config: [openshift/release#85320](https://github.com/openshift/re
 1. Cut ODH release; publish `odh-kserve-module-operator:odh-vX.Y` on Quay
 2. Tag kserve: `git tag odh-vX.Y && git push origin odh-vX.Y`
 3. Watch Prow: `branch-ci-opendatahub-io-kserve-master-e2e-kserve-module-post-release`
-4. Green → sign off; red → inspect `${ARTIFACT_DIR}` (OMC logs, KServe CR, LLMISVC)
+4. Green -> sign off; red -> inspect `${ARTIFACT_DIR}` (OMC logs, KServe CR, LLMISVC)
 5. Re-run from Prow UI if needed (no new tag required)
 
 ## Related

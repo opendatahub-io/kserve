@@ -87,7 +87,7 @@ make e2e-setup-kserve-module \
 make e2e-kserve-module-post-release
 ```
 
-CI: OpenShift CI (Prow) tag postsubmit `e2e-kserve-module-post-release` — runs when an
+CI: OpenShift CI (Prow) tag postsubmit `e2e-kserve-module-post-release` - runs when an
 `odh-vX.Y` tag is pushed to this repo (Hypershift cluster, published operator image only,
 never PR-built images). See
 [post-release smoke runbook](../../../docs/dev/post-release-smoke-openshift-ci.md).
