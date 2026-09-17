@@ -28,6 +28,11 @@ var (
 	ODHKserveRuntimeAnnotation      = "opendatahub.io/kserve-runtime"
 )
 
+// Midstream opendatahub.io/kserve-runtime annotation values
+const (
+	ODHKserveRuntimeVLLM = "vllm"
+)
+
 // Midstream networking constants
 const (
 	ODHKserveRawAuth               = "security.opendatahub.io/enable-auth"

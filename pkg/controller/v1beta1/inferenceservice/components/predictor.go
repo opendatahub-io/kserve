@@ -171,6 +171,7 @@ func (p *Predictor) buildPredictorResources(ctx context.Context, isvc *v1beta1.I
 		if serverType == "" && isvc.Spec.Predictor.Model != nil && isvc.Spec.Predictor.Model.Runtime != nil {
 			serverType = constants.GetServerTypeFromRuntimeName(*isvc.Spec.Predictor.Model.Runtime)
 		}
+		serverType = resolveServerTypeForDistro(serverType, sRuntime)
 		variant := isvc.Spec.Predictor.Name
 
 		for i := range podSpec.Containers {
