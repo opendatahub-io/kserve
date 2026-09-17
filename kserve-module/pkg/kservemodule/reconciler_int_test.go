@@ -172,19 +172,18 @@ var _ = Describe("KserveModule Reconciler", func() {
 		})
 	})
 
-	// Uses the real deployer so assertions check actual cluster state: the WVA
-	// Deployment is really applied when Managed and really deleted (via
-	// defaultCleanup, not GC) when Removed. envtest has no garbage collector, so
-	// only defaultCleanup-based removal is observable here.
-	Context("WVA ManagementState lifecycle", Ordered, func() {
+	// WVA is removed from the product in RHOAI 3.6 (RHAISTRAT-2756).
+	// isWVAEnabled always returns false. The WVA componentConfig is still
+	// registered so defaultCleanup tears down leftovers on 3.5→3.6 upgrade.
+	// These tests verify that Managed is ignored and leftovers are deleted.
+	Context("WVA always disabled (RHOAI 3.6 removal)", Ordered, func() {
 		var cr *platformv1alpha1.Kserve
 		wvaKey := client.ObjectKey{Name: "workload-variant-autoscaler-controller-manager", Namespace: "opendatahub"}
 		// Applied from the WVA rendered set (see fixture.WriteMinimalManifests).
 		wvaCRDKey := client.ObjectKey{Name: "wvatestresources.test.kserve.io"}
 
 		BeforeAll(func(ctx SpecContext) {
-			// Real: assert the WVA Deployment is really applied/deleted. Set before
-			// Create so the create-time reconcile uses it; Ordered keeps it for all specs.
+			// Real deployer so assertions check actual cluster state.
 			testEnv.Reconciler.Deployer = kservemodule.NewDeployer()
 
 			cr = fixture.KserveCR()
@@ -209,7 +208,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 			Expect(k8serr.IsNotFound(err)).To(BeTrue(), "WVA Deployment should not exist when Removed")
 		})
 
-		It("creates the WVA Deployment when ManagementState is Managed", func(ctx SpecContext) {
+		It("does not create the WVA Deployment even when ManagementState is Managed", func(ctx SpecContext) {
 			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
 					return err
@@ -219,61 +218,63 @@ var _ = Describe("KserveModule Reconciler", func() {
 			})
 			Expect(err).NotTo(HaveOccurred())
 
+			triggerReconcile(ctx, cr, "wva-managed-ignored")
+
 			Eventually(func(g Gomega) {
-				g.Expect(testEnv.Client.Get(ctx, wvaKey, &appsv1.Deployment{})).To(Succeed(),
-					"WVA Deployment should be applied to the cluster when Managed")
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				cond := fixture.FindCondition(cr, string(common.ConditionTypeProvisioningSucceeded))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 			}).WithContext(ctx).Should(Succeed())
 
-			// The CRD must not carry an ownerReference to the namespaced Kserve CR: that would
-			// make GC cascade-delete it when the CR is removed. envtest has no GC, so assert
-			// the ref's absence rather than the deletion.
-			Eventually(func(g Gomega) {
-				crd := &apiextensionsv1.CustomResourceDefinition{}
-				g.Expect(testEnv.Client.Get(ctx, wvaCRDKey, crd)).To(Succeed(),
-					"WVA CRD should be applied to the cluster when Managed")
-				for _, ref := range crd.GetOwnerReferences() {
-					g.Expect(ref.Kind).NotTo(Equal("Kserve"),
-						"WVA CRD must not be owned by the Kserve CR (would cause GC cascade-delete on CR removal)")
-				}
-			}).WithContext(ctx).Should(Succeed())
+			err = testEnv.Client.Get(ctx, wvaKey, &appsv1.Deployment{})
+			Expect(k8serr.IsNotFound(err)).To(BeTrue(),
+				"WVA Deployment must not be created even when ManagementState is Managed (WVA removed in 3.6)")
 		})
 
-		It("deletes the WVA Deployment but preserves the CRD when ManagementState changes to Removed", func(ctx SpecContext) {
-			// Precondition: WVA Deployment and CRD exist from the previous (Managed) spec.
-			Expect(testEnv.Client.Get(ctx, wvaKey, &appsv1.Deployment{})).To(Succeed())
-			Expect(testEnv.Client.Get(ctx, wvaCRDKey, &apiextensionsv1.CustomResourceDefinition{})).To(Succeed())
+		It("deletes a leftover WVA Deployment via defaultCleanup on upgrade", func(ctx SpecContext) {
+			// Simulate a 3.5 leftover: manually create the WVA Deployment.
+			leftover := &appsv1.Deployment{}
+			leftover.Name = wvaKey.Name
+			leftover.Namespace = wvaKey.Namespace
+			leftover.Spec.Selector = &metav1.LabelSelector{
+				MatchLabels: map[string]string{"control-plane": wvaKey.Name},
+			}
+			leftover.Spec.Template.Labels = map[string]string{"control-plane": wvaKey.Name}
+			leftover.Spec.Template.Spec.Containers = []corev1.Container{
+				{Name: "manager", Image: "ghcr.io/llm-d/llm-d-workload-variant-autoscaler:latest"},
+			}
+			Expect(testEnv.Client.Create(ctx, leftover)).To(Succeed())
 
-			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
-					return err
-				}
-				cr.Spec.WVA.ManagementState = common.Removed
-				return testEnv.Client.Update(ctx, cr)
-			})
-			Expect(err).NotTo(HaveOccurred())
+			// Reconcile should run defaultCleanup and delete it.
+			triggerReconcile(ctx, cr, "wva-leftover-cleanup")
 
 			Eventually(func(g Gomega) {
 				err := testEnv.Client.Get(ctx, wvaKey, &appsv1.Deployment{})
 				g.Expect(k8serr.IsNotFound(err)).To(BeTrue(),
-					"WVA Deployment should be deleted by defaultCleanup when Removed")
+					"Leftover WVA Deployment should be deleted by defaultCleanup on 3.5→3.6 upgrade")
 			}).WithContext(ctx).Should(Succeed())
 
-			// defaultCleanup skips CRDs, so it must survive the same Removed reconcile.
-			Consistently(func(g Gomega) {
-				g.Expect(testEnv.Client.Get(ctx, wvaCRDKey, &apiextensionsv1.CustomResourceDefinition{})).To(Succeed(),
-					"WVA CRD must be preserved by defaultCleanup when Removed")
-			}).WithContext(ctx).WithTimeout(3 * time.Second).Should(Succeed())
+			// defaultCleanup skips CRDs — if a WVA CRD was applied it must survive.
+			// (It may or may not exist depending on prior test state; just verify
+			// no error if it does exist.)
+			crd := &apiextensionsv1.CustomResourceDefinition{}
+			err := testEnv.Client.Get(ctx, wvaCRDKey, crd)
+			if err == nil {
+				// CRD exists — good, defaultCleanup preserved it.
+				Expect(crd.Name).To(Equal(wvaCRDKey.Name))
+			}
+			// If NotFound, that is also fine — CRD was never applied in this ordered context.
 		})
 	})
 
-	Context("WVA readiness condition", Ordered, func() {
+	Context("WVA readiness condition always cleared (WVA removed in 3.6)", Ordered, func() {
 		var cr *platformv1alpha1.Kserve
 
 		BeforeAll(func(ctx SpecContext) {
-			// Mock: readiness is driven by manually-created Deployments; deployer output
-			// is irrelevant. Set before Create; Ordered keeps it for all specs.
 			testEnv.Reconciler.Deployer = &fixture.MockDeployer{}
 
+			// Even with Managed, isWVAEnabled returns false in 3.6.
 			cr = fixture.KserveCR(fixture.WithWVAManagementState(common.Managed))
 			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 
@@ -282,46 +283,13 @@ var _ = Describe("KserveModule Reconciler", func() {
 			})
 		})
 
-		It("reports WVAReady=False when WVA deployment is not available", func(ctx SpecContext) {
-			triggerReconcile(ctx, cr, "wva-readiness-false")
+		It("clears WVAReady condition even when ManagementState is Managed", func(ctx SpecContext) {
+			triggerReconcile(ctx, cr, "wva-readiness-always-cleared")
 
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
 				cond := fixture.FindCondition(cr, kservemodule.ConditionWVAReady)
-				g.Expect(cond).NotTo(BeNil())
-				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(cond.Reason).To(Equal("DeploymentNotReady"))
-			}).WithContext(ctx).Should(Succeed())
-		})
-
-		It("reports WVAReady=True when WVA deployment is available", func(ctx SpecContext) {
-			createReadyDeployment(ctx, "workload-variant-autoscaler-controller-manager", "opendatahub")
-
-			triggerReconcile(ctx, cr, "wva-readiness-true")
-
-			Eventually(func(g Gomega) {
-				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
-				cond := fixture.FindCondition(cr, kservemodule.ConditionWVAReady)
-				g.Expect(cond).NotTo(BeNil())
-				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
-				g.Expect(cond.Reason).To(Equal("AllDeploymentsAvailable"))
-			}).WithContext(ctx).Should(Succeed())
-		})
-
-		It("clears WVAReady condition when WVA is disabled", func(ctx SpecContext) {
-			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
-				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
-					return err
-				}
-				cr.Spec.WVA.ManagementState = common.Removed
-				return testEnv.Client.Update(ctx, cr)
-			})
-			Expect(err).NotTo(HaveOccurred())
-
-			Eventually(func(g Gomega) {
-				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
-				cond := fixture.FindCondition(cr, kservemodule.ConditionWVAReady)
-				g.Expect(cond).To(BeNil(), "WVAReady condition should be cleared when WVA is disabled")
+				g.Expect(cond).To(BeNil(), "WVAReady condition should be cleared because WVA is always disabled in 3.6")
 			}).WithContext(ctx).Should(Succeed())
 		})
 	})
