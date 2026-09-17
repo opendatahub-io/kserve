@@ -24,7 +24,6 @@ stacks without the preset (non-ODH), all tests skip.
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import pytest
 import yaml
@@ -51,12 +50,12 @@ from .test_llm_inference_service import (
 from .test_llm_inference_service import (
     test_llm_inference_service as run_llmisvc_test_case,
 )
-from ..common.utils import KSERVE_NAMESPACE
+from ..common.utils import KSERVE_NAMESPACE, project_root
 
 pytestmark = [pytest.mark.cluster_cpu, pytest.mark.cluster_single_node]
 
 CPU_PRESET_NAME = "kserve-config-llm-template-cpu"
-CPU_CONFIG_PATH = Path(__file__).resolve().parents[3] / (
+CPU_CONFIG_PATH = project_root() / (
     "config/overlays/odh/accelerators/cpu-config-llm-template.yaml"
 )
 API_VERSION = "v1alpha2"

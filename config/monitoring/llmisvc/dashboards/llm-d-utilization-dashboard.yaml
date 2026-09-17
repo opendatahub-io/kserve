@@ -149,38 +149,144 @@ spec:
                     name: data-science-prometheus-datasource
                   query: sum by (k8s_pod_name) (kserve_vllm:num_requests_waiting{exported_namespace=~"$namespace",model_name=~"$model_name"})
                   seriesNameFormat: '{{k8s_pod_name}}'
-      # Drill-down panel covers stretch/deferred panels P11, P12, P15, P16. Remove once those panels are added.
-      drillDownHints:
+      eppPerPodQueueSize:
         kind: Panel
         spec:
           display:
-            name: Drill-down commands
+            name: Per-pod queue size (scheduler view)
+            description: Queue depth per pod as observed by the EPP scheduler. Compare
+              with vLLM-reported queue depth above to detect scraping lag or routing
+              asymmetry. This metric is pool-wide and is not filtered by the model
+              selector.
           plugin:
-            kind: Markdown
+            kind: TimeSeriesChart
             spec:
-              text: "<dl class=\"pf-v6-c-description-list pf-m-auto-column-widths\
-                \ pf-m-horizontal\">\n  <div class=\"pf-v6-c-description-list__group\"\
-                >\n    <dt class=\"pf-v6-c-description-list__term\">\n      <span\
-                \ class=\"pf-v6-c-description-list__text\">Preemption count</span>\n\
-                \    </dt>\n    <dd class=\"pf-v6-c-description-list__description\"\
-                >\n      <div class=\"pf-v6-c-description-list__text\">sum by (k8s_pod_name)\
-                \ (rate(kserve_vllm:num_preemptions_total{exported_namespace=~\"$namespace\"\
-                }[5m]))</div>\n    </dd>\n  </div>\n  <div class=\"pf-v6-c-description-list__group\"\
-                >\n    <dt class=\"pf-v6-c-description-list__term\">\n      <span\
-                \ class=\"pf-v6-c-description-list__text\">EPP pool health - ready\
-                \ pods</span>\n    </dt>\n    <dd class=\"pf-v6-c-description-list__description\"\
-                >\n      <div class=\"pf-v6-c-description-list__text\">inference_pool_ready_pods{exported_namespace=~\"\
-                $namespace\"}</div>\n    </dd>\n  </div>\n  <div class=\"pf-v6-c-description-list__group\"\
-                >\n    <dt class=\"pf-v6-c-description-list__term\">\n      <span\
-                \ class=\"pf-v6-c-description-list__text\">EPP pool health - avg queue\
-                \ size</span>\n    </dt>\n    <dd class=\"pf-v6-c-description-list__description\"\
-                >\n      <div class=\"pf-v6-c-description-list__text\">inference_pool_average_queue_size{exported_namespace=~\"\
-                $namespace\"}</div>\n    </dd>\n  </div>\n  <div class=\"pf-v6-c-description-list__group\"\
-                >\n    <dt class=\"pf-v6-c-description-list__term\">\n      <span\
-                \ class=\"pf-v6-c-description-list__text\">Per-pod queue size from\
-                \ scheduler</span>\n    </dt>\n    <dd class=\"pf-v6-c-description-list__description\"\
-                >\n      <div class=\"pf-v6-c-description-list__text\">inference_pool_per_pod_queue_size{exported_namespace=~\"\
-                $namespace\"}</div>\n    </dd>\n  </div>\n</dl>"
+              legend:
+                mode: list
+                position: bottom
+                values: []
+              visual:
+                areaOpacity: 0
+                connectNulls: false
+                display: line
+                lineWidth: 1.5
+              yAxis:
+                format:
+                  unit: decimal
+                min: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
+                  query: inference_pool_per_pod_queue_size{exported_namespace=~"$namespace"}
+                  seriesNameFormat: '{{model_server_pod}}'
+      preemptionRate:
+        kind: Panel
+        spec:
+          display:
+            name: Preemption rate
+            description: Rate of request preemptions per pod. Preemptions occur when
+              KV cache pressure forces running requests to be evicted.
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                mode: list
+                position: bottom
+                values: []
+              visual:
+                areaOpacity: 0
+                connectNulls: false
+                display: line
+                lineWidth: 1.5
+              yAxis:
+                format:
+                  unit: decimal
+                min: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
+                  query: sum by (k8s_pod_name) (rate(kserve_vllm:num_preemptions_total{exported_namespace=~"$namespace",model_name=~"$model_name"}[$__rate_interval]))
+                  seriesNameFormat: '{{k8s_pod_name}}'
+      eppReadyPods:
+        kind: Panel
+        spec:
+          display:
+            name: EPP ready endpoints
+            description: Number of healthy model server endpoints visible to the EPP
+              scheduler. A drop indicates pods failing health checks.
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                mode: list
+                position: bottom
+                values: []
+              visual:
+                areaOpacity: 0
+                connectNulls: false
+                display: line
+                lineWidth: 1.5
+              yAxis:
+                format:
+                  unit: decimal
+                min: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
+                  query: inference_pool_ready_pods{exported_namespace=~"$namespace"}
+                  seriesNameFormat: '{{name}}'
+      eppAvgQueueSize:
+        kind: Panel
+        spec:
+          display:
+            name: EPP average queue size
+            description: Average queue depth across all endpoints in the InferencePool
+              as seen by the EPP scheduler.
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                mode: list
+                position: bottom
+                values: []
+              visual:
+                areaOpacity: 0
+                connectNulls: false
+                display: line
+                lineWidth: 1.5
+              yAxis:
+                format:
+                  unit: decimal
+                min: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
+                  query: inference_pool_average_queue_size{exported_namespace=~"$namespace"}
+                  seriesNameFormat: '{{name}}'
     layouts:
     - kind: Grid
       spec:
@@ -217,13 +323,31 @@ spec:
     - kind: Grid
       spec:
         display:
-          title: Drill-down
+          title: Pod & pool detail
           collapse:
-            open: false
+            open: true
         items:
         - x: 0
           y: 0
           width: 24
-          height: 6
+          height: 8
           content:
-            $ref: '#/spec/panels/drillDownHints'
+            $ref: '#/spec/panels/eppPerPodQueueSize'
+        - x: 0
+          y: 8
+          width: 8
+          height: 8
+          content:
+            $ref: '#/spec/panels/preemptionRate'
+        - x: 8
+          y: 8
+          width: 8
+          height: 8
+          content:
+            $ref: '#/spec/panels/eppReadyPods'
+        - x: 16
+          y: 8
+          width: 8
+          height: 8
+          content:
+            $ref: '#/spec/panels/eppAvgQueueSize'
