@@ -84,10 +84,23 @@ require_env() {
 }
 
 ensure_test_deps() {
-  if ! python3 -m pytest --version >/dev/null 2>&1; then
-    log "Installing pytest and pyyaml"
-    python3 -m pip install pytest pyyaml
+  if python3 -m pytest --version >/dev/null 2>&1; then
+    return
   fi
+
+  log "Installing test dependencies from python/kserve uv lockfile"
+  "${PROJECT_ROOT}/hack/setup/cli/install-uv.sh"
+  export PATH="${PROJECT_ROOT}/bin:${PATH}"
+
+  local venv="${PROJECT_ROOT}/.venv-km-upgrade-e2e"
+  if [[ ! -d "${venv}" ]]; then
+    uv venv "${venv}"
+  fi
+  # shellcheck disable=SC1091
+  source "${venv}/bin/activate"
+  pushd "${PROJECT_ROOT}/python/kserve" >/dev/null
+  uv sync --active --group test
+  popd
 }
 
 setup_oc_cli() {
