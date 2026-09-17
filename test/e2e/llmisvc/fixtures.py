@@ -18,8 +18,10 @@ import json
 import os
 import re
 import time
+from pathlib import Path
 
 import pytest
+import yaml
 from ..common.gw_api import (
     create_or_update_gateway,
     create_or_update_route,
@@ -1808,6 +1810,25 @@ def get_system_llmisvc_config(kserve_client, name):
         raise
 
 
+_ACCELERATOR_DIR = Path(__file__).resolve().parents[3] / "config/overlays/odh/accelerators"
+
+
+def _ensure_system_llmisvc_config(kserve_client, name):
+    """Create a system LLMInferenceServiceConfig from the repo manifest if absent."""
+    candidates = list(_ACCELERATOR_DIR.glob("*-config-llm-template*.yaml"))
+    manifest = next((f for f in candidates if yaml.safe_load(f.read_text()).get("metadata", {}).get("name") == name), None)
+    if manifest is None:
+        pytest.skip(f"no repo manifest found for system ref {name}")
+    body = yaml.safe_load(manifest.read_text())
+    for c in body.get("spec", {}).get("template", {}).get("containers", []):
+        if c.get("name") == "main" and c.get("image") == "placeholder":
+            c["image"] = VLLM_CPU_IMAGE
+    kserve_client.api_instance.create_namespaced_custom_object(
+        constants.KSERVE_GROUP, "v1alpha2", KSERVE_NAMESPACE,
+        KSERVE_PLURAL_LLMINFERENCESERVICECONFIG, body,
+    )
+
+
 def _setup_test_case_service(
     kserve_client, tc, test_node_name, namespace, peer_index=None
 ):
@@ -1857,7 +1878,7 @@ def _setup_test_case_service(
 
     for system_ref in tc.system_base_refs:
         if get_system_llmisvc_config(kserve_client, system_ref) is None:
-            pytest.skip(f"system base ref {system_ref} not found in {KSERVE_NAMESPACE}")
+            _ensure_system_llmisvc_config(kserve_client, system_ref)
         unique_base_refs.append(system_ref)
 
     tc.llm_service = V1alpha1LLMInferenceService(

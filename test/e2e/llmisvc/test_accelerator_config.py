@@ -24,11 +24,15 @@ stacks without the preset (non-ODH), all tests skip.
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
 import pytest
+import yaml
 from kserve import KServeClient, V1alpha1LLMInferenceService, constants
 from kubernetes import client
 
 from .fixtures import (
+    KSERVE_PLURAL_LLMINFERENCESERVICECONFIG,
     VLLM_CPU_IMAGE,
     get_system_llmisvc_config,
     generate_test_id,
@@ -51,19 +55,35 @@ from ..common.utils import KSERVE_NAMESPACE
 pytestmark = [pytest.mark.cluster_cpu, pytest.mark.cluster_single_node]
 
 CPU_PRESET_NAME = "kserve-config-llm-template-cpu"
+CPU_CONFIG_PATH = Path(__file__).resolve().parents[3] / (
+    "config/overlays/odh/accelerators/cpu-config-llm-template.yaml"
+)
 API_VERSION = "v1alpha2"
 DEPLOYMENT_WAIT_SECONDS = 300
 
 
 def _get_cpu_preset(kserve_client: KServeClient) -> dict:
-    """Get the shipped CPU preset from the system namespace, or skip."""
+    """Get the CPU preset from the system namespace, creating it if absent."""
     preset = get_system_llmisvc_config(kserve_client, CPU_PRESET_NAME)
-    if preset is None:
-        pytest.skip(
-            f"{CPU_PRESET_NAME} not found in {KSERVE_NAMESPACE}; "
-            "CPU accelerator preset requires the ODH overlay"
-        )
-    return preset
+    if preset is not None:
+        return preset
+
+    if not CPU_CONFIG_PATH.exists():
+        pytest.skip(f"{CPU_CONFIG_PATH} not found in repo tree")
+
+    body = yaml.safe_load(CPU_CONFIG_PATH.read_text())
+    for c in body["spec"]["template"]["containers"]:
+        if c["name"] == "main" and c.get("image") == "placeholder":
+            c["image"] = VLLM_CPU_IMAGE
+
+    kserve_client.api_instance.create_namespaced_custom_object(
+        constants.KSERVE_GROUP,
+        API_VERSION,
+        KSERVE_NAMESPACE,
+        KSERVE_PLURAL_LLMINFERENCESERVICECONFIG,
+        body,
+    )
+    return get_system_llmisvc_config(kserve_client, CPU_PRESET_NAME)
 
 
 def _preset_main_container(preset: dict) -> dict:
