@@ -1,5 +1,6 @@
 # Build the manager binary
-FROM registry.access.redhat.com/ubi9/go-toolset:1.25 as builder
+FROM registry.access.redhat.com/ubi9/go-toolset:1.26 AS builder
+ENV GOTOOLCHAIN=auto
 
 # Copy in the go src
 WORKDIR /go/src/github.com/kserve/kserve
