@@ -48,6 +48,7 @@ const (
 
 	// OLM operator prefixes used by olm.OperatorExists.
 	trusteeOperatorPrefix = "trustee-operator"
+	trusteeKbsConfigCRD   = "kbsconfigs.confidentialcontainers.org"
 )
 
 var cocoRuntimeClassPrefixes = []string{"kata", "ccruntime", "enclave-cc"}
@@ -89,6 +90,12 @@ func crdDep(name, crdName, platform string, availSeverity common.ConditionSeveri
 		platform:             platform,
 		availabilitySeverity: availSeverity,
 	}
+}
+
+func groupedCRDDep(name, crdName, condGroup, platform string, availSeverity common.ConditionSeverity) dependencyCheck {
+	dep := crdDep(name, crdName, platform, availSeverity)
+	dep.conditionGroup = condGroup
+	return dep
 }
 
 func subscriptionDep(name, subName, condGroup, platform string, availSeverity common.ConditionSeverity) dependencyCheck {
@@ -185,10 +192,9 @@ var kserveDependencies = []dependencyCheck{
 	// Confidential container support is optional. Keep these checks in a
 	// separate informational condition group so missing CoCo support does not
 	// prevent ordinary KServe reconciliation or readiness.
-	olmOperatorDep("Red Hat build of Trustee operator", trusteeOperatorPrefix,
-		conditionConfidentialContainerDeps, "ocp", availSeverityNone),
-	runtimeClassDep("Confidential container RuntimeClass", cocoRuntimeClassPrefixes,
-		conditionConfidentialContainerDeps, "ocp", availSeverityNone),
+	olmOperatorDep("Red Hat build of Trustee operator", trusteeOperatorPrefix, conditionConfidentialContainerDeps, "ocp", availSeverityNone),
+	groupedCRDDep("Trustee KbsConfig CRD", trusteeKbsConfigCRD, conditionConfidentialContainerDeps, "xks", availSeverityNone),
+	runtimeClassDep("Confidential container RuntimeClass", cocoRuntimeClassPrefixes, conditionConfidentialContainerDeps, "", availSeverityNone),
 }
 
 var modelControllerDependencies = []dependencyCheck{

@@ -197,6 +197,22 @@ func TestCheckRuntimeClass(t *testing.T) {
 	}
 }
 
+func TestGroupedCRDDependency(t *testing.T) {
+	dep := groupedCRDDep(
+		"Trustee KbsConfig CRD",
+		trusteeKbsConfigCRD,
+		conditionConfidentialContainerDeps,
+		"xks",
+		availSeverityNone,
+	)
+
+	g := NewWithT(t)
+	g.Expect(dep.checkType).To(Equal(checkCRD))
+	g.Expect(dep.crdName).To(Equal(trusteeKbsConfigCRD))
+	g.Expect(dep.conditionGroup).To(Equal(conditionConfidentialContainerDeps))
+	g.Expect(dep.platform).To(Equal("xks"))
+}
+
 func TestCheckRuntimeClass_ContextCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
