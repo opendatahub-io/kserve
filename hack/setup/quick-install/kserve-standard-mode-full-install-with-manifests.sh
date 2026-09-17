@@ -633,8 +633,7 @@ export RELEASE
 #================================================
 
 GOLANGCI_LINT_VERSION=v2.9.0
-CONTROLLER_TOOLS_VERSION=v0.19.0
-ENVTEST_VERSION=release-0.19
+CONTROLLER_TOOLS_VERSION=v0.21.0
 YQ_VERSION=v4.52.1
 HELM_VERSION=v3.16.3
 KUSTOMIZE_VERSION=v5.8.1
@@ -642,26 +641,27 @@ HELM_DOCS_VERSION=v1.12.0
 POETRY_VERSION=1.8.3
 UV_VERSION=0.7.8
 RUFF_VERSION=0.14.13
+SHELLCHECK_VERSION=v0.11.0
 PINACT_VERSION=v3.9.0
 KIND_VERSION=v0.30.0
 CERT_MANAGER_VERSION=v1.17.0
 ENVOY_GATEWAY_VERSION=v1.8.1
-ENVOY_AI_GATEWAY_VERSION=v1.0.0
+ENVOY_AI_GATEWAY_VERSION=v1.1.0
 KNATIVE_OPERATOR_VERSION=v1.21.1
 KNATIVE_SERVING_VERSION=1.21.1
 KEDA_OTEL_ADDON_VERSION=v0.0.6
 PROMETHEUS_VERSION=83.4.0
 PROMETHEUS_ADAPTER_VERSION=5.3.0
 JAEGER_VERSION=4.7.0
-KSERVE_VERSION=v0.20.0
+KSERVE_VERSION=v0.21.0-rc0
 ISTIO_VERSION=1.27.1
-KEDA_VERSION=2.18.0
-OPENTELEMETRY_OPERATOR_VERSION=0.74.3
+KEDA_VERSION=2.20.2
+OPENTELEMETRY_OPERATOR_VERSION=0.114.1
 LWS_VERSION=v0.8.0
 GATEWAY_API_VERSION=v1.5.1
 GIE_VERSION=v1.5.0
-LLMD_ROUTER_VERSION=v0.9.0
-WVA_VERSION=v0.8.0
+LLMD_ROUTER_VERSION=v0.10.0
+WVA_VERSION=v0.9.0
 
 #================================================
 # Global Variables (from global-vars.env)
@@ -704,6 +704,11 @@ LLMISVC_INSTALLED="${LLMISVC_INSTALLED:-0}"
 INSTALL_RUNTIMES="${INSTALL_RUNTIMES:-${ENABLE_KSERVE:-false}}"
 INSTALL_LLMISVC_CONFIGS="${INSTALL_LLMISVC_CONFIGS:-${ENABLE_LLMISVC:-false}}"
 FORCE_UPGRADE="${FORCE_UPGRADE:-false}"
+USE_CUSTOM_MANIFESTS="${USE_CUSTOM_MANIFESTS:-false}"
+UPDATE_CONFIGMAP_IMAGES="${UPDATE_CONFIGMAP_IMAGES:-true}"
+KSERVE_INSTALL_CI="${KSERVE_INSTALL_CI:-false}"
+TARGET_CONFIG_ROOT_DIR=${REPO_ROOT}
+TEMP_TARGET_CONFIG_DIR="${TEMP_TARGET_CONFIG_DIR:-/tmp/kserve_customization}"
 TARGET_CRD_DIRS=()
 TARGET_DEPLOYMENT_NAMES=()
 TARGET_OVERLAY_DIRS=()
@@ -1129,12 +1134,11 @@ install_kserve_kustomize() {
         fi
     fi
 
-    # Cleanup temporary overlay after all resources are installed
-    if [ "${KSERVE_OVERLAY_DIR}" = "temp" ]; then
-        rm -rf "${REPO_ROOT}/config/overlays/temp"
-        log_info "Temporary overlay directory cleaned up"
+    # Cleanup temporary manifests after all resources are installed
+    if is_positive "${USE_CUSTOM_MANIFESTS}"; then
+        rm -rf "${TEMP_TARGET_CONFIG_DIR}"
+        log_info "Customized KServe config directory cleaned up"
     fi
-
 }
 
 
@@ -1180,52 +1184,59 @@ main() {
         KSERVE_CRDS="inferenceservices.serving.kserve.io servingruntimes.serving.kserve.io clusterservingruntimes.serving.kserve.io inferencegraphs.serving.kserve.io trainedmodels.serving.kserve.io"
         LLMISVC_CRDS="llminferenceservices.serving.kserve.io llminferenceserviceconfigs.serving.kserve.io"
         LOCALMODEL_CRDS="localmodelcaches.serving.kserve.io localmodelnodegroups.serving.kserve.io localmodelnodes.serving.kserve.io"
-        KSERVE_CONFIG_DIR="${REPO_ROOT}/config/overlays/standalone/kserve"
-        LLMISVC_CONFIG_DIR="${REPO_ROOT}/config/overlays/standalone/llmisvc"
-        LOCALMODEL_CONFIG_DIR="${REPO_ROOT}/config/overlays/addons/localmodel"
-        RUNTIMES_DIR="${REPO_ROOT}/config/runtimes"
         
         # Override KSERVE_VERSION if SET_KSERVE_VERSION is provided
         if [ -n "${SET_KSERVE_VERSION}" ]; then
             KSERVE_VERSION="${SET_KSERVE_VERSION}"
         fi
         
-        # Create temporary overlay if version/registry override is needed
+        # Copy config folder to  if version/registry override is needed
         if ! is_positive "$EMBED_MANIFESTS" && [ -z "${KSERVE_OVERLAY_DIR}" ] && ([ -n "${SET_KSERVE_VERSION}" ] || [ -n "${SET_KSERVE_REGISTRY}" ]); then
-            TEMP_OVERLAY_DIR="${REPO_ROOT}/config/overlays/temp"
-            TEMPLATE_DIR="${REPO_ROOT}/config/overlays/version-template"
+            # Clean up temporary config directory if it exists
+            if [ -d "${TEMP_TARGET_CONFIG_DIR}" ]; then
+                rm -rf ${TEMP_TARGET_CONFIG_DIR}
+            fi
+            mkdir -p ${TEMP_TARGET_CONFIG_DIR}
+            cp -r ${REPO_ROOT}/config ${TEMP_TARGET_CONFIG_DIR}/config
+            TARGET_CONFIG_ROOT_DIR="${TEMP_TARGET_CONFIG_DIR}"
         
-            log_info "Creating temporary overlay from template: ${TEMP_OVERLAY_DIR}"
-        
-            # Copy template
-            rm -rf "${TEMP_OVERLAY_DIR}"
-            cp -r "${TEMPLATE_DIR}" "${TEMP_OVERLAY_DIR}"
-        
-            # Replace version/registry placeholders
-            VERSION="${SET_KSERVE_VERSION:-latest}"
-            REGISTRY="${SET_KSERVE_REGISTRY:-kserve}"
-        
-            find "${TEMP_OVERLAY_DIR}" -type f -name "*.yaml" -exec sed -i \
-                -e "s/latest/${VERSION}/g" \
-                -e "s|kserve/|${REGISTRY}/|g" {} \;
-        
-            # Uncomment components/patches based on ENABLE_* flags
-            if is_positive "${ENABLE_KSERVE}"; then
-                sed -i 's/#ENABLE_KSERVE //' "${TEMP_OVERLAY_DIR}/kustomization.yaml"
+            FIND_PRUNE=()
+            if ! is_positive "${UPDATE_CONFIGMAP_IMAGES}"; then
+                FIND_PRUNE+=( ! -path '*/configmap/*' )
             fi
         
-            if is_positive "${ENABLE_LLMISVC}"; then
-                sed -i 's/#ENABLE_LLMISVC //' "${TEMP_OVERLAY_DIR}/kustomization.yaml"
+            # Update image registry if SET_KSERVE_REGISTRY is provided
+            if [ -n "${SET_KSERVE_REGISTRY}" ]; then
+                find "${TARGET_CONFIG_ROOT_DIR}/config" -type f -name "*.yaml" \
+                    "${FIND_PRUNE[@]}" \
+                    -exec sed -i \
+                    -e "s|\"image\": \"kserve/|\"image\": \"${SET_KSERVE_REGISTRY}/|g" \
+                    -e "s|image: kserve/|image: ${SET_KSERVE_REGISTRY}/|g" \
+                    -e "s|image: ko://github.com/kserve/|image: ${SET_KSERVE_REGISTRY}/|g" {} \;
+            fi
+            # Update image version if SET_KSERVE_VERSION is provided
+            if [ -n "${SET_KSERVE_VERSION}" ]; then
+                find "${TARGET_CONFIG_ROOT_DIR}/config" -type f -name "*.yaml" \
+                    "${FIND_PRUNE[@]}" \
+                    -exec sed -i \
+                -e "s/:latest/:${SET_KSERVE_VERSION}/g" {} \;
             fi
         
-            if is_positive "${ENABLE_LOCALMODEL}"; then
-                sed -i 's/#ENABLE_LOCALMODEL //' "${TEMP_OVERLAY_DIR}/kustomization.yaml"
+            # Customized images are loaded onto the node, not pushed to a registry, so
+            # force IfNotPresent to avoid registry pulls for locally-built image tags.
+            if is_positive ${KSERVE_INSTALL_CI}; then
+                find "${TARGET_CONFIG_ROOT_DIR}/config" -type f -name "*.yaml" \
+                    "${FIND_PRUNE[@]}" \
+                    -exec sed -i \
+                    -e "s/imagePullPolicy: Always/imagePullPolicy: IfNotPresent/g" {} \;
             fi
-        
-            # Use temporary overlay
-            KSERVE_OVERLAY_DIR="temp"
-            log_success "Temporary overlay created successfully"
+            USE_CUSTOM_MANIFESTS="true"
         fi
+        
+        KSERVE_CONFIG_DIR="${TARGET_CONFIG_ROOT_DIR}/config/overlays/standalone/kserve"
+        LLMISVC_CONFIG_DIR="${TARGET_CONFIG_ROOT_DIR}/config/overlays/standalone/llmisvc"
+        LOCALMODEL_CONFIG_DIR="${TARGET_CONFIG_ROOT_DIR}/config/overlays/addons/localmodel"
+        RUNTIMES_DIR="${TARGET_CONFIG_ROOT_DIR}/config/runtimes"
         
         if [ -n "${KSERVE_OVERLAY_DIR}" ]; then
             TARGET_OVERLAY_DIRS+=("${REPO_ROOT}/config/overlays/${KSERVE_OVERLAY_DIR}")
@@ -1293,27 +1304,27 @@ main() {
             fi
         else
             if is_positive "${ENABLE_KSERVE}"; then
-                TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full")
+                TARGET_CRD_DIRS+=("${TARGET_CONFIG_ROOT_DIR}/config/crd/full")
                 TARGET_CRDS_TO_VERIFY+=("${KSERVE_CRDS}")
                 TARGET_DEPLOYMENT_NAMES+=("kserve-controller-manager")
                 if [ "${LLMISVC_INSTALLED}" = "1" ]; then
-                    KSERVE_CONFIG_DIR="${REPO_ROOT}/config/overlays/addons/kserve"
+                    KSERVE_CONFIG_DIR="${TARGET_CONFIG_ROOT_DIR}/config/overlays/addons/kserve"
                 fi
                 TARGET_OVERLAY_DIRS+=("${KSERVE_CONFIG_DIR}")
             fi
         
             if is_positive "${ENABLE_LLMISVC}"; then
-                TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full/llmisvc")
+                TARGET_CRD_DIRS+=("${TARGET_CONFIG_ROOT_DIR}/config/crd/full/llmisvc")
                 TARGET_CRDS_TO_VERIFY+=("${LLMISVC_CRDS}")
                 TARGET_DEPLOYMENT_NAMES+=("llmisvc-controller-manager")
                 if [ "${KSERVE_INSTALLED}" = "1" ]; then
-                    LLMISVC_CONFIG_DIR="${REPO_ROOT}/config/overlays/addons/llmisvc"
+                    LLMISVC_CONFIG_DIR="${TARGET_CONFIG_ROOT_DIR}/config/overlays/addons/llmisvc"
                 fi
                 TARGET_OVERLAY_DIRS+=("${LLMISVC_CONFIG_DIR}")
             fi
         
             if is_positive "${ENABLE_LOCALMODEL}"; then
-                TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full/localmodel")
+                TARGET_CRD_DIRS+=("${TARGET_CONFIG_ROOT_DIR}/config/crd/full/localmodel")
                 TARGET_CRDS_TO_VERIFY+=("${LOCALMODEL_CRDS}")
                 TARGET_OVERLAY_DIRS+=("${LOCALMODEL_CONFIG_DIR}")
                 TARGET_DEPLOYMENT_NAMES+=("kserve-localmodel-controller-manager")
@@ -1668,6 +1679,19 @@ spec:
     name: lightgbm
     priority: 1
     version: "4"
+---
+apiVersion: serving.kserve.io/v1alpha1
+kind: ClusterServingRuntime
+metadata:
+  name: kserve-llm-sglang
+spec:
+  containers:
+  - image: lmsysorg/sglang:v0.5.14
+    name: main
+  supportedModelFormats:
+  - autoSelect: false
+    name: sglang
+    version: "1"
 ---
 apiVersion: serving.kserve.io/v1alpha1
 kind: ClusterServingRuntime
@@ -2204,6 +2228,43 @@ spec:
       - /bin/bash
       - -c
       - |-
+        # Spyre architecture-specific setup for ppc64le/s390x
+        if [ -d /opt/ibm/spyre ]; then
+          ARCH="$(arch)"
+          case "${ARCH}" in
+            ppc64le)
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            s390x)
+              export FLEX_DEVICE=VF
+              if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                source /etc/profile.d/ibm-aiu-setup.sh
+              fi
+              export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+              if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > "$HOME/.senlib.json" && [ -s "$HOME/.senlib.json" ]; then
+                  export SENLIB_DEVEL_CONFIG_FILE="$HOME/.senlib.json"
+                else
+                  echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                  rm -f "$HOME/.senlib.json"
+                fi
+              else
+                echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+              fi
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            x86_64)
+              export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+              ;;
+          esac
+        fi
+
         if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
           source /etc/profile.d/ibm-aiu-setup.sh
         fi
@@ -2346,17 +2407,32 @@ spec:
           SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ shutdownTimeout .Spec.Template 15 }}"
         fi
 
-        # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+        # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
         KV_TRANSFER_ARGS=""
-        if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-          if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+        if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+          # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+          if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
             KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+          fi
+          # This template is only composed for a disaggregated P/D topology (spec.prefill set).
+          # Decode is the KV consumer; without a connector here it recomputes prefill's KV.
+          if [ -z "${KV_TRANSFER_ARGS}" ]; then
+            # Only inject when NIXL is importable. CPU and other non-NIXL engine images
+            # raise RuntimeError("NIXL is not available") and never finish starting.
+            NIXL_PY=$(command -v python3 || command -v python || true)
+            if [ -n "${NIXL_PY}" ] && "${NIXL_PY}" -c "import nixl" >/dev/null 2>&1; then
+              KV_TRANSFER_ARGS="--kv-transfer-config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_consumer\"}'"
+              echo "[kv-transfer] NIXL available, enabling NixlConnector (kv_consumer)"
+            else
+              echo "[kv-transfer] NIXL not available, P/D KV transfer stays disabled"
+            fi
           fi
         fi
 
         eval "exec vllm serve /mnt/models \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8001 \
+          --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
           ${ACCESS_LOG_ARGS} \
           ${SHUTDOWN_TIMEOUT_ARGS} \
           ${KV_TRANSFER_ARGS} \
@@ -2374,7 +2450,11 @@ spec:
         value: INFO
       - name: HF_HUB_CACHE
         value: /models
-      image: ghcr.io/llm-d/llm-d-cuda:v0.8.0
+      - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+        valueFrom:
+          fieldRef:
+            fieldPath: status.podIP
+      image: ghcr.io/llm-d/llm-d-cuda:v0.9.0
       imagePullPolicy: IfNotPresent
       lifecycle:
         preStop:
@@ -2436,7 +2516,7 @@ spec:
     - command:
       - /app/pd-sidecar
       - --port=8000
-      - --vllm-port=8001
+      - --model-server-port=8001
       - --kv-connector=nixlv2
       - --enable-ssrf-protection=true
       - --pool-group=inference.networking.x-k8s.io
@@ -2453,7 +2533,7 @@ spec:
             fieldPath: metadata.namespace
       - name: SSL_CERT_DIR
         value: /var/run/kserve/tls:/var/run/secrets/kubernetes.io/serviceaccount:/etc/pki/tls/certs
-      image: ghcr.io/llm-d/llm-d-router-disagg-sidecar:v0.9.0
+      image: ghcr.io/llm-d/llm-d-router-disagg-sidecar:v0.10.0
       imagePullPolicy: IfNotPresent
       livenessProbe:
         failureThreshold: 3
@@ -2522,6 +2602,43 @@ spec:
       - /bin/bash
       - -c
       - |-
+        # Spyre architecture-specific setup for ppc64le/s390x
+        if [ -d /opt/ibm/spyre ]; then
+          ARCH="$(arch)"
+          case "${ARCH}" in
+            ppc64le)
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            s390x)
+              export FLEX_DEVICE=VF
+              if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                source /etc/profile.d/ibm-aiu-setup.sh
+              fi
+              export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+              if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > "$HOME/.senlib.json" && [ -s "$HOME/.senlib.json" ]; then
+                  export SENLIB_DEVEL_CONFIG_FILE="$HOME/.senlib.json"
+                else
+                  echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                  rm -f "$HOME/.senlib.json"
+                fi
+              else
+                echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+              fi
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            x86_64)
+              export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+              ;;
+          esac
+        fi
+
         if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
           source /etc/profile.d/ibm-aiu-setup.sh
         fi
@@ -2686,11 +2803,25 @@ spec:
           SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ shutdownTimeout .Spec.Template 15 }}"
         fi
 
-        # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+        # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
         KV_TRANSFER_ARGS=""
-        if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-          if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+        if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+          # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+          if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
             KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+          fi
+          # This template is only composed for a disaggregated P/D topology (spec.prefill set).
+          # Decode is the KV consumer; without a connector here it recomputes prefill's KV.
+          if [ -z "${KV_TRANSFER_ARGS}" ]; then
+            # Only inject when NIXL is importable. CPU and other non-NIXL engine images
+            # raise RuntimeError("NIXL is not available") and never finish starting.
+            NIXL_PY=$(command -v python3 || command -v python || true)
+            if [ -n "${NIXL_PY}" ] && "${NIXL_PY}" -c "import nixl" >/dev/null 2>&1; then
+              KV_TRANSFER_ARGS="--kv-transfer-config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_consumer\"}'"
+              echo "[kv-transfer] NIXL available, enabling NixlConnector (kv_consumer)"
+            else
+              echo "[kv-transfer] NIXL not available, P/D KV transfer stays disabled"
+            fi
           fi
         fi
 
@@ -2698,13 +2829,14 @@ spec:
           /mnt/models \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8001 \
+          --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
           --api-server-count ${VLLM_API_SERVER_COUNT:-8} \
-          {{- if .Spec.Parallelism.Expert -}}--enable-expert-parallel{{- end }} \
-          {{- if .Spec.Parallelism.Tensor -}}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
-          --data-parallel-size {{ or .Spec.Parallelism.Data 1 }} \
-          --data-parallel-size-local {{ or .Spec.Parallelism.DataLocal 1 }} \
+          {{- if and .Spec.Parallelism .Spec.Parallelism.Expert -}}--enable-expert-parallel{{- end }} \
+          {{- if and .Spec.Parallelism .Spec.Parallelism.Tensor -}}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
+          --data-parallel-size {{ or (and .Spec.Parallelism .Spec.Parallelism.Data) 1 }} \
+          --data-parallel-size-local {{ or (and .Spec.Parallelism .Spec.Parallelism.DataLocal) 1 }} \
           --data-parallel-address ${DP_ADDRESS} \
-          --data-parallel-rpc-port {{ if .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
+          --data-parallel-rpc-port {{ if and .Spec.Parallelism .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
           --data-parallel-start-rank $START_RANK \
           ${ACCESS_LOG_ARGS} \
           ${SHUTDOWN_TIMEOUT_ARGS} \
@@ -2722,7 +2854,11 @@ spec:
         value: INFO
       - name: HF_HUB_CACHE
         value: /models
-      image: ghcr.io/llm-d/llm-d-cuda:v0.8.0
+      - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+        valueFrom:
+          fieldRef:
+            fieldPath: status.podIP
+      image: ghcr.io/llm-d/llm-d-cuda:v0.9.0
       imagePullPolicy: IfNotPresent
       lifecycle:
         preStop:
@@ -2788,7 +2924,7 @@ spec:
     - command:
       - /app/pd-sidecar
       - --port=8000
-      - --vllm-port=8001
+      - --model-server-port=8001
       - --kv-connector=nixlv2
       - --enable-ssrf-protection=true
       - --pool-group=inference.networking.x-k8s.io
@@ -2805,7 +2941,7 @@ spec:
             fieldPath: metadata.namespace
       - name: SSL_CERT_DIR
         value: /var/run/kserve/tls:/var/run/secrets/kubernetes.io/serviceaccount:/etc/pki/tls/certs
-      image: ghcr.io/llm-d/llm-d-router-disagg-sidecar:v0.9.0
+      image: ghcr.io/llm-d/llm-d-router-disagg-sidecar:v0.10.0
       imagePullPolicy: IfNotPresent
       livenessProbe:
         failureThreshold: 3
@@ -2866,6 +3002,43 @@ spec:
       - /bin/bash
       - -c
       - |-
+        # Spyre architecture-specific setup for ppc64le/s390x
+        if [ -d /opt/ibm/spyre ]; then
+          ARCH="$(arch)"
+          case "${ARCH}" in
+            ppc64le)
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            s390x)
+              export FLEX_DEVICE=VF
+              if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                source /etc/profile.d/ibm-aiu-setup.sh
+              fi
+              export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+              if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > "$HOME/.senlib.json" && [ -s "$HOME/.senlib.json" ]; then
+                  export SENLIB_DEVEL_CONFIG_FILE="$HOME/.senlib.json"
+                else
+                  echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                  rm -f "$HOME/.senlib.json"
+                fi
+              else
+                echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+              fi
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            x86_64)
+              export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+              ;;
+          esac
+        fi
+
         if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
           source /etc/profile.d/ibm-aiu-setup.sh
         fi
@@ -3012,7 +3185,7 @@ spec:
           fi
         fi
 
-        START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or .Spec.Parallelism.DataLocal 1 }} ))
+        START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or (and .Spec.Parallelism .Spec.Parallelism.DataLocal) 1 }} ))
 
         # --disable-access-log-for-endpoints landed in vLLM 0.16.0 (vllm-project/vllm#30011).
         # Older versions still need the blanket --disable-uvicorn-access-log.
@@ -3030,11 +3203,25 @@ spec:
           SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ shutdownTimeout .Spec.Worker 15 }}"
         fi
 
-        # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+        # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
         KV_TRANSFER_ARGS=""
-        if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-          if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+        if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+          # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+          if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
             KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+          fi
+          # This template is only composed for a disaggregated P/D topology (spec.prefill set).
+          # Decode is the KV consumer; without a connector here it recomputes prefill's KV.
+          if [ -z "${KV_TRANSFER_ARGS}" ]; then
+            # Only inject when NIXL is importable. CPU and other non-NIXL engine images
+            # raise RuntimeError("NIXL is not available") and never finish starting.
+            NIXL_PY=$(command -v python3 || command -v python || true)
+            if [ -n "${NIXL_PY}" ] && "${NIXL_PY}" -c "import nixl" >/dev/null 2>&1; then
+              KV_TRANSFER_ARGS="--kv-transfer-config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_consumer\"}'"
+              echo "[kv-transfer] NIXL available, enabling NixlConnector (kv_consumer)"
+            else
+              echo "[kv-transfer] NIXL not available, P/D KV transfer stays disabled"
+            fi
           fi
         fi
 
@@ -3042,12 +3229,13 @@ spec:
           /mnt/models \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8001 \
-          {{- if .Spec.Parallelism.Expert }}--enable-expert-parallel{{- end }} \
-          {{- if .Spec.Parallelism.Tensor }}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
-          --data-parallel-size {{ or .Spec.Parallelism.Data 1 }} \
-          --data-parallel-size-local {{ or .Spec.Parallelism.DataLocal 1 }} \
+          --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
+          {{- if and .Spec.Parallelism .Spec.Parallelism.Expert }}--enable-expert-parallel{{- end }} \
+          {{- if and .Spec.Parallelism .Spec.Parallelism.Tensor }}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
+          --data-parallel-size {{ or (and .Spec.Parallelism .Spec.Parallelism.Data) 1 }} \
+          --data-parallel-size-local {{ or (and .Spec.Parallelism .Spec.Parallelism.DataLocal) 1 }} \
           --data-parallel-address ${DP_ADDRESS} \
-          --data-parallel-rpc-port {{ if .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
+          --data-parallel-rpc-port {{ if and .Spec.Parallelism .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
           --data-parallel-start-rank $START_RANK \
           --headless \
           ${ACCESS_LOG_ARGS} \
@@ -3066,9 +3254,13 @@ spec:
         value: INFO
       - name: HF_HUB_CACHE
         value: /models
+      - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+        valueFrom:
+          fieldRef:
+            fieldPath: status.podIP
       - name: VLLM_RANDOMIZE_DP_DUMMY_INPUTS
         value: "1"
-      image: ghcr.io/llm-d/llm-d-cuda:v0.8.0
+      image: ghcr.io/llm-d/llm-d-cuda:v0.9.0
       imagePullPolicy: IfNotPresent
       lifecycle:
         preStop:
@@ -3138,6 +3330,43 @@ spec:
         - /bin/bash
         - -c
         - |-
+          # Spyre architecture-specific setup for ppc64le/s390x
+          if [ -d /opt/ibm/spyre ]; then
+            ARCH="$(arch)"
+            case "${ARCH}" in
+              ppc64le)
+                if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                  . /opt/rh/gcc-toolset-14/enable
+                  export PATH
+                fi
+                ;;
+              s390x)
+                export FLEX_DEVICE=VF
+                if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                  source /etc/profile.d/ibm-aiu-setup.sh
+                fi
+                export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+                if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                  if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > "$HOME/.senlib.json" && [ -s "$HOME/.senlib.json" ]; then
+                    export SENLIB_DEVEL_CONFIG_FILE="$HOME/.senlib.json"
+                  else
+                    echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                    rm -f "$HOME/.senlib.json"
+                  fi
+                else
+                  echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+                fi
+                if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                  . /opt/rh/gcc-toolset-14/enable
+                  export PATH
+                fi
+                ;;
+              x86_64)
+                export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+                ;;
+            esac
+          fi
+
           if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
             source /etc/profile.d/ibm-aiu-setup.sh
           fi
@@ -3280,17 +3509,32 @@ spec:
             SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ if .Spec.Prefill }}{{ shutdownTimeout .Spec.Prefill.Template 15 }}{{ else }}{{ shutdownTimeout nil 15 }}{{ end }}"
           fi
 
-          # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+          # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
           KV_TRANSFER_ARGS=""
-          if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-            if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+          if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
               KV_TRANSFER_ARGS="{{ if .Spec.Prefill }}{{ kvTransferConfig .Spec.Prefill.KVCacheOffloading }}{{ end }}"
+            fi
+            # This template is only composed for a disaggregated P/D topology (spec.prefill set).
+            # Prefill is the KV producer; without a connector here decode has nothing to fetch.
+            if [ -z "${KV_TRANSFER_ARGS}" ]; then
+              # Only inject when NIXL is importable. CPU and other non-NIXL engine images
+              # raise RuntimeError("NIXL is not available") and never finish starting.
+              NIXL_PY=$(command -v python3 || command -v python || true)
+              if [ -n "${NIXL_PY}" ] && "${NIXL_PY}" -c "import nixl" >/dev/null 2>&1; then
+                KV_TRANSFER_ARGS="--kv-transfer-config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_producer\"}'"
+                echo "[kv-transfer] NIXL available, enabling NixlConnector (kv_producer)"
+              else
+                echo "[kv-transfer] NIXL not available, P/D KV transfer stays disabled"
+              fi
             fi
           fi
 
           eval "exec vllm serve /mnt/models \
             --served-model-name "{{ .Spec.Model.Name }}" \
             --port 8000 \
+            --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
             ${ACCESS_LOG_ARGS} \
             ${SHUTDOWN_TIMEOUT_ARGS} \
             ${KV_TRANSFER_ARGS} \
@@ -3308,7 +3552,11 @@ spec:
           value: INFO
         - name: HF_HUB_CACHE
           value: /models
-        image: ghcr.io/llm-d/llm-d-cuda:v0.8.0
+        - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        image: ghcr.io/llm-d/llm-d-cuda:v0.9.0
         imagePullPolicy: IfNotPresent
         lifecycle:
           preStop:
@@ -3397,6 +3645,43 @@ spec:
         - /bin/bash
         - -c
         - |-
+          # Spyre architecture-specific setup for ppc64le/s390x
+          if [ -d /opt/ibm/spyre ]; then
+            ARCH="$(arch)"
+            case "${ARCH}" in
+              ppc64le)
+                if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                  . /opt/rh/gcc-toolset-14/enable
+                  export PATH
+                fi
+                ;;
+              s390x)
+                export FLEX_DEVICE=VF
+                if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                  source /etc/profile.d/ibm-aiu-setup.sh
+                fi
+                export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+                if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                  if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > "$HOME/.senlib.json" && [ -s "$HOME/.senlib.json" ]; then
+                    export SENLIB_DEVEL_CONFIG_FILE="$HOME/.senlib.json"
+                  else
+                    echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                    rm -f "$HOME/.senlib.json"
+                  fi
+                else
+                  echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+                fi
+                if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                  . /opt/rh/gcc-toolset-14/enable
+                  export PATH
+                fi
+                ;;
+              x86_64)
+                export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+                ;;
+            esac
+          fi
+
           if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
             source /etc/profile.d/ibm-aiu-setup.sh
           fi
@@ -3561,11 +3846,25 @@ spec:
             SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ if .Spec.Prefill }}{{ shutdownTimeout .Spec.Prefill.Template 15 }}{{ else }}{{ shutdownTimeout nil 15 }}{{ end }}"
           fi
 
-          # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+          # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
           KV_TRANSFER_ARGS=""
-          if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-            if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+          if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
               KV_TRANSFER_ARGS="{{ if .Spec.Prefill }}{{ kvTransferConfig .Spec.Prefill.KVCacheOffloading }}{{ end }}"
+            fi
+            # This template is only composed for a disaggregated P/D topology (spec.prefill set).
+            # Prefill is the KV producer; without a connector here decode has nothing to fetch.
+            if [ -z "${KV_TRANSFER_ARGS}" ]; then
+              # Only inject when NIXL is importable. CPU and other non-NIXL engine images
+              # raise RuntimeError("NIXL is not available") and never finish starting.
+              NIXL_PY=$(command -v python3 || command -v python || true)
+              if [ -n "${NIXL_PY}" ] && "${NIXL_PY}" -c "import nixl" >/dev/null 2>&1; then
+                KV_TRANSFER_ARGS="--kv-transfer-config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_producer\"}'"
+                echo "[kv-transfer] NIXL available, enabling NixlConnector (kv_producer)"
+              else
+                echo "[kv-transfer] NIXL not available, P/D KV transfer stays disabled"
+              fi
             fi
           fi
 
@@ -3573,13 +3872,14 @@ spec:
             /mnt/models \
             --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
             --port 8000 \
+            --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
             --api-server-count ${VLLM_API_SERVER_COUNT:-8} \
-            {{- if .Spec.Prefill.Parallelism.Expert -}}--enable-expert-parallel{{- end }} \
-            {{- if .Spec.Prefill.Parallelism.Tensor -}}--tensor-parallel-size {{ .Spec.Prefill.Parallelism.Tensor }}{{- end }} \
-            --data-parallel-size {{ or .Spec.Prefill.Parallelism.Data 1 }} \
-            --data-parallel-size-local {{ or .Spec.Prefill.Parallelism.DataLocal 1 }} \
+            {{- if and .Spec.Prefill .Spec.Prefill.Parallelism .Spec.Prefill.Parallelism.Expert -}}--enable-expert-parallel{{- end }} \
+            {{- if and .Spec.Prefill .Spec.Prefill.Parallelism .Spec.Prefill.Parallelism.Tensor -}}--tensor-parallel-size {{ .Spec.Prefill.Parallelism.Tensor }}{{- end }} \
+            --data-parallel-size {{ or (and .Spec.Prefill .Spec.Prefill.Parallelism .Spec.Prefill.Parallelism.Data) 1 }} \
+            --data-parallel-size-local {{ or (and .Spec.Prefill .Spec.Prefill.Parallelism .Spec.Prefill.Parallelism.DataLocal) 1 }} \
             --data-parallel-address ${DP_ADDRESS} \
-            --data-parallel-rpc-port {{ if .Spec.Prefill.Parallelism.DataRPCPort }}{{ .Spec.Prefill.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
+            --data-parallel-rpc-port {{ if and .Spec.Prefill .Spec.Prefill.Parallelism .Spec.Prefill.Parallelism.DataRPCPort }}{{ .Spec.Prefill.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
             --data-parallel-start-rank $START_RANK \
             ${ACCESS_LOG_ARGS} \
             ${SHUTDOWN_TIMEOUT_ARGS} \
@@ -3597,7 +3897,11 @@ spec:
           value: INFO
         - name: HF_HUB_CACHE
           value: /models
-        image: ghcr.io/llm-d/llm-d-cuda:v0.8.0
+        - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        image: ghcr.io/llm-d/llm-d-cuda:v0.9.0
         imagePullPolicy: IfNotPresent
         lifecycle:
           preStop:
@@ -3680,6 +3984,43 @@ spec:
         - /bin/bash
         - -c
         - |-
+          # Spyre architecture-specific setup for ppc64le/s390x
+          if [ -d /opt/ibm/spyre ]; then
+            ARCH="$(arch)"
+            case "${ARCH}" in
+              ppc64le)
+                if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                  . /opt/rh/gcc-toolset-14/enable
+                  export PATH
+                fi
+                ;;
+              s390x)
+                export FLEX_DEVICE=VF
+                if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                  source /etc/profile.d/ibm-aiu-setup.sh
+                fi
+                export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+                if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                  if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > "$HOME/.senlib.json" && [ -s "$HOME/.senlib.json" ]; then
+                    export SENLIB_DEVEL_CONFIG_FILE="$HOME/.senlib.json"
+                  else
+                    echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                    rm -f "$HOME/.senlib.json"
+                  fi
+                else
+                  echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+                fi
+                if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                  . /opt/rh/gcc-toolset-14/enable
+                  export PATH
+                fi
+                ;;
+              x86_64)
+                export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+                ;;
+            esac
+          fi
+
           if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
             source /etc/profile.d/ibm-aiu-setup.sh
           fi
@@ -3826,7 +4167,7 @@ spec:
             fi
           fi
 
-          START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or .Spec.Prefill.Parallelism.DataLocal 1 }} ))
+          START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or (and .Spec.Prefill .Spec.Prefill.Parallelism .Spec.Prefill.Parallelism.DataLocal) 1 }} ))
 
           # --disable-access-log-for-endpoints landed in vLLM 0.16.0 (vllm-project/vllm#30011).
           # Older versions still need the blanket --disable-uvicorn-access-log.
@@ -3844,11 +4185,25 @@ spec:
             SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ if .Spec.Prefill }}{{ shutdownTimeout .Spec.Prefill.Worker 15 }}{{ else }}{{ shutdownTimeout nil 15 }}{{ end }}"
           fi
 
-          # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+          # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
           KV_TRANSFER_ARGS=""
-          if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-            if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+          if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
               KV_TRANSFER_ARGS="{{ if .Spec.Prefill }}{{ kvTransferConfig .Spec.Prefill.KVCacheOffloading }}{{ end }}"
+            fi
+            # This template is only composed for a disaggregated P/D topology (spec.prefill set).
+            # Prefill is the KV producer; without a connector here decode has nothing to fetch.
+            if [ -z "${KV_TRANSFER_ARGS}" ]; then
+              # Only inject when NIXL is importable. CPU and other non-NIXL engine images
+              # raise RuntimeError("NIXL is not available") and never finish starting.
+              NIXL_PY=$(command -v python3 || command -v python || true)
+              if [ -n "${NIXL_PY}" ] && "${NIXL_PY}" -c "import nixl" >/dev/null 2>&1; then
+                KV_TRANSFER_ARGS="--kv-transfer-config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_producer\"}'"
+                echo "[kv-transfer] NIXL available, enabling NixlConnector (kv_producer)"
+              else
+                echo "[kv-transfer] NIXL not available, P/D KV transfer stays disabled"
+              fi
             fi
           fi
 
@@ -3856,12 +4211,13 @@ spec:
             /mnt/models \
             --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
             --port 8000 \
-            {{- if .Spec.Prefill.Parallelism.Expert }}--enable-expert-parallel{{- end }} \
-            {{- if .Spec.Prefill.Parallelism.Tensor }}--tensor-parallel-size {{ .Spec.Prefill.Parallelism.Tensor }}{{- end }} \
-            --data-parallel-size {{ or .Spec.Prefill.Parallelism.Data 1 }} \
-            --data-parallel-size-local {{ or .Spec.Prefill.Parallelism.DataLocal 1 }} \
+            --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
+            {{- if and .Spec.Prefill .Spec.Prefill.Parallelism .Spec.Prefill.Parallelism.Expert }}--enable-expert-parallel{{- end }} \
+            {{- if and .Spec.Prefill .Spec.Prefill.Parallelism .Spec.Prefill.Parallelism.Tensor }}--tensor-parallel-size {{ .Spec.Prefill.Parallelism.Tensor }}{{- end }} \
+            --data-parallel-size {{ or (and .Spec.Prefill .Spec.Prefill.Parallelism .Spec.Prefill.Parallelism.Data) 1 }} \
+            --data-parallel-size-local {{ or (and .Spec.Prefill .Spec.Prefill.Parallelism .Spec.Prefill.Parallelism.DataLocal) 1 }} \
             --data-parallel-address ${DP_ADDRESS} \
-            --data-parallel-rpc-port {{ if .Spec.Prefill.Parallelism.DataRPCPort }}{{ .Spec.Prefill.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
+            --data-parallel-rpc-port {{ if and .Spec.Prefill .Spec.Prefill.Parallelism .Spec.Prefill.Parallelism.DataRPCPort }}{{ .Spec.Prefill.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
             --data-parallel-start-rank $START_RANK \
             --headless \
             ${ACCESS_LOG_ARGS} \
@@ -3880,7 +4236,11 @@ spec:
           value: INFO
         - name: HF_HUB_CACHE
           value: /models
-        image: ghcr.io/llm-d/llm-d-cuda:v0.8.0
+        - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        image: ghcr.io/llm-d/llm-d-cuda:v0.9.0
         imagePullPolicy: IfNotPresent
         lifecycle:
           preStop:
@@ -4254,7 +4614,7 @@ spec:
   router:
     scheduler:
       annotations:
-        app.kubernetes.io/version: 0.9.0
+        app.kubernetes.io/version: 0.10.0
       pool:
         spec:
           endpointPickerRef:
@@ -4294,7 +4654,7 @@ spec:
           env:
           - name: SSL_CERT_DIR
             value: /var/run/kserve/tls:/var/run/secrets/kubernetes.io/serviceaccount:/etc/pki/tls/certs
-          image: ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.9.0
+          image: ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.10.0
           imagePullPolicy: IfNotPresent
           lifecycle:
             preStop:
@@ -4368,6 +4728,68 @@ spec:
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
+  name: kserve-config-llm-scheduler-eppconfig-default
+  namespace: kserve
+spec:
+  router:
+    scheduler:
+      config:
+        inline:
+          apiVersion: llm-d.ai/v1alpha1
+          kind: EndpointPickerConfig
+          plugins:
+          - type: approx-prefix-cache-producer
+          - type: inflight-load-producer
+          - type: prefix-cache-affinity-filter
+          - type: token-load-scorer
+          schedulingProfiles:
+          - name: default
+            plugins:
+            - pluginRef: prefix-cache-affinity-filter
+            - pluginRef: token-load-scorer
+---
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceServiceConfig
+metadata:
+  name: kserve-config-llm-scheduler-eppconfig-default-pd
+  namespace: kserve
+spec:
+  router:
+    scheduler:
+      config:
+        inline:
+          apiVersion: llm-d.ai/v1alpha1
+          kind: EndpointPickerConfig
+          plugins:
+          - type: always-disagg-pd-decider
+          - parameters:
+              deciders:
+                prefill: always-disagg-pd-decider
+            type: disagg-profile-handler
+          - type: prefill-filter
+          - type: decode-filter
+          - type: approx-prefix-cache-producer
+          - type: inflight-load-producer
+          - type: prefix-cache-affinity-filter
+          - type: token-load-scorer
+          - type: active-request-scorer
+          - type: max-score-picker
+          schedulingProfiles:
+          - name: prefill
+            plugins:
+            - pluginRef: prefill-filter
+            - pluginRef: prefix-cache-affinity-filter
+            - pluginRef: token-load-scorer
+            - pluginRef: max-score-picker
+          - name: decode
+            plugins:
+            - pluginRef: decode-filter
+            - pluginRef: active-request-scorer
+            - pluginRef: max-score-picker
+---
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceServiceConfig
+metadata:
   name: kserve-config-llm-scheduler-latency-predictor
   namespace: kserve
 spec:
@@ -4410,7 +4832,7 @@ spec:
             value: "500"
           - name: LATENCY_OBJECTIVE_TYPE
             value: mean
-          image: ghcr.io/llm-d/llm-d-latency-predictor-training-server:v0.8.0
+          image: ghcr.io/llm-d/llm-d-latency-predictor-training-server:0.9.0
           imagePullPolicy: IfNotPresent
           livenessProbe:
             httpGet:
@@ -4486,7 +4908,7 @@ spec:
             value: "30"
           - name: LATENCY_OBJECTIVE_TYPE
             value: mean
-          image: ghcr.io/llm-d/llm-d-latency-predictor-prediction-server:v0.8.0
+          image: ghcr.io/llm-d/llm-d-latency-predictor-prediction-server:0.9.0
           imagePullPolicy: IfNotPresent
           livenessProbe:
             failureThreshold: 5
@@ -4565,6 +4987,43 @@ spec:
       - /bin/bash
       - -c
       - |-
+        # Spyre architecture-specific setup for ppc64le/s390x
+        if [ -d /opt/ibm/spyre ]; then
+          ARCH="$(arch)"
+          case "${ARCH}" in
+            ppc64le)
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            s390x)
+              export FLEX_DEVICE=VF
+              if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                source /etc/profile.d/ibm-aiu-setup.sh
+              fi
+              export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+              if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > "$HOME/.senlib.json" && [ -s "$HOME/.senlib.json" ]; then
+                  export SENLIB_DEVEL_CONFIG_FILE="$HOME/.senlib.json"
+                else
+                  echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                  rm -f "$HOME/.senlib.json"
+                fi
+              else
+                echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+              fi
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            x86_64)
+              export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+              ;;
+          esac
+        fi
+
         if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
           source /etc/profile.d/ibm-aiu-setup.sh
         fi
@@ -4718,6 +5177,7 @@ spec:
         eval "exec vllm serve /mnt/models \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8000 \
+          --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
           ${ACCESS_LOG_ARGS} \
           ${SHUTDOWN_TIMEOUT_ARGS} \
           ${KV_TRANSFER_ARGS} \
@@ -4735,7 +5195,7 @@ spec:
         value: INFO
       - name: HF_HUB_CACHE
         value: /models
-      image: ghcr.io/llm-d/llm-d-cuda:v0.8.0
+      image: ghcr.io/llm-d/llm-d-cuda:v0.9.0
       imagePullPolicy: IfNotPresent
       lifecycle:
         preStop:
@@ -4913,6 +5373,43 @@ spec:
       - /bin/bash
       - -c
       - |-
+        # Spyre architecture-specific setup for ppc64le/s390x
+        if [ -d /opt/ibm/spyre ]; then
+          ARCH="$(arch)"
+          case "${ARCH}" in
+            ppc64le)
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            s390x)
+              export FLEX_DEVICE=VF
+              if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                source /etc/profile.d/ibm-aiu-setup.sh
+              fi
+              export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+              if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > "$HOME/.senlib.json" && [ -s "$HOME/.senlib.json" ]; then
+                  export SENLIB_DEVEL_CONFIG_FILE="$HOME/.senlib.json"
+                else
+                  echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                  rm -f "$HOME/.senlib.json"
+                fi
+              else
+                echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+              fi
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            x86_64)
+              export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+              ;;
+          esac
+        fi
+
         if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
           source /etc/profile.d/ibm-aiu-setup.sh
         fi
@@ -5089,13 +5586,14 @@ spec:
           /mnt/models \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8000 \
+          --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
           --api-server-count ${VLLM_API_SERVER_COUNT:-8} \
-          {{- if .Spec.Parallelism.Expert -}}--enable-expert-parallel{{- end }} \
-          {{- if .Spec.Parallelism.Tensor -}}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
-          --data-parallel-size {{ or .Spec.Parallelism.Data 1 }} \
-          --data-parallel-size-local {{ or .Spec.Parallelism.DataLocal 1 }} \
+          {{- if and .Spec.Parallelism .Spec.Parallelism.Expert -}}--enable-expert-parallel{{- end }} \
+          {{- if and .Spec.Parallelism .Spec.Parallelism.Tensor -}}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
+          --data-parallel-size {{ or (and .Spec.Parallelism .Spec.Parallelism.Data) 1 }} \
+          --data-parallel-size-local {{ or (and .Spec.Parallelism .Spec.Parallelism.DataLocal) 1 }} \
           --data-parallel-address ${DP_ADDRESS} \
-          --data-parallel-rpc-port {{ if .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
+          --data-parallel-rpc-port {{ if and .Spec.Parallelism .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
           --data-parallel-start-rank $START_RANK \
           ${ACCESS_LOG_ARGS} \
           ${SHUTDOWN_TIMEOUT_ARGS} \
@@ -5113,7 +5611,7 @@ spec:
         value: INFO
       - name: HF_HUB_CACHE
         value: /models
-      image: ghcr.io/llm-d/llm-d-cuda:v0.8.0
+      image: ghcr.io/llm-d/llm-d-cuda:v0.9.0
       imagePullPolicy: IfNotPresent
       lifecycle:
         preStop:
@@ -5196,6 +5694,43 @@ spec:
       - /bin/bash
       - -c
       - |-
+        # Spyre architecture-specific setup for ppc64le/s390x
+        if [ -d /opt/ibm/spyre ]; then
+          ARCH="$(arch)"
+          case "${ARCH}" in
+            ppc64le)
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            s390x)
+              export FLEX_DEVICE=VF
+              if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                source /etc/profile.d/ibm-aiu-setup.sh
+              fi
+              export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+              if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > "$HOME/.senlib.json" && [ -s "$HOME/.senlib.json" ]; then
+                  export SENLIB_DEVEL_CONFIG_FILE="$HOME/.senlib.json"
+                else
+                  echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                  rm -f "$HOME/.senlib.json"
+                fi
+              else
+                echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+              fi
+              if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                . /opt/rh/gcc-toolset-14/enable
+                export PATH
+              fi
+              ;;
+            x86_64)
+              export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+              ;;
+          esac
+        fi
+
         if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
           source /etc/profile.d/ibm-aiu-setup.sh
         fi
@@ -5342,7 +5877,7 @@ spec:
           fi
         fi
 
-        START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or .Spec.Parallelism.DataLocal 1 }} ))
+        START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or (and .Spec.Parallelism .Spec.Parallelism.DataLocal) 1 }} ))
 
         # --disable-access-log-for-endpoints landed in vLLM 0.16.0 (vllm-project/vllm#30011).
         # Older versions still need the blanket --disable-uvicorn-access-log.
@@ -5372,12 +5907,13 @@ spec:
           /mnt/models \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8000 \
-          {{- if .Spec.Parallelism.Expert }}--enable-expert-parallel{{- end }} \
-          {{- if .Spec.Parallelism.Tensor }}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
-          --data-parallel-size {{ or .Spec.Parallelism.Data 1 }} \
-          --data-parallel-size-local {{ or .Spec.Parallelism.DataLocal 1 }} \
+          --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
+          {{- if and .Spec.Parallelism .Spec.Parallelism.Expert }}--enable-expert-parallel{{- end }} \
+          {{- if and .Spec.Parallelism .Spec.Parallelism.Tensor }}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
+          --data-parallel-size {{ or (and .Spec.Parallelism .Spec.Parallelism.Data) 1 }} \
+          --data-parallel-size-local {{ or (and .Spec.Parallelism .Spec.Parallelism.DataLocal) 1 }} \
           --data-parallel-address ${DP_ADDRESS} \
-          --data-parallel-rpc-port {{ if .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
+          --data-parallel-rpc-port {{ if and .Spec.Parallelism .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
           --data-parallel-start-rank $START_RANK \
           --headless \
           ${ACCESS_LOG_ARGS} \
@@ -5396,7 +5932,7 @@ spec:
         value: INFO
       - name: HF_HUB_CACHE
         value: /models
-      image: ghcr.io/llm-d/llm-d-cuda:v0.8.0
+      image: ghcr.io/llm-d/llm-d-cuda:v0.9.0
       imagePullPolicy: IfNotPresent
       lifecycle:
         preStop:
@@ -5450,6 +5986,95 @@ spec:
     - name: tls-certs
       secret:
         secretName: '{{ ChildName .ObjectMeta.Name `-kserve-self-signed-certs` }}'
+---
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceServiceConfig
+metadata:
+  name: kserve-config-sglang-template
+  namespace: kserve
+spec:
+  template:
+    containers:
+    - command:
+      - /bin/bash
+      - -c
+      - |-
+        args=(
+          python3 -m sglang.launch_server
+          --model-path /mnt/models
+          --served-model-name "{{ .Spec.Model.Name }}"
+          --port 8000
+          --host 0.0.0.0
+          {{- if and .Spec.Parallelism .Spec.Parallelism.Tensor }} --tp {{ .Spec.Parallelism.Tensor }}{{- end }}
+          {{- if .Spec.TrustRemoteCode }} --trust-remote-code{{- end }}
+        )
+        exec "${args[@]}" "$@"
+      - --
+      env:
+      - name: HOME
+        value: /home
+      - name: HF_HUB_CACHE
+        value: /models
+      imagePullPolicy: IfNotPresent
+      livenessProbe:
+        failureThreshold: 3
+        httpGet:
+          path: /health
+          port: 8000
+          scheme: HTTP
+        periodSeconds: 10
+        timeoutSeconds: 10
+      name: main
+      ports:
+      - containerPort: 8000
+        protocol: TCP
+      readinessProbe:
+        failureThreshold: 60
+        httpGet:
+          path: /health
+          port: 8000
+          scheme: HTTP
+        periodSeconds: 10
+        timeoutSeconds: 5
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+          - ALL
+        readOnlyRootFilesystem: true
+        seccompProfile:
+          type: RuntimeDefault
+      startupProbe:
+        failureThreshold: 60
+        httpGet:
+          path: /health
+          port: 8000
+          scheme: HTTP
+        periodSeconds: 10
+        timeoutSeconds: 10
+      terminationMessagePath: /dev/termination-log
+      terminationMessagePolicy: FallbackToLogsOnError
+      volumeMounts:
+      - mountPath: /home
+        name: home
+      - mountPath: /tmp
+        name: tmp-dir
+      - mountPath: /dev/shm
+        name: dshm
+      - mountPath: /models
+        name: model-cache
+    terminationGracePeriodSeconds: 30
+    volumes:
+    - emptyDir: {}
+      name: home
+    - emptyDir:
+        medium: Memory
+        sizeLimit: 1Gi
+      name: dshm
+    - emptyDir: {}
+      name: model-cache
+    - emptyDir: {}
+      name: tmp-dir
 KSERVE_LLMISVCCONFIG_MANIFEST_EOF
 }
 
@@ -5467,7 +6092,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.21.0
   name: clusterservingruntimes.serving.kserve.io
 spec:
   group: serving.kserve.io
@@ -7462,6 +8087,10 @@ spec:
                                     type: integer
                                   signerName:
                                     type: string
+                                  userAnnotations:
+                                    additionalProperties:
+                                      type: string
+                                    type: object
                                 required:
                                 - keyType
                                 - signerName
@@ -9486,6 +10115,10 @@ spec:
                                         type: integer
                                       signerName:
                                         type: string
+                                      userAnnotations:
+                                        additionalProperties:
+                                          type: string
+                                        type: object
                                     required:
                                     - keyType
                                     - signerName
@@ -9694,7 +10327,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.21.0
   name: clusterstoragecontainers.serving.kserve.io
 spec:
   group: serving.kserve.io
@@ -10466,7 +11099,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.21.0
   name: inferencegraphs.serving.kserve.io
 spec:
   group: serving.kserve.io
@@ -11120,7 +11753,7 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     cert-manager.io/inject-ca-from: kserve/serving-cert
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.21.0
   name: inferenceservices.serving.kserve.io
 spec:
   group: serving.kserve.io
@@ -19526,6 +20159,11 @@ spec:
                           x-kubernetes-list-map-keys:
                           - name
                           x-kubernetes-list-type: map
+                        schedulingGroup:
+                          properties:
+                            podGroupName:
+                              type: string
+                          type: object
                         securityContext:
                           properties:
                             appArmorProfile:
@@ -22567,6 +23205,10 @@ spec:
                                               type: integer
                                             signerName:
                                               type: string
+                                            userAnnotations:
+                                              additionalProperties:
+                                                type: string
+                                              type: object
                                           required:
                                           - keyType
                                           - signerName
@@ -25541,6 +26183,11 @@ spec:
                               x-kubernetes-list-map-keys:
                               - name
                               x-kubernetes-list-type: map
+                            schedulingGroup:
+                              properties:
+                                podGroupName:
+                                  type: string
+                              type: object
                             securityContext:
                               properties:
                                 appArmorProfile:
@@ -26318,6 +26965,10 @@ spec:
                                                   type: integer
                                                 signerName:
                                                   type: string
+                                                userAnnotations:
+                                                  additionalProperties:
+                                                    type: string
+                                                  type: object
                                               required:
                                               - keyType
                                               - signerName
@@ -30378,6 +31029,11 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
+                  schedulingGroup:
+                    properties:
+                      podGroupName:
+                        type: string
+                    type: object
                   securityContext:
                     properties:
                       appArmorProfile:
@@ -31173,6 +31829,10 @@ spec:
                                         type: integer
                                       signerName:
                                         type: string
+                                      userAnnotations:
+                                        additionalProperties:
+                                          type: string
+                                        type: object
                                     required:
                                     - keyType
                                     - signerName
@@ -38920,6 +39580,11 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
+                  schedulingGroup:
+                    properties:
+                      podGroupName:
+                        type: string
+                    type: object
                   securityContext:
                     properties:
                       appArmorProfile:
@@ -41931,6 +42596,10 @@ spec:
                                         type: integer
                                       signerName:
                                         type: string
+                                      userAnnotations:
+                                        additionalProperties:
+                                          type: string
+                                        type: object
                                     required:
                                     - keyType
                                     - signerName
@@ -44905,6 +45574,11 @@ spec:
                         x-kubernetes-list-map-keys:
                         - name
                         x-kubernetes-list-type: map
+                      schedulingGroup:
+                        properties:
+                          podGroupName:
+                            type: string
+                        type: object
                       securityContext:
                         properties:
                           appArmorProfile:
@@ -45682,6 +46356,10 @@ spec:
                                             type: integer
                                           signerName:
                                             type: string
+                                          userAnnotations:
+                                            additionalProperties:
+                                              type: string
+                                            type: object
                                         required:
                                         - keyType
                                         - signerName
@@ -46612,6 +47290,17 @@ spec:
                       workingDir:
                         type: string
                     type: object
+                type: object
+              tracing:
+                properties:
+                  exporter:
+                    type: string
+                  exporterEndpoint:
+                    type: string
+                  sampler:
+                    type: string
+                  samplerArg:
+                    type: string
                 type: object
               transformer:
                 properties:
@@ -48988,6 +49677,11 @@ spec:
                     x-kubernetes-list-map-keys:
                     - name
                     x-kubernetes-list-type: map
+                  schedulingGroup:
+                    properties:
+                      podGroupName:
+                        type: string
+                    type: object
                   securityContext:
                     properties:
                       appArmorProfile:
@@ -49783,6 +50477,10 @@ spec:
                                         type: integer
                                       signerName:
                                         type: string
+                                      userAnnotations:
+                                        additionalProperties:
+                                          type: string
+                                        type: object
                                     required:
                                     - keyType
                                     - signerName
@@ -50249,7 +50947,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.21.0
   name: servingruntimes.serving.kserve.io
 spec:
   group: serving.kserve.io
@@ -52244,6 +52942,10 @@ spec:
                                     type: integer
                                   signerName:
                                     type: string
+                                  userAnnotations:
+                                    additionalProperties:
+                                      type: string
+                                    type: object
                                 required:
                                 - keyType
                                 - signerName
@@ -54268,6 +54970,10 @@ spec:
                                         type: integer
                                       signerName:
                                         type: string
+                                      userAnnotations:
+                                        additionalProperties:
+                                          type: string
+                                        type: object
                                     required:
                                     - keyType
                                     - signerName
@@ -54476,7 +55182,7 @@ apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
   annotations:
-    controller-gen.kubebuilder.io/version: v0.19.0
+    controller-gen.kubebuilder.io/version: v0.21.0
   name: trainedmodels.serving.kserve.io
 spec:
   group: serving.kserve.io
@@ -55367,6 +56073,25 @@ data:
            # disableHTTPRouteTimeout controls whether to omit the timeout field from HTTPRoute rules.
            # Set to true for Gateway controllers (e.g. GKE Gateway) that do not support the optional timeouts field.
            "disableHTTPRouteTimeout": false,
+
+           # loraModelRoutingStrategy selects how LLMInferenceService LoRA adapter expansion represents
+           # model identities in generated HTTPRoutes. It only applies where model-based routing is in
+           # effect, and a change reaches every LoRA service on its next reconcile unless the service pins
+           # its own value with the spec annotation serving.kserve.io/lora-model-routing-strategy,
+           # which a preset may carry. "exact" (the default when omitted) renders one Exact header match
+           # per identity; "regex" collapses the base model and all adapters into a single anchored
+           # RegularExpression match. Any other value fails config loading, like the other ingress keys.
+           # A route the strategy cannot be applied to (a user-supplied model-routing match the regex
+           # transform does not recognize) reports HTTPRoutesReady=False with reason
+           # RoutingPreconditionNotMet while workload and scheduler reconciliation continue; the existing
+           # HTTPRoute keeps serving as-is (deleted group peers are still pruned from it) but is not
+           # recreated if removed. The practical "regex" ceiling depends on the gateway: Envoy Gateway
+           # disables Envoy's RE2 program-size check, so the 4096-character header value limit binds
+           # (Envoy logs a size warning past roughly 70 adapters); Istio allows a program size of 32768;
+           # a provider left at Envoy's default of 100 fits only a couple of adapters. A proxy that
+           # rejects the pattern reports an xDS NACK in the gateway controller's logs, not on the
+           # HTTPRoute.
+           "loraModelRoutingStrategy": "exact",
 
            # pathTemplate specifies the template for generating path based url for each inference service.
            # The following variables can be used in the template for generating url.
