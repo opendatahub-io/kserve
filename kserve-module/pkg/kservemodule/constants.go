@@ -68,11 +68,10 @@ const (
 	llmISVCConfigVersion     = "v1alpha2"
 	llmISVCConfigKind        = "LLMInferenceServiceConfig"
 
-	// llmISVCConfigWebhookName is the dedicated ValidatingWebhookConfiguration
-	// that guards LLMInferenceServiceConfig create/update/delete. It is removed
-	// during Kserve CR teardown so the well-known configs can be deleted; it only
-	// covers LLMInferenceServiceConfig, so removing it leaves the separate
-	// LLMInferenceService webhooks untouched.
+	// llmISVCConfigWebhookName identifies the dedicated ValidatingWebhookConfiguration
+	// for LLMInferenceServiceConfig resources. During Kserve CR teardown, the
+	// controller temporarily removes DELETE from matching v1alpha2 rules, then
+	// restores those rules. The webhook does not cover LLMInferenceService resources.
 	llmISVCConfigWebhookName = "llminferenceserviceconfig.serving.kserve.io"
 
 	// Template (ServingRuntime) resource type

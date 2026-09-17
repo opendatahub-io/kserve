@@ -244,17 +244,22 @@ func (r *KserveModuleReconciler) deleteWellKnownConfigs(ctx context.Context, con
 		if !configs[i].GetDeletionTimestamp().IsZero() {
 			continue // already terminating
 		}
+		var lastDeleteErr error
 		err := wait.PollUntilContextTimeout(ctx, configDeletionRetryInterval, configDeletionRetryTimeout, true, func(ctx context.Context) (bool, error) {
 			err := r.Delete(ctx, &configs[i])
 			if err == nil || k8serr.IsNotFound(err) {
 				return true, nil
 			}
+			lastDeleteErr = err
 			if k8serr.IsForbidden(err) {
 				return false, nil
 			}
 			return false, err
 		})
 		if err != nil {
+			if lastDeleteErr != nil && !errors.Is(err, lastDeleteErr) {
+				err = errors.Join(err, lastDeleteErr)
+			}
 			return fmt.Errorf("deleting LLMInferenceServiceConfig %s: %w", configs[i].GetName(), err)
 		}
 		log.Info("deleted well-known LLMInferenceServiceConfig", "name", configs[i].GetName())
@@ -315,7 +320,7 @@ func (r *KserveModuleReconciler) disableConfigDeletionWebhookDelete(ctx context.
 			}
 		}
 		if len(patch.rules) == 0 {
-			return fmt.Errorf("no v1alpha2 LLMInferenceServiceConfig DELETE rule found in %s", llmISVCConfigWebhookName)
+			return nil
 		}
 		saved, err := json.Marshal(patch.rules)
 		if err != nil {
@@ -341,6 +346,7 @@ func (r *KserveModuleReconciler) disableConfigDeletionWebhookDelete(ctx context.
 // disableConfigDeletionWebhookDelete. It uses a fresh read on every conflict so
 // unrelated webhook updates are preserved.
 func (r *KserveModuleReconciler) restoreConfigDeletionWebhookDelete(ctx context.Context, patch configDeletionWebhookPatch) error {
+	restored := false
 	if err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 		webhook := &admissionregistrationv1.ValidatingWebhookConfiguration{}
 		if err := r.configWebhookReader().Get(ctx, client.ObjectKey{Name: llmISVCConfigWebhookName}, webhook); err != nil {
@@ -350,11 +356,12 @@ func (r *KserveModuleReconciler) restoreConfigDeletionWebhookDelete(ctx context.
 			return fmt.Errorf("getting %s ValidatingWebhookConfiguration for restore: %w", llmISVCConfigWebhookName, err)
 		}
 		saved := webhook.Annotations[configWebhookRestoreAnnotation]
-		if saved == "" {
+		if saved != "" {
+			if err := json.Unmarshal([]byte(saved), &patch.rules); err != nil {
+				return fmt.Errorf("reading pending config webhook restoration: %w", err)
+			}
+		} else if len(patch.rules) == 0 {
 			return nil
-		}
-		if err := json.Unmarshal([]byte(saved), &patch.rules); err != nil {
-			return fmt.Errorf("reading pending config webhook restoration: %w", err)
 		}
 		for _, savedRule := range patch.rules {
 			webhookIndex := webhookIndexByName(webhook.Webhooks, savedRule.WebhookName)
@@ -383,11 +390,17 @@ func (r *KserveModuleReconciler) restoreConfigDeletionWebhookDelete(ctx context.
 			}
 		}
 		delete(webhook.Annotations, configWebhookRestoreAnnotation)
-		return r.Update(ctx, webhook)
+		if err := r.Update(ctx, webhook); err != nil {
+			return err
+		}
+		restored = true
+		return nil
 	}); err != nil {
 		return fmt.Errorf("restoring %s ValidatingWebhookConfiguration: %w", llmISVCConfigWebhookName, err)
 	}
-	ctrl.LoggerFrom(ctx).Info("restored config-deletion validating webhook rule", "name", llmISVCConfigWebhookName)
+	if restored {
+		ctrl.LoggerFrom(ctx).Info("restored config-deletion validating webhook rule", "name", llmISVCConfigWebhookName)
+	}
 	return nil
 }
 

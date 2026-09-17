@@ -269,15 +269,23 @@ func TestConfigDeletionWebhookDeleteRule(t *testing.T) {
 		g.Expect(r.restoreConfigDeletionWebhookDelete(context.Background(), patch)).To(Succeed())
 	})
 
-	t.Run("returns an error when the v1alpha2 DELETE rule is absent", func(t *testing.T) {
+	t.Run("does nothing when the v1alpha2 DELETE rule is absent", func(t *testing.T) {
 		g := NewWithT(t)
 		webhook := newWebhook()
 		webhook.Webhooks[0].Rules[0].Operations = []admissionregistrationv1.OperationType{admissionregistrationv1.Create, admissionregistrationv1.Update}
 		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(webhook).Build()
 		r := &KserveModuleReconciler{Client: cli}
 
-		_, err := r.disableConfigDeletionWebhookDelete(context.Background())
-		g.Expect(err).To(MatchError(ContainSubstring("no v1alpha2 LLMInferenceServiceConfig DELETE rule found")))
+		patch, err := r.disableConfigDeletionWebhookDelete(context.Background())
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(patch.rules).To(BeEmpty())
+		got := &admissionregistrationv1.ValidatingWebhookConfiguration{}
+		g.Expect(cli.Get(context.Background(), webhookKey, got)).To(Succeed())
+		g.Expect(got.Webhooks[0].Rules[0].Operations).To(Equal([]admissionregistrationv1.OperationType{
+			admissionregistrationv1.Create,
+			admissionregistrationv1.Update,
+		}))
+		g.Expect(got.Annotations).NotTo(HaveKey(configWebhookRestoreAnnotation))
 	})
 }
 
@@ -304,4 +312,27 @@ func TestDeleteWellKnownConfigsRetriesForbidden(t *testing.T) {
 
 	g.Expect(r.deleteWellKnownConfigs(context.Background(), []unstructured.Unstructured{config})).To(Succeed())
 	g.Expect(deleteAttempts).To(Equal(2))
+}
+
+func TestDeleteWellKnownConfigsReportsForbiddenAfterRetryTimeout(t *testing.T) {
+	g := NewWithT(t)
+	scheme := runtime.NewScheme()
+	config := unstructured.Unstructured{Object: map[string]any{}}
+	config.SetGroupVersionKind(llmISVCConfigGVK)
+	config.SetNamespace("test")
+	config.SetName("default")
+
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(&config).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				return k8serr.NewForbidden(schema.GroupResource{Group: llmISVCConfigGVK.Group, Resource: "llminferenceserviceconfigs"}, obj.GetName(), errors.New("webhook cache not updated"))
+			},
+		}).Build()
+	r := &KserveModuleReconciler{Client: cli}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	err := r.deleteWellKnownConfigs(ctx, []unstructured.Unstructured{config})
+	g.Expect(err).To(HaveOccurred())
+	g.Expect(err.Error()).To(And(ContainSubstring("context deadline exceeded"), ContainSubstring("webhook cache not updated")))
 }
