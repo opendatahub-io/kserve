@@ -116,47 +116,33 @@ func mountTransformerTLSInfrastructure(deployment *appsv1.Deployment, componentM
 	return nil
 }
 
-func customizeAuthProxyArgs(componentMeta metav1.ObjectMeta, generated []string, isvcName string) []string {
-	if _, explicit := componentMeta.Annotations[constants.ODHKserveAuditLoggingProfile]; !explicit {
+// customizeAuthProxyArgs replaces only controller-managed audit arguments with
+// the explicitly resolved effective profile.
+func customizeAuthProxyArgs(profile constants.AuditLoggingProfile, manage bool, componentMeta metav1.ObjectMeta, generated []string, isvcName string) []string {
+	if !manage {
 		return generated
 	}
 	args := removeManagedAuditArgs(generated)
-	return append(args, desiredAuditArgs(componentMeta, isvcName)...)
+	return append(args, desiredAuditArgs(profile, componentMeta, isvcName)...)
 }
 
-func platformAuthProxyNeedsUpdate(componentMeta metav1.ObjectMeta, existing *appsv1.Deployment, isvcName string) bool {
-	if existing == nil {
+// platformAuthProxyNeedsUpdate reports whether a kube-rbac-proxy's managed
+// audit arguments differ from the resolved effective profile.
+func platformAuthProxyNeedsUpdate(profile constants.AuditLoggingProfile, manage bool, existing *appsv1.Deployment, componentMeta metav1.ObjectMeta, isvcName string) bool {
+	if existing == nil || !manage {
 		return false
 	}
-	if platformAuthProxyShouldPreserve(componentMeta, existing) {
-		return false
-	}
-	desired := desiredAuditArgs(componentMeta, isvcName)
+	desired := desiredAuditArgs(profile, componentMeta, isvcName)
 	for _, container := range existing.Spec.Template.Spec.Containers {
-		if container.Name == constants.KubeRbacContainerName || container.Name == constants.OauthProxyContainerName {
+		if container.Name == constants.KubeRbacContainerName {
 			return !sameArgs(managedAuditArgs(container.Args), desired)
-		}
-	}
-	return len(desired) > 0
-}
-
-func platformAuthProxyShouldPreserve(componentMeta metav1.ObjectMeta, existing *appsv1.Deployment) bool {
-	if existing == nil {
-		return false
-	}
-	if _, explicit := componentMeta.Annotations[constants.ODHKserveAuditLoggingProfile]; explicit {
-		return false
-	}
-	for _, container := range existing.Spec.Template.Spec.Containers {
-		if container.Name == constants.KubeRbacContainerName || container.Name == constants.OauthProxyContainerName {
-			return true
 		}
 	}
 	return false
 }
 
-func desiredAuditArgs(componentMeta metav1.ObjectMeta, isvcName string) []string {
-	profile := constants.AuditLoggingProfile(componentMeta.Annotations[constants.ODHKserveAuditLoggingProfile])
+// desiredAuditArgs builds controller-managed arguments for the effective profile.
+func desiredAuditArgs(profile constants.AuditLoggingProfile, componentMeta metav1.ObjectMeta, isvcName string) []string {
 	if profile != constants.AuditLoggingProfileMetadata {
 		return nil
 	}
@@ -173,6 +159,8 @@ func desiredAuditArgs(componentMeta metav1.ObjectMeta, isvcName string) []string
 	}
 }
 
+// removeManagedAuditArgs removes every kube-rbac-proxy argument in the
+// controller-owned audit namespace while leaving unrelated arguments intact.
 func removeManagedAuditArgs(args []string) []string {
 	filtered := make([]string, 0, len(args))
 	for _, arg := range args {
@@ -183,6 +171,8 @@ func removeManagedAuditArgs(args []string) []string {
 	return filtered
 }
 
+// managedAuditArgs returns the controller-owned audit arguments in their
+// original order for exact desired-state comparison.
 func managedAuditArgs(args []string) []string {
 	result := make([]string, 0)
 	for _, arg := range args {
@@ -193,6 +183,7 @@ func managedAuditArgs(args []string) []string {
 	return result
 }
 
+// sameArgs reports whether two ordered argument slices are identical.
 func sameArgs(left, right []string) bool {
 	if len(left) != len(right) {
 		return false
@@ -205,6 +196,8 @@ func sameArgs(left, right []string) bool {
 	return true
 }
 
+// isManagedAuditArg reports whether an argument belongs to the controller-owned
+// kube-rbac-proxy audit namespace.
 func isManagedAuditArg(arg string) bool {
 	name, _, _ := strings.Cut(arg, "=")
 	return strings.HasPrefix(name, "--audit-")

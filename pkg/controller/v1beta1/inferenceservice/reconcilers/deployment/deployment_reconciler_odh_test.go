@@ -305,6 +305,8 @@ func TestTransformerTLSNotInjectedWithoutAuth(t *testing.T) {
 func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 	tests := []struct {
 		name                string
+		profile             constants.AuditLoggingProfile
+		manageAuditLogging  bool
 		annotations         map[string]string
 		existingDeployment  *appsv1.Deployment
 		wantAuditArgs       []string
@@ -315,10 +317,11 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 		wantProxyArgs       []string
 	}{
 		{
-			name: "metadata configures a new predictor proxy",
+			name:               "metadata configures a new predictor proxy",
+			profile:            constants.AuditLoggingProfileMetadata,
+			manageAuditLogging: true,
 			annotations: map[string]string{
-				constants.ODHKserveRawAuth:             "true",
-				constants.ODHKserveAuditLoggingProfile: "metadata",
+				constants.ODHKserveRawAuth: "true",
 			},
 			wantAuditArgs: []string{
 				"--audit-log-profile=metadata",
@@ -329,19 +332,22 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			},
 		},
 		{
-			name: "none configures a new predictor without audit arguments",
+			name:               "none configures a new predictor without audit arguments",
+			profile:            constants.AuditLoggingProfileNone,
+			manageAuditLogging: true,
 			annotations: map[string]string{
-				constants.ODHKserveRawAuth:             "true",
-				constants.ODHKserveAuditLoggingProfile: "none",
+				constants.ODHKserveRawAuth: "true",
 			},
 		},
 		{
-			name: "none removes an existing audit configuration",
+			name:               "none removes an existing audit configuration",
+			profile:            constants.AuditLoggingProfileNone,
+			manageAuditLogging: true,
 			annotations: map[string]string{
-				constants.ODHKserveRawAuth:             "true",
-				constants.ODHKserveAuditLoggingProfile: "none",
+				constants.ODHKserveRawAuth: "true",
 			},
 			existingDeployment: deploymentWithAuthProxyImage("outdated-proxy",
+				"--v=8",
 				"--audit-log-enabled",
 				"--audit-isvc-name=test-isvc",
 				"--audit-isvc-namespace=test-ns",
@@ -354,19 +360,21 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			wantConfiguredProxy: true,
 		},
 		{
-			name: "none removes unknown audit arguments",
+			name:               "none removes unknown audit arguments",
+			profile:            constants.AuditLoggingProfileNone,
+			manageAuditLogging: true,
 			annotations: map[string]string{
-				constants.ODHKserveRawAuth:             "true",
-				constants.ODHKserveAuditLoggingProfile: "none",
+				constants.ODHKserveRawAuth: "true",
 			},
 			existingDeployment:  deploymentWithAuthProxyImage("outdated-proxy", "--audit-future-option=unchanged"),
 			wantConfiguredProxy: true,
 		},
 		{
-			name: "metadata enables an existing unaudited predictor",
+			name:               "metadata enables an existing unaudited predictor",
+			profile:            constants.AuditLoggingProfileMetadata,
+			manageAuditLogging: true,
 			annotations: map[string]string{
-				constants.ODHKserveRawAuth:             "true",
-				constants.ODHKserveAuditLoggingProfile: "metadata",
+				constants.ODHKserveRawAuth: "true",
 			},
 			existingDeployment: deploymentWithAuthProxy(),
 			wantAuditArgs: []string{
@@ -378,12 +386,14 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			},
 		},
 		{
-			name: "metadata replaces stale duplicate and unknown audit arguments",
+			name:               "metadata replaces stale duplicate and unknown audit arguments",
+			profile:            constants.AuditLoggingProfileMetadata,
+			manageAuditLogging: true,
 			annotations: map[string]string{
-				constants.ODHKserveRawAuth:             "true",
-				constants.ODHKserveAuditLoggingProfile: "metadata",
+				constants.ODHKserveRawAuth: "true",
 			},
 			existingDeployment: deploymentWithAuthProxyImage("outdated-proxy",
+				"--v=7",
 				"--audit-log-enabled",
 				"--audit-log-profile=none",
 				"--audit-log-profile=metadata",
@@ -405,10 +415,11 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			wantConfiguredProxy: true,
 		},
 		{
-			name: "metadata canonicalizes reordered audit arguments on a differently imaged proxy",
+			name:               "metadata canonicalizes reordered audit arguments on a differently imaged proxy",
+			profile:            constants.AuditLoggingProfileMetadata,
+			manageAuditLogging: true,
 			annotations: map[string]string{
-				constants.ODHKserveRawAuth:             "true",
-				constants.ODHKserveAuditLoggingProfile: "metadata",
+				constants.ODHKserveRawAuth: "true",
 			},
 			existingDeployment: deploymentWithAuthProxyImage("outdated-proxy",
 				"--audit-ai-provider=KServe",
@@ -427,10 +438,12 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			wantConfiguredProxy: true,
 		},
 		{
-			name: "metadata migrates a legacy oauth proxy",
+			name:               "explicit opt-in migrates a legacy oauth proxy",
+			profile:            constants.AuditLoggingProfileMetadata,
+			manageAuditLogging: true,
 			annotations: map[string]string{
-				constants.ODHKserveRawAuth:             "true",
-				constants.ODHKserveAuditLoggingProfile: "metadata",
+				constants.ODHKserveRawAuth:           "true",
+				constants.ODHAuthProxyTypeAnnotation: constants.KubeRbacProxyType,
 			},
 			existingDeployment: deploymentWithNamedAuthProxy(constants.OauthProxyContainerName, "legacy-oauth"),
 			wantAuditArgs: []string{
@@ -443,7 +456,8 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			wantConfiguredProxy: true,
 		},
 		{
-			name: "annotationless predictor does not infer audit state",
+			name:    "annotationless predictor does not infer audit state",
+			profile: constants.AuditLoggingProfileNone,
 			annotations: map[string]string{
 				constants.DeploymentMode:   string(constants.Standard),
 				constants.ODHKserveRawAuth: "true",
@@ -475,7 +489,8 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			},
 		},
 		{
-			name: "annotationless predictor remains unaudited without patching parent",
+			name:    "annotationless predictor remains unaudited without patching parent",
+			profile: constants.AuditLoggingProfileNone,
 			annotations: map[string]string{
 				constants.DeploymentMode:   string(constants.Standard),
 				constants.ODHKserveRawAuth: "true",
@@ -509,6 +524,8 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 				t.Context(), client, clientset, constants.InferenceServiceResource,
 				meta, metav1.ObjectMeta{}, &v1beta1.ComponentExtensionSpec{},
 				&corev1.PodSpec{Containers: []corev1.Container{{Name: constants.InferenceServiceContainerName}}}, nil, nil,
+				tt.profile,
+				tt.manageAuditLogging,
 			)
 			require.NoError(t, err)
 			require.Len(t, deployments, 1)
@@ -528,7 +545,7 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 				assert.Equal(t, tt.wantAuditArgs, actualAuditArgs)
 			}
 			assert.Equal(t, tt.wantWarning, authProxyPreserved)
-			if tt.wantPreservedProxy {
+			if tt.wantProxyArgs != nil {
 				assert.Equal(t, tt.wantProxyArgs, proxy.Args)
 			} else {
 				assert.NotContains(t, proxy.Args, "--legacy-unrelated-arg")
@@ -569,6 +586,7 @@ func TestCreateRawDeploymentODHPreservesAnnotationlessConfiguredProxy(t *testing
 	initial, _, err := createRawDeploymentODH(
 		t.Context(), initialClient, clientset, constants.InferenceServiceResource,
 		meta, metav1.ObjectMeta{}, &v1beta1.ComponentExtensionSpec{}, podSpec, nil, nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 	require.NoError(t, err)
 	require.Len(t, initial, 1)
@@ -599,6 +617,7 @@ func TestCreateRawDeploymentODHPreservesAnnotationlessConfiguredProxy(t *testing
 	reconciled, authProxyPreserved, err := createRawDeploymentODH(
 		t.Context(), reconcileClient, clientset, constants.InferenceServiceResource,
 		meta, metav1.ObjectMeta{}, &v1beta1.ComponentExtensionSpec{}, podSpec, nil, nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 	require.NoError(t, err)
 	require.Len(t, reconciled, 1)
@@ -608,6 +627,47 @@ func TestCreateRawDeploymentODHPreservesAnnotationlessConfiguredProxy(t *testing
 	assert.Nil(t, reconcileClient.patchedInferenceService)
 	_, err = clientset.CoreV1().ConfigMaps("test-ns").Get(t.Context(), sarConfigMapName, metav1.GetOptions{})
 	require.NoError(t, err)
+}
+
+func TestCreateRawDeploymentODHDoesNotImplicitlyMigrateOAuthProxy(t *testing.T) {
+	existing := deploymentWithNamedAuthProxy(
+		constants.OauthProxyContainerName,
+		"legacy-oauth",
+		"--legacy-oauth-argument",
+	)
+	client := &mockClientForAuthProxyDetection{existingDeployment: existing}
+	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+		Data:       map[string]string{oauthProxyISVCConfigKey: oauthProxyConfig},
+	})
+	meta := metav1.ObjectMeta{
+		Name:        "test-predictor",
+		Namespace:   "test-ns",
+		Annotations: map[string]string{constants.ODHKserveRawAuth: "true"},
+		Labels:      map[string]string{constants.InferenceServicePodLabelKey: "test-isvc"},
+	}
+
+	deployments, authProxyPreserved, err := createRawDeploymentODH(
+		t.Context(), client, clientset, constants.InferenceServiceResource,
+		meta, metav1.ObjectMeta{}, &v1beta1.ComponentExtensionSpec{},
+		&corev1.PodSpec{Containers: []corev1.Container{{Name: constants.InferenceServiceContainerName}}}, nil, nil,
+		constants.AuditLoggingProfileMetadata,
+		true,
+	)
+	require.NoError(t, err)
+	require.Len(t, deployments, 1)
+	assert.True(t, authProxyPreserved)
+
+	var oauthProxy *corev1.Container
+	for i := range deployments[0].Spec.Template.Spec.Containers {
+		container := &deployments[0].Spec.Template.Spec.Containers[i]
+		assert.NotEqual(t, constants.KubeRbacContainerName, container.Name)
+		if container.Name == constants.OauthProxyContainerName {
+			oauthProxy = container
+		}
+	}
+	require.NotNil(t, oauthProxy)
+	assert.Equal(t, []string{"--legacy-oauth-argument"}, oauthProxy.Args)
 }
 
 func TestManagedAuditArgumentBoundaries(t *testing.T) {
@@ -667,14 +727,15 @@ func TestCustomizeAuthProxyArgsAuditSettings(t *testing.T) {
 	}
 	tests := []struct {
 		name        string
+		profile     constants.AuditLoggingProfile
+		manage      bool
 		annotations map[string]string
 		want        []string
 	}{
 		{
-			name: "metadata collapses all managed arguments",
-			annotations: map[string]string{
-				constants.ODHKserveAuditLoggingProfile: "metadata",
-			},
+			name:    "metadata collapses all managed arguments",
+			profile: constants.AuditLoggingProfileMetadata,
+			manage:  true,
 			want: []string{
 				"--upstream=https://example.test/--audit-target",
 				"--audit-log-profile=metadata",
@@ -685,14 +746,14 @@ func TestCustomizeAuthProxyArgsAuditSettings(t *testing.T) {
 			},
 		},
 		{
-			name: "none removes all managed arguments",
-			annotations: map[string]string{
-				constants.ODHKserveAuditLoggingProfile: "none",
-			},
-			want: []string{"--upstream=https://example.test/--audit-target"},
+			name:    "none removes all managed arguments",
+			profile: constants.AuditLoggingProfileNone,
+			manage:  true,
+			want:    []string{"--upstream=https://example.test/--audit-target"},
 		},
 		{
-			name:        "absent setting leaves arguments untouched",
+			name:        "preserve setting leaves arguments untouched",
+			profile:     constants.AuditLoggingProfileNone,
 			annotations: map[string]string{},
 			want:        generated,
 		},
@@ -707,7 +768,7 @@ func TestCustomizeAuthProxyArgsAuditSettings(t *testing.T) {
 					constants.InferenceServicePodLabelKey: "test-isvc",
 				},
 			}
-			assert.Equal(t, tt.want, customizeAuthProxyArgs(meta, generated, "fallback-isvc"))
+			assert.Equal(t, tt.want, customizeAuthProxyArgs(tt.profile, tt.manage, meta, generated, "fallback-isvc"))
 		})
 	}
 }

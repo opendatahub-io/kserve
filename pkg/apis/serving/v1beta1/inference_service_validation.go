@@ -136,7 +136,9 @@ func validateInferenceService(isvc *InferenceService) (admission.Warnings, error
 		return allWarnings, err
 	}
 
-	if err := validatePlatformInferenceService(isvc); err != nil {
+	platformWarnings, err := validatePlatformInferenceService(isvc)
+	allWarnings = append(allWarnings, platformWarnings...)
+	if err != nil {
 		return allWarnings, err
 	}
 

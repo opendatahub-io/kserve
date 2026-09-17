@@ -72,11 +72,14 @@ type Predictor struct {
 	inferenceServiceConfig *v1beta1.InferenceServicesConfig
 	deploymentMode         constants.DeploymentModeType
 	allowZeroInitialScale  bool
+	auditLoggingProfile    constants.AuditLoggingProfile
+	manageAuditLogging     bool
 	Log                    logr.Logger
 }
 
 func NewPredictor(client client.Client, clientset kubernetes.Interface, scheme *runtime.Scheme,
 	inferenceServiceConfig *v1beta1.InferenceServicesConfig, deploymentMode constants.DeploymentModeType, allowZeroInitialScale bool,
+	auditLoggingProfile constants.AuditLoggingProfile, manageAuditLogging bool,
 ) Component {
 	return &Predictor{
 		client:                 client,
@@ -85,6 +88,8 @@ func NewPredictor(client client.Client, clientset kubernetes.Interface, scheme *
 		inferenceServiceConfig: inferenceServiceConfig,
 		deploymentMode:         deploymentMode,
 		allowZeroInitialScale:  allowZeroInitialScale,
+		auditLoggingProfile:    auditLoggingProfile,
+		manageAuditLogging:     manageAuditLogging,
 		Log:                    ctrl.Log.WithName("PredictorReconciler"),
 	}
 }
@@ -836,7 +841,7 @@ func (p *Predictor) reconcileRawDeployment(ctx context.Context, isvc *v1beta1.In
 	adjustStableMinReplicasForCanaries(isvc, &componentExt)
 
 	r, err := raw.NewRawKubeReconciler(ctx, p.client, p.clientset, p.scheme, constants.InferenceServiceResource, objectMeta, workerObjectMeta, &componentExt,
-		podSpec, workerPodSpec, &isvc.Spec.Predictor.StorageUris, storageInitializerConfig, storageSpec, credentialBuilder, storageContainerSpec)
+		podSpec, workerPodSpec, &isvc.Spec.Predictor.StorageUris, storageInitializerConfig, storageSpec, credentialBuilder, storageContainerSpec, p.auditLoggingProfile, p.manageAuditLogging)
 	if err != nil {
 		return nil, errors.Wrapf(err, "fails to create NewRawKubeReconciler for predictor")
 	}
@@ -1003,7 +1008,7 @@ func (p *Predictor) reconcileCanaryDeployments(ctx context.Context, isvc *v1beta
 		componentExt.MinReplicas = &replicas
 
 		r, err := raw.NewRawKubeReconciler(ctx, p.client, p.clientset, p.scheme, constants.InferenceServiceResource, res.objectMeta, metav1.ObjectMeta{},
-			&componentExt, &res.podSpec, nil, nil, nil, nil, nil, nil)
+			&componentExt, &res.podSpec, nil, nil, nil, nil, nil, nil, p.auditLoggingProfile, p.manageAuditLogging)
 		if err != nil {
 			return nil, errors.Wrapf(err, "fails to create canary reconciler for %s", canary.Predictor.Name)
 		}

@@ -20,7 +20,6 @@ package v1beta1
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -31,22 +30,24 @@ import (
 	"github.com/kserve/kserve/pkg/constants"
 )
 
+// defaultPlatformInferenceService applies ODH-specific InferenceService defaults.
+// Audit logging defaults are snapshotted only when the resource is created so
+// updates cannot disturb annotation-less legacy services or restore a removed
+// per-service setting.
 func defaultPlatformInferenceService(ctx context.Context, isvc *InferenceService, configMap *corev1.ConfigMap) error {
 	req, err := admission.RequestFromContext(ctx)
 	if err != nil {
 		return fmt.Errorf("unable to determine InferenceService admission operation for audit logging defaults: %w", err)
 	}
 
-	switch req.Operation {
-	case admissionv1.Create:
-		return defaultAuditLoggingOnCreate(isvc, configMap)
-	case admissionv1.Update:
-		return restoreAuditLoggingOnUpdate(isvc, req.OldObject.Raw)
-	default:
+	if req.Operation != admissionv1.Create {
 		return nil
 	}
+	return defaultAuditLoggingOnCreate(isvc, configMap)
 }
 
+// defaultAuditLoggingOnCreate snapshots the global metadata profile onto new
+// Standard InferenceServices unless the user supplied an explicit profile.
 func defaultAuditLoggingOnCreate(isvc *InferenceService, configMap *corev1.ConfigMap) error {
 	if _, present := isvc.Annotations[constants.ODHKserveAuditLoggingProfile]; present {
 		return nil
@@ -59,7 +60,10 @@ func defaultAuditLoggingOnCreate(isvc *InferenceService, configMap *corev1.Confi
 	if err != nil {
 		return fmt.Errorf("unable to parse OpenShift audit logging configuration: %w", err)
 	}
-	profile := effectiveAuditLoggingProfile(config.AuditLoggingProfile)
+	profile := config.AuditLoggingProfile
+	if profile == "" {
+		profile = constants.AuditLoggingProfileNone
+	}
 	if err := validateAuditLoggingProfile(profile); err != nil {
 		return err
 	}
@@ -73,25 +77,11 @@ func defaultAuditLoggingOnCreate(isvc *InferenceService, configMap *corev1.Confi
 	return nil
 }
 
-func restoreAuditLoggingOnUpdate(isvc *InferenceService, oldObject []byte) error {
-	if _, present := isvc.Annotations[constants.ODHKserveAuditLoggingProfile]; present || len(oldObject) == 0 {
-		return nil
-	}
-
-	var oldIsvc InferenceService
-	if err := json.Unmarshal(oldObject, &oldIsvc); err != nil {
-		return fmt.Errorf("unable to restore persisted audit logging setting: %w", err)
-	}
-	if oldValue, present := oldIsvc.Annotations[constants.ODHKserveAuditLoggingProfile]; present {
-		if isvc.Annotations == nil {
-			isvc.Annotations = map[string]string{}
-		}
-		isvc.Annotations[constants.ODHKserveAuditLoggingProfile] = oldValue
-	}
-	return nil
-}
-
-func validatePlatformInferenceService(isvc *InferenceService) error {
+// validatePlatformInferenceService rejects unsupported top-level profile values
+// and returns non-blocking admission warnings for configurations that the
+// reconciler will safely disable or ignore.
+func validatePlatformInferenceService(isvc *InferenceService) (admission.Warnings, error) {
+	var warnings admission.Warnings
 	type annotatedComponent struct {
 		name        string
 		annotations map[string]string
@@ -105,38 +95,33 @@ func validatePlatformInferenceService(isvc *InferenceService) error {
 	}
 	for _, component := range componentAnnotations {
 		if _, present := component.annotations[constants.ODHKserveAuditLoggingProfile]; present {
-			return fmt.Errorf("annotation %q is only supported on InferenceService metadata, not %s annotations", constants.ODHKserveAuditLoggingProfile, component.name)
+			warnings = append(warnings, fmt.Sprintf("annotation %q is only supported on InferenceService metadata; the value on %s annotations will be ignored", constants.ODHKserveAuditLoggingProfile, component.name))
 		}
 	}
 
 	auditValue, present := isvc.Annotations[constants.ODHKserveAuditLoggingProfile]
 	if !present {
-		return nil
+		return warnings, nil
 	}
 
 	profile := constants.AuditLoggingProfile(auditValue)
 	if err := validateAuditLoggingProfile(profile); err != nil {
-		return err
+		return warnings, err
 	}
 	if profile == constants.AuditLoggingProfileNone {
-		return nil
+		return warnings, nil
 	}
 	if !strings.EqualFold(isvc.Annotations[constants.ODHKserveRawAuth], "true") {
-		return fmt.Errorf("audit logging annotation %q requires authentication annotation %q to be true", constants.ODHKserveAuditLoggingProfile, constants.ODHKserveRawAuth)
+		warnings = append(warnings, fmt.Sprintf("audit logging annotation %q requires authentication annotation %q to be true; audit logging will remain disabled", constants.ODHKserveAuditLoggingProfile, constants.ODHKserveRawAuth))
 	}
 	if isvc.Annotations[constants.DeploymentMode] != string(constants.Standard) {
-		return fmt.Errorf("audit logging annotation %q is only supported in %s deployment mode", constants.ODHKserveAuditLoggingProfile, constants.Standard)
+		warnings = append(warnings, fmt.Sprintf("audit logging annotation %q is only supported in %s deployment mode; audit logging will remain disabled", constants.ODHKserveAuditLoggingProfile, constants.Standard))
 	}
-	return nil
+	return warnings, nil
 }
 
-func effectiveAuditLoggingProfile(profile constants.AuditLoggingProfile) constants.AuditLoggingProfile {
-	if profile == "" {
-		return constants.AuditLoggingProfileNone
-	}
-	return profile
-}
-
+// validateAuditLoggingProfile validates the supported annotation and global
+// configuration values. Annotations are not covered by CRD enum validation.
 func validateAuditLoggingProfile(profile constants.AuditLoggingProfile) error {
 	switch profile {
 	case constants.AuditLoggingProfileNone, constants.AuditLoggingProfileMetadata:

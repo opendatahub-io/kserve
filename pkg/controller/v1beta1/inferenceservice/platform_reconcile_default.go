@@ -16,18 +16,21 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1beta1
+package inferenceservice
 
 import (
 	"context"
 
-	corev1 "k8s.io/api/core/v1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/kserve/kserve/pkg/constants"
 )
 
-func defaultPlatformInferenceService(_ context.Context, _ *InferenceService, _ *corev1.ConfigMap) error {
-	return nil
-}
-
-func validatePlatformInferenceService(_ *InferenceService) error {
-	return nil
+// reconcilePlatformInferenceService is a no-op when distro extensions are not built.
+func (r *InferenceServiceReconciler) reconcilePlatformInferenceService(
+	_ context.Context,
+	_ *v1beta1.InferenceService,
+	_ constants.DeploymentModeType,
+	_ bool,
+) (constants.AuditLoggingProfile, bool, error) {
+	return constants.AuditLoggingProfileNone, false, nil
 }

@@ -33,12 +33,13 @@ const (
 	ODHKserveRuntimeVLLM = "vllm"
 )
 
-// Midstream networking constants
+// AuditLoggingProfile is the resolved profile passed to raw workload reconcilers.
 type AuditLoggingProfile string
 
+// Midstream networking constants
 const (
 	ODHKserveRawAuth                                   = "security.opendatahub.io/enable-auth"
-	ODHKserveAuditLoggingProfile                       = "security.opendatahub.io/audit-logging-profile"
+	ODHKserveAuditLoggingProfile                       = "observability.opendatahub.io/audit-logging-profile"
 	AuditLoggingProfileNone        AuditLoggingProfile = "none"
 	AuditLoggingProfileMetadata    AuditLoggingProfile = "metadata"
 	ODHAuthProxyTypeAnnotation                         = "security.opendatahub.io/auth-proxy-type"

@@ -1001,6 +1001,7 @@ func TestOauthProxyUpstreamTimeout(t *testing.T) {
 				tt.args.podSpec,
 				tt.args.workerPodSpec,
 				nil, // deployConfig
+				constants.AuditLoggingProfileNone, false,
 			)
 			require.NoError(t, err)
 			require.NotEmpty(t, deployments)
@@ -1501,6 +1502,7 @@ func TestNewDeploymentReconciler(t *testing.T) {
 				tt.fields.podSpec,
 				tt.fields.workerPod,
 				nil, // deployConfig
+				constants.AuditLoggingProfileNone, false,
 			)
 
 			if (err != nil) != tt.wantErr {
@@ -2442,6 +2444,7 @@ func TestOauthProxyPreservation(t *testing.T) {
 				podSpec,
 				nil,
 				nil,
+				constants.AuditLoggingProfileNone, false,
 			)
 
 			require.NoError(t, err)
@@ -2608,6 +2611,7 @@ func TestDeploymentReconcilerCondition(t *testing.T) {
 				podSpec,
 				nil,
 				nil,
+				constants.AuditLoggingProfileNone, false,
 			)
 
 			require.NoError(t, err)
@@ -2668,6 +2672,7 @@ func TestNewRawDeploymentWithAuthDisabled_IncludesOAuthProxy(t *testing.T) {
 		&corev1.PodSpec{},
 		nil,
 		nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 
 	require.NoError(t, err)
@@ -2738,6 +2743,7 @@ func TestNewRawDeploymentWithAuthEnabled_IncludesOAuthProxy(t *testing.T) {
 		&corev1.PodSpec{},
 		nil,
 		nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 
 	require.NoError(t, err)
@@ -2806,6 +2812,7 @@ func TestExistingRawDeploymentWithAuthDisabled_NoOAuthProxyAdded(t *testing.T) {
 		&corev1.PodSpec{},
 		nil,
 		nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 
 	require.NoError(t, err)
@@ -2875,6 +2882,7 @@ func TestExistingRawDeploymentWithAuthEnabled_PreservesOAuthProxy(t *testing.T) 
 		&corev1.PodSpec{},
 		nil,
 		nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 
 	require.NoError(t, err)
@@ -2926,6 +2934,7 @@ func TestNewInferenceGraph_NoOAuthProxy(t *testing.T) {
 		&corev1.PodSpec{},
 		nil,
 		nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 
 	require.NoError(t, err)
@@ -3165,6 +3174,7 @@ func TestUpgradePreservesLegacyVolumeName(t *testing.T) {
 				podSpec,
 				nil,
 				nil,
+				constants.AuditLoggingProfileNone, false,
 			)
 
 			require.NoError(t, err, tt.description)

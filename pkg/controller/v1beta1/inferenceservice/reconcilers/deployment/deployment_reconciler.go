@@ -77,8 +77,10 @@ func NewDeploymentReconciler(ctx context.Context,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec,
 	deployConfig *v1beta1.DeployConfig,
+	auditLoggingProfile constants.AuditLoggingProfile,
+	manageAuditLogging bool,
 ) (*DeploymentReconciler, error) {
-	deploymentList, authProxyPreserved, err := createRawDeploymentODH(ctx, client, clientset, resourceType, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec, deployConfig)
+	deploymentList, authProxyPreserved, err := createRawDeploymentODH(ctx, client, clientset, resourceType, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec, deployConfig, auditLoggingProfile, manageAuditLogging)
 	if err != nil {
 		return nil, err
 	}
@@ -128,6 +130,8 @@ func createRawDeploymentODH(ctx context.Context,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec,
 	deployConfig *v1beta1.DeployConfig,
+	auditLoggingProfile constants.AuditLoggingProfile,
+	manageAuditLogging bool,
 ) ([]*appsv1.Deployment, bool, error) {
 	deploymentList, err := createRawDeployment(componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec, deployConfig)
 	if err != nil {
@@ -158,7 +162,7 @@ func createRawDeploymentODH(ctx context.Context,
 	// proxy, and also inject when auth is explicitly enabled via annotation.
 	// Transformer deployments must NOT receive the auth proxy — only the predictor needs
 	// the sidecar; the transformer communicates with the predictor over TLS instead.
-	isTransformer := isTransformerComponent(componentMeta)
+	isTransformer := componentMeta.Labels[constants.KServiceComponentLabel] == string(v1beta1.TransformerComponent)
 	shouldAddAuthProxy := false
 	if resourceType == constants.InferenceServiceResource && !isTransformer {
 		if !existingDeploymentFound {
@@ -183,8 +187,7 @@ func createRawDeploymentODH(ctx context.Context,
 	authProxyPreservationWarning := false
 	refreshPreservedSARConfig := false
 	if shouldAddAuthProxy {
-		auditConfigChanged := platformAuthProxyNeedsUpdate(componentMeta, existingDeployment, isvcname)
-		preservePlatformAuthProxy := platformAuthProxyShouldPreserve(componentMeta, existingDeployment)
+		auditConfigChanged := platformAuthProxyNeedsUpdate(auditLoggingProfile, manageAuditLogging, existingDeployment, componentMeta, isvcname)
 		wantsMigration := false
 		if val, ok := componentMeta.Annotations[constants.ODHAuthProxyTypeAnnotation]; ok {
 			wantsMigration = val == constants.KubeRbacProxyType
@@ -198,8 +201,8 @@ func createRawDeploymentODH(ctx context.Context,
 		if existingProxyType != "" {
 			switch existingProxyType {
 			case constants.OauthProxyContainerName:
-				if wantsMigration || auditConfigChanged {
-					err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName)
+				if wantsMigration {
+					err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName, auditLoggingProfile, manageAuditLogging)
 					if err != nil {
 						return nil, false, err
 					}
@@ -215,8 +218,8 @@ func createRawDeploymentODH(ctx context.Context,
 					configuredKubeRbacImage = oauthConfig.Image
 				}
 				configuredImageMatches := configuredKubeRbacImage != "" && existingProxyImage == configuredKubeRbacImage
-				if auditConfigChanged || (!preservePlatformAuthProxy && configuredImageMatches) {
-					err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName)
+				if auditConfigChanged {
+					err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName, auditLoggingProfile, manageAuditLogging)
 					if err != nil {
 						return nil, false, err
 					}
@@ -226,12 +229,12 @@ func createRawDeploymentODH(ctx context.Context,
 						"existingImage", existingProxyImage, "configImage", configuredKubeRbacImage)
 					authProxyReused = true
 					authProxyPreservationWarning = !configuredImageMatches
-					refreshPreservedSARConfig = preservePlatformAuthProxy && configuredImageMatches
+					refreshPreservedSARConfig = configuredImageMatches
 					copyAuthProxyFromExisting(existingDeployment, headDeployment, existingProxyType)
 				}
 			}
 		} else {
-			err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName)
+			err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName, auditLoggingProfile, manageAuditLogging)
 			if err != nil {
 				return nil, false, err
 			}
@@ -413,6 +416,8 @@ func addOauthContainerToDeployment(ctx context.Context,
 	componentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, isvcName string, sarVolumeName string,
+	auditLoggingProfile constants.AuditLoggingProfile,
+	manageAuditLogging bool,
 ) error {
 	var upstreamPort, upstreamTimeout string
 
@@ -436,17 +441,13 @@ func addOauthContainerToDeployment(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	oauthProxyContainer.Args = customizeAuthProxyArgs(componentMeta, oauthProxyContainer.Args, isvcName)
+	oauthProxyContainer.Args = customizeAuthProxyArgs(auditLoggingProfile, manageAuditLogging, componentMeta, oauthProxyContainer.Args, isvcName)
 	updatedPodSpec := deployment.Spec.Template.Spec.DeepCopy()
 	// ODH override. See: https://issues.redhat.com/browse/RHOAIENG-19904
 	updatedPodSpec.AutomountServiceAccountToken = proto.Bool(true)
 	updatedPodSpec.Containers = append(updatedPodSpec.Containers, *oauthProxyContainer)
 	deployment.Spec.Template.Spec = *updatedPodSpec
 	return nil
-}
-
-func isTransformerComponent(componentMeta metav1.ObjectMeta) bool {
-	return componentMeta.Labels[constants.KServiceComponentLabel] == string(v1beta1.TransformerComponent)
 }
 
 func createRawWorkerDeployment(componentMeta metav1.ObjectMeta,

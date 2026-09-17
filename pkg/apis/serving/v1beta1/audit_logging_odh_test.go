@@ -19,14 +19,12 @@ limitations under the License.
 package v1beta1
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	"github.com/kserve/kserve/pkg/constants"
@@ -34,14 +32,14 @@ import (
 
 func TestAuditLoggingAdmissionPolicy(t *testing.T) {
 	tests := []struct {
-		name           string
-		operation      admissionv1.Operation
-		annotations    map[string]string
-		oldAnnotations map[string]string
-		globalConfig   string
-		wantPresent    bool
-		wantValue      string
-		wantError      string
+		name         string
+		operation    admissionv1.Operation
+		annotations  map[string]string
+		globalConfig string
+		wantPresent  bool
+		wantValue    string
+		wantWarnings []string
+		wantError    string
 	}{
 		{
 			name:         "create snapshots metadata global profile",
@@ -58,7 +56,19 @@ func TestAuditLoggingAdmissionPolicy(t *testing.T) {
 			globalConfig: `{"auditLoggingProfile":"metadata"}`,
 			wantPresent:  true,
 			wantValue:    "metadata",
-			wantError:    "requires authentication",
+			wantWarnings: []string{"requires authentication"},
+		},
+		{
+			name:      "explicit metadata without authentication is admitted with warning",
+			operation: admissionv1.Create,
+			annotations: map[string]string{
+				constants.DeploymentMode:               string(constants.Standard),
+				constants.ODHKserveAuditLoggingProfile: "metadata",
+			},
+			globalConfig: `{"auditLoggingProfile":"none"}`,
+			wantPresent:  true,
+			wantValue:    "metadata",
+			wantWarnings: []string{"requires authentication"},
 		},
 		{
 			name:         "create leaves none global profile annotationless",
@@ -71,6 +81,22 @@ func TestAuditLoggingAdmissionPolicy(t *testing.T) {
 			operation:    admissionv1.Create,
 			annotations:  standardAnnotations(),
 			globalConfig: `{}`,
+		},
+		{
+			name:      "create ignores metadata global profile outside standard mode",
+			operation: admissionv1.Create,
+			annotations: map[string]string{
+				constants.DeploymentMode: string(constants.Knative),
+			},
+			globalConfig: `{"auditLoggingProfile":"metadata"}`,
+		},
+		{
+			name:      "create ignores metadata global profile in modelmesh mode",
+			operation: admissionv1.Create,
+			annotations: map[string]string{
+				constants.DeploymentMode: string(constants.ModelMeshDeployment),
+			},
+			globalConfig: `{"auditLoggingProfile":"metadata"}`,
 		},
 		{
 			name:      "explicit none overrides metadata global profile",
@@ -127,17 +153,27 @@ func TestAuditLoggingAdmissionPolicy(t *testing.T) {
 				constants.ODHKserveRawAuth:             "true",
 				constants.ODHKserveAuditLoggingProfile: "metadata",
 			},
-			wantPresent: true,
-			wantValue:   "metadata",
-			wantError:   "only supported",
+			wantPresent:  true,
+			wantValue:    "metadata",
+			wantWarnings: []string{"only supported"},
 		},
 		{
-			name:           "update restores persisted setting when annotation is removed",
-			operation:      admissionv1.Update,
-			annotations:    authenticatedStandardAnnotations(),
-			oldAnnotations: map[string]string{constants.ODHKserveAuditLoggingProfile: "metadata"},
-			wantPresent:    true,
-			wantValue:      "metadata",
+			name:      "explicit metadata warns in modelmesh mode",
+			operation: admissionv1.Create,
+			annotations: map[string]string{
+				constants.DeploymentMode:               string(constants.ModelMeshDeployment),
+				constants.ODHKserveRawAuth:             "true",
+				constants.ODHKserveAuditLoggingProfile: "metadata",
+			},
+			globalConfig: `{"auditLoggingProfile":"none"}`,
+			wantPresent:  true,
+			wantValue:    "metadata",
+			wantWarnings: []string{"only supported"},
+		},
+		{
+			name:        "update keeps removed annotation absent",
+			operation:   admissionv1.Update,
+			annotations: authenticatedStandardAnnotations(),
 		},
 		{
 			name:        "legacy update remains annotationless",
@@ -163,26 +199,31 @@ func TestAuditLoggingAdmissionPolicy(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			isvc := &InferenceService{ObjectMeta: metav1.ObjectMeta{Annotations: cloneAnnotations(tt.annotations)}}
-			oldObject, err := json.Marshal(&InferenceService{ObjectMeta: metav1.ObjectMeta{Annotations: tt.oldAnnotations}})
-			if err != nil {
-				t.Fatalf("marshal old InferenceService: %v", err)
-			}
 			req := admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
 				Operation: tt.operation,
-				OldObject: runtime.RawExtension{Raw: oldObject},
 			}}
 			ctx := admission.NewContextWithRequest(t.Context(), req)
 			configMap := &corev1.ConfigMap{Data: map[string]string{OpenShiftConfigName: tt.globalConfig}}
 
-			err = defaultPlatformInferenceService(ctx, isvc, configMap)
+			err := defaultPlatformInferenceService(ctx, isvc, configMap)
+			var warnings admission.Warnings
 			if err == nil {
-				err = validatePlatformInferenceService(isvc)
+				warnings, err = validatePlatformInferenceService(isvc)
 			}
 			if tt.wantError == "" && err != nil {
 				t.Fatalf("audit admission error = %v", err)
 			}
 			if tt.wantError != "" && (err == nil || !strings.Contains(err.Error(), tt.wantError)) {
 				t.Fatalf("audit admission error = %v, want substring %q", err, tt.wantError)
+			}
+			joinedWarnings := strings.Join(warnings, "\n")
+			for _, wantWarning := range tt.wantWarnings {
+				if !strings.Contains(joinedWarnings, wantWarning) {
+					t.Fatalf("audit admission warnings = %q, want substring %q", joinedWarnings, wantWarning)
+				}
+			}
+			if len(tt.wantWarnings) == 0 && len(warnings) != 0 {
+				t.Fatalf("audit admission warnings = %q, want none", joinedWarnings)
 			}
 
 			value, present := isvc.Annotations[constants.ODHKserveAuditLoggingProfile]
@@ -200,7 +241,7 @@ func TestAuditLoggingDefaultRequiresAdmissionRequest(t *testing.T) {
 	}
 }
 
-func TestAuditLoggingRejectsComponentOverride(t *testing.T) {
+func TestAuditLoggingWarnsForComponentOverride(t *testing.T) {
 	isvc := &InferenceService{
 		ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
 			constants.DeploymentMode:               string(constants.Standard),
@@ -214,9 +255,12 @@ func TestAuditLoggingRejectsComponentOverride(t *testing.T) {
 		}},
 	}
 
-	err := validatePlatformInferenceService(isvc)
-	if err == nil || !strings.Contains(err.Error(), "only supported on InferenceService metadata") {
-		t.Fatalf("validatePlatformInferenceService() error = %v, want component annotation rejection", err)
+	warnings, err := validatePlatformInferenceService(isvc)
+	if err != nil {
+		t.Fatalf("validatePlatformInferenceService() error = %v, want nil", err)
+	}
+	if joined := strings.Join(warnings, "\n"); !strings.Contains(joined, "only supported on InferenceService metadata") {
+		t.Fatalf("validatePlatformInferenceService() warnings = %q, want component annotation warning", joined)
 	}
 }
 
