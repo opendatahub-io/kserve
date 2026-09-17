@@ -10,6 +10,7 @@ import (
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -19,7 +20,6 @@ const (
 	monitoringAPIVersion         = "v1alpha1"
 	monitoringKind               = "Monitoring"
 	defaultTracesSampleRatio     = "0.1"
-	invalidTracesSampleRatio     = "1.0"
 	platformCollectorServiceName = "data-science-collector-collector"
 	platformCollectorPort        = 4317
 	upstreamTracingEndpoint      = "http://otel-collector:4317"
@@ -51,14 +51,14 @@ func (r *KserveModuleReconciler) resolveTracingPlatformConfig(ctx context.Contex
 		return nil, err
 	}
 	if !found || tracesValue == nil {
-		return nil, nil
+		return &tracingPlatformConfig{}, nil
 	}
 	traces, ok := tracesValue.(map[string]any)
 	if !ok {
 		return nil, fmt.Errorf("spec.traces must be an object")
 	}
 	if traces == nil {
-		return nil, nil
+		return &tracingPlatformConfig{}, nil
 	}
 
 	ratio, _, err := unstructured.NestedString(traces, "sampleRatio")
@@ -68,7 +68,8 @@ func (r *KserveModuleReconciler) resolveTracingPlatformConfig(ctx context.Contex
 	if ratio == "" {
 		ratio = defaultTracesSampleRatio
 	} else if !validTracesSampleRatio(ratio) {
-		ratio = invalidTracesSampleRatio
+		ctrl.LoggerFrom(ctx).Info("invalid monitoring trace sample ratio, using default", "sampleRatio", ratio, "default", defaultTracesSampleRatio)
+		ratio = defaultTracesSampleRatio
 	}
 
 	return &tracingPlatformConfig{

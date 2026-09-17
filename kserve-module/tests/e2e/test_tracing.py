@@ -7,7 +7,6 @@ import time
 import pytest
 
 from conftest import (
-    KSERVE_CR_NAME,
     LLMISVC_CONFIG_RESOURCE,
     NAMESPACE,
     OPERATOR_DEPLOYMENT,
@@ -15,7 +14,6 @@ from conftest import (
     get_cr,
     get_jsonpath,
     run,
-    trigger_reconcile,
     wait_for,
 )
 
@@ -83,7 +81,23 @@ def _configured_collector_endpoint(kubectl):
     monitoring_namespace = (
         monitoring_namespace.split()[0] if monitoring_namespace else NAMESPACE
     )
-    return f"http://data-science-collector-collector.{monitoring_namespace}.svc:4317"
+    services = json.loads(
+        run(
+            [kubectl, "get", "service", "-n", monitoring_namespace, "-o", "json"]
+        ).stdout
+    ).get("items", [])
+    collectors = [
+        service
+        for service in services
+        if "collector" in service.get("metadata", {}).get("name", "")
+        and any(
+            port.get("port") == 4317
+            for port in service.get("spec", {}).get("ports", [])
+        )
+    ]
+    assert collectors, f"No collector service exposing port 4317 in {monitoring_namespace}"
+    service_name = collectors[0]["metadata"]["name"]
+    return f"http://{service_name}.{monitoring_namespace}.svc:4317"
 
 
 def _current_preset_name(kubectl):
@@ -120,6 +134,8 @@ class TestTracingPresetSynchronization:
         self, kubectl, apply_kserve_cr
     ):
         monitoring = _monitoring(kubectl)
+        if monitoring is None:
+            pytest.skip("Monitoring API is not installed in this cluster")
 
         current_name = _current_preset_name(kubectl)
         presets = _get_tracing_presets(kubectl)
@@ -146,53 +162,50 @@ class TestTracingPresetSynchronization:
         historical["spec"]["tracing"]["exporterEndpoint"] = UPSTREAM_ENDPOINT
         historical["spec"]["tracing"]["samplerArg"] = HISTORICAL_SAMPLE_RATIO
 
-        original_spec = copy.deepcopy(monitoring.get("spec", {})) if monitoring else None
+        original_spec = copy.deepcopy(monitoring.get("spec", {}))
         try:
             run([kubectl, "apply", "-f", "-"], input_text=json.dumps(historical))
-            if monitoring:
-                run(
-                    [
-                        kubectl,
-                        "patch",
-                        MONITORING_RESOURCE,
-                        MONITORING_NAME,
-                        "--type",
-                        "merge",
-                        "-p",
-                        json.dumps(
-                            {"spec": {"traces": {"sampleRatio": PLATFORM_SAMPLE_RATIO}}}
-                        ),
-                    ]
-                )
-                wait_for(
-                    lambda: _assert_preset_state(
-                        kubectl, current_name, endpoint, PLATFORM_SAMPLE_RATIO
+            run(
+                [
+                    kubectl,
+                    "patch",
+                    MONITORING_RESOURCE,
+                    MONITORING_NAME,
+                    "--type",
+                    "merge",
+                    "-p",
+                    json.dumps(
+                        {"spec": {"traces": {"sampleRatio": PLATFORM_SAMPLE_RATIO}}}
                     ),
-                    timeout=TIMEOUT_120S,
-                    interval=5,
-                )
-                wait_for(
-                    lambda: _assert_preset_state(
-                        kubectl, historical_name, endpoint, HISTORICAL_SAMPLE_RATIO
-                    ),
-                    timeout=TIMEOUT_120S,
-                    interval=5,
-                )
+                ]
+            )
+            wait_for(
+                lambda: _assert_preset_state(
+                    kubectl, current_name, endpoint, PLATFORM_SAMPLE_RATIO
+                ),
+                timeout=TIMEOUT_120S,
+                interval=5,
+            )
+            wait_for(
+                lambda: _assert_preset_state(
+                    kubectl, historical_name, endpoint, HISTORICAL_SAMPLE_RATIO
+                ),
+                timeout=TIMEOUT_120S,
+                interval=5,
+            )
 
-                run(
-                    [
-                        kubectl,
-                        "patch",
-                        MONITORING_RESOURCE,
-                        MONITORING_NAME,
-                        "--type",
-                        "merge",
-                        "-p",
-                        json.dumps({"spec": {"traces": None}}),
-                    ]
-                )
-            else:
-                trigger_reconcile(kubectl, name=KSERVE_CR_NAME, trigger_id="tracing-disabled")
+            run(
+                [
+                    kubectl,
+                    "patch",
+                    MONITORING_RESOURCE,
+                    MONITORING_NAME,
+                    "--type",
+                    "merge",
+                    "-p",
+                    json.dumps({"spec": {"traces": None}}),
+                ]
+            )
 
             wait_for(
                 lambda: _assert_preset_state(kubectl, current_name, UPSTREAM_ENDPOINT),
@@ -207,35 +220,29 @@ class TestTracingPresetSynchronization:
                 interval=5,
             )
         finally:
-            if original_spec is not None:
-                restore_spec = copy.deepcopy(original_spec)
-                if "traces" not in restore_spec:
-                    restore_spec["traces"] = None
-                run(
-                    [
-                        kubectl,
-                        "patch",
-                        MONITORING_RESOURCE,
-                        MONITORING_NAME,
-                        "--type",
-                        "merge",
-                        "-p",
-                        json.dumps({"spec": restore_spec}),
-                    ]
-                )
-                trigger_reconcile(
-                    kubectl, name=KSERVE_CR_NAME, trigger_id="tracing-restore"
-                )
-                expected_endpoint = (
-                    endpoint
-                    if original_spec.get("traces") is not None
-                    else UPSTREAM_ENDPOINT
-                )
-                wait_for(
-                    lambda: _assert_preset_state(kubectl, current_name, expected_endpoint),
-                    timeout=TIMEOUT_120S,
-                    interval=5,
-                )
+            restore_spec = copy.deepcopy(original_spec)
+            if "traces" not in restore_spec:
+                restore_spec["traces"] = None
+            run(
+                [
+                    kubectl,
+                    "patch",
+                    MONITORING_RESOURCE,
+                    MONITORING_NAME,
+                    "--type",
+                    "merge",
+                    "-p",
+                    json.dumps({"spec": restore_spec}),
+                ]
+            )
+            expected_endpoint = (
+                endpoint if original_spec.get("traces") is not None else UPSTREAM_ENDPOINT
+            )
+            wait_for(
+                lambda: _assert_preset_state(kubectl, current_name, expected_endpoint),
+                timeout=TIMEOUT_120S,
+                interval=5,
+            )
             run(
                 [
                     kubectl,

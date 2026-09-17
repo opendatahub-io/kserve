@@ -120,6 +120,16 @@ func applyProvisioningCondition(condMgr *conditions.Manager, componentErrors map
 		conditions.WithMessage("%s", strings.Join(msgs, "; ")))
 }
 
+func applyTracingConfigCondition(condMgr *conditions.Manager, err error) {
+	if err == nil {
+		return
+	}
+	condMgr.MarkTrue(string(common.ConditionTypeDegraded),
+		conditions.WithSeverity(common.ConditionSeverityInfo),
+		conditions.WithReason("TracingConfigUnavailable"),
+		conditions.WithMessage("platform tracing configuration unavailable: %s", err))
+}
+
 func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, kserve *platformv1alpha1.Kserve, condMgr *conditions.Manager) {
 	ns := r.getApplicationsNamespace()
 	isXKS := r.isKubernetes(ctx)
