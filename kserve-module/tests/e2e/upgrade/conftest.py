@@ -44,7 +44,7 @@ def deploy_upgrade_workloads(
         return
 
     utils.cleanup_upgrade_workloads(kubectl, namespace=upgrade_namespace)
-    utils.apply_manifest(kubectl, "mlserver-runtime.yaml", namespace=upgrade_namespace)
+    utils.apply_mlserver_runtime(kubectl, namespace=upgrade_namespace)
     utils.apply_manifest(kubectl, "sklearn-iris-isvc.yaml", namespace=upgrade_namespace)
     utils.apply_manifest(kubectl, "llmisvc-opt-125m-cpu.yaml", namespace=upgrade_namespace)
     utils.wait_for_isvc_ready(kubectl, name=utils.ISVC_NAME, namespace=upgrade_namespace)
@@ -96,7 +96,7 @@ def capture_upgrade_baseline(
     utils.save_baseline(kubectl, baseline, namespace=upgrade_namespace)
 
 
-@pytest.fixture
+@pytest.fixture(scope="class")
 def new_isvc_manifest():
     """Clone sklearn ISVC manifest with a post-upgrade name."""
     raw = yaml.safe_load(utils.manifest_path("sklearn-iris-isvc.yaml").read_text())
@@ -105,7 +105,7 @@ def new_isvc_manifest():
     return manifest
 
 
-@pytest.fixture
+@pytest.fixture(scope="class")
 def new_llmisvc_manifest():
     """Clone LLMISVC manifest with a post-upgrade name."""
     raw = yaml.safe_load(utils.manifest_path("llmisvc-opt-125m-cpu.yaml").read_text())
@@ -114,7 +114,7 @@ def new_llmisvc_manifest():
     return manifest
 
 
-@pytest.fixture
+@pytest.fixture(scope="class")
 def new_isvc_deployed(
     pytestconfig, kubectl, upgrade_namespace, upgrade_workloads_enabled, new_isvc_manifest
 ):
@@ -122,7 +122,9 @@ def new_isvc_deployed(
     if not utils.is_post_upgrade(pytestconfig) or not upgrade_workloads_enabled:
         pytest.skip("Post-upgrade workload creation requires OpenShift")
 
-    utils.cleanup_post_upgrade_workloads(kubectl, namespace=upgrade_namespace)
+    utils._force_delete(
+        kubectl, "inferenceservice", utils.NEW_ISVC_NAME, namespace=upgrade_namespace
+    )
     utils.run(
         [kubectl, "apply", "-n", upgrade_namespace, "-f", "-"],
         input_text=yaml.safe_dump(new_isvc_manifest),
@@ -133,7 +135,7 @@ def new_isvc_deployed(
     return utils.NEW_ISVC_NAME
 
 
-@pytest.fixture
+@pytest.fixture(scope="class")
 def new_llmisvc_deployed(
     pytestconfig,
     kubectl,
@@ -145,7 +147,12 @@ def new_llmisvc_deployed(
     if not utils.is_post_upgrade(pytestconfig) or not upgrade_workloads_enabled:
         pytest.skip("Post-upgrade workload creation requires OpenShift")
 
-    utils.cleanup_post_upgrade_workloads(kubectl, namespace=upgrade_namespace)
+    utils._force_delete(
+        kubectl,
+        "llminferenceservice",
+        utils.NEW_LLMISVC_NAME,
+        namespace=upgrade_namespace,
+    )
     utils.run(
         [kubectl, "apply", "-n", upgrade_namespace, "-f", "-"],
         input_text=yaml.safe_dump(new_llmisvc_manifest),

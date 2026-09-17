@@ -135,11 +135,21 @@ class TestRunIsvcInference:
     def test_hashes_valid_predictions(self, monkeypatch):
         monkeypatch.setattr(
             "upgrade.utils._exec_curl",
-            lambda *_args, **_kwargs: json.dumps({"predictions": [1, 1]}),
+            lambda *_args, **_kwargs: json.dumps(
+                {"outputs": [{"data": [1, 1]}]}
+            ),
         )
         monkeypatch.setattr(
             "upgrade.utils.manifest_path",
-            lambda _name: type("P", (), {"read_text": lambda self: "{}"})(),
+            lambda _name: type(
+                "P",
+                (),
+                {
+                    "read_text": lambda self: json.dumps(
+                        {"instances": [[0, 0, 0, 0], [0, 0, 0, 0]]}
+                    )
+                },
+            )(),
         )
 
         digest = run_isvc_inference("kubectl")
@@ -152,7 +162,15 @@ class TestRunIsvcInference:
         )
         monkeypatch.setattr(
             "upgrade.utils.manifest_path",
-            lambda _name: type("P", (), {"read_text": lambda self: "{}"})(),
+            lambda _name: type(
+                "P",
+                (),
+                {
+                    "read_text": lambda self: json.dumps(
+                        {"instances": [[0, 0, 0, 0], [0, 0, 0, 0]]}
+                    )
+                },
+            )(),
         )
 
         with pytest.raises(AssertionError, match="missing predictions"):

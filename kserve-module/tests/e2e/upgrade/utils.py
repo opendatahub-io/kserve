@@ -91,6 +91,33 @@ def apply_manifest(kubectl, filename, namespace=UPGRADE_NAMESPACE):
     run([kubectl, "apply", "-n", namespace, "-f", str(manifest_path(filename))])
 
 
+def apply_mlserver_runtime(kubectl, namespace=UPGRADE_NAMESPACE):
+    """Install MLServer ServingRuntime, preferring the cluster OpenShift Template."""
+    template_check = run(
+        [
+            kubectl,
+            "get",
+            "template",
+            "mlserver-runtime-template",
+            "-n",
+            "opendatahub",
+        ],
+        check=False,
+    )
+    if template_check.returncode == 0:
+        processed = run(
+            [kubectl, "process", "-n", "opendatahub", "mlserver-runtime-template"],
+            timeout=120,
+        )
+        run(
+            [kubectl, "apply", "-n", namespace, "-f", "-"],
+            input_text=processed.stdout,
+            timeout=120,
+        )
+        return
+    apply_manifest(kubectl, "mlserver-runtime.yaml", namespace=namespace)
+
+
 def wait_for_isvc_ready(kubectl, name=ISVC_NAME, namespace=UPGRADE_NAMESPACE, timeout=600):
     def _ready():
         status = get_jsonpath(
@@ -209,19 +236,56 @@ def _exec_curl(kubectl, namespace, resource, container, url, method="GET", data=
     return body
 
 
+def _v2_infer_payload(instances_json):
+    data = json.loads(instances_json)
+    instances = data["instances"]
+    flat = [float(value) for row in instances for value in row]
+    rows = len(instances)
+    cols = len(instances[0]) if instances else 0
+    return json.dumps(
+        {
+            "inputs": [
+                {
+                    "name": "input-0",
+                    "shape": [rows, cols],
+                    "datatype": "FP32",
+                    "data": flat,
+                }
+            ]
+        }
+    )
+
+
+def _predictions_from_infer_response(body):
+    parsed = json.loads(body)
+    predictions = parsed.get("predictions")
+    if predictions is not None:
+        return predictions
+    outputs = parsed.get("outputs")
+    if not outputs:
+        return None
+    data = outputs[0].get("data")
+    if data is None:
+        return None
+    if data and isinstance(data[0], list):
+        return [row[0] for row in data]
+    return data
+
+
 def run_isvc_inference(kubectl, namespace=UPGRADE_NAMESPACE, name=ISVC_NAME):
     """Run a real sklearn predict request and return a hash of the predictions."""
-    payload = manifest_path("sklearn-iris-input.json").read_text()
+    instances_json = manifest_path("sklearn-iris-input.json").read_text()
+    payload = _v2_infer_payload(instances_json)
     body = _exec_curl(
         kubectl,
         namespace,
         f"deploy/{name}-predictor",
         "kserve-container",
-        f"http://127.0.0.1:8080/v1/models/{name}:predict",
+        f"http://127.0.0.1:8080/v2/models/{name}/infer",
         method="POST",
         data=payload,
     )
-    predictions = json.loads(body).get("predictions")
+    predictions = _predictions_from_infer_response(body)
     assert predictions is not None, f"ISVC predict response missing predictions: {body}"
     assert len(predictions) == 2, f"expected 2 predictions, got {predictions}"
     for prediction in predictions:
@@ -504,11 +568,50 @@ def assert_operand_pods_not_recreated(baseline_uids, current_uids):
     )
 
 
+def _force_delete(kubectl, kind, name, namespace=UPGRADE_NAMESPACE):
+    """Delete a namespaced resource even when serving finalizers stall."""
+    if not resource_exists(kubectl, kind, name, namespace=namespace):
+        return
+    run(
+        [
+            kubectl,
+            "patch",
+            kind,
+            name,
+            "-n",
+            namespace,
+            "-p",
+            '{"metadata":{"finalizers":[]}}',
+            "--type=merge",
+        ],
+        check=False,
+        timeout=60,
+    )
+    run(
+        [
+            kubectl,
+            "delete",
+            kind,
+            name,
+            "-n",
+            namespace,
+            "--ignore-not-found",
+            "--wait=false",
+        ],
+        check=False,
+        timeout=60,
+    )
+
+
 def cleanup_upgrade_workloads(kubectl, namespace=UPGRADE_NAMESPACE):
     """Remove stale upgrade test resources so reruns start from a clean slate."""
     for kind, names in [
         ("inferenceservice", [ISVC_NAME, NEW_ISVC_NAME]),
         ("llminferenceservice", [LLMISVC_NAME, NEW_LLMISVC_NAME]),
+    ]:
+        for name in names:
+            _force_delete(kubectl, kind, name, namespace=namespace)
+    for kind, names in [
         ("servingruntime", ["mlserver-runtime"]),
         ("configmap", [BASELINE_CM_NAME]),
         ("pod", [PROBE_POD_NAME]),
@@ -517,6 +620,7 @@ def cleanup_upgrade_workloads(kubectl, namespace=UPGRADE_NAMESPACE):
             run(
                 [kubectl, "delete", kind, name, "-n", namespace, "--ignore-not-found"],
                 check=False,
+                timeout=60,
             )
 
 
@@ -526,10 +630,7 @@ def cleanup_post_upgrade_workloads(kubectl, namespace=UPGRADE_NAMESPACE):
         ("inferenceservice", NEW_ISVC_NAME),
         ("llminferenceservice", NEW_LLMISVC_NAME),
     ]:
-        run(
-            [kubectl, "delete", kind, name, "-n", namespace, "--ignore-not-found"],
-            check=False,
-        )
+        _force_delete(kubectl, kind, name, namespace=namespace)
 
 
 def workloads_supported(kubectl, is_openshift):
