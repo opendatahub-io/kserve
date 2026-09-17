@@ -34,6 +34,7 @@ from .test_llm_inference_service import (
     create_llmisvc,
     create_response_assertion,
     delete_llmisvc,
+    wait_for,
     wait_for_llm_isvc_ready,
     wait_for_model_response,
 )
@@ -203,18 +204,7 @@ def test_llm_tls_resources(test_case: TestCase, request: pytest.FixtureRequest):
     are correctly present or absent based on the enableLLMInferenceServiceTLS flag."""
     inject_k8s_proxy()
 
-    original_ingress = _set_tls_profile(
-        "VersionTLS12",
-        ",".join(GO_TLS_CIPHER_SUITES),
-    )
-    request.addfinalizer(lambda: _restore_tls_config(original_ingress))
-    tls_enabled, tls_min_version, tls_cipher_suites = _get_tls_config()
-    logger.info(
-        "LLMInferenceService TLS config: enabled=%s, min_version=%s, cipher_suites=%s",
-        tls_enabled,
-        tls_min_version,
-        tls_cipher_suites,
-    )
+    tls_enabled, _, _ = _get_tls_config()
 
     kserve_client = KServeClient(
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config"),
@@ -230,13 +220,33 @@ def test_llm_tls_resources(test_case: TestCase, request: pytest.FixtureRequest):
         )
         wait_for_model_response(kserve_client, test_case, test_case.wait_timeout)
 
-        _verify_tls_resources(service_name, test_case.namespace, tls_enabled)
-        _verify_tls_arguments(
-            service_name,
-            test_case.namespace,
+        # Update the profile only after the service exists so the ConfigMap watch
+        # enqueues it for reconciliation. Updating before creation races the
+        # controller's ConfigMap cache and can render the previous profile.
+        original_ingress = _set_tls_profile(
+            "VersionTLS12",
+            ",".join(GO_TLS_CIPHER_SUITES),
+        )
+        request.addfinalizer(lambda: _restore_tls_config(original_ingress))
+        tls_enabled, tls_min_version, tls_cipher_suites = _get_tls_config()
+        logger.info(
+            "LLMInferenceService TLS config: enabled=%s, min_version=%s, cipher_suites=%s",
+            tls_enabled,
             tls_min_version,
             tls_cipher_suites,
         )
+
+        wait_for(
+            lambda: _verify_tls_arguments(
+                service_name,
+                test_case.namespace,
+                tls_min_version,
+                tls_cipher_suites,
+            ),
+            timeout=test_case.wait_timeout,
+            interval=2.0,
+        )
+        _verify_tls_resources(service_name, test_case.namespace, tls_enabled)
 
     except Exception as e:
         logger.error(f"Failed TLS verification for {service_name}: {e}")
