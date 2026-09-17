@@ -64,8 +64,8 @@ func assertDependencyValid(g Gomega, dep dependencyCheck) {
 		g.Expect(dep.conditionGroup).ShouldNot(BeEmpty(),
 			"OLM operator dependency %s must have conditionGroup", dep.name)
 	case checkRuntimeClass:
-		g.Expect(dep.runtimeClassPrefix).ShouldNot(BeEmpty(),
-			"RuntimeClass dependency %s must have runtimeClassPrefix", dep.name)
+		g.Expect(dep.runtimeClassPrefixes).ShouldNot(BeEmpty(),
+			"RuntimeClass dependency %s must have runtimeClassPrefixes", dep.name)
 		g.Expect(dep.conditionGroup).ShouldNot(BeEmpty(),
 			"RuntimeClass dependency %s must have conditionGroup", dep.name)
 	}
@@ -149,7 +149,7 @@ func TestCheckOLMOperator_ContextCancelled(t *testing.T) {
 func TestCheckRuntimeClass(t *testing.T) {
 	dep := runtimeClassDep(
 		"Confidential container RuntimeClass",
-		cocoRuntimeClassPrefix,
+		cocoRuntimeClassPrefixes,
 		conditionConfidentialContainerDeps,
 		"ocp",
 		availSeverityNone,
@@ -161,21 +161,29 @@ func TestCheckRuntimeClass(t *testing.T) {
 		want    []string
 	}{
 		{
-			name:    "matching class with handler",
-			objects: []client.Object{makeRuntimeClass("kata-cc", "kata-cc")},
+			name:    "matching kata class with handler",
+			objects: []client.Object{makeRuntimeClass("kata", "kata")},
+		},
+		{
+			name:    "matching ccruntime class with handler",
+			objects: []client.Object{makeRuntimeClass("ccruntime-foo", "ccruntime-foo")},
+		},
+		{
+			name:    "matching enclave class with handler",
+			objects: []client.Object{makeRuntimeClass("enclave-cc", "enclave-cc")},
 		},
 		{
 			name:    "matching class with whitespace handler",
-			objects: []client.Object{makeRuntimeClass("kata-cc-foo", "  \t")},
+			objects: []client.Object{makeRuntimeClass("kata-qemu-tdx", "  \t")},
 			want: []string{
-				`Confidential container RuntimeClass not ready (no RuntimeClass with prefix "kata-cc" and a runtime handler)`,
+				`Confidential container RuntimeClass not ready (no RuntimeClass matching any of ["kata" "ccruntime" "enclave-cc"] and a runtime handler)`,
 			},
 		},
 		{
 			name:    "different class",
-			objects: []client.Object{makeRuntimeClass("runc", "runc")},
+			objects: []client.Object{makeRuntimeClass("katalyst", "katalyst")},
 			want: []string{
-				`Confidential container RuntimeClass not ready (no RuntimeClass with prefix "kata-cc" and a runtime handler)`,
+				`Confidential container RuntimeClass not ready (no RuntimeClass matching any of ["kata" "ccruntime" "enclave-cc"] and a runtime handler)`,
 			},
 		},
 	}
@@ -194,7 +202,7 @@ func TestCheckRuntimeClass_ContextCancelled(t *testing.T) {
 	cancel()
 
 	r := &KserveModuleReconciler{Client: dependencyTestClient()}
-	dep := runtimeClassDep("RuntimeClass", cocoRuntimeClassPrefix, conditionConfidentialContainerDeps, "ocp", availSeverityNone)
+	dep := runtimeClassDep("RuntimeClass", cocoRuntimeClassPrefixes, conditionConfidentialContainerDeps, "ocp", availSeverityNone)
 
 	g := NewWithT(t)
 	g.Expect(r.checkRuntimeClass(ctx, dep)).To(BeEmpty())
@@ -213,8 +221,7 @@ func TestMissingConfidentialContainerDependenciesAreOptional(t *testing.T) {
 	g := NewWithT(t)
 	g.Expect(result.groupReasons[conditionConfidentialContainerDeps]).To(ConsistOf(
 		"Red Hat build of Trustee operator not installed",
-		"OpenShift Sandboxed Containers operator not installed",
-		`Confidential container RuntimeClass not ready (no RuntimeClass with prefix "kata-cc" and a runtime handler)`,
+		`Confidential container RuntimeClass not ready (no RuntimeClass matching any of ["kata" "ccruntime" "enclave-cc"] and a runtime handler)`,
 	))
 	g.Expect(result.availReasons).To(BeEmpty())
 	g.Expect(hasCriticalFailure(result)).To(BeFalse())
