@@ -41,7 +41,6 @@ var dependencyCRDNames = map[string]bool{
 	"leaderworkersets.operator.openshift.io": true,
 	"subscriptions.operators.coreos.com":     true,
 	"persesdashboards.perses.dev":            true,
-	trusteeKbsConfigCRD:                      true,
 }
 
 var watchedSubscriptions = map[string]bool{
