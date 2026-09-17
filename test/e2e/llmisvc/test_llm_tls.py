@@ -82,31 +82,6 @@ def _get_tls_config() -> tuple[bool, str, str]:
     )
 
 
-def _set_tls_profile(min_version: str, cipher_suites: str) -> dict:
-    """Set a populated TLS profile and return the original ingress configuration."""
-    inject_k8s_proxy()
-    core_v1 = client.CoreV1Api()
-    cm = core_v1.read_namespaced_config_map("inferenceservice-config", KSERVE_NAMESPACE)
-    original = json.loads(cm.data.get("ingress", "{}"))
-    updated = dict(original)
-    updated["llmInferenceServiceTLSMinVersion"] = min_version
-    updated["llmInferenceServiceTLSCipherSuites"] = cipher_suites
-    cm.data["ingress"] = json.dumps(updated)
-    core_v1.replace_namespaced_config_map(
-        "inferenceservice-config", KSERVE_NAMESPACE, cm
-    )
-    return original
-
-
-def _restore_tls_config(original: dict) -> None:
-    core_v1 = client.CoreV1Api()
-    cm = core_v1.read_namespaced_config_map("inferenceservice-config", KSERVE_NAMESPACE)
-    cm.data["ingress"] = json.dumps(original)
-    core_v1.replace_namespaced_config_map(
-        "inferenceservice-config", KSERVE_NAMESPACE, cm
-    )
-
-
 def _list_destination_rules(namespace, label_selector):
     """List Istio DestinationRules matching a label selector."""
     custom_api = client.CustomObjectsApi()
@@ -199,7 +174,7 @@ def _get_container_commands(namespace, service_name):
     ids=generate_test_id,
 )
 @log_execution
-def test_llm_tls_resources(test_case: TestCase, request: pytest.FixtureRequest):
+def test_llm_tls_resources(test_case: TestCase):
     """Verify that TLS-related resources (DestinationRules, cert secrets, service port)
     are correctly present or absent based on the enableLLMInferenceServiceTLS flag."""
     inject_k8s_proxy()
@@ -220,14 +195,6 @@ def test_llm_tls_resources(test_case: TestCase, request: pytest.FixtureRequest):
         )
         wait_for_model_response(kserve_client, test_case, test_case.wait_timeout)
 
-        # Update the profile only after the service exists so the ConfigMap watch
-        # enqueues it for reconciliation. Updating before creation races the
-        # controller's ConfigMap cache and can render the previous profile.
-        original_ingress = _set_tls_profile(
-            "VersionTLS12",
-            ",".join(GO_TLS_CIPHER_SUITES),
-        )
-        request.addfinalizer(lambda: _restore_tls_config(original_ingress))
         tls_enabled, tls_min_version, tls_cipher_suites = _get_tls_config()
         logger.info(
             "LLMInferenceService TLS config: enabled=%s, min_version=%s, cipher_suites=%s",
