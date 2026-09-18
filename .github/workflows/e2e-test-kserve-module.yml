@@ -106,7 +106,7 @@ jobs:
           echo "Base image: ${BASE_ID}"
           echo "Next image: ${NEXT_ID}"
           if [ "${BASE_ID}" = "${NEXT_ID}" ]; then
-            echo "ERROR: Base and next images are identical (N→N); upgrade test would be meaningless"
+            echo "ERROR: Base and next images are identical (N->N); upgrade test would be meaningless"
             exit 1
           fi
 

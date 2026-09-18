@@ -76,7 +76,7 @@ PLATFORM=ocp make e2e-kserve-module-post-release
 
 ## Module upgrade e2e (RHOAIENG-82811)
 
-Validates that rolling the **kserve-module controller image** (N → N+1) does
+Validates that rolling the **kserve-module controller image** (N -> N+1) does
 not disturb operand CRs or running services. The roll is triggered by the
 `e2e-roll-kserve-module` Make target (controller image update plus embedded
 manifest re-apply via `setup-cluster.sh --skip-deps`).
@@ -97,7 +97,7 @@ automatically).
 ### CI flow (xks)
 
 ```text
-build N (main) + N+1 (PR) → install N (base manifests) → pre_upgrade → e2e-roll N+1 → post_upgrade → e2e-kserve-module
+build N (main) + N+1 (PR) -> install N (base manifests) -> pre_upgrade -> e2e-roll N+1 -> post_upgrade -> e2e-kserve-module
 ```
 
 ### Required CI guarantees (GitHub Actions xks)
@@ -110,11 +110,11 @@ build N (main) + N+1 (PR) → install N (base manifests) → pre_upgrade → e2e
 | Kserve CR stays Ready with same UID | Yes |
 | Operand controller pods (kserve/llmisvc) keep same UID | Yes |
 | Operand controllers reach Available | Yes |
-| ISVC sklearn predict request (pre/post) | **No** — `ocp_only`; skipped on xks |
-| ISVC/LLMISVC workload pod UID survival | **No** — `ocp_only`; skipped on xks |
-| ISVC background health probe during roll | **No** — `ocp_only`; skipped on xks |
-| LLMISVC WorkloadsReady continuity | **No** — `ocp_only`; skipped on xks |
-| Part B: new ISVC/LLMISVC creation | **No** — `ocp_only`; skipped on xks |
+| ISVC sklearn predict request (pre/post) | **No** - `ocp_only`; skipped on xks |
+| ISVC/LLMISVC workload pod UID survival | **No** - `ocp_only`; skipped on xks |
+| ISVC background health probe during roll | **No** - `ocp_only`; skipped on xks |
+| LLMISVC WorkloadsReady continuity | **No** - `ocp_only`; skipped on xks |
+| Part B: new ISVC/LLMISVC creation | **No** - `ocp_only`; skipped on xks |
 
 On xks (minikube CI), `ocp_only` tests are skipped because vanilla k8s lacks the
 OpenShift routes and serving stack those workloads need. Operand identity, Kserve

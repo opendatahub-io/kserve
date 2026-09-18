@@ -10,7 +10,11 @@ from upgrade import utils
 
 @pytest.fixture(scope="session")
 def ensure_kserve_cr(kubectl):
-    """Create the singleton Kserve CR before pre-upgrade validation."""
+    """Ensure the platform Kserve CR (`default-kserve`) exists before pre-upgrade.
+
+    This is the components.platform.opendatahub.io/v1alpha1 Kserve resource that
+    the module controller reconciles to deploy operands (ISVC/LLMISVC stacks).
+    """
     utils.create_kserve_cr(kubectl)
 
 
