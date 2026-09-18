@@ -44,6 +44,8 @@ type WorkloadReconcilerParams struct {
 	PodSpec             *corev1.PodSpec
 	WorkerPodSpec       *corev1.PodSpec
 	DeployConfig        *v1beta1.DeployConfig
+	AuditLoggingProfile constants.AuditLoggingProfile
+	ManageAuditLogging  bool
 }
 
 // ServiceReconcilerParams contains parameters for service reconciler creation
@@ -89,6 +91,8 @@ func (f *ReconcilerFactory) CreateWorkloadReconciler(
 		deploymentRec, err := deployment.NewDeploymentReconciler(
 			ctx, params.Client, params.ClientSet, params.Scheme, params.ResourceType, params.ComponentMeta,
 			params.WorkerComponentMeta, params.ComponentExt, params.PodSpec, params.WorkerPodSpec, params.DeployConfig,
+			params.AuditLoggingProfile,
+			params.ManageAuditLogging,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create deployment reconciler: %w", err)
