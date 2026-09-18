@@ -26,17 +26,13 @@ class TestPreUpgrade:
 
     @pytest.mark.pre_upgrade
     @pytest.mark.ocp_only
-    def test_isvc_inference(self, kubectl, upgrade_namespace, deploy_upgrade_workloads):
-        utils.run_isvc_inference(
-            kubectl, namespace=upgrade_namespace, name=utils.ISVC_NAME
-        )
+    def test_isvc_inference(self, kubectl, deploy_upgrade_workloads):
+        utils.run_isvc_inference(kubectl, name=utils.ISVC_NAME)
 
     @pytest.mark.pre_upgrade
     @pytest.mark.ocp_only
-    def test_llmisvc_workloads_ready(self, kubectl, upgrade_namespace, deploy_upgrade_workloads):
-        utils.check_llmisvc_workloads_ready(
-            kubectl, namespace=upgrade_namespace, name=utils.LLMISVC_NAME
-        )
+    def test_llmisvc_workloads_ready(self, kubectl, deploy_upgrade_workloads):
+        utils.check_llmisvc_workloads_ready(kubectl, name=utils.LLMISVC_NAME)
 
 
 _upgrade_workloads_settled = False
@@ -52,7 +48,7 @@ def settle_upgrade_workloads(
         return
     if not pytestconfig.getoption("--post-upgrade") or not upgrade_workloads_enabled:
         return
-    utils.wait_for_upgrade_workloads_settled(kubectl, namespace=upgrade_namespace)
+    utils.wait_for_upgrade_workloads_settled(kubectl)
     _upgrade_workloads_settled = True
 
 
@@ -81,9 +77,9 @@ class TestPostUpgrade:
 
     @pytest.mark.post_upgrade
     @pytest.mark.ocp_only
-    def test_background_probe_no_downtime(self, kubectl, upgrade_namespace):
+    def test_background_probe_no_downtime(self, kubectl):
         """Part A: background probe against ISVC health had no failures during roll."""
-        utils.verify_background_probe(kubectl, namespace=upgrade_namespace)
+        utils.verify_background_probe(kubectl)
 
     @pytest.mark.post_upgrade
     def test_operand_controllers_available(self, kubectl, cluster_info):
@@ -108,11 +104,9 @@ class TestPostUpgrade:
 
     @pytest.mark.post_upgrade
     @pytest.mark.ocp_only
-    def test_isvc_survived(self, kubectl, upgrade_namespace, upgrade_baseline):
+    def test_isvc_survived(self, kubectl, upgrade_baseline):
         baseline = upgrade_baseline["workloads"][utils.ISVC_NAME]
-        current = utils.capture_isvc_baseline(
-            kubectl, name=utils.ISVC_NAME, namespace=upgrade_namespace
-        )
+        current = utils.capture_isvc_baseline(kubectl, name=utils.ISVC_NAME)
         assert current["uid"] == baseline["uid"]
         assert current["generation"] == baseline["generation"]
         utils.assert_pod_uids_unchanged(
@@ -127,19 +121,15 @@ class TestPostUpgrade:
 
     @pytest.mark.post_upgrade
     @pytest.mark.ocp_only
-    def test_isvc_inference_after_upgrade(self, kubectl, upgrade_namespace, upgrade_baseline):
-        current_hash = utils.run_isvc_inference(
-            kubectl, namespace=upgrade_namespace, name=utils.ISVC_NAME
-        )
+    def test_isvc_inference_after_upgrade(self, kubectl, upgrade_baseline):
+        current_hash = utils.run_isvc_inference(kubectl, name=utils.ISVC_NAME)
         assert current_hash == upgrade_baseline["workloads"][utils.ISVC_NAME]["inference_hash"]
 
     @pytest.mark.post_upgrade
     @pytest.mark.ocp_only
-    def test_llmisvc_survived(self, kubectl, upgrade_namespace, upgrade_baseline):
+    def test_llmisvc_survived(self, kubectl, upgrade_baseline):
         baseline = upgrade_baseline["workloads"][utils.LLMISVC_NAME]
-        current = utils.capture_llmisvc_baseline(
-            kubectl, name=utils.LLMISVC_NAME, namespace=upgrade_namespace
-        )
+        current = utils.capture_llmisvc_baseline(kubectl, name=utils.LLMISVC_NAME)
         assert current["uid"] == baseline["uid"]
         assert current["generation"] == baseline["generation"]
         utils.assert_pod_uids_unchanged(
@@ -154,11 +144,9 @@ class TestPostUpgrade:
 
     @pytest.mark.post_upgrade
     @pytest.mark.ocp_only
-    def test_llmisvc_workloads_ready_after_upgrade(
-        self, kubectl, upgrade_namespace, upgrade_baseline
-    ):
+    def test_llmisvc_workloads_ready_after_upgrade(self, kubectl, upgrade_baseline):
         current_hash = utils.check_llmisvc_workloads_ready(
-            kubectl, namespace=upgrade_namespace, name=utils.LLMISVC_NAME
+            kubectl, name=utils.LLMISVC_NAME
         )
         baseline_hash = upgrade_baseline["workloads"][utils.LLMISVC_NAME].get(
             "workloads_ready_hash",
@@ -177,10 +165,8 @@ class TestPostUpgradeNewWorkloads:
 
     @pytest.mark.post_upgrade
     @pytest.mark.ocp_only
-    def test_new_isvc_inference(self, kubectl, upgrade_namespace, deploy_new_isvc):
-        utils.run_isvc_inference(
-            kubectl, namespace=upgrade_namespace, name=deploy_new_isvc
-        )
+    def test_new_isvc_inference(self, kubectl, deploy_new_isvc):
+        utils.run_isvc_inference(kubectl, name=deploy_new_isvc)
 
     @pytest.mark.post_upgrade
     @pytest.mark.ocp_only
@@ -189,7 +175,5 @@ class TestPostUpgradeNewWorkloads:
 
     @pytest.mark.post_upgrade
     @pytest.mark.ocp_only
-    def test_new_llmisvc_workloads_ready(self, kubectl, upgrade_namespace, deploy_new_llmisvc):
-        utils.check_llmisvc_workloads_ready(
-            kubectl, namespace=upgrade_namespace, name=deploy_new_llmisvc
-        )
+    def test_new_llmisvc_workloads_ready(self, kubectl, deploy_new_llmisvc):
+        utils.check_llmisvc_workloads_ready(kubectl, name=deploy_new_llmisvc)

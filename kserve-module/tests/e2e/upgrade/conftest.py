@@ -18,9 +18,8 @@ def ensure_kserve_cr(kubectl):
 
 @pytest.fixture(scope="session")
 def upgrade_namespace(kubectl):
-    """Dedicated namespace for upgrade workloads; persists across phases."""
+    """Ensure the dedicated upgrade namespace exists; persists across phases."""
     utils.ensure_namespace(kubectl, utils.UPGRADE_NAMESPACE)
-    return utils.UPGRADE_NAMESPACE
 
 
 @pytest.fixture(scope="session")
@@ -33,7 +32,7 @@ def upgrade_baseline(pytestconfig, kubectl):
     """Load baseline ConfigMap during post-upgrade runs."""
     if not utils.is_post_upgrade(pytestconfig):
         return {}
-    return utils.load_baseline(kubectl, namespace=utils.UPGRADE_NAMESPACE)
+    return utils.load_baseline(kubectl)
 
 
 @pytest.fixture(scope="session")
@@ -45,15 +44,13 @@ def deploy_upgrade_workloads(
         yield
         return
 
-    utils.cleanup_upgrade_workloads(kubectl, namespace=upgrade_namespace)
-    utils.apply_mlserver_runtime(kubectl, namespace=upgrade_namespace)
-    utils.apply_manifest(kubectl, "sklearn-iris-isvc.yaml", namespace=upgrade_namespace)
-    utils.apply_manifest(kubectl, "llmisvc-opt-125m-cpu.yaml", namespace=upgrade_namespace)
-    utils.wait_for_isvc_ready(kubectl, name=utils.ISVC_NAME, namespace=upgrade_namespace)
-    utils.wait_for_llmisvc_ready(
-        kubectl, name=utils.LLMISVC_NAME, namespace=upgrade_namespace
-    )
-    utils.start_background_probe(kubectl, namespace=upgrade_namespace)
+    utils.cleanup_upgrade_workloads(kubectl)
+    utils.apply_mlserver_runtime(kubectl)
+    utils.apply_manifest(kubectl, "sklearn-iris-isvc.yaml")
+    utils.apply_manifest(kubectl, "llmisvc-opt-125m-cpu.yaml")
+    utils.wait_for_isvc_ready(kubectl, name=utils.ISVC_NAME)
+    utils.wait_for_llmisvc_ready(kubectl, name=utils.LLMISVC_NAME)
+    utils.start_background_probe(kubectl)
     yield
 
 
@@ -83,10 +80,8 @@ def capture_upgrade_baseline(
     isvc_hash = None
     llmisvc_workloads_ready_hash = None
     if upgrade_workloads_enabled:
-        isvc_hash = utils.run_isvc_inference(kubectl, namespace=upgrade_namespace)
-        llmisvc_workloads_ready_hash = utils.check_llmisvc_workloads_ready(
-            kubectl, namespace=upgrade_namespace
-        )
+        isvc_hash = utils.run_isvc_inference(kubectl)
+        llmisvc_workloads_ready_hash = utils.check_llmisvc_workloads_ready(kubectl)
 
     baseline = utils.build_baseline(
         kubectl,
@@ -95,7 +90,7 @@ def capture_upgrade_baseline(
         llmisvc_workloads_ready_hash=llmisvc_workloads_ready_hash,
         include_workloads=upgrade_workloads_enabled,
     )
-    utils.save_baseline(kubectl, baseline, namespace=upgrade_namespace)
+    utils.save_baseline(kubectl, baseline)
 
 
 @pytest.fixture(scope="class")
@@ -124,16 +119,12 @@ def deploy_new_isvc(
     if not utils.is_post_upgrade(pytestconfig) or not upgrade_workloads_enabled:
         pytest.skip("Post-upgrade workload creation requires OpenShift")
 
-    utils._force_delete(
-        kubectl, "inferenceservice", utils.NEW_ISVC_NAME, namespace=upgrade_namespace
-    )
+    utils._force_delete(kubectl, "inferenceservice", utils.NEW_ISVC_NAME)
     utils.run(
-        [kubectl, "apply", "-n", upgrade_namespace, "-f", "-"],
+        [kubectl, "apply", "-n", utils.UPGRADE_NAMESPACE, "-f", "-"],
         input_text=yaml.safe_dump(new_isvc_manifest),
     )
-    utils.wait_for_isvc_ready(
-        kubectl, name=utils.NEW_ISVC_NAME, namespace=upgrade_namespace
-    )
+    utils.wait_for_isvc_ready(kubectl, name=utils.NEW_ISVC_NAME)
     return utils.NEW_ISVC_NAME
 
 
@@ -149,17 +140,10 @@ def deploy_new_llmisvc(
     if not utils.is_post_upgrade(pytestconfig) or not upgrade_workloads_enabled:
         pytest.skip("Post-upgrade workload creation requires OpenShift")
 
-    utils._force_delete(
-        kubectl,
-        "llminferenceservice",
-        utils.NEW_LLMISVC_NAME,
-        namespace=upgrade_namespace,
-    )
+    utils._force_delete(kubectl, "llminferenceservice", utils.NEW_LLMISVC_NAME)
     utils.run(
-        [kubectl, "apply", "-n", upgrade_namespace, "-f", "-"],
+        [kubectl, "apply", "-n", utils.UPGRADE_NAMESPACE, "-f", "-"],
         input_text=yaml.safe_dump(new_llmisvc_manifest),
     )
-    utils.wait_for_llmisvc_ready(
-        kubectl, name=utils.NEW_LLMISVC_NAME, namespace=upgrade_namespace
-    )
+    utils.wait_for_llmisvc_ready(kubectl, name=utils.NEW_LLMISVC_NAME)
     return utils.NEW_LLMISVC_NAME
