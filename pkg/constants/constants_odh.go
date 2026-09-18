@@ -28,13 +28,24 @@ var (
 	ODHKserveRuntimeAnnotation      = "opendatahub.io/kserve-runtime"
 )
 
+// Midstream opendatahub.io/kserve-runtime annotation values
+const (
+	ODHKserveRuntimeVLLM = "vllm"
+)
+
+// AuditLoggingProfile is the resolved profile passed to raw workload reconcilers.
+type AuditLoggingProfile string
+
 // Midstream networking constants
 const (
-	ODHKserveRawAuth               = "security.opendatahub.io/enable-auth"
-	ODHAuthProxyTypeAnnotation     = "security.opendatahub.io/auth-proxy-type"
-	ODHRouteEnabled                = "exposed"
-	ServingCertSecretSuffix        = "-serving-cert"
-	OpenshiftServingCertAnnotation = "service.beta.openshift.io/serving-cert-secret-name"
+	ODHKserveRawAuth                                   = "security.opendatahub.io/enable-auth"
+	ODHKserveAuditLoggingProfile                       = "observability.opendatahub.io/audit-logging-profile"
+	AuditLoggingProfileNone        AuditLoggingProfile = "none"
+	AuditLoggingProfileMetadata    AuditLoggingProfile = "metadata"
+	ODHAuthProxyTypeAnnotation                         = "security.opendatahub.io/auth-proxy-type"
+	ODHRouteEnabled                                    = "exposed"
+	ServingCertSecretSuffix                            = "-serving-cert"
+	OpenshiftServingCertAnnotation                     = "service.beta.openshift.io/serving-cert-secret-name"
 )
 
 // Midstream container names
@@ -85,5 +96,5 @@ const (
 )
 
 func init() {
-	ServiceAnnotationDisallowedList = append(ServiceAnnotationDisallowedList, ODHKserveRawAuth)
+	ServiceAnnotationDisallowedList = append(ServiceAnnotationDisallowedList, ODHKserveRawAuth, ODHKserveAuditLoggingProfile)
 }

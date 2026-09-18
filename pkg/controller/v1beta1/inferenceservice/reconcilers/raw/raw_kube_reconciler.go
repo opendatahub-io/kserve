@@ -72,6 +72,8 @@ func NewRawKubeReconciler(ctx context.Context,
 	storageSpec *v1beta1.StorageSpec,
 	credentialBuilder *credentials.CredentialBuilder,
 	storageContainerSpec *v1alpha1.StorageContainerSpec,
+	auditLoggingProfile constants.AuditLoggingProfile,
+	manageAuditLogging bool,
 ) (*RawKubeReconciler, error) {
 	var otelCollector *otel.OtelReconciler
 	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(ctx, clientset)
@@ -204,6 +206,8 @@ func NewRawKubeReconciler(ctx context.Context,
 			PodSpec:             podSpec,
 			WorkerPodSpec:       workerPodSpec,
 			DeployConfig:        deployConfig,
+			AuditLoggingProfile: auditLoggingProfile,
+			ManageAuditLogging:  manageAuditLogging,
 		},
 	)
 	if err != nil {
