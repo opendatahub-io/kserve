@@ -45,10 +45,16 @@ import (
 
 func (r *LLMISVCReconciler) extendControllerSetup(mgr manager.Manager, b *builder.Builder) error {
 	b.Owns(&netv1.NetworkPolicy{}, builder.WithPredicates(childResourcesPredicate))
+	if err := setupTracingServiceIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
+		return err
+	}
 
 	if err := istioapi.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("failed to add Istio v1 APIs to scheme: %w", err)
 	}
+	logger := mgr.GetLogger().WithName("LLMInferenceService.SetupWithManager")
+	b.Watches(&corev1.Service{}, r.enqueueOnOTLPServiceChange(logger), builder.WithPredicates(otlpServiceChangePredicate()))
+
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), istioapi.SchemeGroupVersion.String(), "DestinationRule"); ok && err == nil {
 		b.Owns(&istioapi.DestinationRule{}, builder.WithPredicates(childResourcesPredicate))
 	}
@@ -57,8 +63,6 @@ func (r *LLMISVCReconciler) extendControllerSetup(mgr manager.Manager, b *builde
 		return fmt.Errorf("failed to add Route v1 APIs to scheme: %w", err)
 	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), routev1.GroupVersion.String(), "Route"); ok && err == nil {
-		logger := mgr.GetLogger().WithName("LLMInferenceService.SetupWithManager")
-
 		b.Watches(&routev1.Route{},
 			r.enqueueOnRouteChange(logger),
 			builder.WithPredicates(routeChangePredicate()),

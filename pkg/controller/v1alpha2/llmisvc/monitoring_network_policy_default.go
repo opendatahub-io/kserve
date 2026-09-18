@@ -25,8 +25,8 @@ import (
 )
 
 // reconcileNetworkPolicies is a no-op in upstream builds.
-// Distribution-specific builds create a NetworkPolicy that allows Prometheus
-// to scrape metrics from LLMInferenceService workload and scheduler pods.
+// Distribution-specific builds reconcile monitoring and opt-in tracing
+// NetworkPolicies for LLMInferenceService workload and scheduler pods.
 func (r *LLMISVCReconciler) reconcileNetworkPolicies(_ context.Context, _ *v1alpha2.LLMInferenceService, _ *Config) error {
 	return nil
 }
