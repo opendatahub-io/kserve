@@ -330,6 +330,14 @@ rules:
   - bind
   - escalate
 - apiGroups:
+  - resource.k8s.io
+  resources:
+  - resourceslices
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - security.openshift.io
   resources:
   - securitycontextconstraints

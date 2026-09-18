@@ -71,6 +71,13 @@ type KserveSpec struct {
 	// Enabled by default.
 	EnableLLMInferenceServiceConsoleDashboards *bool `json:"enableLLMInferenceServiceConsoleDashboards,omitempty"`
 
+	// Enables hardware-aware creation of accelerator LLMInferenceServiceConfig presets:
+	// presets for an accelerator are only created when a matching resource is present in
+	// some node's status.allocatable (vendor-domain matching also covers MIG devices).
+	// Enabled by default. Set to false on clusters using accelerator resource names that
+	// do not share a vendor domain, so that all presets are always created.
+	EnableHardwareAwarePresets *bool `json:"enableHardwareAwarePresets,omitempty"`
+
 	// AuditLogging controls inference request audit logging.
 	// Managed writes openshiftConfig.enableAuditLogging=true on inferenceservice-config.
 	// Removed writes openshiftConfig.enableAuditLogging=false.

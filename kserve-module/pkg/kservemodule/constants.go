@@ -26,13 +26,13 @@ const (
 	ConsoleDashboardsComponentName  = "console-dashboards"
 
 	// Manifest source paths
-	KserveManifestSourcePath        = "overlays/odh"
-	KserveManifestSourcePathXKS     = "overlays/odh-xks"
-	KserveCRDManifestSourcePath     = "overlays/odh-crds"
-	ModelCacheManifestSourcePath    = "overlays/odh-modelcache"
-	ModelControllerSourcePath       = "overlays/odh"
-	WVAManifestSourcePathOCP        = "overlays/namespace-scoped/openshift"
-	ObservabilityManifestSourcePath      = "monitoring/llmisvc/dashboards"
+	KserveManifestSourcePath            = "overlays/odh"
+	KserveManifestSourcePathXKS         = "overlays/odh-xks"
+	KserveCRDManifestSourcePath         = "overlays/odh-crds"
+	ModelCacheManifestSourcePath        = "overlays/odh-modelcache"
+	ModelControllerSourcePath           = "overlays/odh"
+	WVAManifestSourcePathOCP            = "overlays/namespace-scoped/openshift"
+	ObservabilityManifestSourcePath     = "monitoring/llmisvc/dashboards"
 	ConsoleDashboardsManifestSourcePath = "monitoring/llmisvc/dashboards-odc"
 
 	// Deployment names
@@ -63,10 +63,32 @@ const (
 	// LLMInferenceServiceConfig versioning
 	wellKnownAnnotationKey   = "serving.kserve.io/well-known-config"
 	wellKnownAnnotationValue = "true"
-	llmISVCConfigPrefixEnv   = "LLM_INFERENCE_SERVICE_CONFIG_PREFIX"
-	llmISVCConfigGroup       = "serving.kserve.io"
-	llmISVCConfigVersion     = "v1alpha2"
-	llmISVCConfigKind        = "LLMInferenceServiceConfig"
+
+	// recommendedAcceleratorsAnnotationKey holds a JSON array of the accelerator
+	// resource names a preset targets, e.g. '["nvidia.com/gpu"]'. Used by hardware-aware
+	// filtering to know which allocatable resource a preset needs.
+	recommendedAcceleratorsAnnotationKey = "opendatahub.io/recommended-accelerators"
+
+	// recommendedDRADriversAnnotationKey holds a JSON array of the Dynamic Resource
+	// Allocation driver names a preset targets, e.g. '["gpu.nvidia.com"]'. It is an optional,
+	// additive escape hatch for vendors whose DRA driver name does not share the vendor domain
+	// of their recommended-accelerators resource name (so the domain bridge in acceleratorPresent
+	// would miss them). A preset is kept when its recommended-accelerators OR its
+	// recommended-dra-drivers are satisfied; drivers here are matched exactly against the drivers
+	// publishing ResourceSlices. Presets whose driver already shares the vendor domain need not
+	// set it.
+	recommendedDRADriversAnnotationKey = "opendatahub.io/recommended-dra-drivers"
+
+	// configTypeLabelKey / configTypeAcceleratorValue mark a preset as accelerator-specific.
+	// The accelerator overlays stamp this label via kustomize commonLabels; generic llm-d
+	// templates do not carry it. It is the canonical identity signal for hardware-aware and
+	// differential handling (see isAcceleratorPreset).
+	configTypeLabelKey         = "opendatahub.io/config-type"
+	configTypeAcceleratorValue = "accelerator"
+	llmISVCConfigPrefixEnv     = "LLM_INFERENCE_SERVICE_CONFIG_PREFIX"
+	llmISVCConfigGroup         = "serving.kserve.io"
+	llmISVCConfigVersion       = "v1alpha2"
+	llmISVCConfigKind          = "LLMInferenceServiceConfig"
 
 	// Template (ServingRuntime) resource type
 	templateGroup = "template.openshift.io"

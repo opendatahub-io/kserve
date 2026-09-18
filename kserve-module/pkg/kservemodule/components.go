@@ -109,6 +109,14 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 		return nil, fmt.Errorf("versioning LLMInferenceServiceConfigs: %w", err)
 	}
 
+	// Optimize versioned accelerator preset lifecycle. Skipped during cleanup renders
+	// (kserve == nil), which must see the full set to delete it. Hardware filtering runs
+	// first so differential versioning never compares presets already excluded.
+	if kserve != nil {
+		resources = r.filterHardwareUnavailablePresets(ctx, kserve, resources)
+		resources = r.dedupeVersionedAcceleratorPresets(ctx, resources)
+	}
+
 	return resources, nil
 }
 
