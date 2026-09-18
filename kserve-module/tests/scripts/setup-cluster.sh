@@ -6,6 +6,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 PLATFORM="${PLATFORM:-xks}"
 KSERVE_NAMESPACE="${KSERVE_NAMESPACE:-opendatahub}"
+MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-${KSERVE_NAMESPACE}}"
 KSERVE_MODULE_IMG="${KSERVE_MODULE_IMG:-}"
 
 # Prefer oc on OpenShift, fall back to kubectl
@@ -46,6 +47,7 @@ readonly SUB_RHCL="${RHCL_NAME}|${RHCL_NAMESPACE}|${RHCL_CHANNEL}|AllNamespaces"
 readonly SUB_CMA="${CMA_NAME}|${CMA_NAMESPACE}|${CMA_CHANNEL}|AllNamespaces"
 readonly TEST_MONITORING_CRD="monitorings.services.platform.opendatahub.io"
 readonly TEST_MONITORING_LABEL="kserve-module-e2e"
+readonly TEST_COLLECTOR_SERVICE="data-science-collector-collector"
 
 # --- Per-platform component lists ---
 # xks: install via helm scripts from hack/setup/infra
@@ -211,6 +213,24 @@ metadata:
 spec:
   traces:
     sampleRatio: "0.1"
+EOF
+  fi
+
+  if ! ${KUBECTL} get service "${TEST_COLLECTOR_SERVICE}" -n "${MONITORING_NAMESPACE}" &>/dev/null; then
+    log_info "Creating test collector service..."
+    ${KUBECTL} apply -f - <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${TEST_COLLECTOR_SERVICE}
+  namespace: ${MONITORING_NAMESPACE}
+  labels:
+    ${TEST_MONITORING_LABEL}: "true"
+spec:
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
 EOF
   fi
 }
@@ -416,6 +436,9 @@ cleanup_xks_deps() {
 }
 
 cleanup_test_monitoring() {
+  if ${KUBECTL} get service "${TEST_COLLECTOR_SERVICE}" -n "${MONITORING_NAMESPACE}" -l "${TEST_MONITORING_LABEL}=true" &>/dev/null; then
+    ${KUBECTL} delete service "${TEST_COLLECTOR_SERVICE}" -n "${MONITORING_NAMESPACE}" --ignore-not-found
+  fi
   if ${KUBECTL} get monitoring default-monitoring -l "${TEST_MONITORING_LABEL}=true" &>/dev/null; then
     ${KUBECTL} delete monitoring default-monitoring --ignore-not-found
   fi
@@ -461,6 +484,9 @@ deploy_kserve_module() {
     _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_LOCALMODELNODE_AGENT_IMAGE=${LOCALMODELNODE_AGENT_IMAGE}")
 
   _env_overrides+=("APPLICATIONS_NAMESPACE=${KSERVE_NAMESPACE}")
+  if [[ "${PLATFORM}" == "xks" ]]; then
+    _env_overrides+=("MONITORING_NAMESPACE=${MONITORING_NAMESPACE}")
+  fi
 
   log_info "Overriding operand images on kserve-module-controller-manager..."
   log_info "Waiting for controller rollout..."
