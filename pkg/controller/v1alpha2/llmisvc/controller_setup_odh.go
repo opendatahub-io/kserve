@@ -26,6 +26,7 @@ import (
 	routev1 "github.com/openshift/api/route/v1"
 	istioapi "istio.io/client-go/pkg/apis/networking/v1"
 	corev1 "k8s.io/api/core/v1"
+	netv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -43,9 +44,17 @@ import (
 )
 
 func (r *LLMISVCReconciler) extendControllerSetup(mgr manager.Manager, b *builder.Builder) error {
+	b.Owns(&netv1.NetworkPolicy{}, builder.WithPredicates(childResourcesPredicate))
+	if err := setupTracingServiceIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
+		return err
+	}
+
 	if err := istioapi.AddToScheme(mgr.GetScheme()); err != nil {
 		return fmt.Errorf("failed to add Istio v1 APIs to scheme: %w", err)
 	}
+	logger := mgr.GetLogger().WithName("LLMInferenceService.SetupWithManager")
+	b.Watches(&corev1.Service{}, r.enqueueOnOTLPServiceChange(logger), builder.WithPredicates(otlpServiceChangePredicate()))
+
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), istioapi.SchemeGroupVersion.String(), "DestinationRule"); ok && err == nil {
 		b.Owns(&istioapi.DestinationRule{}, builder.WithPredicates(childResourcesPredicate))
 	}
@@ -54,8 +63,6 @@ func (r *LLMISVCReconciler) extendControllerSetup(mgr manager.Manager, b *builde
 		return fmt.Errorf("failed to add Route v1 APIs to scheme: %w", err)
 	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), routev1.GroupVersion.String(), "Route"); ok && err == nil {
-		logger := mgr.GetLogger().WithName("LLMInferenceService.SetupWithManager")
-
 		b.Watches(&routev1.Route{},
 			r.enqueueOnRouteChange(logger),
 			builder.WithPredicates(routeChangePredicate()),
