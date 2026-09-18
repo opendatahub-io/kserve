@@ -13,7 +13,6 @@ metadata:
     opendatahub.io/supported-topologies: '["workload-single-node"]'
 spec:
   template:
-    schedulerName: spyre-scheduler
     containers:
       - name: main
         image: placeholder
@@ -36,3 +35,8 @@ spec:
             value: "1"
           - name: VLLM_DT_CHUNK_LEN
             value: "512"
+    volumes:
+      - emptyDir:
+          medium: Memory
+          sizeLimit: 2Gi
+        name: dshm

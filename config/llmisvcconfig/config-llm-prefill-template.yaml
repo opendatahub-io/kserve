@@ -18,6 +18,43 @@ spec:
             - "/bin/bash"
             - "-c"
             - |-
+              # Spyre architecture-specific setup for ppc64le/s390x
+              if [ -d /opt/ibm/spyre ]; then
+                ARCH="$(arch)"
+                case "${ARCH}" in
+                  ppc64le)
+                    if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                      . /opt/rh/gcc-toolset-14/enable
+                      export PATH
+                    fi
+                    ;;
+                  s390x)
+                    export FLEX_DEVICE=VF
+                    if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                      source /etc/profile.d/ibm-aiu-setup.sh
+                    fi
+                    export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+                    if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                      if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > "$HOME/.senlib.json" && [ -s "$HOME/.senlib.json" ]; then
+                        export SENLIB_DEVEL_CONFIG_FILE="$HOME/.senlib.json"
+                      else
+                        echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                        rm -f "$HOME/.senlib.json"
+                      fi
+                    else
+                      echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+                    fi
+                    if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                      . /opt/rh/gcc-toolset-14/enable
+                      export PATH
+                    fi
+                    ;;
+                  x86_64)
+                    export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+                    ;;
+                esac
+              fi
+
               if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
                 source /etc/profile.d/ibm-aiu-setup.sh
               fi
@@ -160,17 +197,32 @@ spec:
                 SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ if .Spec.Prefill }}{{ shutdownTimeout .Spec.Prefill.Template 15 }}{{ else }}{{ shutdownTimeout nil 15 }}{{ end }}"
               fi
 
-              # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+              # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
               KV_TRANSFER_ARGS=""
-              if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-                if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+              if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+                # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+                if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
                   KV_TRANSFER_ARGS="{{ if .Spec.Prefill }}{{ kvTransferConfig .Spec.Prefill.KVCacheOffloading }}{{ end }}"
+                fi
+                # This template is only composed for a disaggregated P/D topology (spec.prefill set).
+                # Prefill is the KV producer; without a connector here decode has nothing to fetch.
+                if [ -z "${KV_TRANSFER_ARGS}" ]; then
+                  # Only inject when NIXL is importable. CPU and other non-NIXL engine images
+                  # raise RuntimeError("NIXL is not available") and never finish starting.
+                  NIXL_PY=$(command -v python3 || command -v python || true)
+                  if [ -n "${NIXL_PY}" ] && "${NIXL_PY}" -c "import nixl" >/dev/null 2>&1; then
+                    KV_TRANSFER_ARGS="--kv-transfer-config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_producer\"}'"
+                    echo "[kv-transfer] NIXL available, enabling NixlConnector (kv_producer)"
+                  else
+                    echo "[kv-transfer] NIXL not available, P/D KV transfer stays disabled"
+                  fi
                 fi
               fi
 
               eval "exec vllm serve /mnt/models \
                 --served-model-name "{{ .Spec.Model.Name }}" \
                 --port 8000 \
+                --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
                 ${ACCESS_LOG_ARGS} \
                 ${SHUTDOWN_TIMEOUT_ARGS} \
                 ${KV_TRANSFER_ARGS} \
@@ -189,6 +241,12 @@ spec:
               value: INFO
             - name: HF_HUB_CACHE
               value: /models
+            # NixlConnector advertises this address to the peer engine for the KV side channel.
+            # It defaults to localhost, which cannot be reached across pods.
+            - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
           securityContext:
             allowPrivilegeEscalation: false
             # nvidia-cdi-hook requires a writable root filesystem

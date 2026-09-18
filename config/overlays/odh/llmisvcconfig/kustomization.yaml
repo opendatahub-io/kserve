@@ -16,3 +16,12 @@ kind: Component
 
 resources:
   - ../../../llmisvcconfig
+
+# Exclude the sglang template — SGLang is not a supported runtime in the product.
+patches:
+  - patch: |
+      $patch: delete
+      apiVersion: serving.kserve.io/v1alpha2
+      kind: LLMInferenceServiceConfig
+      metadata:
+        name: kserve-config-sglang-template

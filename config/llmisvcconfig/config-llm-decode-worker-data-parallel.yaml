@@ -78,6 +78,43 @@ spec:
           - "/bin/bash"
           - "-c"
           - |-
+            # Spyre architecture-specific setup for ppc64le/s390x
+            if [ -d /opt/ibm/spyre ]; then
+              ARCH="$(arch)"
+              case "${ARCH}" in
+                ppc64le)
+                  if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                    . /opt/rh/gcc-toolset-14/enable
+                    export PATH
+                  fi
+                  ;;
+                s390x)
+                  export FLEX_DEVICE=VF
+                  if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                    source /etc/profile.d/ibm-aiu-setup.sh
+                  fi
+                  export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+                  if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                    if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > "$HOME/.senlib.json" && [ -s "$HOME/.senlib.json" ]; then
+                      export SENLIB_DEVEL_CONFIG_FILE="$HOME/.senlib.json"
+                    else
+                      echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                      rm -f "$HOME/.senlib.json"
+                    fi
+                  else
+                    echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+                  fi
+                  if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                    . /opt/rh/gcc-toolset-14/enable
+                    export PATH
+                  fi
+                  ;;
+                x86_64)
+                  export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+                  ;;
+              esac
+            fi
+
             if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
               source /etc/profile.d/ibm-aiu-setup.sh
             fi
@@ -242,11 +279,25 @@ spec:
               SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ shutdownTimeout .Spec.Template 15 }}"
             fi
 
-            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
             KV_TRANSFER_ARGS=""
-            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-              if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+            if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+              # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+              if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
                 KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+              fi
+              # This template is only composed for a disaggregated P/D topology (spec.prefill set).
+              # Decode is the KV consumer; without a connector here it recomputes prefill's KV.
+              if [ -z "${KV_TRANSFER_ARGS}" ]; then
+                # Only inject when NIXL is importable. CPU and other non-NIXL engine images
+                # raise RuntimeError("NIXL is not available") and never finish starting.
+                NIXL_PY=$(command -v python3 || command -v python || true)
+                if [ -n "${NIXL_PY}" ] && "${NIXL_PY}" -c "import nixl" >/dev/null 2>&1; then
+                  KV_TRANSFER_ARGS="--kv-transfer-config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_consumer\"}'"
+                  echo "[kv-transfer] NIXL available, enabling NixlConnector (kv_consumer)"
+                else
+                  echo "[kv-transfer] NIXL not available, P/D KV transfer stays disabled"
+                fi
               fi
             fi
 
@@ -254,13 +305,14 @@ spec:
               /mnt/models \
               --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
               --port 8001 \
+              --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
               --api-server-count ${VLLM_API_SERVER_COUNT:-8} \
-              {{- if .Spec.Parallelism.Expert -}}--enable-expert-parallel{{- end }} \
-              {{- if .Spec.Parallelism.Tensor -}}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
-              --data-parallel-size {{ or .Spec.Parallelism.Data 1 }} \
-              --data-parallel-size-local {{ or .Spec.Parallelism.DataLocal 1 }} \
+              {{- if and .Spec.Parallelism .Spec.Parallelism.Expert -}}--enable-expert-parallel{{- end }} \
+              {{- if and .Spec.Parallelism .Spec.Parallelism.Tensor -}}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
+              --data-parallel-size {{ or (and .Spec.Parallelism .Spec.Parallelism.Data) 1 }} \
+              --data-parallel-size-local {{ or (and .Spec.Parallelism .Spec.Parallelism.DataLocal) 1 }} \
               --data-parallel-address ${DP_ADDRESS} \
-              --data-parallel-rpc-port {{ if .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
+              --data-parallel-rpc-port {{ if and .Spec.Parallelism .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
               --data-parallel-start-rank $START_RANK \
               ${ACCESS_LOG_ARGS} \
               ${SHUTDOWN_TIMEOUT_ARGS} \
@@ -280,6 +332,12 @@ spec:
             value: INFO
           - name: HF_HUB_CACHE
             value: /models
+          # NixlConnector advertises this address to the peer engine for the KV side channel.
+          # It defaults to localhost, which cannot be reached across pods.
+          - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
         securityContext:
           allowPrivilegeEscalation: false
           # nvidia-cdi-hook requires a writable root filesystem
@@ -364,6 +422,43 @@ spec:
           - "/bin/bash"
           - "-c"
           - |-
+            # Spyre architecture-specific setup for ppc64le/s390x
+            if [ -d /opt/ibm/spyre ]; then
+              ARCH="$(arch)"
+              case "${ARCH}" in
+                ppc64le)
+                  if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                    . /opt/rh/gcc-toolset-14/enable
+                    export PATH
+                  fi
+                  ;;
+                s390x)
+                  export FLEX_DEVICE=VF
+                  if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
+                    source /etc/profile.d/ibm-aiu-setup.sh
+                  fi
+                  export TORCH_SENDNN_TEMP_CACHE_DIR=/opt/ibm/spyre/models/cache/
+                  if [ -n "${AIU_AUTOGEN_SENLIB_CONFIG_FILE:-}" ] && [ -r "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" ]; then
+                    if jq -e '(.SNT_MCI.DCR.MCI_CTRL.ENABLE_RISCV = "0x0") | del(.SNT_MCI.init) | (.METRICS.general.enable = true)' "${AIU_AUTOGEN_SENLIB_CONFIG_FILE}" > "$HOME/.senlib.json" && [ -s "$HOME/.senlib.json" ]; then
+                      export SENLIB_DEVEL_CONFIG_FILE="$HOME/.senlib.json"
+                    else
+                      echo "WARNING: jq failed to process ${AIU_AUTOGEN_SENLIB_CONFIG_FILE}, skipping SENLIB config generation"
+                      rm -f "$HOME/.senlib.json"
+                    fi
+                  else
+                    echo "WARNING: AIU_AUTOGEN_SENLIB_CONFIG_FILE is not set or not readable, skipping SENLIB config generation"
+                  fi
+                  if [ -f /opt/rh/gcc-toolset-14/enable ]; then
+                    . /opt/rh/gcc-toolset-14/enable
+                    export PATH
+                  fi
+                  ;;
+                x86_64)
+                  export SENDNN_INFERENCE_REQUIRE_PRECOMPILED_DECODERS=0
+                  ;;
+              esac
+            fi
+
             if [ -f /etc/profile.d/ibm-aiu-setup.sh ]; then
               source /etc/profile.d/ibm-aiu-setup.sh
             fi
@@ -510,7 +605,7 @@ spec:
               fi
             fi
 
-            START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or .Spec.Parallelism.DataLocal 1 }} ))
+            START_RANK=$(( ${LWS_WORKER_INDEX:-0} * {{ or (and .Spec.Parallelism .Spec.Parallelism.DataLocal) 1 }} ))
 
             # --disable-access-log-for-endpoints landed in vLLM 0.16.0 (vllm-project/vllm#30011).
             # Older versions still need the blanket --disable-uvicorn-access-log.
@@ -528,11 +623,25 @@ spec:
               SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ shutdownTimeout .Spec.Worker 15 }}"
             fi
 
-            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
             KV_TRANSFER_ARGS=""
-            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-              if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+            if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+              # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+              if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
                 KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+              fi
+              # This template is only composed for a disaggregated P/D topology (spec.prefill set).
+              # Decode is the KV consumer; without a connector here it recomputes prefill's KV.
+              if [ -z "${KV_TRANSFER_ARGS}" ]; then
+                # Only inject when NIXL is importable. CPU and other non-NIXL engine images
+                # raise RuntimeError("NIXL is not available") and never finish starting.
+                NIXL_PY=$(command -v python3 || command -v python || true)
+                if [ -n "${NIXL_PY}" ] && "${NIXL_PY}" -c "import nixl" >/dev/null 2>&1; then
+                  KV_TRANSFER_ARGS="--kv-transfer-config '{\"kv_connector\":\"NixlConnector\",\"kv_role\":\"kv_consumer\"}'"
+                  echo "[kv-transfer] NIXL available, enabling NixlConnector (kv_consumer)"
+                else
+                  echo "[kv-transfer] NIXL not available, P/D KV transfer stays disabled"
+                fi
               fi
             fi
 
@@ -540,12 +649,13 @@ spec:
               /mnt/models \
               --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
               --port 8001 \
-              {{- if .Spec.Parallelism.Expert }}--enable-expert-parallel{{- end }} \
-              {{- if .Spec.Parallelism.Tensor }}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
-              --data-parallel-size {{ or .Spec.Parallelism.Data 1 }} \
-              --data-parallel-size-local {{ or .Spec.Parallelism.DataLocal 1 }} \
+              --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
+              {{- if and .Spec.Parallelism .Spec.Parallelism.Expert }}--enable-expert-parallel{{- end }} \
+              {{- if and .Spec.Parallelism .Spec.Parallelism.Tensor }}--tensor-parallel-size {{ .Spec.Parallelism.Tensor }}{{- end }} \
+              --data-parallel-size {{ or (and .Spec.Parallelism .Spec.Parallelism.Data) 1 }} \
+              --data-parallel-size-local {{ or (and .Spec.Parallelism .Spec.Parallelism.DataLocal) 1 }} \
               --data-parallel-address ${DP_ADDRESS} \
-              --data-parallel-rpc-port {{ if .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
+              --data-parallel-rpc-port {{ if and .Spec.Parallelism .Spec.Parallelism.DataRPCPort }}{{ .Spec.Parallelism.DataRPCPort }}{{ else }}5555{{- end }} \
               --data-parallel-start-rank $START_RANK \
               --headless \
               ${ACCESS_LOG_ARGS} \
@@ -566,6 +676,12 @@ spec:
             value: INFO
           - name: HF_HUB_CACHE
             value: /models
+          # NixlConnector advertises this address to the peer engine for the KV side channel.
+          # It defaults to localhost, which cannot be reached across pods.
+          - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
           - name: VLLM_RANDOMIZE_DP_DUMMY_INPUTS
             value: "1"
         securityContext:

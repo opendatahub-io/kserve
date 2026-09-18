@@ -65,7 +65,10 @@ func (r *LLMISVCReconciler) ensureGatewayPreconditions(ctx context.Context, llmS
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		route := r.expectedHTTPRoute(ctx, llmSvc, cfg)
+		route, err := r.expectedHTTPRoute(ctx, llmSvc, cfg)
+		if err != nil {
+			return fmt.Errorf("failed to build expected HTTPRoute: %w", err)
+		}
 		if err := Delete(ctx, r, llmSvc, route); err != nil {
 			return fmt.Errorf("AuthPolicy CRD is not available, please install Red Hat Connectivity Link: %w", err)
 		}

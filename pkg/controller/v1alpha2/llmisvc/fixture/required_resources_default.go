@@ -27,3 +27,8 @@ import (
 // additionalRequiredResources is a no-op for non-distro builds.
 // The upstream build uses self-signed certificates that do not require a CA secret.
 func additionalRequiredResources(_ context.Context, _ client.Client) {}
+
+// AdditionalRequiredObjects returns no extra resources for upstream builds.
+func AdditionalRequiredObjects() []client.Object {
+	return nil
+}
