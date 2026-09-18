@@ -31,6 +31,7 @@ from typing import List, Optional
 
 from .logging import logger
 from .namespace import SEED_NAMESPACE as KSERVE_TEST_NAMESPACE  # noqa: F401
+from ..common.utils import KSERVE_NAMESPACE
 
 KSERVE_PLURAL_LLMINFERENCESERVICECONFIG = "llminferenceserviceconfigs"
 RUN_AS_NON_ROOT = os.environ.get("RUN_AS_NON_ROOT", "false").lower() in (
@@ -398,6 +399,23 @@ LLMINFERENCESERVICE_CONFIGS = {
                         "limits": {"cpu": "2", "memory": "7Gi"},
                         "requests": {"cpu": "200m", "memory": "2Gi"},
                     },
+                    "securityContext": UPSTREAM_K8S_NON_ROOT_SECURITY_CONTEXT.copy(),
+                }
+            ],
+        },
+    },
+    # Upstream-Kubernetes shim for services whose workload comes from a shipped
+    # preset. Presets stay OpenShift-safe (runAsNonRoot with no runAsUser, so
+    # the SCC assigns the UID), which vanilla Kubernetes rejects when the image
+    # declares no USER. Supplies the UID the SCC would have, plus the env
+    # overrides every other CPU workload here pairs with that UID.
+    # Contributes no image, so the preset's image still wins.
+    "workload-non-root": {
+        "template": {
+            "containers": [
+                {
+                    "name": "main",
+                    "env": [*UPSTREAM_K8S_VLLM_ENV_OVERRIDES],
                     "securityContext": UPSTREAM_K8S_NON_ROOT_SECURITY_CONTEXT.copy(),
                 }
             ],
@@ -1930,11 +1948,67 @@ LLMINFERENCESERVICE_CONFIGS = {
 }
 
 
+# Matches the llmisvc controller's own default when the env var is unset.
+DEFAULT_SYSTEM_CONFIG_PREFIX = "kserve-"
+
+
+def system_llmisvc_config_name(base_name):
+    """Resolve a shipped preset's unstamped name to its name on this cluster.
+
+    kserve-module renames well-known presets and sets the controller's
+    LLM_INFERENCE_SERVICE_CONFIG_PREFIX to the matching value in the same pass
+    (for example ``v0-0-0-kserve-``). Installs without the module leave it
+    unset, which the controller reads as the default ``kserve-``, leaving the
+    name unstamped. Reading the same env var keeps the test on whichever name
+    the controller will resolve.
+    """
+    deployment = client.AppsV1Api().read_namespaced_deployment(
+        "llmisvc-controller-manager", KSERVE_NAMESPACE
+    )
+    prefix = next(
+        (
+            env.value
+            for container in deployment.spec.template.spec.containers
+            for env in (container.env or [])
+            if env.name == "LLM_INFERENCE_SERVICE_CONFIG_PREFIX" and env.value
+        ),
+        DEFAULT_SYSTEM_CONFIG_PREFIX,
+    )
+    return prefix + base_name.removeprefix(DEFAULT_SYSTEM_CONFIG_PREFIX)
+
+
+def get_system_llmisvc_config(kserve_client, base_name):
+    """Fetch a shipped config by its unstamped name, failing fast when absent.
+
+    A dangling baseRef only surfaces as a generic readiness timeout minutes
+    later, so resolve the name and confirm the object exists up front.
+    """
+    resolved_name = system_llmisvc_config_name(base_name)
+    try:
+        return kserve_client.api_instance.get_namespaced_custom_object(
+            constants.KSERVE_GROUP,
+            "v1alpha2",
+            KSERVE_NAMESPACE,
+            KSERVE_PLURAL_LLMINFERENCESERVICECONFIG,
+            resolved_name,
+        )
+    except client.rest.ApiException as e:
+        if e.status != 404:
+            raise
+        pytest.fail(
+            f"system base ref {base_name} resolved to {resolved_name}, which does "
+            f"not exist in {KSERVE_NAMESPACE}"
+        )
+
+
 def _setup_test_case_service(
     kserve_client, tc, test_node_name, namespace, peer_index=None
 ):
     """Create LLMInferenceServiceConfigs and build the LLMInferenceService for a TestCase.
 
+    Refs in ``base_refs`` are cloned into the test namespace from
+    LLMINFERENCESERVICE_CONFIGS; unstamped names in ``system_base_refs`` are
+    resolved from the system namespace and their actual names referenced as-is.
     Returns a list of created config names for cleanup tracking.
     """
     missing_refs = [
@@ -1973,6 +2047,10 @@ def _setup_test_case_service(
 
         _create_or_update_llmisvc_config(kserve_client, unique_config_body, namespace)
         created_configs.append(unique_config_name)
+
+    for system_ref in tc.system_base_refs:
+        resolved = get_system_llmisvc_config(kserve_client, system_ref)
+        unique_base_refs.append(resolved["metadata"]["name"])
 
     tc.llm_service = V1alpha1LLMInferenceService(
         api_version="serving.kserve.io/v1alpha1",
