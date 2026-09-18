@@ -17,7 +17,6 @@ import (
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
-
 var (
 	errResourceNotFound = errors.New("resource not found")
 	configMapGVK        = schema.GroupVersionKind{Group: "", Version: "v1", Kind: "ConfigMap"}
@@ -117,9 +116,26 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 		return err
 	}
 
-	auditLoggingEnabled := kserve.Spec.AuditLogging == "Managed"
+	profile := kserve.Spec.AuditLoggingProfile
+	if profile == "" {
+		profile = platformv1alpha1.AuditProfileRemoved
+	}
+	var internalProfile string
+	switch profile {
+	case platformv1alpha1.AuditProfileRemoved:
+		internalProfile = "none"
+	case platformv1alpha1.AuditProfileMetadata:
+		internalProfile = "metadata"
+	default:
+		return fmt.Errorf("audit logging profile must be one of %q or %q, got %q",
+			platformv1alpha1.AuditProfileRemoved,
+			platformv1alpha1.AuditProfileMetadata,
+			profile,
+		)
+	}
 	if err := updateCMJSONKey(cm, openshiftConfigKeyName, func(data map[string]any) {
-		data["enableAuditLogging"] = auditLoggingEnabled
+		data["auditLoggingProfile"] = internalProfile
+		delete(data, "enableAuditLogging")
 	}); err != nil {
 		return err
 	}

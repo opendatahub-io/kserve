@@ -160,5 +160,5 @@ data:
     {
       "modelcachePermissionFixImage": "REPLACE_IMAGE",
       "ovmsVersioningImage": "REPLACE_IMAGE",
-      "enableAuditLogging": false
+      "auditLoggingProfile": "none"
     }
