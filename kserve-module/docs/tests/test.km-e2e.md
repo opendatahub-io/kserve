@@ -76,15 +76,15 @@ PLATFORM=ocp make e2e-kserve-module-post-release
 
 ## Module upgrade e2e (RHOAIENG-82811)
 
-Validates that rolling the **kserve-module controller image** (N -> N+1) does
-not disturb operand CRs or running services. The roll is triggered by the
+Validates that rolling the **kserve-module controller image** (base -> upgrade)
+does not disturb operand CRs or running services. The roll is triggered by the
 `e2e-roll-kserve-module` Make target (controller image update plus embedded
 manifest re-apply via `setup-cluster.sh --skip-deps`).
 
 | Ticket | Implementation |
 | --- | --- |
-| N = main, N+1 = PR | CI builds `e2e-base` from base SHA + `e2e` from PR HEAD |
-| Part A: no disruption | Pre: deploy ISVC/LLMISVC, start background ISVC health probe, capture baseline. Post: verify module-controller N+1 image + new pod UID, probe clean, operand pods unchanged, controllers Available, Kserve Ready |
+| base = merge-base/main, upgrade = PR HEAD | CI builds `e2e-base` from base SHA + `e2e` from PR HEAD |
+| Part A: no disruption | Pre: deploy ISVC/LLMISVC, start background ISVC health probe, capture baseline. Post: verify module-controller upgrade image + new pod UID, probe clean, operand pods unchanged, controllers Available, Kserve Ready |
 | Part B: new workloads | Post: create fresh ISVC + LLMISVC, verify Ready and serve |
 | CI two images | `.github/workflows/e2e-test-kserve-module.yml` |
 
@@ -97,15 +97,15 @@ automatically).
 ### CI flow (xks)
 
 ```text
-build N (main) + N+1 (PR) -> install N (base manifests) -> pre_upgrade -> e2e-roll N+1 -> post_upgrade -> e2e-kserve-module
+build base (main) + upgrade (PR) -> install base manifests -> pre_upgrade -> e2e-roll upgrade -> post_upgrade -> e2e-kserve-module
 ```
 
 ### Required CI guarantees (GitHub Actions xks)
 
 | Guarantee | Enforced in required CI? |
 | --- | --- |
-| N and N+1 controller images differ | Yes (`e2e-test-kserve-module.yml`) |
-| Module-controller Deployment uses N+1 image after roll | Yes (`test_module_controller_rolled`, needs `KSERVE_MODULE_UPGRADE_IMAGE`) |
+| Base and upgrade controller images differ | Yes (`e2e-test-kserve-module.yml`) |
+| Module-controller Deployment uses upgrade image after roll | Yes (`test_module_controller_rolled`, needs `KSERVE_MODULE_UPGRADE_IMAGE`) |
 | Module-controller pod UID changes after roll | Yes (`test_module_controller_rolled`) |
 | Kserve CR stays Ready with same UID | Yes |
 | Operand controller pods (kserve/llmisvc) keep same UID | Yes |
@@ -183,7 +183,7 @@ existing OpenShift kubeconfig on the runner.
 | Target | Description |
 |--------|-------------|
 | `e2e-setup-kserve-module` | Install dependencies and deploy controller (image N) |
-| `e2e-roll-kserve-module` | Re-deploy controller image only (upgrade to N+1) |
+| `e2e-roll-kserve-module` | Re-deploy controller image only (roll to upgrade image) |
 | `e2e-kserve-module` | Run E2E tests (`-m "not post_release"`; upgrade tests skipped unless `PYTEST_ARGS` sets `--pre-upgrade` / `--post-upgrade`) |
 | `e2e-kserve-module-post-release` | Run post-release validation (`-m post_release`) |
 | `e2e-cleanup-kserve-module` | Uninstall controller and dependencies |

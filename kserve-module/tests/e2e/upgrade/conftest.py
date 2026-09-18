@@ -119,7 +119,7 @@ def new_llmisvc_manifest():
 
 
 @pytest.fixture(scope="class")
-def new_isvc_deployed(
+def deploy_new_isvc(
     pytestconfig, kubectl, upgrade_namespace, upgrade_workloads_enabled, new_isvc_manifest
 ):
     """Create a fresh ISVC during post-upgrade Part B."""
@@ -140,7 +140,7 @@ def new_isvc_deployed(
 
 
 @pytest.fixture(scope="class")
-def new_llmisvc_deployed(
+def deploy_new_llmisvc(
     pytestconfig,
     kubectl,
     upgrade_namespace,

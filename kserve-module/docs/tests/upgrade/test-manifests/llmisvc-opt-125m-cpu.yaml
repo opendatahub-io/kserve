@@ -10,8 +10,8 @@ spec:
     name: facebook/opt-125m
   replicas: 1
   router:
-    # Pin scheduler image so operand default changes between N and N+1 do not
-    # roll this pod during the module-controller upgrade e2e.
+    # Pin scheduler image so operand default changes between base and upgrade
+    # do not roll this pod during the module-controller upgrade e2e.
     scheduler:
       template:
         containers:

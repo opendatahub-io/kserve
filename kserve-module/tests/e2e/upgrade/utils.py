@@ -395,14 +395,14 @@ def verify_module_controller_rolled(kubectl, baseline):
     """Fail clearly when the module-controller image roll did not take effect."""
     expected_image = expected_upgrade_image()
     assert expected_image, (
-        f"{UPGRADE_IMAGE_ENV} must be set to the N+1 image ref before post-upgrade tests "
+        f"{UPGRADE_IMAGE_ENV} must be set to the upgrade image ref before post-upgrade tests "
         "(set it to the same value passed as E2E_IMG to e2e-roll-kserve-module)"
     )
 
     wait_for_deployment(kubectl, MODULE_CONTROLLER_DEPLOYMENT)
     current_image = get_module_controller_image(kubectl)
     assert current_image == expected_image, (
-        "Module controller deployment image was not updated to N+1: "
+        "Module controller deployment image was not updated to the upgrade image: "
         f"expected={expected_image} actual={current_image}"
     )
 

@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       base_ref:
-        description: Git ref for the N (base) controller image (e.g. main SHA)
+        description: Git ref for the base controller image (e.g. main SHA)
         required: true
         type: string
 
@@ -80,33 +80,33 @@ jobs:
       - name: Setup Minikube
         uses: ./.github/actions/minikube-setup
 
-      - name: Download N controller image (base ref build)
+      - name: Download base controller image
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ env.BASE_IMG_NAME }}
-          path: /tmp/n-image
+          path: /tmp/base-image
 
-      - name: Download N+1 controller image (PR HEAD build)
+      - name: Download upgrade controller image (PR HEAD)
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ env.IMG_NAME }}
-          path: /tmp/n-plus-one-image
+          path: /tmp/upgrade-image
 
       - name: Load controller images
         run: |
-          docker image load -i /tmp/n-image/${{ env.BASE_IMG_NAME }}.tar
-          docker image load -i /tmp/n-plus-one-image/${{ env.IMG_NAME }}.tar
+          docker image load -i /tmp/base-image/${{ env.BASE_IMG_NAME }}.tar
+          docker image load -i /tmp/upgrade-image/${{ env.IMG_NAME }}.tar
           minikube image load ${{ env.BASE_IMG_NAME }}:${{ env.BASE_IMG_TAG }}
           minikube image load ${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
 
-      - name: Verify N and N+1 images differ
+      - name: Verify base and upgrade images differ
         run: |
           BASE_ID=$(docker image inspect --format='{{.Id}}' "${{ env.BASE_IMG_NAME }}:${{ env.BASE_IMG_TAG }}")
-          NEXT_ID=$(docker image inspect --format='{{.Id}}' "${{ env.IMG_NAME }}:${{ env.IMG_TAG }}")
+          UPGRADE_ID=$(docker image inspect --format='{{.Id}}' "${{ env.IMG_NAME }}:${{ env.IMG_TAG }}")
           echo "Base image: ${BASE_ID}"
-          echo "Next image: ${NEXT_ID}"
-          if [ "${BASE_ID}" = "${NEXT_ID}" ]; then
-            echo "ERROR: Base and next images are identical (N->N); upgrade test would be meaningless"
+          echo "Upgrade image: ${UPGRADE_ID}"
+          if [ "${BASE_ID}" = "${UPGRADE_ID}" ]; then
+            echo "ERROR: Base and upgrade images are identical; upgrade test would be meaningless"
             exit 1
           fi
 
@@ -118,16 +118,16 @@ jobs:
       - name: Install test dependencies
         run: pip install pytest pyyaml
 
-      - name: Checkout base (N) manifests for initial install
+      - name: Checkout base manifests for initial install
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.resolve-base-ref.outputs.base_ref }}
           persist-credentials: false
 
-      - name: Setup cluster with base (N) controller image and manifests
+      - name: Setup cluster with base controller image and manifests
         run: make e2e-setup-kserve-module PLATFORM=xks E2E_IMG=${{ env.BASE_IMG_NAME }}:${{ env.BASE_IMG_TAG }}
 
-      - name: Checkout PR (N+1) manifests for upgrade tests
+      - name: Checkout upgrade (PR) manifests for upgrade tests
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ github.sha }}
@@ -136,7 +136,7 @@ jobs:
       - name: Run pre-upgrade tests (Part A setup)
         run: make e2e-kserve-module PYTEST_ARGS='-m pre_upgrade --pre-upgrade'
 
-      - name: Roll module controller to N+1 image
+      - name: Roll module controller to upgrade image
         env:
           KSERVE_MODULE_UPGRADE_IMAGE: ${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
         run: make e2e-roll-kserve-module PLATFORM=xks E2E_IMG=${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
