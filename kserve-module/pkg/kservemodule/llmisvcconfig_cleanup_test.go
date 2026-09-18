@@ -122,6 +122,50 @@ func TestNonTerminatingConfigs(t *testing.T) {
 	g.Expect(configs[0].GetName()).To(Equal("pending"))
 }
 
+func TestWaitingForTerminatingBlockers(t *testing.T) {
+	config := func(name string, generation, observedGeneration int64, configInUse string, refs ...map[string]any) unstructured.Unstructured {
+		cfg := unstructured.Unstructured{Object: map[string]any{}}
+		cfg.SetName(name)
+		cfg.SetGeneration(generation)
+		status := map[string]any{
+			"observedGeneration": observedGeneration,
+			"conditions": []any{
+				map[string]any{"type": "ConfigInUse", "status": configInUse},
+			},
+		}
+		if refs != nil {
+			references := make([]any, len(refs))
+			for i := range refs {
+				references[i] = refs[i]
+			}
+			status["referencedBy"] = references
+		}
+		cfg.Object["status"] = status
+		return cfg
+	}
+
+	t.Run("falls back to generic waiting when nothing is referenced", func(t *testing.T) {
+		g := NewWithT(t)
+		configs := []unstructured.Unstructured{
+			config("cfg-unused", 1, 1, "False"),
+		}
+		g.Expect(waitingForTerminatingBlockers(configs)).To(Equal([]string{
+			"waiting for well-known configs to finish terminating",
+		}))
+	})
+
+	t.Run("prefixes referenced blockers so drain targets stay visible", func(t *testing.T) {
+		g := NewWithT(t)
+		configs := []unstructured.Unstructured{
+			config("cfg-used", 1, 1, "True", map[string]any{"name": "svc1", "namespace": "ns1"}),
+			config("cfg-unused", 1, 1, "False"),
+		}
+		g.Expect(waitingForTerminatingBlockers(configs)).To(Equal([]string{
+			"terminating: cfg-used (referenced by ns1/svc1)",
+		}))
+	})
+}
+
 func TestConfigDeletionWebhookDeleteRule(t *testing.T) {
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
@@ -285,6 +329,34 @@ func TestConfigDeletionWebhookDeleteRule(t *testing.T) {
 			admissionregistrationv1.Create,
 			admissionregistrationv1.Update,
 		}))
+		g.Expect(got.Annotations).NotTo(HaveKey(configWebhookRestoreAnnotation))
+	})
+
+	t.Run("expands OperationAll when disabling DELETE", func(t *testing.T) {
+		g := NewWithT(t)
+		webhook := newWebhook()
+		webhook.Webhooks[0].Rules[0].Operations = []admissionregistrationv1.OperationType{admissionregistrationv1.OperationAll}
+		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(webhook).Build()
+		r := &KserveModuleReconciler{Client: cli}
+
+		patch, err := r.disableConfigDeletionWebhookDelete(context.Background())
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(patch.rules).To(HaveLen(1))
+		g.Expect(patch.rules[0].Operations).To(Equal([]admissionregistrationv1.OperationType{admissionregistrationv1.OperationAll}))
+
+		got := &admissionregistrationv1.ValidatingWebhookConfiguration{}
+		g.Expect(cli.Get(context.Background(), webhookKey, got)).To(Succeed())
+		g.Expect(got.Webhooks[0].Rules[0].Operations).To(Equal([]admissionregistrationv1.OperationType{
+			admissionregistrationv1.Create,
+			admissionregistrationv1.Update,
+			admissionregistrationv1.Connect,
+		}))
+		g.Expect(got.Webhooks[0].Rules[0].Operations).NotTo(ContainElement(admissionregistrationv1.Delete))
+		g.Expect(got.Webhooks[0].Rules[0].Operations).NotTo(ContainElement(admissionregistrationv1.OperationAll))
+
+		g.Expect(r.restoreConfigDeletionWebhookDelete(context.Background(), patch)).To(Succeed())
+		g.Expect(cli.Get(context.Background(), webhookKey, got)).To(Succeed())
+		g.Expect(got.Webhooks[0].Rules[0].Operations).To(Equal([]admissionregistrationv1.OperationType{admissionregistrationv1.OperationAll}))
 		g.Expect(got.Annotations).NotTo(HaveKey(configWebhookRestoreAnnotation))
 	})
 }

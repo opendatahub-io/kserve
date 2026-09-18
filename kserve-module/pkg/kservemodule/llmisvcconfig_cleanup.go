@@ -67,7 +67,9 @@ func (r *KserveModuleReconciler) cleanupLLMISVCConfigsOnDelete(ctx context.Conte
 	}
 	configsToDelete := nonTerminatingConfigs(configs)
 	if len(configsToDelete) == 0 {
-		return configCleanupOutcome{blockers: []string{"waiting for well-known configs to finish terminating"}}, nil
+		// Deletion already accepted; surface referencedBy so operators know what
+		// to drain if a terminating config's finalizer is holding uninstall.
+		return configCleanupOutcome{blockers: waitingForTerminatingBlockers(configs)}, nil
 	}
 
 	// check-before-delete: skip deletion while a config looks referenced. This is
@@ -98,7 +100,20 @@ func (r *KserveModuleReconciler) cleanupLLMISVCConfigsOnDelete(ctx context.Conte
 	// Configs carry a finalizer, so they terminate asynchronously. Block for now;
 	// the next reconcile re-lists from the top and reports done once they are gone
 	// (or re-blocks if a reference reappeared meanwhile).
-	return configCleanupOutcome{blockers: []string{"waiting for well-known configs to finish terminating"}}, nil
+	return configCleanupOutcome{blockers: waitingForTerminatingBlockers(configs)}, nil
+}
+
+// waitingForTerminatingBlockers reuses referencedConfigBlockers for status only.
+// It does not gate deletion of other live configs.
+func waitingForTerminatingBlockers(configs []unstructured.Unstructured) []string {
+	blockers := referencedConfigBlockers(configs)
+	if len(blockers) == 0 {
+		return []string{"waiting for well-known configs to finish terminating"}
+	}
+	for i := range blockers {
+		blockers[i] = "terminating: " + blockers[i]
+	}
+	return blockers
 }
 
 func nonTerminatingConfigs(configs []unstructured.Unstructured) []unstructured.Unstructured {
@@ -424,11 +439,25 @@ func hasWebhookOperation(operations []admissionregistrationv1.OperationType, ope
 		if candidate == operation {
 			return true
 		}
+		// "*" matches every concrete operation, including DELETE.
+		if candidate == admissionregistrationv1.OperationAll && operation != admissionregistrationv1.OperationAll {
+			return true
+		}
 	}
 	return false
 }
 
 func withoutWebhookOperation(operations []admissionregistrationv1.OperationType, operation admissionregistrationv1.OperationType) []admissionregistrationv1.OperationType {
+	// Expand "*" before removing a concrete op; otherwise filtering leaves "*"
+	// and DELETE remains admitted.
+	if hasWebhookOperation(operations, admissionregistrationv1.OperationAll) {
+		operations = []admissionregistrationv1.OperationType{
+			admissionregistrationv1.Create,
+			admissionregistrationv1.Update,
+			admissionregistrationv1.Delete,
+			admissionregistrationv1.Connect,
+		}
+	}
 	filtered := make([]admissionregistrationv1.OperationType, 0, len(operations))
 	for _, candidate := range operations {
 		if candidate != operation {
