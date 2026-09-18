@@ -233,7 +233,8 @@ var _ = Describe("KserveModule Reconciler", func() {
 		})
 
 		It("deletes a leftover WVA Deployment via defaultCleanup on upgrade", func(ctx SpecContext) {
-			// Simulate a 3.5 leftover: manually create the WVA Deployment.
+			// Simulate a 3.5 leftover: manually create the WVA Deployment and the
+			// overlay CRD. defaultCleanup must delete the Deployment and skip the CRD.
 			leftover := &appsv1.Deployment{}
 			leftover.Name = wvaKey.Name
 			leftover.Namespace = wvaKey.Namespace
@@ -246,7 +247,12 @@ var _ = Describe("KserveModule Reconciler", func() {
 			}
 			Expect(testEnv.Client.Create(ctx, leftover)).To(Succeed())
 
-			// Reconcile should run defaultCleanup and delete it.
+			crd := fixture.CreateCRDByName(ctx, testEnv.Client, wvaCRDKey.Name, "test.kserve.io", "v1",
+				apiextensionsv1.NamespaceScoped)
+			DeferCleanup(func(ctx SpecContext) {
+				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, crd))).To(Succeed())
+			})
+
 			triggerReconcile(ctx, cr, "wva-leftover-cleanup")
 
 			Eventually(func(g Gomega) {
@@ -255,16 +261,8 @@ var _ = Describe("KserveModule Reconciler", func() {
 					"Leftover WVA Deployment should be deleted by defaultCleanup on 3.5→3.6 upgrade")
 			}).WithContext(ctx).Should(Succeed())
 
-			// defaultCleanup skips CRDs — if a WVA CRD was applied it must survive.
-			// (It may or may not exist depending on prior test state; just verify
-			// no error if it does exist.)
-			crd := &apiextensionsv1.CustomResourceDefinition{}
-			err := testEnv.Client.Get(ctx, wvaCRDKey, crd)
-			if err == nil {
-				// CRD exists — good, defaultCleanup preserved it.
-				Expect(crd.Name).To(Equal(wvaCRDKey.Name))
-			}
-			// If NotFound, that is also fine — CRD was never applied in this ordered context.
+			Expect(testEnv.Client.Get(ctx, wvaCRDKey, &apiextensionsv1.CustomResourceDefinition{})).To(Succeed(),
+				"defaultCleanup must skip CRDs so leftover WVA CRDs survive")
 		})
 	})
 
@@ -284,6 +282,36 @@ var _ = Describe("KserveModule Reconciler", func() {
 		})
 
 		It("clears WVAReady condition even when ManagementState is Managed", func(ctx SpecContext) {
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				cond := fixture.FindCondition(cr, string(common.ConditionTypeProvisioningSucceeded))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			}).WithContext(ctx).Should(Succeed())
+
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
+					return err
+				}
+				if fixture.FindCondition(cr, kservemodule.ConditionWVAReady) != nil {
+					return nil
+				}
+				cr.Status.Conditions = append(cr.Status.Conditions, common.Condition{
+					Type:               kservemodule.ConditionWVAReady,
+					Status:             metav1.ConditionTrue,
+					Reason:             "AllDeploymentsAvailable",
+					LastTransitionTime: metav1.Now(),
+				})
+				return testEnv.Client.Status().Update(ctx, cr)
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				g.Expect(fixture.FindCondition(cr, kservemodule.ConditionWVAReady)).NotTo(BeNil(),
+					"seeded WVAReady condition must be present before reconcile")
+			}).WithContext(ctx).Should(Succeed())
+
 			triggerReconcile(ctx, cr, "wva-readiness-always-cleared")
 
 			Eventually(func(g Gomega) {
