@@ -151,7 +151,7 @@ func (d *InferenceServiceDefaulter) Default(ctx context.Context, isvc *Inference
 	}
 
 	isvc.DefaultInferenceService(isvcConfig, deployConfig, securityConfig, models, nsModels)
-	return nil
+	return defaultPlatformInferenceService(ctx, isvc, configMap)
 }
 
 func (isvc *InferenceService) DefaultInferenceService(config *InferenceServicesConfig, deployConfig *DeployConfig, securityConfig *SecurityConfig, models *v1alpha1.LocalModelCacheList, nsModels *v1alpha1.LocalModelNamespaceCacheList) {

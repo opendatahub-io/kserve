@@ -1001,6 +1001,7 @@ func TestOauthProxyUpstreamTimeout(t *testing.T) {
 				tt.args.podSpec,
 				tt.args.workerPodSpec,
 				nil, // deployConfig
+				constants.AuditLoggingProfileNone, false,
 			)
 			require.NoError(t, err)
 			require.NotEmpty(t, deployments)
@@ -1501,6 +1502,7 @@ func TestNewDeploymentReconciler(t *testing.T) {
 				tt.fields.podSpec,
 				tt.fields.workerPod,
 				nil, // deployConfig
+				constants.AuditLoggingProfileNone, false,
 			)
 
 			if (err != nil) != tt.wantErr {
@@ -1614,6 +1616,10 @@ func (m *mockClientForCheckDeploymentExist) Get(ctx context.Context, key kclient
 
 func (m *mockClientForCheckDeploymentExist) Update(ctx context.Context, obj kclient.Object, opts ...kclient.UpdateOption) error {
 	// Simulate dry-run update always succeeds
+	return nil
+}
+
+func (m *mockClientForCheckDeploymentExist) Patch(ctx context.Context, obj kclient.Object, patch kclient.Patch, opts ...kclient.PatchOption) error {
 	return nil
 }
 
@@ -1883,8 +1889,10 @@ func TestSetControllerReferences(t *testing.T) {
 // mockClientForAuthProxyDetection is a mock client for testing auth proxy preservation
 type mockClientForAuthProxyDetection struct {
 	kclient.Client
-	existingDeployment *appsv1.Deployment
-	deploymentNotFound bool
+	existingDeployment      *appsv1.Deployment
+	deploymentNotFound      bool
+	inferenceServiceGets    int
+	patchedInferenceService *v1beta1.InferenceService
 }
 
 func (m *mockClientForAuthProxyDetection) Get(ctx context.Context, key kclient.ObjectKey, obj kclient.Object, opts ...kclient.GetOption) error {
@@ -1897,6 +1905,7 @@ func (m *mockClientForAuthProxyDetection) Get(ctx context.Context, key kclient.O
 			*o = *m.existingDeployment.DeepCopy()
 		}
 	case *v1beta1.InferenceService:
+		m.inferenceServiceGets++
 		o.ObjectMeta = metav1.ObjectMeta{
 			Name:      key.Name,
 			Namespace: key.Namespace,
@@ -1911,6 +1920,13 @@ func (m *mockClientForAuthProxyDetection) Update(ctx context.Context, obj kclien
 }
 
 func (m *mockClientForAuthProxyDetection) Create(ctx context.Context, obj kclient.Object, opts ...kclient.CreateOption) error {
+	return nil
+}
+
+func (m *mockClientForAuthProxyDetection) Patch(ctx context.Context, obj kclient.Object, patch kclient.Patch, opts ...kclient.PatchOption) error {
+	if isvc, ok := obj.(*v1beta1.InferenceService); ok {
+		m.patchedInferenceService = isvc.DeepCopy()
+	}
 	return nil
 }
 
@@ -2428,6 +2444,7 @@ func TestOauthProxyPreservation(t *testing.T) {
 				podSpec,
 				nil,
 				nil,
+				constants.AuditLoggingProfileNone, false,
 			)
 
 			require.NoError(t, err)
@@ -2504,7 +2521,7 @@ func TestDeploymentReconcilerCondition(t *testing.T) {
 			expectedReason:  "AuthProxyPreserved",
 		},
 		{
-			name: "existing ISVC with kube-rbac-proxy matching config does NOT set condition",
+			name: "existing annotationless ISVC with kube-rbac-proxy matching config does NOT set condition",
 			existingDeployment: &appsv1.Deployment{
 				Spec: appsv1.DeploymentSpec{
 					Template: corev1.PodTemplateSpec{
@@ -2594,6 +2611,7 @@ func TestDeploymentReconcilerCondition(t *testing.T) {
 				podSpec,
 				nil,
 				nil,
+				constants.AuditLoggingProfileNone, false,
 			)
 
 			require.NoError(t, err)
@@ -2654,6 +2672,7 @@ func TestNewRawDeploymentWithAuthDisabled_IncludesOAuthProxy(t *testing.T) {
 		&corev1.PodSpec{},
 		nil,
 		nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 
 	require.NoError(t, err)
@@ -2724,6 +2743,7 @@ func TestNewRawDeploymentWithAuthEnabled_IncludesOAuthProxy(t *testing.T) {
 		&corev1.PodSpec{},
 		nil,
 		nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 
 	require.NoError(t, err)
@@ -2792,6 +2812,7 @@ func TestExistingRawDeploymentWithAuthDisabled_NoOAuthProxyAdded(t *testing.T) {
 		&corev1.PodSpec{},
 		nil,
 		nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 
 	require.NoError(t, err)
@@ -2861,6 +2882,7 @@ func TestExistingRawDeploymentWithAuthEnabled_PreservesOAuthProxy(t *testing.T) 
 		&corev1.PodSpec{},
 		nil,
 		nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 
 	require.NoError(t, err)
@@ -2912,6 +2934,7 @@ func TestNewInferenceGraph_NoOAuthProxy(t *testing.T) {
 		&corev1.PodSpec{},
 		nil,
 		nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 
 	require.NoError(t, err)
@@ -3044,10 +3067,21 @@ func TestUpgradePreservesLegacyVolumeName(t *testing.T) {
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
 								{Name: constants.InferenceServiceContainerName},
-								{Name: constants.KubeRbacContainerName, Image: constants.OauthProxyImage},
+								{
+									Name:  constants.KubeRbacContainerName,
+									Image: constants.OauthProxyImage,
+									VolumeMounts: []corev1.VolumeMount{
+										{Name: legacyVolumeName, MountPath: "/etc/kube-rbac-proxy"},
+									},
+								},
 							},
 							Volumes: []corev1.Volume{
-								{Name: legacyVolumeName},
+								{
+									Name: legacyVolumeName,
+									VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+										LocalObjectReference: corev1.LocalObjectReference{Name: isvcName + "-" + constants.OauthProxySARCMName},
+									}},
+								},
 							},
 						},
 					},
@@ -3064,10 +3098,21 @@ func TestUpgradePreservesLegacyVolumeName(t *testing.T) {
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
 								{Name: constants.InferenceServiceContainerName},
-								{Name: constants.KubeRbacContainerName, Image: constants.OauthProxyImage},
+								{
+									Name:  constants.KubeRbacContainerName,
+									Image: constants.OauthProxyImage,
+									VolumeMounts: []corev1.VolumeMount{
+										{Name: constants.OauthProxySARCMName, MountPath: "/etc/kube-rbac-proxy"},
+									},
+								},
 							},
 							Volumes: []corev1.Volume{
-								{Name: constants.OauthProxySARCMName},
+								{
+									Name: constants.OauthProxySARCMName,
+									VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+										LocalObjectReference: corev1.LocalObjectReference{Name: isvcName + "-" + constants.OauthProxySARCMName},
+									}},
+								},
 							},
 						},
 					},
@@ -3129,6 +3174,7 @@ func TestUpgradePreservesLegacyVolumeName(t *testing.T) {
 				podSpec,
 				nil,
 				nil,
+				constants.AuditLoggingProfileNone, false,
 			)
 
 			require.NoError(t, err, tt.description)

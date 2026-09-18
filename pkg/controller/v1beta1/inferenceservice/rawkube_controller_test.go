@@ -5816,13 +5816,11 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			// verify if InferenceService status is updated
 			expectedIsvcStatus := getExpectedIsvcStatus(serviceKey, "http", "raw-foo-exp-default.example.com",
 				"raw-foo-exp-predictor-default.example.com", "8080")
-			expectedIsvcStatus.Conditions = append([]apis.Condition{
-				{
-					Type:     v1beta1.ExplainerReady,
-					Status:   "True",
-					Severity: "Info",
-				},
-			}, expectedIsvcStatus.Conditions...)
+			expectedIsvcStatus.SetCondition(v1beta1.ExplainerReady, &apis.Condition{
+				Type:     v1beta1.ExplainerReady,
+				Status:   corev1.ConditionTrue,
+				Severity: apis.ConditionSeverityInfo,
+			})
 			explainer := map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 				v1beta1.ExplainerComponent: {
 					LatestCreatedRevision: "",
@@ -7902,13 +7900,11 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			// verify if InferenceService status is updated
 			expectedIsvcStatus := getExpectedIsvcStatus(serviceKey, "http", "raw-foo-exp-path-default.example.com",
 				"raw-foo-exp-path-predictor-default.example.com", "8080")
-			expectedIsvcStatus.Conditions = append([]apis.Condition{
-				{
-					Type:     v1beta1.ExplainerReady,
-					Status:   "True",
-					Severity: "Info",
-				},
-			}, expectedIsvcStatus.Conditions...)
+			expectedIsvcStatus.SetCondition(v1beta1.ExplainerReady, &apis.Condition{
+				Type:     v1beta1.ExplainerReady,
+				Status:   corev1.ConditionTrue,
+				Severity: apis.ConditionSeverityInfo,
+			})
 			explainer := map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 				v1beta1.ExplainerComponent: {
 					LatestCreatedRevision: "",
