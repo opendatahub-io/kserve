@@ -2079,7 +2079,7 @@ func TestReplaceVariables(t *testing.T) {
 					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
-								{Args: []string{""}},
+								{Args: []string{}},
 							},
 						},
 					},
@@ -3188,12 +3188,7 @@ func TestReplaceVariables_TLSConditional(t *testing.T) {
 		{
 			name:      "TLS off: all flags render empty",
 			enableTLS: false,
-			wantArgs: []string{
-				"",
-				"",
-				"",
-				"",
-			},
+			wantArgs:  []string{},
 		},
 	}
 
@@ -3257,7 +3252,7 @@ spec:
 		{
 			name:      "TLS off",
 			enableTLS: false,
-			wantArgs:  []string{"", ""},
+			wantArgs:  []string{},
 		},
 	}
 	for _, tt := range tests {
@@ -3309,8 +3304,6 @@ func TestReplaceVariables_TLSProfileScheduler(t *testing.T) {
 			wantArgs: []string{
 				"--secure-serving=true",
 				"--cert-path=/var/run/kserve/tls",
-				"",
-				"",
 			},
 		},
 		{
@@ -3319,8 +3312,6 @@ func TestReplaceVariables_TLSProfileScheduler(t *testing.T) {
 			tlsMinVersion:   "VersionTLS13",
 			tlsCipherSuites: "TLS_AES_128_GCM_SHA256",
 			wantArgs: []string{
-				"",
-				"",
 				"--tls-min-version=VersionTLS13",
 				"--tls-cipher-suites=TLS_AES_128_GCM_SHA256",
 			},

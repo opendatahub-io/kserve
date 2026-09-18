@@ -4,6 +4,7 @@ metadata:
   name: inferenceservice-config
   namespace: opendatahub
 data:
+  # Keep the generic Kubernetes fallback FIPS-compatible; CHACHA20 is not FIPS-approved.
   ingress: |-
     {
         "enableGatewayApi": true,

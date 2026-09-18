@@ -422,6 +422,7 @@ class V1beta1IngressConfig(object):
     def llm_inference_service_tls_cipher_suites(self):
         """Gets the llm_inference_service_tls_cipher_suites of this V1beta1IngressConfig.  # noqa: E501
 
+        LLMInferenceServiceTLSCipherSuites configures TLS 1.2 cipher suites using Go/IANA names; values are translated to OpenSSL names for vLLM.  # noqa: E501
 
         :return: The llm_inference_service_tls_cipher_suites of this V1beta1IngressConfig.  # noqa: E501
         :rtype: str
@@ -432,6 +433,7 @@ class V1beta1IngressConfig(object):
     def llm_inference_service_tls_cipher_suites(self, llm_inference_service_tls_cipher_suites):
         """Sets the llm_inference_service_tls_cipher_suites of this V1beta1IngressConfig.
 
+        LLMInferenceServiceTLSCipherSuites configures TLS 1.2 cipher suites using Go/IANA names; values are translated to OpenSSL names for vLLM.  # noqa: E501
 
         :param llm_inference_service_tls_cipher_suites: The llm_inference_service_tls_cipher_suites of this V1beta1IngressConfig.  # noqa: E501
         :type: str
@@ -443,6 +445,7 @@ class V1beta1IngressConfig(object):
     def llm_inference_service_tls_min_version(self):
         """Gets the llm_inference_service_tls_min_version of this V1beta1IngressConfig.  # noqa: E501
 
+        LLMInferenceServiceTLSMinVersion configures the minimum TLS version for Go-based LLMISVC components. vLLM does not expose a minimum-version option.  # noqa: E501
 
         :return: The llm_inference_service_tls_min_version of this V1beta1IngressConfig.  # noqa: E501
         :rtype: str
@@ -453,6 +456,7 @@ class V1beta1IngressConfig(object):
     def llm_inference_service_tls_min_version(self, llm_inference_service_tls_min_version):
         """Sets the llm_inference_service_tls_min_version of this V1beta1IngressConfig.
 
+        LLMInferenceServiceTLSMinVersion configures the minimum TLS version for Go-based LLMISVC components. vLLM does not expose a minimum-version option.  # noqa: E501
 
         :param llm_inference_service_tls_min_version: The llm_inference_service_tls_min_version of this V1beta1IngressConfig.  # noqa: E501
         :type: str

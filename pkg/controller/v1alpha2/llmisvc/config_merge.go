@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -1017,7 +1018,49 @@ func ReplaceVariables(llmSvc *v1alpha2.LLMInferenceService, llmSvcCfg *v1alpha2.
 	if err := json.Unmarshal(buf.Bytes(), out); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config from template: %w", err)
 	}
+	compactOptionalTemplateValues(reflect.ValueOf(out))
 	return out, nil
+}
+
+// compactOptionalTemplateValues removes empty optional arguments and shell
+// continuation lines left behind by disabled template values.
+func compactOptionalTemplateValues(value reflect.Value) {
+	if !value.IsValid() {
+		return
+	}
+	if value.Kind() == reflect.Pointer {
+		if !value.IsNil() {
+			compactOptionalTemplateValues(value.Elem())
+		}
+		return
+	}
+	if value.Kind() == reflect.Struct {
+		for i := range value.NumField() {
+			field := value.Field(i)
+			if value.Type().Field(i).Name == "Args" && field.CanSet() && field.Type() == reflect.TypeOf([]string{}) {
+				args := field.Interface().([]string)
+				field.Set(reflect.ValueOf(slices.DeleteFunc(args, func(arg string) bool { return arg == "" })))
+				continue
+			}
+			if value.Type().Field(i).Name == "Command" && field.CanSet() && field.Type() == reflect.TypeOf([]string{}) {
+				commands := field.Interface().([]string)
+				for j := range commands {
+					lines := strings.Split(commands[j], "\n")
+					lines = slices.DeleteFunc(lines, func(line string) bool { return strings.TrimSpace(line) == `\` })
+					commands[j] = strings.Join(lines, "\n")
+				}
+				field.Set(reflect.ValueOf(commands))
+				continue
+			}
+			compactOptionalTemplateValues(field)
+		}
+		return
+	}
+	if value.Kind() == reflect.Slice {
+		for i := range value.Len() {
+			compactOptionalTemplateValues(value.Index(i))
+		}
+	}
 }
 
 // configNotFoundError is returned by getConfig when an LLMInferenceServiceConfig

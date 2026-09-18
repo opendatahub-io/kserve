@@ -29,6 +29,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/credentials"
+	kservetls "github.com/kserve/kserve/pkg/tls"
 	"github.com/kserve/kserve/pkg/types"
 )
 
@@ -255,6 +256,11 @@ func toConfig(isvcConfigMap *corev1.ConfigMap) (*Config, error) {
 	ingressConfig, errConvert := v1beta1.NewIngressConfig(isvcConfigMap)
 	if errConvert != nil {
 		return nil, fmt.Errorf("failed to convert InferenceServiceConfigMap to IngressConfig: %w", errConvert)
+	}
+	ingressConfig.LLMInferenceServiceTLSMinVersion = strings.TrimSpace(ingressConfig.LLMInferenceServiceTLSMinVersion)
+	ingressConfig.LLMInferenceServiceTLSCipherSuites = strings.TrimSpace(ingressConfig.LLMInferenceServiceTLSCipherSuites)
+	if err := kservetls.Validate(ingressConfig.LLMInferenceServiceTLSMinVersion, ingressConfig.LLMInferenceServiceTLSCipherSuites); err != nil {
+		return nil, fmt.Errorf("invalid LLMInferenceService TLS configuration: %w", err)
 	}
 
 	storageInitializerConfig, errConvert := v1beta1.GetStorageInitializerConfigs(isvcConfigMap)

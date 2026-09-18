@@ -7056,14 +7056,16 @@ func schema_pkg_apis_serving_v1beta1_IngressConfig(ref common.ReferenceCallback)
 					},
 					"llmInferenceServiceTLSMinVersion": {
 						SchemaProps: spec.SchemaProps{
-							Type:   []string{"string"},
-							Format: "",
+							Description: "LLMInferenceServiceTLSMinVersion configures the minimum TLS version for Go-based LLMISVC components. vLLM does not expose a minimum-version option.",
+							Type:        []string{"string"},
+							Format:      "",
 						},
 					},
 					"llmInferenceServiceTLSCipherSuites": {
 						SchemaProps: spec.SchemaProps{
-							Type:   []string{"string"},
-							Format: "",
+							Description: "LLMInferenceServiceTLSCipherSuites configures TLS 1.2 cipher suites using Go/IANA names; values are translated to OpenSSL names for vLLM.",
+							Type:        []string{"string"},
+							Format:      "",
 						},
 					},
 					"disableIstioVirtualHost": {

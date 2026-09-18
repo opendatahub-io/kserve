@@ -42,6 +42,23 @@ func TestNewConfigConvertsCipherSuitesForOpenSSL(t *testing.T) {
 	}
 }
 
+func TestLoadConfigValidatesAndNormalizesTLSProfile(t *testing.T) {
+	cm := fixture.InferenceServiceCfgMap(constants.KServeNamespace)
+	fixture.SetIngressConfigKey(cm, "llmInferenceServiceTLSMinVersion", " VersionTLS12 ")
+	fixture.SetIngressConfigKey(cm, "llmInferenceServiceTLSCipherSuites", " TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 ")
+	c := fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).WithObjects(cm).Build()
+
+	got, err := llmisvc.LoadConfig(t.Context(), c)
+	require.NoError(t, err)
+	require.Equal(t, "VersionTLS12", got.TLSMinVersion)
+	require.Equal(t, "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", got.TLSCipherSuites)
+
+	fixture.SetIngressConfigKey(cm, "llmInferenceServiceTLSMinVersion", "VersionTLS11")
+	c = fake.NewClientBuilder().WithScheme(clientgoscheme.Scheme).WithObjects(cm).Build()
+	_, err = llmisvc.LoadConfig(t.Context(), c)
+	require.ErrorContains(t, err, "unrecognized TLS version")
+}
+
 func TestLoadConfigLoRAModelRoutingStrategy(t *testing.T) {
 	for _, tt := range []struct {
 		input   string

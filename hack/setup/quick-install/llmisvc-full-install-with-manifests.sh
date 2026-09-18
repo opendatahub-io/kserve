@@ -2795,10 +2795,12 @@ spec:
 
         # --ssl-ciphers landed in vLLM 0.15.0 (vllm-project/vllm#30937).
         # ODH supports older accelerator images, so only pass it when available.
-        TLS_CIPHER_ARGS=""
+        {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}TLS_CIPHER_ARGS=""
         if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
-        fi
+          TLS_CIPHER_ARGS="--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}"
+        else
+          echo "[tls-profile] warning: vLLM ${VLLM_VERSION} does not support --ssl-ciphers; the configured cipher suites are not applied to this workload" >&2
+        fi{{ end }}
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
         SHUTDOWN_TIMEOUT_ARGS=""
@@ -2839,7 +2841,7 @@ spec:
           {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
-          ${TLS_CIPHER_ARGS} \
+          {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}${TLS_CIPHER_ARGS}{{- end }} \
           ${VLLM_ADDITIONAL_ARGS} \
           $@"
       - --
@@ -3203,10 +3205,12 @@ spec:
 
         # --ssl-ciphers landed in vLLM 0.15.0 (vllm-project/vllm#30937).
         # ODH supports older accelerator images, so only pass it when available.
-        TLS_CIPHER_ARGS=""
+        {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}TLS_CIPHER_ARGS=""
         if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
-        fi
+          TLS_CIPHER_ARGS="--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}"
+        else
+          echo "[tls-profile] warning: vLLM ${VLLM_VERSION} does not support --ssl-ciphers; the configured cipher suites are not applied to this workload" >&2
+        fi{{ end }}
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
         SHUTDOWN_TIMEOUT_ARGS=""
@@ -3255,7 +3259,7 @@ spec:
           {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
-          ${TLS_CIPHER_ARGS} \
+          {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}${TLS_CIPHER_ARGS}{{- end }} \
           ${VLLM_ADDITIONAL_ARGS} \
           $@"
       - --
@@ -3615,10 +3619,12 @@ spec:
 
         # --ssl-ciphers landed in vLLM 0.15.0 (vllm-project/vllm#30937).
         # ODH supports older accelerator images, so only pass it when available.
-        TLS_CIPHER_ARGS=""
+        {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}TLS_CIPHER_ARGS=""
         if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
-        fi
+          TLS_CIPHER_ARGS="--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}"
+        else
+          echo "[tls-profile] warning: vLLM ${VLLM_VERSION} does not support --ssl-ciphers; the configured cipher suites are not applied to this workload" >&2
+        fi{{ end }}
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
         SHUTDOWN_TIMEOUT_ARGS=""
@@ -3667,7 +3673,7 @@ spec:
           {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
-          ${TLS_CIPHER_ARGS} \
+          {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}${TLS_CIPHER_ARGS}{{- end }} \
           ${VLLM_ADDITIONAL_ARGS} \
           $@"
       - --
@@ -3929,10 +3935,12 @@ spec:
 
           # --ssl-ciphers landed in vLLM 0.15.0 (vllm-project/vllm#30937).
           # ODH supports older accelerator images, so only pass it when available.
-          TLS_CIPHER_ARGS=""
+          {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}TLS_CIPHER_ARGS=""
           if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
-          fi
+            TLS_CIPHER_ARGS="--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}"
+          else
+            echo "[tls-profile] warning: vLLM ${VLLM_VERSION} does not support --ssl-ciphers; the configured cipher suites are not applied to this workload" >&2
+          fi{{ end }}
 
           # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
           SHUTDOWN_TIMEOUT_ARGS=""
@@ -3973,7 +3981,7 @@ spec:
             {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
             {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
             {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
-            ${TLS_CIPHER_ARGS} \
+            {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}${TLS_CIPHER_ARGS}{{- end }} \
             ${VLLM_ADDITIONAL_ARGS} \
             $@"
         - --
@@ -4274,10 +4282,12 @@ spec:
 
           # --ssl-ciphers landed in vLLM 0.15.0 (vllm-project/vllm#30937).
           # ODH supports older accelerator images, so only pass it when available.
-          TLS_CIPHER_ARGS=""
+          {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}TLS_CIPHER_ARGS=""
           if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
-          fi
+            TLS_CIPHER_ARGS="--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}"
+          else
+            echo "[tls-profile] warning: vLLM ${VLLM_VERSION} does not support --ssl-ciphers; the configured cipher suites are not applied to this workload" >&2
+          fi{{ end }}
 
           # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
           SHUTDOWN_TIMEOUT_ARGS=""
@@ -4326,7 +4336,7 @@ spec:
             {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
             {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
             {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
-            ${TLS_CIPHER_ARGS} \
+            {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}${TLS_CIPHER_ARGS}{{- end }} \
             ${VLLM_ADDITIONAL_ARGS} \
             $@"
         - --
@@ -4621,10 +4631,12 @@ spec:
 
           # --ssl-ciphers landed in vLLM 0.15.0 (vllm-project/vllm#30937).
           # ODH supports older accelerator images, so only pass it when available.
-          TLS_CIPHER_ARGS=""
+          {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}TLS_CIPHER_ARGS=""
           if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-            TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
-          fi
+            TLS_CIPHER_ARGS="--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}"
+          else
+            echo "[tls-profile] warning: vLLM ${VLLM_VERSION} does not support --ssl-ciphers; the configured cipher suites are not applied to this workload" >&2
+          fi{{ end }}
 
           # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
           SHUTDOWN_TIMEOUT_ARGS=""
@@ -4673,7 +4685,7 @@ spec:
             {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
             {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
             {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
-            ${TLS_CIPHER_ARGS} \
+            {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}${TLS_CIPHER_ARGS}{{- end }} \
             ${VLLM_ADDITIONAL_ARGS} \
             $@"
         - --
@@ -5428,10 +5440,12 @@ spec:
 
         # --ssl-ciphers landed in vLLM 0.15.0 (vllm-project/vllm#30937).
         # ODH supports older accelerator images, so only pass it when available.
-        TLS_CIPHER_ARGS=""
+        {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}TLS_CIPHER_ARGS=""
         if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
-        fi
+          TLS_CIPHER_ARGS="--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}"
+        else
+          echo "[tls-profile] warning: vLLM ${VLLM_VERSION} does not support --ssl-ciphers; the configured cipher suites are not applied to this workload" >&2
+        fi{{ end }}
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
         SHUTDOWN_TIMEOUT_ARGS=""
@@ -5460,7 +5474,7 @@ spec:
           {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
-          ${TLS_CIPHER_ARGS} \
+          {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}${TLS_CIPHER_ARGS}{{- end }} \
           ${VLLM_ADDITIONAL_ARGS} \
           $@"
       - --
@@ -5565,17 +5579,19 @@ spec:
               VLLM_VERSION=$(vllm --version 2>/dev/null | tail -1 | awk '{print $NF}')
               # --ssl-ciphers landed in vLLM 0.15.0 (vllm-project/vllm#30937).
               # ODH supports older tokenizer images, so only pass it when available.
-              TLS_CIPHER_ARGS=""
+              {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}TLS_CIPHER_ARGS=""
               if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-                TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
-              fi
+                TLS_CIPHER_ARGS="--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}"
+              else
+                echo "[tls-profile] warning: vLLM ${VLLM_VERSION} does not support --ssl-ciphers; the configured cipher suites are not applied to this workload" >&2
+              fi{{ end }}
 
               exec vllm launch render /mnt/models/base \
                 --port=8000 \
                 {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh \
                 --ssl-certfile /var/run/kserve/tls/tls.crt \
                 --ssl-keyfile /var/run/kserve/tls/tls.key{{ end }} \
-                ${TLS_CIPHER_ARGS}
+                {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}${TLS_CIPHER_ARGS}{{ end }}
             env:
             - name: HF_HOME
               value: /tmp/hf
@@ -5855,10 +5871,12 @@ spec:
 
         # --ssl-ciphers landed in vLLM 0.15.0 (vllm-project/vllm#30937).
         # ODH supports older accelerator images, so only pass it when available.
-        TLS_CIPHER_ARGS=""
+        {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}TLS_CIPHER_ARGS=""
         if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
-        fi
+          TLS_CIPHER_ARGS="--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}"
+        else
+          echo "[tls-profile] warning: vLLM ${VLLM_VERSION} does not support --ssl-ciphers; the configured cipher suites are not applied to this workload" >&2
+        fi{{ end }}
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
         SHUTDOWN_TIMEOUT_ARGS=""
@@ -5893,7 +5911,7 @@ spec:
           {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
-          ${TLS_CIPHER_ARGS} \
+          {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}${TLS_CIPHER_ARGS}{{- end }} \
           ${VLLM_ADDITIONAL_ARGS} \
           $@"
       - --
@@ -6184,10 +6202,12 @@ spec:
 
         # --ssl-ciphers landed in vLLM 0.15.0 (vllm-project/vllm#30937).
         # ODH supports older accelerator images, so only pass it when available.
-        TLS_CIPHER_ARGS=""
+        {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}TLS_CIPHER_ARGS=""
         if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
-          TLS_CIPHER_ARGS="{{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}{{ end }}"
-        fi
+          TLS_CIPHER_ARGS="--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}"
+        else
+          echo "[tls-profile] warning: vLLM ${VLLM_VERSION} does not support --ssl-ciphers; the configured cipher suites are not applied to this workload" >&2
+        fi{{ end }}
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
         SHUTDOWN_TIMEOUT_ARGS=""
@@ -6222,7 +6242,7 @@ spec:
           {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
           {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
-          ${TLS_CIPHER_ARGS} \
+          {{ if .GlobalConfig.TLSCipherSuitesOpenSSL }}${TLS_CIPHER_ARGS}{{- end }} \
           ${VLLM_ADDITIONAL_ARGS} \
           $@"
       - --
