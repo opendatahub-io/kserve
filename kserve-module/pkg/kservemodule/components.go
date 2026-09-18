@@ -109,6 +109,45 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 		return nil, fmt.Errorf("versioning LLMInferenceServiceConfigs: %w", err)
 	}
 
+	cfg, err := r.resolveTracingPlatformConfig(ctx)
+	if err != nil {
+		log.Error(err, "unable to resolve platform tracing config, leaving tracing presets unchanged")
+		r.tracingConfigError = err
+		cfg = nil
+	}
+	var endpoint string
+	if cfg == nil {
+		log.V(1).Info("platform tracing config unavailable, leaving tracing presets unchanged")
+	} else {
+		endpoint = upstreamTracingEndpointFromResources(resources)
+		if !cfg.Enabled {
+			log.V(1).Info("platform tracing disabled, restoring upstream tracing endpoint")
+		} else {
+			endpoint = cfg.Endpoint
+			log.V(1).Info("patched tracing preset with platform collector", "endpoint", cfg.Endpoint, "sampleRatio", cfg.SampleRatio)
+			resources, err = patchWellKnownTracingPreset(resources, cfg)
+			if err != nil {
+				return nil, fmt.Errorf("patch tracing preset: %w", err)
+			}
+		}
+	}
+
+	if kserve != nil {
+		// Only shipped presets are readiness requirements. Historical presets are
+		// preserved when present but are not readiness requirements.
+		r.expectedPresets = wellKnownPresetNames(resources)
+		resources, err = r.includeExistingTracingPresets(ctx, resources)
+		if err != nil {
+			return nil, fmt.Errorf("include existing tracing presets: %w", err)
+		}
+	}
+	if cfg != nil {
+		resources, err = patchWellKnownTracingPresetEndpoint(resources, endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("patch tracing preset endpoint: %w", err)
+		}
+	}
+
 	return resources, nil
 }
 
@@ -235,4 +274,3 @@ func applyManagedByLabel(resources []unstructured.Unstructured, componentName st
 		resources[i].SetLabels(labels)
 	}
 }
-

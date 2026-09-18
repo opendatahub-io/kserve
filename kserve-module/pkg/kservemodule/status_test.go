@@ -56,6 +56,21 @@ func TestApplyProvisioningCondition_Failure(t *testing.T) {
 	g.Expect(cond.Reason).Should(Equal("DeployFailed"))
 }
 
+func TestApplyTracingConfigCondition(t *testing.T) {
+	g := NewWithT(t)
+	kserve := &platformv1alpha1.Kserve{}
+	condMgr := newConditionManager(kserve)
+
+	applyTracingConfigCondition(condMgr, fmt.Errorf("monitoring unavailable"))
+
+	cond := condMgr.GetCondition(string(common.ConditionTypeDegraded))
+	g.Expect(cond).ShouldNot(BeNil())
+	g.Expect(cond.Status).Should(Equal(metav1.ConditionTrue))
+	g.Expect(cond.Severity).Should(Equal(common.ConditionSeverityInfo))
+	g.Expect(cond.Reason).Should(Equal("TracingConfigUnavailable"))
+	g.Expect(cond.Message).Should(ContainSubstring("monitoring unavailable"))
+}
+
 func TestApplyDependencyConditions_NoDegradation(t *testing.T) {
 	g := NewWithT(t)
 
