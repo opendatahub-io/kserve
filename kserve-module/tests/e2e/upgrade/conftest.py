@@ -1,7 +1,5 @@
 """Fixtures for kserve-module upgrade e2e tests."""
 
-import copy
-
 import pytest
 import yaml
 
@@ -102,18 +100,18 @@ def capture_upgrade_baseline(
 
 @pytest.fixture(scope="class")
 def new_isvc_manifest():
-    """Clone sklearn ISVC manifest with a post-upgrade name."""
-    raw = yaml.safe_load(utils.manifest_path("sklearn-iris-isvc.yaml").read_text())
-    manifest = copy.deepcopy(raw)
+    """Load sklearn ISVC manifest and rename for post-upgrade Part B."""
+    manifest = yaml.safe_load(utils.manifest_path("sklearn-iris-isvc.yaml").read_text())
     manifest["metadata"]["name"] = utils.NEW_ISVC_NAME
     return manifest
 
 
 @pytest.fixture(scope="class")
 def new_llmisvc_manifest():
-    """Clone LLMISVC manifest with a post-upgrade name."""
-    raw = yaml.safe_load(utils.manifest_path("llmisvc-opt-125m-cpu.yaml").read_text())
-    manifest = copy.deepcopy(raw)
+    """Load LLMISVC manifest and rename for post-upgrade Part B."""
+    manifest = yaml.safe_load(
+        utils.manifest_path("llmisvc-opt-125m-cpu.yaml").read_text()
+    )
     manifest["metadata"]["name"] = utils.NEW_LLMISVC_NAME
     return manifest
 
