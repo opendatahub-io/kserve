@@ -217,6 +217,7 @@ EOF
   fi
 
   if ! ${KUBECTL} get service "${TEST_COLLECTOR_SERVICE}" -n "${MONITORING_NAMESPACE}" &>/dev/null; then
+    create_or_skip_namespace "${MONITORING_NAMESPACE}"
     log_info "Creating test collector service..."
     ${KUBECTL} apply -f - <<EOF
 apiVersion: v1
