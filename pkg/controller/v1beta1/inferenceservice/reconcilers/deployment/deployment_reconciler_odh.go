@@ -115,3 +115,90 @@ func mountTransformerTLSInfrastructure(deployment *appsv1.Deployment, componentM
 	}
 	return nil
 }
+
+// customizeAuthProxyArgs replaces only controller-managed audit arguments with
+// the explicitly resolved effective profile.
+func customizeAuthProxyArgs(profile constants.AuditLoggingProfile, manage bool, componentMeta metav1.ObjectMeta, generated []string, isvcName string) []string {
+	if !manage {
+		return generated
+	}
+	args := removeManagedAuditArgs(generated)
+	return append(args, desiredAuditArgs(profile, componentMeta, isvcName)...)
+}
+
+// platformAuthProxyNeedsUpdate reports whether a kube-rbac-proxy's managed
+// audit arguments differ from the resolved effective profile.
+func platformAuthProxyNeedsUpdate(profile constants.AuditLoggingProfile, manage bool, existing *appsv1.Deployment, componentMeta metav1.ObjectMeta, isvcName string) bool {
+	if existing == nil || !manage {
+		return false
+	}
+	desired := desiredAuditArgs(profile, componentMeta, isvcName)
+	for _, container := range existing.Spec.Template.Spec.Containers {
+		if container.Name == constants.KubeRbacContainerName {
+			return !sameArgs(managedAuditArgs(container.Args), desired)
+		}
+	}
+	return false
+}
+
+// desiredAuditArgs builds controller-managed arguments for the effective profile.
+func desiredAuditArgs(profile constants.AuditLoggingProfile, componentMeta metav1.ObjectMeta, isvcName string) []string {
+	if profile != constants.AuditLoggingProfileMetadata {
+		return nil
+	}
+	name := componentMeta.Labels[constants.InferenceServicePodLabelKey]
+	if name == "" {
+		name = isvcName
+	}
+	return []string{
+		"--audit-log-profile=metadata",
+		"--audit-resource-name=" + name,
+		"--audit-resource-namespace=" + componentMeta.Namespace,
+		"--audit-resource-type=InferenceService",
+		"--audit-ai-provider=KServe",
+	}
+}
+
+// removeManagedAuditArgs removes every kube-rbac-proxy argument in the
+// controller-owned audit namespace while leaving unrelated arguments intact.
+func removeManagedAuditArgs(args []string) []string {
+	filtered := make([]string, 0, len(args))
+	for _, arg := range args {
+		if !isManagedAuditArg(arg) {
+			filtered = append(filtered, arg)
+		}
+	}
+	return filtered
+}
+
+// managedAuditArgs returns the controller-owned audit arguments in their
+// original order for exact desired-state comparison.
+func managedAuditArgs(args []string) []string {
+	result := make([]string, 0)
+	for _, arg := range args {
+		if isManagedAuditArg(arg) {
+			result = append(result, arg)
+		}
+	}
+	return result
+}
+
+// sameArgs reports whether two ordered argument slices are identical.
+func sameArgs(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// isManagedAuditArg reports whether an argument belongs to the controller-owned
+// kube-rbac-proxy audit namespace.
+func isManagedAuditArg(arg string) bool {
+	name, _, _ := strings.Cut(arg, "=")
+	return strings.HasPrefix(name, "--audit-")
+}

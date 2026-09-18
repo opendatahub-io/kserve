@@ -136,6 +136,12 @@ func validateInferenceService(isvc *InferenceService) (admission.Warnings, error
 		return allWarnings, err
 	}
 
+	platformWarnings, err := validatePlatformInferenceService(isvc)
+	allWarnings = append(allWarnings, platformWarnings...)
+	if err != nil {
+		return allWarnings, err
+	}
+
 	for _, component := range []Component{
 		&isvc.Spec.Predictor,
 		isvc.Spec.Transformer,
