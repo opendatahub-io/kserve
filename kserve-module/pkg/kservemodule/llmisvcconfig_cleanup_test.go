@@ -146,8 +146,9 @@ func TestWaitingForTerminatingBlockers(t *testing.T) {
 
 	t.Run("falls back to generic waiting when nothing is referenced", func(t *testing.T) {
 		g := NewWithT(t)
+		// Delete bumps generation; llmisvc delete reconcile does not refresh observedGeneration.
 		configs := []unstructured.Unstructured{
-			config("cfg-unused", 1, 1, "False"),
+			config("cfg-unused", 2, 1, "False"),
 		}
 		g.Expect(waitingForTerminatingBlockers(configs)).To(Equal([]string{
 			"waiting for well-known configs to finish terminating",
@@ -157,8 +158,8 @@ func TestWaitingForTerminatingBlockers(t *testing.T) {
 	t.Run("prefixes referenced blockers so drain targets stay visible", func(t *testing.T) {
 		g := NewWithT(t)
 		configs := []unstructured.Unstructured{
-			config("cfg-used", 1, 1, "True", map[string]any{"name": "svc1", "namespace": "ns1"}),
-			config("cfg-unused", 1, 1, "False"),
+			config("cfg-used", 2, 1, "True", map[string]any{"name": "svc1", "namespace": "ns1"}),
+			config("cfg-unused", 2, 1, "False"),
 		}
 		g.Expect(waitingForTerminatingBlockers(configs)).To(Equal([]string{
 			"terminating: cfg-used (referenced by ns1/svc1)",

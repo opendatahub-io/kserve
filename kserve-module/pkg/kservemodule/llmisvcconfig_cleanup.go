@@ -103,16 +103,26 @@ func (r *KserveModuleReconciler) cleanupLLMISVCConfigsOnDelete(ctx context.Conte
 	return configCleanupOutcome{blockers: waitingForTerminatingBlockers(configs)}, nil
 }
 
-// waitingForTerminatingBlockers reuses referencedConfigBlockers for status only.
-// It does not gate deletion of other live configs.
+// waitingForTerminatingBlockers reports drain targets for status only.
+// It reads referencedBy directly and skips configDeletionBlocker's
+// observedGeneration gate: delete bumps metadata.generation while llmisvc
+// reconcileDelete never refreshes observedGeneration, so that gate would
+// hide the refs on a real cluster.
 func waitingForTerminatingBlockers(configs []unstructured.Unstructured) []string {
-	blockers := referencedConfigBlockers(configs)
+	var blockers []string
+	for i := range configs {
+		refs, err := referencedByNames(&configs[i])
+		switch {
+		case err != nil:
+			blockers = append(blockers, fmt.Sprintf("terminating: %s (status unreadable: %v)", configs[i].GetName(), err))
+		case len(refs) > 0:
+			blockers = append(blockers, fmt.Sprintf("terminating: %s (referenced by %s)", configs[i].GetName(), strings.Join(refs, ", ")))
+		}
+	}
 	if len(blockers) == 0 {
 		return []string{"waiting for well-known configs to finish terminating"}
 	}
-	for i := range blockers {
-		blockers[i] = "terminating: " + blockers[i]
-	}
+	sort.Strings(blockers)
 	return blockers
 }
 
