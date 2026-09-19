@@ -913,6 +913,22 @@ func TestCallServiceWhenMultipleHeadersToPropagateUsingInvalidPattern(t *testing
 	require.Equal(t, expectedResponse, response)
 }
 
+func TestCompilePatternsWithTraceIdRegex(t *testing.T) {
+	// Validate that the corrected Trace-Id regex from the configmap compiles and matches expected headers.
+	// The original pattern "*Trace-Id*" was not a valid Go regexp; the fix uses ".*Trace-Id.*".
+	headersToPropagate := []string{"Authorization", "Test-Header-*", ".*Trace-Id.*"}
+	compiled, err := compilePatterns(headersToPropagate)
+	require.NoError(t, err, "compilePatterns should not return an error for valid patterns")
+	assert.Len(t, compiled, len(headersToPropagate), "all patterns should compile successfully")
+
+	// Verify the Trace-Id pattern matches expected headers
+	traceIdPattern := compiled[2]
+	assert.True(t, traceIdPattern.MatchString("X-Trace-Id"), "pattern should match X-Trace-Id")
+	assert.True(t, traceIdPattern.MatchString("X-B3-Trace-Id"), "pattern should match X-B3-Trace-Id")
+	assert.True(t, traceIdPattern.MatchString("Trace-Id"), "pattern should match Trace-Id")
+	assert.False(t, traceIdPattern.MatchString("X-Request-Id"), "pattern should not match X-Request-Id")
+}
+
 func TestServerTimeout(t *testing.T) {
 	testCases := []struct {
 		name                string
