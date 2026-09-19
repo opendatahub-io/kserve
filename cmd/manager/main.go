@@ -319,7 +319,7 @@ func main() {
 	setupLog.Info("Starting the Cmd.")
 	startCtx, err := setupDistroStartup(signals.SetupSignalHandler(), mgr)
 	if err != nil {
-		setupLog.Error(err, "Failed to set up distro TLS watcher; profile changes will not trigger a restart")
+		setupLog.Error(err, "Failed to set up distro startup; profile changes will not trigger a restart")
 	}
 	if err := mgr.Start(startCtx); err != nil {
 		setupLog.Error(err, "unable to run the manager")

@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -266,6 +267,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctrlmetrics.Registry.MustRegister(llmisvc.NewInfoMetricsCollector(mgr.GetClient()))
+
 	// Register webhooks: validation (v1alpha1, v1alpha2) and conversion
 	v1alpha2LLMValidator := &v1alpha2.LLMInferenceServiceValidator{}
 	if err = v1alpha2LLMValidator.SetupWithManager(mgr); err != nil {
@@ -408,11 +411,11 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	ctx, err = setupDistroStartup(ctx, mgr)
+	startCtx, err := setupDistroStartup(ctx, mgr)
 	if err != nil {
-		setupLog.Error(err, "Failed to set up distro TLS watcher; profile changes will not trigger a restart")
+		setupLog.Error(err, "Failed to set up distro startup; profile changes will not trigger a restart")
 	}
-	if err := mgr.Start(ctx); err != nil {
+	if err := mgr.Start(startCtx); err != nil {
 		setupLog.Error(err, "unable to run the manager")
 		os.Exit(1)
 	}
