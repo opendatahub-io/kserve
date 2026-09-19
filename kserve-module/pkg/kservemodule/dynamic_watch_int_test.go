@@ -6,6 +6,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -186,5 +187,57 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 			}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
 		})
 	})
-})
 
+	Context("Confidential container dependency watches", Ordered, func() {
+		var (
+			runtimeClass       *nodev1.RuntimeClass
+			operatorConditions []*unstructured.Unstructured
+		)
+
+		BeforeAll(func(ctx SpecContext) {
+			triggerReconcile(ctx, kserve, "dw-coco-initial")
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
+				cond := fixture.FindCondition(kserve, kservemodule.ConditionConfidentialContainerDeps)
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Message).To(ContainSubstring("Trustee"))
+				g.Expect(cond.Message).To(ContainSubstring("RuntimeClass"))
+			}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
+		})
+
+		AfterAll(func(ctx SpecContext) {
+			if runtimeClass != nil {
+				client.IgnoreNotFound(testEnv.Client.Delete(ctx, runtimeClass))
+			}
+			for _, operatorCondition := range operatorConditions {
+				client.IgnoreNotFound(testEnv.Client.Delete(ctx, operatorCondition))
+			}
+		})
+
+		It("reconciles after Trustee and a CoCo RuntimeClass are available", func(ctx SpecContext) {
+			operatorCondition := &unstructured.Unstructured{}
+			operatorCondition.SetGroupVersionKind(schema.GroupVersionKind{
+				Group: "operators.coreos.com", Version: "v2", Kind: "OperatorCondition",
+			})
+			operatorCondition.SetName("trustee-operator.v1.0.0")
+			operatorCondition.SetNamespace("openshift-operators")
+			Expect(testEnv.Client.Create(ctx, operatorCondition)).To(Succeed())
+			operatorConditions = append(operatorConditions, operatorCondition)
+
+			runtimeClass = &nodev1.RuntimeClass{
+				ObjectMeta: metav1.ObjectMeta{Name: "kata-qemu-tdx"},
+				Handler:    "kata-qemu-tdx",
+			}
+			Expect(testEnv.Client.Create(ctx, runtimeClass)).To(Succeed())
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(kserve), kserve)).To(Succeed())
+				cond := fixture.FindCondition(kserve, kservemodule.ConditionConfidentialContainerDeps)
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
+		})
+	})
+})

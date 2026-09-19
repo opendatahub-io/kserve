@@ -6,18 +6,17 @@ SSA re-applies desired state before the readiness check runs, making it
 impossible to simulate in E2E.
 """
 
-import pytest
-
 import json
 
+import pytest
 from conftest import (
     LLMISVC_CONFIG_RESOURCE,
     LLMISVC_DEPLOYMENT,
     NAMESPACE,
     PLATFORM_VERSION_CM,
     TIMEOUT_120S,
-    get_cr,
     get_conditions,
+    get_cr,
     get_jsonpath,
     run,
     wait_for,
@@ -44,17 +43,29 @@ def _version_prefix(version):
 def _set_platform_version(kubectl, version):
     """Patch data.platformVersion on the odh-kserve-config ConfigMap."""
     patch = json.dumps({"data": {"platformVersion": version}})
-    run([
-        kubectl, "patch", "configmap", PLATFORM_VERSION_CM, "-n", NAMESPACE,
-        "--type", "merge", "-p", patch,
-    ])
+    run(
+        [
+            kubectl,
+            "patch",
+            "configmap",
+            PLATFORM_VERSION_CM,
+            "-n",
+            NAMESPACE,
+            "--type",
+            "merge",
+            "-p",
+            patch,
+        ]
+    )
 
 
 @pytest.mark.sanity
 class TestStatusConditions:
     """Status condition reporting on a shared CR."""
 
-    def test_happy_path_all_conditions(self, kubectl, cluster_info, apply_kserve_cr):
+    def test_happy_path_all_conditions(
+        self, kubectl, cluster_info, apply_kserve_cr_with_external_dependencies
+    ):
         """All conditions report correctly after successful reconcile."""
         conditions = get_conditions(kubectl)
 
@@ -74,12 +85,16 @@ class TestStatusConditions:
         assert cr["status"]["phase"] == "Ready"
         assert cr["status"]["observedGeneration"] == cr["metadata"]["generation"]
 
-    def test_releases_include_platform_version(self, kubectl, ensure_platform_configmap):
+    def test_releases_include_platform_version(
+        self, kubectl, ensure_platform_configmap
+    ):
         """status.releases includes a platform entry from the odh-kserve-config ConfigMap."""
         cr = get_cr(kubectl)
         releases = cr.get("status", {}).get("releases", [])
         release_names = {r["name"] for r in releases}
-        assert "platform" in release_names, f"expected 'platform' in releases, got {release_names}"
+        assert "platform" in release_names, (
+            f"expected 'platform' in releases, got {release_names}"
+        )
 
         platform = next(r for r in releases if r["name"] == "platform")
         assert platform["version"] != "", "platform version should not be empty"
@@ -128,23 +143,29 @@ def _set_and_assert_propagated(kubectl, version):
 
     def assert_release_updated():
         releases = get_cr(kubectl).get("status", {}).get("releases", [])
-        assert _release_version(releases, "platform") == version, \
+        assert _release_version(releases, "platform") == version, (
             f"platform release version not {version}"
+        )
+
     wait_for(assert_release_updated, timeout=TIMEOUT_120S, interval=5)
 
     def assert_env_updated():
         # The env is written to every container, and the real container
         # name is not known here, so filter on the env name only.
         out = get_jsonpath(
-            kubectl, "deployment", LLMISVC_DEPLOYMENT,
+            kubectl,
+            "deployment",
+            LLMISVC_DEPLOYMENT,
             "{.spec.template.spec.containers[*]"
             f".env[?(@.name=='{LLMISVC_CONFIG_PREFIX_ENV}')].value}}",
             namespace=NAMESPACE,
         )
         vals = out.split()
         assert vals, f"{LLMISVC_CONFIG_PREFIX_ENV} not set on {LLMISVC_DEPLOYMENT}"
-        assert all(v == expected_env for v in vals), \
+        assert all(v == expected_env for v in vals), (
             f"expected all {LLMISVC_CONFIG_PREFIX_ENV}={expected_env}, got {vals}"
+        )
+
     wait_for(assert_env_updated, timeout=TIMEOUT_120S, interval=5)
 
     def assert_presets_versioned():
@@ -152,13 +173,22 @@ def _set_and_assert_propagated(kubectl, version):
         # so a new prefix means new preset objects appear. (Stale-prefix presets
         # are not pruned, so we only assert the new prefix is present.)
         name_prefix = f"{_version_prefix(version)}-"
-        result = run([
-            kubectl, "get", LLMISVC_CONFIG_RESOURCE, "-n", NAMESPACE,
-            "-o", "jsonpath={.items[*].metadata.name}",
-        ])
+        result = run(
+            [
+                kubectl,
+                "get",
+                LLMISVC_CONFIG_RESOURCE,
+                "-n",
+                NAMESPACE,
+                "-o",
+                "jsonpath={.items[*].metadata.name}",
+            ]
+        )
         names = result.stdout.split()
-        assert any(n.startswith(name_prefix) for n in names), \
+        assert any(n.startswith(name_prefix) for n in names), (
             f"no {LLMISVC_CONFIG_RESOURCE} with prefix {name_prefix}, got {names}"
+        )
+
     wait_for(assert_presets_versioned, timeout=TIMEOUT_120S, interval=5)
 
 
@@ -170,11 +200,16 @@ class TestPlatformVersionTransition:
     an upgrade mode, so a stuck platform version breaks upgrade orchestration.
     """
 
-    def test_platform_version_change_propagates(self, kubectl, ensure_platform_configmap):
+    def test_platform_version_change_propagates(
+        self, kubectl, ensure_platform_configmap
+    ):
         """A platformVersion upgrade (2.19.0 -> 2.20.0) propagates to the release and env."""
         original = get_jsonpath(
-            kubectl, "configmap", PLATFORM_VERSION_CM,
-            "{.data.platformVersion}", namespace=NAMESPACE,
+            kubectl,
+            "configmap",
+            PLATFORM_VERSION_CM,
+            "{.data.platformVersion}",
+            namespace=NAMESPACE,
         )
         try:
             # Set baseline A, then upgrade to B. A->B is the real transition;
@@ -187,7 +222,17 @@ class TestPlatformVersionTransition:
             if original:
                 _set_platform_version(kubectl, original)
             else:
-                run([
-                    kubectl, "patch", "configmap", PLATFORM_VERSION_CM, "-n", NAMESPACE,
-                    "--type", "merge", "-p", json.dumps({"data": {"platformVersion": None}}),
-                ])
+                run(
+                    [
+                        kubectl,
+                        "patch",
+                        "configmap",
+                        PLATFORM_VERSION_CM,
+                        "-n",
+                        NAMESPACE,
+                        "--type",
+                        "merge",
+                        "-p",
+                        json.dumps({"data": {"platformVersion": None}}),
+                    ]
+                )
