@@ -85,6 +85,7 @@ func createCRDInternal(ctx context.Context, cli client.Client, name, group, vers
 					OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{
 						Type: "object",
 						Properties: map[string]apiextensionsv1.JSONSchemaProps{
+							"spec":   {Type: "object", XPreserveUnknownFields: ptr.To(true)},
 							"status": {Type: "object", XPreserveUnknownFields: ptr.To(true)},
 						},
 					},
@@ -133,6 +134,25 @@ func CreateSubscription(ctx context.Context, cli client.Client, name, namespace 
 
 	gomega.ExpectWithOffset(1, cli.Create(ctx, sub)).To(gomega.Succeed())
 	return sub
+}
+
+func CreateClusterExtension(ctx context.Context, cli client.Client, name, packageName string) *unstructured.Unstructured {
+	ext := &unstructured.Unstructured{}
+	ext.SetGroupVersionKind(schema.GroupVersionKind{
+		Group: "olm.operatorframework.io", Version: "v1", Kind: "ClusterExtension",
+	})
+	ext.SetName(name)
+	ext.Object["spec"] = map[string]any{
+		"source": map[string]any{
+			"sourceType": "Catalog",
+			"catalog": map[string]any{
+				"packageName": packageName,
+			},
+		},
+	}
+
+	gomega.ExpectWithOffset(1, cli.Create(ctx, ext)).To(gomega.Succeed())
+	return ext
 }
 
 func ExtractConfigMapJSONKey(resources []unstructured.Unstructured, cmName, key string) (map[string]any, error) {
