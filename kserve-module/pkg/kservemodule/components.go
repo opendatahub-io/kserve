@@ -185,8 +185,12 @@ func consoleDashboardsPostRender(ctx context.Context, r *KserveModuleReconciler,
 	return resources, nil
 }
 
-func isWVAEnabled(kserve *platformv1alpha1.Kserve) bool {
-	return kserve.Spec.WVA.ManagementState == common.Managed
+// isWVAEnabled always returns false: WVA is removed from the product in
+// RHOAI 3.6 (RHAISTRAT-2756). The WVA componentConfig entry is kept so
+// defaultCleanup still tears down leftover WVA resources on clusters
+// upgrading from 3.5 where WVA was Managed.
+func isWVAEnabled(_ *platformv1alpha1.Kserve) bool {
+	return false
 }
 
 func modelControllerExtraParams(kserve *platformv1alpha1.Kserve) map[string]string {
