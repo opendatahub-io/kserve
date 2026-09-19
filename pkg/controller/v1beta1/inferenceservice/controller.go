@@ -156,14 +156,23 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	deploymentMode := isvcutils.GetDeploymentMode(isvc.Status.DeploymentMode, annotations, deployConfig)
 	r.Log.Info("Inference service deployment mode ", "deployment mode ", deploymentMode)
 
+	reconciliationPaused := false
+	if annotations != nil {
+		disableAutoUpdate, found := annotations[constants.DisableAutoUpdateAnnotationKey]
+		reconciliationPaused = found && disableAutoUpdate == "true" && isvc.Status.IsReady()
+	}
+
+	// Ensure status is initialized before platform policy is recorded or any
+	// early-return path writes status.
+	if isvc.Status.GetCondition(apis.ConditionReady) == nil {
+		isvc.Status.InitializeConditions()
+	}
+
 	if deploymentMode == constants.ModelMeshDeployment {
 		if isvc.Spec.Transformer == nil {
 			// Skip if no transformers; still ensure status is written
 			r.Log.Info("Skipping reconciliation for InferenceService", constants.DeploymentMode, deploymentMode,
 				"apiVersion", isvc.APIVersion, "isvc", isvc.Name)
-			if isvc.Status.GetCondition(apis.ConditionReady) == nil {
-				isvc.Status.InitializeConditions()
-			}
 			if err := r.updateStatus(ctx, isvc, deploymentMode); err != nil {
 				r.Log.Error(err, "Error updating status when skipping ModelMesh reconciliation")
 			}
@@ -172,6 +181,11 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		// Continue to reconcile when there is a transformer
 		r.Log.Info("Continue reconciliation for InferenceService", constants.DeploymentMode, deploymentMode,
 			"apiVersion", isvc.APIVersion, "isvc", isvc.Name)
+	}
+
+	auditLoggingProfile, manageAuditLogging, err := r.reconcilePlatformInferenceService(ctx, isvc, deploymentMode, reconciliationPaused)
+	if err != nil {
+		return reconcile.Result{}, err
 	}
 
 	// name of our custom finalizer
@@ -214,17 +228,12 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	}
 	// Check if auto-update is disabled, this will skip the reconciliation if the annotation is present.
 	// Used for when k8s autoreconciles the InferenceService.
-	if annotations != nil {
-		if disableAutoUpdate, found := annotations[constants.DisableAutoUpdateAnnotationKey]; found && disableAutoUpdate == "true" && isvc.Status.IsReady() {
-			r.Log.Info("Auto-update is disabled for InferenceService, skipping reconciliation", "InferenceService", isvc.Name)
-			return ctrl.Result{}, nil
+	if reconciliationPaused {
+		r.Log.Info("Auto-update is disabled for InferenceService, skipping reconciliation", "InferenceService", isvc.Name)
+		if err := r.updateStatus(ctx, isvc, deploymentMode); err != nil {
+			return ctrl.Result{}, err
 		}
-	}
-
-	// Ensure status is initialized so we always have a status section (fixes empty status when reconciliation fails early).
-	// This must happen before any early-return path that calls updateStatus.
-	if isvc.Status.GetCondition(apis.ConditionReady) == nil {
-		isvc.Status.InitializeConditions()
+		return ctrl.Result{}, nil
 	}
 
 	// Advisory warning: if oci+native:// mode is configured, check the cluster K8s version
@@ -280,7 +289,7 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	componentReconcilers := []components.Component{}
 	if deploymentMode != constants.ModelMeshDeployment {
-		componentReconcilers = append(componentReconcilers, components.NewPredictor(r.Client, r.Clientset, r.Scheme, isvcConfig, deploymentMode, allowZeroInitialScale))
+		componentReconcilers = append(componentReconcilers, components.NewPredictor(r.Client, r.Clientset, r.Scheme, isvcConfig, deploymentMode, allowZeroInitialScale, auditLoggingProfile, manageAuditLogging))
 	}
 	if isvc.Spec.Transformer != nil {
 		componentReconcilers = append(componentReconcilers, components.NewTransformer(r.Client, r.Clientset, r.Scheme, isvcConfig, deploymentMode, allowZeroInitialScale))
@@ -292,7 +301,7 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		result, err := reconciler.Reconcile(ctx, isvc)
 		if err != nil {
 			r.Log.Error(err, "Failed to reconcile", "reconciler", reflect.ValueOf(reconciler), "Name", isvc.Name)
-			r.Recorder.Eventf(isvc, corev1.EventTypeWarning, "InternalError", err.Error())
+			r.Recorder.Event(isvc, corev1.EventTypeWarning, "InternalError", err.Error())
 			if err := r.updateStatus(ctx, isvc, deploymentMode); err != nil {
 				r.Log.Error(err, "Error updating status")
 				return result, err
@@ -452,10 +461,10 @@ func (r *InferenceServiceReconciler) updateStatus(ctx context.Context, desiredSe
 		isReady := inferenceServiceReadiness(desiredService.Status)
 		isReadyFalse := inferenceServiceReadinessFalse(desiredService.Status)
 		if wasReady && isReadyFalse { // Moved to NotReady State
-			r.Recorder.Eventf(desiredService, corev1.EventTypeWarning, string(InferenceServiceNotReadyState),
+			r.Recorder.Event(desiredService, corev1.EventTypeWarning, string(InferenceServiceNotReadyState),
 				fmt.Sprintf("InferenceService [%v] is no longer Ready because of: %v", desiredService.GetName(), r.GetFailConditions(desiredService)))
 		} else if !wasReady && isReady { // Moved to Ready State
-			r.Recorder.Eventf(desiredService, corev1.EventTypeNormal, string(InferenceServiceReadyState),
+			r.Recorder.Event(desiredService, corev1.EventTypeNormal, string(InferenceServiceReadyState),
 				fmt.Sprintf("InferenceService [%v] is Ready", desiredService.GetName()))
 		}
 	}

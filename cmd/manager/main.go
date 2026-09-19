@@ -45,6 +45,7 @@ import (
 	trainedmodelcontroller "github.com/kserve/kserve/pkg/controller/v1alpha1/trainedmodel"
 	"github.com/kserve/kserve/pkg/controller/v1alpha1/trainedmodel/reconcilers/modelconfig"
 	v1beta1controller "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice"
+	"github.com/kserve/kserve/pkg/oteljson"
 	kservescheme "github.com/kserve/kserve/pkg/scheme"
 	kserveutils "github.com/kserve/kserve/pkg/utils"
 	"github.com/kserve/kserve/pkg/webhook/admission/pod"
@@ -68,6 +69,7 @@ type Options struct {
 	tlsMinVersion        string
 	tlsCipherSuites      string
 	zapOpts              zap.Options
+	logFormat            oteljson.Format
 }
 
 // DefaultOptions returns the default values for the program options.
@@ -78,6 +80,7 @@ func DefaultOptions() Options {
 		enableLeaderElection: false,
 		probeAddr:            ":8081",
 		zapOpts:              zap.Options{},
+		logFormat:            oteljson.FormatZap,
 	}
 }
 
@@ -95,6 +98,7 @@ func GetOptions() Options {
 	flag.StringVar(&opts.tlsMinVersion, "tls-min-version", opts.tlsMinVersion, "Minimum TLS version (VersionTLS12, VersionTLS13). Defaults to VersionTLS12.")
 	flag.StringVar(&opts.tlsCipherSuites, "tls-cipher-suites", opts.tlsCipherSuites, "Comma-separated list of TLS cipher suites (Go names). If empty, Go defaults are used.")
 	opts.zapOpts.BindFlags(flag.CommandLine)
+	oteljson.BindFlags(flag.CommandLine, &opts.logFormat)
 	flag.Parse()
 	return opts
 }
@@ -107,6 +111,9 @@ func init() {
 
 func main() {
 	options := GetOptions()
+	if options.logFormat == oteljson.FormatOTelJSON {
+		oteljson.Apply(&options.zapOpts, "kserve-controller-manager", os.Stdout)
+	}
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&options.zapOpts)))
 
 	// Get a config to talk to the apiserver
@@ -273,24 +280,21 @@ func main() {
 		Handler: &servingruntime.ServingRuntimeValidator{Client: mgr.GetClient(), Decoder: admission.NewDecoder(mgr.GetScheme())},
 	})
 
-	if err = ctrl.NewWebhookManagedBy(mgr).
-		For(&v1alpha1.TrainedModel{}).
+	if err = ctrl.NewWebhookManagedBy(mgr, &v1alpha1.TrainedModel{}).
 		WithValidator(&v1alpha1.TrainedModelValidator{}).
 		Complete(); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "v1alpha1")
 		os.Exit(1)
 	}
 
-	if err = ctrl.NewWebhookManagedBy(mgr).
-		For(&v1alpha1.InferenceGraph{}).
+	if err = ctrl.NewWebhookManagedBy(mgr, &v1alpha1.InferenceGraph{}).
 		WithValidator(&v1alpha1.InferenceGraphValidator{}).
 		Complete(); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "v1alpha1")
 		os.Exit(1)
 	}
 
-	if err = ctrl.NewWebhookManagedBy(mgr).
-		For(&v1beta1.InferenceService{}).
+	if err = ctrl.NewWebhookManagedBy(mgr, &v1beta1.InferenceService{}).
 		WithDefaulter(&v1beta1.InferenceServiceDefaulter{}).
 		WithValidator(&v1beta1.InferenceServiceValidator{}).
 		Complete(); err != nil {

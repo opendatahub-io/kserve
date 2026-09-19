@@ -30,11 +30,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	"k8s.io/client-go/kubernetes"
 
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
+	ctrlfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"k8s.io/client-go/kubernetes/fake"
 
@@ -998,6 +1001,7 @@ func TestOauthProxyUpstreamTimeout(t *testing.T) {
 				tt.args.podSpec,
 				tt.args.workerPodSpec,
 				nil, // deployConfig
+				constants.AuditLoggingProfileNone, false,
 			)
 			require.NoError(t, err)
 			require.NotEmpty(t, deployments)
@@ -1498,6 +1502,7 @@ func TestNewDeploymentReconciler(t *testing.T) {
 				tt.fields.podSpec,
 				tt.fields.workerPod,
 				nil, // deployConfig
+				constants.AuditLoggingProfileNone, false,
 			)
 
 			if (err != nil) != tt.wantErr {
@@ -1611,6 +1616,10 @@ func (m *mockClientForCheckDeploymentExist) Get(ctx context.Context, key kclient
 
 func (m *mockClientForCheckDeploymentExist) Update(ctx context.Context, obj kclient.Object, opts ...kclient.UpdateOption) error {
 	// Simulate dry-run update always succeeds
+	return nil
+}
+
+func (m *mockClientForCheckDeploymentExist) Patch(ctx context.Context, obj kclient.Object, patch kclient.Patch, opts ...kclient.PatchOption) error {
 	return nil
 }
 
@@ -1880,8 +1889,10 @@ func TestSetControllerReferences(t *testing.T) {
 // mockClientForAuthProxyDetection is a mock client for testing auth proxy preservation
 type mockClientForAuthProxyDetection struct {
 	kclient.Client
-	existingDeployment *appsv1.Deployment
-	deploymentNotFound bool
+	existingDeployment      *appsv1.Deployment
+	deploymentNotFound      bool
+	inferenceServiceGets    int
+	patchedInferenceService *v1beta1.InferenceService
 }
 
 func (m *mockClientForAuthProxyDetection) Get(ctx context.Context, key kclient.ObjectKey, obj kclient.Object, opts ...kclient.GetOption) error {
@@ -1894,6 +1905,7 @@ func (m *mockClientForAuthProxyDetection) Get(ctx context.Context, key kclient.O
 			*o = *m.existingDeployment.DeepCopy()
 		}
 	case *v1beta1.InferenceService:
+		m.inferenceServiceGets++
 		o.ObjectMeta = metav1.ObjectMeta{
 			Name:      key.Name,
 			Namespace: key.Namespace,
@@ -1908,6 +1920,13 @@ func (m *mockClientForAuthProxyDetection) Update(ctx context.Context, obj kclien
 }
 
 func (m *mockClientForAuthProxyDetection) Create(ctx context.Context, obj kclient.Object, opts ...kclient.CreateOption) error {
+	return nil
+}
+
+func (m *mockClientForAuthProxyDetection) Patch(ctx context.Context, obj kclient.Object, patch kclient.Patch, opts ...kclient.PatchOption) error {
+	if isvc, ok := obj.(*v1beta1.InferenceService); ok {
+		m.patchedInferenceService = isvc.DeepCopy()
+	}
 	return nil
 }
 
@@ -1993,6 +2012,148 @@ func TestGetExistingAuthProxyType(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expectedName, resultName)
 				assert.Equal(t, tt.expectedImage, resultImage)
+			}
+		})
+	}
+}
+
+func TestCleanupOrphans(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = appsv1.AddToScheme(scheme)
+
+	labels := map[string]string{
+		constants.InferenceServicePodLabelKey: "my-isvc",
+		constants.KServiceComponentLabel:      "predictor",
+	}
+
+	expected := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-isvc-v2-predictor", Namespace: "default", Labels: labels},
+	}
+	orphan := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-isvc-predictor", Namespace: "default", Labels: labels},
+	}
+
+	fakeClient := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(expected, orphan).Build()
+	reconciler := &DeploymentReconciler{client: fakeClient, scheme: scheme}
+
+	expectedNames := sets.New("my-isvc-v2-predictor")
+	err := reconciler.CleanupOrphans(t.Context(), isvcutils.OrphanScope{
+		Namespace: "default", Labels: kclient.MatchingLabels(labels), RetainNames: expectedNames,
+	})
+	require.NoError(t, err)
+
+	// Orphan should be deleted
+	err = fakeClient.Get(t.Context(), types.NamespacedName{Name: "my-isvc-predictor", Namespace: "default"}, &appsv1.Deployment{})
+	assert.True(t, errors.IsNotFound(err))
+
+	// Expected should be kept
+	err = fakeClient.Get(t.Context(), types.NamespacedName{Name: "my-isvc-v2-predictor", Namespace: "default"}, &appsv1.Deployment{})
+	assert.NoError(t, err)
+}
+
+func TestCleanupOrphansWithWorker(t *testing.T) {
+	scheme := runtime.NewScheme()
+	_ = appsv1.AddToScheme(scheme)
+
+	labels := map[string]string{
+		constants.InferenceServicePodLabelKey: "my-isvc",
+		constants.KServiceComponentLabel:      "predictor",
+	}
+
+	headDeployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-isvc-predictor", Namespace: "default", Labels: labels},
+	}
+	workerDeployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-isvc-predictor-worker", Namespace: "default", Labels: labels},
+	}
+	oldDeployment := &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "my-isvc-old-predictor", Namespace: "default", Labels: labels},
+	}
+
+	fakeClient := ctrlfake.NewClientBuilder().WithScheme(scheme).WithObjects(headDeployment, workerDeployment, oldDeployment).Build()
+	reconciler := &DeploymentReconciler{client: fakeClient, scheme: scheme}
+
+	// expectedNames should include both head and worker deployment names
+	expectedNames := sets.New("my-isvc-predictor", "my-isvc-predictor-worker")
+	err := reconciler.CleanupOrphans(t.Context(), isvcutils.OrphanScope{
+		Namespace: "default", Labels: kclient.MatchingLabels(labels), RetainNames: expectedNames,
+	})
+	require.NoError(t, err)
+
+	// Old deployment should be deleted
+	err = fakeClient.Get(t.Context(), types.NamespacedName{Name: "my-isvc-old-predictor", Namespace: "default"}, &appsv1.Deployment{})
+	assert.True(t, errors.IsNotFound(err))
+
+	// Head deployment should be kept
+	err = fakeClient.Get(t.Context(), types.NamespacedName{Name: "my-isvc-predictor", Namespace: "default"}, &appsv1.Deployment{})
+	assert.NoError(t, err)
+
+	// Worker deployment should be kept (not deleted as orphan)
+	err = fakeClient.Get(t.Context(), types.NamespacedName{Name: "my-isvc-predictor-worker", Namespace: "default"}, &appsv1.Deployment{})
+	assert.NoError(t, err)
+}
+
+func TestGetArgValue(t *testing.T) {
+	tests := []struct {
+		name    string
+		args    []string
+		flag    string
+		wantVal string
+		wantOk  bool
+	}{
+		{
+			name:    "two-element form",
+			args:    []string{"--model_name", "foo", "--http_port", "9090"},
+			flag:    "--http_port",
+			wantVal: "9090",
+			wantOk:  true,
+		},
+		{
+			name:    "equals form",
+			args:    []string{"--model_name=foo", "--http_port=9090"},
+			flag:    "--http_port",
+			wantVal: "9090",
+			wantOk:  true,
+		},
+		{
+			name:   "flag not present",
+			args:   []string{"--model_name", "foo"},
+			flag:   "--http_port",
+			wantOk: false,
+		},
+		{
+			name:   "flag at end without value",
+			args:   []string{"--http_port"},
+			flag:   "--http_port",
+			wantOk: false,
+		},
+		{
+			name:   "empty args",
+			args:   nil,
+			flag:   "--http_port",
+			wantOk: false,
+		},
+		{
+			name:    "duplicate flag returns last value",
+			args:    []string{"--http_port=8080", "--http_port=5000"},
+			flag:    "--http_port",
+			wantVal: "5000",
+			wantOk:  true,
+		},
+		{
+			name:    "duplicate mixed forms returns last value",
+			args:    []string{"--http_port", "8080", "--http_port=5000"},
+			flag:    "--http_port",
+			wantVal: "5000",
+			wantOk:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			val, ok := getArgValue(tt.args, tt.flag)
+			assert.Equal(t, tt.wantOk, ok)
+			if ok {
+				assert.Equal(t, tt.wantVal, val)
 			}
 		})
 	}
@@ -2283,6 +2444,7 @@ func TestOauthProxyPreservation(t *testing.T) {
 				podSpec,
 				nil,
 				nil,
+				constants.AuditLoggingProfileNone, false,
 			)
 
 			require.NoError(t, err)
@@ -2359,7 +2521,7 @@ func TestDeploymentReconcilerCondition(t *testing.T) {
 			expectedReason:  "AuthProxyPreserved",
 		},
 		{
-			name: "existing ISVC with kube-rbac-proxy matching config does NOT set condition",
+			name: "existing annotationless ISVC with kube-rbac-proxy matching config does NOT set condition",
 			existingDeployment: &appsv1.Deployment{
 				Spec: appsv1.DeploymentSpec{
 					Template: corev1.PodTemplateSpec{
@@ -2449,6 +2611,7 @@ func TestDeploymentReconcilerCondition(t *testing.T) {
 				podSpec,
 				nil,
 				nil,
+				constants.AuditLoggingProfileNone, false,
 			)
 
 			require.NoError(t, err)
@@ -2509,6 +2672,7 @@ func TestNewRawDeploymentWithAuthDisabled_IncludesOAuthProxy(t *testing.T) {
 		&corev1.PodSpec{},
 		nil,
 		nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 
 	require.NoError(t, err)
@@ -2579,6 +2743,7 @@ func TestNewRawDeploymentWithAuthEnabled_IncludesOAuthProxy(t *testing.T) {
 		&corev1.PodSpec{},
 		nil,
 		nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 
 	require.NoError(t, err)
@@ -2647,6 +2812,7 @@ func TestExistingRawDeploymentWithAuthDisabled_NoOAuthProxyAdded(t *testing.T) {
 		&corev1.PodSpec{},
 		nil,
 		nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 
 	require.NoError(t, err)
@@ -2716,6 +2882,7 @@ func TestExistingRawDeploymentWithAuthEnabled_PreservesOAuthProxy(t *testing.T) 
 		&corev1.PodSpec{},
 		nil,
 		nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 
 	require.NoError(t, err)
@@ -2767,6 +2934,7 @@ func TestNewInferenceGraph_NoOAuthProxy(t *testing.T) {
 		&corev1.PodSpec{},
 		nil,
 		nil,
+		constants.AuditLoggingProfileNone, false,
 	)
 
 	require.NoError(t, err)
@@ -2899,10 +3067,21 @@ func TestUpgradePreservesLegacyVolumeName(t *testing.T) {
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
 								{Name: constants.InferenceServiceContainerName},
-								{Name: constants.KubeRbacContainerName, Image: constants.OauthProxyImage},
+								{
+									Name:  constants.KubeRbacContainerName,
+									Image: constants.OauthProxyImage,
+									VolumeMounts: []corev1.VolumeMount{
+										{Name: legacyVolumeName, MountPath: "/etc/kube-rbac-proxy"},
+									},
+								},
 							},
 							Volumes: []corev1.Volume{
-								{Name: legacyVolumeName},
+								{
+									Name: legacyVolumeName,
+									VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+										LocalObjectReference: corev1.LocalObjectReference{Name: isvcName + "-" + constants.OauthProxySARCMName},
+									}},
+								},
 							},
 						},
 					},
@@ -2919,10 +3098,21 @@ func TestUpgradePreservesLegacyVolumeName(t *testing.T) {
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
 								{Name: constants.InferenceServiceContainerName},
-								{Name: constants.KubeRbacContainerName, Image: constants.OauthProxyImage},
+								{
+									Name:  constants.KubeRbacContainerName,
+									Image: constants.OauthProxyImage,
+									VolumeMounts: []corev1.VolumeMount{
+										{Name: constants.OauthProxySARCMName, MountPath: "/etc/kube-rbac-proxy"},
+									},
+								},
 							},
 							Volumes: []corev1.Volume{
-								{Name: constants.OauthProxySARCMName},
+								{
+									Name: constants.OauthProxySARCMName,
+									VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+										LocalObjectReference: corev1.LocalObjectReference{Name: isvcName + "-" + constants.OauthProxySARCMName},
+									}},
+								},
 							},
 						},
 					},
@@ -2984,6 +3174,7 @@ func TestUpgradePreservesLegacyVolumeName(t *testing.T) {
 				podSpec,
 				nil,
 				nil,
+				constants.AuditLoggingProfileNone, false,
 			)
 
 			require.NoError(t, err, tt.description)
@@ -3020,6 +3211,105 @@ func TestUpgradePreservesLegacyVolumeName(t *testing.T) {
 					break
 				}
 			}
+		})
+	}
+}
+
+func TestSetArgValue(t *testing.T) {
+	tests := []struct {
+		name     string
+		args     []string
+		flag     string
+		value    string
+		expected []string
+	}{
+		{
+			name:     "replace two-element form",
+			args:     []string{"--http_port", "8080"},
+			flag:     "--http_port",
+			value:    "8443",
+			expected: []string{"--http_port", "8443"},
+		},
+		{
+			name:     "replace equals form",
+			args:     []string{"--http_port=8080"},
+			flag:     "--http_port",
+			value:    "8443",
+			expected: []string{"--http_port=8443"},
+		},
+		{
+			name:     "append when absent",
+			args:     []string{"--model_name", "foo"},
+			flag:     "--http_port",
+			value:    "8443",
+			expected: []string{"--model_name", "foo", "--http_port", "8443"},
+		},
+		{
+			name:     "append to nil",
+			args:     nil,
+			flag:     "--http_port",
+			value:    "8443",
+			expected: []string{"--http_port", "8443"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := setArgValue(tt.args, tt.flag, tt.value)
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestSetDefaultPodSpec_ReadinessProbeRespectsHttpPort(t *testing.T) {
+	tests := []struct {
+		name         string
+		args         []string
+		ports        []corev1.ContainerPort
+		expectedPort int32
+	}{
+		{
+			name:         "no ports no args defaults to 8080",
+			expectedPort: 8080,
+		},
+		{
+			name:         "port defined takes precedence over default",
+			ports:        []corev1.ContainerPort{{ContainerPort: 9090}},
+			expectedPort: 9090,
+		},
+		{
+			name:         "--http_port arg overrides default",
+			args:         []string{"--http_port", "8443"},
+			expectedPort: 8443,
+		},
+		{
+			name:         "--http_port= arg overrides default",
+			args:         []string{"--http_port=7070"},
+			expectedPort: 7070,
+		},
+		{
+			name:         "--http_port overrides container port",
+			ports:        []corev1.ContainerPort{{ContainerPort: 9090}},
+			args:         []string{"--http_port", "8443"},
+			expectedPort: 8443,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			podSpec := &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name:  "kserve-container",
+						Image: "test:latest",
+						Args:  tt.args,
+						Ports: tt.ports,
+					},
+				},
+			}
+			setDefaultPodSpec(podSpec)
+			probe := podSpec.Containers[0].ReadinessProbe
+			require.NotNil(t, probe)
+			require.NotNil(t, probe.TCPSocket)
+			assert.Equal(t, tt.expectedPort, probe.TCPSocket.Port.IntVal)
 		})
 	}
 }

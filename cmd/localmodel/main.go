@@ -37,6 +37,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	localmodelcontroller "github.com/kserve/kserve/pkg/controller/v1alpha1/localmodel"
+	"github.com/kserve/kserve/pkg/oteljson"
 	kservescheme "github.com/kserve/kserve/pkg/scheme"
 	localmodelwebhook "github.com/kserve/kserve/pkg/webhook/admission/localmodelcache"
 	localmodelnamespacecachewebhook "github.com/kserve/kserve/pkg/webhook/admission/localmodelnamespacecache"
@@ -59,6 +60,7 @@ type Options struct {
 	tlsMinVersion        string
 	tlsCipherSuites      string
 	zapOpts              zap.Options
+	logFormat            oteljson.Format
 }
 
 // DefaultOptions returns the default values for the program options.
@@ -69,6 +71,7 @@ func DefaultOptions() Options {
 		enableLeaderElection: false,
 		probeAddr:            ":8081",
 		zapOpts:              zap.Options{},
+		logFormat:            oteljson.FormatZap,
 	}
 }
 
@@ -86,12 +89,16 @@ func GetOptions() Options {
 	flag.StringVar(&opts.tlsMinVersion, "tls-min-version", opts.tlsMinVersion, "Minimum TLS version (VersionTLS12, VersionTLS13). Defaults to VersionTLS12.")
 	flag.StringVar(&opts.tlsCipherSuites, "tls-cipher-suites", opts.tlsCipherSuites, "Comma-separated list of TLS cipher suites (Go names). If empty, Go defaults are used.")
 	opts.zapOpts.BindFlags(flag.CommandLine)
+	oteljson.BindFlags(flag.CommandLine, &opts.logFormat)
 	flag.Parse()
 	return opts
 }
 
 func main() {
 	options := GetOptions()
+	if options.logFormat == oteljson.FormatOTelJSON {
+		oteljson.Apply(&options.zapOpts, "kserve-localmodel-controller", os.Stdout)
+	}
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&options.zapOpts)))
 
 	// Get a config to talk to the apiserver
@@ -184,16 +191,14 @@ func main() {
 
 	// Setup webhook
 	setupLog.Info("setting up webhook server")
-	if err = ctrl.NewWebhookManagedBy(mgr).
-		For(&v1alpha1.LocalModelCache{}).
+	if err = ctrl.NewWebhookManagedBy(mgr, &v1alpha1.LocalModelCache{}).
 		WithValidator(&localmodelwebhook.LocalModelCacheValidator{Client: mgr.GetClient()}).
 		Complete(); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "LocalModelCache")
 		os.Exit(1)
 	}
 
-	if err = ctrl.NewWebhookManagedBy(mgr).
-		For(&v1alpha1.LocalModelNamespaceCache{}).
+	if err = ctrl.NewWebhookManagedBy(mgr, &v1alpha1.LocalModelNamespaceCache{}).
 		WithValidator(&localmodelnamespacecachewebhook.LocalModelNamespaceCacheValidator{Client: mgr.GetClient()}).
 		Complete(); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "LocalModelNamespaceCache")

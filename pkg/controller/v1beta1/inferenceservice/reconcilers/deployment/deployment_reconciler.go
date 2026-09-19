@@ -47,7 +47,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
-
+	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
@@ -77,8 +77,10 @@ func NewDeploymentReconciler(ctx context.Context,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec,
 	deployConfig *v1beta1.DeployConfig,
+	auditLoggingProfile constants.AuditLoggingProfile,
+	manageAuditLogging bool,
 ) (*DeploymentReconciler, error) {
-	deploymentList, authProxyPreserved, err := createRawDeploymentODH(ctx, client, clientset, resourceType, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec, deployConfig)
+	deploymentList, authProxyPreserved, err := createRawDeploymentODH(ctx, client, clientset, resourceType, componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec, deployConfig, auditLoggingProfile, manageAuditLogging)
 	if err != nil {
 		return nil, err
 	}
@@ -128,6 +130,8 @@ func createRawDeploymentODH(ctx context.Context,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec,
 	deployConfig *v1beta1.DeployConfig,
+	auditLoggingProfile constants.AuditLoggingProfile,
+	manageAuditLogging bool,
 ) ([]*appsv1.Deployment, bool, error) {
 	deploymentList, err := createRawDeployment(componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec, deployConfig)
 	if err != nil {
@@ -179,8 +183,11 @@ func createRawDeploymentODH(ctx context.Context,
 	// Deployment list is for multi-node, we only need to add oauth proxy and serving secret certs to the head deployment
 	headDeployment := deploymentList[0]
 
-	authProxyPreserved := false
+	authProxyReused := false
+	authProxyPreservationWarning := false
+	refreshPreservedSARConfig := false
 	if shouldAddAuthProxy {
+		auditConfigChanged := platformAuthProxyNeedsUpdate(auditLoggingProfile, manageAuditLogging, existingDeployment, componentMeta, isvcname)
 		wantsMigration := false
 		if val, ok := componentMeta.Annotations[constants.ODHAuthProxyTypeAnnotation]; ok {
 			wantsMigration = val == constants.KubeRbacProxyType
@@ -195,13 +202,14 @@ func createRawDeploymentODH(ctx context.Context,
 			switch existingProxyType {
 			case constants.OauthProxyContainerName:
 				if wantsMigration {
-					err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName)
+					err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName, auditLoggingProfile, manageAuditLogging)
 					if err != nil {
 						return nil, false, err
 					}
 				} else {
 					log.Info("Preserving existing auth proxy container", "isvc", isvcname, "type", existingProxyType)
-					authProxyPreserved = true
+					authProxyReused = true
+					authProxyPreservationWarning = true
 					copyAuthProxyFromExisting(existingDeployment, headDeployment, existingProxyType)
 				}
 			case constants.KubeRbacContainerName:
@@ -209,27 +217,35 @@ func createRawDeploymentODH(ctx context.Context,
 				if oauthConfig != nil {
 					configuredKubeRbacImage = oauthConfig.Image
 				}
-				if configuredKubeRbacImage != "" && existingProxyImage == configuredKubeRbacImage {
-					err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName)
+				configuredImageMatches := configuredKubeRbacImage != "" && existingProxyImage == configuredKubeRbacImage
+				if auditConfigChanged {
+					err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName, auditLoggingProfile, manageAuditLogging)
 					if err != nil {
 						return nil, false, err
 					}
 				} else {
-					log.Info("Preserving existing auth proxy container (image differs from config)",
+					log.Info("Preserving existing auth proxy container",
 						"isvc", isvcname, "type", existingProxyType,
 						"existingImage", existingProxyImage, "configImage", configuredKubeRbacImage)
-					authProxyPreserved = true
+					authProxyReused = true
+					authProxyPreservationWarning = !configuredImageMatches
+					refreshPreservedSARConfig = configuredImageMatches
 					copyAuthProxyFromExisting(existingDeployment, headDeployment, existingProxyType)
 				}
 			}
 		} else {
-			err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName)
+			err := addOauthContainerToDeployment(ctx, client, clientset, oauthConfig, headDeployment, componentMeta, componentExt, podSpec, isvcname, sarVolumeName, auditLoggingProfile, manageAuditLogging)
 			if err != nil {
 				return nil, false, err
 			}
 		}
 	}
-	if (shouldAddAuthProxy && !authProxyPreserved) || resourceType == constants.InferenceGraphResource {
+	if refreshPreservedSARConfig {
+		if err := createSarCm(ctx, client, clientset, componentMeta.Namespace, isvcname); err != nil {
+			return nil, false, fmt.Errorf("failed to refresh preserved SAR configmap: %w", err)
+		}
+	}
+	if (shouldAddAuthProxy && !authProxyReused) || resourceType == constants.InferenceGraphResource {
 		mountServingSecretCMVolumeToDeployment(headDeployment, componentMeta, resourceType, isvcname, sarVolumeName)
 	}
 
@@ -238,7 +254,7 @@ func createRawDeploymentODH(ctx context.Context,
 		return nil, false, fmt.Errorf("failed to mount transformer TLS infrastructure: %w", err)
 	}
 
-	return deploymentList, authProxyPreserved, nil
+	return deploymentList, authProxyPreservationWarning, nil
 }
 
 func createRawDeployment(componentMeta metav1.ObjectMeta, workerComponentMeta metav1.ObjectMeta,
@@ -400,6 +416,8 @@ func addOauthContainerToDeployment(ctx context.Context,
 	componentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
 	podSpec *corev1.PodSpec, isvcName string, sarVolumeName string,
+	auditLoggingProfile constants.AuditLoggingProfile,
+	manageAuditLogging bool,
 ) error {
 	var upstreamPort, upstreamTimeout string
 
@@ -423,6 +441,7 @@ func addOauthContainerToDeployment(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	oauthProxyContainer.Args = customizeAuthProxyArgs(auditLoggingProfile, manageAuditLogging, componentMeta, oauthProxyContainer.Args, isvcName)
 	updatedPodSpec := deployment.Spec.Template.Spec.DeepCopy()
 	// ODH override. See: https://issues.redhat.com/browse/RHOAIENG-19904
 	updatedPodSpec.AutomountServiceAccountToken = proto.Bool(true)
@@ -777,38 +796,67 @@ func setDefaultPodSpec(podSpec *corev1.PodSpec) {
 		// generate default readiness probe for model server container and for transformer container in case of collocation
 		if container.Name == constants.InferenceServiceContainerName || container.Name == constants.TransformerContainerName {
 			if container.ReadinessProbe == nil {
-				if len(container.Ports) == 0 {
-					container.ReadinessProbe = &corev1.Probe{
-						ProbeHandler: corev1.ProbeHandler{
-							TCPSocket: &corev1.TCPSocketAction{
-								Port: intstr.IntOrString{
-									IntVal: 8080,
-								},
+				probePort := int32(8080)
+				if len(container.Ports) > 0 {
+					probePort = container.Ports[0].ContainerPort
+				}
+				// If --http_port is set in args, use that port for the probe so the
+				// readiness check targets the port the server actually listens on.
+				if argPort, ok := getArgValue(container.Args, constants.ArgumentHttpPort); ok {
+					if parsed, err := strconv.ParseInt(argPort, 10, 32); err == nil {
+						probePort = int32(parsed)
+					}
+				}
+				container.ReadinessProbe = &corev1.Probe{
+					ProbeHandler: corev1.ProbeHandler{
+						TCPSocket: &corev1.TCPSocketAction{
+							Port: intstr.IntOrString{
+								IntVal: probePort,
 							},
 						},
-						TimeoutSeconds:   1,
-						PeriodSeconds:    10,
-						SuccessThreshold: 1,
-						FailureThreshold: 3,
-					}
-				} else {
-					container.ReadinessProbe = &corev1.Probe{
-						ProbeHandler: corev1.ProbeHandler{
-							TCPSocket: &corev1.TCPSocketAction{
-								Port: intstr.IntOrString{
-									IntVal: container.Ports[0].ContainerPort,
-								},
-							},
-						},
-						TimeoutSeconds:   1,
-						PeriodSeconds:    10,
-						SuccessThreshold: 1,
-						FailureThreshold: 3,
-					}
+					},
+					TimeoutSeconds:   1,
+					PeriodSeconds:    10,
+					SuccessThreshold: 1,
+					FailureThreshold: 3,
 				}
 			}
 		}
 	}
+}
+
+// getArgValue extracts the value for a CLI flag from an args slice.
+// It handles both "--flag value" (two elements) and "--flag=value" (single element) forms.
+func getArgValue(args []string, flag string) (string, bool) {
+	var lastVal string
+	found := false
+	for i, arg := range args {
+		if arg == flag && i+1 < len(args) {
+			lastVal = args[i+1]
+			found = true
+		}
+		if strings.HasPrefix(arg, flag+"=") {
+			lastVal = strings.TrimPrefix(arg, flag+"=")
+			found = true
+		}
+	}
+	return lastVal, found
+}
+
+// setArgValue replaces the value of an existing "--flag value" pair in an args
+// slice, or appends it if absent. It handles both two-element and "=" forms.
+func setArgValue(args []string, flag, value string) []string {
+	for i, arg := range args {
+		if arg == flag && i+1 < len(args) {
+			args[i+1] = value
+			return args
+		}
+		if strings.HasPrefix(arg, flag+"=") {
+			args[i] = flag + "=" + value
+			return args
+		}
+	}
+	return append(args, flag, value)
 }
 
 func setDefaultDeploymentSpec(spec *appsv1.DeploymentSpec) {
@@ -1119,4 +1167,9 @@ func getOauthProxyConfig(ctx context.Context, clientset kubernetes.Interface) (*
 		return nil, err
 	}
 	return oauthProxyConfig, nil
+}
+
+// CleanupOrphans deletes Deployments selected by scope whose names are not retained.
+func (r *DeploymentReconciler) CleanupOrphans(ctx context.Context, scope isvcutils.OrphanScope) error {
+	return isvcutils.DeleteOrphans[*appsv1.DeploymentList](ctx, r.client, scope)
 }

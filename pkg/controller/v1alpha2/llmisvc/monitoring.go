@@ -59,7 +59,7 @@ func (r *LLMISVCReconciler) reconcileMonitoringResources(ctx context.Context, ll
 		return fmt.Errorf("failed to reconcile metrics reader RBAC: %w", err)
 	}
 
-	if err := r.reconcileVLLMEngineMonitor(ctx, llmSvc); err != nil {
+	if err := r.reconcileVLLMEngineMonitor(ctx, llmSvc, config); err != nil {
 		return fmt.Errorf("failed to reconcile VLLM engine monitor: %w", err)
 	}
 
@@ -111,7 +111,7 @@ func (r *LLMISVCReconciler) reconcileMetricsReaderRBAC(ctx context.Context, llmS
 // As part of the migration from the old shared monitors, this function also deletes the
 // legacy fixed-name monitors (kserve-llm-isvc-vllm-engine-default, kserve-llm-isvc-vllm-engine)
 // that were shared across all services in the namespace.
-func (r *LLMISVCReconciler) reconcileVLLMEngineMonitor(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
+func (r *LLMISVCReconciler) reconcileVLLMEngineMonitor(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, config *Config) error {
 	log.FromContext(ctx).Info("Reconciling LLMInferenceService engine monitor")
 
 	if utils.GetForceStopRuntime(llmSvc) {
@@ -120,7 +120,9 @@ func (r *LLMISVCReconciler) reconcileVLLMEngineMonitor(ctx context.Context, llmS
 		return nil
 	}
 
-	monitor, err := r.expectedVLLMEngineMonitor(llmSvc)
+	enableTLS := config == nil || config.EnableTLS
+
+	monitor, err := r.expectedVLLMEngineMonitor(llmSvc, enableTLS)
 	if err != nil {
 		return fmt.Errorf("failed to build vLLM engine monitor: %w", err)
 	}
@@ -129,7 +131,7 @@ func (r *LLMISVCReconciler) reconcileVLLMEngineMonitor(ctx context.Context, llmS
 	}
 
 	// This is kept for backward compatibility, do not remove.
-	relabeledMonitor, err := r.expectedVLLMEngineMonitor(llmSvc, monitoringv1.RelabelConfig{
+	relabeledMonitor, err := r.expectedVLLMEngineMonitor(llmSvc, enableTLS, monitoringv1.RelabelConfig{
 		SourceLabels: []monitoringv1.LabelName{"__name__"},
 		Action:       "replace",
 		Replacement:  ptr.To("kserve_$1"),
@@ -254,28 +256,65 @@ func (r *LLMISVCReconciler) expectedMetricsReaderClusterRoleBinding(llmSvc *v1al
 // ownerReference ensures Kubernetes GC deletes the monitor when the service is deleted.
 //
 // When relabelConfigs is non-empty the name gets the kserve_ relabeling suffix (backward compat).
-// When InsecureSkipVerify is true the CA field is omitted — Prometheus ignores it when
-// verification is skipped, and the secret may not exist.
-func (r *LLMISVCReconciler) expectedVLLMEngineMonitor(llmSvc *v1alpha2.LLMInferenceService, relabelConfigs ...monitoringv1.RelabelConfig) (*monitoringv1.PodMonitor, error) {
+//
+// enableTLS mirrors enableLLMInferenceServiceTLS from the KServe configmap, which is what
+// decides whether the preset renders --ssl-certfile onto the engine. When it is false the
+// endpoint scrapes plain http and carries no tlsConfig at all; when true the scheme is https
+// and verification is gated on llmSvcHasTlsRotationEnabled. In that gated case InsecureSkipVerify
+// is true and the CA field is omitted — Prometheus ignores it when verification is skipped, and
+// the secret may not exist.
+func (r *LLMISVCReconciler) expectedVLLMEngineMonitor(llmSvc *v1alpha2.LLMInferenceService, enableTLS bool, relabelConfigs ...monitoringv1.RelabelConfig) (*monitoringv1.PodMonitor, error) {
 	metricsPort := intstr.FromInt32(8000)
 	nameSuffix := "-kserve-llmisvc-engine-default"
 	if len(relabelConfigs) > 0 {
 		nameSuffix = "-kserve-llmisvc-engine"
 	}
 
-	rotationEnabled := llmSvcHasTlsRotationEnabled(llmSvc)
-	tlsConfig := &monitoringv1.SafeTLSConfig{
-		InsecureSkipVerify: ptr.To(!rotationEnabled),
+	endpoint := monitoringv1.PodMetricsEndpoint{
+		TargetPort: &metricsPort,
+		Scheme:     ptr.To(monitoringv1.Scheme("http")),
 	}
-	if rotationEnabled {
-		tlsConfig.CA = monitoringv1.SecretOrConfigMap{
-			Secret: &corev1.SecretKeySelector{
-				LocalObjectReference: corev1.LocalObjectReference{
-					Name: kmeta.ChildName(llmSvc.GetName(), "-kserve-self-signed-certs"),
+	if enableTLS {
+		endpoint.Scheme = ptr.To(monitoringv1.Scheme("https"))
+		rotationEnabled := llmSvcHasTlsRotationEnabled(llmSvc)
+		tlsConfig := &monitoringv1.SafeTLSConfig{
+			InsecureSkipVerify: ptr.To(!rotationEnabled),
+		}
+		if rotationEnabled {
+			tlsConfig.CA = monitoringv1.SecretOrConfigMap{
+				Secret: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: kmeta.ChildName(llmSvc.GetName(), "-kserve-self-signed-certs"),
+					},
+					Key: "ca.crt",
 				},
-				Key: "ca.crt",
+			}
+		}
+		endpoint.HTTPConfigWithProxy = monitoringv1.HTTPConfigWithProxy{
+			HTTPConfig: monitoringv1.HTTPConfig{
+				TLSConfig: tlsConfig,
 			},
 		}
+	}
+	endpoint.MetricRelabelConfigs = relabelConfigs
+	endpoint.RelabelConfigs = []monitoringv1.RelabelConfig{
+		{
+			SourceLabels: []monitoringv1.LabelName{"__meta_kubernetes_pod_label_app_kubernetes_io_name"},
+			Action:       "replace",
+			TargetLabel:  "llm_isvc_name",
+		},
+		{
+			SourceLabels: []monitoringv1.LabelName{"__meta_kubernetes_pod_label_llm_d_ai_role"},
+			Action:       "replace",
+			TargetLabel:  "llm_isvc_role",
+		},
+		{
+			SourceLabels: []monitoringv1.LabelName{"__meta_kubernetes_pod_label_app_kubernetes_io_component"},
+			Action:       "replace",
+			Regex:        "llminferenceservice-(.*)",
+			Replacement:  ptr.To("$1"),
+			TargetLabel:  "llm_isvc_component",
+		},
 	}
 
 	monitor := &monitoringv1.PodMonitor{
@@ -309,37 +348,7 @@ func (r *LLMISVCReconciler) expectedVLLMEngineMonitor(llmSvc *v1alpha2.LLMInfere
 					},
 				},
 			},
-			PodMetricsEndpoints: []monitoringv1.PodMetricsEndpoint{
-				{
-					TargetPort: &metricsPort,
-					Scheme:     ptr.To(monitoringv1.Scheme("https")),
-					HTTPConfigWithProxy: monitoringv1.HTTPConfigWithProxy{
-						HTTPConfig: monitoringv1.HTTPConfig{
-							TLSConfig: tlsConfig,
-						},
-					},
-					MetricRelabelConfigs: relabelConfigs,
-					RelabelConfigs: []monitoringv1.RelabelConfig{
-						{
-							SourceLabels: []monitoringv1.LabelName{"__meta_kubernetes_pod_label_app_kubernetes_io_name"},
-							Action:       "replace",
-							TargetLabel:  "llm_isvc_name",
-						},
-						{
-							SourceLabels: []monitoringv1.LabelName{"__meta_kubernetes_pod_label_llm_d_ai_role"},
-							Action:       "replace",
-							TargetLabel:  "llm_isvc_role",
-						},
-						{
-							SourceLabels: []monitoringv1.LabelName{"__meta_kubernetes_pod_label_app_kubernetes_io_component"},
-							Action:       "replace",
-							Regex:        "llminferenceservice-(.*)",
-							Replacement:  ptr.To("$1"),
-							TargetLabel:  "llm_isvc_component",
-						},
-					},
-				},
-			},
+			PodMetricsEndpoints: []monitoringv1.PodMetricsEndpoint{endpoint},
 		},
 	}
 	if err := controllerutil.SetControllerReference(llmSvc, monitor, r.Scheme()); err != nil {

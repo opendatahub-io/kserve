@@ -21,9 +21,21 @@ package deployment
 import (
 	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/kserve/kserve/pkg/constants"
 )
 
-// NO-OP for non distro
+// mountTransformerTLSInfrastructure is a no-op when distro extensions are not built.
 func mountTransformerTLSInfrastructure(_ *appsv1.Deployment, _ metav1.ObjectMeta) error {
 	return nil
+}
+
+// customizeAuthProxyArgs is a no-op when distro extensions are not built.
+func customizeAuthProxyArgs(_ constants.AuditLoggingProfile, _ bool, _ metav1.ObjectMeta, generated []string, _ string) []string {
+	return generated
+}
+
+// platformAuthProxyNeedsUpdate is always false when distro extensions are not built.
+func platformAuthProxyNeedsUpdate(_ constants.AuditLoggingProfile, _ bool, _ *appsv1.Deployment, _ metav1.ObjectMeta, _ string) bool {
+	return false
 }
