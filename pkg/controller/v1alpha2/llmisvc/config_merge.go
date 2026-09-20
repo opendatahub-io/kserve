@@ -19,6 +19,7 @@ package llmisvc
 import (
 	"bytes"
 	"context"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1001,6 +1002,56 @@ type templateGlobalConfig struct {
 	InferencePoolNamespacedName string
 }
 
+var openSSLMinProtocolNames = map[string]string{
+	"VersionTLS12": "TLSv1.2",
+	"VersionTLS13": "TLSv1.3",
+}
+
+//go:embed vllm_tls_profile.sh.tmpl
+var vLLMOpenSSLConfigScript string
+
+// vLLMTLSProfile renders the vLLM-specific TLS startup policy. The returned
+// string is JSON escaped because LLMInferenceServiceConfig templates are
+// rendered from their JSON representation before being unmarshaled again.
+func vLLMTLSProfile(enableTLS bool, minVersion, cipherSuites string) (string, error) {
+	if !enableTLS {
+		return "", nil
+	}
+
+	var scripts []string
+	if minVersion != "" {
+		minProtocol, ok := openSSLMinProtocolNames[minVersion]
+		if !ok {
+			return "", fmt.Errorf("unsupported vLLM minimum TLS version %q", minVersion)
+		}
+		scripts = append(scripts, strings.ReplaceAll(vLLMOpenSSLConfigScript, "__KSERVE_OPENSSL_MIN_PROTOCOL__", minProtocol))
+	}
+	if cipherSuites != "" {
+		for _, char := range cipherSuites {
+			if (char < 'A' || char > 'Z') && (char < 'a' || char > 'z') &&
+				(char < '0' || char > '9') && !strings.ContainsRune(":+-_", char) {
+				return "", fmt.Errorf("unsafe character %q in vLLM OpenSSL cipher suites", char)
+			}
+		}
+		scripts = append(scripts, `TLS_CIPHER_ARGS=""
+if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
+  TLS_CIPHER_ARGS="--ssl-ciphers `+cipherSuites+`"
+else
+  echo "[tls-profile] error: vLLM ${VLLM_VERSION:-unknown} does not support --ssl-ciphers; refusing to start without the configured cipher policy" >&2
+  exit 1
+fi`)
+	}
+
+	if len(scripts) == 0 {
+		return "", nil
+	}
+	rendered, err := json.Marshal(strings.Join(scripts, "\n"))
+	if err != nil {
+		return "", fmt.Errorf("escaping vLLM TLS profile script: %w", err)
+	}
+	return string(rendered[1 : len(rendered)-1]), nil
+}
+
 // templateFuncs are the functions a LLMInferenceServiceConfig preset may call.
 //
 // Every entry is a public contract: a pinned preset is re-rendered by whatever
@@ -1010,7 +1061,8 @@ type templateGlobalConfig struct {
 // Retire an entry by moving it to deprecatedTemplateFuncs, not by editing or
 // deleting it in place.
 var templateFuncs = map[string]any{
-	"ChildName": kmeta.ChildName,
+	"ChildName":      kmeta.ChildName,
+	"vLLMTLSProfile": vLLMTLSProfile,
 	// shutdownTimeout computes the vLLM --shutdown-timeout value from a *corev1.PodSpec
 	// (or nil): max(0, tgps - preStop - min(5, tgps)), defaulting tgps to 60 when unset.
 	// The 5-second buffer reserves time for signal propagation and final process cleanup

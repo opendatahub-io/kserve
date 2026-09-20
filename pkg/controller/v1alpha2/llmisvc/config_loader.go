@@ -225,6 +225,18 @@ func openSSLCipherSuites(cipherSuites string) string {
 	return strings.Join(converted, ":")
 }
 
+func normalizeCipherSuites(cipherSuites string) string {
+	if strings.TrimSpace(cipherSuites) == "" {
+		return ""
+	}
+
+	normalized := make([]string, 0)
+	for _, cipherSuite := range strings.Split(cipherSuites, ",") {
+		normalized = append(normalized, strings.TrimSpace(cipherSuite))
+	}
+	return strings.Join(normalized, ",")
+}
+
 // LoadConfig loads configuration from the supplied Kubernetes object reader.
 func LoadConfig(ctx context.Context, reader client.Reader) (*Config, error) {
 	isvcConfigMap := &corev1.ConfigMap{}
@@ -258,7 +270,7 @@ func toConfig(isvcConfigMap *corev1.ConfigMap) (*Config, error) {
 		return nil, fmt.Errorf("failed to convert InferenceServiceConfigMap to IngressConfig: %w", errConvert)
 	}
 	ingressConfig.LLMInferenceServiceTLSMinVersion = strings.TrimSpace(ingressConfig.LLMInferenceServiceTLSMinVersion)
-	ingressConfig.LLMInferenceServiceTLSCipherSuites = strings.TrimSpace(ingressConfig.LLMInferenceServiceTLSCipherSuites)
+	ingressConfig.LLMInferenceServiceTLSCipherSuites = normalizeCipherSuites(ingressConfig.LLMInferenceServiceTLSCipherSuites)
 	if err := kservetls.Validate(ingressConfig.LLMInferenceServiceTLSMinVersion, ingressConfig.LLMInferenceServiceTLSCipherSuites); err != nil {
 		return nil, fmt.Errorf("invalid LLMInferenceService TLS configuration: %w", err)
 	}

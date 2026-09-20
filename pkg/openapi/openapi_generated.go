@@ -8431,7 +8431,7 @@ func schema_pkg_apis_serving_v1beta1_IngressConfig(ref common.ReferenceCallback)
 					},
 					"llmInferenceServiceTLSMinVersion": {
 						SchemaProps: spec.SchemaProps{
-							Description: "LLMInferenceServiceTLSMinVersion configures the minimum TLS version for Go-based LLMISVC components. vLLM does not expose a minimum-version option.",
+							Description: "LLMInferenceServiceTLSMinVersion configures the minimum TLS version for LLMISVC components; vLLM receives it through an OpenSSL policy.",
 							Type:        []string{"string"},
 							Format:      "",
 						},

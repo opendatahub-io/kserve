@@ -20,6 +20,7 @@ import ssl
 import pytest
 from kserve import KServeClient
 from kubernetes import client
+from kubernetes.stream import stream as k8s_stream
 
 from .fixtures import (
     generate_test_id,
@@ -48,18 +49,45 @@ GO_TLS_CIPHER_SUITES = (
     "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
 )
 
-OPENSSL_TLS_CIPHER_SUITES = {
-    "ECDHE-RSA-AES128-GCM-SHA256",
-    "ECDHE-ECDSA-AES128-GCM-SHA256",
-    "ECDHE-RSA-AES256-GCM-SHA384",
-    "ECDHE-ECDSA-AES256-GCM-SHA384",
+GO_TO_OPENSSL_CIPHER_SUITE = {
+    "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA": "ECDHE-ECDSA-AES128-SHA",
+    "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA": "ECDHE-ECDSA-AES256-SHA",
+    "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA": "ECDHE-RSA-AES128-SHA",
+    "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA": "ECDHE-RSA-AES256-SHA",
+    "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256": "ECDHE-ECDSA-AES128-GCM-SHA256",
+    "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384": "ECDHE-ECDSA-AES256-GCM-SHA384",
+    "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256": "ECDHE-RSA-AES128-GCM-SHA256",
+    "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384": "ECDHE-RSA-AES256-GCM-SHA384",
+    "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256": "ECDHE-RSA-CHACHA20-POLY1305",
+    "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256": "ECDHE-ECDSA-CHACHA20-POLY1305",
 }
+OPENSSL_TLS_CIPHER_SUITES = {
+    GO_TO_OPENSSL_CIPHER_SUITE[cipher] for cipher in GO_TLS_CIPHER_SUITES
+}
+OPENSSL_MIN_PROTOCOL = {
+    "VersionTLS12": "TLSv1.2",
+    "VersionTLS13": "TLSv1.3",
+}
+OPENSSL_CONFIG_MARKER = "__KSERVE_OPENSSL_CONFIG__"
+
+
+def _convert_cipher_suites(cipher_suites: str) -> list[str]:
+    """Convert the configured Go/IANA cipher names to vLLM/OpenSSL names."""
+    if not cipher_suites.strip():
+        return []
+    return [
+        GO_TO_OPENSSL_CIPHER_SUITE[cipher.strip()]
+        for cipher in cipher_suites.split(",")
+    ]
 
 
 def test_converted_cipher_suite_names_are_accepted_by_python_ssl():
     """The OpenSSL names rendered for vLLM must configure Python SSL."""
+    converted = _convert_cipher_suites(",".join(GO_TLS_CIPHER_SUITES))
+    assert set(converted) == OPENSSL_TLS_CIPHER_SUITES
+
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    context.set_ciphers(":".join(OPENSSL_TLS_CIPHER_SUITES))
+    context.set_ciphers(":".join(converted))
 
     configured_ciphers = {
         cipher["name"]
@@ -122,8 +150,8 @@ def _get_service(namespace, name):
         raise
 
 
-def _get_container_commands(namespace, service_name):
-    """Return commands for the EPP, routing sidecar, and vLLM workload."""
+def _get_container_tls_state(namespace, service_name):
+    """Return configured Go commands and the running vLLM TLS process state."""
     core_v1 = client.CoreV1Api()
     pods = core_v1.list_namespaced_pod(
         namespace,
@@ -134,6 +162,7 @@ def _get_container_commands(namespace, service_name):
     )
 
     commands = {"epp": [], "sidecar": [], "vllm": []}
+    vllm_openssl_configs = []
     for pod in pods.items:
         containers = [
             *(pod.spec.init_containers or []),
@@ -146,8 +175,39 @@ def _get_container_commands(namespace, service_name):
             elif "/app/pd-sidecar" in command:
                 commands["sidecar"].append(command)
             elif any("vllm serve" in arg for arg in command):
-                commands["vllm"].append(command)
-    return commands
+                runtime_state = k8s_stream(
+                    core_v1.connect_get_namespaced_pod_exec,
+                    pod.metadata.name,
+                    namespace,
+                    container=container.name,
+                    command=[
+                        "/bin/bash",
+                        "-c",
+                        (
+                            "tr '\\0' '\\n' < /proc/1/cmdline; "
+                            f"printf '\\n{OPENSSL_CONFIG_MARKER}\\n'; "
+                            "openssl_conf=$(tr '\\0' '\\n' < /proc/1/environ | "
+                            "sed -n 's/^OPENSSL_CONF=//p' | tail -1); "
+                            'if [ -n "${openssl_conf}" ] && '
+                            '[ -r "${openssl_conf}" ]; then '
+                            'cat "${openssl_conf}"; fi'
+                        ),
+                    ],
+                    stderr=True,
+                    stdin=False,
+                    stdout=True,
+                    tty=False,
+                )
+                runtime_command, marker, openssl_config = runtime_state.partition(
+                    OPENSSL_CONFIG_MARKER
+                )
+                assert marker, (
+                    f"Unable to read runtime TLS state from "
+                    f"{pod.metadata.name}/{container.name}: {runtime_state!r}"
+                )
+                commands["vllm"].append(runtime_command.splitlines())
+                vllm_openssl_configs.append(openssl_config)
+    return commands, vllm_openssl_configs
 
 
 @pytest.mark.llminferenceservice
@@ -207,6 +267,7 @@ def test_llm_tls_resources(test_case: TestCase):
             lambda: _verify_tls_arguments(
                 service_name,
                 test_case.namespace,
+                tls_enabled,
                 tls_min_version,
                 tls_cipher_suites,
             ),
@@ -300,9 +361,11 @@ def _verify_tls_resources(service_name, namespace, tls_enabled):
     )
 
 
-def _verify_tls_arguments(service_name, namespace, tls_min_version, tls_cipher_suites):
-    """Assert that the TLS profile is propagated to the EPP and routing sidecar."""
-    commands = _get_container_commands(namespace, service_name)
+def _verify_tls_arguments(
+    service_name, namespace, tls_enabled, tls_min_version, tls_cipher_suites
+):
+    """Assert that the TLS profile reaches Go components and the running vLLM."""
+    commands, vllm_openssl_configs = _get_container_tls_state(namespace, service_name)
     assert commands["epp"], "Expected to find the EPP container command"
     assert commands["sidecar"], "Expected to find the routing sidecar command"
     assert commands["vllm"], "Expected to find the vLLM workload command"
@@ -329,14 +392,36 @@ def _verify_tls_arguments(service_name, namespace, tls_min_version, tls_cipher_s
                     f"Expected {component} to omit {flag}, got: {matching_args}"
                 )
 
-    vllm_command = " ".join(arg for command in commands["vllm"] for arg in command)
-    if tls_cipher_suites:
-        for cipher_suite in OPENSSL_TLS_CIPHER_SUITES:
-            assert cipher_suite in vllm_command, (
-                f"Expected vLLM command to contain {cipher_suite}, got: {vllm_command}"
+    expected_vllm_ciphers = ":".join(_convert_cipher_suites(tls_cipher_suites))
+    for command in commands["vllm"]:
+        matching_args = [
+            command[index + 1]
+            for index, arg in enumerate(command[:-1])
+            if arg == "--ssl-ciphers"
+        ]
+        matching_args.extend(
+            arg.removeprefix("--ssl-ciphers=")
+            for arg in command
+            if arg.startswith("--ssl-ciphers=")
+        )
+        if tls_enabled and expected_vllm_ciphers:
+            assert matching_args == [expected_vllm_ciphers], (
+                "Expected the running vLLM process to receive only the configured "
+                f"cipher suites {expected_vllm_ciphers}, got: {matching_args} "
+                f"from {command}"
             )
-        assert "--ssl-ciphers" in vllm_command
-    else:
-        assert "--ssl-ciphers" not in vllm_command
+        else:
+            assert not matching_args, (
+                f"Expected the running vLLM process to omit --ssl-ciphers, got: {command}"
+            )
+
+    if tls_enabled and tls_min_version:
+        expected_protocol = OPENSSL_MIN_PROTOCOL[tls_min_version]
+        assert len(vllm_openssl_configs) == len(commands["vllm"])
+        for openssl_config in vllm_openssl_configs:
+            assert f"MinProtocol = {expected_protocol}" in openssl_config, (
+                "Expected the running vLLM process to load an OpenSSL policy with "
+                f"MinProtocol = {expected_protocol}, got:\n{openssl_config}"
+            )
 
     logger.info("TLS argument verification passed for components: %s", sorted(commands))
