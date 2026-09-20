@@ -130,6 +130,57 @@ fi
 
 # --- Common post-install steps (apply to all install methods) ---
 
+# HyperShift copies the build-farm credentials into the hosted cluster pull
+# secret when the cluster is created. Refresh that entry immediately before
+# deploying CI-built images so a credential invalidated during cluster setup
+# does not leave the controller pods in ImagePullBackOff.
+# The authoritative HostedCluster secret must be updated because it takes
+# precedence over conflicting entries in the guest additional-pull-secret.
+refresh_ci_registry_pull_secret() (
+  if [[ -z "${SHARED_DIR:-}" ]]; then
+    echo "Skipping CI registry credential refresh: SHARED_DIR is unavailable"
+    return
+  fi
+
+  local mgmt_kubeconfig="${SHARED_DIR}/mgmt_kubeconfig"
+  local cluster_name_file="${SHARED_DIR}/cluster-name"
+  local cluster_namespace_file="${SHARED_DIR}/hypershift-clusters-namespace"
+
+  if [[ ! -f "${mgmt_kubeconfig}" ||
+        ! -f "${cluster_name_file}" ||
+        ! -f "${cluster_namespace_file}" ]]; then
+    echo "Skipping CI registry credential refresh: HyperShift management files are unavailable"
+    return
+  fi
+
+  local auth_dir fresh_auth merged_auth cluster_name cluster_namespace pull_secret_name
+  auth_dir="$(mktemp -d)"
+  fresh_auth="${auth_dir}/fresh-auth.json"
+  merged_auth="${auth_dir}/merged-auth.json"
+  trap 'rm -f "${fresh_auth}" "${merged_auth}"; rmdir "${auth_dir}"' EXIT
+
+  echo "Refreshing CI registry credentials in the HyperShift pull secret"
+  KUBECONFIG="" oc registry login --to="${fresh_auth}"
+
+  cluster_name="$(<"${cluster_name_file}")"
+  cluster_namespace="$(<"${cluster_namespace_file}")"
+  pull_secret_name="$(
+    oc --kubeconfig="${mgmt_kubeconfig}" -n "${cluster_namespace}" \
+      get hostedcluster "${cluster_name}" -o jsonpath='{.spec.pullSecret.name}'
+  )"
+
+  oc --kubeconfig="${mgmt_kubeconfig}" -n "${cluster_namespace}" \
+      get secret "${pull_secret_name}" -o jsonpath='{.data.\.dockerconfigjson}' |
+    base64 -d |
+    jq -s '.[0] * .[1]' - "${fresh_auth}" > "${merged_auth}"
+
+  oc --kubeconfig="${mgmt_kubeconfig}" -n "${cluster_namespace}" \
+    set data "secret/${pull_secret_name}" \
+    --from-file=.dockerconfigjson="${merged_auth}"
+)
+
+refresh_ci_registry_pull_secret
+
 # Ensure the target namespace exists before the install scripts apply resources.
 oc new-project "${KSERVE_NAMESPACE}" || true
 
