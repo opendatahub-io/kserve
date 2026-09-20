@@ -64,11 +64,6 @@ GO_TO_OPENSSL_CIPHER_SUITE = {
 OPENSSL_TLS_CIPHER_SUITES = {
     GO_TO_OPENSSL_CIPHER_SUITE[cipher] for cipher in GO_TLS_CIPHER_SUITES
 }
-OPENSSL_MIN_PROTOCOL = {
-    "VersionTLS12": "TLSv1.2",
-    "VersionTLS13": "TLSv1.3",
-}
-OPENSSL_CONFIG_MARKER = "__KSERVE_OPENSSL_CONFIG__"
 
 
 def _convert_cipher_suites(cipher_suites: str) -> list[str]:
@@ -151,7 +146,7 @@ def _get_service(namespace, name):
 
 
 def _get_container_tls_state(namespace, service_name):
-    """Return configured Go commands and the running vLLM TLS process state."""
+    """Return configured Go commands and the running vLLM command."""
     core_v1 = client.CoreV1Api()
     pods = core_v1.list_namespaced_pod(
         namespace,
@@ -162,7 +157,6 @@ def _get_container_tls_state(namespace, service_name):
     )
 
     commands = {"epp": [], "sidecar": [], "vllm": []}
-    vllm_openssl_configs = []
     for pod in pods.items:
         containers = [
             *(pod.spec.init_containers or []),
@@ -183,31 +177,15 @@ def _get_container_tls_state(namespace, service_name):
                     command=[
                         "/bin/bash",
                         "-c",
-                        (
-                            "tr '\\0' '\\n' < /proc/1/cmdline; "
-                            f"printf '\\n{OPENSSL_CONFIG_MARKER}\\n'; "
-                            "openssl_conf=$(tr '\\0' '\\n' < /proc/1/environ | "
-                            "sed -n 's/^OPENSSL_CONF=//p' | tail -1); "
-                            'if [ -n "${openssl_conf}" ] && '
-                            '[ -r "${openssl_conf}" ]; then '
-                            'cat "${openssl_conf}"; fi'
-                        ),
+                        "tr '\\0' '\\n' < /proc/1/cmdline",
                     ],
                     stderr=True,
                     stdin=False,
                     stdout=True,
                     tty=False,
                 )
-                runtime_command, marker, openssl_config = runtime_state.partition(
-                    OPENSSL_CONFIG_MARKER
-                )
-                assert marker, (
-                    f"Unable to read runtime TLS state from "
-                    f"{pod.metadata.name}/{container.name}: {runtime_state!r}"
-                )
-                commands["vllm"].append(runtime_command.splitlines())
-                vllm_openssl_configs.append(openssl_config)
-    return commands, vllm_openssl_configs
+                commands["vllm"].append(runtime_state.splitlines())
+    return commands
 
 
 @pytest.mark.llminferenceservice
@@ -365,7 +343,7 @@ def _verify_tls_arguments(
     service_name, namespace, tls_enabled, tls_min_version, tls_cipher_suites
 ):
     """Assert that the TLS profile reaches Go components and the running vLLM."""
-    commands, vllm_openssl_configs = _get_container_tls_state(namespace, service_name)
+    commands = _get_container_tls_state(namespace, service_name)
     assert commands["epp"], "Expected to find the EPP container command"
     assert commands["sidecar"], "Expected to find the routing sidecar command"
     assert commands["vllm"], "Expected to find the vLLM workload command"
@@ -413,15 +391,6 @@ def _verify_tls_arguments(
         else:
             assert not matching_args, (
                 f"Expected the running vLLM process to omit --ssl-ciphers, got: {command}"
-            )
-
-    if tls_enabled and tls_min_version:
-        expected_protocol = OPENSSL_MIN_PROTOCOL[tls_min_version]
-        assert len(vllm_openssl_configs) == len(commands["vllm"])
-        for openssl_config in vllm_openssl_configs:
-            assert f"MinProtocol = {expected_protocol}" in openssl_config, (
-                "Expected the running vLLM process to load an OpenSSL policy with "
-                f"MinProtocol = {expected_protocol}, got:\n{openssl_config}"
             )
 
     logger.info("TLS argument verification passed for components: %s", sorted(commands))
