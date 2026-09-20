@@ -2821,8 +2821,6 @@ spec:
         fi
         echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
 
-        # vLLM has no minimum-version flag, so enforce it through OpenSSL.
-        # Cipher profiles fail closed when the image predates --ssl-ciphers.
         {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -3234,8 +3232,6 @@ spec:
         fi
         echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
 
-        # vLLM has no minimum-version flag, so enforce it through OpenSSL.
-        # Cipher profiles fail closed when the image predates --ssl-ciphers.
         {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -3649,8 +3645,6 @@ spec:
         fi
         echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
 
-        # vLLM has no minimum-version flag, so enforce it through OpenSSL.
-        # Cipher profiles fail closed when the image predates --ssl-ciphers.
         {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -3968,8 +3962,6 @@ spec:
           fi
           echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
 
-          # vLLM has no minimum-version flag, so enforce it through OpenSSL.
-          # Cipher profiles fail closed when the image predates --ssl-ciphers.
           {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
 
           # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -4318,8 +4310,6 @@ spec:
           fi
           echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
 
-          # vLLM has no minimum-version flag, so enforce it through OpenSSL.
-          # Cipher profiles fail closed when the image predates --ssl-ciphers.
           {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
 
           # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -4668,8 +4658,6 @@ spec:
           fi
           echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
 
-          # vLLM has no minimum-version flag, so enforce it through OpenSSL.
-          # Cipher profiles fail closed when the image predates --ssl-ciphers.
           {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
 
           # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -5480,8 +5468,6 @@ spec:
         fi
         echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
 
-        # vLLM has no minimum-version flag, so enforce it through OpenSSL.
-        # Cipher profiles fail closed when the image predates --ssl-ciphers.
         {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -5503,8 +5489,6 @@ spec:
           fi
         fi
 
-        # The controller validates canonical Go/IANA names and converts them
-        # to OpenSSL names for vLLM compatibility across supported runtimes.
         eval "exec vllm serve /mnt/models \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8000 \
@@ -5621,8 +5605,6 @@ spec:
             - -c
             - |-
               VLLM_VERSION=$(vllm --version 2>/dev/null | tail -1 | awk '{print $NF}')
-              # vLLM has no minimum-version flag, so enforce it through OpenSSL.
-              # Cipher profiles fail closed when the image predates --ssl-ciphers.
               {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
 
               exec vllm launch render /mnt/models/base \
@@ -5910,8 +5892,6 @@ spec:
         fi
         echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
 
-        # vLLM has no minimum-version flag, so enforce it through OpenSSL.
-        # Cipher profiles fail closed when the image predates --ssl-ciphers.
         {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -6243,8 +6223,6 @@ spec:
         fi
         echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
 
-        # vLLM has no minimum-version flag, so enforce it through OpenSSL.
-        # Cipher profiles fail closed when the image predates --ssl-ciphers.
         {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
 
         # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).

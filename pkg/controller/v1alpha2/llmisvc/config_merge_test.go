@@ -3478,13 +3478,14 @@ func TestReplaceVariables_TLSProfileVLLM(t *testing.T) {
 		wantNotContains []string
 	}{
 		{
-			name:            "cipher suites render fail-closed vllm policy",
+			name:            "cipher suites render capability-gated vllm policy",
 			enableTLS:       true,
 			tlsMinVersion:   "VersionTLS12",
 			tlsCipherSuites: "ECDHE+AESGCM:ECDHE+CHACHA20",
 			wantContains: []string{
+				`vllm serve --help 2>&1 | grep -q -- "--ssl-ciphers"`,
 				`TLS_CIPHER_ARGS="--ssl-ciphers ECDHE+AESGCM:ECDHE+CHACHA20"`,
-				"refusing to start without the configured cipher policy",
+				"continuing without the configured cipher policy",
 				"${TLS_CIPHER_ARGS}",
 			},
 		},
@@ -3539,7 +3540,7 @@ func TestReplaceVariables_TLSProfileVLLM(t *testing.T) {
 	}
 }
 
-func TestReplaceVariables_TLSProfileVLLMFailsClosedForOldVersion(t *testing.T) {
+func TestReplaceVariables_TLSProfileVLLMWarnsWhenCipherFlagUnsupported(t *testing.T) {
 	preset := &v1alpha2.LLMInferenceServiceConfig{}
 	if err := yaml.Unmarshal([]byte(tlsProfileVLLMFixture), preset); err != nil {
 		t.Fatalf("failed to unmarshal fixture: %v", err)
@@ -3557,13 +3558,13 @@ func TestReplaceVariables_TLSProfileVLLMFailsClosedForOldVersion(t *testing.T) {
 	startupScript := strings.Split(got.Spec.Template.Containers[0].Command[2], "\nexec vllm serve")[0]
 	// #nosec G204 -- startupScript is rendered solely from this repository-owned test fixture.
 	cmd := exec.Command("bash", "-c", startupScript)
-	cmd.Env = append(os.Environ(), "TEST_VLLM_VERSION=0.14.0")
+	cmd.Env = append(os.Environ(), "PATH="+t.TempDir())
 	output, err := cmd.CombinedOutput()
-	if err == nil {
-		t.Fatalf("old vLLM startup unexpectedly succeeded:\n%s", output)
+	if err != nil {
+		t.Fatalf("unsupported vLLM startup policy unexpectedly failed: %v\n%s", err, output)
 	}
-	if !strings.Contains(string(output), "refusing to start without the configured cipher policy") {
-		t.Fatalf("old vLLM startup error did not explain fail-closed policy:\n%s", output)
+	if !strings.Contains(string(output), "continuing without the configured cipher policy") {
+		t.Fatalf("unsupported vLLM warning did not explain the omitted cipher policy:\n%s", output)
 	}
 }
 

@@ -218,8 +218,6 @@ spec:
             fi
             echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
 
-            # vLLM has no minimum-version flag, so enforce it through OpenSSL.
-            # Cipher profiles fail closed when the image predates --ssl-ciphers.
             {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
 
             # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -554,8 +552,6 @@ spec:
             fi
             echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
 
-            # vLLM has no minimum-version flag, so enforce it through OpenSSL.
-            # Cipher profiles fail closed when the image predates --ssl-ciphers.
             {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
 
             # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).

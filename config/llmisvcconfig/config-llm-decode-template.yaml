@@ -196,8 +196,6 @@ spec:
             fi
             echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
 
-            # vLLM has no minimum-version flag, so enforce it through OpenSSL.
-            # Cipher profiles fail closed when the image predates --ssl-ciphers.
             {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
 
             # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
@@ -365,8 +363,6 @@ spec:
           - '{{ if .GlobalConfig.EnableTLS }}--cert-path=/var/run/kserve/tls{{- end }}'
           - '{{ if .GlobalConfig.EnableTLS }}--enable-tls=decoder{{- end }}'
           - '{{ if .GlobalConfig.EnableTLS }}--enable-tls=prefiller{{- end }}'
-          # The controller validates canonical Go/IANA names and converts them
-          # to OpenSSL names for vLLM compatibility across supported runtimes.
           - '{{ if .GlobalConfig.TLSMinVersion }}--tls-min-version={{ .GlobalConfig.TLSMinVersion }}{{- end }}'
           - '{{ if .GlobalConfig.TLSCipherSuites }}--tls-cipher-suites={{ .GlobalConfig.TLSCipherSuites }}{{- end }}'
         volumeMounts:

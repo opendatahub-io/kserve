@@ -1019,12 +1019,14 @@ func vLLMTLSProfile(enableTLS bool, _ string, cipherSuites string) (string, erro
 				return "", fmt.Errorf("unsafe character %q in vLLM OpenSSL cipher suites", char)
 			}
 		}
-		scripts = append(scripts, `TLS_CIPHER_ARGS=""
-if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.15.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.15.0" ]; then
+		scripts = append(scripts, `# The controller validates canonical Go/IANA names and converts them
+# to OpenSSL names. Detect the flag directly because product images may report
+# a product version rather than their bundled vLLM version.
+TLS_CIPHER_ARGS=""
+if vllm serve --help 2>&1 | grep -q -- "--ssl-ciphers"; then
   TLS_CIPHER_ARGS="--ssl-ciphers `+cipherSuites+`"
 else
-  echo "[tls-profile] error: vLLM ${VLLM_VERSION:-unknown} does not support --ssl-ciphers; refusing to start without the configured cipher policy" >&2
-  exit 1
+  echo "[tls-profile] warning: this vLLM does not support --ssl-ciphers; continuing without the configured cipher policy" >&2
 fi`)
 	}
 
