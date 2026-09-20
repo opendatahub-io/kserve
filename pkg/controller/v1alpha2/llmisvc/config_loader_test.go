@@ -36,10 +36,20 @@ func TestNewConfigConvertsCipherSuitesForOpenSSL(t *testing.T) {
 		LLMInferenceServiceTLSCipherSuites: "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
 	}
 
-	got := llmisvc.NewConfig(ingressConfig, nil, nil, nil)
+	got, err := llmisvc.NewConfig(ingressConfig, nil, nil, nil)
+	require.NoError(t, err)
 	if want := "ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384"; got.TLSCipherSuitesOpenSSL != want {
 		t.Fatalf("TLSCipherSuitesOpenSSL = %q, want %q", got.TLSCipherSuitesOpenSSL, want)
 	}
+}
+
+func TestNewConfigRejectsCipherWithoutOpenSSLMapping(t *testing.T) {
+	ingressConfig := &v1beta1.IngressConfig{
+		LLMInferenceServiceTLSCipherSuites: "TLS_FUTURE_CIPHER_SUITE",
+	}
+
+	_, err := llmisvc.NewConfig(ingressConfig, nil, nil, nil)
+	require.ErrorContains(t, err, `no OpenSSL name is defined for TLS cipher suite "TLS_FUTURE_CIPHER_SUITE"`)
 }
 
 func TestLoadConfigValidatesAndNormalizesTLSProfile(t *testing.T) {
