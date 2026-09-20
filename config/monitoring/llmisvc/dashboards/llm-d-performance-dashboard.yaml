@@ -483,7 +483,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: data-science-prometheus-datasource
-                  query: (histogram_quantile(0.50, sum by (le) (rate(kserve_llm_d_epp_scheduler_e2e_duration_seconds_bucket{exported_namespace=~"$namespace"}[$__rate_interval])))
+                  query: (histogram_quantile(0.50, sum by (le) (rate(llm_d_epp_scheduler_e2e_duration_seconds_bucket{exported_namespace=~"$namespace"}[$__rate_interval])))
                     > -Inf) or vector(0)
                   seriesNameFormat: P50
           - kind: TimeSeriesQuery
@@ -494,7 +494,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: data-science-prometheus-datasource
-                  query: (histogram_quantile(0.95, sum by (le) (rate(kserve_llm_d_epp_scheduler_e2e_duration_seconds_bucket{exported_namespace=~"$namespace"}[$__rate_interval])))
+                  query: (histogram_quantile(0.95, sum by (le) (rate(llm_d_epp_scheduler_e2e_duration_seconds_bucket{exported_namespace=~"$namespace"}[$__rate_interval])))
                     > -Inf) or vector(0)
                   seriesNameFormat: P95
           - kind: TimeSeriesQuery
@@ -505,7 +505,7 @@ spec:
                   datasource:
                     kind: PrometheusDatasource
                     name: data-science-prometheus-datasource
-                  query: (histogram_quantile(0.99, sum by (le) (rate(kserve_llm_d_epp_scheduler_e2e_duration_seconds_bucket{exported_namespace=~"$namespace"}[$__rate_interval])))
+                  query: (histogram_quantile(0.99, sum by (le) (rate(llm_d_epp_scheduler_e2e_duration_seconds_bucket{exported_namespace=~"$namespace"}[$__rate_interval])))
                     > -Inf) or vector(0)
                   seriesNameFormat: P99
       perModelTTFT:
