@@ -19,7 +19,6 @@ package llmisvc
 import (
 	"bytes"
 	"context"
-	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1002,30 +1001,17 @@ type templateGlobalConfig struct {
 	InferencePoolNamespacedName string
 }
 
-var openSSLMinProtocolNames = map[string]string{
-	"VersionTLS12": "TLSv1.2",
-	"VersionTLS13": "TLSv1.3",
-}
-
-//go:embed vllm_tls_profile.sh.tmpl
-var vLLMOpenSSLConfigScript string
-
 // vLLMTLSProfile renders the vLLM-specific TLS startup policy. The returned
 // string is JSON escaped because LLMInferenceServiceConfig templates are
 // rendered from their JSON representation before being unmarshaled again.
-func vLLMTLSProfile(enableTLS bool, minVersion, cipherSuites string) (string, error) {
+// The minimum-version argument remains in the template contract for compatibility,
+// but vLLM currently exposes no setting that can enforce it.
+func vLLMTLSProfile(enableTLS bool, _ string, cipherSuites string) (string, error) {
 	if !enableTLS {
 		return "", nil
 	}
 
 	var scripts []string
-	if minVersion != "" {
-		minProtocol, ok := openSSLMinProtocolNames[minVersion]
-		if !ok {
-			return "", fmt.Errorf("unsupported vLLM minimum TLS version %q", minVersion)
-		}
-		scripts = append(scripts, strings.ReplaceAll(vLLMOpenSSLConfigScript, "__KSERVE_OPENSSL_MIN_PROTOCOL__", minProtocol))
-	}
 	if cipherSuites != "" {
 		for _, char := range cipherSuites {
 			if (char < 'A' || char > 'Z') && (char < 'a' || char > 'z') &&

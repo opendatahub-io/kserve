@@ -3478,12 +3478,11 @@ func TestReplaceVariables_TLSProfileVLLM(t *testing.T) {
 		wantNotContains []string
 	}{
 		{
-			name:            "minimum version and cipher suites render fail-closed vllm policy",
+			name:            "cipher suites render fail-closed vllm policy",
 			enableTLS:       true,
 			tlsMinVersion:   "VersionTLS12",
 			tlsCipherSuites: "ECDHE+AESGCM:ECDHE+CHACHA20",
 			wantContains: []string{
-				`configure_vllm_openssl_profile "TLSv1.2" || exit 1`,
 				`TLS_CIPHER_ARGS="--ssl-ciphers ECDHE+AESGCM:ECDHE+CHACHA20"`,
 				"refusing to start without the configured cipher policy",
 				"${TLS_CIPHER_ARGS}",
@@ -3493,7 +3492,6 @@ func TestReplaceVariables_TLSProfileVLLM(t *testing.T) {
 			name:      "empty TLS profile omits policy setup",
 			enableTLS: true,
 			wantNotContains: []string{
-				"configure_vllm_openssl_profile",
 				"--ssl-ciphers",
 			},
 		},
@@ -3503,7 +3501,6 @@ func TestReplaceVariables_TLSProfileVLLM(t *testing.T) {
 			tlsMinVersion:   "VersionTLS13",
 			tlsCipherSuites: "ECDHE+AESGCM",
 			wantNotContains: []string{
-				"configure_vllm_openssl_profile",
 				"--ssl-ciphers",
 			},
 		},
@@ -3539,76 +3536,6 @@ func TestReplaceVariables_TLSProfileVLLM(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestReplaceVariables_TLSProfileVLLMRejectsUnknownMinimumVersion(t *testing.T) {
-	preset := &v1alpha2.LLMInferenceServiceConfig{}
-	if err := yaml.Unmarshal([]byte(tlsProfileVLLMFixture), preset); err != nil {
-		t.Fatalf("failed to unmarshal fixture: %v", err)
-	}
-
-	_, err := llmisvc.ReplaceVariables(
-		&v1alpha2.LLMInferenceService{},
-		preset,
-		&llmisvc.Config{EnableTLS: true, TLSMinVersion: "VersionTLS11"},
-	)
-	if err == nil || !strings.Contains(err.Error(), `unsupported vLLM minimum TLS version "VersionTLS11"`) {
-		t.Fatalf("ReplaceVariables() error = %v, want unsupported minimum-version error", err)
-	}
-}
-
-func TestReplaceVariables_TLSProfileVLLMPreservesOpenSSLConfig(t *testing.T) {
-	preset := &v1alpha2.LLMInferenceServiceConfig{}
-	if err := yaml.Unmarshal([]byte(tlsProfileVLLMFixture), preset); err != nil {
-		t.Fatalf("failed to unmarshal fixture: %v", err)
-	}
-
-	got, err := llmisvc.ReplaceVariables(
-		&v1alpha2.LLMInferenceService{},
-		preset,
-		&llmisvc.Config{EnableTLS: true, TLSMinVersion: "VersionTLS13"},
-	)
-	if err != nil {
-		t.Fatalf("ReplaceVariables() error = %v", err)
-	}
-
-	baseConfig := filepath.Join(t.TempDir(), "openssl.cnf")
-	baseContents := `openssl_conf = custom_init
-
-[custom_init]
-ssl_conf = custom_ssl
-
-[custom_ssl]
-system_default = custom_policy
-
-[custom_policy]
-CipherString = DEFAULT
-`
-	if err := os.WriteFile(baseConfig, []byte(baseContents), 0o600); err != nil {
-		t.Fatalf("writing test OpenSSL config: %v", err)
-	}
-
-	startupScript := strings.Split(got.Spec.Template.Containers[0].Command[2], "\nexec vllm serve")[0]
-	startupScript += `
-openssl ciphers >/dev/null || exit 1
-cat "${OPENSSL_CONF}"
-rm -f "${OPENSSL_CONF}"`
-	// #nosec G204 -- startupScript is rendered solely from this repository-owned test fixture.
-	cmd := exec.Command("bash", "-c", startupScript)
-	cmd.Env = append(os.Environ(), "OPENSSL_CONF="+baseConfig)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("rendered OpenSSL setup failed: %v\n%s", err, output)
-	}
-	for _, want := range []string{
-		"openssl_conf = custom_init",
-		"CipherString = DEFAULT",
-		"MinProtocol = TLSv1.3",
-	} {
-		if !strings.Contains(string(output), want) {
-			t.Errorf("rendered OpenSSL config should contain %q, got:\n%s", want, output)
-		}
 	}
 }
 

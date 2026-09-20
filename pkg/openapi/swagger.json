@@ -4691,7 +4691,7 @@
           "type": "string"
         },
         "llmInferenceServiceTLSMinVersion": {
-          "description": "LLMInferenceServiceTLSMinVersion configures the minimum TLS version for LLMISVC components; vLLM receives it through an OpenSSL policy.",
+          "description": "LLMInferenceServiceTLSMinVersion configures the minimum TLS version for Go-based LLMISVC components. vLLM does not currently expose a minimum TLS version setting.",
           "type": "string"
         },
         "localGateway": {

@@ -445,7 +445,7 @@ class V1beta1IngressConfig(object):
     def llm_inference_service_tls_min_version(self):
         """Gets the llm_inference_service_tls_min_version of this V1beta1IngressConfig.  # noqa: E501
 
-        LLMInferenceServiceTLSMinVersion configures the minimum TLS version for LLMISVC components; vLLM receives it through an OpenSSL policy.  # noqa: E501
+        LLMInferenceServiceTLSMinVersion configures the minimum TLS version for Go-based LLMISVC components. vLLM does not currently expose a minimum TLS version setting.  # noqa: E501
 
         :return: The llm_inference_service_tls_min_version of this V1beta1IngressConfig.  # noqa: E501
         :rtype: str
@@ -456,7 +456,7 @@ class V1beta1IngressConfig(object):
     def llm_inference_service_tls_min_version(self, llm_inference_service_tls_min_version):
         """Sets the llm_inference_service_tls_min_version of this V1beta1IngressConfig.
 
-        LLMInferenceServiceTLSMinVersion configures the minimum TLS version for LLMISVC components; vLLM receives it through an OpenSSL policy.  # noqa: E501
+        LLMInferenceServiceTLSMinVersion configures the minimum TLS version for Go-based LLMISVC components. vLLM does not currently expose a minimum TLS version setting.  # noqa: E501
 
         :param llm_inference_service_tls_min_version: The llm_inference_service_tls_min_version of this V1beta1IngressConfig.  # noqa: E501
         :type: str
