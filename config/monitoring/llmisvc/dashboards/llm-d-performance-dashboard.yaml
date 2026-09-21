@@ -451,6 +451,63 @@ spec:
                   query: (histogram_quantile(0.99, sum by (le, model_name) (rate(kserve_vllm:request_decode_time_seconds_bucket{exported_namespace=~"$namespace",model_name=~"$model_name"}[$__rate_interval])))
                     > -Inf)
                   seriesNameFormat: '{{model_name}} Decode P99'
+      eppSchedulerLatency:
+        kind: Panel
+        spec:
+          display:
+            name: EPP scheduling latency
+            description: Time spent in the EPP scheduler (filter/score/pick plugins)
+              per request. Isolates scheduling overhead from model execution time.
+          plugin:
+            kind: TimeSeriesChart
+            spec:
+              legend:
+                mode: list
+                position: bottom
+                values: []
+              visual:
+                areaOpacity: 0
+                connectNulls: false
+                display: line
+                lineWidth: 1.5
+              yAxis:
+                format:
+                  unit: seconds
+                min: 0
+          queries:
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
+                  query: (histogram_quantile(0.50, sum by (le) (rate(llm_d_epp_scheduler_e2e_duration_seconds_bucket{exported_namespace=~"$namespace"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: P50
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
+                  query: (histogram_quantile(0.95, sum by (le) (rate(llm_d_epp_scheduler_e2e_duration_seconds_bucket{exported_namespace=~"$namespace"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: P95
+          - kind: TimeSeriesQuery
+            spec:
+              plugin:
+                kind: PrometheusTimeSeriesQuery
+                spec:
+                  datasource:
+                    kind: PrometheusDatasource
+                    name: data-science-prometheus-datasource
+                  query: (histogram_quantile(0.99, sum by (le) (rate(llm_d_epp_scheduler_e2e_duration_seconds_bucket{exported_namespace=~"$namespace"}[$__rate_interval])))
+                    > -Inf) or vector(0)
+                  seriesNameFormat: P99
       perModelTTFT:
         kind: Panel
         spec:
@@ -585,6 +642,19 @@ spec:
           height: 8
           content:
             $ref: '#/spec/panels/phaseLatency'
+    - kind: Grid
+      spec:
+        display:
+          title: EPP scheduling
+          collapse:
+            open: true
+        items:
+        - x: 0
+          y: 0
+          width: 12
+          height: 8
+          content:
+            $ref: '#/spec/panels/eppSchedulerLatency'
     - kind: Grid
       spec:
         display:

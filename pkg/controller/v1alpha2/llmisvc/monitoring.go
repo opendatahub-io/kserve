@@ -401,6 +401,11 @@ func (r *LLMISVCReconciler) expectedSchedulerMonitor(llmSvc *v1alpha2.LLMInferen
 					MetricRelabelConfigs: relabelConfigs,
 					RelabelConfigs: []monitoringv1.RelabelConfig{
 						{
+							SourceLabels: []monitoringv1.LabelName{"__meta_kubernetes_namespace"},
+							Action:       "replace",
+							TargetLabel:  "exported_namespace",
+						},
+						{
 							SourceLabels: []monitoringv1.LabelName{"__meta_kubernetes_pod_label_app_kubernetes_io_name"},
 							Action:       "replace",
 							TargetLabel:  "llm_isvc_name",
