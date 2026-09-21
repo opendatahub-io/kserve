@@ -3556,15 +3556,62 @@ func TestReplaceVariables_TLSProfileVLLMWarnsWhenCipherFlagUnsupported(t *testin
 	}
 
 	startupScript := strings.Split(got.Spec.Template.Containers[0].Command[2], "\nexec vllm serve")[0]
+	binDir := t.TempDir()
+	// #nosec G306 -- the test fixture must be executable and is isolated in t.TempDir.
+	if err := os.WriteFile(filepath.Join(binDir, "vllm"), []byte("#!/bin/sh\necho 'abbreviated help'\n"), 0o755); err != nil {
+		t.Fatalf("failed to create fake vLLM executable: %v", err)
+	}
 	// #nosec G204 -- startupScript is rendered solely from this repository-owned test fixture.
 	cmd := exec.Command("bash", "-c", startupScript)
-	cmd.Env = append(os.Environ(), "PATH="+t.TempDir())
+	cmd.Env = []string{"PATH=" + binDir + ":/usr/bin:/bin"}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("unsupported vLLM startup policy unexpectedly failed: %v\n%s", err, output)
 	}
 	if !strings.Contains(string(output), "continuing without the configured cipher policy") {
 		t.Fatalf("unsupported vLLM warning did not explain the omitted cipher policy:\n%s", output)
+	}
+}
+
+func TestReplaceVariables_TLSProfileVLLMDetectsCipherFlagInFullHelp(t *testing.T) {
+	preset := &v1alpha2.LLMInferenceServiceConfig{}
+	if err := yaml.Unmarshal([]byte(tlsProfileVLLMFixture), preset); err != nil {
+		t.Fatalf("failed to unmarshal fixture: %v", err)
+	}
+
+	got, err := llmisvc.ReplaceVariables(
+		&v1alpha2.LLMInferenceService{},
+		preset,
+		&llmisvc.Config{EnableTLS: true, TLSCipherSuitesOpenSSL: "ECDHE-RSA-AES128-GCM-SHA256"},
+	)
+	if err != nil {
+		t.Fatalf("ReplaceVariables() error = %v", err)
+	}
+
+	startupScript := strings.Split(got.Spec.Template.Containers[0].Command[2], "\nexec vllm serve")[0]
+	binDir := t.TempDir()
+	fakeVLLM := `#!/bin/sh
+if [ "$1" = "serve" ] && [ "$2" = "--help=all" ]; then
+  echo "--ssl-ciphers"
+fi
+`
+	// #nosec G306 -- the test fixture must be executable and is isolated in t.TempDir.
+	if err := os.WriteFile(filepath.Join(binDir, "vllm"), []byte(fakeVLLM), 0o755); err != nil {
+		t.Fatalf("failed to create fake vLLM executable: %v", err)
+	}
+	startupScript += "\n" + `printf '%s' "$TLS_CIPHER_ARGS"`
+	// #nosec G204 -- startupScript is rendered solely from this repository-owned test fixture.
+	cmd := exec.Command("bash", "-c", startupScript)
+	cmd.Env = []string{"PATH=" + binDir + ":/usr/bin:/bin"}
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("supported vLLM startup policy unexpectedly failed: %v\n%s", err, output)
+	}
+	if want := "--ssl-ciphers ECDHE-RSA-AES128-GCM-SHA256"; !strings.Contains(string(output), want) {
+		t.Fatalf("cipher policy output = %q, want it to contain %q", output, want)
+	}
+	if strings.Contains(string(output), "continuing without the configured cipher policy") {
+		t.Fatalf("supported vLLM was incorrectly treated as unsupported:\n%s", output)
 	}
 }
 
