@@ -1023,7 +1023,9 @@ func vLLMTLSProfile(enableTLS bool, _ string, cipherSuites string) (string, erro
 # to OpenSSL names. Detect the flag directly because product images may report
 # a product version rather than their bundled vLLM version.
 TLS_CIPHER_ARGS=""
-if vllm serve --help 2>&1 | grep -q -- "--ssl-ciphers"; then
+# Do not use grep -q here: these scripts enable pipefail, and grep's early exit
+# can give vLLM SIGPIPE and make a successful match look like a failed probe.
+if vllm serve --help 2>&1 | grep -- "--ssl-ciphers" >/dev/null; then
   TLS_CIPHER_ARGS="--ssl-ciphers `+cipherSuites+`"
 else
   echo "[tls-profile] warning: this vLLM does not support --ssl-ciphers; continuing without the configured cipher policy" >&2
