@@ -37,6 +37,9 @@ var (
 	wvaDeploymentsOCP = []string{
 		wvaControllerDeployment,
 	}
+	modelExpressDeploymentsOCP = []string{
+		modelExpressOperatorDeployment,
+	}
 )
 
 func NewDeployer() *deploy.Deployer {
@@ -70,6 +73,10 @@ func checkModelControllerReadiness(ctx context.Context, cli client.Client, names
 
 func checkWVAReadiness(ctx context.Context, cli client.Client, namespace string) error {
 	return checkDeploymentsReady(ctx, cli, namespace, wvaDeploymentsOCP)
+}
+
+func checkModelExpressReadiness(ctx context.Context, cli client.Client, namespace string) error {
+	return checkDeploymentsReady(ctx, cli, namespace, modelExpressDeploymentsOCP)
 }
 
 // checkPresetsPresent reports which of the presets we just applied are no longer

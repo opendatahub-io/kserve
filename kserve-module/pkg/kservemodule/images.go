@@ -95,3 +95,12 @@ var modelControllerImageParamMap = map[string]string{
 var wvaImageParamMap = map[string]string{
 	"wva-controller-image": "RELATED_IMAGE_ODH_WORKLOAD_VARIANT_AUTOSCALER_CONTROLLER_IMAGE",
 }
+
+// Keys are the ones in the ModelExpress bundle's base/params.env, which both
+// of its platform overlays resolve to. The server
+// image is not deployed by this module: the operator reads it as the default
+// for ModelExpressServer resources that leave spec.image unset.
+var modelExpressImageParamMap = map[string]string{
+	"MODELEXPRESS_OPERATOR_IMAGE": "RELATED_IMAGE_ODH_MODELEXPRESS_OPERATOR_IMAGE",
+	"MODELEXPRESS_SERVER_IMAGE":   "RELATED_IMAGE_ODH_MODELEXPRESS_IMAGE",
+}
