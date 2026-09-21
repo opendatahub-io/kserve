@@ -1025,7 +1025,7 @@ func vLLMTLSProfile(enableTLS bool, _ string, cipherSuites string) (string, erro
 TLS_CIPHER_ARGS=""
 # Do not use grep -q here: these scripts enable pipefail, and grep's early exit
 # can give vLLM SIGPIPE and make a successful match look like a failed probe.
-if vllm serve --help 2>&1 | grep -- "--ssl-ciphers" >/dev/null; then
+if vllm serve --help=all 2>&1 | grep -- "--ssl-ciphers" >/dev/null; then
   TLS_CIPHER_ARGS="--ssl-ciphers `+cipherSuites+`"
 else
   echo "[tls-profile] warning: this vLLM does not support --ssl-ciphers; continuing without the configured cipher policy" >&2

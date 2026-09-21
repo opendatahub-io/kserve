@@ -3483,7 +3483,7 @@ func TestReplaceVariables_TLSProfileVLLM(t *testing.T) {
 			tlsMinVersion:   "VersionTLS12",
 			tlsCipherSuites: "ECDHE+AESGCM:ECDHE+CHACHA20",
 			wantContains: []string{
-				`vllm serve --help 2>&1 | grep -- "--ssl-ciphers" >/dev/null`,
+				`vllm serve --help=all 2>&1 | grep -- "--ssl-ciphers" >/dev/null`,
 				`TLS_CIPHER_ARGS="--ssl-ciphers ECDHE+AESGCM:ECDHE+CHACHA20"`,
 				"continuing without the configured cipher policy",
 				"${TLS_CIPHER_ARGS}",
