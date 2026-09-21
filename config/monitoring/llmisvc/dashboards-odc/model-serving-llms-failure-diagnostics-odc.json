@@ -1407,7 +1407,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "inference_extension_prefix_indexer_size{namespace=~\"$namespace\"}",
+          "expr": "llm_d_epp_prefix_indexer_size{namespace=~\"$namespace\"}",
           "interval": "",
           "legendFormat": "Prefix Indexer Size",
           "refId": "A"
@@ -1618,19 +1618,19 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "inference_pool_average_kv_cache_utilization{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"} * 100",
+          "expr": "llm_d_epp_average_kv_cache_utilization{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"} * 100",
           "interval": "",
           "legendFormat": "Pool Avg KV Cache %",
           "refId": "A"
         },
         {
-          "expr": "inference_pool_average_queue_size{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}",
+          "expr": "llm_d_epp_average_queue_size{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}",
           "interval": "",
           "legendFormat": "Pool Avg Queue",
           "refId": "B"
         },
         {
-          "expr": "inference_pool_ready_pods{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}",
+          "expr": "llm_d_epp_ready_endpoints{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}",
           "interval": "",
           "legendFormat": "Ready Pods",
           "refId": "C"
@@ -1735,7 +1735,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum by (error_code) (rate(inference_objective_request_error_total{namespace=~\"$namespace\"}[5m]))",
+          "expr": "sum by (error_code) (rate(llm_d_epp_request_error_total{namespace=~\"$namespace\"}[5m]))",
           "interval": "",
           "legendFormat": "{{error_code}}",
           "refId": "A"
@@ -1826,7 +1826,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum by (status) (rate(inference_extension_scheduler_attempts_total{namespace=~\"$namespace\"}[5m]))",
+          "expr": "sum by (status) (rate(llm_d_epp_scheduler_attempts_total{namespace=~\"$namespace\"}[5m]))",
           "interval": "",
           "legendFormat": "{{status}}",
           "refId": "A"
@@ -1919,7 +1919,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(inference_extension_scheduler_e2e_duration_seconds_bucket{namespace=~\"$namespace\"}[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(llm_d_epp_scheduler_e2e_duration_seconds_bucket{namespace=~\"$namespace\"}[5m])))",
           "interval": "",
           "legendFormat": "Scheduling Latency P99",
           "refId": "A"
@@ -2010,7 +2010,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum by (le, plugin_type) (rate(inference_extension_plugin_duration_seconds_bucket{namespace=~\"$namespace\"}[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le, plugin_type) (rate(llm_d_epp_plugin_duration_seconds_bucket{namespace=~\"$namespace\"}[5m])))",
           "interval": "",
           "legendFormat": "{{plugin_type}} P99",
           "refId": "A"
@@ -2103,7 +2103,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(inference_extension_flow_control_request_queue_duration_seconds_bucket{namespace=~\"$namespace\"}[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(llm_d_epp_flow_control_request_queue_duration_seconds_bucket{namespace=~\"$namespace\"}[5m])))",
           "interval": "",
           "legendFormat": "Queue Duration P99",
           "refId": "A"
