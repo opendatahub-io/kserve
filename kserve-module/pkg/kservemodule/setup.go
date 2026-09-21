@@ -253,10 +253,10 @@ func mapToKserve(_ context.Context, _ client.Object) []ctrl.Request {
 	}}
 }
 
-// nodeAllocatableChangedPredicate fires on node updates where the set of resource names
-// in status.allocatable changes (e.g. a GPU device plugin registering nvidia.com/gpu),
-// which the generation- and label-based predicates do not observe. Create and delete
-// events default to firing, matching GenerationChangedPredicate.
+// nodeAllocatableChangedPredicate fires on node updates where resource names or quantities
+// in status.allocatable change (e.g. a GPU device plugin registering nvidia.com/gpu), which
+// the generation- and label-based predicates do not observe. Create and delete events
+// default to firing, matching GenerationChangedPredicate.
 func nodeAllocatableChangedPredicate() predicate.Predicate {
 	return predicate.Funcs{
 		UpdateFunc: func(e event.UpdateEvent) bool {
@@ -273,14 +273,15 @@ func nodeAllocatableChangedPredicate() predicate.Predicate {
 	}
 }
 
-// allocatableNamesEqual reports whether two ResourceLists expose the same set of resource
-// names, ignoring quantity changes (device plugins add or remove keys rather than mutate them).
+// allocatableNamesEqual reports whether two ResourceLists expose the same resource names and
+// quantities.
 func allocatableNamesEqual(a, b corev1.ResourceList) bool {
 	if len(a) != len(b) {
 		return false
 	}
 	for name := range a {
-		if _, ok := b[name]; !ok {
+		quantity, ok := b[name]
+		if !ok || quantity.Cmp(a[name]) != 0 {
 			return false
 		}
 	}

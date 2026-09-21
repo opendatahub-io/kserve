@@ -3,6 +3,7 @@ package kservemodule
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -18,15 +19,16 @@ import (
 // acceleratorRequirements returns the accelerator resource names a preset targets,
 // parsed from the opendatahub.io/recommended-accelerators annotation (a JSON array).
 // It returns nil for non-accelerator presets (annotation absent) and for presets whose
-// annotation is empty or unparseable, which are then treated as always-available.
-func acceleratorRequirements(obj *unstructured.Unstructured) []string {
+// annotation is empty. Malformed annotations are returned as errors so they cannot be
+// treated as always-available.
+func acceleratorRequirements(obj *unstructured.Unstructured) ([]string, error) {
 	raw := obj.GetAnnotations()[recommendedAcceleratorsAnnotationKey]
 	if raw == "" {
-		return nil
+		return nil, nil
 	}
 	var names []string
 	if err := json.Unmarshal([]byte(raw), &names); err != nil {
-		return nil
+		return nil, fmt.Errorf("invalid %s annotation: %w", recommendedAcceleratorsAnnotationKey, err)
 	}
 	// Drop empty entries so a malformed '[""]' does not filter everything out.
 	out := names[:0]
@@ -35,21 +37,21 @@ func acceleratorRequirements(obj *unstructured.Unstructured) []string {
 			out = append(out, n)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // draDriverRequirements returns the DRA driver names a preset explicitly targets, parsed
 // from the opendatahub.io/recommended-dra-drivers annotation (a JSON array). It returns nil
-// when the annotation is absent, empty, or unparseable. These are matched exactly against the
+// when the annotation is absent or empty. Malformed annotations are returned as errors. These are matched exactly against the
 // drivers publishing ResourceSlices, complementing the vendor-domain bridge in acceleratorPresent.
-func draDriverRequirements(obj *unstructured.Unstructured) []string {
+func draDriverRequirements(obj *unstructured.Unstructured) ([]string, error) {
 	raw := obj.GetAnnotations()[recommendedDRADriversAnnotationKey]
 	if raw == "" {
-		return nil
+		return nil, nil
 	}
 	var names []string
 	if err := json.Unmarshal([]byte(raw), &names); err != nil {
-		return nil
+		return nil, fmt.Errorf("invalid %s annotation: %w", recommendedDRADriversAnnotationKey, err)
 	}
 	out := names[:0]
 	for _, n := range names {
@@ -57,7 +59,7 @@ func draDriverRequirements(obj *unstructured.Unstructured) []string {
 			out = append(out, n)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // resourceDomain returns the vendor domain of a Kubernetes resource name, i.e. the
@@ -175,34 +177,68 @@ func (r *KserveModuleReconciler) filterHardwareUnavailablePresets(ctx context.Co
 	}
 
 	// Cheap pre-check: skip the node list when nothing is a filterable accelerator preset.
+	// Invalid requirements are recorded so they are dropped even if hardware discovery
+	// subsequently fails open.
 	hasAccelPreset := false
+	invalid := make(map[int]error)
+	parsed := make(map[int]struct {
+		reqs    []string
+		draReqs []string
+	})
 	for i := range resources {
-		if isAcceleratorPreset(&resources[i]) &&
-			(len(acceleratorRequirements(&resources[i])) > 0 || len(draDriverRequirements(&resources[i])) > 0) {
+		if !isAcceleratorPreset(&resources[i]) {
+			continue
+		}
+		reqs, reqErr := acceleratorRequirements(&resources[i])
+		draReqs, draErr := draDriverRequirements(&resources[i])
+		if reqErr != nil || draErr != nil {
+			invalid[i] = errors.Join(reqErr, draErr)
+			continue
+		}
+		parsed[i] = struct {
+			reqs    []string
+			draReqs []string
+		}{reqs: reqs, draReqs: draReqs}
+		if len(reqs) > 0 || len(draReqs) > 0 {
 			hasAccelPreset = true
-			break
 		}
 	}
+	withoutInvalid := func(input []unstructured.Unstructured) []unstructured.Unstructured {
+		if len(invalid) == 0 {
+			return input
+		}
+		output := make([]unstructured.Unstructured, 0, len(input)-len(invalid))
+		for i := range input {
+			if _, bad := invalid[i]; !bad {
+				output = append(output, input[i])
+			}
+		}
+		return output
+	}
 	if !hasAccelPreset {
-		return resources
+		return withoutInvalid(resources)
 	}
 
 	names, domains, err := r.presentAcceleratorResources(ctx)
 	if err != nil {
 		log.Error(err, "hardware-aware filtering: failed to list nodes, keeping all presets")
-		return resources
+		return withoutInvalid(resources)
 	}
 	draDrivers, err := r.presentDRADrivers(ctx)
 	if err != nil {
 		log.Error(err, "hardware-aware filtering: failed to list DRA ResourceSlices, keeping all presets")
-		return resources
+		return withoutInvalid(resources)
 	}
 
 	filtered := make([]unstructured.Unstructured, 0, len(resources))
 	var dropped []string
 	for i := range resources {
-		reqs := acceleratorRequirements(&resources[i])
-		draReqs := draDriverRequirements(&resources[i])
+		if _, bad := invalid[i]; bad {
+			dropped = append(dropped, resources[i].GetName())
+			continue
+		}
+		requirements := parsed[i]
+		reqs, draReqs := requirements.reqs, requirements.draReqs
 		if (len(reqs) == 0 && len(draReqs) == 0) || !isAcceleratorPreset(&resources[i]) {
 			filtered = append(filtered, resources[i])
 			continue

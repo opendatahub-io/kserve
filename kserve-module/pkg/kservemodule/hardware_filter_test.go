@@ -123,11 +123,17 @@ func TestAcceleratorRequirements(t *testing.T) {
 			if tc.anno != "" {
 				obj.SetAnnotations(map[string]string{recommendedAcceleratorsAnnotationKey: tc.anno})
 			}
-			got := acceleratorRequirements(obj)
+			got, err := acceleratorRequirements(obj)
 			if tc.want == nil {
+				if tc.name == "malformed" {
+					g.Expect(err).To(HaveOccurred())
+					return
+				}
+				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(got).Should(BeEmpty())
 				return
 			}
+			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(got).Should(Equal(tc.want))
 		})
 	}
@@ -327,6 +333,18 @@ func TestFilterHardwareUnavailablePresets_FailOpen(t *testing.T) {
 	g.Expect(result).Should(HaveLen(1))
 }
 
+func TestFilterHardwareUnavailablePresets_DropsInvalidRequirements(t *testing.T) {
+	g := NewWithT(t)
+	bad := accelPreset("invalid", "nvidia.com/gpu")
+	badAnnotations := bad.GetAnnotations()
+	badAnnotations[recommendedAcceleratorsAnnotationKey] = "not-json"
+	bad.SetAnnotations(badAnnotations)
+
+	r := nodeSchemeReconciler(node("n1", "cpu"))
+	result := r.filterHardwareUnavailablePresets(context.Background(), &platformv1alpha1.Kserve{}, []unstructured.Unstructured{bad})
+	g.Expect(result).To(BeEmpty())
+}
+
 func TestFilterHardwareUnavailablePresets_NilKserve(t *testing.T) {
 	g := NewWithT(t)
 	r := nodeSchemeReconciler(node("n1", "cpu"))
@@ -355,11 +373,17 @@ func TestDRADriverRequirements(t *testing.T) {
 			if tc.anno != "" {
 				obj.SetAnnotations(map[string]string{recommendedDRADriversAnnotationKey: tc.anno})
 			}
-			got := draDriverRequirements(obj)
+			got, err := draDriverRequirements(obj)
 			if tc.want == nil {
+				if tc.name == "malformed" {
+					g.Expect(err).To(HaveOccurred())
+					return
+				}
+				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(got).Should(BeEmpty())
 				return
 			}
+			g.Expect(err).NotTo(HaveOccurred())
 			g.Expect(got).Should(Equal(tc.want))
 		})
 	}
