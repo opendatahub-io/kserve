@@ -88,9 +88,11 @@ make e2e-kserve-module-post-release
 ```
 
 CI: OpenShift CI (Prow) optional `/test e2e-kserve-module-post-release` - after
-publishing `odh-vX.Y` and the Quay operator image, comment that on any open PR.
-Uses the **newest** plain `odh-vX.Y` tag and its published operator image (never
-PR-built images). See
+publishing a plain `odh-vX.Y` tag and Quay image, comment that on any open PR.
+Uses the **newest** plain `odh-vX.Y` (never PR-built images). For `-ea`/`-rc`
+tags, `/test` will not select them — run
+`export RELEASE_TAG=odh-vX.Y-eaN && bash hack/ci/post-release-smoke.sh` (same
+flow). See
 [post-release smoke runbook](../../../docs/dev/post-release-smoke-openshift-ci.md).
 
 Local or scripted (same commands as CI):
