@@ -159,6 +159,43 @@ spec:
       openAPIV3Schema:
         type: object
 `
+	// Same shape as WVA: a CRD next to the Deployment, for the CRD-preservation test.
+	modelExpressManifest := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: modelexpress-operator
+  namespace: opendatahub
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: modelexpress-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: modelexpress-operator
+    spec:
+      containers:
+      - name: operator
+        image: quay.io/opendatahub/odh-modelexpress-operator:latest
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: mxtestresources.test.kserve.io
+spec:
+  group: test.kserve.io
+  scope: Namespaced
+  names:
+    plural: mxtestresources
+    kind: MXTestResource
+  versions:
+  - name: v1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+`
 	observabilityManifest := `apiVersion: perses.dev/v1alpha2
 kind: PersesDashboard
 metadata:
@@ -185,6 +222,8 @@ data:
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.OdhModelControllerComponentName, kservemodule.ModelControllerSourcePath), modelCtrlManifest)
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.OdhModelControllerComponentName, kservemodule.ModelControllerSourcePathXKS), modelCtrlManifest)
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.WVAComponentName, kservemodule.WVAManifestSourcePathOCP), wvaManifest)
+	writeKustomizeDir(filepath.Join(workDir, kservemodule.ModelExpressComponentName, kservemodule.ModelExpressManifestSourcePath), modelExpressManifest)
+	writeKustomizeDir(filepath.Join(workDir, kservemodule.ModelExpressComponentName, kservemodule.ModelExpressManifestSourcePathXKS), modelExpressManifest)
 }
 
 func writeKustomizeDir(dir, manifest string) {

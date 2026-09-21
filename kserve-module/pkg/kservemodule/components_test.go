@@ -71,6 +71,61 @@ func TestComponentsConfig_WVAHasEnabled(t *testing.T) {
 	g.Expect(wva.sourcePathXKS).Should(BeEmpty(), "WVA is OCP-only, must not have XKS overlay")
 }
 
+func TestIsModelExpressEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		state    common.ManagementState
+		expected bool
+	}{
+		{"Managed returns true", common.Managed, true},
+		{"Removed returns false", common.Removed, false},
+		{"empty returns false", "", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			kserve := &platformv1alpha1.Kserve{
+				Spec: platformv1alpha1.KserveSpec{
+					ModelExpress: platformv1alpha1.ModelExpressSpec{
+						ManagementState: tt.state,
+					},
+				},
+			}
+			g.Expect(isModelExpressEnabled(kserve)).To(Equal(tt.expected))
+		})
+	}
+}
+
+func TestIsModelExpressEnabled_IndependentOfWVA(t *testing.T) {
+	g := NewWithT(t)
+	kserve := &platformv1alpha1.Kserve{
+		Spec: platformv1alpha1.KserveSpec{
+			WVA: platformv1alpha1.WVASpec{ManagementState: common.Managed},
+		},
+	}
+	g.Expect(isModelExpressEnabled(kserve)).To(BeFalse(), "enabling WVA must not enable ModelExpress")
+	g.Expect(isWVAEnabled(kserve)).To(BeTrue())
+}
+
+func TestComponentsConfig_ModelExpressRegistration(t *testing.T) {
+	g := NewWithT(t)
+	var mx *componentConfig
+	for i := range components {
+		if components[i].name == ModelExpressComponentName {
+			mx = &components[i]
+			break
+		}
+	}
+	g.Expect(mx).ShouldNot(BeNil(), "ModelExpress component not registered")
+	g.Expect(mx.enabled).ShouldNot(BeNil(), "ModelExpress is opt-in, must have enabled predicate")
+	g.Expect(mx.sourcePath).Should(Equal(ModelExpressManifestSourcePath), "source path must match the ModelExpress bundle's OpenShift platform overlay")
+	g.Expect(mx.sourcePathXKS).Should(Equal(ModelExpressManifestSourcePathXKS), "ModelExpress runs on xKS, from the overlay without the OpenShift component")
+	g.Expect(mx.sourcePathXKS).ShouldNot(Equal(mx.sourcePath), "the OpenShift overlay needs service-ca, xKS must not reuse it")
+	g.Expect(mx.dirName()).Should(Equal(ModelExpressComponentName), "manifest dir must match the get_kserve_manifests.sh key")
+	g.Expect(mx.postRender).Should(BeNil(), "the bundle ships no Namespace, nothing to filter")
+}
+
 func TestComponentsConfig_ConsoleDashboardsRegistration(t *testing.T) {
 	g := NewWithT(t)
 	var cd *componentConfig

@@ -27,6 +27,16 @@ func TestWVAImageParamMap_AllValuesAreRelatedImage(t *testing.T) {
 	}
 }
 
+// applyParams skips keys absent from params.env without error, so a renamed
+// key would ship the bundle's default image unnoticed.
+func TestModelExpressImageParamMap_MatchesBundleParams(t *testing.T) {
+	g := NewWithT(t)
+	g.Expect(modelExpressImageParamMap).Should(Equal(map[string]string{
+		"MODELEXPRESS_OPERATOR_IMAGE": "RELATED_IMAGE_ODH_MODELEXPRESS_OPERATOR_IMAGE",
+		"MODELEXPRESS_SERVER_IMAGE":   "RELATED_IMAGE_ODH_MODELEXPRESS_IMAGE",
+	}))
+}
+
 func TestImageParamMaps_NoKeyOverlap(t *testing.T) {
 	g := NewWithT(t)
 	for key := range kserveImageParamMap {

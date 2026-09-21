@@ -29,6 +29,8 @@ spec:
   rawDeploymentServiceConfig: Headless
   wva:
     managementState: Removed
+  modelExpress:
+    managementState: Removed
 status:
   conditions:
   - lastTransitionTime: "2026-05-08T22:07:29Z"

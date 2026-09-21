@@ -22,6 +22,7 @@ const (
 	ConditionKServeReady            = "KServeReady"
 	ConditionModelControllerReady   = "ModelControllerReady"
 	ConditionWVAReady               = "WVAReady"
+	ConditionModelExpressReady      = "ModelExpressReady"
 	ConditionModelCacheReady        = "ModelCacheReady"
 	ConditionDependenciesAvailable  = "DependenciesAvailable"
 	ConditionTracingConfigAvailable = "TracingConfigAvailable"
@@ -38,6 +39,7 @@ func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
 		ConditionKServeReady,
 		ConditionModelControllerReady,
 		ConditionWVAReady,
+		ConditionModelExpressReady,
 		ConditionModelCacheReady,
 		ConditionDependenciesAvailable,
 		ConditionTracingConfigAvailable,
@@ -173,6 +175,19 @@ func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, k
 		}
 	} else {
 		condMgr.ClearCondition(ConditionWVAReady)
+	}
+
+	if isModelExpressEnabled(kserve) {
+		if err := checkModelExpressReadiness(ctx, r.Client, ns); err != nil {
+			condMgr.MarkFalse(ConditionModelExpressReady,
+				conditions.WithReason("DeploymentNotReady"),
+				conditions.WithMessage("%s", err.Error()))
+		} else {
+			condMgr.MarkTrue(ConditionModelExpressReady,
+				conditions.WithReason("AllDeploymentsAvailable"))
+		}
+	} else {
+		condMgr.ClearCondition(ConditionModelExpressReady)
 	}
 
 	if !isModelCacheEnabled(kserve) {
