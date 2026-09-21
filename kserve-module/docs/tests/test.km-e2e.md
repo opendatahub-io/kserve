@@ -87,9 +87,9 @@ make e2e-setup-kserve-module \
 make e2e-kserve-module-post-release
 ```
 
-CI: OpenShift CI (Prow) tag postsubmit `e2e-kserve-module-post-release` - runs when an
-`odh-vX.Y` tag is pushed to this repo (Hypershift cluster, published operator image only,
-never PR-built images). See
+CI: OpenShift CI (Prow) optional `/test e2e-kserve-module-post-release` - after
+publishing `odh-vX.Y` and the Quay operator image, comment that on any open PR.
+Uses the published operator image only (never PR-built images). See
 [post-release smoke runbook](../../../docs/dev/post-release-smoke-openshift-ci.md).
 
 Local or scripted (same commands as CI):
