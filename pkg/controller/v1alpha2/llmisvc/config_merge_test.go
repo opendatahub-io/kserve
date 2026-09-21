@@ -2061,6 +2061,8 @@ func TestReplaceVariables(t *testing.T) {
 			},
 		},
 		{
+			// The frozen deprecated function keeps emitting its empty string: post-processing
+			// its output would change what an already-pinned preset renders.
 			name: "kvTransferConfig returns empty string when kvCacheOffloading is nil",
 			cfg: &v1alpha2.LLMInferenceServiceConfig{
 				Spec: v1alpha2.LLMInferenceServiceSpec{
@@ -2079,7 +2081,7 @@ func TestReplaceVariables(t *testing.T) {
 					WorkloadSpec: v1alpha2.WorkloadSpec{
 						Template: &corev1.PodSpec{
 							Containers: []corev1.Container{
-								{Args: []string{}},
+								{Args: []string{""}},
 							},
 						},
 					},
@@ -3256,12 +3258,13 @@ spec:
       template:
         containers:
           - name: main
-            args:
+            command:
+              - /app/epp
               - ''
               - '{{ if .GlobalConfig.EnableTLS }}--secure-serving=true{{- end }}'
               - '{{ if .GlobalConfig.EnableTLS }}--cert-path=/var/run/kserve/tls{{- end }}'
-              - '{{ if .GlobalConfig.TLSMinVersion }}--tls-min-version={{ .GlobalConfig.TLSMinVersion }}{{- end }}'
-              - '{{ if .GlobalConfig.TLSCipherSuites }}--tls-cipher-suites={{ .GlobalConfig.TLSCipherSuites }}{{- end }}'
+              - '{{ if .GlobalConfig.TLSMinVersion }}--tls-min-version={{ .GlobalConfig.TLSMinVersion }}{{ else }}__KSERVE_OMIT_ARG__{{ end }}'
+              - '{{ if .GlobalConfig.TLSCipherSuites }}--tls-cipher-suites={{ .GlobalConfig.TLSCipherSuites }}{{ else }}__KSERVE_OMIT_ARG__{{ end }}'
 `
 
 const tlsProfileVLLMFixture = `apiVersion: serving.kserve.io/v1alpha1
@@ -3276,11 +3279,20 @@ spec:
           - /bin/bash
           - "-c"
           - |-
-            VLLM_VERSION="${TEST_VLLM_VERSION:-0.15.0}"
-            {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
-            exec vllm serve /mnt/models \
+            echo "[startup] probe"
+            {{ if and .GlobalConfig.EnableTLS .GlobalConfig.TLSCipherSuitesOpenSSL }}TLS_CIPHER_ARGS=""
+            TLS_CIPHER_HELP="$(vllm serve --help=all 2>&1 || true)"
+            case "${TLS_CIPHER_HELP}" in
+              *--ssl-ciphers*)
+                TLS_CIPHER_ARGS="--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}"
+                ;;
+              *)
+                echo "[tls-profile] warning: this vLLM does not support --ssl-ciphers; continuing without the configured cipher policy" >&2
+                ;;
+            esac
+            {{ end }}exec vllm serve /mnt/models \
               {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
-              {{ if and .GlobalConfig.EnableTLS .GlobalConfig.TLSCipherSuitesOpenSSL }}${TLS_CIPHER_ARGS}{{- end }} \
+              ${VLLM_ADDITIONAL_ARGS}{{ if and .GlobalConfig.EnableTLS .GlobalConfig.TLSCipherSuitesOpenSSL }} ${TLS_CIPHER_ARGS}{{ end }} \
               $@
           - "--"
 `
@@ -3304,7 +3316,9 @@ func TestReplaceVariables_TLSConditional(t *testing.T) {
 		{
 			name:      "TLS off: all flags render empty",
 			enableTLS: false,
-			wantArgs:  []string{},
+			// Empty entries from the pre-existing EnableTLS templates are kept: dropping
+			// them would change how presets shipped before the TLS profile render.
+			wantArgs: []string{"", "", "", ""},
 		},
 	}
 
@@ -3368,7 +3382,7 @@ spec:
 		{
 			name:      "TLS off",
 			enableTLS: false,
-			wantArgs:  []string{},
+			wantArgs:  []string{"", ""},
 		},
 	}
 	for _, tt := range tests {
@@ -3400,14 +3414,15 @@ func TestReplaceVariables_TLSProfileScheduler(t *testing.T) {
 		tlsMinVersion   string
 		tlsCipherSuites string
 		enableTLS       bool
-		wantArgs        []string
+		wantCommand     []string
 	}{
 		{
 			name:            "TLS profile fields populated",
 			enableTLS:       true,
 			tlsMinVersion:   "VersionTLS12",
 			tlsCipherSuites: "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
-			wantArgs: []string{
+			wantCommand: []string{
+				"/app/epp",
 				"",
 				"--secure-serving=true",
 				"--cert-path=/var/run/kserve/tls",
@@ -3418,7 +3433,8 @@ func TestReplaceVariables_TLSProfileScheduler(t *testing.T) {
 		{
 			name:      "TLS profile fields empty - flags omitted",
 			enableTLS: true,
-			wantArgs: []string{
+			wantCommand: []string{
+				"/app/epp",
 				"",
 				"--secure-serving=true",
 				"--cert-path=/var/run/kserve/tls",
@@ -3429,7 +3445,10 @@ func TestReplaceVariables_TLSProfileScheduler(t *testing.T) {
 			enableTLS:       false,
 			tlsMinVersion:   "VersionTLS13",
 			tlsCipherSuites: "TLS_AES_128_GCM_SHA256",
-			wantArgs: []string{
+			wantCommand: []string{
+				"/app/epp",
+				"",
+				"",
 				"",
 				"--tls-min-version=VersionTLS13",
 				"--tls-cipher-suites=TLS_AES_128_GCM_SHA256",
@@ -3455,13 +3474,13 @@ func TestReplaceVariables_TLSProfileScheduler(t *testing.T) {
 				t.Fatalf("ReplaceVariables() error = %v", err)
 			}
 
-			args := got.Spec.Router.Scheduler.Template.Containers[0].Args
-			if len(args) != len(tt.wantArgs) {
-				t.Fatalf("got %d args, want %d: %q", len(args), len(tt.wantArgs), args)
+			command := got.Spec.Router.Scheduler.Template.Containers[0].Command
+			if len(command) != len(tt.wantCommand) {
+				t.Fatalf("got %d command entries, want %d: %q", len(command), len(tt.wantCommand), command)
 			}
-			for i, want := range tt.wantArgs {
-				if args[i] != want {
-					t.Errorf("arg[%d] = %q, want %q", i, args[i], want)
+			for i, want := range tt.wantCommand {
+				if command[i] != want {
+					t.Errorf("command[%d] = %q, want %q", i, command[i], want)
 				}
 			}
 		})
@@ -3481,10 +3500,10 @@ func TestReplaceVariables_TLSProfileVLLM(t *testing.T) {
 			name:            "cipher suites render capability-gated vllm policy",
 			enableTLS:       true,
 			tlsMinVersion:   "VersionTLS12",
-			tlsCipherSuites: "ECDHE+AESGCM:ECDHE+CHACHA20",
+			tlsCipherSuites: "ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384",
 			wantContains: []string{
-				`vllm serve --help=all 2>&1 | grep -- "--ssl-ciphers" >/dev/null`,
-				`TLS_CIPHER_ARGS="--ssl-ciphers ECDHE+AESGCM:ECDHE+CHACHA20"`,
+				`TLS_CIPHER_HELP="$(vllm serve --help=all 2>&1 || true)"`,
+				`TLS_CIPHER_ARGS="--ssl-ciphers ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384"`,
 				"continuing without the configured cipher policy",
 				"${TLS_CIPHER_ARGS}",
 			},
@@ -3650,5 +3669,188 @@ func TestSelectSingleNodeTemplateName(t *testing.T) {
 				t.Errorf("SelectSingleNodeTemplateName(%v) = %q, want %q", tt.runtime, got, tt.want)
 			}
 		})
+	}
+}
+
+const omitMarkerFixture = `apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: test
+spec:
+  template:
+    initContainers:
+      - name: init
+        command:
+          - '{{ if .GlobalConfig.TLSMinVersion }}--tls-min-version={{ .GlobalConfig.TLSMinVersion }}{{ else }}__KSERVE_OMIT_ARG__{{ end }}'
+    containers:
+      - name: main
+        command:
+          - /bin/bash
+          - '{{ if .GlobalConfig.TLSMinVersion }}--tls-min-version={{ .GlobalConfig.TLSMinVersion }}{{ else }}__KSERVE_OMIT_ARG__{{ end }}'
+        args:
+          - '{{ if .GlobalConfig.TLSCipherSuites }}--tls-cipher-suites={{ .GlobalConfig.TLSCipherSuites }}{{ else }}__KSERVE_OMIT_ARG__{{ end }}'
+  worker:
+    containers:
+      - name: main
+        command:
+          - '{{ if .GlobalConfig.TLSMinVersion }}--tls-min-version={{ .GlobalConfig.TLSMinVersion }}{{ else }}__KSERVE_OMIT_ARG__{{ end }}'
+  prefill:
+    template:
+      containers:
+        - name: main
+          command:
+            - '{{ if .GlobalConfig.TLSMinVersion }}--tls-min-version={{ .GlobalConfig.TLSMinVersion }}{{ else }}__KSERVE_OMIT_ARG__{{ end }}'
+    worker:
+      containers:
+        - name: main
+          command:
+            - '{{ if .GlobalConfig.TLSMinVersion }}--tls-min-version={{ .GlobalConfig.TLSMinVersion }}{{ else }}__KSERVE_OMIT_ARG__{{ end }}'
+  router:
+    scheduler:
+      template:
+        containers:
+          - name: main
+            command:
+              - '{{ if .GlobalConfig.TLSMinVersion }}--tls-min-version={{ .GlobalConfig.TLSMinVersion }}{{ else }}__KSERVE_OMIT_ARG__{{ end }}'
+      tokenizer:
+        template:
+          containers:
+            - name: main
+              command:
+                - '{{ if .GlobalConfig.TLSMinVersion }}--tls-min-version={{ .GlobalConfig.TLSMinVersion }}{{ else }}__KSERVE_OMIT_ARG__{{ end }}'
+`
+
+// The marker is an internal rendering device: a container must never be started
+// with it, whichever pod spec or argv field a preset puts it in.
+func TestReplaceVariables_OmitMarkerNeverReachesAContainer(t *testing.T) {
+	for _, tt := range []struct {
+		name            string
+		tlsMinVersion   string
+		tlsCipherSuites string
+		wantEntries     int
+	}{
+		{name: "unset values drop the entries", wantEntries: 0},
+		// Validate forbids a cipher list with TLS 1.3, so this combination is reachable.
+		{name: "min version only", tlsMinVersion: "VersionTLS13", wantEntries: 7},
+		{name: "both values set", tlsMinVersion: "VersionTLS12", tlsCipherSuites: "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", wantEntries: 8},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			preset := &v1alpha2.LLMInferenceServiceConfig{}
+			if err := yaml.Unmarshal([]byte(omitMarkerFixture), preset); err != nil {
+				t.Fatalf("failed to unmarshal fixture: %v", err)
+			}
+
+			got, err := llmisvc.ReplaceVariables(
+				&v1alpha2.LLMInferenceService{},
+				preset,
+				&llmisvc.Config{TLSMinVersion: tt.tlsMinVersion, TLSCipherSuites: tt.tlsCipherSuites},
+			)
+			if err != nil {
+				t.Fatalf("ReplaceVariables() error = %v", err)
+			}
+
+			flags := 0
+			for _, argv := range [][]string{
+				got.Spec.Template.InitContainers[0].Command,
+				got.Spec.Template.Containers[0].Command,
+				got.Spec.Template.Containers[0].Args,
+				got.Spec.Worker.Containers[0].Command,
+				got.Spec.Prefill.Template.Containers[0].Command,
+				got.Spec.Prefill.Worker.Containers[0].Command,
+				got.Spec.Router.Scheduler.Template.Containers[0].Command,
+				got.Spec.Router.Scheduler.Tokenizer.Template.Containers[0].Command,
+			} {
+				for _, arg := range argv {
+					if arg == llmisvc.OmittedArgMarker {
+						t.Errorf("rendered argv %q still carries the omit marker", argv)
+					}
+					if strings.HasPrefix(arg, "--tls-") {
+						flags++
+					}
+				}
+			}
+			if flags != tt.wantEntries {
+				t.Errorf("got %d TLS flags, want %d", flags, tt.wantEntries)
+			}
+			// Dropping the marker must not take anything else with it.
+			if cmd := got.Spec.Template.Containers[0].Command; len(cmd) == 0 || cmd[0] != "/bin/bash" {
+				t.Errorf("the entry that is not a marker did not survive: %q", cmd)
+			}
+		})
+	}
+}
+
+const legacyPresetFixture = `apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceServiceConfig
+metadata:
+  name: test
+spec:
+  router:
+    scheduler:
+      template:
+        containers:
+          - name: main
+            command:
+              - /app/epp
+              - ''
+              - '{{ if .GlobalConfig.EnableTLS }}--secure-serving=true{{- end }}'
+              - '{{ if .GlobalConfig.EnableTLS }}--cert-path=/var/run/kserve/tls{{- end }}'
+  template:
+    containers:
+      - name: main
+        command:
+          - /bin/bash
+          - "-c"
+          - |-
+            exec vllm serve /mnt/models \
+              {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
+              $@
+`
+
+// A preset written before the omit marker existed cannot contain one, so nothing
+// this feature added may change how it renders. Presets are pinned per service by
+// name while the controller that re-renders them is not, so a change here restarts
+// workloads nobody touched.
+func TestReplaceVariables_LeavesPresetsWithoutTheMarkerAlone(t *testing.T) {
+	for _, enableTLS := range []bool{false, true} {
+		preset := &v1alpha2.LLMInferenceServiceConfig{}
+		if err := yaml.Unmarshal([]byte(legacyPresetFixture), preset); err != nil {
+			t.Fatalf("failed to unmarshal fixture: %v", err)
+		}
+
+		got, err := llmisvc.ReplaceVariables(
+			&v1alpha2.LLMInferenceService{},
+			preset,
+			&llmisvc.Config{EnableTLS: enableTLS, TLSMinVersion: "VersionTLS12", TLSCipherSuites: "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"},
+		)
+		if err != nil {
+			t.Fatalf("ReplaceVariables() error = %v", err)
+		}
+
+		// Entry counts must survive: an empty entry a preset spells out, and one an
+		// EnableTLS template renders empty, both stay where they were.
+		epp := got.Spec.Router.Scheduler.Template.Containers[0].Command
+		if len(epp) != 4 || epp[0] != "/app/epp" || epp[1] != "" {
+			t.Errorf("enableTLS=%v: scheduler command changed shape: %q", enableTLS, epp)
+		}
+		if !enableTLS && (epp[2] != "" || epp[3] != "") {
+			t.Errorf("enableTLS=false: empty EnableTLS entries were dropped: %q", epp)
+		}
+		if enableTLS && (epp[2] != "--secure-serving=true" || epp[3] != "--cert-path=/var/run/kserve/tls") {
+			t.Errorf("enableTLS=true: EnableTLS entries did not render: %q", epp)
+		}
+
+		// The bash payload keeps its continuation lines, including the one an empty
+		// EnableTLS template leaves behind.
+		script := got.Spec.Template.Containers[0].Command[2]
+		if want := "exec vllm serve /mnt/models \\\n"; !strings.Contains(script, want) {
+			t.Errorf("enableTLS=%v: script lost its continuation:\n%s", enableTLS, script)
+		}
+		if enableTLS && !strings.Contains(script, "--ssl-certfile /var/run/kserve/tls/tls.crt") {
+			t.Errorf("enableTLS=true: the cert flag did not render:\n%s", script)
+		}
+		if lines := strings.Count(script, "\n"); lines != 2 {
+			t.Errorf("enableTLS=%v: script line count changed (%d):\n%s", enableTLS, lines+1, script)
+		}
 	}
 }
