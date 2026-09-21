@@ -42,7 +42,7 @@ func TestCustomizeServiceAddsServingCertAnnotation(t *testing.T) {
 	}
 	meta := metav1.ObjectMeta{Name: "test-predictor"}
 
-	customizeService(svc, meta)
+	customizeService(svc, meta, nil)
 
 	assert.Equal(t, "test-predictor"+constants.ServingCertSecretSuffix,
 		svc.Annotations[constants.OpenshiftServingCertAnnotation])
@@ -61,7 +61,7 @@ func TestCustomizeServiceInferenceGraphPort(t *testing.T) {
 		},
 	}
 
-	customizeService(svc, meta)
+	customizeService(svc, meta, nil)
 
 	assert.Equal(t, int32(443), svc.Spec.Ports[0].Port)
 }
@@ -81,13 +81,13 @@ func TestCustomizeServiceAuthProxyPort(t *testing.T) {
 		},
 	}
 
-	customizeService(svc, meta)
+	customizeService(svc, meta, nil)
 
 	assert.Equal(t, int32(constants.OauthProxyPort), svc.Spec.Ports[0].Port)
 	assert.Equal(t, "https", svc.Spec.Ports[0].Name)
 	assert.Equal(t, intstr.IntOrString{Type: intstr.String, StrVal: "https"}, svc.Spec.Ports[0].TargetPort)
 
-	// Transformer service must NOT get the auth proxy port override — it has no proxy sidecar.
+	// Transformer service with auth gets its own HTTPS port (native TLS, not auth proxy).
 	transformerSvc := &corev1.Service{
 		Spec: corev1.ServiceSpec{
 			Ports: []corev1.ServicePort{
@@ -105,12 +105,135 @@ func TestCustomizeServiceAuthProxyPort(t *testing.T) {
 		},
 	}
 
-	customizeService(transformerSvc, transformerMeta)
+	customizeService(transformerSvc, transformerMeta, nil)
 
-	assert.Equal(t, int32(constants.CommonDefaultHttpPort), transformerSvc.Spec.Ports[0].Port,
-		"transformer service should keep the default HTTP port, not the auth proxy port")
-	assert.NotEqual(t, "https", transformerSvc.Spec.Ports[0].Name,
-		"transformer service port should not be renamed to https")
+	assert.Equal(t, constants.TransformerHTTPSPort, transformerSvc.Spec.Ports[0].Port,
+		"transformer service with auth should use the transformer HTTPS port")
+	assert.Equal(t, "https", transformerSvc.Spec.Ports[0].Name,
+		"transformer service port should be named https for reencrypt route")
+	assert.Equal(t, intstr.IntOrString{Type: intstr.Int, IntVal: constants.TransformerHTTPSPort},
+		transformerSvc.Spec.Ports[0].TargetPort,
+		"transformer service target port should default to the transformer HTTPS port")
+
+	// Transformer with a user-supplied --http_port: Service .Port stays at the
+	// OCP-expected HTTPS port, but .TargetPort follows the pod's actual listener.
+	customPortSvc := &corev1.Service{
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{Name: "http", Port: constants.CommonDefaultHttpPort},
+			},
+		},
+	}
+	customPodSpec := &corev1.PodSpec{
+		Containers: []corev1.Container{
+			{
+				Name: constants.InferenceServiceContainerName,
+				Args: []string{constants.ArgumentHttpPort, "9000"},
+			},
+		},
+	}
+
+	customizeService(customPortSvc, transformerMeta, customPodSpec)
+
+	assert.Equal(t, constants.TransformerHTTPSPort, customPortSvc.Spec.Ports[0].Port,
+		"Service .Port stays at the OCP-expected HTTPS port")
+	assert.Equal(t, intstr.IntOrString{Type: intstr.Int, IntVal: 9000},
+		customPortSvc.Spec.Ports[0].TargetPort,
+		"Service .TargetPort should follow the user-supplied --http_port")
+
+	// TargetPort resolution edge cases. In every case the Service .Port must stay
+	// at the OCP-expected HTTPS port; only .TargetPort tracks the pod's listener.
+	targetPortCases := []struct {
+		name           string
+		args           []string
+		wantTargetPort int32
+	}{
+		{
+			name:           "default --http_port stays on the HTTPS port",
+			args:           []string{constants.ArgumentHttpPort, constants.InferenceServiceDefaultHttpPort},
+			wantTargetPort: constants.TransformerHTTPSPort,
+		},
+		{
+			name:           "equals form is honored",
+			args:           []string{constants.ArgumentHttpPort + "=9000"},
+			wantTargetPort: 9000,
+		},
+		{
+			name:           "non-numeric --http_port falls back to the HTTPS port",
+			args:           []string{constants.ArgumentHttpPort, "not-a-port"},
+			wantTargetPort: constants.TransformerHTTPSPort,
+		},
+	}
+	for _, tc := range targetPortCases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &corev1.Service{
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
+						{Name: "http", Port: constants.CommonDefaultHttpPort},
+					},
+				},
+			}
+			podSpec := &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{Name: constants.InferenceServiceContainerName, Args: tc.args},
+				},
+			}
+
+			customizeService(svc, transformerMeta, podSpec)
+
+			assert.Equal(t, constants.TransformerHTTPSPort, svc.Spec.Ports[0].Port,
+				"Service .Port must stay at the OCP-expected HTTPS port")
+			assert.Equal(t, intstr.IntOrString{Type: intstr.Int, IntVal: tc.wantTargetPort},
+				svc.Spec.Ports[0].TargetPort)
+		})
+	}
+
+	// A podSpec without a kserve-container cannot resolve a serving port, so the
+	// TargetPort falls back to the transformer HTTPS port.
+	t.Run("missing kserve-container falls back to the HTTPS port", func(t *testing.T) {
+		svc := &corev1.Service{
+			Spec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{
+					{Name: "http", Port: constants.CommonDefaultHttpPort},
+				},
+			},
+		}
+		podSpec := &corev1.PodSpec{
+			Containers: []corev1.Container{
+				{Name: "some-sidecar", Args: []string{constants.ArgumentHttpPort, "9000"}},
+			},
+		}
+
+		customizeService(svc, transformerMeta, podSpec)
+
+		assert.Equal(t, constants.TransformerHTTPSPort, svc.Spec.Ports[0].Port)
+		assert.Equal(t, intstr.IntOrString{Type: intstr.Int, IntVal: constants.TransformerHTTPSPort},
+			svc.Spec.Ports[0].TargetPort)
+	})
+}
+
+func TestCustomizeServiceTransformerWithoutAuthKeepsHTTP(t *testing.T) {
+	svc := &corev1.Service{
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{Name: "http", Port: constants.CommonDefaultHttpPort},
+			},
+		},
+	}
+	meta := metav1.ObjectMeta{
+		Name: "test-transformer-no-auth",
+		Labels: map[string]string{
+			constants.KServiceComponentLabel: string(v1beta1.TransformerComponent),
+		},
+		// No ODHKserveRawAuth annotation
+	}
+
+	customizeService(svc, meta, nil)
+
+	assert.Equal(t, int32(constants.CommonDefaultHttpPort), svc.Spec.Ports[0].Port,
+		"transformer without auth should keep the default HTTP port")
+	assert.Equal(t, "http", svc.Spec.Ports[0].Name,
+		"transformer without auth should keep 'http' port name")
 }
 
 func TestCustomizeServiceNoAuthProxyWithoutAnnotation(t *testing.T) {
@@ -123,7 +246,7 @@ func TestCustomizeServiceNoAuthProxyWithoutAnnotation(t *testing.T) {
 	}
 	meta := metav1.ObjectMeta{Name: "test-predictor"}
 
-	customizeService(svc, meta)
+	customizeService(svc, meta, nil)
 
 	assert.Equal(t, int32(constants.CommonDefaultHttpPort), svc.Spec.Ports[0].Port)
 }
@@ -144,7 +267,7 @@ func TestCustomizeServiceInferenceGraphIgnoresAuthProxy(t *testing.T) {
 		},
 	}
 
-	customizeService(svc, meta)
+	customizeService(svc, meta, nil)
 
 	// InferenceGraph takes precedence - port should be 443, not the auth proxy port.
 	assert.Equal(t, int32(443), svc.Spec.Ports[0].Port)

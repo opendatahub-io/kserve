@@ -127,6 +127,9 @@ func (e *Explainer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 	}
 
 	podSpec := corev1.PodSpec(isvc.Spec.Explainer.PodSpec)
+	if err := injectTLSSecurityProfile(ctx, e.client, &podSpec); err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to inject TLS security profile into explainer")
+	}
 	isvcutils.InjectComponentTracing(isvc.Spec.Tracing, isvc.Namespace, isvc.Name, "", "", string(v1beta1.ExplainerComponent), &podSpec.Containers[0])
 
 	// Here we allow switch between knative and vanilla deployment
@@ -187,7 +190,7 @@ func (e *Explainer) reconcileExplainerRawDeployment(ctx context.Context, isvc *v
 	}
 
 	r, err := raw.NewRawKubeReconciler(ctx, e.client, e.clientset, e.scheme, constants.InferenceServiceResource, *objectMeta, metav1.ObjectMeta{},
-		&isvc.Spec.Explainer.ComponentExtensionSpec, podSpec, nil, &isvc.Spec.Explainer.StorageUris, storageInitializerConfig, storageSpec, credentialBuilder, storageContainerSpec)
+		&isvc.Spec.Explainer.ComponentExtensionSpec, podSpec, nil, &isvc.Spec.Explainer.StorageUris, storageInitializerConfig, storageSpec, credentialBuilder, storageContainerSpec, constants.AuditLoggingProfileNone, false)
 	if err != nil {
 		return errors.Wrapf(err, "fails to create NewRawKubeReconciler for explainer")
 	}

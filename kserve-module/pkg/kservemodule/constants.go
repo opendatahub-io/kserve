@@ -31,6 +31,7 @@ const (
 	KserveCRDManifestSourcePath     = "overlays/odh-crds"
 	ModelCacheManifestSourcePath    = "overlays/odh-modelcache"
 	ModelControllerSourcePath       = "overlays/odh"
+	ModelControllerSourcePathXKS    = "overlays/xks"
 	WVAManifestSourcePathOCP        = "overlays/namespace-scoped/openshift"
 	ObservabilityManifestSourcePath      = "monitoring/llmisvc/dashboards"
 	ConsoleDashboardsManifestSourcePath = "monitoring/llmisvc/dashboards-odc"
@@ -40,6 +41,7 @@ const (
 	llmISVCControllerDeployment    = "llmisvc-controller-manager"
 	localmodelControllerDeployment = "kserve-localmodel-controller-manager"
 	odhModelControllerDeployment   = "odh-model-controller"
+	modelServingAPIDeployment      = "model-serving-api"
 	wvaControllerDeployment        = "workload-variant-autoscaler-controller-manager"
 
 	// Console dashboards target namespace
@@ -67,6 +69,12 @@ const (
 	llmISVCConfigGroup       = "serving.kserve.io"
 	llmISVCConfigVersion     = "v1alpha2"
 	llmISVCConfigKind        = "LLMInferenceServiceConfig"
+
+	// llmISVCConfigWebhookName identifies the dedicated ValidatingWebhookConfiguration
+	// for LLMInferenceServiceConfig resources. During Kserve CR teardown, the
+	// controller temporarily removes DELETE from matching v1alpha2 rules, then
+	// restores those rules. The webhook does not cover LLMInferenceService resources.
+	llmISVCConfigWebhookName = "llminferenceserviceconfig.serving.kserve.io"
 
 	// Template (ServingRuntime) resource type
 	templateGroup = "template.openshift.io"
