@@ -56,7 +56,8 @@ exist. Script resolves newest `odh-vX.Y` tag (or `RELEASE_TAG`).
 | Hardcode `RELEASE_TAG` per release in config | Rejected - poor UX |
 | New ci-operator config per `odh-vX.Y` | Only works if release creates a **branch**, not just a tag |
 | Periodic + auto-discover latest tag | Possible later; laggy vs on-demand `/test` |
-| Optional presubmit `/test` | **Chosen** - passes prowgen, same Hypershift e2e stack |
+| Optional presubmit `/test` | **Chosen** - passes prowgen, same Hypershift e2e stack; CI always uses newest `odh-vX.Y` |
+| Konflux PAC with `release_tag` param | Better tag UX, but duplicates Hypershift e2e orchestration |
 
 ## References
 

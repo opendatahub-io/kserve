@@ -9,6 +9,18 @@ RHOAIENG-85268: validate a **fresh OpenShift install** after an ODH release cut:
 Tests and Make targets live in this repo (`post_release` marker, `make e2e-kserve-module-post-release`).
 Orchestration is **OpenShift CI (Prow)** on Hypershift.
 
+## What it does
+
+1. You publish `quay.io/opendatahub/odh-kserve-module-operator:odh-vX.Y` and push tag `odh-vX.Y`.
+2. On any open kserve PR, comment `/test e2e-kserve-module-post-release`.
+3. Prow provisions an ephemeral Hypershift cluster (same profile as `e2e-kserve-module`).
+4. `hack/ci/post-release-smoke.sh` picks the newest plain `odh-vX.Y` git tag (no `-ea`/`-rc`),
+   checks out that tag, installs the **published** Quay operator image (never PR-built images),
+   and runs `make e2e-kserve-module-post-release` (`post_release` pytest).
+
+`/test` cannot take a tag argument. In CI the job always targets the **latest**
+`odh-vX.Y` tag. To test a specific older tag, run locally with `export RELEASE_TAG=...`.
+
 ## Trigger model
 
 **Optional presubmit** on `opendatahub-io/kserve` (not a tag postsubmit):
@@ -17,43 +29,48 @@ Orchestration is **OpenShift CI (Prow)** on Hypershift.
 /test e2e-kserve-module-post-release
 ```
 
-Comment that on any open kserve PR after the release tag exists and the operator
-image is on Quay. The job is `always_run: false` / `optional: true` so it never
-blocks merges.
-
-`hack/ci/post-release-smoke.sh` resolves the tag as:
-
-1. `RELEASE_TAG` env if set
-2. else the newest `odh-vX.Y` tag (no `-ea` / `-rc` suffix)
-
-Then it checks out that tag and installs
-`quay.io/opendatahub/odh-kserve-module-operator:${RELEASE_TAG}` (never PR-built
-images).
+`always_run: false` / `optional: true` - never blocks merges.
 
 | Event | Runs smoke? |
 |-------|-------------|
-| `/test e2e-kserve-module-post-release` on a PR | Yes |
-| Push tag `odh-v3.6` alone | No (OpenShift CI cannot host tag-regex postsubmits under master prowgen files) |
+| `/test e2e-kserve-module-post-release` on a PR | Yes (latest `odh-vX.Y`) |
+| Push tag `odh-v3.6` alone | No |
 | Merge PR to `master` | No |
 | Re-run job in Prow UI | Yes |
 
-### Why not tag postsubmit?
-
-`ci-operator-prowgen` always emits postsubmit `branches: ^master$` for the master
-config. Hand-editing to `^odh-v\d+\.\d+$` fails `generated-config` and
-`prow-config-semantics` (job would have to live in a non-master jobs file that
-prowgen cannot produce for a tag regex). See
-[ci-operator tag postsubmit investigation](./ci-operator-tag-postsubmit-branches.md).
-
-Optional `/test` reuses the same Hypershift workflow as `e2e-kserve-module` and
-passes openshift/release validation.
-
 Prerequisites before `/test`:
 
-- `quay.io/opendatahub/odh-kserve-module-operator:odh-vX.Y` exists
-- Tag commit includes `post_release` tests and `make e2e-kserve-module-post-release`
+- `quay.io/opendatahub/odh-kserve-module-operator:odh-vX.Y` exists for the newest tag
+- That tag's commit includes `post_release` tests and `make e2e-kserve-module-post-release`
 
-## Local run (same as CI)
+## Why not a tag postsubmit?
+
+We wanted: push `odh-vX.Y` -> Prow runs automatically with that tag as `PULL_BASE_REF`.
+
+That cannot merge in `openshift/release`:
+
+1. **prowgen** always emits master postsubmits with `branches: ^master$`.
+2. Hand-editing to `^odh-v\d+\.\d+$` fails **`generated-config`** (regen overwrites).
+3. **`prow-config-semantics`** requires non-master branch jobs in a matching jobs filename;
+   a tag regex cannot be generated from the master ci-operator config.
+
+Optional `/test` reuses the existing Hypershift e2e stack and passes those checks.
+Details: [ci-operator tag postsubmit investigation](./ci-operator-tag-postsubmit-branches.md).
+
+## OpenShift CI vs Konflux
+
+| | OpenShift CI (chosen) | Konflux |
+|--|----------------------|---------|
+| Trigger | `/test` on a kserve PR | Would need PAC comment / PipelineRun param |
+| Cluster | Existing Hypershift workflow (`e2e-kserve-module`) | Would reimplement ephemeral OCP e2e |
+| Published image only | Yes (script + Quay tag) | Possible, but new pipeline work |
+| Tag on comment | No - always latest `odh-vX.Y` | Easier to pass `release_tag` as a param |
+| Maintenance | Same prow/ci-operator lane as other kserve e2e | Split across konflux-central + kserve + onboarder |
+| openshift/release | One optional job (mergeable) | Avoids release PR, but duplicates e2e orchestration |
+
+OpenShift CI wins for running the smoke; Konflux would win mainly for parameterized on-demand triggers.
+
+## Local run
 
 ```bash
 export RELEASE_TAG=odh-v3.6
@@ -71,29 +88,15 @@ bash hack/ci/post-release-smoke.sh
   as: e2e-kserve-module-post-release
   optional: true
   steps:
-    allow_best_effort_post_steps: true
-    cluster_profile: aws-opendatahub
-    env:
-      BASE_DOMAIN: openshift-ci-aws.rhaiseng.com
-      COMPUTE_NODE_TYPE: m5.2xlarge
-      HYPERSHIFT_NODE_COUNT: "3"
-    # ... same Hypershift post steps as e2e-kserve-module ...
-    test:
-    - as: e2e-kserve-module-post-release
-      cli: latest
-      commands: |-
-        # kubectl/kustomize shim ...
-        bash hack/ci/post-release-smoke.sh
-      from: src
+    # Hypershift workflow; test step runs:
+    # bash hack/ci/post-release-smoke.sh
     workflow: hypershift-hostedcluster-workflow
 ```
-
-After editing config:
 
 ```bash
 cd openshift/release
 make ci-operator-prowgen WHAT=opendatahub-io/kserve
-# or: make jobs
+make sanitize-prow-jobs WHAT=opendatahub-io/kserve
 ```
 
 ## Related repos
@@ -111,9 +114,7 @@ make ci-operator-prowgen WHAT=opendatahub-io/kserve
 3. On any open kserve PR (or a small docs PR), comment `/test e2e-kserve-module-post-release`
 4. Watch Prow: `pull-ci-opendatahub-io-kserve-master-e2e-kserve-module-post-release`
 5. Green -> sign off; red -> inspect `${ARTIFACT_DIR}` (OMC logs, KServe CR, LLMISVC)
-6. Re-run with `/test e2e-kserve-module-post-release` or Prow UI if needed
-
-To force a non-latest tag locally: `export RELEASE_TAG=odh-v3.5`.
+6. Re-run with `/test` or Prow UI if needed
 
 ## Related
 

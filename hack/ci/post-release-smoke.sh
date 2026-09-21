@@ -13,14 +13,9 @@ latest_odh_release_tag() {
 }
 
 resolve_release_tag() {
+  # Local override only. /test cannot pass a tag; CI leaves RELEASE_TAG unset
+  # and uses the newest plain odh-vX.Y tag below.
   if [[ -n "${RELEASE_TAG:-}" ]]; then
-    return 0
-  fi
-  # Legacy: tag postsubmit would pass the pushed ref (not used; prowgen cannot
-  # emit tag-scoped postsubmits under *-master-postsubmits.yaml).
-  if [[ "${JOB_TYPE:-}" == "postsubmit" && -n "${PULL_BASE_REF:-}" ]]; then
-    RELEASE_TAG="${PULL_BASE_REF#refs/tags/}"
-    export RELEASE_TAG
     return 0
   fi
   local latest
@@ -36,7 +31,7 @@ resolve_release_tag() {
 
 if ! resolve_release_tag; then
   echo "RELEASE_TAG is required (e.g. export RELEASE_TAG=odh-v3.6)"
-  echo "In OpenShift CI, /test e2e-kserve-module-post-release uses the newest odh-vX.Y tag when unset."
+  echo "In OpenShift CI, /test e2e-kserve-module-post-release uses the newest odh-vX.Y tag."
   exit 1
 fi
 

@@ -89,7 +89,8 @@ make e2e-kserve-module-post-release
 
 CI: OpenShift CI (Prow) optional `/test e2e-kserve-module-post-release` - after
 publishing `odh-vX.Y` and the Quay operator image, comment that on any open PR.
-Uses the published operator image only (never PR-built images). See
+Uses the **newest** plain `odh-vX.Y` tag and its published operator image (never
+PR-built images). See
 [post-release smoke runbook](../../../docs/dev/post-release-smoke-openshift-ci.md).
 
 Local or scripted (same commands as CI):
