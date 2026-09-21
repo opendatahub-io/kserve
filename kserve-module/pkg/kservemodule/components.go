@@ -62,6 +62,13 @@ var components = []componentConfig{
 		postRender: wvaPostRender,
 	},
 	{
+		name:          ModelExpressComponentName,
+		sourcePath:    ModelExpressManifestSourcePath,
+		sourcePathXKS: ModelExpressManifestSourcePathXKS,
+		imageMap:      modelExpressImageParamMap,
+		enabled:       isModelExpressEnabled,
+	},
+	{
 		name:         ModelCacheComponentName,
 		manifestName: KserveComponentName,
 		sourcePath:   ModelCacheManifestSourcePath,
@@ -238,6 +245,10 @@ func consoleDashboardsPostRender(ctx context.Context, r *KserveModuleReconciler,
 // upgrading from 3.5 where WVA was Managed.
 func isWVAEnabled(_ *platformv1alpha1.Kserve) bool {
 	return false
+}
+
+func isModelExpressEnabled(kserve *platformv1alpha1.Kserve) bool {
+	return kserve.Spec.ModelExpress.ManagementState == common.Managed
 }
 
 func modelControllerExtraParams(kserve *platformv1alpha1.Kserve) map[string]string {
