@@ -28,14 +28,14 @@ If the release under test is tagged like `odh-v3.6-ea1` (Quay image ends with
 `^odh-v[0-9]+\.[0-9]+$`.
 
 Run the **same** smoke script and Make targets with an explicit tag (local CRC /
-any OpenShift kubeconfig — not via the GitHub comment):
+any OpenShift kubeconfig - not via the GitHub comment):
 
 ```bash
 export RELEASE_TAG=odh-v3.6-ea1
 bash hack/ci/post-release-smoke.sh
 ```
 
-That is the same flow as CI (checkout tag → published Quay image →
+That is the same flow as CI (checkout tag -> published Quay image ->
 `make e2e-kserve-module-post-release`); only the trigger differs because Prow
 `/test` cannot pass `RELEASE_TAG`.
 
