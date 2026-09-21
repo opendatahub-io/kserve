@@ -728,6 +728,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					},
 				},
 			}
+			addExpectedTLSSecurityProfile(&expectedService.Spec.Template.Spec.PodSpec)
 			// Set ResourceVersion which is required for update operation.
 			expectedService.ResourceVersion = actualService.ResourceVersion
 
@@ -2107,6 +2108,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					},
 				},
 			}
+			addExpectedTLSSecurityProfile(&expectedTransformerService.Spec.Template.Spec.PodSpec)
 			// Set ResourceVersion which is required for update operation.
 			expectedTransformerService.ResourceVersion = transformerService.ResourceVersion
 
@@ -2442,6 +2444,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						},
 					},
 				}
+				addExpectedTLSSecurityProfile(&expectedService.Spec.Template.Spec.PodSpec)
 				// Set ResourceVersion which is required for update operation.
 				expectedService.ResourceVersion = actualService.ResourceVersion
 
@@ -2755,6 +2758,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						},
 					},
 				}
+				addExpectedTLSSecurityProfile(&expectedService.Spec.Template.Spec.PodSpec)
 				// Set ResourceVersion which is required for update operation.
 				expectedService.ResourceVersion = actualService.ResourceVersion
 
@@ -3087,6 +3091,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						},
 					},
 				}
+				addExpectedTLSSecurityProfile(&expectedService.Spec.Template.Spec.PodSpec)
 				// Set ResourceVersion which is required for update operation.
 				expectedService.ResourceVersion = actualService.ResourceVersion
 
@@ -3365,6 +3370,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						},
 					},
 				}
+				addExpectedTLSSecurityProfile(&expectedService.Spec.Template.Spec.PodSpec)
 				// Set ResourceVersion which is required for update operation.
 				expectedService.ResourceVersion = actualService.ResourceVersion
 
@@ -3937,6 +3943,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					},
 				},
 			}
+			addExpectedTLSSecurityProfile(&expectedPredictorService.Spec.Template.Spec.PodSpec)
 
 			// Set ResourceVersion which is required for update operation.
 			expectedPredictorService.ResourceVersion = predictorService.ResourceVersion

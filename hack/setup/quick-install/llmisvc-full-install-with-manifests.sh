@@ -2609,6 +2609,8 @@ get_kserve_llmisvcconfig_manifests() {
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
+  annotations:
+    internal.serving.kserve.io/kv-cache-shm-percent-of-cpu: "120"
   name: kserve-config-llm-decode-template
   namespace: kserve
 spec:
@@ -2802,9 +2804,13 @@ spec:
         # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
         KV_TRANSFER_ARGS=""
         if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-          # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
-          if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-            KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+          # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+          # it is empty (no-op) when KV cache offloading is not configured.
+          if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+              KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+            fi
           fi
           # This template is only composed for a disaggregated P/D topology (spec.prefill set).
           # Decode is the KV consumer; without a connector here it recomputes prefill's KV.
@@ -2836,6 +2842,8 @@ spec:
           $@"
       - --
       env:
+      - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
       - name: HOME
         value: /home
       - name: VLLM_LOGGING_LEVEL
@@ -2983,6 +2991,8 @@ spec:
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
+  annotations:
+    internal.serving.kserve.io/kv-cache-shm-percent-of-cpu: "120"
   name: kserve-config-llm-decode-worker-data-parallel
   namespace: kserve
 spec:
@@ -3198,9 +3208,13 @@ spec:
         # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
         KV_TRANSFER_ARGS=""
         if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-          # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
-          if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-            KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+          # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+          # it is empty (no-op) when KV cache offloading is not configured.
+          if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+              KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+            fi
           fi
           # This template is only composed for a disaggregated P/D topology (spec.prefill set).
           # Decode is the KV consumer; without a connector here it recomputes prefill's KV.
@@ -3240,6 +3254,8 @@ spec:
           $@"
       - --
       env:
+      - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
       - name: HOME
         value: /home
       - name: VLLM_LOGGING_LEVEL
@@ -3598,9 +3614,13 @@ spec:
         # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
         KV_TRANSFER_ARGS=""
         if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-          # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
-          if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-            KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+          # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+          # it is empty (no-op) when KV cache offloading is not configured.
+          if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+              KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+            fi
           fi
           # This template is only composed for a disaggregated P/D topology (spec.prefill set).
           # Decode is the KV consumer; without a connector here it recomputes prefill's KV.
@@ -3640,6 +3660,8 @@ spec:
           $@"
       - --
       env:
+      - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
       - name: HOME
         value: /home
       - name: VLLM_LOGGING_LEVEL
@@ -3710,6 +3732,8 @@ spec:
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
+  annotations:
+    internal.serving.kserve.io/kv-cache-shm-percent-of-cpu: "120"
   name: kserve-config-llm-prefill-template
   namespace: kserve
 spec:
@@ -3904,9 +3928,13 @@ spec:
           # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
           KV_TRANSFER_ARGS=""
           if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
-            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-              KV_TRANSFER_ARGS="{{ if .Spec.Prefill }}{{ kvTransferConfig .Spec.Prefill.KVCacheOffloading }}{{ end }}"
+            # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+            # it is empty (no-op) when KV cache offloading is not configured.
+            if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+              # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+              if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+                KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+              fi
             fi
             # This template is only composed for a disaggregated P/D topology (spec.prefill set).
             # Prefill is the KV producer; without a connector here decode has nothing to fetch.
@@ -3938,6 +3966,8 @@ spec:
             $@"
         - --
         env:
+        - name: KSERVE_KV_TRANSFER_ARGS
+          value: ""
         - name: HOME
           value: /home
         - name: VLLM_LOGGING_LEVEL
@@ -4025,6 +4055,8 @@ spec:
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
+  annotations:
+    internal.serving.kserve.io/kv-cache-shm-percent-of-cpu: "120"
   name: kserve-config-llm-prefill-worker-data-parallel
   namespace: kserve
 spec:
@@ -4241,9 +4273,13 @@ spec:
           # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
           KV_TRANSFER_ARGS=""
           if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
-            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-              KV_TRANSFER_ARGS="{{ if .Spec.Prefill }}{{ kvTransferConfig .Spec.Prefill.KVCacheOffloading }}{{ end }}"
+            # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+            # it is empty (no-op) when KV cache offloading is not configured.
+            if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+              # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+              if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+                KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+              fi
             fi
             # This template is only composed for a disaggregated P/D topology (spec.prefill set).
             # Prefill is the KV producer; without a connector here decode has nothing to fetch.
@@ -4283,6 +4319,8 @@ spec:
             $@"
         - --
         env:
+        - name: KSERVE_KV_TRANSFER_ARGS
+          value: ""
         - name: HOME
           value: /home
         - name: VLLM_LOGGING_LEVEL
@@ -4580,9 +4618,13 @@ spec:
           # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
           KV_TRANSFER_ARGS=""
           if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
-            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-              KV_TRANSFER_ARGS="{{ if .Spec.Prefill }}{{ kvTransferConfig .Spec.Prefill.KVCacheOffloading }}{{ end }}"
+            # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+            # it is empty (no-op) when KV cache offloading is not configured.
+            if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+              # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+              if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+                KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+              fi
             fi
             # This template is only composed for a disaggregated P/D topology (spec.prefill set).
             # Prefill is the KV producer; without a connector here decode has nothing to fetch.
@@ -4622,6 +4664,8 @@ spec:
             $@"
         - --
         env:
+        - name: KSERVE_KV_TRANSFER_ARGS
+          value: ""
         - name: HOME
           value: /home
         - name: VLLM_LOGGING_LEVEL
@@ -5182,6 +5226,8 @@ spec:
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
+  annotations:
+    internal.serving.kserve.io/kv-cache-shm-percent-of-cpu: "120"
   name: kserve-config-llm-template
   namespace: kserve
 spec:
@@ -5372,11 +5418,16 @@ spec:
           SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ shutdownTimeout .Spec.Template 15 }}"
         fi
 
-        # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+        # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
         KV_TRANSFER_ARGS=""
-        if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-          if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-            KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+        if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+          # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+          # it is empty (no-op) when KV cache offloading is not configured.
+          if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+              KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+            fi
           fi
         fi
 
@@ -5395,6 +5446,8 @@ spec:
           $@"
       - --
       env:
+      - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
       - name: HOME
         value: /home
       - name: VLLM_LOGGING_LEVEL
@@ -5568,6 +5621,8 @@ spec:
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
+  annotations:
+    internal.serving.kserve.io/kv-cache-shm-percent-of-cpu: "120"
   name: kserve-config-llm-worker-data-parallel
   namespace: kserve
 spec:
@@ -5780,11 +5835,16 @@ spec:
           SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ shutdownTimeout .Spec.Template 15 }}"
         fi
 
-        # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+        # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
         KV_TRANSFER_ARGS=""
-        if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-          if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-            KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+        if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+          # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+          # it is empty (no-op) when KV cache offloading is not configured.
+          if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+              KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+            fi
           fi
         fi
 
@@ -5811,6 +5871,8 @@ spec:
           $@"
       - --
       env:
+      - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
       - name: HOME
         value: /home
       - name: VLLM_LOGGING_LEVEL
@@ -6101,11 +6163,16 @@ spec:
           SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ shutdownTimeout .Spec.Worker 15 }}"
         fi
 
-        # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+        # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
         KV_TRANSFER_ARGS=""
-        if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-          if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-            KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+        if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+          # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+          # it is empty (no-op) when KV cache offloading is not configured.
+          if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+              KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+            fi
           fi
         fi
 
@@ -6132,6 +6199,8 @@ spec:
           $@"
       - --
       env:
+      - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
       - name: HOME
         value: /home
       - name: VLLM_LOGGING_LEVEL

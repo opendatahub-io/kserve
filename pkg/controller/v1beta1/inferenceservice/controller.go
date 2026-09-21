@@ -742,6 +742,11 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, deployCo
 		r.Log.Info("The InferenceService controller won't watch serving.kserve.io/v1alpha1/ClusterServingRuntime resources because the CRD is not available.")
 	}
 
+	ctrlBuilder, err = r.setupTLSSecurityProfileWatch(ctrlBuilder)
+	if err != nil {
+		return err
+	}
+
 	return ctrlBuilder.Complete(r)
 }
 

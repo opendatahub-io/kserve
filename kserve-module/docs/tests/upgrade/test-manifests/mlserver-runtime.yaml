@@ -18,7 +18,7 @@ spec:
   containers:
     - env:
         - name: MLSERVER_MODEL_IMPLEMENTATION
-          value: "{{.Labels.modelClass}}"
+          value: mlserver_sklearn.SKLearnModel
         - name: MLSERVER_HTTP_PORT
           value: "8080"
         - name: MLSERVER_MODELS_DIR
