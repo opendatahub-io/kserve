@@ -233,6 +233,8 @@ class TestManagementState:
             f"{WVA_DEPLOYMENT} must not be created even when ManagementState is Managed"
         assert not resource_exists(kubectl, "configmap", WVA_CONFIGMAP, namespace=NAMESPACE), \
             f"{WVA_CONFIGMAP} must not be created even when ManagementState is Managed"
+        assert "WVAReady" not in get_conditions(kubectl), \
+            "WVAReady must be cleared even when spec.wva.managementState is Managed"
         _verify_deployments_available(kubectl, is_openshift=True)
 
     def test_wva_leftover_resources_cleaned_up(self, kubectl, cluster_info, apply_kserve_cr):
