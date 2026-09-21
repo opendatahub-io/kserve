@@ -43,13 +43,15 @@ func TestNewConfigConvertsCipherSuitesForOpenSSL(t *testing.T) {
 	}
 }
 
-func TestNewConfigRejectsCipherWithoutOpenSSLMapping(t *testing.T) {
+// NewConfig is exported and its values are templated into preset JSON, so it
+// validates rather than trusting the caller to have done it.
+func TestNewConfigRejectsAnUnvalidatedCipherSuite(t *testing.T) {
 	ingressConfig := &v1beta1.IngressConfig{
 		LLMInferenceServiceTLSCipherSuites: "TLS_FUTURE_CIPHER_SUITE",
 	}
 
 	_, err := llmisvc.NewConfig(ingressConfig, nil, nil, nil)
-	require.ErrorContains(t, err, `no OpenSSL name is defined for TLS cipher suite "TLS_FUTURE_CIPHER_SUITE"`)
+	require.ErrorContains(t, err, "TLS_FUTURE_CIPHER_SUITE")
 }
 
 func TestLoadConfigValidatesAndNormalizesTLSProfile(t *testing.T) {

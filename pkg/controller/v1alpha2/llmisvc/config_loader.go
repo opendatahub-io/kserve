@@ -170,8 +170,15 @@ type WVAAutoscalingConfig struct {
 const autoscalingConfigName = "autoscaling-wva-controller-config"
 
 // NewConfig creates an instance of llm-specific config based on predefined values
-// in IngressConfig struct
+// in IngressConfig struct.
+//
+// The TLS profile values are templated into preset JSON as-is, so this validates
+// them rather than trusting the caller - a quote would corrupt the render.
 func NewConfig(ingressConfig *v1beta1.IngressConfig, storageConfig *types.StorageInitializerConfig, credentialConfig *credentials.CredentialConfig, schedulerConfig *SchedulerConfig) (*Config, error) {
+	if err := kservetls.Validate(ingressConfig.LLMInferenceServiceTLSMinVersion, ingressConfig.LLMInferenceServiceTLSCipherSuites); err != nil {
+		return nil, fmt.Errorf("invalid LLMInferenceService TLS configuration: %w", err)
+	}
+
 	igwNs := constants.KServeNamespace
 	igwName := ingressConfig.KserveIngressGateway
 	// Parse gateway name to extract namespace and name components
@@ -232,6 +239,11 @@ func openSSLCipherSuites(cipherSuites string) (string, error) {
 		}
 		converted = append(converted, openSSLName)
 	}
+
+	// The presets interpolate this value into the vLLM entrypoint script. It is
+	// safe to do so because every name comes from openSSLCipherSuiteNames, whose
+	// values TestOpenSSLCipherSuiteNamesAreShellSafe holds to shell-safe
+	// characters - an unmappable name is rejected above.
 	return strings.Join(converted, ":"), nil
 }
 

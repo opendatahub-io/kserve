@@ -781,6 +781,10 @@ func TestPresetFiles(t *testing.T) {
 					diff := cmp.Diff(tc.expected, out)
 					t.Errorf("ReplaceVariables() returned unexpected diff (-want +got):\n%s", diff)
 				}
+				// DeepDerivative ignores entries past the end of the expected slice
+				// and treats an expected "" as a wildcard, so the argv shape - which
+				// is what a rollout hinges on - needs its own assertion.
+				assertArgvLengths(t, filename, tc.expected, out)
 			}
 		})
 
@@ -1257,5 +1261,53 @@ func TestSGLangTemplateTrustRemoteCode(t *testing.T) {
 	cmd := out.Spec.Template.Containers[0].Command[2]
 	if !strings.Contains(cmd, "--trust-remote-code") {
 		t.Errorf("Expected --trust-remote-code flag when TrustRemoteCode=true, got command: %q", cmd)
+	}
+}
+
+// assertArgvLengths pins the number of command and args entries per container.
+// An entry appearing or disappearing changes the pod template and restarts the
+// workload, which is exactly what DeepDerivative cannot see.
+func assertArgvLengths(t *testing.T, filename string, expected, got *v1alpha2.LLMInferenceServiceConfig) {
+	t.Helper()
+	podSpecs := func(cfg *v1alpha2.LLMInferenceServiceConfig) []*corev1.PodSpec {
+		specs := []*corev1.PodSpec{cfg.Spec.Template, cfg.Spec.Worker}
+		if cfg.Spec.Prefill != nil {
+			specs = append(specs, cfg.Spec.Prefill.Template, cfg.Spec.Prefill.Worker)
+		}
+		if cfg.Spec.Router != nil && cfg.Spec.Router.Scheduler != nil {
+			specs = append(specs, cfg.Spec.Router.Scheduler.Template)
+			if cfg.Spec.Router.Scheduler.Tokenizer != nil {
+				specs = append(specs, cfg.Spec.Router.Scheduler.Tokenizer.Template)
+			}
+		}
+		return specs
+	}
+
+	wantSpecs, gotSpecs := podSpecs(expected), podSpecs(got)
+	for i := range wantSpecs {
+		if wantSpecs[i] == nil || gotSpecs[i] == nil {
+			continue
+		}
+		for _, containers := range [][2][]corev1.Container{
+			{wantSpecs[i].InitContainers, gotSpecs[i].InitContainers},
+			{wantSpecs[i].Containers, gotSpecs[i].Containers},
+		} {
+			want, got := containers[0], containers[1]
+			for j := range want {
+				if j >= len(got) {
+					break
+				}
+				// The goldens are partial: an unspecified argv means "not asserted",
+				// which is the DeepDerivative contract the rest of this test uses.
+				if len(want[j].Command) > 0 && len(want[j].Command) != len(got[j].Command) {
+					t.Errorf("%s: container %q has %d command entries, want %d: %q",
+						filename, got[j].Name, len(got[j].Command), len(want[j].Command), got[j].Command)
+				}
+				if len(want[j].Args) > 0 && len(want[j].Args) != len(got[j].Args) {
+					t.Errorf("%s: container %q has %d args entries, want %d: %q",
+						filename, got[j].Name, len(got[j].Args), len(want[j].Args), got[j].Args)
+				}
+			}
+		}
 	}
 }

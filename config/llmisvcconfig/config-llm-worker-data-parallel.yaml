@@ -218,9 +218,21 @@ spec:
             fi
             echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
 
-            {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
-
-            # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
+            {{ if and .GlobalConfig.EnableTLS .GlobalConfig.TLSCipherSuitesOpenSSL }}# vLLM added --ssl-ciphers in 0.15.0. Product images may report a product
+            # version rather than the bundled vLLM version, so probe the flag itself.
+            # Capture the help text instead of piping it, so the probe keeps working
+            # if these scripts ever run under `set -o pipefail`.
+            TLS_CIPHER_ARGS=""
+            TLS_CIPHER_HELP="$(vllm serve --help=all 2>&1 || true)"
+            case "${TLS_CIPHER_HELP}" in
+              *--ssl-ciphers*)
+                TLS_CIPHER_ARGS="--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}"
+                ;;
+              *)
+                echo "[tls-profile] warning: this vLLM does not support --ssl-ciphers; continuing without the configured cipher policy" >&2
+                ;;
+            esac
+            {{ end }}# --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
             SHUTDOWN_TIMEOUT_ARGS=""
             if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.18.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.18.0" ]; then
               SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ shutdownTimeout .Spec.Template 15 }}"
@@ -258,8 +270,7 @@ spec:
               {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
               {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
               {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
-              {{ if and .GlobalConfig.EnableTLS .GlobalConfig.TLSCipherSuitesOpenSSL }}${TLS_CIPHER_ARGS}{{- end }} \
-              ${VLLM_ADDITIONAL_ARGS} \
+              ${VLLM_ADDITIONAL_ARGS}{{ if and .GlobalConfig.EnableTLS .GlobalConfig.TLSCipherSuitesOpenSSL }} ${TLS_CIPHER_ARGS}{{ end }} \
               $@"
           # "--" ends bash options; subsequent args become positional params ($@) forwarded to vllm serve
           - "--"
@@ -552,9 +563,21 @@ spec:
             fi
             echo "[access-log-detect] selected ACCESS_LOG_ARGS='${ACCESS_LOG_ARGS}'"
 
-            {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
-
-            # --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
+            {{ if and .GlobalConfig.EnableTLS .GlobalConfig.TLSCipherSuitesOpenSSL }}# vLLM added --ssl-ciphers in 0.15.0. Product images may report a product
+            # version rather than the bundled vLLM version, so probe the flag itself.
+            # Capture the help text instead of piping it, so the probe keeps working
+            # if these scripts ever run under `set -o pipefail`.
+            TLS_CIPHER_ARGS=""
+            TLS_CIPHER_HELP="$(vllm serve --help=all 2>&1 || true)"
+            case "${TLS_CIPHER_HELP}" in
+              *--ssl-ciphers*)
+                TLS_CIPHER_ARGS="--ssl-ciphers {{ .GlobalConfig.TLSCipherSuitesOpenSSL }}"
+                ;;
+              *)
+                echo "[tls-profile] warning: this vLLM does not support --ssl-ciphers; continuing without the configured cipher policy" >&2
+                ;;
+            esac
+            {{ end }}# --shutdown-timeout landed in vLLM 0.18.0 (vllm-project/vllm#36666).
             SHUTDOWN_TIMEOUT_ARGS=""
             if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.18.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.18.0" ]; then
               SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ shutdownTimeout .Spec.Worker 15 }}"
@@ -592,8 +615,7 @@ spec:
               {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh{{- end }} \
               {{ if .GlobalConfig.EnableTLS }}--ssl-certfile /var/run/kserve/tls/tls.crt{{- end }} \
               {{ if .GlobalConfig.EnableTLS }}--ssl-keyfile /var/run/kserve/tls/tls.key{{- end }} \
-              {{ if and .GlobalConfig.EnableTLS .GlobalConfig.TLSCipherSuitesOpenSSL }}${TLS_CIPHER_ARGS}{{- end }} \
-              ${VLLM_ADDITIONAL_ARGS} \
+              ${VLLM_ADDITIONAL_ARGS}{{ if and .GlobalConfig.EnableTLS .GlobalConfig.TLSCipherSuitesOpenSSL }} ${TLS_CIPHER_ARGS}{{ end }} \
               $@"
           # "--" ends bash options; subsequent args become positional params ($@) forwarded to vllm serve
           - "--"
