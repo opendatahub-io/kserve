@@ -34,6 +34,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
@@ -186,7 +187,7 @@ func createDefaultSvc(componentMeta metav1.ObjectMeta, componentExt *v1beta1.Com
 	}
 
 	// Allow platform-specific customization of the service (e.g. annotations, port overrides).
-	customizeService(service, componentMeta)
+	customizeService(service, componentMeta, podSpec)
 
 	return service
 }
@@ -321,4 +322,9 @@ func (r *ServiceReconciler) SetControllerReferences(owner metav1.Object, scheme 
 		}
 	}
 	return nil
+}
+
+// CleanupOrphans deletes Services selected by scope whose names are not retained.
+func (r *ServiceReconciler) CleanupOrphans(ctx context.Context, scope isvcutils.OrphanScope) error {
+	return isvcutils.DeleteOrphans[*corev1.ServiceList](ctx, r.client, scope)
 }

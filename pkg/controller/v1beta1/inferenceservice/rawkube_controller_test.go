@@ -140,6 +140,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedDeployment := getDeploymentWithKServiceLabel(predictorDeploymentKey, serviceName, isvc)
 			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
+			addExpectedTLSSecurityProfile(&expectedDeployment.Spec.Template.Spec)
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// Verify INFERENCE_SERVICE_NAME environment variable is set
@@ -592,6 +593,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			addExpectedTLSSecurityProfile(&expectedDeployment.Spec.Template.Spec)
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// check isvc status
@@ -1029,6 +1031,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			addExpectedTLSSecurityProfile(&expectedDeployment.Spec.Template.Spec)
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// check service
@@ -3960,6 +3963,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedDeployment := getDeploymentWithKServiceLabel(predictorDeploymentKey, serviceName, isvc)
 			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
+			addExpectedTLSSecurityProfile(&expectedDeployment.Spec.Template.Spec)
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// check service
@@ -4155,6 +4159,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedDeployment := getDeploymentWithKServiceLabel(predictorDeploymentKey, serviceName, isvc)
 			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
+			addExpectedTLSSecurityProfile(&expectedDeployment.Spec.Template.Spec)
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// check service
@@ -4637,6 +4642,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			addExpectedTLSSecurityProfile(&expectedPredictorDeployment.Spec.Template.Spec)
 			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
 
 			// check transformer deployment
@@ -4724,6 +4730,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			addExpectedTLSSecurityProfile(&expectedTransformerDeployment.Spec.Template.Spec)
 			Expect(actualTransformerDeployment.Spec).To(BeComparableTo(expectedTransformerDeployment.Spec))
 
 			// check predictor service
@@ -5418,6 +5425,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			addExpectedTLSSecurityProfile(&expectedPredictorDeployment.Spec.Template.Spec)
 			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
 
 			// check Explainer deployment
@@ -5432,6 +5440,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedExplainerDeployment := getExpectedDeployment(explainerDeploymentKey, serviceName, serviceKey, predictorServiceKey)
 			expectedExplainerDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = explainerDeploymentKey.Name + constants.ServingCertSecretSuffix
+			addExpectedTLSSecurityProfile(&expectedExplainerDeployment.Spec.Template.Spec)
 			Expect(actualExplainerDeployment.Spec).To(BeComparableTo(expectedExplainerDeployment.Spec))
 
 			// check predictor service
@@ -5816,13 +5825,11 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			// verify if InferenceService status is updated
 			expectedIsvcStatus := getExpectedIsvcStatus(serviceKey, "http", "raw-foo-exp-default.example.com",
 				"raw-foo-exp-predictor-default.example.com", "8080")
-			expectedIsvcStatus.Conditions = append([]apis.Condition{
-				{
-					Type:     v1beta1.ExplainerReady,
-					Status:   "True",
-					Severity: "Info",
-				},
-			}, expectedIsvcStatus.Conditions...)
+			expectedIsvcStatus.SetCondition(v1beta1.ExplainerReady, &apis.Condition{
+				Type:     v1beta1.ExplainerReady,
+				Status:   corev1.ConditionTrue,
+				Severity: apis.ConditionSeverityInfo,
+			})
 			explainer := map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 				v1beta1.ExplainerComponent: {
 					LatestCreatedRevision: "",
@@ -6052,6 +6059,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedDeployment := getDeploymentWithKServiceLabel(predictorDeploymentKey, serviceName, isvc)
 			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
+			addExpectedTLSSecurityProfile(&expectedDeployment.Spec.Template.Spec)
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// check service
@@ -6585,6 +6593,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			addExpectedTLSSecurityProfile(&expectedPredictorDeployment.Spec.Template.Spec)
 			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
 
 			// check transformer deployment
@@ -6672,6 +6681,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			addExpectedTLSSecurityProfile(&expectedTransformerDeployment.Spec.Template.Spec)
 			Expect(actualTransformerDeployment.Spec).To(BeComparableTo(expectedTransformerDeployment.Spec))
 
 			// check predictor service
@@ -7415,6 +7425,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			addExpectedTLSSecurityProfile(&expectedPredictorDeployment.Spec.Template.Spec)
 			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
 
 			// check Explainer deployment
@@ -7429,6 +7440,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedExplainerDeployment := getExpectedDeployment(explainerDeploymentKey, serviceName, serviceKey, predictorServiceKey)
 			expectedExplainerDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = explainerDeploymentKey.Name + constants.ServingCertSecretSuffix
+			addExpectedTLSSecurityProfile(&expectedExplainerDeployment.Spec.Template.Spec)
 			Expect(actualExplainerDeployment.Spec).To(BeComparableTo(expectedExplainerDeployment.Spec))
 
 			// check predictor service
@@ -7902,13 +7914,11 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			// verify if InferenceService status is updated
 			expectedIsvcStatus := getExpectedIsvcStatus(serviceKey, "http", "raw-foo-exp-path-default.example.com",
 				"raw-foo-exp-path-predictor-default.example.com", "8080")
-			expectedIsvcStatus.Conditions = append([]apis.Condition{
-				{
-					Type:     v1beta1.ExplainerReady,
-					Status:   "True",
-					Severity: "Info",
-				},
-			}, expectedIsvcStatus.Conditions...)
+			expectedIsvcStatus.SetCondition(v1beta1.ExplainerReady, &apis.Condition{
+				Type:     v1beta1.ExplainerReady,
+				Status:   corev1.ConditionTrue,
+				Severity: apis.ConditionSeverityInfo,
+			})
 			explainer := map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 				v1beta1.ExplainerComponent: {
 					LatestCreatedRevision: "",
@@ -8411,6 +8421,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedDeployment := getDeploymentWithKServiceLabel(predictorDeploymentKey, serviceName, isvc)
 			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
+			addExpectedTLSSecurityProfile(&expectedDeployment.Spec.Template.Spec)
 			Expect(actualDeployment.Spec).To(Equal(expectedDeployment.Spec))
 
 			// check service
@@ -8810,6 +8821,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 			}
 
+			addExpectedTLSSecurityProfile(&expectedDeployment.Spec.Template.Spec)
 			// Use cmpopts.SortMaps for consistent comparison that ignores map key ordering
 			Expect(actualDeployment.Spec).To(Equal(expectedDeployment.Spec),
 				cmp.Diff(expectedDeployment.Spec, actualDeployment.Spec, cmpopts.SortMaps(func(a, b string) bool { return a < b })))
@@ -11230,6 +11242,158 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				return isvc.Status.Address.URL.Host == expectedHost
 			}, timeout, interval).Should(BeTrue(),
 				"status.address.url should include :8888 for headless service with custom container port")
+		})
+	})
+
+	Context("When creating inference service with custom http_port that overrides the runtime default", func() {
+		It("Should deduplicate the --http_port arg and set the readiness probe to the ISVC port", func() {
+			ctx := context.Background()
+
+			configs := map[string]string{
+				"oauthProxy": `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+				"ingress": `{
+					"ingressGateway": "knative-serving/knative-ingress-gateway",
+					"localGateway": "knative-serving/knative-local-gateway",
+					"localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"
+				}`,
+				"storageInitializer": `{
+					"image": "kserve/storage-initializer:latest",
+					"memoryRequest": "100Mi",
+					"memoryLimit": "1Gi",
+					"cpuRequest": "100m",
+					"cpuLimit": "1",
+					"caBundleConfigMapName": "",
+					"caBundleVolumeMountPath": "/etc/ssl/custom-certs",
+					"cpuModelcar": "10m",
+					"memoryModelcar": "15Mi"
+				}`,
+			}
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(ctx, configMap)
+
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "sklearn-runtime-custom-port",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "sklearn",
+							Version:    ptr.To("1"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  constants.InferenceServiceContainerName,
+								Image: "kserve/sklearnserver:latest",
+								Args: []string{
+									"--model_name={{.Name}}",
+									"--model_dir=/mnt/models",
+									"--http_port=8080",
+								},
+								Resources: defaultResource,
+							},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+			Expect(k8sClient.Create(ctx, servingRuntime)).Should(Succeed())
+			defer k8sClient.Delete(ctx, servingRuntime)
+
+			serviceName := "raw-custom-http-port"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						constants.DeploymentMode: string(constants.Standard),
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+							Batcher: &v1beta1.Batcher{
+								MaxBatchSize: ptr.To(32),
+								MaxLatency:   ptr.To(5000),
+							},
+						},
+						Model: &v1beta1.ModelSpec{
+							ModelFormat: v1beta1.ModelFormat{
+								Name: "sklearn",
+							},
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI: ptr.To("s3://test/sklearn/model"),
+								Container: corev1.Container{
+									Name: constants.InferenceServiceContainerName,
+									Args: []string{"--http_port=5000"},
+									Ports: []corev1.ContainerPort{
+										{
+											ContainerPort: 5000,
+											Protocol:      corev1.ProtocolTCP,
+										},
+									},
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			actualDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, predictorDeploymentKey, actualDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			var kserveContainer *corev1.Container
+			for i := range actualDeployment.Spec.Template.Spec.Containers {
+				if actualDeployment.Spec.Template.Spec.Containers[i].Name == constants.InferenceServiceContainerName {
+					kserveContainer = &actualDeployment.Spec.Template.Spec.Containers[i]
+					break
+				}
+			}
+			Expect(kserveContainer).NotTo(BeNil(), "kserve-container should exist in the deployment")
+
+			// Verify --http_port appears exactly once with the ISVC value (5000), not the runtime default (8080)
+			httpPortCount := 0
+			for _, arg := range kserveContainer.Args {
+				if len(arg) >= len("--http_port") && arg[:len("--http_port")] == "--http_port" {
+					httpPortCount++
+				}
+			}
+			Expect(httpPortCount).To(Equal(1), "--http_port should appear exactly once in container args: %v", kserveContainer.Args)
+
+			foundPort := false
+			for _, arg := range kserveContainer.Args {
+				if arg == "--http_port=5000" {
+					foundPort = true
+					break
+				}
+			}
+			Expect(foundPort).To(BeTrue(), "--http_port=5000 should be in container args: %v", kserveContainer.Args)
+
+			// Verify the readiness probe targets port 5000
+			Expect(kserveContainer.ReadinessProbe).NotTo(BeNil(), "readiness probe should be set")
+			Expect(kserveContainer.ReadinessProbe.TCPSocket).NotTo(BeNil(), "readiness probe should use TCPSocket")
+			Expect(kserveContainer.ReadinessProbe.TCPSocket.Port.IntValue()).To(Equal(5000),
+				"readiness probe should target port 5000, not the runtime default 8080")
 		})
 	})
 

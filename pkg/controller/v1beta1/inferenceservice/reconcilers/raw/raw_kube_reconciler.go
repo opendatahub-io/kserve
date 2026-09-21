@@ -28,6 +28,7 @@ import (
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/autoscaler"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/ingress"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/otel"
+	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
 	"github.com/kserve/kserve/pkg/credentials"
 	kserveTypes "github.com/kserve/kserve/pkg/types"
 	"github.com/kserve/kserve/pkg/webhook/admission/pod"
@@ -71,6 +72,8 @@ func NewRawKubeReconciler(ctx context.Context,
 	storageSpec *v1beta1.StorageSpec,
 	credentialBuilder *credentials.CredentialBuilder,
 	storageContainerSpec *v1alpha1.StorageContainerSpec,
+	auditLoggingProfile constants.AuditLoggingProfile,
+	manageAuditLogging bool,
 ) (*RawKubeReconciler, error) {
 	var otelCollector *otel.OtelReconciler
 	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(ctx, clientset)
@@ -104,6 +107,14 @@ func NewRawKubeReconciler(ctx context.Context,
 	as, err := autoscaler.NewAutoscalerReconciler(client, scheme, componentMeta, componentExt, isvcConfigMap)
 	if err != nil {
 		return nil, err
+	}
+	// When KEDA is selected but the component has no autoScaling spec, the
+	// autoscaler reconciler returns a NoOpAutoscaler (no ScaledObject). Override
+	// the annotation to "none" so the deployment reconciler lets the Deployment
+	// own its own replica count instead of deferring to a non-existent scaler.
+	if _, isNoOp := as.Autoscaler.(*autoscaler.NoOpAutoscaler); isNoOp &&
+		componentMeta.Annotations[constants.AutoscalerClass] == string(constants.AutoscalerClassKeda) {
+		componentMeta.Annotations[constants.AutoscalerClass] = string(constants.AutoscalerClassNone)
 	}
 	ingressConfig, err := v1beta1.NewIngressConfig(isvcConfigMap)
 	if err != nil {
@@ -195,6 +206,8 @@ func NewRawKubeReconciler(ctx context.Context,
 			PodSpec:             podSpec,
 			WorkerPodSpec:       workerPodSpec,
 			DeployConfig:        deployConfig,
+			AuditLoggingProfile: auditLoggingProfile,
+			ManageAuditLogging:  manageAuditLogging,
 		},
 	)
 	if err != nil {
@@ -293,4 +306,17 @@ func (r *RawKubeReconciler) Reconcile(ctx context.Context, owner metav1.Object) 
 	}
 
 	return deploymentList, nil
+}
+
+// CleanupOrphans delegates cleanup for the supplied scope to each sub-reconciler.
+func (r *RawKubeReconciler) CleanupOrphans(ctx context.Context, scope isvcutils.OrphanScope) error {
+	errs := []error{
+		r.Workload.CleanupOrphans(ctx, scope),
+		r.Service.CleanupOrphans(ctx, scope),
+		r.Scaler.CleanupOrphans(ctx, scope),
+	}
+	if r.OtelCollector != nil {
+		errs = append(errs, r.OtelCollector.CleanupOrphans(ctx, scope))
+	}
+	return errors.Join(errs...)
 }

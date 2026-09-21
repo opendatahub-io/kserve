@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -23,6 +24,10 @@ const (
 	ConditionWVAReady              = "WVAReady"
 	ConditionModelCacheReady       = "ModelCacheReady"
 	ConditionDependenciesAvailable = "DependenciesAvailable"
+
+	// ReasonDeletionBlocked is the Degraded reason used when Kserve CR deletion
+	// is held back by resources that cannot yet be removed.
+	ReasonDeletionBlocked = "DeletionBlocked"
 )
 
 func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
@@ -191,15 +196,25 @@ func (r *KserveModuleReconciler) updateStatus(ctx context.Context, kserve *platf
 			}
 			return err
 		}
+		kserve.Status.ObservedGeneration = kserve.Generation
+		if equality.Semantic.DeepEqual(latest.Status, kserve.Status) {
+			return nil
+		}
 		latest.Status = kserve.Status
-		latest.Status.ObservedGeneration = kserve.Generation
 		return r.Status().Update(ctx, latest)
 	})
 }
 
 func (r *KserveModuleReconciler) setReleaseStatus(ctx context.Context, kserve *platformv1alpha1.Kserve) {
-	releases, err := loadComponentReleases(r.ManifestsTemplatePath,
-		[]string{KserveComponentName, OdhModelControllerComponentName})
+	// The modelcontroller component_metadata.yaml only lists serving runtime
+	// releases (OVMS, MLServer, Caikit, ...). On XKS those runtimes are not
+	// installed, so exclude them from status.releases.
+	componentDirs := []string{KserveComponentName}
+	if !r.isKubernetes(ctx) {
+		componentDirs = append(componentDirs, OdhModelControllerComponentName)
+	}
+
+	releases, err := loadComponentReleases(r.ManifestsTemplatePath, componentDirs)
 	if err != nil {
 		ctrl.Log.Error(err, "failed to load component releases")
 		return

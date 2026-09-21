@@ -126,6 +126,7 @@ type KserveModuleReconciler struct {
 
 	controller     controller.Controller
 	cache          cache.Cache
+	apiReader      client.Reader
 	dynamicWatches []*dynamicWatch
 	dynamicWatchMu sync.Mutex
 
@@ -149,10 +150,33 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	if !kserve.DeletionTimestamp.IsZero() {
+		if !controllerutil.ContainsFinalizer(kserve, ModuleFinalizerName) {
+			return ctrl.Result{}, nil
+		}
+
+		// Check whether config deletion is blocked before running any destructive
+		// cleanup, so a blocked deletion does not tear down still-running operands.
+		ns := r.getApplicationsNamespace()
+		outcome, err := r.cleanupLLMISVCConfigsOnDelete(ctx, ns)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("cleaning up LLMInferenceServiceConfigs: %w", err)
+		}
+		if !outcome.done {
+			if err := r.setDeletionBlocked(ctx, kserve, outcome.blockers); err != nil {
+				return ctrl.Result{}, err
+			}
+			log.Info("Kserve CR deletion blocked", "blockers", outcome.blockers)
+			return ctrl.Result{RequeueAfter: deletionRequeueInterval}, nil
+		}
+
 		if cleanupErr := r.cleanupOnDelete(ctx); cleanupErr != nil {
 			log.Error(cleanupErr, "component extra-cleanup failed during CR deletion")
+			if statusErr := r.setDeletionBlocked(ctx, kserve, []string{"component cleanup failed: " + cleanupErr.Error()}); statusErr != nil {
+				log.Error(statusErr, "failed to record component cleanup failure on status")
+			}
 			return ctrl.Result{}, cleanupErr
 		}
+
 		if controllerutil.RemoveFinalizer(kserve, ModuleFinalizerName) {
 			if err := r.Update(ctx, kserve); err != nil {
 				return ctrl.Result{}, fmt.Errorf("removing module finalizer: %w", err)
@@ -204,6 +228,17 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	if !condMgr.IsHappy() {
 		log.Info("not all components ready, requeueing")
+		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	}
+
+	// The CRDs this module installs itself exist by now. Register their dynamic
+	// watches before going quiescent: a self-installed CRD is not visible to the
+	// cached client during the reconcile that installs it, so the top-of-reconcile
+	// attempt above misses it. Once the happy path stops requeuing, no further
+	// reconcile runs and the preset self-heal watch would never register
+	// (RHOAIENG-88471). Requeue until every self-installed watch is registered.
+	if r.registerDynamicWatches(ctx) {
+		log.Info("self-installed dynamic watch registration pending, requeueing")
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
 

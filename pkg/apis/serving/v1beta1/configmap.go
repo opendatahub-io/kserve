@@ -58,6 +58,7 @@ const (
 
 	DefaultModelBasedRoutingHeaderName = "X-Gateway-Model-Name"
 	DefaultModelBasedRoutingMode       = "enabled"
+	DefaultLoRAModelRoutingStrategy    = constants.LoRAModelRoutingStrategyExact
 )
 
 // Error messages
@@ -126,13 +127,24 @@ type IngressConfig struct {
 	DomainTemplate               string    `json:"domainTemplate,omitempty"`
 	UrlScheme                    string    `json:"urlScheme,omitempty"`
 	EnableLLMInferenceServiceTLS bool      `json:"enableLLMInferenceServiceTLS,omitempty"`
-	DisableIstioVirtualHost      bool      `json:"disableIstioVirtualHost,omitempty"`
-	PathTemplate                 string    `json:"pathTemplate,omitempty"`
-	DisableIngressCreation       bool      `json:"disableIngressCreation,omitempty"`
-	DisableHTTPRouteTimeout      bool      `json:"disableHTTPRouteTimeout,omitempty"`
+	// LLMInferenceServiceTLSMinVersion configures the minimum TLS version for Go-based LLMISVC components.
+	// vLLM does not currently expose a minimum TLS version setting.
+	LLMInferenceServiceTLSMinVersion string `json:"llmInferenceServiceTLSMinVersion,omitempty"`
+	// LLMInferenceServiceTLSCipherSuites configures TLS 1.2 cipher suites using Go/IANA names; values are translated to OpenSSL names for vLLM.
+	LLMInferenceServiceTLSCipherSuites string `json:"llmInferenceServiceTLSCipherSuites,omitempty"`
+	DisableIstioVirtualHost            bool   `json:"disableIstioVirtualHost,omitempty"`
+	PathTemplate                       string `json:"pathTemplate,omitempty"`
+	DisableIngressCreation             bool   `json:"disableIngressCreation,omitempty"`
+	DisableHTTPRouteTimeout            bool   `json:"disableHTTPRouteTimeout,omitempty"`
 
 	ModelBasedRoutingHeaderName string `json:"modelBasedRoutingHeaderName,omitempty"`
 	ModelBasedRoutingMode       string `json:"modelBasedRoutingMode,omitempty"`
+
+	// LoRAModelRoutingStrategy selects how LLMInferenceService LoRA adapter
+	// expansion represents model identities in generated HTTPRoutes: "exact"
+	// (the default) or "regex", compared case-insensitively. Any other value
+	// fails config loading like the other ingress keys.
+	LoRAModelRoutingStrategy string `json:"loraModelRoutingStrategy,omitempty"`
 }
 
 // +kubebuilder:object:generate=false
@@ -357,6 +369,16 @@ func NewIngressConfig(isvcConfigMap *corev1.ConfigMap) (*IngressConfig, error) {
 
 	if ingressConfig.ModelBasedRoutingMode == "" {
 		ingressConfig.ModelBasedRoutingMode = DefaultModelBasedRoutingMode
+	}
+
+	switch strategy := strings.ToLower(strings.TrimSpace(ingressConfig.LoRAModelRoutingStrategy)); strategy {
+	case "":
+		ingressConfig.LoRAModelRoutingStrategy = DefaultLoRAModelRoutingStrategy
+	case constants.LoRAModelRoutingStrategyExact, constants.LoRAModelRoutingStrategyRegex:
+		ingressConfig.LoRAModelRoutingStrategy = strategy
+	default:
+		return nil, fmt.Errorf("invalid ingress config - loraModelRoutingStrategy must be %q or %q, got %q",
+			constants.LoRAModelRoutingStrategyExact, constants.LoRAModelRoutingStrategyRegex, ingressConfig.LoRAModelRoutingStrategy)
 	}
 
 	return ingressConfig, nil

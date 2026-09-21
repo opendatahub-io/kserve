@@ -1,0 +1,143 @@
+# Copyright 2026 The KServe Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import asyncio
+from unittest.mock import AsyncMock, Mock
+
+import pytest
+from watchfiles import Change
+
+from kserve.protocol.rest import ssl_cert_refresher
+
+
+@pytest.mark.asyncio
+async def test_ssl_cert_refresher_reloads_changed_certificate(monkeypatch):
+    cert_path = "/etc/tls/tls.crt"
+    key_path = "/etc/tls/tls.key"
+
+    async def changes(*paths, **kwargs):
+        assert paths == ("/etc/tls",)
+        assert not kwargs["recursive"]
+        assert kwargs["watch_filter"](Change.modified, cert_path)
+        assert kwargs["watch_filter"](Change.modified, "/etc/tls/..data")
+        yield {(Change.modified, cert_path)}
+
+    monkeypatch.setattr(ssl_cert_refresher, "awatch", changes)
+    probe_context = Mock()
+    monkeypatch.setattr(
+        ssl_cert_refresher.ssl, "SSLContext", Mock(return_value=probe_context)
+    )
+    ssl_context = Mock()
+
+    refresher = ssl_cert_refresher.SSLCertRefresher(
+        ssl_context=ssl_context,
+        key_path=key_path,
+        cert_path=cert_path,
+    )
+    await asyncio.wait_for(refresher._watch_task, timeout=5)
+
+    probe_context.load_cert_chain.assert_called_once_with(cert_path, key_path)
+    ssl_context.load_cert_chain.assert_called_once_with(cert_path, key_path)
+
+
+@pytest.mark.asyncio
+async def test_ssl_cert_refresher_keeps_watching_after_reload_error(monkeypatch):
+    cert_path = "/etc/tls/tls.crt"
+    key_path = "/etc/tls/tls.key"
+
+    async def changes(*_paths, **_kwargs):
+        yield {
+            (Change.modified, cert_path),
+            (Change.modified, key_path),
+        }
+
+    monkeypatch.setattr(ssl_cert_refresher, "awatch", changes)
+    exception_logger = Mock()
+    monkeypatch.setattr(ssl_cert_refresher.logger, "exception", exception_logger)
+    probe_context = Mock()
+    probe_context.load_cert_chain.side_effect = [
+        ValueError("invalid certificate"),
+        None,
+    ]
+    monkeypatch.setattr(
+        ssl_cert_refresher.ssl, "SSLContext", Mock(return_value=probe_context)
+    )
+    ssl_context = Mock()
+
+    refresher = ssl_cert_refresher.SSLCertRefresher(
+        ssl_context=ssl_context,
+        key_path=key_path,
+        cert_path=cert_path,
+    )
+    await asyncio.wait_for(refresher._watch_task, timeout=5)
+
+    assert probe_context.load_cert_chain.call_count == 2
+    ssl_context.load_cert_chain.assert_called_once_with(cert_path, key_path)
+    exception_logger.assert_called_once_with("Failed to reload SSL certificate chain")
+
+
+@pytest.mark.asyncio
+async def test_ssl_cert_refresher_restarts_after_watch_error(monkeypatch):
+    cert_path = "/etc/tls/tls.crt"
+    calls = 0
+
+    async def changes(*_paths, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("watch failed")
+        yield {(Change.modified, cert_path)}
+
+    monkeypatch.setattr(ssl_cert_refresher, "awatch", changes)
+    sleep = AsyncMock()
+    monkeypatch.setattr(ssl_cert_refresher.asyncio, "sleep", sleep)
+    monkeypatch.setattr(ssl_cert_refresher.ssl, "SSLContext", Mock(return_value=Mock()))
+    ssl_context = Mock()
+    refresher = ssl_cert_refresher.SSLCertRefresher(
+        ssl_context=ssl_context,
+        key_path="/etc/tls/tls.key",
+        cert_path=cert_path,
+    )
+
+    await asyncio.wait_for(refresher._watch_task, timeout=5)
+
+    assert calls == 2
+    sleep.assert_awaited_once_with(1.0)
+    ssl_context.load_cert_chain.assert_called_once_with(cert_path, "/etc/tls/tls.key")
+
+
+@pytest.mark.asyncio
+async def test_ssl_cert_refresher_stop_cancels_watcher(monkeypatch):
+    watcher_started = asyncio.Event()
+
+    async def changes(*_paths, **_kwargs):
+        watcher_started.set()
+        await asyncio.Event().wait()
+        yield
+
+    monkeypatch.setattr(ssl_cert_refresher, "awatch", changes)
+    refresher = ssl_cert_refresher.SSLCertRefresher(
+        ssl_context=Mock(),
+        key_path="/etc/tls/tls.key",
+        cert_path="/etc/tls/tls.crt",
+    )
+    await watcher_started.wait()
+    watch_task = refresher._watch_task
+
+    refresher.stop()
+
+    assert refresher._watch_task is None
+    with pytest.raises(asyncio.CancelledError):
+        await watch_task
+    assert watch_task.cancelled()
