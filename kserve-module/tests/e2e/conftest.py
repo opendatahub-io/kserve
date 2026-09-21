@@ -1,5 +1,6 @@
 """Shared fixtures for kserve-module E2E tests."""
 
+import json
 import shutil
 import subprocess
 import time
@@ -15,6 +16,7 @@ import yaml
 KSERVE_CR_NAME = "default-kserve"
 NAMESPACE = "opendatahub"
 OPERATOR_DEPLOYMENT = "kserve-module-controller-manager"
+MODULE_FINALIZER = "kserve-module.opendatahub.io/finalizer"
 TIMEOUT_300S = 300  # cold-start: first Kserve CR ready waits on operand image pulls
 TIMEOUT_120S = 120
 TIMEOUT_60S = 60
@@ -28,6 +30,7 @@ LLMISVC_CONFIG_RESOURCE = "llminferenceserviceconfigs.serving.kserve.io"
 
 OPERAND_DEPLOYMENTS_XKS = [
     LLMISVC_DEPLOYMENT,
+    "odh-model-controller",
 ]
 OPERAND_DEPLOYMENTS_OCP = [
     "kserve-controller-manager",
@@ -120,12 +123,60 @@ def _detect_openshift():
 # ---------------------------------------------------------------------------
 # Pytest hooks
 # ---------------------------------------------------------------------------
-def pytest_collection_modifyitems(config, items):
-    """Skip @pytest.mark.ocp_only tests on non-OpenShift clusters.
+def pytest_addoption(parser):
+    """Add upgrade phase flags matching opendatahub-tests upgrade suite."""
+    group = parser.getgroup("upgrade")
+    group.addoption(
+        "--pre-upgrade",
+        action="store_true",
+        default=False,
+        help="Run only @pytest.mark.pre_upgrade tests",
+    )
+    group.addoption(
+        "--post-upgrade",
+        action="store_true",
+        default=False,
+        help="Run only @pytest.mark.post_upgrade tests",
+    )
 
-    Runs at collection time — before any fixture setup — so expensive
-    fixtures like apply_kserve_cr never execute on vanilla-k8s clusters.
-    """
+
+def pytest_configure(config):
+    """Track whether any pre-upgrade test failed (skip baseline capture)."""
+    config._pre_upgrade_test_failed = False  # type: ignore[attr-defined]
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Record pre-upgrade failures so baseline capture can be skipped."""
+    outcome = yield
+    report = outcome.get_result()
+    if report.failed and "pre_upgrade" in item.keywords:
+        item.config._pre_upgrade_test_failed = True  # type: ignore[attr-defined]
+
+
+def pytest_collection_modifyitems(config, items):
+    """Filter upgrade tests by phase and skip OCP-only tests on vanilla k8s."""
+    pre_upgrade = config.getoption("--pre-upgrade")
+    post_upgrade = config.getoption("--post-upgrade")
+    if pre_upgrade and post_upgrade:
+        raise pytest.UsageError("Use only one of --pre-upgrade or --post-upgrade")
+
+    if pre_upgrade or post_upgrade:
+        phase_marker = "pre_upgrade" if pre_upgrade else "post_upgrade"
+        skip_other = pytest.mark.skip(
+            reason=f"Not selected for --{phase_marker.replace('_', '-')}"
+        )
+        for item in items:
+            if phase_marker not in item.keywords:
+                item.add_marker(skip_other)
+    else:
+        skip_upgrade = pytest.mark.skip(
+            reason="Upgrade test (use --pre-upgrade or --post-upgrade)"
+        )
+        for item in items:
+            if "pre_upgrade" in item.keywords or "post_upgrade" in item.keywords:
+                item.add_marker(skip_upgrade)
+
     is_ocp, _ = _detect_openshift()
     if is_ocp:
         return
@@ -226,7 +277,15 @@ def cr_exists(kubectl_bin, name=KSERVE_CR_NAME):
 
 def get_webhook_config(kubectl_bin, resource_type, name):
     """Fetch a cluster-scoped webhook config as a dict, or None if absent."""
-    result = run([kubectl_bin, "get", resource_type, name, "-o", "yaml"], check=False)
+    return get_resource(kubectl_bin, resource_type, name)
+
+
+def get_resource(kubectl_bin, resource_type, name, namespace=None):
+    """Fetch a resource as a dict, or None if absent."""
+    cmd = [kubectl_bin, "get", resource_type, name, "-o", "yaml"]
+    if namespace:
+        cmd.extend(["-n", namespace])
+    result = run(cmd, check=False)
     if result.returncode != 0:
         return None
     return yaml.safe_load(result.stdout)
@@ -406,9 +465,35 @@ def wait_for_kserve_cleanup(
                 "--for=delete",
                 f"kserve/{name}",
                 f"--timeout={timeout}s",
-            ]
+            ],
+            timeout=timeout + 10,
         )
     _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S)
+
+
+def force_delete_kserve_cr(kubectl_bin, is_openshift=False):
+    """Fast teardown: drop the module finalizer so the CR is deleted without
+    running the (correct but slow) well-known-config cleanup. The cleanup path
+    itself is exercised by the dedicated deletion tests, so every other test's
+    teardown does not need to pay for it."""
+    if cr_exists(kubectl_bin):
+        run(
+            [kubectl_bin, "delete", "kserve", KSERVE_CR_NAME, "--ignore-not-found", "--wait=false"],
+            check=False,
+        )
+        cr = get_cr(kubectl_bin, check=False) or {}
+        finalizers = cr.get("metadata", {}).get("finalizers", []) or []
+        if MODULE_FINALIZER in finalizers:
+            remaining = [f for f in finalizers if f != MODULE_FINALIZER]
+            patch = json.dumps([
+                {"op": "test", "path": "/metadata/finalizers", "value": finalizers},
+                {"op": "replace", "path": "/metadata/finalizers", "value": remaining},
+            ])
+            run(
+                [kubectl_bin, "patch", "kserve", KSERVE_CR_NAME, "--type=json", "-p", patch],
+                check=False,
+            )
+    wait_for_kserve_cleanup(kubectl_bin, is_openshift=is_openshift)
 
 
 def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120S):
@@ -446,6 +531,22 @@ def wait_for_daemonset_ready(kubectl_bin, name, namespace=NAMESPACE, timeout=TIM
                 return ds
         time.sleep(5)
     raise TimeoutError(f"daemonset {name} has no ready pods within {timeout}s")
+
+
+def ensure_configmap(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120S):
+    """Ensure a ConfigMap exists, triggering reconcile if needed."""
+    if resource_exists(kubectl_bin, "configmap", name, namespace=namespace):
+        return
+
+    trigger_reconcile(kubectl_bin)
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if resource_exists(kubectl_bin, "configmap", name, namespace=namespace):
+            return
+        time.sleep(5)
+
+    raise TimeoutError(f"configmap {name} not found within {timeout}s after reconcile trigger")
 
 
 def dump_modelcache_workload_diagnostics(kubectl_bin, namespace=NAMESPACE):
@@ -619,13 +720,10 @@ def apply_kserve_cr(kubectl, cluster_info):
     """Create a Kserve CR and delete after test."""
     created = not cr_exists(kubectl)
     cr = create_kserve_cr(kubectl)
+    ensure_configmap(kubectl, "inferenceservice-config", namespace=NAMESPACE)
     yield cr
     if created:
-        run(
-            [kubectl, "delete", "kserve", KSERVE_CR_NAME, "--ignore-not-found"],
-            check=False,
-        )
-        wait_for_kserve_cleanup(kubectl, is_openshift=cluster_info.is_openshift)
+        force_delete_kserve_cr(kubectl, is_openshift=cluster_info.is_openshift)
 
 
 @pytest.fixture

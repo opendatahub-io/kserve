@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -171,6 +172,15 @@ func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServ
 			return ctrl.Result{}, errors.Wrapf(err, "failed to add INFERENCE_SERVICE_NAME environment variable to container %s", transformerContainerName)
 		}
 	}
+	var additionalTLSContainers []string
+	if strings.EqualFold(isvc.Annotations[constants.ODHKserveRawAuth], "true") {
+		// The deployment reconciler adds this container's serving certificate
+		// after component reconciliation, so mark it as TLS-enabled here.
+		additionalTLSContainers = append(additionalTLSContainers, transformerContainerName)
+	}
+	if err := injectTLSSecurityProfile(ctx, p.client, &podSpec, additionalTLSContainers...); err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to inject TLS security profile into transformer")
+	}
 	isvcutils.InjectComponentTracing(isvc.Spec.Tracing, isvc.Namespace, isvc.Name, "", "", string(v1beta1.TransformerComponent), &podSpec.Containers[0])
 
 	// Here we allow switch between knative and vanilla deployment
@@ -231,7 +241,7 @@ func (p *Transformer) reconcileTransformerRawDeployment(ctx context.Context, isv
 	}
 
 	r, err := raw.NewRawKubeReconciler(ctx, p.client, p.clientset, p.scheme, constants.InferenceServiceResource, *objectMeta, metav1.ObjectMeta{},
-		&isvc.Spec.Transformer.ComponentExtensionSpec, podSpec, nil, &isvc.Spec.Transformer.StorageUris, storageInitializerConfig, storageSpec, credentialBuilder, storageContainerSpec)
+		&isvc.Spec.Transformer.ComponentExtensionSpec, podSpec, nil, &isvc.Spec.Transformer.StorageUris, storageInitializerConfig, storageSpec, credentialBuilder, storageContainerSpec, constants.AuditLoggingProfileNone, false)
 	if err != nil {
 		return errors.Wrapf(err, "fails to create NewRawKubeReconciler for transformer")
 	}
