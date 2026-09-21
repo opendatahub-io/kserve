@@ -16,11 +16,15 @@ spec:
                 - "/bin/bash"
                 - "-c"
                 - |-
+                  VLLM_VERSION=$(vllm --version 2>/dev/null | tail -1 | awk '{print $NF}')
+                  {{ vLLMTLSProfile .GlobalConfig.EnableTLS .GlobalConfig.TLSMinVersion .GlobalConfig.TLSCipherSuitesOpenSSL }}
+
                   exec vllm launch render /mnt/models/base \
                     --port=8000 \
                     {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh \
                     --ssl-certfile /var/run/kserve/tls/tls.crt \
-                    --ssl-keyfile /var/run/kserve/tls/tls.key{{ end }}
+                    --ssl-keyfile /var/run/kserve/tls/tls.key{{ end }} \
+                    {{ if and .GlobalConfig.EnableTLS .GlobalConfig.TLSCipherSuitesOpenSSL }}${TLS_CIPHER_ARGS}{{ end }}
               args: []
               ports:
                 - name: render-http
