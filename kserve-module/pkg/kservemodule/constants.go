@@ -26,14 +26,14 @@ const (
 	ConsoleDashboardsComponentName  = "console-dashboards"
 
 	// Manifest source paths
-	KserveManifestSourcePath        = "overlays/odh"
-	KserveManifestSourcePathXKS     = "overlays/odh-xks"
-	KserveCRDManifestSourcePath     = "overlays/odh-crds"
-	ModelCacheManifestSourcePath    = "overlays/odh-modelcache"
-	ModelControllerSourcePath       = "overlays/odh"
-	ModelControllerSourcePathXKS    = "overlays/xks"
-	WVAManifestSourcePathOCP        = "overlays/namespace-scoped/openshift"
-	ObservabilityManifestSourcePath      = "monitoring/llmisvc/dashboards"
+	KserveManifestSourcePath            = "overlays/odh"
+	KserveManifestSourcePathXKS         = "overlays/odh-xks"
+	KserveCRDManifestSourcePath         = "overlays/odh-crds"
+	ModelCacheManifestSourcePath        = "overlays/odh-modelcache"
+	ModelControllerSourcePath           = "overlays/odh"
+	ModelControllerSourcePathXKS        = "overlays/xks"
+	WVAManifestSourcePathOCP            = "overlays/namespace-scoped/openshift"
+	ObservabilityManifestSourcePath     = "monitoring/llmisvc/dashboards"
 	ConsoleDashboardsManifestSourcePath = "monitoring/llmisvc/dashboards-odc"
 
 	// Deployment names
@@ -43,6 +43,7 @@ const (
 	odhModelControllerDeployment   = "odh-model-controller"
 	modelServingAPIDeployment      = "model-serving-api"
 	wvaControllerDeployment        = "workload-variant-autoscaler-controller-manager"
+	variantAutoscalingCRDName      = "variantautoscalings.llmd.ai"
 
 	// Console dashboards target namespace
 	consoleDashboardsNamespace = "openshift-config-managed"
@@ -55,12 +56,13 @@ const (
 	platformVersionConfigMapKey = "platformVersion"
 
 	// ConfigMap keys
-	kserveConfigMapName     = "inferenceservice-config"
-	ingressConfigKeyName    = "ingress"
-	serviceConfigKeyName    = "service"
-	configHashAnnotationKey = "kserve-module/config-hash"
-	oauthProxyConfigKeyName = "oauthProxy"
-	openshiftConfigKeyName  = "openshiftConfig"
+	kserveConfigMapName               = "inferenceservice-config"
+	autoscalingWVAControllerConfigKey = "autoscaling-wva-controller-config"
+	ingressConfigKeyName              = "ingress"
+	serviceConfigKeyName              = "service"
+	configHashAnnotationKey           = "kserve-module/config-hash"
+	oauthProxyConfigKeyName           = "oauthProxy"
+	openshiftConfigKeyName            = "openshiftConfig"
 
 	// LLMInferenceServiceConfig versioning
 	wellKnownAnnotationKey   = "serving.kserve.io/well-known-config"

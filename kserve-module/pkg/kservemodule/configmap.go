@@ -39,6 +39,10 @@ func customizeKserveConfigMap(resources []unstructured.Unstructured, kserve *pla
 		return nil, err
 	}
 
+	if !isWVAEnabled(kserve) && cm.Data != nil {
+		delete(cm.Data, autoscalingWVAControllerConfigKey)
+	}
+
 	if err := updateInferenceCM(cm, kserve); err != nil {
 		return nil, err
 	}

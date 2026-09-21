@@ -65,6 +65,10 @@ import (
 // --- Operand CRDs (cluster-scoped: controller deploys KServe, LLMInferenceService, and related CRDs) ---
 // no delete — CRDs survive component removal (consistent with odh-operator GC unremovables)
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=create;get;list;patch;update;watch
+//
+// --- WVA extraCleanup: leftover VariantAutoscaling CRD/CRs defaultCleanup skips ---
+// +kubebuilder:rbac:groups=llmd.ai,resources=variantautoscalings,verbs=list;delete
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,resourceNames=variantautoscalings.llmd.ai,verbs=delete
 
 // --- cert-manager (cluster-scoped: ClusterIssuers are cluster-scoped; Issuers/Certificates for webhook TLS) ---
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificates;issuers,verbs=create;delete;get;list;patch;update;watch

@@ -11,8 +11,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -327,6 +330,86 @@ var _ = Describe("KserveModule Reconciler", func() {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
 				cond := fixture.FindCondition(cr, kservemodule.ConditionWVAReady)
 				g.Expect(cond).To(BeNil(), "WVAReady condition should be cleared when WVA is disabled")
+			}).WithContext(ctx).Should(Succeed())
+		})
+	})
+
+	Context("WVA extraCleanup", Ordered, func() {
+		var cr *platformv1alpha1.Kserve
+		vaCRDKey := client.ObjectKey{Name: "variantautoscalings.llmd.ai"}
+		vaKey := client.ObjectKey{Name: "leftover-va", Namespace: "opendatahub"}
+		cmKey := client.ObjectKey{Name: "inferenceservice-config", Namespace: "opendatahub"}
+
+		BeforeAll(func(ctx SpecContext) {
+			testEnv.Reconciler.Deployer = kservemodule.NewDeployer()
+
+			cr = fixture.KserveCR()
+			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
+			DeferCleanup(func(ctx SpecContext) {
+				deleteAndWaitGone(ctx, cr)
+			})
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				cond := fixture.FindCondition(cr, string(common.ConditionTypeProvisioningSucceeded))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("deletes leftover VariantAutoscaling CRs/CRD and strips the ConfigMap key", func(ctx SpecContext) {
+			fixture.CreateCRDByName(ctx, testEnv.Client, vaCRDKey.Name, "llmd.ai", "v1alpha1",
+				apiextensionsv1.NamespaceScoped)
+
+			va := &unstructured.Unstructured{Object: map[string]any{
+				"apiVersion": "llmd.ai/v1alpha1",
+				"kind":       "VariantAutoscaling",
+				"metadata": map[string]any{
+					"name":      vaKey.Name,
+					"namespace": vaKey.Namespace,
+				},
+			}}
+			va.SetGroupVersionKind(schema.GroupVersionKind{
+				Group: "llmd.ai", Version: "v1alpha1", Kind: "VariantAutoscaling",
+			})
+			Expect(testEnv.Client.Create(ctx, va)).To(Succeed())
+
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				cm := &corev1.ConfigMap{}
+				if err := testEnv.Client.Get(ctx, cmKey, cm); err != nil {
+					return err
+				}
+				if cm.Data == nil {
+					cm.Data = map[string]string{}
+				}
+				cm.Data["autoscaling-wva-controller-config"] = `{"prometheus":{"url":"http://thanos"}}`
+				return testEnv.Client.Update(ctx, cm)
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			triggerReconcile(ctx, cr, "wva-extra-cleanup")
+
+			Eventually(func(g Gomega) {
+				got := &unstructured.Unstructured{}
+				got.SetGroupVersionKind(schema.GroupVersionKind{
+					Group: "llmd.ai", Version: "v1alpha1", Kind: "VariantAutoscaling",
+				})
+				err := testEnv.Client.Get(ctx, vaKey, got)
+				g.Expect(k8serr.IsNotFound(err) || apimeta.IsNoMatchError(err)).To(BeTrue(),
+					"leftover VariantAutoscaling CR should be deleted by extraCleanup")
+			}).WithContext(ctx).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				err := testEnv.Client.Get(ctx, vaCRDKey, &apiextensionsv1.CustomResourceDefinition{})
+				g.Expect(k8serr.IsNotFound(err)).To(BeTrue(),
+					"leftover VariantAutoscaling CRD should be deleted by extraCleanup")
+			}).WithContext(ctx).Should(Succeed())
+
+			Eventually(func(g Gomega) {
+				cm := &corev1.ConfigMap{}
+				g.Expect(testEnv.Client.Get(ctx, cmKey, cm)).To(Succeed())
+				g.Expect(cm.Data).NotTo(HaveKey("autoscaling-wva-controller-config"))
+				g.Expect(cm.Data).To(HaveKey("ingress"))
 			}).WithContext(ctx).Should(Succeed())
 		})
 	})

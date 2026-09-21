@@ -47,19 +47,20 @@ var components = []componentConfig{
 		postRender:    kservePostRender,
 	},
 	{
-		name:        OdhModelControllerComponentName,
-		sourcePath:  ModelControllerSourcePath,
+		name:          OdhModelControllerComponentName,
+		sourcePath:    ModelControllerSourcePath,
 		sourcePathXKS: ModelControllerSourcePathXKS,
-		imageMap:    modelControllerImageParamMap,
-		extraParams: modelControllerExtraParams,
-		postRender:  modelControllerPostRender,
+		imageMap:      modelControllerImageParamMap,
+		extraParams:   modelControllerExtraParams,
+		postRender:    modelControllerPostRender,
 	},
 	{
-		name:       WVAComponentName,
-		sourcePath: WVAManifestSourcePathOCP,
-		imageMap:   wvaImageParamMap,
-		enabled:    isWVAEnabled,
-		postRender: wvaPostRender,
+		name:         WVAComponentName,
+		sourcePath:   WVAManifestSourcePathOCP,
+		imageMap:     wvaImageParamMap,
+		enabled:      isWVAEnabled,
+		postRender:   wvaPostRender,
+		extraCleanup: cleanupWVAComponent,
 	},
 	{
 		name:         ModelCacheComponentName,
@@ -236,4 +237,3 @@ func applyManagedByLabel(resources []unstructured.Unstructured, componentName st
 		resources[i].SetLabels(labels)
 	}
 }
-
