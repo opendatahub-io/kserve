@@ -42,6 +42,14 @@ def _version_prefix(version):
     return "v" + version.replace(".", "-")
 
 
+def _expected_llmisvc_config_prefix(kubectl, platform_version):
+    """Mirror the reconciler's platform version fallback order."""
+    if not platform_version:
+        annotations = get_cr(kubectl).get("metadata", {}).get("annotations", {})
+        platform_version = annotations.get("platform.opendatahub.io/version", "0.0.0")
+    return f"{_version_prefix(platform_version)}-kserve-"
+
+
 def _set_platform_version(kubectl, version):
     """Patch data.platformVersion on the odh-kserve-config ConfigMap."""
     patch = json.dumps({"data": {"platformVersion": version}})
@@ -184,13 +192,13 @@ def _wait_for_llmisvc_rollout(kubectl):
     )
 
 
-def _wait_for_llmisvc_restore(kubectl, expected_prefixes):
+def _wait_for_llmisvc_restore(kubectl, expected_prefix):
     """Wait for the restored env to reach the Deployment before its rollout."""
 
     def assert_env_restored():
         prefixes = _llmisvc_config_prefixes(kubectl)
-        assert prefixes == expected_prefixes, (
-            f"expected restored {LLMISVC_CONFIG_PREFIX_ENV}={expected_prefixes}, "
+        assert prefixes and all(prefix == expected_prefix for prefix in prefixes), (
+            f"expected restored {LLMISVC_CONFIG_PREFIX_ENV}={expected_prefix}, "
             f"got {prefixes}"
         )
 
@@ -224,6 +232,33 @@ def test_wait_for_llmisvc_rollout_uses_rollout_status(monkeypatch):
     ]
 
 
+@pytest.mark.parametrize(
+    ("platform_version", "annotations", "expected"),
+    [
+        (
+            "2.20.0",
+            {"platform.opendatahub.io/version": "99.0.0"},
+            "v2-20-0-kserve-",
+        ),
+        (
+            "",
+            {"platform.opendatahub.io/version": "99.0.0"},
+            "v99-0-0-kserve-",
+        ),
+        ("", {}, "v0-0-0-kserve-"),
+    ],
+)
+def test_expected_llmisvc_config_prefix_follows_reconciler_precedence(
+    monkeypatch, platform_version, annotations, expected
+):
+    monkeypatch.setattr(
+        "test_status.get_cr",
+        lambda _: {"metadata": {"annotations": annotations}},
+    )
+
+    assert _expected_llmisvc_config_prefix("kubectl", platform_version) == expected
+
+
 def test_wait_for_llmisvc_restore_waits_for_env_before_rollout(monkeypatch):
     calls = []
 
@@ -242,7 +277,7 @@ def test_wait_for_llmisvc_restore_waits_for_env_before_rollout(monkeypatch):
     monkeypatch.setattr("test_status._llmisvc_config_prefixes", fake_config_prefixes)
     monkeypatch.setattr("test_status._wait_for_llmisvc_rollout", fake_rollout)
 
-    _wait_for_llmisvc_restore("kubectl", ["v1-2-3-kserve-"])
+    _wait_for_llmisvc_restore("kubectl", "v1-2-3-kserve-")
 
     assert calls == [
         ("wait", {"timeout": TIMEOUT_120S, "interval": 5}),
@@ -265,7 +300,7 @@ class TestPlatformVersionTransition:
             kubectl, "configmap", PLATFORM_VERSION_CM,
             "{.data.platformVersion}", namespace=NAMESPACE,
         )
-        original_prefixes = _llmisvc_config_prefixes(kubectl)
+        original_prefix = _expected_llmisvc_config_prefix(kubectl, original)
         try:
             # Set baseline A, then upgrade to B. A->B is the real transition;
             # step A is a no-op if the cluster already holds A.
@@ -284,7 +319,7 @@ class TestPlatformVersionTransition:
                         "-n", NAMESPACE, "--type", "merge", "-p",
                         json.dumps({"data": {"platformVersion": None}}),
                     ])
-                _wait_for_llmisvc_restore(kubectl, original_prefixes)
+                _wait_for_llmisvc_restore(kubectl, original_prefix)
             except Exception as cleanup_error:
                 if active_exception is None:
                     raise
