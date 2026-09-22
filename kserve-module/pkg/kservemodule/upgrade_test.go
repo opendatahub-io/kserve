@@ -1302,3 +1302,175 @@ func TestDeleteLegacyLLMInferenceWebhooks(t *testing.T) {
 		g.Expect(deleteLegacyLLMInferenceWebhooks(ctx, cli)).To(Succeed())
 	})
 }
+
+// ─── webhookServiceExists error handling (RHOAIENG-94187) ───────────────────
+
+func TestWebhookServiceExists(t *testing.T) {
+	ctx := context.Background()
+	const namespace = "test-namespace"
+
+	t.Run("ServiceExists", func(t *testing.T) {
+		g := NewWithT(t)
+
+		svc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      llmisvcWebhookServiceName,
+				Namespace: namespace,
+			},
+		}
+		cli := makeISVCFakeClient(svc)
+		r := &KserveModuleReconciler{Client: cli, applicationsNamespace: namespace}
+
+		exists, err := r.webhookServiceExists(ctx)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(exists).To(BeTrue())
+	})
+
+	t.Run("ServiceNotFound", func(t *testing.T) {
+		g := NewWithT(t)
+
+		cli := makeISVCFakeClient()
+		r := &KserveModuleReconciler{Client: cli, applicationsNamespace: namespace}
+
+		exists, err := r.webhookServiceExists(ctx)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(exists).To(BeFalse())
+	})
+
+	t.Run("NonNotFoundErrorPropagated", func(t *testing.T) {
+		g := NewWithT(t)
+
+		funcs := interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if key.Name == llmisvcWebhookServiceName {
+					return k8serr.NewForbidden(schema.GroupResource{Resource: "services"}, llmisvcWebhookServiceName, errors.New("forbidden"))
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}
+		cli := fake.NewClientBuilder().
+			WithScheme(makeUpgradeTestScheme()).
+			WithRESTMapper(makeUpgradeTestRESTMapper()).
+			WithInterceptorFuncs(funcs).
+			Build()
+		r := &KserveModuleReconciler{Client: cli, applicationsNamespace: namespace}
+
+		exists, err := r.webhookServiceExists(ctx)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("forbidden"))
+		g.Expect(exists).To(BeFalse())
+	})
+}
+
+// ─── CRD Conversion Webhook Stripping (RHOAIENG-94187) ─────────────────────
+
+func makeCRDWithConversionWebhook(name, serviceName string) unstructured.Unstructured {
+	u := unstructured.Unstructured{}
+	u.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "apiextensions.k8s.io",
+		Version: "v1",
+		Kind:    "CustomResourceDefinition",
+	})
+	u.SetName(name)
+	_ = unstructured.SetNestedField(u.Object, "Webhook", "spec", "conversion", "strategy")
+	_ = unstructured.SetNestedField(u.Object, serviceName, "spec", "conversion", "webhook", "clientConfig", "service", "name")
+	_ = unstructured.SetNestedField(u.Object, "/convert", "spec", "conversion", "webhook", "clientConfig", "service", "path")
+	return u
+}
+
+func makeCRDWithoutConversion(name string) unstructured.Unstructured {
+	u := unstructured.Unstructured{}
+	u.SetGroupVersionKind(schema.GroupVersionKind{
+		Group:   "apiextensions.k8s.io",
+		Version: "v1",
+		Kind:    "CustomResourceDefinition",
+	})
+	u.SetName(name)
+	return u
+}
+
+func TestStripCRDConversionWebhooks(t *testing.T) {
+	t.Run("StripsWebhookStrategyFromCRDs", func(t *testing.T) {
+		g := NewWithT(t)
+
+		resources := []unstructured.Unstructured{
+			makeCRDWithConversionWebhook("llminferenceservices.serving.kserve.io", "llmisvc-webhook-server-service"),
+			makeCRDWithConversionWebhook("llminferenceserviceconfigs.serving.kserve.io", "llmisvc-webhook-server-service"),
+		}
+
+		modified := stripCRDConversionWebhooks(resources)
+		g.Expect(modified).To(BeTrue())
+
+		for _, r := range resources {
+			_, found, _ := unstructured.NestedMap(r.Object, "spec", "conversion")
+			g.Expect(found).To(BeFalse(), "spec.conversion should be removed from %s", r.GetName())
+		}
+	})
+
+	t.Run("SkipsCRDsWithoutWebhookStrategy", func(t *testing.T) {
+		g := NewWithT(t)
+
+		crd := makeCRDWithoutConversion("inferenceservices.serving.kserve.io")
+		resources := []unstructured.Unstructured{crd}
+
+		modified := stripCRDConversionWebhooks(resources)
+		g.Expect(modified).To(BeFalse())
+	})
+
+	t.Run("SkipsNonCRDResources", func(t *testing.T) {
+		g := NewWithT(t)
+
+		svc := unstructured.Unstructured{}
+		svc.SetGroupVersionKind(schema.GroupVersionKind{Group: "", Version: "v1", Kind: "Service"})
+		svc.SetName("llmisvc-webhook-server-service")
+		resources := []unstructured.Unstructured{svc}
+
+		modified := stripCRDConversionWebhooks(resources)
+		g.Expect(modified).To(BeFalse())
+	})
+
+	t.Run("MixedResourcesOnlyStripsCRDsWithWebhookStrategy", func(t *testing.T) {
+		g := NewWithT(t)
+
+		resources := []unstructured.Unstructured{
+			makeCRDWithConversionWebhook("llminferenceservices.serving.kserve.io", "llmisvc-webhook-server-service"),
+			makeCRDWithoutConversion("inferenceservices.serving.kserve.io"),
+		}
+
+		modified := stripCRDConversionWebhooks(resources)
+		g.Expect(modified).To(BeTrue())
+
+		// First CRD should have conversion removed
+		_, found, _ := unstructured.NestedMap(resources[0].Object, "spec", "conversion")
+		g.Expect(found).To(BeFalse(), "spec.conversion should be removed from CRD with webhook")
+
+		// Second CRD should be unchanged (no conversion field to begin with)
+		_, found, _ = unstructured.NestedMap(resources[1].Object, "spec", "conversion")
+		g.Expect(found).To(BeFalse())
+	})
+
+	t.Run("CRDWithNoneStrategyNotStripped", func(t *testing.T) {
+		g := NewWithT(t)
+
+		crd := makeCRDWithoutConversion("test.example.io")
+		_ = unstructured.SetNestedField(crd.Object, "None", "spec", "conversion", "strategy")
+		resources := []unstructured.Unstructured{crd}
+
+		modified := stripCRDConversionWebhooks(resources)
+		g.Expect(modified).To(BeFalse())
+
+		strategy, found, _ := unstructured.NestedString(resources[0].Object, "spec", "conversion", "strategy")
+		g.Expect(found).To(BeTrue())
+		g.Expect(strategy).To(Equal("None"))
+	})
+
+	t.Run("EmptyResources", func(t *testing.T) {
+		g := NewWithT(t)
+
+		modified := stripCRDConversionWebhooks(nil)
+		g.Expect(modified).To(BeFalse())
+
+		modified = stripCRDConversionWebhooks([]unstructured.Unstructured{})
+		g.Expect(modified).To(BeFalse())
+	})
+}
