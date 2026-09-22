@@ -142,8 +142,8 @@ func mountTransformerTLSInfrastructure(deployment *appsv1.Deployment, componentM
 			servingPort := constants.TransformerHTTPSPort
 			if userPort, ok := getArgValue(podSpec.Containers[i].Args, constants.ArgumentHttpPort); ok {
 				if userPort != constants.InferenceServiceDefaultHttpPort {
-					if parsed, err := strconv.ParseInt(userPort, 10, 32); err == nil {
-						servingPort = int32(parsed)
+					if parsed, ok := parseValidPort(userPort); ok {
+						servingPort = parsed
 					}
 				}
 			}

@@ -803,8 +803,8 @@ func setDefaultPodSpec(podSpec *corev1.PodSpec) {
 				// If --http_port is set in args, use that port for the probe so the
 				// readiness check targets the port the server actually listens on.
 				if argPort, ok := getArgValue(container.Args, constants.ArgumentHttpPort); ok {
-					if parsed, err := strconv.ParseInt(argPort, 10, 32); err == nil {
-						probePort = int32(parsed)
+					if parsed, ok := parseValidPort(argPort); ok {
+						probePort = parsed
 					}
 				}
 				container.ReadinessProbe = &corev1.Probe{
@@ -823,6 +823,16 @@ func setDefaultPodSpec(podSpec *corev1.PodSpec) {
 			}
 		}
 	}
+}
+
+// parseValidPort parses a numeric TCP port, rejecting values that Kubernetes
+// does not permit in probe and container port fields.
+func parseValidPort(value string) (int32, bool) {
+	parsed, err := strconv.ParseInt(value, 10, 32)
+	if err != nil || parsed < 1 || parsed > 65535 {
+		return 0, false
+	}
+	return int32(parsed), true
 }
 
 // getArgValue extracts the value for a CLI flag from an args slice.

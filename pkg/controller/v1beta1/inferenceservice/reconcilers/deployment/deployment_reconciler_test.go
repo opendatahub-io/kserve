@@ -2073,6 +2073,30 @@ func TestSetArgValue(t *testing.T) {
 	}
 }
 
+func TestParseValidPort(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		expected int32
+		valid    bool
+	}{
+		{name: "minimum port", value: "1", expected: 1, valid: true},
+		{name: "maximum port", value: "65535", expected: 65535, valid: true},
+		{name: "zero", value: "0"},
+		{name: "negative", value: "-1"},
+		{name: "above maximum", value: "65536"},
+		{name: "outside int32 range", value: "2147483648"},
+		{name: "malformed", value: "not-a-port"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			port, ok := parseValidPort(tt.value)
+			assert.Equal(t, tt.valid, ok)
+			assert.Equal(t, tt.expected, port)
+		})
+	}
+}
+
 func TestSetDefaultPodSpec_ReadinessProbeRespectsHttpPort(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -2104,6 +2128,27 @@ func TestSetDefaultPodSpec_ReadinessProbeRespectsHttpPort(t *testing.T) {
 			ports:        []corev1.ContainerPort{{ContainerPort: 9090}},
 			args:         []string{"--http_port", "8443"},
 			expectedPort: 8443,
+		},
+		{
+			name:         "zero --http_port falls back to default",
+			args:         []string{"--http_port", "0"},
+			expectedPort: 8080,
+		},
+		{
+			name:         "negative --http_port falls back to container port",
+			ports:        []corev1.ContainerPort{{ContainerPort: 9090}},
+			args:         []string{"--http_port", "-1"},
+			expectedPort: 9090,
+		},
+		{
+			name:         "oversized --http_port falls back to default",
+			args:         []string{"--http_port=65536"},
+			expectedPort: 8080,
+		},
+		{
+			name:         "malformed --http_port falls back to default",
+			args:         []string{"--http_port", "not-a-port"},
+			expectedPort: 8080,
 		},
 	}
 	for _, tt := range tests {
