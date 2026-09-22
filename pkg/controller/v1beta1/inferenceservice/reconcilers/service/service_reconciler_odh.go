@@ -19,7 +19,6 @@ limitations under the License.
 package service
 
 import (
-	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -141,8 +140,8 @@ func transformerServingPort(podSpec *corev1.PodSpec) int32 {
 	}
 	if userPort, ok := getArgValue(container.Args, constants.ArgumentHttpPort); ok {
 		if userPort != constants.InferenceServiceDefaultHttpPort {
-			if parsed, err := strconv.ParseInt(userPort, 10, 32); err == nil {
-				servingPort = int32(parsed)
+			if parsed, ok := utils.ParsePort(userPort); ok {
+				servingPort = parsed
 			}
 		}
 	}

@@ -30,6 +30,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 // mountTransformerTLSInfrastructure injects TLS volumes and env vars into the
@@ -142,7 +143,7 @@ func mountTransformerTLSInfrastructure(deployment *appsv1.Deployment, componentM
 			servingPort := constants.TransformerHTTPSPort
 			if userPort, ok := getArgValue(podSpec.Containers[i].Args, constants.ArgumentHttpPort); ok {
 				if userPort != constants.InferenceServiceDefaultHttpPort {
-					if parsed, ok := parseValidPort(userPort); ok {
+					if parsed, ok := utils.ParsePort(userPort); ok {
 						servingPort = parsed
 					}
 				}

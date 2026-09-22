@@ -2073,30 +2073,6 @@ func TestSetArgValue(t *testing.T) {
 	}
 }
 
-func TestParseValidPort(t *testing.T) {
-	tests := []struct {
-		name     string
-		value    string
-		expected int32
-		valid    bool
-	}{
-		{name: "minimum port", value: "1", expected: 1, valid: true},
-		{name: "maximum port", value: "65535", expected: 65535, valid: true},
-		{name: "zero", value: "0"},
-		{name: "negative", value: "-1"},
-		{name: "above maximum", value: "65536"},
-		{name: "outside int32 range", value: "2147483648"},
-		{name: "malformed", value: "not-a-port"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			port, ok := parseValidPort(tt.value)
-			assert.Equal(t, tt.valid, ok)
-			assert.Equal(t, tt.expected, port)
-		})
-	}
-}
-
 func TestSetDefaultPodSpec_ReadinessProbeRespectsHttpPort(t *testing.T) {
 	tests := []struct {
 		name         string
