@@ -2065,6 +2065,13 @@ func TestSetArgValue(t *testing.T) {
 			expected: []string{"--http_port", "8443"},
 		},
 		{
+			name:     "append value to trailing flag",
+			args:     []string{"--model_name", "foo", "--http_port"},
+			flag:     "--http_port",
+			value:    "8443",
+			expected: []string{"--model_name", "foo", "--http_port", "8443"},
+		},
+		{
 			name:     "replace duplicate mixed forms",
 			args:     []string{"--http_port", "9000", "--http_port=0"},
 			flag:     "--http_port",

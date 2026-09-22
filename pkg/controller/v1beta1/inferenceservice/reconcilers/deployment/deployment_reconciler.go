@@ -848,8 +848,12 @@ func getArgValue(args []string, flag string) (string, bool) {
 func setArgValue(args []string, flag, value string) []string {
 	found := false
 	for i, arg := range args {
-		if arg == flag && i+1 < len(args) {
-			args[i+1] = value
+		if arg == flag {
+			if i+1 < len(args) {
+				args[i+1] = value
+			} else {
+				args = append(args, value)
+			}
 			found = true
 		}
 		if strings.HasPrefix(arg, flag+"=") {
