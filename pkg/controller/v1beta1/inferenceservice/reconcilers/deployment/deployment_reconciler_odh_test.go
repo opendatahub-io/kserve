@@ -481,6 +481,18 @@ func TestTransformerTLSPortAndProbeOverride(t *testing.T) {
 			expectedPort:     constants.TransformerHTTPSPort,
 			expectedHttpPort: strconv.Itoa(int(constants.TransformerHTTPSPort)),
 		},
+		{
+			name:             "invalid duplicate equals form falls back to 8443",
+			args:             []string{"--http_port", "9000", "--http_port=0"},
+			expectedPort:     constants.TransformerHTTPSPort,
+			expectedHttpPort: strconv.Itoa(int(constants.TransformerHTTPSPort)),
+		},
+		{
+			name:             "invalid duplicate two-element form falls back to 8443",
+			args:             []string{"--http_port=9000", "--http_port", "65536"},
+			expectedPort:     constants.TransformerHTTPSPort,
+			expectedHttpPort: strconv.Itoa(int(constants.TransformerHTTPSPort)),
+		},
 	}
 
 	for _, tt := range tests {

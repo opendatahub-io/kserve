@@ -2064,6 +2064,20 @@ func TestSetArgValue(t *testing.T) {
 			value:    "8443",
 			expected: []string{"--http_port", "8443"},
 		},
+		{
+			name:     "replace duplicate mixed forms",
+			args:     []string{"--http_port", "9000", "--http_port=0"},
+			flag:     "--http_port",
+			value:    "8443",
+			expected: []string{"--http_port", "8443", "--http_port=8443"},
+		},
+		{
+			name:     "replace duplicate mixed forms in reverse order",
+			args:     []string{"--http_port=9000", "--http_port", "65536"},
+			flag:     "--http_port",
+			value:    "8443",
+			expected: []string{"--http_port=8443", "--http_port", "8443"},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

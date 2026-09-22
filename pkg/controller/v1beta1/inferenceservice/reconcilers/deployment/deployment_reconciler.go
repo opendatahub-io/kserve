@@ -843,18 +843,22 @@ func getArgValue(args []string, flag string) (string, bool) {
 	return lastVal, found
 }
 
-// setArgValue replaces the value of an existing "--flag value" pair in an args
-// slice, or appends it if absent. It handles both two-element and "=" forms.
+// setArgValue replaces every occurrence of a flag in an args slice, or appends
+// it if absent. It handles both two-element and "=" forms.
 func setArgValue(args []string, flag, value string) []string {
+	found := false
 	for i, arg := range args {
 		if arg == flag && i+1 < len(args) {
 			args[i+1] = value
-			return args
+			found = true
 		}
 		if strings.HasPrefix(arg, flag+"=") {
 			args[i] = flag + "=" + value
-			return args
+			found = true
 		}
+	}
+	if found {
+		return args
 	}
 	return append(args, flag, value)
 }
