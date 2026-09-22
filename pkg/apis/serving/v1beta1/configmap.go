@@ -127,15 +127,10 @@ type IngressConfig struct {
 	DomainTemplate               string    `json:"domainTemplate,omitempty"`
 	UrlScheme                    string    `json:"urlScheme,omitempty"`
 	EnableLLMInferenceServiceTLS bool      `json:"enableLLMInferenceServiceTLS,omitempty"`
-	// LLMInferenceServiceTLSMinVersion configures the minimum TLS version for Go-based LLMISVC components.
-	// vLLM does not currently expose a minimum TLS version setting.
-	LLMInferenceServiceTLSMinVersion string `json:"llmInferenceServiceTLSMinVersion,omitempty"`
-	// LLMInferenceServiceTLSCipherSuites configures TLS 1.2 cipher suites using Go/IANA names; values are translated to OpenSSL names for vLLM.
-	LLMInferenceServiceTLSCipherSuites string `json:"llmInferenceServiceTLSCipherSuites,omitempty"`
-	DisableIstioVirtualHost            bool   `json:"disableIstioVirtualHost,omitempty"`
-	PathTemplate                       string `json:"pathTemplate,omitempty"`
-	DisableIngressCreation             bool   `json:"disableIngressCreation,omitempty"`
-	DisableHTTPRouteTimeout            bool   `json:"disableHTTPRouteTimeout,omitempty"`
+	DisableIstioVirtualHost      bool      `json:"disableIstioVirtualHost,omitempty"`
+	PathTemplate                 string    `json:"pathTemplate,omitempty"`
+	DisableIngressCreation       bool      `json:"disableIngressCreation,omitempty"`
+	DisableHTTPRouteTimeout      bool      `json:"disableHTTPRouteTimeout,omitempty"`
 
 	ModelBasedRoutingHeaderName string `json:"modelBasedRoutingHeaderName,omitempty"`
 	ModelBasedRoutingMode       string `json:"modelBasedRoutingMode,omitempty"`
