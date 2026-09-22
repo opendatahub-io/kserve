@@ -1821,10 +1821,8 @@ LLMINFERENCESERVICE_CONFIGS = {
                             {"type": "kv-cache-utilization-scorer"},
                             {"type": "concurrency-detector"},
                         ],
-                        "flowControl": {
-                            "saturationDetector": {
-                                "pluginRef": "concurrency-detector",
-                            },
+                        "saturationDetector": {
+                            "pluginRef": "concurrency-detector",
                         },
                         "schedulingProfiles": [
                             {
