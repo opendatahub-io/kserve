@@ -358,7 +358,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 		})
 
 		It("deletes leftover VariantAutoscaling CRs/CRD and strips the ConfigMap key", func(ctx SpecContext) {
-			fixture.CreateCRDByName(ctx, testEnv.Client, vaCRDKey.Name, "llmd.ai", "v1alpha1",
+			fixture.CreateCRD(ctx, testEnv.Client, "llmd.ai", "v1alpha1", "VariantAutoscaling",
 				apiextensionsv1.NamespaceScoped)
 
 			va := &unstructured.Unstructured{Object: map[string]any{
