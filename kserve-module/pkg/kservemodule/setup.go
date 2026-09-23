@@ -179,21 +179,6 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		)
 	}
 
-	// OperatorCondition is the OLM-native signal used by olm.OperatorExists.
-	operatorConditionGK := schema.GroupKind{Group: "operators.coreos.com", Kind: "OperatorCondition"}
-	if err := cluster.CustomResourceDefinitionExists(context.Background(), mgr.GetAPIReader(), operatorConditionGK); err == nil {
-		operatorCondition := &unstructured.Unstructured{}
-		operatorCondition.SetGroupVersionKind(schema.GroupVersionKind{
-			Group: "operators.coreos.com", Version: "v2", Kind: "OperatorCondition",
-		})
-		b.Watches(operatorCondition,
-			handler.EnqueueRequestsFromMapFunc(mapToKserve),
-			builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
-				return strings.HasPrefix(o.GetName(), trusteeOperatorPrefix+".")
-			})),
-		)
-	}
-
 	for _, dw := range r.dynamicWatches {
 		if err := cluster.CustomResourceDefinitionExists(context.Background(), mgr.GetAPIReader(), dw.groupKind); err != nil {
 			continue

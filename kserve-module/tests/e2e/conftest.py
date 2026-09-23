@@ -477,19 +477,40 @@ def force_delete_kserve_cr(kubectl_bin, is_openshift=False):
     teardown does not need to pay for it."""
     if cr_exists(kubectl_bin):
         run(
-            [kubectl_bin, "delete", "kserve", KSERVE_CR_NAME, "--ignore-not-found", "--wait=false"],
+            [
+                kubectl_bin,
+                "delete",
+                "kserve",
+                KSERVE_CR_NAME,
+                "--ignore-not-found",
+                "--wait=false",
+            ],
             check=False,
         )
         cr = get_cr(kubectl_bin, check=False) or {}
         finalizers = cr.get("metadata", {}).get("finalizers", []) or []
         if MODULE_FINALIZER in finalizers:
             remaining = [f for f in finalizers if f != MODULE_FINALIZER]
-            patch = json.dumps([
-                {"op": "test", "path": "/metadata/finalizers", "value": finalizers},
-                {"op": "replace", "path": "/metadata/finalizers", "value": remaining},
-            ])
+            patch = json.dumps(
+                [
+                    {"op": "test", "path": "/metadata/finalizers", "value": finalizers},
+                    {
+                        "op": "replace",
+                        "path": "/metadata/finalizers",
+                        "value": remaining,
+                    },
+                ]
+            )
             run(
-                [kubectl_bin, "patch", "kserve", KSERVE_CR_NAME, "--type=json", "-p", patch],
+                [
+                    kubectl_bin,
+                    "patch",
+                    "kserve",
+                    KSERVE_CR_NAME,
+                    "--type=json",
+                    "-p",
+                    patch,
+                ],
                 check=False,
             )
     wait_for_kserve_cleanup(kubectl_bin, is_openshift=is_openshift)
@@ -547,7 +568,9 @@ def ensure_configmap(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120
             return
         time.sleep(5)
 
-    raise TimeoutError(f"configmap {name} not found within {timeout}s after reconcile trigger")
+    raise TimeoutError(
+        f"configmap {name} not found within {timeout}s after reconcile trigger"
+    )
 
 
 def dump_modelcache_workload_diagnostics(kubectl_bin, namespace=NAMESPACE):
@@ -734,19 +757,6 @@ def apply_kserve_cr(kubectl, cluster_info):
 @pytest.fixture
 def apply_kserve_cr_with_external_dependencies(kubectl, cluster_info):
     external_dependencies = [
-        {
-            "resource": "operatorconditions",
-            "name": "trustee-operator.e2e",
-            "namespace": NAMESPACE,
-            "manifest": {
-                "apiVersion": "operators.coreos.com/v2",
-                "kind": "OperatorCondition",
-                "metadata": {
-                    "name": "trustee-operator.e2e",
-                    "namespace": NAMESPACE,
-                },
-            },
-        },
         {
             "resource": "runtimeclasses",
             "name": "kata-e2e",

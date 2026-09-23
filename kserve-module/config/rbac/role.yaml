@@ -241,7 +241,6 @@ rules:
 - apiGroups:
   - operators.coreos.com
   resources:
-  - operatorconditions
   - subscriptions
   verbs:
   - get

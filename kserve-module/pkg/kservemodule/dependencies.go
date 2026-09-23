@@ -2,7 +2,6 @@ package kservemodule
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -27,7 +26,6 @@ const (
 	checkCRD          checkType = "crd"
 	checkSubscription checkType = "subscription"
 	checkOperator     checkType = "operator"
-	checkOLMOperator  checkType = "olmOperator"
 	checkRuntimeClass checkType = "runtimeClass"
 
 	// availSeverityNone means failures are not reported to DependenciesAvailable.
@@ -45,9 +43,6 @@ const (
 	certManagerSubscription = "openshift-cert-manager-operator"
 	lwsSubscription         = "leader-worker-set"
 	cmaSubscription         = "openshift-custom-metrics-autoscaler-operator"
-
-	// OLM operator prefixes used by olm.OperatorExists.
-	trusteeOperatorPrefix = "trustee-operator"
 )
 
 var cocoRuntimeClassPrefixes = []string{"kata", "ccruntime", "enclave-cc"}
@@ -60,7 +55,6 @@ type dependencyCheck struct {
 	crdName              string                                     // Full CRD name (e.g. "authorizationpolicies.security.istio.io")
 	subscriptionName     string                                     // Subscription check
 	operatorGVK          schema.GroupVersionKind                    // Operator CR GVK
-	operatorPrefix       string                                     // OLM operator prefix check
 	operatorCRName       string                                     // Operator CR name (empty = list first)
 	conditionFilter      conditionFilterFunc                        // Operator condition filter
 	availabilitySeverity common.ConditionSeverity                   // availSeverityNone = no report, Error = Ready=False, Info = Ready=True
@@ -96,17 +90,6 @@ func subscriptionDep(name, subName, condGroup, platform string, availSeverity co
 		name:                 name,
 		checkType:            checkSubscription,
 		subscriptionName:     subName,
-		conditionGroup:       condGroup,
-		platform:             platform,
-		availabilitySeverity: availSeverity,
-	}
-}
-
-func olmOperatorDep(name, operatorPrefix, condGroup, platform string, availSeverity common.ConditionSeverity) dependencyCheck {
-	return dependencyCheck{
-		name:                 name,
-		checkType:            checkOLMOperator,
-		operatorPrefix:       operatorPrefix,
 		conditionGroup:       condGroup,
 		platform:             platform,
 		availabilitySeverity: availSeverity,
@@ -185,8 +168,6 @@ var kserveDependencies = []dependencyCheck{
 	// Confidential container support is optional. Keep these checks in a
 	// separate informational condition group so missing CoCo support does not
 	// prevent ordinary KServe reconciliation or readiness.
-	olmOperatorDep("Red Hat build of Trustee operator", trusteeOperatorPrefix,
-		conditionConfidentialContainerDeps, "ocp", availSeverityNone),
 	runtimeClassDep("Confidential container RuntimeClass", cocoRuntimeClassPrefixes,
 		conditionConfidentialContainerDeps, "ocp", availSeverityNone),
 }
@@ -249,8 +230,6 @@ func (r *KserveModuleReconciler) checkDependencies(ctx context.Context, kserve *
 				reasons = r.checkSubscription(ctx, d)
 			case checkOperator:
 				reasons = r.checkOperatorHealth(ctx, d)
-			case checkOLMOperator:
-				reasons = r.checkOLMOperator(ctx, d)
 			case checkRuntimeClass:
 				reasons = r.checkRuntimeClass(ctx, d)
 			}
@@ -321,24 +300,6 @@ func (r *KserveModuleReconciler) checkSubscription(ctx context.Context, dep depe
 		return []string{fmt.Sprintf("%s not installed", dep.name)}
 	}
 	return nil
-}
-
-func (r *KserveModuleReconciler) checkOLMOperator(ctx context.Context, dep dependencyCheck) []string {
-	if ctx.Err() != nil {
-		return nil
-	}
-
-	_, err := olm.OperatorExists(ctx, r.Client, dep.operatorPrefix)
-	if err == nil {
-		return nil
-	}
-	if meta.IsNoMatchError(err) {
-		return nil
-	}
-	if errors.Is(err, olm.ErrOperatorNotInstalled) {
-		return []string{fmt.Sprintf("%s not installed", dep.name)}
-	}
-	return []string{fmt.Sprintf("%s check failed: %v", dep.name, err)}
 }
 
 func (r *KserveModuleReconciler) checkRuntimeClass(ctx context.Context, dep dependencyCheck) []string {
