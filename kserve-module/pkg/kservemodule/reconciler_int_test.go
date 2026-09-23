@@ -331,6 +331,160 @@ var _ = Describe("KserveModule Reconciler", func() {
 		})
 	})
 
+	// Uses the real deployer so assertions check actual cluster state: the ModelExpress
+	// Deployment is really applied when Managed and really deleted (via
+	// defaultCleanup, not GC) when Removed. envtest has no garbage collector, so
+	// only defaultCleanup-based removal is observable here.
+	Context("ModelExpress ManagementState lifecycle", Ordered, func() {
+		var cr *platformv1alpha1.Kserve
+		mxKey := client.ObjectKey{Name: "modelexpress-operator", Namespace: "opendatahub"}
+		// Applied from the ModelExpress rendered set (see fixture.WriteMinimalManifests).
+		mxCRDKey := client.ObjectKey{Name: "mxtestresources.test.kserve.io"}
+
+		BeforeAll(func(ctx SpecContext) {
+			// Real: assert the ModelExpress Deployment is really applied/deleted. Set before
+			// Create so the create-time reconcile uses it; Ordered keeps it for all specs.
+			testEnv.Reconciler.Deployer = kservemodule.NewDeployer()
+
+			cr = fixture.KserveCR()
+			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
+
+			DeferCleanup(func(ctx SpecContext) {
+				deleteAndWaitGone(ctx, cr)
+			})
+		})
+
+		It("does not create the ModelExpress Deployment when ManagementState is Removed (default)", func(ctx SpecContext) {
+			triggerReconcile(ctx, cr, "modelexpress-default-removed")
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				cond := fixture.FindCondition(cr, string(common.ConditionTypeProvisioningSucceeded))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			}).WithContext(ctx).Should(Succeed())
+
+			err := testEnv.Client.Get(ctx, mxKey, &appsv1.Deployment{})
+			Expect(k8serr.IsNotFound(err)).To(BeTrue(), "ModelExpress Deployment should not exist when Removed")
+		})
+
+		It("creates the ModelExpress Deployment when ManagementState is Managed", func(ctx SpecContext) {
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
+					return err
+				}
+				cr.Spec.ModelExpress.ManagementState = common.Managed
+				return testEnv.Client.Update(ctx, cr)
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, mxKey, &appsv1.Deployment{})).To(Succeed(),
+					"ModelExpress Deployment should be applied to the cluster when Managed")
+			}).WithContext(ctx).Should(Succeed())
+
+			// The CRD must not carry an ownerReference to the namespaced Kserve CR: that would
+			// make GC cascade-delete it when the CR is removed. envtest has no GC, so assert
+			// the ref's absence rather than the deletion.
+			Eventually(func(g Gomega) {
+				crd := &apiextensionsv1.CustomResourceDefinition{}
+				g.Expect(testEnv.Client.Get(ctx, mxCRDKey, crd)).To(Succeed(),
+					"ModelExpress CRD should be applied to the cluster when Managed")
+				for _, ref := range crd.GetOwnerReferences() {
+					g.Expect(ref.Kind).NotTo(Equal("Kserve"),
+						"ModelExpress CRD must not be owned by the Kserve CR (would cause GC cascade-delete on CR removal)")
+				}
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("deletes the ModelExpress Deployment but preserves the CRD when ManagementState changes to Removed", func(ctx SpecContext) {
+			// Precondition: ModelExpress Deployment and CRD exist from the previous (Managed) spec.
+			Expect(testEnv.Client.Get(ctx, mxKey, &appsv1.Deployment{})).To(Succeed())
+			Expect(testEnv.Client.Get(ctx, mxCRDKey, &apiextensionsv1.CustomResourceDefinition{})).To(Succeed())
+
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
+					return err
+				}
+				cr.Spec.ModelExpress.ManagementState = common.Removed
+				return testEnv.Client.Update(ctx, cr)
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				err := testEnv.Client.Get(ctx, mxKey, &appsv1.Deployment{})
+				g.Expect(k8serr.IsNotFound(err)).To(BeTrue(),
+					"ModelExpress Deployment should be deleted by defaultCleanup when Removed")
+			}).WithContext(ctx).Should(Succeed())
+
+			// defaultCleanup skips CRDs, so it must survive the same Removed reconcile.
+			Consistently(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, mxCRDKey, &apiextensionsv1.CustomResourceDefinition{})).To(Succeed(),
+					"ModelExpress CRD must be preserved by defaultCleanup when Removed")
+			}).WithContext(ctx).WithTimeout(3 * time.Second).Should(Succeed())
+		})
+	})
+
+	Context("ModelExpress readiness condition", Ordered, func() {
+		var cr *platformv1alpha1.Kserve
+
+		BeforeAll(func(ctx SpecContext) {
+			// Mock: readiness is driven by manually-created Deployments; deployer output
+			// is irrelevant. Set before Create; Ordered keeps it for all specs.
+			testEnv.Reconciler.Deployer = &fixture.MockDeployer{}
+
+			cr = fixture.KserveCR(fixture.WithModelExpressManagementState(common.Managed))
+			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
+
+			DeferCleanup(func(ctx SpecContext) {
+				deleteAndWaitGone(ctx, cr)
+			})
+		})
+
+		It("reports ModelExpressReady=False when ModelExpress deployment is not available", func(ctx SpecContext) {
+			triggerReconcile(ctx, cr, "modelexpress-readiness-false")
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				cond := fixture.FindCondition(cr, kservemodule.ConditionModelExpressReady)
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
+				g.Expect(cond.Reason).To(Equal("DeploymentNotReady"))
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("reports ModelExpressReady=True when ModelExpress deployment is available", func(ctx SpecContext) {
+			createReadyDeployment(ctx, "modelexpress-operator", "opendatahub")
+
+			triggerReconcile(ctx, cr, "modelexpress-readiness-true")
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				cond := fixture.FindCondition(cr, kservemodule.ConditionModelExpressReady)
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+				g.Expect(cond.Reason).To(Equal("AllDeploymentsAvailable"))
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("clears ModelExpressReady condition when ModelExpress is disabled", func(ctx SpecContext) {
+			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
+					return err
+				}
+				cr.Spec.ModelExpress.ManagementState = common.Removed
+				return testEnv.Client.Update(ctx, cr)
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				cond := fixture.FindCondition(cr, kservemodule.ConditionModelExpressReady)
+				g.Expect(cond).To(BeNil(), "ModelExpressReady condition should be cleared when ModelExpress is disabled")
+			}).WithContext(ctx).Should(Succeed())
+		})
+	})
+
 	Context("console dashboards lifecycle", Ordered, func() {
 		var cr *platformv1alpha1.Kserve
 

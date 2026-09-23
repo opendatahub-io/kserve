@@ -62,6 +62,13 @@ var components = []componentConfig{
 		postRender: wvaPostRender,
 	},
 	{
+		name:          ModelExpressComponentName,
+		sourcePath:    ModelExpressManifestSourcePath,
+		sourcePathXKS: ModelExpressManifestSourcePathXKS,
+		imageMap:      modelExpressImageParamMap,
+		enabled:       isModelExpressEnabled,
+	},
+	{
 		name:         ModelCacheComponentName,
 		manifestName: KserveComponentName,
 		sourcePath:   ModelCacheManifestSourcePath,
@@ -187,6 +194,10 @@ func consoleDashboardsPostRender(ctx context.Context, r *KserveModuleReconciler,
 
 func isWVAEnabled(kserve *platformv1alpha1.Kserve) bool {
 	return kserve.Spec.WVA.ManagementState == common.Managed
+}
+
+func isModelExpressEnabled(kserve *platformv1alpha1.Kserve) bool {
+	return kserve.Spec.ModelExpress.ManagementState == common.Managed
 }
 
 func modelControllerExtraParams(kserve *platformv1alpha1.Kserve) map[string]string {
