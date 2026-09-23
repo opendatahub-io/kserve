@@ -53,7 +53,6 @@ from kserve.protocol.tracing import get_tracer_provider
 from ..model_repository_extension import ModelRepositoryExtension
 from .middleware import TraceResponseHeaderMiddleware
 from .ssl_cert_refresher import SSLCertRefresher
-from .tls_profile import apply_profile_from_environment
 from .v1_endpoints import register_v1_endpoints
 from .v2_endpoints import register_v2_endpoints
 
@@ -98,7 +97,6 @@ class _RefreshingServer(uvicorn.Server):
                 key_path=str(self.config.ssl_keyfile),
                 cert_path=str(self.config.ssl_certfile),
             )
-            apply_profile_from_environment(self.config.ssl)
 
         try:
             await super().serve(sockets=sockets)
@@ -123,8 +121,6 @@ class RESTServer:
         ssl_certfile: Optional[str] = None,
         ssl_keyfile: Optional[str] = None,
     ):
-        if bool(ssl_certfile) != bool(ssl_keyfile):
-            raise ValueError("ssl_certfile and ssl_keyfile must be configured together")
         self.dataplane = data_plane
         self.model_repository_extension = model_repository_extension
         self.access_log_format = access_log_format

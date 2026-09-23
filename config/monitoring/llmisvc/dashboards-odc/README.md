@@ -118,7 +118,7 @@ Failure categorization by type and functional area attribution.
 The dashboards use Prometheus metrics from four sources:
 
 - **PodMonitor** (`vllm:*`): vLLM engine metrics from port 8000
-- **ServiceMonitor** (`inference_pool_*`, `inference_extension_*`, `inference_objective_*`): Scheduler (EPP) metrics
+- **ServiceMonitor** (`llm_d_epp_*`): Scheduler (EPP) metrics
 - **PodMonitor** (`istio_requests_total`, `istio_request_duration_milliseconds_bucket`): Gateway-level request and
   latency metrics from the inference gateway's Envoy sidecar, scraped via a per-gateway PodMonitor named
   `llm-inference-<gateway-name>`. The PodMonitor adds `llm_isvc_gateway="true"` via relabeling to disambiguate from
@@ -132,9 +132,7 @@ The dashboards use Prometheus metrics from four sources:
 | Prefix                  | Source          | What it measures                                                                                               |
 |-------------------------|-----------------|----------------------------------------------------------------------------------------------------------------|
 | `vllm:*`                | vLLM engine     | Per-engine request rates, latency, KV cache, tokens                                                            |
-| `inference_pool_*`      | Scheduler       | Pool-level aggregates (avg KV cache, avg queue, ready pods)                                                    |
-| `inference_extension_*` | Scheduler       | Scheduling internals (plugin latency, prefix indexer, flow control)                                            |
-| `inference_objective_*` | Scheduler       | Request-level metrics from the scheduler's perspective (E2E latency, TTFT, TPOT, SLO violations, error counts) |
+| `llm_d_epp_*`           | Scheduler       | Pool-level aggregates (avg KV cache, avg queue, ready endpoints), scheduling internals (plugin latency, prefix indexer, flow control), and request-level metrics from the scheduler's perspective (E2E latency, TTFT, TPOT, SLO violations, error counts) |
 | `istio_*`               | Envoy (Gateway) | Gateway-level request counts, latency histograms, payload sizes                                                |
 | `kuadrant_*`            | Kuadrant        | Authorization decisions (allowed/denied/errors) - cluster-wide counters only                                   |
 
