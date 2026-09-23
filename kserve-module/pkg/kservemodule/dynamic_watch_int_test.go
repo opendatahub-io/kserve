@@ -202,7 +202,6 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 				cond := fixture.FindCondition(kserve, kservemodule.ConditionConfidentialContainerDeps)
 				g.Expect(cond).NotTo(BeNil())
 				g.Expect(cond.Status).To(Equal(metav1.ConditionFalse))
-				g.Expect(cond.Message).To(ContainSubstring("Trustee"))
 				g.Expect(cond.Message).To(ContainSubstring("RuntimeClass"))
 			}).WithContext(ctx).WithTimeout(30 * time.Second).WithPolling(2 * time.Second).Should(Succeed())
 		})
@@ -216,16 +215,7 @@ var _ = Describe("Dynamic Watch Integration", Ordered, func() {
 			}
 		})
 
-		It("reconciles after Trustee and a CoCo RuntimeClass are available", func(ctx SpecContext) {
-			operatorCondition := &unstructured.Unstructured{}
-			operatorCondition.SetGroupVersionKind(schema.GroupVersionKind{
-				Group: "operators.coreos.com", Version: "v2", Kind: "OperatorCondition",
-			})
-			operatorCondition.SetName("trustee-operator.v1.0.0")
-			operatorCondition.SetNamespace("openshift-operators")
-			Expect(testEnv.Client.Create(ctx, operatorCondition)).To(Succeed())
-			operatorConditions = append(operatorConditions, operatorCondition)
-
+		It("reconciles after a CoCo RuntimeClass is available", func(ctx SpecContext) {
 			runtimeClass = &nodev1.RuntimeClass{
 				ObjectMeta: metav1.ObjectMeta{Name: "kata-qemu-tdx"},
 				Handler:    "kata-qemu-tdx",

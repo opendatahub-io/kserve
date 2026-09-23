@@ -7,9 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 	nodev1 "k8s.io/api/node/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -58,11 +56,6 @@ func assertDependencyValid(g Gomega, dep dependencyCheck) {
 			"operator dependency %s must have operatorGVK.Kind", dep.name)
 		g.Expect(dep.conditionFilter).ShouldNot(BeNil(),
 			"operator dependency %s must have conditionFilter", dep.name)
-	case checkOLMOperator:
-		g.Expect(dep.operatorPrefix).ShouldNot(BeEmpty(),
-			"OLM operator dependency %s must have operatorPrefix", dep.name)
-		g.Expect(dep.conditionGroup).ShouldNot(BeEmpty(),
-			"OLM operator dependency %s must have conditionGroup", dep.name)
 	case checkRuntimeClass:
 		g.Expect(dep.runtimeClassPrefixes).ShouldNot(BeEmpty(),
 			"RuntimeClass dependency %s must have runtimeClassPrefixes", dep.name)
@@ -77,73 +70,11 @@ func dependencyTestClient(objects ...client.Object) client.Client {
 	return fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
 }
 
-func makeOperatorCondition(name string) *unstructured.Unstructured {
-	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(schema.GroupVersionKind{
-		Group: "operators.coreos.com", Version: "v2", Kind: "OperatorCondition",
-	})
-	obj.SetName(name)
-	obj.SetNamespace("openshift-operators")
-	return obj
-}
-
 func makeRuntimeClass(name, handler string) *nodev1.RuntimeClass {
 	return &nodev1.RuntimeClass{
 		ObjectMeta: metav1.ObjectMeta{Name: name},
 		Handler:    handler,
 	}
-}
-
-func TestCheckOLMOperator(t *testing.T) {
-	dep := olmOperatorDep(
-		"Red Hat build of Trustee operator",
-		trusteeOperatorPrefix,
-		conditionConfidentialContainerDeps,
-		"ocp",
-		availSeverityNone,
-	)
-
-	tests := []struct {
-		name    string
-		objects []client.Object
-		want    []string
-	}{
-		{
-			name:    "matching operator condition",
-			objects: []client.Object{makeOperatorCondition("trustee-operator.v1.0.0")},
-		},
-		{
-			name:    "different operator",
-			objects: []client.Object{makeOperatorCondition("other-operator.v1.0.0")},
-			want:    []string{"Red Hat build of Trustee operator not installed"},
-		},
-		{
-			name: "operator prefix must include separator",
-			objects: []client.Object{
-				makeOperatorCondition("trustee-operator-extra.v1.0.0"),
-			},
-			want: []string{"Red Hat build of Trustee operator not installed"},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			r := &KserveModuleReconciler{Client: dependencyTestClient(tc.objects...)}
-			g := NewWithT(t)
-			g.Expect(r.checkOLMOperator(context.Background(), dep)).To(Equal(tc.want))
-		})
-	}
-}
-
-func TestCheckOLMOperator_ContextCancelled(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	r := &KserveModuleReconciler{Client: dependencyTestClient()}
-	dep := olmOperatorDep("Trustee", trusteeOperatorPrefix, conditionConfidentialContainerDeps, "ocp", availSeverityNone)
-
-	g := NewWithT(t)
-	g.Expect(r.checkOLMOperator(ctx, dep)).To(BeEmpty())
 }
 
 func TestCheckRuntimeClass(t *testing.T) {
@@ -213,14 +144,13 @@ func TestMissingConfidentialContainerDependenciesAreOptional(t *testing.T) {
 	// successful list path used when OLM is installed, without satisfying either
 	// of the CoCo operator checks.
 	r := &KserveModuleReconciler{
-		Client: dependencyTestClient(makeOperatorCondition("other-operator.v1.0.0")),
+		Client: dependencyTestClient(),
 	}
 	r.SetClusterType(cluster.ClusterTypeOpenShift)
 
 	result := r.checkDependencies(context.Background(), &platformv1alpha1.Kserve{})
 	g := NewWithT(t)
 	g.Expect(result.groupReasons[conditionConfidentialContainerDeps]).To(ConsistOf(
-		"Red Hat build of Trustee operator not installed",
 		`Confidential container RuntimeClass not ready (no RuntimeClass matching any of ["kata" "ccruntime" "enclave-cc"] and a runtime handler)`,
 	))
 	g.Expect(result.availReasons).To(BeEmpty())
