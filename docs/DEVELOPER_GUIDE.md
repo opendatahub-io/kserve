@@ -10,10 +10,9 @@ Instrumentation and span exporting are configured independently. Set `OTEL_TRACE
 
 ## LLMInferenceService tracing egress policy
 
-In distribution builds, the LLMInferenceService controller can create a
-workload-side egress NetworkPolicy for OTLP tracing. The policy is opt-in and
-does not change when tracing is configured unless the following annotation is
-set to `"true"`:
+In distribution builds, the LLMInferenceService controller can create an
+opt-in, workload-side egress NetworkPolicy for OTLP tracing. Tracing alone does
+not enable the policy; set the following annotation to `"true"`:
 
 ```yaml
 metadata:
@@ -24,18 +23,26 @@ metadata:
 When enabled, the controller creates a per-service `-otlp-egress` policy owned
 by the LLMInferenceService. The policy allows DNS, same-namespace traffic, and
 cross-namespace OTLP traffic when the exporter endpoint names an existing
-cluster-local Service with a pod selector. When the controller's Kubernetes API
-endpoint is an IP address, API access is limited to that IP and configured
-port. The cross-namespace peer selects that Service's pods and namespace on
-the endpoint port; the port is taken from the endpoint or defaults to TCP port
-4317.
+cluster-local Service with a pod selector. The cross-namespace peer selects
+that Service's pods and namespace on the endpoint port; the port is taken from
+the endpoint or defaults to TCP port 4317.
+
+The policy also retains TCP ports 443 and 6443 as a compatibility rule. Port
+443 is required for HTTPS model downloads, and NetworkPolicy processing of
+connections to the Kubernetes API Service can vary with Service-IP DNAT and
+the network plugin. This broad rule is intentional for the opt-in policy until
+the target platform can guarantee a narrower API-server rule. Services that
+need stricter external egress should add a separate policy or use PVC/OCI model
+sources.
 Deleting the LLMInferenceService lets Kubernetes garbage collection remove the
 owned policy.
 
 External hosts, IP addresses, unsupported or missing URL schemes, missing
 Services, and cross-namespace Services without pod selectors do not receive an
 OTLP egress rule; the controller logs this limitation. The workload-side
-egress policy is separate from collector-side ingress policy and does not use
-`MONITORING_NAMESPACE`. If the controller API endpoint is hostname-based, no
-API egress rule is generated; provide a separate policy if workloads require
-Kubernetes API access in that configuration.
+egress policy is separate from collector-side ingress policy and does not
+configure collector ingress or use `MONITORING_NAMESPACE`. The collector-side
+policy remains a platform responsibility. This opt-in policy is the current
+compatibility shape; a future platform-specific policy may replace the broad
+443/6443 rule once the collector and API-server networking contract is
+standardized.

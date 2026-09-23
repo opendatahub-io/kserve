@@ -56,7 +56,6 @@ const (
 	tracingNPComponentLabel    = "llm-tracing"
 	defaultOTLPPort            = 4317
 	tracingServiceIndex        = "kserve.io/tracing-service"
-	tracingBaseRefsIndex       = "kserve.io/tracing-base-refs"
 )
 
 func tracingNetworkPolicyName(llmSvc *v1alpha2.LLMInferenceService) string {
@@ -65,6 +64,7 @@ func tracingNetworkPolicyName(llmSvc *v1alpha2.LLMInferenceService) string {
 
 func (r *LLMISVCReconciler) reconcileTracingNetworkPolicy(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Tracing == nil || llmSvc.GetAnnotations()[constants.EnableTracingEgressNetworkPolicyAnnotationKey] != "true" {
+		setTracingServiceStatusAnnotation(llmSvc, "")
 		return r.cleanupTracingNetworkPolicy(ctx, llmSvc)
 	}
 
@@ -73,21 +73,17 @@ func (r *LLMISVCReconciler) reconcileTracingNetworkPolicy(ctx context.Context, l
 	if err != nil {
 		return err
 	}
+	serviceKey := ""
+	if endpoint, valid := parseOTLPServiceEndpoint(tracingEndpoint, llmSvc.GetNamespace()); valid {
+		serviceKey = tracingServiceKey(endpoint.namespace, endpoint.serviceName)
+	}
+	setTracingServiceStatusAnnotation(llmSvc, serviceKey)
 	if tracingEndpoint != "" && !supported {
 		log.FromContext(ctx).V(1).Info("OTLP endpoint is not an existing cluster-local Service with a pod selector; no OTLP egress rule will be added",
 			"namespace", llmSvc.GetNamespace(), "name", llmSvc.GetName())
 	}
 
-	var apiRule *netv1.NetworkPolicyEgressRule
-	if r.Config != nil {
-		if rule, ok := apiServerEgressRule(r.Config.Host); ok {
-			apiRule = &rule
-		} else {
-			log.FromContext(ctx).V(1).Info("Kubernetes API endpoint is not an IP address; API egress rule will be omitted",
-				"namespace", llmSvc.GetNamespace(), "name", llmSvc.GetName())
-		}
-	}
-	expected := expectedTracingNetworkPolicy(llmSvc, apiRule, otlpPeer, otlpPort, hasCrossNamespaceOTLP)
+	expected := expectedTracingNetworkPolicy(llmSvc, otlpPeer, otlpPort, hasCrossNamespaceOTLP)
 	if err := Reconcile(ctx, r, llmSvc, &netv1.NetworkPolicy{}, expected, semanticNetworkPolicyIsEqual); err != nil {
 		return fmt.Errorf("failed to reconcile tracing network policy %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 	}
@@ -95,7 +91,7 @@ func (r *LLMISVCReconciler) reconcileTracingNetworkPolicy(ctx context.Context, l
 }
 
 func (r *LLMISVCReconciler) cleanupTracingNetworkPolicy(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
-	expected := expectedTracingNetworkPolicy(llmSvc, nil, netv1.NetworkPolicyPeer{}, 0, false)
+	expected := expectedTracingNetworkPolicy(llmSvc, netv1.NetworkPolicyPeer{}, 0, false)
 	if err := Delete[*v1alpha2.LLMInferenceService](ctx, r, llmSvc, expected); err != nil {
 		return fmt.Errorf("failed to delete tracing network policy: %w", err)
 	}
@@ -112,34 +108,45 @@ func setupTracingServiceIndexes(ctx context.Context, indexer client.FieldIndexer
 	}); err != nil {
 		return fmt.Errorf("failed to index tracing services: %w", err)
 	}
-	if err := indexer.IndexField(ctx, &v1alpha2.LLMInferenceService{}, tracingBaseRefsIndex, func(object client.Object) []string {
-		llmSvc, ok := object.(*v1alpha2.LLMInferenceService)
-		if !ok {
-			return nil
-		}
-		return tracingBaseRefsIndexValues(llmSvc)
-	}); err != nil {
-		return fmt.Errorf("failed to index tracing baseRefs: %w", err)
-	}
 	return nil
 }
 
 func tracingServiceIndexValues(llmSvc *v1alpha2.LLMInferenceService) []string {
-	if llmSvc == nil || llmSvc.GetAnnotations()[constants.EnableTracingEgressNetworkPolicyAnnotationKey] != "true" || llmSvc.Spec.Tracing == nil {
+	if llmSvc == nil || utils.GetForceStopRuntime(llmSvc) || llmSvc.GetAnnotations()[constants.EnableTracingEgressNetworkPolicyAnnotationKey] != "true" {
 		return nil
 	}
-	endpoint, valid := parseOTLPServiceEndpoint(ptr.Deref(llmSvc.Spec.Tracing.ExporterEndpoint, ""), llmSvc.GetNamespace())
-	if !valid {
-		return nil
+
+	// The spec covers direct endpoints before status is persisted; status covers
+	// endpoints resolved from merged base references.
+	var serviceKeys []string
+	if llmSvc.Spec.Tracing != nil {
+		if endpoint, valid := parseOTLPServiceEndpoint(ptr.Deref(llmSvc.Spec.Tracing.ExporterEndpoint, ""), llmSvc.GetNamespace()); valid {
+			serviceKeys = append(serviceKeys, tracingServiceKey(endpoint.namespace, endpoint.serviceName))
+		}
 	}
-	return []string{tracingServiceKey(endpoint.namespace, endpoint.serviceName)}
+	serviceKey := llmSvc.Status.Annotations[constants.LLMTracingServiceStatusAnnotationKey]
+	if serviceKey != "" {
+		for _, indexedKey := range serviceKeys {
+			if indexedKey == serviceKey {
+				return serviceKeys
+			}
+		}
+		serviceKeys = append(serviceKeys, serviceKey)
+	}
+	return serviceKeys
 }
 
-func tracingBaseRefsIndexValues(llmSvc *v1alpha2.LLMInferenceService) []string {
-	if llmSvc == nil || llmSvc.GetAnnotations()[constants.EnableTracingEgressNetworkPolicyAnnotationKey] != "true" || len(llmSvc.Spec.BaseRefs) == 0 {
-		return nil
+func setTracingServiceStatusAnnotation(llmSvc *v1alpha2.LLMInferenceService, serviceKey string) {
+	if serviceKey == "" {
+		if llmSvc.Status.Annotations != nil {
+			delete(llmSvc.Status.Annotations, constants.LLMTracingServiceStatusAnnotationKey)
+		}
+		return
 	}
-	return []string{"true"}
+	if llmSvc.Status.Annotations == nil {
+		llmSvc.Status.Annotations = make(map[string]string)
+	}
+	llmSvc.Status.Annotations[constants.LLMTracingServiceStatusAnnotationKey] = serviceKey
 }
 
 func tracingServiceKey(namespace, name string) string {
@@ -172,8 +179,9 @@ func (r *LLMISVCReconciler) enqueueOnOTLPServiceChange(logger logr.Logger) handl
 		}
 
 		serviceKey := tracingServiceKey(service.Namespace, service.Name)
-		candidates := make(map[types.NamespacedName]*v1alpha2.LLMInferenceService)
 		indexed := &v1alpha2.LLMInferenceServiceList{}
+		// A Service event can arrive while the informer cache is recovering.
+		// Retry the indexed lookup briefly instead of dropping that event.
 		if err := clientretry.OnError(clientretry.DefaultRetry, func(error) bool { return true }, func() error {
 			return r.List(ctx, indexed, client.MatchingFields{tracingServiceIndex: serviceKey})
 		}); err != nil {
@@ -181,85 +189,21 @@ func (r *LLMISVCReconciler) enqueueOnOTLPServiceChange(logger logr.Logger) handl
 				"service", serviceKey)
 			return nil
 		}
+
+		requests := make([]reconcile.Request, 0, len(indexed.Items))
 		for i := range indexed.Items {
 			llmSvc := &indexed.Items[i]
-			candidates[types.NamespacedName{Namespace: llmSvc.Namespace, Name: llmSvc.Name}] = llmSvc
-		}
-
-		baseRefCandidates := &v1alpha2.LLMInferenceServiceList{}
-		if err := clientretry.OnError(clientretry.DefaultRetry, func(error) bool { return true }, func() error {
-			return r.List(ctx, baseRefCandidates, client.MatchingFields{tracingBaseRefsIndex: "true"})
-		}); err != nil {
-			logger.Error(err, "failed to list baseRef LLMInferenceServices for OTLP Service change",
-				"service", serviceKey)
-			return nil
-		}
-		for i := range baseRefCandidates.Items {
-			llmSvc := &baseRefCandidates.Items[i]
-			candidates[types.NamespacedName{Namespace: llmSvc.Namespace, Name: llmSvc.Name}] = llmSvc
-		}
-
-		requests := make([]reconcile.Request, 0, len(candidates))
-		for _, llmSvc := range candidates {
-			if utils.GetForceStopRuntime(llmSvc) || llmSvc.GetAnnotations()[constants.EnableTracingEgressNetworkPolicyAnnotationKey] != "true" {
-				continue
-			}
-			if len(llmSvc.Spec.BaseRefs) > 0 {
-				requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{
-					Namespace: llmSvc.GetNamespace(),
-					Name:      llmSvc.GetName(),
-				}})
-				continue
-			}
-			if llmSvc.Spec.Tracing == nil {
-				continue
-			}
-
-			endpoint, valid := parseOTLPServiceEndpoint(ptr.Deref(llmSvc.Spec.Tracing.ExporterEndpoint, ""), llmSvc.GetNamespace())
-			if valid && endpoint.serviceName == service.Name && endpoint.namespace == service.Namespace {
-				requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{
-					Namespace: llmSvc.GetNamespace(),
-					Name:      llmSvc.GetName(),
-				}})
-			}
+			requests = append(requests, reconcile.Request{NamespacedName: types.NamespacedName{
+				Namespace: llmSvc.GetNamespace(),
+				Name:      llmSvc.GetName(),
+			}})
 		}
 
 		return requests
 	})
 }
 
-// apiServerEgressRule narrows API access to the IP and port used by the
-// controller. A hostname cannot be safely represented by an IPBlock, so it
-// intentionally produces no rule rather than allowing all destinations.
-func apiServerEgressRule(host string) (netv1.NetworkPolicyEgressRule, bool) {
-	parsed, err := url.Parse(host)
-	if err != nil || parsed.Hostname() == "" {
-		return netv1.NetworkPolicyEgressRule{}, false
-	}
-	ip := net.ParseIP(parsed.Hostname())
-	if ip == nil {
-		return netv1.NetworkPolicyEgressRule{}, false
-	}
-
-	apiPort := 443
-	if port := parsed.Port(); port != "" {
-		apiPort, err = strconv.Atoi(port)
-		if err != nil || apiPort < 1 || apiPort > 65535 {
-			return netv1.NetworkPolicyEgressRule{}, false
-		}
-	}
-	cidrSuffix := "/32"
-	if ip.To4() == nil {
-		cidrSuffix = "/128"
-	}
-	tcp := corev1.ProtocolTCP
-	return netv1.NetworkPolicyEgressRule{
-		Ports: []netv1.NetworkPolicyPort{{Protocol: &tcp, Port: ptr.To(intstr.FromInt(apiPort))}},
-		To:    []netv1.NetworkPolicyPeer{{IPBlock: &netv1.IPBlock{CIDR: ip.String() + cidrSuffix}}},
-	}, true
-}
-
-func expectedTracingNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, apiRule *netv1.NetworkPolicyEgressRule, otlpPeer netv1.NetworkPolicyPeer, otlpPort int32, hasCrossNamespaceOTLP bool) *netv1.NetworkPolicy {
+func expectedTracingNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, otlpPeer netv1.NetworkPolicyPeer, otlpPort int32, hasCrossNamespaceOTLP bool) *netv1.NetworkPolicy {
 	tcp := corev1.ProtocolTCP
 	udp := corev1.ProtocolUDP
 	port := func(protocol corev1.Protocol, value int32) netv1.NetworkPolicyPort {
@@ -292,12 +236,13 @@ func expectedTracingNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, apiRule 
 				{Ports: []netv1.NetworkPolicyPort{
 					port(udp, 53), port(tcp, 53), port(udp, 5353), port(tcp, 5353),
 				}},
+				// Keep the original compatibility rule. NetworkPolicy handling of
+				// Service-IP DNAT is implementation-dependent, and workloads also
+				// need HTTPS for model downloads.
+				{Ports: []netv1.NetworkPolicyPort{port(tcp, 443), port(tcp, 6443)}},
 				{To: []netv1.NetworkPolicyPeer{{PodSelector: &metav1.LabelSelector{}}}},
 			},
 		},
-	}
-	if apiRule != nil {
-		policy.Spec.Egress = append([]netv1.NetworkPolicyEgressRule{policy.Spec.Egress[0], *apiRule}, policy.Spec.Egress[1:]...)
 	}
 	if hasCrossNamespaceOTLP {
 		policy.Spec.Egress = append(policy.Spec.Egress, netv1.NetworkPolicyEgressRule{

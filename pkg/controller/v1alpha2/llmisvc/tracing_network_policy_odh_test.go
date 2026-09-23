@@ -72,10 +72,11 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 			netv1.NetworkPolicyPort{Protocol: ptr.To(corev1.ProtocolUDP), Port: ptr.To(intstr.FromInt32(5353))},
 			netv1.NetworkPolicyPort{Protocol: ptr.To(corev1.ProtocolTCP), Port: ptr.To(intstr.FromInt32(5353))},
 		))
-		Expect(np.Spec.Egress[1].Ports).To(HaveLen(1))
-		Expect(np.Spec.Egress[1].Ports[0].Protocol).To(Equal(ptr.To(corev1.ProtocolTCP)))
-		Expect(np.Spec.Egress[1].To).To(HaveLen(1))
-		Expect(np.Spec.Egress[1].To[0].IPBlock).ToNot(BeNil())
+		Expect(np.Spec.Egress[1].Ports).To(ConsistOf(
+			netv1.NetworkPolicyPort{Protocol: ptr.To(corev1.ProtocolTCP), Port: ptr.To(intstr.FromInt32(443))},
+			netv1.NetworkPolicyPort{Protocol: ptr.To(corev1.ProtocolTCP), Port: ptr.To(intstr.FromInt32(6443))},
+		))
+		Expect(np.Spec.Egress[1].To).To(BeEmpty())
 		Expect(np.Spec.Egress[2].To).To(HaveLen(1))
 		Expect(np.Spec.Egress[2].To[0].PodSelector.MatchLabels).To(BeEmpty())
 		Expect(np.Spec.Egress[3].Ports).To(ContainElement(
@@ -171,6 +172,14 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 
 		np := waitForTracingNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
 		Expect(np.Spec.Egress).To(HaveLen(3))
+		Eventually(func(g Gomega, ctx context.Context) {
+			resolved := &v1alpha2.LLMInferenceService{}
+			g.Expect(envTest.Get(ctx, types.NamespacedName{Name: llmSvc.Name, Namespace: testNs.Name}, resolved)).To(Succeed())
+			g.Expect(resolved.Status.Annotations).To(HaveKeyWithValue(
+				constants.LLMTracingServiceStatusAnnotationKey,
+				collectorNs.Name+"/otel-collector",
+			))
+		}).WithContext(ctx).Should(Succeed())
 
 		collectorSvc := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{Name: "otel-collector", Namespace: collectorNs.Name},

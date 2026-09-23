@@ -19,16 +19,27 @@ limitations under the License.
 package llmisvc
 
 import (
+	"context"
+	"errors"
 	"reflect"
 	"testing"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmeta"
 	"knative.dev/pkg/network"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
@@ -115,42 +126,85 @@ func TestTracingServiceIndexValues(t *testing.T) {
 			Namespace:   "team-a",
 			Annotations: map[string]string{constants.EnableTracingEgressNetworkPolicyAnnotationKey: "true"},
 		},
-		Spec: v1alpha2.LLMInferenceServiceSpec{Tracing: &v1alpha2.TracingSpec{
-			ExporterEndpoint: ptr.To("http://jaeger.observability.svc:4318"),
-		}},
+	}
+	llmSvc.Status.Annotations = map[string]string{
+		constants.LLMTracingServiceStatusAnnotationKey: "observability/jaeger",
 	}
 	if got, want := tracingServiceIndexValues(llmSvc), []string{"observability/jaeger"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("direct endpoint index got %v want %v", got, want)
+		t.Fatalf("resolved endpoint index got %v want %v", got, want)
 	}
 
-	llmSvc.Spec.Tracing = nil
-	llmSvc.Spec.BaseRefs = []corev1.LocalObjectReference{{Name: "tracing-config"}}
-	if got, want := tracingBaseRefsIndexValues(llmSvc), []string{"true"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("baseRefs index got %v want %v", got, want)
+	setTracingServiceStatusAnnotation(llmSvc, "")
+	if got := tracingServiceIndexValues(llmSvc); got != nil {
+		t.Fatalf("cleared endpoint should not be indexed: %v", got)
 	}
 
+	setTracingServiceStatusAnnotation(llmSvc, "team-a/jaeger")
 	delete(llmSvc.Annotations, constants.EnableTracingEgressNetworkPolicyAnnotationKey)
 	if got := tracingServiceIndexValues(llmSvc); got != nil {
 		t.Fatalf("unopted-in service should not be indexed: %v", got)
 	}
 }
 
-func TestAPIServerEgressRule(t *testing.T) {
-	rule, ok := apiServerEgressRule("https://10.0.0.10:6443")
-	if !ok {
-		t.Fatal("expected an IP-based API server endpoint to be supported")
+func TestEnqueueOnOTLPServiceChangeBootstrapsAndRetriesList(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1alpha2.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add serving scheme: %v", err)
 	}
-	if got, want := rule.Ports, []netv1.NetworkPolicyPort{{
-		Protocol: ptr.To(corev1.ProtocolTCP),
-		Port:     ptr.To(intstr.FromInt32(6443)),
-	}}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("API ports got %v want %v", got, want)
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add core scheme: %v", err)
 	}
-	if got, want := rule.To, []netv1.NetworkPolicyPeer{{IPBlock: &netv1.IPBlock{CIDR: "10.0.0.10/32"}}}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("API peers got %v want %v", got, want)
+
+	llmSvc := &v1alpha2.LLMInferenceService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "svc-a",
+			Namespace: "team-a",
+			Annotations: map[string]string{
+				constants.EnableTracingEgressNetworkPolicyAnnotationKey: "true",
+			},
+		},
+		Spec: v1alpha2.LLMInferenceServiceSpec{Tracing: &v1alpha2.TracingSpec{
+			ExporterEndpoint: ptr.To("http://jaeger.observability.svc:4317"),
+		}},
 	}
-	if _, ok := apiServerEgressRule("https://api.example.com:6443"); ok {
-		t.Fatal("hostname-only API server endpoint should not create an unrestricted rule")
+	service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "jaeger", Namespace: "observability"}}
+	listCalls := 0
+	fakeClient := clientfake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(llmSvc).
+		WithIndex(&v1alpha2.LLMInferenceService{}, tracingServiceIndex, func(object client.Object) []string {
+			return tracingServiceIndexValues(object.(*v1alpha2.LLMInferenceService))
+		}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			List: func(ctx context.Context, c client.WithWatch, object client.ObjectList, opts ...client.ListOption) error {
+				listCalls++
+				if listCalls == 1 {
+					return errors.New("transient cache failure")
+				}
+				return c.List(ctx, object, opts...)
+			},
+		}).
+		Build()
+
+	queue := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+	defer queue.ShutDown()
+	(&LLMISVCReconciler{Client: fakeClient}).enqueueOnOTLPServiceChange(logr.Discard()).Create(
+		context.Background(), event.CreateEvent{Object: service}, queue)
+
+	if got, want := listCalls, 2; got != want {
+		t.Fatalf("list calls got %d want %d", got, want)
+	}
+	if queue.Len() != 1 {
+		t.Fatalf("queue length got %d want 1", queue.Len())
+	}
+	request, shutdown := queue.Get()
+	if shutdown {
+		t.Fatal("queue shut down before request was enqueued")
+	}
+	queue.Done(request)
+	queue.Forget(request)
+	if got, want := request, (reconcile.Request{NamespacedName: types.NamespacedName{Namespace: "team-a", Name: "svc-a"}}); got != want {
+		t.Fatalf("request got %v want %v", got, want)
 	}
 }
 
@@ -171,11 +225,7 @@ func TestExpectedTracingNetworkPolicy(t *testing.T) {
 
 	otlpPeer := namespaceSelectorPeer("observability")
 	otlpPeer.PodSelector = &metav1.LabelSelector{MatchLabels: map[string]string{"app": "jaeger"}}
-	apiRule, ok := apiServerEgressRule("https://10.0.0.10:6443")
-	if !ok {
-		t.Fatal("expected API server rule")
-	}
-	np := expectedTracingNetworkPolicy(llmSvc, &apiRule, otlpPeer, 4318, true)
+	np := expectedTracingNetworkPolicy(llmSvc, otlpPeer, 4318, true)
 	if got, want := np.Name, "svc-a-otlp-egress"; got != want {
 		t.Fatalf("name got %q want %q", got, want)
 	}
@@ -210,12 +260,13 @@ func TestExpectedTracingNetworkPolicy(t *testing.T) {
 		t.Fatalf("DNS ports got %v want %v", got, want)
 	}
 	if got, want := np.Spec.Egress[1].Ports, []netv1.NetworkPolicyPort{
+		{Protocol: ptr.To(corev1.ProtocolTCP), Port: ptr.To(intstr.FromInt32(443))},
 		{Protocol: ptr.To(corev1.ProtocolTCP), Port: ptr.To(intstr.FromInt32(6443))},
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("API ports got %v want %v", got, want)
 	}
-	if got, want := np.Spec.Egress[1].To, []netv1.NetworkPolicyPeer{{IPBlock: &netv1.IPBlock{CIDR: "10.0.0.10/32"}}}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("API peers got %v want %v", got, want)
+	if got := np.Spec.Egress[1].To; len(got) != 0 {
+		t.Fatalf("API peers got %v want no destination restriction", got)
 	}
 	if np.Spec.Egress[2].To[0].PodSelector == nil || len(np.Spec.Egress[2].To[0].PodSelector.MatchLabels) != 0 {
 		t.Fatalf("same-namespace rule is not unrestricted")
