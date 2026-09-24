@@ -52,11 +52,22 @@ import (
 )
 
 const (
-	tracingNetworkPolicySuffix = "-otlp-egress"
-	tracingNPComponentLabel    = "llm-tracing"
-	defaultOTLPPort            = 4317
-	tracingServiceIndex        = "kserve.io/tracing-service"
+	tracingNetworkPolicySuffix         = "-otlp-egress"
+	tracingNPComponentLabel            = "llm-tracing"
+	defaultOTLPPort                    = 4317
+	tracingServiceIndex                = "kserve.io/tracing-service"
+	unsupportedTracingEndpointReason   = "UnsupportedTracingEndpoint"
+	tracingNetworkPolicyNotOwnedReason = "TracingNetworkPolicyNotOwned"
 )
+
+type tracingNetworkPolicyNotOwnedError struct {
+	namespace string
+	name      string
+}
+
+func (e *tracingNetworkPolicyNotOwnedError) Error() string {
+	return fmt.Sprintf("tracing NetworkPolicy %s/%s is not controlled by the LLMInferenceService", e.namespace, e.name)
+}
 
 func tracingNetworkPolicyName(llmSvc *v1alpha2.LLMInferenceService) string {
 	return kmeta.ChildName(llmSvc.GetName(), tracingNetworkPolicySuffix)
@@ -79,15 +90,27 @@ func (r *LLMISVCReconciler) reconcileTracingNetworkPolicy(ctx context.Context, l
 	}
 	setTracingServiceStatusAnnotation(llmSvc, serviceKey)
 	if tracingEndpoint != "" && !supported {
+		r.Eventf(llmSvc, corev1.EventTypeWarning, unsupportedTracingEndpointReason,
+			"OTLP exporter endpoint is unsupported; no OTLP egress rule will be added")
 		log.FromContext(ctx).V(1).Info("OTLP endpoint is not an existing cluster-local Service with a pod selector; no OTLP egress rule will be added",
 			"namespace", llmSvc.GetNamespace(), "name", llmSvc.GetName())
 	}
 
 	expected := expectedTracingNetworkPolicy(llmSvc, otlpPeer, otlpPort, hasCrossNamespaceOTLP)
 	if err := Reconcile(ctx, r, llmSvc, &netv1.NetworkPolicy{}, expected, semanticNetworkPolicyIsEqual); err != nil {
+		if isTracingNetworkPolicyOwnershipConflict(err, expected, llmSvc) {
+			return &tracingNetworkPolicyNotOwnedError{namespace: expected.GetNamespace(), name: expected.GetName()}
+		}
 		return fmt.Errorf("failed to reconcile tracing network policy %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 	}
 	return nil
+}
+
+func isTracingNetworkPolicyOwnershipConflict(err error, expected *netv1.NetworkPolicy, llmSvc *v1alpha2.LLMInferenceService) bool {
+	ownershipError := fmt.Sprintf("failed to update %s %s/%s: it is not controlled by %s %s/%s",
+		logLineForObject(expected), expected.GetNamespace(), expected.GetName(),
+		logLineForObject(llmSvc), llmSvc.GetNamespace(), llmSvc.GetName())
+	return strings.Contains(err.Error(), ownershipError)
 }
 
 func (r *LLMISVCReconciler) cleanupTracingNetworkPolicy(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
@@ -328,6 +351,9 @@ func (r *LLMISVCReconciler) otlpPeerForEndpoint(ctx context.Context, llmSvc *v1a
 // pods. Same-namespace endpoints are already covered by the namespace rule.
 func otlpPeerForService(endpoint otlpServiceEndpoint, serviceNamespace string, service *corev1.Service) (netv1.NetworkPolicyPeer, int32, bool, bool) {
 	if service == nil || service.GetName() != endpoint.serviceName || service.GetNamespace() != endpoint.namespace {
+		return netv1.NetworkPolicyPeer{}, 0, false, false
+	}
+	if service.Spec.Type == corev1.ServiceTypeExternalName {
 		return netv1.NetworkPolicyPeer{}, 0, false, false
 	}
 	if endpoint.namespace == serviceNamespace {

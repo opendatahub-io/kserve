@@ -20,6 +20,7 @@ package llmisvc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -142,7 +143,14 @@ func (r *LLMISVCReconciler) reconcileNetworkPolicies(ctx context.Context, llmSvc
 	logger := log.FromContext(ctx).WithName("reconcileNetworkPolicies")
 
 	if err := r.reconcileTracingNetworkPolicy(ctx, llmSvc); err != nil {
-		return fmt.Errorf("failed to reconcile tracing network policy: %w", err)
+		var notOwnedErr *tracingNetworkPolicyNotOwnedError
+		if errors.As(err, &notOwnedErr) {
+			r.Eventf(llmSvc, corev1.EventTypeWarning, tracingNetworkPolicyNotOwnedReason,
+				"Tracing NetworkPolicy ownership conflict; leaving it unchanged and continuing monitoring reconciliation: %v",
+				notOwnedErr)
+		} else {
+			return fmt.Errorf("failed to reconcile tracing network policy: %w", err)
+		}
 	}
 	if monitoringDisabled {
 		return nil

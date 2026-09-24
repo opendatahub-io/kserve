@@ -119,6 +119,49 @@ var _ = Describe("LLMInferenceService Monitoring NetworkPolicy", func() {
 			Expect(intraNamespaceRule.Ports).To(BeNil())
 		})
 
+		It("should continue monitoring reconciliation when the tracing policy has another owner", func(ctx SpecContext) {
+			testNs := NewTestNamespace(ctx, envTest)
+			llmName := "test-llm-netpol-tracing-owner-conflict"
+			foreignOwner := &v1alpha2.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foreign-owner",
+					Namespace: testNs.Name,
+					UID:       types.UID("foreign-owner-uid"),
+				},
+			}
+			foreignOwnerRef := *metav1.NewControllerRef(foreignOwner, v1alpha2.LLMInferenceServiceGVK)
+			tracingNP := &netv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      kmeta.ChildName(llmName, "-otlp-egress"),
+					Namespace: testNs.Name,
+					OwnerReferences: []metav1.OwnerReference{
+						foreignOwnerRef,
+					},
+				},
+			}
+			Expect(envTest.Create(ctx, tracingNP)).To(Succeed())
+
+			llmSvc := LLMInferenceService(llmName,
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithAnnotations(map[string]string{constants.EnableTracingEgressNetworkPolicyAnnotationKey: "true"}),
+			)
+			llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{}
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer testNs.DeleteAndWait(ctx, llmSvc)
+
+			waitForMonitoringNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
+			Eventually(func(g Gomega, ctx context.Context) {
+				event := findEvent(ctx, envTest.Client, llmSvc, "TracingNetworkPolicyNotOwned")
+				g.Expect(event).NotTo(BeNil())
+				g.Expect(event.Type).To(Equal(corev1.EventTypeWarning))
+			}).WithContext(ctx).Should(Succeed())
+
+			preserved := &netv1.NetworkPolicy{}
+			Expect(envTest.Get(ctx, types.NamespacedName{Name: tracingNP.Name, Namespace: testNs.Name}, preserved)).To(Succeed())
+			Expect(preserved.OwnerReferences).To(Equal([]metav1.OwnerReference{foreignOwnerRef}))
+		})
+
 		It("should include RHOAI monitoring without dropping OpenShift defaults when MONITORING_NAMESPACE is unset", func(ctx SpecContext) {
 			// given - operator skips injecting the env var when monitoring is unset
 			if old, had := os.LookupEnv("MONITORING_NAMESPACE"); had {

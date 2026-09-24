@@ -114,6 +114,40 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 		))
 	})
 
+	It("emits a warning for an ExternalName OTLP endpoint and continues reconciliation", func(ctx SpecContext) {
+		testNs := NewTestNamespace(ctx, envTest)
+		collectorSvc := &corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "otel-collector", Namespace: testNs.Name},
+			Spec: corev1.ServiceSpec{
+				Type:         corev1.ServiceTypeExternalName,
+				ExternalName: "otel.example.com",
+			},
+		}
+		Expect(envTest.Create(ctx, collectorSvc)).To(Succeed())
+
+		llmSvc := LLMInferenceService("test-llm-tracing-external-name",
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithAnnotations(map[string]string{constants.EnableTracingEgressNetworkPolicyAnnotationKey: "true"}),
+		)
+		llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{ExporterEndpoint: ptr.To("http://user:super-secret@otel-collector:4317/v1/traces?token=secret-token")}
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer testNs.DeleteAndWait(ctx, llmSvc)
+
+		tracingNP := waitForTracingNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
+		Expect(tracingNP.Spec.Egress).To(HaveLen(3))
+		waitForMonitoringNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
+
+		Eventually(func(g Gomega, ctx context.Context) {
+			event := findEvent(ctx, envTest.Client, llmSvc, "UnsupportedTracingEndpoint")
+			g.Expect(event).NotTo(BeNil())
+			g.Expect(event.Type).To(Equal(corev1.EventTypeWarning))
+			g.Expect(event.Message).To(Equal("OTLP exporter endpoint is unsupported; no OTLP egress rule will be added"))
+			g.Expect(event.Message).NotTo(ContainSubstring("super-secret"))
+			g.Expect(event.Message).NotTo(ContainSubstring("secret-token"))
+		}).WithContext(ctx).Should(Succeed())
+	})
+
 	It("updates the OTLP rule when the referenced Service changes or is deleted", func(ctx SpecContext) {
 		testNs := NewTestNamespace(ctx, envTest)
 		collectorNs, collectorSvc := createOTLPTestService(ctx, testNs.Name, "otel-collector", map[string]string{"app": "otel-collector"}, 4317)
