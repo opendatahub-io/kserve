@@ -24,6 +24,15 @@ func isShippedPreset(obj *unstructured.Unstructured, applicationsNS string) bool
 	return obj.GetNamespace() == applicationsNS && isWellKnownConfig(obj)
 }
 
+// isAcceleratorPreset reports whether the object is an accelerator-specific preset, i.e.
+// a well-known LLMInferenceServiceConfig carrying the accelerator config-type label the
+// accelerator overlays stamp on. Generic llm-d templates are well-known but lack the label,
+// so this cleanly separates accelerator presets from generic ones without parsing the
+// recommended-accelerators annotation.
+func isAcceleratorPreset(obj *unstructured.Unstructured) bool {
+	return isWellKnownConfig(obj) && obj.GetLabels()[configTypeLabelKey] == configTypeAcceleratorValue
+}
+
 // wellKnownPresetNames returns the names of the presets in a rendered resource
 // set, after versionedWellKnownLLMInferenceServiceConfigs has prefixed them.
 func wellKnownPresetNames(resources []unstructured.Unstructured) []string {

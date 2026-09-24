@@ -78,6 +78,14 @@ type KserveSpec struct {
 	// Enabled by default.
 	EnableLLMInferenceServiceConsoleDashboards *bool `json:"enableLLMInferenceServiceConsoleDashboards,omitempty"`
 
+	// Enables hardware-aware creation of accelerator LLMInferenceServiceConfig presets:
+	// presets for an accelerator are only created when a matching resource is present in
+	// some node's status.allocatable or is published by a DRA ResourceSlice driver listed
+	// in opendatahub.io/recommended-dra-drivers (vendor-domain matching also covers MIG devices).
+	// Enabled by default. Set to false on clusters using accelerator resource names that
+	// do not share a vendor domain, so that all presets are always created.
+	EnableHardwareAwarePresets *bool `json:"enableHardwareAwarePresets,omitempty"`
+
 	// AuditLoggingProfile selects the inference request audit logging profile.
 	// Removed disables audit events; Metadata records request and response metadata without bodies.
 	// +kubebuilder:validation:Enum=Removed;Metadata
