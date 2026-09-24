@@ -11,32 +11,34 @@ Orchestration is **OpenShift CI (Prow)** on Hypershift.
 
 ## What it does
 
-1. You publish `quay.io/opendatahub/odh-kserve-module-operator:odh-vX.Y` and push tag `odh-vX.Y`.
+1. You publish `quay.io/opendatahub/odh-kserve-module-operator:<tag>` and push tag
+   `odh-vX.Y` or `odh-vX.Y-eaN` / `-rcN`.
 2. On any open kserve PR, comment `/test e2e-kserve-module-post-release`.
 3. Prow provisions an ephemeral Hypershift cluster (same profile as `e2e-kserve-module`).
-4. `hack/ci/post-release-smoke.sh` picks the newest plain `odh-vX.Y` git tag (no `-ea`/`-rc`),
+4. `hack/ci/post-release-smoke.sh` picks the newest matching git tag (plain or `-ea`/`-rc`),
    checks out that tag, installs the **published** Quay operator image (never PR-built images),
    and runs `make e2e-kserve-module-post-release` (`post_release` pytest).
 
-`/test` cannot take a tag argument. In CI the job always targets the **latest
-plain** `odh-vX.Y` tag (no `-ea` / `-rc` / other suffix).
+`/test` cannot take a tag argument. Auto-resolve uses GNU `sort -V` over tags matching
+`odh-vX.Y` or `odh-vX.Y-(ea|rc)N`, for example:
 
-### Early-access / `-ea` / `-rc` images
+`odh-v3.5` < `odh-v3.6` < `odh-v3.6-ea1` < `odh-v3.6-ea2` < `odh-v3.7` < `odh-v3.7-ea1`
 
-If the release under test is tagged like `odh-v3.6-ea1` (Quay image ends with
-`-ea1`, `-rc1`, etc.), **`/test` will not pick it**. Auto-resolve only matches
-`^odh-v[0-9]+\.[0-9]+$`.
+So an `-ea` of `X.Y` ranks above plain `X.Y`, and the next minor ranks above any `-ea`
+of the prior minor.
 
-Run the **same** smoke script and Make targets with an explicit tag (local CRC /
-any OpenShift kubeconfig - not via the GitHub comment):
+### Pinning a specific tag
+
+To smoke a tag other than the auto-resolved newest (local CRC / any OpenShift
+kubeconfig - not via the GitHub comment):
 
 ```bash
 export RELEASE_TAG=odh-v3.6-ea1
 bash hack/ci/post-release-smoke.sh
 ```
 
-That is the same flow as CI (checkout tag -> published Quay image ->
-`make e2e-kserve-module-post-release`); only the trigger differs because Prow
+Same flow as CI (checkout tag -> published Quay image ->
+`make e2e-kserve-module-post-release`); only the tag selection differs because Prow
 `/test` cannot pass `RELEASE_TAG`.
 
 ## Trigger model
@@ -51,15 +53,15 @@ That is the same flow as CI (checkout tag -> published Quay image ->
 
 | Event | Runs smoke? |
 |-------|-------------|
-| `/test e2e-kserve-module-post-release` on a PR | Yes (latest plain `odh-vX.Y`) |
-| Push tag `odh-v3.6` alone | No |
+| `/test e2e-kserve-module-post-release` on a PR | Yes (newest `odh-vX.Y` or `-ea`/`-rc`) |
+| Push tag `odh-v3.6` / `odh-v3.6-ea2` alone | No |
 | Merge PR to `master` | No |
 | Re-run job in Prow UI | Yes |
-| Validate `-ea`/`-rc` tag | Local: `RELEASE_TAG=odh-vX.Y-eaN bash hack/ci/post-release-smoke.sh` |
+| Pin a non-newest tag | Local: `RELEASE_TAG=<tag> bash hack/ci/post-release-smoke.sh` |
 
 Prerequisites before `/test`:
 
-- `quay.io/opendatahub/odh-kserve-module-operator:odh-vX.Y` exists for the newest tag
+- `quay.io/opendatahub/odh-kserve-module-operator:<tag>` exists for the newest matching tag
 - That tag's commit includes `post_release` tests and `make e2e-kserve-module-post-release`
 
 ## Why not a tag postsubmit?
@@ -83,7 +85,7 @@ Details: [ci-operator tag postsubmit investigation](./ci-operator-tag-postsubmit
 | Trigger | `/test` on a kserve PR | Would need PAC comment / PipelineRun param |
 | Cluster | Existing Hypershift workflow (`e2e-kserve-module`) | Would reimplement ephemeral OCP e2e |
 | Published image only | Yes (script + Quay tag) | Possible, but new pipeline work |
-| Tag on comment | No - always latest plain `odh-vX.Y` (`-ea` needs local `RELEASE_TAG`) | Easier to pass `release_tag` as a param |
+| Tag on comment | No - always newest `odh-vX.Y` / `-ea`/`-rc` (`RELEASE_TAG` to pin) | Easier to pass `release_tag` as a param |
 | Maintenance | Same prow/ci-operator lane as other kserve e2e | Split across konflux-central + kserve + onboarder |
 | openshift/release | One optional job (mergeable) | Avoids release PR, but duplicates e2e orchestration |
 
@@ -130,10 +132,10 @@ make sanitize-prow-jobs WHAT=opendatahub-io/kserve
 
 1. Cut ODH release; publish `odh-kserve-module-operator:<tag>` on Quay
 2. Tag kserve (`odh-vX.Y` or `odh-vX.Y-eaN`, etc.)
-3. Trigger smoke:
-   - Plain `odh-vX.Y`: `/test e2e-kserve-module-post-release` on any open kserve PR
-   - `-ea`/`-rc`/suffixed tag: `export RELEASE_TAG=<tag> && bash hack/ci/post-release-smoke.sh` locally (same flow; `/test` ignores suffixes)
-4. Watch Prow (plain tags) or local logs; green -> sign off
+3. Trigger smoke: `/test e2e-kserve-module-post-release` on any open kserve PR
+   (auto-picks newest plain or `-ea`/`-rc`). Pin with
+   `export RELEASE_TAG=<tag> && bash hack/ci/post-release-smoke.sh` if needed.
+4. Watch Prow or local logs; green -> sign off
 5. Re-run with `/test` / Prow UI, or re-run the local script with `RELEASE_TAG`
 
 ## Related

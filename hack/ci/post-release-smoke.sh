@@ -3,23 +3,20 @@
 # Used by OpenShift CI optional /test e2e-kserve-module-post-release and local validation.
 set -euo pipefail
 
-# Newest plain odh-vX.Y tag (no -ea / -rc / other suffix). Prefers version sort.
+# Newest odh-vX.Y or odh-vX.Y-(ea|rc)* tag. GNU sort -V order (examples):
+#   odh-v3.5 < odh-v3.6 < odh-v3.6-ea1 < odh-v3.6-ea2 < odh-v3.7 < odh-v3.7-ea1
+# so an -ea of X.Y ranks above plain X.Y, and the next minor ranks above any -ea of the prior.
 latest_odh_release_tag() {
   git fetch --tags origin >/dev/null 2>&1 || true
   git tag -l 'odh-v*' \
-    | grep -E '^odh-v[0-9]+\.[0-9]+$' \
-    | sort -t. -k1,1 -k2,2n -k3,3n \
+    | grep -E '^odh-v[0-9]+\.[0-9]+(-[A-Za-z]+[0-9]+)?$' \
+    | sort -V \
     | tail -n1
 }
 
-# Pre-release tags like odh-v3.6-ea1 (for hints when auto-resolve fails).
-list_odh_prerelease_tags() {
-  git tag -l 'odh-v*' | grep -E '^odh-v[0-9]+\.[0-9]+-' || true
-}
-
 resolve_release_tag() {
-  # Local override (required for -ea/-rc tags). /test cannot pass a tag; CI leaves
-  # RELEASE_TAG unset and uses the newest plain odh-vX.Y tag below.
+  # Local override to pin a specific tag. /test cannot pass a tag; CI leaves
+  # RELEASE_TAG unset and uses the newest matching tag below.
   if [[ -n "${RELEASE_TAG:-}" ]]; then
     return 0
   fi
@@ -28,27 +25,17 @@ resolve_release_tag() {
   if [[ -n "${latest}" ]]; then
     RELEASE_TAG="${latest}"
     export RELEASE_TAG
-    echo "RELEASE_TAG unset; using latest plain odh-vX.Y tag: ${RELEASE_TAG}"
-    local prerelease
-    prerelease="$(list_odh_prerelease_tags | tail -n1 || true)"
-    if [[ -n "${prerelease}" ]]; then
-      echo "Note: pre-release tags exist (e.g. ${prerelease}). /test ignores -ea/-rc suffixes."
-      echo "To validate those, run the same script with: export RELEASE_TAG=${prerelease}"
-    fi
+    echo "RELEASE_TAG unset; using latest odh-vX.Y / odh-vX.Y-ea|rc tag: ${RELEASE_TAG}"
     return 0
   fi
   return 1
 }
 
 if ! resolve_release_tag; then
-  echo "RELEASE_TAG is required (e.g. export RELEASE_TAG=odh-v3.6)"
-  echo "In OpenShift CI, /test e2e-kserve-module-post-release uses the newest plain odh-vX.Y tag only."
-  prerelease="$(list_odh_prerelease_tags | tail -n3 || true)"
-  if [[ -n "${prerelease}" ]]; then
-    echo "Found pre-release tags (not selected automatically):"
-    echo "${prerelease}"
-    echo "Same flow, pinned tag: export RELEASE_TAG=<tag> && bash hack/ci/post-release-smoke.sh"
-  fi
+  echo "RELEASE_TAG is required (e.g. export RELEASE_TAG=odh-v3.6 or odh-v3.6-ea2)"
+  echo "In OpenShift CI, /test e2e-kserve-module-post-release uses the newest"
+  echo "odh-vX.Y or odh-vX.Y-(ea|rc)* tag (version sort; next minor beats prior -ea)."
+  echo "Pin locally: export RELEASE_TAG=<tag> && bash hack/ci/post-release-smoke.sh"
   exit 1
 fi
 
