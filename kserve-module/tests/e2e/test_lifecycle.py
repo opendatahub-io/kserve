@@ -201,7 +201,7 @@ class TestManagementState:
     """Verify managementState transitions for sub-components (WVA, NIM)."""
 
     def test_wva_default_removed_has_no_deployment(self, kubectl, cluster_info, apply_kserve_cr):
-        """WVA defaults to Removed — no WVA deployment should exist."""
+        """WVA is never deployed — no WVA deployment should exist."""
         patch = json.dumps({"spec": {"wva": {"managementState": "Removed"}}})
         run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
         _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
@@ -214,32 +214,46 @@ class TestManagementState:
         )
         assert result.returncode != 0, \
             f"{WVA_DEPLOYMENT} should not exist when WVA is Removed"
+        assert not resource_exists(kubectl, "configmap", WVA_CONFIGMAP, namespace=NAMESPACE), \
+            f"{WVA_CONFIGMAP} should not exist when WVA is Removed"
 
-    def test_wva_managed_deploys_resources(self, kubectl, cluster_info, apply_kserve_cr):
-        """Setting wva.managementState to Managed deploys WVA resources."""
+    def test_wva_managed_does_not_deploy_resources(self, kubectl, cluster_info, apply_kserve_cr):
+        """Setting wva.managementState to Managed does not deploy WVA in 3.6."""
         patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
         run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
 
         _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
                  f"observedGeneration not matching within {TIMEOUT_120S}s")
 
-        wait_for_deployment(kubectl, WVA_DEPLOYMENT)
+        result = run(
+            [kubectl, "get", "deployment", WVA_DEPLOYMENT, "-n", NAMESPACE],
+            check=False,
+        )
+        assert result.returncode != 0, \
+            f"{WVA_DEPLOYMENT} must not be created even when ManagementState is Managed"
+        assert not resource_exists(kubectl, "configmap", WVA_CONFIGMAP, namespace=NAMESPACE), \
+            f"{WVA_CONFIGMAP} must not be created even when ManagementState is Managed"
+        assert "WVAReady" not in get_conditions(kubectl), \
+            "WVAReady must be cleared even when spec.wva.managementState is Managed"
         _verify_deployments_available(kubectl, is_openshift=True)
 
-    def test_wva_managed_to_removed_cleans_up(self, kubectl, cluster_info, apply_kserve_cr):
-        """Switching WVA from Managed to Removed removes WVA deployment but keeps others."""
+    def test_wva_leftover_resources_cleaned_up(self, kubectl, cluster_info, apply_kserve_cr):
+        """Leftover 3.5 WVA objects are deleted even if spec.wva is still Managed."""
         patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
         run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
-        wait_for_deployment(kubectl, WVA_DEPLOYMENT)
-
-        patch = json.dumps({"spec": {"wva": {"managementState": "Removed"}}})
-        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
-
         _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
                  f"observedGeneration not matching within {TIMEOUT_120S}s")
+
+        _apply_leftover_wva_resources(kubectl)
+        trigger_reconcile(kubectl, trigger_id="wva-leftover-cleanup")
 
         wait_for_deployment_gone(kubectl, WVA_DEPLOYMENT)
 
+        def assert_configmap_gone():
+            assert not resource_exists(kubectl, "configmap", WVA_CONFIGMAP, namespace=NAMESPACE), \
+                f"Leftover {WVA_CONFIGMAP} should be deleted by defaultCleanup"
+
+        wait_for(assert_configmap_gone, timeout=TIMEOUT_120S, interval=5)
         _verify_deployments_available(kubectl, is_openshift=True)
 
     def test_nim_default_managed_env_var(self, kubectl, cluster_info, apply_kserve_cr):
@@ -373,143 +387,64 @@ class TestDeletionRecovery:
         """Deleting owned Deployments triggers recreation with new UIDs."""
         targets = list(operand_deployments(cluster_info.is_openshift))
 
-        if cluster_info.is_openshift:
-            patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
-            run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
-            _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-                     f"observedGeneration not matching within {TIMEOUT_120S}s")
-            wait_for_deployment(kubectl, WVA_DEPLOYMENT)
-            targets.append(WVA_DEPLOYMENT)
+        for dep_name in targets:
+            uid_before = get_jsonpath(
+                kubectl, "deployment", dep_name, "{.metadata.uid}", namespace=NAMESPACE
+            )
+            assert uid_before, f"{dep_name} should exist before deletion"
 
-        try:
-            for dep_name in targets:
-                uid_before = get_jsonpath(
-                    kubectl, "deployment", dep_name, "{.metadata.uid}", namespace=NAMESPACE
+            run([kubectl, "delete", "deployment", dep_name, "-n", NAMESPACE])
+
+            def assert_recreated(name=dep_name, expected_old_uid=uid_before):
+                uid_after = get_jsonpath(
+                    kubectl, "deployment", name, "{.metadata.uid}", namespace=NAMESPACE
                 )
-                assert uid_before, f"{dep_name} should exist before deletion"
+                assert uid_after, f"{name} should be recreated"
+                assert uid_after != expected_old_uid, (
+                    f"{name} should have a new UID after recreation"
+                )
 
-                run([kubectl, "delete", "deployment", dep_name, "-n", NAMESPACE])
-
-                def assert_recreated(name=dep_name, expected_old_uid=uid_before):
-                    uid_after = get_jsonpath(
-                        kubectl, "deployment", name, "{.metadata.uid}", namespace=NAMESPACE
-                    )
-                    assert uid_after, f"{name} should be recreated"
-                    assert uid_after != expected_old_uid, (
-                        f"{name} should have a new UID after recreation"
-                    )
-
-                wait_for(assert_recreated, timeout=TIMEOUT_120S, interval=5)
-                wait_for_deployment(kubectl, dep_name)
-        finally:
-            if cluster_info.is_openshift:
-                patch = json.dumps({"spec": {"wva": {"managementState": "Removed"}}})
-                run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch],
-                    check=False)
-                _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-                         f"observedGeneration not matching within {TIMEOUT_120S}s")
-                wait_for_deployment_gone(kubectl, WVA_DEPLOYMENT)
+            wait_for(assert_recreated, timeout=TIMEOUT_120S, interval=5)
+            wait_for_deployment(kubectl, dep_name)
 
 
-def _enable_wva(kubectl):
-    """Enable WVA by patching managementState to Managed."""
-    patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
-    run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
-    _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-             f"observedGeneration not matching within {TIMEOUT_120S}s")
-    wait_for_deployment(kubectl, WVA_DEPLOYMENT)
-
-
-def _disable_wva(kubectl):
-    """Disable WVA by patching managementState to Removed."""
-    patch = json.dumps({"spec": {"wva": {"managementState": "Removed"}}})
-    run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch],
-        check=False)
-    _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-             f"observedGeneration not matching within {TIMEOUT_120S}s")
-    wait_for_deployment_gone(kubectl, WVA_DEPLOYMENT)
-
-
-@pytest.mark.sanity
-@pytest.mark.ocp_only
-class TestWVAConfigMap:
-    """Verify WVA saturation-scaling-config ConfigMap lifecycle.
-
-    The ConfigMap is annotated with opendatahub.io/managed=false in the
-    WVA kustomize overlay, so the deployer creates it once but never
-    overwrites it via SSA — user modifications are preserved.
-    """
-
-    def test_wva_configmap_deployed_with_defaults(self, kubectl, apply_kserve_cr):
-        """WVA ConfigMap is deployed with default queueSpareTrigger value."""
-        try:
-            _enable_wva(kubectl)
-
-            assert resource_exists(kubectl, "configmap", WVA_CONFIGMAP, namespace=NAMESPACE), \
-                f"{WVA_CONFIGMAP} should exist after WVA is Managed"
-
-            data = get_jsonpath(kubectl, "configmap", WVA_CONFIGMAP,
-                                "{.data.default}", namespace=NAMESPACE)
-            assert "queueSpareTrigger: 3" in data, \
-                f"Expected queueSpareTrigger: 3 in ConfigMap data, got: {data}"
-        finally:
-            _disable_wva(kubectl)
-
-    def test_wva_configmap_preserves_user_modifications(self, kubectl, apply_kserve_cr):
-        """User modifications to ConfigMap data persist across reconciles.
-
-        The deployer skips SSA for resources annotated with
-        opendatahub.io/managed=false — only creates if missing.
-        """
-        try:
-            _enable_wva(kubectl)
-
-            data = get_jsonpath(kubectl, "configmap", WVA_CONFIGMAP,
-                                "{.data.default}", namespace=NAMESPACE)
-            assert "queueSpareTrigger: 3" in data, \
-                f"Expected default queueSpareTrigger: 3 before patch, got: {data}"
-
-            new_data = data.replace("queueSpareTrigger: 3", "queueSpareTrigger: 2")
-            escaped = json.dumps({"data": {"default": new_data}})
-            run([kubectl, "patch", "configmap", WVA_CONFIGMAP, "-n", NAMESPACE,
-                 "--type", "merge", "-p", escaped])
-
-            def assert_value_preserved():
-                current = get_jsonpath(kubectl, "configmap", WVA_CONFIGMAP,
-                                       "{.data.default}", namespace=NAMESPACE)
-                assert "queueSpareTrigger: 2" in current, \
-                    f"Expected queueSpareTrigger: 2 to persist, got: {current}"
-
-            wait_consistently(assert_value_preserved, duration=30.0, interval=5.0)
-        finally:
-            _disable_wva(kubectl)
-
-    def test_wva_configmap_recreated_with_defaults_after_deletion(self, kubectl, apply_kserve_cr):
-        """Deleted ConfigMap is recreated with default values via Owns() watch."""
-        try:
-            _enable_wva(kubectl)
-
-            uid_before = get_jsonpath(kubectl, "configmap", WVA_CONFIGMAP,
-                                      "{.metadata.uid}", namespace=NAMESPACE)
-            assert uid_before, f"{WVA_CONFIGMAP} should exist before deletion"
-
-            run([kubectl, "delete", "configmap", WVA_CONFIGMAP, "-n", NAMESPACE])
-
-            def assert_recreated_with_defaults():
-                if not resource_exists(kubectl, "configmap", WVA_CONFIGMAP, namespace=NAMESPACE):
-                    raise AssertionError(f"{WVA_CONFIGMAP} not yet recreated")
-                uid_after = get_jsonpath(kubectl, "configmap", WVA_CONFIGMAP,
-                                         "{.metadata.uid}", namespace=NAMESPACE)
-                assert uid_after != uid_before, \
-                    "ConfigMap UID should change after recreation"
-                data = get_jsonpath(kubectl, "configmap", WVA_CONFIGMAP,
-                                    "{.data.default}", namespace=NAMESPACE)
-                assert "queueSpareTrigger: 3" in data, \
-                    f"Recreated ConfigMap should have default queueSpareTrigger: 3, got: {data}"
-
-            wait_for(assert_recreated_with_defaults, timeout=TIMEOUT_120S, interval=5)
-        finally:
-            _disable_wva(kubectl)
+def _apply_leftover_wva_resources(kubectl):
+    """Create leftover 3.5 WVA objects that defaultCleanup should delete."""
+    leftover = (
+        "apiVersion: apps/v1\n"
+        "kind: Deployment\n"
+        "metadata:\n"
+        f"  name: {WVA_DEPLOYMENT}\n"
+        f"  namespace: {NAMESPACE}\n"
+        "spec:\n"
+        "  replicas: 1\n"
+        "  selector:\n"
+        "    matchLabels:\n"
+        f"      control-plane: {WVA_DEPLOYMENT}\n"
+        "  template:\n"
+        "    metadata:\n"
+        "      labels:\n"
+        f"        control-plane: {WVA_DEPLOYMENT}\n"
+        "    spec:\n"
+        "      containers:\n"
+        "      - name: manager\n"
+        "        image: busybox:latest\n"
+        "        command: [\"sleep\", \"3600\"]\n"
+        "---\n"
+        "apiVersion: v1\n"
+        "kind: ConfigMap\n"
+        "metadata:\n"
+        f"  name: {WVA_CONFIGMAP}\n"
+        f"  namespace: {NAMESPACE}\n"
+        "data:\n"
+        "  default: |\n"
+        "    queueSpareTrigger: 3\n"
+    )
+    run([kubectl, "apply", "-f", "-"], input_text=leftover)
+    assert resource_exists(kubectl, "deployment", WVA_DEPLOYMENT, namespace=NAMESPACE), \
+        f"{WVA_DEPLOYMENT} leftover must exist before cleanup"
+    assert resource_exists(kubectl, "configmap", WVA_CONFIGMAP, namespace=NAMESPACE), \
+        f"{WVA_CONFIGMAP} leftover must exist before cleanup"
 
 
 @pytest.mark.sanity
