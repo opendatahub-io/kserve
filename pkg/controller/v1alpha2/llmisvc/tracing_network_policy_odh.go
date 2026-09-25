@@ -106,16 +106,24 @@ func (r *LLMISVCReconciler) reconcileTracingNetworkPolicy(ctx context.Context, l
 	return nil
 }
 
+// isTracingNetworkPolicyOwnershipConflict recognises the ownership guard from
+// the shared Update and Delete helpers, so a policy with the expected name
+// that this LLMInferenceService does not control degrades to a warning on both
+// the reconcile and cleanup paths.
 func isTracingNetworkPolicyOwnershipConflict(err error, expected *netv1.NetworkPolicy, llmSvc *v1alpha2.LLMInferenceService) bool {
-	ownershipError := fmt.Sprintf("failed to update %s %s/%s: it is not controlled by %s %s/%s",
-		logLineForObject(expected), expected.GetNamespace(), expected.GetName(),
-		logLineForObject(llmSvc), llmSvc.GetNamespace(), llmSvc.GetName())
-	return strings.Contains(err.Error(), ownershipError)
+	object := fmt.Sprintf("%s %s/%s", logLineForObject(expected), expected.GetNamespace(), expected.GetName())
+	owner := fmt.Sprintf("%s %s/%s", logLineForObject(llmSvc), llmSvc.GetNamespace(), llmSvc.GetName())
+	msg := err.Error()
+	return strings.Contains(msg, fmt.Sprintf("failed to update %s: it is not controlled by %s", object, owner)) ||
+		strings.Contains(msg, fmt.Sprintf("cannot delete %s: not owned by %s", object, owner))
 }
 
 func (r *LLMISVCReconciler) cleanupTracingNetworkPolicy(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	expected := expectedTracingNetworkPolicy(llmSvc, netv1.NetworkPolicyPeer{}, 0, false)
 	if err := Delete[*v1alpha2.LLMInferenceService](ctx, r, llmSvc, expected); err != nil {
+		if isTracingNetworkPolicyOwnershipConflict(err, expected, llmSvc) {
+			return &tracingNetworkPolicyNotOwnedError{namespace: expected.GetNamespace(), name: expected.GetName()}
+		}
 		return fmt.Errorf("failed to delete tracing network policy: %w", err)
 	}
 	return nil
