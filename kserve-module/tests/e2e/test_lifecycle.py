@@ -242,6 +242,31 @@ class TestManagementState:
 
         _verify_deployments_available(kubectl, is_openshift=True)
 
+    def test_wva_removed_extra_cleanup(self, kubectl, cluster_info, apply_kserve_cr):
+        """extraCleanup deletes leftover VA CRD/CRs and strips the WVA ConfigMap key."""
+        patch = json.dumps({"spec": {"wva": {"managementState": "Removed"}}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+
+        _seed_wva_extra_cleanup_leftovers(kubectl)
+        trigger_reconcile(kubectl, trigger_id="wva-extra-cleanup")
+
+        def assert_extra_cleanup():
+            cm = json.loads(run(
+                [kubectl, "get", "configmap", "inferenceservice-config",
+                 "-n", NAMESPACE, "-o", "json"],
+            ).stdout)
+            data = cm.get("data") or {}
+            assert "autoscaling-wva-controller-config" not in data, \
+                "autoscaling-wva-controller-config should be stripped by extraCleanup"
+            assert data, "inferenceservice-config must not be deleted"
+            assert not resource_exists(kubectl, "crd", "variantautoscalings.llmd.ai"), \
+                "leftover VariantAutoscaling CRD should be deleted by extraCleanup"
+
+        wait_for(assert_extra_cleanup, timeout=TIMEOUT_120S, interval=5)
+        _verify_deployments_available(kubectl, is_openshift=True)
+
     def test_nim_default_managed_env_var(self, kubectl, cluster_info, apply_kserve_cr):
         """NIM defaults to Managed — odh-model-controller should have NIM_STATE=managed."""
         _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
@@ -428,6 +453,39 @@ def _disable_wva(kubectl):
     _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
              f"observedGeneration not matching within {TIMEOUT_120S}s")
     wait_for_deployment_gone(kubectl, WVA_DEPLOYMENT)
+
+
+def _seed_wva_extra_cleanup_leftovers(kubectl):
+    """Create leftover 3.5 VA CRD and inferenceservice-config key extraCleanup should remove."""
+    run(
+        [kubectl, "patch", "configmap", "inferenceservice-config", "-n", NAMESPACE,
+         "--type", "merge", "-p",
+         json.dumps({"data": {"autoscaling-wva-controller-config": "{}"}})],
+    )
+    leftover_crd = (
+        "apiVersion: apiextensions.k8s.io/v1\n"
+        "kind: CustomResourceDefinition\n"
+        "metadata:\n"
+        "  name: variantautoscalings.llmd.ai\n"
+        "spec:\n"
+        "  group: llmd.ai\n"
+        "  scope: Namespaced\n"
+        "  names:\n"
+        "    plural: variantautoscalings\n"
+        "    singular: variantautoscaling\n"
+        "    kind: VariantAutoscaling\n"
+        "  versions:\n"
+        "  - name: v1alpha1\n"
+        "    served: true\n"
+        "    storage: true\n"
+        "    schema:\n"
+        "      openAPIV3Schema:\n"
+        "        type: object\n"
+        "        x-kubernetes-preserve-unknown-fields: true\n"
+    )
+    run([kubectl, "apply", "-f", "-"], input_text=leftover_crd)
+    assert resource_exists(kubectl, "crd", "variantautoscalings.llmd.ai"), \
+        "VariantAutoscaling CRD leftover must exist before extraCleanup"
 
 
 @pytest.mark.sanity

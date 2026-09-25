@@ -43,6 +43,7 @@ const (
 	odhModelControllerDeployment   = "odh-model-controller"
 	modelServingAPIDeployment      = "model-serving-api"
 	wvaControllerDeployment        = "workload-variant-autoscaler-controller-manager"
+	variantAutoscalingCRDName      = "variantautoscalings.llmd.ai"
 
 	// Console dashboards target namespace
 	consoleDashboardsNamespace = "openshift-config-managed"
@@ -55,12 +56,13 @@ const (
 	platformVersionConfigMapKey = "platformVersion"
 
 	// ConfigMap keys
-	kserveConfigMapName     = "inferenceservice-config"
-	ingressConfigKeyName    = "ingress"
-	serviceConfigKeyName    = "service"
-	configHashAnnotationKey = "kserve-module/config-hash"
-	oauthProxyConfigKeyName = "oauthProxy"
-	openshiftConfigKeyName  = "openshiftConfig"
+	kserveConfigMapName               = "inferenceservice-config"
+	autoscalingWVAControllerConfigKey = "autoscaling-wva-controller-config"
+	ingressConfigKeyName              = "ingress"
+	serviceConfigKeyName              = "service"
+	configHashAnnotationKey           = "kserve-module/config-hash"
+	oauthProxyConfigKeyName           = "oauthProxy"
+	openshiftConfigKeyName            = "openshiftConfig"
 
 	// LLMInferenceServiceConfig versioning
 	wellKnownAnnotationKey   = "serving.kserve.io/well-known-config"
