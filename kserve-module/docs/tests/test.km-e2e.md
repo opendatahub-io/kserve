@@ -172,11 +172,22 @@ make e2e-setup-kserve-module \
 make e2e-kserve-module-post-release
 ```
 
-CI: run from [odh-model-controller](https://github.com/opendatahub-io/odh-model-controller)
-via `.github/workflows/post-release-smoke.yaml` (`workflow_dispatch`). It checks
-out this repo at the release tag, uses `PLATFORM=ocp`, and runs the make targets
-above. GitHub-hosted runners cannot provision OpenShift; the workflow expects an
-existing OpenShift kubeconfig on the runner.
+CI: OpenShift CI (Prow) optional `/test e2e-kserve-module-post-release` - after
+publishing an `odh-vX.Y` or `odh-vX.Y-eaN`/`-rcN` tag and Quay image, comment that
+on any open PR. Uses the **newest** matching tag (version sort: `-ea` of `X.Y`
+ranks above plain `X.Y`; next minor ranks above prior `-ea`; never PR-built
+images). Pin with `export RELEASE_TAG=<tag> && bash hack/ci/post-release-smoke.sh`.
+See
+[post-release smoke runbook](../../../docs/dev/post-release-smoke-openshift-ci.md).
+
+Local or scripted (same commands as CI):
+
+```bash
+export RELEASE_TAG=odh-v3.5
+bash hack/ci/post-release-smoke.sh
+```
+
+Release-process overview: [odh-model-controller post-release smoke doc](https://github.com/opendatahub-io/odh-model-controller/blob/incubating/docs/post-release-kserve-smoke.md).
 
 ## Make Targets
 
