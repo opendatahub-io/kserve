@@ -262,7 +262,7 @@ func (r *KserveModuleReconciler) checkSubscription(ctx context.Context, dep depe
 	if ctx.Err() != nil {
 		return nil
 	}
-	found, err := olm.SubscriptionExists(ctx, r.Client, dep.subscriptionName)
+	found, err := olm.OperatorPackageRequested(ctx, r.Client, dep.subscriptionName)
 	if err != nil {
 		if meta.IsNoMatchError(err) {
 			return nil

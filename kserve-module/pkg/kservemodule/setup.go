@@ -38,16 +38,41 @@ var dependencyCRDSuffixes = []string{
 }
 
 var dependencyCRDNames = map[string]bool{
-	"leaderworkersets.operator.openshift.io": true,
-	"subscriptions.operators.coreos.com":     true,
-	"persesdashboards.perses.dev":            true,
+	"clusterextensions.olm.operatorframework.io": true,
+	"leaderworkersets.operator.openshift.io":     true,
+	"subscriptions.operators.coreos.com":         true,
+	"persesdashboards.perses.dev":                true,
 }
 
-var watchedSubscriptions = map[string]bool{
+var watchedOperatorPackages = map[string]bool{
 	rhclSubscription:        true,
 	certManagerSubscription: true,
 	lwsSubscription:         true,
 	cmaSubscription:         true,
+}
+
+func isWatchedSubscription(obj client.Object) bool {
+	u, ok := obj.(*unstructured.Unstructured)
+	if !ok {
+		return false
+	}
+
+	packageName, found, err := unstructured.NestedString(u.Object, "spec", "name")
+	return err == nil && found && watchedOperatorPackages[packageName]
+}
+
+func isWatchedClusterExtension(obj client.Object) bool {
+	u, ok := obj.(*unstructured.Unstructured)
+	if !ok {
+		return false
+	}
+
+	sourceType, found, err := unstructured.NestedString(u.Object, "spec", "source", "sourceType")
+	if err != nil || !found || sourceType != "Catalog" {
+		return false
+	}
+	packageName, found, err := unstructured.NestedString(u.Object, "spec", "source", "catalog", "packageName")
+	return err == nil && found && watchedOperatorPackages[packageName]
 }
 
 type dynamicWatch struct {
@@ -180,13 +205,21 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		subObj.SetGroupVersionKind(schema.GroupVersionKind{Group: "operators.coreos.com", Version: "v1alpha1", Kind: "Subscription"})
 		b.Watches(subObj,
 			handler.EnqueueRequestsFromMapFunc(mapToKserve),
-			builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
-				u, ok := o.(*unstructured.Unstructured)
-				if !ok {
-					return false
-				}
-				return watchedSubscriptions[u.GetName()]
-			})),
+			builder.WithPredicates(predicate.NewPredicateFuncs(isWatchedSubscription)),
+		)
+	}
+
+	// ClusterExtension CRD is present when OLMv1 is installed. Watch catalog
+	// package requests because the resource name is not the package identity.
+	clusterExtensionGK := schema.GroupKind{Group: "olm.operatorframework.io", Kind: "ClusterExtension"}
+	if err := cluster.CustomResourceDefinitionExists(context.Background(), mgr.GetAPIReader(), clusterExtensionGK); err == nil {
+		clusterExtensionObj := &unstructured.Unstructured{}
+		clusterExtensionObj.SetGroupVersionKind(schema.GroupVersionKind{
+			Group: "olm.operatorframework.io", Version: "v1", Kind: "ClusterExtension",
+		})
+		b.Watches(clusterExtensionObj,
+			handler.EnqueueRequestsFromMapFunc(mapToKserve),
+			builder.WithPredicates(predicate.NewPredicateFuncs(isWatchedClusterExtension)),
 		)
 	}
 
