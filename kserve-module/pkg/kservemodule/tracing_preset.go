@@ -10,7 +10,41 @@ import (
 )
 
 func isWellKnownTracingPreset(obj *unstructured.Unstructured) bool {
-	return isWellKnownConfig(obj) && strings.HasSuffix(obj.GetName(), tracingPresetSuffix)
+	if !isWellKnownConfig(obj) {
+		return false
+	}
+
+	name := obj.GetName()
+	if name == tracingPresetSuffix {
+		return true
+	}
+
+	prefix, found := strings.CutSuffix(name, "-"+tracingPresetSuffix)
+	return found && isVersionedTracingPresetPrefix(prefix)
+}
+
+func isVersionedTracingPresetPrefix(prefix string) bool {
+	// Rendered presets start with vMAJOR-MINOR-PATCH; historical names may
+	// append additional hyphen-delimited tokens after that version prefix.
+	parts := strings.Split(prefix, "-")
+	return len(parts) >= 3 &&
+		len(parts[0]) > 1 &&
+		parts[0][0] == 'v' &&
+		isNumericVersionPart(parts[0][1:]) &&
+		isNumericVersionPart(parts[1]) &&
+		isNumericVersionPart(parts[2])
+}
+
+func isNumericVersionPart(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func upstreamTracingEndpointFromResources(resources []unstructured.Unstructured) string {

@@ -68,6 +68,7 @@ func (r *KserveModuleReconciler) resolveTracingPlatformConfig(ctx context.Contex
 	if ratio == "" {
 		ratio = defaultTracesSampleRatio
 	} else if !validTracesSampleRatio(ratio) {
+		// Treat malformed optional values like omitted values so the preset never receives an invalid sampler argument.
 		ctrl.LoggerFrom(ctx).Info("invalid monitoring trace sample ratio, using default", "sampleRatio", ratio, "default", defaultTracesSampleRatio)
 		ratio = defaultTracesSampleRatio
 	}
@@ -75,7 +76,8 @@ func (r *KserveModuleReconciler) resolveTracingPlatformConfig(ctx context.Contex
 	return &tracingPlatformConfig{
 		Enabled:     true,
 		SampleRatio: ratio,
-		Endpoint:    fmt.Sprintf("http://%s.%s.svc:%d", platformCollectorServiceName, r.getMonitoringNamespace(), platformCollectorPort),
+		// The platform collector exposes the OTLP/gRPC endpoint on its fixed service port.
+		Endpoint: fmt.Sprintf("http://%s.%s.svc:%d", platformCollectorServiceName, r.getMonitoringNamespace(), platformCollectorPort),
 	}, nil
 }
 

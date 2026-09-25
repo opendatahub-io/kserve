@@ -21,10 +21,12 @@ from conftest import (
 MONITORING_RESOURCE = "monitorings.services.platform.opendatahub.io"
 MONITORING_NAME = "default-monitoring"
 TRACING_PRESET_SUFFIX = "kserve-config-llm-tracing"
-HISTORICAL_PRESET_PREFIX = "e2e-v0-0-0"
+HISTORICAL_PRESET_PREFIX = "v0-0-0-e2e"
 PLATFORM_SAMPLE_RATIO = "0.271"
 HISTORICAL_SAMPLE_RATIO = "0.739"
 UPSTREAM_ENDPOINT = "http://otel-collector:4317"
+TRACING_EXPORTER = "otlp"
+TRACING_SAMPLER = "parentbased_traceidratio"
 
 
 def _get_tracing_presets(kubectl):
@@ -121,7 +123,9 @@ def _assert_preset_state(kubectl, name, endpoint, sample_ratio=None):
     presets = _get_tracing_presets(kubectl)
     assert name in presets, f"tracing preset {name} was not found: {list(presets)}"
     tracing = _tracing_spec(presets[name])
+    assert tracing.get("exporter") == TRACING_EXPORTER
     assert tracing.get("exporterEndpoint") == endpoint
+    assert tracing.get("sampler") == TRACING_SAMPLER
     if sample_ratio is not None:
         assert tracing.get("samplerArg") == sample_ratio
 

@@ -8,10 +8,10 @@ import (
 	. "github.com/onsi/gomega"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 )
 
 func monitoringResource(traces map[string]any) *unstructured.Unstructured {
@@ -138,12 +138,21 @@ func TestMonitoringWatchFiltersSingleton(t *testing.T) {
 		}
 		g.Expect(watch.filterFn(&unstructured.Unstructured{Object: map[string]any{"metadata": map[string]any{"name": monitoringCRName}}})).To(BeTrue())
 		g.Expect(watch.filterFn(&unstructured.Unstructured{Object: map[string]any{"metadata": map[string]any{"name": "other-monitoring"}}})).To(BeFalse())
+		predicates := dynamicWatchPredicates(watch)
+		g.Expect(predicates).To(HaveLen(2))
+		old := &unstructured.Unstructured{}
+		old.SetGeneration(1)
+		updated := old.DeepCopy()
+		g.Expect(predicates[0].Update(event.UpdateEvent{ObjectOld: old, ObjectNew: updated})).To(BeFalse())
+		updated.SetGeneration(2)
+		g.Expect(predicates[0].Update(event.UpdateEvent{ObjectOld: old, ObjectNew: updated})).To(BeTrue())
+		g.Expect(predicates[1].Update(event.UpdateEvent{ObjectNew: &unstructured.Unstructured{Object: map[string]any{
+			"metadata": map[string]any{"name": monitoringCRName},
+		}}})).To(BeTrue())
+		g.Expect(predicates[1].Update(event.UpdateEvent{ObjectNew: &unstructured.Unstructured{Object: map[string]any{
+			"metadata": map[string]any{"name": "other-monitoring"},
+		}}})).To(BeFalse())
 		return
 	}
 	t.Fatal("Monitoring watch not found")
-}
-
-func TestMonitoringGVK(t *testing.T) {
-	g := NewWithT(t)
-	g.Expect(schema.GroupVersionKind{Group: monitoringAPIGroup, Version: monitoringAPIVersion, Kind: monitoringKind}).To(Equal(monitoringGVK))
 }

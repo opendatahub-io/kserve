@@ -232,7 +232,7 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, fmt.Errorf("reconciliation failed: %s", strings.Join(msgs, "; "))
 	}
 
-	applyTracingConfigCondition(condMgr, r.tracingConfigError)
+	applyTracingConfigCondition(condMgr, kserve.Generation, r.tracingConfigError)
 	r.updateComponentReadiness(ctx, kserve, condMgr)
 
 	if !condMgr.IsHappy() {

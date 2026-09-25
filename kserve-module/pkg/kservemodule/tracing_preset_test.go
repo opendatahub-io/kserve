@@ -34,6 +34,29 @@ func tracingPreset(name string, wellKnown bool) unstructured.Unstructured {
 	}}
 }
 
+func TestIsWellKnownTracingPreset(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		presetName string
+		wellKnown  bool
+		want       bool
+	}{
+		{name: "unversioned", presetName: tracingPresetSuffix, wellKnown: true, want: true},
+		{name: "versioned", presetName: "v3-6-0-" + tracingPresetSuffix, wellKnown: true, want: true},
+		{name: "versioned historical", presetName: "v0-0-0-e2e-123-" + tracingPresetSuffix, wellKnown: true, want: true},
+		{name: "missing separator", presetName: "v3-6-0" + tracingPresetSuffix, wellKnown: true, want: false},
+		{name: "arbitrary prefix", presetName: "my-own-" + tracingPresetSuffix, wellKnown: true, want: false},
+		{name: "wrong preset", presetName: "v3-6-0-kserve-config-llm-decode", wellKnown: true, want: false},
+		{name: "untrusted annotation", presetName: tracingPresetSuffix, wellKnown: false, want: false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			preset := tracingPreset(tt.presetName, tt.wellKnown)
+			g.Expect(isWellKnownTracingPreset(&preset)).To(Equal(tt.want))
+		})
+	}
+}
+
 func TestIncludeExistingTracingPresets(t *testing.T) {
 	g := NewWithT(t)
 	current := tracingPreset("v3-6-0-kserve-config-llm-tracing", true)
