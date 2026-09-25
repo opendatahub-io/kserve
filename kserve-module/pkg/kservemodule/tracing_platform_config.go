@@ -57,9 +57,6 @@ func (r *KserveModuleReconciler) resolveTracingPlatformConfig(ctx context.Contex
 	if !ok {
 		return nil, fmt.Errorf("spec.traces must be an object")
 	}
-	if traces == nil {
-		return &tracingPlatformConfig{}, nil
-	}
 
 	ratio, _, err := unstructured.NestedString(traces, "sampleRatio")
 	if err != nil {
