@@ -6,6 +6,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 PLATFORM="${PLATFORM:-xks}"
 KSERVE_NAMESPACE="${KSERVE_NAMESPACE:-opendatahub}"
+MONITORING_NAMESPACE="${MONITORING_NAMESPACE:-${KSERVE_NAMESPACE}}"
 KSERVE_MODULE_IMG="${KSERVE_MODULE_IMG:-}"
 
 # Prefer oc on OpenShift, fall back to kubectl
@@ -44,6 +45,9 @@ readonly SUB_CERT_MANAGER="${CERT_MANAGER_NAME}|${CERT_MANAGER_NAMESPACE}|${CERT
 readonly SUB_LWS="${LWS_NAME}|${LWS_NAMESPACE}|${LWS_CHANNEL}|OwnNamespace"
 readonly SUB_RHCL="${RHCL_NAME}|${RHCL_NAMESPACE}|${RHCL_CHANNEL}|AllNamespaces"
 readonly SUB_CMA="${CMA_NAME}|${CMA_NAMESPACE}|${CMA_CHANNEL}|AllNamespaces"
+readonly TEST_MONITORING_CRD="monitorings.services.platform.opendatahub.io"
+readonly TEST_MONITORING_LABEL="kserve-module-e2e"
+readonly TEST_COLLECTOR_SERVICE="data-science-collector-collector"
 
 # --- Per-platform component lists ---
 # xks: install via helm scripts from hack/setup/infra
@@ -143,6 +147,93 @@ setup_cert_manager_pki() {
   ${KUBECTL} wait --for=condition=Ready certificate/opendatahub-ca -n cert-manager --timeout=120s
   ${KUBECTL} wait --for=condition=Ready clusterissuer/opendatahub-ca-issuer --timeout=60s
   log_success "PKI chain created"
+}
+
+# ---------------------------------------------------------------------------
+# setup_test_monitoring — provide the optional Monitoring API for tracing tests
+# ---------------------------------------------------------------------------
+setup_test_monitoring() {
+  if [[ "${PLATFORM}" != "xks" ]]; then
+    log_info "Skipping test Monitoring fixture on ${PLATFORM}; using the platform Monitoring API"
+    return
+  fi
+
+  if ! ${KUBECTL} get crd "${TEST_MONITORING_CRD}" &>/dev/null; then
+    log_info "Installing test Monitoring CRD..."
+    ${KUBECTL} apply -f - <<'EOF'
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: monitorings.services.platform.opendatahub.io
+  labels:
+    kserve-module-e2e: "true"
+spec:
+  group: services.platform.opendatahub.io
+  names:
+    kind: Monitoring
+    listKind: MonitoringList
+    plural: monitorings
+    singular: monitoring
+  scope: Cluster
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                traces:
+                  type: object
+                  nullable: true
+                  properties:
+                    sampleRatio:
+                      type: string
+                  additionalProperties: true
+              additionalProperties: true
+EOF
+    ${KUBECTL} wait --for=condition=Established "crd/${TEST_MONITORING_CRD}" --timeout=60s
+  elif [[ "$(${KUBECTL} get crd "${TEST_MONITORING_CRD}" -o jsonpath='{.metadata.labels.kserve-module-e2e}' 2>/dev/null)" != "true" ]]; then
+    log_info "Using existing Monitoring CRD; not creating the test fixture resource"
+    return
+  fi
+
+  if ! ${KUBECTL} get monitoring default-monitoring &>/dev/null; then
+    log_info "Creating test default-monitoring resource..."
+    ${KUBECTL} apply -f - <<'EOF'
+apiVersion: services.platform.opendatahub.io/v1alpha1
+kind: Monitoring
+metadata:
+  name: default-monitoring
+  labels:
+    kserve-module-e2e: "true"
+spec:
+  traces:
+    sampleRatio: "0.1"
+EOF
+  fi
+
+  if ! ${KUBECTL} get service "${TEST_COLLECTOR_SERVICE}" -n "${MONITORING_NAMESPACE}" &>/dev/null; then
+    create_or_skip_namespace "${MONITORING_NAMESPACE}"
+    log_info "Creating test collector service..."
+    ${KUBECTL} apply -f - <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${TEST_COLLECTOR_SERVICE}
+  namespace: ${MONITORING_NAMESPACE}
+  labels:
+    ${TEST_MONITORING_LABEL}: "true"
+spec:
+  ports:
+    - name: otlp-grpc
+      port: 4317
+      targetPort: 4317
+EOF
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -345,6 +436,18 @@ cleanup_xks_deps() {
   log_success "xks dependencies cleaned up"
 }
 
+cleanup_test_monitoring() {
+  if ${KUBECTL} get service "${TEST_COLLECTOR_SERVICE}" -n "${MONITORING_NAMESPACE}" -l "${TEST_MONITORING_LABEL}=true" &>/dev/null; then
+    ${KUBECTL} delete service "${TEST_COLLECTOR_SERVICE}" -n "${MONITORING_NAMESPACE}" --ignore-not-found
+  fi
+  if ${KUBECTL} get monitoring default-monitoring -l "${TEST_MONITORING_LABEL}=true" &>/dev/null; then
+    ${KUBECTL} delete monitoring default-monitoring --ignore-not-found
+  fi
+  if [[ "$(${KUBECTL} get crd "${TEST_MONITORING_CRD}" -o jsonpath='{.metadata.labels.kserve-module-e2e}' 2>/dev/null)" == "true" ]]; then
+    ${KUBECTL} delete crd "${TEST_MONITORING_CRD}" --ignore-not-found
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # deploy_kserve_module
 # ---------------------------------------------------------------------------
@@ -382,6 +485,9 @@ deploy_kserve_module() {
     _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_LOCALMODELNODE_AGENT_IMAGE=${LOCALMODELNODE_AGENT_IMAGE}")
 
   _env_overrides+=("APPLICATIONS_NAMESPACE=${KSERVE_NAMESPACE}")
+  if [[ "${PLATFORM}" == "xks" ]]; then
+    _env_overrides+=("MONITORING_NAMESPACE=${MONITORING_NAMESPACE}")
+  fi
 
   log_info "Overriding operand images on kserve-module-controller-manager..."
   log_info "Waiting for controller rollout..."
@@ -421,6 +527,9 @@ main() {
   if [[ "${CLEANUP}" == "true" ]]; then
     echo "  Action:    cleanup"
     cleanup_kserve_module
+    if [[ "${PLATFORM}" == "xks" ]]; then
+      cleanup_test_monitoring
+    fi
     case "$PLATFORM" in
       xks) cleanup_xks_deps ;;
       ocp) cleanup_ocp_deps ;;
@@ -442,6 +551,8 @@ main() {
   else
     log_info "Skipping dependency installation (--skip-deps)"
   fi
+
+  setup_test_monitoring
 
   if [[ "${SKIP_KM_DEPLOY}" != "true" ]]; then
     deploy_kserve_module

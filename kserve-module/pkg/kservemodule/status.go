@@ -19,11 +19,12 @@ import (
 )
 
 const (
-	ConditionKServeReady           = "KServeReady"
-	ConditionModelControllerReady  = "ModelControllerReady"
-	ConditionWVAReady              = "WVAReady"
-	ConditionModelCacheReady       = "ModelCacheReady"
-	ConditionDependenciesAvailable = "DependenciesAvailable"
+	ConditionKServeReady            = "KServeReady"
+	ConditionModelControllerReady   = "ModelControllerReady"
+	ConditionWVAReady               = "WVAReady"
+	ConditionModelCacheReady        = "ModelCacheReady"
+	ConditionDependenciesAvailable  = "DependenciesAvailable"
+	ConditionTracingConfigAvailable = "TracingConfigAvailable"
 
 	// ReasonDeletionBlocked is the Degraded reason used when Kserve CR deletion
 	// is held back by resources that cannot yet be removed.
@@ -39,6 +40,7 @@ func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
 		ConditionWVAReady,
 		ConditionModelCacheReady,
 		ConditionDependenciesAvailable,
+		ConditionTracingConfigAvailable,
 	)
 }
 
@@ -118,6 +120,20 @@ func applyProvisioningCondition(condMgr *conditions.Manager, componentErrors map
 	condMgr.MarkFalse(string(common.ConditionTypeProvisioningSucceeded),
 		conditions.WithReason("DeployFailed"),
 		conditions.WithMessage("%s", strings.Join(msgs, "; ")))
+}
+
+func applyTracingConfigCondition(condMgr *conditions.Manager, generation int64, err error) {
+	observedGeneration := conditions.WithObservedGeneration(generation)
+	if err == nil {
+		condMgr.MarkTrue(ConditionTracingConfigAvailable,
+			conditions.WithReason("TracingConfigAvailable"), observedGeneration)
+		return
+	}
+	condMgr.MarkFalse(ConditionTracingConfigAvailable,
+		conditions.WithSeverity(common.ConditionSeverityInfo),
+		conditions.WithReason("TracingConfigUnavailable"),
+		conditions.WithMessage("platform tracing configuration unavailable: %s", err),
+		observedGeneration)
 }
 
 func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, kserve *platformv1alpha1.Kserve, condMgr *conditions.Manager) {

@@ -86,6 +86,8 @@ import (
 // --- Monitoring (cluster-scoped: ServiceMonitors and Prometheus API for metrics collection) ---
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheuses/api,resourceNames=k8s,verbs=get;create;update
+// +kubebuilder:rbac:groups=services.platform.opendatahub.io,resources=monitorings,resourceNames=default-monitoring,verbs=get
+// +kubebuilder:rbac:groups=services.platform.opendatahub.io,resources=monitorings,verbs=list;watch
 
 // --- Observability (Perses dashboards deployed to monitoring namespace when COO is present) ---
 // +kubebuilder:rbac:groups=perses.dev,resources=persesdashboards,verbs=create;delete;get;list;patch;update;watch
@@ -139,6 +141,10 @@ type KserveModuleReconciler struct {
 	// expectedPresets holds the preset names from the most recent render, written
 	// by reconcile and read by updateComponentReadiness later in the same call.
 	expectedPresets []string
+
+	// tracingConfigError records a non-fatal Monitoring read error so the
+	// reconcile can report it and retry without blocking other components.
+	tracingConfigError error
 }
 
 func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
@@ -213,6 +219,8 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
+	r.expectedPresets = nil
+	r.tracingConfigError = nil
 	componentErrors := r.reconcile(ctx, kserve)
 	applyProvisioningCondition(condMgr, componentErrors)
 	if len(componentErrors) > 0 {
@@ -224,11 +232,16 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, fmt.Errorf("reconciliation failed: %s", strings.Join(msgs, "; "))
 	}
 
+	applyTracingConfigCondition(condMgr, kserve.Generation, r.tracingConfigError)
 	r.updateComponentReadiness(ctx, kserve, condMgr)
 
 	if !condMgr.IsHappy() {
 		log.Info("not all components ready, requeueing")
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	}
+	if r.tracingConfigError != nil {
+		log.Info("tracing configuration unavailable, requeueing", "error", r.tracingConfigError)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
 	// The CRDs this module installs itself exist by now. Register their dynamic
@@ -291,8 +304,6 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 	if len(componentErrors) > 0 {
 		return componentErrors
 	}
-
-	r.expectedPresets = wellKnownPresetNames(allResources)
 
 	owned, unowned := splitByOwnership(allResources)
 	if err := r.Deployer.Deploy(ctx, deploy.DeployInput{
