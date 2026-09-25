@@ -1194,6 +1194,7 @@ var _ = Describe("Inference Graph controller test", func() {
 				},
 			}
 			Expect(k8sClient.Status().Update(ctx, &osRoute)).Should(Succeed())
+			admitRouteForURLTest(ctx, &osRoute, serviceKey)
 			Eventually(func() string {
 				Expect(k8sClient.Get(ctx, serviceKey, inferenceGraphSubmitted)).Should(Succeed())
 				return inferenceGraphSubmitted.Status.URL.Host
