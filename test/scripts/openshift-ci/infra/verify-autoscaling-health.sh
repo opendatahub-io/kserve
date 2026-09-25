@@ -14,21 +14,18 @@
 #
 # Fail-fast health check for the KEDA autoscaling metrics pipeline on OpenShift.
 #
-# Validates that User Workload Monitoring (UWM), WVA, KEDA, and the
+# Validates that User Workload Monitoring (UWM), KEDA, and the
 # ClusterTriggerAuthentication are wired correctly BEFORE running e2e tests.
 # Exits non-zero on first failure.
 #
 # Metrics pipeline:
-#   simulator pod → PodMonitor → UWM Prometheus → Thanos Querier ← WVA
-#                                                                 ← KEDA (via ScaledObject)
+#   simulator pod → PodMonitor → UWM Prometheus → Thanos Querier ← KEDA (via ScaledObject)
 #
 # Usage: verify-autoscaling-health.sh
 
 set -euo pipefail
 
 : "${KEDA_NAMESPACE:=openshift-keda}"
-: "${WVA_NAMESPACE:=wva-system}"
-WVA_DEPLOY="workload-variant-autoscaler-controller-manager"
 
 retry() {
     local description="$1"
@@ -78,36 +75,10 @@ oc wait --for=condition=Ready pod \
 echo "  [PASS] Thanos Querier pods are Ready"
 
 # ---------------------------------------------------------------------------
-# 2. WVA controller
+# 2. KEDA operator
 # ---------------------------------------------------------------------------
 echo ""
-echo "--- Step 2: Verifying WVA controller ---"
-
-echo "  Checking WVA pods..."
-oc wait --for=condition=Ready pod \
-    -l control-plane=controller-manager \
-    -n "${WVA_NAMESPACE}" \
-    --timeout=120s
-echo "  [PASS] WVA controller pod is Ready"
-
-check_wva_no_errors() {
-    local logs
-    if ! logs=$(oc logs -n "${WVA_NAMESPACE}" \
-        deployment/"${WVA_DEPLOY}" --tail=50 2>/dev/null); then
-        return 1
-    fi
-    if echo "${logs}" | grep -qi "error.*prometheus\|connection refused\|no such host\|x509.*certificate"; then
-        return 1
-    fi
-    return 0
-}
-retry "WVA logs show no Prometheus/TLS errors" 30 5 check_wva_no_errors
-
-# ---------------------------------------------------------------------------
-# 3. KEDA operator
-# ---------------------------------------------------------------------------
-echo ""
-echo "--- Step 3: Verifying KEDA/CMA operator ---"
+echo "--- Step 2: Verifying KEDA/CMA operator ---"
 
 check_keda_operator() {
     for selector in "app=keda-operator" "app.kubernetes.io/name=keda-operator"; do
@@ -134,10 +105,10 @@ check_keda_metrics_server() {
 retry "KEDA metrics API server is Ready" 60 5 check_keda_metrics_server
 
 # ---------------------------------------------------------------------------
-# 4. ClusterTriggerAuthentication
+# 3. ClusterTriggerAuthentication
 # ---------------------------------------------------------------------------
 echo ""
-echo "--- Step 4: Verifying KEDA → Thanos authentication ---"
+echo "--- Step 3: Verifying KEDA → Thanos authentication ---"
 
 check_cluster_trigger_auth() {
     oc get clustertriggerauthentication ai-inference-keda-thanos \
@@ -160,42 +131,15 @@ check_keda_monitoring_rbac() {
 retry "KEDA SA has cluster-monitoring-view role" 10 2 check_keda_monitoring_rbac
 
 # ---------------------------------------------------------------------------
-# 5. External Metrics API
+# 4. External Metrics API
 # ---------------------------------------------------------------------------
 echo ""
-echo "--- Step 5: Verifying External Metrics API ---"
+echo "--- Step 4: Verifying External Metrics API ---"
 
 check_external_metrics_api() {
     oc get --raw /apis/external.metrics.k8s.io/v1beta1 >/dev/null 2>&1
 }
 retry "External Metrics API discovery endpoint" 60 5 check_external_metrics_api
-
-# ---------------------------------------------------------------------------
-# 6. WVA ServiceMonitor (so wva_desired_replicas is scraped)
-# ---------------------------------------------------------------------------
-echo ""
-echo "--- Step 6: Verifying WVA metrics scraping ---"
-
-check_wva_servicemonitor() {
-    oc get servicemonitor -n "${WVA_NAMESPACE}" -o name 2>/dev/null | grep -q "servicemonitor"
-}
-retry "WVA ServiceMonitor exists" 30 5 check_wva_servicemonitor
-
-# ---------------------------------------------------------------------------
-# 7. inferenceservice-config has autoscaling-wva-controller-config
-# ---------------------------------------------------------------------------
-echo ""
-echo "--- Step 7: Verifying inferenceservice-config ---"
-
-: "${KSERVE_NAMESPACE:=kserve}"
-
-check_wva_config() {
-    local config
-    config=$(oc get configmap inferenceservice-config -n "${KSERVE_NAMESPACE}" \
-        -o jsonpath='{.data.autoscaling-wva-controller-config}' 2>/dev/null)
-    echo "$config" | grep -q "ai-inference-keda-thanos"
-}
-retry "autoscaling-wva-controller-config references ClusterTriggerAuthentication" 10 2 check_wva_config
 
 # ---------------------------------------------------------------------------
 # Summary
