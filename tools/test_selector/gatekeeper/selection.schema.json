@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "KServe test-selector Gatekeeper selection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "repository",
+    "pull_number",
+    "base_sha",
+    "head_sha",
+    "mode",
+    "jobs",
+    "changed_files",
+    "reasons"
+  ],
+  "allOf": [
+    {
+      "if": {"properties": {"mode": {"const": "fallback-all"}}},
+      "then": {
+        "properties": {
+          "jobs": {
+            "allOf": [
+              {"contains": {"const": "e2e-graph"}},
+              {"contains": {"const": "e2e-raw"}},
+              {"contains": {"const": "e2e-predictor"}},
+              {"contains": {"const": "e2e-llm-inference-service"}}
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "properties": {
+    "schema_version": {"const": 1},
+    "repository": {"const": "opendatahub-io/kserve"},
+    "pull_number": {"type": "integer", "minimum": 1},
+    "base_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "head_sha": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+    "mode": {"enum": ["selected", "fallback-all"]},
+    "jobs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": ["e2e-graph", "e2e-raw", "e2e-predictor", "e2e-llm-inference-service"]
+      },
+      "maxItems": 4
+    },
+    "changed_files": {
+      "type": "array",
+      "items": {"type": "string", "maxLength": 500},
+      "maxItems": 200
+    },
+    "reasons": {
+      "type": "array",
+      "items": {"type": "string", "maxLength": 500},
+      "maxItems": 200
+    }
+  }
+}
