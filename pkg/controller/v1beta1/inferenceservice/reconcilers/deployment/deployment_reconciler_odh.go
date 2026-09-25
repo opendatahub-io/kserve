@@ -43,6 +43,7 @@ import (
 	"github.com/kserve/kserve/pkg/constants"
 	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
 	distrotls "github.com/kserve/kserve/pkg/tls/distro"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 const (
@@ -822,8 +823,8 @@ func mountTransformerTLSInfrastructure(deployment *appsv1.Deployment, componentM
 			servingPort := constants.TransformerHTTPSPort
 			if userPort, ok := getArgValue(podSpec.Containers[i].Args, constants.ArgumentHttpPort); ok {
 				if userPort != constants.InferenceServiceDefaultHttpPort {
-					if parsed, err := strconv.ParseInt(userPort, 10, 32); err == nil {
-						servingPort = int32(parsed)
+					if parsed, err := utils.ParsePort(userPort); err == nil {
+						servingPort = parsed
 					}
 				}
 			}
