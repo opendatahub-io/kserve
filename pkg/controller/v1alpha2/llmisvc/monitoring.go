@@ -48,6 +48,10 @@ func (r *LLMISVCReconciler) reconcileMonitoringResources(ctx context.Context, ll
 	logger := log.FromContext(ctx).WithName("reconcileMonitoring")
 	ctx = log.IntoContext(ctx, logger)
 
+	if err := r.reconcileNetworkPolicies(ctx, llmSvc, config); err != nil {
+		return fmt.Errorf("failed to reconcile network policies: %w", err)
+	}
+
 	if monitoringDisabled {
 		logger.Info("Monitoring is disabled via LLMISVC_MONITORING_DISABLED, skipping monitoring reconciliation")
 		return nil
@@ -65,10 +69,6 @@ func (r *LLMISVCReconciler) reconcileMonitoringResources(ctx context.Context, ll
 
 	if err := r.reconcileSchedulerMonitor(ctx, llmSvc); err != nil {
 		return fmt.Errorf("failed to reconcile scheduler monitor: %w", err)
-	}
-
-	if err := r.reconcileMonitoringNetworkPolicy(ctx, llmSvc, config); err != nil {
-		return fmt.Errorf("failed to reconcile monitoring network policy: %w", err)
 	}
 
 	return nil

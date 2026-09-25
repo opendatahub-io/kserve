@@ -23,6 +23,14 @@ const (
 )
 
 // Midstream annotation keys
+const (
+	// EnableTracingEgressNetworkPolicyAnnotationKey opts an LLMInferenceService into the workload tracing egress policy.
+	EnableTracingEgressNetworkPolicyAnnotationKey = KServeAPIGroupName + "/enable-tracing-egress-network-policy"
+	// LLMTracingServiceStatusAnnotationKey records the resolved OTLP Service key
+	// in LLMInferenceService status so Service events can be indexed precisely.
+	LLMTracingServiceStatusAnnotationKey = KServeAPIGroupName + "/tracing-egress-service"
+)
+
 var (
 	OVMSAutoVersioningAnnotationKey = "storage.kserve.io/ovms-auto-versioning"
 	ODHKserveRuntimeAnnotation      = "opendatahub.io/kserve-runtime"
