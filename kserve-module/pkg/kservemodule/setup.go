@@ -10,6 +10,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	nodev1 "k8s.io/api/node/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -150,6 +151,11 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 				predicate.LabelChangedPredicate{},
 				nodeAllocatableChangedPredicate(),
 			)),
+		).
+		Watches(&nodev1.RuntimeClass{}, handler.EnqueueRequestsFromMapFunc(mapToKserve),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
+				return hasRuntimeClassPrefix(o.GetName(), cocoRuntimeClassPrefixes)
+			})),
 		)
 
 	// Dynamic Resource Allocation ResourceSlices are a built-in API (resource.k8s.io) whose
