@@ -7,9 +7,10 @@ from collections import deque
 from pathlib import Path
 
 from .rules import (
-    IGNORABLE_PATTERNS,
-    KEYWORD_ALIASES,
-    PYTHON_ALL_E2E_PACKAGES,
+    ignorable_patterns,
+    keyword_aliases,
+    load_selector_config,
+    python_all_e2e_packages,
 )
 from ..analyzers.config_mapper import load_overrides, match_override
 from ..mapping.schema import (
@@ -22,17 +23,21 @@ def select_tests(
     mapping: Mapping,
     changed_files: list[str],
     repo_root: Path,
+    config: dict | None = None,
+    config_path: Path | None = None,
 ) -> TestSelection:
     """Determine which tests to run for the given changed files."""
+    if config is None:
+        config = load_selector_config(config_path)
     sel = TestSelection()
-    overrides = load_overrides(repo_root)
+    overrides = load_overrides(repo_root, config)
 
     for f in changed_files:
         f = f.strip().removeprefix("./")
         if not f:
             continue
 
-        _process_file(f, mapping, overrides, sel, repo_root)
+        _process_file(f, mapping, overrides, sel, repo_root, config)
 
     _finalize(sel)
     return sel
@@ -44,6 +49,7 @@ def _process_file(
     overrides: list[dict],
     sel: TestSelection,
     repo_root: Path,
+    config: dict,
 ) -> None:
     """Classify and process a single changed file."""
     matched_overrides = match_override(file_path, overrides)
@@ -53,17 +59,20 @@ def _process_file(
     if file_path.endswith(".go"):
         _process_go_file(file_path, mapping, sel)
     elif file_path.endswith("Dockerfile"):
-        _process_dockerfile(file_path, mapping, sel, repo_root)
+        _process_dockerfile(file_path, mapping, sel, repo_root, config)
     elif file_path.startswith("python/"):
-        _process_python_file(file_path, mapping, sel)
+        _process_python_file(file_path, mapping, sel, config)
     elif file_path.startswith("test/e2e/"):
         _process_e2e_test_file(file_path, mapping, sel)
     elif file_path.startswith(("config/", "charts/", "hack/")):
         _process_config_or_infra_file(file_path, mapping, sel)
     elif file_path.endswith(".py"):
-        pass  # non-package Python file, skip
+        if _is_ignorable(file_path, config):
+            return
+        sel.reasons.append(f"{file_path} -> unknown Python path -> conservative:all")
+        _trigger_all(sel, mapping)
     elif not matched_overrides:
-        if _is_ignorable(file_path):
+        if _is_ignorable(file_path, config):
             return
         sel.reasons.append(f"{file_path} -> unclassified -> conservative:all")
         _trigger_all(sel, mapping)
@@ -73,9 +82,8 @@ def _process_go_file(file_path: str, mapping: Mapping, sel: TestSelection) -> No
     """Process a changed Go source file."""
     go_pkg = mapping.go_file_to_package.get(file_path)
     if not go_pkg:
-        sel.reasons.append(f"{file_path} -> unknown Go package -> conservative:all_go")
-        sel.go_tests.run = True
-        sel.go_tests.all = True
+        sel.reasons.append(f"{file_path} -> unknown Go package -> conservative:all")
+        _trigger_all(sel, mapping)
         return
 
     sel.go_tests.run = True
@@ -135,7 +143,9 @@ def _process_go_file(file_path: str, mapping: Mapping, sel: TestSelection) -> No
                     _add_markers(sel, markers)
 
 
-def _process_python_file(file_path: str, mapping: Mapping, sel: TestSelection) -> None:
+def _process_python_file(
+    file_path: str, mapping: Mapping, sel: TestSelection, config: dict
+) -> None:
     """Process a changed Python source file under python/."""
     if "/kserve/models/" in file_path and not file_path.endswith("__init__.py"):
         crd_kind = _extract_crd_from_model_file(file_path, mapping)
@@ -159,10 +169,17 @@ def _process_python_file(file_path: str, mapping: Mapping, sel: TestSelection) -
     if not pkg_name:
         return
 
+    if pkg_name not in mapping.python_packages:
+        sel.reasons.append(
+            f"{file_path} -> unknown Python package:{pkg_name} -> conservative:all"
+        )
+        _trigger_all(sel, mapping)
+        return
+
     sel.python_tests.run = True
     sel.python_tests.packages.append(pkg_name)
 
-    if pkg_name in PYTHON_ALL_E2E_PACKAGES:
+    if pkg_name in python_all_e2e_packages(config):
         sel.reasons.append(f"{file_path} -> python:{pkg_name} -> all_e2e")
         _trigger_all_e2e(sel, mapping)
         return
@@ -231,6 +248,11 @@ def _process_e2e_test_file(
             sel.reasons.append(
                 f"{file_path} -> test_changed -> e2e:{','.join(markers)}"
             )
+        else:
+            sel.reasons.append(
+                f"{file_path} -> unknown e2e suite -> conservative:all_e2e"
+            )
+            _trigger_all_e2e(sel, mapping)
 
 
 def _apply_override(
@@ -261,7 +283,11 @@ def _apply_override(
 
 
 def _process_dockerfile(
-    file_path: str, mapping: Mapping, sel: TestSelection, repo_root: Path
+    file_path: str,
+    mapping: Mapping,
+    sel: TestSelection,
+    repo_root: Path,
+    config: dict,
 ) -> None:
     """Match Dockerfile against known keywords, then try ARG CMD= in the file.
 
@@ -270,7 +296,7 @@ def _process_dockerfile(
     """
     basename = file_path.rsplit("/", 1)[-1].lower()
 
-    matched_markers, source = _match_keyword_aliases(basename, mapping)
+    matched_markers, source = _match_keyword_aliases(basename, mapping, config)
     if not matched_markers:
         matched_markers, source = _match_frameworks_or_servers(basename, mapping)
     if matched_markers:
@@ -292,11 +318,13 @@ def _process_dockerfile(
     _trigger_all(sel, mapping)
 
 
-def _match_keyword_aliases(basename: str, mapping: Mapping) -> tuple[list[str], str]:
+def _match_keyword_aliases(
+    basename: str, mapping: Mapping, config: dict
+) -> tuple[list[str], str]:
     """Match against keyword_aliases (llmisvc, localmodel, kserve, runtime)."""
     markers: list[str] = []
     keywords: list[str] = []
-    for keyword, crd_kinds in KEYWORD_ALIASES.items():
+    for keyword, crd_kinds in keyword_aliases(config).items():
         if keyword in basename:
             keywords.append(keyword)
             for kind in crd_kinds:
@@ -485,9 +513,12 @@ def _infer_markers_from_test_dir(file_path: str, mapping: Mapping) -> list[str]:
     return []
 
 
-def _is_ignorable(file_path: str) -> bool:
+def _is_ignorable(file_path: str, config: dict | None = None) -> bool:
     """Check if a file can be safely ignored (docs, CI, etc.)."""
-    for pattern in IGNORABLE_PATTERNS:
+    patterns = ignorable_patterns(
+        config if config is not None else load_selector_config()
+    )
+    for pattern in patterns:
         if file_path.endswith(pattern) or file_path.startswith(pattern):
             return True
     return False

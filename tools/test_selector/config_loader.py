@@ -1,21 +1,24 @@
-"""Resolve which selector config file to load.
-
-A local, git-ignored ``config.override.json`` takes precedence over the
-committed ``config.json`` when present, so contributors can tweak selection
-behavior locally without editing the shared defaults.
-"""
+"""Load selector configuration selected explicitly by the caller."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-
-CONFIG_NAME = "config.json"
-OVERRIDE_NAME = "config.override.json"
+from typing import Any
 
 
-def resolve_config_path(config_dir: Path) -> Path:
-    """Return the override config if it exists, otherwise the default config."""
-    override = config_dir / OVERRIDE_NAME
-    if override.exists():
-        return override
-    return config_dir / CONFIG_NAME
+def load_config(path: Path) -> dict[str, Any]:
+    """Load one explicit selector configuration file.
+
+    Configuration is injected by the caller so trusted CI never discovers a
+    PR-controlled override as a side effect of importing a module.
+    """
+    if path.is_symlink():
+        raise ValueError(f"refusing symlink selector config {path}")
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"could not load selector config {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"selector config {path} must contain a JSON object")
+    return data

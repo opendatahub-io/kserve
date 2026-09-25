@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from test_selector.mapping.schema import Mapping
 from test_selector.selector.engine import select_tests
 
@@ -41,8 +43,9 @@ LLMISVC_MARKERS = {
     "autoscaling_hpa",
     "autoscaling_keda",
     "cluster_cpu",
-    "tracing",
 }
+# ``tracing`` is also a predictor marker in current master; the llmisvc job is
+# distinguished by the ``llmisvc_core`` expression rather than marker spelling.
 MODELCACHE_MARKERS = {"modelcache"}
 
 
@@ -219,6 +222,38 @@ def test_unknown_file_triggers_all(mapping: Mapping, repo_root: Path) -> None:
     assert result["python_tests"]["run"] is True
     assert result["e2e_tests"]["run"] is True
     assert any("conservative:all" in r for r in result["reasons"])
+
+
+@pytest.mark.parametrize(
+    "changed_path",
+    [
+        pytest.param("pkg/not-discovered/unknown.go", id="unknown"),
+        pytest.param("pkg/apis/serving/v1beta1/deleted.go", id="deleted"),
+        pytest.param("pkg/controller/v1alpha2/llmisvc/rename-old.go", id="rename-old"),
+    ],
+)
+def test_unknown_deleted_and_rename_old_go_paths_trigger_all(
+    mapping: Mapping, repo_root: Path, changed_path: str
+) -> None:
+    result = _query(mapping, repo_root, [changed_path])
+
+    assert result["go_tests"]["run"] is True
+    assert result["go_tests"]["all"] is True
+    assert result["python_tests"]["run"] is True
+    assert result["e2e_tests"]["run"] is True
+    assert set(result["e2e_tests"]["markers"]) >= set(mapping.all_e2e_markers)
+    assert any("conservative:all" in reason for reason in result["reasons"])
+
+
+def test_unknown_python_package_triggers_all(mapping: Mapping, repo_root: Path) -> None:
+    result = _query(mapping, repo_root, ["python/not-discovered/module.py"])
+
+    assert result["go_tests"]["run"] is True
+    assert result["go_tests"]["all"] is True
+    assert result["python_tests"]["run"] is True
+    assert result["e2e_tests"]["run"] is True
+    assert set(result["e2e_tests"]["markers"]) >= set(mapping.all_e2e_markers)
+    assert any("unknown Python package" in reason for reason in result["reasons"])
 
 
 # -- Edge case: ignorable file -----------------------------------------------

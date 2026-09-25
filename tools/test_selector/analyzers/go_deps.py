@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import subprocess
-import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ..graph.depgraph import DependencyGraph
+
+
+class GoListError(RuntimeError):
+    """Raised when Go package discovery cannot produce a trusted mapping."""
 
 
 @dataclass
@@ -23,7 +26,7 @@ class GoPackage:
 def _parse_go_list_json(raw: str) -> list[dict]:
     """Parse concatenated JSON objects from `go list -json` output."""
     decoder = json.JSONDecoder()
-    results = []
+    results: list[dict] = []
     pos = 0
     while pos < len(raw):
         stripped = raw[pos:].lstrip()
@@ -32,9 +35,17 @@ def _parse_go_list_json(raw: str) -> list[dict]:
         try:
             obj, idx = decoder.raw_decode(stripped)
             pos = pos + (len(raw[pos:]) - len(stripped)) + idx
-            results.append(obj)
-        except json.JSONDecodeError:
-            break
+        except json.JSONDecodeError as exc:
+            raise GoListError(f"malformed go list JSON: {exc}") from exc
+        if not isinstance(obj, dict):
+            raise GoListError("go list JSON package entry must be an object")
+        if not isinstance(obj.get("ImportPath"), str) or not obj["ImportPath"]:
+            raise GoListError("go list package entry has no ImportPath")
+        if not isinstance(obj.get("Dir"), str) or not obj["Dir"]:
+            raise GoListError("go list package entry has no Dir")
+        results.append(obj)
+    if not results:
+        raise GoListError("go list produced no package entries")
     return results
 
 
@@ -49,17 +60,13 @@ def _run_go_list_all(repo_root: Path) -> list[dict]:
             timeout=120,
         )
     except FileNotFoundError:
-        print("Error: 'go' not found in PATH", file=sys.stderr)
-        raise SystemExit(1)
+        raise GoListError("'go' not found in PATH")
     except subprocess.TimeoutExpired:
-        print("Error: 'go list ./...' timed out", file=sys.stderr)
-        raise SystemExit(1)
+        raise GoListError("'go list ./...' timed out")
 
     if result.returncode != 0:
-        print(
-            f"Warning: 'go list ./...' returned {result.returncode}: "
-            f"{result.stderr[:200]}",
-            file=sys.stderr,
+        raise GoListError(
+            f"'go list ./...' returned {result.returncode}: {result.stderr[:200]}"
         )
 
     return _parse_go_list_json(result.stdout)
@@ -105,6 +112,8 @@ def build_go_dependency_info(
     file_to_package: dict[str, str] = {}
 
     pkg_list = _run_go_list_all(repo_root)
+    if not pkg_list:
+        raise GoListError("'go list ./...' returned no packages")
 
     for pkg_data in pkg_list:
         import_path = pkg_data.get("ImportPath", "")
@@ -132,8 +141,16 @@ def build_go_dependency_info(
             dep_graph.add_edge(import_path, imp)
 
         for f in go_files + test_files + xtest_files:
-            rel = str(Path(pkg_dir).relative_to(repo_root) / f)
+            try:
+                rel = str(Path(pkg_dir).relative_to(repo_root) / f)
+            except ValueError as exc:
+                raise GoListError(
+                    f"go list package directory is outside repository: {pkg_dir}"
+                ) from exc
             file_to_package[rel] = import_path
+
+    if not packages:
+        raise GoListError("'go list ./...' returned no internal packages")
 
     entrypoint_packages: dict[str, list[str]] = {}
     for target in entrypoint_targets:

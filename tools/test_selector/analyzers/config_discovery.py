@@ -17,7 +17,6 @@ _plural_to_kind: dict[str, str] = {}
 _singular_to_kind: dict[str, str] = {}
 _known_crd_kinds: set[str] = set()
 _name_keywords: dict[str, list[str]] = {}
-_initialized = False
 
 
 def _load_yaml(path: Path) -> dict | None:
@@ -34,12 +33,14 @@ def _load_yaml(path: Path) -> dict | None:
         return None
 
 
-def _init_crd_tables(repo_root: Path) -> None:
+def _init_crd_tables(
+    repo_root: Path, keyword_aliases: dict[str, list[str]] | None = None
+) -> None:
     """Build lookup tables from actual CRD YAML definitions (spec.names)."""
-    global _initialized
-    if _initialized:
-        return
-    _initialized = True
+    _plural_to_kind.clear()
+    _singular_to_kind.clear()
+    _known_crd_kinds.clear()
+    _name_keywords.clear()
 
     crd_files = list((repo_root / "config" / "crd").rglob("serving.kserve.io_*.yaml"))
     seen_kinds: set[str] = set()
@@ -69,27 +70,27 @@ def _init_crd_tables(repo_root: Path) -> None:
         for short in short_names:
             _name_keywords.setdefault(short, []).append(kind)
 
-    _add_keyword_aliases()
+    _add_keyword_aliases(keyword_aliases or {})
 
 
-def _add_keyword_aliases() -> None:
+def _add_keyword_aliases(keyword_aliases: dict[str, list[str]]) -> None:
     """Merge KEYWORD_ALIASES into the dynamic keyword table."""
-    from ..selector.rules import KEYWORD_ALIASES
-
-    for keyword, kinds in KEYWORD_ALIASES.items():
+    for keyword, kinds in keyword_aliases.items():
         existing = _name_keywords.get(keyword, [])
         merged = sorted(set(existing + [k for k in kinds if k in _known_crd_kinds]))
         if merged:
             _name_keywords[keyword] = merged
 
 
-def discover_config_to_crds(repo_root: Path) -> dict[str, list[str]]:
+def discover_config_to_crds(
+    repo_root: Path, keyword_aliases: dict[str, list[str]] | None = None
+) -> dict[str, list[str]]:
     """Scan config/, charts/, and hack/ for CRD references.
 
     Returns: {directory_or_file_path: [CRD kind names]}
     Paths are relative to repo_root (e.g., "config/llmisvc", "charts/kserve-llmisvc-crd").
     """
-    _init_crd_tables(repo_root)
+    _init_crd_tables(repo_root, keyword_aliases)
 
     result: dict[str, list[str]] = {}
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -300,9 +301,68 @@ def test_match_jobs_output(
 
     captured = capsys.readouterr()
     lines = captured.out.strip().splitlines()
-    parsed = dict(line.split("=", 1) for line in lines)
+    parsed = dict(line.split("=", 1) for line in lines if "=" in line)
+    reason_records = [json.loads(line) for line in lines if line.startswith("{")]
     assert set(parsed.keys()) == {"predictor", "autoscaling", "llmisvc-core"}
     assert parsed["predictor"] == "true"
     assert parsed["llmisvc-core"] == "false"
     for val in parsed.values():
         assert val in ("true", "false")
+    assert len(reason_records) == 1
+    assert reason_records[0]["reasons"]
+
+
+def test_structured_match_jobs_emit_evaluator_allowlisted_names(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The packaged structured job map is translated to selector expressions."""
+    repo = tmp_path / "repo"
+    (repo / "pkg").mkdir(parents=True)
+    (repo / "go.mod").write_text("module example.test\n")
+    job_map = Path(__file__).parents[1] / "gatekeeper" / "ocp_jobs.json"
+
+    monkeypatch.setattr(
+        "test_selector.mapping.loader.load_mapping", lambda *_args, **_kwargs: object()
+    )
+    monkeypatch.setattr(
+        "test_selector.selector.engine.select_tests",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            e2e_tests=SimpleNamespace(markers={"graph", "predictor"}),
+            reasons=["r" * 600] * 205,
+        ),
+    )
+
+    cmd_query(
+        argparse.Namespace(
+            repo=str(repo),
+            config=None,
+            changed_files=["pkg/example.go"],
+            changed_files_file=None,
+            mapping=None,
+            match=None,
+            match_jobs=None,
+            match_jobs_file=str(job_map),
+            format="json",
+        )
+    )
+
+    lines = capsys.readouterr().out.strip().splitlines()
+    parsed = dict(line.split("=", 1) for line in lines if "=" in line)
+    reason_records = [json.loads(line) for line in lines if line.startswith("{")]
+    assert set(parsed) == {
+        "e2e-graph",
+        "e2e-raw",
+        "e2e-predictor",
+        "e2e-llm-inference-service",
+    }
+    assert parsed == {
+        "e2e-graph": "true",
+        "e2e-raw": "false",
+        "e2e-predictor": "true",
+        "e2e-llm-inference-service": "false",
+    }
+    assert len(reason_records) == 1
+    assert len(reason_records[0]["reasons"]) == 200
+    assert all(len(reason) <= 500 for reason in reason_records[0]["reasons"])

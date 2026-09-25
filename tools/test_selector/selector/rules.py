@@ -6,35 +6,41 @@ framework, or server), update config.json instead of this file.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
+from typing import Any
 
-from ..config_loader import resolve_config_path
-
-
-def _load_config() -> dict:
-    config_path = resolve_config_path(Path(__file__).resolve().parent.parent)
-    return json.loads(config_path.read_text())
+from ..config_loader import load_config
 
 
-_config = _load_config()
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.json"
 
-# ---------------------------------------------------------------------------
-# All known CRD kinds (from keyword_aliases values)
-# ---------------------------------------------------------------------------
 
-KEYWORD_ALIASES: dict[str, list[str]] = _config["keyword_aliases"]
+def load_selector_config(path: Path | None = None) -> dict[str, Any]:
+    """Load an explicitly selected config, defaulting to committed config."""
+    return load_config(path or DEFAULT_CONFIG_PATH)
 
-ALL_CRD_KINDS: set[str] = {k for kinds in KEYWORD_ALIASES.values() for k in kinds}
 
-# ---------------------------------------------------------------------------
-# Python packages
-# ---------------------------------------------------------------------------
+def keyword_aliases(config: dict[str, Any]) -> dict[str, list[str]]:
+    return config.get("keyword_aliases", {})
 
-PYTHON_ALL_E2E_PACKAGES: list[str] = _config["python"]["all_e2e_packages"]
 
-# ---------------------------------------------------------------------------
-# File patterns that can be safely ignored (docs, CI, images, etc.)
-# ---------------------------------------------------------------------------
+def python_all_e2e_packages(config: dict[str, Any]) -> list[str]:
+    return config.get("python", {}).get("all_e2e_packages", [])
 
-IGNORABLE_PATTERNS: list[str] = _config["ignorable_patterns"]
+
+def ignorable_patterns(config: dict[str, Any]) -> list[str]:
+    return config.get("ignorable_patterns", [])
+
+
+def __getattr__(name: str) -> object:
+    """Keep legacy constants lazy so importing rules reads no repo files."""
+    config = load_selector_config()
+    if name == "KEYWORD_ALIASES":
+        return keyword_aliases(config)
+    if name == "ALL_CRD_KINDS":
+        return {kind for kinds in keyword_aliases(config).values() for kind in kinds}
+    if name == "PYTHON_ALL_E2E_PACKAGES":
+        return python_all_e2e_packages(config)
+    if name == "IGNORABLE_PATTERNS":
+        return ignorable_patterns(config)
+    raise AttributeError(name)

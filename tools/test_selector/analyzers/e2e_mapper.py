@@ -9,7 +9,6 @@ from pathlib import Path
 import re
 
 from ..mapping.schema import TestFileInfo
-from ..selector.rules import ALL_CRD_KINDS
 
 _VERSION_PREFIX_RE = re.compile(r"^V(1(?:alpha|beta)\d+)(.+)$")
 
@@ -35,7 +34,9 @@ _SKIP_MARKERS = {
 class _E2EVisitor(ast.NodeVisitor):
     """Walk a test file's AST to extract CRD usage and markers."""
 
-    def __init__(self, framework_kwarg_names: set[str]) -> None:
+    def __init__(
+        self, framework_kwarg_names: set[str], known_crd_kinds: set[str]
+    ) -> None:
         self.markers: set[str] = set()
         self.crd_kinds: set[str] = set()
         self.crd_versions: set[str] = set()
@@ -43,6 +44,7 @@ class _E2EVisitor(ast.NodeVisitor):
         self.model_formats: set[str] = set()
         self.components: set[str] = set()
         self._framework_kwarg_names = framework_kwarg_names
+        self._known_crd_kinds = known_crd_kinds
 
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
         self._extract_markers(node.decorator_list)
@@ -50,10 +52,31 @@ class _E2EVisitor(ast.NodeVisitor):
 
     visit_AsyncFunctionDef = visit_FunctionDef
 
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        self._extract_markers(node.decorator_list)
+        self.generic_visit(node)
+
+    def visit_Assign(self, node: ast.Assign) -> None:
+        if any(
+            isinstance(target, ast.Name) and target.id == "pytestmark"
+            for target in node.targets
+        ):
+            self._extract_pytestmark(node.value)
+        self.generic_visit(node)
+
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if (
+            isinstance(node.target, ast.Name)
+            and node.target.id == "pytestmark"
+            and node.value is not None
+        ):
+            self._extract_pytestmark(node.value)
+        self.generic_visit(node)
+
     def visit_Call(self, node: ast.Call) -> None:
         func_name = self._get_call_name(node)
 
-        crd = _parse_crd_constructor(func_name)
+        crd = _parse_crd_constructor(func_name, self._known_crd_kinds)
         if crd:
             self.crd_kinds.add(crd[0])
             self.crd_versions.add(crd[1])
@@ -91,7 +114,7 @@ class _E2EVisitor(ast.NodeVisitor):
                 and key.value == "kind"
                 and isinstance(value, ast.Constant)
                 and isinstance(value.value, str)
-                and value.value in ALL_CRD_KINDS
+                and value.value in self._known_crd_kinds
             ):
                 self.crd_kinds.add(value.value)
         self.generic_visit(node)
@@ -99,6 +122,13 @@ class _E2EVisitor(ast.NodeVisitor):
     def _extract_markers(self, decorators: list[ast.expr]) -> None:
         for dec in decorators:
             marker = self._get_pytest_marker(dec)
+            if marker and marker not in _SKIP_MARKERS:
+                self.markers.add(marker)
+
+    def _extract_pytestmark(self, value: ast.expr) -> None:
+        values = value.elts if isinstance(value, (ast.List, ast.Tuple)) else [value]
+        for marker_expr in values:
+            marker = self._get_pytest_marker(marker_expr)
             if marker and marker not in _SKIP_MARKERS:
                 self.markers.add(marker)
 
@@ -152,7 +182,9 @@ class _E2EVisitor(ast.NodeVisitor):
         return []
 
 
-def _parse_crd_constructor(name: str) -> tuple[str, str] | None:
+def _parse_crd_constructor(
+    name: str, known_crd_kinds: set[str] | None = None
+) -> tuple[str, str] | None:
     """Parse a SDK constructor like V1beta1InferenceService into (kind, version).
 
     Returns None if the name doesn't match or the derived kind isn't a known CRD.
@@ -161,7 +193,11 @@ def _parse_crd_constructor(name: str) -> tuple[str, str] | None:
     if not m:
         return None
     kind = m.group(2)
-    if kind not in ALL_CRD_KINDS:
+    if known_crd_kinds is None:
+        from ..selector.rules import ALL_CRD_KINDS
+
+        known_crd_kinds = ALL_CRD_KINDS
+    if kind not in known_crd_kinds:
         return None
     version = "v" + m.group(1)
     return kind, version
@@ -170,6 +206,7 @@ def _parse_crd_constructor(name: str) -> tuple[str, str] | None:
 def analyze_e2e_tests(
     repo_root: Path,
     framework_kwarg_names: set[str] | None = None,
+    known_crd_kinds: set[str] | None = None,
 ) -> dict[str, TestFileInfo]:
     """Analyze all e2e test files and return per-file CRD/marker info.
 
@@ -178,6 +215,10 @@ def analyze_e2e_tests(
     """
     if framework_kwarg_names is None:
         framework_kwarg_names = set()
+    if known_crd_kinds is None:
+        from ..selector.rules import ALL_CRD_KINDS
+
+        known_crd_kinds = ALL_CRD_KINDS
     test_dir = repo_root / "test" / "e2e"
     if not test_dir.is_dir():
         return {}
@@ -199,7 +240,7 @@ def analyze_e2e_tests(
             print(f"  Warning: SyntaxError in {rel_path}", file=sys.stderr)
             continue
 
-        visitor = _E2EVisitor(framework_kwarg_names)
+        visitor = _E2EVisitor(framework_kwarg_names, known_crd_kinds)
         visitor.visit(tree)
 
         if not (visitor.markers or visitor.crd_kinds):

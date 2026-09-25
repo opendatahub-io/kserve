@@ -188,6 +188,7 @@ class Mapping:
 
     @classmethod
     def from_dict(cls, d: dict) -> Mapping:
+        cls._validate_dict(d)
         return cls(
             entrypoints={
                 k: EntrypointInfo.from_dict(v)
@@ -211,6 +212,83 @@ class Mapping:
             suite_dir_to_markers=d.get("suite_dir_to_markers", {}),
             server_to_frameworks=d.get("server_to_frameworks", {}),
         )
+
+    @staticmethod
+    def _validate_dict(data: object) -> None:
+        """Reject incomplete or internally inconsistent trusted mappings."""
+        if not isinstance(data, dict):
+            raise ValueError("mapping must contain a JSON object")
+
+        required = {
+            "entrypoints",
+            "go_file_to_package",
+            "go_reverse_deps",
+            "go_package_to_entrypoints",
+            "test_files",
+            "python_packages",
+            "python_file_to_package",
+            "framework_packages",
+            "config_to_crds",
+            "crd_to_markers",
+            "all_e2e_markers",
+            "suite_dir_to_markers",
+            "server_to_frameworks",
+        }
+        missing = sorted(required - data.keys())
+        if missing:
+            raise ValueError(f"mapping missing required fields: {', '.join(missing)}")
+
+        map_fields = required - {"all_e2e_markers"}
+        for field_name in map_fields:
+            if not isinstance(data[field_name], dict):
+                raise ValueError(f"mapping field {field_name!r} must be an object")
+        if not isinstance(data["all_e2e_markers"], list):
+            raise ValueError("mapping field 'all_e2e_markers' must be a list")
+        if not all(
+            isinstance(marker, str) and marker for marker in data["all_e2e_markers"]
+        ):
+            raise ValueError("mapping e2e markers must be non-empty strings")
+
+        go_file_to_package = data["go_file_to_package"]
+        if not go_file_to_package:
+            raise ValueError("mapping contains no internal Go packages")
+        package_names = set(go_file_to_package.values())
+        if not all(isinstance(p, str) and p for p in package_names):
+            raise ValueError("mapping Go package names must be non-empty strings")
+
+        reverse_deps = data["go_reverse_deps"]
+        for package, dependents in reverse_deps.items():
+            if package not in package_names or not isinstance(dependents, list):
+                raise ValueError("mapping Go reverse dependencies are inconsistent")
+            if not all(dep in package_names for dep in dependents):
+                raise ValueError(
+                    "mapping Go reverse dependencies reference unknown package"
+                )
+
+        package_to_entrypoints = data["go_package_to_entrypoints"]
+        entrypoints = data["entrypoints"]
+        for package, targets in package_to_entrypoints.items():
+            if package not in package_names or not isinstance(targets, list):
+                raise ValueError("mapping package-to-entrypoint index is inconsistent")
+            if not all(target in entrypoints for target in targets):
+                raise ValueError(
+                    "mapping package-to-entrypoint index references unknown entrypoint"
+                )
+
+        for target, info in entrypoints.items():
+            if not isinstance(info, dict):
+                raise ValueError(f"mapping entrypoint {target!r} must be an object")
+            deps = info.get("dep_packages", [])
+            if not isinstance(deps, list) or not all(
+                dep in package_names for dep in deps
+            ):
+                raise ValueError(
+                    f"mapping entrypoint {target!r} references unknown package"
+                )
+
+        for path, info in data["test_files"].items():
+            if not isinstance(info, dict) or info.get("path") != path:
+                raise ValueError(f"mapping test file entry {path!r} is inconsistent")
 
 
 @dataclass

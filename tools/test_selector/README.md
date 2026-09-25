@@ -1,268 +1,127 @@
-# Test Selector
+# KServe test selector
 
-CI-agnostic test selector that uses AST parsing and Go dependency trees to determine which tests need to run for a given
-set of changed files. Works with GitHub Actions, Prow, and Tekton.
+The selector maps changed paths to Go, Python, and OpenShift E2E coverage. It is
+a CI-agnostic analysis library and CLI: it does not dispatch jobs, use GitHub
+credentials, or trust configuration from a pull request.
 
-The core idea: CRD types are the natural bridge between Python e2e tests (which create CRD resources via typed SDK
-constructors) and Go controllers (which register for specific CRD types via `SetupWithManager`/`For()`). The tool
-dynamically discovers these relationships, so no hardcoded mapping tables need to be maintained.
+The ODH integration is OpenShift CI/Prow, not GitHub Actions E2E dispatch:
+
+```text
+Prow test-selector-gatekeeper
+  ├─ evaluator (trusted image, no credential)
+  │    clone base + PR, learn/query merged worktree
+  │    -> SHARED_DIR/selection.json
+  └─ dispatcher (trusted image, runtime GitHub App secret only)
+       validate selection, post allowlisted /test commands, poll Prow
+       -> aggregate Gatekeeper result
+```
 
 ## Requirements
 
-- Python 3.10+
-- PyYAML (`pip install -r tools/test_selector/requirements.txt`) - required to parse CRD YAML; without it the CRD
-  tables build empty and every config/chart change escalates to running all tests
-- Go toolchain (for `go list` during `learn`)
+- Python 3.11 for the packaged Gatekeeper image.
+- Go 1.26.7 for go list during learn.
+- PyYAML for CRD/config discovery. The image also pins cryptography for
+  GitHub App signing, plus pytest and jsonschema for the CI self-test.
+- The image installs Git, jq, curl, and OpenSSL, runs non-root, and keeps
+  Go/Python caches under /tmp. No credential is baked into it.
 
-## Quick Start
+## Selector CLI
 
-```bash
-# Build the mapping (run from repo root, ~10-30s)
-PYTHONPATH=tools .venv/bin/python3 -m test_selector learn
-
-# Query which tests to run for a set of changed files
-git diff --name-only origin/master...HEAD | \
-  PYTHONPATH=tools .venv/bin/python3 -m test_selector query --format json
-```
-
-## Commands
-
-### `learn`
-
-Scans the entire repo and writes `mapping.json` (~40s, dominated by `go list`):
-
-1. Discovers `cmd/*/main.go` entrypoints
-2. Runs `go list -json -deps` per entrypoint for full transitive dependency trees
-3. Pattern-matches Go source for CRD registrations (`+kubebuilder:object:root=true`, `For()`, `Owns()`, `Watches()`,
-   `ComponentImplementation` assertions)
-4. AST-parses `test/e2e/**/*.py` for pytest markers, CRD constructors, framework specs, and model formats
-5. Analyzes Python packages under `python/`
+Run from the repository root:
 
 ```bash
-PYTHONPATH=tools .venv/bin/python3 -m test_selector learn
-PYTHONPATH=tools .venv/bin/python3 -m test_selector learn --repo /path/to/kserve
+export PYTHONPATH=tools
+
+python -m test_selector --config tools/test_selector/config.json \
+  learn --repo "$PWD" --output /tmp/kserve-mapping.json
+
+git diff --name-only origin/master...HEAD > /tmp/changed-files.txt
+python -m test_selector --config tools/test_selector/config.json \
+  query --repo "$PWD" --mapping /tmp/kserve-mapping.json \
+  --changed-files-file /tmp/changed-files.txt --format json
 ```
 
-The generated `mapping.json` should be committed so CI doesn't need to recompute it per-PR.
+The global --config must be explicit for local alternatives; a
+config.override.json is never imported implicitly. learn --output,
+query --mapping, and query --changed-files-file keep generated and changed
+file inputs outside the PR checkout when used by Gatekeeper.
 
-### `query`
-
-Reads `mapping.json`, takes changed files (stdin or `--changed-files`), outputs test selection:
+For Prow matching, use the packaged gatekeeper/ocp_jobs.json:
 
 ```bash
-# From stdin
-echo "pkg/apis/serving/v1beta1/predictor_sklearn.go" | \
-  PYTHONPATH=tools .venv/bin/python3 -m test_selector query
-
-# From arguments
-PYTHONPATH=tools .venv/bin/python3 -m test_selector query \
-  --changed-files pkg/controller/v1alpha2/llmisvc/controller.go
-
-# YAML output
-git diff --name-only origin/master...HEAD | \
-  PYTHONPATH=tools .venv/bin/python3 -m test_selector query --format yaml
+python -m test_selector --config tools/test_selector/config.json \
+  query --repo /tmp/kserve-merged --mapping /tmp/mapping.json \
+  --changed-files-file /tmp/changed-files.txt \
+  --match-jobs-file tools/test_selector/gatekeeper/ocp_jobs.json
 ```
 
-## Output Format
+This emits one job=true|false line for every map entry, followed by a bounded
+JSON reasons record. The four trusted Prow names are e2e-graph, e2e-raw,
+e2e-predictor, and e2e-llm-inference-service. Their command, context, target,
+and expression are package-owned data, not selector output.
+
+## Selection and conservative behavior
+
+learn discovers Go entrypoints and dependency ownership, CRD/controller
+relationships, E2E markers and constructors, Python packages, and config/chart
+CRD relationships. query walks those relationships for each changed path.
+
+The normal output is one selection object:
 
 ```json
 {
-  "go_tests": {
-    "run": true,
-    "packages": [
-      "./pkg/apis/serving/v1beta1/...",
-      "./cmd/manager..."
-    ]
-  },
-  "python_tests": {
-    "run": false
-  },
-  "e2e_tests": {
-    "run": true,
-    "markers": [
-      "predictor"
-    ]
-  },
-  "e2e_llmisvc": {
-    "run": false
-  },
-  "e2e_modelcache": {
-    "run": false
-  },
-  "reasons": [
-    "pkg/apis/serving/v1beta1/predictor_sklearn.go -> pkg:pkg/apis/serving/v1beta1 -> framework:sklearn -> e2e:predictor"
-  ]
+  "go_tests": {"run": true, "packages": ["./cmd/llmisvc..."]},
+  "python_tests": {"run": false},
+  "e2e_tests": {"run": true, "markers": ["llminferenceservice", "cluster_cpu"]},
+  "reasons": ["pkg/... -> entrypoint:./cmd/llmisvc -> e2e:..."]
 }
 ```
 
-Fields:
+The selector favors false positives over false negatives:
 
-| Field                   | Description                                          |
-|-------------------------|------------------------------------------------------|
-| `go_tests.run`          | Whether to run Go unit/integration tests             |
-| `go_tests.packages`     | Specific Go packages to test (empty if `all: true`)  |
-| `go_tests.all`          | Run all Go tests (shared infra changed)              |
-| `python_tests.run`      | Whether to run Python package tests                  |
-| `python_tests.packages` | Specific Python packages to test                     |
-| `e2e_tests.run`         | Whether to run core e2e tests                        |
-| `e2e_tests.markers`     | Pytest markers to select (`-m "predictor or graph"`) |
-| `e2e_llmisvc.run`       | Whether to run LLMInferenceService e2e tests         |
-| `e2e_modelcache.run`    | Whether to run LocalModelCache e2e tests             |
-| `reasons`               | Human-readable trace of how each file was classified |
+- unknown, deleted, or rename-old Go paths trigger all Go, Python, and E2E;
+- an unmapped python/<package>/... path triggers all coverage;
+- unknown source, config, chart, and infrastructure paths trigger all coverage;
+- shared dependencies and SDK changes widen to all relevant E2Es;
+- known framework/server paths may remain narrow.
 
-## How Selection Works
+Job expressions are routing metadata, not boolean filters over a single test.
+The selected marker set is a union across affected tests, so a job is selected
+when any positive marker named by its expression is affected. Missing
+conjunctive markers and negative markers never exclude the job; interpreting
+them against the union could omit an affected test. Shadow-mode reduction data
+will show whether a future per-test marker model is worth the added complexity.
 
-For a changed Go file:
+If a valid PR identity encounters a clone, dependency, or selector error, the
+evaluator writes fallback-all. Invalid identity and merge conflicts fail
+without a dispatchable artifact.
 
-1. Find the Go package it belongs to
-2. Walk the reverse dependency graph to find all affected packages
-3. Determine which entrypoints (`cmd/*`) include those packages
-4. Look up which CRD types those entrypoints manage
-5. If the file is framework-specific (e.g., `predictor_sklearn.go`), narrow to tests exercising that framework
-6. Otherwise, select all e2e tests that create those CRD types
-7. Output the corresponding pytest markers
+## Trust and maintenance
 
-For a changed Python file under `python/`:
+config.json, the job map, and the selection schema are packaged trusted inputs.
+mapping.json is generated in evaluator-owned temporary storage and integrity
+checked before use. The dispatcher accepts only the four allowlisted jobs and
+constructs Prow commands from its own job map.
 
-- SDK/storage packages (`kserve`, `storage`) trigger all e2e tests
-- Server packages (`sklearnserver`, `xgbserver`, etc.) trigger only tests for that framework
+Local experimentation is opt-in: pass an alternative config explicitly with
+--config. Do not edit or trust generated mapping.json from a PR checkout.
+When controllers, CRDs, E2E suites, or Python servers change, rerun learn and
+inspect reasons for representative paths.
 
-For config/chart changes, pattern-based overrides in `config.json` determine scope.
-
-## Conservative Escalation
-
-The tool prioritizes never missing required tests (false positives are acceptable, false negatives are not):
-
-- Unknown/unclassified files trigger all tests
-- Shared Go packages (`pkg/constants/`, `pkg/utils/`) trigger everything
-- Webhook changes trigger all e2e tests
-- SDK changes (`python/kserve/`) trigger all e2e tests
-
-## Configuration
-
-All configuration tables live in `config.json`. This includes CRD-to-marker mappings, framework lists, entrypoint
-classifications, test suite directory mappings, and pattern-based overrides. When the project evolves (new CRD, test
-suite, framework, or server), update `config.json` instead of modifying Python source.
-
-### Local overrides
-
-If a `config.override.json` exists next to `config.json`, it is loaded **instead of** `config.json`. Use it to
-experiment with selection behavior locally without touching the committed defaults (leave it uncommitted). It fully
-replaces the default file (it is not merged), so start by copying `config.json` and editing the copy:
+## Tests and local image checks
 
 ```bash
-cp tools/test_selector/config.json tools/test_selector/config.override.json
-# edit config.override.json, then run `learn`/`query` as usual
+GOCACHE=/tmp/kserve-test-selector-gocache GOFLAGS=-buildvcs=false \
+  PYTHONPATH=tools pytest -q tools/test_selector/tests \
+  tools/test_selector/gatekeeper
+ruff check tools/test_selector
+git diff --check
 ```
 
-### Overrides
+When a local container runtime and registry access are available:
 
-The `overrides` section in `config.json` contains pattern-based rules for files that AST analysis can't classify
-(config, charts, Makefile, etc.). Overrides can only widen scope, never narrow it.
-
-```json
-{
-  "overrides": [
-    {
-      "pattern": "config/crd/**",
-      "trigger": "all",
-      "reason": "CRD schema changes affect all controllers"
-    },
-    {
-      "pattern": "config/llmisvc/**",
-      "trigger": {
-        "e2e": [
-          "llminferenceservice"
-        ]
-      },
-      "reason": "LLMISvc-specific config"
-    }
-  ]
-}
+```bash
+podman build -f tools/test_selector/gatekeeper/Dockerfile .
 ```
 
-## Keeping the Mapping Fresh
-
-Re-run `learn` and commit the updated `mapping.json` when:
-
-- New controllers or entrypoints are added
-- New e2e test files are added
-- CRD types are added or renamed
-- Python server packages are added
-
-The tool will still work with a stale mapping, but may over-trigger (conservative escalation kicks in for unknown
-files/packages).
-
-## Pattern Assumptions and Maintenance
-
-The tool relies on regex patterns and lookup tables to discover CRD types, controllers, and test mappings. When the codebase evolves, some of these may need updating. This section documents every assumption so divergence is easy to diagnose.
-
-### Fail-safe behavior
-
-If a pattern stops matching, the affected file becomes "unclassified" and triggers all tests. You will notice this as CI running more tests than expected, never fewer. The risk is not missed coverage, it is wasted CI time.
-
-### Go CRD discovery (`analyzers/go_crd_discovery.py`)
-
-| Pattern | What it matches | Breaks if |
-|---|---|---|
-| `+kubebuilder:object:root=true` | Root CRD type definitions | Project stops using kubebuilder markers |
-| `For(\s*&(\w+)\.(\w+)\{` | Controller-CRD bindings via controller-runtime builder | controller-runtime changes its builder API (stable since v0.6) |
-| `var _ ComponentImplementation = &(\w+)\{` | Framework spec types | Interface name or assertion pattern changes |
-| `PredictorSpec` struct field extraction | Framework JSON tags | Frameworks move out of `PredictorSpec` |
-
-These patterns match idiomatic controller-runtime code, not AST, because Go AST parsing is not available from Python without a separate tool. A new framework spec is auto-discovered if it follows the `ComponentImplementation` assertion or is a field on `PredictorSpec`.
-
-### Python e2e test patterns (`analyzers/e2e_mapper.py`)
-
-| Lookup | When to update |
-|---|---|
-| (auto-discovered) | CRD constructors are derived from `crd_to_e2e_markers` kinds + version prefix |
-| `_FRAMEWORK_KWARG_NAMES` | New framework keyword arg added to `V1beta1PredictorSpec` |
-| `_SKIP_MARKERS` | New non-test-suite pytest markers commonly used |
-
-### Config/chart/hack discovery (`analyzers/config_discovery.py`)
-
-| Pattern | Breaks if |
-|---|---|
-| `(\w+)\.serving\.kserve\.io` | API group changes from `serving.kserve.io` |
-| `^kind:\s+(\w+)` | Standard Kubernetes YAML (unlikely) |
-| `serving\.kserve\.io_(\w+)\.yaml` | CRD generation tool changes output naming |
-
-Plural/singular/shortNames tables are built dynamically from CRD YAML definitions at learn time.
-
-### Configuration tables (`config.json`)
-
-All configuration tables that need updating when the project evolves are centralized in `config.json`:
-
-| Section | When to update |
-|---|---|
-| `crd_groups` | New CRDs or test buckets added |
-| `keyword_aliases` | New directory naming convention that can't be derived from CRD spec.names |
-| `framework_kwarg_names` | New framework added to PredictorSpec |
-| `suite_dir_map` | New e2e test directory added |
-| `go_entrypoints.utility` / `go_entrypoints.sidecar` | New cmd/ entrypoint added |
-| `python.server_to_framework` | New model server added under `python/` |
-| `ignorable_patterns` | New non-code file types that should be skipped |
-| `overrides` | New pattern-based rules for config/chart/infra files |
-
-### Diagnosing a divergence
-
-1. Run `learn` and check `mapping.json` for completeness (entrypoints, config_to_crds, test_files)
-2. Test a specific file: `echo "path/to/file" | PYTHONPATH=tools .venv/bin/python3 -m test_selector query`. The `reasons` field traces exactly how the file was classified.
-3. If a file triggers `conservative:all` unexpectedly, `reasons` explains why (e.g., `no config mapping`, `unclassified`, `unknown Go package`)
-
-### Adding a new CRD type (checklist)
-
-All tables referenced below are in `config.json`:
-
-1. Go patterns should auto-discover it if it follows `+kubebuilder:object:root=true` and `SetupWithManager`/`For()`
-2. Add the kind to `crd_to_e2e_markers` with the appropriate pytest markers
-3. CRD constructors in e2e tests are auto-discovered (no manual step needed if the kind is in `crd_to_e2e_markers`)
-4. Plural/singular/shortNames are auto-discovered from CRD YAML definitions (no manual step needed)
-5. If routing to a new test bucket, add it to `crd_groups.llmisvc`/`crd_groups.modelcache` or create a new bucket in `schema.py`
-6. If directories use a name that can't be derived from CRD spec.names, add an entry to `keyword_aliases`
-7. Re-run `learn` and verify with `query`
-
-## Design
-
-See [DESIGN.md](DESIGN.md) for the full architectural design, algorithm details, and implementation phases.
+The local suite needs no GitHub App or external credential.

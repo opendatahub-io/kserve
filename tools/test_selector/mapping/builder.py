@@ -25,10 +25,22 @@ from ..analyzers.python_imports import (
     discover_python_packages,
 )
 from ..mapping.schema import CRDTypeInfo, EntrypointInfo, Mapping
+from ..selector.rules import load_selector_config, keyword_aliases
 
 
-def build_mapping(repo_root: Path) -> Mapping:
+def build_mapping(
+    repo_root: Path,
+    config_path: Path | None = None,
+    config: dict | None = None,
+) -> Mapping:
     """Run all analyzers and build the full mapping."""
+    repo_root = repo_root.resolve()
+    if config is None:
+        selected_config = config_path or (
+            repo_root / "tools" / "test_selector" / "config.json"
+        )
+        config = load_selector_config(selected_config)
+
     print("Building mapping...", file=sys.stderr)
 
     module_prefix = get_module_prefix(repo_root)
@@ -125,7 +137,11 @@ def build_mapping(repo_root: Path) -> Mapping:
 
     # Step 7: Analyze e2e tests
     print("Step 5: Analyzing e2e tests...", file=sys.stderr)
-    test_files = analyze_e2e_tests(repo_root, set(framework_json_tags.keys()))
+    test_files = analyze_e2e_tests(
+        repo_root,
+        set(framework_json_tags.keys()),
+        known_crd_kinds,
+    )
     print(f"  {len(test_files)} test files analyzed", file=sys.stderr)
 
     # Step 8: Analyze Python packages
@@ -137,7 +153,7 @@ def build_mapping(repo_root: Path) -> Mapping:
 
     # Step 9: Discover config/chart/hack -> CRD mappings
     print("Step 7: Discovering config/chart/hack CRD mappings...", file=sys.stderr)
-    config_to_crds = discover_config_to_crds(repo_root)
+    config_to_crds = discover_config_to_crds(repo_root, keyword_aliases(config))
     print(f"  {len(config_to_crds)} directory mappings", file=sys.stderr)
 
     # Step 10: Build CRD-to-markers mapping from test file data

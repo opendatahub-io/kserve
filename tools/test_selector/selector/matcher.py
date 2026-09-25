@@ -29,6 +29,12 @@ def extract_positive_markers(expr: str) -> set[str]:
 
 
 def expression_matches(expr: str, selected_markers: set[str]) -> bool:
-    """Check if any positive marker in the expression is in the selected set."""
+    """Conservatively route when any positive marker may be affected.
+
+    ``selected_markers`` is a union across affected tests, not one test's
+    complete marker assignment.  Applying boolean ``and``/``not`` semantics
+    to that union could therefore suppress a job that contains an affected
+    test.  Negative and missing conjunctive markers never exclude a job here.
+    """
     positive = extract_positive_markers(expr)
     return bool(positive & selected_markers)

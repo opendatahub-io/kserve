@@ -2,20 +2,22 @@
 
 from __future__ import annotations
 
-import json
 from fnmatch import fnmatch
 from pathlib import Path
 
-from ..config_loader import resolve_config_path
+from ..selector.rules import load_selector_config
 
 
-def load_overrides(repo_root: Path) -> list[dict]:
-    """Load overrides from the active selector config (override or default)."""
-    config_path = resolve_config_path(repo_root / "tools" / "test_selector")
-    if config_path.exists():
-        data = json.loads(config_path.read_text())
-        return data.get("overrides", [])
-    return []
+def load_overrides(repo_root: Path, config: dict | None = None) -> list[dict]:
+    """Return overrides from the caller-selected config.
+
+    ``repo_root`` remains part of the API for compatibility, but no config
+    override is discovered from the repository implicitly.
+    """
+    del repo_root
+    data = config if config is not None else load_selector_config()
+    overrides = data.get("overrides", [])
+    return overrides if isinstance(overrides, list) else []
 
 
 def match_override(file_path: str, overrides: list[dict]) -> list[dict]:
