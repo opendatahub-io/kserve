@@ -23,6 +23,7 @@ func TestRouteStatusURL(t *testing.T) {
 		expected string
 	}{
 		{name: "route not yet admitted"},
+		{name: "host without admission condition", ingress: []routev1.RouteIngress{{Host: "pending.example"}}},
 		{name: "empty host with admitted condition", ingress: []routev1.RouteIngress{{Conditions: []routev1.RouteIngressCondition{{Type: routev1.RouteAdmitted, Status: corev1.ConditionTrue}}}}},
 		{name: "unadmitted host", ingress: []routev1.RouteIngress{{Host: "unavailable.example", Conditions: []routev1.RouteIngressCondition{{Type: routev1.RouteAdmitted, Status: corev1.ConditionFalse}}}}},
 		{name: "pending host", ingress: []routev1.RouteIngress{{Host: "pending.example", Conditions: []routev1.RouteIngressCondition{{Type: routev1.RouteAdmitted, Status: corev1.ConditionUnknown}}}}},
