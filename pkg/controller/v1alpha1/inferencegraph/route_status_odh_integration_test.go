@@ -32,11 +32,16 @@ import (
 )
 
 func admitRouteForURLTest(ctx context.Context, route *routev1.Route, graphKey types.NamespacedName) {
+	const (
+		timeout  = 10 * time.Second
+		interval = 250 * time.Millisecond
+	)
+
 	Consistently(func() *apis.URL {
 		graph := &v1alpha1.InferenceGraph{}
 		Expect(k8sClient.Get(ctx, graphKey, graph)).To(Succeed())
 		return graph.Status.URL
-	}, time.Second, 250*time.Millisecond).Should(BeNil())
+	}, time.Second, interval).Should(BeNil())
 
 	route.Status.Ingress[0].Conditions = []routev1.RouteIngressCondition{
 		{Type: routev1.RouteAdmitted, Status: corev1.ConditionTrue},
