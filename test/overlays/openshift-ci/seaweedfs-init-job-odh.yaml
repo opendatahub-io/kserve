@@ -12,14 +12,23 @@ spec:
         - python3
         - -c
         - |
-          from huggingface_hub import snapshot_download
-          snapshot_download(
-            "facebook/opt-125m",
-            local_dir="/shared/facebook/opt-125m",
-            ignore_patterns=["*.msgpack", "*.h5", "flax_model*", "tf_model*", "rust_model*"],
-          )
-          print("Model download complete")
+          import os
+          # Only the llmisvc suite needs facebook/opt-125m; skip the (slow) HuggingFace
+          # download for predictor/raw/graph. Gated by DOWNLOAD_OPT_125M (set from the
+          # e2e marker in setup-e2e-tests.sh).
+          if os.environ.get("DOWNLOAD_OPT_125M") != "true":
+              print("DOWNLOAD_OPT_125M != true; skipping opt-125m download")
+          else:
+              from huggingface_hub import snapshot_download
+              snapshot_download(
+                "facebook/opt-125m",
+                local_dir="/shared/facebook/opt-125m",
+                ignore_patterns=["*.msgpack", "*.h5", "flax_model*", "tf_model*", "rust_model*"],
+              )
+              print("Model download complete")
         env:
+        - name: DOWNLOAD_OPT_125M
+          value: "__DOWNLOAD_OPT_125M__"
         - name: HF_TOKEN
           valueFrom:
             secretKeyRef:
@@ -42,8 +51,15 @@ spec:
           aws s3 mb s3://example-models || true
           curl -L https://storage.googleapis.com/kfserving-examples/models/sklearn/1.0/model/model.joblib -o /tmp/sklearn-model.joblib
           aws s3 cp /tmp/sklearn-model.joblib s3://example-models/sklearn/model.joblib --no-verify-ssl
-          aws s3 sync /shared/facebook/opt-125m s3://example-models/facebook/opt-125m/ --no-verify-ssl
+          # opt-125m is only uploaded for the llmisvc suite (see DOWNLOAD_OPT_125M).
+          if [ "${DOWNLOAD_OPT_125M}" = "true" ]; then
+            aws s3 sync /shared/facebook/opt-125m s3://example-models/facebook/opt-125m/ --no-verify-ssl
+          else
+            echo "DOWNLOAD_OPT_125M != true; skipping opt-125m upload"
+          fi
         env:
+        - name: DOWNLOAD_OPT_125M
+          value: "__DOWNLOAD_OPT_125M__"
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
