@@ -114,8 +114,5 @@ func (r *OpenShiftRouteReconciler) buildOpenShiftRoute(inferenceGraph *v1alpha1.
 }
 
 func getRouteHostname(route *v1.Route) string {
-	for _, entry := range route.Status.Ingress {
-		return entry.Host
-	}
-	return ""
+	return routeHostname(route)
 }

@@ -276,11 +276,10 @@ func (r *InferenceGraphReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 				Client: r.Client,
 			}
 			hostname, err := routeReconciler.Reconcile(ctx, graph)
-			url.Host = hostname
-			url.Scheme = "https"
 			if err != nil {
 				return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile Route for InferenceGraph")
 			}
+			url = routeStatusURL(url, hostname)
 		}
 
 		logger.Info("Inference graph raw before propagate status")

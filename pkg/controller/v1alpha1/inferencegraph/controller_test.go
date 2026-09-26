@@ -1194,6 +1194,7 @@ var _ = Describe("Inference Graph controller test", func() {
 				},
 			}
 			Expect(k8sClient.Status().Update(ctx, &osRoute)).Should(Succeed())
+			admitRouteForURLTest(ctx, &osRoute, serviceKey)
 			Eventually(func() string {
 				Expect(k8sClient.Get(ctx, serviceKey, inferenceGraphSubmitted)).Should(Succeed())
 				return inferenceGraphSubmitted.Status.URL.Host
@@ -1323,6 +1324,7 @@ var _ = Describe("Inference Graph controller test", func() {
 				osRouteKey := types.NamespacedName{Name: ig.GetName() + "-route", Namespace: ig.GetNamespace()}
 				return k8sClient.Get(ctx, osRouteKey, &osRoute)
 			}, timeout, interval).Should(Succeed())
+			admitRouteBeforeMakingPrivate(ctx, &osRoute, serviceKey)
 
 			// Reconfigure as private
 			Expect(k8sClient.Get(ctx, serviceKey, ig)).Should(Succeed())
