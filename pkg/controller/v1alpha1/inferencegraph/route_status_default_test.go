@@ -26,3 +26,5 @@ import (
 )
 
 func admitRouteForURLTest(_ context.Context, _ *routev1.Route, _ types.NamespacedName) {}
+
+func admitRouteBeforeMakingPrivate(_ context.Context, _ *routev1.Route, _ types.NamespacedName) {}

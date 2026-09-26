@@ -53,3 +53,15 @@ func admitRouteForURLTest(ctx context.Context, route *routev1.Route, graphKey ty
 		return graph.Status.URL
 	}, timeout, interval).ShouldNot(BeNil())
 }
+
+func admitRouteBeforeMakingPrivate(ctx context.Context, route *routev1.Route, graphKey types.NamespacedName) {
+	route.Status.Ingress = []routev1.RouteIngress{{Host: "openshift-route-example.com"}}
+	Expect(k8sClient.Status().Update(ctx, route)).To(Succeed())
+	admitRouteForURLTest(ctx, route, graphKey)
+
+	Eventually(func() string {
+		graph := &v1alpha1.InferenceGraph{}
+		Expect(k8sClient.Get(ctx, graphKey, graph)).To(Succeed())
+		return graph.Status.URL.Host
+	}, 10*time.Second, 250*time.Millisecond).Should(Equal(route.Status.Ingress[0].Host))
+}
