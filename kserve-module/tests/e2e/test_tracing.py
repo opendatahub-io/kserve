@@ -224,37 +224,44 @@ class TestTracingPresetSynchronization:
                 interval=5,
             )
         finally:
-            restore_spec = copy.deepcopy(original_spec)
-            if "traces" not in restore_spec:
-                restore_spec["traces"] = None
-            run(
-                [
-                    kubectl,
-                    "patch",
-                    MONITORING_RESOURCE,
-                    MONITORING_NAME,
-                    "--type",
-                    "merge",
-                    "-p",
-                    json.dumps({"spec": restore_spec}),
-                ]
-            )
-            expected_endpoint = (
-                endpoint if original_spec.get("traces") is not None else UPSTREAM_ENDPOINT
-            )
-            wait_for(
-                lambda: _assert_preset_state(kubectl, current_name, expected_endpoint),
-                timeout=TIMEOUT_120S,
-                interval=5,
-            )
-            run(
-                [
-                    kubectl,
-                    "delete",
-                    LLMISVC_CONFIG_RESOURCE,
-                    historical_name,
-                    "-n",
-                    NAMESPACE,
-                    "--ignore-not-found",
-                ],
-            )
+            try:
+                restore_spec = copy.deepcopy(original_spec)
+                if "traces" not in restore_spec:
+                    restore_spec["traces"] = None
+                run(
+                    [
+                        kubectl,
+                        "patch",
+                        MONITORING_RESOURCE,
+                        MONITORING_NAME,
+                        "--type",
+                        "merge",
+                        "-p",
+                        json.dumps({"spec": restore_spec}),
+                    ]
+                )
+                expected_endpoint = (
+                    endpoint
+                    if original_spec.get("traces") is not None
+                    else UPSTREAM_ENDPOINT
+                )
+                wait_for(
+                    lambda: _assert_preset_state(
+                        kubectl, current_name, expected_endpoint
+                    ),
+                    timeout=TIMEOUT_120S,
+                    interval=5,
+                )
+            finally:
+                # Always remove the historical preset, even if restoration times out.
+                run(
+                    [
+                        kubectl,
+                        "delete",
+                        LLMISVC_CONFIG_RESOURCE,
+                        historical_name,
+                        "-n",
+                        NAMESPACE,
+                        "--ignore-not-found",
+                    ],
+                )

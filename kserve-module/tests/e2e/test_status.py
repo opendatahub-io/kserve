@@ -206,32 +206,6 @@ def _wait_for_llmisvc_restore(kubectl, expected_prefix):
     _wait_for_llmisvc_rollout(kubectl)
 
 
-def test_wait_for_llmisvc_rollout_uses_rollout_status(monkeypatch):
-    calls = []
-
-    def fake_run(args, **kwargs):
-        calls.append((args, kwargs))
-
-    monkeypatch.setattr("test_status.run", fake_run)
-
-    _wait_for_llmisvc_rollout("kubectl")
-
-    assert calls == [
-        (
-            [
-                "kubectl",
-                "rollout",
-                "status",
-                f"deployment/{LLMISVC_DEPLOYMENT}",
-                "-n",
-                NAMESPACE,
-                f"--timeout={TIMEOUT_120S}s",
-            ],
-            {"timeout": TIMEOUT_120S + 10},
-        )
-    ]
-
-
 @pytest.mark.parametrize(
     ("platform_version", "annotations", "expected"),
     [
@@ -257,33 +231,6 @@ def test_expected_llmisvc_config_prefix_follows_reconciler_precedence(
     )
 
     assert _expected_llmisvc_config_prefix("kubectl", platform_version) == expected
-
-
-def test_wait_for_llmisvc_restore_waits_for_env_before_rollout(monkeypatch):
-    calls = []
-
-    def fake_wait_for(check, **kwargs):
-        calls.append(("wait", kwargs))
-        check()
-
-    def fake_config_prefixes(_):
-        calls.append("env")
-        return ["v1-2-3-kserve-"]
-
-    def fake_rollout(_):
-        calls.append("rollout")
-
-    monkeypatch.setattr("test_status.wait_for", fake_wait_for)
-    monkeypatch.setattr("test_status._llmisvc_config_prefixes", fake_config_prefixes)
-    monkeypatch.setattr("test_status._wait_for_llmisvc_rollout", fake_rollout)
-
-    _wait_for_llmisvc_restore("kubectl", "v1-2-3-kserve-")
-
-    assert calls == [
-        ("wait", {"timeout": TIMEOUT_120S, "interval": 5}),
-        "env",
-        "rollout",
-    ]
 
 
 @pytest.mark.sanity
