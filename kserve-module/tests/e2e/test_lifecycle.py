@@ -428,7 +428,7 @@ def _apply_leftover_wva_resources(kubectl):
         "    spec:\n"
         "      containers:\n"
         "      - name: manager\n"
-        "        image: busybox:latest\n"
+        "        image: registry.k8s.io/pause:3.10\n"
         "        command: [\"sleep\", \"3600\"]\n"
         "---\n"
         "apiVersion: v1\n"
