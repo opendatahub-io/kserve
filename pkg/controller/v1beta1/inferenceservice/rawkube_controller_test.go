@@ -140,7 +140,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedDeployment := getDeploymentWithKServiceLabel(predictorDeploymentKey, serviceName, isvc)
 			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
-			addExpectedTLSSecurityProfile(&expectedDeployment.Spec.Template.Spec)
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// Verify INFERENCE_SERVICE_NAME environment variable is set
@@ -593,7 +592,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
-			addExpectedTLSSecurityProfile(&expectedDeployment.Spec.Template.Spec)
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// check isvc status
@@ -1031,7 +1029,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
-			addExpectedTLSSecurityProfile(&expectedDeployment.Spec.Template.Spec)
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// check service
@@ -3963,7 +3960,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedDeployment := getDeploymentWithKServiceLabel(predictorDeploymentKey, serviceName, isvc)
 			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
-			addExpectedTLSSecurityProfile(&expectedDeployment.Spec.Template.Spec)
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// check service
@@ -4159,7 +4155,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedDeployment := getDeploymentWithKServiceLabel(predictorDeploymentKey, serviceName, isvc)
 			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
-			addExpectedTLSSecurityProfile(&expectedDeployment.Spec.Template.Spec)
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// check service
@@ -4642,7 +4637,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
-			addExpectedTLSSecurityProfile(&expectedPredictorDeployment.Spec.Template.Spec)
 			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
 
 			// check transformer deployment
@@ -4730,7 +4724,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
-			addExpectedTLSSecurityProfile(&expectedTransformerDeployment.Spec.Template.Spec)
 			Expect(actualTransformerDeployment.Spec).To(BeComparableTo(expectedTransformerDeployment.Spec))
 
 			// check predictor service
@@ -5425,7 +5418,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
-			addExpectedTLSSecurityProfile(&expectedPredictorDeployment.Spec.Template.Spec)
 			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
 
 			// check Explainer deployment
@@ -5440,7 +5432,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedExplainerDeployment := getExpectedDeployment(explainerDeploymentKey, serviceName, serviceKey, predictorServiceKey)
 			expectedExplainerDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = explainerDeploymentKey.Name + constants.ServingCertSecretSuffix
-			addExpectedTLSSecurityProfile(&expectedExplainerDeployment.Spec.Template.Spec)
 			Expect(actualExplainerDeployment.Spec).To(BeComparableTo(expectedExplainerDeployment.Spec))
 
 			// check predictor service
@@ -6059,7 +6050,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedDeployment := getDeploymentWithKServiceLabel(predictorDeploymentKey, serviceName, isvc)
 			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
-			addExpectedTLSSecurityProfile(&expectedDeployment.Spec.Template.Spec)
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// check service
@@ -6593,7 +6583,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
-			addExpectedTLSSecurityProfile(&expectedPredictorDeployment.Spec.Template.Spec)
 			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
 
 			// check transformer deployment
@@ -6681,7 +6670,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
-			addExpectedTLSSecurityProfile(&expectedTransformerDeployment.Spec.Template.Spec)
 			Expect(actualTransformerDeployment.Spec).To(BeComparableTo(expectedTransformerDeployment.Spec))
 
 			// check predictor service
@@ -7425,7 +7413,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
-			addExpectedTLSSecurityProfile(&expectedPredictorDeployment.Spec.Template.Spec)
 			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
 
 			// check Explainer deployment
@@ -7440,7 +7427,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedExplainerDeployment := getExpectedDeployment(explainerDeploymentKey, serviceName, serviceKey, predictorServiceKey)
 			expectedExplainerDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = explainerDeploymentKey.Name + constants.ServingCertSecretSuffix
-			addExpectedTLSSecurityProfile(&expectedExplainerDeployment.Spec.Template.Spec)
 			Expect(actualExplainerDeployment.Spec).To(BeComparableTo(expectedExplainerDeployment.Spec))
 
 			// check predictor service
@@ -8421,7 +8407,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedDeployment := getDeploymentWithKServiceLabel(predictorDeploymentKey, serviceName, isvc)
 			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
-			addExpectedTLSSecurityProfile(&expectedDeployment.Spec.Template.Spec)
 			Expect(actualDeployment.Spec).To(Equal(expectedDeployment.Spec))
 
 			// check service
@@ -8821,7 +8806,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 			}
 
-			addExpectedTLSSecurityProfile(&expectedDeployment.Spec.Template.Spec)
 			// Use cmpopts.SortMaps for consistent comparison that ignores map key ordering
 			Expect(actualDeployment.Spec).To(Equal(expectedDeployment.Spec),
 				cmp.Diff(expectedDeployment.Spec, actualDeployment.Spec, cmpopts.SortMaps(func(a, b string) bool { return a < b })))
