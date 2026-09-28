@@ -15,6 +15,7 @@
 """Shared helpers for LLMISVC autoscaling e2e tests."""
 
 import concurrent.futures
+import hashlib
 import logging
 import threading
 import time
@@ -86,11 +87,27 @@ def scaled_object_name(service_name, prefill=False):
 
 
 def _child_name(parent, suffix):
-    """Replicate knative.dev/pkg/kmeta.ChildName truncation to 63 chars."""
-    result = parent + suffix
-    if len(result) > 63:
-        result = result[:63]
-    return result
+    """Replicate knative.dev/pkg/kmeta.ChildName."""
+    longest = 63
+    md5_len = 32
+    head = longest - md5_len
+
+    name = parent
+    if len(parent) > longest - len(suffix):
+        if head - len(suffix) <= 0:
+            digest = hashlib.md5((parent + suffix).encode()).hexdigest()
+            if head < len(parent):
+                parent = parent[:head]
+            result = parent + digest
+            remaining = longest - len(result)
+            if remaining > 0:
+                result += suffix[:remaining]
+            while result and not result[-1].isalnum():
+                result = result[:-1]
+            return result
+        digest = hashlib.md5(parent.encode()).hexdigest()
+        name = f"{parent[:head - len(suffix)]}{digest}"
+    return name + suffix
 
 
 def get_pod_count(service_name, namespace, component=None):
