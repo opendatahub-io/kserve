@@ -183,7 +183,7 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 			"apiVersion", isvc.APIVersion, "isvc", isvc.Name)
 	}
 
-	auditLoggingProfile, manageAuditLogging, err := r.reconcilePlatformInferenceService(ctx, isvc, deploymentMode, reconciliationPaused)
+	ctx, err = r.reconcilePlatformInferenceService(ctx, isvc, deploymentMode, reconciliationPaused)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -289,7 +289,7 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 
 	componentReconcilers := []components.Component{}
 	if deploymentMode != constants.ModelMeshDeployment {
-		componentReconcilers = append(componentReconcilers, components.NewPredictor(r.Client, r.Clientset, r.Scheme, isvcConfig, deploymentMode, allowZeroInitialScale, auditLoggingProfile, manageAuditLogging))
+		componentReconcilers = append(componentReconcilers, components.NewPredictor(r.Client, r.Clientset, r.Scheme, isvcConfig, deploymentMode, allowZeroInitialScale))
 	}
 	if isvc.Spec.Transformer != nil {
 		componentReconcilers = append(componentReconcilers, components.NewTransformer(r.Client, r.Clientset, r.Scheme, isvcConfig, deploymentMode, allowZeroInitialScale))

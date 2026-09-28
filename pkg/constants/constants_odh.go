@@ -90,13 +90,6 @@ const (
 	TransformerHTTPSPort     = int32(8443)
 )
 
-type ResourceType string
-
-const (
-	InferenceServiceResource ResourceType = "InferenceService"
-	InferenceGraphResource   ResourceType = "InferenceGraph"
-)
-
 func init() {
 	ServiceAnnotationDisallowedList = append(ServiceAnnotationDisallowedList, ODHKserveRawAuth, ODHKserveAuditLoggingProfile)
 }

@@ -32,6 +32,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
 )
 
 const (
@@ -62,8 +63,25 @@ type auditLoggingResolution struct {
 }
 
 // reconcilePlatformInferenceService resolves and records distro-specific
-// InferenceService policy for controller-owned Standard workloads.
+// InferenceService policy for controller-owned Standard workloads. The resolved
+// audit logging settings travel in the returned context to the raw Deployment
+// platform hook.
 func (r *InferenceServiceReconciler) reconcilePlatformInferenceService(
+	ctx context.Context,
+	isvc *v1beta1.InferenceService,
+	deploymentMode constants.DeploymentModeType,
+	reconciliationPaused bool,
+) (context.Context, error) {
+	auditLoggingProfile, manageAuditLogging, err := r.resolvePlatformAuditLogging(ctx, isvc, deploymentMode, reconciliationPaused)
+	if err != nil {
+		return ctx, err
+	}
+	return isvcutils.WithAuditLogging(ctx, auditLoggingProfile, manageAuditLogging), nil
+}
+
+// resolvePlatformAuditLogging resolves the effective audit logging profile and
+// whether the controller manages it, recording the advisory condition.
+func (r *InferenceServiceReconciler) resolvePlatformAuditLogging(
 	ctx context.Context,
 	isvc *v1beta1.InferenceService,
 	deploymentMode constants.DeploymentModeType,

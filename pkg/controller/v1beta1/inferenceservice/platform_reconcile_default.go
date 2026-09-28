@@ -27,10 +27,10 @@ import (
 
 // reconcilePlatformInferenceService is a no-op when distro extensions are not built.
 func (r *InferenceServiceReconciler) reconcilePlatformInferenceService(
-	_ context.Context,
+	ctx context.Context,
 	_ *v1beta1.InferenceService,
 	_ constants.DeploymentModeType,
 	_ bool,
-) (constants.AuditLoggingProfile, bool, error) {
-	return constants.AuditLoggingProfileNone, false, nil
+) (context.Context, error) {
+	return ctx, nil
 }
