@@ -106,7 +106,7 @@ def _child_name(parent, suffix):
                 result = result[:-1]
             return result
         digest = hashlib.md5(parent.encode()).hexdigest()
-        name = f"{parent[:head - len(suffix)]}{digest}"
+        name = f"{parent[: head - len(suffix)]}{digest}"
     return name + suffix
 
 
