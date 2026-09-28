@@ -261,7 +261,7 @@ func mutatingWebhookRefsLegacyService(webhooks []admissionregistrationv1.Mutatin
 // Conditions not in this set (e.g. from the in-tree ODH operator) are removed on upgrade.
 // TODO(3.6): remove removeStaleConditions and knownConditionTypes — only needed for 3.5 migration from in-tree operator.
 var knownConditionTypes = map[string]bool{
-	string(common.ConditionTypeReady):                true,
+	string(common.ConditionTypeReady):                 true,
 	string(common.ConditionTypeProvisioningSucceeded): true,
 	string(common.ConditionTypeDegraded):              true,
 	ConditionKServeReady:                              true,
@@ -269,6 +269,7 @@ var knownConditionTypes = map[string]bool{
 	ConditionWVAReady:                                 true,
 	ConditionModelCacheReady:                          true,
 	ConditionDependenciesAvailable:                    true,
+	ConditionTracingConfigAvailable:                   true,
 	conditionLLMISVCDeps:                              true,
 	conditionLLMISVCWideEPDeps:                        true,
 	conditionLLMDWVADeps:                              true,

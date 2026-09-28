@@ -345,6 +345,14 @@ rules:
   - bind
   - escalate
 - apiGroups:
+  - resource.k8s.io
+  resources:
+  - resourceslices
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - security.openshift.io
   resources:
   - securitycontextconstraints
@@ -356,6 +364,21 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - services.platform.opendatahub.io
+  resources:
+  - monitorings
+  verbs:
+  - list
+  - watch
+- apiGroups:
+  - services.platform.opendatahub.io
+  resourceNames:
+  - default-monitoring
+  resources:
+  - monitorings
+  verbs:
+  - get
 - apiGroups:
   - serving.kserve.io
   resources:

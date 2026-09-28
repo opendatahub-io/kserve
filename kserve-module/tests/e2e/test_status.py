@@ -6,9 +6,10 @@ SSA re-applies desired state before the readiness check runs, making it
 impossible to simulate in E2E.
 """
 
-import pytest
-
 import json
+import sys
+
+import pytest
 
 from conftest import (
     LLMISVC_CONFIG_RESOURCE,
@@ -41,6 +42,14 @@ def _version_prefix(version):
     return "v" + version.replace(".", "-")
 
 
+def _expected_llmisvc_config_prefix(kubectl, platform_version):
+    """Mirror the reconciler's platform version fallback order."""
+    if not platform_version:
+        annotations = get_cr(kubectl).get("metadata", {}).get("annotations", {})
+        platform_version = annotations.get("platform.opendatahub.io/version", "0.0.0")
+    return f"{_version_prefix(platform_version)}-kserve-"
+
+
 def _set_platform_version(kubectl, version):
     """Patch data.platformVersion on the odh-kserve-config ConfigMap."""
     patch = json.dumps({"data": {"platformVersion": version}})
@@ -48,6 +57,17 @@ def _set_platform_version(kubectl, version):
         kubectl, "patch", "configmap", PLATFORM_VERSION_CM, "-n", NAMESPACE,
         "--type", "merge", "-p", patch,
     ])
+
+
+def _llmisvc_config_prefixes(kubectl):
+    """Return config prefixes currently set on the LLMISVC containers."""
+    out = get_jsonpath(
+        kubectl, "deployment", LLMISVC_DEPLOYMENT,
+        "{.spec.template.spec.containers[*]"
+        f".env[?(@.name=='{LLMISVC_CONFIG_PREFIX_ENV}')].value}}",
+        namespace=NAMESPACE,
+    )
+    return out.split()
 
 
 @pytest.mark.sanity
@@ -135,13 +155,7 @@ def _set_and_assert_propagated(kubectl, version):
     def assert_env_updated():
         # The env is written to every container, and the real container
         # name is not known here, so filter on the env name only.
-        out = get_jsonpath(
-            kubectl, "deployment", LLMISVC_DEPLOYMENT,
-            "{.spec.template.spec.containers[*]"
-            f".env[?(@.name=='{LLMISVC_CONFIG_PREFIX_ENV}')].value}}",
-            namespace=NAMESPACE,
-        )
-        vals = out.split()
+        vals = _llmisvc_config_prefixes(kubectl)
         assert vals, f"{LLMISVC_CONFIG_PREFIX_ENV} not set on {LLMISVC_DEPLOYMENT}"
         assert all(v == expected_env for v in vals), \
             f"expected all {LLMISVC_CONFIG_PREFIX_ENV}={expected_env}, got {vals}"
@@ -162,6 +176,63 @@ def _set_and_assert_propagated(kubectl, version):
     wait_for(assert_presets_versioned, timeout=TIMEOUT_120S, interval=5)
 
 
+def _wait_for_llmisvc_rollout(kubectl):
+    """Wait for the LLMISVC webhook deployment after changing its env."""
+    run(
+        [
+            kubectl,
+            "rollout",
+            "status",
+            f"deployment/{LLMISVC_DEPLOYMENT}",
+            "-n",
+            NAMESPACE,
+            f"--timeout={TIMEOUT_120S}s",
+        ],
+        timeout=TIMEOUT_120S + 10,
+    )
+
+
+def _wait_for_llmisvc_restore(kubectl, expected_prefix):
+    """Wait for the restored env to reach the Deployment before its rollout."""
+
+    def assert_env_restored():
+        prefixes = _llmisvc_config_prefixes(kubectl)
+        assert prefixes and all(prefix == expected_prefix for prefix in prefixes), (
+            f"expected restored {LLMISVC_CONFIG_PREFIX_ENV}={expected_prefix}, "
+            f"got {prefixes}"
+        )
+
+    wait_for(assert_env_restored, timeout=TIMEOUT_120S, interval=5)
+    _wait_for_llmisvc_rollout(kubectl)
+
+
+@pytest.mark.parametrize(
+    ("platform_version", "annotations", "expected"),
+    [
+        (
+            "2.20.0",
+            {"platform.opendatahub.io/version": "99.0.0"},
+            "v2-20-0-kserve-",
+        ),
+        (
+            "",
+            {"platform.opendatahub.io/version": "99.0.0"},
+            "v99-0-0-kserve-",
+        ),
+        ("", {}, "v0-0-0-kserve-"),
+    ],
+)
+def test_expected_llmisvc_config_prefix_follows_reconciler_precedence(
+    monkeypatch, platform_version, annotations, expected
+):
+    monkeypatch.setattr(
+        "test_status.get_cr",
+        lambda _: {"metadata": {"annotations": annotations}},
+    )
+
+    assert _expected_llmisvc_config_prefix("kubectl", platform_version) == expected
+
+
 @pytest.mark.sanity
 class TestPlatformVersionTransition:
     """A platformVersion change propagates to status.releases and the llmisvc env.
@@ -176,18 +247,30 @@ class TestPlatformVersionTransition:
             kubectl, "configmap", PLATFORM_VERSION_CM,
             "{.data.platformVersion}", namespace=NAMESPACE,
         )
+        original_prefix = _expected_llmisvc_config_prefix(kubectl, original)
         try:
             # Set baseline A, then upgrade to B. A->B is the real transition;
             # step A is a no-op if the cluster already holds A.
             _set_and_assert_propagated(kubectl, _VERSION_A)
             _set_and_assert_propagated(kubectl, _VERSION_B)
         finally:
-            # Restore the pre-test value; if there was none, remove the key
-            # rather than leaving an empty version behind.
-            if original:
-                _set_platform_version(kubectl, original)
-            else:
-                run([
-                    kubectl, "patch", "configmap", PLATFORM_VERSION_CM, "-n", NAMESPACE,
-                    "--type", "merge", "-p", json.dumps({"data": {"platformVersion": None}}),
-                ])
+            active_exception = sys.exc_info()[1]
+            try:
+                # Restore the pre-test value; if there was none, remove the key
+                # rather than leaving an empty version behind.
+                if original:
+                    _set_platform_version(kubectl, original)
+                else:
+                    run([
+                        kubectl, "patch", "configmap", PLATFORM_VERSION_CM,
+                        "-n", NAMESPACE, "--type", "merge", "-p",
+                        json.dumps({"data": {"platformVersion": None}}),
+                    ])
+                _wait_for_llmisvc_restore(kubectl, original_prefix)
+            except Exception as cleanup_error:
+                if active_exception is None:
+                    raise
+                print(
+                    f"Platform version test cleanup failed: {cleanup_error}",
+                    file=sys.stderr,
+                )
