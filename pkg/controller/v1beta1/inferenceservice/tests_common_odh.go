@@ -1,5 +1,7 @@
+//go:build distro
+
 /*
-Copyright 2023 The KServe Authors.
+Copyright 2026 The KServe Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,8 +20,7 @@ package inferenceservice
 
 import (
 	"fmt"
-	"maps"
-	"time"
+	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -31,134 +32,22 @@ import (
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 )
 
-const (
-	REPLICAS                    int32 = 1
-	REVISION_HISTORY            int32 = 10
-	PROGRESSION_DEADLINE_SECODS int32 = 600
-	GRACE_PERIOD                int64 = 30
-
-	fastTimeout = time.Second * 3
-	timeout     = time.Second * 60
-	interval    = time.Millisecond * 250
-	domain      = "example.com"
-)
-
-var (
-	defaultResource = corev1.ResourceRequirements{
-		Limits: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("1"),
-			corev1.ResourceMemory: resource.MustParse("2Gi"),
-		},
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:    resource.MustParse("1"),
-			corev1.ResourceMemory: resource.MustParse("2Gi"),
-		},
+// getExpectedIsvcStatusODH is the ODH counterpart of getExpectedIsvcStatus: the URL scheme and
+// host vary with the OpenShift exposure (https Route or cluster-local), and the address points
+// at the transformer when componentHost names one.
+func getExpectedIsvcStatusODH(serviceKey types.NamespacedName, protocol, host, componentHost, port string) v1beta1.InferenceServiceStatus {
+	predTrans := "predictor"
+	if strings.Contains(componentHost, "trans") {
+		predTrans = "transformer"
+	}
+	if len(port) > 0 {
+		port = ":" + port
 	}
 
-	defaultSecurityContext = &corev1.PodSecurityContext{
-		SELinuxOptions:      nil,
-		WindowsOptions:      nil,
-		RunAsUser:           nil,
-		RunAsGroup:          nil,
-		RunAsNonRoot:        nil,
-		SupplementalGroups:  nil,
-		FSGroup:             nil,
-		Sysctls:             nil,
-		FSGroupChangePolicy: nil,
-		SeccompProfile:      nil,
-	}
-
-	// common storageUri used by the tests
-	storageUri = "s3://test/mnist/export"
-
-	createInferenceServiceConfigMap = func(cnf map[string]string) *corev1.ConfigMap {
-		return &corev1.ConfigMap{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      constants.InferenceServiceConfigMapName,
-				Namespace: constants.KServeNamespace,
-			},
-			Data: maps.Clone(cnf),
-		}
-	}
-)
-
-func getServingRuntime(name string, namespace string) v1alpha1.ServingRuntime {
-	return v1alpha1.ServingRuntime{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-		},
-		Spec: v1alpha1.ServingRuntimeSpec{
-			SupportedModelFormats: []v1alpha1.SupportedModelFormat{
-				{
-					Name:       "tensorflow",
-					Version:    ptr.To("1"),
-					AutoSelect: ptr.To(true),
-				},
-			},
-			ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
-				Containers: []corev1.Container{
-					{
-						Name:    constants.InferenceServiceContainerName,
-						Image:   "tensorflow/serving:1.14.0",
-						Command: []string{"/usr/bin/tensorflow_model_server"},
-						Args: []string{
-							"--port=9000",
-							"--rest_api_port=8080",
-							"--model_base_path=/mnt/models",
-							"--rest_api_timeout_in_ms=60000",
-						},
-						Resources: defaultResource,
-					},
-				},
-			},
-			Disabled: ptr.To(false),
-		},
-	}
-}
-
-func getExectedService(predictorServiceKey types.NamespacedName, serviceName string) corev1.Service {
-	return corev1.Service{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      predictorServiceKey.Name,
-			Namespace: predictorServiceKey.Namespace,
-		},
-		Spec: corev1.ServiceSpec{
-			Ports: []corev1.ServicePort{
-				{
-					Name:       constants.PredictorServiceName(serviceName),
-					Protocol:   "TCP",
-					Port:       80,
-					TargetPort: intstr.IntOrString{Type: 0, IntVal: 8080, StrVal: ""},
-				},
-			},
-			Type:            "ClusterIP",
-			SessionAffinity: "None",
-			Selector: map[string]string{
-				"app": "isvc." + constants.PredictorServiceName(serviceName),
-			},
-		},
-	}
-}
-
-func getExpectedIsvcStatus(serviceKey types.NamespacedName) v1beta1.InferenceServiceStatus {
-	return getExpectedIsvcStatusWithPort(serviceKey, "")
-}
-
-// getExpectedIsvcStatusWithPort returns the expected status with an optional port suffix for the address host.
-// Use this when testing headless services where the port must be included in the address URL.
-func getExpectedIsvcStatusWithPort(serviceKey types.NamespacedName, port string) v1beta1.InferenceServiceStatus {
-	addressHost := fmt.Sprintf("%s-predictor.%s.svc.cluster.local", serviceKey.Name, serviceKey.Namespace)
-	if port != "" {
-		addressHost = addressHost + ":" + port
-	}
-	urlHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, domain)
-	predictorURLHost := fmt.Sprintf("%s-predictor-%s.%s", serviceKey.Name, serviceKey.Namespace, domain)
 	return v1beta1.InferenceServiceStatus{
 		Status: duckv1.Status{
 			Conditions: duckv1.Conditions{
@@ -182,21 +71,23 @@ func getExpectedIsvcStatusWithPort(serviceKey types.NamespacedName, port string)
 			},
 		},
 		URL: &apis.URL{
-			Scheme: "http",
-			Host:   urlHost,
+			Scheme: protocol,
+			Host:   host,
 		},
 		Address: &duckv1.Addressable{
 			URL: &apis.URL{
-				Scheme: "http",
-				Host:   addressHost,
+				Scheme: protocol,
+				Host:   fmt.Sprintf("%s-%s.%s.svc.cluster.local%s", serviceKey.Name, predTrans, serviceKey.Namespace, port),
 			},
 		},
 		Components: map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
 			v1beta1.PredictorComponent: {
 				LatestCreatedRevision: "",
+				// Status improvement from upstream is now synced
+				// Component URLs always use http scheme (internal service communication)
 				URL: &apis.URL{
 					Scheme: "http",
-					Host:   predictorURLHost,
+					Host:   componentHost,
 				},
 			},
 		},
@@ -210,56 +101,107 @@ func getExpectedIsvcStatusWithPort(serviceKey types.NamespacedName, port string)
 	}
 }
 
-// getCommonPredictorExtensionSpec returns a new TensorFlow serving spec instance
-func getCommonPredictorExtensionSpec() v1beta1.PredictorExtensionSpec {
-	return v1beta1.PredictorExtensionSpec{
-		StorageURI:     &storageUri,
-		RuntimeVersion: ptr.To("1.14.0"),
-		Container: corev1.Container{
-			Name:      constants.InferenceServiceContainerName,
-			Resources: defaultResource,
+// kubeRbacProxyContainer returns the kube-rbac-proxy sidecar container for an InferenceService deployment.
+// If upstreamTimeoutSeconds is non-nil, --upstream-timeout=<N>s is appended to the args.
+func kubeRbacProxyContainer(upstreamTimeoutSeconds *int64) corev1.Container {
+	args := []string{
+		`--secure-listen-address=:8443`,
+		`--proxy-endpoints-port=8643`,
+		`--upstream=http://localhost:8080`,
+		`--auth-header-fields-enabled=true`,
+		`--tls-cert-file=/etc/tls/private/tls.crt`,
+		`--tls-private-key-file=/etc/tls/private/tls.key`,
+		`--config-file=/etc/kube-rbac-proxy/config-file.yaml`,
+		`--v=4`,
+	}
+	if upstreamTimeoutSeconds != nil {
+		args = append(args, fmt.Sprintf("--upstream-timeout=%ds", *upstreamTimeoutSeconds))
+	}
+	return corev1.Container{
+		Name:  constants.KubeRbacContainerName,
+		Image: constants.OauthProxyImage,
+		Args:  args,
+		Ports: []corev1.ContainerPort{
+			{ContainerPort: constants.OauthProxyPort, Name: "https", Protocol: corev1.ProtocolTCP},
+			{ContainerPort: constants.OauthProxyProbePort, Name: "proxy", Protocol: corev1.ProtocolTCP},
 		},
-	}
-}
-
-// getDefaultAnnotations returns the default annotations used on most of the ISVCs
-func getDefaultAnnotations(scalerClass constants.AutoscalerClassType) map[string]string {
-	return map[string]string{
-		constants.DeploymentMode:  string(constants.Standard),
-		constants.AutoscalerClass: string(scalerClass),
-	}
-}
-
-func getDefaultMetrics() []v1beta1.MetricsSpec {
-	return []v1beta1.MetricsSpec{
-		{
-			Type: v1beta1.PodMetricSourceType,
-			PodMetric: &v1beta1.PodMetricSource{
-				Metric: v1beta1.PodMetrics{
-					Backend:     v1beta1.OpenTelemetryBackend,
-					MetricNames: []string{"process_cpu_seconds_total"},
-					Query:       "avg(process_cpu_seconds_total)",
+		LivenessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Path:   "/healthz",
+					Port:   intstr.FromInt32(constants.OauthProxyProbePort),
+					Scheme: corev1.URISchemeHTTPS,
 				},
-				Target: v1beta1.MetricTarget{
-					Type:  v1beta1.ValueMetricType,
-					Value: v1beta1.NewMetricQuantity(""),
+			},
+			InitialDelaySeconds: 30,
+			TimeoutSeconds:      1,
+			PeriodSeconds:       5,
+			SuccessThreshold:    1,
+			FailureThreshold:    3,
+		},
+		ReadinessProbe: &corev1.Probe{
+			ProbeHandler: corev1.ProbeHandler{
+				HTTPGet: &corev1.HTTPGetAction{
+					Path:   "/healthz",
+					Port:   intstr.FromInt32(constants.OauthProxyProbePort),
+					Scheme: corev1.URISchemeHTTPS,
+				},
+			},
+			InitialDelaySeconds: 5,
+			TimeoutSeconds:      1,
+			PeriodSeconds:       5,
+			SuccessThreshold:    1,
+			FailureThreshold:    3,
+		},
+		Resources: corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse(constants.OauthProxyResourceCPULimit),
+				corev1.ResourceMemory: resource.MustParse(constants.OauthProxyResourceMemoryLimit),
+			},
+			Requests: corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse(constants.OauthProxyResourceCPURequest),
+				corev1.ResourceMemory: resource.MustParse(constants.OauthProxyResourceMemoryRequest),
+			},
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: "proxy-tls", MountPath: "/etc/tls/private"},
+			{Name: constants.OauthProxySARCMName, MountPath: "/etc/kube-rbac-proxy", ReadOnly: true},
+		},
+		TerminationMessagePath:   "/dev/termination-log",
+		TerminationMessagePolicy: "File",
+		ImagePullPolicy:          "IfNotPresent",
+	}
+}
+
+// proxyVolumes returns the proxy-tls and SAR ConfigMap volumes for an InferenceService deployment.
+// tlsSecretName is the serving certificate Secret name; sarConfigMapName is the full SAR ConfigMap name.
+func proxyVolumes(tlsSecretName, sarConfigMapName string) []corev1.Volume {
+	defaultMode := int32(420)
+	return []corev1.Volume{
+		{
+			Name: "proxy-tls",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName:  tlsSecretName,
+					DefaultMode: &defaultMode,
+				},
+			},
+		},
+		{
+			Name: constants.OauthProxySARCMName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: sarConfigMapName},
+					DefaultMode:          &defaultMode,
 				},
 			},
 		},
 	}
 }
 
-func getDefaultRollingStrategy() appsv1.DeploymentStrategy {
-	return appsv1.DeploymentStrategy{
-		Type: "RollingUpdate",
-		RollingUpdate: &appsv1.RollingUpdateDeployment{
-			MaxUnavailable: &intstr.IntOrString{Type: 1, IntVal: 0, StrVal: "25%"},
-			MaxSurge:       &intstr.IntOrString{Type: 1, IntVal: 0, StrVal: "25%"},
-		},
-	}
-}
-
-func getExpectedDeployment(explainerDeploymentKey types.NamespacedName, serviceName string, serviceKey types.NamespacedName, predictorServiceKey types.NamespacedName) appsv1.Deployment {
+// getExpectedDeploymentODH is the ODH counterpart of getExpectedDeployment, with the kube-rbac-proxy
+// sidecar and its serving-cert volumes.
+func getExpectedDeploymentODH(explainerDeploymentKey types.NamespacedName, serviceName string, serviceKey types.NamespacedName, predictorServiceKey types.NamespacedName) appsv1.Deployment {
 	return appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      explainerDeploymentKey.Name,
@@ -318,14 +260,25 @@ func getExpectedDeployment(explainerDeploymentKey types.NamespacedName, serviceN
 							TerminationMessagePath:   "/dev/termination-log",
 							TerminationMessagePolicy: "File",
 							ImagePullPolicy:          "IfNotPresent",
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "proxy-tls",
+									MountPath: "/etc/tls/private",
+								},
+							},
 						},
+						kubeRbacProxyContainer(ptr.To(int64(30))),
 					},
+					Volumes: proxyVolumes(
+						explainerDeploymentKey.Name+constants.ServingCertSecretSuffix,
+						fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName),
+					),
 					SchedulerName:                 "default-scheduler",
 					RestartPolicy:                 "Always",
 					TerminationGracePeriodSeconds: ptr.To(GRACE_PERIOD),
 					DNSPolicy:                     "ClusterFirst",
 					SecurityContext:               defaultSecurityContext,
-					AutomountServiceAccountToken:  ptr.To(false),
+					AutomountServiceAccountToken:  ptr.To(true),
 				},
 			},
 			Strategy:                getDefaultRollingStrategy(),
@@ -335,7 +288,9 @@ func getExpectedDeployment(explainerDeploymentKey types.NamespacedName, serviceN
 	}
 }
 
-func getDeploymentWithKServiceLabel(predictorDeploymentKey types.NamespacedName, serviceName string, isvc *v1beta1.InferenceService) appsv1.Deployment {
+// getDeploymentWithKServiceLabelODH is the ODH counterpart of getDeploymentWithKServiceLabel, with the
+// kube-rbac-proxy sidecar and its serving-cert volumes.
+func getDeploymentWithKServiceLabelODH(predictorDeploymentKey types.NamespacedName, serviceName string, isvc *v1beta1.InferenceService) appsv1.Deployment {
 	return appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      predictorDeploymentKey.Name,
@@ -379,6 +334,12 @@ func getDeploymentWithKServiceLabel(predictorDeploymentKey types.NamespacedName,
 							Env: []corev1.EnvVar{
 								{Name: constants.InferenceServiceNameEnvVarKey, Value: serviceName},
 							},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "proxy-tls",
+									MountPath: "/etc/tls/private",
+								},
+							},
 							Resources: defaultResource,
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
@@ -398,13 +359,18 @@ func getDeploymentWithKServiceLabel(predictorDeploymentKey types.NamespacedName,
 							TerminationMessagePolicy: "File",
 							ImagePullPolicy:          "IfNotPresent",
 						},
+						kubeRbacProxyContainer(isvc.Spec.Predictor.TimeoutSeconds),
 					},
+					Volumes: proxyVolumes(
+						predictorDeploymentKey.Name+constants.ServingCertSecretSuffix,
+						fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName),
+					),
 					SchedulerName:                 "default-scheduler",
 					RestartPolicy:                 "Always",
 					TerminationGracePeriodSeconds: ptr.To(GRACE_PERIOD),
 					DNSPolicy:                     "ClusterFirst",
 					SecurityContext:               defaultSecurityContext,
-					AutomountServiceAccountToken:  ptr.To(false),
+					AutomountServiceAccountToken:  ptr.To(true),
 				},
 			},
 			Strategy:                getDefaultRollingStrategy(),
