@@ -1,5 +1,5 @@
 /*
-Copyright 2024 The KServe Authors.
+Copyright 2026 The KServe Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -16,11 +16,11 @@ limitations under the License.
 
 package distro
 
-// Distro-specific RBAC for the LocalModelNode agent.
+// Distro-specific RBAC rules for the InferenceGraph controller.
 // Processed by a separate controller-gen invocation (see Makefile.overrides.mk)
 // to generate a dedicated ClusterRole included only in distro overlays.
 
-//+kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
-//+kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
-//+kubebuilder:rbac:groups=core,resources=namespaces,verbs=get
-//+kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodes/finalizers,verbs=update
+//+kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;patch;delete
+//+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=create;get;update;patch,resourceNames=kserve-inferencegraph-auth-verifiers
+//+kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=create;get;update;patch;watch;delete
+//+kubebuilder:rbac:groups=route.openshift.io,resources=routes/status,verbs=get

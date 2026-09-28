@@ -16,13 +16,9 @@ limitations under the License.
 
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferencegraphs;inferencegraphs/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferencegraphs/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=create;patch;delete
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterrolebindings,verbs=create;get;update;patch,resourceNames=kserve-inferencegraph-auth-verifiers
 // +kubebuilder:rbac:groups=serving.knative.dev,resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=serving.knative.dev,resources=services/finalizers,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=serving.knative.dev,resources=services/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=create;get;update;patch;watch;delete
-// +kubebuilder:rbac:groups=route.openshift.io,resources=routes/status,verbs=get
 package inferencegraph
 
 import (

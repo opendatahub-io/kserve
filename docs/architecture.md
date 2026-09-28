@@ -39,7 +39,7 @@ Hook pattern: upstream calls e.g. `extendControllerSetup()` → `controller_setu
 5. Ingress via `reconcilers.NewReconcilerFactory()` (Istio VS, Ingress, HTTPRoute, OpenShift Route)
 6. `modelconfig` ConfigMap reconcile → status update
 
-**ODH:** `reconcilers/service/service_reconciler_odh.go`, `reconcilers/ingress/annotation_filter_odh.go`, `components/annotation_filter_odh.go`, `pkg/apis/serving/v1beta1/configmap_odh.go`
+**ODH:** `reconcilers/service/service_reconciler_odh.go`, `reconcilers/ingress/annotation_filter_odh.go`, `components/annotation_filter_odh.go`, `pkg/apis/serving/v1beta1/configmap_odh.go`, `distro/controller_rbac_odh.go`
 
 ## LLMInferenceService (LLMISVC)
 
@@ -65,6 +65,8 @@ Hook pattern: upstream calls e.g. `extendControllerSetup()` → `controller_setu
 5. Force-stop annotation handling → status update
 
 Router image/resources from `router` key in `inferenceservice-config`.
+
+**ODH:** `distro/controller_rbac_odh.go`
 
 ## ModelCache (LocalModel)
 

@@ -109101,19 +109101,6 @@ rules:
   - delete
   - list
 - apiGroups:
-  - monitoring.coreos.com
-  resources:
-  - podmonitors
-  - servicemonitors
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
   - networking.k8s.io
   resources:
   - ingresses
