@@ -217,6 +217,14 @@ rules:
   - get
   - update
 - apiGroups:
+  - node.k8s.io
+  resources:
+  - runtimeclasses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - opendatahub.io
   resources:
   - odhdashboardconfigs
