@@ -20,10 +20,13 @@ package inferenceservice
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
+	routev1 "github.com/openshift/api/route/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -34,11 +37,13 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	distrotls "github.com/kserve/kserve/pkg/tls/distro"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
-// extendControllerSetup watches the cluster APIServer TLS profile so all
-// generated InferenceService proxy sidecars are reconciled when profile policy
-// changes.
+// extendControllerSetup watches the OpenShift resources the distro build manages for
+// InferenceServices: the cluster APIServer TLS profile, so generated proxy sidecars follow
+// profile policy; auth-delegator ClusterRoleBindings, so a deleted or edited binding is
+// restored; and Routes, so the status URL follows admission.
 func (r *InferenceServiceReconciler) extendControllerSetup(mgr manager.Manager, ctrlBuilder *builder.Builder) error {
 	retryEvents := make(chan event.GenericEvent, 1)
 	var retryScheduled atomic.Bool
@@ -57,6 +62,25 @@ func (r *InferenceServiceReconciler) extendControllerSetup(mgr manager.Manager, 
 	profileHandler := handler.EnqueueRequestsFromMapFunc(mapProfileEvent)
 	ctrlBuilder.Watches(&configv1.APIServer{}, profileHandler, builder.WithPredicates(profileChanged))
 	ctrlBuilder.WatchesRawSource(source.Channel(retryEvents, profileHandler))
+
+	ctrlBuilder.Watches(&rbacv1.ClusterRoleBinding{},
+		handler.EnqueueRequestsFromMapFunc(r.authDelegatorBindingUsers),
+		builder.WithPredicates(authDelegatorBindingChanged()))
+
+	if err := routev1.Install(mgr.GetScheme()); err != nil {
+		return fmt.Errorf("failed to add Route v1 APIs to scheme: %w", err)
+	}
+	routeFound, err := utils.IsCrdAvailable(mgr.GetConfig(), routev1.GroupVersion.String(), "Route")
+	if err != nil {
+		return err
+	}
+	if !routeFound {
+		r.Log.Info("The InferenceService controller won't watch route.openshift.io/v1/Route resources because the CRD is not available.")
+		return nil
+	}
+	// A Route is mapped by name rather than owner, so a Route the InferenceService does not
+	// control still re-reconciles it when it changes or goes away.
+	ctrlBuilder.Watches(&routev1.Route{}, handler.EnqueueRequestsFromMapFunc(sameNameInferenceService))
 	return nil
 }
 
@@ -73,4 +97,8 @@ func inferenceServiceRequestsForTLSProfile(ctx context.Context, reader client.Re
 		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&isvcs.Items[i])})
 	}
 	return requests, nil
+}
+
+func sameNameInferenceService(_ context.Context, obj client.Object) []reconcile.Request {
+	return []reconcile.Request{{NamespacedName: client.ObjectKeyFromObject(obj)}}
 }
