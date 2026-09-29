@@ -62,11 +62,11 @@ type auditLoggingResolution struct {
 	condition        *apis.Condition
 }
 
-// reconcilePlatformInferenceService resolves and records distro-specific
-// InferenceService policy for controller-owned Standard workloads. The returned
-// context marks the InferenceService reconcile and carries the resolved audit
-// logging settings to the raw Deployment platform hook.
-func (r *InferenceServiceReconciler) reconcilePlatformInferenceService(
+// preReconcilePlatform resolves and records distro-specific InferenceService
+// policy for controller-owned Standard workloads. The returned context marks the
+// InferenceService reconcile and carries the resolved audit logging settings to
+// the raw Deployment platform hook.
+func (r *InferenceServiceReconciler) preReconcilePlatform(
 	ctx context.Context,
 	isvc *v1beta1.InferenceService,
 	deploymentMode constants.DeploymentModeType,
@@ -78,6 +78,11 @@ func (r *InferenceServiceReconciler) reconcilePlatformInferenceService(
 	}
 	ctx = isvcutils.WithInferenceServiceReconcile(ctx)
 	return isvcutils.WithAuditLogging(ctx, auditLoggingProfile, manageAuditLogging), nil
+}
+
+// finalizePlatform has no platform state to clean up in ODH builds.
+func (r *InferenceServiceReconciler) finalizePlatform(_ context.Context, _ *v1beta1.InferenceService) error {
+	return nil
 }
 
 // resolvePlatformAuditLogging resolves the effective audit logging profile and

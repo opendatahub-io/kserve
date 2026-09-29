@@ -156,23 +156,14 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 	deploymentMode := isvcutils.GetDeploymentMode(isvc.Status.DeploymentMode, annotations, deployConfig)
 	r.Log.Info("Inference service deployment mode ", "deployment mode ", deploymentMode)
 
-	reconciliationPaused := false
-	if annotations != nil {
-		disableAutoUpdate, found := annotations[constants.DisableAutoUpdateAnnotationKey]
-		reconciliationPaused = found && disableAutoUpdate == "true" && isvc.Status.IsReady()
-	}
-
-	// Ensure status is initialized before platform policy is recorded or any
-	// early-return path writes status.
-	if isvc.Status.GetCondition(apis.ConditionReady) == nil {
-		isvc.Status.InitializeConditions()
-	}
-
 	if deploymentMode == constants.ModelMeshDeployment {
 		if isvc.Spec.Transformer == nil {
 			// Skip if no transformers; still ensure status is written
 			r.Log.Info("Skipping reconciliation for InferenceService", constants.DeploymentMode, deploymentMode,
 				"apiVersion", isvc.APIVersion, "isvc", isvc.Name)
+			if isvc.Status.GetCondition(apis.ConditionReady) == nil {
+				isvc.Status.InitializeConditions()
+			}
 			if err := r.updateStatus(ctx, isvc, deploymentMode); err != nil {
 				r.Log.Error(err, "Error updating status when skipping ModelMesh reconciliation")
 			}
@@ -181,11 +172,6 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		// Continue to reconcile when there is a transformer
 		r.Log.Info("Continue reconciliation for InferenceService", constants.DeploymentMode, deploymentMode,
 			"apiVersion", isvc.APIVersion, "isvc", isvc.Name)
-	}
-
-	ctx, err = r.reconcilePlatformInferenceService(ctx, isvc, deploymentMode, reconciliationPaused)
-	if err != nil {
-		return reconcile.Result{}, err
 	}
 
 	// name of our custom finalizer
@@ -214,6 +200,10 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 				return ctrl.Result{}, err
 			}
 
+			if err := r.finalizePlatform(ctx, isvc); err != nil {
+				return ctrl.Result{}, err
+			}
+
 			// remove our finalizer from the list and update it.
 			controllerutil.RemoveFinalizer(isvc, finalizerName)
 			patchYaml := "metadata:\n  finalizers: [" + strings.Join(isvc.Finalizers, ",") + "]"
@@ -226,12 +216,32 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		// Stop reconciliation as the item is being deleted
 		return ctrl.Result{}, nil
 	}
+
+	// Ensure status is initialized so we always have a status section (fixes empty status when reconciliation fails early).
+	// This must happen after the finalizer patch, whose response replaces the in-memory status, before any
+	// early-return path that calls updateStatus, and before preReconcilePlatform: a condition it records can add
+	// Ready without the other dependents, which would skip initialization.
+	if isvc.Status.GetCondition(apis.ConditionReady) == nil {
+		isvc.Status.InitializeConditions()
+	}
+
 	// Check if auto-update is disabled, this will skip the reconciliation if the annotation is present.
 	// Used for when k8s autoreconciles the InferenceService.
+	reconciliationPaused := annotations[constants.DisableAutoUpdateAnnotationKey] == "true" && isvc.Status.IsReady()
+
+	statusBeforePlatform := isvc.Status.DeepCopy()
+	ctx, err = r.preReconcilePlatform(ctx, isvc, deploymentMode, reconciliationPaused)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+
 	if reconciliationPaused {
 		r.Log.Info("Auto-update is disabled for InferenceService, skipping reconciliation", "InferenceService", isvc.Name)
-		if err := r.updateStatus(ctx, isvc, deploymentMode); err != nil {
-			return ctrl.Result{}, err
+		// A paused InferenceService is only written to when preReconcilePlatform recorded status.
+		if !equality.Semantic.DeepEqual(statusBeforePlatform, &isvc.Status) {
+			if err := r.updateStatus(ctx, isvc, deploymentMode); err != nil {
+				return ctrl.Result{}, err
+			}
 		}
 		return ctrl.Result{}, nil
 	}
@@ -313,11 +323,10 @@ func (r *InferenceServiceReconciler) Reconcile(ctx context.Context, req ctrl.Req
 		}
 	}
 
-	// Reconcile platform-specific permissions (e.g., SCC RoleBindings for OpenShift)
-	// This runs after component reconciliation so that isvc.Status.ClusterServingRuntimeName
-	// or isvc.Status.ServingRuntimeName is populated with the selected runtime.
-	if err := r.reconcileWorkloadPlatformPermissions(ctx, isvc, isvcConfigMap); err != nil {
-		return ctrl.Result{}, errors.Wrapf(err, "fails to reconcile workload platform permissions")
+	// Runs after the components so that the runtime selected for the predictor is recorded in
+	// isvc.Status.ServingRuntimeName or isvc.Status.ClusterServingRuntimeName.
+	if err := r.postReconcilePlatform(ctx, isvc, isvcConfigMap); err != nil {
+		return ctrl.Result{}, err
 	}
 
 	// Handle InferenceService status updates based on the force stop annotation.
@@ -740,6 +749,10 @@ func (r *InferenceServiceReconciler) SetupWithManager(mgr ctrl.Manager, deployCo
 		ctrlBuilder = ctrlBuilder.Watches(&v1alpha1.ClusterServingRuntime{}, handler.EnqueueRequestsFromMapFunc(r.clusterServingRuntimeFunc), builder.WithPredicates(clusterServingRuntimesPredicate))
 	} else {
 		r.Log.Info("The InferenceService controller won't watch serving.kserve.io/v1alpha1/ClusterServingRuntime resources because the CRD is not available.")
+	}
+
+	if err := r.extendControllerSetup(mgr, ctrlBuilder); err != nil {
+		return err
 	}
 
 	return ctrlBuilder.Complete(r)

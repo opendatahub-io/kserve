@@ -1,4 +1,4 @@
-//go:build !distro
+//go:build distro
 
 /*
 Copyright 2026 The KServe Authors.
@@ -16,18 +16,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package inferenceservice
+package reconcilers
 
-import (
-	"context"
-
-	corev1 "k8s.io/api/core/v1"
-
-	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-)
-
-// reconcileWorkloadPlatformPermissions is a no-op for non-distro builds.
-// Platform-specific permissions (e.g., OpenShift SCCs) are only needed in distro builds.
-func (r *InferenceServiceReconciler) reconcileWorkloadPlatformPermissions(_ context.Context, _ *v1beta1.InferenceService, _ *corev1.ConfigMap) error {
-	return nil
+// resolvePlatformIngressReconciler defers to the upstream ingress reconcilers in
+// ODH builds.
+func resolvePlatformIngressReconciler(_ IngressReconcilerParams) (IngressReconciler, error) {
+	return nil, nil
 }
