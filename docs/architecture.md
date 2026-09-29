@@ -45,14 +45,14 @@ Hook pattern: upstream calls e.g. `extendControllerSetup()` → `controller_setu
 
 `pkg/controller/v1alpha2/llmisvc/` · `LLMISVCReconciler.Reconcile()`
 
-1. Finalizer; `finalize()` cleans scheduler SA and monitoring on delete
+1. Finalizer; `finalize()` cleans platform resources (ODH: monitoring) and scheduler SA on delete
 2. CA bundle ConfigMap reconcile
 3. `reconcileBaseRefs()` — merge `LLMInferenceServiceConfig` refs into effective spec (failure sets condition, short-circuits)
 4. `reconcileWorkload()` — TLS certs, platform permissions, then all topology types every pass (single Deployment, LeaderWorkerSet multi-node, prefill/decode disaggregated, HPA/KEDA/VariantAutoscaling)
 5. `reconcileRouter()` — HTTPRoutes, InferencePool (v1/v1alpha2), scheduler; `ensureGatewayPreconditions()` marks status without requeue on missing CRDs
-6. Monitoring resources → `observeWorkloadStatus()` → status (composite `Ready` from workload + router sub-conditions)
+6. `reconcilePlatformResources()` (ODH: monitoring) → `observeWorkloadStatus()` → status (composite `Ready` from workload + router sub-conditions)
 
-**ODH:** `controller_setup_odh.go`, `workload_{tls_cert,permissions}_odh.go`, `router_{preconditions,platform_networking,discovery_additional}_odh.go`, `distro/controller_rbac_odh.go`
+**ODH:** `controller_setup_odh.go`, `platform_resources_odh.go`, `monitoring{,_network_policy}_odh.go`, `workload_{tls_cert,tls_rotation,permissions}_odh.go`, `router_{preconditions,platform_networking,discovery_additional}_odh.go`, `distro/controller_rbac_odh.go`
 
 ## InferenceGraph
 

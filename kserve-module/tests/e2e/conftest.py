@@ -9,7 +9,6 @@ from dataclasses import dataclass
 import pytest
 import yaml
 
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -478,19 +477,40 @@ def force_delete_kserve_cr(kubectl_bin, is_openshift=False):
     teardown does not need to pay for it."""
     if cr_exists(kubectl_bin):
         run(
-            [kubectl_bin, "delete", "kserve", KSERVE_CR_NAME, "--ignore-not-found", "--wait=false"],
+            [
+                kubectl_bin,
+                "delete",
+                "kserve",
+                KSERVE_CR_NAME,
+                "--ignore-not-found",
+                "--wait=false",
+            ],
             check=False,
         )
         cr = get_cr(kubectl_bin, check=False) or {}
         finalizers = cr.get("metadata", {}).get("finalizers", []) or []
         if MODULE_FINALIZER in finalizers:
             remaining = [f for f in finalizers if f != MODULE_FINALIZER]
-            patch = json.dumps([
-                {"op": "test", "path": "/metadata/finalizers", "value": finalizers},
-                {"op": "replace", "path": "/metadata/finalizers", "value": remaining},
-            ])
+            patch = json.dumps(
+                [
+                    {"op": "test", "path": "/metadata/finalizers", "value": finalizers},
+                    {
+                        "op": "replace",
+                        "path": "/metadata/finalizers",
+                        "value": remaining,
+                    },
+                ]
+            )
             run(
-                [kubectl_bin, "patch", "kserve", KSERVE_CR_NAME, "--type=json", "-p", patch],
+                [
+                    kubectl_bin,
+                    "patch",
+                    "kserve",
+                    KSERVE_CR_NAME,
+                    "--type=json",
+                    "-p",
+                    patch,
+                ],
                 check=False,
             )
     wait_for_kserve_cleanup(kubectl_bin, is_openshift=is_openshift)
@@ -516,7 +536,9 @@ def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_
     raise TimeoutError(f"deployment {name} not Available within {timeout}s")
 
 
-def wait_for_daemonset_ready(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120S):
+def wait_for_daemonset_ready(
+    kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120S
+):
     """Wait until a DaemonSet has at least one ready pod."""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -546,7 +568,9 @@ def ensure_configmap(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120
             return
         time.sleep(5)
 
-    raise TimeoutError(f"configmap {name} not found within {timeout}s after reconcile trigger")
+    raise TimeoutError(
+        f"configmap {name} not found within {timeout}s after reconcile trigger"
+    )
 
 
 def dump_modelcache_workload_diagnostics(kubectl_bin, namespace=NAMESPACE):
@@ -715,8 +739,7 @@ def kubectl(cluster_info):
     return cluster_info.kubectl
 
 
-@pytest.fixture
-def apply_kserve_cr(kubectl, cluster_info):
+def _kserve_cr_lifecycle(kubectl, cluster_info):
     """Create a Kserve CR and delete after test."""
     created = not cr_exists(kubectl)
     cr = create_kserve_cr(kubectl)
@@ -724,6 +747,58 @@ def apply_kserve_cr(kubectl, cluster_info):
     yield cr
     if created:
         force_delete_kserve_cr(kubectl, is_openshift=cluster_info.is_openshift)
+
+
+@pytest.fixture
+def apply_kserve_cr(kubectl, cluster_info):
+    yield from _kserve_cr_lifecycle(kubectl, cluster_info)
+
+
+@pytest.fixture
+def apply_kserve_cr_with_external_dependencies(kubectl, cluster_info):
+    external_dependencies = [
+        {
+            "resource": "runtimeclasses",
+            "name": "kata-e2e",
+            "manifest": {
+                "apiVersion": "node.k8s.io/v1",
+                "kind": "RuntimeClass",
+                "metadata": {"name": "kata-e2e"},
+                "handler": "kata-e2e",
+            },
+        },
+    ]
+
+    created = []
+
+    if cluster_info.is_openshift:
+        for dependency in external_dependencies:
+            if resource_exists(
+                kubectl,
+                dependency["resource"],
+                dependency["name"],
+                namespace=dependency.get("namespace"),
+            ):
+                continue
+
+            run(
+                [kubectl, "apply", "-f", "-"],
+                input_text=yaml.safe_dump(dependency["manifest"]),
+            )
+            created.append(dependency)
+
+    yield from _kserve_cr_lifecycle(kubectl, cluster_info)
+    for dependency in reversed(created):
+        command = [
+            kubectl,
+            "delete",
+            dependency["resource"],
+            dependency["name"],
+            "--ignore-not-found",
+        ]
+        if dependency.get("namespace"):
+            command.extend(["-n", dependency["namespace"]])
+        run(command, check=False)
 
 
 @pytest.fixture
@@ -787,7 +862,9 @@ TEST_PLATFORM_VERSION = "99.0.0"
 
 def platform_configmap_exists(kubectl_bin):
     """Check if the platform version ConfigMap already exists."""
-    return resource_exists(kubectl_bin, "configmap", PLATFORM_VERSION_CM, namespace=NAMESPACE)
+    return resource_exists(
+        kubectl_bin, "configmap", PLATFORM_VERSION_CM, namespace=NAMESPACE
+    )
 
 
 @pytest.fixture
@@ -800,12 +877,14 @@ def ensure_platform_configmap(kubectl, apply_kserve_cr):
     already_existed = platform_configmap_exists(kubectl)
 
     if not already_existed:
-        cm_yaml = yaml.safe_dump({
-            "apiVersion": "v1",
-            "kind": "ConfigMap",
-            "metadata": {"name": PLATFORM_VERSION_CM, "namespace": NAMESPACE},
-            "data": {"platformVersion": TEST_PLATFORM_VERSION},
-        })
+        cm_yaml = yaml.safe_dump(
+            {
+                "apiVersion": "v1",
+                "kind": "ConfigMap",
+                "metadata": {"name": PLATFORM_VERSION_CM, "namespace": NAMESPACE},
+                "data": {"platformVersion": TEST_PLATFORM_VERSION},
+            }
+        )
         run([kubectl, "apply", "-f", "-"], input_text=cm_yaml)
         _poll_cr(
             kubectl,
@@ -822,7 +901,15 @@ def ensure_platform_configmap(kubectl, apply_kserve_cr):
 
     if not already_existed:
         run(
-            [kubectl, "delete", "configmap", PLATFORM_VERSION_CM, "-n", NAMESPACE, "--ignore-not-found"],
+            [
+                kubectl,
+                "delete",
+                "configmap",
+                PLATFORM_VERSION_CM,
+                "-n",
+                NAMESPACE,
+                "--ignore-not-found",
+            ],
             check=False,
         )
 

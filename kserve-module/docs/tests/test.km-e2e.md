@@ -64,6 +64,7 @@ make e2e-cleanup-kserve-module
 - `sanity` - core lifecycle tests (create, update, delete, CEL validation)
 - `pre_upgrade` / `post_upgrade` - module image upgrade tests (RHOAIENG-82811)
 - `post_release` - post-ODH-release smoke (OMC Running, KServeReady, one LLMISVC Ready)
+- `tracing` - tracing endpoint synchronization across versioned presets
 
 Run specific markers:
 
