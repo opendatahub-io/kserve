@@ -562,13 +562,3 @@ func MergeServingRuntimeAndInferenceServiceSpecs(srContainers []corev1.Container
 	}
 	return containerIndexInSR, mergedContainer, mergedPodSpec, nil
 }
-
-func FilterList(slice []string, element string) []string {
-	var result []string
-	for _, item := range slice {
-		if item != element {
-			result = append(result, item)
-		}
-	}
-	return result
-}
