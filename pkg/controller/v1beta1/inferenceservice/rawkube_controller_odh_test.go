@@ -8893,56 +8893,13 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			actualService.Spec.InternalTrafficPolicy = nil
 			Expect(actualService.Spec).To(Equal(expectedService.Spec))
 
-			route := &routev1.Route{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      serviceKey.Name,
-					Namespace: serviceKey.Namespace,
-					Labels: map[string]string{
-						"inferenceservice-name": serviceName,
-					},
-					OwnerReferences: []metav1.OwnerReference{
-						{
-							APIVersion:         "serving.kserve.io/v1beta1",
-							Kind:               "InferenceService",
-							Name:               serviceKey.Name,
-							UID:                isvc.GetUID(),
-							Controller:         ptr.To(true),
-							BlockOwnerDeletion: ptr.To(true),
-						},
-					},
-				},
-				Spec: routev1.RouteSpec{
-					Host: "raw-auth-default.example.com",
-					To: routev1.RouteTargetReference{
-						Kind:   "Service",
-						Name:   predictorServiceKey.Name,
-						Weight: ptr.To(int32(100)),
-					},
-					Port: &routev1.RoutePort{
-						TargetPort: intstr.FromInt(8443),
-					},
-					TLS: &routev1.TLSConfig{
-						Termination:                   routev1.TLSTerminationReencrypt,
-						InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
-					},
-					WildcardPolicy: routev1.WildcardPolicyNone,
-				},
-			}
-			Expect(k8sClient.Create(context.TODO(), route)).Should(Succeed())
-			route.Status = routev1.RouteStatus{
-				Ingress: []routev1.RouteIngress{
-					{
-						Host: "raw-auth-default.example.com",
-						Conditions: []routev1.RouteIngressCondition{
-							{
-								Type:   routev1.RouteAdmitted,
-								Status: corev1.ConditionTrue,
-							},
-						},
-					},
-				},
-			}
-			Expect(k8sClient.Status().Update(ctx, route)).Should(Succeed())
+			// The Route reconciler creates the Route; OpenShift would allocate its host and admit it.
+			route := &routev1.Route{}
+			Eventually(func() error { return k8sClient.Get(ctx, serviceKey, route) }, timeout).Should(Succeed())
+			Expect(metav1.IsControlledBy(route, isvc)).To(BeTrue())
+			Expect(route.Spec.To.Name).To(Equal(predictorServiceKey.Name))
+			Expect(route.Spec.TLS.Termination).To(Equal(routev1.TLSTerminationReencrypt))
+			admitRoute(ctx, serviceKey, "raw-auth-default.example.com")
 
 			// check isvc status
 			updatedDeployment := actualDeployment.DeepCopy()
