@@ -56,6 +56,10 @@ const (
 	inferenceGraphResource   workloadResourceType = "InferenceGraph"
 )
 
+// AuthProxyPreservedReason marks the LatestDeploymentReady condition recorded
+// while an existing auth proxy container is kept to avoid restarting its pods.
+const AuthProxyPreservedReason = "AuthProxyPreserved"
+
 // resourceTypeFor derives the owning resource kind of a component. It returns
 // the zero value when the kind is unknown.
 //
@@ -76,7 +80,7 @@ func resourceTypeFor(ctx context.Context, labels map[string]string) workloadReso
 
 // customizeDeployments adds the OpenShift serving certificate, auth proxy and
 // transformer TLS configuration to the desired Deployments, and records the
-// AuthProxyPreserved condition returned by GetAuthProxyCondition. Audit logging
+// AuthProxyPreserved condition exposed through PlatformConditions. Audit logging
 // settings resolved by the InferenceService controller apply to the predictor
 // only; every other component gets AuditLoggingProfileNone, unmanaged.
 func (r *DeploymentReconciler) customizeDeployments(ctx context.Context, componentMeta metav1.ObjectMeta, podSpec *corev1.PodSpec) error {
@@ -92,13 +96,12 @@ func (r *DeploymentReconciler) customizeDeployments(ctx context.Context, compone
 	}
 
 	if authProxyPreserved {
-		r.conditionType = v1beta1.LatestDeploymentReady
-		r.condition = &apis.Condition{
+		r.platformConditions = []apis.Condition{{
 			Type:    v1beta1.LatestDeploymentReady,
 			Status:  corev1.ConditionFalse,
-			Reason:  "AuthProxyPreserved",
+			Reason:  AuthProxyPreservedReason,
 			Message: "Preserving existing auth proxy container to avoid pod restart",
-		}
+		}}
 	}
 	return nil
 }

@@ -57,8 +57,8 @@ type DeploymentReconciler struct {
 	scheme         *runtime.Scheme
 	DeploymentList []*appsv1.Deployment
 	componentExt   *v1beta1.ComponentExtensionSpec
-	condition      *apis.Condition
-	conditionType  apis.ConditionType
+	// platformConditions are status conditions for the owning resource, recorded by customizeDeployments.
+	platformConditions []apis.Condition
 }
 
 func NewDeploymentReconciler(ctx context.Context,
@@ -589,10 +589,12 @@ func (r *DeploymentReconciler) SetControllerReferences(owner metav1.Object, sche
 	return nil
 }
 
-// GetAuthProxyCondition returns a condition to set on the ISVC status when an
-// existing auth proxy container has been preserved to avoid pod restart.
-func (r *DeploymentReconciler) GetAuthProxyCondition() (*apis.Condition, apis.ConditionType) {
-	return r.condition, r.conditionType
+// PlatformConditions returns the status conditions customizeDeployments recorded for the owning
+// resource, e.g. when it kept part of an existing Deployment to avoid restarting its pods. The owner's
+// controller decides how they apply to its status; the InferenceService controller reads them for the
+// stable predictor only.
+func (r *DeploymentReconciler) PlatformConditions() []apis.Condition {
+	return r.platformConditions
 }
 
 // CleanupOrphans deletes Deployments selected by scope whose names are not retained.

@@ -1171,24 +1171,22 @@ func TestDeploymentReconcilerCondition(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, reconciler)
 
-			cond, condType := reconciler.GetAuthProxyCondition()
+			conditions := reconciler.PlatformConditions()
 			if tt.expectCondition {
-				require.NotNil(t, cond, "expected condition to be set")
-				assert.Equal(t, tt.expectedReason, cond.Reason)
-				assert.Equal(t, corev1.ConditionFalse, cond.Status)
-				assert.Equal(t, v1beta1.LatestDeploymentReady, condType)
+				require.Len(t, conditions, 1, "expected condition to be set")
+				assert.Equal(t, tt.expectedReason, conditions[0].Reason)
+				assert.Equal(t, corev1.ConditionFalse, conditions[0].Status)
+				assert.Equal(t, v1beta1.LatestDeploymentReady, conditions[0].Type)
 			} else {
-				assert.Nil(t, cond, "expected condition to be nil")
+				assert.Empty(t, conditions, "expected no condition")
 			}
 		})
 	}
 }
 
-func TestGetAuthProxyConditionNoCondition(t *testing.T) {
+func TestPlatformConditionsNoCondition(t *testing.T) {
 	reconciler := &DeploymentReconciler{}
-	cond, condType := reconciler.GetAuthProxyCondition()
-	assert.Nil(t, cond)
-	assert.Empty(t, condType)
+	assert.Empty(t, reconciler.PlatformConditions())
 }
 
 // Tests for OAuth proxy always added to new deployments

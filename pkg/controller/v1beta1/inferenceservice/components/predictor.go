@@ -846,14 +846,7 @@ func (p *Predictor) reconcileRawDeployment(ctx context.Context, isvc *v1beta1.In
 		return nil, errors.Wrapf(err, "fails to reconcile predictor")
 	}
 
-	if cond, condType := r.Workload.GetAuthProxyCondition(); cond != nil {
-		isvc.Status.SetCondition(condType, cond)
-	} else {
-		existing := isvc.Status.GetCondition(v1beta1.LatestDeploymentReady)
-		if existing != nil && existing.Reason == "AuthProxyPreserved" {
-			isvc.Status.ClearCondition(v1beta1.LatestDeploymentReady)
-		}
-	}
+	propagatePlatformWorkloadStatus(isvc, r.Workload)
 
 	if !utils.GetForceStopRuntime(isvc) {
 		isvc.Status.PropagateRawStatus(v1beta1.PredictorComponent, deploymentList, r.URL)
