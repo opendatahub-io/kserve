@@ -1156,7 +1156,7 @@ func TestDeploymentReconcilerCondition(t *testing.T) {
 			}
 
 			reconciler, err := NewDeploymentReconciler(
-				t.Context(),
+				isvcutils.WithInferenceServiceReconcile(t.Context()),
 				client,
 				clientset,
 				nil,
@@ -2440,29 +2440,46 @@ func TestOauthProxyUpstreamTimeout(t *testing.T) {
 	}
 }
 
-func TestResourceTypeFromLabels(t *testing.T) {
+func TestResourceTypeFor(t *testing.T) {
+	isvcLabels := map[string]string{constants.InferenceServicePodLabelKey: "my-isvc"}
+	graphLabels := map[string]string{constants.InferenceGraphLabel: "my-graph"}
+	bothLabels := map[string]string{
+		constants.InferenceGraphLabel:         "my-graph",
+		constants.InferenceServicePodLabelKey: "my-isvc",
+	}
+
 	tests := []struct {
-		name   string
-		labels map[string]string
-		want   workloadResourceType
+		name          string
+		isvcReconcile bool
+		labels        map[string]string
+		want          workloadResourceType
 	}{
 		{
-			name:   "InferenceService component",
-			labels: map[string]string{constants.InferenceServicePodLabelKey: "my-isvc"},
-			want:   inferenceServiceResource,
+			name:          "InferenceService component",
+			isvcReconcile: true,
+			labels:        isvcLabels,
+			want:          inferenceServiceResource,
+		},
+		{
+			name:          "user-set InferenceGraph label on an InferenceService component is ignored",
+			isvcReconcile: true,
+			labels:        bothLabels,
+			want:          inferenceServiceResource,
 		},
 		{
 			name:   "InferenceGraph router",
-			labels: map[string]string{constants.InferenceGraphLabel: "my-graph"},
+			labels: graphLabels,
 			want:   inferenceGraphResource,
 		},
 		{
-			name: "user-set InferenceGraph label on an InferenceService component is ignored",
-			labels: map[string]string{
-				constants.InferenceGraphLabel:         "my-graph",
-				constants.InferenceServicePodLabelKey: "my-isvc",
-			},
-			want: inferenceServiceResource,
+			name:   "user-set InferenceService label on an InferenceGraph router is ignored",
+			labels: bothLabels,
+			want:   inferenceGraphResource,
+		},
+		{
+			name:   "InferenceService label outside an InferenceService reconcile",
+			labels: isvcLabels,
+			want:   "",
 		},
 		{
 			name:   "unlabeled component",
@@ -2473,7 +2490,11 @@ func TestResourceTypeFromLabels(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, resourceTypeFromLabels(tt.labels))
+			ctx := t.Context()
+			if tt.isvcReconcile {
+				ctx = isvcutils.WithInferenceServiceReconcile(ctx)
+			}
+			assert.Equal(t, tt.want, resourceTypeFor(ctx, tt.labels))
 		})
 	}
 }
@@ -2505,7 +2526,8 @@ func TestCustomizeDeploymentsAppliesAuditLoggingToPredictorOnly(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// given
-			ctx := isvcutils.WithAuditLogging(t.Context(), constants.AuditLoggingProfileMetadata, true)
+			ctx := isvcutils.WithAuditLogging(isvcutils.WithInferenceServiceReconcile(t.Context()),
+				constants.AuditLoggingProfileMetadata, true)
 			client := &mockClientForAuthProxyDetection{deploymentNotFound: true}
 			clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
@@ -2579,29 +2601,50 @@ func TestCustomizeDeploymentsServingCertAnnotation(t *testing.T) {
 }
 
 func TestCustomizeDeploymentsInferenceGraphMountsServingCertWithoutProxy(t *testing.T) {
-	// given
-	client := &mockClientForAuthProxyDetection{deploymentNotFound: true}
-	meta := metav1.ObjectMeta{
-		Name:        "my-graph",
-		Namespace:   "test-ns",
-		Annotations: map[string]string{constants.ODHKserveRawAuth: "true"},
-		Labels:      map[string]string{constants.InferenceGraphLabel: "my-graph"},
+	tests := []struct {
+		name   string
+		labels map[string]string
+	}{
+		{
+			name:   "graph label",
+			labels: map[string]string{constants.InferenceGraphLabel: "my-graph"},
+		},
+		{
+			name: "user-set InferenceService label naming an absent InferenceService",
+			labels: map[string]string{
+				constants.InferenceGraphLabel:         "my-graph",
+				constants.InferenceServicePodLabelKey: "unrelated",
+			},
+		},
 	}
-	podSpec := &corev1.PodSpec{Containers: []corev1.Container{{Name: "my-graph", Image: "router:latest"}}}
 
-	// when
-	reconciler, err := NewDeploymentReconciler(t.Context(), client, nil, nil, meta, metav1.ObjectMeta{},
-		&v1beta1.ComponentExtensionSpec{}, podSpec, nil, nil)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// given
+			client := &mockClientForAuthProxyDetection{deploymentNotFound: true}
+			meta := metav1.ObjectMeta{
+				Name:        "my-graph",
+				Namespace:   "test-ns",
+				Annotations: map[string]string{constants.ODHKserveRawAuth: "true"},
+				Labels:      tt.labels,
+			}
+			podSpec := &corev1.PodSpec{Containers: []corev1.Container{{Name: "my-graph", Image: "router:latest"}}}
 
-	// then
-	require.NoError(t, err)
-	spec := reconciler.DeploymentList[0].Spec.Template.Spec
-	require.Len(t, spec.Containers, 1, "the router must not get an auth proxy sidecar")
-	assert.Equal(t, []corev1.VolumeMount{{Name: tlsVolumeName, MountPath: "/etc/tls/private"}}, spec.Containers[0].VolumeMounts)
-	volumeNames := make([]string, 0, len(spec.Volumes))
-	for _, v := range spec.Volumes {
-		volumeNames = append(volumeNames, v.Name)
+			// when
+			reconciler, err := NewDeploymentReconciler(t.Context(), client, nil, nil, meta, metav1.ObjectMeta{},
+				&v1beta1.ComponentExtensionSpec{}, podSpec, nil, nil)
+
+			// then
+			require.NoError(t, err)
+			spec := reconciler.DeploymentList[0].Spec.Template.Spec
+			require.Len(t, spec.Containers, 1, "the router must not get an auth proxy sidecar")
+			assert.Equal(t, []corev1.VolumeMount{{Name: tlsVolumeName, MountPath: "/etc/tls/private"}}, spec.Containers[0].VolumeMounts)
+			volumeNames := make([]string, 0, len(spec.Volumes))
+			for _, v := range spec.Volumes {
+				volumeNames = append(volumeNames, v.Name)
+			}
+			assert.Equal(t, []string{tlsVolumeName, constants.OauthProxySARCMName}, volumeNames)
+			assert.Zero(t, client.inferenceServiceGets, "no SAR ConfigMap is created for an InferenceGraph")
+		})
 	}
-	assert.Equal(t, []string{tlsVolumeName, constants.OauthProxySARCMName}, volumeNames)
-	assert.Zero(t, client.inferenceServiceGets, "no SAR ConfigMap is created for an InferenceGraph")
 }

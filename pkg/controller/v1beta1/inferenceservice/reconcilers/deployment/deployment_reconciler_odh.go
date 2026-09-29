@@ -56,16 +56,16 @@ const (
 	inferenceGraphResource   workloadResourceType = "InferenceGraph"
 )
 
-// resourceTypeFromLabels derives the owning resource kind from the component
-// labels set by the InferenceService and InferenceGraph controllers. It returns
-// the zero value when neither label is present.
+// resourceTypeFor derives the owning resource kind of a component. It returns
+// the zero value when the kind is unknown.
 //
-// The InferenceService label is checked first. Component labels are a union of
-// ServingRuntime, InferenceService and component labels, so a user-set
-// InferenceGraph label may be present on an InferenceService component, while
-// the InferenceService label is always written last by the controller.
-func resourceTypeFromLabels(labels map[string]string) workloadResourceType {
-	if _, ok := labels[constants.InferenceServicePodLabelKey]; ok {
+// Component labels include user-set metadata, so an InferenceService component
+// may carry an InferenceGraph label and a graph router an InferenceService one.
+// The InferenceService controller marks its reconcile context instead. Without
+// that mark, the InferenceGraph label, which the graph controller always
+// writes, identifies a router.
+func resourceTypeFor(ctx context.Context, labels map[string]string) workloadResourceType {
+	if isvcutils.IsInferenceServiceReconcile(ctx) {
 		return inferenceServiceResource
 	}
 	if _, ok := labels[constants.InferenceGraphLabel]; ok {
@@ -85,7 +85,7 @@ func (r *DeploymentReconciler) customizeDeployments(ctx context.Context, compone
 		auditLoggingProfile, manageAuditLogging = isvcutils.AuditLoggingFromContext(ctx)
 	}
 
-	authProxyPreserved, err := r.customizePlatformDeployments(ctx, resourceTypeFromLabels(componentMeta.Labels),
+	authProxyPreserved, err := r.customizePlatformDeployments(ctx, resourceTypeFor(ctx, componentMeta.Labels),
 		componentMeta, podSpec, auditLoggingProfile, manageAuditLogging)
 	if err != nil {
 		return err

@@ -63,9 +63,9 @@ type auditLoggingResolution struct {
 }
 
 // reconcilePlatformInferenceService resolves and records distro-specific
-// InferenceService policy for controller-owned Standard workloads. The resolved
-// audit logging settings travel in the returned context to the raw Deployment
-// platform hook.
+// InferenceService policy for controller-owned Standard workloads. The returned
+// context marks the InferenceService reconcile and carries the resolved audit
+// logging settings to the raw Deployment platform hook.
 func (r *InferenceServiceReconciler) reconcilePlatformInferenceService(
 	ctx context.Context,
 	isvc *v1beta1.InferenceService,
@@ -76,6 +76,7 @@ func (r *InferenceServiceReconciler) reconcilePlatformInferenceService(
 	if err != nil {
 		return ctx, err
 	}
+	ctx = isvcutils.WithInferenceServiceReconcile(ctx)
 	return isvcutils.WithAuditLogging(ctx, auditLoggingProfile, manageAuditLogging), nil
 }
 
