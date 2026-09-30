@@ -1,11 +1,17 @@
 package kservemodule
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
+
+	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
 func TestParseParams_BasicKeyValue(t *testing.T) {
@@ -211,4 +217,88 @@ func TestBuildCertManagerParams_PartialConfigMap(t *testing.T) {
 	g.Expect(params["ISSUER_REF_NAME"]).Should(Equal("rhai-ca-issuer"))
 	g.Expect(params["ISSUER_REF_KIND"]).Should(Equal(defaultIssuerRefKind))
 	g.Expect(params["CA_SECRET_NAME"]).Should(Equal(defaultCertName))
+}
+
+func componentByName(t *testing.T, name string) componentConfig {
+	t.Helper()
+	for _, comp := range components {
+		if comp.name == name {
+			return comp
+		}
+	}
+	t.Fatalf("no component %q", name)
+	return componentConfig{}
+}
+
+func xksParamsReconciler(namespace string) *KserveModuleReconciler {
+	r := &KserveModuleReconciler{
+		Client:                fake.NewClientBuilder().WithScheme(testScheme()).Build(),
+		applicationsNamespace: namespace,
+	}
+	r.SetClusterType(cluster.ClusterTypeKubernetes)
+	return r
+}
+
+func writeFile(t *testing.T, path, contents string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestApplyComponentParams_XKSLeavesModelExpressBaseParamsAlone(t *testing.T) {
+	g := NewWithT(t)
+	comp := componentByName(t, ModelExpressComponentName)
+	manifestDir := t.TempDir()
+	bundle := filepath.Join(manifestDir, comp.dirName())
+	g.Expect(os.MkdirAll(filepath.Join(bundle, comp.sourcePath), 0o750)).To(Succeed())
+	g.Expect(os.MkdirAll(filepath.Join(bundle, comp.sourcePathXKS), 0o750)).To(Succeed())
+	baseParams := filepath.Join(bundle, "base", "params.env")
+	writeFile(t, baseParams,
+		"MODELEXPRESS_OPERATOR_IMAGE=quay.io/opendatahub/odh-modelexpress-operator:odh-stable\n"+
+			"MODELEXPRESS_SERVER_IMAGE=quay.io/opendatahub/odh-modelexpress:odh-stable\n")
+
+	r := xksParamsReconciler("platform-ns")
+	g.Expect(r.applyComponentParams(context.Background(), &platformv1alpha1.Kserve{},
+		manifestDir, comp, comp.sourcePathXKS)).To(Succeed())
+
+	params, err := parseParams(baseParams)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(params).To(HaveLen(2))
+	g.Expect(params).To(HaveKey("MODELEXPRESS_OPERATOR_IMAGE"))
+	g.Expect(params).To(HaveKey("MODELEXPRESS_SERVER_IMAGE"))
+}
+
+func TestApplyComponentParams_XKSWritesCertManagerParamsForOptedInComponents(t *testing.T) {
+	for _, name := range []string{KserveComponentName, OdhModelControllerComponentName} {
+		t.Run(name, func(t *testing.T) {
+			g := NewWithT(t)
+			comp := componentByName(t, name)
+			manifestDir := t.TempDir()
+			bundle := filepath.Join(manifestDir, comp.dirName())
+			g.Expect(os.MkdirAll(filepath.Join(bundle, comp.sourcePath), 0o750)).To(Succeed())
+			xksParams := filepath.Join(bundle, comp.sourcePathXKS, "params.env")
+			writeFile(t, xksParams, "NAMESPACE=opendatahub\nISSUER_REF_NAME=opendatahub-ca-issuer\n")
+
+			r := xksParamsReconciler("platform-ns")
+			g.Expect(r.applyComponentParams(context.Background(), &platformv1alpha1.Kserve{},
+				manifestDir, comp, comp.sourcePathXKS)).To(Succeed())
+
+			params, err := parseParams(xksParams)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(params).To(HaveKeyWithValue("NAMESPACE", "platform-ns"))
+			g.Expect(params).To(HaveKeyWithValue("ISSUER_REF_NAME", defaultCAIssuerName))
+		})
+	}
+}
+
+func TestComponentsConfig_CertManagerParamsOnlyForKserveAndModelController(t *testing.T) {
+	g := NewWithT(t)
+	for _, comp := range components {
+		want := comp.name == KserveComponentName || comp.name == OdhModelControllerComponentName
+		g.Expect(comp.certManagerParams).To(Equal(want), "component %q", comp.name)
+	}
 }

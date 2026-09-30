@@ -34,8 +34,8 @@ func TestModelExpressImageParamMap_RewritesBundleParamsFromBothOverlays(t *testi
 		t.Run(overlay, func(t *testing.T) {
 			g := NewWithT(t)
 			bundle := t.TempDir()
-			g.Expect(os.MkdirAll(filepath.Join(bundle, overlay), 0o755)).To(Succeed())
-			g.Expect(os.MkdirAll(filepath.Join(bundle, "base"), 0o755)).To(Succeed())
+			g.Expect(os.MkdirAll(filepath.Join(bundle, overlay), 0o750)).To(Succeed())
+			g.Expect(os.MkdirAll(filepath.Join(bundle, "base"), 0o750)).To(Succeed())
 			paramsFile := filepath.Join(bundle, "base", "params.env")
 			g.Expect(os.WriteFile(paramsFile, []byte(
 				"MODELEXPRESS_OPERATOR_IMAGE=quay.io/opendatahub/odh-modelexpress-operator:odh-stable\n"+

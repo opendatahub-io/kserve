@@ -416,35 +416,8 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 		sourcePath = comp.sourcePathXKS
 	}
 
-	// Image params live in the base overlay (e.g. overlays/odh/params.env), not
-	// the XKS overlay whose params.env only carries cert-manager keys.
-	if err := applyParams(
-		filepath.Join(manifestDir, comp.dirName(), comp.sourcePath),
-		comp.imageMap,
-	); err != nil {
-		return nil, fmt.Errorf("applying %s image params: %w", comp.name, err)
-	}
-
-	if r.isKubernetes(ctx) {
-		ns := r.getApplicationsNamespace()
-		configData := r.getPlatformConfigData(ctx)
-		certNS := r.getCertManagerNamespace(ctx, configData)
-		if err := applyParams(
-			filepath.Join(manifestDir, comp.dirName(), comp.sourcePathXKS),
-			nil, buildCertManagerParams(ns, configData, certNS),
-		); err != nil {
-			return nil, fmt.Errorf("applying cert-manager params: %w", err)
-		}
-	}
-
-	if comp.extraParams != nil {
-		extra := comp.extraParams(kserve)
-		if err := applyParams(
-			filepath.Join(manifestDir, comp.dirName(), sourcePath),
-			nil, extra,
-		); err != nil {
-			return nil, fmt.Errorf("applying %s extra params: %w", comp.name, err)
-		}
+	if err := r.applyComponentParams(ctx, kserve, manifestDir, comp, sourcePath); err != nil {
+		return nil, err
 	}
 
 	renderPath := filepath.Join(manifestDir, comp.dirName(), sourcePath)
@@ -465,6 +438,41 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 
 	log.Info("component rendering complete", "component", comp.name, "resources", len(resources))
 	return resources, nil
+}
+
+func (r *KserveModuleReconciler) applyComponentParams(ctx context.Context,
+	kserve *platformv1alpha1.Kserve, manifestDir string, comp componentConfig, sourcePath string) error {
+	// Image params live in the base overlay (e.g. overlays/odh/params.env), not
+	// the XKS overlay whose params.env only carries cert-manager keys.
+	if err := applyParams(
+		filepath.Join(manifestDir, comp.dirName(), comp.sourcePath),
+		comp.imageMap,
+	); err != nil {
+		return fmt.Errorf("applying %s image params: %w", comp.name, err)
+	}
+
+	if comp.certManagerParams && r.isKubernetes(ctx) {
+		ns := r.getApplicationsNamespace()
+		configData := r.getPlatformConfigData(ctx)
+		certNS := r.getCertManagerNamespace(ctx, configData)
+		if err := applyParams(
+			filepath.Join(manifestDir, comp.dirName(), comp.sourcePathXKS),
+			nil, buildCertManagerParams(ns, configData, certNS),
+		); err != nil {
+			return fmt.Errorf("applying cert-manager params: %w", err)
+		}
+	}
+
+	if comp.extraParams != nil {
+		extra := comp.extraParams(kserve)
+		if err := applyParams(
+			filepath.Join(manifestDir, comp.dirName(), sourcePath),
+			nil, extra,
+		); err != nil {
+			return fmt.Errorf("applying %s extra params: %w", comp.name, err)
+		}
+	}
+	return nil
 }
 
 func (r *KserveModuleReconciler) isKubernetes(ctx context.Context) bool {
