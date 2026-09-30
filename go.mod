@@ -32,7 +32,6 @@ require (
 	github.com/open-telemetry/opentelemetry-operator v0.152.0
 	github.com/parquet-go/parquet-go v0.27.0
 	github.com/pkg/errors v0.9.1
-	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.91.0
 	github.com/sigstore/cosign/v3 v3.0.6
 	github.com/sigstore/sigstore v1.10.5
 	github.com/spf13/cobra v1.10.2
@@ -66,10 +65,6 @@ require (
 	sigs.k8s.io/lws v0.8.0
 	sigs.k8s.io/yaml v1.6.0
 )
-
-// Distro: OpenShift API for TLS profile watcher (RHOAIENG-78968).
-// Kept in a separate block so upstream syncs don't conflict.
-require github.com/openshift/api v0.0.0-20260317165824-54a3998d81eb
 
 require (
 	cel.dev/expr v0.25.1 // indirect
@@ -264,6 +259,14 @@ require (
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/randfill v1.0.0 // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.0 // indirect
+)
+
+// Distro-specific dependencies for opendatahub-io/kserve (OCP platform).
+// Used by //go:build distro files only. Do not remove during upstream sync -
+// go mod tidy preserves these automatically when distro-tagged files exist.
+require (
+	github.com/openshift/api v0.0.0-20260317165824-54a3998d81eb
+	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.91.0
 )
 
 // google.golang.org/grpc/stats/opentelemetry is used by the keda package.

@@ -1,3 +1,5 @@
+//go:build distro
+
 /*
 Copyright 2026 The KServe Authors.
 
