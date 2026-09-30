@@ -40,6 +40,14 @@ OPERAND_DEPLOYMENTS_OCP = [
 
 WVA_DEPLOYMENT = "workload-variant-autoscaler-controller-manager"
 WVA_CONFIGMAP = "workload-variant-autoscaler-saturation-scaling-config"
+MODELEXPRESS_DEPLOYMENT = "modelexpress-operator"
+MODELEXPRESS_CLUSTERROLES_XKS = ["modelexpress-operator"]
+MODELEXPRESS_CLUSTERROLES_OCP = ["modelexpress-operator", "modelexpress-operator-openshift"]
+MODELEXPRESS_CRDS = [
+    "modelexpressservers.modelexpress.opendatahub.io",
+    "modelmetadatas.modelexpress.nvidia.com",
+    "modelcacheentries.modelexpress.nvidia.com",
+]
 MODEL_CONTROLLER_DEPLOYMENT = "odh-model-controller"
 LOCALMODEL_CONTROLLER_DEPLOYMENT = "kserve-localmodel-controller-manager"
 LOCALMODEL_AGENT_DAEMONSET = "kserve-localmodelnode-agent"

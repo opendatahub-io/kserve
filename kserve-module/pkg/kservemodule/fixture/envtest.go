@@ -159,7 +159,6 @@ spec:
       openAPIV3Schema:
         type: object
 `
-	// Same shape as WVA: a CRD next to the Deployment, for the CRD-preservation test.
 	modelExpressManifest := `apiVersion: apps/v1
 kind: Deployment
 metadata:

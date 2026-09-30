@@ -331,19 +331,12 @@ var _ = Describe("KserveModule Reconciler", func() {
 		})
 	})
 
-	// Uses the real deployer so assertions check actual cluster state: the ModelExpress
-	// Deployment is really applied when Managed and really deleted (via
-	// defaultCleanup, not GC) when Removed. envtest has no garbage collector, so
-	// only defaultCleanup-based removal is observable here.
 	Context("ModelExpress ManagementState lifecycle", Ordered, func() {
 		var cr *platformv1alpha1.Kserve
 		mxKey := client.ObjectKey{Name: "modelexpress-operator", Namespace: "opendatahub"}
-		// Applied from the ModelExpress rendered set (see fixture.WriteMinimalManifests).
 		mxCRDKey := client.ObjectKey{Name: "mxtestresources.test.kserve.io"}
 
 		BeforeAll(func(ctx SpecContext) {
-			// Real: assert the ModelExpress Deployment is really applied/deleted. Set before
-			// Create so the create-time reconcile uses it; Ordered keeps it for all specs.
 			testEnv.Reconciler.Deployer = kservemodule.NewDeployer()
 
 			cr = fixture.KserveCR()
@@ -383,9 +376,6 @@ var _ = Describe("KserveModule Reconciler", func() {
 					"ModelExpress Deployment should be applied to the cluster when Managed")
 			}).WithContext(ctx).Should(Succeed())
 
-			// The CRD must not carry an ownerReference to the namespaced Kserve CR: that would
-			// make GC cascade-delete it when the CR is removed. envtest has no GC, so assert
-			// the ref's absence rather than the deletion.
 			Eventually(func(g Gomega) {
 				crd := &apiextensionsv1.CustomResourceDefinition{}
 				g.Expect(testEnv.Client.Get(ctx, mxCRDKey, crd)).To(Succeed(),
@@ -398,7 +388,6 @@ var _ = Describe("KserveModule Reconciler", func() {
 		})
 
 		It("deletes the ModelExpress Deployment but preserves the CRD when ManagementState changes to Removed", func(ctx SpecContext) {
-			// Precondition: ModelExpress Deployment and CRD exist from the previous (Managed) spec.
 			Expect(testEnv.Client.Get(ctx, mxKey, &appsv1.Deployment{})).To(Succeed())
 			Expect(testEnv.Client.Get(ctx, mxCRDKey, &apiextensionsv1.CustomResourceDefinition{})).To(Succeed())
 
@@ -417,7 +406,6 @@ var _ = Describe("KserveModule Reconciler", func() {
 					"ModelExpress Deployment should be deleted by defaultCleanup when Removed")
 			}).WithContext(ctx).Should(Succeed())
 
-			// defaultCleanup skips CRDs, so it must survive the same Removed reconcile.
 			Consistently(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, mxCRDKey, &apiextensionsv1.CustomResourceDefinition{})).To(Succeed(),
 					"ModelExpress CRD must be preserved by defaultCleanup when Removed")
@@ -429,8 +417,6 @@ var _ = Describe("KserveModule Reconciler", func() {
 		var cr *platformv1alpha1.Kserve
 
 		BeforeAll(func(ctx SpecContext) {
-			// Mock: readiness is driven by manually-created Deployments; deployer output
-			// is irrelevant. Set before Create; Ordered keeps it for all specs.
 			testEnv.Reconciler.Deployer = &fixture.MockDeployer{}
 
 			cr = fixture.KserveCR(fixture.WithModelExpressManagementState(common.Managed))
