@@ -20,6 +20,7 @@ import (
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
+	odhLabels "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
 
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 	"github.com/opendatahub-io/kserve-module/pkg/kservemodule"
@@ -244,6 +245,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 			leftover := &appsv1.Deployment{}
 			leftover.Name = wvaKey.Name
 			leftover.Namespace = wvaKey.Namespace
+			leftover.Labels = map[string]string{odhLabels.PlatformPartOf: kservemodule.KserveComponentName}
 			leftover.Spec.Selector = &metav1.LabelSelector{
 				MatchLabels: map[string]string{"control-plane": wvaKey.Name},
 			}
