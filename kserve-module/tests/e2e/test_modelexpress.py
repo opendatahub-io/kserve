@@ -151,7 +151,16 @@ class TestModelExpressLifecycle:
             "apiVersion": "modelexpress.opendatahub.io/v1alpha1",
             "kind": "ModelExpressServer",
             "metadata": {"name": MXS_NAME, "namespace": MXS_NAMESPACE},
-            "spec": {"metadataBackend": {"kubernetes": {}}, "security": {"mode": "enforce"}},
+            "spec": {
+                "metadataBackend": {"kubernetes": {}},
+                "security": {
+                    "mode": "enforce",
+                    "tokenAudiences": ["modelexpress"],
+                    "allowedServiceAccounts": [
+                        {"namespace": MXS_NAMESPACE, "serviceAccount": "default"},
+                    ],
+                },
+            },
         }
         try:
             _enable(kubectl)
