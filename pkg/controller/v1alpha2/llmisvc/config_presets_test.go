@@ -1029,6 +1029,52 @@ func TestDataParallelPresetsWithoutParallelism(t *testing.T) {
 	}
 }
 
+func TestPipelineParallelWorkerPreset(t *testing.T) {
+	presetPath := filepath.Join(kservetesting.ProjectRoot(), "config", "llmisvcconfig", "config-llm-worker-pipeline-parallel.yaml")
+	data, err := os.ReadFile(filepath.Clean(presetPath))
+	if err != nil {
+		t.Fatalf("read pipeline parallel preset: %v", err)
+	}
+	config := loadConfig(t, data, presetPath)
+	llmSvc := llmisvc.LLMInferenceServiceSample()
+	llmSvc.Spec.Parallelism = &v1alpha2.ParallelismSpec{Pipeline: ptr.To[int32](2), Tensor: ptr.To[int32](8)}
+
+	rendered, err := llmisvc.ReplaceVariables(llmSvc, config, &llmisvc.Config{})
+	if err != nil {
+		t.Fatalf("render pipeline parallel preset: %v", err)
+	}
+	if rendered.Spec.Template == nil || rendered.Spec.Worker == nil {
+		t.Fatal("expected leader and worker templates")
+	}
+	for _, tc := range []struct {
+		name      string
+		command   string
+		wantFlags []string
+		headless  bool
+	}{
+		{"leader", strings.Join(rendered.Spec.Template.Containers[0].Command, " "), []string{"--pipeline-parallel-size 2", "--nnodes 2", "--node-rank 0", "--master-addr 0.0.0.0", "--tensor-parallel-size 8"}, false},
+		{"worker", strings.Join(rendered.Spec.Worker.Containers[0].Command, " "), []string{"--pipeline-parallel-size 2", "--nnodes 2", "--node-rank ${LWS_WORKER_INDEX:-0}", "--master-addr ${LWS_LEADER_ADDRESS}", "--tensor-parallel-size 8"}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, flag := range tc.wantFlags {
+				if !strings.Contains(tc.command, flag) {
+					t.Errorf("command missing %q", flag)
+				}
+			}
+			wantHeadless := 0
+			if tc.headless {
+				wantHeadless = 1
+			}
+			if got := strings.Count(tc.command, "--headless"); got != wantHeadless {
+				t.Errorf("headless flag count = %d, want %d", got, wantHeadless)
+			}
+			if strings.Contains(tc.command, "--data-parallel-") {
+				t.Error("pipeline parallel command contains data parallel flags")
+			}
+		})
+	}
+}
+
 // TestPresetRenderingIsIndifferentToEmptyParallelism pins the invariant behind the
 // nil-safe parallelism guards: for every shipped preset, an unset parallelism block
 // must render exactly what an empty one renders.
