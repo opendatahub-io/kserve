@@ -383,7 +383,7 @@ func getDeploymentWithKServiceLabelODH(predictorDeploymentKey types.NamespacedNa
 // getODHRawKubeTestConfigs is getRawKubeTestConfigs with the service setting kserve-module
 // writes on every ODH install: headless Services unless the Kserve CR asks for Headed.
 func getODHRawKubeTestConfigs() map[string]string {
-	return mergeJSONField(getRawKubeTestConfigs(), "service", map[string]interface{}{
-		"serviceClusterIPNone": true,
-	})
+	configs := getRawKubeTestConfigs()
+	configs["service"] = `{"serviceClusterIPNone": true}`
+	return configs
 }
