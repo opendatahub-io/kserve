@@ -30,6 +30,10 @@ const (
 	// ReasonDeletionBlocked is the Degraded reason used when Kserve CR deletion
 	// is held back by resources that cannot yet be removed.
 	ReasonDeletionBlocked = "DeletionBlocked"
+
+	// ReasonRemovalBlocked is the reason used when a component set to Removed
+	// stays deployed because resources only it can finalize still exist.
+	ReasonRemovalBlocked = "RemovalBlocked"
 )
 
 func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
@@ -186,6 +190,11 @@ func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, k
 			condMgr.MarkTrue(ConditionModelExpressReady,
 				conditions.WithReason("AllDeploymentsAvailable"))
 		}
+	} else if blockers := r.removalBlockers[ModelExpressComponentName]; len(blockers) > 0 {
+		condMgr.MarkFalse(ConditionModelExpressReady,
+			conditions.WithReason(ReasonRemovalBlocked),
+			conditions.WithMessage("removal waits for ModelExpressServers holding %s to be deleted: %s",
+				modelExpressAuthDelegatorFinalizer, strings.Join(blockers, ", ")))
 	} else {
 		condMgr.ClearCondition(ConditionModelExpressReady)
 	}

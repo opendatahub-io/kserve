@@ -63,6 +63,9 @@ import (
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/status,verbs=get;update
 
+// --- ModelExpressServers (cluster-scoped: held-open CRs block ModelExpress removal) ---
+// +kubebuilder:rbac:groups=modelexpress.opendatahub.io,resources=modelexpressservers,verbs=get;list;watch
+
 // --- Operand CRDs (cluster-scoped: controller deploys KServe, LLMInferenceService, and related CRDs) ---
 // no delete — CRDs survive component removal (consistent with odh-operator GC unremovables)
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=create;get;list;patch;update;watch
@@ -146,6 +149,10 @@ type KserveModuleReconciler struct {
 	// tracingConfigError records a non-fatal Monitoring read error so the
 	// reconcile can report it and retry without blocking other components.
 	tracingConfigError error
+
+	// removalBlockers holds, per disabled component, what keeps it deployed,
+	// written by reconcile and read by updateComponentReadiness in the same call.
+	removalBlockers map[string][]string
 }
 
 func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
@@ -164,6 +171,24 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		// Check whether config deletion is blocked before running any destructive
 		// cleanup, so a blocked deletion does not tear down still-running operands.
 		ns := r.getApplicationsNamespace()
+		var componentBlockers []string
+		for _, comp := range components {
+			blockers, err := componentRemovalBlockers(ctx, r, comp)
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("checking %s removal blockers: %w", comp.name, err)
+			}
+			for _, b := range blockers {
+				componentBlockers = append(componentBlockers, comp.name+": "+b)
+			}
+		}
+		if len(componentBlockers) > 0 {
+			if err := r.setDeletionBlocked(ctx, kserve, componentBlockers); err != nil {
+				return ctrl.Result{}, err
+			}
+			log.Info("Kserve CR deletion blocked", "blockers", componentBlockers)
+			return ctrl.Result{RequeueAfter: deletionRequeueInterval}, nil
+		}
+
 		outcome, err := r.cleanupLLMISVCConfigsOnDelete(ctx, ns)
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("cleaning up LLMInferenceServiceConfigs: %w", err)
@@ -222,6 +247,7 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	r.expectedPresets = nil
 	r.tracingConfigError = nil
+	r.removalBlockers = map[string][]string{}
 	componentErrors := r.reconcile(ctx, kserve)
 	applyProvisioningCondition(condMgr, componentErrors)
 	if len(componentErrors) > 0 {
@@ -282,6 +308,22 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 
 	for _, comp := range components {
 		if comp.enabled != nil && !comp.enabled(kserve) {
+			blockers, err := componentRemovalBlockers(ctx, r, comp)
+			if err != nil {
+				componentErrors[comp.name] = fmt.Errorf("checking removal blockers: %w", err)
+				continue
+			}
+			if len(blockers) > 0 {
+				log.Info("component removal blocked, keeping it deployed", "component", comp.name, "blockers", blockers)
+				r.removalBlockers[comp.name] = blockers
+				resources, err := r.reconcileComponent(ctx, kserve, manifestDir, comp)
+				if err != nil {
+					componentErrors[comp.name] = err
+					continue
+				}
+				allResources = append(allResources, resources...)
+				continue
+			}
 			if err := r.defaultCleanup(ctx, comp); err != nil {
 				componentErrors[comp.name] = fmt.Errorf("cleanup: %w", err)
 				continue
@@ -326,6 +368,13 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 	log.Info("deployed all resources", "owned", len(owned), "unowned", len(unowned))
 
 	return nil
+}
+
+func componentRemovalBlockers(ctx context.Context, r *KserveModuleReconciler, comp componentConfig) ([]string, error) {
+	if comp.removalBlockers == nil {
+		return nil, nil
+	}
+	return comp.removalBlockers(ctx, r)
 }
 
 func splitByOwnership(resources []unstructured.Unstructured) (owned, unowned []unstructured.Unstructured) {

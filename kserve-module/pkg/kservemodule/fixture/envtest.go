@@ -180,20 +180,23 @@ spec:
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: mxtestresources.test.kserve.io
+  name: modelexpressservers.modelexpress.opendatahub.io
 spec:
-  group: test.kserve.io
+  group: modelexpress.opendatahub.io
   scope: Namespaced
   names:
-    plural: mxtestresources
-    kind: MXTestResource
+    plural: modelexpressservers
+    singular: modelexpressserver
+    kind: ModelExpressServer
+    listKind: ModelExpressServerList
   versions:
-  - name: v1
+  - name: v1alpha1
     served: true
     storage: true
     schema:
       openAPIV3Schema:
         type: object
+        x-kubernetes-preserve-unknown-fields: true
 `
 	observabilityManifest := `apiVersion: perses.dev/v1alpha2
 kind: PersesDashboard

@@ -27,8 +27,9 @@ type componentConfig struct {
 	postRender    func(ctx context.Context, r *KserveModuleReconciler,
 		kserve *platformv1alpha1.Kserve,
 		resources []unstructured.Unstructured) ([]unstructured.Unstructured, error)
-	enabled      func(kserve *platformv1alpha1.Kserve) bool
-	extraCleanup func(ctx context.Context, r *KserveModuleReconciler) error
+	enabled         func(kserve *platformv1alpha1.Kserve) bool
+	extraCleanup    func(ctx context.Context, r *KserveModuleReconciler) error
+	removalBlockers func(ctx context.Context, r *KserveModuleReconciler) ([]string, error)
 }
 
 func (c componentConfig) dirName() string {
@@ -62,11 +63,12 @@ var components = []componentConfig{
 		postRender: wvaPostRender,
 	},
 	{
-		name:          ModelExpressComponentName,
-		sourcePath:    ModelExpressManifestSourcePath,
-		sourcePathXKS: ModelExpressManifestSourcePathXKS,
-		imageMap:      modelExpressImageParamMap,
-		enabled:       isModelExpressEnabled,
+		name:            ModelExpressComponentName,
+		sourcePath:      ModelExpressManifestSourcePath,
+		sourcePathXKS:   ModelExpressManifestSourcePathXKS,
+		imageMap:        modelExpressImageParamMap,
+		enabled:         isModelExpressEnabled,
+		removalBlockers: modelExpressRemovalBlockers,
 	},
 	{
 		name:         ModelCacheComponentName,

@@ -26,11 +26,15 @@ from conftest import (
     MODELEXPRESS_DEPLOYMENT,
     NAMESPACE,
     TIMEOUT_120S,
+    TIMEOUT_60S,
     TIMEOUT_300S,
 )
 
 CONDITION = "ModelExpressReady"
 SERVICE_CA_CONFIGMAP = "openshift-service-ca.crt"
+AUTH_DELEGATOR_FINALIZER = "modelexpress.opendatahub.io/auth-delegator"
+MXS_NAMESPACE = "km-modelexpress-e2e"
+MXS_NAME = "enforced"
 
 
 def _clusterroles(cluster_info):
@@ -59,6 +63,10 @@ def _disable(kubectl):
 def _assert_cr_ready(kubectl):
     cr = get_cr(kubectl)
     assert is_cr_ready(cr), f"Kserve CR should be Ready, conditions: {cr['status'].get('conditions')}"
+
+
+def _assert_condition_cleared(kubectl):
+    assert CONDITION not in get_conditions(kubectl), f"{CONDITION} should be cleared"
 
 
 def _assert_operands_healthy(kubectl, cluster_info):
@@ -137,6 +145,60 @@ class TestModelExpressLifecycle:
             assert resource_exists(kubectl, "crd", crd), f"CRD {crd} should survive Removed"
         wait_for(lambda: _assert_cr_ready(kubectl), timeout=TIMEOUT_120S, interval=5)
         _assert_operands_healthy(kubectl, cluster_info)
+
+    def test_removed_waits_for_finalizer_holding_servers(self, kubectl, apply_kserve_cr):
+        mxs = {
+            "apiVersion": "modelexpress.opendatahub.io/v1alpha1",
+            "kind": "ModelExpressServer",
+            "metadata": {"name": MXS_NAME, "namespace": MXS_NAMESPACE},
+            "spec": {"metadataBackend": {"kubernetes": {}}, "security": {"mode": "enforce"}},
+        }
+        try:
+            _enable(kubectl)
+            run([kubectl, "create", "namespace", MXS_NAMESPACE], check=False)
+            run([kubectl, "apply", "-f", "-"], input_text=json.dumps(mxs))
+
+            def assert_finalizer_held():
+                finalizers = get_jsonpath(kubectl, "modelexpressserver", MXS_NAME,
+                                          "{.metadata.finalizers}", namespace=MXS_NAMESPACE)
+                assert AUTH_DELEGATOR_FINALIZER in finalizers, \
+                    f"operator should add {AUTH_DELEGATOR_FINALIZER}, got {finalizers!r}"
+
+            wait_for(assert_finalizer_held, timeout=TIMEOUT_120S, interval=5)
+
+            _set_state(kubectl, "Removed")
+
+            def assert_removal_blocked():
+                cond = get_conditions(kubectl).get(CONDITION)
+                assert cond is not None, f"{CONDITION} should be reported while removal is blocked"
+                assert cond["status"] == "False", f"{CONDITION} should be False, got {cond}"
+                assert cond["reason"] == "RemovalBlocked", f"unexpected reason: {cond}"
+                assert f"{MXS_NAMESPACE}/{MXS_NAME}" in cond["message"], cond["message"]
+
+            wait_for(assert_removal_blocked, timeout=TIMEOUT_120S, interval=5)
+            wait_consistently(
+                lambda: wait_for_deployment(kubectl, MODELEXPRESS_DEPLOYMENT, timeout=5),
+                duration=30, interval=5,
+            )
+
+            run([kubectl, "delete", "modelexpressserver", MXS_NAME, "-n", MXS_NAMESPACE,
+                 "--wait=true", f"--timeout={TIMEOUT_120S}s"], timeout=TIMEOUT_120S + 10)
+            assert not resource_exists(kubectl, "modelexpressserver", MXS_NAME,
+                                       namespace=MXS_NAMESPACE), \
+                "the operator should have released the ModelExpressServer"
+
+            wait_for_deployment_gone(kubectl, MODELEXPRESS_DEPLOYMENT, timeout=TIMEOUT_120S)
+            wait_for(lambda: _assert_condition_cleared(kubectl), timeout=TIMEOUT_120S, interval=5)
+        finally:
+            run([kubectl, "delete", "modelexpressserver", MXS_NAME, "-n", MXS_NAMESPACE,
+                 "--ignore-not-found", f"--timeout={TIMEOUT_60S}s"],
+                check=False, timeout=TIMEOUT_60S + 10)
+            run([kubectl, "patch", "modelexpressserver", MXS_NAME, "-n", MXS_NAMESPACE,
+                 "--type", "merge", "-p", json.dumps({"metadata": {"finalizers": None}})],
+                check=False)
+            run([kubectl, "delete", "namespace", MXS_NAMESPACE, "--ignore-not-found",
+                 f"--timeout={TIMEOUT_120S}s"], check=False, timeout=TIMEOUT_120S + 10)
+            _disable(kubectl)
 
     @pytest.mark.ocp_only
     def test_removed_leaves_platform_service_ca_configmap(self, kubectl, apply_kserve_cr):
