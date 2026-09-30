@@ -1,6 +1,8 @@
 package kservemodule
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -27,14 +29,31 @@ func TestWVAImageParamMap_AllValuesAreRelatedImage(t *testing.T) {
 	}
 }
 
-// applyParams skips keys absent from params.env without error, so a renamed
-// key would ship the bundle's default image unnoticed.
-func TestModelExpressImageParamMap_MatchesBundleParams(t *testing.T) {
-	g := NewWithT(t)
-	g.Expect(modelExpressImageParamMap).Should(Equal(map[string]string{
-		"MODELEXPRESS_OPERATOR_IMAGE": "RELATED_IMAGE_ODH_MODELEXPRESS_OPERATOR_IMAGE",
-		"MODELEXPRESS_SERVER_IMAGE":   "RELATED_IMAGE_ODH_MODELEXPRESS_IMAGE",
-	}))
+func TestModelExpressImageParamMap_RewritesBundleParamsFromBothOverlays(t *testing.T) {
+	for _, overlay := range []string{ModelExpressManifestSourcePath, ModelExpressManifestSourcePathXKS} {
+		t.Run(overlay, func(t *testing.T) {
+			g := NewWithT(t)
+			bundle := t.TempDir()
+			g.Expect(os.MkdirAll(filepath.Join(bundle, overlay), 0o755)).To(Succeed())
+			g.Expect(os.MkdirAll(filepath.Join(bundle, "base"), 0o755)).To(Succeed())
+			paramsFile := filepath.Join(bundle, "base", "params.env")
+			g.Expect(os.WriteFile(paramsFile, []byte(
+				"MODELEXPRESS_OPERATOR_IMAGE=quay.io/opendatahub/odh-modelexpress-operator:odh-stable\n"+
+					"MODELEXPRESS_SERVER_IMAGE=quay.io/opendatahub/odh-modelexpress:odh-stable\n"), 0o600)).To(Succeed())
+
+			t.Setenv("RELATED_IMAGE_ODH_MODELEXPRESS_OPERATOR_IMAGE", "registry.example/operator@sha256:1111")
+			t.Setenv("RELATED_IMAGE_ODH_MODELEXPRESS_IMAGE", "registry.example/server@sha256:2222")
+
+			g.Expect(applyParams(filepath.Join(bundle, overlay), modelExpressImageParamMap)).To(Succeed())
+
+			params, err := parseParams(paramsFile)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(params).To(Equal(map[string]string{
+				"MODELEXPRESS_OPERATOR_IMAGE": "registry.example/operator@sha256:1111",
+				"MODELEXPRESS_SERVER_IMAGE":   "registry.example/server@sha256:2222",
+			}))
+		})
+	}
 }
 
 func TestImageParamMaps_NoKeyOverlap(t *testing.T) {

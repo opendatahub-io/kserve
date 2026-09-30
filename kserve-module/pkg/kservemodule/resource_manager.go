@@ -34,7 +34,7 @@ var (
 	modelControllerDeploymentsXKS = []string{
 		odhModelControllerDeployment,
 	}
-	modelExpressDeploymentsOCP = []string{
+	modelExpressDeployments = []string{
 		modelExpressOperatorDeployment,
 	}
 )
@@ -69,7 +69,7 @@ func checkModelControllerReadiness(ctx context.Context, cli client.Client, names
 }
 
 func checkModelExpressReadiness(ctx context.Context, cli client.Client, namespace string) error {
-	return checkDeploymentsReady(ctx, cli, namespace, modelExpressDeploymentsOCP)
+	return checkDeploymentsReady(ctx, cli, namespace, modelExpressDeployments)
 }
 
 // checkPresetsPresent reports which of the presets we just applied are no longer
