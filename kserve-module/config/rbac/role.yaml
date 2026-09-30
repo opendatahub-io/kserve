@@ -164,6 +164,14 @@ rules:
   verbs:
   - get
 - apiGroups:
+  - modelexpress.opendatahub.io
+  resources:
+  - modelexpressservers
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - monitoring.coreos.com
   resourceNames:
   - k8s
