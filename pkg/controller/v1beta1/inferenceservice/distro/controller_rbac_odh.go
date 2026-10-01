@@ -24,3 +24,4 @@ package distro
 //+kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
 //+kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=rolebindings,verbs=get;list;watch;create;update;delete
 //+kubebuilder:rbac:groups=security.openshift.io,resources=securitycontextconstraints,resourceNames=openshift-ai-inferenceservice-image-volume-scc,verbs=use
+//+kubebuilder:rbac:groups=route.openshift.io,resources=routes,verbs=get;list;watch

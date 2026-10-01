@@ -63,7 +63,6 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 	}
 
 	expectedReadinessProbe := constants.GetRouterReadinessProbe()
-	expectedReadinessProbe.HTTPGet.Scheme = corev1.URISchemeHTTPS
 
 	testIGSpecs := map[string]*InferenceGraph{
 		"basic": {
@@ -197,7 +196,6 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 					Image: "kserve/router:v0.10.0",
 					Name:  "basic-ig",
 					Args: []string{
-						"--enable-tls",
 						"--graph-json",
 						"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.example.com\"}]}},\"resources\":{}}",
 					},
@@ -221,34 +219,9 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							Drop: []corev1.Capability{corev1.Capability("ALL")},
 						},
 					},
-					VolumeMounts: []corev1.VolumeMount{
-						{
-							Name:      constants.ServiceCaBundleVolumeName,
-							MountPath: constants.ServiceCaBundleMountPath,
-						},
-					},
-					Env: []corev1.EnvVar{
-						{
-							Name:  "SSL_CERT_FILE",
-							Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
-						},
-					},
-				},
-			},
-			Volumes: []corev1.Volume{
-				{
-					Name: constants.ServiceCaBundleVolumeName,
-					VolumeSource: corev1.VolumeSource{
-						ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: constants.OpenShiftServiceCaConfigMapName,
-							},
-						},
-					},
 				},
 			},
 			AutomountServiceAccountToken: proto.Bool(false),
-			ServiceAccountName:           "default",
 			ImagePullSecrets:             []corev1.LocalObjectReference{},
 		},
 		"basicgraphwithheaders": {
@@ -257,15 +230,10 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 					Image: "kserve/router:v0.10.0",
 					Name:  "basic-ig",
 					Args: []string{
-						"--enable-tls",
 						"--graph-json",
 						"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.example.com\"}]}},\"resources\":{}}",
 					},
 					Env: []corev1.EnvVar{
-						{
-							Name:  "SSL_CERT_FILE",
-							Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
-						},
 						{
 							Name:  "PROPAGATE_HEADERS",
 							Value: "Authorization,Intuit_tid",
@@ -291,28 +259,9 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							Drop: []corev1.Capability{corev1.Capability("ALL")},
 						},
 					},
-					VolumeMounts: []corev1.VolumeMount{
-						{
-							Name:      constants.ServiceCaBundleVolumeName,
-							MountPath: constants.ServiceCaBundleMountPath,
-						},
-					},
-				},
-			},
-			Volumes: []corev1.Volume{
-				{
-					Name: constants.ServiceCaBundleVolumeName,
-					VolumeSource: corev1.VolumeSource{
-						ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: constants.OpenShiftServiceCaConfigMapName,
-							},
-						},
-					},
 				},
 			},
 			AutomountServiceAccountToken: proto.Bool(false),
-			ServiceAccountName:           "default",
 			ImagePullSecrets:             []corev1.LocalObjectReference{},
 		},
 		"withresource": {
@@ -321,7 +270,6 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 					Image: "kserve/router:v0.10.0",
 					Name:  "resource-ig",
 					Args: []string{
-						"--enable-tls",
 						"--graph-json",
 						"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.example.com\"}]}},\"resources\":{\"limits\":{\"cpu\":\"100m\",\"memory\":\"500Mi\"},\"requests\":{\"cpu\":\"100m\",\"memory\":\"100Mi\"}}}",
 					},
@@ -345,34 +293,9 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							Drop: []corev1.Capability{corev1.Capability("ALL")},
 						},
 					},
-					VolumeMounts: []corev1.VolumeMount{
-						{
-							Name:      constants.ServiceCaBundleVolumeName,
-							MountPath: constants.ServiceCaBundleMountPath,
-						},
-					},
-					Env: []corev1.EnvVar{
-						{
-							Name:  "SSL_CERT_FILE",
-							Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
-						},
-					},
-				},
-			},
-			Volumes: []corev1.Volume{
-				{
-					Name: constants.ServiceCaBundleVolumeName,
-					VolumeSource: corev1.VolumeSource{
-						ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: constants.OpenShiftServiceCaConfigMapName,
-							},
-						},
-					},
 				},
 			},
 			AutomountServiceAccountToken: proto.Bool(false),
-			ServiceAccountName:           "default",
 			ImagePullSecrets:             []corev1.LocalObjectReference{},
 		},
 		"with tolerations": {
@@ -381,7 +304,6 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 					Image: "kserve/router:v0.10.0",
 					Name:  "resource-ig",
 					Args: []string{
-						"--enable-tls",
 						"--graph-json",
 						"{\"nodes\":{\"root\":{\"routerType\":\"Sequence\",\"steps\":[{\"serviceUrl\":\"http://someservice.example.com\"}]}},\"resources\":{\"limits\":{\"cpu\":\"100m\",\"memory\":\"500Mi\"},\"requests\":{\"cpu\":\"100m\",\"memory\":\"100Mi\"}},\"tolerations\":[{\"key\":\"key1\",\"operator\":\"Equal\",\"value\":\"value1\",\"effect\":\"NoSchedule\"}]}",
 					},
@@ -405,34 +327,9 @@ func TestCreateInferenceGraphPodSpec(t *testing.T) {
 							Drop: []corev1.Capability{corev1.Capability("ALL")},
 						},
 					},
-					VolumeMounts: []corev1.VolumeMount{
-						{
-							Name:      constants.ServiceCaBundleVolumeName,
-							MountPath: constants.ServiceCaBundleMountPath,
-						},
-					},
-					Env: []corev1.EnvVar{
-						{
-							Name:  "SSL_CERT_FILE",
-							Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
-						},
-					},
-				},
-			},
-			Volumes: []corev1.Volume{
-				{
-					Name: constants.ServiceCaBundleVolumeName,
-					VolumeSource: corev1.VolumeSource{
-						ConfigMap: &corev1.ConfigMapVolumeSource{
-							LocalObjectReference: corev1.LocalObjectReference{
-								Name: constants.OpenShiftServiceCaConfigMapName,
-							},
-						},
-					},
 				},
 			},
 			AutomountServiceAccountToken: proto.Bool(false),
-			ServiceAccountName:           "default",
 			ImagePullSecrets:             []corev1.LocalObjectReference{},
 			Tolerations: []corev1.Toleration{
 				{

@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"time"
 
-	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -177,7 +176,6 @@ type LLMISVCReconciler struct {
 //+kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelcaches,verbs=get;list;watch
 //+kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnamespacecaches,verbs=get;list;watch
 //+kubebuilder:rbac:groups=coordination.k8s.io,resources=leases,verbs=get;list;watch;create;update;patch;delete
-//+kubebuilder:rbac:groups=monitoring.coreos.com,resources=podmonitors;servicemonitors,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is the main entry point for the reconciliation loop.
 // It fetches the LLMInferenceService and delegates the reconciliation of its constituent parts.
@@ -306,8 +304,11 @@ func (r *LLMISVCReconciler) reconcile(ctx context.Context, llmSvc *v1alpha2.LLMI
 		return fmt.Errorf("failed to reconcile networking: %w", err)
 	}
 
-	if err := r.reconcileMonitoringResources(ctx, llmSvc, config); err != nil {
-		return fmt.Errorf("failed to reconcile monitoring resources: %w", err)
+	// There is no upstream status condition for platform resources. A hook that
+	// wants its failure visible in status marks its own condition before returning
+	// the error; otherwise the failure only surfaces as a warning event.
+	if err := r.reconcilePlatformResources(ctx, llmSvc, config); err != nil {
+		return err
 	}
 
 	if err := r.observeWorkloadStatus(ctx, llmSvc); err != nil {
@@ -329,8 +330,11 @@ func (r *LLMISVCReconciler) finalize(ctx context.Context, llmSvc *v1alpha2.LLMIn
 		return false, nil
 	}
 
-	if err := r.cleanupMonitoringResources(ctx, llmSvc); err != nil {
-		return false, fmt.Errorf("failed to cleanup monitoring resources: %w", err)
+	// Status is not persisted when finalization fails, so conditions set by the
+	// hook are dropped. A failure here keeps the finalizer in place and only
+	// surfaces in the controller logs.
+	if err := r.finalizePlatformResources(ctx, llmSvc); err != nil {
+		return false, err
 	}
 
 	if err := r.reconcileSchedulerServiceAccount(ctx, llmSvc); err != nil {
@@ -471,14 +475,6 @@ func (r *LLMISVCReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), lwsapi.GroupVersion.String(), "LeaderWorkerSet"); ok && err == nil {
 		b = b.Owns(&lwsapi.LeaderWorkerSet{}, builder.WithPredicates(childResourcesPredicate))
-	}
-
-	monitoringGroup := "monitoring.coreos.com/v1"
-	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), monitoringGroup, "PodMonitor"); ok && err == nil {
-		b = b.Owns(&monitoringv1.PodMonitor{}, builder.WithPredicates(childResourcesPredicate))
-	}
-	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), monitoringGroup, "ServiceMonitor"); ok && err == nil {
-		b = b.Owns(&monitoringv1.ServiceMonitor{}, builder.WithPredicates(childResourcesPredicate))
 	}
 
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), resourcev1.SchemeGroupVersion.String(), "ResourceClaimTemplate"); ok && err == nil {

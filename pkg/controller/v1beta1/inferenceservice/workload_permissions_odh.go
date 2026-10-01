@@ -43,6 +43,15 @@ import (
 // useful for environments where SecurityContextConstraints are not needed.
 var sccDisabled, _ = env.GetBool("ISVC_SCC_DISABLED", false)
 
+// postReconcilePlatform reconciles the platform-specific permissions of the
+// InferenceService workloads once the serving runtime is recorded in status.
+func (r *InferenceServiceReconciler) postReconcilePlatform(ctx context.Context, isvc *v1beta1.InferenceService, isvcConfigMap *corev1.ConfigMap) error {
+	if err := r.reconcileWorkloadPlatformPermissions(ctx, isvc, isvcConfigMap); err != nil {
+		return fmt.Errorf("fails to reconcile workload platform permissions: %w", err)
+	}
+	return nil
+}
+
 // reconcileWorkloadPlatformPermissions reconciles platform-specific permissions (e.g., SCC RoleBindings)
 // for InferenceService workloads that require special volume types like image volumes.
 func (r *InferenceServiceReconciler) reconcileWorkloadPlatformPermissions(ctx context.Context, isvc *v1beta1.InferenceService, isvcConfigMap *corev1.ConfigMap) error {

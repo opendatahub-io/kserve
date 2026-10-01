@@ -64,6 +64,7 @@ func SetupTestEnv(ctx context.Context) *TestEnv {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	CreateCRD(ctx, cli, "operators.coreos.com", "v1alpha1", "Subscription", apiextensionsv1.NamespaceScoped)
+	CreateCRD(ctx, cli, "olm.operatorframework.io", "v1", "ClusterExtension", apiextensionsv1.ClusterScoped)
 
 	workDir := ginkgo.GinkgoT().TempDir()
 	WriteMinimalManifests(workDir)

@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-logr/logr"
 	routev1 "github.com/openshift/api/route/v1"
+	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	istioapi "istio.io/client-go/pkg/apis/networking/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -60,6 +61,14 @@ func (r *LLMISVCReconciler) extendControllerSetup(mgr manager.Manager, b *builde
 			r.enqueueOnRouteChange(logger),
 			builder.WithPredicates(routeChangePredicate()),
 		)
+	}
+
+	monitoringGroup := "monitoring.coreos.com/v1"
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), monitoringGroup, "PodMonitor"); ok && err == nil {
+		b.Owns(&monitoringv1.PodMonitor{}, builder.WithPredicates(childResourcesPredicate))
+	}
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), monitoringGroup, "ServiceMonitor"); ok && err == nil {
+		b.Owns(&monitoringv1.ServiceMonitor{}, builder.WithPredicates(childResourcesPredicate))
 	}
 
 	return nil
