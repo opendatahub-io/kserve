@@ -25,7 +25,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"knative.dev/pkg/apis"
 
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/autoscaler"
 	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
@@ -46,10 +45,6 @@ func (r *cleanupWorkload) GetWorkloads() []metav1.Object {
 
 func (r *cleanupWorkload) SetControllerReferences(metav1.Object, *runtime.Scheme) error {
 	return nil
-}
-
-func (r *cleanupWorkload) GetAuthProxyCondition() (*apis.Condition, apis.ConditionType) {
-	return nil, ""
 }
 
 func (r *cleanupWorkload) CleanupOrphans(context.Context, isvcutils.OrphanScope) error {

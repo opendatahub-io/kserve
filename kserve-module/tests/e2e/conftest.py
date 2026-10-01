@@ -670,6 +670,20 @@ def wait_for_deployment_gone(
         raise RuntimeError(f"wait_for_deployment_gone failed: {result.stderr}")
 
 
+def dump_llmisvc_diagnostics(kubectl_bin, name, namespace):
+    """Print LLMISVC status/pods/events so Ready timeouts are debuggable."""
+    print(f"\n=== LLMISVC diagnostics: {namespace}/{name} ===")
+    for args in (
+        ["get", "llminferenceservice", name, "-n", namespace, "-o", "yaml"],
+        ["get", "pods,deploy,svc", "-n", namespace, "-o", "wide"],
+        ["get", "httproute,gateway,inferencepool", "-n", namespace, "-o", "wide"],
+        ["get", "events", "-n", namespace, "--sort-by=.lastTimestamp"],
+    ):
+        result = run([kubectl_bin, *args], check=False)
+        print(f"--- oc {' '.join(args)} ---")
+        print(result.stdout or result.stderr)
+
+
 def wait_for_llm_inference_service_ready(
     kubectl_bin, name, namespace, timeout=LLMISVC_SMOKE_TIMEOUT
 ):
@@ -694,7 +708,11 @@ def wait_for_llm_inference_service_ready(
             f"(want True): {result.stderr}"
         )
 
-    wait_for(_ready, timeout=timeout, interval=10)
+    try:
+        wait_for(_ready, timeout=timeout, interval=10)
+    except AssertionError:
+        dump_llmisvc_diagnostics(kubectl_bin, name, namespace)
+        raise
 
 
 def create_release_test_namespace(kubectl_bin, name=RELEASE_TEST_NAMESPACE):
@@ -708,6 +726,10 @@ def create_release_test_namespace(kubectl_bin, name=RELEASE_TEST_NAMESPACE):
                 "labels": {
                     "kserve-managed": "true",
                     "opendatahub.io/dashboard": "true",
+                    # Same PSS as upgrade e2e so the CPU LLMISVC workload can run.
+                    "pod-security.kubernetes.io/enforce": "privileged",
+                    "pod-security.kubernetes.io/audit": "privileged",
+                    "pod-security.kubernetes.io/warn": "privileged",
                 },
             },
         }

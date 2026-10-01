@@ -75,13 +75,5 @@ keeps midstream markers out of upstream manifests.
   is needed or wanted.
   This is the canonical correct pattern; see `pkg/controller/v1alpha2/llmisvc/distro/controller_rbac_odh.go`
   as a reference.
-
-## Pre-existing technical debt - do not flag on unmodified files
-
-The following files carry OCP-group RBAC markers predating this policy. Flag only if new markers
-are **added** in this PR:
-
-- `pkg/controller/v1beta1/inferenceservice/controller.go` (`route.openshift.io`,
-  `networking.istio.io` (treated as OCP-specific for exemption purposes))
-- `pkg/controller/v1alpha1/inferencegraph/controller.go` (`route.openshift.io`,
-  `networking.istio.io` (treated as OCP-specific for exemption purposes))
+- `networking.istio.io` markers in `pkg/controller/v1beta1/inferenceservice/controller.go` -
+  these match upstream kserve/kserve and belong in the upstream `role.yaml`.

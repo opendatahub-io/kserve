@@ -16,18 +16,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package inferenceservice
+package inferencegraph
 
 import (
-	"context"
-
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
 
-// reconcileWorkloadPlatformPermissions is a no-op for non-distro builds.
-// Platform-specific permissions (e.g., OpenShift SCCs) are only needed in distro builds.
-func (r *InferenceServiceReconciler) reconcileWorkloadPlatformPermissions(_ context.Context, _ *v1beta1.InferenceService, _ *corev1.ConfigMap) error {
-	return nil
-}
+// customizeRouterPodSpec is a hook for platform-specific customization of the router pod spec
+// in raw deployment mode. Distribution-specific builds (compiled with -tags distro) can provide
+// their own implementation; the default does nothing. Implementations must tolerate a nil podSpec.
+func customizeRouterPodSpec(_ *v1alpha1.InferenceGraph, _ *corev1.PodSpec) {}
