@@ -16,14 +16,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package distro
+package utils
 
-import "crypto/tls"
-
-// Result holds resolved TLS options and metadata for optional cluster profile watching.
-type Result struct {
-	TLSOpts         []func(*tls.Config)
-	ProfileFetched  bool
-	APIAvailable    bool
-	InitialSettings Settings
+// FilterList returns the items of slice other than element. The distro annotation filters use it
+// to let the auth annotation through the disallowed list.
+func FilterList(slice []string, element string) []string {
+	var result []string
+	for _, item := range slice {
+		if item != element {
+			result = append(result, item)
+		}
+	}
+	return result
 }
