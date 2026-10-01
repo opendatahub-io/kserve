@@ -16,8 +16,7 @@ def test_gatekeeper_image_packages_trusted_nonroot_runtime() -> None:
 
     assert (
         "FROM golang:1.26.7-bookworm@sha256:"
-        "e8c859f5632dcfde7b32d2012b4351728f6437930887c2f6a91ea242459e5514"
-        in dockerfile
+        "e8c859f5632dcfde7b32d2012b4351728f6437930887c2f6a91ea242459e5514" in dockerfile
     )
     assert "registry.ci.openshift.org" not in dockerfile
     assert "python3.11" in dockerfile
@@ -70,7 +69,10 @@ def test_staged_evaluator_and_dispatcher_modules_have_runnable_cli(
         shutil.copytree(source_package / directory, staged_package / directory)
 
     env = os.environ.copy()
-    env["PYTHONPATH"] = str(staged_root)
+    # Load staged code first while retaining the image-owned dependencies.
+    env["PYTHONPATH"] = os.pathsep.join(
+        path for path in (str(staged_root), env.get("PYTHONPATH")) if path
+    )
     malicious = tmp_path / "test_selector" / "gatekeeper"
     malicious.mkdir(parents=True)
     (malicious.parent / "__init__.py").write_text("raise SystemExit('shadowed')\n")
