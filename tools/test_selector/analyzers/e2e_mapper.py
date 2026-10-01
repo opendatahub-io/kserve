@@ -227,7 +227,7 @@ def analyze_e2e_tests(
     dir_markers: dict[str, set[str]] = {}
 
     for py_file in sorted(test_dir.rglob("*.py")):
-        if any(part in _SKIP_DIRS for part in py_file.parts):
+        if any(part in _SKIP_DIRS for part in py_file.relative_to(repo_root).parts):
             continue
         if py_file.name.startswith("__"):
             continue

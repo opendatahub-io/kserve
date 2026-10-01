@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -51,6 +52,12 @@ def _parse_go_list_json(raw: str) -> list[dict]:
 
 def _run_go_list_all(repo_root: Path) -> list[dict]:
     """Run `go list -json ./...` once and return all internal packages."""
+    env = {
+        **os.environ,
+        "GOTOOLCHAIN": "local",
+        "GOWORK": "off",
+        "GOFLAGS": "-buildvcs=false -mod=readonly",
+    }
     try:
         result = subprocess.run(
             ["go", "list", "-json", "./..."],
@@ -58,6 +65,7 @@ def _run_go_list_all(repo_root: Path) -> list[dict]:
             capture_output=True,
             text=True,
             timeout=120,
+            env=env,
         )
     except FileNotFoundError:
         raise GoListError("'go' not found in PATH")

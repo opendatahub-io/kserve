@@ -41,3 +41,25 @@ def test_empty_internal_package_map_is_hard_failure(monkeypatch, tmp_path) -> No
 
     with pytest.raises(go_deps.GoListError):
         go_deps.build_go_dependency_info(tmp_path, "example/", [])
+
+
+def test_go_list_pins_toolchain_workspace_and_module_mode(monkeypatch) -> None:
+    captured = {}
+
+    def fake_run(*args, **kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            returncode=0,
+            stdout='{"ImportPath":"example/pkg","Dir":"/tmp/pkg"}',
+            stderr="",
+        )
+
+    monkeypatch.setenv("GOTOOLCHAIN", "auto")
+    monkeypatch.setenv("GOWORK", "/tmp/untrusted/go.work")
+    monkeypatch.setenv("GOFLAGS", "-mod=mod")
+    monkeypatch.setattr(go_deps.subprocess, "run", fake_run)
+
+    assert go_deps._run_go_list_all(Path("/tmp"))
+    assert captured["env"]["GOTOOLCHAIN"] == "local"
+    assert captured["env"]["GOWORK"] == "off"
+    assert captured["env"]["GOFLAGS"] == "-buildvcs=false -mod=readonly"

@@ -123,6 +123,14 @@ def _process_go_file(file_path: str, mapping: Mapping, sel: TestSelection) -> No
             if not ep:
                 continue
 
+            if not ep.crd_types and not ep.watched_crd_types:
+                sel.reasons.append(
+                    f"{file_path} -> pkg:{_pkg_to_rel(go_pkg)} -> "
+                    f"entrypoint:{ep_name} -> no CRD mapping -> all_e2e"
+                )
+                _trigger_all_e2e(sel, mapping)
+                continue
+
             for crd in ep.crd_types:
                 markers = _get_crd_markers(crd.kind, mapping)
                 sel.reasons.append(
@@ -151,7 +159,7 @@ def _process_python_file(
         crd_kind = _extract_crd_from_model_file(file_path, mapping)
         if crd_kind:
             sel.python_tests.run = True
-            sel.python_tests.packages.append("kserve")
+            sel.python_tests.packages.extend(_python_dependents("kserve", mapping))
             markers = _get_crd_markers(crd_kind, mapping)
             sel.reasons.append(
                 f"{file_path} -> python:model:{crd_kind} -> e2e:{','.join(markers)}"
@@ -177,7 +185,7 @@ def _process_python_file(
         return
 
     sel.python_tests.run = True
-    sel.python_tests.packages.append(pkg_name)
+    sel.python_tests.packages.extend(_python_dependents(pkg_name, mapping))
 
     if pkg_name in python_all_e2e_packages(config):
         sel.reasons.append(f"{file_path} -> python:{pkg_name} -> all_e2e")
@@ -235,7 +243,7 @@ def _process_e2e_test_file(
 ) -> None:
     """If a test file changed, always run its suite."""
     test_info = mapping.test_files.get(file_path)
-    if test_info:
+    if test_info and test_info.markers:
         for m in test_info.markers:
             _add_markers(sel, [m])
         sel.reasons.append(
@@ -383,6 +391,23 @@ def _markers_from_dockerfile_cmd(
     for crd in ep.crd_types:
         markers.extend(_get_crd_markers(crd.kind, mapping))
     return sorted(set(markers))
+
+
+def _python_dependents(pkg_name: str, mapping: Mapping) -> list[str]:
+    """Include packages that import the changed package, transitively."""
+    reverse: dict[str, set[str]] = {}
+    for name, info in mapping.python_packages.items():
+        for dependency in info.intra_repo_imports:
+            reverse.setdefault(dependency, set()).add(name)
+
+    visited = {pkg_name}
+    queue = deque([pkg_name])
+    while queue:
+        for dependent in reverse.get(queue.popleft(), set()):
+            if dependent not in visited:
+                visited.add(dependent)
+                queue.append(dependent)
+    return sorted(visited)
 
 
 def _reverse_walk(start_pkg: str, mapping: Mapping) -> set[str]:

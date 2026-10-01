@@ -141,6 +141,9 @@ def test_python_sdk_package(mapping: Mapping, repo_root: Path) -> None:
     )
     assert result["python_tests"]["run"] is True
     assert "kserve" in result["python_tests"]["packages"]
+    assert {"sklearnserver", "predictiveserver"} <= set(
+        result["python_tests"]["packages"]
+    )
     assert result["e2e_tests"]["run"] is True
     markers = set(result["e2e_tests"]["markers"])
     assert markers >= E2E_MARKERS
@@ -184,6 +187,14 @@ def test_e2e_test_not_in_mapping(mapping: Mapping, repo_root: Path) -> None:
     assert "predictor" in markers
     assert not markers & LLMISVC_MARKERS
     assert not markers & MODELCACHE_MARKERS
+
+
+def test_unmarked_e2e_file_selects_all_when_suite_has_no_markers(
+    mapping: Mapping, repo_root: Path
+) -> None:
+    result = _query(mapping, repo_root, ["test/e2e/credentials/test_set_creds.py"])
+    assert result["e2e_tests"]["run"] is True
+    assert set(result["e2e_tests"]["markers"]) >= E2E_MARKERS
 
 
 # -- PR #5880: Go controller with test file -----------------------------------
@@ -376,20 +387,15 @@ def test_localmodel_controller(mapping: Mapping, repo_root: Path) -> None:
     assert "predictor" in markers
 
 
-# -- Sidecar entrypoints (no CRDs, no e2e) ------------------------------------
+# -- Sidecar entrypoints without CRD mapping ----------------------------------
 
 
 def test_go_agent_sidecar(mapping: Mapping, repo_root: Path) -> None:
-    result = _query(
-        mapping,
-        repo_root,
-        [
-            "pkg/agent/syncer.go",
-        ],
-    )
+    result = _query(mapping, repo_root, ["pkg/agent/syncer.go"])
     assert result["go_tests"]["run"] is True
     assert result["go_tests"].get("all") is not True
-    assert result["e2e_tests"]["run"] is False
+    assert result["e2e_tests"]["run"] is True
+    assert set(result["e2e_tests"]["markers"]) >= E2E_MARKERS
     assert result["python_tests"]["run"] is False
 
 
@@ -406,6 +412,9 @@ def test_python_sdk_model_llmisvc(mapping: Mapping, repo_root: Path) -> None:
     )
     assert result["python_tests"]["run"] is True
     assert "kserve" in result["python_tests"]["packages"]
+    assert {"sklearnserver", "predictiveserver"} <= set(
+        result["python_tests"]["packages"]
+    )
     assert result["e2e_tests"]["run"] is True
     markers = set(result["e2e_tests"]["markers"])
     assert "llminferenceservice" in markers
@@ -455,6 +464,15 @@ def test_python_sdk_model_no_version_prefix(mapping: Mapping, repo_root: Path) -
     markers = set(result["e2e_tests"]["markers"])
     assert markers >= E2E_MARKERS
     assert markers >= LLMISVC_MARKERS
+
+
+def test_python_package_selects_transitive_importers(
+    mapping: Mapping, repo_root: Path
+) -> None:
+    result = _query(mapping, repo_root, ["python/sklearnserver/setup.py"])
+    assert {"sklearnserver", "predictiveserver"} <= set(
+        result["python_tests"]["packages"]
+    )
 
 
 # -- Python server packages (framework narrowing) -----------------------------

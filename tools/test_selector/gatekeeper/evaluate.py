@@ -653,6 +653,7 @@ def _selector_environment() -> dict[str, str]:
     env["PYTHONPATH"] = os.pathsep.join(
         (str(Path(__file__).resolve().parents[2]), "/opt/python")
     )
+    env["PYTHONSAFEPATH"] = "1"
     env["GOCACHE"] = "/tmp/go-build"
     env["GOMODCACHE"] = "/tmp/go-mod"
     env["GOFLAGS"] = "-buildvcs=false"

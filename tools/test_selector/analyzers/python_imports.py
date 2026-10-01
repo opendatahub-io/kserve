@@ -40,7 +40,7 @@ def discover_python_packages(repo_root: Path) -> dict[str, PythonPackageInfo]:
 
         py_files = []
         for f in sorted(sub.rglob("*.py")):
-            if any(part in _SKIP_DIRS for part in f.parts):
+            if any(part in _SKIP_DIRS for part in f.relative_to(repo_root).parts):
                 continue
             py_files.append(str(f.relative_to(repo_root)))
 

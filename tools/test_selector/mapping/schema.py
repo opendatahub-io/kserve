@@ -248,6 +248,8 @@ class Mapping:
             isinstance(marker, str) and marker for marker in data["all_e2e_markers"]
         ):
             raise ValueError("mapping e2e markers must be non-empty strings")
+        if data["test_files"] and not data["all_e2e_markers"]:
+            raise ValueError("mapping has E2E tests but no E2E markers")
 
         go_file_to_package = data["go_file_to_package"]
         if not go_file_to_package:

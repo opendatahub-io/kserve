@@ -213,6 +213,7 @@ def test_git_and_selector_commands_receive_no_credential_environment(
     assert selector_envs
     assert all(env["GOFLAGS"] == "-buildvcs=false" for env in selector_envs)
     assert all(env["GOTOOLCHAIN"] == "local" for env in selector_envs)
+    assert all(env["PYTHONSAFEPATH"] == "1" for env in selector_envs)
     assert all(env["GOCACHE"].startswith("/tmp/") for env in selector_envs)
     assert all(
         "/opt/python" in env["PYTHONPATH"].split(os.pathsep) for env in selector_envs
