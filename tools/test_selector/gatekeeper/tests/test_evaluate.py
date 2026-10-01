@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import importlib
+import os
 import subprocess
 from pathlib import Path
 
@@ -190,6 +191,7 @@ def test_git_and_selector_commands_receive_no_credential_environment(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("GITHUB_TOKEN", "must-not-cross-the-boundary")
+    monkeypatch.setenv("PYTHONPATH", "/tmp/pr-controlled")
     runner = FakeRunner(head="b" * 40)
 
     evaluate(
@@ -212,6 +214,10 @@ def test_git_and_selector_commands_receive_no_credential_environment(
     assert all(env["GOFLAGS"] == "-buildvcs=false" for env in selector_envs)
     assert all(env["GOTOOLCHAIN"] == "local" for env in selector_envs)
     assert all(env["GOCACHE"].startswith("/tmp/") for env in selector_envs)
+    assert all(
+        "/opt/python" in env["PYTHONPATH"].split(os.pathsep) for env in selector_envs
+    )
+    assert all("/tmp/pr-controlled" not in env["PYTHONPATH"] for env in selector_envs)
 
 
 def test_fetched_head_mismatch_is_stale_identity_without_selection_artifact(

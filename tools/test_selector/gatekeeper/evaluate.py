@@ -649,7 +649,10 @@ def _selector_environment() -> dict[str, str]:
     # caller-controlled import path into a subprocess whose ``--repo`` points
     # at the merged worktree; a top-level ``test_selector`` there must not
     # shadow this package.
-    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[2])
+    # Keep the image-owned package and dependencies, never an inherited PR path.
+    env["PYTHONPATH"] = os.pathsep.join(
+        (str(Path(__file__).resolve().parents[2]), "/opt/python")
+    )
     env["GOCACHE"] = "/tmp/go-build"
     env["GOMODCACHE"] = "/tmp/go-mod"
     env["GOFLAGS"] = "-buildvcs=false"
