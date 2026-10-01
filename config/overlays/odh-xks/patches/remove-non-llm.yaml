@@ -107,3 +107,17 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: kserve-inferenceservice-distro-role
+---
+# Remove InferenceGraph distro ClusterRoleBinding (bound to deleted kserve-controller-manager)
+$patch: delete
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kserve-inferencegraph-distro-rolebinding
+---
+# Remove InferenceGraph distro ClusterRole (orphaned - only used by the InferenceGraph controller)
+$patch: delete
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kserve-inferencegraph-distro-role

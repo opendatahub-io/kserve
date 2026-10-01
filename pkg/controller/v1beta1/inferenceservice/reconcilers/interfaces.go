@@ -21,7 +21,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"knative.dev/pkg/apis"
 	ctrl "sigs.k8s.io/controller-runtime"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
@@ -39,9 +38,6 @@ type WorkloadReconciler interface {
 	// SetControllerReferences sets owner references on all workloads
 	SetControllerReferences(owner metav1.Object, scheme *runtime.Scheme) error
 
-	// GetAuthProxyCondition returns a condition to set on the ISVC status when an
-	// existing auth proxy container has been preserved to avoid pod restart.
-	GetAuthProxyCondition() (*apis.Condition, apis.ConditionType)
 	// CleanupOrphans deletes resources selected by scope whose names are not retained.
 	CleanupOrphans(ctx context.Context, scope isvcutils.OrphanScope) error
 }

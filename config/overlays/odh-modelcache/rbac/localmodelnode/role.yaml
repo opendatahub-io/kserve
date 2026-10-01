@@ -22,3 +22,9 @@ rules:
   - subjectaccessreviews
   verbs:
   - create
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - localmodelnodes/finalizers
+  verbs:
+  - update

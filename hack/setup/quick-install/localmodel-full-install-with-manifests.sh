@@ -7246,12 +7246,6 @@ rules:
 - apiGroups:
   - serving.kserve.io
   resources:
-  - localmodelnodes/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - serving.kserve.io
-  resources:
   - localmodelnodes/status
   verbs:
   - get
