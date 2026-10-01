@@ -16,6 +16,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/deploy"
+	odhLabels "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/render/kustomize"
 )
 
@@ -36,6 +37,9 @@ var (
 	}
 	wvaDeploymentsOCP = []string{
 		wvaControllerDeployment,
+	}
+	modelExpressDeployments = []string{
+		modelExpressOperatorDeployment,
 	}
 )
 
@@ -70,6 +74,10 @@ func checkModelControllerReadiness(ctx context.Context, cli client.Client, names
 
 func checkWVAReadiness(ctx context.Context, cli client.Client, namespace string) error {
 	return checkDeploymentsReady(ctx, cli, namespace, wvaDeploymentsOCP)
+}
+
+func checkModelExpressReadiness(ctx context.Context, cli client.Client, namespace string) error {
+	return checkDeploymentsReady(ctx, cli, namespace, modelExpressDeployments)
 }
 
 // checkPresetsPresent reports which of the presets we just applied are no longer
@@ -169,6 +177,11 @@ func deleteResourceIfPresent(ctx context.Context, cli client.Client, obj client.
 			return nil
 		}
 		return fmt.Errorf("failed to check %s %s: %w", obj.GetObjectKind().GroupVersionKind().Kind, key, err)
+	}
+	if lookup.GetLabels()[odhLabels.PlatformPartOf] != KserveComponentName {
+		ctrl.LoggerFrom(ctx).Info("not deleting object this module did not apply",
+			"gvk", obj.GetObjectKind().GroupVersionKind(), "key", key)
+		return nil
 	}
 	if err := cli.Delete(ctx, lookup); err != nil {
 		if client.IgnoreNotFound(err) == nil {

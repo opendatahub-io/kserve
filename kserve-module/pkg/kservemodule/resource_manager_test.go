@@ -6,11 +6,14 @@ import (
 
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+
+	odhLabels "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
 )
 
 func TestCheckKServeReadiness_OCP_AllReady(t *testing.T) {
@@ -119,7 +122,11 @@ func TestDeleteResourceIfPresent_Deletes(t *testing.T) {
 	g := NewWithT(t)
 
 	dep := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{Name: "test-deploy", Namespace: "ns"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-deploy",
+			Namespace: "ns",
+			Labels:    map[string]string{odhLabels.PlatformPartOf: KserveComponentName},
+		},
 	}
 	cli := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(dep).Build()
 
@@ -130,6 +137,26 @@ func TestDeleteResourceIfPresent_Deletes(t *testing.T) {
 	err = cli.Get(context.Background(), client.ObjectKeyFromObject(dep), got)
 	g.Expect(err).Should(HaveOccurred())
 	g.Expect(client.IgnoreNotFound(err)).Should(BeNil())
+}
+
+func TestDeleteResourceIfPresent_KeepsObjectsItDidNotApply(t *testing.T) {
+	for name, labels := range map[string]map[string]string{
+		"unlabeled":       nil,
+		"other component": {odhLabels.PlatformPartOf: "dashboard"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			g := NewWithT(t)
+
+			rendered := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: "openshift-service-ca.crt", Namespace: "ns"}}
+			live := rendered.DeepCopy()
+			live.Labels = labels
+			cli := fake.NewClientBuilder().WithScheme(testScheme()).WithObjects(live).Build()
+
+			g.Expect(deleteResourceIfPresent(context.Background(), cli, rendered)).To(Succeed())
+			g.Expect(cli.Get(context.Background(), client.ObjectKeyFromObject(rendered), &corev1.ConfigMap{})).To(Succeed(),
+				"an object without this module's part-of label must survive cleanup")
+		})
+	}
 }
 
 func TestDeleteResourceIfPresent_SkipsWhenAbsent(t *testing.T) {
@@ -223,6 +250,7 @@ func buildFakeClient(deps ...appsv1.Deployment) client.Client {
 func testScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = appsv1.AddToScheme(s)
+	_ = corev1.AddToScheme(s)
 	s.AddKnownTypeWithName(llmISVCConfigGVK, &unstructured.Unstructured{})
 	s.AddKnownTypeWithName(llmISVCConfigListGVK, &unstructured.UnstructuredList{})
 	return s
