@@ -6,18 +6,14 @@ import (
 
 	. "github.com/onsi/gomega"
 
-	"github.com/opendatahub-io/odh-platform-utilities/api/common"
-
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
+	"github.com/opendatahub-io/odh-platform-utilities/api/common"
+	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
 	nodev1 "k8s.io/api/node/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-
-	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
-	"github.com/opendatahub-io/odh-platform-utilities/api/common"
-	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
 )
 
 func TestKserveDependencies_Defined(t *testing.T) {
