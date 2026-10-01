@@ -261,7 +261,8 @@ class TestManagementState:
             assert "autoscaling-wva-controller-config" not in data, \
                 "autoscaling-wva-controller-config should be stripped by extraCleanup"
             assert data, "inferenceservice-config must not be deleted"
-            assert not resource_exists(kubectl, "variantautoscaling", "leftover-va"), \
+            assert not resource_exists(kubectl, "variantautoscaling", "leftover-va",
+                                       namespace=NAMESPACE), \
                 "leftover VariantAutoscaling CR should be deleted by extraCleanup"
             assert not resource_exists(kubectl, "crd", "variantautoscalings.llmd.ai"), \
                 "leftover VariantAutoscaling CRD should be deleted by extraCleanup"
@@ -486,6 +487,8 @@ def _seed_wva_extra_cleanup_leftovers(kubectl):
         "        x-kubernetes-preserve-unknown-fields: true\n"
     )
     run([kubectl, "apply", "-f", "-"], input_text=leftover_crd)
+    run([kubectl, "wait", "--for=condition=Established",
+         "crd/variantautoscalings.llmd.ai", "--timeout=60s"])
     assert resource_exists(kubectl, "crd", "variantautoscalings.llmd.ai"), \
         "VariantAutoscaling CRD leftover must exist before extraCleanup"
     leftover_cr = (
@@ -496,7 +499,8 @@ def _seed_wva_extra_cleanup_leftovers(kubectl):
         f"  namespace: {NAMESPACE}\n"
     )
     run([kubectl, "apply", "-f", "-"], input_text=leftover_cr)
-    assert resource_exists(kubectl, "variantautoscaling", "leftover-va"), \
+    assert resource_exists(kubectl, "variantautoscaling", "leftover-va",
+                           namespace=NAMESPACE), \
         "VariantAutoscaling CR leftover must exist before extraCleanup"
 
 
