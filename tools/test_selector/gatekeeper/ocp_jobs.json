@@ -1,0 +1,26 @@
+{
+  "e2e-graph": {
+    "command": "/test e2e-graph",
+    "context": "ci/prow/e2e-graph",
+    "target": "e2e-graph-ocp",
+    "expression": "graph"
+  },
+  "e2e-raw": {
+    "command": "/test e2e-raw",
+    "context": "ci/prow/e2e-raw",
+    "target": "e2e-raw-ocp",
+    "expression": "raw or rawcipn"
+  },
+  "e2e-predictor": {
+    "command": "/test e2e-predictor",
+    "context": "ci/prow/e2e-predictor",
+    "target": "e2e-predictor-ocp",
+    "expression": "predictor or kserve_on_openshift"
+  },
+  "e2e-llm-inference-service": {
+    "command": "/test e2e-llm-inference-service",
+    "context": "ci/prow/e2e-llm-inference-service",
+    "target": "e2e-llmisvc-ocp",
+    "expression": "llmisvc_core and cluster_cpu and not pvc_storage"
+  }
+}

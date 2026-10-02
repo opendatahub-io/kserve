@@ -1,0 +1,7 @@
+# Pinned runtime dependency for CRD/config discovery in the trusted selector.
+PyYAML==6.0.2
+# Pinned for Python 3.11 and required by the GitHub App RSA signer.
+cryptography==44.0.3
+# CI self-test support for the Python 3.11 pytest suite.
+pytest==8.3.5
+jsonschema==4.23.0
