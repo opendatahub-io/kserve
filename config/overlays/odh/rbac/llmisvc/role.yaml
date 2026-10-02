@@ -5,6 +5,19 @@ metadata:
   name: kserve-llmisvc-distro-role
 rules:
 - apiGroups:
+  - monitoring.coreos.com
+  resources:
+  - podmonitors
+  - servicemonitors
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - networking.istio.io
   resources:
   - destinationrules

@@ -72,14 +72,11 @@ type Predictor struct {
 	inferenceServiceConfig *v1beta1.InferenceServicesConfig
 	deploymentMode         constants.DeploymentModeType
 	allowZeroInitialScale  bool
-	auditLoggingProfile    constants.AuditLoggingProfile
-	manageAuditLogging     bool
 	Log                    logr.Logger
 }
 
 func NewPredictor(client client.Client, clientset kubernetes.Interface, scheme *runtime.Scheme,
 	inferenceServiceConfig *v1beta1.InferenceServicesConfig, deploymentMode constants.DeploymentModeType, allowZeroInitialScale bool,
-	auditLoggingProfile constants.AuditLoggingProfile, manageAuditLogging bool,
 ) Component {
 	return &Predictor{
 		client:                 client,
@@ -88,8 +85,6 @@ func NewPredictor(client client.Client, clientset kubernetes.Interface, scheme *
 		inferenceServiceConfig: inferenceServiceConfig,
 		deploymentMode:         deploymentMode,
 		allowZeroInitialScale:  allowZeroInitialScale,
-		auditLoggingProfile:    auditLoggingProfile,
-		manageAuditLogging:     manageAuditLogging,
 		Log:                    ctrl.Log.WithName("PredictorReconciler"),
 	}
 }
@@ -169,9 +164,6 @@ func (p *Predictor) buildPredictorResources(ctx context.Context, isvc *v1beta1.I
 				return nil, errors.Wrapf(err, "failed to add INFERENCE_SERVICE_NAME environment variable to container %s", containerName)
 			}
 		}
-	}
-	if err := injectTLSSecurityProfile(ctx, p.client, &podSpec); err != nil {
-		return nil, errors.Wrap(err, "failed to inject TLS security profile into predictor")
 	}
 
 	if isvc.Spec.Tracing != nil {
@@ -843,8 +835,8 @@ func (p *Predictor) reconcileRawDeployment(ctx context.Context, isvc *v1beta1.In
 	componentExt := isvc.Spec.Predictor.ComponentExtensionSpec
 	adjustStableMinReplicasForCanaries(isvc, &componentExt)
 
-	r, err := raw.NewRawKubeReconciler(ctx, p.client, p.clientset, p.scheme, constants.InferenceServiceResource, objectMeta, workerObjectMeta, &componentExt,
-		podSpec, workerPodSpec, &isvc.Spec.Predictor.StorageUris, storageInitializerConfig, storageSpec, credentialBuilder, storageContainerSpec, p.auditLoggingProfile, p.manageAuditLogging)
+	r, err := raw.NewRawKubeReconciler(ctx, p.client, p.clientset, p.scheme, objectMeta, workerObjectMeta, &componentExt,
+		podSpec, workerPodSpec, &isvc.Spec.Predictor.StorageUris, storageInitializerConfig, storageSpec, credentialBuilder, storageContainerSpec)
 	if err != nil {
 		return nil, errors.Wrapf(err, "fails to create NewRawKubeReconciler for predictor")
 	}
@@ -854,14 +846,7 @@ func (p *Predictor) reconcileRawDeployment(ctx context.Context, isvc *v1beta1.In
 		return nil, errors.Wrapf(err, "fails to reconcile predictor")
 	}
 
-	if cond, condType := r.Workload.GetAuthProxyCondition(); cond != nil {
-		isvc.Status.SetCondition(condType, cond)
-	} else {
-		existing := isvc.Status.GetCondition(v1beta1.LatestDeploymentReady)
-		if existing != nil && existing.Reason == "AuthProxyPreserved" {
-			isvc.Status.ClearCondition(v1beta1.LatestDeploymentReady)
-		}
-	}
+	propagatePlatformWorkloadStatus(isvc, r.Workload)
 
 	if !utils.GetForceStopRuntime(isvc) {
 		isvc.Status.PropagateRawStatus(v1beta1.PredictorComponent, deploymentList, r.URL)
@@ -1010,8 +995,8 @@ func (p *Predictor) reconcileCanaryDeployments(ctx context.Context, isvc *v1beta
 		componentExt := v1beta1.ComponentExtensionSpec{}
 		componentExt.MinReplicas = &replicas
 
-		r, err := raw.NewRawKubeReconciler(ctx, p.client, p.clientset, p.scheme, constants.InferenceServiceResource, res.objectMeta, metav1.ObjectMeta{},
-			&componentExt, &res.podSpec, nil, nil, nil, nil, nil, nil, p.auditLoggingProfile, p.manageAuditLogging)
+		r, err := raw.NewRawKubeReconciler(ctx, p.client, p.clientset, p.scheme, res.objectMeta, metav1.ObjectMeta{},
+			&componentExt, &res.podSpec, nil, nil, nil, nil, nil, nil)
 		if err != nil {
 			return nil, errors.Wrapf(err, "fails to create canary reconciler for %s", canary.Predictor.Name)
 		}

@@ -18,8 +18,15 @@ limitations under the License.
 
 package inferenceservice
 
-import "sigs.k8s.io/controller-runtime/pkg/builder"
+import (
+	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
+)
 
-func (r *InferenceServiceReconciler) setupTLSSecurityProfileWatch(ctrlBuilder *builder.Builder) (*builder.Builder, error) {
-	return ctrlBuilder, nil
+// extendControllerSetup is a hook for distribution-specific controller setup such as
+// adding ownership watches for platform-specific resources. Distribution-specific builds
+// (compiled with -tags distro) can provide their own implementation; the default does nothing.
+// It runs once the upstream Owns and Watches are registered, before the controller is built.
+func (r *InferenceServiceReconciler) extendControllerSetup(_ manager.Manager, _ *builder.Builder) error {
+	return nil
 }

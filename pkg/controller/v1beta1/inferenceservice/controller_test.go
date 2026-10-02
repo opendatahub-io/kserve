@@ -34,9 +34,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
-
 	"k8s.io/utils/ptr"
-
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	"knative.dev/pkg/network"
@@ -226,70 +224,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				Expect(actualService.Spec.Template.Annotations).NotTo(HaveKey(autoscaling.InitialScaleAnnotationKey))
 			})
 		})
-		When("a Serverless InferenceService is created with zero min replicas", func() {
-			It("should use the default initial scale value", func() {
-				// Create configmap
-				configMap := &corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      constants.InferenceServiceConfigMapName,
-						Namespace: constants.KServeNamespace,
-					},
-					Data: configs,
-				}
-				Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
-				defer k8sClient.Delete(context.TODO(), configMap)
-
-				// Create InferenceService
-				serviceName := "initialscale4"
-				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
-				serviceKey := expectedRequest.NamespacedName
-				storageUri := "s3://test/mnist/export"
-				ctx := context.Background()
-				var minScale int32 = 0
-				isvc := &v1beta1.InferenceService{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      serviceKey.Name,
-						Namespace: serviceKey.Namespace,
-						Annotations: map[string]string{
-							"serving.kserve.io/deploymentMode": "Serverless",
-						},
-					},
-					Spec: v1beta1.InferenceServiceSpec{
-						Predictor: v1beta1.PredictorSpec{
-							ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
-								MinReplicas: &minScale,
-							},
-							Tensorflow: &v1beta1.TFServingSpec{
-								PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
-									StorageURI:     &storageUri,
-									RuntimeVersion: ptr.To("1.14.0"),
-									Container: corev1.Container{
-										Name:      constants.InferenceServiceContainerName,
-										Resources: defaultResource,
-									},
-								},
-							},
-						},
-					},
-				}
-				Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
-				defer k8sClient.Delete(ctx, isvc)
-
-				predictorServiceKey := types.NamespacedName{
-					Name:      constants.PredictorServiceName(serviceKey.Name),
-					Namespace: serviceKey.Namespace,
-				}
-				actualService := &knservingv1.Service{}
-				Eventually(func() error {
-					return k8sClient.Get(context.TODO(), predictorServiceKey, actualService)
-				},
-					timeout, interval).Should(Succeed())
-
-				Expect(actualService.Spec.Template.Annotations).NotTo(HaveKey(autoscaling.InitialScaleAnnotationKey))
-			})
-		})
 	})
-
 	Context("with knative configured to allow zero initial scale", func() {
 		BeforeEach(func() {
 			// Patch the existing config-autoscaler configmap to set allow-zero-initial-scale to true
@@ -325,7 +260,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				defer k8sClient.Delete(context.TODO(), configMap)
 
 				// Create InferenceService
-				serviceName := "initialscale5"
+				serviceName := "initialscale4"
 				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
 				serviceKey := expectedRequest.NamespacedName
 
@@ -381,7 +316,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				defer k8sClient.Delete(context.TODO(), configMap)
 
 				// Create InferenceService
-				serviceName := "initialscale6"
+				serviceName := "initialscale5"
 				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
 				serviceKey := expectedRequest.NamespacedName
 
@@ -437,7 +372,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				defer k8sClient.Delete(context.TODO(), configMap)
 
 				// Create InferenceService
-				serviceName := "initialscale7"
+				serviceName := "initialscale6"
 				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
 				serviceKey := expectedRequest.NamespacedName
 
@@ -483,67 +418,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				}, timeout, interval).Should(Succeed())
 
 				Expect(actualService.Spec.Template.Annotations).NotTo(HaveKey(autoscaling.InitialScaleAnnotationKey))
-			})
-		})
-		When("a Serverless InferenceService is created with zero min replicas", func() {
-			It("should override the default initial scale value with zero", func() {
-				// Create configmap
-				configMap := &corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      constants.InferenceServiceConfigMapName,
-						Namespace: constants.KServeNamespace,
-					},
-					Data: configs,
-				}
-				Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
-				defer k8sClient.Delete(context.TODO(), configMap)
-
-				// Create InferenceService
-				serviceName := "initialscale8"
-				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
-				serviceKey := expectedRequest.NamespacedName
-				storageUri := "s3://test/mnist/export"
-				ctx := context.Background()
-				var minScale int32 = 0
-				isvc := &v1beta1.InferenceService{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:      serviceKey.Name,
-						Namespace: serviceKey.Namespace,
-						Annotations: map[string]string{
-							"serving.kserve.io/deploymentMode": "Serverless",
-						},
-					},
-					Spec: v1beta1.InferenceServiceSpec{
-						Predictor: v1beta1.PredictorSpec{
-							ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
-								MinReplicas: &minScale,
-							},
-							Tensorflow: &v1beta1.TFServingSpec{
-								PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
-									StorageURI:     &storageUri,
-									RuntimeVersion: ptr.To("1.14.0"),
-									Container: corev1.Container{
-										Name:      constants.InferenceServiceContainerName,
-										Resources: defaultResource,
-									},
-								},
-							},
-						},
-					},
-				}
-				Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
-				defer k8sClient.Delete(ctx, isvc)
-
-				predictorServiceKey := types.NamespacedName{
-					Name:      constants.PredictorServiceName(serviceKey.Name),
-					Namespace: serviceKey.Namespace,
-				}
-				actualService := &knservingv1.Service{}
-				Eventually(func() error {
-					return k8sClient.Get(context.TODO(), predictorServiceKey, actualService)
-				}, timeout, interval).Should(Succeed())
-
-				Expect(actualService.Spec.Template.Annotations[autoscaling.InitialScaleAnnotationKey]).To(Equal("0"))
 			})
 		})
 	})
@@ -728,7 +602,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					},
 				},
 			}
-			addExpectedTLSSecurityProfile(&expectedService.Spec.Template.Spec.PodSpec)
 			// Set ResourceVersion which is required for update operation.
 			expectedService.ResourceVersion = actualService.ResourceVersion
 
@@ -2108,7 +1981,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					},
 				},
 			}
-			addExpectedTLSSecurityProfile(&expectedTransformerService.Spec.Template.Spec.PodSpec)
 			// Set ResourceVersion which is required for update operation.
 			expectedTransformerService.ResourceVersion = transformerService.ResourceVersion
 
@@ -2444,7 +2316,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						},
 					},
 				}
-				addExpectedTLSSecurityProfile(&expectedService.Spec.Template.Spec.PodSpec)
 				// Set ResourceVersion which is required for update operation.
 				expectedService.ResourceVersion = actualService.ResourceVersion
 
@@ -2758,7 +2629,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						},
 					},
 				}
-				addExpectedTLSSecurityProfile(&expectedService.Spec.Template.Spec.PodSpec)
 				// Set ResourceVersion which is required for update operation.
 				expectedService.ResourceVersion = actualService.ResourceVersion
 
@@ -3091,7 +2961,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						},
 					},
 				}
-				addExpectedTLSSecurityProfile(&expectedService.Spec.Template.Spec.PodSpec)
 				// Set ResourceVersion which is required for update operation.
 				expectedService.ResourceVersion = actualService.ResourceVersion
 
@@ -3370,7 +3239,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 						},
 					},
 				}
-				addExpectedTLSSecurityProfile(&expectedService.Spec.Template.Spec.PodSpec)
 				// Set ResourceVersion which is required for update operation.
 				expectedService.ResourceVersion = actualService.ResourceVersion
 
@@ -3943,7 +3811,6 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					},
 				},
 			}
-			addExpectedTLSSecurityProfile(&expectedPredictorService.Spec.Template.Spec.PodSpec)
 
 			// Set ResourceVersion which is required for update operation.
 			expectedPredictorService.ResourceVersion = predictorService.ResourceVersion
@@ -4589,6 +4456,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				if err != nil {
 					return false
 				}
+
 				return reflect.DeepEqual(actualIsvc.Status.URL, expectedURL) &&
 					reflect.DeepEqual(actualIsvc.Status.Address.URL, expectedAddressURL.URL)
 			}, timeout, interval).Should(BeTrue())

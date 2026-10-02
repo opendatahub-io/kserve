@@ -23,6 +23,7 @@ func TestNewConditionManager_InitializesConditions(t *testing.T) {
 	g.Expect(condMgr.GetCondition(string(common.ConditionTypeProvisioningSucceeded))).ShouldNot(BeNil())
 	g.Expect(condMgr.GetCondition(ConditionKServeReady)).ShouldNot(BeNil())
 	g.Expect(condMgr.GetCondition(ConditionModelControllerReady)).ShouldNot(BeNil())
+	g.Expect(condMgr.GetCondition(ConditionTracingConfigAvailable)).ShouldNot(BeNil())
 }
 
 func TestApplyProvisioningCondition_Success(t *testing.T) {
@@ -54,6 +55,36 @@ func TestApplyProvisioningCondition_Failure(t *testing.T) {
 	g.Expect(cond).ShouldNot(BeNil())
 	g.Expect(cond.Status).Should(Equal(metav1.ConditionFalse))
 	g.Expect(cond.Reason).Should(Equal("DeployFailed"))
+}
+
+func TestApplyTracingConfigCondition(t *testing.T) {
+	g := NewWithT(t)
+	kserve := &platformv1alpha1.Kserve{}
+	kserve.Generation = 7
+	condMgr := newConditionManager(kserve)
+	applyDependencyConditions(condMgr, dependencyResult{
+		allReasons: []string{"optional dependency unavailable"},
+	})
+
+	applyTracingConfigCondition(condMgr, kserve.Generation, fmt.Errorf("monitoring unavailable"))
+
+	cond := condMgr.GetCondition(ConditionTracingConfigAvailable)
+	g.Expect(cond).ShouldNot(BeNil())
+	g.Expect(cond.Status).Should(Equal(metav1.ConditionFalse))
+	g.Expect(cond.Severity).Should(Equal(common.ConditionSeverityInfo))
+	g.Expect(cond.Reason).Should(Equal("TracingConfigUnavailable"))
+	g.Expect(cond.Message).Should(ContainSubstring("monitoring unavailable"))
+	g.Expect(cond.ObservedGeneration).Should(Equal(int64(7)))
+
+	degraded := condMgr.GetCondition(string(common.ConditionTypeDegraded))
+	g.Expect(degraded.Status).Should(Equal(metav1.ConditionFalse))
+	g.Expect(degraded.Reason).Should(Equal("MissingOptionalDependency"))
+	g.Expect(degraded.Message).Should(ContainSubstring("optional dependency unavailable"))
+
+	applyTracingConfigCondition(condMgr, kserve.Generation, nil)
+	cond = condMgr.GetCondition(ConditionTracingConfigAvailable)
+	g.Expect(cond.Status).Should(Equal(metav1.ConditionTrue))
+	g.Expect(cond.ObservedGeneration).Should(Equal(int64(7)))
 }
 
 func TestApplyDependencyConditions_NoDegradation(t *testing.T) {
@@ -96,6 +127,8 @@ func markAllHealthy(condMgr *conditions.Manager) {
 		conditions.WithReason("Disabled"))
 	condMgr.MarkTrue(ConditionDependenciesAvailable,
 		conditions.WithReason("AllDependenciesMet"))
+	condMgr.MarkTrue(ConditionTracingConfigAvailable,
+		conditions.WithReason("TracingConfigAvailable"))
 	condMgr.ClearCondition(ConditionWVAReady)
 }
 

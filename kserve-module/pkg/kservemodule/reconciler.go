@@ -16,6 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -53,7 +54,7 @@ import (
 // --- Operand RBAC (cluster-scoped: operand ClusterRoles grant end-user access across namespaces) ---
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterroles;clusterrolebindings,verbs=create;delete;get;list;patch;update;watch
 // escalate/bind scoped to the exact roles and clusterroles deployed by this controller
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=account-editor-role;account-viewer-role;kserve-admin;kserve-edit;kserve-models-admin;kserve-models-edit;kserve-models-view;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-inferenceservice-distro-role;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;openshift-ai-inferenceservice-image-volume-scc;odh-model-controller-role;odh-model-controller-openshift-distro-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s;workload-variant-autoscaler-manager-role;workload-variant-autoscaler-metrics-auth-role;workload-variant-autoscaler-epp-metrics-reader-role;workload-variant-autoscaler-variantautoscaling-admin-role;workload-variant-autoscaler-variantautoscaling-editor-role;workload-variant-autoscaler-variantautoscaling-viewer-role;workload-variant-autoscaler-metrics-reader;kserve-localmodel-manager-role;kserve-localmodel-distro-role;kserve-localmodel-permfix-role;kserve-localmodelnode-agent-role;kserve-localmodelnode-distro-role;kserve-tls-distro-role
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=account-editor-role;account-viewer-role;kserve-admin;kserve-edit;kserve-models-admin;kserve-models-edit;kserve-models-view;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-inferenceservice-distro-role;kserve-inferencegraph-distro-role;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;openshift-ai-inferenceservice-image-volume-scc;odh-model-controller-role;odh-model-controller-openshift-distro-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s;workload-variant-autoscaler-manager-role;workload-variant-autoscaler-metrics-auth-role;workload-variant-autoscaler-epp-metrics-reader-role;workload-variant-autoscaler-variantautoscaling-admin-role;workload-variant-autoscaler-variantautoscaling-editor-role;workload-variant-autoscaler-variantautoscaling-viewer-role;workload-variant-autoscaler-metrics-reader;kserve-localmodel-manager-role;kserve-localmodel-distro-role;kserve-localmodel-permfix-role;kserve-localmodelnode-agent-role;kserve-localmodelnode-distro-role;kserve-tls-distro-role
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=bind;escalate,resourceNames=kserve-leader-election-role;llmisvc-leader-election-role;leader-election-role;workload-variant-autoscaler-leader-election-role
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles/finalizers;rolebindings/finalizers;clusterroles/finalizers;clusterrolebindings/finalizers,verbs=update
 
@@ -85,16 +86,21 @@ import (
 // --- Monitoring (cluster-scoped: ServiceMonitors and Prometheus API for metrics collection) ---
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheuses/api,resourceNames=k8s,verbs=get;create;update
+// +kubebuilder:rbac:groups=services.platform.opendatahub.io,resources=monitorings,resourceNames=default-monitoring,verbs=get
+// +kubebuilder:rbac:groups=services.platform.opendatahub.io,resources=monitorings,verbs=list;watch
 
 // --- Observability (Perses dashboards deployed to monitoring namespace when COO is present) ---
 // +kubebuilder:rbac:groups=perses.dev,resources=persesdashboards,verbs=create;delete;get;list;patch;update;watch
 
 // --- Dependency detection (read-only: check if required operators are installed) ---
 // +kubebuilder:rbac:groups=operators.coreos.com,resources=subscriptions,verbs=get;list;watch
+// +kubebuilder:rbac:groups=olm.operatorframework.io,resources=clusterextensions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=operator.openshift.io,resources=leaderworkersetoperators,verbs=get;list;watch
+// +kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch
 //
 // ModelCache RBAC
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;patch;update
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceslices,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=persistentvolumes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;patch;update
@@ -128,9 +134,19 @@ type KserveModuleReconciler struct {
 	dynamicWatches []*dynamicWatch
 	dynamicWatchMu sync.Mutex
 
+	// draResourceSliceGVK is the served resource.k8s.io ResourceSlice GVK discovered at
+	// setup (empty when the cluster does not serve Dynamic Resource Allocation). When set,
+	// hardware-aware filtering also treats accelerators published via DRA ResourceSlices as
+	// present, not just those in a node's status.allocatable.
+	draResourceSliceGVK schema.GroupVersionKind
+
 	// expectedPresets holds the preset names from the most recent render, written
 	// by reconcile and read by updateComponentReadiness later in the same call.
 	expectedPresets []string
+
+	// tracingConfigError records a non-fatal Monitoring read error so the
+	// reconcile can report it and retry without blocking other components.
+	tracingConfigError error
 }
 
 func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
@@ -205,6 +221,8 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
+	r.expectedPresets = nil
+	r.tracingConfigError = nil
 	componentErrors := r.reconcile(ctx, kserve)
 	applyProvisioningCondition(condMgr, componentErrors)
 	if len(componentErrors) > 0 {
@@ -216,11 +234,16 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, fmt.Errorf("reconciliation failed: %s", strings.Join(msgs, "; "))
 	}
 
+	applyTracingConfigCondition(condMgr, kserve.Generation, r.tracingConfigError)
 	r.updateComponentReadiness(ctx, kserve, condMgr)
 
 	if !condMgr.IsHappy() {
 		log.Info("not all components ready, requeueing")
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	}
+	if r.tracingConfigError != nil {
+		log.Info("tracing configuration unavailable, requeueing", "error", r.tracingConfigError)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
 	// The CRDs this module installs itself exist by now. Register their dynamic
@@ -283,8 +306,6 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 	if len(componentErrors) > 0 {
 		return componentErrors
 	}
-
-	r.expectedPresets = wellKnownPresetNames(allResources)
 
 	owned, unowned := splitByOwnership(allResources)
 	if err := r.Deployer.Deploy(ctx, deploy.DeployInput{

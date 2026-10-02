@@ -13,7 +13,7 @@
 # limitations under the License.
 
 import asyncio
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 import pytest
 from watchfiles import Change
@@ -26,18 +26,11 @@ async def test_ssl_cert_refresher_reloads_changed_certificate(monkeypatch):
     cert_path = "/etc/tls/tls.crt"
     key_path = "/etc/tls/tls.key"
 
-    async def changes(*paths, **kwargs):
-        assert paths == ("/etc/tls",)
-        assert not kwargs["recursive"]
-        assert kwargs["watch_filter"](Change.modified, cert_path)
-        assert kwargs["watch_filter"](Change.modified, "/etc/tls/..data")
+    async def changes(*paths):
+        assert paths == (key_path, cert_path)
         yield {(Change.modified, cert_path)}
 
     monkeypatch.setattr(ssl_cert_refresher, "awatch", changes)
-    probe_context = Mock()
-    monkeypatch.setattr(
-        ssl_cert_refresher.ssl, "SSLContext", Mock(return_value=probe_context)
-    )
     ssl_context = Mock()
 
     refresher = ssl_cert_refresher.SSLCertRefresher(
@@ -45,9 +38,8 @@ async def test_ssl_cert_refresher_reloads_changed_certificate(monkeypatch):
         key_path=key_path,
         cert_path=cert_path,
     )
-    await asyncio.wait_for(refresher._watch_task, timeout=5)
+    await refresher._watch_task
 
-    probe_context.load_cert_chain.assert_called_once_with(cert_path, key_path)
     ssl_context.load_cert_chain.assert_called_once_with(cert_path, key_path)
 
 
@@ -56,72 +48,32 @@ async def test_ssl_cert_refresher_keeps_watching_after_reload_error(monkeypatch)
     cert_path = "/etc/tls/tls.crt"
     key_path = "/etc/tls/tls.key"
 
-    async def changes(*_paths, **_kwargs):
-        yield {
-            (Change.modified, cert_path),
-            (Change.modified, key_path),
-        }
+    async def changes(*_paths):
+        yield {(Change.modified, cert_path)}
+        yield {(Change.modified, key_path)}
 
     monkeypatch.setattr(ssl_cert_refresher, "awatch", changes)
     exception_logger = Mock()
     monkeypatch.setattr(ssl_cert_refresher.logger, "exception", exception_logger)
-    probe_context = Mock()
-    probe_context.load_cert_chain.side_effect = [
-        ValueError("invalid certificate"),
-        None,
-    ]
-    monkeypatch.setattr(
-        ssl_cert_refresher.ssl, "SSLContext", Mock(return_value=probe_context)
-    )
     ssl_context = Mock()
+    ssl_context.load_cert_chain.side_effect = [ValueError("invalid certificate"), None]
 
     refresher = ssl_cert_refresher.SSLCertRefresher(
         ssl_context=ssl_context,
         key_path=key_path,
         cert_path=cert_path,
     )
-    await asyncio.wait_for(refresher._watch_task, timeout=5)
+    await refresher._watch_task
 
-    assert probe_context.load_cert_chain.call_count == 2
-    ssl_context.load_cert_chain.assert_called_once_with(cert_path, key_path)
+    assert ssl_context.load_cert_chain.call_count == 2
     exception_logger.assert_called_once_with("Failed to reload SSL certificate chain")
-
-
-@pytest.mark.asyncio
-async def test_ssl_cert_refresher_restarts_after_watch_error(monkeypatch):
-    cert_path = "/etc/tls/tls.crt"
-    calls = 0
-
-    async def changes(*_paths, **_kwargs):
-        nonlocal calls
-        calls += 1
-        if calls == 1:
-            raise RuntimeError("watch failed")
-        yield {(Change.modified, cert_path)}
-
-    monkeypatch.setattr(ssl_cert_refresher, "awatch", changes)
-    sleep = AsyncMock()
-    monkeypatch.setattr(ssl_cert_refresher.asyncio, "sleep", sleep)
-    monkeypatch.setattr(ssl_cert_refresher.ssl, "SSLContext", Mock(return_value=Mock()))
-    ssl_context = Mock()
-    refresher = ssl_cert_refresher.SSLCertRefresher(
-        ssl_context=ssl_context,
-        key_path="/etc/tls/tls.key",
-        cert_path=cert_path,
-    )
-
-    await asyncio.wait_for(refresher._watch_task, timeout=5)
-
-    assert calls == 2
-    sleep.assert_awaited_once_with(1.0)
-    ssl_context.load_cert_chain.assert_called_once_with(cert_path, "/etc/tls/tls.key")
 
 
 @pytest.mark.asyncio
 async def test_ssl_cert_refresher_stop_cancels_watcher(monkeypatch):
     watcher_started = asyncio.Event()
 
-    async def changes(*_paths, **_kwargs):
+    async def changes(*_paths):
         watcher_started.set()
         await asyncio.Event().wait()
         yield

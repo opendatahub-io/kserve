@@ -19,69 +19,11 @@ limitations under the License.
 package inferenceservice
 
 import (
-	"context"
-
-	configv1 "github.com/openshift/api/config/v1"
-	"k8s.io/apimachinery/pkg/api/equality"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
-	"sigs.k8s.io/controller-runtime/pkg/predicate"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-
-	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/kserve/kserve/pkg/utils"
+	"sigs.k8s.io/controller-runtime/pkg/manager"
 )
 
-const clusterAPIServerName = "cluster"
-
-func (r *InferenceServiceReconciler) setupTLSSecurityProfileWatch(ctrlBuilder *builder.Builder) (*builder.Builder, error) {
-	apiServerAvailable, err := utils.IsCrdAvailable(r.ClientConfig, configv1.GroupVersion.String(), "APIServer")
-	if err != nil {
-		return nil, err
-	}
-	if !apiServerAvailable {
-		r.Log.Info("The InferenceService controller won't watch config.openshift.io/v1/APIServer resources because the API is not available")
-		return ctrlBuilder, nil
-	}
-
-	return ctrlBuilder.Watches(
-		&configv1.APIServer{},
-		handler.EnqueueRequestsFromMapFunc(r.mapTLSProfileToInferenceServices),
-		builder.WithPredicates(tlsSecurityProfileChangedPredicate()),
-	), nil
-}
-
-func tlsSecurityProfileChangedPredicate() predicate.Predicate {
-	return predicate.Funcs{
-		CreateFunc: func(e event.CreateEvent) bool {
-			return e.Object.GetName() == clusterAPIServerName
-		},
-		UpdateFunc: func(e event.UpdateEvent) bool {
-			oldAPIServer, oldOK := e.ObjectOld.(*configv1.APIServer)
-			newAPIServer, newOK := e.ObjectNew.(*configv1.APIServer)
-			return oldOK && newOK && newAPIServer.Name == clusterAPIServerName &&
-				(!equality.Semantic.DeepEqual(oldAPIServer.Spec.TLSSecurityProfile, newAPIServer.Spec.TLSSecurityProfile) ||
-					oldAPIServer.Spec.TLSAdherence != newAPIServer.Spec.TLSAdherence)
-		},
-		DeleteFunc: func(e event.DeleteEvent) bool {
-			return e.Object.GetName() == clusterAPIServerName
-		},
-		GenericFunc: func(event.GenericEvent) bool { return false },
-	}
-}
-
-func (r *InferenceServiceReconciler) mapTLSProfileToInferenceServices(ctx context.Context, _ client.Object) []reconcile.Request {
-	inferenceServices := &v1beta1.InferenceServiceList{}
-	if err := r.List(ctx, inferenceServices); err != nil {
-		r.Log.Error(err, "failed to list InferenceServices after TLS profile change")
-		return nil
-	}
-
-	requests := make([]reconcile.Request, 0, len(inferenceServices.Items))
-	for i := range inferenceServices.Items {
-		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&inferenceServices.Items[i])})
-	}
-	return requests
+// extendControllerSetup registers no additional watches in ODH builds.
+func (r *InferenceServiceReconciler) extendControllerSetup(_ manager.Manager, _ *builder.Builder) error {
+	return nil
 }
