@@ -617,7 +617,7 @@ func NewSecurityConfig(isvcConfigMap *corev1.ConfigMap) (*SecurityConfig, error)
 }
 
 func NewServiceConfig(isvcConfigMap *corev1.ConfigMap) (*ServiceConfig, error) {
-	serviceConfig := &ServiceConfig{ServiceClusterIPNone: true}
+	serviceConfig := &ServiceConfig{}
 	if service, ok := isvcConfigMap.Data[ServiceConfigName]; ok {
 		err := json.Unmarshal([]byte(service), &serviceConfig)
 		if err != nil {
