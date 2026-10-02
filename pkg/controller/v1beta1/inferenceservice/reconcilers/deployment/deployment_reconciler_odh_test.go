@@ -31,12 +31,54 @@ import (
 	errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
 )
+
+const (
+	oauthProxyISVCConfigKey = "oauthProxy"
+
+	oauthProxyConfig = `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`
+
+	oauthProxyConfigWithTimeout = `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m", "upstreamTimeoutSeconds": "20"}`
+)
+
+// createRawDeploymentODH builds the desired Deployments and applies the platform
+// customizations with explicit inputs, bypassing the label and context
+// derivation done by customizeDeployments.
+func createRawDeploymentODH(ctx context.Context,
+	client kclient.Client,
+	clientset kubernetes.Interface,
+	resourceType workloadResourceType,
+	componentMeta metav1.ObjectMeta,
+	workerComponentMeta metav1.ObjectMeta,
+	componentExt *v1beta1.ComponentExtensionSpec,
+	podSpec *corev1.PodSpec, workerPodSpec *corev1.PodSpec,
+	auditLoggingProfile constants.AuditLoggingProfile,
+	manageAuditLogging bool,
+) ([]*appsv1.Deployment, bool, error) {
+	deploymentList, err := createRawDeployment(componentMeta, workerComponentMeta, componentExt, podSpec, workerPodSpec, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("failed to create raw deployment: %w", err)
+	}
+
+	r := &DeploymentReconciler{
+		client:         client,
+		clientset:      clientset,
+		DeploymentList: deploymentList,
+		componentExt:   componentExt,
+	}
+	authProxyPreserved, err := r.customizePlatformDeployments(ctx, resourceType, componentMeta, podSpec, auditLoggingProfile, manageAuditLogging)
+	if err != nil {
+		return nil, false, err
+	}
+	return deploymentList, authProxyPreserved, nil
+}
 
 func TestMountTransformerTLSInfrastructure(t *testing.T) {
 	tests := []struct {
@@ -951,12 +993,11 @@ func TestOauthProxyPreservation(t *testing.T) {
 				t.Context(),
 				client,
 				clientset,
-				constants.InferenceServiceResource,
+				inferenceServiceResource,
 				objectMeta,
 				metav1.ObjectMeta{},
 				&v1beta1.ComponentExtensionSpec{},
 				podSpec,
-				nil,
 				nil,
 				constants.AuditLoggingProfileNone,
 				false,
@@ -1115,42 +1156,37 @@ func TestDeploymentReconcilerCondition(t *testing.T) {
 			}
 
 			reconciler, err := NewDeploymentReconciler(
-				t.Context(),
+				isvcutils.WithInferenceServiceReconcile(t.Context()),
 				client,
 				clientset,
 				nil,
-				constants.InferenceServiceResource,
 				objectMeta,
 				metav1.ObjectMeta{},
 				&v1beta1.ComponentExtensionSpec{},
 				podSpec,
 				nil,
 				nil,
-				constants.AuditLoggingProfileNone,
-				false,
 			)
 
 			require.NoError(t, err)
 			require.NotNil(t, reconciler)
 
-			cond, condType := reconciler.GetAuthProxyCondition()
+			conditions := reconciler.PlatformConditions()
 			if tt.expectCondition {
-				require.NotNil(t, cond, "expected condition to be set")
-				assert.Equal(t, tt.expectedReason, cond.Reason)
-				assert.Equal(t, corev1.ConditionFalse, cond.Status)
-				assert.Equal(t, v1beta1.LatestDeploymentReady, condType)
+				require.Len(t, conditions, 1, "expected condition to be set")
+				assert.Equal(t, tt.expectedReason, conditions[0].Reason)
+				assert.Equal(t, corev1.ConditionFalse, conditions[0].Status)
+				assert.Equal(t, v1beta1.LatestDeploymentReady, conditions[0].Type)
 			} else {
-				assert.Nil(t, cond, "expected condition to be nil")
+				assert.Empty(t, conditions, "expected no condition")
 			}
 		})
 	}
 }
 
-func TestGetAuthProxyConditionNoCondition(t *testing.T) {
+func TestPlatformConditionsNoCondition(t *testing.T) {
 	reconciler := &DeploymentReconciler{}
-	cond, condType := reconciler.GetAuthProxyCondition()
-	assert.Nil(t, cond)
-	assert.Empty(t, condType)
+	assert.Empty(t, reconciler.PlatformConditions())
 }
 
 // Tests for OAuth proxy always added to new deployments
@@ -1163,9 +1199,7 @@ func TestNewRawDeploymentWithAuthDisabled_IncludesOAuthProxy(t *testing.T) {
 		constants.OauthProxyResourceCPULimit,
 	)
 
-	client := &mockClientForCheckDeploymentExist{
-		getErr: errors.NewNotFound(appsv1.Resource("deployment"), "default-predictor"),
-	}
+	client := &mockClientForAuthProxyDetection{deploymentNotFound: true}
 	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 		Data: map[string]string{
@@ -1189,12 +1223,11 @@ func TestNewRawDeploymentWithAuthDisabled_IncludesOAuthProxy(t *testing.T) {
 		context.TODO(),
 		client,
 		clientset,
-		constants.InferenceServiceResource,
+		inferenceServiceResource,
 		objectMeta,
 		metav1.ObjectMeta{},
 		&v1beta1.ComponentExtensionSpec{},
 		&corev1.PodSpec{},
-		nil,
 		nil,
 		constants.AuditLoggingProfileNone,
 		false,
@@ -1243,9 +1276,7 @@ func TestNewRawDeploymentWithAuthEnabled_IncludesOAuthProxy(t *testing.T) {
 		constants.OauthProxyResourceCPULimit,
 	)
 
-	client := &mockClientForCheckDeploymentExist{
-		getErr: errors.NewNotFound(appsv1.Resource("deployment"), "auth-enabled-predictor"),
-	}
+	client := &mockClientForAuthProxyDetection{deploymentNotFound: true}
 	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 		Data: map[string]string{
@@ -1269,12 +1300,11 @@ func TestNewRawDeploymentWithAuthEnabled_IncludesOAuthProxy(t *testing.T) {
 		context.TODO(),
 		client,
 		clientset,
-		constants.InferenceServiceResource,
+		inferenceServiceResource,
 		objectMeta,
 		metav1.ObjectMeta{},
 		&v1beta1.ComponentExtensionSpec{},
 		&corev1.PodSpec{},
-		nil,
 		nil,
 		constants.AuditLoggingProfileNone,
 		false,
@@ -1320,10 +1350,7 @@ func TestExistingRawDeploymentWithAuthDisabled_NoOAuthProxyAdded(t *testing.T) {
 		},
 	}
 
-	client := &mockClientForCheckDeploymentExist{
-		getDeployment: existingDeployment,
-		getErr:        nil,
-	}
+	client := &mockClientForAuthProxyDetection{existingDeployment: existingDeployment}
 	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 		Data: map[string]string{
@@ -1347,12 +1374,11 @@ func TestExistingRawDeploymentWithAuthDisabled_NoOAuthProxyAdded(t *testing.T) {
 		context.TODO(),
 		client,
 		clientset,
-		constants.InferenceServiceResource,
+		inferenceServiceResource,
 		objectMeta,
 		metav1.ObjectMeta{},
 		&v1beta1.ComponentExtensionSpec{},
 		&corev1.PodSpec{},
-		nil,
 		nil,
 		constants.AuditLoggingProfileNone,
 		false,
@@ -1399,10 +1425,7 @@ func TestExistingRawDeploymentWithAuthEnabled_PreservesOAuthProxy(t *testing.T) 
 		},
 	}
 
-	client := &mockClientForCheckDeploymentExist{
-		getDeployment: existingDeployment,
-		getErr:        nil,
-	}
+	client := &mockClientForAuthProxyDetection{existingDeployment: existingDeployment}
 	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 		Data: map[string]string{
@@ -1426,12 +1449,11 @@ func TestExistingRawDeploymentWithAuthEnabled_PreservesOAuthProxy(t *testing.T) 
 		context.TODO(),
 		client,
 		clientset,
-		constants.InferenceServiceResource,
+		inferenceServiceResource,
 		objectMeta,
 		metav1.ObjectMeta{},
 		&v1beta1.ComponentExtensionSpec{},
 		&corev1.PodSpec{},
-		nil,
 		nil,
 		constants.AuditLoggingProfileNone,
 		false,
@@ -1461,9 +1483,7 @@ func TestNewInferenceGraph_NoOAuthProxy(t *testing.T) {
 		constants.OauthProxyResourceCPULimit,
 	)
 
-	client := &mockClientForCheckDeploymentExist{
-		getErr: errors.NewNotFound(appsv1.Resource("deployment"), "ig-predictor"),
-	}
+	client := &mockClientForAuthProxyDetection{deploymentNotFound: true}
 	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
 		Data: map[string]string{
@@ -1487,12 +1507,11 @@ func TestNewInferenceGraph_NoOAuthProxy(t *testing.T) {
 		context.TODO(),
 		client,
 		clientset,
-		constants.InferenceGraphResource,
+		inferenceGraphResource,
 		objectMeta,
 		metav1.ObjectMeta{},
 		&v1beta1.ComponentExtensionSpec{},
 		&corev1.PodSpec{},
-		nil,
 		nil,
 		constants.AuditLoggingProfileNone,
 		false,
@@ -1728,12 +1747,11 @@ func TestUpgradePreservesLegacyVolumeName(t *testing.T) {
 				t.Context(),
 				client,
 				clientset,
-				constants.InferenceServiceResource,
+				inferenceServiceResource,
 				objectMeta,
 				metav1.ObjectMeta{},
 				&v1beta1.ComponentExtensionSpec{},
 				podSpec,
-				nil,
 				nil,
 				constants.AuditLoggingProfileNone,
 				false,
@@ -1996,9 +2014,9 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 				},
 			}
 			deployments, authProxyPreserved, err := createRawDeploymentODH(
-				t.Context(), client, clientset, constants.InferenceServiceResource,
+				t.Context(), client, clientset, inferenceServiceResource,
 				meta, metav1.ObjectMeta{}, &v1beta1.ComponentExtensionSpec{},
-				&corev1.PodSpec{Containers: []corev1.Container{{Name: constants.InferenceServiceContainerName}}}, nil, nil,
+				&corev1.PodSpec{Containers: []corev1.Container{{Name: constants.InferenceServiceContainerName}}}, nil,
 				tt.profile,
 				tt.manageAuditLogging,
 			)
@@ -2059,8 +2077,8 @@ func TestCreateRawDeploymentODHPreservesAnnotationlessConfiguredProxy(t *testing
 
 	initialClient := &mockClientForAuthProxyDetection{deploymentNotFound: true}
 	initial, _, err := createRawDeploymentODH(
-		t.Context(), initialClient, clientset, constants.InferenceServiceResource,
-		meta, metav1.ObjectMeta{}, &v1beta1.ComponentExtensionSpec{}, podSpec, nil, nil,
+		t.Context(), initialClient, clientset, inferenceServiceResource,
+		meta, metav1.ObjectMeta{}, &v1beta1.ComponentExtensionSpec{}, podSpec, nil,
 		constants.AuditLoggingProfileNone, false,
 	)
 	require.NoError(t, err)
@@ -2090,8 +2108,8 @@ func TestCreateRawDeploymentODHPreservesAnnotationlessConfiguredProxy(t *testing
 
 	reconcileClient := &mockClientForAuthProxyDetection{existingDeployment: existing}
 	reconciled, authProxyPreserved, err := createRawDeploymentODH(
-		t.Context(), reconcileClient, clientset, constants.InferenceServiceResource,
-		meta, metav1.ObjectMeta{}, &v1beta1.ComponentExtensionSpec{}, podSpec, nil, nil,
+		t.Context(), reconcileClient, clientset, inferenceServiceResource,
+		meta, metav1.ObjectMeta{}, &v1beta1.ComponentExtensionSpec{}, podSpec, nil,
 		constants.AuditLoggingProfileNone, false,
 	)
 	require.NoError(t, err)
@@ -2123,9 +2141,9 @@ func TestCreateRawDeploymentODHDoesNotImplicitlyMigrateOAuthProxy(t *testing.T) 
 	}
 
 	deployments, authProxyPreserved, err := createRawDeploymentODH(
-		t.Context(), client, clientset, constants.InferenceServiceResource,
+		t.Context(), client, clientset, inferenceServiceResource,
 		meta, metav1.ObjectMeta{}, &v1beta1.ComponentExtensionSpec{},
-		&corev1.PodSpec{Containers: []corev1.Container{{Name: constants.InferenceServiceContainerName}}}, nil, nil,
+		&corev1.PodSpec{Containers: []corev1.Container{{Name: constants.InferenceServiceContainerName}}}, nil,
 		constants.AuditLoggingProfileMetadata,
 		true,
 	)
@@ -2278,4 +2296,353 @@ func (m *mockClientForAuthProxyDetection) Patch(ctx context.Context, obj kclient
 		m.patchedInferenceService = isvc.DeepCopy()
 	}
 	return nil
+}
+
+func TestOauthProxyUpstreamTimeout(t *testing.T) {
+	type args struct {
+		client           kclient.Client
+		clientset        kubernetes.Interface
+		objectMeta       metav1.ObjectMeta
+		workerObjectMeta metav1.ObjectMeta
+		componentExt     *v1beta1.ComponentExtensionSpec
+		podSpec          *corev1.PodSpec
+		workerPodSpec    *corev1.PodSpec
+		expectedTimeout  string
+	}
+
+	tests := []struct {
+		name string
+		args args
+	}{
+		{
+			name: "default deployment",
+			args: args{
+				client: &mockClientForAuthProxyDetection{deploymentNotFound: true},
+				clientset: fake.NewSimpleClientset(&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+					Data: map[string]string{
+						oauthProxyISVCConfigKey: oauthProxyConfig,
+					},
+				}),
+				objectMeta: metav1.ObjectMeta{
+					Name:      "default-predictor",
+					Namespace: "default-predictor-namespace",
+					Annotations: map[string]string{
+						constants.ODHKserveRawAuth: "true",
+					},
+					Labels: map[string]string{
+						constants.DeploymentMode:  string(constants.Standard),
+						constants.AutoscalerClass: string(constants.DefaultAutoscalerClass),
+					},
+				},
+				workerObjectMeta: metav1.ObjectMeta{},
+				componentExt:     &v1beta1.ComponentExtensionSpec{},
+				podSpec:          &corev1.PodSpec{},
+				workerPodSpec:    nil,
+				expectedTimeout:  "",
+			},
+		},
+		{
+			name: "deployment with oauth proxy upstream timeout defined in oauth proxy config",
+			args: args{
+				client: &mockClientForAuthProxyDetection{deploymentNotFound: true},
+				clientset: fake.NewSimpleClientset(&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+					Data: map[string]string{
+						oauthProxyISVCConfigKey: oauthProxyConfigWithTimeout,
+					},
+				}),
+				objectMeta: metav1.ObjectMeta{
+					Name:      "config-timeout-predictor",
+					Namespace: "config-timeout-predictor-namespace",
+					Annotations: map[string]string{
+						constants.ODHKserveRawAuth: "true",
+					},
+					Labels: map[string]string{
+						constants.DeploymentMode:  string(constants.Standard),
+						constants.AutoscalerClass: string(constants.DefaultAutoscalerClass),
+					},
+				},
+				workerObjectMeta: metav1.ObjectMeta{},
+				componentExt:     &v1beta1.ComponentExtensionSpec{},
+				podSpec:          &corev1.PodSpec{},
+				workerPodSpec:    nil,
+				expectedTimeout:  "20s",
+			},
+		},
+		{
+			name: "deployment with oauth proxy upstream timeout defined in component spec",
+			args: args{
+				client: &mockClientForAuthProxyDetection{deploymentNotFound: true},
+				clientset: fake.NewSimpleClientset(&corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+					Data: map[string]string{
+						oauthProxyISVCConfigKey: oauthProxyConfigWithTimeout,
+					},
+				}),
+				objectMeta: metav1.ObjectMeta{
+					Name:      "config-timeout-predictor",
+					Namespace: "config-timeout-predictor-namespace",
+					Annotations: map[string]string{
+						constants.ODHKserveRawAuth: "true",
+					},
+					Labels: map[string]string{
+						constants.DeploymentMode:  string(constants.Standard),
+						constants.AutoscalerClass: string(constants.DefaultAutoscalerClass),
+					},
+				},
+				workerObjectMeta: metav1.ObjectMeta{},
+				componentExt: &v1beta1.ComponentExtensionSpec{
+					TimeoutSeconds: func(i int64) *int64 { return &i }(40),
+				},
+				podSpec:         &corev1.PodSpec{},
+				workerPodSpec:   nil,
+				expectedTimeout: "40s",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deployments, _, err := createRawDeploymentODH(
+				t.Context(),
+				tt.args.client,
+				tt.args.clientset,
+				inferenceServiceResource,
+				tt.args.objectMeta,
+				tt.args.workerObjectMeta,
+				tt.args.componentExt,
+				tt.args.podSpec,
+				tt.args.workerPodSpec,
+				constants.AuditLoggingProfileNone, false,
+			)
+			require.NoError(t, err)
+			require.NotEmpty(t, deployments)
+
+			oauthProxyContainerFound := false
+			containers := deployments[0].Spec.Template.Spec.Containers
+			for _, container := range containers {
+				if container.Name == "kube-rbac-proxy" {
+					oauthProxyContainerFound = true
+					if tt.args.expectedTimeout == "" {
+						for _, arg := range container.Args {
+							assert.NotContains(t, arg, "upstream-timeout")
+						}
+					} else {
+						require.Contains(t, container.Args, "--upstream-timeout="+tt.args.expectedTimeout)
+					}
+				}
+			}
+			require.True(t, oauthProxyContainerFound)
+		})
+	}
+}
+
+func TestResourceTypeFor(t *testing.T) {
+	isvcLabels := map[string]string{constants.InferenceServicePodLabelKey: "my-isvc"}
+	graphLabels := map[string]string{constants.InferenceGraphLabel: "my-graph"}
+	bothLabels := map[string]string{
+		constants.InferenceGraphLabel:         "my-graph",
+		constants.InferenceServicePodLabelKey: "my-isvc",
+	}
+
+	tests := []struct {
+		name          string
+		isvcReconcile bool
+		labels        map[string]string
+		want          workloadResourceType
+	}{
+		{
+			name:          "InferenceService component",
+			isvcReconcile: true,
+			labels:        isvcLabels,
+			want:          inferenceServiceResource,
+		},
+		{
+			name:          "user-set InferenceGraph label on an InferenceService component is ignored",
+			isvcReconcile: true,
+			labels:        bothLabels,
+			want:          inferenceServiceResource,
+		},
+		{
+			name:   "InferenceGraph router",
+			labels: graphLabels,
+			want:   inferenceGraphResource,
+		},
+		{
+			name:   "user-set InferenceService label on an InferenceGraph router is ignored",
+			labels: bothLabels,
+			want:   inferenceGraphResource,
+		},
+		{
+			name:   "InferenceService label outside an InferenceService reconcile",
+			labels: isvcLabels,
+			want:   "",
+		},
+		{
+			name:   "unlabeled component",
+			labels: map[string]string{"app": "test"},
+			want:   "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := t.Context()
+			if tt.isvcReconcile {
+				ctx = isvcutils.WithInferenceServiceReconcile(ctx)
+			}
+			assert.Equal(t, tt.want, resourceTypeFor(ctx, tt.labels))
+		})
+	}
+}
+
+func TestCustomizeDeploymentsAppliesAuditLoggingToPredictorOnly(t *testing.T) {
+	tests := []struct {
+		name          string
+		component     v1beta1.ComponentType
+		wantAuditArgs []string
+	}{
+		{
+			name:      "predictor receives the resolved profile",
+			component: v1beta1.PredictorComponent,
+			wantAuditArgs: []string{
+				"--audit-log-profile=metadata",
+				"--audit-resource-name=test-isvc",
+				"--audit-resource-namespace=test-ns",
+				"--audit-resource-type=InferenceService",
+				"--audit-ai-provider=KServe",
+			},
+		},
+		{
+			name:          "explainer ignores the resolved profile",
+			component:     v1beta1.ExplainerComponent,
+			wantAuditArgs: []string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// given
+			ctx := isvcutils.WithAuditLogging(isvcutils.WithInferenceServiceReconcile(t.Context()),
+				constants.AuditLoggingProfileMetadata, true)
+			client := &mockClientForAuthProxyDetection{deploymentNotFound: true}
+			clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+				Data:       map[string]string{oauthProxyISVCConfigKey: oauthProxyConfig},
+			})
+			meta := metav1.ObjectMeta{
+				Name:        "test-" + string(tt.component),
+				Namespace:   "test-ns",
+				Annotations: map[string]string{constants.ODHKserveRawAuth: "true"},
+				Labels: map[string]string{
+					constants.InferenceServicePodLabelKey: "test-isvc",
+					constants.KServiceComponentLabel:      string(tt.component),
+				},
+			}
+			podSpec := &corev1.PodSpec{Containers: []corev1.Container{{Name: constants.InferenceServiceContainerName}}}
+
+			// when
+			reconciler, err := NewDeploymentReconciler(ctx, client, clientset, nil, meta, metav1.ObjectMeta{},
+				&v1beta1.ComponentExtensionSpec{}, podSpec, nil, nil)
+
+			// then
+			require.NoError(t, err)
+			var proxy *corev1.Container
+			for i, c := range reconciler.DeploymentList[0].Spec.Template.Spec.Containers {
+				if c.Name == constants.KubeRbacContainerName {
+					proxy = &reconciler.DeploymentList[0].Spec.Template.Spec.Containers[i]
+				}
+			}
+			require.NotNil(t, proxy, "expected the auth proxy on an InferenceService component")
+			assert.Equal(t, tt.wantAuditArgs, managedAuditArgs(proxy.Args))
+		})
+	}
+}
+
+func TestCustomizeDeploymentsServingCertAnnotation(t *testing.T) {
+	// given
+	headMeta := metav1.ObjectMeta{
+		Name:        "head-predictor",
+		Namespace:   "test-ns",
+		Labels:      map[string]string{},
+		Annotations: map[string]string{"user": "value"},
+	}
+	workerMeta := metav1.ObjectMeta{
+		Name:      "worker-predictor",
+		Namespace: "test-ns",
+		Labels:    map[string]string{},
+	}
+	podSpec := &corev1.PodSpec{Containers: []corev1.Container{{
+		Name: constants.InferenceServiceContainerName,
+		Env: []corev1.EnvVar{
+			{Name: constants.RayNodeCountEnvName, Value: "2"},
+			{Name: constants.RequestGPUCountEnvName, Value: "1"},
+		},
+	}}}
+	workerPodSpec := &corev1.PodSpec{Containers: []corev1.Container{{
+		Name: constants.WorkerContainerName,
+		Env:  []corev1.EnvVar{{Name: constants.RequestGPUCountEnvName, Value: "1"}},
+	}}}
+
+	// when - unlabeled components skip the auth proxy, so no client is needed
+	reconciler, err := NewDeploymentReconciler(t.Context(), nil, nil, nil, headMeta, workerMeta,
+		&v1beta1.ComponentExtensionSpec{}, podSpec, workerPodSpec, nil)
+
+	// then
+	require.NoError(t, err)
+	require.Len(t, reconciler.DeploymentList, 2)
+	head, worker := reconciler.DeploymentList[0], reconciler.DeploymentList[1]
+
+	assert.Equal(t, "head-predictor"+constants.ServingCertSecretSuffix, head.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation])
+	assert.Equal(t, "worker-predictor"+constants.ServingCertSecretSuffix, worker.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation])
+}
+
+func TestCustomizeDeploymentsInferenceGraphMountsServingCertWithoutProxy(t *testing.T) {
+	tests := []struct {
+		name   string
+		labels map[string]string
+	}{
+		{
+			name:   "graph label",
+			labels: map[string]string{constants.InferenceGraphLabel: "my-graph"},
+		},
+		{
+			name: "user-set InferenceService label naming an absent InferenceService",
+			labels: map[string]string{
+				constants.InferenceGraphLabel:         "my-graph",
+				constants.InferenceServicePodLabelKey: "unrelated",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// given
+			client := &mockClientForAuthProxyDetection{deploymentNotFound: true}
+			meta := metav1.ObjectMeta{
+				Name:        "my-graph",
+				Namespace:   "test-ns",
+				Annotations: map[string]string{constants.ODHKserveRawAuth: "true"},
+				Labels:      tt.labels,
+			}
+			podSpec := &corev1.PodSpec{Containers: []corev1.Container{{Name: "my-graph", Image: "router:latest"}}}
+
+			// when
+			reconciler, err := NewDeploymentReconciler(t.Context(), client, nil, nil, meta, metav1.ObjectMeta{},
+				&v1beta1.ComponentExtensionSpec{}, podSpec, nil, nil)
+
+			// then
+			require.NoError(t, err)
+			spec := reconciler.DeploymentList[0].Spec.Template.Spec
+			require.Len(t, spec.Containers, 1, "the router must not get an auth proxy sidecar")
+			assert.Equal(t, []corev1.VolumeMount{{Name: tlsVolumeName, MountPath: "/etc/tls/private"}}, spec.Containers[0].VolumeMounts)
+			volumeNames := make([]string, 0, len(spec.Volumes))
+			for _, v := range spec.Volumes {
+				volumeNames = append(volumeNames, v.Name)
+			}
+			assert.Equal(t, []string{tlsVolumeName, constants.OauthProxySARCMName}, volumeNames)
+			assert.Zero(t, client.inferenceServiceGets, "no SAR ConfigMap is created for an InferenceGraph")
+		})
+	}
 }

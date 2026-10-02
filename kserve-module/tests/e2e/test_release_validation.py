@@ -6,6 +6,8 @@ fresh install → odh-model-controller Running + KServeReady=True
     PLATFORM=ocp make e2e-kserve-module-post-release
 """
 
+from pathlib import Path
+
 import pytest
 import yaml
 
@@ -19,6 +21,16 @@ from conftest import (
     run,
     wait_for_deployment,
     wait_for_llm_inference_service_ready,
+)
+
+# Same CPU LLMISVC shape as upgrade e2e (hf:// opt-125m + router + vLLM CPU).
+_LLMISVC_MANIFEST = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "tests"
+    / "upgrade"
+    / "test-manifests"
+    / "llmisvc-opt-125m-cpu.yaml"
 )
 
 
@@ -38,6 +50,17 @@ def _pod_restart_count(kubectl, namespace, name_prefix):
         for container in pod.get("status", {}).get("containerStatuses", []):
             total += container.get("restartCount", 0)
     return total
+
+
+def _post_release_llmisvc_manifest():
+    """Load the upgrade CPU fixture and rename it for the post-release smoke."""
+    manifest = yaml.safe_load(_LLMISVC_MANIFEST.read_text())
+    manifest["metadata"]["name"] = LLMISVC_SMOKE_NAME
+    # Post-release validates released defaults; do not pin an ea scheduler image.
+    router = manifest.get("spec", {}).get("router") or {}
+    router.pop("scheduler", None)
+    manifest["spec"]["router"] = router
+    return yaml.safe_dump(manifest)
 
 
 @pytest.mark.post_release
@@ -66,23 +89,19 @@ class TestPostReleaseSmoke:
         self, kubectl, apply_kserve_cr, release_test_namespace
     ):
         """Create one LLMInferenceService and wait for Ready=True."""
-        llmisvc_yaml = yaml.safe_dump(
-            {
-                "apiVersion": "serving.kserve.io/v1alpha1",
-                "kind": "LLMInferenceService",
-                "metadata": {
-                    "name": LLMISVC_SMOKE_NAME,
-                    "namespace": RELEASE_TEST_NAMESPACE,
-                },
-                "spec": {
-                    "model": {
-                        "name": "tinyllama",
-                        "uri": "oci://ghcr.io/kserve/openai/gpt2:0.0.1",
-                    },
-                },
-            }
+        llmisvc_yaml = _post_release_llmisvc_manifest()
+        result = run(
+            [
+                kubectl,
+                "apply",
+                "-n",
+                RELEASE_TEST_NAMESPACE,
+                "-f",
+                "-",
+            ],
+            input_text=llmisvc_yaml,
+            check=False,
         )
-        result = run([kubectl, "apply", "-f", "-"], input_text=llmisvc_yaml, check=False)
         assert result.returncode == 0, (
             f"LLMInferenceService apply failed (webhook/controller error): {result.stderr}"
         )
