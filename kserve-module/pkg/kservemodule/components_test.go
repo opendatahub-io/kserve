@@ -36,7 +36,7 @@ func TestIsWVAEnabled(t *testing.T) {
 		state    common.ManagementState
 		expected bool
 	}{
-		{"Managed returns true", common.Managed, true},
+		{"Managed returns false (WVA removed from RHOAI 3.6)", common.Managed, false},
 		{"Removed returns false", common.Removed, false},
 		{"empty returns false", "", false},
 	}

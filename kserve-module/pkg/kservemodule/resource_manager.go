@@ -68,10 +68,6 @@ func checkModelControllerReadiness(ctx context.Context, cli client.Client, names
 	return checkDeploymentsReady(ctx, cli, namespace, modelControllerDeploymentsOCP)
 }
 
-func checkWVAReadiness(ctx context.Context, cli client.Client, namespace string) error {
-	return checkDeploymentsReady(ctx, cli, namespace, wvaDeploymentsOCP)
-}
-
 // checkPresetsPresent reports which of the presets we just applied are no longer
 // on the cluster. They carry no ownerReference, so a deleted preset is invisible
 // to the ownerRef cascade and to garbage collection; without this check the CR
