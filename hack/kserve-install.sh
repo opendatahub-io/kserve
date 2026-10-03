@@ -226,9 +226,9 @@ show_installation_plan() {
         echo "  • LLMIsvc"
         echo "    - Dependencies: Gateway API, LWS Operator, Envoy Gateway"
         if [[ "${LLMISVC_SCALING}" == "keda" ]]; then
-          echo "    - Autoscaling: KEDA (Prometheus + KEDA + WVA)"
+          echo "    - Autoscaling: KEDA (Prometheus + KEDA)"
         elif [[ "${LLMISVC_SCALING}" == "hpa" ]]; then
-          echo "    - Autoscaling: HPA (Prometheus + Prometheus Adapter + WVA)"
+          echo "    - Autoscaling: HPA (Prometheus + Prometheus Adapter)"
         fi
         ! is_positive "$DEPS_ONLY" && is_positive "$INSTALL_LLMISVC_CONFIGS" && echo "    - With LLMIsvc Configs"
         ;;
@@ -245,7 +245,6 @@ uninstall_all() {
   local scripts=(
     "hack/setup/infra/manage.kserve-helm.sh"
     "hack/setup/infra/manage.kserve-kustomize.sh"
-    "hack/setup/infra/manage.wva-kustomize.sh"
     "hack/setup/infra/manage.prometheus-adapter-helm.sh"
     "hack/setup/infra/manage.prometheus-helm.sh"
     "hack/setup/infra/manage.keda-otel-addon-helm.sh"
@@ -351,16 +350,6 @@ if [[ ${#TYPES[@]} -gt 0 ]]; then
     ${REPO_ROOT}/hack/setup/infra/manage.kserve-helm.sh
   else
     ${REPO_ROOT}/hack/setup/infra/manage.kserve-kustomize.sh
-  fi
-
-  # Configure autoscaling settings in inferenceservice-config ConfigMap
-  if [[ -n "${LLMISVC_SCALING}" ]]; then
-    AUTOSCALING_PROM_URL="${WVA_PROMETHEUS_URL:-https://prometheus-kube-prometheus-prometheus.${PROMETHEUS_NAMESPACE:-monitoring}:9090}"
-    AUTOSCALING_PROM_UNSAFE_SSL="${WVA_PROMETHEUS_UNSAFE_SSL:-true}"
-    log_info "Configuring autoscaling-wva-controller-config with Prometheus URL: ${AUTOSCALING_PROM_URL}"
-    update_isvc_config \
-      "autoscaling-wva-controller-config.prometheus.url=${AUTOSCALING_PROM_URL}" \
-      "autoscaling-wva-controller-config.prometheus.unsafeSsl=${AUTOSCALING_PROM_UNSAFE_SSL}"
   fi
 
   log_success "Installation complete: ${TYPES[*]}"

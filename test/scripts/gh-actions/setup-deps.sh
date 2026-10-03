@@ -124,16 +124,14 @@ else
   kubectl wait deployment lws-controller-manager -n lws-system --for condition=Available --timeout=300s
 
   if [[ $LLMISVC_AUTOSCALER == "hpa" ]]; then
-    echo "Installing LLMISVC HPA autoscaling components (Prometheus, Prometheus Adapter, WVA)..."
+    echo "Installing LLMISVC HPA autoscaling components (Prometheus, Prometheus Adapter)..."
     ${REPO_ROOT}/hack/setup/infra/manage.prometheus-helm.sh
     ${REPO_ROOT}/hack/setup/infra/manage.prometheus-adapter-helm.sh
-    ${REPO_ROOT}/hack/setup/infra/manage.wva-kustomize.sh
 
   elif [[ $LLMISVC_AUTOSCALER == "keda" ]]; then
-    echo "Installing LLMISVC KEDA autoscaling components (Prometheus, KEDA, WVA)..."
+    echo "Installing LLMISVC KEDA autoscaling components (Prometheus, KEDA)..."
     ${REPO_ROOT}/hack/setup/infra/manage.prometheus-helm.sh
     ${REPO_ROOT}/hack/setup/infra/manage.keda-helm.sh
-    ${REPO_ROOT}/hack/setup/infra/manage.wva-kustomize.sh
   fi
 
   if [[ $OBSERVABILITY == "jaeger" ]]; then
