@@ -101,6 +101,12 @@ replacements:
     - spec.worker.containers.[name=main].image
   - select:
       kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-worker-pipeline-parallel
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+    - spec.worker.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
       name: kserve-config-llm-decode-template
     fieldPaths:
     - spec.template.containers.[name=main].image
@@ -439,6 +445,12 @@ replacements:
   - select:
       kind: LLMInferenceServiceConfig
       name: kserve-config-llm-worker-data-parallel
+    fieldPaths:
+    - spec.template.containers.[name=main].securityContext.runAsNonRoot
+    - spec.worker.containers.[name=main].securityContext.runAsNonRoot
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-worker-pipeline-parallel
     fieldPaths:
     - spec.template.containers.[name=main].securityContext.runAsNonRoot
     - spec.worker.containers.[name=main].securityContext.runAsNonRoot
