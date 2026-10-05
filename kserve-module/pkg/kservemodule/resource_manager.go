@@ -34,9 +34,6 @@ var (
 	modelControllerDeploymentsXKS = []string{
 		odhModelControllerDeployment,
 	}
-	wvaDeploymentsOCP = []string{
-		wvaControllerDeployment,
-	}
 )
 
 func NewDeployer() *deploy.Deployer {

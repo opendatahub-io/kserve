@@ -40,9 +40,8 @@ const (
 	kserveControllerDeployment     = "kserve-controller-manager"
 	llmISVCControllerDeployment    = "llmisvc-controller-manager"
 	localmodelControllerDeployment = "kserve-localmodel-controller-manager"
-	odhModelControllerDeployment   = "odh-model-controller"
-	modelServingAPIDeployment      = "model-serving-api"
-	wvaControllerDeployment        = "workload-variant-autoscaler-controller-manager"
+	odhModelControllerDeployment = "odh-model-controller"
+	modelServingAPIDeployment    = "model-serving-api"
 
 	// Console dashboards target namespace
 	consoleDashboardsNamespace = "openshift-config-managed"
