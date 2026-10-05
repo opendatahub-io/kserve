@@ -19,11 +19,20 @@ limitations under the License.
 package llmisvc
 
 import (
+	"context"
+	"errors"
 	"reflect"
 	"testing"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
+	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmeta"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
@@ -177,5 +186,50 @@ func TestPrometheusPeerNamespacesDoesNotDuplicateRHOAIDefault(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestReconcileNetworkPoliciesPropagatesTracingServiceErrors(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add core scheme: %v", err)
+	}
+	if err := v1alpha2.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add serving scheme: %v", err)
+	}
+
+	wantErr := errors.New("transient OTLP Service read failure")
+	fakeClient := clientfake.NewClientBuilder().
+		WithScheme(scheme).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*corev1.Service); ok {
+					return wantErr
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+
+	llmSvc := &v1alpha2.LLMInferenceService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "svc-a",
+			Namespace: "team-a",
+			Annotations: map[string]string{
+				constants.EnableTracingEgressNetworkPolicyAnnotationKey: "true",
+			},
+		},
+		Spec: v1alpha2.LLMInferenceServiceSpec{Tracing: &v1alpha2.TracingSpec{
+			ExporterEndpoint: ptr.To("http://jaeger.observability.svc:4317"),
+		}},
+	}
+	reconciler := &LLMISVCReconciler{
+		Client:        fakeClient,
+		EventRecorder: record.NewFakeRecorder(10),
+	}
+
+	err := reconciler.reconcileNetworkPolicies(context.Background(), llmSvc, nil)
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("reconcileNetworkPolicies error = %v, want wrapped %v", err, wantErr)
 	}
 }

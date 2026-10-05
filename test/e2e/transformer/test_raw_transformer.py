@@ -26,6 +26,7 @@
 # limitations under the License.
 
 import os
+import uuid
 
 from kubernetes import client
 from kubernetes.client import V1ResourceRequirements
@@ -42,7 +43,6 @@ from kserve import V1beta1InferenceServiceSpec
 from kserve import V1beta1InferenceService
 
 from ..common.utils import predict_isvc
-from ..common.utils import KSERVE_TEST_NAMESPACE
 
 
 @pytest.mark.raw
@@ -50,8 +50,9 @@ from ..common.utils import KSERVE_TEST_NAMESPACE
 @pytest.mark.skip(
     "The torchserve container fails in OpenShift with permission denied errors"
 )
-async def test_transformer(rest_v1_client, network_layer):
-    service_name = "raw-transformer"
+async def test_transformer(rest_v1_client, network_layer, test_namespace):
+    suffix = str(uuid.uuid4())[1:6]
+    service_name = "raw-transformer-" + suffix
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
         pytorch=V1beta1TorchServeSpec(
@@ -89,7 +90,7 @@ async def test_transformer(rest_v1_client, network_layer):
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE, annotations=annotations
+            name=service_name, namespace=test_namespace, annotations=annotations
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor, transformer=transformer),
     )
@@ -99,13 +100,13 @@ async def test_transformer(rest_v1_client, network_layer):
     )
     kserve_client.create(isvc)
     try:
-        kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+        kserve_client.wait_isvc_ready(service_name, namespace=test_namespace)
     except RuntimeError as e:
         print(
             kserve_client.api_instance.get_namespaced_custom_object(
                 "serving.knative.dev",
                 "v1",
-                KSERVE_TEST_NAMESPACE,
+                test_namespace,
                 "services",
                 service_name + "-predictor",
             )
@@ -118,6 +119,6 @@ async def test_transformer(rest_v1_client, network_layer):
         "./data/transformer.json",
         model_name="mnist",
         network_layer=network_layer,
+        namespace=test_namespace,
     )
     assert res["predictions"][0] == 2
-    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)

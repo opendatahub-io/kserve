@@ -13,29 +13,27 @@
 # limitations under the License.
 
 
-import pytest
 import logging
-from kubernetes import client
 
-from kubernetes.client import (
-    V1ResourceRequirements,
-    V1Probe,
-    V1HTTPGetAction,
-    V1ContainerPort,
-    V1EnvVar,
-    V1Container,
-    V1TCPSocketAction,
-)
-from kserve import constants
+import pytest
 from kserve import (
+    V1beta1InferenceService,
+    V1beta1InferenceServiceSpec,
     V1beta1PredictorSpec,
     V1beta1SKLearnSpec,
-    V1beta1InferenceServiceSpec,
-    V1beta1InferenceService,
+    constants,
+)
+from kubernetes import client
+from kubernetes.client import (
+    V1Container,
+    V1ContainerPort,
+    V1EnvVar,
+    V1HTTPGetAction,
+    V1Probe,
+    V1ResourceRequirements,
+    V1TCPSocketAction,
 )
 from timeout_sampler import TimeoutExpiredError, TimeoutSampler
-
-from ..common.utils import KSERVE_TEST_NAMESPACE
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -43,18 +41,18 @@ logger = logging.getLogger(__name__)
 
 
 def get_deployment(
-    k8s_client: client.AppsV1Api, service_name: str
+    k8s_client: client.AppsV1Api, service_name: str, namespace: str
 ) -> client.V1Deployment:
     """Get the Kubernetes Deployment for RawDeployment mode."""
     return k8s_client.read_namespaced_deployment(
         name=service_name + "-predictor",
-        namespace=KSERVE_TEST_NAMESPACE,
+        namespace=namespace,
     )
 
 
 @pytest.mark.kserve_on_openshift
 @pytest.mark.asyncio(scope="session")
-async def test_multi_container_probing(kserve_client, rest_v1_client):
+async def test_multi_container_probing(kserve_client, rest_v1_client, test_namespace):
     service_name = "isvc-sklearn-mcp"
     logger.info("Creating InferenceService %s", service_name)
 
@@ -123,7 +121,7 @@ async def test_multi_container_probing(kserve_client, rest_v1_client):
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
             name=service_name,
-            namespace=KSERVE_TEST_NAMESPACE,
+            namespace=test_namespace,
             annotations={
                 "serving.kserve.io/autoscalerClass": "none",
                 "serving.kserve.io/DeploymentMode": "RawDeployment",
@@ -138,7 +136,7 @@ async def test_multi_container_probing(kserve_client, rest_v1_client):
     )
 
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready(service_name, test_namespace)
 
     # Get the Kubernetes Deployment for RawDeployment mode
     k8s_client = kserve_client.app_api
@@ -146,7 +144,7 @@ async def test_multi_container_probing(kserve_client, rest_v1_client):
         for deployment in TimeoutSampler(
             wait_timeout=60,
             sleep=2,
-            func=lambda: get_deployment(k8s_client, service_name),
+            func=lambda: get_deployment(k8s_client, service_name, test_namespace),
         ):
             # Wait for Deployment to be ready
             if (
@@ -156,7 +154,7 @@ async def test_multi_container_probing(kserve_client, rest_v1_client):
                 break
 
         # Get latest deployment state after ready condition is met
-        ready_deployment = get_deployment(k8s_client, service_name)
+        ready_deployment = get_deployment(k8s_client, service_name, test_namespace)
         containers = ready_deployment.spec.template.spec.containers
 
         # Find containers by name
@@ -173,7 +171,7 @@ async def test_multi_container_probing(kserve_client, rest_v1_client):
         assert kserve_agent.readiness_probe is not None
         logger.info("kserve-agent probes verified successfully")
 
-        kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
+        kserve_client.delete(service_name, test_namespace)
     except TimeoutExpiredError as e:
         logger.error("Timeout waiting for deployment to be ready")
         raise e
