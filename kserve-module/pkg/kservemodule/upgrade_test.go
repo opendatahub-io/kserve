@@ -684,14 +684,15 @@ func TestUpgradeRunnableStart(t *testing.T) {
 		g.Expect(r.Start(context.Background())).To(Succeed())
 	})
 
-	t.Run("StartReturnsErrorOnWVABlocker", func(t *testing.T) {
+	t.Run("StartContinuesWhenWVAResourcesRemain", func(t *testing.T) {
 		g := NewWithT(t)
 		cli := makeISVCFakeClient(makeTestKserve(common.Managed))
 		r := &upgradeRunnable{client: cli, applicationNS: namespace}
 
-		err := r.Start(context.Background())
-		g.Expect(err).To(HaveOccurred())
-		g.Expect(err.Error()).To(ContainSubstring("WVA upgrade blocked"))
+		// Detection still fails closed, but startup must continue so reconciler
+		// cleanup can delete the leftovers.
+		g.Expect(blockUpgradeIfWVAResourcesPresent(context.Background(), cli, namespace)).NotTo(Succeed())
+		g.Expect(r.Start(context.Background())).To(Succeed())
 	})
 }
 

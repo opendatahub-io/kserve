@@ -69,14 +69,16 @@ type upgradeRunnable struct {
 	applicationNS string
 }
 
-// Start runs the upgrade tasks once. WVA upgrade blockers are fatal because WVA
-// is no longer supported in 3.6 and must be removed before upgrade. Other
-// migration errors are logged but remain non-fatal so manager startup is not
-// blocked by best-effort cleanup tasks.
+// Start runs the upgrade tasks once. WVA leftovers are reported and then left
+// for reconciler cleanup (defaultCleanup plus extraCleanup). Returning the
+// error here would crashloop the new controller before that cleanup can run,
+// which strands a 3.5 cluster on upgrade. The customer-facing stop is the
+// odh-cli pre-upgrade check, which must be clean before migrating.
+// Other migration errors are logged but remain non-fatal so manager startup
+// is not blocked by best-effort cleanup tasks.
 func (u *upgradeRunnable) Start(ctx context.Context) error {
 	if err := blockUpgradeIfWVAResourcesPresent(ctx, u.client, u.applicationNS); err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "WVA upgrade gate blocked manager startup")
-		return err
+		ctrl.LoggerFrom(ctx).Error(err, "WVA resources are still present; module cleanup will remove leftovers it owns")
 	}
 
 	if err := runUpgradeTasks(ctx, u.client, u.applicationNS); err != nil {
