@@ -1,5 +1,9 @@
 # Code/manifest generation and artifact sync.
 
+# --fail keeps an HTTP error body out of the downloaded artifact; retry all
+# errors so transient TLS failures also do not fail manifest generation.
+CURL ?= curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --retry-all-errors
+
 .PHONY: sync-deps
 sync-deps:
 	@@python3 hack/setup/scripts/generate-versions-from-gomod.py --no-cache
@@ -23,19 +27,24 @@ manifests: controller-gen kustomize yq
 	@$(CONTROLLER_GEN) rbac:roleName=kserve-manager-role paths={./pkg/controller/v1alpha1/inferencegraph,./pkg/controller/v1alpha1/trainedmodel,./pkg/controller/v1beta1/inferenceservice} output:rbac:artifacts:config=config/rbac
 	@$(CONTROLLER_GEN) rbac:roleName=kserve-llmisvc-manager-role paths=./pkg/controller/v1alpha2/llmisvc output:rbac:artifacts:config=config/rbac/llmisvc
 	@$(CONTROLLER_GEN) rbac:roleName=kserve-localmodel-manager-role paths=./pkg/controller/v1alpha1/localmodel output:rbac:artifacts:config=config/rbac/localmodel
+	@$(CONTROLLER_GEN) rbac:roleName=kserve-kernelcache-nodegroup-manager paths=./pkg/controller/v1alpha1/kernelcache output:rbac:artifacts:config=config/rbac/kernelcache
 	@$(CONTROLLER_GEN) rbac:roleName=kserve-localmodelnode-agent-role paths=./pkg/controller/v1alpha1/localmodelnode output:rbac:artifacts:config=config/rbac/localmodelnode
+	@$(CONTROLLER_GEN) rbac:roleName=kserve-kernelcachenode-agent-role paths=./pkg/controller/v1alpha1/kernelcachenode output:rbac:artifacts:config=config/rbac/kernelcachenode
 	# Hook for distro-specific manifest generation (override via Makefile.overrides.mk).
 	@$(MAKE) manifests-distro
 
 	# DO NOT COPY to helm chart. It needs to be created before the Envoy Gateway or you will need to restart the Envoy Gateway controller.
 	# The llmisvc helm chart needs to be installed after the Envoy Gateway as well, so it needs to be created before the llmisvc helm chart.
-	# Pull GIE v1 and llm-d.ai CRDs from release artifacts, retrying transient download failures.
-	@set -eu; \
-		gie_manifest=$$(mktemp); llmd_manifest=$$(mktemp); \
-		trap 'rm -f "$$gie_manifest" "$$llmd_manifest"' EXIT; \
-		curl -fSsL --retry 5 --retry-all-errors -o "$$gie_manifest" https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/$(GIE_VERSION)/v1-manifests.yaml; \
-		curl -fSsL --retry 5 --retry-all-errors -o "$$llmd_manifest" https://github.com/llm-d/llm-d-router/releases/download/$(LLMD_ROUTER_VERSION)/manifests.yaml; \
-		{ cat "$$gie_manifest"; printf '%s\n' '---'; cat "$$llmd_manifest"; } > config/llmisvc/gateway-inference-extension.yaml
+	# Pull upstream GIE v1 CRDs (InferencePool, etc.) from release artifact, then append the
+	# llm-d.ai CRDs (InferenceObjective, InferenceModelRewrite) from the llm-d-router release.
+	# Assembled in a temp file and installed only once both downloads succeed: curl writes the
+	# HTTP error body to its output stream, so a transient failure would otherwise leave an
+	# unparseable manifest in the tree and break every kustomize build that reads it.
+	@set -e; tmp=$$(mktemp); trap 'rm -f "$$tmp"' EXIT; \
+		$(CURL) https://github.com/kubernetes-sigs/gateway-api-inference-extension/releases/download/$(GIE_VERSION)/v1-manifests.yaml > "$$tmp"; \
+		echo "---" >> "$$tmp"; \
+		$(CURL) https://github.com/llm-d/llm-d-router/releases/download/$(LLMD_ROUTER_VERSION)/manifests.yaml >> "$$tmp"; \
+		install -m 0644 "$$tmp" config/llmisvc/gateway-inference-extension.yaml
 	# Workaround to update main-dev version from llm-d-router release as annotation
 	sed -i 's|llm-d.ai/bundle-version: main-dev|llm-d.ai/bundle-version: $(LLMD_ROUTER_VERSION)|' config/llmisvc/gateway-inference-extension.yaml
 	cp config/llmisvc/gateway-inference-extension.yaml test/crds/gateway-inference-extension.yaml
@@ -134,6 +143,7 @@ manifests: controller-gen kustomize yq
 	cp config/crd/full/clusterstoragecontainer/serving.kserve.io_clusterstoragecontainers.yaml charts/kserve-crd/files/
 	cp config/crd/full/clusterstoragecontainer/serving.kserve.io_clusterstoragecontainers.yaml charts/kserve-llmisvc-crd/files/
 	cp -f config/crd/full/localmodel/*.yaml charts/kserve-localmodel-crd/templates/
+	cp -f config/crd/full/kernelcache/*.yaml charts/kserve-localmodel-crd/templates/
 	rm charts/kserve-localmodel-crd/templates/kustomization.yaml
 	
 	# Copy llmisvc crd (with conversion webhook patches applied via kustomize)
@@ -161,6 +171,7 @@ manifests: controller-gen kustomize yq
 	$(KUSTOMIZE) build config/crd/minimal | $(YQ) 'select(.metadata.name == "servingruntimes.serving.kserve.io")' > charts/kserve-crd-minimal/templates/serving.kserve.io_servingruntimes.yaml
 	$(KUSTOMIZE) build config/crd/minimal | $(YQ) 'select(.metadata.name == "inferencegraphs.serving.kserve.io")' > charts/kserve-crd-minimal/templates/serving.kserve.io_inferencegraphs.yaml
 	cp -f config/crd/minimal/localmodel/*.yaml charts/kserve-localmodel-crd-minimal/templates/
+	cp -f config/crd/minimal/kernelcache/*.yaml charts/kserve-localmodel-crd-minimal/templates/
 	cp -f config/crd/minimal/clusterstoragecontainer/serving.kserve.io_clusterstoragecontainers.yaml charts/kserve-crd-minimal/files/
 	cp -f config/crd/minimal/clusterstoragecontainer/serving.kserve.io_clusterstoragecontainers.yaml charts/kserve-llmisvc-crd-minimal/files/
 	rm charts/kserve-localmodel-crd-minimal/templates/kustomization.yaml
