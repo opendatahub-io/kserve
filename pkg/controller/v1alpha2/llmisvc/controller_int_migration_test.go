@@ -156,26 +156,30 @@ var _ = Describe("InferencePool Migration", func() {
 			}).WithContext(ctx).Should(Succeed())
 
 			// Simulate existing migration annotation on HTTPRoute (as if Gateway had rejected before)
-			updatedRoute := managedRoute.DeepCopy()
-			if updatedRoute.Annotations == nil {
-				updatedRoute.Annotations = make(map[string]string)
-			}
-			updatedRoute.Annotations[llmisvc.AnnotationInferencePoolMigrated] = "v1"
-			Expect(envTest.Client.Update(ctx, updatedRoute)).To(Succeed())
+			Expect(retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				updatedRoute := &gwapiv1.HTTPRoute{}
+				if err := envTest.Client.Get(ctx, client.ObjectKeyFromObject(managedRoute), updatedRoute); err != nil {
+					return err
+				}
+				if updatedRoute.Annotations == nil {
+					updatedRoute.Annotations = make(map[string]string)
+				}
+				updatedRoute.Annotations[llmisvc.AnnotationInferencePoolMigrated] = "v1"
+				return envTest.Client.Update(ctx, updatedRoute)
+			})).To(Succeed())
 
 			// Trigger reconciliation by updating the LLMInferenceService
-			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
+			Expect(retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				llmSvcUpdated := &v1alpha2.LLMInferenceService{}
-				if err := envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), llmSvcUpdated); err != nil {
+				if err := envTest.Client.Get(ctx, client.ObjectKeyFromObject(llmSvc), llmSvcUpdated); err != nil {
 					return err
 				}
 				if llmSvcUpdated.Annotations == nil {
 					llmSvcUpdated.Annotations = make(map[string]string)
 				}
 				llmSvcUpdated.Annotations["trigger-reconcile"] = "true"
-				return envTest.Update(ctx, llmSvcUpdated)
-			})
-			Expect(err).To(Succeed())
+				return envTest.Client.Update(ctx, llmSvcUpdated)
+			})).To(Succeed())
 
 			// then - HTTPRoute should point to v1 pool (respecting annotation)
 			Eventually(func(g Gomega, ctx context.Context) error {

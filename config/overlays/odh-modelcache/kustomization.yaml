@@ -43,6 +43,44 @@ patches:
     kind: Service
     name: localmodel-webhook-server-service
   path: patches/openshift-serving-cert-localmodel-patch.yaml
+# KernelCache node agent is not deployed by the ODH modelcache overlay
+- target:
+    kind: DaemonSet
+    name: kserve-kernelcachenode-agent
+  patch: |-
+    $patch: delete
+    apiVersion: apps/v1
+    kind: DaemonSet
+    metadata:
+      name: kserve-kernelcachenode-agent
+# KernelCache node agent RBAC is not deployed by the ODH modelcache overlay
+- target:
+    kind: ServiceAccount
+    name: kserve-kernelcachenode-agent
+  patch: |-
+    $patch: delete
+    apiVersion: v1
+    kind: ServiceAccount
+    metadata:
+      name: kserve-kernelcachenode-agent
+- target:
+    kind: ClusterRole
+    name: kserve-kernelcachenode-agent-role
+  patch: |-
+    $patch: delete
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRole
+    metadata:
+      name: kserve-kernelcachenode-agent-role
+- target:
+    kind: ClusterRoleBinding
+    name: kserve-kernelcachenode-agent-rolebinding
+  patch: |-
+    $patch: delete
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: ClusterRoleBinding
+    metadata:
+      name: kserve-kernelcachenode-agent-rolebinding
 # DaemonSet customizations (mount path, PVC, security context)
 - patch: |-
     - op: replace

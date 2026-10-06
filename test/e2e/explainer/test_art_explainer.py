@@ -43,22 +43,19 @@ from kserve import V1beta1InferenceService
 
 from ..common.utils import predict_isvc
 from ..common.utils import explain_art
-from ..common.utils import KSERVE_TEST_NAMESPACE
 
 pytest.skip("ODH does not support art explainer at the moment", allow_module_level=True)
 
 
 @pytest.mark.explainer
 @pytest.mark.asyncio(scope="session")
-async def test_tabular_explainer(kserve_client, rest_v1_client):
+async def test_tabular_explainer(kserve_client, rest_v1_client, test_namespace):
     suffix = str(uuid.uuid4())[1:6]
     service_name = "art-explainer" + suffix
     isvc = V1beta1InferenceService(
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
-        metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE
-        ),
+        metadata=client.V1ObjectMeta(name=service_name, namespace=test_namespace),
         spec=V1beta1InferenceServiceSpec(
             predictor=V1beta1PredictorSpec(
                 sklearn=V1beta1SKLearnSpec(
@@ -89,20 +86,20 @@ async def test_tabular_explainer(kserve_client, rest_v1_client):
     kserve_client.create(isvc)
     try:
         kserve_client.wait_isvc_ready(
-            service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=720
+            service_name, namespace=test_namespace, timeout_seconds=720
         )
     except RuntimeError as e:
         logging.info(
             kserve_client.api_instance.get_namespaced_custom_object(
                 "serving.knative.dev",
                 "v1",
-                KSERVE_TEST_NAMESPACE,
+                test_namespace,
                 "services",
                 service_name + "-predictor",
             )
         )
         pods = kserve_client.core_api.list_namespaced_pod(
-            KSERVE_TEST_NAMESPACE,
+            test_namespace,
             label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
         )
         for pod in pods.items:
@@ -110,20 +107,27 @@ async def test_tabular_explainer(kserve_client, rest_v1_client):
         raise e
 
     res = await predict_isvc(
-        rest_v1_client, service_name, "./data/mnist_input_bw_flat.json"
+        rest_v1_client,
+        service_name,
+        "./data/mnist_input_bw_flat.json",
+        namespace=test_namespace,
     )
     assert res["predictions"] == [3]
 
     adv_prediction = await explain_art(
-        rest_v1_client, service_name, "./data/mnist_input_bw.json"
+        rest_v1_client,
+        service_name,
+        "./data/mnist_input_bw.json",
+        namespace=test_namespace,
     )
     assert adv_prediction != 3
-    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 
 @pytest.mark.raw
 @pytest.mark.asyncio(scope="session")
-async def test_raw_tabular_explainer(kserve_client, rest_v1_client, network_layer):
+async def test_raw_tabular_explainer(
+    kserve_client, rest_v1_client, network_layer, test_namespace
+):
     suffix = str(uuid.uuid4())[1:6]
     service_name = "art-explainer-raw-" + suffix
     isvc = V1beta1InferenceService(
@@ -131,7 +135,7 @@ async def test_raw_tabular_explainer(kserve_client, rest_v1_client, network_laye
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
             name=service_name,
-            namespace=KSERVE_TEST_NAMESPACE,
+            namespace=test_namespace,
             annotations={"serving.kserve.io/deploymentMode": "Standard"},
             labels={"networking.kserve.io/visibility": "exposed"},
         ),
@@ -165,20 +169,20 @@ async def test_raw_tabular_explainer(kserve_client, rest_v1_client, network_laye
     kserve_client.create(isvc)
     try:
         kserve_client.wait_isvc_ready(
-            service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=720
+            service_name, namespace=test_namespace, timeout_seconds=720
         )
     except RuntimeError as e:
         logging.info(
             kserve_client.api_instance.get_namespaced_custom_object(
                 "serving.knative.dev",
                 "v1",
-                KSERVE_TEST_NAMESPACE,
+                test_namespace,
                 "services",
                 service_name + "-predictor",
             )
         )
         pods = kserve_client.core_api.list_namespaced_pod(
-            KSERVE_TEST_NAMESPACE,
+            test_namespace,
             label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
         )
         for pod in pods.items:
@@ -190,6 +194,7 @@ async def test_raw_tabular_explainer(kserve_client, rest_v1_client, network_laye
         service_name,
         "./data/mnist_input_bw_flat.json",
         network_layer=network_layer,
+        namespace=test_namespace,
     )
     assert res["predictions"] == [3]
 
@@ -198,6 +203,6 @@ async def test_raw_tabular_explainer(kserve_client, rest_v1_client, network_laye
         service_name,
         "./data/mnist_input_bw.json",
         network_layer=network_layer,
+        namespace=test_namespace,
     )
     assert adv_prediction != 3
-    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
