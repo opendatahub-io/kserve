@@ -44,8 +44,6 @@ const (
 	modelServingAPIDeployment      = "model-serving-api"
 	wvaControllerDeployment        = "workload-variant-autoscaler-controller-manager"
 	variantAutoscalingCRDName      = "variantautoscalings.llmd.ai"
-	odhModelControllerDeployment = "odh-model-controller"
-	modelServingAPIDeployment    = "model-serving-api"
 
 	// Console dashboards target namespace
 	consoleDashboardsNamespace = "openshift-config-managed"
