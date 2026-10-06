@@ -162,18 +162,7 @@ func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, k
 			conditions.WithReason("AllDeploymentsAvailable"))
 	}
 
-	if isWVAEnabled(kserve) {
-		if err := checkWVAReadiness(ctx, r.Client, ns); err != nil {
-			condMgr.MarkFalse(ConditionWVAReady,
-				conditions.WithReason("DeploymentNotReady"),
-				conditions.WithMessage("%s", err.Error()))
-		} else {
-			condMgr.MarkTrue(ConditionWVAReady,
-				conditions.WithReason("AllDeploymentsAvailable"))
-		}
-	} else {
-		condMgr.ClearCondition(ConditionWVAReady)
-	}
+	condMgr.ClearCondition(ConditionWVAReady)
 
 	if !isModelCacheEnabled(kserve) {
 		condMgr.ClearCondition(ConditionModelCacheReady)
