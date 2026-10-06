@@ -215,6 +215,7 @@ class TestManagementState:
         assert result.returncode != 0, \
             f"{WVA_DEPLOYMENT} should not exist when WVA is Removed"
 
+    @pytest.mark.skip(reason="WVA manifests are no longer cloned (RHOAIENG-95492)")
     def test_wva_managed_deploys_resources(self, kubectl, cluster_info, apply_kserve_cr):
         """Setting wva.managementState to Managed deploys WVA resources."""
         patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
@@ -226,6 +227,7 @@ class TestManagementState:
         wait_for_deployment(kubectl, WVA_DEPLOYMENT)
         _verify_deployments_available(kubectl, is_openshift=True)
 
+    @pytest.mark.skip(reason="WVA manifests are no longer cloned (RHOAIENG-95492)")
     def test_wva_managed_to_removed_cleans_up(self, kubectl, cluster_info, apply_kserve_cr):
         """Switching WVA from Managed to Removed removes WVA deployment but keeps others."""
         patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
@@ -373,42 +375,25 @@ class TestDeletionRecovery:
         """Deleting owned Deployments triggers recreation with new UIDs."""
         targets = list(operand_deployments(cluster_info.is_openshift))
 
-        if cluster_info.is_openshift:
-            patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
-            run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
-            _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-                     f"observedGeneration not matching within {TIMEOUT_120S}s")
-            wait_for_deployment(kubectl, WVA_DEPLOYMENT)
-            targets.append(WVA_DEPLOYMENT)
+        for dep_name in targets:
+            uid_before = get_jsonpath(
+                kubectl, "deployment", dep_name, "{.metadata.uid}", namespace=NAMESPACE
+            )
+            assert uid_before, f"{dep_name} should exist before deletion"
 
-        try:
-            for dep_name in targets:
-                uid_before = get_jsonpath(
-                    kubectl, "deployment", dep_name, "{.metadata.uid}", namespace=NAMESPACE
+            run([kubectl, "delete", "deployment", dep_name, "-n", NAMESPACE])
+
+            def assert_recreated(name=dep_name, expected_old_uid=uid_before):
+                uid_after = get_jsonpath(
+                    kubectl, "deployment", name, "{.metadata.uid}", namespace=NAMESPACE
                 )
-                assert uid_before, f"{dep_name} should exist before deletion"
+                assert uid_after, f"{name} should be recreated"
+                assert uid_after != expected_old_uid, (
+                    f"{name} should have a new UID after recreation"
+                )
 
-                run([kubectl, "delete", "deployment", dep_name, "-n", NAMESPACE])
-
-                def assert_recreated(name=dep_name, expected_old_uid=uid_before):
-                    uid_after = get_jsonpath(
-                        kubectl, "deployment", name, "{.metadata.uid}", namespace=NAMESPACE
-                    )
-                    assert uid_after, f"{name} should be recreated"
-                    assert uid_after != expected_old_uid, (
-                        f"{name} should have a new UID after recreation"
-                    )
-
-                wait_for(assert_recreated, timeout=TIMEOUT_120S, interval=5)
-                wait_for_deployment(kubectl, dep_name)
-        finally:
-            if cluster_info.is_openshift:
-                patch = json.dumps({"spec": {"wva": {"managementState": "Removed"}}})
-                run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch],
-                    check=False)
-                _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
-                         f"observedGeneration not matching within {TIMEOUT_120S}s")
-                wait_for_deployment_gone(kubectl, WVA_DEPLOYMENT)
+            wait_for(assert_recreated, timeout=TIMEOUT_120S, interval=5)
+            wait_for_deployment(kubectl, dep_name)
 
 
 def _enable_wva(kubectl):
@@ -432,6 +417,7 @@ def _disable_wva(kubectl):
 
 @pytest.mark.sanity
 @pytest.mark.ocp_only
+@pytest.mark.skip(reason="WVA manifests are no longer cloned (RHOAIENG-95492)")
 class TestWVAConfigMap:
     """Verify WVA saturation-scaling-config ConfigMap lifecycle.
 
