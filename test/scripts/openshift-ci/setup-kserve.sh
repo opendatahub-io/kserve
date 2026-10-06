@@ -92,25 +92,11 @@ fi
 
 # LLMISvc autoscaling infrastructure (KEDA path only):
 #   1. User Workload Monitoring (provides Prometheus + Thanos Querier)
-#   2. WVA controller (computes desired replicas from saturation metrics)
-#   3. KEDA ClusterTriggerAuthentication (bearer token auth for Thanos)
+#   2. KEDA ClusterTriggerAuthentication (bearer token auth for Thanos)
 #
 # deploy.cma.sh (KEDA/CMA operator) is already called by deploy.kserve-manual.sh.
-# The autoscaling-wva-controller-config in inferenceservice-config is already set
-# by the ODH overlay (config/overlays/odh/patches/inferenceservice-config-patch.yaml).
 if [[ "${1:-}" =~ "autoscaling_keda" ]]; then
   echo "Setting up KEDA autoscaling infrastructure for LLMISVC..."
-
-  if [[ -n "${KSERVE_MODULE_CONTROLLER_IMAGE:-}" ]]; then
-    # kserve-module deploys WVA via Kserve CR patch
-    oc patch kserve/default-kserve --type=merge \
-      -p '{"spec":{"wva":{"managementState":"Managed"}}}'
-    oc wait kserve/default-kserve \
-      --for=jsonpath='{.status.conditions[?(@.type=="Ready")].status}'=True \
-      --timeout=300s
-  else
-    "${SCRIPT_DIR}/infra/deploy.wva.sh"
-  fi
 
   "${SCRIPT_DIR}/infra/deploy.keda-thanos-auth.sh"
 
@@ -119,12 +105,7 @@ if [[ "${1:-}" =~ "autoscaling_keda" ]]; then
   wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=llmisvc-controller-manager" 300s
 
   echo "Running KEDA autoscaling pipeline health check..."
-  if [[ -n "${KSERVE_MODULE_CONTROLLER_IMAGE:-}" ]]; then
-    KSERVE_NAMESPACE="${KSERVE_NAMESPACE}" WVA_NAMESPACE="${KSERVE_NAMESPACE}" \
-      "${SCRIPT_DIR}/infra/verify-autoscaling-health.sh"
-  else
-    KSERVE_NAMESPACE="${KSERVE_NAMESPACE}" "${SCRIPT_DIR}/infra/verify-autoscaling-health.sh"
-  fi
+  KSERVE_NAMESPACE="${KSERVE_NAMESPACE}" "${SCRIPT_DIR}/infra/verify-autoscaling-health.sh"
   echo "KEDA autoscaling infrastructure ready"
 fi
 
