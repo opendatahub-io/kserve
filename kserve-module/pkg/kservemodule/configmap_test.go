@@ -77,7 +77,7 @@ func TestCustomizeKserveConfigMap_StripsWVAKeyWhenDisabled(t *testing.T) {
 	g.Expect(cm.Data).Should(HaveKey(ingressConfigKeyName))
 }
 
-func TestCustomizeKserveConfigMap_KeepsWVAKeyWhenManaged(t *testing.T) {
+func TestCustomizeKserveConfigMap_StripsWVAKeyEvenWhenManaged(t *testing.T) {
 	g := NewWithT(t)
 
 	resources := buildTestResourcesWithWVAConfig(t)
@@ -89,7 +89,10 @@ func TestCustomizeKserveConfigMap_KeepsWVAKeyWhenManaged(t *testing.T) {
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
 	g.Expect(err).ShouldNot(HaveOccurred())
-	g.Expect(cm.Data).Should(HaveKey(autoscalingWVAControllerConfigKey))
+	// isWVAEnabled is always false in 3.6, so leftover Managed YAML still
+	// must not keep autoscaling-wva-controller-config in the inference ConfigMap.
+	g.Expect(cm.Data).ShouldNot(HaveKey(autoscalingWVAControllerConfigKey))
+	g.Expect(cm.Data).Should(HaveKey(ingressConfigKeyName))
 }
 
 func TestCustomizeKserveConfigMap_NoConfigMap(t *testing.T) {
