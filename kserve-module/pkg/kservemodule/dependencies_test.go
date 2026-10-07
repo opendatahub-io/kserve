@@ -5,15 +5,15 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+
+	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
+	"github.com/opendatahub-io/odh-platform-utilities/api/common"
+	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
 	nodev1 "k8s.io/api/node/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
-
-	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
-	"github.com/opendatahub-io/odh-platform-utilities/api/common"
-	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
 )
 
 func TestKserveDependencies_Defined(t *testing.T) {
@@ -33,6 +33,30 @@ func TestModelControllerDependencies_Defined(t *testing.T) {
 
 	for _, dep := range modelControllerDependencies {
 		assertDependencyValid(g, dep)
+	}
+}
+
+func TestModelControllerDependencies_WVAAlwaysSkipped(t *testing.T) {
+	g := NewWithT(t)
+
+	var cma *dependencyCheck
+	for i := range modelControllerDependencies {
+		if modelControllerDependencies[i].conditionGroup == conditionLLMDWVADeps {
+			cma = &modelControllerDependencies[i]
+			break
+		}
+	}
+	g.Expect(cma).ShouldNot(BeNil(), "CMA/WVA dependency must remain registered")
+	g.Expect(cma.skipFunc).ShouldNot(BeNil(), "CMA/WVA dependency must have skipFunc")
+
+	for _, state := range []common.ManagementState{common.Managed, common.Removed, ""} {
+		kserve := &platformv1alpha1.Kserve{
+			Spec: platformv1alpha1.KserveSpec{
+				WVA: platformv1alpha1.WVASpec{ManagementState: state},
+			},
+		}
+		g.Expect(cma.skipFunc(kserve)).To(BeTrue(),
+			"CMA/WVA dependency must be skipped even when spec.wva.managementState=%q", state)
 	}
 }
 

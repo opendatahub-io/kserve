@@ -34,9 +34,6 @@ var (
 	modelControllerDeploymentsXKS = []string{
 		odhModelControllerDeployment,
 	}
-	wvaDeploymentsOCP = []string{
-		wvaControllerDeployment,
-	}
 )
 
 func NewDeployer() *deploy.Deployer {
@@ -66,10 +63,6 @@ func checkModelControllerReadiness(ctx context.Context, cli client.Client, names
 		return checkDeploymentsReady(ctx, cli, namespace, modelControllerDeploymentsXKS)
 	}
 	return checkDeploymentsReady(ctx, cli, namespace, modelControllerDeploymentsOCP)
-}
-
-func checkWVAReadiness(ctx context.Context, cli client.Client, namespace string) error {
-	return checkDeploymentsReady(ctx, cli, namespace, wvaDeploymentsOCP)
 }
 
 // checkPresetsPresent reports which of the presets we just applied are no longer
