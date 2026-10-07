@@ -46,6 +46,11 @@ var kserveImageParamMap = map[string]string{
 	"ovms-versioning-ubi-micro":                        "RELATED_IMAGE_ODH_UBI_MICRO_IMAGE",
 }
 
+var modelCacheImageParamMap = map[string]string{
+	"kserve-localmodel-controller": kserveImageParamMap["kserve-localmodel-controller"],
+	"kserve-localmodelnode-agent":  kserveImageParamMap["kserve-localmodelnode-agent"],
+}
+
 var modelControllerImageParamMap = map[string]string{
 	"odh-model-controller":                          "RELATED_IMAGE_ODH_MODEL_CONTROLLER_IMAGE",
 	"odh-model-serving-api":                         "RELATED_IMAGE_ODH_MODEL_SERVING_API_IMAGE",

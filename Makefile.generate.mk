@@ -1,8 +1,8 @@
 # Code/manifest generation and artifact sync.
 
-# --fail keeps an HTTP error body out of the downloaded artifact; 5xx and timeouts are
-# retried so a flaky release download does not fail the whole generation run.
-CURL ?= curl --fail --silent --show-error --location --retry 3 --retry-delay 2
+# --fail keeps an HTTP error body out of the downloaded artifact; retry all
+# errors so transient TLS failures also do not fail manifest generation.
+CURL ?= curl --fail --silent --show-error --location --retry 3 --retry-delay 2 --retry-all-errors
 
 .PHONY: sync-deps
 sync-deps:
