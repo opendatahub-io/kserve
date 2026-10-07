@@ -7,6 +7,7 @@ import time
 import pytest
 
 from conftest import (
+    LLMISVC_DEPLOYMENT,
     LLMISVC_CONFIG_RESOURCE,
     NAMESPACE,
     OPERATOR_DEPLOYMENT,
@@ -15,6 +16,7 @@ from conftest import (
     get_jsonpath,
     run,
     wait_for,
+    wait_for_deployment,
 )
 
 
@@ -168,6 +170,12 @@ class TestTracingPresetSynchronization:
 
         original_spec = copy.deepcopy(monitoring.get("spec", {}))
         try:
+            # The upgrade test run can leave the llmisvc webhook deployment
+            # rolling just before this test applies a synthetic historical
+            # LLMInferenceServiceConfig. Wait for the webhook-backed controller
+            # deployment so the API server does not reject the apply with a
+            # transient connection refused error.
+            wait_for_deployment(kubectl, LLMISVC_DEPLOYMENT)
             run([kubectl, "apply", "-f", "-"], input_text=json.dumps(historical))
             run(
                 [
