@@ -103,6 +103,18 @@ wait_for_crd() {
   oc wait --for=condition=Established --timeout="$timeout" "crd/$crd"
 }
 
+# Check whether any served version of a CRD declares a given top-level .spec property.
+# Used to feature-detect optional operator capabilities (e.g. a newer RHCL build) so setup
+# can enable them when present and stay a no-op on older builds.
+# Usage: crd_has_spec_field <crd-name> <field>
+#   <crd-name> : full CRD name (e.g. authorinos.operator.authorino.kuadrant.io)
+#   <field>    : property name under .spec (e.g. enableLoggingFields)
+crd_has_spec_field() {
+  local crd="$1"
+  local field="$2"
+  oc get crd "${crd}" -o jsonpath="{.spec.versions[*].schema.openAPIV3Schema.properties.spec.properties.${field}}" 2>/dev/null | grep -q .
+}
+
 # Poll until GET /apis/<group>/<version> lists the given resource (apiserver discovery).
 # Stronger than CRD Established alone for admission paths that resolve owner GVK via REST mapping.
 # Usage: wait_for_api_discovery <group/version> <resource-name> [timeout_seconds]

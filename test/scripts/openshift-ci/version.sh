@@ -81,6 +81,56 @@ _print_deployment_image() {
   fi
 }
 
+# Print LLMInferenceService audit logging state (RHAISTRAT-1799): Kuadrant / Authorino operand images,
+# the Authorino logging spec and TelemetryPolicy status, plus optional log tails. Enough to tell an RHCL
+# build without the feature apart from a policy that was not accepted / enforced or an operand that did
+# not pick up the configuration. Safe to call from EXIT traps and failure paths: never fails the process.
+# Usage: print_audit_logging_diagnostics [log-tail-lines]   (default 0 = no logs)
+print_audit_logging_diagnostics() {
+  local tail_lines="${1:-0}"
+  local ns="${KUADRANT_NS:-kuadrant-system}"
+  echo "=== LLMInferenceService audit logging diagnostics ==="
+  if ! oc get ns "$ns" &>/dev/null; then
+    echo "namespace ${ns}: not present"
+    echo "=== End LLMInferenceService audit logging diagnostics ==="
+    return 0
+  fi
+  for deploy in kuadrant-operator-controller-manager authorino-operator authorino; do
+    if oc get deployment "$deploy" -n "$ns" &>/dev/null; then
+      echo "Deployment ${ns}/${deploy}:"
+      _print_deployment_image "$ns" "$deploy" "  "
+    fi
+  done
+  if oc get crd authorinos.operator.authorino.kuadrant.io &>/dev/null; then
+    echo -n "Authorino CRD supports spec.enableLoggingFields: "
+    crd_has_spec_field authorinos.operator.authorino.kuadrant.io enableLoggingFields && echo "yes" || echo "no"
+    if oc get authorino authorino -n "$ns" &>/dev/null; then
+      echo -n "Authorino CR (authorino/${ns}) spec: "
+      oc get authorino authorino -n "$ns" -o jsonpath='logLevel={.spec.logLevel} logMode={.spec.logMode} enableLoggingFields={.spec.enableLoggingFields} loggingFieldsMaxValueBytes={.spec.loggingFieldsMaxValueBytes}{"\n"}' 2>/dev/null || echo "unavailable"
+    else
+      echo "Authorino CR authorino/${ns}: not present"
+    fi
+  else
+    echo "CRD authorinos.operator.authorino.kuadrant.io: not found"
+  fi
+  if oc get crd telemetrypolicies.extensions.kuadrant.io &>/dev/null; then
+    echo -n "TelemetryPolicy CRD supports spec.logging: "
+    crd_has_spec_field telemetrypolicies.extensions.kuadrant.io logging && echo "yes" || echo "no"
+    echo "TelemetryPolicies (all namespaces):"
+    oc get telemetrypolicies.extensions.kuadrant.io -A -o jsonpath='{range .items[*]}  {.metadata.namespace}/{.metadata.name} target={.spec.targetRef.kind}/{.spec.targetRef.name} loggingFields={.spec.logging.default.fields} conditions=[{range .status.conditions[*]}{.type}={.status}({.reason}) {end}]{"\n"}{end}' 2>/dev/null || true
+  else
+    echo "CRD telemetrypolicies.extensions.kuadrant.io: not found"
+  fi
+  if (( tail_lines > 0 )); then
+    echo "--- kuadrant-operator-controller-manager logs (last ${tail_lines} lines) ---"
+    oc logs -n "$ns" deployment/kuadrant-operator-controller-manager --all-containers --tail="$tail_lines" 2>/dev/null || echo "(unavailable)"
+    echo "--- authorino logs (last ${tail_lines} lines) ---"
+    oc logs -n "$ns" deployment/authorino --tail="$tail_lines" 2>/dev/null || echo "(unavailable)"
+  fi
+  echo "=== End LLMInferenceService audit logging diagnostics ==="
+  return 0
+}
+
 # Print OpenShift / OLM snapshot for CI logs. Safe to call from an EXIT trap: never fails the process.
 # Usage: print_e2e_environment_summary
 print_e2e_environment_summary() {
@@ -121,6 +171,7 @@ print_e2e_environment_summary() {
     else
       echo "Kuadrant CR kuadrant/kuadrant-system: not present"
     fi
+    print_audit_logging_diagnostics
   fi
   for op_deploy in opendatahub-operator-controller-manager rhods-operator; do
     if oc get deployment "$op_deploy" -n openshift-operators &>/dev/null; then

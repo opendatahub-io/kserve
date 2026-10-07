@@ -62,6 +62,15 @@ echo "Deleting ImageDigestMirrorSets created for operator install"
 idms=rhoai-quay-mirror
 oc delete imagedigestmirrorset "${idms}" --ignore-not-found || true
 
+# Created by infra/deploy.kuadrant.sh on RHCL builds with TelemetryPolicy logging support. RHCL itself is
+# left installed (as before), so only the Gateway-scoped test policy is removed here.
+echo "Deleting LLMInferenceService audit logging TelemetryPolicy (if present)"
+if oc get crd telemetrypolicies.extensions.kuadrant.io &>/dev/null; then
+  : "${INFERENCE_GATEWAY_NS:=openshift-ingress}"
+  : "${AUDIT_TELEMETRY_POLICY_NAME:=${INFERENCE_GATEWAY_NAME:-openshift-ai-inference}-audit-logging}"
+  oc delete telemetrypolicies.extensions.kuadrant.io "${AUDIT_TELEMETRY_POLICY_NAME}" -n "${INFERENCE_GATEWAY_NS}" --ignore-not-found || true
+fi
+
 echo "Deleting KServe (raw overlay, if present)"
 kustomize build "$PROJECT_ROOT/config/overlays/odh-test" 2>/dev/null |
   oc delete --ignore-not-found -f - || true
