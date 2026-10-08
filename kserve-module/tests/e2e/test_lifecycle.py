@@ -217,6 +217,9 @@ class TestManagementState:
         assert not resource_exists(kubectl, "configmap", WVA_CONFIGMAP, namespace=NAMESPACE), \
             f"{WVA_CONFIGMAP} should not exist when WVA is Removed"
 
+    @pytest.mark.skip(reason="WVA manifests are no longer cloned (RHOAIENG-95492)")
+    def test_wva_managed_deploys_resources(self, kubectl, cluster_info, apply_kserve_cr):
+        """Setting wva.managementState to Managed deploys WVA resources."""
     def test_wva_managed_does_not_deploy_resources(self, kubectl, cluster_info, apply_kserve_cr):
         """Setting wva.managementState to Managed does not deploy WVA in 3.6."""
         patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
@@ -237,6 +240,9 @@ class TestManagementState:
             "WVAReady must be cleared even when spec.wva.managementState is Managed"
         _verify_deployments_available(kubectl, is_openshift=True)
 
+    @pytest.mark.skip(reason="WVA manifests are no longer cloned (RHOAIENG-95492)")
+    def test_wva_managed_to_removed_cleans_up(self, kubectl, cluster_info, apply_kserve_cr):
+        """Switching WVA from Managed to Removed removes WVA deployment but keeps others."""
     def test_wva_leftover_resources_cleaned_up(self, kubectl, cluster_info, apply_kserve_cr):
         """Leftover 3.5 WVA objects are deleted even if spec.wva is still Managed."""
         patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
