@@ -32,7 +32,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	localmodelnodecontroller "github.com/kserve/kserve/pkg/controller/v1alpha1/localmodelnode"
 	kservemetrics "github.com/kserve/kserve/pkg/metrics"
@@ -49,7 +48,6 @@ const (
 // Options defines the program configurable options that may be passed on the command line.
 type Options struct {
 	metricsAddr          string
-	webhookPort          int
 	enableLeaderElection bool
 	probeAddr            string
 	metricsSecure        bool
@@ -64,7 +62,6 @@ type Options struct {
 func DefaultOptions() Options {
 	return Options{
 		metricsAddr:          ":8080",
-		webhookPort:          9443,
 		enableLeaderElection: false,
 		probeAddr:            ":8081",
 		zapOpts:              zap.Options{},
@@ -134,11 +131,7 @@ func main() {
 	}
 
 	mgr, err := manager.New(cfg, manager.Options{
-		Metrics: metricsServerOptions,
-		WebhookServer: webhook.NewServer(webhook.Options{
-			Port:    options.webhookPort,
-			TLSOpts: tlsOpts,
-		}),
+		Metrics:                metricsServerOptions,
 		LeaderElection:         options.enableLeaderElection,
 		LeaderElectionID:       LeaderLockName,
 		HealthProbeBindAddress: options.probeAddr,

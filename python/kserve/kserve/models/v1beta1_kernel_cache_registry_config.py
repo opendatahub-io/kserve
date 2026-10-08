@@ -47,29 +47,87 @@ class V1beta1KernelCacheRegistryConfig(object):
                             and the value is json key in definition.
     """
     openapi_types = {
-        'endpoint': 'str'
+        'auth': 'V1beta1KernelCacheRegistryAuth',
+        'ca_config_map_ref': 'V1beta1KernelCacheConfigMapKeyRef',
+        'endpoint': 'str',
+        'insecure': 'bool'
     }
 
     attribute_map = {
-        'endpoint': 'endpoint'
+        'auth': 'auth',
+        'ca_config_map_ref': 'caConfigMapRef',
+        'endpoint': 'endpoint',
+        'insecure': 'insecure'
     }
 
-    def __init__(self, endpoint=None, local_vars_configuration=None):  # noqa: E501
+    def __init__(self, auth=None, ca_config_map_ref=None, endpoint=None, insecure=None, local_vars_configuration=None):  # noqa: E501
         """V1beta1KernelCacheRegistryConfig - a model defined in OpenAPI"""  # noqa: E501
         if local_vars_configuration is None:
             local_vars_configuration = Configuration()
         self.local_vars_configuration = local_vars_configuration
 
+        self._auth = None
+        self._ca_config_map_ref = None
         self._endpoint = None
+        self._insecure = None
         self.discriminator = None
 
+        if auth is not None:
+            self.auth = auth
+        if ca_config_map_ref is not None:
+            self.ca_config_map_ref = ca_config_map_ref
         if endpoint is not None:
             self.endpoint = endpoint
+        if insecure is not None:
+            self.insecure = insecure
+
+    @property
+    def auth(self):
+        """Gets the auth of this V1beta1KernelCacheRegistryConfig.  # noqa: E501
+
+
+        :return: The auth of this V1beta1KernelCacheRegistryConfig.  # noqa: E501
+        :rtype: V1beta1KernelCacheRegistryAuth
+        """
+        return self._auth
+
+    @auth.setter
+    def auth(self, auth):
+        """Sets the auth of this V1beta1KernelCacheRegistryConfig.
+
+
+        :param auth: The auth of this V1beta1KernelCacheRegistryConfig.  # noqa: E501
+        :type: V1beta1KernelCacheRegistryAuth
+        """
+
+        self._auth = auth
+
+    @property
+    def ca_config_map_ref(self):
+        """Gets the ca_config_map_ref of this V1beta1KernelCacheRegistryConfig.  # noqa: E501
+
+
+        :return: The ca_config_map_ref of this V1beta1KernelCacheRegistryConfig.  # noqa: E501
+        :rtype: V1beta1KernelCacheConfigMapKeyRef
+        """
+        return self._ca_config_map_ref
+
+    @ca_config_map_ref.setter
+    def ca_config_map_ref(self, ca_config_map_ref):
+        """Sets the ca_config_map_ref of this V1beta1KernelCacheRegistryConfig.
+
+
+        :param ca_config_map_ref: The ca_config_map_ref of this V1beta1KernelCacheRegistryConfig.  # noqa: E501
+        :type: V1beta1KernelCacheConfigMapKeyRef
+        """
+
+        self._ca_config_map_ref = ca_config_map_ref
 
     @property
     def endpoint(self):
         """Gets the endpoint of this V1beta1KernelCacheRegistryConfig.  # noqa: E501
 
+        Endpoint is the OCI registry host and optional port.  # noqa: E501
 
         :return: The endpoint of this V1beta1KernelCacheRegistryConfig.  # noqa: E501
         :rtype: str
@@ -80,12 +138,36 @@ class V1beta1KernelCacheRegistryConfig(object):
     def endpoint(self, endpoint):
         """Sets the endpoint of this V1beta1KernelCacheRegistryConfig.
 
+        Endpoint is the OCI registry host and optional port.  # noqa: E501
 
         :param endpoint: The endpoint of this V1beta1KernelCacheRegistryConfig.  # noqa: E501
         :type: str
         """
 
         self._endpoint = endpoint
+
+    @property
+    def insecure(self):
+        """Gets the insecure of this V1beta1KernelCacheRegistryConfig.  # noqa: E501
+
+        Insecure allows MCV to use plain HTTP for registry operations. The default is false.  # noqa: E501
+
+        :return: The insecure of this V1beta1KernelCacheRegistryConfig.  # noqa: E501
+        :rtype: bool
+        """
+        return self._insecure
+
+    @insecure.setter
+    def insecure(self, insecure):
+        """Sets the insecure of this V1beta1KernelCacheRegistryConfig.
+
+        Insecure allows MCV to use plain HTTP for registry operations. The default is false.  # noqa: E501
+
+        :param insecure: The insecure of this V1beta1KernelCacheRegistryConfig.  # noqa: E501
+        :type: bool
+        """
+
+        self._insecure = insecure
 
     def to_dict(self):
         """Returns the model properties as a dict"""
