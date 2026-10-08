@@ -28,6 +28,9 @@ import (
 	kservetls "github.com/kserve/kserve/pkg/tls"
 )
 
+// resolveTLS and setupDistroStartup are distro hooks (see main.go). This is
+// the upstream no-op default; distributions overlay their own version to add
+// platform-specific TLS handling without touching main.go.
 func resolveTLS(_ context.Context, _ *rest.Config, minVer, ciphers string) ([]func(*tls.Config), error) {
 	return kservetls.Resolve(minVer, ciphers)
 }

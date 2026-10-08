@@ -28,6 +28,18 @@ rules:
   - get
   - watch
 - apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
   - batch
   resources:
   - jobs
@@ -66,12 +78,6 @@ rules:
   - patch
   - update
   - watch
-- apiGroups:
-  - serving.kserve.io
-  resources:
-  - localmodelnodes/finalizers
-  verbs:
-  - update
 - apiGroups:
   - serving.kserve.io
   resources:

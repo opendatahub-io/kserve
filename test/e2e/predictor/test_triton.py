@@ -26,14 +26,48 @@ from kserve import V1beta1ModelSpec, V1beta1ModelFormat
 from kserve import V1beta1PredictorSpec
 from kserve import V1beta1TritonSpec
 from kserve import constants
-from ..common.utils import KSERVE_TEST_NAMESPACE
 from ..common.utils import predict_isvc
+
+
+def _print_readiness_diagnostics(kserve_client, service_name, namespace):
+    try:
+        print(
+            kserve_client.api_instance.get_namespaced_custom_object(
+                "serving.knative.dev",
+                "v1",
+                namespace,
+                "services",
+                service_name + "-predictor",
+            )
+        )
+    except Exception as diagnostic_error:
+        print(f"Unable to fetch Knative Service for {service_name}: {diagnostic_error}")
+
+    try:
+        services = kserve_client.core_api.list_namespaced_service(
+            namespace,
+            label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
+        )
+        for service in services.items:
+            print(service)
+    except Exception as diagnostic_error:
+        print(f"Unable to list Services for {service_name}: {diagnostic_error}")
+
+    try:
+        deployments = kserve_client.app_api.list_namespaced_deployment(
+            namespace,
+            label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
+        )
+        for deployment in deployments.items:
+            print(deployment)
+    except Exception as diagnostic_error:
+        print(f"Unable to list Deployments for {service_name}: {diagnostic_error}")
 
 
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
 @pytest.mark.asyncio(scope="session")
-async def test_triton(rest_v2_client, network_layer):
+async def test_triton(rest_v2_client, network_layer, test_namespace):
     service_name = "isvc-triton"
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
@@ -51,7 +85,7 @@ async def test_triton(rest_v2_client, network_layer):
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
             name=service_name,
-            namespace=KSERVE_TEST_NAMESPACE,
+            namespace=test_namespace,
             labels={
                 constants.KSERVE_LABEL_NETWORKING_VISIBILITY: constants.KSERVE_LABEL_NETWORKING_VISIBILITY_EXPOSED,
             },
@@ -65,37 +99,32 @@ async def test_triton(rest_v2_client, network_layer):
     kserve_client.create(isvc)
     try:
         kserve_client.wait_isvc_ready(
-            service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=800
+            service_name, namespace=test_namespace, timeout_seconds=800
         )
-    except RuntimeError as e:
-        services = kserve_client.core_api.list_namespaced_service(
-            KSERVE_TEST_NAMESPACE,
-            label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
-        )
-        for svc in services.items:
-            print(svc)
-        deployments = kserve_client.app_api.list_namespaced_deployment(
-            KSERVE_TEST_NAMESPACE,
-            label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
-        )
-        for deployment in deployments.items:
-            print(deployment)
-        raise e
+    except RuntimeError:
+        try:
+            _print_readiness_diagnostics(kserve_client, service_name, test_namespace)
+        except Exception:
+            # Keep diagnostic failures from replacing the readiness error.
+            pass
+        raise
     res = await predict_isvc(
         rest_v2_client,
         service_name,
         "./data/cifar10_input_v2.json",
         model_name="cifar10",
         network_layer=network_layer,
+        namespace=test_namespace,
     )
     assert np.argmax(res.outputs[0].data) == 3
-    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 
 @pytest.mark.transformer
 @pytest.mark.path_based_routing
 @pytest.mark.asyncio(scope="session")
-async def test_triton_runtime_with_transformer(rest_v1_client, network_layer):
+async def test_triton_runtime_with_transformer(
+    rest_v1_client, network_layer, test_namespace
+):
     service_name = "isvc-triton-runtime"
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
@@ -141,7 +170,7 @@ async def test_triton_runtime_with_transformer(rest_v1_client, network_layer):
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
             name=service_name,
-            namespace=KSERVE_TEST_NAMESPACE,
+            namespace=test_namespace,
             labels={
                 constants.KSERVE_LABEL_NETWORKING_VISIBILITY: constants.KSERVE_LABEL_NETWORKING_VISIBILITY_EXPOSED,
             },
@@ -155,30 +184,21 @@ async def test_triton_runtime_with_transformer(rest_v1_client, network_layer):
     kserve_client.create(isvc)
     try:
         kserve_client.wait_isvc_ready(
-            service_name, namespace=KSERVE_TEST_NAMESPACE, timeout_seconds=800
+            service_name, namespace=test_namespace, timeout_seconds=800
         )
-
-    except RuntimeError as e:
-        services = kserve_client.core_api.list_namespaced_service(
-            KSERVE_TEST_NAMESPACE,
-            label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
-        )
-        for svc in services.items:
-            print(svc)
-        deployments = kserve_client.app_api.list_namespaced_deployment(
-            KSERVE_TEST_NAMESPACE,
-            label_selector="serving.kserve.io/inferenceservice={}".format(service_name),
-        )
-        for deployment in deployments.items:
-            print(deployment)
-        raise e
-
+    except RuntimeError:
+        try:
+            _print_readiness_diagnostics(kserve_client, service_name, test_namespace)
+        except Exception:
+            # Keep diagnostic failures from replacing the readiness error.
+            pass
+        raise
     res = await predict_isvc(
         rest_v1_client,
         service_name,
         "./data/image.json",
         model_name="cifar10",
         network_layer=network_layer,
+        namespace=test_namespace,
     )
     assert np.argmax(res["predictions"][0]) == 5
-    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)

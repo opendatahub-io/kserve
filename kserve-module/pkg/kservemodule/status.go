@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -18,11 +19,16 @@ import (
 )
 
 const (
-	ConditionKServeReady           = "KServeReady"
-	ConditionModelControllerReady  = "ModelControllerReady"
-	ConditionWVAReady              = "WVAReady"
-	ConditionModelCacheReady       = "ModelCacheReady"
-	ConditionDependenciesAvailable = "DependenciesAvailable"
+	ConditionKServeReady            = "KServeReady"
+	ConditionModelControllerReady   = "ModelControllerReady"
+	ConditionWVAReady               = "WVAReady"
+	ConditionModelCacheReady        = "ModelCacheReady"
+	ConditionDependenciesAvailable  = "DependenciesAvailable"
+	ConditionTracingConfigAvailable = "TracingConfigAvailable"
+
+	// ReasonDeletionBlocked is the Degraded reason used when Kserve CR deletion
+	// is held back by resources that cannot yet be removed.
+	ReasonDeletionBlocked = "DeletionBlocked"
 )
 
 func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
@@ -34,6 +40,7 @@ func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
 		ConditionWVAReady,
 		ConditionModelCacheReady,
 		ConditionDependenciesAvailable,
+		ConditionTracingConfigAvailable,
 	)
 }
 
@@ -115,6 +122,20 @@ func applyProvisioningCondition(condMgr *conditions.Manager, componentErrors map
 		conditions.WithMessage("%s", strings.Join(msgs, "; ")))
 }
 
+func applyTracingConfigCondition(condMgr *conditions.Manager, generation int64, err error) {
+	observedGeneration := conditions.WithObservedGeneration(generation)
+	if err == nil {
+		condMgr.MarkTrue(ConditionTracingConfigAvailable,
+			conditions.WithReason("TracingConfigAvailable"), observedGeneration)
+		return
+	}
+	condMgr.MarkFalse(ConditionTracingConfigAvailable,
+		conditions.WithSeverity(common.ConditionSeverityInfo),
+		conditions.WithReason("TracingConfigUnavailable"),
+		conditions.WithMessage("platform tracing configuration unavailable: %s", err),
+		observedGeneration)
+}
+
 func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, kserve *platformv1alpha1.Kserve, condMgr *conditions.Manager) {
 	ns := r.getApplicationsNamespace()
 	isXKS := r.isKubernetes(ctx)
@@ -141,18 +162,7 @@ func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, k
 			conditions.WithReason("AllDeploymentsAvailable"))
 	}
 
-	if isWVAEnabled(kserve) {
-		if err := checkWVAReadiness(ctx, r.Client, ns); err != nil {
-			condMgr.MarkFalse(ConditionWVAReady,
-				conditions.WithReason("DeploymentNotReady"),
-				conditions.WithMessage("%s", err.Error()))
-		} else {
-			condMgr.MarkTrue(ConditionWVAReady,
-				conditions.WithReason("AllDeploymentsAvailable"))
-		}
-	} else {
-		condMgr.ClearCondition(ConditionWVAReady)
-	}
+	condMgr.ClearCondition(ConditionWVAReady)
 
 	if !isModelCacheEnabled(kserve) {
 		condMgr.ClearCondition(ConditionModelCacheReady)
@@ -191,15 +201,25 @@ func (r *KserveModuleReconciler) updateStatus(ctx context.Context, kserve *platf
 			}
 			return err
 		}
+		kserve.Status.ObservedGeneration = kserve.Generation
+		if equality.Semantic.DeepEqual(latest.Status, kserve.Status) {
+			return nil
+		}
 		latest.Status = kserve.Status
-		latest.Status.ObservedGeneration = kserve.Generation
 		return r.Status().Update(ctx, latest)
 	})
 }
 
 func (r *KserveModuleReconciler) setReleaseStatus(ctx context.Context, kserve *platformv1alpha1.Kserve) {
-	releases, err := loadComponentReleases(r.ManifestsTemplatePath,
-		[]string{KserveComponentName, OdhModelControllerComponentName})
+	// The modelcontroller component_metadata.yaml only lists serving runtime
+	// releases (OVMS, MLServer, Caikit, ...). On XKS those runtimes are not
+	// installed, so exclude them from status.releases.
+	componentDirs := []string{KserveComponentName}
+	if !r.isKubernetes(ctx) {
+		componentDirs = append(componentDirs, OdhModelControllerComponentName)
+	}
+
+	releases, err := loadComponentReleases(r.ManifestsTemplatePath, componentDirs)
 	if err != nil {
 		ctrl.Log.Error(err, "failed to load component releases")
 		return

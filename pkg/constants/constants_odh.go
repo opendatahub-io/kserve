@@ -23,6 +23,14 @@ const (
 )
 
 // Midstream annotation keys
+const (
+	// EnableTracingEgressNetworkPolicyAnnotationKey opts an LLMInferenceService into the workload tracing egress policy.
+	EnableTracingEgressNetworkPolicyAnnotationKey = KServeAPIGroupName + "/enable-tracing-egress-network-policy"
+	// LLMTracingServiceStatusAnnotationKey records the resolved OTLP Service key
+	// in LLMInferenceService status so Service events can be indexed precisely.
+	LLMTracingServiceStatusAnnotationKey = KServeAPIGroupName + "/tracing-egress-service"
+)
+
 var (
 	OVMSAutoVersioningAnnotationKey = "storage.kserve.io/ovms-auto-versioning"
 	ODHKserveRuntimeAnnotation      = "opendatahub.io/kserve-runtime"
@@ -78,21 +86,16 @@ const (
 // ODH Connections API
 const ODHS3Endpoint = "AWS_S3_ENDPOINT"
 
-// TLS infrastructure for service-ca bundle mounting and transformer-to-predictor communication
+// TLS infrastructure for service-ca bundle mounting and transformer-to-predictor communication (OpenShift-specific)
 const (
 	ServiceCaBundleVolumeName = "openshift-service-ca-bundle"
 	ServiceCaBundleMountPath  = "/etc/odh/openshift-service-ca-bundle"
 	ServiceCaBundleCertFile   = "service-ca.crt"
-)
 
-// Note: PredictorHostEnvVar, PredictorPortEnvVar, PredictorProtocolEnvVar and
-// ArgumentPredictorUseSSL now live upstream in constants.go.
-
-type ResourceType string
-
-const (
-	InferenceServiceResource ResourceType = "InferenceService"
-	InferenceGraphResource   ResourceType = "InferenceGraph"
+	// Transformer serving-cert volume/mount for native TLS (HTTPS on 8443)
+	TransformerTLSVolumeName = "transformer-tls"
+	TransformerTLSMountPath  = "/etc/tls/private"
+	TransformerHTTPSPort     = int32(8443)
 )
 
 func init() {

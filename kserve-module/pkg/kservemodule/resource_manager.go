@@ -29,9 +29,10 @@ var (
 	}
 	modelControllerDeploymentsOCP = []string{
 		odhModelControllerDeployment,
+		modelServingAPIDeployment,
 	}
-	wvaDeploymentsOCP = []string{
-		wvaControllerDeployment,
+	modelControllerDeploymentsXKS = []string{
+		odhModelControllerDeployment,
 	}
 )
 
@@ -59,13 +60,9 @@ func checkKServeReadiness(ctx context.Context, cli client.Client, namespace stri
 
 func checkModelControllerReadiness(ctx context.Context, cli client.Client, namespace string, isXKS bool) error {
 	if isXKS {
-		return nil
+		return checkDeploymentsReady(ctx, cli, namespace, modelControllerDeploymentsXKS)
 	}
 	return checkDeploymentsReady(ctx, cli, namespace, modelControllerDeploymentsOCP)
-}
-
-func checkWVAReadiness(ctx context.Context, cli client.Client, namespace string) error {
-	return checkDeploymentsReady(ctx, cli, namespace, wvaDeploymentsOCP)
 }
 
 // checkPresetsPresent reports which of the presets we just applied are no longer

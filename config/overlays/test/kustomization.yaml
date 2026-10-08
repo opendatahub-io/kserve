@@ -14,3 +14,5 @@ patches:
 - path: manager_image_patch.yaml
 - path: localmodel_manager_image_patch.yaml
 - path: localmodelnode_agent_image_patch.yaml
+# The KernelCache node agent is omitted from config/localmodels.
+# - path: kernelcachenode_agent_image_patch.yaml

@@ -49,6 +49,7 @@ var components = []componentConfig{
 	{
 		name:        OdhModelControllerComponentName,
 		sourcePath:  ModelControllerSourcePath,
+		sourcePathXKS: ModelControllerSourcePathXKS,
 		imageMap:    modelControllerImageParamMap,
 		extraParams: modelControllerExtraParams,
 		postRender:  modelControllerPostRender,
@@ -107,6 +108,53 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 	resources, err = versionedWellKnownLLMInferenceServiceConfigs(resources, versionPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("versioning LLMInferenceServiceConfigs: %w", err)
+	}
+
+	// Optimize versioned accelerator preset lifecycle. Skipped during cleanup renders
+	// (kserve == nil), which must see the full set to delete it. Hardware filtering runs
+	// first so differential versioning never compares presets already excluded.
+	if kserve != nil {
+		resources = r.filterHardwareUnavailablePresets(ctx, kserve, resources)
+		resources = r.dedupeVersionedAcceleratorPresets(ctx, resources)
+	}
+
+	cfg, err := r.resolveTracingPlatformConfig(ctx)
+	if err != nil {
+		log.Error(err, "unable to resolve platform tracing config, leaving tracing presets unchanged")
+		r.tracingConfigError = err
+		cfg = nil
+	}
+	var endpoint string
+	if cfg == nil {
+		log.V(1).Info("platform tracing config unavailable, leaving tracing presets unchanged")
+	} else {
+		endpoint = upstreamTracingEndpointFromResources(resources)
+		if !cfg.Enabled {
+			log.V(1).Info("platform tracing disabled, restoring upstream tracing endpoint")
+		} else {
+			endpoint = cfg.Endpoint
+			log.V(1).Info("patched tracing preset with platform collector", "endpoint", cfg.Endpoint, "sampleRatio", cfg.SampleRatio)
+			resources, err = patchWellKnownTracingPreset(resources, cfg)
+			if err != nil {
+				return nil, fmt.Errorf("patch tracing preset: %w", err)
+			}
+		}
+	}
+
+	if kserve != nil {
+		// Only shipped presets are readiness requirements. Historical presets are
+		// preserved when present but are not readiness requirements.
+		r.expectedPresets = wellKnownPresetNames(resources)
+		resources, err = r.includeExistingTracingPresets(ctx, resources)
+		if err != nil {
+			return nil, fmt.Errorf("include existing tracing presets: %w", err)
+		}
+	}
+	if cfg != nil {
+		resources, err = patchWellKnownTracingPresetEndpoint(resources, endpoint)
+		if err != nil {
+			return nil, fmt.Errorf("patch tracing preset endpoint: %w", err)
+		}
 	}
 
 	return resources, nil
@@ -184,8 +232,12 @@ func consoleDashboardsPostRender(ctx context.Context, r *KserveModuleReconciler,
 	return resources, nil
 }
 
-func isWVAEnabled(kserve *platformv1alpha1.Kserve) bool {
-	return kserve.Spec.WVA.ManagementState == common.Managed
+// isWVAEnabled always returns false: WVA is removed from the product in
+// RHOAI 3.6 (RHAISTRAT-2756). The WVA componentConfig entry is kept so
+// defaultCleanup still tears down leftover WVA resources on clusters
+// upgrading from 3.5 where WVA was Managed.
+func isWVAEnabled(_ *platformv1alpha1.Kserve) bool {
+	return false
 }
 
 func modelControllerExtraParams(kserve *platformv1alpha1.Kserve) map[string]string {
@@ -235,4 +287,3 @@ func applyManagedByLabel(resources []unstructured.Unstructured, componentName st
 		resources[i].SetLabels(labels)
 	}
 }
-

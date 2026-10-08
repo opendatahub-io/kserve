@@ -567,7 +567,7 @@
       },
       "targets": [
         {
-          "expr": "sum(inference_pool_ready_pods{namespace=~\"$namespace\"}) or vector(0)",
+          "expr": "sum(llm_d_epp_ready_endpoints{namespace=~\"$namespace\"}) or vector(0)",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -1406,7 +1406,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum(inference_pool_ready_pods{namespace=~\"$namespace\"}) by (name)",
+          "expr": "sum(llm_d_epp_ready_endpoints{namespace=~\"$namespace\"}) by (name)",
           "interval": "",
           "legendFormat": "{{name}}",
           "refId": "A"
@@ -1734,7 +1734,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum by(model_name, type) (rate(inference_objective_request_slo_violation_total{namespace=~\"$namespace\"}[5m]))",
+          "expr": "sum by(model_name, type) (rate(llm_d_epp_request_slo_violation_total{namespace=~\"$namespace\"}[5m]))",
           "interval": "",
           "legendFormat": "{{type}}",
           "refId": "A"
@@ -1831,7 +1831,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "100 * (sum by(model_name) (rate(inference_objective_request_error_total{namespace=~\"$namespace\"}[5m])) / (sum by(model_name) (rate(inference_objective_request_total{namespace=~\"$namespace\"}[5m])) > 0))",
+          "expr": "100 * (sum by(model_name) (rate(llm_d_epp_request_error_total{namespace=~\"$namespace\"}[5m])) / (sum by(model_name) (rate(llm_d_epp_request_total{namespace=~\"$namespace\"}[5m])) > 0))",
           "interval": "",
           "legendFormat": "{{model_name}}",
           "refId": "A"
@@ -1939,7 +1939,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum by(model_name) (inference_objective_running_requests{namespace=~\"$namespace\"})",
+          "expr": "sum by(model_name) (llm_d_epp_request_running{namespace=~\"$namespace\"})",
           "interval": "",
           "legendFormat": "{{model_name}}",
           "refId": "A"
@@ -2033,9 +2033,9 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "inference_extension_flow_control_pool_saturation{namespace=~\"$namespace\"}",
+          "expr": "llm_d_epp_flow_control_pool_saturation{namespace=~\"$namespace\",stage=\"effective\"}",
           "interval": "",
-          "legendFormat": "Pool Saturation",
+          "legendFormat": "{{inference_pool}} Pool Saturation",
           "refId": "A"
         }
       ],
@@ -2141,7 +2141,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum by(model_name, target_model_name) (rate(inference_objective_request_total{namespace=~\"$namespace\"}[5m]))",
+          "expr": "sum by(model_name, target_model_name) (rate(llm_d_epp_request_total{namespace=~\"$namespace\"}[5m]))",
           "interval": "",
           "legendFormat": "{{model_name}} -> {{target_model_name}}",
           "refId": "A"

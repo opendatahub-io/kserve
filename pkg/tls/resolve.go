@@ -22,8 +22,8 @@ import (
 )
 
 // Resolve builds TLS option functions from the provided min version and cipher
-// suites strings. Returns hardened defaults (TLS 1.2, ALPN h2/http1.1) when
-// both are empty.
+// suites strings. When both are empty, it returns hardened Intermediate defaults
+// (TLS 1.2, ECDHE AEAD ciphers, ALPN h2/http1.1).
 func Resolve(tlsMinVersion, tlsCipherSuites string) ([]func(*tls.Config), error) {
 	minVersion, err := parseMinVersion(tlsMinVersion)
 	if err != nil {

@@ -2615,15 +2615,15 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "inference_pool_average_queue_size{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}",
+          "expr": "llm_d_epp_average_queue_size{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}",
           "interval": "",
           "legendFormat": "Avg Queue",
           "refId": "A"
         },
         {
-          "expr": "inference_pool_per_pod_queue_size{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}",
+          "expr": "llm_d_epp_per_endpoint_queue_size{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}",
           "interval": "",
-          "legendFormat": "{{model_server_pod}}",
+          "legendFormat": "{{model_server_endpoint}}",
           "refId": "B"
         }
       ],
@@ -2829,7 +2829,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum(rate(inference_objective_normalized_time_per_output_token_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le, model_name))",
+          "expr": "histogram_quantile(0.99, sum(rate(llm_d_epp_request_ntpot_seconds_bucket{llm_isvc_name=~\"$llm_isvc_name\",namespace=~\"$namespace\"}[5m])) by (le, model_name))",
           "interval": "",
           "legendFormat": "Scheduler (E2E)",
           "refId": "A"
@@ -2940,7 +2940,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "sum by(decision_type) (rate(llm_d_inference_scheduler_disagg_decision_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m]))",
+          "expr": "sum by(decision_type) (rate(llm_d_epp_disagg_decision_total{llm_isvc_name!=\"\",namespace=~\"$namespace\"}[5m]))",
           "interval": "",
           "legendFormat": "{{decision_type}}",
           "refId": "A"
@@ -3218,13 +3218,13 @@
       "steppedLine": false,
       "targets": [
         {
-          "expr": "histogram_quantile(0.99, sum(rate(inference_objective_input_tokens_bucket{namespace=~\"$namespace\"}[5m])) by (le, model_name))",
+          "expr": "histogram_quantile(0.99, sum(rate(llm_d_epp_request_input_tokens_bucket{namespace=~\"$namespace\"}[5m])) by (le, model_name))",
           "interval": "",
           "legendFormat": "Input P99",
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.99, sum(rate(inference_objective_output_tokens_bucket{namespace=~\"$namespace\"}[5m])) by (le, model_name))",
+          "expr": "histogram_quantile(0.99, sum(rate(llm_d_epp_request_output_tokens_bucket{namespace=~\"$namespace\"}[5m])) by (le, model_name))",
           "interval": "",
           "legendFormat": "Output P99",
           "refId": "B"

@@ -10,10 +10,49 @@ on:
     paths:
       - "kserve-module/**"
   workflow_dispatch:
+    inputs:
+      base_ref:
+        description: Git ref for the base controller image (e.g. main SHA)
+        required: true
+        type: string
 
 permissions: {}
 
 jobs:
+  resolve-base-ref:
+    runs-on: ubuntu-latest
+    outputs:
+      base_ref: ${{ steps.resolve.outputs.base_ref }}
+    steps:
+      - id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          DISPATCH_BASE_REF: ${{ inputs.base_ref }}
+        run: |
+          case "${EVENT_NAME}" in
+            pull_request) ref="${PR_BASE_SHA}" ;;
+            push)         ref="${PUSH_BEFORE}" ;;
+            workflow_dispatch) ref="${DISPATCH_BASE_REF}" ;;
+            *) echo "Unsupported event: ${EVENT_NAME}"; exit 1 ;;
+          esac
+          if [ -z "${ref}" ] || [ "${ref}" = "0000000000000000000000000000000000000000" ]; then
+            echo "Invalid or missing base ref for upgrade test: '${ref}'"
+            exit 1
+          fi
+          echo "base_ref=${ref}" >> "${GITHUB_OUTPUT}"
+
+  build-image-base:
+    needs: [resolve-base-ref]
+    uses: ./.github/workflows/build-kserve-module-image.yml
+    with:
+      image-name: kserve-module-controller-base
+      image-tag: e2e-base
+      ref: ${{ needs.resolve-base-ref.outputs.base_ref }}
+    permissions:
+      contents: read
+
   build-image:
     uses: ./.github/workflows/build-kserve-module-image.yml
     with:
@@ -23,12 +62,14 @@ jobs:
       contents: read
 
   e2e-test:
-    needs: build-image
+    needs: [resolve-base-ref, build-image-base, build-image]
     runs-on: ubuntu-latest
     permissions:
       contents: read
     timeout-minutes: 60
     env:
+      BASE_IMG_NAME: ${{ needs.build-image-base.outputs.image-name }}
+      BASE_IMG_TAG: ${{ needs.build-image-base.outputs.image-tag }}
       IMG_NAME: ${{ needs.build-image.outputs.image-name }}
       IMG_TAG: ${{ needs.build-image.outputs.image-tag }}
     steps:
@@ -39,16 +80,35 @@ jobs:
       - name: Setup Minikube
         uses: ./.github/actions/minikube-setup
 
-      - name: Download controller image
+      - name: Download base controller image
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ env.BASE_IMG_NAME }}
+          path: /tmp/base-image
+
+      - name: Download upgrade controller image (PR HEAD)
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ env.IMG_NAME }}
-          path: /tmp
+          path: /tmp/upgrade-image
 
-      - name: Load controller image
+      - name: Load controller images
         run: |
-          docker image load -i /tmp/${{ env.IMG_NAME }}.tar
+          docker image load -i /tmp/base-image/${{ env.BASE_IMG_NAME }}.tar
+          docker image load -i /tmp/upgrade-image/${{ env.IMG_NAME }}.tar
+          minikube image load ${{ env.BASE_IMG_NAME }}:${{ env.BASE_IMG_TAG }}
           minikube image load ${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
+
+      - name: Verify base and upgrade images differ
+        run: |
+          BASE_ID=$(docker image inspect --format='{{.Id}}' "${{ env.BASE_IMG_NAME }}:${{ env.BASE_IMG_TAG }}")
+          UPGRADE_ID=$(docker image inspect --format='{{.Id}}' "${{ env.IMG_NAME }}:${{ env.IMG_TAG }}")
+          echo "Base image: ${BASE_ID}"
+          echo "Upgrade image: ${UPGRADE_ID}"
+          if [ "${BASE_ID}" = "${UPGRADE_ID}" ]; then
+            echo "ERROR: Base and upgrade images are identical; upgrade test would be meaningless"
+            exit 1
+          fi
 
       - name: Setup Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
@@ -58,8 +118,33 @@ jobs:
       - name: Install test dependencies
         run: pip install pytest pyyaml
 
-      - name: Setup cluster and deploy controller
-        run: make e2e-setup-kserve-module PLATFORM=xks E2E_IMG=${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
+      - name: Checkout base manifests for initial install
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.resolve-base-ref.outputs.base_ref }}
+          persist-credentials: false
+
+      - name: Setup cluster with base controller image and manifests
+        run: make e2e-setup-kserve-module PLATFORM=xks E2E_IMG=${{ env.BASE_IMG_NAME }}:${{ env.BASE_IMG_TAG }}
+
+      - name: Checkout upgrade (PR) manifests for upgrade tests
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Run pre-upgrade tests (Part A setup)
+        run: make e2e-kserve-module PYTEST_ARGS='-m pre_upgrade --pre-upgrade'
+
+      - name: Roll module controller to upgrade image
+        env:
+          KSERVE_MODULE_UPGRADE_IMAGE: ${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
+        run: make e2e-roll-kserve-module PLATFORM=xks E2E_IMG=${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
+
+      - name: Run post-upgrade tests (Part A + Part B)
+        env:
+          KSERVE_MODULE_UPGRADE_IMAGE: ${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
+        run: make e2e-kserve-module PYTEST_ARGS='-m post_upgrade --post-upgrade'
 
       - name: Run E2E tests
         run: make e2e-kserve-module
@@ -71,6 +156,10 @@ jobs:
           kubectl logs deployment/kserve-module-controller-manager -n opendatahub --tail=200 || true
           echo "=== Kserve CR ==="
           kubectl get kserve -A -o yaml || true
+          echo "=== Upgrade baseline ==="
+          kubectl get configmap km-upgrade-baseline -n km-upgrade-e2e -o yaml || true
+          echo "=== Upgrade probe ==="
+          kubectl logs km-upgrade-probe -n km-upgrade-e2e --tail=50 || true
           echo "=== Pods ==="
           kubectl get pods -n opendatahub || true
           echo "=== Events ==="

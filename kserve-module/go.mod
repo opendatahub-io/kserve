@@ -1,12 +1,12 @@
 module github.com/opendatahub-io/kserve-module
 
-go 1.25.8
+go 1.25.12
 
 require (
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
-	github.com/opendatahub-io/odh-platform-utilities v0.3.0
-	github.com/openshift/api v0.0.0-20260601143908-70f01b82bb53
+	github.com/opendatahub-io/odh-platform-utilities v0.4.0
+	github.com/openshift/api v0.0.0-20260610192510-1b2a074e0bd6
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/api v0.35.3
 	k8s.io/apiextensions-apiserver v0.35.3

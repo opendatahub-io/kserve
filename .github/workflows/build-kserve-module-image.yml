@@ -18,6 +18,11 @@ on:
         type: string
         required: false
         default: ''
+      ref:
+        description: Git ref to checkout before building (defaults to triggering commit)
+        type: string
+        required: false
+        default: ''
     outputs:
       image-name:
         description: Built image name
@@ -39,6 +44,7 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           persist-credentials: false
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
 
       - name: Override imagePullPolicy(kserve,llmisvc)
         if: inputs.image-pull-policy != ''

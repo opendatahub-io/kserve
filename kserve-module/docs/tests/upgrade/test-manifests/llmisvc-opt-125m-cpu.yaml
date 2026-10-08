@@ -10,7 +10,13 @@ spec:
     name: facebook/opt-125m
   replicas: 1
   router:
-    scheduler: {}
+    # Pin scheduler image so operand default changes between base and upgrade
+    # do not roll this pod during the module-controller upgrade e2e.
+    scheduler:
+      template:
+        containers:
+          - name: main
+            image: quay.io/opendatahub/odh-llm-d-router-endpoint-picker:v3.6-ea1
     route: {}
     gateway: {}
   template:

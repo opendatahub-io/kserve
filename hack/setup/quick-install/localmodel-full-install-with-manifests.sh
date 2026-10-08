@@ -653,11 +653,11 @@ KEDA_OTEL_ADDON_VERSION=v0.0.6
 PROMETHEUS_VERSION=83.4.0
 PROMETHEUS_ADAPTER_VERSION=5.3.0
 JAEGER_VERSION=4.7.0
-KSERVE_VERSION=v0.21.0-rc1
+KSERVE_VERSION=v0.21.0
 ISTIO_VERSION=1.27.1
 KEDA_VERSION=2.20.2
 OPENTELEMETRY_OPERATOR_VERSION=0.114.1
-LWS_VERSION=v0.8.0
+LWS_VERSION=v0.11.0
 GATEWAY_API_VERSION=v1.5.1
 GIE_VERSION=v1.5.0
 LLMD_ROUTER_VERSION=v0.10.0
@@ -1070,9 +1070,11 @@ install_kserve_kustomize() {
             config_updates+=("ingress.ingressClassName=${GATEWAY_NETWORK_LAYER}")
         fi
         if is_positive "${ENABLE_LOCALMODEL}"; then
-            log_info "Adding LocalModel updates: enabled=true, defaultJobImage=kserve/storage-initializer:${KSERVE_VERSION}"
+            log_info "Adding LocalModel updates: enabled=true, kernelCache.enabled=true, defaultJobImage=kserve/storage-initializer:${KSERVE_VERSION}"
             config_updates+=("localModel.enabled=true")
+            config_updates+=("kernelCache.enabled=true")
             config_updates+=("localModel.defaultJobImage=kserve/storage-initializer:${KSERVE_VERSION}")
+            config_updates+=("mcvImage=kserve/kserve-mcv:${KSERVE_VERSION}-minimal")
         fi
         # Add custom configurations if provided
         if [ -n "${KSERVE_CUSTOM_ISVC_CONFIGS}" ]; then
@@ -1184,6 +1186,7 @@ main() {
         KSERVE_CRDS="inferenceservices.serving.kserve.io servingruntimes.serving.kserve.io clusterservingruntimes.serving.kserve.io inferencegraphs.serving.kserve.io trainedmodels.serving.kserve.io"
         LLMISVC_CRDS="llminferenceservices.serving.kserve.io llminferenceserviceconfigs.serving.kserve.io"
         LOCALMODEL_CRDS="localmodelcaches.serving.kserve.io localmodelnodegroups.serving.kserve.io localmodelnodes.serving.kserve.io"
+        KERNELCACHE_CRDS="kernelcaches.serving.kserve.io kernelcachecaptures.serving.kserve.io kernelcachenodes.serving.kserve.io kernelcachenodegroups.serving.kserve.io"
         
         # Override KSERVE_VERSION if SET_KSERVE_VERSION is provided
         if [ -n "${SET_KSERVE_VERSION}" ]; then
@@ -1253,8 +1256,10 @@ main() {
         
                 TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full")
                 TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full/localmodel")
+                TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full/kernelcache")
                 TARGET_CRDS_TO_VERIFY+=("${KSERVE_CRDS}")
                 TARGET_CRDS_TO_VERIFY+=("${LOCALMODEL_CRDS}")
+                TARGET_CRDS_TO_VERIFY+=("${KERNELCACHE_CRDS}")
                 test_overlay_deployments="kserve-controller-manager kserve-localmodel-controller-manager"
                 if is_positive "${ENABLE_LLMISVC}"; then
                     TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full/llmisvc")
@@ -1269,9 +1274,11 @@ main() {
         
                 TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full")
                 TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full/localmodel")
+                TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full/kernelcache")
                 TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full/llmisvc")
                 TARGET_CRDS_TO_VERIFY+=("${KSERVE_CRDS}")
                 TARGET_CRDS_TO_VERIFY+=("${LOCALMODEL_CRDS}")
+                TARGET_CRDS_TO_VERIFY+=("${KERNELCACHE_CRDS}")
                 TARGET_CRDS_TO_VERIFY+=("${LLMISVC_CRDS}")
                 TARGET_DEPLOYMENT_NAMES+=("kserve-controller-manager kserve-localmodel-controller-manager llmisvc-controller-manager")
             elif [ "${KSERVE_OVERLAY_DIR}" == "test-llmisvc" ]; then
@@ -1298,7 +1305,9 @@ main() {
                 fi
                 if is_positive "${ENABLE_LOCALMODEL}"; then
                     TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full/localmodel")
+                    TARGET_CRD_DIRS+=("${REPO_ROOT}/config/crd/full/kernelcache")
                     TARGET_CRDS_TO_VERIFY+=("${LOCALMODEL_CRDS}")
+                    TARGET_CRDS_TO_VERIFY+=("${KERNELCACHE_CRDS}")
                     TARGET_DEPLOYMENT_NAMES+=("kserve-localmodel-controller-manager")
                 fi
             fi
@@ -1325,7 +1334,9 @@ main() {
         
             if is_positive "${ENABLE_LOCALMODEL}"; then
                 TARGET_CRD_DIRS+=("${TARGET_CONFIG_ROOT_DIR}/config/crd/full/localmodel")
+                TARGET_CRD_DIRS+=("${TARGET_CONFIG_ROOT_DIR}/config/crd/full/kernelcache")
                 TARGET_CRDS_TO_VERIFY+=("${LOCALMODEL_CRDS}")
+                TARGET_CRDS_TO_VERIFY+=("${KERNELCACHE_CRDS}")
                 TARGET_OVERLAY_DIRS+=("${LOCALMODEL_CONFIG_DIR}")
                 TARGET_DEPLOYMENT_NAMES+=("kserve-localmodel-controller-manager")
             fi
@@ -2105,6 +2116,7 @@ spec:
   annotations:
     prometheus.kserve.io/path: /metrics
     prometheus.kserve.io/port: "8080"
+    serving.kserve.io/kernelcache-supported: "true"
   containers:
   - args:
     - --port=8080
@@ -2217,11 +2229,15 @@ get_kserve_llmisvcconfig_manifests() {
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
+  annotations:
+    internal.serving.kserve.io/kv-cache-shm-percent-of-cpu: "120"
   name: kserve-config-llm-decode-template
   namespace: kserve
 spec:
   annotations:
     serving.kserve.io/model-based-routing-enabled: "true"
+  labels:
+    serving.kserve.io/llmisvc-revision: placeholder
   template:
     containers:
     - command:
@@ -2410,9 +2426,13 @@ spec:
         # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
         KV_TRANSFER_ARGS=""
         if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-          # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
-          if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-            KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+          # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+          # it is empty (no-op) when KV cache offloading is not configured.
+          if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+              KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+            fi
           fi
           # This template is only composed for a disaggregated P/D topology (spec.prefill set).
           # Decode is the KV consumer; without a connector here it recomputes prefill's KV.
@@ -2444,6 +2464,8 @@ spec:
           $@"
       - --
       env:
+      - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
       - name: HOME
         value: /home
       - name: VLLM_LOGGING_LEVEL
@@ -2591,11 +2613,15 @@ spec:
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
+  annotations:
+    internal.serving.kserve.io/kv-cache-shm-percent-of-cpu: "120"
   name: kserve-config-llm-decode-worker-data-parallel
   namespace: kserve
 spec:
   annotations:
     serving.kserve.io/model-based-routing-enabled: "true"
+  labels:
+    serving.kserve.io/llmisvc-revision: placeholder
   template:
     containers:
     - command:
@@ -2806,9 +2832,13 @@ spec:
         # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
         KV_TRANSFER_ARGS=""
         if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-          # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
-          if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-            KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+          # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+          # it is empty (no-op) when KV cache offloading is not configured.
+          if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+              KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+            fi
           fi
           # This template is only composed for a disaggregated P/D topology (spec.prefill set).
           # Decode is the KV consumer; without a connector here it recomputes prefill's KV.
@@ -2848,6 +2878,8 @@ spec:
           $@"
       - --
       env:
+      - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
       - name: HOME
         value: /home
       - name: VLLM_LOGGING_LEVEL
@@ -3206,9 +3238,13 @@ spec:
         # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
         KV_TRANSFER_ARGS=""
         if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-          # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
-          if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-            KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+          # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+          # it is empty (no-op) when KV cache offloading is not configured.
+          if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+              KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+            fi
           fi
           # This template is only composed for a disaggregated P/D topology (spec.prefill set).
           # Decode is the KV consumer; without a connector here it recomputes prefill's KV.
@@ -3248,6 +3284,8 @@ spec:
           $@"
       - --
       env:
+      - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
       - name: HOME
         value: /home
       - name: VLLM_LOGGING_LEVEL
@@ -3318,12 +3356,16 @@ spec:
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
+  annotations:
+    internal.serving.kserve.io/kv-cache-shm-percent-of-cpu: "120"
   name: kserve-config-llm-prefill-template
   namespace: kserve
 spec:
   prefill:
     annotations:
       serving.kserve.io/model-based-routing-enabled: "true"
+    labels:
+      serving.kserve.io/llmisvc-revision: placeholder
     template:
       containers:
       - command:
@@ -3512,9 +3554,13 @@ spec:
           # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
           KV_TRANSFER_ARGS=""
           if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
-            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-              KV_TRANSFER_ARGS="{{ if .Spec.Prefill }}{{ kvTransferConfig .Spec.Prefill.KVCacheOffloading }}{{ end }}"
+            # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+            # it is empty (no-op) when KV cache offloading is not configured.
+            if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+              # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+              if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+                KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+              fi
             fi
             # This template is only composed for a disaggregated P/D topology (spec.prefill set).
             # Prefill is the KV producer; without a connector here decode has nothing to fetch.
@@ -3546,6 +3592,8 @@ spec:
             $@"
         - --
         env:
+        - name: KSERVE_KV_TRANSFER_ARGS
+          value: ""
         - name: HOME
           value: /home
         - name: VLLM_LOGGING_LEVEL
@@ -3633,12 +3681,16 @@ spec:
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
+  annotations:
+    internal.serving.kserve.io/kv-cache-shm-percent-of-cpu: "120"
   name: kserve-config-llm-prefill-worker-data-parallel
   namespace: kserve
 spec:
   prefill:
     annotations:
       serving.kserve.io/model-based-routing-enabled: "true"
+    labels:
+      serving.kserve.io/llmisvc-revision: placeholder
     template:
       containers:
       - command:
@@ -3849,9 +3901,13 @@ spec:
           # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
           KV_TRANSFER_ARGS=""
           if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
-            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-              KV_TRANSFER_ARGS="{{ if .Spec.Prefill }}{{ kvTransferConfig .Spec.Prefill.KVCacheOffloading }}{{ end }}"
+            # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+            # it is empty (no-op) when KV cache offloading is not configured.
+            if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+              # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+              if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+                KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+              fi
             fi
             # This template is only composed for a disaggregated P/D topology (spec.prefill set).
             # Prefill is the KV producer; without a connector here decode has nothing to fetch.
@@ -3891,6 +3947,8 @@ spec:
             $@"
         - --
         env:
+        - name: KSERVE_KV_TRANSFER_ARGS
+          value: ""
         - name: HOME
           value: /home
         - name: VLLM_LOGGING_LEVEL
@@ -4188,9 +4246,13 @@ spec:
           # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
           KV_TRANSFER_ARGS=""
           if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
-            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-              KV_TRANSFER_ARGS="{{ if .Spec.Prefill }}{{ kvTransferConfig .Spec.Prefill.KVCacheOffloading }}{{ end }}"
+            # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+            # it is empty (no-op) when KV cache offloading is not configured.
+            if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+              # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+              if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+                KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+              fi
             fi
             # This template is only composed for a disaggregated P/D topology (spec.prefill set).
             # Prefill is the KV producer; without a connector here decode has nothing to fetch.
@@ -4230,6 +4292,8 @@ spec:
             $@"
         - --
         env:
+        - name: KSERVE_KV_TRANSFER_ARGS
+          value: ""
         - name: HOME
           value: /home
         - name: VLLM_LOGGING_LEVEL
@@ -4790,6 +4854,8 @@ spec:
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
+  annotations:
+    internal.serving.kserve.io/kv-cache-shm-percent-of-cpu: "120"
   name: kserve-config-llm-template
   namespace: kserve
 spec:
@@ -4980,11 +5046,16 @@ spec:
           SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ shutdownTimeout .Spec.Template 15 }}"
         fi
 
-        # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+        # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
         KV_TRANSFER_ARGS=""
-        if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-          if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-            KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+        if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+          # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+          # it is empty (no-op) when KV cache offloading is not configured.
+          if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+              KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+            fi
           fi
         fi
 
@@ -5003,6 +5074,8 @@ spec:
           $@"
       - --
       env:
+      - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
       - name: HOME
         value: /home
       - name: VLLM_LOGGING_LEVEL
@@ -5101,6 +5174,7 @@ spec:
             - -c
             - |-
               exec vllm launch render /mnt/models/base \
+                --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" /mnt/models/base \
                 --port=8000 \
                 {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh \
                 --ssl-certfile /var/run/kserve/tls/tls.crt \
@@ -5176,6 +5250,8 @@ spec:
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
 metadata:
+  annotations:
+    internal.serving.kserve.io/kv-cache-shm-percent-of-cpu: "120"
   name: kserve-config-llm-worker-data-parallel
   namespace: kserve
 spec:
@@ -5388,11 +5464,16 @@ spec:
           SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ shutdownTimeout .Spec.Template 15 }}"
         fi
 
-        # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+        # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
         KV_TRANSFER_ARGS=""
-        if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-          if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-            KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+        if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+          # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+          # it is empty (no-op) when KV cache offloading is not configured.
+          if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+              KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+            fi
           fi
         fi
 
@@ -5419,6 +5500,8 @@ spec:
           $@"
       - --
       env:
+      - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
       - name: HOME
         value: /home
       - name: VLLM_LOGGING_LEVEL
@@ -5709,11 +5792,16 @@ spec:
           SHUTDOWN_TIMEOUT_ARGS="--shutdown-timeout {{ shutdownTimeout .Spec.Worker 15 }}"
         fi
 
-        # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+        # A user-supplied --kv-transfer-config always wins; KServe only fills the flag when it is unset.
         KV_TRANSFER_ARGS=""
-        if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
-          if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
-            KV_TRANSFER_ARGS="{{ kvTransferConfig .Spec.KVCacheOffloading }}"
+        if [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv-transfer-config"* ]] && [[ "${VLLM_ADDITIONAL_ARGS:-}" != *"--kv_transfer_config"* ]] && [[ "$*" != *"--kv-transfer-config"* ]] && [[ "$*" != *"--kv_transfer_config"* ]]; then
+          # KSERVE_KV_TRANSFER_ARGS is set as a container env var by the config template;
+          # it is empty (no-op) when KV cache offloading is not configured.
+          if [ -n "${KSERVE_KV_TRANSFER_ARGS:-}" ]; then
+            # --kv-transfer-config with OffloadingConnector requires vLLM 0.22.0+ (vllm-project/vllm#40020).
+            if [[ "$VLLM_VERSION" =~ ^[0-9]+\.[0-9]+ ]] && [ "$(printf '%s\n%s\n' "0.22.0" "${VLLM_VERSION}" | sort -V | head -1)" = "0.22.0" ]; then
+              KV_TRANSFER_ARGS="${KSERVE_KV_TRANSFER_ARGS}"
+            fi
           fi
         fi
 
@@ -5740,6 +5828,8 @@ spec:
           $@"
       - --
       env:
+      - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
       - name: HOME
         value: /home
       - name: VLLM_LOGGING_LEVEL
@@ -5820,7 +5910,6 @@ spec:
           --port 8000
           --host 0.0.0.0
           {{- if and .Spec.Parallelism .Spec.Parallelism.Tensor }} --tp {{ .Spec.Parallelism.Tensor }}{{- end }}
-          {{- if .Spec.TrustRemoteCode }} --trust-remote-code{{- end }}
         )
         exec "${args[@]}" "$@"
       - --
@@ -6983,6 +7072,15 @@ kind: ServiceAccount
 metadata:
   labels:
     app.kubernetes.io/component: localmodel
+    app.kubernetes.io/name: kserve
+  name: kserve-kernelcachenode-agent
+  namespace: kserve
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  labels:
+    app.kubernetes.io/component: localmodel
     app.kubernetes.io/instance: kserve-localmodel-controller-manager
     app.kubernetes.io/managed-by: kserve-localmodel-controller-manager
     app.kubernetes.io/name: kserve
@@ -6999,6 +7097,199 @@ metadata:
     app.kubernetes.io/name: kserve
   name: kserve-localmodelnode-agent
   namespace: kserve
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/component: localmodel
+    app.kubernetes.io/name: kserve
+  name: kserve-kernelcache-nodegroup-manager
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - nodes
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - create
+  - delete
+  - get
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - serviceaccounts
+  verbs:
+  - create
+  - delete
+  - get
+  - patch
+- apiGroups:
+  - apps
+  resourceNames:
+  - kserve-kernelcachenode-agent
+  resources:
+  - daemonsets
+  verbs:
+  - get
+  - patch
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  - replicasets
+  verbs:
+  - get
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resourceNames:
+  - kserve-kernelcache-token-requester
+  resources:
+  - clusterroles
+  verbs:
+  - bind
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - rolebindings
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - roles
+  verbs:
+  - create
+  - delete
+  - get
+  - patch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - kernelcachecaptures
+  - kernelcachenodes
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - kernelcachecaptures/status
+  - kernelcaches/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - kernelcachenodegroups
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - kernelcaches
+  verbs:
+  - create
+  - get
+  - list
+  - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/component: localmodel
+    app.kubernetes.io/name: kserve
+  name: kserve-kernelcache-token-requester
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - serviceaccounts/token
+  verbs:
+  - create
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/component: localmodel
+    app.kubernetes.io/name: kserve
+  name: kserve-kernelcachenode-agent-role
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - nodes
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - kernelcachenodegroups
+  - kernelcachenodes
+  - kernelcaches
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - kernelcachenodes/status
+  verbs:
+  - get
+  - patch
+  - update
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -7044,6 +7335,18 @@ rules:
   - patch
   - update
   - watch
+- apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
 - apiGroups:
   - batch
   resources:
@@ -7136,6 +7439,18 @@ rules:
   - get
   - watch
 - apiGroups:
+  - authentication.k8s.io
+  resources:
+  - tokenreviews
+  verbs:
+  - create
+- apiGroups:
+  - authorization.k8s.io
+  resources:
+  - subjectaccessreviews
+  verbs:
+  - create
+- apiGroups:
   - batch
   resources:
   - jobs
@@ -7177,12 +7492,6 @@ rules:
 - apiGroups:
   - serving.kserve.io
   resources:
-  - localmodelnodes/finalizers
-  verbs:
-  - update
-- apiGroups:
-  - serving.kserve.io
-  resources:
   - localmodelnodes/status
   verbs:
   - get
@@ -7204,6 +7513,38 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: kserve-localmodel-controller-manager
+  namespace: kserve
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: localmodel
+    app.kubernetes.io/name: kserve
+  name: kserve-kernelcache-nodegroup-manager
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kserve-kernelcache-nodegroup-manager
+subjects:
+- kind: ServiceAccount
+  name: kserve-localmodel-controller-manager
+  namespace: kserve
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  labels:
+    app.kubernetes.io/component: localmodel
+    app.kubernetes.io/name: kserve
+  name: kserve-kernelcachenode-agent-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kserve-kernelcachenode-agent-role
+subjects:
+- kind: ServiceAccount
+  name: kserve-kernelcachenode-agent
   namespace: kserve
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -7344,6 +7685,85 @@ metadata:
   labels:
     app.kubernetes.io/component: localmodel
     app.kubernetes.io/name: kserve
+    control-plane: kserve-kernelcachenode-agent
+  name: kserve-kernelcachenode-agent
+  namespace: kserve
+spec:
+  selector:
+    matchLabels:
+      control-plane: kserve-kernelcachenode-agent
+  template:
+    metadata:
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+      labels:
+        app.kubernetes.io/name: kserve-kernelcachenode-agent
+        control-plane: kserve-kernelcachenode-agent
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: serving.kserve.io/kernelcache-agent
+                operator: In
+                values:
+                - disabled
+      containers:
+      - command:
+        - /manager
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        image: kserve/kserve-kernelcachenode-agent:latest
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8081
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        name: manager
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        resources:
+          limits:
+            cpu: 100m
+            memory: 356Mi
+          requests:
+            cpu: 10m
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          privileged: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      serviceAccountName: kserve-kernelcachenode-agent
+      terminationGracePeriodSeconds: 10
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  labels:
+    app.kubernetes.io/component: localmodel
+    app.kubernetes.io/name: kserve
     control-plane: kserve-localmodelnode-agent
     controller-tools.k8s.io: "1.0"
   name: kserve-localmodelnode-agent
@@ -7426,6 +7846,77 @@ spec:
     kind: Issuer
     name: selfsigned-issuer
   secretName: localmodel-webhook-server-cert
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: kserve/localmodel-serving-cert
+  creationTimestamp: null
+  labels:
+    app.kubernetes.io/component: localmodel
+    app.kubernetes.io/name: kserve
+  name: kernelcache.serving.kserve.io
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: localmodel-webhook-server-service
+      namespace: kserve
+      path: /mutate-kernelcache-pods
+  failurePolicy: Fail
+  matchConditions:
+  - expression: has(object.metadata.labels) && 'serving.kserve.io/inferenceservice'
+      in object.metadata.labels
+    name: inferenceservice-workload
+  name: kernelcache.kserve-webhook-server.pod-mutator
+  namespaceSelector:
+    matchExpressions:
+    - key: control-plane
+      operator: DoesNotExist
+  reinvocationPolicy: IfNeeded
+  rules:
+  - apiGroups:
+    - ""
+    apiVersions:
+    - v1
+    operations:
+    - CREATE
+    resources:
+    - pods
+  sideEffects: None
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  annotations:
+    cert-manager.io/inject-ca-from: kserve/localmodel-serving-cert
+  creationTimestamp: null
+  labels:
+    app.kubernetes.io/component: localmodel
+    app.kubernetes.io/name: kserve
+  name: kernelcachecapture.serving.kserve.io
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: localmodel-webhook-server-service
+      namespace: kserve
+      path: /validate-kernelcachecapture-status
+  failurePolicy: Fail
+  name: kernelcachecapture.kserve-webhook-server.status-validator
+  rules:
+  - apiGroups:
+    - serving.kserve.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - UPDATE
+    resources:
+    - kernelcachecaptures/status
+  sideEffects: None
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
