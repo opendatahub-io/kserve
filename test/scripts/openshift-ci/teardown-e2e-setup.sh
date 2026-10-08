@@ -66,9 +66,7 @@ oc delete imagedigestmirrorset "${idms}" --ignore-not-found || true
 # left installed (as before), so only the Gateway-scoped test policy is removed here.
 echo "Deleting LLMInferenceService audit logging TelemetryPolicy (if present)"
 if oc get crd telemetrypolicies.extensions.kuadrant.io &>/dev/null; then
-  : "${INFERENCE_GATEWAY_NS:=openshift-ingress}"
-  : "${AUDIT_TELEMETRY_POLICY_NAME:=${INFERENCE_GATEWAY_NAME:-openshift-ai-inference}-audit-logging}"
-  oc delete telemetrypolicies.extensions.kuadrant.io "${AUDIT_TELEMETRY_POLICY_NAME}" -n "${INFERENCE_GATEWAY_NS}" --ignore-not-found || true
+  oc delete telemetrypolicies.extensions.kuadrant.io openshift-ai-inference-audit-logging -n openshift-ingress --ignore-not-found || true
 fi
 
 echo "Deleting KServe (raw overlay, if present)"

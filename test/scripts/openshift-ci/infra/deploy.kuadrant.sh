@@ -25,18 +25,21 @@ KUADRANT_READY_MAX_ATTEMPTS="${KUADRANT_READY_MAX_ATTEMPTS:-2}"
 KUADRANT_POST_DELETE_SLEEP="${KUADRANT_POST_DELETE_SLEEP:-15}"
 # Per-attempt timeout for oc wait on Kuadrant Ready (two attempts default; use 10m on very slow clusters).
 KUADRANT_READY_TIMEOUT="${KUADRANT_READY_TIMEOUT:-5m}"
-# Authorino operand log level. "info" is the production default and what LLMInferenceService audit
-# logging targets (identity fields appear at info level); use "debug" when diagnosing auth failures.
-AUTHORINO_LOG_LEVEL="${AUTHORINO_LOG_LEVEL:-info}"
+# Authorino operand log level. Unset means: "info" when LLMInferenceService audit logging is enabled (the
+# identity fields are emitted at info level), otherwise "debug", the pre-existing CI setting. Set it to
+# force either, e.g. AUTHORINO_LOG_LEVEL=debug when diagnosing auth failures with audit logging on.
+AUTHORINO_LOG_LEVEL="${AUTHORINO_LOG_LEVEL:-}"
 # LLMInferenceService audit logging (RHAISTRAT-1799): opt Authorino into custom logging fields and attach a
 # Gateway-scoped TelemetryPolicy. "auto" enables it only when the installed RHCL build exposes the APIs
-# (Authorino.spec.enableLoggingFields and TelemetryPolicy.spec.logging) so older builds are unaffected;
-# "true" fails setup when they are missing; "false" skips the setup entirely.
+# (Authorino.spec.enableLoggingFields and TelemetryPolicy.spec.logging) and leaves the Authorino CR as it
+# was on older builds; "true" fails setup when they are missing; "false" skips the setup entirely.
 LLMISVC_AUDIT_LOGGING="${LLMISVC_AUDIT_LOGGING:-auto}"
-INFERENCE_GATEWAY_NS="${INFERENCE_GATEWAY_NS:-openshift-ingress}"
-INFERENCE_GATEWAY_NAME="${INFERENCE_GATEWAY_NAME:-openshift-ai-inference}"
-AUDIT_TELEMETRY_POLICY_NAME="${AUDIT_TELEMETRY_POLICY_NAME:-${INFERENCE_GATEWAY_NAME}-audit-logging}"
 TELEMETRY_POLICY_READY_TIMEOUT="${TELEMETRY_POLICY_READY_TIMEOUT:-3m}"
+# The inference Gateway is created by infra/deploy.gateway.ingress.sh and referenced by name in
+# inferenceservice-config (kserveIngressGateway) and the e2e tests, so the policy targets that fixed object.
+INFERENCE_GATEWAY_NS="openshift-ingress"
+INFERENCE_GATEWAY_NAME="openshift-ai-inference"
+AUDIT_TELEMETRY_POLICY_NAME="${INFERENCE_GATEWAY_NAME}-audit-logging"
 
 create_kuadrant_cr() {
   oc create -f - <<EOF
@@ -150,7 +153,13 @@ case "${LLMISVC_AUDIT_LOGGING}" in
     ;;
 esac
 
-# Update Authorino to configure SSL, production JSON logging and (when supported) custom logging fields.
+# Update Authorino to configure SSL and, when the build supports it, production JSON logging with custom
+# logging fields at info level. Without support the CR is rendered as it always was (debug, no logMode).
+if [[ "${AUDIT_LOGGING_ENABLED}" == "true" ]]; then
+  : "${AUTHORINO_LOG_LEVEL:=info}"
+else
+  : "${AUTHORINO_LOG_LEVEL:=debug}"
+fi
 oc apply -f - <<EOF
 apiVersion: operator.authorino.kuadrant.io/v1beta1
 kind: Authorino
@@ -161,8 +170,8 @@ spec:
   replicas: 1
   clusterWide: true
   logLevel: ${AUTHORINO_LOG_LEVEL}
-  logMode: production
 $(if [[ "${AUDIT_LOGGING_ENABLED}" == "true" ]]; then cat <<FIELDS
+  logMode: production
   enableLoggingFields: true
 FIELDS
 fi)
@@ -178,14 +187,35 @@ EOF
 
 wait_for_pod_ready "${KUADRANT_NS}" "control-plane=authorino-operator"
 
-# The operator renders spec changes (log level, logging fields) into the authorino Deployment; wait for
-# that rollout so requests made right after setup hit an operand running the applied configuration.
+# authorino-operator renders the CR spec into the operand's container args (--log-level=<level>,
+# --log-mode=<mode>, --enable-logging-fields). Wait until the Deployment template carries the requested
+# values before `oc rollout status`, otherwise the latter can return immediately against the previous,
+# still-available Deployment generation. Already-matching args (reruns) pass straight through.
+authorino_deployment_matches_spec() {
+  local args
+  args=$(oc get deployment/authorino -n "${KUADRANT_NS}" -o jsonpath='{.spec.template.spec.containers[0].args[*]}' 2>/dev/null) || return 1
+  args=" ${args} "
+  [[ "${args}" == *" --log-level=${AUTHORINO_LOG_LEVEL} "* ]] || return 1
+  if [[ "${AUDIT_LOGGING_ENABLED}" == "true" ]]; then
+    [[ "${args}" == *" --log-mode=production "* ]] || return 1
+    [[ "${args}" == *" --enable-logging-fields "* ]] || return 1
+  fi
+  return 0
+}
+
+echo "⏳ waiting for the authorino Deployment to reflect the applied spec…"
+authorino_spec_wait=0
+until authorino_deployment_matches_spec; do
+  if (( authorino_spec_wait >= 180 )); then
+    echo "Timed out waiting for deployment/authorino in ${KUADRANT_NS} to reflect the applied Authorino spec" >&2
+    oc get deployment/authorino -n "${KUADRANT_NS}" -o jsonpath='current args: {.spec.template.spec.containers[0].args}{"\n"}' 2>/dev/null || true
+    print_audit_logging_diagnostics 200
+    exit 1
+  fi
+  sleep 3
+  authorino_spec_wait=$((authorino_spec_wait + 3))
+done
 echo "⏳ waiting for the authorino operand to roll out…"
-if ! timeout 2m bash -c 'until oc get deployment/authorino -n "$1" &>/dev/null; do sleep 2; done' _ "${KUADRANT_NS}"; then
-  echo "Timed out waiting for deployment/authorino to appear in ${KUADRANT_NS}" >&2
-  print_audit_logging_diagnostics 200
-  exit 1
-fi
 oc rollout status deployment/authorino -n "${KUADRANT_NS}" --timeout=5m
 
 if [[ "${AUDIT_LOGGING_ENABLED}" == "true" ]]; then

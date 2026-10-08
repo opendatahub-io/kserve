@@ -105,16 +105,19 @@ make undeploy-ocp
 
 `infra/deploy.kuadrant.sh` configures the CI cluster for
 [RHAISTRAT-1799](https://redhat.atlassian.net/browse/RHAISTRAT-1799) audit logging when the installed
-RHCL build supports it: it sets `spec.enableLoggingFields: true` on the managed Authorino CR and creates a
-Gateway-scoped `TelemetryPolicy` (`openshift-ingress/openshift-ai-inference-audit-logging`) whose
-`logging.default.fields` add `client_identity`, `client_anonymous`, `request_method` and `request_path`
-to Authorino's info-level decision log records (emitted under the `custom.` prefix). Support is detected
-from the CRD schemas, so older RHCL builds are left untouched.
+RHCL build supports it: it sets `spec.enableLoggingFields: true`, `logMode: production` and
+`logLevel: info` on the managed Authorino CR and creates a Gateway-scoped `TelemetryPolicy`
+(`openshift-ingress/openshift-ai-inference-audit-logging`) whose `logging.default.fields` add
+`client_identity`, `client_anonymous`, `request_method` and `request_path` to Authorino's info-level
+decision log records (emitted under the `custom.` prefix). Support is detected from the CRD schemas; on
+older RHCL builds the Authorino CR is rendered as before (`logLevel: debug`, no `logMode`) and no
+TelemetryPolicy is created. After applying the CR the setup waits for the authorino Deployment to carry
+the requested `--log-level` / `--log-mode` / `--enable-logging-fields` args before waiting for its rollout.
 
 | Variable | Description | Default |
 |---|---|---|
 | `LLMISVC_AUDIT_LOGGING` | `auto` enables audit logging only when the APIs exist; `true` fails setup when they are missing; `false` skips it | `auto` |
-| `AUTHORINO_LOG_LEVEL` | Authorino operand log level. Identity fields appear at `info`; use `debug` to troubleshoot auth | `info` |
+| `AUTHORINO_LOG_LEVEL` | Authorino operand log level, applied in both modes when set | `info` with audit logging, otherwise `debug` |
 
 The identity field is `auth.identity.user.username`: the gateway AuthPolicy authenticates with
 `kubernetesTokenReview`, so the identity object is a `TokenReviewStatus` and the OIDC-style
