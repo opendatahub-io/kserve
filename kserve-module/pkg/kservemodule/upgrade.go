@@ -10,6 +10,7 @@ import (
 	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -68,9 +69,18 @@ type upgradeRunnable struct {
 	applicationNS string
 }
 
-// Start runs the upgrade tasks once. Errors are logged but never returned so that
-// upgrade failures never block manager startup.
+// Start runs the upgrade tasks once. WVA leftovers are reported and then left
+// for reconciler cleanup (defaultCleanup plus extraCleanup). Returning the
+// error here would crashloop the new controller before that cleanup can run,
+// which strands a 3.5 cluster on upgrade. The customer-facing stop is the
+// odh-cli pre-upgrade check, which must be clean before migrating.
+// Other migration errors are logged but remain non-fatal so manager startup
+// is not blocked by best-effort cleanup tasks.
 func (u *upgradeRunnable) Start(ctx context.Context) error {
+	if err := blockUpgradeIfWVAResourcesPresent(ctx, u.client, u.applicationNS); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "WVA resources are still present; module cleanup will remove leftovers it owns")
+	}
+
 	if err := runUpgradeTasks(ctx, u.client, u.applicationNS); err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "upgrade tasks encountered errors (non-fatal)")
 	}
@@ -80,6 +90,68 @@ func (u *upgradeRunnable) Start(ctx context.Context) error {
 // NeedLeaderElection reports that upgrade tasks must run under leader election,
 // matching the pattern used by opendatahub-operator's LeaderElectionRunnableFunc.
 func (u *upgradeRunnable) NeedLeaderElection() bool { return true }
+
+func blockUpgradeIfWVAResourcesPresent(ctx context.Context, cli client.Client, applicationNS string) error {
+	var blockers []string
+
+	kserve := &platformv1alpha1.Kserve{}
+	if err := cli.Get(ctx, types.NamespacedName{Name: platformv1alpha1.KserveInstanceName}, kserve); err != nil {
+		if !k8serr.IsNotFound(err) && !meta.IsNoMatchError(err) {
+			return fmt.Errorf("checking Kserve CR for WVA configuration: %w", err)
+		}
+	} else if kserve.Spec.WVA.ManagementState == common.Managed {
+		blockers = append(blockers, "Kserve CR has spec.wva.managementState=Managed")
+	}
+
+	wvaDeployment := &appsv1.Deployment{}
+	if err := cli.Get(ctx, types.NamespacedName{Name: wvaControllerDeployment, Namespace: applicationNS}, wvaDeployment); err != nil {
+		if !k8serr.IsNotFound(err) {
+			return fmt.Errorf("checking WVA deployment: %w", err)
+		}
+	} else {
+		blockers = append(blockers, fmt.Sprintf("deployment %s/%s exists", applicationNS, wvaControllerDeployment))
+	}
+
+	wvaConfig := &corev1.ConfigMap{}
+	if err := cli.Get(ctx, types.NamespacedName{Name: kserveConfigMapName, Namespace: applicationNS}, wvaConfig); err != nil {
+		if !k8serr.IsNotFound(err) {
+			return fmt.Errorf("checking WVA autoscaling config: %w", err)
+		}
+	} else if wvaConfig.Data != nil {
+		if _, ok := wvaConfig.Data[autoscalingWVAControllerConfigKey]; ok {
+			blockers = append(blockers, fmt.Sprintf("ConfigMap %s/%s contains %s", applicationNS, kserveConfigMapName, autoscalingWVAControllerConfigKey))
+		}
+	}
+
+	wvaCRD := &apiextensionsv1.CustomResourceDefinition{}
+	if err := cli.Get(ctx, types.NamespacedName{Name: variantAutoscalingCRDName}, wvaCRD); err != nil {
+		if !k8serr.IsNotFound(err) {
+			return fmt.Errorf("checking VariantAutoscaling CRD: %w", err)
+		}
+	} else {
+		blockers = append(blockers, fmt.Sprintf("CRD %s exists", variantAutoscalingCRDName))
+	}
+
+	vaList := &unstructured.UnstructuredList{}
+	vaList.SetGroupVersionKind(variantAutoscalingGVK.GroupVersion().WithKind(variantAutoscalingGVK.Kind + "List"))
+	if err := cli.List(ctx, vaList); err != nil {
+		if !meta.IsNoMatchError(err) && !k8serr.IsNotFound(err) {
+			return fmt.Errorf("checking VariantAutoscaling resources: %w", err)
+		}
+	} else if len(vaList.Items) > 0 {
+		names := make([]string, 0, len(vaList.Items))
+		for i := range vaList.Items {
+			names = append(names, fmt.Sprintf("%s/%s", vaList.Items[i].GetNamespace(), vaList.Items[i].GetName()))
+		}
+		blockers = append(blockers, fmt.Sprintf("VariantAutoscaling resources exist: %s", strings.Join(names, ", ")))
+	}
+
+	if len(blockers) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("WVA upgrade blocked: %s. WVA is no longer supported; disable WVA and remove WVA resources before upgrading", strings.Join(blockers, "; "))
+}
 
 // legacySelectorWorkload defines a Deployment or DaemonSet that may carry legacy selector
 // labels injected by the in-tree ODH operator via kustomize.WithLabel.

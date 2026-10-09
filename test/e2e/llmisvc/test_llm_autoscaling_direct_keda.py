@@ -35,7 +35,7 @@ from .fixtures import (
     inject_k8s_proxy,
 )
 from .logging import log_execution
-from .test_llm_autoscaling_wva import (
+from .autoscaling_helpers import (
     HPA_GROUP,
     HPA_PLURAL,
     HPA_VERSION,
@@ -262,9 +262,9 @@ def test_llm_autoscaling_direct_keda_cleanup(test_case: TestCase):
 # Idle scale-to-zero: direct KEDA + idleReplicaCount: 0
 # =============================================================================
 #
-# Scoped to the direct-KEDA path only; see test_llm_autoscaling_wva.py for
-# why WVA-mediated idle scale-down is out of scope (the simulator never
-# emits decreasing WVA saturation metrics).
+# Scoped to the direct-KEDA path only. Idle scale-down depends on the
+# EPP request-rate trigger going idle; there is no WVA saturation-metric
+# path in these tests.
 
 
 @pytest.mark.autoscaling_keda

@@ -21,6 +21,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
+	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 )
 
 // ─── REST mapper helpers ──────────────────────────────────────────────────────
@@ -43,6 +46,7 @@ func makeUpgradeTestScheme() *runtime.Scheme {
 	_ = appsv1.AddToScheme(s)
 	_ = apiextensionsv1.AddToScheme(s)
 	_ = admissionregistrationv1.AddToScheme(s)
+	_ = platformv1alpha1.AddToScheme(s)
 	return s
 }
 
@@ -60,12 +64,14 @@ func makeUpgradeTestRESTMapper() apimeta.RESTMapper {
 	rm.Add(schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "DaemonSet"}, testNamespaceScope)
 	rm.Add(schema.GroupVersionKind{Group: "admissionregistration.k8s.io", Version: "v1", Kind: "ValidatingWebhookConfiguration"}, testClusterScope)
 	rm.Add(schema.GroupVersionKind{Group: "admissionregistration.k8s.io", Version: "v1", Kind: "MutatingWebhookConfiguration"}, testClusterScope)
+	rm.Add(platformv1alpha1.GroupVersion.WithKind("Kserve"), testClusterScope)
 
 	// Unstructured GVKs from upgrade.go
 	rm.Add(inferenceServiceGVK, testNamespaceScope)
 	rm.Add(servingRuntimeGVK, testNamespaceScope)
 	rm.Add(hardwareProfileGVK, testNamespaceScope)
 	rm.Add(odhDashboardConfigGVK, testNamespaceScope)
+	rm.Add(variantAutoscalingGVK, testNamespaceScope)
 
 	return rm
 }
@@ -153,6 +159,23 @@ func makeTestHardwareProfile(namespace, name string) *unstructured.Unstructured 
 // makeTestNamespace returns a corev1.Namespace with the given labels.
 func makeTestNamespace(name string, labels map[string]string) *corev1.Namespace {
 	return &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}
+}
+
+func makeTestKserve(state common.ManagementState) *platformv1alpha1.Kserve {
+	return &platformv1alpha1.Kserve{
+		ObjectMeta: metav1.ObjectMeta{Name: platformv1alpha1.KserveInstanceName},
+		Spec: platformv1alpha1.KserveSpec{
+			WVA: platformv1alpha1.WVASpec{ManagementState: state},
+		},
+	}
+}
+
+func makeTestVariantAutoscaling(namespace, name string) *unstructured.Unstructured {
+	va := &unstructured.Unstructured{}
+	va.SetGroupVersionKind(variantAutoscalingGVK)
+	va.SetNamespace(namespace)
+	va.SetName(name)
+	return va
 }
 
 // makeCRD returns an Established CustomResourceDefinition object for use in the fake client.
@@ -492,6 +515,62 @@ func TestGetOdhDashboardConfig(t *testing.T) {
 
 // ─── Section B — New Tests ────────────────────────────────────────────────────
 
+func TestBlockUpgradeIfWVAResourcesPresent(t *testing.T) {
+	const namespace = "test-namespace"
+
+	t.Run("NoWVAResources", func(t *testing.T) {
+		g := NewWithT(t)
+		cli := makeISVCFakeClient()
+
+		g.Expect(blockUpgradeIfWVAResourcesPresent(context.Background(), cli, namespace)).To(Succeed())
+	})
+
+	t.Run("ManagedKserveCRBlocks", func(t *testing.T) {
+		g := NewWithT(t)
+		cli := makeISVCFakeClient(makeTestKserve(common.Managed))
+
+		err := blockUpgradeIfWVAResourcesPresent(context.Background(), cli, namespace)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("spec.wva.managementState=Managed"))
+	})
+
+	t.Run("LeftoverDeploymentBlocks", func(t *testing.T) {
+		g := NewWithT(t)
+		deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: wvaControllerDeployment, Namespace: namespace}}
+		cli := makeISVCFakeClient(deployment)
+
+		err := blockUpgradeIfWVAResourcesPresent(context.Background(), cli, namespace)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring(wvaControllerDeployment))
+	})
+
+	t.Run("LeftoverConfigMapKeyBlocks", func(t *testing.T) {
+		g := NewWithT(t)
+		cm := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{Name: kserveConfigMapName, Namespace: namespace},
+			Data:       map[string]string{autoscalingWVAControllerConfigKey: "{}"},
+		}
+		cli := makeISVCFakeClient(cm)
+
+		err := blockUpgradeIfWVAResourcesPresent(context.Background(), cli, namespace)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring(autoscalingWVAControllerConfigKey))
+	})
+
+	t.Run("LeftoverCRDAndCRBlock", func(t *testing.T) {
+		g := NewWithT(t)
+		cli := makeISVCFakeClient(
+			makeCRD(variantAutoscalingCRDName),
+			makeTestVariantAutoscaling(namespace, "leftover-va"),
+		)
+
+		err := blockUpgradeIfWVAResourcesPresent(context.Background(), cli, namespace)
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring(variantAutoscalingCRDName))
+		g.Expect(err.Error()).To(ContainSubstring("test-namespace/leftover-va"))
+	})
+}
+
 func TestRunUpgradeTasks(t *testing.T) {
 	const namespace = "test-namespace"
 
@@ -600,7 +679,19 @@ func TestUpgradeRunnableStart(t *testing.T) {
 			Build()
 
 		r := &upgradeRunnable{client: cli, applicationNS: namespace}
-		// Start absorbs all errors so manager startup is never blocked.
+		// Start absorbs non-gate migration errors so manager startup is not
+		// blocked by best-effort cleanup tasks.
+		g.Expect(r.Start(context.Background())).To(Succeed())
+	})
+
+	t.Run("StartContinuesWhenWVAResourcesRemain", func(t *testing.T) {
+		g := NewWithT(t)
+		cli := makeISVCFakeClient(makeTestKserve(common.Managed))
+		r := &upgradeRunnable{client: cli, applicationNS: namespace}
+
+		// Detection still fails closed, but startup must continue so reconciler
+		// cleanup can delete the leftovers.
+		g.Expect(blockUpgradeIfWVAResourcesPresent(context.Background(), cli, namespace)).NotTo(Succeed())
 		g.Expect(r.Start(context.Background())).To(Succeed())
 	})
 }

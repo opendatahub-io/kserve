@@ -15,7 +15,7 @@
 # limitations under the License.
 
 # Fail-fast health check for the autoscaling metrics pipeline.
-# Validates that Prometheus, WVA, and the external metrics API are wired
+# Validates that Prometheus and the external metrics API are wired
 # correctly BEFORE running e2e tests. Exits non-zero on first failure.
 #
 # Usage: verify-autoscaling-health.sh <hpa|keda>
@@ -25,7 +25,6 @@ set -euo pipefail
 AUTOSCALER="${1:?Usage: verify-autoscaling-health.sh <hpa|keda>}"
 
 PROMETHEUS_NAMESPACE="${PROMETHEUS_NAMESPACE:-monitoring}"
-WVA_NAMESPACE="${WVA_NAMESPACE:-wva-system}"
 KEDA_NAMESPACE="${KEDA_NAMESPACE:-keda}"
 
 retry() {
@@ -67,12 +66,6 @@ kubectl wait --for=condition=Ready pod \
     -n "${PROMETHEUS_NAMESPACE}" \
     --timeout=120s
 
-echo "  Waiting for WVA pods..."
-kubectl wait --for=condition=Ready pod \
-    -l control-plane=controller-manager \
-    -n "${WVA_NAMESPACE}" \
-    --timeout=120s
-
 if [[ "${AUTOSCALER}" == "hpa" ]]; then
     echo "  Waiting for Prometheus Adapter pods..."
     kubectl wait --for=condition=Ready pod \
@@ -109,50 +102,10 @@ check_prometheus_api() {
 retry "Prometheus API responds" 30 5 check_prometheus_api
 
 # ---------------------------------------------------------------------------
-# 3. WVA ServiceMonitor target is UP in Prometheus
+# 3. External Metrics API is healthy
 # ---------------------------------------------------------------------------
 echo ""
-echo "--- Step 3: Verifying WVA ServiceMonitor target is scraped ---"
-
-check_wva_target_up() {
-    kubectl exec -n "${PROMETHEUS_NAMESPACE}" "${PROM_POD}" -c prometheus -- \
-        wget -qO- --no-check-certificate \
-        "https://localhost:9090/api/v1/targets" | grep -q "${WVA_NAMESPACE}"
-}
-
-retry "WVA target discovered by Prometheus" 60 5 check_wva_target_up
-
-# ---------------------------------------------------------------------------
-# 4. WVA controller can reach Prometheus (log smoke-check)
-# ---------------------------------------------------------------------------
-echo ""
-echo "--- Step 4: Verifying WVA controller health (log check) ---"
-
-WVA_POD=$(kubectl get pods -n "${WVA_NAMESPACE}" \
-    -l control-plane=controller-manager \
-    -o jsonpath='{.items[0].metadata.name}')
-
-check_wva_no_prometheus_errors() {
-    local logs
-    logs=$(kubectl logs -n "${WVA_NAMESPACE}" "${WVA_POD}" --tail=50 2>/dev/null || echo "")
-    if echo "${logs}" | grep -qi "error.*prometheus\|connection refused\|no such host\|dial tcp.*refused"; then
-        return 1
-    fi
-    return 0
-}
-
-if ! check_wva_no_prometheus_errors; then
-    echo "  [FAIL] WVA controller has Prometheus connectivity errors in logs:"
-    kubectl logs -n "${WVA_NAMESPACE}" "${WVA_POD}" --tail=20
-    exit 1
-fi
-echo "  [PASS] WVA controller logs show no Prometheus errors"
-
-# ---------------------------------------------------------------------------
-# 5. External Metrics API is healthy
-# ---------------------------------------------------------------------------
-echo ""
-echo "--- Step 5: Verifying External Metrics API ---"
+echo "--- Step 3: Verifying External Metrics API ---"
 
 check_external_metrics_api() {
     kubectl get --raw /apis/external.metrics.k8s.io/v1beta1 >/dev/null 2>&1
@@ -161,11 +114,11 @@ check_external_metrics_api() {
 retry "External Metrics API discovery endpoint" 60 5 check_external_metrics_api
 
 # ---------------------------------------------------------------------------
-# 5b. Autoscaler-specific checks
+# 3b. Autoscaler-specific checks
 # ---------------------------------------------------------------------------
 if [[ "${AUTOSCALER}" == "hpa" ]]; then
     echo ""
-    echo "--- Step 5b: Verifying Prometheus Adapter APIService ---"
+    echo "--- Step 3b: Verifying Prometheus Adapter APIService ---"
 
     check_apiservice_available() {
         local status
@@ -178,7 +131,7 @@ if [[ "${AUTOSCALER}" == "hpa" ]]; then
 
 elif [[ "${AUTOSCALER}" == "keda" ]]; then
     echo ""
-    echo "--- Step 5b: Verifying KEDA metrics server ---"
+    echo "--- Step 3b: Verifying KEDA metrics server ---"
 
     check_keda_metrics_server() {
         kubectl get pods -n "${KEDA_NAMESPACE}" \
