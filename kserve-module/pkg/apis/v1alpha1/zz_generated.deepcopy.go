@@ -111,6 +111,11 @@ func (in *KserveSpec) DeepCopyInto(out *KserveSpec) {
 		*out = new(bool)
 		**out = **in
 	}
+	if in.EnableLLMMonitoringIngressNetworkPolicy != nil {
+		in, out := &in.EnableLLMMonitoringIngressNetworkPolicy, &out.EnableLLMMonitoringIngressNetworkPolicy
+		*out = new(bool)
+		**out = **in
+	}
 	if in.EnableHardwareAwarePresets != nil {
 		in, out := &in.EnableHardwareAwarePresets, &out.EnableHardwareAwarePresets
 		*out = new(bool)
