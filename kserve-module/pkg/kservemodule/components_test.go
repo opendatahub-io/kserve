@@ -305,7 +305,7 @@ func TestSplitByOwnership_LLMInferenceServiceDrainResources(t *testing.T) {
 		{Object: map[string]any{
 			"apiVersion": "serving.kserve.io/v1alpha2",
 			"kind":       "LLMInferenceServiceConfig",
-			"metadata":   map[string]any{"name": "v3-6-0-kserve-config-llm-template"},
+			"metadata":   map[string]any{"name": "llmisvc-config"},
 		}},
 		{Object: map[string]any{
 			"apiVersion": "apps/v1",
@@ -321,6 +321,7 @@ func TestSplitByOwnership_LLMInferenceServiceDrainResources(t *testing.T) {
 	g.Expect(drainResources).To(HaveLen(2))
 	g.Expect(drainResources[0].GetName()).To(Equal(llmISVCControllerDeployment))
 	g.Expect(drainResources[1].GetName()).To(Equal(llmISVCConfigWebhookName))
+	g.Expect(unowned[2].GetName()).To(Equal("llmisvc-config"), "configs remain independently unowned even when their names match the drain-resource prefix")
 }
 
 func TestApplyManagedByLabel(t *testing.T) {

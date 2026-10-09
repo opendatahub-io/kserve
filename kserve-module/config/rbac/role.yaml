@@ -400,7 +400,6 @@ rules:
   - clusterservingruntimes
   - clusterstoragecontainers
   - llminferenceserviceconfigs
-  - llminferenceservices
   - localmodelnodegroups
   verbs:
   - create
@@ -417,6 +416,14 @@ rules:
   verbs:
   - list
   - patch
+- apiGroups:
+  - serving.kserve.io
+  resources:
+  - llminferenceservices
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - serving.kserve.io
   resources:

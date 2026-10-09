@@ -79,7 +79,8 @@ import (
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations;validatingwebhookconfigurations,verbs=create;delete;get;list;patch;update;watch
 
 // --- KServe cluster-scoped operand resources ---
-// +kubebuilder:rbac:groups=serving.kserve.io,resources=clusterservingruntimes;llminferenceserviceconfigs;llminferenceservices;clusterstoragecontainers,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=clusterservingruntimes;llminferenceserviceconfigs;clusterstoragecontainers,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch
 
 // --- OpenShift-specific cluster-scoped resources ---
 // SCCs: required for InferenceService and LLMInferenceService workload pods
@@ -437,6 +438,9 @@ func splitByOwnership(resources []unstructured.Unstructured) (owned, unowned, ll
 // names intentionally share the llmisvc or llminferenceservice prefix, unlike
 // the release presets themselves, which are independently unowned by GVK.
 func isLLMISVCDrainResource(resource *unstructured.Unstructured) bool {
+	if _, excluded := unownedGroupKinds[resource.GroupVersionKind().GroupKind()]; excluded {
+		return false
+	}
 	name := resource.GetName()
 	return strings.Contains(name, "llmisvc") || strings.Contains(name, "llminferenceservice")
 }
@@ -454,7 +458,7 @@ func setLLMISVCDrainResourceOwner(kserve *platformv1alpha1.Kserve, resources []u
 		if !isLLMISVCDrainResource(&resources[i]) {
 			continue
 		}
-		resources[i].SetOwnerReferences([]metav1.OwnerReference{owner})
+		resources[i].SetOwnerReferences(upsertOwnerReference(resources[i].GetOwnerReferences(), owner))
 	}
 }
 
@@ -463,8 +467,12 @@ func kserveLifecycleOwner(kserve *platformv1alpha1.Kserve) (metav1.OwnerReferenc
 		if owner.Controller == nil || !*owner.Controller {
 			continue
 		}
-		// The module operator does not manage Platform finalizers. Retaining the
-		// inherited BlockOwnerDeletion value would require that extra permission.
+		// Keep this non-controlling: module resources can have owner references
+		// added outside this reconciler, and Kubernetes accepts only one
+		// controller owner reference. Garbage collection still follows a regular
+		// owner reference. BlockOwnerDeletion would also require permission to
+		// update the Platform finalizer, which this controller does not manage.
+		owner.Controller = nil
 		owner.BlockOwnerDeletion = nil
 		return owner, true
 	}
