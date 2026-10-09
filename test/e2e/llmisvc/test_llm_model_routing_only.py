@@ -31,6 +31,10 @@ from kubernetes import client
 from .diagnostic import collect_diagnostics
 from .fixtures import create_router_resources, generate_k8s_safe_suffix
 from .test_gateway_section_name import _create_llmisvc_configs, _get_kserve_client
+from .test_llm_auth import (
+    cleanup_service_account,
+    create_service_account_with_inference_access,
+)
 from .test_llm_inference_service import (
     MODEL_ROUTING_HEADER,
     TestCase,
@@ -60,6 +64,7 @@ MODEL_ROUTING_ONLY = {"serving.kserve.io/model-based-routing-only": "true"}
 def test_model_based_routing_only(set_on, test_namespace):
     kserve_client = _get_kserve_client()
     service_name = generate_k8s_safe_suffix("model-routing-only")
+    sa_name = f"{service_name}-test-sa"
 
     create_router_resources(
         gateways=[
@@ -126,11 +131,15 @@ def test_model_based_routing_only(set_on, test_namespace):
             f"Expected status.url to be the gateway root, got {status_url}"
         )
 
+        token = create_service_account_with_inference_access(
+            kserve_client, sa_name, service_name, namespace=test_namespace
+        )
+        auth_headers = {"Authorization": f"Bearer {token}"}
         wait_for_model_response(
             kserve_client,
             test_case,
             test_case.wait_timeout,
-            extra_headers=test_case.extra_headers,
+            extra_headers={**test_case.extra_headers, **auth_headers},
         )
 
         path_url = (
@@ -138,6 +147,7 @@ def test_model_based_routing_only(set_on, test_namespace):
         )
         response = requests.post(
             path_url,
+            headers=auth_headers,
             json=completions_payload(test_case),
             timeout=test_case.response_timeout,
         )
@@ -148,3 +158,5 @@ def test_model_based_routing_only(set_on, test_namespace):
     except Exception:
         collect_diagnostics(service_name, test_namespace, kserve_client=kserve_client)
         raise
+    finally:
+        cleanup_service_account(kserve_client, sa_name, namespace=test_namespace)
