@@ -39,13 +39,11 @@ var _ = Describe("KserveModule Reconciler", func() {
 	It("sets error status when manifests are missing", func(ctx SpecContext) {
 		savedWorkDir := testEnv.Reconciler.WorkDir()
 		testEnv.Reconciler.SetWorkDir(GinkgoT().TempDir())
-		DeferCleanup(func() {
-			testEnv.Reconciler.SetWorkDir(savedWorkDir)
-		})
 
 		cr := fixture.KserveCR()
 		Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
 		DeferCleanup(func(ctx SpecContext) {
+			testEnv.Reconciler.SetWorkDir(savedWorkDir)
 			deleteAndWaitGone(ctx, cr)
 		})
 

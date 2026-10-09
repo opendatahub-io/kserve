@@ -11,6 +11,14 @@ var (
 
 	llmISVCConfigListGVK = llmISVCConfigGVK.GroupVersion().WithKind(llmISVCConfigKind + "List")
 
+	llmISVCGVK = schema.GroupVersionKind{
+		Group:   llmISVCConfigGroup,
+		Version: llmISVCConfigVersion,
+		Kind:    "LLMInferenceService",
+	}
+
+	llmISVCListGVK = llmISVCGVK.GroupVersion().WithKind(llmISVCGVK.Kind + "List")
+
 	unownedGroupKinds = map[schema.GroupKind]struct{}{
 		llmISVCConfigGVK.GroupKind(): {},
 	}
