@@ -29,7 +29,11 @@ from kserve import V1alpha1LLMInferenceService
 from kubernetes import client
 
 from .diagnostic import collect_diagnostics
-from .fixtures import create_router_resources, generate_k8s_safe_suffix
+from .fixtures import (
+    DEFAULT_LLMISVC_ANNOTATIONS,
+    create_router_resources,
+    generate_k8s_safe_suffix,
+)
 from .test_gateway_section_name import _create_llmisvc_configs, _get_kserve_client
 from .test_llm_auth import (
     cleanup_service_account,
@@ -86,7 +90,11 @@ def test_model_based_routing_only(set_on, test_namespace):
     llm_service = V1alpha1LLMInferenceService(
         api_version="serving.kserve.io/v1alpha1",
         kind="LLMInferenceService",
-        metadata=client.V1ObjectMeta(name=service_name, namespace=test_namespace),
+        metadata=client.V1ObjectMeta(
+            name=service_name,
+            namespace=test_namespace,
+            annotations=dict(DEFAULT_LLMISVC_ANNOTATIONS) or None,
+        ),
         spec={
             "baseRefs": [{"name": name} for name in config_names],
             "annotations": MODEL_ROUTING_ONLY if set_on == "service" else {},
