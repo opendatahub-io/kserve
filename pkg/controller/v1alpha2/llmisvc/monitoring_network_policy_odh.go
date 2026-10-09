@@ -53,15 +53,25 @@ const (
 	defaultRHOAIMonitoringNamespace = "redhat-ods-monitoring"
 )
 
+// rhoaiWorkloadMonitoringNamespace returns the RHOAI / DSCI monitoring namespace
+// from config, the controller env var, or the historical default.
+func rhoaiWorkloadMonitoringNamespace(config *Config) string {
+	if config != nil && config.MonitoringNamespace != "" {
+		return config.MonitoringNamespace
+	}
+	if ns := env.GetString(monitoringNamespaceEnvVar, ""); ns != "" {
+		return ns
+	}
+	return defaultRHOAIMonitoringNamespace
+}
+
 // prometheusPeerNamespaces is the union of OpenShift Platform Monitoring, User
-// Workload Monitoring, the RHOAI DSCI default monitoring namespace, and
-// MONITORING_NAMESPACE when the operator injects a non-default value.
-func prometheusPeerNamespaces() []string {
+// Workload Monitoring, and the RHOAI/DSCI workload monitoring namespace.
+func prometheusPeerNamespaces(config *Config) []string {
 	return uniqueNamespaces(
 		defaultMonitoringNamespace,
 		defaultUserWorkloadMonitoringNamespace,
-		defaultRHOAIMonitoringNamespace,
-		env.GetString(monitoringNamespaceEnvVar, ""),
+		rhoaiWorkloadMonitoringNamespace(config),
 	)
 }
 
@@ -160,9 +170,13 @@ func (r *LLMISVCReconciler) reconcileNetworkPolicies(ctx context.Context, llmSvc
 		return r.cleanupMonitoringNetworkPolicy(ctx, llmSvc)
 	}
 
+	if config == nil || !config.FeatureGates.MonitoringIngressNetworkPolicy {
+		return r.cleanupMonitoringNetworkPolicy(ctx, llmSvc)
+	}
+
 	logger.Info("Reconciling monitoring NetworkPolicy for Prometheus scraping")
 
-	expected := expectedMonitoringNetworkPolicy(llmSvc, ingressNamespace(config))
+	expected := expectedMonitoringNetworkPolicy(llmSvc, ingressNamespace(config), config)
 	if err := Reconcile(ctx, r, llmSvc, &netv1.NetworkPolicy{}, expected, semanticNetworkPolicyIsEqual); err != nil {
 		return fmt.Errorf("failed to reconcile monitoring network policy %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
 	}
@@ -173,7 +187,7 @@ func (r *LLMISVCReconciler) reconcileNetworkPolicies(ctx context.Context, llmSvc
 func (r *LLMISVCReconciler) cleanupMonitoringNetworkPolicy(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
 	// Owner is nil so Delete actually removes the object during finalize.
 	// envtest has no GC, and Delete skips work when the owner is deleting.
-	expected := expectedMonitoringNetworkPolicy(llmSvc, "")
+	expected := expectedMonitoringNetworkPolicy(llmSvc, "", nil)
 	if err := Delete[*v1alpha2.LLMInferenceService](ctx, r, nil, expected); err != nil {
 		return fmt.Errorf("failed to delete monitoring network policy: %w", err)
 	}
@@ -187,7 +201,7 @@ func (r *LLMISVCReconciler) cleanupMonitoringNetworkPolicy(ctx context.Context, 
 //  2. The managed Gateway and any cross-namespace spec.router.gateway.refs to reach vLLM (8000)
 //     and EPP ext_proc (9002)
 //  3. All pods within the namespace to communicate on any port (intra-namespace service-to-service)
-func expectedMonitoringNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, ingressNs string) *netv1.NetworkPolicy {
+func expectedMonitoringNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, ingressNs string, config *Config) *netv1.NetworkPolicy {
 	vllmPort := intstr.FromInt32(8000)
 	eppExtProcPort := intstr.FromInt32(9002)
 	metricsPort := intstr.FromInt32(9090)
@@ -199,7 +213,7 @@ func expectedMonitoringNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, ingre
 		gatewayPeers = append(gatewayPeers, namespaceSelectorPeer(ns))
 	}
 
-	promNs := prometheusPeerNamespaces()
+	promNs := prometheusPeerNamespaces(config)
 	prometheusPeers := make([]netv1.NetworkPolicyPeer, 0, len(promNs))
 	for _, ns := range promNs {
 		prometheusPeers = append(prometheusPeers, namespaceSelectorPeer(ns))

@@ -148,7 +148,36 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 		}
 	}
 
+	if err := updateLLMISVCConfigMapKey(cm, kserve); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func updateLLMISVCConfigMapKey(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) error {
+	monitoringNS := os.Getenv("MONITORING_NAMESPACE")
+	if kserve.Spec.EnableLLMMonitoringIngressNetworkPolicy == nil && monitoringNS == "" {
+		return nil
+	}
+
+	if _, ok := cm.Data[llmisvcConfigKeyName]; !ok {
+		cm.Data[llmisvcConfigKeyName] = "{}"
+	}
+
+	return updateCMJSONKey(cm, llmisvcConfigKeyName, func(data map[string]any) {
+		if kserve.Spec.EnableLLMMonitoringIngressNetworkPolicy != nil {
+			featureGates, _ := data["featureGates"].(map[string]any)
+			if featureGates == nil {
+				featureGates = map[string]any{}
+				data["featureGates"] = featureGates
+			}
+			featureGates["monitoringIngressNetworkPolicy"] = *kserve.Spec.EnableLLMMonitoringIngressNetworkPolicy
+		}
+		if monitoringNS != "" {
+			data["monitoringNamespace"] = monitoringNS
+		}
+	})
 }
 
 func updateCMJSONKey(cm *corev1.ConfigMap, key string, mutate func(map[string]any)) error {

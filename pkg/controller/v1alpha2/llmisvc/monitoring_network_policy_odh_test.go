@@ -36,11 +36,39 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
 	. "github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc/fixture"
 )
 
 var _ = Describe("LLMInferenceService Monitoring NetworkPolicy", func() {
 	Context("NetworkPolicy Reconciliation", func() {
+		BeforeEach(func(ctx SpecContext) {
+			EnableMonitoringIngressNetworkPolicy(ctx, envTest.Client)
+		})
+
+		It("should not create the NetworkPolicy when the monitoring ingress gate is off", func(ctx SpecContext) {
+			PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
+				cfg.FeatureGates.MonitoringIngressNetworkPolicy = false
+			})
+
+			svcName := "test-llm-netpol-gate-off"
+			testNs := NewTestNamespace(ctx, envTest)
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+			)
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer testNs.DeleteAndWait(ctx, llmSvc)
+
+			Consistently(func(g Gomega, ctx context.Context) {
+				err := envTest.Get(ctx, types.NamespacedName{
+					Name:      kmeta.ChildName(svcName, "-prometheus-scraping"),
+					Namespace: testNs.Name,
+				}, &netv1.NetworkPolicy{})
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}).WithContext(ctx).Should(Succeed())
+		})
+
 		It("should create a per-service NetworkPolicy allowing Prometheus scraping when llmisvc is created", func(ctx SpecContext) {
 			// given
 			GinkgoT().Setenv("MONITORING_NAMESPACE", "test-monitoring-ns")
@@ -81,7 +109,6 @@ var _ = Describe("LLMInferenceService Monitoring NetworkPolicy", func() {
 				"test-monitoring-ns",
 				"openshift-monitoring",
 				"openshift-user-workload-monitoring",
-				"redhat-ods-monitoring",
 			))
 			Expect(prometheusRule.Ports).To(HaveLen(2))
 			Expect(prometheusRule.Ports).To(ContainElements(

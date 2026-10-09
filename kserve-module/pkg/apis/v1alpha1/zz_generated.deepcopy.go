@@ -95,6 +95,11 @@ func (in *KserveSpec) DeepCopyInto(out *KserveSpec) {
 		*out = new(bool)
 		**out = **in
 	}
+	if in.EnableLLMMonitoringIngressNetworkPolicy != nil {
+		in, out := &in.EnableLLMMonitoringIngressNetworkPolicy, &out.EnableLLMMonitoringIngressNetworkPolicy
+		*out = new(bool)
+		**out = **in
+	}
 	if in.ModelCache != nil {
 		in, out := &in.ModelCache, &out.ModelCache
 		*out = new(ModelCacheSpec)
