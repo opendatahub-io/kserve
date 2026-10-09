@@ -11,6 +11,14 @@ var (
 
 	llmISVCConfigListGVK = llmISVCConfigGVK.GroupVersion().WithKind(llmISVCConfigKind + "List")
 
+	llmISVCGVK = schema.GroupVersionKind{
+		Group:   llmISVCConfigGroup,
+		Version: llmISVCConfigVersion,
+		Kind:    "LLMInferenceService",
+	}
+
+	llmISVCListGVK = llmISVCGVK.GroupVersion().WithKind(llmISVCGVK.Kind + "List")
+
 	unownedGroupKinds = map[schema.GroupKind]struct{}{
 		llmISVCConfigGVK.GroupKind(): {},
 	}
@@ -21,6 +29,7 @@ const (
 	KserveComponentName             = "kserve"
 	OdhModelControllerComponentName = "modelcontroller"
 	WVAComponentName                = "wva"
+	ModelExpressComponentName       = "modelexpress"
 	ModelCacheComponentName         = "modelcache"
 	ObservabilityComponentName      = "observability"
 	ConsoleDashboardsComponentName  = "console-dashboards"
@@ -33,6 +42,8 @@ const (
 	ModelControllerSourcePath           = "overlays/odh"
 	ModelControllerSourcePathXKS        = "overlays/xks"
 	WVAManifestSourcePathOCP            = "overlays/namespace-scoped/openshift"
+	ModelExpressManifestSourcePath      = "overlays/odh"
+	ModelExpressManifestSourcePathXKS   = "overlays/odh-xks"
 	ObservabilityManifestSourcePath     = "monitoring/llmisvc/dashboards"
 	ConsoleDashboardsManifestSourcePath = "monitoring/llmisvc/dashboards-odc"
 
@@ -40,8 +51,9 @@ const (
 	kserveControllerDeployment     = "kserve-controller-manager"
 	llmISVCControllerDeployment    = "llmisvc-controller-manager"
 	localmodelControllerDeployment = "kserve-localmodel-controller-manager"
-	odhModelControllerDeployment = "odh-model-controller"
-	modelServingAPIDeployment    = "model-serving-api"
+	odhModelControllerDeployment   = "odh-model-controller"
+	modelServingAPIDeployment      = "model-serving-api"
+	modelExpressOperatorDeployment = "modelexpress-operator"
 
 	// Console dashboards target namespace
 	consoleDashboardsNamespace = "openshift-config-managed"

@@ -13,10 +13,12 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
+	odhLabels "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
 )
 
 func TestDetachLLMISVCDrainResources(t *testing.T) {
@@ -26,6 +28,14 @@ func TestDetachLLMISVCDrainResources(t *testing.T) {
 	kserve := &platformv1alpha1.Kserve{ObjectMeta: metav1.ObjectMeta{
 		Name: "default-kserve",
 		UID:  types.UID("kserve-uid"),
+		OwnerReferences: []metav1.OwnerReference{{
+			APIVersion:         "config.opendatahub.io/v1alpha2",
+			Kind:               "Platform",
+			Name:               "platform",
+			UID:                types.UID("platform-uid"),
+			Controller:         ptr.To(true),
+			BlockOwnerDeletion: ptr.To(true),
+		}},
 	}}
 	ownerRef := *metav1.NewControllerRef(kserve, platformv1alpha1.GroupVersion.WithKind("Kserve"))
 	llmController := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
@@ -45,12 +55,44 @@ func TestDetachLLMISVCDrainResources(t *testing.T) {
 	drainResource.SetGroupVersionKind(appsv1.SchemeGroupVersion.WithKind("Deployment"))
 	drainResource.SetNamespace(llmController.Namespace)
 	drainResource.SetName(llmController.Name)
+	wellKnownConfig := *teardownConfig("preset", "False")
+	resources := []unstructured.Unstructured{drainResource, wellKnownConfig}
+	setLLMISVCDrainResourceOwner(kserve, resources)
+	g.Expect(resources[0].GetOwnerReferences()).To(ConsistOf(metav1.OwnerReference{
+		APIVersion: "config.opendatahub.io/v1alpha2",
+		Kind:       "Platform",
+		Name:       "platform",
+		UID:        types.UID("platform-uid"),
+		Controller: ptr.To(true),
+	}), "the deploy input must retain the LLMInferenceService cleanup controller")
+	g.Expect(resources[1].GetOwnerReferences()).To(BeEmpty(), "well-known configs remain independently managed")
 	g.Expect(reconciler.detachLLMISVCDrainResources(ctx, kserve, []unstructured.Unstructured{drainResource})).To(Succeed())
 
 	g.Expect(cli.Get(ctx, client.ObjectKeyFromObject(llmController), llmController)).To(Succeed())
-	g.Expect(llmController.GetOwnerReferences()).To(BeEmpty(), "the cleanup controller must survive Kserve foreground deletion")
+	g.Expect(llmController.GetOwnerReferences()).To(ConsistOf(metav1.OwnerReference{
+		APIVersion: "config.opendatahub.io/v1alpha2",
+		Kind:       "Platform",
+		Name:       "platform",
+		UID:        types.UID("platform-uid"),
+		Controller: ptr.To(true),
+	}), "the cleanup controller must survive Kserve foreground deletion without becoming unmanaged")
 	g.Expect(cli.Get(ctx, client.ObjectKeyFromObject(unrelated), unrelated)).To(Succeed())
 	g.Expect(unrelated.GetOwnerReferences()).To(ConsistOf(ownerRef), "ordinary Kserve operands remain on the existing GC path")
+}
+
+func TestUpsertLLMISVCDrainResourceOwner(t *testing.T) {
+	g := NewWithT(t)
+	platformOwner := metav1.OwnerReference{
+		APIVersion: "config.opendatahub.io/v1alpha2",
+		Kind:       "Platform",
+		Name:       "platform",
+		UID:        types.UID("platform-uid"),
+		Controller: ptr.To(true),
+	}
+	otherOwner := metav1.OwnerReference{APIVersion: "v1", Kind: "ConfigMap", Name: "shared", UID: types.UID("shared-uid")}
+
+	refs := upsertOwnerReference([]metav1.OwnerReference{otherOwner, platformOwner}, platformOwner)
+	g.Expect(refs).To(ConsistOf(otherOwner, platformOwner))
 }
 
 func TestLLMISVCConfigCleanupDrain(t *testing.T) {
@@ -104,11 +146,25 @@ func TestLLMISVCConfigCleanupDrain(t *testing.T) {
 		g.Expect(outcome.blockers).To(BeEmpty())
 	})
 
+	t.Run("waits for services using user-managed configs", func(t *testing.T) {
+		g := NewWithT(t)
+		service := &unstructured.Unstructured{Object: map[string]any{}}
+		service.SetGroupVersionKind(llmISVCGVK)
+		service.SetNamespace("llm")
+		service.SetName("user-config-service")
+		reconciler := &KserveModuleReconciler{Client: fake.NewClientBuilder().WithScheme(teardownTestScheme(t)).WithObjects(service).Build()}
+
+		blockers, err := reconciler.llmISVCDeletionBlockers(ctx)
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(blockers).To(Equal([]string{"LLMInferenceService llm/user-config-service"}))
+	})
+
 	t.Run("removes the cleanup controller after preset finalization", func(t *testing.T) {
 		g := NewWithT(t)
 		scheme := teardownTestScheme(t)
-		controller := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: llmISVCControllerDeployment, Namespace: "opendatahub"}}
-		service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "llmisvc-webhook-server-service", Namespace: "opendatahub"}}
+		labels := map[string]string{odhLabels.PlatformPartOf: KserveComponentName}
+		controller := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: llmISVCControllerDeployment, Namespace: "opendatahub", Labels: labels}}
+		service := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "llmisvc-webhook-server-service", Namespace: "opendatahub", Labels: labels}}
 		ordinary := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "kserve-controller-manager", Namespace: "opendatahub"}}
 		cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(controller, service, ordinary).Build()
 		reconciler := &KserveModuleReconciler{Client: cli}
