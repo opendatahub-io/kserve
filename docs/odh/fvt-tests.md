@@ -101,6 +101,35 @@ To fully tear down the test setup:
 make undeploy-ocp
 ```
 
+## LLMInferenceService audit logging (RHCL)
+
+`infra/deploy.kuadrant.sh` configures the CI cluster for
+[RHAISTRAT-1799](https://redhat.atlassian.net/browse/RHAISTRAT-1799) audit logging when the installed
+RHCL build supports it: it sets `spec.enableLoggingFields: true`, `logMode: production` and
+`logLevel: info` on the managed Authorino CR and creates a Gateway-scoped `TelemetryPolicy`
+(`openshift-ingress/openshift-ai-inference-audit-logging`) whose `logging.default.fields` add
+`client_identity`, `client_anonymous`, `request_method` and `request_path` to Authorino's info-level
+decision log records (emitted under the `custom.` prefix). Support is detected from the CRD schemas; on
+older RHCL builds the Authorino CR is rendered as before (`logLevel: debug`, no `logMode`) and no
+TelemetryPolicy is created. After applying the CR the setup waits for the authorino Deployment to carry
+the requested `--log-level` / `--log-mode` / `--enable-logging-fields` args before waiting for its rollout.
+
+| Variable | Description | Default |
+|---|---|---|
+| `LLMISVC_AUDIT_LOGGING` | `auto` enables audit logging only when the APIs exist; `true` fails setup when they are missing; `false` skips it | `auto` |
+| `AUTHORINO_LOG_LEVEL` | Authorino operand log level, applied in both modes when set | `info` with audit logging, otherwise `debug` |
+
+The identity field is `auth.identity.user.username`: the gateway AuthPolicy authenticates with
+`kubernetesTokenReview`, so the identity object is a `TokenReviewStatus` and the OIDC-style
+`auth.identity.sub` never resolves on RHOAI. Requests that fail authentication carry the request fields
+only; authorization denials still carry the identity; anonymous (auth-disabled) requests carry
+`client_anonymous=true`.
+
+`print_e2e_environment_summary` (run on setup exit) and the failure paths in `deploy.kuadrant.sh` print
+the Kuadrant / Authorino operand images, the Authorino logging spec and the TelemetryPolicy conditions so
+a build without the feature, a policy that was not enforced and an operand that did not pick up the
+configuration can be told apart from the CI log.
+
 ## \[Optional\] Build and push custom images
 
 `Makefile.overrides.mk` aligns image names with ODH registry conventions so
