@@ -102,6 +102,12 @@ type FeatureGates struct {
 	// serving.kserve.io/enable-disaggregated-set annotation, and the LWS
 	// DisaggregatedSet CRD must be installed on the cluster.
 	DisaggregatedSet bool `json:"disaggregatedSet,omitempty"`
+
+	// MonitoringIngressNetworkPolicy enables per-LLMInferenceService ingress
+	// NetworkPolicies that restrict Prometheus and gateway traffic while allowing
+	// same-namespace access. Off by default for seamless upgrades from releases
+	// that did not create these policies.
+	MonitoringIngressNetworkPolicy bool `json:"monitoringIngressNetworkPolicy,omitempty"`
 }
 
 // LLMISVCConfig holds LLMInferenceService controller settings read from the "llmisvc"
@@ -115,6 +121,9 @@ type FeatureGates struct {
 //	  {"featureGates": {"disaggregatedSet": true}}
 type LLMISVCConfig struct {
 	FeatureGates FeatureGates `json:"featureGates,omitempty"`
+	// MonitoringNamespace is the platform monitoring namespace (DSCI) when set by
+	// the operator in inferenceservice-config. Used for Prometheus scrape peers.
+	MonitoringNamespace string `json:"monitoringNamespace,omitempty"`
 }
 
 // NewLLMISVCConfig parses the "llmisvc" key from the inferenceservice-config ConfigMap.
@@ -170,6 +179,10 @@ type Config struct {
 	// inferenceservice-config. The zero value leaves every gate off, so a directly
 	// constructed Config behaves as it did before any gate existed.
 	FeatureGates FeatureGates `json:"featureGates,omitempty"`
+
+	// MonitoringNamespace is copied from the "llmisvc" key when the platform
+	// operator sets the DSCI monitoring namespace.
+	MonitoringNamespace string `json:"monitoringNamespace,omitempty"`
 
 	// Storage and credential configs are excluded from JSON serialization
 	// as they contain sensitive information
@@ -322,6 +335,7 @@ func toConfig(isvcConfigMap *corev1.ConfigMap) (*Config, error) {
 		return nil, fmt.Errorf("failed to parse %s config: %w", llmISVCConfigMapKey, errConvert)
 	}
 	config.FeatureGates = llmISVCConfig.FeatureGates
+	config.MonitoringNamespace = llmISVCConfig.MonitoringNamespace
 
 	return config, nil
 }

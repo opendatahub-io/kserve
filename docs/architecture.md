@@ -52,6 +52,8 @@ Hook pattern: upstream calls e.g. `extendControllerSetup()` → `controller_setu
 5. `reconcileRouter()` — HTTPRoutes, InferencePool (v1/v1alpha2), scheduler; `ensureGatewayPreconditions()` marks status without requeue on missing CRDs
 6. `reconcilePlatformResources()` (ODH: monitoring) → `observeWorkloadStatus()` → status (composite `Ready` from workload + router sub-conditions)
 
+**ODH monitoring ingress NetworkPolicy:** Off by default (`inferenceservice-config` `llmisvc.featureGates.monitoringIngressNetworkPolicy`, set from the KServe component on the DataScienceCluster). When enabled, each LLMInferenceService gets an ingress policy allowing Prometheus (platform/UWM/DSCI monitoring namespace), the managed gateway, and same-namespace traffic. Namespaces with default-deny need this gate on before cross-namespace Prometheus can reach model pods.
+
 **ODH:** `controller_setup_odh.go`, `platform_resources_odh.go`, `monitoring{,_network_policy}_odh.go`, `workload_{tls_cert,tls_rotation,permissions}_odh.go`, `router_{preconditions,platform_networking,discovery_additional}_odh.go`, `distro/controller_rbac_odh.go`
 
 ## InferenceGraph
