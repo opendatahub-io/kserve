@@ -47,6 +47,8 @@ import (
 	kernelcacheutil "github.com/kserve/kserve/pkg/kernelcache"
 	kernelcacheconfig "github.com/kserve/kserve/pkg/kernelcache/config"
 	cacheidentity "github.com/kserve/kserve/pkg/kernelcache/identity"
+	"github.com/kserve/kserve/pkg/kernelcache/registry"
+	"github.com/kserve/kserve/pkg/kernelcache/registryauth"
 	"github.com/kserve/kserve/pkg/kernelcache/reporter"
 	kernelcachesecurity "github.com/kserve/kserve/pkg/kernelcache/security"
 	kernelcachetypes "github.com/kserve/kserve/pkg/kernelcache/types"
@@ -157,6 +159,9 @@ func (r *KernelCacheCaptureReconciler) cleanupCaptureIdentities(ctx context.Cont
 		capture.Status.Phase != v1alpha1.KernelCacheCapturePhaseFailed {
 		return nil
 	}
+	if err := r.revokeRegistryAccess(ctx, capture); err != nil {
+		return err
+	}
 	resources := []struct {
 		object client.Object
 		label  string
@@ -165,6 +170,8 @@ func (r *KernelCacheCaptureReconciler) cleanupCaptureIdentities(ctx context.Cont
 		{object: &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: reporter.RoleBindingName(capture.Name), Namespace: capture.Namespace}}, label: reporter.ManagedLabel},
 		{object: &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Name: reporter.RoleName(capture.Name), Namespace: capture.Namespace}}, label: reporter.ManagedLabel},
 		{object: &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: reporter.ServiceAccountName(capture.Name), Namespace: capture.Namespace}}, label: reporter.ManagedLabel},
+		{object: &rbacv1.RoleBinding{ObjectMeta: metav1.ObjectMeta{Name: registryauth.PusherRoleBindingName(capture.Name), Namespace: capture.Namespace}}, label: registryauth.ManagedLabel},
+		{object: &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: registryauth.PusherServiceAccountName(capture.Name), Namespace: capture.Namespace}}, label: registryauth.ManagedLabel},
 	}
 	for _, resource := range resources {
 		if err := r.deleteOwnedCaptureObject(ctx, capture, resource.object, resource.label); err != nil {
@@ -172,6 +179,21 @@ func (r *KernelCacheCaptureReconciler) cleanupCaptureIdentities(ctx context.Cont
 		}
 	}
 	return nil
+}
+
+func (r *KernelCacheCaptureReconciler) revokeRegistryAccess(ctx context.Context, capture *v1alpha1.KernelCacheCapture) error {
+	if capture.Status.ActiveSession == nil || capture.Status.ActiveSession.PodName == "" {
+		return nil
+	}
+	reader := r.Reader
+	if reader == nil {
+		reader = r.Client
+	}
+	pod := &corev1.Pod{}
+	if err := reader.Get(ctx, client.ObjectKey{Namespace: capture.Namespace, Name: capture.Status.ActiveSession.PodName}, pod); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	return registryauth.Revoke(ctx, r.Client, pod)
 }
 
 func (r *KernelCacheCaptureReconciler) deleteOwnedCaptureObject(ctx context.Context, capture *v1alpha1.KernelCacheCapture, object client.Object, managedLabel string) error {
@@ -536,7 +558,7 @@ func (r *KernelCacheCaptureReconciler) reconcileArtifactSigning(
 	if reader == nil {
 		reader = r.Client
 	}
-	signer, err := kernelcachesecurity.NewSigner(ctx, config.ArtifactSecurity.ToSecurityConfig(), kernelcachesecurity.NewKubernetesSecretSource(reader))
+	signer, err := kernelcachesecurity.NewSigner(ctx, captureSigningSecurityConfig(config), kernelcachesecurity.NewKubernetesSecretSource(reader))
 	if err != nil {
 		return r.updateCaptureSigningStatus(ctx, capture, v1alpha1.KernelCacheSigningStatus{
 			Mode:    mode,
@@ -550,10 +572,30 @@ func (r *KernelCacheCaptureReconciler) reconcileArtifactSigning(
 	if capture.Spec.Signing != nil && capture.Spec.Signing.ProfileRef != nil {
 		profileRef = capture.Namespace + "/" + capture.Spec.Signing.ProfileRef.Name
 	}
-	result, err := signer.Sign(ctx, kernelcachetypes.SignRequest{
+	request := kernelcachetypes.SignRequest{
 		ImageRef:   capture.Status.Artifact.ImageReference,
 		ProfileRef: profileRef,
-	})
+		RegistrySettings: kernelcachetypes.RegistrySettings{
+			RegistryInsecure: config.Registry.Insecure,
+		},
+	}
+	if config.ArtifactSecurity.Mode == string(kernelcachetypes.ModeCert) {
+		registryAccess, registryAccessErr := registry.NewControllerRegistryAccess(ctx, reader, capture.Namespace, config.Registry, request.ImageRef)
+		if registryAccessErr != nil {
+			return r.updateCaptureSigningStatus(ctx, capture, v1alpha1.KernelCacheSigningStatus{
+				Mode:    mode,
+				State:   v1alpha1.KernelCacheArtifactSecurityStateFailed,
+				Reason:  "RegistryUnavailable",
+				Message: registryAccessErr.Error(),
+			})
+		}
+		request.RegistrySettings = kernelcachetypes.RegistrySettings{
+			RegistryTransport:     registryAccess.Transport,
+			RegistryAuthenticator: registryAccess.Authenticator,
+			RegistryInsecure:      registryAccess.Insecure,
+		}
+	}
+	result, err := signer.Sign(ctx, request)
 	if err != nil {
 		statusErr := r.updateCaptureSigningStatus(ctx, capture, v1alpha1.KernelCacheSigningStatus{
 			Mode:    mode,
@@ -603,6 +645,14 @@ func (r *KernelCacheCaptureReconciler) reconcileArtifactSigning(
 		Message:  "artifact signing completed",
 		SignedAt: &now,
 	})
+}
+
+func captureSigningSecurityConfig(config *v1beta1.KernelCacheConfig) kernelcachetypes.SecurityConfig {
+	securityConfig := config.ArtifactSecurity.ToSecurityConfig()
+	if securityConfig.Mode == kernelcachetypes.ModeCert && config.ArtifactSecurity.Cert.SigningProfileRef != "" {
+		securityConfig.Cert.SigningSecret = constants.KServeNamespace + "/" + config.ArtifactSecurity.Cert.SigningProfileRef
+	}
+	return securityConfig
 }
 
 func captureSigningMode(mode kernelcachetypes.Mode) string {
