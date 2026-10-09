@@ -51,6 +51,12 @@ func WithWVAManagementState(state common.ManagementState) KserveOption {
 	}
 }
 
+func WithModelExpressManagementState(state common.ManagementState) KserveOption {
+	return func(k *platformv1alpha1.Kserve) {
+		k.Spec.ModelExpress.ManagementState = state
+	}
+}
+
 func WithEnableLLMInferenceServiceTLS(val *bool) KserveOption {
 	return func(k *platformv1alpha1.Kserve) {
 		k.Spec.EnableLLMInferenceServiceTLS = val

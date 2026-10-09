@@ -77,6 +77,10 @@ export KEDA_NAMESPACE=${KEDA_NAMESPACE:-"openshift-keda"}
 export KEDA_OPERATOR_POD_LABEL=${KEDA_OPERATOR_POD_LABEL:-"app=keda-operator"}
 
 export IMAGE_TRANSFORMER_IMG_TAG="${IMAGE_TRANSFORMER_IMG_TAG:-kserve/image-transformer:latest}"
+export STORAGE_INITIALIZER_IMAGE="${STORAGE_INITIALIZER_IMAGE:-$(
+  grep '^kserve-storage-initializer=' \
+    "${PROJECT_ROOT}/config/overlays/odh/params.env" | cut -d= -f2-
+)}"
 
 if [[ "$RUNNING_LOCAL" == "true" ]]; then
   export CUSTOM_MODEL_GRPC_IMG_TAG=kserve/custom-model-grpc:latest
@@ -114,4 +118,3 @@ echo "Run E2E tests: ${MARKERS}"
 pushd $PROJECT_ROOT >/dev/null
 ./test/scripts/gh-actions/run-e2e-tests.sh "${MARKERS}" "${PARALLELISM}" "${NETWORK_LAYER}" 2>&1 | tee ./test/scripts/openshift-ci/run-e2e-tests-"${MARKERS// /_}".log
 popd
-

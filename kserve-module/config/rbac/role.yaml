@@ -178,6 +178,13 @@ rules:
   verbs:
   - delete
   - list
+  - modelexpress.opendatahub.io
+  resources:
+  - modelexpressservers
+  verbs:
+  - get
+  - list
+  - watch
 - apiGroups:
   - monitoring.coreos.com
   resourceNames:
@@ -335,6 +342,8 @@ rules:
   - kserve-view
   - metrics-reader
   - model-serving-api
+  - modelexpress-operator
+  - modelexpress-operator-openshift
   - odh-model-controller-openshift-distro-role
   - odh-model-controller-role
   - openshift-ai-inferenceservice-image-volume-scc

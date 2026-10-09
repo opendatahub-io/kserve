@@ -339,6 +339,7 @@ var knownConditionTypes = map[string]bool{
 	ConditionKServeReady:                              true,
 	ConditionModelControllerReady:                     true,
 	ConditionWVAReady:                                 true,
+	ConditionModelExpressReady:                        true,
 	ConditionModelCacheReady:                          true,
 	ConditionDependenciesAvailable:                    true,
 	ConditionTracingConfigAvailable:                   true,

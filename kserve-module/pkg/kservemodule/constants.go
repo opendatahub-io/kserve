@@ -21,6 +21,7 @@ const (
 	KserveComponentName             = "kserve"
 	OdhModelControllerComponentName = "modelcontroller"
 	WVAComponentName                = "wva"
+	ModelExpressComponentName       = "modelexpress"
 	ModelCacheComponentName         = "modelcache"
 	ObservabilityComponentName      = "observability"
 	ConsoleDashboardsComponentName  = "console-dashboards"
@@ -33,6 +34,8 @@ const (
 	ModelControllerSourcePath           = "overlays/odh"
 	ModelControllerSourcePathXKS        = "overlays/xks"
 	WVAManifestSourcePathOCP            = "overlays/namespace-scoped/openshift"
+	ModelExpressManifestSourcePath      = "overlays/odh"
+	ModelExpressManifestSourcePathXKS   = "overlays/odh-xks"
 	ObservabilityManifestSourcePath     = "monitoring/llmisvc/dashboards"
 	ConsoleDashboardsManifestSourcePath = "monitoring/llmisvc/dashboards-odc"
 
@@ -44,6 +47,7 @@ const (
 	modelServingAPIDeployment      = "model-serving-api"
 	wvaControllerDeployment        = "workload-variant-autoscaler-controller-manager"
 	variantAutoscalingCRDName      = "variantautoscalings.llmd.ai"
+	modelExpressOperatorDeployment = "modelexpress-operator"
 
 	// Console dashboards target namespace
 	consoleDashboardsNamespace = "openshift-config-managed"
