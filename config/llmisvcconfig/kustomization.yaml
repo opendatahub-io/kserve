@@ -16,4 +16,5 @@ resources:
   - config-llm-tokenizer.yaml
   - config-llm-tracing.yaml
   - config-llm-worker-data-parallel.yaml
+  - config-llm-worker-pipeline-parallel.yaml
   - config-sglang-template.yaml
