@@ -178,6 +178,7 @@ rules:
   verbs:
   - delete
   - list
+- apiGroups:
   - modelexpress.opendatahub.io
   resources:
   - modelexpressservers

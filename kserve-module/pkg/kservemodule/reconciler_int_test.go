@@ -337,10 +337,6 @@ var _ = Describe("KserveModule Reconciler", func() {
 		vaCRDKey := client.ObjectKey{Name: "variantautoscalings.llmd.ai"}
 		vaKey := client.ObjectKey{Name: "leftover-va", Namespace: "opendatahub"}
 		cmKey := client.ObjectKey{Name: "inferenceservice-config", Namespace: "opendatahub"}
-	Context("ModelExpress ManagementState lifecycle", Ordered, func() {
-		var cr *platformv1alpha1.Kserve
-		mxKey := client.ObjectKey{Name: "modelexpress-operator", Namespace: "opendatahub"}
-		mxCRDKey := client.ObjectKey{Name: "modelexpressservers.modelexpress.opendatahub.io"}
 
 		BeforeAll(func(ctx SpecContext) {
 			testEnv.Reconciler.Deployer = kservemodule.NewDeployer()
@@ -350,14 +346,6 @@ var _ = Describe("KserveModule Reconciler", func() {
 			DeferCleanup(func(ctx SpecContext) {
 				deleteAndWaitGone(ctx, cr)
 			})
-
-			DeferCleanup(func(ctx SpecContext) {
-				deleteAndWaitGone(ctx, cr)
-			})
-		})
-
-		It("does not create the ModelExpress Deployment when ManagementState is Removed (default)", func(ctx SpecContext) {
-			triggerReconcile(ctx, cr, "modelexpress-default-removed")
 
 			Eventually(func(g Gomega) {
 				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
@@ -420,6 +408,35 @@ var _ = Describe("KserveModule Reconciler", func() {
 				g.Expect(testEnv.Client.Get(ctx, cmKey, cm)).To(Succeed())
 				g.Expect(cm.Data).NotTo(HaveKey("autoscaling-wva-controller-config"))
 				g.Expect(cm.Data).To(HaveKey("ingress"))
+			}).WithContext(ctx).Should(Succeed())
+		})
+	})
+
+	Context("ModelExpress ManagementState lifecycle", Ordered, func() {
+		var cr *platformv1alpha1.Kserve
+		mxKey := client.ObjectKey{Name: "modelexpress-operator", Namespace: "opendatahub"}
+		mxCRDKey := client.ObjectKey{Name: "modelexpressservers.modelexpress.opendatahub.io"}
+
+		BeforeAll(func(ctx SpecContext) {
+			testEnv.Reconciler.Deployer = kservemodule.NewDeployer()
+
+			cr = fixture.KserveCR()
+			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
+
+			DeferCleanup(func(ctx SpecContext) {
+				deleteAndWaitGone(ctx, cr)
+			})
+		})
+
+		It("does not create the ModelExpress Deployment when ManagementState is Removed (default)", func(ctx SpecContext) {
+			triggerReconcile(ctx, cr, "modelexpress-default-removed")
+
+			Eventually(func(g Gomega) {
+				g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+				cond := fixture.FindCondition(cr, string(common.ConditionTypeProvisioningSucceeded))
+				g.Expect(cond).NotTo(BeNil())
+				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			}).WithContext(ctx).Should(Succeed())
 
 			err := testEnv.Client.Get(ctx, mxKey, &appsv1.Deployment{})
 			Expect(k8serr.IsNotFound(err)).To(BeTrue(), "ModelExpress Deployment should not exist when Removed")

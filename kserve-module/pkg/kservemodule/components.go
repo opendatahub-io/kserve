@@ -50,12 +50,6 @@ var components = []componentConfig{
 		postRender:        kservePostRender,
 	},
 	{
-		name:          OdhModelControllerComponentName,
-		sourcePath:    ModelControllerSourcePath,
-		sourcePathXKS: ModelControllerSourcePathXKS,
-		imageMap:      modelControllerImageParamMap,
-		extraParams:   modelControllerExtraParams,
-		postRender:    modelControllerPostRender,
 		name:              OdhModelControllerComponentName,
 		sourcePath:        ModelControllerSourcePath,
 		sourcePathXKS:     ModelControllerSourcePathXKS,
