@@ -18,17 +18,19 @@ import (
 )
 
 type componentConfig struct {
-	name          string
-	manifestName  string // overrides name for manifest directory lookup; defaults to name if empty
-	sourcePath    string
-	sourcePathXKS string
-	imageMap      map[string]string
-	extraParams   func(kserve *platformv1alpha1.Kserve) map[string]string
-	postRender    func(ctx context.Context, r *KserveModuleReconciler,
+	name              string
+	manifestName      string // overrides name for manifest directory lookup; defaults to name if empty
+	sourcePath        string
+	sourcePathXKS     string
+	certManagerParams bool // writes the cert-manager keys into the xKS overlay's params.env
+	imageMap          map[string]string
+	extraParams       func(kserve *platformv1alpha1.Kserve) map[string]string
+	postRender        func(ctx context.Context, r *KserveModuleReconciler,
 		kserve *platformv1alpha1.Kserve,
 		resources []unstructured.Unstructured) ([]unstructured.Unstructured, error)
-	enabled      func(kserve *platformv1alpha1.Kserve) bool
-	extraCleanup func(ctx context.Context, r *KserveModuleReconciler) error
+	enabled         func(kserve *platformv1alpha1.Kserve) bool
+	extraCleanup    func(ctx context.Context, r *KserveModuleReconciler) error
+	removalBlockers func(ctx context.Context, r *KserveModuleReconciler) ([]string, error)
 }
 
 func (c componentConfig) dirName() string {
@@ -40,19 +42,21 @@ func (c componentConfig) dirName() string {
 
 var components = []componentConfig{
 	{
-		name:          KserveComponentName,
-		sourcePath:    KserveManifestSourcePath,
-		sourcePathXKS: KserveManifestSourcePathXKS,
-		imageMap:      kserveImageParamMap,
-		postRender:    kservePostRender,
+		name:              KserveComponentName,
+		sourcePath:        KserveManifestSourcePath,
+		sourcePathXKS:     KserveManifestSourcePathXKS,
+		certManagerParams: true,
+		imageMap:          kserveImageParamMap,
+		postRender:        kservePostRender,
 	},
 	{
-		name:        OdhModelControllerComponentName,
-		sourcePath:  ModelControllerSourcePath,
-		sourcePathXKS: ModelControllerSourcePathXKS,
-		imageMap:    modelControllerImageParamMap,
-		extraParams: modelControllerExtraParams,
-		postRender:  modelControllerPostRender,
+		name:              OdhModelControllerComponentName,
+		sourcePath:        ModelControllerSourcePath,
+		sourcePathXKS:     ModelControllerSourcePathXKS,
+		certManagerParams: true,
+		imageMap:          modelControllerImageParamMap,
+		extraParams:       modelControllerExtraParams,
+		postRender:        modelControllerPostRender,
 	},
 	{
 		name:       WVAComponentName,
@@ -60,6 +64,14 @@ var components = []componentConfig{
 		imageMap:   wvaImageParamMap,
 		enabled:    isWVAEnabled,
 		postRender: wvaPostRender,
+	},
+	{
+		name:            ModelExpressComponentName,
+		sourcePath:      ModelExpressManifestSourcePath,
+		sourcePathXKS:   ModelExpressManifestSourcePathXKS,
+		imageMap:        modelExpressImageParamMap,
+		enabled:         isModelExpressEnabled,
+		removalBlockers: modelExpressRemovalBlockers,
 	},
 	{
 		name:         ModelCacheComponentName,
@@ -238,6 +250,10 @@ func consoleDashboardsPostRender(ctx context.Context, r *KserveModuleReconciler,
 // upgrading from 3.5 where WVA was Managed.
 func isWVAEnabled(_ *platformv1alpha1.Kserve) bool {
 	return false
+}
+
+func isModelExpressEnabled(kserve *platformv1alpha1.Kserve) bool {
+	return kserve.Spec.ModelExpress.ManagementState == common.Managed
 }
 
 func modelControllerExtraParams(kserve *platformv1alpha1.Kserve) map[string]string {

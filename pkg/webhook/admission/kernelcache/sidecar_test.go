@@ -34,6 +34,7 @@ import (
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/kernelcache/captureconfig"
 	cacheidentity "github.com/kserve/kserve/pkg/kernelcache/identity"
+	"github.com/kserve/kserve/pkg/kernelcache/registryauth"
 	"github.com/kserve/kserve/pkg/kernelcache/reporter"
 )
 
@@ -217,6 +218,40 @@ func TestInjectSidecarUsesReplicaSetRevisionIdentity(t *testing.T) {
 	require.False(t, *reporterVolume.Projected.Sources[0].Secret.Optional)
 }
 
+func TestInjectSidecarConfiguresRegistryAccessForServiceAccountToken(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, v1beta1.AddToScheme(scheme))
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+	mutator := &PodMutator{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
+	pod := sidecarTestPod()
+	cfg := &v1beta1.KernelCacheConfig{
+		MCVImage: "example/mcv:test",
+		Registry: v1beta1.KernelCacheRegistryConfig{
+			Endpoint: "registry.example:5000",
+			Auth: v1beta1.KernelCacheRegistryAuth{
+				Type:        v1beta1.KernelCacheRegistryAuthTypeServiceAccountToken,
+				PushRoleRef: &v1beta1.KernelCacheRegistryRoleRef{Kind: "ClusterRole", Name: "registry-pusher"},
+				PullRoleRef: &v1beta1.KernelCacheRegistryRoleRef{Kind: "ClusterRole", Name: "registry-puller"},
+			},
+		},
+	}
+
+	require.NoError(t, mutator.injectMCVSidecar(context.Background(), pod, cfg))
+	var captureConfig captureconfig.CaptureConfig
+	require.NoError(t, json.Unmarshal([]byte(containerEnvValue(pod.Spec.Containers[1], captureconfig.CaptureConfigEnv)), &captureConfig))
+	require.Equal(t, "mcv-registry-"+captureConfig.Capture.SessionID, pod.Annotations[registryauth.AccessSecretAnnotation])
+	require.Equal(t, "/var/run/secrets/mcv-registry/access.json", containerEnvValue(pod.Spec.Containers[1], "MCV_REGISTRY_ACCESS_FILE"))
+	var registryVolume *corev1.Volume
+	for index := range pod.Spec.Volumes {
+		if pod.Spec.Volumes[index].Name == "mcv-registry-access" {
+			registryVolume = &pod.Spec.Volumes[index]
+		}
+	}
+	require.NotNil(t, registryVolume)
+	require.Equal(t, "mcv-registry-"+captureConfig.Capture.SessionID, registryVolume.Projected.Sources[0].Secret.Name)
+}
+
 func TestInjectSidecarSkipsPodWithoutReplicaSetRevision(t *testing.T) {
 	pod := sidecarTestPod()
 	delete(pod.Labels, "pod-template-hash")
@@ -340,7 +375,7 @@ func TestTerminalCaptureSkipsSidecarWithReadyCompatibilityCache(t *testing.T) {
 		Status: v1alpha1.KernelCacheCaptureStatus{Phase: v1alpha1.KernelCacheCapturePhaseComplete},
 	}
 	mutator := &PodMutator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(&node, &cache, capture).Build()}
-	selection, found, err := mutator.findKernelCacheSelection(context.Background(), pod)
+	selection, found, err := mutator.findKernelCacheSelectionWithConfig(context.Background(), pod, &v1beta1.KernelCacheConfig{ArtifactSecurity: v1beta1.KernelCacheArtifactSecurityConfig{Mode: "none"}})
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, kernelCacheMatchCompatibility, selection.matchType)
@@ -372,7 +407,7 @@ func TestTerminalCaptureSkipsSidecarWithReadyWorkloadCache(t *testing.T) {
 		Status: v1alpha1.KernelCacheCaptureStatus{Phase: v1alpha1.KernelCacheCapturePhaseComplete},
 	}
 	mutator := &PodMutator{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(&node, &cache, capture).Build()}
-	selection, found, err := mutator.findKernelCacheSelection(context.Background(), pod)
+	selection, found, err := mutator.findKernelCacheSelectionWithConfig(context.Background(), pod, &v1beta1.KernelCacheConfig{ArtifactSecurity: v1beta1.KernelCacheArtifactSecurityConfig{Mode: "none"}})
 	require.NoError(t, err)
 	require.True(t, found)
 	require.Equal(t, kernelCacheMatchWorkload, selection.matchType)
