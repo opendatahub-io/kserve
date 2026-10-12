@@ -62,9 +62,25 @@ func (r *KserveModuleReconciler) deleteVariantAutoscalingCRs(ctx context.Context
 }
 
 func (r *KserveModuleReconciler) deleteVariantAutoscalingCRD(ctx context.Context) error {
+	// Force-delete: leftover 3.5 CRDs were applied by the WVA overlay, not by
+	// this module, so they lack platform.opendatahub.io/part-of=kserve.
+	// deleteResourceIfPresent would skip them.
 	crd := &apiextensionsv1.CustomResourceDefinition{}
-	crd.Name = variantAutoscalingCRDName
-	return deleteResourceIfPresent(ctx, r.Client, crd)
+	key := client.ObjectKey{Name: variantAutoscalingCRDName}
+	if err := r.Get(ctx, key, crd); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			return nil
+		}
+		return fmt.Errorf("getting %s: %w", variantAutoscalingCRDName, err)
+	}
+	if err := r.Delete(ctx, crd); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			return nil
+		}
+		return fmt.Errorf("deleting %s: %w", variantAutoscalingCRDName, err)
+	}
+	ctrl.LoggerFrom(ctx).Info("deleted leftover VariantAutoscaling CRD", "name", variantAutoscalingCRDName)
+	return nil
 }
 
 func (r *KserveModuleReconciler) stripWVAAutoscalingConfig(ctx context.Context) error {
