@@ -22,6 +22,7 @@ from conftest import (
     KSERVE_CR_NAME,
     NAMESPACE,
     OPERATOR_DEPLOYMENT,
+    LLMISVC_DEPLOYMENT,
     WVA_DEPLOYMENT,
     WVA_CONFIGMAP,
     MODEL_CONTROLLER_DEPLOYMENT,
@@ -452,10 +453,10 @@ def _apply_leftover_wva_resources(kubectl):
 
 @pytest.mark.sanity
 class TestOwnerReferences:
-    """Verify operand deployments have correct ownerReferences to the Kserve CR."""
+    """Verify Kserve operands use the expected lifecycle ownership."""
 
     def test_owned_deployments_have_kserve_owner_reference(self, kubectl, cluster_info, apply_kserve_cr):
-        """Each operand deployment should reference the Kserve CR as owner."""
+        """Ordinary operands are Kserve-owned; LLMISVC cleanup is independent."""
         expected = operand_deployments(cluster_info.is_openshift)
         cr_uid = apply_kserve_cr["metadata"]["uid"]
 
@@ -467,6 +468,11 @@ class TestOwnerReferences:
             dep = json.loads(result.stdout)
 
             owner_refs = dep.get("metadata", {}).get("ownerReferences", [])
+            if name == LLMISVC_DEPLOYMENT:
+                assert not any(owner.get("kind") == "Kserve" for owner in owner_refs), \
+                    f"Deployment {name} must outlive Kserve deletion, got: {owner_refs}"
+                continue
+
             assert owner_refs, \
                 f"Deployment {name} should have ownerReferences"
 
