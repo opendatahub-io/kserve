@@ -30,10 +30,17 @@ KUADRANT_READY_TIMEOUT="${KUADRANT_READY_TIMEOUT:-5m}"
 # force either, e.g. AUTHORINO_LOG_LEVEL=debug when diagnosing auth failures with audit logging on.
 AUTHORINO_LOG_LEVEL="${AUTHORINO_LOG_LEVEL:-}"
 # LLMInferenceService audit logging (RHAISTRAT-1799): opt Authorino into custom logging fields and attach a
-# Gateway-scoped TelemetryPolicy. "auto" enables it only when the installed RHCL build exposes the APIs
-# (Authorino.spec.enableLoggingFields and TelemetryPolicy.spec.logging) and leaves the Authorino CR as it
-# was on older builds; "true" fails setup when they are missing; "false" skips the setup entirely.
+# Gateway-scoped TelemetryPolicy. "auto" enables it only when the installed RHCL is at least
+# RHCL_AUDIT_LOGGING_MIN_VERSION and exposes the APIs (Authorino.spec.enableLoggingFields and
+# TelemetryPolicy.spec.logging), and leaves the Authorino CR as it was otherwise; "true" fails setup when
+# either requirement is unmet; "false" skips the setup entirely.
 LLMISVC_AUDIT_LOGGING="${LLMISVC_AUDIT_LOGGING:-auto}"
+# Minimum installed RHCL version (CSV spec.version behind the rhcl-operator Subscription) for enabling audit
+# logging, enforced in both auto and true modes: builds below it must not activate the feature even when they
+# already expose the TelemetryPolicy logging API, because the Kuadrant fixes the feature depends on are planned
+# to ship from this version (see AUDIT_LOGGING_MIN_RHCL_VERSION_DEFAULT in version.sh). Set it empty to disable the
+# version check, e.g. against upstream Kuadrant catalogs whose CSV is kuadrant-operator.v0.0.0.
+RHCL_AUDIT_LOGGING_MIN_VERSION="${RHCL_AUDIT_LOGGING_MIN_VERSION-${AUDIT_LOGGING_MIN_RHCL_VERSION_DEFAULT}}"
 TELEMETRY_POLICY_READY_TIMEOUT="${TELEMETRY_POLICY_READY_TIMEOUT:-3m}"
 # The inference Gateway is created by infra/deploy.gateway.ingress.sh and referenced by name in
 # inferenceservice-config (kserveIngressGateway) and the e2e tests, so the policy targets that fixed object.
@@ -126,32 +133,14 @@ oc wait --for=jsonpath='{.metadata.name}'=authorino-authorino-authorization svc/
 
 oc annotate svc/authorino-authorino-authorization  service.beta.openshift.io/serving-cert-secret-name="${cert_secret}" -n "${KUADRANT_NS}"
 
-# Decide whether the installed build supports LLMInferenceService audit logging. Both CRDs exist once
-# Kuadrant is Ready, so the check is done once here and reused for the Authorino CR and TelemetryPolicy.
-audit_logging_supported() {
-  crd_has_spec_field authorinos.operator.authorino.kuadrant.io enableLoggingFields \
-    && crd_has_spec_field telemetrypolicies.extensions.kuadrant.io logging
-}
-
-AUDIT_LOGGING_ENABLED=false
-case "${LLMISVC_AUDIT_LOGGING}" in
-  true|auto)
-    if audit_logging_supported; then
-      AUDIT_LOGGING_ENABLED=true
-    elif [[ "${LLMISVC_AUDIT_LOGGING}" == "true" ]]; then
-      echo "ERROR: LLMISVC_AUDIT_LOGGING=true but the installed RHCL build exposes neither Authorino.spec.enableLoggingFields nor TelemetryPolicy.spec.logging" >&2
-      print_audit_logging_diagnostics
-      exit 1
-    else
-      echo "ℹ️  installed RHCL build has no TelemetryPolicy logging support; skipping LLMInferenceService audit logging setup"
-    fi
-    ;;
-  false) ;;
-  *)
-    echo "ERROR: LLMISVC_AUDIT_LOGGING must be auto, true or false (got '${LLMISVC_AUDIT_LOGGING}')" >&2
-    exit 1
-    ;;
-esac
+# Decide whether to enable LLMInferenceService audit logging: the installed RHCL must be at least
+# RHCL_AUDIT_LOGGING_MIN_VERSION and expose both APIs (resolve_audit_logging_enabled in version.sh). Both
+# CRDs exist once Kuadrant is Ready, so the decision is taken once here and AUDIT_LOGGING_ENABLED is reused
+# for the Authorino CR and the TelemetryPolicy below.
+if ! resolve_audit_logging_enabled "${LLMISVC_AUDIT_LOGGING}" "${RHCL_AUDIT_LOGGING_MIN_VERSION}" "${RHCL_NAME}" "${KUADRANT_NS}"; then
+  print_audit_logging_diagnostics
+  exit 1
+fi
 
 # Update Authorino to configure SSL and, when the build supports it, production JSON logging with custom
 # logging fields at info level. Without support the CR is rendered as it always was (debug, no logMode).

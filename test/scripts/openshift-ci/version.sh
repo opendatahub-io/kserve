@@ -58,6 +58,68 @@ version_compare() {
   [ "$v1" -ge "$v2" ]
 }
 
+# RHCL release the Kuadrant fixes LLMInferenceService audit logging depends on are planned for:
+# CONNLINK-1884 (header values logged in clear), CONNLINK-1887 (500 on a failing request.* expression),
+# CONNLINK-1888 (removed fields keep their bindings) and kuadrant-operator#2357 (EnvoyFilter rewrite loop).
+# Builds that already expose the TelemetryPolicy logging API but predate these fixes must not activate
+# the feature, which CRD feature detection alone cannot tell apart. Bump once the fixes ship elsewhere.
+AUDIT_LOGGING_MIN_RHCL_VERSION_DEFAULT="1.5.1"
+
+# Decide whether LLMInferenceService audit logging may be enabled on the installed RHCL build: the
+# installed version must be at least <min-version> (skipped when empty) and the CRDs must expose
+# Authorino.spec.enableLoggingFields and TelemetryPolicy.spec.logging. An undeterminable version counts
+# as below the minimum.
+# Sets AUDIT_LOGGING_ENABLED (true|false) and RHCL_INSTALLED_VERSION (semver, or "" when unknown).
+# Returns 0 when setup may continue (enabled or skipped) and 1 when <mode> is invalid or is "true" with an
+# unmet requirement; the ERROR is already printed on stderr, the caller decides how to fail.
+# Usage: resolve_audit_logging_enabled <auto|true|false> <min-version|""> [subscription] [namespace]
+# shellcheck disable=SC2034  # AUDIT_LOGGING_ENABLED / RHCL_INSTALLED_VERSION are read by the caller
+resolve_audit_logging_enabled() {
+  local mode="$1" min_version="$2"
+  local sub="${3:-${RHCL_NAME:-rhcl-operator}}" ns="${4:-${KUADRANT_NS:-kuadrant-system}}"
+  local reasons="" missing=""
+  AUDIT_LOGGING_ENABLED=false
+  RHCL_INSTALLED_VERSION=""
+  case "${mode}" in
+    auto|true) ;;
+    false) return 0 ;;
+    *)
+      echo "ERROR: LLMISVC_AUDIT_LOGGING must be auto, true or false (got '${mode}')" >&2
+      return 1
+      ;;
+  esac
+
+  RHCL_INSTALLED_VERSION=$(get_subscription_installed_version "${sub}" "${ns}") || RHCL_INSTALLED_VERSION=""
+  echo "RHCL ${ns}/${sub}: installed version ${RHCL_INSTALLED_VERSION:-unknown}; audit logging minimum ${min_version:-disabled (RHCL_AUDIT_LOGGING_MIN_VERSION is empty)}"
+
+  if [[ -n "${min_version}" ]]; then
+    if [[ -z "${RHCL_INSTALLED_VERSION}" ]]; then
+      reasons="the installed RHCL version is unknown (subscription ${ns}/${sub} has no installedCSV or the CSV has no parseable version; minimum ${min_version}, set RHCL_AUDIT_LOGGING_MIN_VERSION= to skip the version check)"
+    elif ! version_compare "${RHCL_INSTALLED_VERSION}" "${min_version}"; then
+      reasons="installed RHCL ${RHCL_INSTALLED_VERSION} is below the minimum ${min_version} (release the Kuadrant audit logging fixes are planned for)"
+    fi
+  fi
+  crd_has_spec_field authorinos.operator.authorino.kuadrant.io enableLoggingFields \
+    || missing="Authorino.spec.enableLoggingFields"
+  crd_has_spec_field telemetrypolicies.extensions.kuadrant.io logging \
+    || missing="${missing:+${missing}, }TelemetryPolicy.spec.logging"
+  if [[ -n "${missing}" ]]; then
+    reasons="${reasons:+${reasons}; }the installed RHCL build has no TelemetryPolicy logging support (missing: ${missing})"
+  fi
+
+  if [[ -z "${reasons}" ]]; then
+    AUDIT_LOGGING_ENABLED=true
+    echo "✅ LLMInferenceService audit logging prerequisites met: RHCL ${RHCL_INSTALLED_VERSION:-unknown} (minimum ${min_version:-disabled}) exposes Authorino.spec.enableLoggingFields and TelemetryPolicy.spec.logging"
+    return 0
+  fi
+  if [[ "${mode}" == "true" ]]; then
+    echo "ERROR: LLMISVC_AUDIT_LOGGING=true but ${reasons}" >&2
+    return 1
+  fi
+  echo "ℹ️  skipping LLMInferenceService audit logging setup: ${reasons}"
+  return 0
+}
+
 # Print spec image, ready count, and resolved imageID for a single deployment.
 # Args: <namespace> <deployment-name> [prefix]
 _print_deployment_image() {
@@ -95,6 +157,12 @@ print_audit_logging_diagnostics() {
     echo "=== End LLMInferenceService audit logging diagnostics ==="
     return 0
   fi
+  local sub="${RHCL_NAME:-rhcl-operator}" installed_csv installed_version floor
+  installed_csv=$(oc get subscription "$sub" -n "$ns" -o jsonpath='{.status.installedCSV}' 2>/dev/null || echo "")
+  installed_version=$(get_subscription_installed_version "$sub" "$ns" 2>/dev/null || echo "unknown")
+  floor="${RHCL_AUDIT_LOGGING_MIN_VERSION-${AUDIT_LOGGING_MIN_RHCL_VERSION_DEFAULT}}"
+  echo "RHCL subscription ${ns}/${sub}: installedCSV=${installed_csv:-none} version=${installed_version:-unknown}"
+  echo "LLMInferenceService audit logging: mode=${LLMISVC_AUDIT_LOGGING:-auto} minimum RHCL version=${floor:-disabled}"
   for deploy in kuadrant-operator-controller-manager authorino-operator authorino; do
     if oc get deployment "$deploy" -n "$ns" &>/dev/null; then
       echo "Deployment ${ns}/${deploy}:"

@@ -221,6 +221,27 @@ wait_for_subscription_csv() {
   return 1
 }
 
+# Print the version of the CSV an OLM Subscription has installed, as bare semver (no "v" prefix).
+# Prefers the CSV's spec.version (validated as semver by OLM) and falls back to deriving it from the
+# CSV name (<package>.v<version>, e.g. rhcl-operator.v1.4.3) when spec.version is empty. Prints nothing
+# and returns 1 when the Subscription, its installedCSV or a parseable version is missing, so callers
+# can treat "unknown" explicitly instead of comparing an empty string.
+# Usage: get_subscription_installed_version <subscription-name> <namespace>
+get_subscription_installed_version() {
+  local sub_name=${1:?subscription name is required}
+  local namespace=${2:?namespace is required}
+  local csv_name version
+  csv_name=$(oc get subscription "${sub_name}" -n "${namespace}" \
+    -o jsonpath='{.status.installedCSV}' 2>/dev/null) || csv_name=""
+  [[ -n "${csv_name}" ]] || return 1
+  version=$(oc get csv "${csv_name}" -n "${namespace}" \
+    -o jsonpath='{.spec.version}' 2>/dev/null) || version=""
+  [[ -n "${version}" ]] || version="${csv_name#"${sub_name}."}"
+  version="${version#v}"
+  [[ "${version}" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)? ]] || return 1
+  echo "${version}"
+}
+
 readonly VALID_DEPLOYMENT_PROFILES=(raw serverless llm-d)
 # validate_deployment_profile [value]
 validate_deployment_profile() {
