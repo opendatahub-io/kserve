@@ -1,6 +1,5 @@
 """Shared fixtures for kserve-module E2E tests."""
 
-import json
 import shutil
 import subprocess
 import time
@@ -15,7 +14,6 @@ import yaml
 KSERVE_CR_NAME = "default-kserve"
 NAMESPACE = "opendatahub"
 OPERATOR_DEPLOYMENT = "kserve-module-controller-manager"
-MODULE_FINALIZER = "kserve-module.opendatahub.io/finalizer"
 TIMEOUT_300S = 300  # cold-start: first Kserve CR ready waits on operand image pulls
 TIMEOUT_120S = 120
 TIMEOUT_60S = 60
@@ -496,11 +494,15 @@ def wait_for_kserve_cleanup(
     _wait_for_managed_resources_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S)
 
 
-def force_delete_kserve_cr(kubectl_bin, is_openshift=False):
-    """Fast teardown: drop the module finalizer so the CR is deleted without
-    running the (correct but slow) well-known-config cleanup. The cleanup path
-    itself is exercised by the dedicated deletion tests, so every other test's
-    teardown does not need to pay for it."""
+def delete_kserve_cr(kubectl_bin, is_openshift=False):
+    """Delete the Kserve CR through its normal finalization path.
+
+    The LLMInferenceService controller is intentionally not owned by Kserve:
+    it must outlive a foreground Kserve deletion until user LLMInferenceServices
+    and their configurations have finalized.  Test teardown must therefore not
+    strip the module finalizer, or it would bypass the drain and leave that
+    controller running for the next test.
+    """
     if cr_exists(kubectl_bin):
         run(
             [
@@ -513,32 +515,6 @@ def force_delete_kserve_cr(kubectl_bin, is_openshift=False):
             ],
             check=False,
         )
-        cr = get_cr(kubectl_bin, check=False) or {}
-        finalizers = cr.get("metadata", {}).get("finalizers", []) or []
-        if MODULE_FINALIZER in finalizers:
-            remaining = [f for f in finalizers if f != MODULE_FINALIZER]
-            patch = json.dumps(
-                [
-                    {"op": "test", "path": "/metadata/finalizers", "value": finalizers},
-                    {
-                        "op": "replace",
-                        "path": "/metadata/finalizers",
-                        "value": remaining,
-                    },
-                ]
-            )
-            run(
-                [
-                    kubectl_bin,
-                    "patch",
-                    "kserve",
-                    KSERVE_CR_NAME,
-                    "--type=json",
-                    "-p",
-                    patch,
-                ],
-                check=False,
-            )
     wait_for_kserve_cleanup(kubectl_bin, is_openshift=is_openshift)
 
 
@@ -815,7 +791,7 @@ def _kserve_cr_lifecycle(kubectl, cluster_info):
     ensure_configmap(kubectl, "inferenceservice-config", namespace=NAMESPACE)
     yield cr
     if created:
-        force_delete_kserve_cr(kubectl, is_openshift=cluster_info.is_openshift)
+        delete_kserve_cr(kubectl, is_openshift=cluster_info.is_openshift)
 
 
 @pytest.fixture
