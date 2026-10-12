@@ -77,7 +77,7 @@ type upgradeRunnable struct {
 // Other migration errors are logged but remain non-fatal so manager startup
 // is not blocked by best-effort cleanup tasks.
 func (u *upgradeRunnable) Start(ctx context.Context) error {
-	if err := blockUpgradeIfWVAResourcesPresent(ctx, u.client, u.applicationNS); err != nil {
+	if err := detectLeftoverWVAResources(ctx, u.client, u.applicationNS); err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "WVA resources are still present; module cleanup will remove leftovers it owns")
 	}
 
@@ -91,7 +91,7 @@ func (u *upgradeRunnable) Start(ctx context.Context) error {
 // matching the pattern used by opendatahub-operator's LeaderElectionRunnableFunc.
 func (u *upgradeRunnable) NeedLeaderElection() bool { return true }
 
-func blockUpgradeIfWVAResourcesPresent(ctx context.Context, cli client.Client, applicationNS string) error {
+func detectLeftoverWVAResources(ctx context.Context, cli client.Client, applicationNS string) error {
 	var blockers []string
 
 	kserve := &platformv1alpha1.Kserve{}
@@ -150,7 +150,7 @@ func blockUpgradeIfWVAResourcesPresent(ctx context.Context, cli client.Client, a
 		return nil
 	}
 
-	return fmt.Errorf("WVA upgrade blocked: %s. WVA is no longer supported; disable WVA and remove WVA resources before upgrading", strings.Join(blockers, "; "))
+	return fmt.Errorf("leftover WVA resources detected: %s. WVA is no longer supported; module cleanup will remove leftovers it owns", strings.Join(blockers, "; "))
 }
 
 // legacySelectorWorkload defines a Deployment or DaemonSet that may carry legacy selector

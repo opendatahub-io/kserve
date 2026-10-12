@@ -515,36 +515,36 @@ func TestGetOdhDashboardConfig(t *testing.T) {
 
 // ─── Section B — New Tests ────────────────────────────────────────────────────
 
-func TestBlockUpgradeIfWVAResourcesPresent(t *testing.T) {
+func TestDetectLeftoverWVAResources(t *testing.T) {
 	const namespace = "test-namespace"
 
 	t.Run("NoWVAResources", func(t *testing.T) {
 		g := NewWithT(t)
 		cli := makeISVCFakeClient()
 
-		g.Expect(blockUpgradeIfWVAResourcesPresent(context.Background(), cli, namespace)).To(Succeed())
+		g.Expect(detectLeftoverWVAResources(context.Background(), cli, namespace)).To(Succeed())
 	})
 
-	t.Run("ManagedKserveCRBlocks", func(t *testing.T) {
+	t.Run("ManagedKserveCRDetected", func(t *testing.T) {
 		g := NewWithT(t)
 		cli := makeISVCFakeClient(makeTestKserve(common.Managed))
 
-		err := blockUpgradeIfWVAResourcesPresent(context.Background(), cli, namespace)
+		err := detectLeftoverWVAResources(context.Background(), cli, namespace)
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).To(ContainSubstring("spec.wva.managementState=Managed"))
 	})
 
-	t.Run("LeftoverDeploymentBlocks", func(t *testing.T) {
+	t.Run("LeftoverDeploymentDetected", func(t *testing.T) {
 		g := NewWithT(t)
 		deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: wvaControllerDeployment, Namespace: namespace}}
 		cli := makeISVCFakeClient(deployment)
 
-		err := blockUpgradeIfWVAResourcesPresent(context.Background(), cli, namespace)
+		err := detectLeftoverWVAResources(context.Background(), cli, namespace)
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).To(ContainSubstring(wvaControllerDeployment))
 	})
 
-	t.Run("LeftoverConfigMapKeyBlocks", func(t *testing.T) {
+	t.Run("LeftoverConfigMapKeyDetected", func(t *testing.T) {
 		g := NewWithT(t)
 		cm := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{Name: kserveConfigMapName, Namespace: namespace},
@@ -552,19 +552,19 @@ func TestBlockUpgradeIfWVAResourcesPresent(t *testing.T) {
 		}
 		cli := makeISVCFakeClient(cm)
 
-		err := blockUpgradeIfWVAResourcesPresent(context.Background(), cli, namespace)
+		err := detectLeftoverWVAResources(context.Background(), cli, namespace)
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).To(ContainSubstring(autoscalingWVAControllerConfigKey))
 	})
 
-	t.Run("LeftoverCRDAndCRBlock", func(t *testing.T) {
+	t.Run("LeftoverCRDAndCRDetected", func(t *testing.T) {
 		g := NewWithT(t)
 		cli := makeISVCFakeClient(
 			makeCRD(variantAutoscalingCRDName),
 			makeTestVariantAutoscaling(namespace, "leftover-va"),
 		)
 
-		err := blockUpgradeIfWVAResourcesPresent(context.Background(), cli, namespace)
+		err := detectLeftoverWVAResources(context.Background(), cli, namespace)
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).To(ContainSubstring(variantAutoscalingCRDName))
 		g.Expect(err.Error()).To(ContainSubstring("test-namespace/leftover-va"))
@@ -691,7 +691,7 @@ func TestUpgradeRunnableStart(t *testing.T) {
 
 		// Detection still fails closed, but startup must continue so reconciler
 		// cleanup can delete the leftovers.
-		g.Expect(blockUpgradeIfWVAResourcesPresent(context.Background(), cli, namespace)).NotTo(Succeed())
+		g.Expect(detectLeftoverWVAResources(context.Background(), cli, namespace)).NotTo(Succeed())
 		g.Expect(r.Start(context.Background())).To(Succeed())
 	})
 }
