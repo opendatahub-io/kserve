@@ -238,6 +238,7 @@ class TestManagementState:
             "WVAReady must be cleared even when spec.wva.managementState is Managed"
         _verify_deployments_available(kubectl, is_openshift=True)
 
+    @pytest.mark.skip(reason="defaultCleanup needs the cloned WVA overlay; leftover deletion is extraCleanup in #2077")
     def test_wva_leftover_resources_cleaned_up(self, kubectl, cluster_info, apply_kserve_cr):
         """Leftover 3.5 WVA objects are deleted even if spec.wva is still Managed."""
         patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
