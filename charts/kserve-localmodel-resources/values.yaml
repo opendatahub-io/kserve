@@ -1,5 +1,5 @@
 kserve:
-  version: v0.21.0-rc1
+  version: v0.21.0
   createSharedResources: true
   inferenceServiceConfig:
     enabled: ''
@@ -124,13 +124,13 @@ kserve:
           kind: ''
           name: ''
     artifactSecurity:
-      mode: 'none'
+      mode: 'cert'
       failurePolicy: 'reject'
       cert:
-        signingProfileRef: ''
-        trustBundle: ''
+        signingProfileRef: 'kernelcache-signer'
+        trustBundle: 'kserve/kernelcache-root-ca'
         trustBundleKey: ''
-        subjectRegexp: ''
+        subjectRegexp: 'spiffe://kserve/kernelcache-signer'
     abandonedCapturePolicy: 'retain'
     jobTTLSecondsAfterFinished: 600
     mcvCaptureReadinessTimeoutSeconds: 600

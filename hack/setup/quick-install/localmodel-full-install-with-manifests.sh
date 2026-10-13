@@ -661,7 +661,6 @@ LWS_VERSION=v0.11.0
 GATEWAY_API_VERSION=v1.5.1
 GIE_VERSION=v1.5.0
 LLMD_ROUTER_VERSION=v0.10.0
-WVA_VERSION=v0.9.0
 
 #================================================
 # Global Variables (from global-vars.env)
@@ -673,7 +672,6 @@ KEDA_NAMESPACE="${KEDA_NAMESPACE:-keda}"
 KSERVE_NAMESPACE="${KSERVE_NAMESPACE:-kserve}"
 PROMETHEUS_NAMESPACE="${PROMETHEUS_NAMESPACE:-monitoring}"
 PROMETHEUS_ADAPTER_NAMESPACE="${PROMETHEUS_ADAPTER_NAMESPACE:-monitoring}"
-WVA_NAMESPACE="${WVA_NAMESPACE:-wva-system}"
 OTEL_NAMESPACE="${OTEL_NAMESPACE:-opentelemetry-operator}"
 OPERATOR_NAMESPACE="${OPERATOR_NAMESPACE:-knative-operator}"
 SERVING_NAMESPACE="${SERVING_NAMESPACE:-knative-serving}"
@@ -2235,6 +2233,7 @@ metadata:
   namespace: kserve
 spec:
   annotations:
+    serving.kserve.io/enable-disaggregated-set: "true"
     serving.kserve.io/model-based-routing-enabled: "true"
   labels:
     serving.kserve.io/llmisvc-revision: placeholder
@@ -2619,6 +2618,7 @@ metadata:
   namespace: kserve
 spec:
   annotations:
+    serving.kserve.io/enable-disaggregated-set: "true"
     serving.kserve.io/model-based-routing-enabled: "true"
   labels:
     serving.kserve.io/llmisvc-revision: placeholder
@@ -7139,7 +7139,9 @@ rules:
   - create
   - delete
   - get
+  - list
   - patch
+  - watch
 - apiGroups:
   - apps
   resourceNames:
@@ -7193,6 +7195,7 @@ rules:
   - delete
   - get
   - patch
+  - update
 - apiGroups:
   - serving.kserve.io
   resources:
@@ -7836,6 +7839,45 @@ metadata:
   labels:
     app.kubernetes.io/component: localmodel
     app.kubernetes.io/name: kserve
+  name: kernelcache-root-ca
+  namespace: kserve
+spec:
+  commonName: kernelcache-root-ca
+  duration: 8760h
+  isCA: true
+  issuerRef:
+    group: cert-manager.io
+    kind: Issuer
+    name: selfsigned-issuer
+  secretName: kernelcache-root-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/component: localmodel
+    app.kubernetes.io/name: kserve
+  name: kernelcache-signer
+  namespace: kserve
+spec:
+  commonName: kernelcache-signer
+  issuerRef:
+    group: cert-manager.io
+    kind: Issuer
+    name: kernelcache-ca
+  secretName: kernelcache-signer
+  uris:
+  - spiffe://kserve/kernelcache-signer
+  usages:
+  - digital signature
+  - code signing
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  labels:
+    app.kubernetes.io/component: localmodel
+    app.kubernetes.io/name: kserve
   name: localmodel-serving-cert
   namespace: kserve
 spec:
@@ -7846,6 +7888,18 @@ spec:
     kind: Issuer
     name: selfsigned-issuer
   secretName: localmodel-webhook-server-cert
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  labels:
+    app.kubernetes.io/component: localmodel
+    app.kubernetes.io/name: kserve
+  name: kernelcache-ca
+  namespace: kserve
+spec:
+  ca:
+    secretName: kernelcache-root-ca
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
