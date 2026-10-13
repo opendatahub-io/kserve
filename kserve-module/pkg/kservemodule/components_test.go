@@ -313,11 +313,19 @@ func TestSplitByOwnership_LLMInferenceServiceDrainResources(t *testing.T) {
 			"kind":       "Deployment",
 			"metadata":   map[string]any{"name": "kserve-controller-manager"},
 		}},
+		{Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata":   map[string]any{"name": "customer-llmisvc-settings"},
+		}},
 	}
 
 	owned, unowned, drainResources := splitByOwnership(resources)
-	g.Expect(owned).To(HaveLen(1))
-	g.Expect(owned[0].GetName()).To(Equal("kserve-controller-manager"))
+	g.Expect(owned).To(HaveLen(2))
+	g.Expect([]string{owned[0].GetName(), owned[1].GetName()}).To(ConsistOf(
+		"kserve-controller-manager",
+		"customer-llmisvc-settings",
+	))
 	g.Expect(unowned).To(HaveLen(3))
 	g.Expect(drainResources).To(HaveLen(2))
 	g.Expect(drainResources[0].GetName()).To(Equal(llmISVCControllerDeployment))

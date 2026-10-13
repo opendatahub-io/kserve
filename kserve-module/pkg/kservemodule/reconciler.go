@@ -373,9 +373,6 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 	}
 
 	owned, unowned, llmISVCDrainResources := splitByOwnership(allResources)
-	// Set the lifecycle owner on the copy passed to Deploy. llmISVCDrainResources
-	// is only the cleanup/delete inventory and has its own slice backing array.
-	setLLMISVCDrainResourceOwner(kserve, unowned)
 	if err := r.Deployer.Deploy(ctx, deploy.DeployInput{
 		Client:    r.Client,
 		Owner:     kserve,
@@ -417,9 +414,8 @@ func componentRemovalBlockers(ctx context.Context, r *KserveModuleReconciler, co
 // resources independent from the Kserve CR. Kserve foreground deletion starts
 // garbage-collecting owned resources as soon as deletion begins, before this
 // reconciler can observe config references and report the uninstall blocker.
-// These resources are instead owned by Kserve's Platform parent and explicitly
-// deleted only after the config cleanup drain completes; see
-// cleanupLLMISVCDrainResourcesOnDelete.
+// These resources are instead explicitly deleted by the Kserve finalizer only
+// after the config cleanup drain completes; see cleanupLLMISVCDrainResourcesOnDelete.
 func splitByOwnership(resources []unstructured.Unstructured) (owned, unowned, llmISVCDrainResources []unstructured.Unstructured) {
 	for i := range resources {
 		if isLLMISVCDrainResource(&resources[i]) {
@@ -437,62 +433,28 @@ func splitByOwnership(resources []unstructured.Unstructured) (owned, unowned, ll
 	return
 }
 
-// isLLMISVCDrainResource identifies manifests that make up the isolated
-// LLMInferenceService controller and its webhook/RBAC support. Their manifest
-// names intentionally share the llmisvc or llminferenceservice prefix, unlike
-// the release presets themselves, which are independently unowned by GVK.
+// isLLMISVCDrainResource identifies the explicit manifest inventory that makes
+// up the isolated LLMInferenceService controller and its webhook/RBAC support.
+// Exact matching avoids detaching unrelated future operands merely because
+// their names happen to contain "llmisvc".
 func isLLMISVCDrainResource(resource *unstructured.Unstructured) bool {
 	if _, excluded := unownedGroupKinds[resource.GroupVersionKind().GroupKind()]; excluded {
 		return false
 	}
-	name := resource.GetName()
-	return strings.Contains(name, "llmisvc") || strings.Contains(name, "llminferenceservice")
-}
-
-// setLLMISVCDrainResourceOwner transfers LLMInferenceService controller
-// resources to Kserve's lifecycle owner (the Platform CR in product installs).
-// That CR outlives the Kserve drain, while the explicit cleanup path still
-// removes these resources once all LLMInferenceServices have finalized.
-func setLLMISVCDrainResourceOwner(kserve *platformv1alpha1.Kserve, resources []unstructured.Unstructured) {
-	owner, found := kserveLifecycleOwner(kserve)
-	if !found {
-		return
-	}
-	for i := range resources {
-		if !isLLMISVCDrainResource(&resources[i]) {
-			continue
-		}
-		resources[i].SetOwnerReferences(upsertOwnerReference(resources[i].GetOwnerReferences(), owner))
-	}
-}
-
-func kserveLifecycleOwner(kserve *platformv1alpha1.Kserve) (metav1.OwnerReference, bool) {
-	for _, owner := range kserve.GetOwnerReferences() {
-		if owner.Controller == nil || !*owner.Controller {
-			continue
-		}
-		// Keep this non-controlling: module resources can have owner references
-		// added outside this reconciler, and Kubernetes accepts only one
-		// controller owner reference. Garbage collection still follows a regular
-		// owner reference. BlockOwnerDeletion would also require permission to
-		// update the Platform finalizer, which this controller does not manage.
-		owner.Controller = nil
-		owner.BlockOwnerDeletion = nil
-		return owner, true
-	}
-	return metav1.OwnerReference{}, false
+	_, retained := llmISVCDrainResourceNames[resource.GetName()]
+	return retained
 }
 
 // detachLLMISVCDrainResources migrates resources created by earlier releases
-// from the Kserve owner to its Platform lifecycle owner. The deployer preserves
-// existing owner references for unowned resources, so this migration is needed
-// before an uninstall can trigger foreground garbage collection.
+// away from Kserve ownership. The deployer preserves existing owner references
+// for unowned resources, so this migration is needed before an uninstall can
+// trigger foreground garbage collection. The Kserve finalizer owns their
+// explicit cleanup, without relying on a Platform or DSC parent to outlive it.
 func (r *KserveModuleReconciler) detachLLMISVCDrainResources(
 	ctx context.Context,
 	kserve *platformv1alpha1.Kserve,
 	resources []unstructured.Unstructured,
 ) error {
-	owner, hasOwner := kserveLifecycleOwner(kserve)
 	for i := range resources {
 		current := &unstructured.Unstructured{}
 		current.SetGroupVersionKind(resources[i].GroupVersionKind())
@@ -509,26 +471,11 @@ func (r *KserveModuleReconciler) detachLLMISVCDrainResources(
 		if err := controllerutil.RemoveControllerReference(kserve, current, r.Scheme); err != nil {
 			return fmt.Errorf("removing Kserve owner reference from %s %s: %w", current.GetKind(), client.ObjectKeyFromObject(current), err)
 		}
-		if hasOwner {
-			current.SetOwnerReferences(upsertOwnerReference(current.GetOwnerReferences(), owner))
-		}
 		if err := r.Update(ctx, current); err != nil {
-			return fmt.Errorf("updating %s %s with lifecycle owner reference: %w", current.GetKind(), client.ObjectKeyFromObject(current), err)
+			return fmt.Errorf("updating %s %s after removing Kserve owner reference: %w", current.GetKind(), client.ObjectKeyFromObject(current), err)
 		}
 	}
 	return nil
-}
-
-// upsertOwnerReference prevents an upgrade migration from adding a duplicate
-// Platform owner reference when a resource already carries one.
-func upsertOwnerReference(refs []metav1.OwnerReference, owner metav1.OwnerReference) []metav1.OwnerReference {
-	for i := range refs {
-		if refs[i].UID == owner.UID {
-			refs[i] = owner
-			return refs
-		}
-	}
-	return append(refs, owner)
 }
 
 func (r *KserveModuleReconciler) cleanupOnDelete(ctx context.Context) error {

@@ -13,7 +13,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -28,20 +27,18 @@ func TestDetachLLMISVCDrainResources(t *testing.T) {
 	kserve := &platformv1alpha1.Kserve{ObjectMeta: metav1.ObjectMeta{
 		Name: "default-kserve",
 		UID:  types.UID("kserve-uid"),
-		OwnerReferences: []metav1.OwnerReference{{
-			APIVersion:         "config.opendatahub.io/v1alpha2",
-			Kind:               "Platform",
-			Name:               "platform",
-			UID:                types.UID("platform-uid"),
-			Controller:         ptr.To(true),
-			BlockOwnerDeletion: ptr.To(true),
-		}},
 	}}
 	ownerRef := *metav1.NewControllerRef(kserve, platformv1alpha1.GroupVersion.WithKind("Kserve"))
+	externalOwner := metav1.OwnerReference{
+		APIVersion: "v1",
+		Kind:       "ConfigMap",
+		Name:       "external-owner",
+		UID:        types.UID("external-owner-uid"),
+	}
 	llmController := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
 		Name:            llmISVCControllerDeployment,
 		Namespace:       "opendatahub",
-		OwnerReferences: []metav1.OwnerReference{ownerRef},
+		OwnerReferences: []metav1.OwnerReference{ownerRef, externalOwner},
 	}}
 	unrelated := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{
 		Name:            "inferenceservice-config",
@@ -55,47 +52,13 @@ func TestDetachLLMISVCDrainResources(t *testing.T) {
 	drainResource.SetGroupVersionKind(appsv1.SchemeGroupVersion.WithKind("Deployment"))
 	drainResource.SetNamespace(llmController.Namespace)
 	drainResource.SetName(llmController.Name)
-	externalControllerOwner := metav1.OwnerReference{
-		APIVersion: "apps/v1",
-		Kind:       "Deployment",
-		Name:       "external-owner",
-		UID:        types.UID("external-owner-uid"),
-		Controller: ptr.To(true),
-	}
-	drainResource.SetOwnerReferences([]metav1.OwnerReference{externalControllerOwner})
-	wellKnownConfig := *teardownConfig("preset", "False")
-	resources := []unstructured.Unstructured{drainResource, wellKnownConfig}
-	setLLMISVCDrainResourceOwner(kserve, resources)
-	platformOwner := metav1.OwnerReference{
-		APIVersion: "config.opendatahub.io/v1alpha2",
-		Kind:       "Platform",
-		Name:       "platform",
-		UID:        types.UID("platform-uid"),
-	}
-	g.Expect(resources[0].GetOwnerReferences()).To(ConsistOf(externalControllerOwner, platformOwner),
-		"the deploy input must retain external owners and add the non-controlling Platform lifecycle owner")
-	g.Expect(resources[1].GetOwnerReferences()).To(BeEmpty(), "well-known configs remain independently managed")
 	g.Expect(reconciler.detachLLMISVCDrainResources(ctx, kserve, []unstructured.Unstructured{drainResource})).To(Succeed())
 
 	g.Expect(cli.Get(ctx, client.ObjectKeyFromObject(llmController), llmController)).To(Succeed())
-	g.Expect(llmController.GetOwnerReferences()).To(ConsistOf(platformOwner),
-		"the cleanup controller must survive Kserve foreground deletion without becoming unmanaged")
+	g.Expect(llmController.GetOwnerReferences()).To(ConsistOf(externalOwner),
+		"the cleanup controller must survive Kserve foreground deletion without losing unrelated owners")
 	g.Expect(cli.Get(ctx, client.ObjectKeyFromObject(unrelated), unrelated)).To(Succeed())
 	g.Expect(unrelated.GetOwnerReferences()).To(ConsistOf(ownerRef), "ordinary Kserve operands remain on the existing GC path")
-}
-
-func TestUpsertLLMISVCDrainResourceOwner(t *testing.T) {
-	g := NewWithT(t)
-	platformOwner := metav1.OwnerReference{
-		APIVersion: "config.opendatahub.io/v1alpha2",
-		Kind:       "Platform",
-		Name:       "platform",
-		UID:        types.UID("platform-uid"),
-	}
-	otherOwner := metav1.OwnerReference{APIVersion: "v1", Kind: "ConfigMap", Name: "shared", UID: types.UID("shared-uid"), Controller: ptr.To(true)}
-
-	refs := upsertOwnerReference([]metav1.OwnerReference{otherOwner, platformOwner}, platformOwner)
-	g.Expect(refs).To(ConsistOf(otherOwner, platformOwner))
 }
 
 func TestLLMISVCConfigCleanupDrain(t *testing.T) {
