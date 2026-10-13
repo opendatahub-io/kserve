@@ -59,11 +59,12 @@ var components = []componentConfig{
 		postRender:        modelControllerPostRender,
 	},
 	{
-		name:       WVAComponentName,
-		sourcePath: WVAManifestSourcePathOCP,
-		imageMap:   wvaImageParamMap,
-		enabled:    isWVAEnabled,
-		postRender: wvaPostRender,
+		name:         WVAComponentName,
+		sourcePath:   WVAManifestSourcePathOCP,
+		imageMap:     wvaImageParamMap,
+		enabled:      isWVAEnabled,
+		postRender:   wvaPostRender,
+		extraCleanup: cleanupWVAComponent,
 	},
 	{
 		name:            ModelExpressComponentName,
