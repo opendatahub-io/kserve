@@ -115,7 +115,8 @@ with `enable-auth=false`, unresolvable `auth.*` expressions omitted, oversized v
 `loggingFieldsMaxValueBytes`, and a stable EnvoyFilter generation. Probe fields are added to the gateway
 TelemetryPolicy for the duration of a test and removed afterwards; `request.*` expressions are evaluated
 by the wasm shim, so probes on headers are guarded with `has()` (CONNLINK-1887), and removed fields are
-verified gone from the rendered config, re-creating the policy when needed (CONNLINK-1888). Redaction of
+verified gone from the rendered config, re-creating the policy when they survive or when no route is left
+to verify against (CONNLINK-1888); baseline records are checked for leaked probe fields. Redaction of
 header-valued fields is asserted by a strict `xfail` until Kuadrant redacts them (CONNLINK-1884). Run it
 alone with:
 

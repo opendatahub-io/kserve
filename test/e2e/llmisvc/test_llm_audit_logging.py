@@ -286,9 +286,12 @@ def _recreate_telemetry_policy(kserve_client: KServeClient, original: dict) -> N
         timeout=120,
         interval=POLL_INTERVAL,
     )
+    # Kuadrant only renders the gateway EnvoyFilter while a route is attached, so without one there
+    # is nothing to check beyond the policy status.
     wait_for(
         lambda: _assert_true(
-            _envoyfilter_mentions(kserve_client, "client_identity"),
+            _get_envoyfilter(kserve_client) is None
+            or _envoyfilter_mentions(kserve_client, "client_identity"),
             "baseline fields not rendered after re-creating the policy",
         ),
         timeout=120,
@@ -464,6 +467,19 @@ def sanitize_record(record: dict) -> dict:
     return {k: v for k, v in record.items() if k in keep or k.startswith(CUSTOM_PREFIX)}
 
 
+def assert_no_probe_fields(record: dict) -> None:
+    """A baseline-policy record must not carry probe fields left behind by an earlier test or run.
+
+    Their presence means the operator kept bindings for keys the policy no longer defines
+    (CONNLINK-1888) and the probe cleanup did not catch it.
+    """
+    stray = [k for k in record if k.startswith(f"{CUSTOM_PREFIX}{PROBE_PREFIX}")]
+    assert not stray, (
+        f"probe fields leaked into a baseline record (stale bindings, CONNLINK-1888): {stray}; "
+        f"record: {sanitize_record(record)}"
+    )
+
+
 def read_authorino_decision_records(
     core_api: client.CoreV1Api, since_seconds: int, marker: Optional[str] = None
 ) -> List[dict]:
@@ -613,7 +629,12 @@ def probe_fields(kserve_client: KServeClient, audit_environment: AuditEnvironmen
     Only the ``e2e_probe_*`` keys are added and deleted, so the baseline fields other tests
     (possibly running on another xdist worker) rely on are never touched. Cleanup verifies the
     rendered gateway config dropped the probes and falls back to re-creating the policy when the
-    operator kept stale bindings around.
+    operator kept stale bindings around (CONNLINK-1888).
+
+    The teardown runs after the test's LLMInferenceService is gone. When that was the last route on
+    the gateway, Kuadrant has already dropped the EnvoyFilter, so there is nothing to verify against
+    while the operator may still hold the stale bindings and would render them again for the next
+    route. In that case the policy is re-created unconditionally.
     """
     original = _get_telemetry_policy(kserve_client)
     assert original is not None, f"TelemetryPolicy {AUDIT_TELEMETRY_POLICY} disappeared"
@@ -626,23 +647,34 @@ def probe_fields(kserve_client: KServeClient, audit_environment: AuditEnvironmen
             _patch_telemetry_policy_fields(
                 kserve_client, {k: None for k in PROBE_FIELDS}
             )
-            try:
-                wait_for(
-                    lambda: _assert_not(
-                        _envoyfilter_mentions(kserve_client, PROBE_PREFIX),
-                        "probe bindings still rendered",
-                    ),
-                    timeout=60,
-                    interval=POLL_INTERVAL,
-                )
-                logger.info(f"Removed probe fields from {AUDIT_TELEMETRY_POLICY}")
-            except AssertionError:
+            if _get_envoyfilter(kserve_client) is None:
                 logger.warning(
-                    "Probe bindings survived the field removal in the rendered EnvoyFilter; "
-                    "re-creating the TelemetryPolicy from its original spec"
+                    f"EnvoyFilter {AUDIT_ENVOYFILTER} is absent (no route left on the gateway), so "
+                    "probe removal cannot be verified; re-creating the TelemetryPolicy from its "
+                    "original spec to drop any stale bindings"
                 )
                 _recreate_telemetry_policy(kserve_client, original)
                 logger.info(f"Re-created {AUDIT_TELEMETRY_POLICY} without probe fields")
+            else:
+                try:
+                    wait_for(
+                        lambda: _assert_not(
+                            _envoyfilter_mentions(kserve_client, PROBE_PREFIX),
+                            "probe bindings still rendered",
+                        ),
+                        timeout=60,
+                        interval=POLL_INTERVAL,
+                    )
+                    logger.info(f"Removed probe fields from {AUDIT_TELEMETRY_POLICY}")
+                except AssertionError:
+                    logger.warning(
+                        "Probe bindings survived the field removal in the rendered EnvoyFilter; "
+                        "re-creating the TelemetryPolicy from its original spec"
+                    )
+                    _recreate_telemetry_policy(kserve_client, original)
+                    logger.info(
+                        f"Re-created {AUDIT_TELEMETRY_POLICY} without probe fields"
+                    )
         except client.rest.ApiException as e:
             logger.warning(f"Failed to remove probe fields: {e}")
 
@@ -791,6 +823,7 @@ def test_llm_audit_records_for_authenticated_requests(
                 expected_status=[200],
             )
             assert rec.get("authorized") is True
+            assert_no_probe_fields(rec)
             assert rec.get(FIELD_IDENTITY) == expected_identity, rec
             assert rec.get(FIELD_METHOD) == "GET", rec
             assert f"/{ns}/{service_name}/v1/models?audit={marker}" in rec.get(
@@ -883,6 +916,7 @@ def test_llm_audit_records_anonymous_when_auth_disabled(
             expected_status=[200],
         )
         assert rec.get("authorized") is True
+        assert_no_probe_fields(rec)
         assert rec.get(FIELD_ANONYMOUS) == "true", rec
         assert FIELD_IDENTITY not in rec, (
             f"identity recorded for an anonymous request: {rec}"
