@@ -16,7 +16,7 @@ releases:
     repoUrl: https://github.com/llm-d/llm-d-async
   - name: vLLM omni
     version: v0.30.0
-    reporUrl: https://github.com/vllm-project/vllm-omni
+    repoUrl: https://github.com/vllm-project/vllm-omni
   - name: Model Express
     version: v0.8.0
     repoUrl: https://github.com/ai-dynamo/modelexpress
