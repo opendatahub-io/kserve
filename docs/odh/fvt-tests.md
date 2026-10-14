@@ -117,7 +117,9 @@ TelemetryPolicy for the duration of a test and removed afterwards; `request.*` e
 by the wasm shim, so probes on headers are guarded with `has()` (CONNLINK-1887), and removed fields are
 verified gone from the rendered config, re-creating the policy when they survive or when no route is left
 to verify against (CONNLINK-1888); baseline records are checked for leaked probe fields. Redaction of
-header-valued fields is asserted by a strict `xfail` until Kuadrant redacts them (CONNLINK-1884). Run it
+a credential-header field is covered by a dual-mode test: fixed RHCL builds reject such a policy
+(`Accepted=False`, CONNLINK-1884) and the test passes on that; older builds accept it and the test
+reports an expected failure when the value is logged in clear. Run it
 alone with:
 
 ```bash

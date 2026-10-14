@@ -105,20 +105,27 @@ BASELINE_FIELDS = (
 #
 # ``request.*`` attributes are resolved by the wasm shim before the request reaches Authorino,
 # and a failing expression (for instance a header that is absent) fails the request with a 500
-# instead of omitting the field (CONNLINK-1887). The sensitive probe is therefore guarded with
-# ``has()`` so that requests without an Authorization header keep flowing while it is installed.
+# instead of omitting the field (CONNLINK-1887). The header probe is therefore guarded with
+# ``has()`` so that requests without the header keep flowing while it is installed. It reads a
+# custom, non-sensitive header (no hyphen, so the CEL select form works on every build) because
+# fixed RHCL builds reject any policy that reads a credential header (CONNLINK-1884).
 PROBE_PREFIX = "e2e_probe_"
-PROBE_SENSITIVE_FIELD = f"{PROBE_PREFIX}sensitive"
+PROBE_HEADER = "xauditprobe"
+PROBE_GUARDED_FIELD = f"{PROBE_PREFIX}guarded"
 PROBE_UNRESOLVABLE_FIELD = f"{PROBE_PREFIX}unresolvable"
 PROBE_ABSENT_VALUE = "absent"
 PROBE_FIELDS = {
-    PROBE_SENSITIVE_FIELD: (
-        "has(request.headers.authorization) ? request.headers.authorization : "
+    PROBE_GUARDED_FIELD: (
+        f"has(request.headers.{PROBE_HEADER}) ? string(request.headers.{PROBE_HEADER}) : "
         f'"{PROBE_ABSENT_VALUE}"'
     ),
     # ``auth.*`` expressions are deferred to Authorino, which omits the ones it cannot resolve.
     PROBE_UNRESOLVABLE_FIELD: "auth.identity.e2e_does_not_exist",
 }
+# An unguarded read of a credential header. Added by the sensitive-header test only, never by the
+# shared fixture: on fixed builds it makes the whole policy invalid.
+PROBE_SENSITIVE_FIELD = f"{PROBE_PREFIX}sensitive"
+PROBE_SENSITIVE_EXPRESSION = "request.headers.authorization"
 REDACTED_VALUE = "***REDACTED***"
 TRUNCATION_SUFFIX = "...(truncated)"
 # Authorino's --logging-fields-max-value-bytes default; the Authorino CR may override it.
@@ -199,6 +206,21 @@ def _get_envoyfilter(kserve_client: KServeClient) -> Optional[dict]:
 def _conditions(obj: Optional[dict]) -> Dict[str, str]:
     conditions = ((obj or {}).get("status") or {}).get("conditions") or []
     return {c.get("type"): c.get("status") for c in conditions}
+
+
+def _condition_message(obj: Optional[dict], cond_type: str) -> str:
+    conditions = ((obj or {}).get("status") or {}).get("conditions") or []
+    return next(
+        (c.get("message", "") for c in conditions if c.get("type") == cond_type), ""
+    )
+
+
+def _policy_status_is_current(policy: Optional[dict]) -> bool:
+    """True once the operator has reconciled the latest generation of the policy."""
+    if not policy:
+        return False
+    observed = (policy.get("status") or {}).get("observedGeneration")
+    return observed is not None and observed == policy["metadata"].get("generation")
 
 
 def _policy_fields(policy: Optional[dict]) -> Dict[str, str]:
@@ -462,9 +484,21 @@ def print_audit_diagnostics(
 
 
 def sanitize_record(record: dict) -> dict:
-    """Keep only the decision and the custom fields; drop anything that could carry secrets."""
+    """Keep only the decision and the custom fields; drop anything that could carry secrets.
+
+    Probe fields are the one place a test deliberately logs a header value (the sensitive-header
+    test reads the Authorization header on builds that accept it), so their values are replaced
+    by their length before anything is written to the test log.
+    """
     keep = {"ts", "level", "authorized", "response", "request id"}
-    return {k: v for k, v in record.items() if k in keep or k.startswith(CUSTOM_PREFIX)}
+    probe_prefix = f"{CUSTOM_PREFIX}{PROBE_PREFIX}"
+    sanitized = {}
+    for k, v in record.items():
+        if k.startswith(probe_prefix):
+            sanitized[k] = f"<redacted, {len(str(v))} chars>"
+        elif k in keep or k.startswith(CUSTOM_PREFIX):
+            sanitized[k] = v
+    return sanitized
 
 
 def assert_no_probe_fields(record: dict) -> None:
@@ -745,14 +779,17 @@ def _simulator_case(service_name: str, case_id: str):
 
 
 def _wait_for_probe_record(
-    core_api: client.CoreV1Api, service_url: str, headers: Dict[str, str]
+    core_api: client.CoreV1Api,
+    service_url: str,
+    headers: Dict[str, str],
+    probe_field: str = PROBE_GUARDED_FIELD,
 ) -> dict:
-    """Send authenticated requests until a record carries the probe fields.
+    """Send authenticated requests until a record carries ``probe_field``.
 
     Probe fields reach Authorino only after the policy change propagates through the
     EnvoyFilter and wasm config, which takes tens of seconds.
     """
-    sensitive_key = f"{CUSTOM_PREFIX}{PROBE_SENSITIVE_FIELD}"
+    probe_key = f"{CUSTOM_PREFIX}{probe_field}"
 
     def probe() -> dict:
         marker = f"probe-{uuid.uuid4().hex[:8]}"
@@ -763,7 +800,7 @@ def _wait_for_probe_record(
             headers=headers,
             expected_status=[200],
         )
-        assert sensitive_key in rec, (
+        assert probe_key in rec, (
             f"probe fields not in the record yet: {sanitize_record(rec)}"
         )
         return rec
@@ -968,7 +1005,9 @@ def test_llm_audit_security_controls(
                 "✅ unresolvable expression is omitted without affecting other fields"
             )
 
-            # A request without the probed header must still be served (guarded expression).
+            # A request without the probed header must still be served (guarded expression),
+            # and one that carries it must log the value.
+            guarded_key = f"{CUSTOM_PREFIX}{PROBE_GUARDED_FIELD}"
             marker = f"noheader-{uuid.uuid4().hex[:8]}"
             _, rec = send_and_fetch_record(
                 core,
@@ -976,11 +1015,18 @@ def test_llm_audit_security_controls(
                 marker,
                 expected_status=[401, 403],
             )
-            assert (
-                rec.get(f"{CUSTOM_PREFIX}{PROBE_SENSITIVE_FIELD}") == PROBE_ABSENT_VALUE
-            ), rec
+            assert rec.get(guarded_key) == PROBE_ABSENT_VALUE, rec
+            marker = f"withheader-{uuid.uuid4().hex[:8]}"
+            _, rec = send_and_fetch_record(
+                core,
+                audit_url(service_url, "/v1/models", marker),
+                marker,
+                headers={**headers, PROBE_HEADER: marker},
+                expected_status=[200],
+            )
+            assert rec.get(guarded_key) == marker, rec
             logger.info(
-                "✅ guarded header expression resolves for header-less requests"
+                "✅ guarded header expression resolves with and without the header"
             )
 
             # Truncation: a path longer than the configured limit is cut and suffixed.
@@ -1012,15 +1058,6 @@ def test_llm_audit_security_controls(
 
 @pytest.mark.auth
 @pytest.mark.audit_logging
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "request.* logging fields are resolved by the wasm shim and sent to Authorino as plain "
-        "strings, so Authorino's header redaction never applies and credential headers are "
-        "logged in clear; tracked in CONNLINK-1884. Remove the xfail once Kuadrant redacts "
-        "or rejects header-valued logging fields."
-    ),
-)
 @pytest.mark.parametrize(
     "test_case",
     [_simulator_case("audit-redaction", "audit-redaction")],
@@ -1028,39 +1065,105 @@ def test_llm_audit_security_controls(
     ids=generate_test_id,
 )
 @log_execution
-def test_llm_audit_redacts_request_header_values(
+def test_llm_audit_sensitive_header_field_is_rejected_or_redacted(
     kserve_client: KServeClient,
     test_case: TestCase,  # noqa: F811
     audit_environment: AuditEnvironment,
-    probe_fields,
 ):
-    """A logging field that reads the Authorization header must not expose the credential."""
+    """A logging field that reads the Authorization header must never expose the credential.
+
+    RHCL builds with the CONNLINK-1884 fix reject such a policy at reconcile time
+    (``Accepted=False``), which is the behaviour this test passes on. Builds without the fix
+    accept it; the value is then expected to be redacted, and a build that logs the credential
+    in clear is reported as an expected failure rather than a regression of this suite.
+
+    The sensitive field is added to the shared policy by this test alone, never by the
+    ``probe_fields`` fixture, because it invalidates the whole policy on fixed builds.
+    """
     _enable_auth(test_case, True)
     service_name = test_case.llm_service.metadata.name
     sa_name = f"{service_name}-audit-sa"
     sensitive_key = f"{CUSTOM_PREFIX}{PROBE_SENSITIVE_FIELD}"
 
-    def body(service_url: str, ns: str):
-        try:
-            token = create_service_account_with_inference_access(
-                kserve_client, sa_name, service_name, namespace=ns
+    original = _get_telemetry_policy(kserve_client)
+    assert original is not None, f"TelemetryPolicy {AUDIT_TELEMETRY_POLICY} disappeared"
+    _patch_telemetry_policy_fields(
+        kserve_client, {PROBE_SENSITIVE_FIELD: PROBE_SENSITIVE_EXPRESSION}
+    )
+    logger.info(
+        f"Added {PROBE_SENSITIVE_FIELD}: {PROBE_SENSITIVE_EXPRESSION} to the policy"
+    )
+    rejected = False
+    try:
+        policy = wait_for(
+            lambda: _assert_policy_reconciled(kserve_client),
+            timeout=120,
+            interval=POLL_INTERVAL,
+        )
+        if _conditions(policy).get("Accepted") == "False":
+            rejected = True
+            message = _condition_message(policy, "Accepted")
+            assert PROBE_SENSITIVE_FIELD in message, (
+                f"rejection does not name the offending field: {message!r}"
             )
-            rec = _wait_for_probe_record(
-                kserve_client.core_api,
-                service_url,
-                {"Authorization": f"Bearer {token}"},
+            assert not _envoyfilter_mentions(kserve_client, PROBE_SENSITIVE_FIELD), (
+                "rejected field was rendered into the gateway config"
             )
-            assert token not in json.dumps(rec), (
-                "bearer token written in clear to the audit record"
-            )
-            assert rec[sensitive_key] == REDACTED_VALUE, (
-                f"header value not redacted: {str(rec[sensitive_key])[:16]}..."
-            )
-            logger.info("✅ sensitive header value is redacted")
-        finally:
-            cleanup_service_account(kserve_client, sa_name, namespace=ns)
+            logger.info(f"✅ policy reading a credential header rejected: {message}")
+            return
 
-    _run_with_service(kserve_client, test_case, body)
+        logger.info("Policy accepted a credential-header field; checking the record")
+
+        def body(service_url: str, ns: str):
+            try:
+                token = create_service_account_with_inference_access(
+                    kserve_client, sa_name, service_name, namespace=ns
+                )
+                rec = _wait_for_probe_record(
+                    kserve_client.core_api,
+                    service_url,
+                    {"Authorization": f"Bearer {token}"},
+                    probe_field=PROBE_SENSITIVE_FIELD,
+                )
+                if token in json.dumps(rec) or rec.get(sensitive_key) != REDACTED_VALUE:
+                    pytest.xfail(
+                        "credential header logged in clear: request.* logging fields are "
+                        "resolved by the wasm shim and bypass Authorino's redaction "
+                        "(CONNLINK-1884, fixed builds reject the policy instead)"
+                    )
+                logger.info("✅ sensitive header value is redacted")
+            finally:
+                cleanup_service_account(kserve_client, sa_name, namespace=ns)
+
+        _run_with_service(kserve_client, test_case, body)
+    finally:
+        if rejected:
+            # Nothing was registered for a rejected policy; dropping the field restores it.
+            _patch_telemetry_policy_fields(kserve_client, {PROBE_SENSITIVE_FIELD: None})
+            wait_for(
+                lambda: _assert_equal(
+                    _conditions(_get_telemetry_policy(kserve_client)).get("Accepted"),
+                    "True",
+                    "policy not Accepted again after removing the sensitive field",
+                ),
+                timeout=120,
+                interval=POLL_INTERVAL,
+            )
+            logger.info(f"Removed {PROBE_SENSITIVE_FIELD}; policy Accepted again")
+        else:
+            # The field was registered; only a re-create drops its binding (CONNLINK-1888).
+            _recreate_telemetry_policy(kserve_client, original)
+            logger.info(
+                f"Re-created {AUDIT_TELEMETRY_POLICY} without {PROBE_SENSITIVE_FIELD}"
+            )
+
+
+def _assert_policy_reconciled(kserve_client: KServeClient) -> dict:
+    policy = _get_telemetry_policy(kserve_client)
+    assert _policy_status_is_current(policy), (
+        "TelemetryPolicy status not reconciled yet"
+    )
+    return policy
 
 
 @pytest.mark.audit_logging
