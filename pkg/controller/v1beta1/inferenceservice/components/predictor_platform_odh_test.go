@@ -44,7 +44,7 @@ func TestPropagatePlatformWorkloadStatus(t *testing.T) {
 		Type:    v1beta1.LatestDeploymentReady,
 		Status:  corev1.ConditionFalse,
 		Reason:  deployment.AuthProxyPreservedReason,
-		Message: "Preserving existing auth proxy container to avoid pod restart",
+		Message: "Preserving existing auth proxy container and reconciling a controller-managed upstream when present",
 	}
 	otherLatestDeploymentReady := apis.Condition{
 		Type:   v1beta1.LatestDeploymentReady,
