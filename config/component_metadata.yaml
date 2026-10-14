@@ -3,11 +3,20 @@ releases:
     version: v0.21.0
     repoUrl: https://github.com/kserve/kserve/
   - name: vLLM
-    version: v0.28.0
+    version: v0.31.0
     repoUrl: https://github.com/vllm-project/vllm
-  - name: llm-d-router
-    version: v0.11.0
+  - name: llm-d Router
+    version: v1.0.0
     repoUrl: https://github.com/llm-d/llm-d-router
-  - name: llm-d-autoscaling
-    version: v0.9.0
-    repoUrl: https://github.com/llm-d/llm-d-autoscaling
+  - name: llm-d Batch Gateway
+    version: v1.0.0
+    repoUrl: https://github.com/llm-d/llm-d-batch-gateway
+  - name: llm-d Async Processor
+    version: v1.0.0
+    repoUrl: https://github.com/llm-d/llm-d-async
+  - name: vLLM omni
+    version: v0.30.0
+    repoUrl: https://github.com/vllm-project/vllm-omni
+  - name: Model Express
+    version: v0.8.0
+    repoUrl: https://github.com/ai-dynamo/modelexpress

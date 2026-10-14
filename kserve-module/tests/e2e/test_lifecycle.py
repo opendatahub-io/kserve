@@ -237,6 +237,7 @@ class TestManagementState:
             "WVAReady must be cleared even when spec.wva.managementState is Managed"
         _verify_deployments_available(kubectl, is_openshift=True)
 
+    @pytest.mark.skip(reason="defaultCleanup needs the cloned WVA overlay; leftover deletion is extraCleanup in #2077")
     def test_wva_leftover_resources_cleaned_up(self, kubectl, cluster_info, apply_kserve_cr):
         """Leftover 3.5 WVA objects are deleted even if spec.wva is still Managed."""
         patch = json.dumps({"spec": {"wva": {"managementState": "Managed"}}})
@@ -254,6 +255,34 @@ class TestManagementState:
                 f"Leftover {WVA_CONFIGMAP} should be deleted by defaultCleanup"
 
         wait_for(assert_configmap_gone, timeout=TIMEOUT_120S, interval=5)
+        _verify_deployments_available(kubectl, is_openshift=True)
+
+    def test_wva_removed_extra_cleanup(self, kubectl, cluster_info, apply_kserve_cr):
+        """extraCleanup deletes leftover VA CRD/CRs and strips the WVA ConfigMap key."""
+        patch = json.dumps({"spec": {"wva": {"managementState": "Removed"}}})
+        run([kubectl, "patch", "kserve", KSERVE_CR_NAME, "--type", "merge", "-p", patch])
+        _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
+                 f"observedGeneration not matching within {TIMEOUT_120S}s")
+
+        _seed_wva_extra_cleanup_leftovers(kubectl)
+        trigger_reconcile(kubectl, trigger_id="wva-extra-cleanup")
+
+        def assert_extra_cleanup():
+            cm = json.loads(run(
+                [kubectl, "get", "configmap", "inferenceservice-config",
+                 "-n", NAMESPACE, "-o", "json"],
+            ).stdout)
+            data = cm.get("data") or {}
+            assert "autoscaling-wva-controller-config" not in data, \
+                "autoscaling-wva-controller-config should be stripped by extraCleanup"
+            assert data, "inferenceservice-config must not be deleted"
+            assert not resource_exists(kubectl, "variantautoscaling", "leftover-va",
+                                       namespace=NAMESPACE), \
+                "leftover VariantAutoscaling CR should be deleted by extraCleanup"
+            assert not resource_exists(kubectl, "crd", "variantautoscalings.llmd.ai"), \
+                "leftover VariantAutoscaling CRD should be deleted by extraCleanup"
+
+        wait_for(assert_extra_cleanup, timeout=TIMEOUT_120S, interval=5)
         _verify_deployments_available(kubectl, is_openshift=True)
 
     def test_nim_default_managed_env_var(self, kubectl, cluster_info, apply_kserve_cr):
@@ -406,6 +435,52 @@ class TestDeletionRecovery:
 
             wait_for(assert_recreated, timeout=TIMEOUT_120S, interval=5)
             wait_for_deployment(kubectl, dep_name)
+
+
+def _seed_wva_extra_cleanup_leftovers(kubectl):
+    """Create leftover 3.5 VA CRD and inferenceservice-config key extraCleanup should remove."""
+    run(
+        [kubectl, "patch", "configmap", "inferenceservice-config", "-n", NAMESPACE,
+         "--type", "merge", "-p",
+         json.dumps({"data": {"autoscaling-wva-controller-config": "{}"}})],
+    )
+    leftover_crd = (
+        "apiVersion: apiextensions.k8s.io/v1\n"
+        "kind: CustomResourceDefinition\n"
+        "metadata:\n"
+        "  name: variantautoscalings.llmd.ai\n"
+        "spec:\n"
+        "  group: llmd.ai\n"
+        "  scope: Namespaced\n"
+        "  names:\n"
+        "    plural: variantautoscalings\n"
+        "    singular: variantautoscaling\n"
+        "    kind: VariantAutoscaling\n"
+        "  versions:\n"
+        "  - name: v1alpha1\n"
+        "    served: true\n"
+        "    storage: true\n"
+        "    schema:\n"
+        "      openAPIV3Schema:\n"
+        "        type: object\n"
+        "        x-kubernetes-preserve-unknown-fields: true\n"
+    )
+    run([kubectl, "apply", "-f", "-"], input_text=leftover_crd)
+    run([kubectl, "wait", "--for=condition=Established",
+         "crd/variantautoscalings.llmd.ai", "--timeout=60s"])
+    assert resource_exists(kubectl, "crd", "variantautoscalings.llmd.ai"), \
+        "VariantAutoscaling CRD leftover must exist before extraCleanup"
+    leftover_cr = (
+        "apiVersion: llmd.ai/v1alpha1\n"
+        "kind: VariantAutoscaling\n"
+        "metadata:\n"
+        "  name: leftover-va\n"
+        f"  namespace: {NAMESPACE}\n"
+    )
+    run([kubectl, "apply", "-f", "-"], input_text=leftover_cr)
+    assert resource_exists(kubectl, "variantautoscaling", "leftover-va",
+                           namespace=NAMESPACE), \
+        "VariantAutoscaling CR leftover must exist before extraCleanup"
 
 
 def _apply_leftover_wva_resources(kubectl):

@@ -43,6 +43,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	cacheidentity "github.com/kserve/kserve/pkg/kernelcache/identity"
+	"github.com/kserve/kserve/pkg/kernelcache/registryauth"
 	kernelcachetypes "github.com/kserve/kserve/pkg/kernelcache/types"
 )
 
@@ -277,7 +278,7 @@ func TestKernelCacheCaptureReconcilerDoesNotCreateDefaultCapture(t *testing.T) {
 	}
 	configMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
-		Data:       map[string]string{"kernelcache": `{"enabled":true}`},
+		Data:       map[string]string{"kernelcache": `{"enabled":true,"artifactSecurity":{"mode":"none"}}`},
 	}
 	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(inferenceService, configMap).Build()
 	reconciler := &KernelCacheCaptureReconciler{Client: k8sClient, Reader: k8sClient}
@@ -528,7 +529,7 @@ func TestKernelCacheCaptureReconcilerProcessesEveryCaptureForInferenceService(t 
 	}
 	configMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
-		Data:       map[string]string{"kernelcache": `{"enabled":true}`},
+		Data:       map[string]string{"kernelcache": `{"enabled":true,"artifactSecurity":{"mode":"none"}}`},
 	}
 	first := completedUnsignedCapture("model-capture-first", inferenceService)
 	second := completedUnsignedCapture("model-capture-second", inferenceService)
@@ -662,7 +663,7 @@ func TestCompletedCaptureDoesNotPatchProducerPod(t *testing.T) {
 	}
 	configMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
-		Data:       map[string]string{"kernelcache": `{"enabled":true}`},
+		Data:       map[string]string{"kernelcache": `{"enabled":true,"artifactSecurity":{"mode":"none"}}`},
 	}
 	capture := completedUnsignedCapture("model-capture", inferenceService)
 	capture.Status.ActiveSession = &v1alpha1.KernelCacheCaptureSession{ID: "session", PodName: "model-pod"}
@@ -707,7 +708,7 @@ func TestGeneratedInProgressCaptureHandlesMissingProducerByPolicy(t *testing.T) 
 			capture.Status.RuntimeResult = nil
 			capture.Status.Phase = v1alpha1.KernelCacheCapturePhaseCapturing
 			if test.policy != "" {
-				configMap.Data["kernelcache"] = `{"enabled":true,"abandonedCapturePolicy":"` + test.policy + `"}`
+				configMap.Data["kernelcache"] = `{"enabled":true,"abandonedCapturePolicy":"` + test.policy + `","artifactSecurity":{"mode":"none"}}`
 			}
 			scheme := runtime.NewScheme()
 			require.NoError(t, corev1.AddToScheme(scheme))
@@ -796,7 +797,7 @@ func unchangedCaptureFixture() (*v1beta1.InferenceService, *corev1.ConfigMap, *v
 	}
 	configMap := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
-		Data:       map[string]string{"kernelcache": `{"enabled":true}`},
+		Data:       map[string]string{"kernelcache": `{"enabled":true,"artifactSecurity":{"mode":"none"}}`},
 	}
 	capture := &v1alpha1.KernelCacheCapture{
 		ObjectMeta: metav1.ObjectMeta{
@@ -891,4 +892,91 @@ func TestCaptureSigningRejectsMissingProfileReference(t *testing.T) {
 	require.NoError(t, k8sClient.Get(t.Context(), client.ObjectKeyFromObject(capture), updated))
 	require.NotNil(t, updated.Status.Signing)
 	require.Equal(t, "SigningProfileNotFound", updated.Status.Signing.Reason)
+}
+
+func TestCleanupCaptureIdentitiesRevokesRegistryAccess(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, rbacv1.AddToScheme(scheme))
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+
+	capture := &v1alpha1.KernelCacheCapture{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "capture",
+			Namespace: "team",
+			UID:       types.UID("capture-uid"),
+			Labels:    map[string]string{constants.KernelCacheCaptureGeneratedLabelKey: "true"},
+		},
+		Status: v1alpha1.KernelCacheCaptureStatus{
+			Phase:         v1alpha1.KernelCacheCapturePhaseComplete,
+			ActiveSession: &v1alpha1.KernelCacheCaptureSession{PodName: "capture-pod"},
+		},
+	}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name: "capture-pod", Namespace: "team", UID: types.UID("pod-uid"),
+		Annotations: map[string]string{registryauth.AccessSecretAnnotation: "mcv-registry-capture"},
+	}}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name: "mcv-registry-capture", Namespace: "team", UID: types.UID("secret-uid"),
+		Labels: map[string]string{registryauth.ManagedLabel: "true"},
+		OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(
+			pod, corev1.SchemeGroupVersion.WithKind("Pod"),
+		)},
+	}}
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(capture, pod, secret).Build()
+	reconciler := &KernelCacheCaptureReconciler{Client: k8sClient, Reader: k8sClient}
+
+	require.NoError(t, reconciler.cleanupCaptureIdentities(t.Context(), capture))
+	remaining := &corev1.Secret{}
+	require.Error(t, k8sClient.Get(t.Context(), client.ObjectKeyFromObject(secret), remaining))
+}
+
+func TestCleanupCaptureIdentitiesKeepsRegistryAccessForActiveCapture(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, v1alpha1.AddToScheme(scheme))
+
+	capture := &v1alpha1.KernelCacheCapture{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "capture",
+			Namespace: "team",
+			UID:       types.UID("capture-uid"),
+			Labels:    map[string]string{constants.KernelCacheCaptureGeneratedLabelKey: "true"},
+		},
+		Status: v1alpha1.KernelCacheCaptureStatus{
+			Phase:         v1alpha1.KernelCacheCapturePhaseCapturing,
+			ActiveSession: &v1alpha1.KernelCacheCaptureSession{PodName: "capture-pod"},
+		},
+	}
+	pod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+		Name: "capture-pod", Namespace: "team", UID: types.UID("pod-uid"),
+		Annotations: map[string]string{registryauth.AccessSecretAnnotation: "mcv-registry-capture"},
+	}}
+	secret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{
+		Name: "mcv-registry-capture", Namespace: "team", UID: types.UID("secret-uid"),
+		Labels: map[string]string{registryauth.ManagedLabel: "true"},
+		OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(
+			pod, corev1.SchemeGroupVersion.WithKind("Pod"),
+		)},
+	}}
+	k8sClient := fake.NewClientBuilder().WithScheme(scheme).WithObjects(capture, pod, secret).Build()
+	reconciler := &KernelCacheCaptureReconciler{Client: k8sClient, Reader: k8sClient}
+
+	require.NoError(t, reconciler.cleanupCaptureIdentities(t.Context(), capture))
+	remaining := &corev1.Secret{}
+	require.NoError(t, k8sClient.Get(t.Context(), client.ObjectKeyFromObject(secret), remaining))
+}
+
+func TestCaptureSigningSecurityConfigUsesControllerNamespace(t *testing.T) {
+	config := &v1beta1.KernelCacheConfig{
+		ArtifactSecurity: v1beta1.KernelCacheArtifactSecurityConfig{
+			Mode: string(kernelcachetypes.ModeCert),
+			Cert: v1beta1.KernelCacheArtifactCertConfig{
+				SigningProfileRef: "kernelcache-signer",
+			},
+		},
+	}
+
+	securityConfig := captureSigningSecurityConfig(config)
+	require.Equal(t, constants.KServeNamespace+"/kernelcache-signer", securityConfig.Cert.SigningSecret)
 }
