@@ -69,7 +69,7 @@ require (
 
 // Distro: OpenShift API for TLS profile watcher (RHOAIENG-78968).
 // Kept in a separate block so upstream syncs don't conflict.
-require github.com/openshift/api v0.0.0-20260317165824-54a3998d81eb
+require github.com/openshift/api v0.0.0-20260601143908-70f01b82bb53
 
 require (
 	cel.dev/expr v0.25.1 // indirect

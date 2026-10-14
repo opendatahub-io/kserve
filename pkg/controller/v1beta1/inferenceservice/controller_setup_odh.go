@@ -19,11 +19,63 @@ limitations under the License.
 package inferenceservice
 
 import (
+	"context"
+	"reflect"
+
+	configv1 "github.com/openshift/api/config/v1"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 )
 
-// extendControllerSetup registers no additional watches in ODH builds.
-func (r *InferenceServiceReconciler) extendControllerSetup(_ manager.Manager, _ *builder.Builder) error {
+// extendControllerSetup watches the cluster APIServer TLS profile so all
+// generated InferenceService proxy sidecars are reconciled when profile policy
+// changes.
+func (r *InferenceServiceReconciler) extendControllerSetup(mgr manager.Manager, ctrlBuilder *builder.Builder) error {
+	profileChanged := predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			return e.Object.GetName() == "cluster"
+		},
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldAPIServer, oldOK := e.ObjectOld.(*configv1.APIServer)
+			newAPIServer, newOK := e.ObjectNew.(*configv1.APIServer)
+			return oldOK && newOK && newAPIServer.Name == "cluster" && !reflect.DeepEqual(oldAPIServer.Spec, newAPIServer.Spec)
+		},
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			return e.Object.GetName() == "cluster"
+		},
+		GenericFunc: func(e event.GenericEvent) bool {
+			return e.Object.GetName() == "cluster"
+		},
+	}
+	ctrlBuilder.Watches(&configv1.APIServer{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
+		requests, err := inferenceServiceRequestsForTLSProfile(ctx, mgr.GetClient(), obj)
+		if err != nil {
+			r.Log.Error(err, "failed to enqueue InferenceServices after APIServer TLS profile change")
+			return nil
+		}
+		return requests
+	}), builder.WithPredicates(profileChanged))
 	return nil
+}
+
+func inferenceServiceRequestsForTLSProfile(ctx context.Context, reader client.Reader, obj client.Object) ([]reconcile.Request, error) {
+	if obj.GetName() != "cluster" {
+		return nil, nil
+	}
+	var isvcs v1beta1.InferenceServiceList
+	if err := reader.List(ctx, &isvcs); err != nil {
+		return nil, err
+	}
+	requests := make([]reconcile.Request, 0, len(isvcs.Items))
+	for i := range isvcs.Items {
+		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&isvcs.Items[i])})
+	}
+	return requests, nil
 }
