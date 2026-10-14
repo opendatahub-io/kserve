@@ -52,8 +52,6 @@ func RequiredResources(ctx context.Context, c client.Client, ns string) {
 		},
 	})).To(gomega.Succeed())
 
-	additionalRequiredResources(ctx, c)
-
 	gomega.Expect(c.Create(ctx, InferenceServiceCfgMap(ns))).To(gomega.Succeed())
 
 	for _, preset := range SharedConfigPresets(ns) {
@@ -180,11 +178,6 @@ func InferenceServiceCfgMapWithUrlScheme(ns, urlScheme string) *corev1.ConfigMap
 				"s3": {
 					"s3AccessKeyIDName": "AWS_ACCESS_KEY_ID",
 					"s3SecretAccessKeyName": "AWS_SECRET_ACCESS_KEY"
-				}
-			}`,
-		"autoscaling-wva-controller-config": `{
-				"prometheus": {
-					"url": "http://prometheus.monitoring:9090"
 				}
 			}`,
 	} // #nosec G101
