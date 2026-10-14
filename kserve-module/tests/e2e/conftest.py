@@ -40,9 +40,18 @@ OPERAND_DEPLOYMENTS_OCP = [
 
 WVA_DEPLOYMENT = "workload-variant-autoscaler-controller-manager"
 WVA_CONFIGMAP = "workload-variant-autoscaler-saturation-scaling-config"
+MODELEXPRESS_DEPLOYMENT = "modelexpress-operator"
+MODELEXPRESS_CLUSTERROLES_XKS = ["modelexpress-operator"]
+MODELEXPRESS_CLUSTERROLES_OCP = ["modelexpress-operator", "modelexpress-operator-openshift"]
+MODELEXPRESS_CRDS = [
+    "modelexpressservers.modelexpress.opendatahub.io",
+    "modelmetadatas.modelexpress.nvidia.com",
+    "modelcacheentries.modelexpress.nvidia.com",
+]
 MODEL_CONTROLLER_DEPLOYMENT = "odh-model-controller"
 LOCALMODEL_CONTROLLER_DEPLOYMENT = "kserve-localmodel-controller-manager"
 LOCALMODEL_AGENT_DAEMONSET = "kserve-localmodelnode-agent"
+LLMISVC_CONFIG_READ_ROLEBINDING = "kserve-llmisvcconfig-read-access"
 
 RELEASE_TEST_NAMESPACE = "kserve-release-e2e"
 LLMISVC_SMOKE_NAME = "post-release-llmisvc-smoke"
@@ -368,6 +377,23 @@ def _poll_cr(kubectl_bin, name, predicate, timeout, msg):
     raise TimeoutError(msg)
 
 
+def _model_cache_ready_for_current_generation(cr):
+    """Require successful provisioning and ModelCache readiness for this spec."""
+    if not generation_matches(cr):
+        return False
+
+    # The controller can advance status.observedGeneration on a failed apply,
+    # while ModelCacheReady still reflects the prior generation. Require
+    # ProvisioningSucceeded=True before trusting that dependent condition.
+    conditions = {
+        condition.get("type"): condition
+        for condition in cr.get("status", {}).get("conditions", [])
+    }
+    provisioning = conditions.get("ProvisioningSucceeded", {})
+    model_cache = conditions.get("ModelCacheReady", {})
+    return provisioning.get("status") == "True" and model_cache.get("status") == "True"
+
+
 def get_worker_node(kubectl_bin, is_openshift=True):
     """Return the name of a worker node."""
     if is_openshift:
@@ -467,7 +493,7 @@ def wait_for_kserve_cleanup(
             ],
             timeout=timeout + 10,
         )
-    _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S)
+    _wait_for_managed_resources_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S)
 
 
 def force_delete_kserve_cr(kubectl_bin, is_openshift=False):
@@ -654,20 +680,28 @@ def wait_for_deployment_gone(
     kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_60S
 ):
     """Wait until a deployment no longer exists."""
+    wait_for_resource_gone(
+        kubectl_bin, "deployment", name, namespace=namespace, timeout=timeout
+    )
+
+
+def wait_for_resource_gone(
+    kubectl_bin, resource, name, namespace=None, timeout=TIMEOUT_60S
+):
+    """Wait until a named Kubernetes resource no longer exists."""
+    command = [kubectl_bin, "wait", "--for=delete", f"{resource}/{name}"]
+    if namespace:
+        command.extend(["-n", namespace])
+    command.append(f"--timeout={timeout}s")
     result = run(
-        [
-            kubectl_bin,
-            "wait",
-            "--for=delete",
-            f"deployment/{name}",
-            "-n",
-            namespace,
-            f"--timeout={timeout}s",
-        ],
+        command,
         check=False,
     )
-    if result.returncode != 0 and "not found" not in result.stderr.lower():
-        raise RuntimeError(f"wait_for_deployment_gone failed: {result.stderr}")
+    if result.returncode != 0 and not any(
+        message in result.stderr.lower()
+        for message in ("not found", "no matching resources")
+    ):
+        raise RuntimeError(f"wait_for_resource_gone failed: {result.stderr}")
 
 
 def dump_llmisvc_diagnostics(kubectl_bin, name, namespace):
@@ -737,10 +771,23 @@ def create_release_test_namespace(kubectl_bin, name=RELEASE_TEST_NAMESPACE):
     run([kubectl_bin, "apply", "-f", "-"], input_text=ns_yaml)
 
 
-def _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S):
-    """Wait until managed deployments are cleaned up by garbage collection."""
+def _wait_for_managed_resources_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S):
+    """Wait until managed resources are cleaned up by garbage collection."""
     for dep in operand_deployments(is_openshift):
         wait_for_deployment_gone(kubectl_bin, dep, timeout=timeout)
+
+    # These owned resources must also be gone before another test recreates the
+    # singleton Kserve CR. In particular, the module deploys RoleBindings before
+    # Deployments; a stale RoleBinding being garbage-collected can abort the
+    # whole apply before ModelCache workloads are reached.
+    for resource, name in (
+        ("rolebinding", LLMISVC_CONFIG_READ_ROLEBINDING),
+        ("deployment", LOCALMODEL_CONTROLLER_DEPLOYMENT),
+        ("daemonset", LOCALMODEL_AGENT_DAEMONSET),
+    ):
+        wait_for_resource_gone(
+            kubectl_bin, resource, name, namespace=NAMESPACE, timeout=timeout
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -836,19 +883,10 @@ def model_cache_enabled(kubectl, cluster_info, apply_kserve_cr):
         _poll_cr(
             kubectl,
             KSERVE_CR_NAME,
-            generation_matches,
+            _model_cache_ready_for_current_generation,
             TIMEOUT_120S,
-            f"ModelCache enable not reconciled within {TIMEOUT_120S}s",
-        )
-        _poll_cr(
-            kubectl,
-            KSERVE_CR_NAME,
-            lambda cr: any(
-                c.get("type") == "ModelCacheReady" and c.get("status") == "True"
-                for c in cr.get("status", {}).get("conditions", [])
-            ),
-            TIMEOUT_120S,
-            f"ModelCacheReady not True within {TIMEOUT_120S}s",
+            f"ModelCache provisioning and readiness not successful within "
+            f"{TIMEOUT_120S}s",
         )
         # Explicit localmodel workload readiness: CrashLoopBackOff from missing
         # TLS RBAC subjects fails these waits and dumps pod logs/events.
@@ -861,9 +899,13 @@ def model_cache_enabled(kubectl, cluster_info, apply_kserve_cr):
                 c["type"]: c for c in cr.get("status", {}).get("conditions", [])
             }
             mc = conditions.get("ModelCacheReady", {})
+            provisioning = conditions.get("ProvisioningSucceeded", {})
             print(
                 f"ModelCacheReady status={mc.get('status')} "
-                f"reason={mc.get('reason')} message={mc.get('message')}"
+                f"reason={mc.get('reason')} message={mc.get('message')}\n"
+                f"ProvisioningSucceeded status={provisioning.get('status')} "
+                f"reason={provisioning.get('reason')} "
+                f"message={provisioning.get('message')}"
             )
         dump_modelcache_workload_diagnostics(kubectl)
         raise

@@ -16,3 +16,10 @@ patches:
   patch: |-
     - op: remove
       path: /spec/template/spec/nodeSelector
+# The KernelCache node agent is omitted from config/localmodels.
+# - target:
+#     kind: DaemonSet
+#     name: kserve-kernelcachenode-agent
+#   patch: |-
+#     - op: remove
+#       path: /spec/template/spec/affinity

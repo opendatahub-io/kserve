@@ -130,6 +130,7 @@ func markAllHealthy(condMgr *conditions.Manager) {
 	condMgr.MarkTrue(ConditionTracingConfigAvailable,
 		conditions.WithReason("TracingConfigAvailable"))
 	condMgr.ClearCondition(ConditionWVAReady)
+	condMgr.ClearCondition(ConditionModelExpressReady)
 }
 
 func TestHappyCondition_AllHealthy(t *testing.T) {

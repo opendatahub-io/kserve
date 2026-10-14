@@ -23,15 +23,13 @@ from kserve import V1beta1ModelSpec, V1beta1ModelFormat
 from kubernetes.client import V1ResourceRequirements
 import pytest
 
-from ..common.utils import KSERVE_TEST_NAMESPACE
-
 
 @pytest.mark.predictor
 @pytest.mark.path_based_routing
 @pytest.mark.skip(
     reason="Canary rollouts require Knative Serving and are not supported in RawDeployment mode"
 )
-def test_canary_rollout(kserve_client):
+def test_canary_rollout(kserve_client, test_namespace):
     service_name = "isvc-canary"
     default_endpoint_spec = V1beta1InferenceServiceSpec(
         predictor=V1beta1PredictorSpec(
@@ -49,17 +47,13 @@ def test_canary_rollout(kserve_client):
     isvc = V1beta1InferenceService(
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
-        metadata=client.V1ObjectMeta(
-            name=service_name,
-            namespace=KSERVE_TEST_NAMESPACE,
-        ),
+        metadata=client.V1ObjectMeta(name=service_name, namespace=test_namespace),
         spec=default_endpoint_spec,
     )
 
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready(service_name, namespace=test_namespace)
 
-    # define canary endpoint spec, and then rollout 10% traffic to the canary version
     canary_endpoint_spec = V1beta1InferenceServiceSpec(
         predictor=V1beta1PredictorSpec(
             canary_traffic_percent=10,
@@ -75,28 +69,21 @@ def test_canary_rollout(kserve_client):
     isvc = V1beta1InferenceService(
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
-        metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE
-        ),
+        metadata=client.V1ObjectMeta(name=service_name, namespace=test_namespace),
         spec=canary_endpoint_spec,
     )
 
-    patch_response = kserve_client.patch(
-        service_name, isvc, namespace=KSERVE_TEST_NAMESPACE
-    )
+    patch_response = kserve_client.patch(service_name, isvc, namespace=test_namespace)
     kserve_client.wait_isvc_ready(
         service_name,
-        namespace=KSERVE_TEST_NAMESPACE,
+        namespace=test_namespace,
         expected_generation=patch_response["metadata"]["generation"],
     )
 
-    canary_isvc = kserve_client.get(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    canary_isvc = kserve_client.get(service_name, namespace=test_namespace)
     for traffic in canary_isvc["status"]["components"]["predictor"]["traffic"]:
         if traffic["latestRevision"]:
             assert traffic["percent"] == 10
-
-    # Delete the InferenceService
-    kserve_client.delete(service_name, namespace=KSERVE_TEST_NAMESPACE)
 
 
 @pytest.mark.predictor
@@ -104,7 +91,7 @@ def test_canary_rollout(kserve_client):
 @pytest.mark.skip(
     reason="Canary rollouts require Knative Serving and are not supported in RawDeployment mode"
 )
-def test_canary_rollout_runtime(kserve_client):
+def test_canary_rollout_runtime(kserve_client, test_namespace):
     service_name = "isvc-canary-runtime"
     default_endpoint_spec = V1beta1InferenceServiceSpec(
         predictor=V1beta1PredictorSpec(
@@ -125,17 +112,13 @@ def test_canary_rollout_runtime(kserve_client):
     isvc = V1beta1InferenceService(
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
-        metadata=client.V1ObjectMeta(
-            name=service_name,
-            namespace=KSERVE_TEST_NAMESPACE,
-        ),
+        metadata=client.V1ObjectMeta(name=service_name, namespace=test_namespace),
         spec=default_endpoint_spec,
     )
 
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready(service_name, namespace=test_namespace)
 
-    # define canary endpoint spec, and then rollout 10% traffic to the canary version
     canary_endpoint_spec = V1beta1InferenceServiceSpec(
         predictor=V1beta1PredictorSpec(
             canary_traffic_percent=10,
@@ -154,25 +137,18 @@ def test_canary_rollout_runtime(kserve_client):
     isvc = V1beta1InferenceService(
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
-        metadata=client.V1ObjectMeta(
-            name=service_name, namespace=KSERVE_TEST_NAMESPACE
-        ),
+        metadata=client.V1ObjectMeta(name=service_name, namespace=test_namespace),
         spec=canary_endpoint_spec,
     )
 
-    patch_response = kserve_client.patch(
-        service_name, isvc, namespace=KSERVE_TEST_NAMESPACE
-    )
+    patch_response = kserve_client.patch(service_name, isvc, namespace=test_namespace)
     kserve_client.wait_isvc_ready(
         service_name,
-        namespace=KSERVE_TEST_NAMESPACE,
+        namespace=test_namespace,
         expected_generation=patch_response["metadata"]["generation"],
     )
 
-    canary_isvc = kserve_client.get(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    canary_isvc = kserve_client.get(service_name, namespace=test_namespace)
     for traffic in canary_isvc["status"]["components"]["predictor"]["traffic"]:
         if traffic["latestRevision"]:
             assert traffic["percent"] == 10
-
-    # Delete the InferenceService
-    kserve_client.delete(service_name, namespace=KSERVE_TEST_NAMESPACE)

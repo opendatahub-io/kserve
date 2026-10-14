@@ -881,3 +881,54 @@ func TestManagedDRAContainerName(t *testing.T) {
 		})
 	}
 }
+
+func TestDisaggregatedSetRequested(t *testing.T) {
+	tests := []struct {
+		name                string
+		llmSvc              *LLMInferenceService
+		specAnnotations     map[string]string
+		metadataAnnotations map[string]string
+		want                bool
+	}{
+		{name: "nil receiver", llmSvc: nil, want: false},
+		{name: "no annotations", specAnnotations: nil, want: false},
+		{name: "unrelated annotation", specAnnotations: map[string]string{"foo": "bar"}, want: false},
+		{
+			name:            "opted in",
+			specAnnotations: map[string]string{"serving.kserve.io/enable-disaggregated-set": "true"},
+			want:            true,
+		},
+		{
+			name:            "opted out",
+			specAnnotations: map[string]string{"serving.kserve.io/enable-disaggregated-set": "false"},
+			want:            false,
+		},
+		{
+			// Read from spec.annotations, where the presets that turn it on by default
+			// can set it; presets cannot set the service's metadata.
+			name:                "metadata annotations are not consulted",
+			metadataAnnotations: map[string]string{"serving.kserve.io/enable-disaggregated-set": "true"},
+			want:                false,
+		},
+		{
+			name:            "malformed value is not opt-in",
+			specAnnotations: map[string]string{"serving.kserve.io/enable-disaggregated-set": "yes"},
+			want:            false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := tt.llmSvc
+			if svc == nil && tt.name != "nil receiver" {
+				svc = &LLMInferenceService{
+					ObjectMeta: metav1.ObjectMeta{Annotations: tt.metadataAnnotations},
+					Spec:       LLMInferenceServiceSpec{WorkloadSpec: WorkloadSpec{Annotations: tt.specAnnotations}},
+				}
+			}
+			if got := svc.DisaggregatedSetRequested(); got != tt.want {
+				t.Errorf("DisaggregatedSetRequested() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

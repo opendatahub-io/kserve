@@ -7,7 +7,10 @@ metadata:
   namespace: kserve
 spec:
   annotations:
+    serving.kserve.io/enable-disaggregated-set: "true"
     serving.kserve.io/model-based-routing-enabled: "true"
+  labels:
+    serving.kserve.io/llmisvc-revision: placeholder
   template:
     containers:
     - command:
@@ -389,7 +392,10 @@ metadata:
   namespace: kserve
 spec:
   annotations:
+    serving.kserve.io/enable-disaggregated-set: "true"
     serving.kserve.io/model-based-routing-enabled: "true"
+  labels:
+    serving.kserve.io/llmisvc-revision: placeholder
   template:
     containers:
     - command:
@@ -1132,6 +1138,8 @@ spec:
   prefill:
     annotations:
       serving.kserve.io/model-based-routing-enabled: "true"
+    labels:
+      serving.kserve.io/llmisvc-revision: placeholder
     template:
       containers:
       - command:
@@ -1455,6 +1463,8 @@ spec:
   prefill:
     annotations:
       serving.kserve.io/model-based-routing-enabled: "true"
+    labels:
+      serving.kserve.io/llmisvc-revision: placeholder
     template:
       containers:
       - command:
@@ -2938,6 +2948,7 @@ spec:
             - -c
             - |-
               exec vllm launch render /mnt/models/base \
+                --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" /mnt/models/base \
                 --port=8000 \
                 {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh \
                 --ssl-certfile /var/run/kserve/tls/tls.crt \
@@ -3673,7 +3684,6 @@ spec:
           --port 8000
           --host 0.0.0.0
           {{- if and .Spec.Parallelism .Spec.Parallelism.Tensor }} --tp {{ .Spec.Parallelism.Tensor }}{{- end }}
-          {{- if .Spec.TrustRemoteCode }} --trust-remote-code{{- end }}
         )
         exec "${args[@]}" "$@"
       - --

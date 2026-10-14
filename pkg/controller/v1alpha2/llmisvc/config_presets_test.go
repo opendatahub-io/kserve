@@ -32,6 +32,7 @@ import (
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
 
+	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
 
 	kservetesting "github.com/kserve/kserve/pkg/testing"
@@ -642,7 +643,6 @@ func TestPresetFiles(t *testing.T) {
 											"  --port 8000\n" +
 											"  --host 0.0.0.0\n" +
 											" --tp 1\n" +
-											"\n" +
 											")\n" +
 											"exec \"${args[@]}\" \"$@\"",
 										"--",
@@ -1224,12 +1224,13 @@ func TestSGLangTemplateNilParallelism(t *testing.T) {
 		t.Errorf("Expected no --tp flag when Parallelism.Tensor is unset, got command: %q", cmd)
 	}
 	if strings.Contains(cmd, "--trust-remote-code") {
-		t.Errorf("Expected no --trust-remote-code flag when TrustRemoteCode is false, got command: %q", cmd)
+		t.Errorf("Expected no --trust-remote-code flag by default, got command: %q", cmd)
 	}
 }
 
-// TestSGLangTemplateTrustRemoteCode verifies --trust-remote-code is included when TrustRemoteCode=true.
-func TestSGLangTemplateTrustRemoteCode(t *testing.T) {
+// TestSGLangTemplateForwardsContainerArgs verifies runtime-specific flags can be
+// supplied explicitly without a dedicated LLMInferenceService API field.
+func TestSGLangTemplateForwardsContainerArgs(t *testing.T) {
 	presetsDir := filepath.Join(kservetesting.ProjectRoot(), "config", "llmisvcconfig")
 	filePath := filepath.Join(presetsDir, "config-sglang-template.yaml")
 
@@ -1241,7 +1242,20 @@ func TestSGLangTemplateTrustRemoteCode(t *testing.T) {
 	config := loadConfig(t, data, filePath)
 
 	llmSvc := llmisvc.LLMInferenceServiceSample()
-	llmSvc.Spec.TrustRemoteCode = true
+	llmSvc.Spec.Template = &corev1.PodSpec{
+		Containers: []corev1.Container{{
+			Name: "main",
+			Args: []string{"--trust-remote-code"},
+		}},
+	}
+
+	mergedSpec, err := llmisvc.MergeSpecs(t.Context(), config.Spec, llmSvc.Spec)
+	if err != nil {
+		t.Fatalf("MergeSpecs() returned unexpected error: %v", err)
+	}
+	config.Spec = mergedSpec
+	effectiveSvc := llmSvc.DeepCopy()
+	effectiveSvc.Spec = mergedSpec
 
 	kserveSystemConfig := llmisvc.Config{
 		SystemNamespace:         "kserve",
@@ -1249,13 +1263,97 @@ func TestSGLangTemplateTrustRemoteCode(t *testing.T) {
 		IngressGatewayNamespace: "kserve",
 	}
 
-	out, err := llmisvc.ReplaceVariables(llmSvc, config, &kserveSystemConfig)
+	out, err := llmisvc.ReplaceVariables(effectiveSvc, config, &kserveSystemConfig)
 	if err != nil {
 		t.Fatalf("ReplaceVariables() returned unexpected error: %v", err)
 	}
 
-	cmd := out.Spec.Template.Containers[0].Command[2]
-	if !strings.Contains(cmd, "--trust-remote-code") {
-		t.Errorf("Expected --trust-remote-code flag when TrustRemoteCode=true, got command: %q", cmd)
+	container := out.Spec.Template.Containers[0]
+	if strings.Contains(container.Command[2], "--trust-remote-code") {
+		t.Errorf("Expected no automatically injected --trust-remote-code flag, got command: %q", container.Command[2])
+	}
+	if diff := cmp.Diff([]string{"--trust-remote-code"}, container.Args); diff != "" {
+		t.Errorf("Expected explicit container args to be forwarded (-want, +got):\n%s", diff)
+	}
+}
+
+// TestDisaggregatedSetPresetDefault checks that DisaggregatedSet is on by default for
+// disaggregated (prefill/decode) services only: the decode presets, which the
+// controller selects only for P/D services, set the annotation, and no other preset
+// does. A service still opts out by setting "false" in its own spec.annotations.
+func TestDisaggregatedSetPresetDefault(t *testing.T) {
+	presetsDir := filepath.Join(kservetesting.ProjectRoot(), "config", "llmisvcconfig")
+	turnedOn := map[string]bool{
+		"config-llm-decode-template.yaml":             true,
+		"config-llm-decode-worker-data-parallel.yaml": true,
+	}
+
+	entries, err := os.ReadDir(presetsDir)
+	if err != nil {
+		t.Fatalf("Failed to read presets directory: %v", err)
+	}
+	presets := map[string]*v1alpha2.LLMInferenceServiceConfig{}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "config-") || filepath.Ext(entry.Name()) != ".yaml" {
+			continue
+		}
+		filePath := filepath.Join(presetsDir, entry.Name())
+		data, err := os.ReadFile(filepath.Clean(filePath))
+		if err != nil {
+			t.Fatalf("Failed to read %s: %v", entry.Name(), err)
+		}
+		presets[entry.Name()] = loadConfig(t, data, filePath)
+	}
+	for name := range turnedOn {
+		if presets[name] == nil {
+			t.Fatalf("Preset %s not found", name)
+		}
+	}
+
+	for name, preset := range presets {
+		t.Run(name, func(t *testing.T) {
+			value, ok := preset.Spec.Annotations[constants.LLMDisaggregatedSetAnnotationKey]
+			if turnedOn[name] {
+				if value != "true" {
+					t.Errorf("Expected %s to set %s to \"true\", got %q", name, constants.LLMDisaggregatedSetAnnotationKey, value)
+				}
+				return
+			}
+			if ok {
+				t.Errorf("Expected %s not to set %s, got %q", name, constants.LLMDisaggregatedSetAnnotationKey, value)
+			}
+			if preset.Spec.Prefill != nil {
+				if _, ok := preset.Spec.Prefill.Annotations[constants.LLMDisaggregatedSetAnnotationKey]; ok {
+					t.Errorf("Expected %s not to set %s on prefill; it is read from the decode workload only", name, constants.LLMDisaggregatedSetAnnotationKey)
+				}
+			}
+		})
+	}
+
+	for name := range turnedOn {
+		preset := presets[name]
+		t.Run(name+" is overridden by the service", func(t *testing.T) {
+			tests := []struct {
+				desc        string
+				annotations map[string]string
+				want        bool
+			}{
+				{desc: "no value of its own keeps the default", annotations: nil, want: true},
+				{desc: "false opts out", annotations: map[string]string{constants.LLMDisaggregatedSetAnnotationKey: "false"}, want: false},
+			}
+			for _, tt := range tests {
+				t.Run(tt.desc, func(t *testing.T) {
+					svc := v1alpha2.LLMInferenceServiceSpec{WorkloadSpec: v1alpha2.WorkloadSpec{Annotations: tt.annotations}}
+					merged, err := llmisvc.MergeSpecs(t.Context(), preset.Spec, svc)
+					if err != nil {
+						t.Fatalf("MergeSpecs() returned unexpected error: %v", err)
+					}
+					got := (&v1alpha2.LLMInferenceService{Spec: merged}).DisaggregatedSetRequested()
+					if got != tt.want {
+						t.Errorf("DisaggregatedSetRequested() = %v, want %v", got, tt.want)
+					}
+				})
+			}
+		})
 	}
 }
