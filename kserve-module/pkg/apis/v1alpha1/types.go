@@ -88,14 +88,9 @@ type KserveSpec struct {
 	// do not share a vendor domain, so that all presets are always created.
 	EnableHardwareAwarePresets *bool `json:"enableHardwareAwarePresets,omitempty"`
 
-	// AuditLogging controls gateway-side OCSF audit logging for LLMInferenceService traffic.
-	// The RHCL/Kuadrant operator emits the canonical event from the shared gateway.
-	// +kubebuilder:validation:Enum=Managed;Removed
-	// +kubebuilder:default=Removed
-	AuditLogging common.ManagementState `json:"auditLogging,omitempty"`
-
-	// AuditLoggingProfile selects the inference request audit logging profile.
-	// Removed disables audit events; Metadata records request and response metadata without bodies.
+	// AuditLoggingProfile selects the audit logging profile for InferenceService and
+	// LLMInferenceService traffic. Removed disables audit events; Metadata records
+	// request and response metadata without bodies.
 	// +kubebuilder:validation:Enum=Removed;Metadata
 	// +kubebuilder:default=Removed
 	AuditLoggingProfile AuditProfile `json:"auditLoggingProfile,omitempty"`

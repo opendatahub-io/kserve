@@ -46,20 +46,12 @@ spec:
             type: object
           spec:
             properties:
-              auditLogging:
-                default: Removed
-                description: |-
-                  AuditLogging controls gateway-side OCSF audit logging for LLMInferenceService traffic.
-                  The RHCL/Kuadrant operator emits the canonical event from the shared gateway.
-                enum:
-                - Managed
-                - Removed
-                type: string
               auditLoggingProfile:
                 default: Removed
                 description: |-
-                  AuditLoggingProfile selects the inference request audit logging profile.
-                  Removed disables audit events; Metadata records request and response metadata without bodies.
+                  AuditLoggingProfile selects the audit logging profile for InferenceService and
+                  LLMInferenceService traffic. Removed disables audit events; Metadata records
+                  request and response metadata without bodies.
                 enum:
                 - Removed
                 - Metadata

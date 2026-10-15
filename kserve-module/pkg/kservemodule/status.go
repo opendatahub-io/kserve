@@ -52,7 +52,7 @@ func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
 }
 
 func applyOCSFAuditLoggingCondition(condMgr *conditions.Manager, kserve *platformv1alpha1.Kserve, condition *auditLoggingCondition) {
-	if kserve.Spec.AuditLogging != common.Managed {
+	if kserve.Spec.AuditLoggingProfile != platformv1alpha1.AuditProfileMetadata {
 		condMgr.MarkTrue(ConditionAuditLoggingReady,
 			conditions.WithReason(reasonAuditLoggingDisabled))
 		return

@@ -17,8 +17,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/opendatahub-io/odh-platform-utilities/api/common"
-
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
@@ -48,7 +46,7 @@ const (
 // unstructured optional dependency: RHCL versions before 1.5.1 either do not
 // serve the CRD or serve it without the OCSF stanza.
 func (r *KserveModuleReconciler) reconcileOCSFAuditLogging(ctx context.Context, kserve *platformv1alpha1.Kserve) error {
-	if kserve.Spec.AuditLogging != common.Managed {
+	if kserve.Spec.AuditLoggingProfile != platformv1alpha1.AuditProfileMetadata {
 		return r.cleanupOCSFAuditPolicies(ctx, nil, kserve.Name, kserve.UID)
 	}
 

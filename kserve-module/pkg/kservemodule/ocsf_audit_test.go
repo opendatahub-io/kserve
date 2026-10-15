@@ -20,11 +20,11 @@ import (
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 )
 
-func TestReconcileOCSFAuditLoggingManagedCreatesPolicy(t *testing.T) {
+func TestReconcileOCSFAuditLoggingMetadataCreatesPolicy(t *testing.T) {
 	g := NewWithT(t)
 	authorino := testAuthorino()
 	authorinoBefore := authorino.DeepCopy()
-	kserve := testKserve(common.Managed)
+	kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
 	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true), testGatewayConfigMap(), authorino)
 
 	g.Expect(r.reconcileOCSFAuditLogging(context.Background(), kserve)).To(Succeed())
@@ -67,7 +67,7 @@ func TestReconcileOCSFAuditLoggingManagedCreatesPolicy(t *testing.T) {
 
 func TestReconcileOCSFAuditLoggingRepairsDriftAndIsIdempotent(t *testing.T) {
 	g := NewWithT(t)
-	kserve := testKserve(common.Managed)
+	kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
 	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true), testGatewayConfigMap())
 	ctx := context.Background()
 
@@ -91,7 +91,7 @@ func TestReconcileOCSFAuditLoggingRepairsDriftAndIsIdempotent(t *testing.T) {
 
 func TestReconcileOCSFAuditLoggingRemovedDeletesOnlyOwnedPolicy(t *testing.T) {
 	g := NewWithT(t)
-	kserve := testKserve(common.Removed)
+	kserve := testKserve(platformv1alpha1.AuditProfileRemoved)
 	owned := desiredOCSFPolicy(kserve, "old-gateway-system", "old-gateway")
 	user := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": telemetryPolicyGVK.GroupVersion().String(),
@@ -124,7 +124,7 @@ func TestReconcileOCSFAuditLoggingReportsMissingOrIncompatibleRHCL(t *testing.T)
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
-			kserve := testKserve(common.Managed)
+			kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
 			objects := []client.Object{kserve, testGatewayConfigMap()}
 			if tt.crd != nil {
 				objects = append(objects, tt.crd)
@@ -173,7 +173,7 @@ func TestOCSFAuditLoggingDoesNotChangeInferenceServiceConfigMapAuditProfile(t *t
 	cm := &corev1.ConfigMap{Data: map[string]string{
 		openshiftConfigKeyName: `{"auditLoggingProfile":"metadata"}`,
 	}}
-	kserve := testKserve(common.Managed)
+	kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
 	kserve.Spec.AuditLoggingProfile = platformv1alpha1.AuditProfileMetadata
 	g.Expect(updateInferenceCM(cm, kserve)).To(Succeed())
 	g.Expect(cm.Data[openshiftConfigKeyName]).To(ContainSubstring(`"auditLoggingProfile": "metadata"`))
@@ -203,12 +203,12 @@ func ExpectNoError(t *testing.T, err error) {
 	}
 }
 
-func testKserve(state common.ManagementState) *platformv1alpha1.Kserve {
+func testKserve(profile platformv1alpha1.AuditProfile) *platformv1alpha1.Kserve {
 	return &platformv1alpha1.Kserve{
 		ObjectMeta: metav1.ObjectMeta{Name: platformv1alpha1.KserveInstanceName, UID: types.UID("kserve-uid")},
 		Spec: platformv1alpha1.KserveSpec{
-			ManagementSpec: common.ManagementSpec{ManagementState: common.Managed},
-			AuditLogging:   state,
+			ManagementSpec:      common.ManagementSpec{ManagementState: common.Managed},
+			AuditLoggingProfile: profile,
 		},
 	}
 }
