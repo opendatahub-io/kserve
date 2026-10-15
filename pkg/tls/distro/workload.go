@@ -27,6 +27,7 @@ import (
 
 	configv1 "github.com/openshift/api/config/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -39,7 +40,7 @@ func ResolveWorkloadArgs(ctx context.Context, reader client.Reader) (WorkloadTLS
 	}
 	apiServer := &configv1.APIServer{}
 	if err := reader.Get(ctx, client.ObjectKey{Name: apiServerName}, apiServer); err != nil {
-		if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err) {
+		if apierrors.IsNotFound(err) || apiMeta.IsNoMatchError(err) {
 			return WorkloadArgsFromSettings(Settings{ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]})
 		}
 		return WorkloadTLSArgs{}, fmt.Errorf("reading APIServer TLS profile for workload: %w", err)

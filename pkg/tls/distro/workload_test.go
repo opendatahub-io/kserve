@@ -17,13 +17,28 @@ limitations under the License.
 package distro
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	configv1 "github.com/openshift/api/config/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
+
+type getErrorReader struct {
+	client.Reader
+	err error
+}
+
+func (r getErrorReader) Get(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error {
+	return r.err
+}
 
 func TestWorkloadArgsFromSettings(t *testing.T) {
 	tests := []struct {
@@ -131,6 +146,37 @@ func TestResolveWorkloadArgsAdherenceFallback(t *testing.T) {
 	}
 	if got.MinVersion != "VersionTLS12" || got.CipherSuites == "" {
 		t.Fatalf("NoOpinion should use Intermediate defaults, got %+v", got)
+	}
+}
+
+func TestResolveWorkloadArgsFallbackOnlyWhenAPIServerIsUnavailable(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := configv1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	baseReader := fakeclient.NewClientBuilder().WithScheme(scheme).Build()
+	noMatch := &apiMeta.NoKindMatchError{GroupKind: schema.GroupKind{Group: "config.openshift.io", Kind: "APIServer"}}
+	for name, err := range map[string]error{
+		"no match":     noMatch,
+		"forbidden":    apierrors.NewForbidden(schema.GroupResource{Group: "config.openshift.io", Resource: "apiservers"}, "cluster", nil),
+		"unauthorized": apierrors.NewUnauthorized("credentials rejected"),
+		"unexpected":   errors.New("temporary client failure"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, resolveErr := ResolveWorkloadArgs(t.Context(), getErrorReader{Reader: baseReader, err: err})
+			if name == "no match" {
+				if resolveErr != nil {
+					t.Fatalf("NoMatch should use Intermediate defaults: %v", resolveErr)
+				}
+				if got.MinVersion != "VersionTLS12" || got.CipherSuites == "" {
+					t.Fatalf("NoMatch fallback = %+v, want Intermediate defaults", got)
+				}
+				return
+			}
+			if resolveErr == nil {
+				t.Fatalf("expected lookup failure to be returned, got args %+v", got)
+			}
+		})
 	}
 }
 

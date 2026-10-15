@@ -19,15 +19,36 @@ limitations under the License.
 package inferenceservice
 
 import (
+	"context"
+	"errors"
 	"testing"
 
 	configv1 "github.com/openshift/api/config/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 )
+
+type listRetryReader struct {
+	client.Reader
+	remainingFailures int
+	err               error
+	listCalls         int
+}
+
+func (r *listRetryReader) List(ctx context.Context, list client.ObjectList, opts ...client.ListOption) error {
+	r.listCalls++
+	if r.remainingFailures > 0 {
+		r.remainingFailures--
+		return r.err
+	}
+	return r.Reader.List(ctx, list, opts...)
+}
 
 func TestInferenceServiceRequestsForTLSProfile(t *testing.T) {
 	scheme := runtime.NewScheme()
@@ -64,5 +85,54 @@ func TestInferenceServiceRequestsForTLSProfile(t *testing.T) {
 	}
 	if len(requests) != 0 {
 		t.Fatalf("non-cluster APIServer produced %d requests, want none", len(requests))
+	}
+}
+
+func TestInferenceServiceRequestsForTLSProfileRetriesTransientListFailures(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1beta1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	reader := &listRetryReader{
+		Reader: fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(
+			&v1beta1.InferenceService{ObjectMeta: metav1.ObjectMeta{Name: "one", Namespace: "team-a"}},
+		).Build(),
+		remainingFailures: 1,
+		err:               apierrors.NewTimeoutError("temporary list failure", 1),
+	}
+
+	requests, err := inferenceServiceRequestsForTLSProfile(t.Context(), reader, &configv1.APIServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reader.listCalls != 2 || len(requests) != 1 || requests[0].NamespacedName != (client.ObjectKey{Namespace: "team-a", Name: "one"}) {
+		t.Fatalf("got calls=%d requests=%v, want a retry and the InferenceService request", reader.listCalls, requests)
+	}
+}
+
+func TestInferenceServiceRequestsForTLSProfileDoesNotRetryForbiddenOrUnexpectedErrors(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1beta1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	baseReader := fakeclient.NewClientBuilder().WithScheme(scheme).Build()
+	for name, listErr := range map[string]error{
+		"forbidden":  apierrors.NewForbidden(schema.GroupResource{Group: "serving.kserve.io", Resource: "inferenceservices"}, "", nil),
+		"unexpected": errors.New("unexpected list failure"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			reader := &listRetryReader{Reader: baseReader, err: listErr, remainingFailures: 1}
+			requests, err := inferenceServiceRequestsForTLSProfile(t.Context(), reader, &configv1.APIServer{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			})
+			if err == nil || len(requests) != 0 {
+				t.Fatalf("got requests=%v, err=%v; want fail-closed error", requests, err)
+			}
+			if reader.listCalls != 1 {
+				t.Fatalf("list called %d times, want no retry for %s", reader.listCalls, name)
+			}
+		})
 	}
 }

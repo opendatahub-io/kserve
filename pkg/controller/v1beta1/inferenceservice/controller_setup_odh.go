@@ -21,8 +21,11 @@ package inferenceservice
 import (
 	"context"
 	"reflect"
+	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -70,7 +73,17 @@ func inferenceServiceRequestsForTLSProfile(ctx context.Context, reader client.Re
 		return nil, nil
 	}
 	var isvcs v1beta1.InferenceServiceList
-	if err := reader.List(ctx, &isvcs); err != nil {
+	backoff := wait.Backoff{Duration: 100 * time.Millisecond, Factor: 2, Steps: 3, Jitter: 0.1}
+	if err := wait.ExponentialBackoffWithContext(ctx, backoff, func(ctx context.Context) (bool, error) {
+		err := reader.List(ctx, &isvcs)
+		if err == nil {
+			return true, nil
+		}
+		if !isTransientTLSProfileListError(err) {
+			return false, err
+		}
+		return false, nil
+	}); err != nil {
 		return nil, err
 	}
 	requests := make([]reconcile.Request, 0, len(isvcs.Items))
@@ -78,4 +91,9 @@ func inferenceServiceRequestsForTLSProfile(ctx context.Context, reader client.Re
 		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&isvcs.Items[i])})
 	}
 	return requests, nil
+}
+
+func isTransientTLSProfileListError(err error) bool {
+	return apierrors.IsTimeout(err) || apierrors.IsServerTimeout(err) ||
+		apierrors.IsTooManyRequests(err) || apierrors.IsServiceUnavailable(err)
 }
