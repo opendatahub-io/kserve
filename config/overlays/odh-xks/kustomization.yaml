@@ -12,6 +12,7 @@ resources:
 patches:
 # Remove OCP SecurityContextConstraints
 - path: patches/remove-scc.yaml
+- path: patches/remove-confidential.yaml
 
 # Use the cert-manager-issued certificate for the HTTPS metrics endpoint.
 - target:

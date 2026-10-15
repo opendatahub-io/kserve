@@ -91,6 +91,38 @@ var _ = Describe("KserveModule Reconciler", func() {
 				client.ObjectKey{Name: "inferenceservice-config", Namespace: "opendatahub"}, cm)).To(Succeed())
 		})
 
+		It("preserves confidential installation defaults when applying updated product configuration", func(ctx SpecContext) {
+			const raw = `{"storageClassName":"customer-csi","storageSize":"300Gi","luksResourceId":"kbs:///customer/disk/key"}`
+			key := client.ObjectKey{Name: "inferenceservice-config", Namespace: "opendatahub"}
+			Expect(retry.RetryOnConflict(retry.DefaultRetry, func() error {
+				cm := &corev1.ConfigMap{}
+				if err := testEnv.Client.Get(ctx, key, cm); err != nil {
+					return err
+				}
+				cm.Data["confidentialBareMetal"] = raw
+				return testEnv.Client.Update(ctx, cm)
+			})).To(Succeed())
+			for _, tlsEnabled := range []bool{false, true} {
+				Expect(retry.RetryOnConflict(retry.DefaultRetry, func() error {
+					if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
+						return err
+					}
+					cr.Spec.EnableLLMInferenceServiceTLS = ptr.To(tlsEnabled)
+					return testEnv.Client.Update(ctx, cr)
+				})).To(Succeed())
+				Eventually(func(g Gomega) {
+					cm := &corev1.ConfigMap{}
+					g.Expect(testEnv.Client.Get(ctx, key, cm)).To(Succeed())
+					g.Expect(cm.Data["confidentialBareMetal"]).To(Equal(raw))
+					ingress := map[string]any{}
+					g.Expect(json.Unmarshal([]byte(cm.Data["ingress"]), &ingress)).To(Succeed())
+					g.Expect(ingress["enableLLMInferenceServiceTLS"]).To(Equal(tlsEnabled))
+					g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+					g.Expect(cr.Status.ObservedGeneration).To(Equal(cr.Generation))
+				}).WithContext(ctx).Should(Succeed())
+			}
+		})
+
 		It("reports ready with all OCP deployments", func(ctx SpecContext) {
 			testEnv.Reconciler.SetClusterType(cluster.ClusterTypeOpenShift)
 

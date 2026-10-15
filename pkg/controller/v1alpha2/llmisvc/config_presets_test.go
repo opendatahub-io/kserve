@@ -740,7 +740,7 @@ func TestPresetFiles(t *testing.T) {
 		},
 	}
 
-	remaining := llmisvc.WellKnownDefaultConfigs.Clone()
+	remaining := upstreamPresetNamesForTest()
 
 	_ = filepath.Walk(presetsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {

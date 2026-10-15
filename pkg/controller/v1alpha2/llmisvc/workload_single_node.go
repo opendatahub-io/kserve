@@ -121,6 +121,7 @@ func (r *LLMISVCReconciler) expectedSingleNodeMainDeployment(ctx context.Context
 	}
 
 	applyDeploymentRolloutStrategy(d, &llmSvc.Spec.WorkloadSpec)
+	applyPlatformDeploymentStrategy(llmSvc, d)
 	propagateDeploymentObjectMetadata(llmSvc, d)
 
 	log.FromContext(ctx).V(2).Info("Expected main deployment", "deployment", d)

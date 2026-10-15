@@ -87,6 +87,9 @@ func extractAndStripStorageInitializer(podSpec *corev1.PodSpec) *corev1.Containe
 //
 //	An error if the configuration fails, otherwise nil.
 func (r *LLMISVCReconciler) attachModelArtifacts(ctx context.Context, serviceAccount *corev1.ServiceAccount, llmSvc *v1alpha2.LLMInferenceService, curr corev1.PodSpec, podSpec *corev1.PodSpec, config *Config, containerName string, modelPath string, attachLoRA bool) error {
+	if handled, err := r.attachPlatformModelArtifacts(ctx, serviceAccount, llmSvc, podSpec, config); handled {
+		return err
+	}
 	modelUri := llmSvc.Spec.Model.URI.String()
 	schema, _, sepFound := strings.Cut(modelUri, "://")
 

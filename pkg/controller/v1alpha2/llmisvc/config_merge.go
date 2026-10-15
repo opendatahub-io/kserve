@@ -729,7 +729,7 @@ func (r *LLMISVCReconciler) combineBaseRefsConfig(ctx context.Context, llmSvc *v
 			}
 			shmSizing.record(cfg, policy)
 			appliedRefs = append(appliedRefs, v1alpha2.AppliedConfigRef{
-				Name:      gwapiv1.ObjectName(ref.Name),
+				Name:      gwapiv1.ObjectName(platformConfigRefName(llmSvc, cfg, ref.Name)),
 				Namespace: gwapiv1.Namespace(cfg.Namespace),
 				Source:    source,
 			})
@@ -1287,6 +1287,9 @@ func (e *configNotFoundError) Error() string {
 // namespace or from the SystemNamespace (e.g. 'kserve'), prioritizing the former.
 // This allows for both global default configs and service-specific overrides.
 func (r *LLMISVCReconciler) getConfig(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, name string) (*v1alpha2.LLMInferenceServiceConfig, error) {
+	if cfg, handled, err := r.getPlatformConfig(ctx, llmSvc, name); handled {
+		return cfg, err
+	}
 	cfg := &v1alpha2.LLMInferenceServiceConfig{}
 	if err := r.Get(ctx, client.ObjectKey{Name: name, Namespace: llmSvc.Namespace}, cfg); err != nil {
 		if !apierrors.IsNotFound(err) {

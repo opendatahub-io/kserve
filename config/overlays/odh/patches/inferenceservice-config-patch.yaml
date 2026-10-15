@@ -4,6 +4,13 @@ metadata:
   name: inferenceservice-config
   namespace: kserve
 data:
+  confidentialBareMetal: |-
+    {
+      "storageClassName": "",
+      "storageSize": "200Gi",
+      "luksResourceId": "kbs:///default/luks-password/key",
+      "initData": ""
+    }
   explainers: "{}"
   oauthProxy: |- 
     {
