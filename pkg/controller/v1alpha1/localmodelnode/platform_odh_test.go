@@ -38,6 +38,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -69,6 +70,10 @@ func TestMountODHCustomCABundle(t *testing.T) {
 		{name: "wrong file key", bundleData: map[string]string{"odh-ca-bundle.crt": "test certificate"}},
 		{name: "explicit CA ConfigMap", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: constants.CaBundleConfigMapNameEnvVarKey, Value: "explicit-bundle"}}},
 		{name: "explicit AWS CA", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: s3.AWSCABundleConfigMap, Value: "explicit-bundle"}}},
+		{name: "explicit SSL certificate file", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: "SSL_CERT_FILE", Value: "/explicit/ca.pem"}}},
+		{name: "CA from ValueFrom", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: "SSL_CERT_FILE", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"}}}}},
+		{name: "empty SSL certificate file", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: "SSL_CERT_FILE"}}, wantMounted: true, wantMountPath: configuredPath},
+		{name: "empty CA ConfigMap name", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: constants.CaBundleConfigMapNameEnvVarKey}}, wantMounted: true, wantMountPath: configuredPath},
 		{name: "existing mount path", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: constants.CaBundleVolumeMountPathEnvVarKey, Value: "/existing/custom-certs"}}, wantMounted: true, wantMountPath: "/existing/custom-certs"},
 		{name: "empty mount path", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: constants.CaBundleVolumeMountPathEnvVarKey}}, wantMounted: true, wantMountPath: configuredPath},
 		{name: "volume name collision", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, extraVolume: &corev1.Volume{Name: CaBundleVolumeName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}},
@@ -316,6 +321,63 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			)))
 		})
 
+		It("Should keep default trust for an empty bundle and reject CA lookup errors before creating a Job", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+			oldNodeName, oldJobNamespace, oldStorageConfig := nodeName, jobNamespace, storageInitializerConfig
+			DeferCleanup(func() {
+				nodeName, jobNamespace, storageInitializerConfig = oldNodeName, oldJobNamespace, oldStorageConfig
+			})
+			nodeName = "worker-ca-lookup"
+			jobNamespace = modelCacheNamespace
+			storageInitializerConfig = &pkgtypes.StorageInitializerConfig{Image: "kserve/storage-initializer:latest"}
+
+			clientset, err := kubernetes.NewForConfig(cfg)
+			Expect(err).NotTo(HaveOccurred())
+			reconciler := &LocalModelNodeReconciler{
+				Client: k8sClient, APIReader: k8sClient, Clientset: clientset,
+				Scheme: k8sClient.Scheme(), Log: ctrl.Log.WithName("ca-lookup-test"),
+			}
+			emptyModel := v1alpha1.LocalModelInfo{
+				SourceModelUri: "hf://org/empty-ca-model", ModelName: "empty-ca-model", NodeGroup: "gpu",
+			}
+			owner := &v1alpha1.LocalModelNode{
+				ObjectMeta: metav1.ObjectMeta{Name: "ca-lookup-owner"},
+				Spec:       v1alpha1.LocalModelNodeSpec{LocalModels: []v1alpha1.LocalModelInfo{emptyModel}},
+			}
+			Expect(k8sClient.Create(ctx, owner)).To(Succeed())
+			DeferCleanup(func() { Expect(k8sClient.Delete(ctx, owner)).To(Succeed()) })
+
+			emptyBundle := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: odhCustomCABundleConfigMapName, Namespace: modelCacheNamespace},
+				Data:       map[string]string{constants.DefaultCaBundleFileName: "  \n"},
+			}
+			Expect(k8sClient.Create(ctx, emptyBundle)).To(Succeed())
+			DeferCleanup(func() { Expect(k8sClient.Delete(ctx, emptyBundle)).To(Succeed()) })
+
+			job, err := reconciler.launchJob(ctx, *owner, emptyModel)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(k8sClient.Delete(ctx, job)).To(Succeed()) })
+			Expect(job.Spec.Template.Spec.Volumes).NotTo(ContainElement(HaveField("Name", CaBundleVolumeName)))
+			container := job.Spec.Template.Spec.Containers[0]
+			Expect(container.VolumeMounts).NotTo(ContainElement(HaveField("Name", CaBundleVolumeName)))
+			Expect(container.Env).NotTo(ContainElement(HaveField("Name", constants.CaBundleConfigMapNameEnvVarKey)))
+			Expect(container.Env).NotTo(ContainElement(HaveField("Name", constants.CaBundleVolumeMountPathEnvVarKey)))
+
+			reconciler.APIReader = failingCABundleReader{Reader: k8sClient}
+			failedModel := v1alpha1.LocalModelInfo{
+				SourceModelUri: "hf://org/unreadable-ca-model", ModelName: "unreadable-ca-model", NodeGroup: "gpu",
+			}
+			failedJob, err := reconciler.launchJob(ctx, *owner, failedModel)
+			Expect(failedJob).To(BeNil())
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("ConfigMap read failed"))
+			jobs := &batchv1.JobList{}
+			Expect(k8sClient.List(ctx, jobs, client.InNamespace(modelCacheNamespace),
+				client.MatchingLabels{"model": failedModel.ModelName, "node": owner.Name})).To(Succeed())
+			Expect(jobs.Items).To(BeEmpty())
+		})
+
 		It("Should create download job with cleared SubPath and explicit Args path", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			DeferCleanup(cancel)
@@ -395,6 +457,9 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			Expect(container.Args).To(Equal([]string{sourceModelUri, filepath.Join(MountPath, "models", storageKey)}),
 				"Download destination should include storageKey subdirectory")
 			Expect(job.Spec.Template.Spec.ServiceAccountName).To(Equal("kserve-localmodelnode-agent"))
+			Expect(job.Spec.Template.Spec.Volumes).NotTo(ContainElement(HaveField("Name", CaBundleVolumeName)))
+			Expect(container.Env).NotTo(ContainElement(HaveField("Name", constants.CaBundleConfigMapNameEnvVarKey)))
+			Expect(container.Env).NotTo(ContainElement(HaveField("Name", constants.CaBundleVolumeMountPathEnvVarKey)))
 		})
 
 		It("Should create permission fix job with single container when filesystem is not writable", func() {

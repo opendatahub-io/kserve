@@ -132,15 +132,13 @@ func (c *LocalModelNodeReconciler) mountODHCustomCABundle(ctx context.Context, j
 
 	container := &job.Spec.Template.Spec.Containers[0]
 	// Keep explicit trust settings from storage credentials and custom containers.
-	for _, name := range []string{
-		constants.CaBundleConfigMapNameEnvVarKey,
-		s3.AWSCABundleConfigMap,
-		s3.AWSCABundle,
-		"REQUESTS_CA_BUNDLE",
-		"SSL_CERT_FILE",
-	} {
-		if envVarExists(container.Env, name) {
-			return nil
+	for _, env := range container.Env {
+		switch env.Name {
+		case constants.CaBundleConfigMapNameEnvVarKey, s3.AWSCABundleConfigMap, s3.AWSCABundle,
+			"REQUESTS_CA_BUNDLE", "SSL_CERT_FILE":
+			if env.Value != "" || env.ValueFrom != nil {
+				return nil
+			}
 		}
 	}
 
@@ -205,24 +203,25 @@ func (c *LocalModelNodeReconciler) mountODHCustomCABundle(ctx context.Context, j
 	container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
 		Name: CaBundleVolumeName, MountPath: mountPath, ReadOnly: true,
 	})
-	container.Env = append(container.Env, corev1.EnvVar{
-		Name: constants.CaBundleConfigMapNameEnvVarKey, Value: odhCustomCABundleConfigMapName,
-	})
-	if !envVarExists(container.Env, constants.CaBundleVolumeMountPathEnvVarKey) {
-		container.Env = append(container.Env, corev1.EnvVar{
-			Name: constants.CaBundleVolumeMountPathEnvVarKey, Value: mountPath,
-		})
-	} else {
-		for i := range container.Env {
-			if container.Env[i].Name == constants.CaBundleVolumeMountPathEnvVarKey && container.Env[i].Value == "" {
-				container.Env[i].Value = mountPath
-			}
-		}
-	}
+	setCABundleEnvIfEmpty(container, constants.CaBundleConfigMapNameEnvVarKey, odhCustomCABundleConfigMapName)
+	setCABundleEnvIfEmpty(container, constants.CaBundleVolumeMountPathEnvVarKey, mountPath)
 
 	c.Log.Info("Mounted ODH custom CA bundle ConfigMap", "configMap", odhCustomCABundleConfigMapName,
 		"namespace", job.Namespace, "mountPath", mountPath)
 	return nil
+}
+
+func setCABundleEnvIfEmpty(container *corev1.Container, name, value string) {
+	for i := range container.Env {
+		if container.Env[i].Name != name {
+			continue
+		}
+		if container.Env[i].Value == "" && container.Env[i].ValueFrom == nil {
+			container.Env[i].Value = value
+		}
+		return
+	}
+	container.Env = append(container.Env, corev1.EnvVar{Name: name, Value: value})
 }
 
 func (c *LocalModelNodeReconciler) ensureModelRootFolderExistsAndIsWritable(ctx context.Context,
