@@ -136,6 +136,15 @@ func (r *KserveModuleReconciler) buildDynamicWatches() []*dynamicWatch {
 			groupKind: telemetryPolicyGVK.GroupKind(),
 			gvk:       telemetryPolicyGVK,
 			crdName:   telemetryPolicyGVKName,
+			predicates: []predicate.Predicate{predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				predicate.LabelChangedPredicate{},
+				predicate.AnnotationChangedPredicate{},
+			)},
+			filterFn: func(u *unstructured.Unstructured) bool {
+				return u.GetName() == telemetryPolicyName ||
+					u.GetLabels()[telemetryPolicyComponentLabel] == telemetryPolicyComponentValue
+			},
 		},
 	}
 }

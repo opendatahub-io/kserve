@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
@@ -166,6 +167,43 @@ func TestOCSFAuditLoggingWatchesTelemetryPolicyCRD(t *testing.T) {
 	}
 	g.Expect(telemetryWatch).NotTo(BeNil())
 	g.Expect(telemetryWatch.crdName).To(Equal(telemetryPolicyGVKName))
+}
+
+func TestOCSFAuditLoggingTelemetryPolicyWatchFiltersEvents(t *testing.T) {
+	g := NewWithT(t)
+	r := &KserveModuleReconciler{}
+	r.dynamicWatches = r.buildDynamicWatches()
+
+	var telemetryWatch *dynamicWatch
+	for _, watch := range r.dynamicWatches {
+		if watch.gvk == telemetryPolicyGVK {
+			telemetryWatch = watch
+			break
+		}
+	}
+	g.Expect(telemetryWatch).NotTo(BeNil())
+	g.Expect(telemetryWatch.predicates).To(HaveLen(1))
+
+	predicates := dynamicWatchPredicates(telemetryWatch)
+	g.Expect(predicates).To(HaveLen(2))
+
+	unrelated := &unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{"name": "user-policy"},
+	}}
+	owned := &unstructured.Unstructured{Object: map[string]any{
+		"metadata": map[string]any{
+			"name":   "user-policy",
+			"labels": map[string]any{telemetryPolicyComponentLabel: telemetryPolicyComponentValue},
+		},
+	}}
+	g.Expect(predicates[1].Update(event.UpdateEvent{ObjectNew: unrelated, ObjectOld: unrelated.DeepCopy()})).To(BeFalse())
+	g.Expect(predicates[1].Update(event.UpdateEvent{ObjectNew: owned, ObjectOld: owned.DeepCopy()})).To(BeTrue())
+
+	statusOnly := desiredOCSFPolicy(testKserve(platformv1alpha1.AuditProfileMetadata), "gateway-system", "shared-llm-gateway")
+	g.Expect(predicates[0].Update(event.UpdateEvent{ObjectNew: statusOnly, ObjectOld: statusOnly.DeepCopy()})).To(BeFalse())
+	generationChanged := statusOnly.DeepCopy()
+	generationChanged.SetGeneration(statusOnly.GetGeneration() + 1)
+	g.Expect(predicates[0].Update(event.UpdateEvent{ObjectNew: generationChanged, ObjectOld: statusOnly})).To(BeTrue())
 }
 
 func TestOCSFAuditLoggingDoesNotChangeInferenceServiceConfigMapAuditProfile(t *testing.T) {
