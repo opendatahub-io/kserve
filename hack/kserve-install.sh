@@ -39,7 +39,7 @@ Help() {
    echo "  --kserve-registry REG          Override image registry (kustomize only, e.g., quay.io/myuser)"
    echo "  --no-runtimes                   Skip installing ClusterServingRuntimes"
    echo "  --keda, -k                     Enable KEDA (standard mode only)"
-   echo "  --scaling MODE                 Autoscaling for LLMISvc: keda or hpa (requires --type llmisvc)"
+   echo "  --scaling MODE                 Autoscaling for LLMISvc: keda (requires --type llmisvc)"
    echo "  --deps-only, -d                Install dependencies only"
    echo "  --uninstall, -u                Uninstall all"
    echo "  --ci                           CI mode (skip frozen install and LocalModel version checks)"
@@ -159,8 +159,8 @@ export DEPLOYMENT_MODE="${NORMALIZED_MODE}"
 
 # Validate --scaling flag
 if [[ -n "$LLMISVC_SCALING" ]]; then
-  if [[ "$LLMISVC_SCALING" != "keda" && "$LLMISVC_SCALING" != "hpa" ]]; then
-    log_error "Invalid scaling mode: $LLMISVC_SCALING. Must be 'keda' or 'hpa'"
+  if [[ "$LLMISVC_SCALING" != "keda" ]]; then
+    log_error "Invalid scaling mode: $LLMISVC_SCALING. Must be 'keda'"
     exit 1
   fi
   if ! is_positive "$ENABLE_LLMISVC"; then
@@ -227,8 +227,6 @@ show_installation_plan() {
         echo "    - Dependencies: Gateway API, LWS Operator, Envoy Gateway"
         if [[ "${LLMISVC_SCALING}" == "keda" ]]; then
           echo "    - Autoscaling: KEDA (Prometheus + KEDA)"
-        elif [[ "${LLMISVC_SCALING}" == "hpa" ]]; then
-          echo "    - Autoscaling: HPA (Prometheus + Prometheus Adapter)"
         fi
         ! is_positive "$DEPS_ONLY" && is_positive "$INSTALL_LLMISVC_CONFIGS" && echo "    - With LLMIsvc Configs"
         ;;
@@ -245,7 +243,6 @@ uninstall_all() {
   local scripts=(
     "hack/setup/infra/manage.kserve-helm.sh"
     "hack/setup/infra/manage.kserve-kustomize.sh"
-    "hack/setup/infra/manage.prometheus-adapter-helm.sh"
     "hack/setup/infra/manage.prometheus-helm.sh"
     "hack/setup/infra/manage.keda-otel-addon-helm.sh"
     "hack/setup/infra/manage.opentelemetry-helm.sh"
@@ -311,8 +308,6 @@ install_dependencies() {
   if [[ -n "${LLMISVC_SCALING}" ]]; then
     if [[ "${LLMISVC_SCALING}" == "keda" ]]; then
       ${INSTALL_SCRIPT_DIR}/llmisvc-autoscaling-keda-dependency-install.sh
-    else
-      ${INSTALL_SCRIPT_DIR}/llmisvc-autoscaling-hpa-dependency-install.sh
     fi
   fi
 

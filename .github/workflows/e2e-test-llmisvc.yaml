@@ -17,7 +17,6 @@ on:
       - ".github/actions/**"
       - "hack/setup/quick-install/llmisvc-dependency-install.sh"
       - "hack/setup/infra/manage.prometheus-helm.sh"
-      - "hack/setup/infra/manage.prometheus-adapter-helm.sh"
       - "hack/setup/infra/manage.jaeger-helm.sh"
       - "hack/setup/infra/manage.kserve-helm.sh"
       - "hack/setup/quick-install/*-helm.sh"

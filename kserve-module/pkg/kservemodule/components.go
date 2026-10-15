@@ -61,7 +61,7 @@ var components = []componentConfig{
 	{
 		name:         WVAComponentName,
 		sourcePath:   WVAManifestSourcePathOCP,
-		imageMap:     wvaImageParamMap,
+		imageMap:     map[string]string{},
 		enabled:      isWVAEnabled,
 		postRender:   wvaPostRender,
 		extraCleanup: cleanupWVAComponent,

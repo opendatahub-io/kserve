@@ -642,6 +642,7 @@ POETRY_VERSION=1.8.3
 UV_VERSION=0.7.8
 RUFF_VERSION=0.14.13
 SHELLCHECK_VERSION=v0.11.0
+CODESPELL_VERSION=2.4.3
 PINACT_VERSION=v3.9.0
 KIND_VERSION=v0.30.0
 CERT_MANAGER_VERSION=v1.17.0
@@ -659,8 +660,8 @@ KEDA_VERSION=2.20.2
 OPENTELEMETRY_OPERATOR_VERSION=0.114.1
 LWS_VERSION=v0.11.0
 GATEWAY_API_VERSION=v1.5.1
-GIE_VERSION=v1.5.0
-LLMD_ROUTER_VERSION=v0.10.0
+GIE_VERSION=v1.6.2
+LLMD_ROUTER_VERSION=v0.11.0
 
 #================================================
 # Global Variables (from global-vars.env)
@@ -1144,7 +1145,7 @@ install_istio() {
     fi
 
     log_info "Adding Istio Helm repository..."
-    helm repo add istio https://istio-release.storage.googleapis.com/charts --force-update
+    helm repo add istio https://blob.istio.io/istio-release/charts --force-update
 
     # Allow callers to override the version from kserve-deps.env
     ISTIO_VERSION="${ISTIO_VERSION_OVERRIDE:-$ISTIO_VERSION}"

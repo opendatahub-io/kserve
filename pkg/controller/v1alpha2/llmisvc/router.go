@@ -82,14 +82,6 @@ const AnnotationModelBasedRoutingEnabled = "serving.kserve.io/model-based-routin
 // reports the outcome.
 const AnnotationModelBasedRoutingOnly = "serving.kserve.io/model-based-routing-only"
 
-// routingSpecAnnotations are spec.annotations keys the controller reads that are
-// kept off the workload Service and pod templates, where changing them would
-// roll the pods. Besides the router's keys, this includes the DisaggregatedSet
-// request that the P/D presets set. A key can only join before it ships:
-// dropping one that pod templates already carry changes their hash and rolls
-// every workload that has it on upgrade.
-var routingSpecAnnotations = []string{AnnotationModelBasedRoutingEnabled, AnnotationModelBasedRoutingOnly, AnnotationLoRAModelRoutingStrategy, constants.LLMDisaggregatedSetAnnotationKey}
-
 // AnnotationLoRAModelRoutingStrategy pins the LoRA routing strategy for one
 // service, overriding the cluster-wide loraModelRoutingStrategy. Read from
 // spec.annotations like AnnotationModelBasedRoutingEnabled, so a preset can
@@ -113,6 +105,16 @@ func (r *LLMISVCReconciler) reconcileRouter(ctx context.Context, llmSvc *v1alpha
 
 	// Ensure readiness is determined even if errors occur
 	defer llmSvc.DetermineRouterReadiness()
+
+	if !utils.GetForceStopRuntime(llmSvc) && managedInferencePoolMissingEndpointPickerRef(llmSvc) {
+		const reason = "EndpointPickerRefMissing"
+		message := "spec.router.scheduler.pool.spec.endpointPickerRef is required for a managed InferencePool"
+		llmSvc.MarkGatewaysReadyUnset()
+		llmSvc.MarkHTTPRoutesReadyUnset()
+		llmSvc.MarkSchedulerWorkloadNotReady(reason, "%s", message)
+		llmSvc.MarkInferencePoolNotReady(reason, "%s", message)
+		return reconcile.TerminalError(errors.New(message))
+	}
 
 	// Ensure platform-specific preconditions are met before proceeding.
 	// A non-transient precondition failure (e.g. missing CRD) marks status and stops
@@ -353,6 +355,14 @@ func (r *LLMISVCReconciler) expectedHTTPRoute(ctx context.Context, llmSvc *v1alp
 
 	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Route != nil && llmSvc.Spec.Router.Route.HTTP.HasSpec() {
 		httpRoute.Spec = *llmSvc.Spec.Router.Route.HTTP.Spec.DeepCopy()
+
+		// The route preset ships modality rules for the omni runtime. Strip
+		// them for every other runtime so they do not consume the Gateway API
+		// rule and match caps that LoRA adapter expansion needs; this runs
+		// before the expansion so modality matches are not duplicated first.
+		if !isOmniRuntime(llmSvc.Spec.Runtime) {
+			httpRoute.Spec.Rules = stripModalityRouteRules(httpRoute.Spec.Rules)
+		}
 
 		if r.isModelBasedRoutingEnabled(ctx, llmSvc, cfg) {
 			if err := applyLoRAModelRouting(httpRoute.Spec.Rules, llmSvc, cfg); err != nil {
