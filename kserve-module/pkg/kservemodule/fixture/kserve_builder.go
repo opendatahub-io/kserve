@@ -81,6 +81,12 @@ func WithAuditLoggingProfile(profile platformv1alpha1.AuditProfile) KserveOption
 	}
 }
 
+func WithAuditLogging(state common.ManagementState) KserveOption {
+	return func(k *platformv1alpha1.Kserve) {
+		k.Spec.AuditLogging = state
+	}
+}
+
 func WithAnnotation(key, value string) KserveOption {
 	return func(k *platformv1alpha1.Kserve) {
 		if k.Annotations == nil {

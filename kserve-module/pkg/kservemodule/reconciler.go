@@ -120,6 +120,12 @@ import (
 // +kubebuilder:rbac:groups=infrastructure.opendatahub.io,resources=hardwareprofiles,verbs=get
 // +kubebuilder:rbac:groups=opendatahub.io,resources=odhdashboardconfigs,verbs=get
 
+// --- RHCL TelemetryPolicy for LLMInferenceService OCSF audit logging ---
+// This is an optional external dependency. The reconciler checks the installed
+// CRD schema before using these permissions, so older RHCL versions do not
+// block unrelated KServe reconciliation.
+// +kubebuilder:rbac:groups=extensions.kuadrant.io,resources=telemetrypolicies,verbs=create;delete;get;list;patch;update;watch
+
 type ResourceDeployer interface {
 	Deploy(ctx context.Context, input deploy.DeployInput) error
 }
@@ -154,6 +160,10 @@ type KserveModuleReconciler struct {
 	// tracingConfigError records a non-fatal Monitoring read error so the
 	// reconcile can report it and retry without blocking other components.
 	tracingConfigError error
+
+	// ocsfAuditLoggingCondition records an optional RHCL dependency or gateway
+	// configuration problem without failing unrelated KServe components.
+	ocsfAuditLoggingCondition *auditLoggingCondition
 
 	// removalBlockers holds, per disabled component, what keeps it deployed,
 	// written by reconcile and read by updateComponentReadiness in the same call.
@@ -206,7 +216,7 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			return ctrl.Result{RequeueAfter: deletionRequeueInterval}, nil
 		}
 
-		if cleanupErr := r.cleanupOnDelete(ctx); cleanupErr != nil {
+		if cleanupErr := r.cleanupOnDelete(ctx, kserve); cleanupErr != nil {
 			log.Error(cleanupErr, "component extra-cleanup failed during CR deletion")
 			if statusErr := r.setDeletionBlocked(ctx, kserve, []string{"component cleanup failed: " + cleanupErr.Error()}); statusErr != nil {
 				log.Error(statusErr, "failed to record component cleanup failure on status")
@@ -252,9 +262,17 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	r.expectedPresets = nil
 	r.tracingConfigError = nil
+	r.ocsfAuditLoggingCondition = nil
 	r.removalBlockers = map[string][]string{}
 	componentErrors := r.reconcile(ctx, kserve)
+	if componentErrors == nil {
+		componentErrors = make(map[string]error)
+	}
+	if err := r.reconcileOCSFAuditLogging(ctx, kserve); err != nil {
+		componentErrors["auditLogging"] = err
+	}
 	applyProvisioningCondition(condMgr, componentErrors)
+	applyOCSFAuditLoggingCondition(condMgr, kserve, r.ocsfAuditLoggingCondition)
 	if len(componentErrors) > 0 {
 		var msgs []string
 		for _, name := range slices.Sorted(maps.Keys(componentErrors)) {
@@ -394,8 +412,11 @@ func splitByOwnership(resources []unstructured.Unstructured) (owned, unowned []u
 	return
 }
 
-func (r *KserveModuleReconciler) cleanupOnDelete(ctx context.Context) error {
+func (r *KserveModuleReconciler) cleanupOnDelete(ctx context.Context, kserve *platformv1alpha1.Kserve) error {
 	var errs []error
+	if err := r.cleanupOCSFAuditPolicies(ctx, nil, kserve.Name, kserve.UID); err != nil {
+		errs = append(errs, fmt.Errorf("%s: %w", telemetryPolicyComponentValue, err))
+	}
 	for _, comp := range components {
 		if comp.extraCleanup == nil {
 			continue
