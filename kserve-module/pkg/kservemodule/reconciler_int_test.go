@@ -3,6 +3,8 @@ package kservemodule_test
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -22,7 +24,6 @@ import (
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
-	odhLabels "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
 
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 	"github.com/opendatahub-io/kserve-module/pkg/kservemodule"
@@ -182,8 +183,8 @@ var _ = Describe("KserveModule Reconciler", func() {
 	})
 
 	// WVA is removed from the product in RHOAI 3.6 (RHAISTRAT-2756).
-	// isWVAEnabled always returns false. The WVA componentConfig is still
-	// registered so defaultCleanup tears down leftovers on 3.5→3.6 upgrade.
+	// isWVAEnabled always returns false. extraCleanup tears down leftovers
+	// on 3.5→3.6 upgrade; defaultCleanup cannot once the overlay is gone.
 	// These tests verify that Managed is ignored and leftovers are deleted.
 	Context("WVA always disabled (RHOAI 3.6 removal)", Ordered, func() {
 		var cr *platformv1alpha1.Kserve
@@ -241,35 +242,14 @@ var _ = Describe("KserveModule Reconciler", func() {
 				"WVA Deployment must not be created even when ManagementState is Managed (WVA removed in 3.6)")
 		})
 
-		It("deletes a leftover WVA Deployment via defaultCleanup on upgrade", func(ctx SpecContext) {
-			// Simulate a 3.5 leftover: manually create the WVA Deployment and the
-			// overlay CRD. defaultCleanup must delete the Deployment and skip the CRD.
-			leftover := &appsv1.Deployment{}
-			leftover.Name = wvaKey.Name
-			leftover.Namespace = wvaKey.Namespace
-			leftover.Labels = map[string]string{odhLabels.PlatformPartOf: kservemodule.KserveComponentName}
-			leftover.Spec.Selector = &metav1.LabelSelector{
-				MatchLabels: map[string]string{"control-plane": wvaKey.Name},
-			}
-			leftover.Spec.Template.Labels = map[string]string{"control-plane": wvaKey.Name}
-			leftover.Spec.Template.Spec.Containers = []corev1.Container{
-				{Name: "manager", Image: "ghcr.io/llm-d/llm-d-workload-variant-autoscaler:latest"},
-			}
-			Expect(testEnv.Client.Create(ctx, leftover)).To(Succeed())
-
+		It("skips leftover overlay CRDs in defaultCleanup", func(ctx SpecContext) {
 			crd := fixture.CreateCRDByName(ctx, testEnv.Client, wvaCRDKey.Name, "test.kserve.io", "v1",
 				apiextensionsv1.NamespaceScoped)
 			DeferCleanup(func(ctx SpecContext) {
 				Expect(client.IgnoreNotFound(testEnv.Client.Delete(ctx, crd))).To(Succeed())
 			})
 
-			triggerReconcile(ctx, cr, "wva-leftover-cleanup")
-
-			Eventually(func(g Gomega) {
-				err := testEnv.Client.Get(ctx, wvaKey, &appsv1.Deployment{})
-				g.Expect(k8serr.IsNotFound(err)).To(BeTrue(),
-					"Leftover WVA Deployment should be deleted by defaultCleanup on 3.5→3.6 upgrade")
-			}).WithContext(ctx).Should(Succeed())
+			triggerReconcile(ctx, cr, "wva-leftover-crd-preserved")
 
 			Expect(testEnv.Client.Get(ctx, wvaCRDKey, &apiextensionsv1.CustomResourceDefinition{})).To(Succeed(),
 				"defaultCleanup must skip CRDs so leftover WVA CRDs survive")
@@ -334,6 +314,7 @@ var _ = Describe("KserveModule Reconciler", func() {
 
 	Context("WVA extraCleanup", Ordered, func() {
 		var cr *platformv1alpha1.Kserve
+		wvaKey := client.ObjectKey{Name: "workload-variant-autoscaler-controller-manager", Namespace: "opendatahub"}
 		vaCRDKey := client.ObjectKey{Name: "variantautoscalings.llmd.ai"}
 		vaKey := client.ObjectKey{Name: "leftover-va", Namespace: "opendatahub"}
 		cmKey := client.ObjectKey{Name: "inferenceservice-config", Namespace: "opendatahub"}
@@ -352,6 +333,37 @@ var _ = Describe("KserveModule Reconciler", func() {
 				cond := fixture.FindCondition(cr, string(common.ConditionTypeProvisioningSucceeded))
 				g.Expect(cond).NotTo(BeNil())
 				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("deletes a leftover WVA Deployment when the overlay is gone", func(ctx SpecContext) {
+			// Production 3.6 images no longer clone the WVA overlay. extraCleanup
+			// must still delete the 3.5 controller even without a renderable overlay
+			// and even when the leftover has no platform.opendatahub.io/part-of label.
+			overlay := filepath.Join(testEnv.Reconciler.WorkDir(), kservemodule.WVAComponentName)
+			Expect(os.RemoveAll(overlay)).To(Succeed())
+			DeferCleanup(func() {
+				fixture.WriteMinimalManifests(testEnv.Reconciler.WorkDir())
+			})
+
+			leftover := &appsv1.Deployment{}
+			leftover.Name = wvaKey.Name
+			leftover.Namespace = wvaKey.Namespace
+			leftover.Spec.Selector = &metav1.LabelSelector{
+				MatchLabels: map[string]string{"control-plane": wvaKey.Name},
+			}
+			leftover.Spec.Template.Labels = map[string]string{"control-plane": wvaKey.Name}
+			leftover.Spec.Template.Spec.Containers = []corev1.Container{
+				{Name: "manager", Image: "ghcr.io/llm-d/llm-d-workload-variant-autoscaler:latest"},
+			}
+			Expect(testEnv.Client.Create(ctx, leftover)).To(Succeed())
+
+			triggerReconcile(ctx, cr, "wva-leftover-deploy-no-overlay")
+
+			Eventually(func(g Gomega) {
+				err := testEnv.Client.Get(ctx, wvaKey, &appsv1.Deployment{})
+				g.Expect(k8serr.IsNotFound(err)).To(BeTrue(),
+					"Leftover WVA Deployment should be deleted by extraCleanup without an overlay")
 			}).WithContext(ctx).Should(Succeed())
 		})
 

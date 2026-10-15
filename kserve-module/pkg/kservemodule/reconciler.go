@@ -70,7 +70,7 @@ import (
 // no delete — CRDs survive component removal (consistent with odh-operator GC unremovables)
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=create;get;list;patch;update;watch
 //
-// --- WVA extraCleanup: leftover VariantAutoscaling CRD/CRs defaultCleanup skips ---
+// --- WVA extraCleanup: leftover controller Deployment, VA CRD/CRs, ConfigMap key ---
 // +kubebuilder:rbac:groups=llmd.ai,resources=variantautoscalings,verbs=list;delete
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,resourceNames=variantautoscalings.llmd.ai,verbs=delete
 
