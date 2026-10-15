@@ -128,7 +128,7 @@ var _ = Describe("Inference Graph controller ODH test", func() {
 						Steps: []v1alpha1.InferenceStep{
 							{
 								InferenceTarget: v1alpha1.InferenceTarget{
-									ServiceURL: "http://someservice.exmaple.com",
+									ServiceURL: "http://someservice.example.com",
 								},
 							},
 						},
@@ -155,7 +155,7 @@ var _ = Describe("Inference Graph controller ODH test", func() {
 						Steps: []v1alpha1.InferenceStep{
 							{
 								InferenceTarget: v1alpha1.InferenceTarget{
-									ServiceURL: "http://someservice.exmaple.com",
+									ServiceURL: "http://someservice.example.com",
 								},
 							},
 						},

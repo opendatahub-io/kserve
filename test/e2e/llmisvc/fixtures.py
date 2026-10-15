@@ -62,10 +62,10 @@ PROMETHEUS_SERVER_ADDRESS = os.environ.get(
 # scaled-to-zero deployment (no ready endpoints) only increment the error
 # counter, and `or vector(0)` keeps each side from going empty when idle.
 EPP_REQUEST_RATE_QUERY = (
-    "(sum(rate(inference_objective_request_total"
+    "(sum(rate(llm_d_epp_request_total"
     '{namespace="{{ .ObjectMeta.Namespace }}"}[1m])) or vector(0))'
     " + "
-    "(sum(rate(inference_objective_request_error_total"
+    "(sum(rate(llm_d_epp_request_error_total"
     '{namespace="{{ .ObjectMeta.Namespace }}"}[1m])) or vector(0))'
 )
 
@@ -1637,7 +1637,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             },
         }
     },
-    # Direct KEDA (standalone, no WVA) with a fallback replica count: when the
+    # Direct KEDA with a fallback replica count: when the
     # Prometheus scaler repeatedly fails to reach the server (outage), KEDA
     # holds the deployment at `fallback.replicas` instead of scaling to zero.
     "scaling-direct-keda-fallback": {

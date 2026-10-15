@@ -22,13 +22,6 @@ func TestModelControllerImageParamMap_AllValuesAreRelatedImage(t *testing.T) {
 	}
 }
 
-func TestWVAImageParamMap_AllValuesAreRelatedImage(t *testing.T) {
-	g := NewWithT(t)
-	for key, val := range wvaImageParamMap {
-		g.Expect(val).Should(HavePrefix("RELATED_IMAGE_"), "key %q has value %q without RELATED_IMAGE_ prefix", key, val)
-	}
-}
-
 func TestModelExpressImageParamMap_RewritesBundleParamsFromBothOverlays(t *testing.T) {
 	for _, overlay := range []string{ModelExpressManifestSourcePath, ModelExpressManifestSourcePathXKS} {
 		t.Run(overlay, func(t *testing.T) {

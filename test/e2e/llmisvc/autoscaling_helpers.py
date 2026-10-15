@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Shared helpers for LLMISVC autoscaling e2e tests."""
+"""Shared helpers for LLMInferenceService autoscaling e2e tests."""
 
 import concurrent.futures
 import hashlib
@@ -21,12 +21,14 @@ import threading
 import time
 
 import requests
+from kserve import constants
 from kubernetes import client
 
 from .test_llm_inference_service import wait_for
 
 logger = logging.getLogger(__name__)
 
+KSERVE_PLURAL_LLMINFERENCESERVICE = "llminferenceservices"
 KEDA_GROUP = "keda.sh"
 KEDA_VERSION = "v1alpha1"
 KEDA_PLURAL = "scaledobjects"
@@ -125,11 +127,7 @@ def get_pod_count(service_name, namespace, component=None):
         namespace=namespace,
         label_selector=label_selector,
     )
-    count = 0
-    for pod in pods.items:
-        if pod.status.phase in ("Running", "Pending"):
-            count += 1
-    return count
+    return sum(pod.status.phase in ("Running", "Pending") for pod in pods.items)
 
 
 def wait_for_pod_count(service_name, min_count, namespace, timeout=300, component=None):
@@ -206,8 +204,8 @@ def send_load(
         f"{counters['client_error']} client errors, "
         f"{counters['server_error']} server errors to {endpoint}"
     )
-    total_delivered = counters["success"] + counters["client_error"]
     if not tolerate_failures:
+        total_delivered = counters["success"] + counters["client_error"]
         assert total_delivered > 0, (
             f"send_load: all {counters['server_error']} requests failed to {endpoint}"
         )
@@ -222,14 +220,13 @@ def assert_scaling_resources_deleted(
     namespace,
 ):
     """Assert that actuator is gone (404)."""
-    ns = namespace
     if actuator == "hpa":
         wait_for_resource_deleted(
             HPA_GROUP,
             HPA_VERSION,
             HPA_PLURAL,
             hpa_name(service_name, prefill),
-            ns,
+            namespace,
             timeout,
         )
     elif actuator == "keda":
@@ -238,7 +235,7 @@ def assert_scaling_resources_deleted(
             KEDA_VERSION,
             KEDA_PLURAL,
             scaled_object_name(service_name, prefill),
-            ns,
+            namespace,
             timeout,
         )
 
@@ -247,16 +244,15 @@ def assert_scaled_object_ready(service_name, namespace):
     """Verify KEDA ScaledObject has Ready=True condition (polls for up to 60s)."""
 
     def _check():
+        name = scaled_object_name(service_name)
         so = _get_custom_resource(
             KEDA_GROUP,
             KEDA_VERSION,
             KEDA_PLURAL,
-            scaled_object_name(service_name),
+            name,
             namespace,
         )
-        assert so is not None, (
-            f"ScaledObject {scaled_object_name(service_name)} not found"
-        )
+        assert so is not None, f"ScaledObject {name} not found"
         conditions = so.get("status", {}).get("conditions", [])
         ready = next((c for c in conditions if c["type"] == "Ready"), None)
         assert ready and ready["status"] == "True", (
@@ -303,17 +299,20 @@ def _get_llmisvc_condition(name, namespace, condition_type):
     """Get a specific condition from LLMInferenceService status."""
     api = client.CustomObjectsApi()
     resource = api.get_namespaced_custom_object(
-        "serving.kserve.io",
+        constants.KSERVE_GROUP,
         "v1alpha2",
         namespace,
-        "llminferenceservices",
+        KSERVE_PLURAL_LLMINFERENCESERVICE,
         name,
     )
-    conditions = resource.get("status", {}).get("conditions", [])
-    for cond in conditions:
-        if cond.get("type") == condition_type:
-            return cond
-    return None
+    return next(
+        (
+            condition
+            for condition in resource.get("status", {}).get("conditions", [])
+            if condition.get("type") == condition_type
+        ),
+        None,
+    )
 
 
 def assert_scaling_ready_condition(service_name, namespace):

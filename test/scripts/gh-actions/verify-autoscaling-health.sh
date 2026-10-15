@@ -18,11 +18,15 @@
 # Validates that Prometheus and the external metrics API are wired
 # correctly BEFORE running e2e tests. Exits non-zero on first failure.
 #
-# Usage: verify-autoscaling-health.sh <hpa|keda>
+# Usage: verify-autoscaling-health.sh keda
 
 set -euo pipefail
 
-AUTOSCALER="${1:?Usage: verify-autoscaling-health.sh <hpa|keda>}"
+if [[ $# -ne 1 || "$1" != "keda" ]]; then
+    echo "Usage: verify-autoscaling-health.sh keda" >&2
+    exit 2
+fi
+AUTOSCALER="$1"
 
 PROMETHEUS_NAMESPACE="${PROMETHEUS_NAMESPACE:-monitoring}"
 KEDA_NAMESPACE="${KEDA_NAMESPACE:-keda}"
@@ -66,19 +70,11 @@ kubectl wait --for=condition=Ready pod \
     -n "${PROMETHEUS_NAMESPACE}" \
     --timeout=120s
 
-if [[ "${AUTOSCALER}" == "hpa" ]]; then
-    echo "  Waiting for Prometheus Adapter pods..."
-    kubectl wait --for=condition=Ready pod \
-        -l app.kubernetes.io/name=prometheus-adapter \
-        -n "${PROMETHEUS_NAMESPACE}" \
-        --timeout=120s
-elif [[ "${AUTOSCALER}" == "keda" ]]; then
-    echo "  Waiting for KEDA operator pods..."
-    kubectl wait --for=condition=Ready pod \
-        -l app.kubernetes.io/name=keda-operator \
-        -n "${KEDA_NAMESPACE}" \
-        --timeout=120s
-fi
+echo "  Waiting for KEDA operator pods..."
+kubectl wait --for=condition=Ready pod \
+    -l app.kubernetes.io/name=keda-operator \
+    -n "${KEDA_NAMESPACE}" \
+    --timeout=120s
 
 echo "  [PASS] All pods are Ready"
 
@@ -114,33 +110,18 @@ check_external_metrics_api() {
 retry "External Metrics API discovery endpoint" 60 5 check_external_metrics_api
 
 # ---------------------------------------------------------------------------
-# 3b. Autoscaler-specific checks
+# 4. KEDA metrics server
 # ---------------------------------------------------------------------------
-if [[ "${AUTOSCALER}" == "hpa" ]]; then
-    echo ""
-    echo "--- Step 3b: Verifying Prometheus Adapter APIService ---"
+echo ""
+echo "--- Step 4: Verifying KEDA metrics server ---"
 
-    check_apiservice_available() {
-        local status
-        status=$(kubectl get apiservice v1beta1.external.metrics.k8s.io \
-            -o jsonpath='{.status.conditions[?(@.type=="Available")].status}')
-        [[ "${status}" == "True" ]]
-    }
+check_keda_metrics_server() {
+    kubectl get pods -n "${KEDA_NAMESPACE}" \
+        -l app=keda-operator-metrics-apiserver \
+        -o jsonpath='{.items[0].status.phase}' | grep -q "Running"
+}
 
-    retry "APIService v1beta1.external.metrics.k8s.io Available" 60 5 check_apiservice_available
-
-elif [[ "${AUTOSCALER}" == "keda" ]]; then
-    echo ""
-    echo "--- Step 3b: Verifying KEDA metrics server ---"
-
-    check_keda_metrics_server() {
-        kubectl get pods -n "${KEDA_NAMESPACE}" \
-            -l app=keda-operator-metrics-apiserver \
-            -o jsonpath='{.items[0].status.phase}' | grep -q "Running"
-    }
-
-    retry "KEDA metrics server Running" 60 5 check_keda_metrics_server
-fi
+retry "KEDA metrics server Running" 60 5 check_keda_metrics_server
 
 # ---------------------------------------------------------------------------
 # Summary

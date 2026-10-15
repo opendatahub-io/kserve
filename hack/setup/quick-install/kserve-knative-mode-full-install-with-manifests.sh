@@ -642,6 +642,7 @@ POETRY_VERSION=1.8.3
 UV_VERSION=0.7.8
 RUFF_VERSION=0.14.13
 SHELLCHECK_VERSION=v0.11.0
+CODESPELL_VERSION=2.4.3
 PINACT_VERSION=v3.9.0
 KIND_VERSION=v0.30.0
 CERT_MANAGER_VERSION=v1.17.0
@@ -659,8 +660,8 @@ KEDA_VERSION=2.20.2
 OPENTELEMETRY_OPERATOR_VERSION=0.114.1
 LWS_VERSION=v0.11.0
 GATEWAY_API_VERSION=v1.5.1
-GIE_VERSION=v1.5.0
-LLMD_ROUTER_VERSION=v0.10.0
+GIE_VERSION=v1.6.2
+LLMD_ROUTER_VERSION=v0.11.0
 
 #================================================
 # Global Variables (from global-vars.env)
@@ -1165,7 +1166,7 @@ install_istio() {
     fi
 
     log_info "Adding Istio Helm repository..."
-    helm repo add istio https://istio-release.storage.googleapis.com/charts --force-update
+    helm repo add istio https://blob.istio.io/istio-release/charts --force-update
 
     # Allow callers to override the version from kserve-deps.env
     ISTIO_VERSION="${ISTIO_VERSION_OVERRIDE:-$ISTIO_VERSION}"
@@ -2110,6 +2111,19 @@ spec:
 apiVersion: serving.kserve.io/v1alpha1
 kind: ClusterServingRuntime
 metadata:
+  name: kserve-llm-omni
+spec:
+  containers:
+  - image: docker.io/vllm/vllm-omni:v0.30.0
+    name: main
+  supportedModelFormats:
+  - autoSelect: false
+    name: vllm-omni
+    version: "1"
+---
+apiVersion: serving.kserve.io/v1alpha1
+kind: ClusterServingRuntime
+metadata:
   name: kserve-llm-sglang
 spec:
   containers:
@@ -2972,7 +2986,7 @@ spec:
             fieldPath: metadata.namespace
       - name: SSL_CERT_DIR
         value: /var/run/kserve/tls:/var/run/secrets/kubernetes.io/serviceaccount:/etc/pki/tls/certs
-      image: ghcr.io/llm-d/llm-d-router-disagg-sidecar:v0.10.0
+      image: ghcr.io/llm-d/llm-d-router-disagg-sidecar:v0.11.0
       imagePullPolicy: IfNotPresent
       livenessProbe:
         failureThreshold: 3
@@ -3391,7 +3405,7 @@ spec:
             fieldPath: metadata.namespace
       - name: SSL_CERT_DIR
         value: /var/run/kserve/tls:/var/run/secrets/kubernetes.io/serviceaccount:/etc/pki/tls/certs
-      image: ghcr.io/llm-d/llm-d-router-disagg-sidecar:v0.10.0
+      image: ghcr.io/llm-d/llm-d-router-disagg-sidecar:v0.11.0
       imagePullPolicy: IfNotPresent
       livenessProbe:
         failureThreshold: 3
@@ -3770,6 +3784,33 @@ spec:
     - name: tls-certs
       secret:
         secretName: '{{ ChildName .ObjectMeta.Name `-kserve-self-signed-certs` }}'
+---
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceServiceConfig
+metadata:
+  name: kserve-config-llm-omni-template
+  namespace: kserve
+spec:
+  template:
+    containers:
+    - image: docker.io/vllm/vllm-omni:v0.30.0
+      name: main
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+          - ALL
+        readOnlyRootFilesystem: true
+        runAsNonRoot: false
+        seccompProfile:
+          type: RuntimeDefault
+      startupProbe:
+        failureThreshold: 120
+        httpGet:
+          path: /health
+          port: 8000
+        periodSeconds: 30
+        timeoutSeconds: 10
 ---
 apiVersion: serving.kserve.io/v1alpha2
 kind: LLMInferenceServiceConfig
@@ -4879,6 +4920,46 @@ spec:
               name: '{{ ChildName .ObjectMeta.Name `-inference-pool` }}'
               port: 8000
               weight: 1
+            filters:
+            - type: URLRewrite
+              urlRewrite:
+                path:
+                  replacePrefixMatch: /v1/audio
+                  type: ReplacePrefixMatch
+            matches:
+            - path:
+                type: PathPrefix
+                value: /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }}/v1/audio
+            name: v1-audio-path
+            timeouts:
+              backendRequest: 0s
+              request: 600s
+          - backendRefs:
+            - group: inference.networking.k8s.io
+              kind: InferencePool
+              name: '{{ ChildName .ObjectMeta.Name `-inference-pool` }}'
+              port: 8000
+              weight: 1
+            filters:
+            - type: URLRewrite
+              urlRewrite:
+                path:
+                  replacePrefixMatch: /v1/images
+                  type: ReplacePrefixMatch
+            matches:
+            - path:
+                type: PathPrefix
+                value: /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }}/v1/images
+            name: v1-images-path
+            timeouts:
+              backendRequest: 0s
+              request: 600s
+          - backendRefs:
+            - group: inference.networking.k8s.io
+              kind: InferencePool
+              name: '{{ ChildName .ObjectMeta.Name `-inference-pool` }}'
+              port: 8000
+              weight: 1
             matches:
             - headers:
               - name: '{{ .GlobalConfig.ModelBasedRoutingHeaderName }}'
@@ -4944,6 +5025,54 @@ spec:
               path:
                 type: Exact
                 value: /v1/messages/
+            - headers:
+              - name: '{{ .GlobalConfig.ModelBasedRoutingHeaderName }}'
+                type: Exact
+                value: publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name
+                  }}
+              path:
+                type: Exact
+                value: /v1/audio/speech
+            - headers:
+              - name: '{{ .GlobalConfig.ModelBasedRoutingHeaderName }}'
+                type: Exact
+                value: publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name
+                  }}
+              path:
+                type: Exact
+                value: /v1/audio/speech/
+            - headers:
+              - name: '{{ .GlobalConfig.ModelBasedRoutingHeaderName }}'
+                type: Exact
+                value: publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name
+                  }}
+              path:
+                type: Exact
+                value: /v1/audio/transcriptions
+            - headers:
+              - name: '{{ .GlobalConfig.ModelBasedRoutingHeaderName }}'
+                type: Exact
+                value: publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name
+                  }}
+              path:
+                type: Exact
+                value: /v1/audio/transcriptions/
+            - headers:
+              - name: '{{ .GlobalConfig.ModelBasedRoutingHeaderName }}'
+                type: Exact
+                value: publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name
+                  }}
+              path:
+                type: Exact
+                value: /v1/images/generations
+            - headers:
+              - name: '{{ .GlobalConfig.ModelBasedRoutingHeaderName }}'
+                type: Exact
+                value: publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name
+                  }}
+              path:
+                type: Exact
+                value: /v1/images/generations/
             name: v1-model-routing
             timeouts:
               backendRequest: 0s
@@ -5033,6 +5162,48 @@ spec:
               backendRequest: 0s
               request: 0s
           - backendRefs:
+            - group: inference.networking.k8s.io
+              kind: InferencePool
+              name: '{{ ChildName .ObjectMeta.Name `-inference-pool` }}'
+              port: 8000
+              weight: 1
+            filters:
+            - type: URLRewrite
+              urlRewrite:
+                path:
+                  replacePrefixMatch: /v1/audio
+                  type: ReplacePrefixMatch
+            matches:
+            - path:
+                type: PathPrefix
+                value: /publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name
+                  }}/v1/audio
+            name: v1-audio-publisher-path
+            timeouts:
+              backendRequest: 0s
+              request: 600s
+          - backendRefs:
+            - group: inference.networking.k8s.io
+              kind: InferencePool
+              name: '{{ ChildName .ObjectMeta.Name `-inference-pool` }}'
+              port: 8000
+              weight: 1
+            filters:
+            - type: URLRewrite
+              urlRewrite:
+                path:
+                  replacePrefixMatch: /v1/images
+                  type: ReplacePrefixMatch
+            matches:
+            - path:
+                type: PathPrefix
+                value: /publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name
+                  }}/v1/images
+            name: v1-images-publisher-path
+            timeouts:
+              backendRequest: 0s
+              request: 600s
+          - backendRefs:
             - kind: Service
               name: '{{ ChildName .ObjectMeta.Name `-kserve-workload-svc` }}'
               port: 8000
@@ -5096,7 +5267,7 @@ spec:
   router:
     scheduler:
       annotations:
-        app.kubernetes.io/version: 0.10.0
+        app.kubernetes.io/version: 0.11.0
       pool:
         spec:
           endpointPickerRef:
@@ -5136,7 +5307,7 @@ spec:
           env:
           - name: SSL_CERT_DIR
             value: /var/run/kserve/tls:/var/run/secrets/kubernetes.io/serviceaccount:/etc/pki/tls/certs
-          image: ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.10.0
+          image: ghcr.io/llm-d/llm-d-router-endpoint-picker:v0.11.0
           imagePullPolicy: IfNotPresent
           lifecycle:
             preStop:
@@ -5266,6 +5437,27 @@ spec:
           - name: decode
             plugins:
             - pluginRef: decode-filter
+            - pluginRef: active-request-scorer
+            - pluginRef: max-score-picker
+---
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceServiceConfig
+metadata:
+  name: kserve-config-llm-scheduler-eppconfig-modality
+  namespace: kserve
+spec:
+  router:
+    scheduler:
+      config:
+        inline:
+          apiVersion: llm-d.ai/v1alpha1
+          kind: EndpointPickerConfig
+          plugins:
+          - type: active-request-scorer
+          - type: max-score-picker
+          schedulingProfiles:
+          - name: default
+            plugins:
             - pluginRef: active-request-scorer
             - pluginRef: max-score-picker
 ---
@@ -58258,8 +58450,14 @@ data:
          "jobNamespace": "kserve-localmodel-jobs",
          # defaultJobImage specifies the default image used for the download job.
          "defaultJobImage" : "kserve/storage-initializer:latest",
-         # Kubernetes modifies the filesystem group ID on the attached volume.
+         # fsGroup is set on per-node download Jobs in jobNamespace. Kubernetes modifies the
+         # filesystem group ID on the attached volume.
          "fsGroup": 1000,
+         # sharedPVCImportFSGroup is set on shared-PVC import Jobs, which run in the cache's own
+         # namespace. It is independent of fsGroup. RWX drivers with fsGroupPolicy File (e.g.
+         # csi-driver-nfs) need it so the UID 1000 import container can write a root-owned volume.
+         # Remove the key to omit fsGroup and let namespace admission (e.g. an OpenShift SCC) assign one.
+         "sharedPVCImportFSGroup": 1000,
          # TTL for the download job after it is finished.
          "jobTTLSecondsAfterFinished": 3600,
          # The frequency at which the local model agent reconciles the local models
@@ -58435,6 +58633,7 @@ data:
       "jobNamespace": "kserve-localmodel-jobs",
       "defaultJobImage" : "kserve/storage-initializer:latest",
       "fsGroup": 1000,
+      "sharedPVCImportFSGroup": 1000,
       "jobTTLSecondsAfterFinished": 3600,
       "reconcilationFrequencyInSecs": 60,
       "disableVolumeManagement": false

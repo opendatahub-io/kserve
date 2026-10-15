@@ -237,8 +237,6 @@ if [[ $# -eq 1 && "$1" == "llmisvc" ]]; then
   done
   echo "--- External Metrics APIService ---"
   kubectl get apiservice v1beta1.external.metrics.k8s.io -o yaml 2>/dev/null || true
-  echo "--- Prometheus Adapter Logs ---"
-  kubectl logs -n monitoring -l app.kubernetes.io/name=prometheus-adapter --tail=50 2>/dev/null || true
   echo "::endgroup::"
 
   echo "::group::Gather logs in envoy-gateway-system envoy-ai-gateway-system"
