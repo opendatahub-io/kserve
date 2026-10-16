@@ -21,11 +21,12 @@ package llmisvc
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
@@ -33,13 +34,11 @@ import (
 )
 
 const (
-	confidentialConfigSuffix          = "config-llm-confidential-bare-metal"
-	confidentialConfigName            = "kserve-" + confidentialConfigSuffix
-	confidentialDefaultsKey           = "confidentialBareMetal"
-	confidentialHelpersName           = "kserve-confidential-bare-metal-resources"
-	confidentialInitDataAnnotation    = "io.katacontainers.config.hypervisor.cc_init_data"
-	confidentialStorageSizeAnnotation = "serving.kserve.io/confidential-storage-size"
-	confidentialPVAnnotation          = "serving.kserve.io/confidential-pv"
+	confidentialConfigSuffix       = "config-llm-confidential-bare-metal"
+	confidentialConfigName         = "kserve-" + confidentialConfigSuffix
+	confidentialDefaultsKey        = "confidentialBareMetal"
+	confidentialHelpersName        = "kserve-confidential-bare-metal-resources"
+	confidentialInitDataAnnotation = "io.katacontainers.config.hypervisor.cc_init_data"
 )
 
 func init() {
@@ -80,22 +79,8 @@ func usesConfidentialBareMetal(svc *v1alpha2.LLMInferenceService) bool {
 
 // Installation values only; the preset describes the pod and the SCC its permissions.
 type confidentialDefaults struct {
-	StorageClassName string                    `json:"storageClassName"`
-	StorageSize      resource.Quantity         `json:"storageSize"`
-	LUKSResourceID   string                    `json:"luksResourceId"`
-	InitData         string                    `json:"initData,omitempty"`
-	LocalVolumes     []confidentialLocalVolume `json:"localVolumes,omitempty"`
-	MinimumSize      resource.Quantity         `json:"-"`
-}
-
-// Only administrators of inferenceservice-config can authorize host devices.
-type confidentialLocalVolume struct {
-	Name           string            `json:"name"`
-	Namespace      string            `json:"namespace"`
-	NodeName       string            `json:"nodeName"`
-	DevicePath     string            `json:"devicePath"`
-	Capacity       resource.Quantity `json:"capacity"`
-	LUKSResourceID string            `json:"luksResourceId,omitempty"`
+	LUKSResourceID string `json:"luksResourceId"`
+	InitData       string `json:"initData,omitempty"`
 }
 
 func (r *LLMISVCReconciler) loadConfidentialDefaults(ctx context.Context) (*confidentialDefaults, error) {
@@ -109,10 +94,27 @@ func (r *LLMISVCReconciler) loadConfidentialDefaults(ctx context.Context) (*conf
 			return nil, fmt.Errorf("inferenceservice-config.data.%s: %w", confidentialDefaultsKey, err)
 		}
 	}
-	if err := validateConfidentialStorageDefaults(cfg); err != nil {
+	if err := validateConfidentialDiskKey(cfg.LUKSResourceID); err != nil {
 		return nil, fmt.Errorf("inferenceservice-config.data.%s: %w", confidentialDefaultsKey, err)
 	}
 	return cfg, nil
+}
+
+func validateConfidentialDiskKey(key string) error {
+	if key == "" {
+		return errors.New("configure luksResourceId in inferenceservice-config.data.confidentialBareMetal with the key reference for the selected disk")
+	}
+	path, ok := strings.CutPrefix(key, "kbs:///")
+	parts := strings.Split(path, "/")
+	if !ok || len(parts) != 3 || strings.ContainsAny(path, " \t\r\n?#") {
+		return errors.New("luksResourceId must identify the disk key as kbs:///repository/type/tag")
+	}
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return errors.New("luksResourceId must identify the disk key as kbs:///repository/type/tag")
+		}
+	}
+	return nil
 }
 
 // Record the installed name so existing preset watches and deletion protection work.

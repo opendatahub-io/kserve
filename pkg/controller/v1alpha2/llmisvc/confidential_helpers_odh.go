@@ -34,11 +34,9 @@ import (
 	"github.com/kserve/kserve/pkg/constants"
 )
 
-const (
-	confidentialManagedLabel         = "serving.kserve.io/confidential-bare-metal"
-	confidentialServiceUIDAnnotation = "serving.kserve.io/confidential-service-uid"
-)
+const confidentialManagedLabel = "serving.kserve.io/confidential-bare-metal"
 
+// Install the scripts and permissions needed by confidential pods in this namespace.
 func (r *LLMISVCReconciler) reconcileConfidentialHelpers(ctx context.Context, namespace string) error {
 	bundle := &corev1.ConfigMap{}
 	if err := r.Get(ctx, client.ObjectKey{Namespace: constants.KServeNamespace, Name: confidentialHelpersName}, bundle); err != nil {

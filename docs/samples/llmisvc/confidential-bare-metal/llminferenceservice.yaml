@@ -14,6 +14,10 @@ spec:
     io.katacontainers.config.hypervisor.default_memory: "57344"
     io.katacontainers.config.hypervisor.default_vcpus: "8"
   template:
+    volumes:
+    - name: luks-block
+      persistentVolumeClaim:
+        claimName: my-existing-model-disk
     containers:
     - name: main
       resources:

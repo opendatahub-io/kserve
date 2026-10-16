@@ -17,7 +17,7 @@ import (
 func TestPreserveConfidentialDefaults(t *testing.T) {
 	for _, raw := range []string{
 		`{"storageClassName":"customer-csi","storageSize":"500Gi","luksResourceId":"kbs:///customer/disk/key"}`,
-		`{"localVolumes":[{"name":"local-disk","namespace":"models","nodeName":"worker","devicePath":"/dev/disk/by-id/local-disk","capacity":"893Gi","luksResourceId":"kbs:///customer/disk/key"}]}`,
+		`{"luksResourceId":"kbs:///customer/disk/key","initData":"customer-initdata"}`,
 		"invalid-json", "",
 	} {
 		t.Run(raw, func(t *testing.T) {
@@ -59,7 +59,8 @@ func TestConfidentialDefaultsTemplateOnInstall(t *testing.T) {
 	g.Expect(err).NotTo(HaveOccurred())
 	defaults := map[string]any{}
 	g.Expect(json.Unmarshal([]byte(value), &defaults)).To(Succeed())
-	g.Expect(defaults).To(HaveKeyWithValue("storageClassName", ""))
-	g.Expect(defaults).To(HaveKeyWithValue("storageSize", "200Gi"))
+	g.Expect(defaults).NotTo(HaveKey("storageClassName"))
+	g.Expect(defaults).NotTo(HaveKey("storageSize"))
+	g.Expect(defaults).NotTo(HaveKey("localVolumes"))
 	g.Expect(defaults).To(HaveKeyWithValue("luksResourceId", "kbs:///default/luks-password/key"))
 }

@@ -9,25 +9,6 @@ rules:
   resources:
   - persistentvolumeclaims
   verbs:
-  - create
-  - get
-  - list
-  - patch
-  - watch
-- apiGroups:
-  - ""
-  resources:
-  - persistentvolumes
-  verbs:
-  - create
-  - get
-  - list
-  - watch
-- apiGroups:
-  - apps
-  resources:
-  - replicasets
-  verbs:
   - get
   - list
   - watch
@@ -91,11 +72,3 @@ rules:
   - securitycontextconstraints
   verbs:
   - use
-- apiGroups:
-  - storage.k8s.io
-  resources:
-  - storageclasses
-  verbs:
-  - get
-  - list
-  - watch

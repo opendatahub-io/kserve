@@ -26,7 +26,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
@@ -60,21 +60,14 @@ func (r *LLMISVCReconciler) preparePlatformWorkload(ctx context.Context, svc *v1
 	if formatter == nil || initializer == nil {
 		return errors.New("the confidential bare-metal preset requires format-disk and storage-initializer init containers")
 	}
+	if err := r.validateConfidentialPVC(ctx, svc); err != nil {
+		return err
+	}
 	cfg, err := r.loadConfidentialDefaults(ctx)
 	if err != nil {
 		return err
 	}
-	if size := svc.Annotations[confidentialStorageSizeAnnotation]; size != "" {
-		cfg.StorageSize, err = resource.ParseQuantity(size)
-		if err != nil || cfg.StorageSize.Sign() <= 0 {
-			return fmt.Errorf("%s must be a positive storage quantity", confidentialStorageSizeAnnotation)
-		}
-		cfg.MinimumSize = cfg.StorageSize.DeepCopy()
-	}
 	if err := r.reconcileConfidentialHelpers(ctx, svc.Namespace); err != nil {
-		return err
-	}
-	if err := r.reconcileConfidentialPVC(ctx, svc, cfg); err != nil {
 		return err
 	}
 
@@ -123,8 +116,34 @@ func applyPlatformDeploymentStrategy(svc *v1alpha2.LLMInferenceService, deployme
 	}
 }
 
+// The customer prepares storage; Kubernetes handles binding and scheduling.
+func (r *LLMISVCReconciler) validateConfidentialPVC(ctx context.Context, svc *v1alpha2.LLMInferenceService) error {
+	volume := confidentialBlockVolume(svc.Spec.Template)
+	if volume == nil || volume.ClaimName == "" {
+		return fmt.Errorf("set spec.template.volumes[name=luks-block].persistentVolumeClaim.claimName to an existing PVC in namespace %s; create the storage before deploying this service", svc.Namespace)
+	}
+	if volume.ReadOnly {
+		return errors.New("the luks-block PVC must allow writes")
+	}
+	claim := &corev1.PersistentVolumeClaim{}
+	key := client.ObjectKey{Namespace: svc.Namespace, Name: volume.ClaimName}
+	if err := r.Get(ctx, key, claim); err != nil {
+		if apierrors.IsNotFound(err) {
+			return fmt.Errorf("PVC %s does not exist; create the storage before deploying this service: %w", key, err)
+		}
+		return fmt.Errorf("read encrypted PVC %s: %w", key, err)
+	}
+	if claim.Spec.VolumeMode == nil || *claim.Spec.VolumeMode != corev1.PersistentVolumeBlock {
+		return fmt.Errorf("PVC %s must use volumeMode: Block", key)
+	}
+	return nil
+}
+
 // Index by name rather than array position so unrelated user containers are allowed.
 func confidentialBlockVolume(pod *corev1.PodSpec) *corev1.PersistentVolumeClaimVolumeSource {
+	if pod == nil {
+		return nil
+	}
 	i := slices.IndexFunc(pod.Volumes, func(v corev1.Volume) bool { return v.Name == "luks-block" })
 	if i < 0 {
 		return nil

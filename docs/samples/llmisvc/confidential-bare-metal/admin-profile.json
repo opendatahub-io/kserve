@@ -1,6 +1,4 @@
 {
-  "storageClassName": "<CSI-BLOCK-STORAGECLASS>",
-  "storageSize": "200Gi",
   "luksResourceId": "kbs:///default/luks-password/key",
   "initData": ""
 }

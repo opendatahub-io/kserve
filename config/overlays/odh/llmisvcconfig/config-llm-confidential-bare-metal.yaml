@@ -38,9 +38,8 @@ spec:
         limits:
           nvidia.com/pgpu: "1"
     volumes:
-    - name: luks-block
-      persistentVolumeClaim:
-        claimName: '{{ ChildName .ObjectMeta.Name `-confidential-storage` }}'
+    # Each LLMInferenceService must supply a luks-block volume that references
+    # an existing PVC in its own namespace. KServe does not create storage.
     - name: cc-storage-link
       configMap:
         name: cc-storage-link
