@@ -222,8 +222,8 @@ func TestResolveWorkloadArgsStrictGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.MinVersion != "VersionTLS13" || got.CurveIDs != "23,29" {
-		t.Fatalf("ResolveWorkloadArgs() = %+v, want TLS 1.3 with groups 23,29", got)
+	if got.MinVersion != "VersionTLS13" || got.CurveIDs != "23" {
+		t.Fatalf("ResolveWorkloadArgs() = %+v, want strict-FIPS TLS 1.3 with supported group 23", got)
 	}
 }
 

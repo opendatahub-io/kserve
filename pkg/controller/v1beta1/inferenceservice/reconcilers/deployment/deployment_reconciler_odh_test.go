@@ -2088,6 +2088,9 @@ func TestPlatformAuthProxyTLSNeedsUpdateOnProfileChange(t *testing.T) {
 	deployment := &appsv1.Deployment{
 		Spec: appsv1.DeploymentSpec{
 			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					constants.ODHKserveAuthProxyTLSManagedAnnotation: "true",
+				}},
 				Spec: corev1.PodSpec{Containers: []corev1.Container{{
 					Name: constants.KubeRbacContainerName,
 					Args: []string{
@@ -2107,6 +2110,27 @@ func TestPlatformAuthProxyTLSNeedsUpdateOnProfileChange(t *testing.T) {
 	changed, err = platformAuthProxyTLSNeedsUpdate(t.Context(), client, deployment, constants.KubeRbacContainerName)
 	require.NoError(t, err)
 	assert.True(t, changed, "curve-preferences must also match the resolved profile")
+}
+
+func TestPlatformAuthProxyTLSNeedsUpdateDoesNotClaimUserTLSArgs(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, configv1.AddToScheme(scheme))
+	reader := fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(&configv1.APIServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: configv1.APIServerSpec{
+			TLSAdherence:       configv1.TLSAdherencePolicyStrictAllComponents,
+			TLSSecurityProfile: &configv1.TLSSecurityProfile{Type: configv1.TLSProfileModernType},
+		},
+	}).Build()
+	deployment := &appsv1.Deployment{Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{
+			Name: constants.KubeRbacContainerName,
+			Args: []string{"--tls-min-version=VersionTLS13"},
+		}}},
+	}}}
+	changed, err := platformAuthProxyTLSNeedsUpdate(t.Context(), reader, deployment, constants.KubeRbacContainerName)
+	require.NoError(t, err)
+	assert.False(t, changed, "TLS flags on an unmarked user template must remain user-owned")
 }
 
 func TestSetManagedAuthProxyTLSArgsPreservesUnmanagedArgs(t *testing.T) {

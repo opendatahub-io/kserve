@@ -24,8 +24,6 @@ import (
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/util/wait"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -73,27 +71,33 @@ func inferenceServiceRequestsForTLSProfile(ctx context.Context, reader client.Re
 		return nil, nil
 	}
 	var isvcs v1beta1.InferenceServiceList
-	backoff := wait.Backoff{Duration: 100 * time.Millisecond, Factor: 2, Steps: 3, Jitter: 0.1}
-	if err := wait.ExponentialBackoffWithContext(ctx, backoff, func(ctx context.Context) (bool, error) {
+	delay := 100 * time.Millisecond
+	for {
+		isvcs = v1beta1.InferenceServiceList{}
 		err := reader.List(ctx, &isvcs)
 		if err == nil {
-			return true, nil
+			break
 		}
-		if !isTransientTLSProfileListError(err) {
-			return false, err
+		// Keep retrying list failures until the manager is stopping.
+		// Returning an empty mapping after a fixed number of attempts would lose
+		// this cluster-wide profile-change event and leave workloads stale.
+		// The capped delay also avoids hot-looping on persistent API failures.
+		timer := time.NewTimer(delay)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
 		}
-		return false, nil
-	}); err != nil {
-		return nil, err
+		if delay < 2500*time.Millisecond {
+			delay *= 2
+		} else {
+			delay = 5 * time.Second
+		}
 	}
 	requests := make([]reconcile.Request, 0, len(isvcs.Items))
 	for i := range isvcs.Items {
 		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&isvcs.Items[i])})
 	}
 	return requests, nil
-}
-
-func isTransientTLSProfileListError(err error) bool {
-	return apierrors.IsTimeout(err) || apierrors.IsServerTimeout(err) ||
-		apierrors.IsTooManyRequests(err) || apierrors.IsServiceUnavailable(err)
 }

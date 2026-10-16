@@ -379,6 +379,10 @@ func addOauthContainerToDeployment(ctx context.Context,
 	}
 	oauthProxyContainer.Args = customizeAuthProxyArgs(auditLoggingProfile, manageAuditLogging, componentMeta, oauthProxyContainer.Args, isvcName)
 	updatedPodSpec := deployment.Spec.Template.Spec.DeepCopy()
+	if deployment.Spec.Template.Annotations == nil {
+		deployment.Spec.Template.Annotations = make(map[string]string)
+	}
+	deployment.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] = "true"
 	// ODH override. See: https://issues.redhat.com/browse/RHOAIENG-19904
 	updatedPodSpec.AutomountServiceAccountToken = proto.Bool(true)
 	updatedPodSpec.Containers = append(updatedPodSpec.Containers, *oauthProxyContainer)
@@ -871,7 +875,8 @@ func platformAuthProxyNeedsUpdate(profile constants.AuditLoggingProfile, manage 
 }
 
 func platformAuthProxyTLSNeedsUpdate(ctx context.Context, reader kclient.Reader, existing *appsv1.Deployment, proxyType string) (bool, error) {
-	if existing == nil || proxyType != constants.KubeRbacContainerName {
+	if existing == nil || proxyType != constants.KubeRbacContainerName ||
+		existing.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] != "true" {
 		return false, nil
 	}
 	desired, err := distrotls.ResolveWorkloadArgs(ctx, reader)
@@ -881,13 +886,7 @@ func platformAuthProxyTLSNeedsUpdate(ctx context.Context, reader kclient.Reader,
 	want := desiredAuthProxyTLSArgs(desired)
 	for _, container := range existing.Spec.Template.Spec.Containers {
 		if container.Name == proxyType {
-			managed := managedAuthProxyTLSArgs(container.Args)
-			// Keep user-provided legacy proxies unchanged. Once this controller
-			// manages TLS args, subsequent profile changes update the PodTemplate.
-			if len(managed) == 0 {
-				return false, nil
-			}
-			return !sameArgs(managed, want), nil
+			return !sameArgs(managedAuthProxyTLSArgs(container.Args), want), nil
 		}
 	}
 	return false, nil
@@ -921,6 +920,10 @@ func setManagedAuthProxyTLSArgs(deployment *appsv1.Deployment, desired []string)
 		}
 		updated = append(updated, desired...)
 		container.Args = updated
+		if deployment.Spec.Template.Annotations == nil {
+			deployment.Spec.Template.Annotations = make(map[string]string)
+		}
+		deployment.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] = "true"
 		return nil
 	}
 	return fmt.Errorf("container %q not found while updating auth proxy TLS args", constants.KubeRbacContainerName)

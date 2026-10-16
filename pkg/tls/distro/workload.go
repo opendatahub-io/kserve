@@ -36,12 +36,12 @@ import (
 // hardened Intermediate defaults.
 func ResolveWorkloadArgs(ctx context.Context, reader client.Reader) (WorkloadTLSArgs, error) {
 	if reader == nil {
-		return WorkloadArgsFromSettings(Settings{ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]})
+		return workloadArgsFromSettings(Settings{ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]}, true)
 	}
 	apiServer := &configv1.APIServer{}
 	if err := reader.Get(ctx, client.ObjectKey{Name: apiServerName}, apiServer); err != nil {
 		if apierrors.IsNotFound(err) || apiMeta.IsNoMatchError(err) {
-			return WorkloadArgsFromSettings(Settings{ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]})
+			return workloadArgsFromSettings(Settings{ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]}, true)
 		}
 		return WorkloadTLSArgs{}, fmt.Errorf("reading APIServer TLS profile for workload: %w", err)
 	}
@@ -49,7 +49,9 @@ func ResolveWorkloadArgs(ctx context.Context, reader client.Reader) (WorkloadTLS
 	if err != nil {
 		return WorkloadTLSArgs{}, err
 	}
-	return WorkloadArgsFromSettings(settings)
+	// The sidecar is a separate strict-FIPS binary; its curve policy must not
+	// depend on whether the manager process itself was built in FIPS mode.
+	return workloadArgsFromSettings(settings, true)
 }
 
 var goCurveIDs = map[string]uint16{

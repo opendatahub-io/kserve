@@ -112,7 +112,30 @@ func TestInferenceServiceRequestsForTLSProfileRetriesTransientListFailures(t *te
 	}
 }
 
-func TestInferenceServiceRequestsForTLSProfileDoesNotRetryForbiddenOrUnexpectedErrors(t *testing.T) {
+func TestInferenceServiceRequestsForTLSProfileKeepsRetryingUntilListSucceeds(t *testing.T) {
+	scheme := runtime.NewScheme()
+	if err := v1beta1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	reader := &listRetryReader{
+		Reader: fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(
+			&v1beta1.InferenceService{ObjectMeta: metav1.ObjectMeta{Name: "one", Namespace: "team-a"}},
+		).Build(),
+		remainingFailures: 3,
+		err:               apierrors.NewServiceUnavailable("temporary list failure"),
+	}
+	requests, err := inferenceServiceRequestsForTLSProfile(t.Context(), reader, &configv1.APIServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reader.listCalls != 4 || len(requests) != 1 || requests[0].NamespacedName != (client.ObjectKey{Namespace: "team-a", Name: "one"}) {
+		t.Fatalf("got calls=%d requests=%v, want all retries and the InferenceService request", reader.listCalls, requests)
+	}
+}
+
+func TestInferenceServiceRequestsForTLSProfileRetriesListErrorsUntilSuccess(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := v1beta1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
@@ -127,11 +150,11 @@ func TestInferenceServiceRequestsForTLSProfileDoesNotRetryForbiddenOrUnexpectedE
 			requests, err := inferenceServiceRequestsForTLSProfile(t.Context(), reader, &configv1.APIServer{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 			})
-			if err == nil || len(requests) != 0 {
-				t.Fatalf("got requests=%v, err=%v; want fail-closed error", requests, err)
+			if err != nil || len(requests) != 0 {
+				t.Fatalf("got requests=%v, err=%v; want successful empty mapping after retry", requests, err)
 			}
-			if reader.listCalls != 1 {
-				t.Fatalf("list called %d times, want no retry for %s", reader.listCalls, name)
+			if reader.listCalls != 2 {
+				t.Fatalf("list called %d times, want retry for %s", reader.listCalls, name)
 			}
 		})
 	}
