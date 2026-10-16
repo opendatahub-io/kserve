@@ -68,6 +68,14 @@ const (
 	oauthProxyConfigKeyName           = "oauthProxy"
 	openshiftConfigKeyName            = "openshiftConfig"
 
+	// KServe-owned RHCL TelemetryPolicy for LLMInferenceService OCSF audit events.
+	telemetryPolicyGVKName         = "telemetrypolicies.extensions.kuadrant.io"
+	telemetryPolicyName            = "kserve-llmisvc-ocsf-audit"
+	telemetryPolicyManagedLabel    = "kserve-module.opendatahub.io/managed"
+	telemetryPolicyComponentLabel  = "kserve-module.opendatahub.io/component"
+	telemetryPolicyOwnerAnnotation = "kserve-module.opendatahub.io/owner"
+	telemetryPolicyComponentValue  = "llmisvc-ocsf-audit"
+
 	// LLMInferenceServiceConfig versioning
 	wellKnownAnnotationKey   = "serving.kserve.io/well-known-config"
 	wellKnownAnnotationValue = "true"

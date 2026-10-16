@@ -166,6 +166,18 @@ rules:
   verbs:
   - get
 - apiGroups:
+  - extensions.kuadrant.io
+  resources:
+  - telemetrypolicies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
   - infrastructure.opendatahub.io
   resources:
   - hardwareprofiles

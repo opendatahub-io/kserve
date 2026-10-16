@@ -49,8 +49,9 @@ spec:
               auditLoggingProfile:
                 default: Removed
                 description: |-
-                  AuditLoggingProfile selects the inference request audit logging profile.
-                  Removed disables audit events; Metadata records request and response metadata without bodies.
+                  AuditLoggingProfile selects the audit logging profile for InferenceService and
+                  LLMInferenceService traffic. Removed disables audit events; Metadata records
+                  request and response metadata without bodies.
                 enum:
                 - Removed
                 - Metadata
